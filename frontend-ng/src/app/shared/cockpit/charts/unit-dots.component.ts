@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, ElementRef, Input, inject } from '@
 
 import { hostPointerPoint } from './chart-interact';
 import { CkChartTipComponent } from './chart-tip.component';
-import { ckChartToneVar, type CkChartTone } from './chart.types';
+import { ckChartIsDeclared, ckChartToneVar, type CkChartTone } from './chart.types';
 
 @Component({
   selector: 'ck-chart-unit-dots',
@@ -19,7 +19,13 @@ import { ckChartToneVar, type CkChartTone } from './chart.types';
       (pointerleave)="onLeave()"
     >
       @for (dot of dots; track $index) {
-        <circle [attr.cx]="dot.x" [attr.cy]="dot.y" [attr.r]="radius" [attr.fill]="color" />
+        @if (declared) {
+          <!-- ◐, the declared glyph: a ring and its left half filled. -->
+          <circle [attr.cx]="dot.x" [attr.cy]="dot.y" [attr.r]="radius - 0.5" fill="none" [attr.stroke]="color" stroke-width="1" />
+          <path [attr.d]="halfDisc(dot)" [attr.fill]="color" />
+        } @else {
+          <circle [attr.cx]="dot.x" [attr.cy]="dot.y" [attr.r]="radius" [attr.fill]="color" />
+        }
       }
     </svg>
     <ck-chart-tip [open]="tipOpen" [title]="tipTitle" [lines]="[]" [x]="tipX" [y]="tipY" />
@@ -46,6 +52,16 @@ export class CkChartUnitDotsComponent {
 
   get radius(): number {
     return this.dotSize / 2;
+  }
+
+  get declared(): boolean {
+    return ckChartIsDeclared(this.tone);
+  }
+
+  /** Left half of a declared dot, the filled side of ◐. */
+  halfDisc(dot: { x: number; y: number }): string {
+    const r = this.radius;
+    return `M${dot.x},${dot.y - r}A${r},${r} 0 0 0 ${dot.x},${dot.y + r}Z`;
   }
 
   get count(): number {

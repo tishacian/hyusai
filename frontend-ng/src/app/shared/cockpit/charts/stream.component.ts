@@ -24,7 +24,15 @@ import {
   svgPointerPoint,
 } from './chart-interact';
 import { CkChartTipComponent, type CkChartTipLine } from './chart-tip.component';
-import { ckChartToneVar, ckChartUid, type CkChartTick, type CkStreamTone } from './chart.types';
+import {
+  CK_DECLARED_HATCH_PERIOD,
+  CK_DECLARED_HATCH_WIDTH,
+  ckChartIsDeclared,
+  ckChartToneVar,
+  ckChartUid,
+  type CkChartTick,
+  type CkStreamTone,
+} from './chart.types';
 import { accumulateStackedSeries, cubicSmoothAreaPath, niceStep, spreadLabelRows } from './svg-path';
 
 export interface CkStreamSeries {
@@ -48,6 +56,8 @@ export interface CkStreamPeak {
 interface StreamArea {
   d: string;
   fill: string;
+  /** Declared areas: `url(#hatch)` painted over the tint, so the estimate reads without colour. */
+  hatch: string | null;
   id?: string;
 }
 
@@ -105,21 +115,40 @@ const LABEL_MIN = 150;
     >
       <defs>
         <linearGradient [attr.id]="inkId" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="var(--ck-fg-1)" stop-opacity="0.92" />
-          <stop offset="1" stop-color="var(--ck-fg-1)" stop-opacity="0.7" />
+          <stop offset="0" stop-color="var(--ck-data-measured)" stop-opacity="0.92" />
+          <stop offset="1" stop-color="var(--ck-data-measured)" stop-opacity="0.7" />
         </linearGradient>
+        <!-- Declared tints stay at or below 0.22 so the hatch lines keep 3:1 on them. -->
         <linearGradient [attr.id]="declaredId" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="var(--ck-signal-cool)" stop-opacity="0.95" />
-          <stop offset="1" stop-color="var(--ck-signal-cool)" stop-opacity="0.6" />
+          <stop offset="0" stop-color="var(--ck-data-declared)" stop-opacity="0.22" />
+          <stop offset="1" stop-color="var(--ck-data-declared)" stop-opacity="0.12" />
         </linearGradient>
         <linearGradient [attr.id]="declaredSoftId" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="var(--ck-signal-cool)" stop-opacity="0.45" />
-          <stop offset="1" stop-color="var(--ck-signal-cool)" stop-opacity="0.22" />
+          <stop offset="0" stop-color="var(--ck-data-declared)" stop-opacity="0.1" />
+          <stop offset="1" stop-color="var(--ck-data-declared)" stop-opacity="0.05" />
         </linearGradient>
         <linearGradient [attr.id]="inkSoftId" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="var(--ck-fg-1)" stop-opacity="0.42" />
-          <stop offset="1" stop-color="var(--ck-fg-1)" stop-opacity="0.18" />
+          <stop offset="0" stop-color="var(--ck-data-measured)" stop-opacity="0.42" />
+          <stop offset="1" stop-color="var(--ck-data-measured)" stop-opacity="0.18" />
         </linearGradient>
+        <pattern
+          [attr.id]="hatchId"
+          patternUnits="userSpaceOnUse"
+          [attr.width]="hatchPeriod"
+          [attr.height]="hatchPeriod"
+          patternTransform="rotate(45)"
+        >
+          <rect [attr.width]="hatchWidth" [attr.height]="hatchPeriod" fill="var(--ck-data-declared)" />
+        </pattern>
+        <pattern
+          [attr.id]="hatchSoftId"
+          patternUnits="userSpaceOnUse"
+          [attr.width]="hatchPeriod"
+          [attr.height]="hatchPeriod"
+          patternTransform="rotate(-45)"
+        >
+          <rect [attr.width]="hatchWidth" [attr.height]="hatchPeriod" fill="var(--ck-data-declared)" />
+        </pattern>
       </defs>
       @for (line of grid; track $index) {
         <line
@@ -159,6 +188,17 @@ const LABEL_MIN = 150;
           [attr.d]="area.d"
           [attr.fill]="area.fill"
         />
+        @if (area.hatch) {
+          <path
+            class="ck-area ck-area-hatch"
+            [class.is-lit]="isSeriesLit(area.id)"
+            [class.is-dim]="isSeriesDimmed() && !isSeriesLit(area.id)"
+            [style.--i]="$index"
+            [attr.d]="area.d"
+            [attr.fill]="area.hatch"
+            pointer-events="none"
+          />
+        }
       }
       @for (i of dayHits; track i) {
         <rect
@@ -290,6 +330,10 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
   readonly inkSoftId = ckChartUid('ck-stream-ink-soft');
   readonly declaredId = ckChartUid('ck-stream-teal');
   readonly declaredSoftId = ckChartUid('ck-stream-teal-soft');
+  readonly hatchId = ckChartUid('ck-stream-hatch');
+  readonly hatchSoftId = ckChartUid('ck-stream-hatch-soft');
+  readonly hatchPeriod = CK_DECLARED_HATCH_PERIOD;
+  readonly hatchWidth = CK_DECLARED_HATCH_WIDTH;
 
   readonly plotTop = 12;
   readonly plotBottom = 26;
@@ -499,7 +543,7 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
     this.tipTitle = this.dayLabels[index] || '';
     const lines: CkChartTipLine[] = this.series.map((row) => ({
       label: row.label,
-      value: `${this.gridLabel(row.values[index] ?? 0)} ${row.tone === 'declared' || row.tone === 'declared-soft' ? '◐' : '●'}`,
+      value: `${this.gridLabel(row.values[index] ?? 0)} ${ckChartIsDeclared(row.tone) ? '◐' : '●'}`,
     }));
     const total = this.layout().totals[index] ?? 0;
     lines.push({ label: '', value: this.gridLabel(total) });
@@ -539,6 +583,7 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
           ? cubicSmoothAreaPath(upper, null, this.yOf(0, max))
           : cubicSmoothAreaPath(upper, lower),
         fill: this.fillFor(tone),
+        hatch: this.hatchFor(tone),
         id: row.id,
       });
       upperY.push(upper.map((point) => point.y));
@@ -587,6 +632,12 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
     if (tone === 'declared-soft') return `url(#${this.declaredSoftId})`;
     if (tone === 'ink-soft') return `url(#${this.inkSoftId})`;
     return `url(#${this.inkId})`;
+  }
+
+  private hatchFor(tone: CkStreamTone): string | null {
+    if (tone === 'declared') return `url(#${this.hatchId})`;
+    if (tone === 'declared-soft') return `url(#${this.hatchSoftId})`;
+    return null;
   }
 
   private pointCount(): number {

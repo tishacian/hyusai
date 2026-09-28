@@ -1,41 +1,87 @@
 # Hypervisor V2 chart grammar
 
-The Hypervisor V2 page (`/hypervisor` when `settings.features.hypervisor_v2` is
-explicitly `true`) is a themed ledger, not a dashboard skin. Colour comes only
-from `--ck-*` tokens. The V1 page stays on the same route when the flag is off.
+The Hypervisor V2 page is the default `/hypervisor`: it renders unless the
+workspace sets `settings.features.hypervisor_v2` to something other than `true`
+(in practice `false`), in which case the V1 page stays on the same route. It is
+a themed ledger, not a dashboard skin. Colour comes only from `--ck-*` tokens.
 
 ## Mark grammar
 
 One mark is one real data unit: one day, one System, one outcome hour, one
 declared euro. Charts never invent a mark for a missing fact.
 
-| Ink | Token | Meaning |
-| --- | --- | --- |
-| Measured | `--ck-fg-1` | Observed runs / outcomes / cost |
-| Declared | `--ck-signal-cool` | Estimated hours or value from a governed `value_basis` |
-| Not measured | `--ck-fg-4` | Absence, hors-dénominateur, quiet geometry |
-| Zero / drop | `--ck-signal-neg` | A real zero or a stale tail, never a stand-in for missing |
+| Ink | Token | Pattern | Meaning |
+| --- | --- | --- | --- |
+| Measured | `--ck-data-measured` | solid, `●` in text | Observed runs / outcomes / cost |
+| Declared | `--ck-data-declared` | hatch, dashes, `◐` in text | Estimated hours or value from a governed `value_basis` |
+| Not measured | `--ck-data-muted` | — | Absence, hors-dénominateur, quiet geometry (marks only) |
+| Zero / drop | `--ck-data-zero` | — | A real zero or a stale tail, never a stand-in for missing |
 
 System health on the register glyph reuses `--ck-signal-pos` / `--ck-signal-warn`
 / `--ck-signal-neg`.
 
+### Declared carries a pattern, not only a colour
+
+Tokens v2 made the declared teal the primary colour, the one of the filled
+button and of links. Colour alone would therefore say "clickable", and would
+say nothing to a reader who cannot tell teal from grey (WCAG 1.4.1). Every
+declared mark carries a second, colour-free cue:
+
+- **Areas** (river bands, the Sankey value ribbon): an SVG `<pattern>` hatch,
+  2-unit lines of `--ck-data-declared` every 6 units at 45°, over a teal tint
+  of at most 0.22 opacity. Two declared neighbours hatch in opposite
+  directions. Pattern ids are unique per chart (`ckChartUid`). The Sankey
+  ribbon's hatch fades in with its teal, so the part that leaves the measured
+  hours stays unhatched.
+- **Thin marks** (Cadran declared segment, register spark, Sankey value node):
+  a dash pattern (`stroke-dasharray`), since a hatch does not read on a 2 to
+  6 unit stroke.
+- **Dots**: `◐`, a ring with its left half filled.
+- **HTML bars** (provenance bar): the same hatch as a
+  `repeating-linear-gradient` of `--ck-data-declared` over a 12 % tint.
+- **Text and legends**: `◐` for declared, `●` for measured, `○` for a native
+  unit; legends name the pattern in plain words ("trait plein = mesuré ·
+  pointillé = estimé", "plein = mesuré · hachuré = estimé").
+
+The tints stay low so the pattern lines keep 3:1 against what they sit on, in
+both themes and at 1x as well as 2x device pixel ratio (measured on the
+rendered page: 3.34:1 at worst, the light provenance bar).
+
+Constants live in `shared/cockpit/charts/chart.types.ts`
+(`CK_DECLARED_HATCH_*`, `CK_DECLARED_DASH_*`, `ckChartIsDeclared`) and
+`chart-declared.spec.ts` pins the cue on every chart.
+
 ## Tokens across themes
 
 `:root` is the dark cockpit. `html:not(.dark)` and `[data-theme="light"]` are
-the paper theme. Components do not pick a theme and do not use raw hex.
+the paper theme (Tokens v2, `frontend-ng/src/styles/cockpit-tokens.scss`).
+Components do not pick a theme and do not use raw hex.
 
 | Role | Dark | Light |
 | --- | --- | --- |
-| `--ck-fg-1` (measured ink) | `#f2f5f8` | `#0a0c10` |
-| `--ck-signal-cool` (declared teal) | `#7dd3fc` | `#0e7490` |
-| `--ck-fg-4` (not measured) | `#7b8391` | `#656b78` |
-| `--ck-signal-neg` (zero / stale) | `#ef5a6f` | `#d93a52` |
-| `--ck-bg-base` | `#07090c` | `#f4f2eb` |
-| `--ck-bg-inset` (hero band) | `#0a0d11` | `#efede6` |
-| `--ck-stroke-2` (hairline) | `rgba(255,255,255,0.08)` | `rgba(0,0,0,0.10)` |
+| `--ck-data-measured` → `--ck-fg-1` | `#f2f5f8` | `#151a21` |
+| `--ck-data-declared` → `--ck-primary` | `#1fb8cc` | `#0a7483` |
+| `--ck-data-muted` (marks only) | `#7b8391` | `#7d8693` |
+| `--ck-data-zero` → `--ck-signal-neg` | `#ef5a6f` | `#b02e43` |
+| `--ck-fg-3` (captions; `--ck-fg-4` and `--ck-fg-5` alias it) | `#a0a9b5` | `#525c69` |
+| `--ck-bg-base` | `#0d1116` | `#f2f4f6` |
+| `--ck-bg-panel` (cards) | `#121820` | `#f8f9fa` |
+| `--ck-bg-inset` (hero band) | `#0a0d11` | `#edf0f2` |
+| `--ck-stroke-2` (hairline) | `rgba(255,255,255,0.08)` | `rgba(21,26,33,0.10)` |
+
+`--ck-data-muted` restores the mid-tone the text scale gave up when Tokens v2
+aliased `--ck-fg-4` and `--ck-fg-5` to `--ck-fg-3`. It clears 3:1 as a graphic
+(4.96 and 4.67:1 on the dark canvas and panel, 3.34 and 3.49:1 in light) but
+only 4.30:1 as text on the dark relief surface, so it never colours text; text
+stays on three levels.
 
 SVG fills and strokes reference these tokens (including SVG gradient *stops*).
 That is paint on a mark, not a CSS `background-image` gradient.
+
+**Aucun dégradé ni halo sur le chrome ; les graphiques gardent leur grammaire
+(dégradés SVG, motifs, halo limité au graphique) dans
+`shared/cockpit/charts/`.** The provenance bar of the Impact page is a chart
+drawn in HTML and follows the chart grammar too.
 
 ## Hero tonal band
 
@@ -51,7 +97,7 @@ Cards beside it stay `.ck-surface` (1 px stroke, no shadow).
 
 All primitives live in `frontend-ng/src/app/shared/cockpit/charts/`.
 
-`ck-chart-radial-days` — one spoke per day, ink then teal.
+`ck-chart-radial-days` — one spoke per day, solid ink then dotted teal.
 
 - `days: { measured, declared, weekend?, label? }[]`
 - `size`, `innerRadius`, `outerRadius`, `maxValue`
@@ -70,15 +116,15 @@ All primitives live in `frontend-ng/src/app/shared/cockpit/charts/`.
 - `weekendStarts`, `gridLines`, `ticks`, `peak: { index, label } \| null`
 - `width`, `height`, `maxValue`
 
-`ck-chart-mini-area` — register spark (ten week totals).
+`ck-chart-mini-area` — register spark (ten week totals); a declared spark is dashed.
 
-- `values`, `width`, `height`, `tone: 'ink' \| 'declared' \| 'negative'`, `maxValue`
+- `values`, `width`, `height`, `tone: 'ink' \| 'declared' \| 'negative' \| 'muted'`, `maxValue`
 
-`ck-chart-unit-dots` — one dot per real unit.
+`ck-chart-unit-dots` — one dot per real unit; a declared dot draws `◐`.
 
 - `units`, `unitsPerDot`, `tone`, `dotSize`, `gap`, `width`
 
-`ck-chart-pulse` — one vertex per day; stale tail uses `--ck-signal-neg`.
+`ck-chart-pulse` — one vertex per day; stale tail uses `--ck-data-zero`.
 
 - `values`, `staleFrom`, `width`, `height`, `startLabel`, `endLabel`, `zeroLabel`
 

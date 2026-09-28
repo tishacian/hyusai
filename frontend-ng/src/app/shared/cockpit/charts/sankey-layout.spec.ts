@@ -34,12 +34,19 @@ test('dense layout reproduces the approved scale and stacks stubs under the hour
   assert.ok(Math.abs(hours.h - (sources[0]!.h + sources[1]!.h + sources[2]!.h)) < 1e-9);
   const value = layout.nodes[7]!;
   assert.equal(value.x, 322);
-  assert.equal(value.fill, 'var(--ck-signal-cool)');
+  assert.equal(value.fill, 'var(--ck-data-declared)');
+  assert.equal(value.declared, true, 'the value node carries an estimate');
+  assert.ok(sources.every((node) => !node.declared) && !hours.declared, 'runs and hours are measured');
   const lastNode = layout.nodes.reduce((max, node) => Math.max(max, node.y + node.h), 0);
   assert.ok(lastNode <= 336 - 20 + 1, `nodes stay above the caption row (${lastNode})`);
   assert.equal(layout.stubs.length, 3);
   assert.ok(layout.stubs.every((stub) => stub.y1 > hours.y + hours.h), 'stubs sit below the hours node');
   assert.equal(layout.ribbons.filter((ribbon) => ribbon.kind === 'value').length, 1);
+  assert.deepEqual(
+    layout.ribbons.filter((ribbon) => ribbon.declared).map((ribbon) => ribbon.kind),
+    ['value'],
+    'only the value ribbon is declared (and hatched)',
+  );
   assert.ok(layout.labels.some((label) => label.text === '612 runs'), 'run count under tall nodes');
   assert.ok(!layout.labels.some((label) => label.text === '96 runs'), 'no run count under short nodes');
   assert.deepEqual(

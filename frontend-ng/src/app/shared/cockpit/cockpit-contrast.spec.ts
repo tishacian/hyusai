@@ -125,6 +125,27 @@ test('--ck-accent and --ck-signal-cool are the primary in both themes', () => {
   assert.equal(token(light, '--ck-status-info-fg'), '#215e8c');
 });
 
+test('chart data inks: muted marks clear 3:1, declared is the primary, text keeps three levels', () => {
+  // `--ck-data-muted` restores the chart mid-tone the text scale gave up. It is
+  // a graphic colour (WCAG 1.4.11, 3:1), not a text one: as text on the relief
+  // surface #7b8391 only reaches 4.30:1, so the text tiers stay aliased.
+  assert.deepEqual([token(dark, '--ck-data-muted'), token(light, '--ck-data-muted')], ['#7b8391', '#7d8693']);
+  for (const block of [dark, light]) {
+    for (const surface of ['--ck-bg-base', '--ck-bg-panel']) {
+      const ratio = contrast(token(block, '--ck-data-muted'), token(block, surface));
+      assert.ok(ratio >= 3, `--ck-data-muted on ${surface} is ${ratio.toFixed(2)}:1`);
+    }
+    // Declared is the primary, which is why a declared mark also carries a pattern.
+    assert.equal(token(block, '--ck-data-declared'), token(block, '--ck-primary'));
+    assert.equal(token(block, '--ck-data-measured'), token(block, '--ck-fg-1'));
+    assert.equal(token(block, '--ck-data-zero'), token(block, '--ck-signal-neg'));
+    for (const name of ['--ck-fg-4', '--ck-fg-5']) {
+      assert.match(block, new RegExp(`${name}:\\s*var\\(--ck-fg-3\\);`), `${name} still aliases --ck-fg-3`);
+    }
+  }
+  assert.ok(contrast(token(dark, '--ck-data-muted'), token(dark, '--ck-bg-panel-hi')) < 4.5, 'muted is not a text colour');
+});
+
 test('light text, links, the filled button and the signals meet WCAG AA on every light surface', () => {
   const surfaces = ['--ck-bg-void', '--ck-bg-base', '--ck-bg-panel', '--ck-bg-panel-hi', '--ck-bg-inset'].map(
     (name) => token(light, name),

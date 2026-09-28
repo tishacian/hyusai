@@ -14,7 +14,7 @@ import {
   shouldRebuildLayout,
 } from './chart-interact';
 import { CkChartTipComponent, type CkChartTipLine } from './chart-tip.component';
-import { ckChartUid, type CkChartTick } from './chart.types';
+import { CK_DECLARED_DASH_BOLD, ckChartUid, type CkChartTick } from './chart.types';
 import { radialDayAngle, radialSpokeEndpoints, radialSpokeLength } from './svg-path';
 
 export interface CkRadialDay {
@@ -43,6 +43,8 @@ export interface RadialSpoke {
   len: number;
   ink: string;
   teal: string;
+  /** Dash pattern of the declared segment: the estimate reads without colour. */
+  tealDash: string | null;
   hit: string;
   tipX: number;
   tipY: number;
@@ -110,7 +112,7 @@ const HIT_PAD = 12;
               class="ck-spoke-stroke"
               [attr.d]="spoke.ink"
               fill="none"
-              stroke="var(--ck-fg-1)"
+              stroke="var(--ck-data-measured)"
               [attr.stroke-opacity]="spoke.weekend ? 0.35 : 1"
               stroke-width="5"
               stroke-linecap="round"
@@ -118,17 +120,19 @@ const HIT_PAD = 12;
           }
           @if (spoke.teal) {
             <path
-              class="ck-spoke-stroke"
+              class="ck-spoke-declared"
               [attr.d]="spoke.teal"
               fill="none"
-              stroke="var(--ck-signal-cool)"
+              stroke="var(--ck-data-declared)"
               [attr.stroke-opacity]="spoke.weekend ? 0.35 : 1"
               stroke-width="5"
               stroke-linecap="round"
+              [attr.stroke-dasharray]="spoke.tealDash"
             />
           }
           <path
             class="ck-hit"
+            role="img"
             [attr.d]="spoke.hit"
             [attr.data-day]="spoke.index"
             [attr.data-testid]="spoke.peak ? 'ck-radial-peak' : null"
@@ -151,6 +155,7 @@ const HIT_PAD = 12;
         <g [attr.data-week]="tick.index">
           <rect
             class="ck-hit"
+            role="img"
             [attr.x]="tick.x - 14"
             [attr.y]="tick.y - 10"
             width="28"
@@ -224,10 +229,19 @@ const HIT_PAD = 12;
       animation: ckSpokeIn 520ms var(--ck-ease-out, ease-out) forwards;
       animation-delay: calc(var(--i, 0) * 6ms);
     }
+    /* The declared segment keeps its dashes: a draw-in would need the dash
+       array for itself, so it fades in on the same timing instead. */
+    :host-context(.hv2-enter) .ck-spoke-declared {
+      opacity: 0;
+      animation: ckSpokeFade 520ms var(--ck-ease-out, ease-out) forwards;
+      animation-delay: calc(var(--i, 0) * 6ms);
+    }
     @keyframes ckSpokeIn { to { stroke-dashoffset: 0; } }
+    @keyframes ckSpokeFade { to { opacity: 1; } }
     @media (prefers-reduced-motion: reduce) {
       .ck-spoke { transition: none; }
       :host-context(.hv2-enter) .ck-spoke-stroke { animation: none; stroke-dashoffset: 0; }
+      :host-context(.hv2-enter) .ck-spoke-declared { animation: none; opacity: 1; }
     }
   `],
 })
@@ -447,6 +461,7 @@ export class CkChartRadialDaysComponent implements OnChanges {
         len: Math.max(1, Math.hypot(hitEnd.x - ends.start.x, hitEnd.y - ends.start.y)),
         ink,
         teal,
+        tealDash: teal ? CK_DECLARED_DASH_BOLD : null,
         hit,
         tipX,
         tipY,

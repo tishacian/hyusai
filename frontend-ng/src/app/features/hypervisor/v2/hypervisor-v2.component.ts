@@ -1482,9 +1482,20 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     .hv2-sentence { display: block; margin: 12px 0 0; font-size: 17px; line-height: 1.3; color: var(--ck-fg-2); }
     .hv2-sub { margin: 6px 0 0; font-size: 12px; line-height: 1.4; color: var(--ck-fg-3); }
     .hv2-provenance-block { display: flex; flex-direction: column; gap: 12px; }
-    .hv2-provenance { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--ck-stroke-2); }
+    /* No overflow clip: the segments are focusable and the keyboard ring sits
+       outside them. The ends round themselves instead. */
+    .hv2-provenance { display: flex; height: 6px; border-radius: 3px; background: var(--ck-stroke-2); }
+    .hv2-provenance > :first-child { border-radius: 3px 0 0 3px; }
+    .hv2-provenance > :last-child { border-radius: 0 3px 3px 0; }
+    .hv2-provenance > :only-child { border-radius: 3px; }
     .hv2-provenance-ink { background: var(--ck-fg-1); }
-    .hv2-provenance-teal { background: var(--ck-signal-cool); }
+    /* Declared share: a light teal tint over the track (12 %, so the lines keep
+       3:1 on it) under a 45° hatch of the declared ink — readable without
+       colour, and unlike a link or a filled button. */
+    .hv2-provenance-teal {
+      background-color: color-mix(in srgb, var(--ck-data-declared) 12%, transparent);
+      background-image: repeating-linear-gradient(-45deg, var(--ck-data-declared) 0 2px, transparent 2px 5px);
+    }
     .hv2-provenance-legend { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; color: var(--ck-fg-2); }
     .hv2-teal { color: var(--ck-signal-cool); }
     .hv2-peak-card { border: 1px solid var(--ck-stroke-2); background: var(--ck-bg-panel); padding: 10px 12px; border-radius: 8px; display: flex; flex-direction: column; gap: 6px; transition: background 120ms var(--ck-ease-out, ease-out); }
