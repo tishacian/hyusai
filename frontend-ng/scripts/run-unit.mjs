@@ -115,6 +115,7 @@ const pureSpecs = [
   'src/app/features/hypervisor/v2/impact-block-data.spec.ts',
   'src/app/features/hypervisor/v2/impact-sources.spec.ts',
   'src/app/features/hypervisor/v2/impact-synthese.spec.ts',
+  'src/app/features/hypervisor/v2/impact-presentation.spec.ts',
   'src/app/features/hypervisor/v2/blocks/impact-blocks.spec.ts',
   'src/app/features/nawa/nawa-run-projection.spec.ts',
   'src/app/features/nawa/nawa-catalog-view.spec.ts',

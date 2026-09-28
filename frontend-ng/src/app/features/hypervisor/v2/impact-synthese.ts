@@ -69,6 +69,8 @@ export interface ActivityMark {
   readonly share: number;
   readonly weekend: boolean;
   readonly selected: boolean;
+  /** The day the reader locked (click, Enter or Space), whatever the preview shows. */
+  readonly locked: boolean;
   readonly inSelectedWeek: boolean;
 }
 
@@ -85,6 +87,8 @@ export interface ActivityStrip {
   readonly marks: readonly ActivityMark[];
   readonly weeks: readonly ActivityWeek[];
   readonly selectedWeek: ActivityWeek | null;
+  /** The week holding the locked day: the strip names it « Semaine verrouillée ». */
+  readonly lockedWeek: ActivityWeek | null;
   readonly max: number;
 }
 
@@ -92,9 +96,15 @@ type StripDay = Pick<HypervisorDayPoint, 'date' | 'measured' | 'declared' | 'wee
 
 /**
  * One mark per day of the window, grouped in ISO weeks (Monday first). The
- * week holding the selected day is flagged so the strip can band it.
+ * week holding the selected day is flagged so the strip can band it; the week
+ * holding the locked day is returned apart, so a passing preview elsewhere
+ * never renames it.
  */
-export function activityStrip(days: readonly StripDay[], selected: number | null): ActivityStrip {
+export function activityStrip(
+  days: readonly StripDay[],
+  selected: number | null,
+  locked: number | null = null,
+): ActivityStrip {
   const totals = days.map((day) => Math.max(0, day.measured) + Math.max(0, day.declared));
   const max = totals.reduce((best, value) => Math.max(best, value), 0);
   const weeks: Array<{ start: number; end: number; isoWeek: number }> = [];
@@ -104,24 +114,57 @@ export function activityStrip(days: readonly StripDay[], selected: number | null
     if (last && last.isoWeek === week && last.end === index) last.end = index + 1;
     else weeks.push({ start: index, end: index + 1, isoWeek: week });
   });
-  const hit = selected != null && selected >= 0 && selected < days.length
-    ? weeks.find((week) => selected >= week.start && selected < week.end) ?? null
+  const weekOf = (day: number | null) => day != null && day >= 0 && day < days.length
+    ? weeks.find((week) => day >= week.start && day < week.end) ?? null
     : null;
+  const hit = weekOf(selected);
+  const lockHit = weekOf(locked);
   const shaped: ActivityWeek[] = weeks.map((week) => ({ ...week, selected: week === hit }));
   const selectedWeek = shaped.find((week) => week.selected) ?? null;
+  const lockedWeek = lockHit ? shaped[weeks.indexOf(lockHit)] ?? null : null;
   return {
     max,
     weeks: shaped,
     selectedWeek,
+    lockedWeek,
     marks: totals.map((total, index) => ({
       index,
       total,
       share: max > 0 ? total / max : 0,
       weekend: Boolean(days[index]!.weekend),
       selected: index === selected,
+      locked: index === locked,
       inSelectedWeek: selectedWeek != null && index >= selectedWeek.start && index < selectedWeek.end,
     })),
   };
+}
+
+/**
+ * Keyboard on the activity strip (a horizontal listbox, selection does not
+ * follow focus): arrows walk one day, Page Up / Page Down a week, Home and
+ * End jump to the ends. The strip reads left to right and does not wrap.
+ */
+export function stripKeyTarget(key: string, index: number, count: number): number | null {
+  if (count <= 0) return null;
+  const clamp = (value: number) => Math.min(count - 1, Math.max(0, value));
+  switch (key) {
+    case 'ArrowRight':
+    case 'ArrowDown':
+      return clamp(index + 1);
+    case 'ArrowLeft':
+    case 'ArrowUp':
+      return clamp(index - 1);
+    case 'PageDown':
+      return clamp(index + 7);
+    case 'PageUp':
+      return clamp(index - 7);
+    case 'Home':
+      return 0;
+    case 'End':
+      return count - 1;
+    default:
+      return null;
+  }
 }
 
 // --- Selection panel -----------------------------------------------------------
