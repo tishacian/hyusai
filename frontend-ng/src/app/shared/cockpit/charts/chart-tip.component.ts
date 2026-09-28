@@ -34,9 +34,9 @@ export interface CkChartTipLine {
         @for (line of lines; track $index) {
           <div class="ck-chart-tip-row">
             @if (line.label) {
-              <span class="ck-mono ck-chart-tip-label">{{ line.label }}</span>
+              <span class="ck-chart-tip-label">{{ line.label }}</span>
             }
-            <span class="ck-chart-tip-value">{{ line.value }}</span>
+            <span class="ck-chart-tip-value ck-tnum">{{ line.value }}</span>
           </div>
         }
       </div>
@@ -75,8 +75,15 @@ export interface CkChartTipLine {
       gap: 12px;
       line-height: 1.35;
     }
-    .ck-chart-tip-label { font-size: 10px; color: var(--ck-fg-3); }
-    .ck-chart-tip-value { font-family: var(--ck-font-sans); font-size: 12px; color: var(--ck-fg-1); }
+    /* Labels are names (systems, units): sans, never monospace. Figures stay tabular. */
+    .ck-chart-tip-label {
+      font-family: var(--ck-font-sans); font-size: 11px; line-height: 1.35; color: var(--ck-fg-3);
+      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .ck-chart-tip-value {
+      font-family: var(--ck-font-sans); font-size: 12px; color: var(--ck-fg-1);
+      font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
     @keyframes ckTipIn { to { opacity: 1; } }
     @media (prefers-reduced-motion: reduce) {
       .ck-chart-tip { animation: none; opacity: 1; }

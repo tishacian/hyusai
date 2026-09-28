@@ -108,6 +108,14 @@ All primitives live in `frontend-ng/src/app/shared/cockpit/charts/`.
 - `size`, `innerRadius`, `outerRadius`, `maxValue`
 - `centerValue`, `centerCaption`, `rangeLabel`
 - `ticks: { index, label, anchor? }[]`
+- `hoverDay`, `lockedDay` (the lock keeps a ring on its spoke tip)
+- Présentation only: `referenceRings` (faint concentric circles between the
+  outer guide and the canvas edge: grid on the chart canvas, never behind
+  content), `needle` (the lock needle in `--ck-copper`, the one copper element
+  of the screen; it runs under the spokes from the edge of the centre copy to
+  a ring on the first reference circle) and `needleMotion` (a 200 ms
+  stroke/opacity draw-in, for pointer locks only; keyboard locks and reduced
+  motion show it at once)
 
 `ck-chart-sankey-flow` — one source per System.
 
