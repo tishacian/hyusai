@@ -690,3 +690,158 @@ test.describe('L5 — chrome ratchet / reduced-motion orb', () => {
     expect(second).toBe(first);
   });
 });
+
+// --- L30 — Chat C2: the overlay as a sourced working thread ------------------
+
+const THREAD_SESSION = 'session-l30';
+const THREAD_WORKSPACE = {
+  ...WORKSPACE,
+  settings: {
+    knowledge_scopes: [
+      { key: 'politiques-release', label: 'Politiques de release', is_default: true, collection_slugs: ['politiques-release'] },
+    ],
+  },
+};
+const THREAD_SOURCES = [
+  {
+    document_id: 'doc-policy',
+    collection: 'politiques-release',
+    title: 'Politique d’exécution immuable v2.pdf',
+    page: 3,
+    score: 0.91,
+    snippet: '3.1 Une exécution terminée est immuable. 3.2 La relance réutilise exactement les entrées de l’exécution d’origine et produit une nouvelle exécution, liée à la première. 3.3 Les journaux restent attachés à l’exécution d’origine.',
+  },
+  {
+    document_id: 'doc-guide',
+    collection: 'politiques-release',
+    title: 'Guide de qualification release.md',
+    chunk_index: 14,
+    score: 0.84,
+    snippet: 'Une relance se déclenche depuis la fiche de l’exécution ; elle ne modifie jamais les entrées d’origine.',
+  },
+  {
+    document_id: 'doc-checklist',
+    collection: 'politiques-release',
+    title: 'Checklist mise en production.docx',
+    chunk_index: 2,
+    score: 0.62,
+    snippet: 'Vérifier les approbations avant la mise en production.',
+  },
+];
+
+function sse(frames: Record<string, unknown>[]): string {
+  return frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join('');
+}
+
+/** The mocked turn: real-looking step events, then sources on the first token. */
+async function mockThread(page: Page): Promise<void> {
+  await page.route(`**/api/v1/auth/workspaces/${WORKSPACE.slug}`, async (route) => json(route, THREAD_WORKSPACE));
+  await page.route('**/api/v1/auth/workspaces', async (route) => json(route, [THREAD_WORKSPACE]));
+  await page.route('**/api/v1/sessions', async (route) => {
+    if (route.request().method() === 'POST') return json(route, { id: THREAD_SESSION, title: 'Relance' });
+    return json(route, { sessions: [] });
+  });
+  await page.route('**/api/v1/chat/stream', async (route) => route.fulfill({
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
+    body: sse([
+      { chunk_type: 'session', session_id: THREAD_SESSION },
+      { chunk_type: 'decision_step', decision_step: { id: 's1', type: 'query_analysis', title: 'Analyse de la question', status: 'completed', duration: 120 } },
+      { chunk_type: 'decision_step', decision_step: { id: 's2', type: 'retrieve', title: 'Recherche dans Politiques de release', status: 'completed', duration: 640, description: 'Retrieved 3 chunks' } },
+      { chunk_type: 'decision_step', decision_step: { id: 's3', type: 'context_filtering', title: 'Lecture des passages', status: 'completed', duration: 210 } },
+      { chunk_type: 'decision_step', decision_step: { id: 's4', type: 'synthesis', title: 'Rédaction de la réponse', status: 'completed', duration: 930 } },
+      { chunk_type: 'text', content: 'Non. Une exécution terminée reste immuable. ', sources: THREAD_SOURCES },
+      { chunk_type: 'text', content: 'La relance crée une nouvelle exécution liée, avec exactement les mêmes entrées [1]. Elle se déclenche depuis la fiche de l’exécution [2].' },
+      // The SSE service emits the final `done` itself when the body ends.
+    ]),
+  }));
+}
+
+test.describe('L30 — chat overlay: sourced thread and open proof', () => {
+  test.use({ locale: 'fr-FR' });
+  test.skip(!enabled, 'Set E2E_CHROME_V2_MOCKED=1 to run the mocked chrome safety net');
+
+  for (const theme of ['dark', 'light'] as const) {
+    test(`⌘J, a streamed answer, citation [1] opened by keyboard, Escape gives focus back (${theme})`, async ({ page }) => {
+      test.setTimeout(120_000);
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await installMocks(page, theme);
+      await mockExperience(page, { rail_labels: 'hidden', first_seen_at: daysAgo(30) });
+      await mockThread(page);
+      await page.goto('/systems');
+      await expect(page.locator('#main-content h1').first()).toBeVisible({ timeout: 30_000 });
+
+      await page.keyboard.press('ControlOrMeta+j');
+      const overlay = page.locator('app-chat-overlay');
+      const input = overlay.locator('textarea[name="userInput"]');
+      await expect(input).toBeVisible({ timeout: 30_000 });
+      await expect(overlay.getByTestId('chat-overlay-meta')).toHaveText('Sources : Politiques de release');
+      const chips = overlay.getByTestId('chat-thread-chips');
+      await expect(chips).toContainText('Politiques de release');
+      // No voice runtime is mocked: the chip must not promise one.
+      await expect(chips).not.toContainText('Voix disponible');
+      await expect(overlay.getByTestId('chat-thread-advanced')).toHaveAttribute('aria-expanded', 'false');
+
+      await input.fill('Peut-on relancer une exécution terminée avec d’autres entrées ?');
+      await input.press('Enter');
+
+      await expect(overlay.getByTestId('chat-thread-question')).toContainText('Vous ·');
+      const trace = overlay.getByTestId('chat-work-trace');
+      await expect(trace).toContainText('Recherche');
+      await expect(trace).toContainText('Lecture');
+      await expect(trace).toContainText('Rédaction');
+      await expect(trace).toContainText('4 étapes');
+      await expect(overlay.getByTestId('chat-thread-counts')).toHaveText('3 passages · 2 cités');
+
+      const cite = overlay.locator('[data-proof-cite$=":1"]').first();
+      await cite.focus();
+      await page.keyboard.press('Enter');
+      const rail = overlay.getByTestId('chat-proof-rail');
+      await expect(rail).toBeVisible();
+      await expect(rail.getByRole('heading', { name: 'Preuve ouverte' })).toBeFocused();
+      await expect(rail.getByTestId('chat-proof-selected')).toContainText('Politique d’exécution immuable v2.pdf');
+      await expect(rail.getByTestId('chat-proof-selected')).toContainText('Politiques de release · p. 3');
+      await expect(rail.getByTestId('chat-proof-mark')).toHaveText(
+        '3.2 La relance réutilise exactement les entrées de l’exécution d’origine et produit une nouvelle exécution, liée à la première.',
+      );
+      await expect(rail.getByRole('button', { name: /Ouvrir la preuve 2/ })).toBeVisible();
+      await expect(rail.getByRole('button', { name: /lu, non cité/ })).toContainText('Lue, non citée');
+      await expect(cite).toHaveAttribute('aria-current', 'true');
+      // Rail and thread side by side: the panel widened instead of covering.
+      const railBox = await rail.boundingBox();
+      const inputBox = await input.boundingBox();
+      expect(railBox && inputBox && railBox.x >= inputBox.x + inputBox.width).toBeTruthy();
+      await page.screenshot({ path: shot(`l30-chat-proof-${theme}.png`) });
+
+      const axe = await new AxeBuilder({ page })
+        .include('app-chat-overlay')
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+        .analyze();
+      expect(axe.violations, axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(' ')}`).join('\n')).toEqual([]);
+
+      await page.keyboard.press('Escape');
+      await expect(rail).toHaveCount(0);
+      await expect(cite).toBeFocused();
+      await expect(input).toBeVisible();
+      await page.screenshot({ path: shot(`l30-chat-thread-${theme}.png`) });
+
+      // « Avancé » opens the model and retrieval controls above the composer.
+      const advanced = overlay.getByTestId('chat-thread-advanced');
+      await advanced.click();
+      await expect(advanced).toHaveAttribute('aria-expanded', 'true');
+      await page.screenshot({ path: shot(`l30-chat-advanced-${theme}.png`) });
+      await advanced.click();
+      await expect(advanced).toHaveAttribute('aria-expanded', 'false');
+
+      // A phone has no room for a second column: the proof covers the thread.
+      await page.setViewportSize({ width: 390, height: 844 });
+      await cite.click();
+      await expect(rail).toBeVisible();
+      await page.screenshot({ path: shot(`l30-chat-proof-narrow-${theme}.png`) });
+      await page.keyboard.press('Escape');
+      await expect(rail).toHaveCount(0);
+      await expect(cite).toBeFocused();
+    });
+  }
+});
