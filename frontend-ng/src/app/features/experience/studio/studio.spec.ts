@@ -932,6 +932,9 @@ test('Studio editor renders in Cockpit chrome with sommaire, fil, and focus mode
   // Editor fills the main column instead of covering the viewport.
   assert.match(styles, /\.xp-ed \{[\s\S]*?position:\s*relative/);
   assert.match(styles, /\.xp-ed\.is-focus-mode/);
+  // Create wizard stays in the same chrome column (not a fixed fullscreen overlay).
+  assert.match(styles, /\.xp-wizard \{[\s\S]*?position:\s*relative/);
+  assert.doesNotMatch(styles, /\.xp-wizard \{[\s\S]*?position:\s*fixed/);
   assert.match(EDITOR_SOURCE, /\[class\.is-focus-mode\]="focusMode\(\)"/);
   assert.match(EDITOR_SOURCE, /toggleFocusMode|Escape.*focusMode/);
   assert.match(EDITOR_SOURCE, /experience\.editor\.focus\.exit/);
