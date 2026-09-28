@@ -231,7 +231,9 @@ const GROUP_ORDER: CockpitSectionGroup[] = ['workspace', 'integrations', 'govern
         outline-offset: 2px;
       }
       .ck-mini-item-active {
-        color: var(--ck-primary);
+        /* The pure primary on its 8 % tint is 4.46:1 in the light theme; a step
+           toward the text ink keeps the hue and clears AA in both themes. */
+        color: color-mix(in srgb, var(--ck-primary) 85%, var(--ck-fg-1));
         background: color-mix(in srgb, var(--ck-primary) 8%, transparent);
       }
       .ck-mini-item-action {

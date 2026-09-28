@@ -239,7 +239,7 @@
   "$frenchTermsNote": "Ratchet for the French-term check (check-i18n §4b): one count per French value that still uses an English form the lexicon marks as untranslated (System/Systems → Système, Run/Runs → Exécution, automation → Automatisation). \"max\" may only go down; delete the entry at zero. Only a product name that genuinely keeps the English word may become a permanent entry.",
   "frenchTerms": {
     "src/app/core/i18n/hypervisor.dict.ts": {
-      "max": 47,
+      "max": 45,
       "reason": "DEBT: Impact (Hypervisor v2) copy — « Registre des Systems », « {count} Systems », « runs mesurés ». Left out of the L26 sweep because two other lots edit this file in parallel; sweep it once they land."
     }
   }
