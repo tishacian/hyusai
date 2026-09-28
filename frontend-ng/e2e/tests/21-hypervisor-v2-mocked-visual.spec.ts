@@ -525,6 +525,57 @@ async function installMocks(page: Page, kind: FixtureKind, theme: ThemeKind): Pr
     if (apiPath === '/capabilities') return json(route, capabilities());
     if (apiPath === '/systems') return json(route, []);
     if (apiPath === '/contexts') return json(route, { contexts: [] });
+    // L13b live Impact blocks — neutral Mission Room payloads (no client labels).
+    if (apiPath === '/mission-room/timeline') {
+      return json(route, {
+        agenda: [{
+          id: 'evt-1',
+          title: 'Revue portefeuille',
+          time: '09:00',
+          date: '2026-09-28',
+          location: 'Salle A',
+          status: 'confirmed',
+          metadata: {
+            agenda_items: [{
+              id: 'pt-1',
+              title: 'Priorité semaine',
+              origin: 'human',
+              options: [{ id: 'go', label: 'Valider', recommended: true }],
+            }],
+          },
+        }],
+        messages: [],
+        summary: '',
+      });
+    }
+    if (apiPath === '/mission-room/news') {
+      return json(route, {
+        signals: [{ id: 'sig-1', title: 'Signal press', source_category: 'verified', sentiment: 'neutral' }],
+        executive_alerts: [{ id: 'al-1', title: 'Alerte exécutive', risk_level: 'high', zone: 'Nord' }],
+        sources: [],
+      });
+    }
+    if (apiPath === '/mission-room/map') {
+      return json(route, {
+        map: { country: '', view_box: '', projection: '', accuracy: '' },
+        zones: [{ id: 'z-nord', name: 'Nord', level: 2, centroid: { x: 0, y: 0 }, polygon: '', signals: [], recommendations: [], sources: [] }],
+        sources: [],
+      });
+    }
+    if (apiPath === '/mission-room/monitor') {
+      return json(route, {
+        zones: [{ id: 'z-nord', name: 'Nord', level: 'high', signals: ['Surveillance'] }],
+        visual_observations: [],
+        news_signals: [],
+        sources: [],
+      });
+    }
+    if (apiPath === '/mission-room/macro-indicators') {
+      return json(route, {
+        indicators: [{ key: 'throughput', label: 'Débit', current: 1284, unit: 'h', source: 'series' }],
+        source: 'series',
+      });
+    }
 
     if (method === 'GET') {
       if (apiPath.endsWith('s') || apiPath.includes('items')) return json(route, []);
@@ -649,6 +700,23 @@ test.describe('Hypervisor V2 — mocked visual', () => {
     await reduced.close();
 
     expect(Object.keys(shots).length).toBeGreaterThanOrEqual(16);
+  });
+
+  test('L13b Impact agenda view binds live Mission Room blocks', async ({ browser }) => {
+    test.skip(!visualEnabled, 'Set E2E_HYPERVISOR_V2_VISUAL=1 to run');
+    const context = await browser.newContext({
+      viewport: { width: 1680, height: 1100 },
+      locale: 'fr-FR',
+      colorScheme: 'dark',
+    });
+    const page = await context.newPage();
+    await installMocks(page, 'dense', 'dark');
+    await page.goto('/hypervisor?view=agenda');
+    await expect(page.locator('app-hypervisor-v2')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('impact-block-echeancier')).toBeVisible();
+    await expect(page.getByText('Revue portefeuille')).toBeVisible();
+    await expect(page.getByTestId('impact-block-echeancier-empty')).toHaveCount(0);
+    await context.close();
   });
 });
 

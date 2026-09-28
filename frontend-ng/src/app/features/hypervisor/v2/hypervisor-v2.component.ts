@@ -16,6 +16,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { Subscription, forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
+import { ApiService } from '@app/core/api.service';
 import {
   CanonicalApiService,
   type Capability,
@@ -106,6 +107,22 @@ import { ImpactBlockEcheancierComponent } from './blocks/impact-block-echeancier
 import { ImpactBlockFluxComponent } from './blocks/impact-block-flux.component';
 import { ImpactBlockIndicateursComponent } from './blocks/impact-block-indicateurs.component';
 import { ImpactBlockOrdreDuJourComponent } from './blocks/impact-block-ordre-du-jour.component';
+import {
+  mapAgendaMetadataToOrdre,
+  mapDecisionsToOrdre,
+  mapMacroToIndicateurs,
+  mapMapToZones,
+  mapMonitorToAlertes,
+  mapNewsToFlux,
+  mapRegisterToIndicateurs,
+  mapSignalsToAlertes,
+  mapTimelineToEcheancier,
+  type ImpactMacroRaw,
+  type ImpactMapRaw,
+  type ImpactMonitorRaw,
+  type ImpactNewsRaw,
+  type ImpactTimelineRaw,
+} from './impact-block-data';
 
 interface BasisDraft {
   unit: string;
@@ -1511,6 +1528,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   readonly i18n = inject(I18nService);
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly api = inject(CanonicalApiService);
+  private readonly http = inject(ApiService);
   private readonly workspace = inject(WorkspaceService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -1555,6 +1573,12 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   readonly recommendations = signal<Recommendation[]>([]);
   readonly decisions = signal<DecisionRow[]>([]);
   readonly signals = signal<HypervisorSignal[]>([]);
+  /** Live Mission Room payloads for generic Impact blocks (honest empty when absent). */
+  readonly impactTimeline = signal<ImpactTimelineRaw | null>(null);
+  readonly impactNews = signal<ImpactNewsRaw | null>(null);
+  readonly impactMap = signal<ImpactMapRaw | null>(null);
+  readonly impactMonitor = signal<ImpactMonitorRaw | null>(null);
+  readonly impactMacro = signal<ImpactMacroRaw | null>(null);
   readonly customizeOpen = signal(false);
   readonly historyOpen = signal(false);
   readonly scanning = signal(false);
@@ -1800,6 +1824,8 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   });
 
   private routeSub: Subscription | null = null;
+  private impactLiveSub: Subscription | null = null;
+  private impactLiveGeneration = 0;
   private lastSeries: HypervisorSeriesResponse | null = null;
   private painted = false;
   private enterTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1824,12 +1850,14 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       if (impactView && this.activeFacet() !== 'synthese') {
         this.activeFacet.set('synthese');
       }
+      this.reloadImpactLive();
     });
     this.reload();
   }
 
   ngOnDestroy(): void {
     this.routeSub?.unsubscribe();
+    this.impactLiveSub?.unsubscribe();
     this.workspaceView.destroy();
     this.stopMonument();
     if (this.enterTimer) clearTimeout(this.enterTimer);
@@ -2586,40 +2614,37 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   }
 
   impactEcheancierItems() {
-    return [] as Array<{ id: string; title: string; place?: string | null; status?: string | null }>;
+    return mapTimelineToEcheancier(this.impactTimeline());
   }
 
   impactFluxItems() {
-    return [] as Array<{ id: string; title: string; klass?: string | null }>;
+    return mapNewsToFlux(this.impactNews());
   }
 
   impactCarteZones() {
-    return [] as Array<{ id: string; name: string; level?: number | null }>;
+    return mapMapToZones(this.impactMap());
   }
 
   impactAlerteItems() {
     const zone = this.impactSelectedZone();
-    const items = [] as Array<{ id: string; title: string; severity?: string | null; zone?: string | null }>;
-    return zone ? items.filter((item) => item.zone === zone) : items;
+    const fromMission = mapMonitorToAlertes(this.impactMonitor(), this.impactNews());
+    const items = fromMission.length ? fromMission : mapSignalsToAlertes(this.signals());
+    if (!zone) return items;
+    const selected = this.impactCarteZones().find((row) => row.id === zone);
+    const zoneName = selected?.name;
+    return items.filter((item) => item.zone === zone || item.zone === zoneName);
   }
 
   impactOrdrePoints() {
-    return [] as Array<{
-      id: string;
-      title: string;
-      origin?: string | null;
-      options?: Array<{ id: string; label: string; recommended?: boolean }>;
-    }>;
+    const fromMeeting = mapAgendaMetadataToOrdre(this.impactTimeline(), this.meetingEventId());
+    if (fromMeeting.length) return fromMeeting;
+    return mapDecisionsToOrdre(this.decisions());
   }
 
   impactIndicateurItems() {
-    return [] as Array<{
-      id: string;
-      label: string;
-      value: string;
-      state: 'measured' | 'declared' | 'absent';
-      source?: string | null;
-    }>;
+    const fromMacro = mapMacroToIndicateurs(this.impactMacro());
+    if (fromMacro.length) return fromMacro;
+    return mapRegisterToIndicateurs(this.series()?.register ?? []);
   }
 
   onMeetingDecision(payload: { pointId: string; optionId: string }): void {
@@ -2896,6 +2921,11 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     this.decisions.set([]);
     this.recommendations.set([]);
     this.signals.set([]);
+    this.impactTimeline.set(null);
+    this.impactNews.set(null);
+    this.impactMap.set(null);
+    this.impactMonitor.set(null);
+    this.impactMacro.set(null);
     this.editingId.set(null);
     this.painted = false;
     this.entering.set(false);
@@ -2966,6 +2996,39 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       if (cameFrom && firstPaint) {
         queueMicrotask(() => this.onSystemClick(cameFrom));
       }
+      this.reloadImpactLive();
+    });
+  }
+
+  /** Fetch Mission Room payloads only when a generic Impact view is open. */
+  private reloadImpactLive(): void {
+    this.impactLiveSub?.unsubscribe();
+    this.impactLiveSub = null;
+    const generation = ++this.impactLiveGeneration;
+    if (!this.activeImpactViewId()) {
+      this.impactTimeline.set(null);
+      this.impactNews.set(null);
+      this.impactMap.set(null);
+      this.impactMonitor.set(null);
+      this.impactMacro.set(null);
+      return;
+    }
+    const scope = this.workspaceView.captureRequest();
+    const empty = <T>() => of(null as T | null);
+    this.impactLiveSub = forkJoin({
+      timeline: this.http.get<ImpactTimelineRaw>('/mission-room/timeline').pipe(catchError(empty)),
+      news: this.http.get<ImpactNewsRaw>('/mission-room/news').pipe(catchError(empty)),
+      map: this.http.get<ImpactMapRaw>('/mission-room/map').pipe(catchError(empty)),
+      monitor: this.http.get<ImpactMonitorRaw>('/mission-room/monitor').pipe(catchError(empty)),
+      macro: this.http.get<ImpactMacroRaw>('/mission-room/macro-indicators').pipe(catchError(empty)),
+    }).subscribe((bundle) => {
+      if (generation !== this.impactLiveGeneration) return;
+      if (!this.workspaceView.isCurrent(scope)) return;
+      this.impactTimeline.set(bundle.timeline);
+      this.impactNews.set(bundle.news);
+      this.impactMap.set(bundle.map);
+      this.impactMonitor.set(bundle.monitor);
+      this.impactMacro.set(bundle.macro);
     });
   }
 
