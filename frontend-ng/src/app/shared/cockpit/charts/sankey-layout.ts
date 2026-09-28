@@ -43,6 +43,8 @@ export interface SankeyLabel {
   font: 'sans' | 'mono';
   weight?: number;
   tracking?: number;
+  /** Column caption under the chart (sentence case, sans: no mono eyebrow). */
+  caption?: boolean;
   /** Full text when `text` was shortened. */
   title?: string;
   sourceId?: string;
@@ -259,7 +261,7 @@ export function layoutSankey(
   ];
   for (const [x, text, anchor] of captions) {
     if (!text) continue;
-    labels.push({ x, y: capY, text, fill: 'var(--ck-fg-3)', size: 8, anchor, font: 'mono', tracking: 1 });
+    labels.push({ x, y: capY, text, fill: 'var(--ck-fg-3)', size: 10, anchor, font: 'sans', caption: true });
   }
 
   return { ribbons, nodes, labels, stubs };

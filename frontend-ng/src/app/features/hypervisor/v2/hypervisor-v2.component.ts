@@ -135,6 +135,18 @@ import {
   type ImpactNewsRaw,
   type ImpactTimelineRaw,
 } from './impact-block-data';
+import {
+  DAY_LOCK_IDLE,
+  activityStrip,
+  lockTransition,
+  reduceDayLock,
+  selectedDay,
+  selectionModel,
+  type DayLockEvent,
+  type DayLockState,
+  type SelectionDayMode,
+  type SelectionSystemMode,
+} from './impact-synthese';
 
 interface BasisDraft {
   unit: string;
@@ -231,7 +243,6 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
               <button
                 type="button"
                 role="tab"
-                class="ck-mono"
                 [attr.data-testid]="'hypervisor-v2-view-' + view.id"
                 [attr.aria-selected]="view.id === switcherActiveId()"
                 [class.hv2-switch-on]="view.id === switcherActiveId()"
@@ -255,7 +266,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       </div>
 
       @if (loading()) {
-        <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.loading') }}</p>
+        <p class="hv2-muted">{{ i18n.t('hypervisor.v2.loading') }}</p>
       } @else if (loadProblem(); as problem) {
         <section role="alert">
           <p>{{ i18n.t(problem) }}</p>
@@ -350,9 +361,8 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
           } @else if (presentationTheme()) {
             <ng-container [ngTemplateOutlet]="presentationTpl"></ng-container>
           } @else {
-            <app-operational-objective />
-            <app-hypervisor-automation />
             <ng-container [ngTemplateOutlet]="legendTpl"></ng-container>
+            <p class="sr-only" role="status" aria-live="polite" data-testid="hypervisor-v2-lock-announcer">{{ lockAnnouncement() }}</p>
             @if (sourceStates().series !== 'ready') {
               <div class="hv2-degraded-page" data-testid="hypervisor-v2-series-degraded">
                 <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'series' }"></ng-container>
@@ -363,7 +373,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                 }
               </div>
             } @else if (!series()) {
-              <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p><a [navLink]="{leaf:'help-guide',params:{guideId:'value'}}">{{i18n.t('experience.adoption.help')}}</a>
+              <p class="hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p><a [navLink]="{leaf:'help-guide',params:{guideId:'value'}}">{{i18n.t('experience.adoption.help')}}</a>
             } @else {
               <div class="hv2-page">
             <ck-chart-tip
@@ -374,251 +384,307 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
               [y]="pageTipY()"
             />
             @if (showStratum('comprendre')) {
-              <section class="hv2-stratum" data-testid="hypervisor-v2-stratum-comprendre">
-                <ng-container [ngTemplateOutlet]="leaderTpl" [ngTemplateOutletContext]="{ id: 'comprendre', num: '01' }"></ng-container>
-                <div class="hv2-body">
-                  @if (showHero()) {
-                    <section class="hv2-hero" data-testid="hypervisor-v2-hero">
-                      @if (showBlock('comprendre', 'monument') || showBlock('comprendre', 'provenance') || showBlock('comprendre', 'unites')) {
-                        <div class="hv2-hero-text">
-                          <div>
-                            @if (showBlock('comprendre', 'monument') || showBlock('comprendre', 'provenance')) {
-                              <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.hero.kicker', { days: dayCount() }) }}</div>
+              <section class="hv2-stratum hv2-stratum-bands" data-testid="hypervisor-v2-stratum-comprendre" aria-labelledby="hv2-leader-comprendre">
+                <ng-container [ngTemplateOutlet]="leaderTpl" [ngTemplateOutletContext]="{ id: 'comprendre', hidden: true }"></ng-container>
+                @if (showCommandBand()) {
+                  <section class="hv2-band hv2-command" data-testid="hypervisor-v2-hero">
+                    @if (showBlock('comprendre', 'monument')) {
+                      <div class="hv2-command-col hv2-command-monument">
+                        <p class="hv2-label">{{ i18n.t('hypervisor.v2.hero.kicker', { days: dayCount() }) }}</p>
+                        @if (monument(); as mon) {
+                          <p class="hv2-monument-group" data-testid="hypervisor-v2-monument">
+                            <span class="sr-only">{{ monumentLabel() }}</span>
+                            <span class="hv2-monument-row" aria-hidden="true">
+                              <span class="hv2-monument-figure">
+                                <span class="hv2-monument ck-tnum">{{ monumentValue() }}</span>
+                                <span class="hv2-monument-unit">{{ mon.unit }}</span>
+                              </span>
+                            </span>
+                            <span class="hv2-sentence" aria-hidden="true">{{ heroSentence() }}</span>
+                            @if (measuredPart(); as part) {
+                              <span class="hv2-measured-part" aria-hidden="true" data-testid="hypervisor-v2-measured-part">{{ measuredMark }} {{ part }}</span>
                             }
-                            @if (showBlock('comprendre', 'monument')) {
-                              @if (monument(); as mon) {
-                                <p class="hv2-monument-group" data-testid="hypervisor-v2-monument">
-                                  <span class="sr-only">{{ monumentLabel() }}</span>
-                                  <span class="hv2-monument-row" aria-hidden="true">
-                                    <span class="hv2-monument-figure">
-                                      <span class="hv2-monument ck-tnum">{{ monumentValue() }}</span>
-                                      <span class="hv2-monument-unit">{{ mon.unit }}</span>
-                                    </span>
-                                    @if (measuredPart(); as part) {
-                                      <span class="ck-mono hv2-measured-part" data-testid="hypervisor-v2-measured-part">{{ measuredMark }} {{ part }}</span>
-                                    }
-                                  </span>
-                                  <span class="hv2-sentence" aria-hidden="true">{{ heroSentence() }}</span>
-                                </p>
-                                <p class="hv2-sub">{{ heroSub() }}</p>
-                              } @else {
-                                <div class="hv2-monument-row">
-                                  <span class="hv2-monument hv2-monument-state ck-mono">{{ factLabel(series()!.monument) }}</span>
-                                </div>
-                                <p class="hv2-sub">{{ i18n.t('hypervisor.v2.hero.not_configured') }}</p>
+                          </p>
+                          @if (showBlock('comprendre', 'provenance')) {
+                            @if (provenance(); as prov) {
+                              <div class="hv2-provenance">
+                                <span
+                                  class="hv2-provenance-ink"
+                                  role="img"
+                                  tabindex="0"
+                                  [style.flexGrow]="prov.measured"
+                                  [attr.aria-label]="provenanceMeasuredTip()"
+                                  (pointerenter)="onProvenanceTip('measured', $event)"
+                                  (pointerleave)="clearPageTip()"
+                                  (focus)="onProvenanceTip('measured', $event)"
+                                  (blur)="clearPageTip()"
+                                ></span>
+                                <span
+                                  class="hv2-provenance-teal"
+                                  role="img"
+                                  tabindex="0"
+                                  [style.flexGrow]="prov.declared"
+                                  [attr.aria-label]="provenanceDeclaredTip()"
+                                  (pointerenter)="onProvenanceTip('declared', $event)"
+                                  (pointerleave)="clearPageTip()"
+                                  (focus)="onProvenanceTip('declared', $event)"
+                                  (blur)="clearPageTip()"
+                                ></span>
+                              </div>
+                            }
+                          }
+                        } @else {
+                          <div class="hv2-monument-row">
+                            <span class="hv2-monument hv2-monument-state">{{ factLabel(series()!.monument) }}</span>
+                          </div>
+                          <p class="hv2-sub">{{ i18n.t('hypervisor.v2.hero.not_configured') }}</p>
+                        }
+                      </div>
+                      @if (strip().marks.length) {
+                        <div class="hv2-command-col hv2-command-strip" data-testid="hypervisor-v2-activity-strip">
+                          <div class="hv2-strip-head">
+                            <p class="hv2-label">{{ i18n.t('hypervisor.v2.strip.title', { days: dayCount() }) }}</p>
+                            <p class="hv2-label ck-tnum">{{ rangeLabel() }}</p>
+                          </div>
+                          <p class="sr-only">{{ stripSummary() }}</p>
+                          <svg
+                            class="hv2-strip"
+                            aria-hidden="true"
+                            focusable="false"
+                            preserveAspectRatio="none"
+                            [attr.viewBox]="'0 0 ' + strip().marks.length + ' 100'"
+                          >
+                            @if (strip().selectedWeek; as week) {
+                              <rect class="hv2-strip-week" [attr.x]="week.start" y="0" [attr.width]="week.end - week.start" height="100" />
+                            }
+                            @for (mark of strip().marks; track mark.index) {
+                              @if (mark.total > 0) {
+                                <rect
+                                  class="hv2-strip-mark"
+                                  [class.is-weekend]="mark.weekend"
+                                  [class.is-in-week]="mark.inSelectedWeek"
+                                  [class.is-selected]="mark.selected"
+                                  [attr.data-day]="mark.index"
+                                  [attr.x]="mark.index + 0.22"
+                                  width="0.56"
+                                  [attr.y]="100 - (4 + mark.share * 96)"
+                                  [attr.height]="4 + mark.share * 96"
+                                />
                               }
                             }
-                            @if (showBlock('comprendre', 'unites')) {
-                              <ng-container [ngTemplateOutlet]="unitesTpl"></ng-container>
+                          </svg>
+                          <div class="hv2-strip-axis ck-tnum" aria-hidden="true">
+                            @for (week of strip().weeks; track week.start; let w = $index) {
+                              <span
+                                class="hv2-strip-tick"
+                                [class.is-selected]="week.selected"
+                                [style.left.%]="stripMarkX(week.start)"
+                              >@if (stripShowsWeek(week, w)) { {{ stripWeekLabel(week.isoWeek) }} }</span>
                             }
                           </div>
-                          @if (showBlock('comprendre', 'provenance')) {
-                            <div class="hv2-provenance-block">
-                              @if (provenance(); as prov) {
-                                <div class="hv2-provenance">
-                                  <span
-                                    class="hv2-provenance-ink"
-                                    role="img"
-                                    tabindex="0"
-                                    [style.flexGrow]="prov.measured"
-                                    [attr.aria-label]="provenanceMeasuredTip()"
-                                    (pointerenter)="onProvenanceTip('measured', $event)"
-                                    (pointerleave)="clearPageTip()"
-                                    (focus)="onProvenanceTip('measured', $event)"
-                                    (blur)="clearPageTip()"
-                                  ></span>
-                                  <span
-                                    class="hv2-provenance-teal"
-                                    role="img"
-                                    tabindex="0"
-                                    [style.flexGrow]="prov.declared"
-                                    [attr.aria-label]="provenanceDeclaredTip()"
-                                    (pointerenter)="onProvenanceTip('declared', $event)"
-                                    (pointerleave)="clearPageTip()"
-                                    (focus)="onProvenanceTip('declared', $event)"
-                                    (blur)="clearPageTip()"
-                                  ></span>
-                                </div>
-                                <div class="ck-mono hv2-provenance-legend">
-                                  <span>{{ measuredMark }} {{ i18n.t('hypervisor.v2.hero.measured_share', { pct: prov.measuredPct }) }}</span>
-                                  <span class="hv2-teal">{{ declaredMark }} {{ i18n.t('hypervisor.v2.hero.declared_share', { pct: prov.declaredPct }) }}</span>
-                                </div>
-                              }
+                        </div>
+                      }
+                    }
+                    @if (showBlock('comprendre', 'unites')) {
+                      <div class="hv2-command-col">
+                        <ng-container [ngTemplateOutlet]="unitesTpl"></ng-container>
+                      </div>
+                    }
+                    @if (showBlock('comprendre', 'provenance')) {
+                      <dl class="hv2-command-col hv2-facts hv2-command-facts">
+                        <div class="hv2-fact">
+                          <dt>{{ i18n.t('hypervisor.v2.hero.cost') }}</dt>
+                          <dd class="ck-tnum" data-fact="cost">{{ costFact() }}</dd>
+                        </div>
+                        <div class="hv2-fact">
+                          <dt>{{ i18n.t('hypervisor.v2.hero.value') }}</dt>
+                          <dd class="ck-tnum" [class.hv2-teal]="series()!.valueTotal.state === 'available'" data-fact="value">{{ valueFact() }}</dd>
+                        </div>
+                        <div class="hv2-fact">
+                          <dt>{{ countedLabel() }}</dt>
+                          <dd class="ck-tnum" data-fact="counted">{{ countedFact() }}</dd>
+                        </div>
+                      </dl>
+                    }
+                    @if (showBlock('comprendre', 'couverture')) {
+                      <div class="hv2-command-col">
+                        <ng-container [ngTemplateOutlet]="couvertureTpl"></ng-container>
+                      </div>
+                    }
+                    @if (showBlock('comprendre', 'signal')) {
+                      <div class="hv2-command-col">
+                        <ng-container [ngTemplateOutlet]="signalTpl" [ngTemplateOutletContext]="{ hero: true }"></ng-container>
+                      </div>
+                    }
+                    @if (showBlock('comprendre', 'decisions')) {
+                      <div class="hv2-command-col hv2-hero-decision">
+                        <ng-container [ngTemplateOutlet]="decisionTpl"></ng-container>
+                      </div>
+                    }
+                  </section>
+                }
+                @if (showBlock('comprendre', 'cadran')) {
+                  <section class="hv2-band hv2-cadran-band" aria-labelledby="hv2-cadran-title">
+                    <div class="hv2-cadran-col">
+                      <h3 class="hv2-band-title" id="hv2-cadran-title">{{ cadranTitle() }}</h3>
+                      <div class="hv2-cadran-dial">
+                        <ck-chart-radial-days
+                          [days]="radialDays()"
+                          [ticks]="radialTicks()"
+                          [size]="580"
+                          [innerRadius]="104"
+                          [outerRadius]="246"
+                          [centerValue]="i18n.t('hypervisor.v2.cadran.center', { days: dayCount() })"
+                          [centerCaption]="i18n.t('hypervisor.v2.cadran.grammar')"
+                          [rangeLabel]="rangeLabel()"
+                          [peakLabel]="quantityLabel"
+                          [hoverDay]="selectedDayIndex()"
+                          [lockedDay]="lockedDay()"
+                          (dayHover)="onDayHover($event)"
+                          (dayLock)="onDayLock($event)"
+                        />
+                      </div>
+                      <p class="hv2-chart-caption">{{ cadranLegend() }}</p>
+                    </div>
+                    <ng-container [ngTemplateOutlet]="selectionTpl"></ng-container>
+                  </section>
+                }
+                @if (showBlock('comprendre', 'rivers')) {
+                  <section class="hv2-band hv2-rivers" data-testid="hypervisor-v2-rivers" aria-labelledby="hv2-rivers-title">
+                    <header class="hv2-band-head">
+                      <div>
+                        <h3 class="hv2-band-title" id="hv2-rivers-title">{{ riversTitle() }}</h3>
+                        <p class="hv2-band-sub">{{ i18n.t('hypervisor.v2.rivers.sub') }}</p>
+                      </div>
+                      <span class="hv2-band-legend">{{ riversLegend() }}</span>
+                    </header>
+                    @if (streamSeries().length) {
+                      <ck-chart-stream
+                        fluid
+                        followTip
+                        [height]="280"
+                        [series]="streamSeries()"
+                        [dayLabels]="dayLabels()"
+                        [weekendStarts]="series()!.weekendStarts"
+                        [ticks]="streamTicks()"
+                        [peak]="streamPeak()"
+                        [gridLabel]="quantityLabel"
+                        [hoverDay]="selectedDayIndex()"
+                        [lockedDay]="lockedDay()"
+                        [hoverSystem]="hoverSystem()"
+                        [dayAriaLabel]="riverDayAria"
+                        (dayHover)="onDayHover($event)"
+                        (dayLock)="onDayLock($event)"
+                        (systemHover)="onSystemHover($event)"
+                      />
+                    } @else {
+                      <p class="hv2-muted">{{ i18n.t('hypervisor.v2.rivers.empty') }}</p>
+                    }
+                  </section>
+                }
+                @if (showBlock('comprendre', 'rivers') || showBlock('comprendre', 'hors_denominateur')) {
+                  <div class="hv2-band hv2-pair">
+                    @if (selection().system; as sys) {
+                      <section class="hv2-pair-col hv2-selected-system" data-testid="hypervisor-v2-selected-system" aria-labelledby="hv2-selected-system-title">
+                        <h3 class="hv2-label" id="hv2-selected-system-title">{{ systemModeLabel(sys.mode) }}</h3>
+                        <p class="hv2-system-title">{{ sys.row.name }}</p>
+                        <dl class="hv2-inline-facts">
+                          <div>
+                            <dt>{{ i18n.t('hypervisor.v2.tip.label.hours') }}</dt>
+                            <dd class="ck-tnum" [class.hv2-teal]="sys.row.basisStatus !== 'measured' && sys.row.hours.state === 'available'">{{ systemHours(sys.row) }}</dd>
+                          </div>
+                          <div>
+                            <dt>{{ i18n.t('hypervisor.v2.hero.cost') }}</dt>
+                            <dd class="ck-tnum">{{ systemCost(sys.row) }}</dd>
+                          </div>
+                          <div>
+                            <dt>{{ i18n.t('hypervisor.v2.hero.value') }}</dt>
+                            <dd class="ck-tnum" [class.hv2-teal]="sys.row.valueDeclared.state === 'available'">{{ systemValue(sys.row) }}</dd>
+                          </div>
+                        </dl>
+                        <a class="hv2-link" [navLink]="systemLink(sys.row)" [navState]="registreProvenanceState()">{{ i18n.t('hypervisor.v2.selected.open', { name: sys.row.name }) }}</a>
+                      </section>
+                    }
+                    @if (showBlock('comprendre', 'hors_denominateur')) {
+                      <section class="hv2-pair-col hv2-hors" data-testid="hypervisor-v2-hors-denominateur" aria-labelledby="hv2-hors-title">
+                        <h3 class="hv2-label" id="hv2-hors-title">{{ i18n.t('hypervisor.v2.hors.kicker') }}</h3>
+                        @if (series()!.outside.length === 0) {
+                          <p class="hv2-system-title">{{ i18n.t('hypervisor.v2.hors.title') }}</p>
+                          <p class="hv2-muted">{{ i18n.t('hypervisor.v2.hors.empty') }}</p>
+                        } @else {
+                          <p class="hv2-system-title">{{ horsTitle() }}</p>
+                          <p class="hv2-band-sub">{{ i18n.t('hypervisor.v2.hors.note') }}</p>
+                          <div class="hv2-hors-list">
+                            @for (row of series()!.outside; track row.systemId) {
                               <div
-                                class="hv2-peak-card"
-                                [class.hv2-peak-lit]="hoverDay() != null && hoverDay() === series()!.peak?.index"
-                                (pointerenter)="onDayHover(series()!.peak?.index ?? null)"
-                                (pointerleave)="onDayHover(null)"
+                                class="hv2-hors-row"
+                                [class.hv2-row-lit]="hoverSystem() === row.systemId"
+                                (pointerenter)="onSystemHover(row.systemId)"
+                                (pointerleave)="onSystemHover(null)"
                               >
-                                @if (peakCard(); as peak) {
-                                  <div class="ck-mono hv2-peak-kicker">
-                                    <span class="hv2-dot-teal" aria-hidden="true"></span>
-                                    {{ i18n.t('hypervisor.v2.peak', { date: peak.date }) }}
-                                  </div>
-                                  <div class="hv2-peak-row">
-                                    <span class="hv2-peak-value ck-tnum">{{ peak.total }}</span>
-                                    <span class="hv2-peak-detail">{{ peak.detail }}</span>
-                                  </div>
-                                  <div class="ck-mono hv2-peak-split">
-                                    @if (peak.measured) {
-                                      <span>{{ measuredMark }} {{ i18n.t('hypervisor.v2.hero.peak.measured', { value: peak.measured }) }}</span>
-                                    }
-                                    @if (peak.declared) {
-                                      <span class="hv2-teal">{{ declaredMark }} {{ i18n.t('hypervisor.v2.hero.peak.declared', { value: peak.declared }) }}</span>
-                                    }
-                                  </div>
-                                } @else {
-                                  <div class="ck-mono hv2-peak-kicker">{{ i18n.t('hypervisor.v2.hero.peak.none') }}</div>
+                                <div class="hv2-hors-line">
+                                  <span class="hv2-hors-name">{{ row.name }}</span>
+                                  <span class="ck-tnum hv2-hors-value" [attr.title]="dotsTitle(row)">{{ outcomeLabel(row) }} {{ outcomeMark(row) }}</span>
+                                </div>
+                                @if (outcomeCount(row) > 0) {
+                                  <ck-chart-unit-dots
+                                    [units]="outcomeCount(row)"
+                                    [unitsPerDot]="unitsPerDot()"
+                                    [dotSize]="5"
+                                    [gap]="3"
+                                    [tipTitle]="dotsTip(row)"
+                                  />
                                 }
                               </div>
-                              <dl class="hv2-facts">
-                                <div class="hv2-fact">
-                                  <dt>{{ i18n.t('hypervisor.v2.hero.cost') }}</dt>
-                                  <dd class="ck-mono ck-tnum" data-fact="cost">{{ costFact() }}</dd>
-                                </div>
-                                <div class="hv2-fact">
-                                  <dt>{{ i18n.t('hypervisor.v2.hero.value') }}</dt>
-                                  <dd class="ck-mono ck-tnum" [class.hv2-teal]="series()!.valueTotal.state === 'available'" data-fact="value">{{ valueFact() }}</dd>
-                                </div>
-                              </dl>
-                            </div>
-                          }
-                        </div>
-                      }
-                      @if (showBlock('comprendre', 'cadran')) {
-                        <div class="hv2-hero-dial">
-                          <ck-chart-radial-days
-                            [days]="radialDays()"
-                            [ticks]="radialTicks()"
-                            [centerValue]="i18n.t('hypervisor.v2.cadran.center', { days: dayCount() })"
-                            [centerCaption]="i18n.t('hypervisor.v2.cadran.grammar')"
-                            [rangeLabel]="rangeLabel()"
-                            [peakLabel]="quantityLabel"
-                            [hoverDay]="hoverDay()"
-                            (dayHover)="onDayHover($event)"
-                          />
-                          <div class="ck-mono hv2-chart-caption">{{ cadranLegend() }}</div>
-                        </div>
-                      }
-                      @if (showBlock('comprendre', 'couverture')) {
-                        <ng-container [ngTemplateOutlet]="couvertureTpl"></ng-container>
-                      }
-                      @if (showBlock('comprendre', 'sankey')) {
-                        <div class="hv2-hero-flow">
-                          <h3 class="hv2-flow-title">{{ i18n.t('hypervisor.v2.sankey.title') }}</h3>
-                          <p class="hv2-flow-explainer">{{ sankeyExplainer() }}</p>
-                          @if (sankeySources().length) {
-                            <ck-chart-sankey-flow
-                              [sources]="sankeySources()"
-                              [middleLabel]="sankeyMiddleLabel()"
-                              [rightLabel]="sankeyRightLabel()"
-                              [leftCaption]="i18n.t('hypervisor.v2.sankey.left_caption') + ' ' + measuredMark"
-                              [middleCaption]="i18n.t('hypervisor.v2.sankey.middle_caption')"
-                              [rightCaption]="i18n.t('hypervisor.v2.sankey.right_caption') + ' ' + declaredMark"
-                              [hoverSystem]="hoverSystem()"
-                              [middleTip]="sankeyMiddleTip()"
-                              [rightTip]="sankeyRightTip()"
-                              (systemHover)="onSystemHover($event)"
-                              (systemClick)="onSystemClick($event)"
-                            />
-                          }
-                        </div>
-                      }
-                      @if (showBlock('comprendre', 'signal')) {
-                        <ng-container [ngTemplateOutlet]="signalTpl" [ngTemplateOutletContext]="{ hero: true }"></ng-container>
-                      }
-                      @if (showBlock('comprendre', 'decisions')) {
-                        <div class="hv2-hero-decision">
-                          <ng-container [ngTemplateOutlet]="decisionTpl"></ng-container>
-                        </div>
-                      }
-                    </section>
-                  }
-                  @if (showBlock('comprendre', 'rivers') || showBlock('comprendre', 'hors_denominateur')) {
-                    <div class="hv2-under">
-                      @if (showBlock('comprendre', 'rivers')) {
-                        <article class="hv2-card hv2-rivers">
-                          <header class="hv2-card-head">
-                            <div>
-                              <h3 class="hv2-card-title">{{ riversTitle() }}</h3>
-                              <p class="hv2-card-sub">{{ i18n.t('hypervisor.v2.rivers.sub') }}</p>
-                            </div>
-                            <span class="ck-mono hv2-card-legend">{{ riversLegend() }}</span>
-                          </header>
-                          @if (streamSeries().length) {
-                            <ck-chart-stream
-                              fluid
-                              [series]="streamSeries()"
-                              [dayLabels]="dayLabels()"
-                              [weekendStarts]="series()!.weekendStarts"
-                              [ticks]="streamTicks()"
-                              [peak]="streamPeak()"
-                              [gridLabel]="quantityLabel"
-                              [hoverDay]="hoverDay()"
-                              [hoverSystem]="hoverSystem()"
-                              (dayHover)="onDayHover($event)"
-                              (systemHover)="onSystemHover($event)"
-                            />
-                          } @else {
-                            <p class="hv2-muted">{{ i18n.t('hypervisor.v2.rivers.empty') }}</p>
-                          }
-                        </article>
-                      }
-                      @if (showBlock('comprendre', 'hors_denominateur')) {
-                        <article class="hv2-card hv2-hors" data-testid="hypervisor-v2-hors-denominateur">
-                          <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.hors.kicker') }}</div>
-                          @if (series()!.outside.length === 0) {
-                            <h3 class="hv2-hors-title">{{ i18n.t('hypervisor.v2.hors.title') }}</h3>
-                            <p class="hv2-muted">{{ i18n.t('hypervisor.v2.hors.empty') }}</p>
-                          } @else {
-                            <h3 class="hv2-hors-title">{{ horsTitle() }}</h3>
-                            <div class="hv2-hors-list">
-                              @for (row of series()!.outside; track row.systemId) {
-                                <div
-                                  class="hv2-hors-row"
-                                  [class.hv2-row-lit]="hoverSystem() === row.systemId"
-                                  (pointerenter)="onSystemHover(row.systemId)"
-                                  (pointerleave)="onSystemHover(null)"
-                                >
-                                  <div class="hv2-hors-line">
-                                    <span class="hv2-hors-name">{{ row.name }}</span>
-                                    <span class="ck-mono ck-tnum hv2-hors-value" [attr.title]="dotsTitle(row)">{{ outcomeLabel(row) }} {{ outcomeMark(row) }}</span>
-                                  </div>
-                                  @if (outcomeCount(row) > 0) {
-                                    <ck-chart-unit-dots
-                                      [units]="outcomeCount(row)"
-                                      [unitsPerDot]="unitsPerDot()"
-                                      [dotSize]="5"
-                                      [gap]="3"
-                                      [tipTitle]="dotsTip(row)"
-                                    />
-                                  }
-                                </div>
-                              }
-                            </div>
-                            @if (horsDeclareLink(); as link) {
-                              <a class="hv2-link" [navLink]="link">{{ i18n.t('hypervisor.v2.hors.declare') }}</a>
                             }
+                          </div>
+                          @if (horsDeclareLink(); as link) {
+                            <a class="hv2-link" [navLink]="link">{{ i18n.t('hypervisor.v2.hors.declare') }}</a>
                           }
-                        </article>
-                      }
+                        }
+                      </section>
+                    }
+                  </div>
+                }
+                @if (showBlock('comprendre', 'sankey')) {
+                  <section class="hv2-band hv2-flow-band" aria-labelledby="hv2-flow-title">
+                    <div class="hv2-flow-copy">
+                      <h3 class="hv2-band-title" id="hv2-flow-title">{{ i18n.t('hypervisor.v2.sankey.title') }}</h3>
+                      <p class="hv2-band-sub">{{ sankeyExplainer() }}</p>
                     </div>
-                  }
-                </div>
+                    @if (sankeySources().length) {
+                      <div class="hv2-flow-chart">
+                        <ck-chart-sankey-flow
+                          [width]="640"
+                          [height]="300"
+                          [sources]="sankeySources()"
+                          [middleLabel]="sankeyMiddleLabel()"
+                          [rightLabel]="sankeyRightLabel()"
+                          [leftCaption]="i18n.t('hypervisor.v2.sankey.left_caption') + ' ' + measuredMark"
+                          [middleCaption]="i18n.t('hypervisor.v2.sankey.middle_caption')"
+                          [rightCaption]="i18n.t('hypervisor.v2.sankey.right_caption') + ' ' + declaredMark"
+                          [hoverSystem]="hoverSystem()"
+                          [middleTip]="sankeyMiddleTip()"
+                          [rightTip]="sankeyRightTip()"
+                          (systemHover)="onSystemHover($event)"
+                          (systemClick)="onSystemClick($event)"
+                        />
+                      </div>
+                    }
+                  </section>
+                }
               </section>
             }
             @if (showStratum('detailler') && showBlock('detailler', 'registre')) {
-              <section class="hv2-stratum" data-testid="hypervisor-v2-stratum-detailler">
-                <ng-container [ngTemplateOutlet]="leaderTpl" [ngTemplateOutletContext]="{ id: 'detailler', num: '02' }"></ng-container>
-                <div class="hv2-body">
-                  <ng-container [ngTemplateOutlet]="registerTpl" [ngTemplateOutletContext]="{ testid: 'hypervisor-v2-register' }"></ng-container>
-                </div>
+              <section class="hv2-stratum" data-testid="hypervisor-v2-stratum-detailler" aria-labelledby="hv2-leader-detailler">
+                <ng-container [ngTemplateOutlet]="leaderTpl" [ngTemplateOutletContext]="{ id: 'detailler' }"></ng-container>
+                <ng-container [ngTemplateOutlet]="registerTpl" [ngTemplateOutletContext]="{ testid: 'hypervisor-v2-register' }"></ng-container>
               </section>
             }
             @if (showStratum('decider')) {
-              <section class="hv2-stratum" data-testid="hypervisor-v2-stratum-decider">
-                <ng-container [ngTemplateOutlet]="leaderTpl" [ngTemplateOutletContext]="{ id: 'decider', num: '03' }"></ng-container>
-                <div class="hv2-body hv2-cards3">
+              <section class="hv2-stratum" data-testid="hypervisor-v2-stratum-decider" aria-labelledby="hv2-leader-decider">
+                <ng-container [ngTemplateOutlet]="leaderTpl" [ngTemplateOutletContext]="{ id: 'decider' }"></ng-container>
+                <div class="hv2-cards3">
                   @if (showBlock('decider', 'signal')) {
                     <ng-container [ngTemplateOutlet]="signalTpl" [ngTemplateOutletContext]="{ hero: false }"></ng-container>
                   }
@@ -628,14 +694,14 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                     </article>
                   }
                   <article class="hv2-card hv2-card-bases" [style.--stagger]="2">
-                    <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.bases.kicker', { declared: declaredCount(), total: series()!.register.length }) }}</div>
+                    <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.bases.kicker', { declared: declaredCount(), total: series()!.register.length }) }}</p>
                     <h3 class="hv2-card-title">{{ basesTitle() }}</h3>
                     @if (series()!.outside.length) {
                       <ul class="hv2-bases-list">
                         @for (row of series()!.outside; track row.systemId) {
                           <li class="hv2-bases-row">
                             <span>{{ row.name }}</span>
-                            <span class="ck-mono ck-tnum hv2-muted">{{ outcomeLabel(row) }}</span>
+                            <span class="ck-tnum hv2-muted">{{ outcomeLabel(row) }}</span>
                             @if (row.capabilityId) {
                               <a class="hv2-link" [navLink]="basesLink(row.capabilityId)">→ {{ i18n.t('hypervisor.v2.bases.declare_short') }}</a>
                             }
@@ -650,6 +716,8 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
             }
           </div>
         }
+            <app-operational-objective />
+            <app-hypervisor-automation />
         }
         }
 
@@ -660,7 +728,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
           } @else if (series()) {
             <ng-container [ngTemplateOutlet]="registerTpl" [ngTemplateOutletContext]="{ testid: 'hypervisor-v2-register-registre' }"></ng-container>
           } @else {
-            <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p><a [navLink]="{leaf:'help-guide',params:{guideId:'value'}}">{{i18n.t('experience.adoption.help')}}</a>
+            <p class="hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p><a [navLink]="{leaf:'help-guide',params:{guideId:'value'}}">{{i18n.t('experience.adoption.help')}}</a>
           }
         }
 
@@ -696,9 +764,11 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                     [weekendStarts]="view.weekendStarts"
                     [ticks]="streamTicks()"
                     [gridLabel]="moneyLabel"
-                    [hoverDay]="hoverDay()"
+                    [hoverDay]="selectedDayIndex()"
+                    [lockedDay]="lockedDay()"
                     [hoverSystem]="hoverSystem()"
                     (dayHover)="onDayHover($event)"
+                    (dayLock)="onDayLock($event)"
                     (systemHover)="onSystemHover($event)"
                   />
                 } @else {
@@ -707,7 +777,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
               </article>
               <ng-container [ngTemplateOutlet]="registerTpl" [ngTemplateOutletContext]="{ testid: 'hypervisor-v2-register-couts' }"></ng-container>
             } @else {
-              <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p><a [navLink]="{leaf:'help-guide',params:{guideId:'value'}}">{{i18n.t('experience.adoption.help')}}</a>
+              <p class="hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p><a [navLink]="{leaf:'help-guide',params:{guideId:'value'}}">{{i18n.t('experience.adoption.help')}}</a>
             }
           </div>
         }
@@ -800,7 +870,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
 
         @if (activeFacet() === 'journal') {
           <article class="hv2-card">
-            <h3 class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.journal.title') }}</h3>
+            <h3 class="hv2-kicker">{{ i18n.t('hypervisor.v2.journal.title') }}</h3>
             @if (sourceStates().series !== 'ready') {
               <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'series' }"></ng-container>
             } @else if (series(); as view) {
@@ -848,19 +918,19 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     </ck-page-frame>
 
     <ng-template #legendTpl>
-      <div class="ck-mono hv2-legend">{{ i18n.t('hypervisor.v2.legend') }}</div>
+      <p class="hv2-legend">{{ i18n.t('hypervisor.v2.legend') }}</p>
     </ng-template>
 
     <ng-template #unitesTpl>
       <div class="hv2-unites" data-testid="hypervisor-v2-unites">
-        <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.unites.kicker') }}</div>
+        <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.unites.kicker') }}</p>
         <ul class="hv2-unites-list">
           @for (group of nativeUnits(); track group.unit) {
             <li class="hv2-unites-row">
               <span class="hv2-unites-value ck-tnum">{{ formatNumber(group.total, 0) }}</span>
               <div class="hv2-unites-meta">
                 <span class="hv2-unites-unit">{{ nativeUnitLabel(group.unit) }}</span>
-                <span class="ck-mono hv2-unites-systems">{{ unitesSystems(group) }}</span>
+                <span class="hv2-unites-systems">{{ unitesSystems(group) }}</span>
               </div>
               @if (group.total > 0) {
                 <ck-chart-unit-dots
@@ -881,7 +951,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
 
     <ng-template #couvertureTpl>
       <div class="hv2-hero-couverture" data-testid="hypervisor-v2-couverture">
-        <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.couverture.kicker', { declared: declaredCount(), total: series()!.register.length }) }}</div>
+        <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.couverture.kicker', { declared: declaredCount(), total: series()!.register.length }) }}</p>
         <h3 class="hv2-card-title">{{ couvertureTitle() }}</h3>
         <p class="hv2-card-sub">{{ i18n.t('hypervisor.v2.couverture.note') }}</p>
         @if (missingBasisRows().length) {
@@ -889,7 +959,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
             @for (row of missingBasisRows(); track row.systemId) {
               <li class="hv2-bases-row">
                 <span>{{ row.name }}</span>
-                <span class="ck-mono ck-tnum hv2-muted">{{ outcomeLabel(row) }}</span>
+                <span class="ck-tnum hv2-muted">{{ outcomeLabel(row) }}</span>
               </li>
             }
           </ul>
@@ -905,7 +975,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
         [attr.data-testid]="hero ? 'hypervisor-v2-hero-signal' : null"
         [style.--stagger]="0"
       >
-        <div class="ck-mono hv2-kicker">{{ signalKicker() }}</div>
+        <p class="hv2-kicker">{{ signalKicker() }}</p>
         <h3 class="hv2-card-title">{{ signalCopy() }}</h3>
         <ck-chart-pulse
           [values]="series()!.pulseValues"
@@ -928,7 +998,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       @if (sourceStates().decisions !== 'ready') {
         <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'decisions' }"></ng-container>
       } @else if (firstProposed(); as decision) {
-        <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.decision.kicker', { date: formatDate(decision.created_at, true) }) }}</div>
+        <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.decision.kicker', { date: formatDate(decision.created_at, true) }) }}</p>
         <h3 class="hv2-card-title">
           @if (isAgentSuggested(decision)) {
             <span class="hv2-agent-orb" data-testid="hypervisor-decision-agent-orb" [attr.aria-label]="i18n.t('hypervisor.v2.decisions.agent_orb')"></span>
@@ -948,7 +1018,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
         </div>
         <a class="hv2-link" [navLink]="{ leaf: 'review-queue' }">{{ i18n.t('hypervisor.v2.decisions.review_queue') }}</a>
       } @else {
-        <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.decision.kicker_none') }}</div>
+        <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.decision.kicker_none') }}</p>
         <p class="hv2-card-sub">{{ i18n.t('hypervisor.v2.decision.empty') }}</p>
       }
     </ng-template>
@@ -958,23 +1028,23 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
         @if (sourceStates().series !== 'ready') {
           <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'series' }"></ng-container>
         } @else if (!series()) {
-          <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p>
+          <p class="hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p>
         } @else {
           <div class="hv2-presentation-kpis">
             <div class="hv2-presentation-kpi">
-              <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.theme.kpi.systems') }}</div>
+              <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.theme.kpi.systems') }}</p>
               <div class="hv2-presentation-num ck-tnum">{{ series()!.register.length }}</div>
             </div>
             <div class="hv2-presentation-kpi">
-              <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.theme.kpi.runs') }}</div>
+              <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.theme.kpi.runs') }}</p>
               <div class="hv2-presentation-num ck-tnum">{{ presentationRuns() }}</div>
             </div>
             <div class="hv2-presentation-kpi">
-              <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.theme.kpi.cost') }}</div>
+              <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.theme.kpi.cost') }}</p>
               <div class="hv2-presentation-num ck-tnum">{{ costFact() }}</div>
             </div>
             <div class="hv2-presentation-kpi">
-              <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.theme.kpi.decisions') }}</div>
+              <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.theme.kpi.decisions') }}</p>
               @if (sourceStates().decisions === 'ready') {
                 <div
                   class="hv2-presentation-num ck-tnum"
@@ -1038,7 +1108,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     <ng-template #unavailableTpl let-source="source">
       <div class="hv2-unavailable" [attr.data-testid]="'hypervisor-v2-unavailable-' + source">
         <div class="hv2-unavailable-copy">
-          <span class="ck-mono hv2-unavailable-kicker">{{ sourceName(source) }}</span>
+          <span class="hv2-unavailable-kicker">{{ sourceName(source) }}</span>
           <p class="hv2-unavailable-text" role="status" aria-live="polite">{{ sourceRetrying(source)
             ? i18n.t('hypervisor.v2.source.retrying')
             : i18n.t('hypervisor.v2.source.unavailable') }}</p>
@@ -1054,13 +1124,75 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       </div>
     </ng-template>
 
-    <ng-template #leaderTpl let-id="id" let-num="num">
-      <div class="hv2-leader">
-        <span class="hv2-leader-bar" aria-hidden="true"></span>
-        <span class="ck-mono hv2-leader-num">{{ num }}</span>
-        <h2 class="hv2-leader-title">{{ i18n.t('hypervisor.v2.leader.' + id + '.title') }}</h2>
+    <ng-template #leaderTpl let-id="id" let-hidden="hidden">
+      <header class="hv2-leader" [class.sr-only]="hidden">
+        <h2 class="hv2-leader-title" [attr.id]="'hv2-leader-' + id">{{ i18n.t('hypervisor.v2.leader.' + id + '.title') }}</h2>
         <p class="hv2-leader-sub">{{ i18n.t('hypervisor.v2.leader.' + id + '.sub') }}</p>
-      </div>
+      </header>
+    </ng-template>
+
+    <ng-template #selectionTpl>
+      <aside class="hv2-selection" data-testid="hypervisor-v2-selection" aria-labelledby="hv2-selection-title">
+        <h3 class="hv2-band-title" id="hv2-selection-title">{{ i18n.t('hypervisor.v2.selection.title') }}</h3>
+        @if (selection().day; as day) {
+          <section class="hv2-sel-block" data-testid="hypervisor-v2-selection-day" [attr.data-mode]="day.mode">
+            <div class="hv2-sel-head">
+              <p class="hv2-label">{{ dayModeLabel(day.mode) }}</p>
+              @if (day.mode === 'locked') {
+                <button type="button" class="hv2-text-btn" data-testid="hypervisor-v2-unlock" (click)="unlockDay()">
+                  {{ i18n.t('hypervisor.v2.selection.unlock') }}
+                  <ck-kbd>{{ i18n.t('hypervisor.v2.theme.quit_kbd') }}</ck-kbd>
+                </button>
+              }
+            </div>
+            <p class="hv2-sel-date">{{ formatLongDate(day.point.date) }}</p>
+            <p class="hv2-sel-value ck-tnum">{{ formatQuantity(day.total) }}</p>
+            <p class="hv2-sel-meta">{{ selectionDayMeta(day.point.runs, day.point.systems) }}</p>
+            @if (day.point.measured > 0 || day.point.declared > 0) {
+              <p class="hv2-sel-split ck-tnum">
+                @if (day.point.measured > 0) {
+                  <span>{{ i18n.t('hypervisor.v2.tip.measured', { mark: measuredMark, value: formatQuantity(day.point.measured) }) }}</span>
+                }
+                @if (day.point.declared > 0) {
+                  <span class="hv2-teal">{{ i18n.t('hypervisor.v2.tip.declared', { mark: declaredMark, value: formatQuantity(day.point.declared) }) }}</span>
+                }
+              </p>
+            }
+          </section>
+          <section class="hv2-sel-block" data-testid="hypervisor-v2-selection-rivers">
+            <p class="hv2-label">{{ i18n.t('hypervisor.v2.selection.rivers') }}</p>
+            @if (selection().rivers.length) {
+              <ul class="hv2-sel-list">
+                @for (part of selection().rivers; track part.systemId) {
+                  <li
+                    class="hv2-sel-row"
+                    [class.hv2-row-lit]="hoverSystem() === part.systemId"
+                    (pointerenter)="onSystemHover(part.systemId)"
+                    (pointerleave)="onSystemHover(null)"
+                  >
+                    <span class="hv2-sel-name">{{ part.label }}</span>
+                    <span class="ck-tnum hv2-sel-num" [class.hv2-teal]="part.declared">{{ riverPartValue(part.value, part.declared) }}</span>
+                  </li>
+                }
+              </ul>
+            } @else {
+              <p class="hv2-muted">{{ i18n.t('hypervisor.v2.selection.rivers_empty') }}</p>
+            }
+          </section>
+        } @else {
+          <p class="hv2-muted">{{ i18n.t('hypervisor.v2.hero.peak.none') }}</p>
+        }
+        @if (selection().system; as sys) {
+          <section class="hv2-sel-block" data-testid="hypervisor-v2-selection-system">
+            <p class="hv2-label">{{ systemModeLabel(sys.mode) }}</p>
+            <p class="hv2-sel-system">{{ sys.row.name }}</p>
+            <p class="hv2-sel-meta">
+              {{ i18n.t('hypervisor.v2.selection.basis') }}
+              <span class="ck-tnum" [class.hv2-teal]="sys.row.basisStatus === 'declared'">{{ basisLabel(sys.row) }}</span>
+            </p>
+          </section>
+        }
+      </aside>
     </ng-template>
 
     <ng-template #registerTpl let-testid="testid">
@@ -1076,7 +1208,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
         } @else {
           <table class="hv2-table">
             <thead>
-              <tr class="ck-mono">
+              <tr>
                 <th>{{ i18n.t('hypervisor.v2.col.system') }}</th>
                 @if (showCol('unit')) { <th>{{ i18n.t('hypervisor.v2.col.unit') }}</th> }
                 @if (showCol('spark')) { <th>{{ periodLabel() }}</th> }
@@ -1104,25 +1236,25 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                         <div class="hv2-system-name">
                           {{ row.name }}
                           @if (cameFromSystem() === row.systemId) {
-                            <span class="ck-mono hv2-came-from">{{ i18n.t('nav.provenance.came_from') }}</span>
+                            <span class="hv2-came-from">{{ i18n.t('nav.provenance.came_from') }}</span>
                           }
                         </div>
-                        <div class="ck-mono hv2-system-meta"><span class="hv2-up">{{ runsWord(row) }}</span> · {{ runsLabel(row) }}</div>
+                        <div class="hv2-system-meta"><span class="hv2-up">{{ runsWord(row) }}</span> · {{ runsLabel(row) }}</div>
                       </div>
                     </div>
                   </td>
                   @if (showCol('unit')) {
                     <td>
-                      <span class="ck-mono ck-tnum hv2-result-value">{{ resultMain(row) }}</span>
+                      <span class="ck-tnum hv2-result-value">{{ resultMain(row) }}</span>
                       <span class="hv2-result-qualifier">{{ resultQualifier(row) }}</span>
                     </td>
                   }
                   @if (showCol('spark')) {
                     <td><ck-chart-mini-area [values]="row.weekSpark" [tone]="sparkTone(row)" [width]="84" [height]="24" [valueLabel]="sparkTip" /></td>
                   }
-                  @if (showCol('cost')) { <td class="ck-mono ck-tnum hv2-num">{{ formatFact(row.cost, 'currency') }}</td> }
+                  @if (showCol('cost')) { <td class="ck-tnum hv2-num">{{ formatFact(row.cost, 'currency') }}</td> }
                   @if (showCol('basis')) {
-                    <td class="ck-mono hv2-basis" [class.hv2-teal]="row.basisStatus === 'declared'" [class.hv2-basis-absent]="!row.basisStatus || row.basisStatus === 'none'">
+                    <td class="hv2-basis ck-tnum" [class.hv2-teal]="row.basisStatus === 'declared'" [class.hv2-basis-absent]="!row.basisStatus || row.basisStatus === 'none'">
                       {{ basisLabel(row) }}
                       @if (!row.basisStatus || row.basisStatus === 'none') {
                         @if (row.capabilityId) {
@@ -1132,7 +1264,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                     </td>
                   }
                   @if (showCol('value')) {
-                    <td class="ck-mono ck-tnum hv2-num" [class.hv2-teal]="row.valueDeclared.state === 'available'">{{ rowValue(row) }}</td>
+                    <td class="ck-tnum hv2-num" [class.hv2-teal]="row.valueDeclared.state === 'available'">{{ rowValue(row) }}</td>
                   }
                   <td class="hv2-arrow-col">
                     <a
@@ -1149,11 +1281,11 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
             <tfoot>
               <tr>
                 <th>{{ i18n.t('hypervisor.v2.register.total_systems', { count: series()!.register.length }) }}</th>
-                @if (showCol('unit')) { <td class="ck-mono ck-tnum">{{ footerResult() }}</td> }
+                @if (showCol('unit')) { <td class="ck-tnum">{{ footerResult() }}</td> }
                 @if (showCol('spark')) { <td></td> }
-                @if (showCol('cost')) { <td class="ck-mono ck-tnum hv2-num">{{ formatFact(series()!.costTotal, 'currency') }}</td> }
-                @if (showCol('basis')) { <td class="ck-mono">{{ i18n.t('hypervisor.v2.register.total_declared', { declared: declaredCount(), total: series()!.register.length }) }}</td> }
-                @if (showCol('value')) { <td class="ck-mono ck-tnum hv2-num" [class.hv2-teal]="series()!.valueTotal.state === 'available'">{{ footerValue() }}</td> }
+                @if (showCol('cost')) { <td class="ck-tnum hv2-num">{{ formatFact(series()!.costTotal, 'currency') }}</td> }
+                @if (showCol('basis')) { <td class="ck-tnum">{{ i18n.t('hypervisor.v2.register.total_declared', { declared: declaredCount(), total: series()!.register.length }) }}</td> }
+                @if (showCol('value')) { <td class="ck-tnum hv2-num" [class.hv2-teal]="series()!.valueTotal.state === 'available'">{{ footerValue() }}</td> }
                 <td></td>
               </tr>
             </tfoot>
@@ -1164,7 +1296,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
 
     <ng-template #basesTpl>
       <article class="hv2-card ck-h-scroll" data-testid="hypervisor-v2-value-bases">
-        <h3 class="ck-mono hv2-kicker">{{ i18n.t('nav.facet.bases') }}</h3>
+        <h3 class="hv2-kicker">{{ i18n.t('nav.facet.bases') }}</h3>
         @if (sourceStates().bases !== 'ready') {
           <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'bases' }"></ng-container>
         } @else if (bases().length === 0) {
@@ -1172,7 +1304,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
         } @else {
           <table class="hv2-table">
             <thead>
-              <tr class="ck-mono">
+              <tr>
                 <th>{{ i18n.t('hypervisor.v2.bases.col.capability') }}</th>
                 <th>{{ i18n.t('hypervisor.v2.bases.col.unit') }}</th>
                 <th>{{ i18n.t('hypervisor.v2.bases.col.hours') }}</th>
@@ -1272,9 +1404,9 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
         }
         <div class="hv2-customize-grid">
           <div class="hv2-customize-assembly" data-testid="hypervisor-customize-assembly">
-            <p class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.customize.assembly') }}</p>
+            <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.customize.assembly') }}</p>
             <fieldset class="hv2-fieldset">
-              <legend class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.customize.denominator') }}</legend>
+              <legend class="hv2-kicker">{{ i18n.t('hypervisor.v2.customize.denominator') }}</legend>
               @for (item of denominators; track item) {
                 <label>
                   <input type="radio" name="denominator" [checked]="view.denominator === item" (change)="setDenominator(item)" />
@@ -1283,7 +1415,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
               }
             </fieldset>
             <fieldset class="hv2-fieldset">
-              <legend class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.customize.period') }}</legend>
+              <legend class="hv2-kicker">{{ i18n.t('hypervisor.v2.customize.period') }}</legend>
               @for (item of periods; track item) {
                 <label>
                   <input type="radio" name="period" [checked]="viewPeriod(view) === item" (change)="setPeriod(item)" />
@@ -1292,7 +1424,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
               }
             </fieldset>
             <fieldset class="hv2-fieldset">
-              <legend class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.customize.sort') }}</legend>
+              <legend class="hv2-kicker">{{ i18n.t('hypervisor.v2.customize.sort') }}</legend>
               @for (item of sorts; track item) {
                 <label>
                   <input type="radio" name="sort" [checked]="view.sort === item" (change)="setSort(item)" />
@@ -1301,7 +1433,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
               }
             </fieldset>
             <fieldset class="hv2-fieldset">
-              <legend class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.customize.columns') }}</legend>
+              <legend class="hv2-kicker">{{ i18n.t('hypervisor.v2.customize.columns') }}</legend>
               @for (item of columns; track item) {
                 <label>
                   <input type="checkbox" [checked]="showsColumn(view, item)" (change)="toggleColumn(item)" />
@@ -1311,7 +1443,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
             </fieldset>
             @for (stratum of strata; track stratum.id) {
               <fieldset class="hv2-fieldset">
-                <legend class="ck-mono hv2-kicker">{{ i18n.t(stratum.label) }}</legend>
+                <legend class="hv2-kicker">{{ i18n.t(stratum.label) }}</legend>
                 @for (block of assembledBlocks(view, stratum.id); track block.type) {
                   <div
                     class="hv2-block-row"
@@ -1329,10 +1461,10 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
             }
           </div>
           <div class="hv2-customize-catalog" data-testid="hypervisor-customize-catalog">
-            <p class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.customize.catalog') }}</p>
+            <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.customize.catalog') }}</p>
             @for (stratum of strata; track stratum.id) {
               <fieldset class="hv2-fieldset">
-                <legend class="ck-mono hv2-kicker">{{ i18n.t(stratum.label) }}</legend>
+                <legend class="hv2-kicker">{{ i18n.t(stratum.label) }}</legend>
                 @for (block of stratum.blocks; track block) {
                   <label>
                     <input type="checkbox" [checked]="showsBlock(view, stratum.id, block)" (change)="toggleBlock(stratum.id, block)" />
@@ -1417,40 +1549,95 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     .hv2-stack { display: flex; flex-direction: column; gap: 20px; }
     .hv2-switch { display: flex; gap: 4px; padding: 4px; background: var(--ck-bg-panel); border: 1px solid var(--ck-stroke-2); border-radius: 8px; }
     .hv2-switch button, .hv2-text-btn {
-      background: transparent; border: 0; color: var(--ck-fg-3); cursor: pointer; border-radius: 6px;
-      font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; padding: 6px 10px;
+      background: transparent; border: 0; color: var(--ck-fg-2); cursor: pointer; border-radius: 6px;
+      font-size: 12px; line-height: 1.3; padding: 6px 10px;
+      display: inline-flex; align-items: center; gap: 6px;
     }
+    .hv2-text-btn:hover, .hv2-switch button:hover { color: var(--ck-fg-1); }
     .hv2-text-btn:disabled { cursor: default; opacity: 0.5; }
-    .hv2-switch-on { color: var(--ck-fg-1); background: var(--ck-bg-inset); outline: 1px solid var(--ck-stroke-strong); }
+    .hv2-switch-on { color: var(--ck-fg-1) !important; background: var(--ck-bg-inset); outline: 1px solid var(--ck-stroke-strong); }
     .hv2-legend {
-      display: flex; justify-content: flex-end; font-size: 11px; color: var(--ck-fg-3);
-      margin: -6px 0 14px; letter-spacing: 0.02em;
+      display: flex; justify-content: flex-end; font-size: 12px; color: var(--ck-fg-3);
+      margin: -6px 0 12px;
     }
-    .hv2-page { display: flex; flex-direction: column; gap: 36px; position: relative; }
-    .hv2-stratum { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 24px; align-items: start; }
-    .hv2-body { min-width: 0; display: flex; flex-direction: column; gap: 0; }
-    .hv2-leader { display: flex; flex-direction: column; gap: 4px; padding-top: 4px; }
-    .hv2-leader-bar { display: block; width: 2px; height: 28px; background: var(--ck-signal-cool); margin-bottom: 6px; }
-    .hv2-leader-num { font-size: 11px; color: var(--ck-fg-3); }
-    .hv2-leader-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--ck-fg-1); }
-    .hv2-leader-sub { margin: 0; font-size: 11px; line-height: 1.4; color: var(--ck-fg-3); }
+    /* Synthèse W2-v5: full-width bands under hairlines, no card series. */
+    .hv2-page { display: flex; flex-direction: column; gap: 0; position: relative; }
+    .hv2-stratum { display: block; min-width: 0; }
+    .hv2-leader {
+      display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px;
+      padding: 32px 0 14px; border-top: 1px solid var(--ck-stroke-strong);
+    }
+    .hv2-leader-title { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.3; color: var(--ck-fg-1); }
+    .hv2-leader-sub { margin: 0; font-size: 12px; line-height: 1.4; color: var(--ck-fg-3); }
+    .hv2-label, .hv2-kicker {
+      margin: 0; font-size: 12px; font-weight: 500; line-height: 1.35; color: var(--ck-fg-3);
+    }
+    .hv2-kicker { margin: 0 0 8px; }
+    .hv2-band { border-top: 1px solid var(--ck-stroke-2); padding: 24px 0; min-width: 0; }
+    .hv2-stratum-bands > .hv2-band:first-of-type { border-top-color: var(--ck-stroke-strong); }
+    .hv2-band-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+    .hv2-band-title { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.25; letter-spacing: -0.01em; color: var(--ck-fg-1); }
+    .hv2-band-sub { margin: 4px 0 0; font-size: 12px; line-height: 1.45; color: var(--ck-fg-3); max-width: 60ch; }
+    .hv2-band-legend { font-size: 12px; color: var(--ck-fg-3); }
 
-    .hv2-hero {
-      display: grid; grid-template-columns: 246px 360px minmax(0, 1fr); align-items: stretch; gap: 10px;
-      margin-inline: -32px;
-      padding: 26px 28px 22px;
-      background: var(--ck-bg-inset);
-      border-block: 1px solid var(--ck-stroke-2);
+    /* 1 · Command band: monument | activity strip | facts. */
+    .hv2-command { display: flex; align-items: stretch; padding: 0; }
+    .hv2-command-col {
+      flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 10px;
+      padding: 28px; border-left: 1px solid var(--ck-stroke-2);
     }
-    .hv2-hero-text { display: flex; flex-direction: column; justify-content: space-between; gap: 18px; min-width: 0; }
-    .hv2-hero-dial { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-    .hv2-hero-flow { min-width: 0; display: flex; flex-direction: column; }
-    .hv2-hero-flow ck-chart-sankey-flow { margin-top: auto; }
-    .hv2-hero:has([data-testid="hypervisor-v2-unites"]) {
-      grid-template-columns: minmax(280px, 1.15fr) minmax(220px, 0.9fr) minmax(240px, 1fr);
-      align-items: start;
-      gap: 28px;
+    .hv2-command-col:first-child { border-left: 0; padding-left: 0; }
+    .hv2-command-col:last-child { padding-right: 0; }
+    .hv2-command-monument { flex: 1.15 1 0; justify-content: center; }
+    .hv2-command-strip { flex: 1.5 1 0; }
+    .hv2-monument-group { margin: 2px 0 0; }
+    .hv2-monument-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+    .hv2-monument-figure { display: inline-flex; align-items: baseline; gap: 8px; white-space: nowrap; }
+    .hv2-monument { font-size: 104px; font-weight: 600; letter-spacing: -0.05em; line-height: 0.9; color: var(--ck-fg-1); }
+    .hv2-monument-state { font-size: 22px; line-height: 1.2; color: var(--ck-fg-2); }
+    .hv2-monument-unit { font-size: 36px; font-weight: 500; color: var(--ck-fg-3); }
+    .hv2-sentence { display: block; margin: 14px 0 0; font-size: 17px; line-height: 1.3; color: var(--ck-fg-2); }
+    .hv2-measured-part { display: block; margin: 6px 0 0; font-size: 13px; line-height: 1.35; color: var(--ck-fg-2); }
+    .hv2-sub { margin: 6px 0 0; font-size: 12px; line-height: 1.4; color: var(--ck-fg-3); }
+    /* No overflow clip: the segments are focusable and the keyboard ring sits
+       outside them. The ends round themselves instead. */
+    .hv2-provenance { display: flex; height: 6px; margin-top: 8px; max-width: 320px; border-radius: 3px; background: var(--ck-stroke-2); }
+    .hv2-provenance > :first-child { border-radius: 3px 0 0 3px; }
+    .hv2-provenance > :last-child { border-radius: 0 3px 3px 0; }
+    .hv2-provenance > :only-child { border-radius: 3px; }
+    .hv2-provenance-ink { background: var(--ck-fg-1); }
+    /* Declared share: a light teal tint over the track (12 %, so the lines keep
+       3:1 on it) under a 45° hatch of the declared ink — readable without
+       colour, and unlike a link or a filled button. */
+    .hv2-provenance-teal {
+      background-color: color-mix(in srgb, var(--ck-data-declared) 12%, transparent);
+      background-image: repeating-linear-gradient(-45deg, var(--ck-data-declared) 0 2px, transparent 2px 5px);
     }
+    .hv2-strip-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+    .hv2-strip { display: block; width: 100%; height: 104px; margin-top: auto; border-bottom: 1px solid var(--ck-stroke-strong); }
+    .hv2-strip-week { fill: var(--ck-fg-1); fill-opacity: 0.07; stroke: var(--ck-fg-3); stroke-width: 1; vector-effect: non-scaling-stroke; }
+    /* Follows every hover and arrow key: the highlight is instant, no transition. */
+    .hv2-strip-mark { fill: var(--ck-fg-3); opacity: 0.75; }
+    .hv2-strip-mark.is-weekend { opacity: 0.45; }
+    .hv2-strip-mark.is-in-week { opacity: 1; }
+    .hv2-strip-mark.is-selected { fill: var(--ck-fg-1); opacity: 1; }
+    .hv2-strip-axis { position: relative; height: 16px; font-size: 11px; color: var(--ck-fg-3); }
+    .hv2-strip-tick { position: absolute; top: 2px; white-space: nowrap; }
+    .hv2-strip-tick.is-selected { color: var(--ck-fg-1); font-weight: 600; }
+    .hv2-teal { color: var(--ck-signal-cool); }
+    .hv2-facts { margin: 0; display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--ck-stroke-2); }
+    .hv2-facts-plain { border-top: 0; padding-top: 0; margin: 10px 0 14px; }
+    .hv2-fact { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; }
+    .hv2-fact dt { font-size: 12px; color: var(--ck-fg-2); }
+    .hv2-fact dd { margin: 0; font-size: 12px; color: var(--ck-fg-1); }
+    .hv2-command-facts { flex: 0.9 1 0; justify-content: center; gap: 12px; margin: 0; padding-top: 28px; border-top: 0; }
+    .hv2-command-facts .hv2-fact dt { font-size: 13px; }
+    .hv2-command-facts .hv2-fact dd { font-size: 15px; }
+    .hv2-card-head-wrap { flex-wrap: wrap; }
+    .hv2-facts-aside { border-top: 0; padding-top: 0; min-width: min(100%, 320px); }
+    .hv2-facts-aside .hv2-fact dt, .hv2-facts-aside .hv2-fact dd { font-size: 13px; }
+    .hv2-fact-share { color: var(--ck-fg-2); margin-left: 4px; }
+
     .hv2-unites { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
     .hv2-unites-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
     .hv2-unites-row {
@@ -1466,57 +1653,54 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       font-size: 13px; line-height: 1.25; color: var(--ck-fg-1);
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-    .hv2-unites-systems { font-size: 10px; color: var(--ck-fg-3); }
+    .hv2-unites-systems { font-size: 12px; color: var(--ck-fg-3); }
     .hv2-unites-row ck-chart-unit-dots { justify-self: end; }
-    .hv2-hero-couverture, .hv2-hero-decision {
-      min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 4px 0;
-    }
+    .hv2-hero-couverture, .hv2-hero-decision { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
     .hv2-hero-couverture .hv2-link { margin-top: auto; }
-    .hv2-card.hv2-hero-signal { align-self: stretch; }
-    .hv2-kicker { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ck-fg-3); margin: 0 0 10px; }
-    .hv2-monument-group { margin: 4px 0 0; }
-    .hv2-monument-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
-    .hv2-monument-figure { display: inline-flex; align-items: baseline; gap: 8px; white-space: nowrap; }
-    .hv2-measured-part { font-size: 12px; line-height: 1.3; letter-spacing: 0.02em; color: var(--ck-fg-1); white-space: nowrap; }
-    .hv2-monument { font-size: 88px; font-weight: 600; letter-spacing: -0.05em; line-height: 0.9; color: var(--ck-fg-1); }
-    .hv2-monument-state { font-size: 22px; letter-spacing: 0.08em; line-height: 1.2; color: var(--ck-fg-2); }
-    .hv2-monument-unit { font-size: 34px; font-weight: 500; color: var(--ck-fg-3); }
-    .hv2-sentence { display: block; margin: 12px 0 0; font-size: 17px; line-height: 1.3; color: var(--ck-fg-2); }
-    .hv2-sub { margin: 6px 0 0; font-size: 12px; line-height: 1.4; color: var(--ck-fg-3); }
-    .hv2-provenance-block { display: flex; flex-direction: column; gap: 12px; }
-    /* No overflow clip: the segments are focusable and the keyboard ring sits
-       outside them. The ends round themselves instead. */
-    .hv2-provenance { display: flex; height: 6px; border-radius: 3px; background: var(--ck-stroke-2); }
-    .hv2-provenance > :first-child { border-radius: 3px 0 0 3px; }
-    .hv2-provenance > :last-child { border-radius: 0 3px 3px 0; }
-    .hv2-provenance > :only-child { border-radius: 3px; }
-    .hv2-provenance-ink { background: var(--ck-fg-1); }
-    /* Declared share: a light teal tint over the track (12 %, so the lines keep
-       3:1 on it) under a 45° hatch of the declared ink — readable without
-       colour, and unlike a link or a filled button. */
-    .hv2-provenance-teal {
-      background-color: color-mix(in srgb, var(--ck-data-declared) 12%, transparent);
-      background-image: repeating-linear-gradient(-45deg, var(--ck-data-declared) 0 2px, transparent 2px 5px);
+
+    /* 2 · Cadran band: the dial dominates, the selection states the live state. */
+    .hv2-cadran-band { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); padding: 0; }
+    .hv2-cadran-col { min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 24px 28px 24px 0; }
+    .hv2-cadran-dial { display: flex; justify-content: center; padding: 12px 0 4px; }
+    .hv2-selection {
+      min-width: 0; display: flex; flex-direction: column; gap: 18px;
+      padding: 24px 0 24px 28px; border-left: 1px solid var(--ck-stroke-2);
     }
-    .hv2-provenance-legend { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; color: var(--ck-fg-2); }
-    .hv2-teal { color: var(--ck-signal-cool); }
-    .hv2-peak-card { border: 1px solid var(--ck-stroke-2); background: var(--ck-bg-panel); padding: 10px 12px; border-radius: 8px; display: flex; flex-direction: column; gap: 6px; transition: background 120ms var(--ck-ease-out, ease-out); }
-    .hv2-peak-lit { background: var(--ck-bg-inset); }
-    .hv2-peak-kicker { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ck-fg-3); display: flex; align-items: center; gap: 6px; }
-    .hv2-dot-teal { width: 6px; height: 6px; border-radius: 50%; background: var(--ck-signal-cool); display: inline-block; }
-    .hv2-peak-row { display: flex; align-items: baseline; gap: 8px; }
-    .hv2-peak-value { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; color: var(--ck-fg-1); }
-    .hv2-peak-detail { font-size: 11px; color: var(--ck-fg-3); }
-    .hv2-peak-split { display: flex; gap: 12px; font-size: 10px; color: var(--ck-fg-2); }
-    .hv2-facts { margin: 0; display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--ck-stroke-2); }
-    .hv2-facts-plain { border-top: 0; padding-top: 0; margin: 10px 0 14px; }
-    .hv2-fact { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; }
-    .hv2-fact dt { font-size: 12px; color: var(--ck-fg-2); }
-    .hv2-fact dd { margin: 0; font-size: 12px; color: var(--ck-fg-1); }
-    .hv2-card-head-wrap { flex-wrap: wrap; }
-    .hv2-facts-aside { border-top: 0; padding-top: 0; min-width: min(100%, 320px); }
-    .hv2-facts-aside .hv2-fact dt, .hv2-facts-aside .hv2-fact dd { font-size: 13px; }
-    .hv2-fact-share { color: var(--ck-fg-2); margin-left: 4px; }
+    .hv2-sel-block { display: flex; flex-direction: column; gap: 4px; padding-top: 16px; border-top: 1px solid var(--ck-stroke-2); }
+    .hv2-sel-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 28px; }
+    .hv2-sel-head .hv2-text-btn { padding: 4px 6px; margin-right: -6px; }
+    .hv2-sel-date { margin: 0; font-size: 14px; line-height: 1.35; color: var(--ck-fg-1); }
+    .hv2-sel-value { margin: 2px 0 0; font-size: 36px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.05; color: var(--ck-fg-1); }
+    .hv2-sel-meta { margin: 0; font-size: 12px; line-height: 1.45; color: var(--ck-fg-2); }
+    .hv2-sel-split { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 0 0; font-size: 12px; color: var(--ck-fg-2); }
+    .hv2-sel-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; }
+    .hv2-sel-row {
+      display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+      padding: 6px 6px; margin: 0 -6px; border-radius: 4px; font-size: 13px; color: var(--ck-fg-1);
+    }
+    .hv2-sel-num { font-size: 13px; white-space: nowrap; }
+    .hv2-sel-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hv2-sel-system { margin: 0; font-size: 18px; font-weight: 600; line-height: 1.3; color: var(--ck-fg-1); }
+
+    /* 3 · Rivers band. */
+    .hv2-rivers ck-chart-stream { margin-top: 4px; }
+
+    /* 4 · Selected system | not in the total. */
+    .hv2-pair { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); padding: 0; }
+    .hv2-pair-col { min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 24px 28px; }
+    .hv2-pair-col:first-child { padding-left: 0; }
+    .hv2-pair-col:last-child { padding-right: 0; }
+    .hv2-pair-col + .hv2-pair-col { border-left: 1px solid var(--ck-stroke-2); }
+    .hv2-system-title { margin: 0; font-size: 26px; font-weight: 600; line-height: 1.2; letter-spacing: -0.01em; color: var(--ck-fg-1); }
+    .hv2-inline-facts { display: flex; flex-wrap: wrap; gap: 8px 32px; margin: 6px 0 4px; }
+    .hv2-inline-facts > div { display: flex; flex-direction: column; gap: 2px; }
+    .hv2-inline-facts dt { font-size: 12px; color: var(--ck-fg-3); }
+    .hv2-inline-facts dd { margin: 0; font-size: 15px; color: var(--ck-fg-1); }
+    .hv2-selected-system .hv2-link { align-self: flex-start; }
+
+    /* 5 · Flux band. */
+    .hv2-flow-band { display: grid; grid-template-columns: minmax(240px, 0.8fr) minmax(0, 2.2fr); gap: 28px; align-items: start; }
+    .hv2-flow-chart { min-width: 0; }
     .hv2-degraded-page { display: flex; flex-direction: column; gap: 14px; }
     .hv2-unavailable {
       display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px;
@@ -1524,7 +1708,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       border-radius: 8px; background: var(--ck-bg-panel);
     }
     .hv2-unavailable-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-    .hv2-unavailable-kicker { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ck-fg-3); }
+    .hv2-unavailable-kicker { font-size: 12px; font-weight: 500; color: var(--ck-fg-3); }
     .hv2-unavailable-text { margin: 0; font-size: 13px; line-height: 1.4; color: var(--ck-fg-1); }
     /* Inside a card the card is the frame: no second box, same copy and action. */
     .hv2-card .hv2-unavailable { padding: 0; border: 0; border-radius: 0; background: transparent; }
@@ -1535,14 +1719,8 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     }
     .hv2-retry:hover { background: var(--ck-bg-inset); }
     .hv2-retry[aria-disabled='true'] { cursor: progress; color: var(--ck-fg-3); }
-    .hv2-presentation-state { font-size: 16px; letter-spacing: 0.08em; line-height: 48px; color: var(--ck-fg-2); }
-    .hv2-chart-caption { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ck-fg-3); text-align: center; }
-    .hv2-flow-title { margin: 0 0 6px; font-size: 15px; font-weight: 600; line-height: 1.3; color: var(--ck-fg-1); }
-    .hv2-flow-explainer { margin: 0 0 12px; font-size: 11px; line-height: 1.45; color: var(--ck-fg-3); max-width: 420px; }
-
-    .hv2-under { display: flex; gap: 14px; align-items: stretch; margin-inline: -32px; padding: 18px 28px 26px; }
-    .hv2-rivers { flex: 2 1 0; min-width: 0; }
-    .hv2-hors { flex: 1 1 0; min-width: 0; border-style: dashed; display: flex; flex-direction: column; gap: 10px; }
+    .hv2-presentation-state { font-size: 16px; line-height: 48px; color: var(--ck-fg-2); }
+    .hv2-chart-caption { margin: 0; font-size: 12px; line-height: 1.4; color: var(--ck-fg-3); text-align: center; }
     .hv2-card { border: 1px solid var(--ck-stroke-2); border-radius: 10px; background: var(--ck-bg-panel); padding: 16px 18px; }
     .hv2-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
     .hv2-card-title { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.3; color: var(--ck-fg-1); }
@@ -1552,17 +1730,17 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     .hv2-hors-list { display: flex; flex-direction: column; gap: 12px; }
     .hv2-hors-row { display: flex; flex-direction: column; gap: 5px; padding: 4px 6px; margin: 0 -6px; border-radius: 6px; transition: background 120ms var(--ck-ease-out, ease-out); }
     .hv2-hors-line { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
-    .hv2-hors-name { font-size: 12px; color: var(--ck-fg-1); }
-    .hv2-hors-value { font-size: 11px; color: var(--ck-fg-1); white-space: nowrap; }
+    .hv2-hors-name { font-size: 13px; color: var(--ck-fg-1); }
+    .hv2-hors-value { font-size: 13px; color: var(--ck-fg-1); white-space: nowrap; }
     .hv2-link { color: var(--ck-signal-cool); text-decoration: none; font-size: 12px; }
     .hv2-link:hover { text-decoration: underline; }
-    .hv2-hors .hv2-link { margin-top: auto; padding-top: 6px; font-size: 12px; }
+    .hv2-hors .hv2-link { margin-top: auto; padding-top: 6px; font-size: 12px; align-self: flex-start; }
 
     .hv2-register { padding: 16px 18px 10px; }
     .hv2-table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .hv2-table thead th {
       text-align: left; padding: 6px 10px 8px; border-bottom: 1px solid var(--ck-stroke-2);
-      font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 500; color: var(--ck-fg-3);
+      font-size: 12px; font-weight: 500; color: var(--ck-fg-3);
     }
     .hv2-table td, .hv2-table tfoot th { text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--ck-stroke-2); vertical-align: middle; }
     .hv2-table tfoot th { font-size: 12px; font-weight: 600; color: var(--ck-fg-1); }
@@ -1573,17 +1751,17 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     .hv2-arrow:hover { color: var(--ck-fg-1); }
     .hv2-system { display: flex; align-items: center; gap: 10px; }
     .hv2-system-name { font-size: 13px; font-weight: 500; color: var(--ck-fg-1); display: inline-flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-    .hv2-came-from { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ck-signal-cool); font-weight: 500; }
-    .hv2-system-meta { font-size: 10px; color: var(--ck-fg-3); margin-top: 2px; }
-    .hv2-up { text-transform: uppercase; letter-spacing: 0.08em; }
-    .hv2-result-value { font-size: 12px; color: var(--ck-fg-1); }
+    .hv2-came-from { font-size: 11px; color: var(--ck-signal-cool); font-weight: 500; }
+    .hv2-system-meta { font-size: 12px; color: var(--ck-fg-3); margin-top: 2px; }
+    .hv2-up { color: var(--ck-fg-2); }
+    .hv2-result-value { font-size: 13px; color: var(--ck-fg-1); }
     .hv2-result-qualifier { font-size: 11px; color: var(--ck-fg-3); margin-left: 6px; }
-    .hv2-basis { font-size: 11px; color: var(--ck-fg-2); white-space: nowrap; }
+    .hv2-basis { font-size: 12px; color: var(--ck-fg-2); white-space: nowrap; }
     .hv2-row-outside .hv2-system-name { color: var(--ck-fg-2); }
     .hv2-glyph {
       display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
       width: 28px; height: 28px; border-radius: 6px;
-      border: 1px solid var(--ck-stroke-strong); font-size: 10px; letter-spacing: 0.06em; color: var(--ck-fg-2);
+      border: 1px solid var(--ck-stroke-strong); font-size: 10px; color: var(--ck-fg-2);
     }
     .hv2-glyph[data-health='pos'] { border-color: var(--ck-signal-pos); }
     .hv2-glyph[data-health='warn'] { border-color: var(--ck-signal-warn); }
@@ -1605,12 +1783,21 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     @media (prefers-reduced-motion: reduce) {
       :host(.hv2-enter) .hv2-register tbody tr,
       :host(.hv2-enter) .hv2-cards3 > .hv2-card { animation: none; }
-      .hv2-table tbody tr, .hv2-hors-row, .hv2-peak-card { transition: none; }
+      .hv2-table tbody tr, .hv2-hors-row { transition: none; }
     }
 
     .hv2-cards3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
     .hv2-cards3 .hv2-card { display: flex; flex-direction: column; gap: 10px; }
     .hv2-cards3 .hv2-kicker { margin: 0; }
+    /* Inside the Synthèse the bands are the frame: cards lose their box and
+       sit as columns between hairlines. Other facets keep their cards. */
+    .hv2-page .hv2-card { border: 0; border-radius: 0; background: transparent; padding: 0; }
+    .hv2-page .hv2-register { padding: 0 0 8px; }
+    .hv2-page .hv2-cards3 { gap: 0; padding-bottom: 8px; }
+    .hv2-page .hv2-cards3 > .hv2-card { padding: 4px 28px 8px; border-left: 1px solid var(--ck-stroke-2); }
+    .hv2-page .hv2-cards3 > .hv2-card:first-child { padding-left: 0; border-left: 0; }
+    .hv2-page .hv2-cards3 > .hv2-card:last-child { padding-right: 0; }
+    .hv2-page .hv2-command .hv2-card { padding: 0; }
     .hv2-card-signal { border-left: 2px solid var(--ck-signal-warn); }
     .hv2-card-decision { border-left: 2px solid var(--ck-signal-cool); }
     .hv2-card-bases { border-style: dashed; }
@@ -1638,16 +1825,23 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       border: 1px solid var(--ck-stroke-2); padding: 4px 6px;
     }
     @media (max-width: 1240px) {
-      .hv2-hero { grid-template-columns: 246px minmax(0, 1fr); }
-      .hv2-hero-flow { grid-column: 1 / -1; }
-      .hv2-under { flex-direction: column; }
+      .hv2-command { flex-wrap: wrap; }
+      .hv2-command-strip { order: 3; flex-basis: 100%; border-left: 0; border-top: 1px solid var(--ck-stroke-2); padding-inline: 0; }
+      .hv2-cadran-band, .hv2-flow-band { grid-template-columns: minmax(0, 1fr); }
+      .hv2-cadran-col { padding-right: 0; }
+      .hv2-selection { border-left: 0; border-top: 1px solid var(--ck-stroke-2); padding-left: 0; }
     }
     @media (max-width: 900px) {
-      .hv2-stratum { grid-template-columns: 1fr; gap: 12px; }
-      .hv2-hero { margin-inline: -14px; padding-inline: 14px; grid-template-columns: 1fr; }
-      .hv2-hero-flow { grid-column: auto; }
-      .hv2-under { margin-inline: -14px; padding-inline: 14px; }
+      .hv2-command { flex-direction: column; }
+      .hv2-command-col { padding-inline: 0; border-left: 0; }
+      .hv2-command-col + .hv2-command-col { border-top: 1px solid var(--ck-stroke-2); }
+      .hv2-monument { font-size: 72px; }
+      .hv2-pair { grid-template-columns: minmax(0, 1fr); }
+      .hv2-pair-col { padding-inline: 0; }
+      .hv2-pair-col + .hv2-pair-col { border-left: 0; border-top: 1px solid var(--ck-stroke-2); }
       .hv2-cards3 { grid-template-columns: 1fr; }
+      .hv2-page .hv2-cards3 > .hv2-card { padding-inline: 0; border-left: 0; }
+      .hv2-page .hv2-cards3 > .hv2-card + .hv2-card { border-top: 1px solid var(--ck-stroke-2); padding-top: 16px; }
     }
   `],
 })
@@ -1718,8 +1912,19 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   readonly basisError = signal(false);
   readonly editingId = signal<string | null>(null);
   readonly draft = signal<BasisDraft | null>(null);
-  readonly hoverDay = signal<number | null>(null);
+  /** Day lock (L28): `hover` previews, `locked` pins; every linked view reads `selectedDayIndex`. */
+  readonly dayLock = signal<DayLockState>(DAY_LOCK_IDLE);
+  readonly hoverDay = computed(() => this.dayLock().hover);
+  readonly lockedDay = computed(() => this.dayLock().locked);
+  readonly selectedDayIndex = computed(() => selectedDay(this.dayLock()));
+  readonly lockAnnouncement = signal('');
   readonly hoverSystem = signal<string | null>(null);
+  /** Last system clicked in the Flux: the selection panel keeps naming it after the pointer leaves. */
+  readonly pinnedSystem = signal<string | null>(null);
+  readonly selection = computed(() =>
+    selectionModel(this.series(), this.dayLock(), this.hoverSystem(), this.pinnedSystem()),
+  );
+  readonly strip = computed(() => activityStrip(this.series()?.days ?? [], this.selectedDayIndex()));
   readonly flashSystem = signal<string | null>(null);
   readonly cameFromSystem = signal<string | null>(null);
   readonly arrival = signal<ArrivalProvenance | null>(null);
@@ -1958,8 +2163,13 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   private readonly applySourceOutcome: { [K in ImpactSourceId]: (outcome: SourceOutcome<ImpactSourceValues[K]>) => void } = {
     series: (outcome) => {
       const value = outcome.ok ? outcome.value : null;
+      const previous = this.series();
       this.lastSeries = value;
       this.series.set(value ? projectSeries(value, viewDenominator(this.activeView())) : null);
+      const next = this.series();
+      if (!next || !previous || next.from !== previous.from || next.to !== previous.to) {
+        this.applyDayLock({ type: 'reset' });
+      }
       this.markSource('series', outcome.ok ? 'ready' : 'unavailable');
     },
     bases: (outcome) => {
@@ -2017,8 +2227,35 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   }
 
   onDayHover(index: number | null): void {
-    if (this.hoverDay() === index) return;
-    this.hoverDay.set(index);
+    this.applyDayLock({ type: 'hover', day: index });
+  }
+
+  /** Click, Enter or Space on a spoke or a river day: lock it, or unlock it if it is the locked day. */
+  onDayLock(index: number): void {
+    this.applyDayLock({ type: 'toggle', day: index });
+  }
+
+  unlockDay(): void {
+    this.applyDayLock({ type: 'escape' });
+  }
+
+  private applyDayLock(event: DayLockEvent): void {
+    const prev = this.dayLock();
+    const next = reduceDayLock(prev, event);
+    if (next === prev) return;
+    this.dayLock.set(next);
+    const change = lockTransition(prev, next);
+    if (change === 'locked') this.lockAnnouncement.set(this.lockedDayAnnouncement(next.locked!));
+    else if (change === 'unlocked') this.lockAnnouncement.set(this.i18n.t('hypervisor.v2.lock.unlocked'));
+  }
+
+  private lockedDayAnnouncement(index: number): string {
+    const point = this.series()?.days[index];
+    if (!point) return '';
+    return this.i18n.t('hypervisor.v2.lock.locked', {
+      date: this.formatLongDate(point.date),
+      value: this.formatQuantity(point.measured + point.declared),
+    });
   }
 
   onSystemHover(id: string | null): void {
@@ -2028,6 +2265,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
 
   onSystemClick(id: string): void {
     this.onSystemHover(id);
+    this.pinnedSystem.set(id);
     const row = this.host.nativeElement.querySelector(
       `[data-testid="hypervisor-v2-register"] [data-system-id="${CSS.escape(id)}"]`,
     );
@@ -2102,6 +2340,16 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     if (event.key === 'Escape' && this.presentationTheme() && this.canExitPresentationTheme()) {
       event.preventDefault();
       this.exitPresentationTheme();
+      return;
+    }
+    if (
+      event.key === 'Escape'
+      && !event.defaultPrevented
+      && this.lockedDay() != null
+      && !this.customizeOpen()
+    ) {
+      event.preventDefault();
+      this.unlockDay();
     }
   }
 
@@ -2287,12 +2535,11 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     return showsBlock(this.activeView(), stratum, block);
   }
 
-  showHero(): boolean {
+  /** The W2-v5 command band: monument, facts, and the view's other headline blocks. */
+  showCommandBand(): boolean {
     return (
       this.showBlock('comprendre', 'monument')
       || this.showBlock('comprendre', 'provenance')
-      || this.showBlock('comprendre', 'cadran')
-      || this.showBlock('comprendre', 'sankey')
       || this.showBlock('comprendre', 'unites')
       || this.showBlock('comprendre', 'couverture')
       || this.showBlock('comprendre', 'signal')
@@ -2347,14 +2594,105 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       : this.i18n.t('hypervisor.v2.hero.monument_label', { amount, sentence });
   }
 
-  heroSub(): string {
+
+
+  // --- Synthèse W2-v5 -------------------------------------------------------
+
+  /** Facts column of the command band: « Systèmes comptés en heures : 3 / 14 ». */
+  countedFact(): string {
     const view = this.series();
     if (!view) return '';
-    return this.i18n.t(`hypervisor.v2.hero.sub.${this.denominator()}`, {
-      inside: view.register.length - view.outside.length,
-      total: view.register.length,
+    return `${view.register.length - view.outside.length} / ${view.register.length}`;
+  }
+
+  countedLabel(): string {
+    return this.i18n.t(`hypervisor.v2.facts.counted.${this.denominator()}`);
+  }
+
+  cadranTitle(): string {
+    return this.i18n.t('hypervisor.v2.cadran.title', { days: this.dayCount() });
+  }
+
+
+
+  stripWeekLabel(isoWeek: number): string {
+    return this.i18n.t('hypervisor.v2.tick.week', { week: isoWeek });
+  }
+
+  /** Strip week labels: whole weeks only (a 1-day edge week would collide), every other one past 7 weeks. */
+  stripShowsWeek(week: { start: number; end: number }, position: number): boolean {
+    if (week.end - week.start < 4) return false;
+    return this.strip().weeks.length <= 7 || position % 2 === 0;
+  }
+
+  stripMarkX(index: number): number {
+    const n = Math.max(1, this.strip().marks.length);
+    return (index / n) * 100;
+  }
+
+  stripSummary(): string {
+    const strip = this.strip();
+    const view = this.series();
+    if (!view || !strip.marks.length) return '';
+    const active = strip.marks.filter((mark) => mark.total > 0).length;
+    return this.i18n.t('hypervisor.v2.strip.summary', {
+      active,
+      days: strip.marks.length,
+      range: this.rangeLabel(),
     });
   }
+
+  dayModeLabel(mode: SelectionDayMode): string {
+    return this.i18n.t(`hypervisor.v2.selection.day.${mode}`);
+  }
+
+  systemModeLabel(mode: SelectionSystemMode): string {
+    return this.i18n.t(`hypervisor.v2.selection.system.${mode}`, { days: this.dayCount() });
+  }
+
+  selectionDayMeta(runs: number, systems: number): string {
+    // Counted in runs, the big number already is the runs: say only the systems.
+    if (this.denominator() === 'runs') {
+      return this.i18n.t('hypervisor.v2.selection.day.meta_systems', { systems: this.formatNumber(systems, 0) });
+    }
+    return this.i18n.t('hypervisor.v2.selection.day.meta', {
+      runs: this.formatNumber(runs, 0),
+      systems: this.formatNumber(systems, 0),
+    });
+  }
+
+  riverPartValue(value: number, declared: boolean): string {
+    return `${this.formatQuantity(value)} ${declared ? MARK_DECLARED : MARK_MEASURED}`;
+  }
+
+  systemHours(row: HypervisorRegisterRow): string {
+    const hours = availableNumber(row.hours);
+    if (hours == null) return this.factLabel(row.hours);
+    return `${this.formatQuantity(hours)} ${row.basisStatus === 'measured' ? MARK_MEASURED : MARK_DECLARED}`;
+  }
+
+  systemCost(row: HypervisorRegisterRow): string {
+    const cost = availableNumber(row.cost);
+    if (cost == null) return this.factLabel(row.cost);
+    return `${this.formatMoney(cost, row.currency ?? this.series()?.currency, 0)} ${MARK_MEASURED}`;
+  }
+
+  systemValue(row: HypervisorRegisterRow): string {
+    const value = availableNumber(row.valueDeclared);
+    if (value == null) return this.factLabel(row.valueDeclared);
+    return `≈ ${this.formatMoney(value, row.currency ?? this.series()?.currency, 0)} ${MARK_DECLARED}`;
+  }
+
+  /** The accessible name of a river day: date, total and the per-system breakdown. */
+  readonly riverDayAria = (index: number): string => {
+    const view = this.series();
+    const point = view?.days[index];
+    if (!view || !point) return '';
+    const parts = view.streams
+      .filter((row) => (row.values[index] ?? 0) > 0)
+      .map((row) => `${row.label} ${this.riverPartValue(row.values[index] ?? 0, row.tone === 'declared' || row.tone === 'declared-soft')}`);
+    return [this.formatDate(point.date, true), this.formatQuantity(point.measured + point.declared), ...parts].join(' · ');
+  };
 
   provenance(): { measured: number; declared: number; measuredPct: string; declaredPct: string } | null {
     const view = this.series();
@@ -2369,20 +2707,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     };
   }
 
-  peakCard(): { date: string; total: string; detail: string; measured: string; declared: string } | null {
-    const peak = this.series()?.peak;
-    if (!peak) return null;
-    return {
-      date: this.formatDate(peak.date, true),
-      total: this.formatQuantity(peak.total),
-      detail: this.i18n.t('hypervisor.v2.hero.peak.detail', {
-        runs: this.formatNumber(peak.runs, 0),
-        systems: peak.systems,
-      }),
-      measured: peak.measured > 0 ? this.formatQuantity(peak.measured) : '',
-      declared: peak.declared > 0 ? this.formatQuantity(peak.declared) : '',
-    };
-  }
+
 
   costFact(): string {
     const fact = this.series()?.costTotal;
@@ -3033,6 +3358,20 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     }).format(date);
   }
 
+  /** `lundi 31 août` / `Monday, August 31`: the day as the lock announcement says it. */
+  formatLongDate(iso: string | null | undefined): string {
+    if (!iso) return '';
+    const key = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : iso.slice(0, 10);
+    const date = new Date(`${key}T12:00:00Z`);
+    if (Number.isNaN(date.getTime())) return iso;
+    return new Intl.DateTimeFormat(this.localeTag(), {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      timeZone: 'UTC',
+    }).format(date);
+  }
+
   factLabel(fact: SeriesFact): string {
     return this.i18n.t(`hypervisor.state.${fact.state}`);
   }
@@ -3119,8 +3458,10 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     this.painted = false;
     this.entering.set(false);
     this.monumentValue.set('');
-    this.hoverDay.set(null);
+    this.dayLock.set(DAY_LOCK_IDLE);
+    this.lockAnnouncement.set('');
     this.hoverSystem.set(null);
+    this.pinnedSystem.set(null);
     this.stopMonument();
   }
 

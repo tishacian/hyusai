@@ -74,11 +74,14 @@ const HIT_PAD = 12;
       [attr.width]="size"
       [attr.height]="size"
       style="display:block;overflow:visible"
+      [class.is-lock-view]="isLockView()"
       (pointerdown)="onPointer($event)"
       (pointermove)="onPointer($event)"
       (pointerleave)="onLeave()"
       (focusin)="onPointer($event)"
       (focusout)="onLeave()"
+      (click)="onClick($event)"
+      (keydown)="onKeydown($event)"
     >
       <defs>
         <radialGradient [attr.id]="haloId">
@@ -132,14 +135,28 @@ const HIT_PAD = 12;
           }
           <path
             class="ck-hit"
-            role="img"
+            role="button"
             [attr.d]="spoke.hit"
             [attr.data-day]="spoke.index"
             [attr.data-testid]="spoke.peak ? 'ck-radial-peak' : null"
-            [attr.tabindex]="spoke.peak ? 0 : -1"
+            [attr.tabindex]="spoke.index === rovingDay() ? 0 : -1"
+            [attr.aria-pressed]="spoke.index === lockedDay"
             [attr.aria-label]="spoke.aria"
           />
         </g>
+      }
+      @if (lockMark; as mark) {
+        <circle
+          class="ck-lock-mark"
+          data-testid="ck-radial-lock"
+          [attr.cx]="mark.x"
+          [attr.cy]="mark.y"
+          r="3.5"
+          fill="var(--ck-bg-base)"
+          stroke="var(--ck-fg-1)"
+          stroke-width="1.5"
+          aria-hidden="true"
+        />
       }
       @for (mark of peakMarks; track $index) {
         <text
@@ -147,7 +164,7 @@ const HIT_PAD = 12;
           [attr.y]="mark.y"
           fill="var(--ck-fg-1)"
           font-family="var(--ck-font-mono)"
-          font-size="10"
+          [attr.font-size]="10 * labelScale"
           text-anchor="middle"
         >{{ mark.label }}</text>
       }
@@ -168,7 +185,7 @@ const HIT_PAD = 12;
             [attr.y]="tick.y"
             fill="var(--ck-fg-3)"
             font-family="var(--ck-font-mono)"
-            font-size="8"
+            [attr.font-size]="8 * labelScale"
             text-anchor="middle"
           >{{ tick.label }}</text>
         </g>
@@ -176,23 +193,21 @@ const HIT_PAD = 12;
       @if (rangeLabel) {
         <text
           [attr.x]="cx"
-          y="9"
+          [attr.y]="10 * labelScale"
           fill="var(--ck-fg-3)"
           font-family="var(--ck-font-mono)"
-          font-size="8"
-          letter-spacing="1"
+          [attr.font-size]="9 * labelScale"
           text-anchor="middle"
-          style="text-transform:uppercase"
         >{{ rangeLabel }}</text>
       }
       @if (shownCenter) {
         <text
           [attr.x]="cx"
-          [attr.y]="cy - 4"
+          [attr.y]="cy - 4 * textScale"
           fill="var(--ck-fg-1)"
           font-family="var(--ck-font-sans)"
           font-weight="600"
-          font-size="26"
+          [attr.font-size]="26 * textScale"
           letter-spacing="-0.5"
           text-anchor="middle"
         >{{ shownCenter }}</text>
@@ -200,10 +215,10 @@ const HIT_PAD = 12;
       @if (shownCaption) {
         <text
           [attr.x]="cx"
-          [attr.y]="cy + 14"
+          [attr.y]="cy + 14 * textScale"
           fill="var(--ck-fg-3)"
           font-family="var(--ck-font-sans)"
-          font-size="10"
+          [attr.font-size]="10 * textScale"
           text-anchor="middle"
         >{{ shownCaption }}</text>
       }
@@ -217,11 +232,17 @@ const HIT_PAD = 12;
     />
   `,
   styles: [`
-    :host { display: block; position: relative; }
+    :host { display: block; position: relative; max-width: 100%; }
+    svg { max-width: 100%; height: auto; }
     .ck-spoke { transition: opacity 160ms var(--ck-ease-out, ease-out); }
+    /* Arrow keys walk the days: keyboard moves never animate. */
+    svg:has(.ck-hit:focus-visible) .ck-spoke { transition: none; }
     .ck-spoke.is-dim { opacity: 0.35; }
+    /* A lock stays on screen while the reader works elsewhere: dim less than a passing hover. */
+    .is-lock-view .ck-spoke.is-dim { opacity: 0.55; }
     .ck-spoke.is-lit { opacity: 1; }
-    .ck-hit { fill: transparent; stroke: transparent; stroke-width: 12; stroke-linecap: round; pointer-events: stroke; }
+    .ck-hit { fill: transparent; stroke: transparent; stroke-width: 12; stroke-linecap: round; pointer-events: stroke; cursor: pointer; }
+    path.ck-hit:focus-visible { outline: 2px solid var(--ck-primary); outline-offset: 1px; }
     rect.ck-hit { pointer-events: all; stroke-width: 0; }
     :host-context(.hv2-enter) .ck-spoke-stroke {
       stroke-dasharray: var(--len);
@@ -258,7 +279,11 @@ export class CkChartRadialDaysComponent implements OnChanges {
   /** Formats the total of a peak day for its spoke-tip label (e.g. `71 h`). */
   @Input() peakLabel: (total: number) => string = (total) => String(Math.round(total));
   @Input() hoverDay: number | null = null;
+  /** The day the page locked (click, Enter, Space): keeps its ring and the keyboard entry point. */
+  @Input() lockedDay: number | null = null;
   @Output() readonly dayHover = new EventEmitter<number | null>();
+  /** Click, Enter or Space on a spoke: the page toggles its lock on that day. */
+  @Output() readonly dayLock = new EventEmitter<number>();
 
   readonly haloId = ckChartUid('ck-radial-halo');
 
@@ -269,6 +294,8 @@ export class CkChartRadialDaysComponent implements OnChanges {
   tipY = 0;
   private hoverWeek: number | null = null;
   private localDay: number | null = null;
+  /** Roving tab stop: the spoke the arrow keys last moved to. */
+  private focusDay: number | null = null;
   private built: RadialLayout | null = null;
 
   get cx(): number {
@@ -277,6 +304,16 @@ export class CkChartRadialDaysComponent implements OnChanges {
 
   get cy(): number {
     return this.size / 2;
+  }
+
+  /** Centre copy grows with the dial so a 580-unit cadran does not whisper. */
+  get textScale(): number {
+    return Math.max(1, this.size / 360);
+  }
+
+  /** Tick, peak and range labels grow more slowly than the centre. */
+  get labelScale(): number {
+    return Math.max(1, Math.sqrt(this.size / 360));
   }
 
   get haloRadius(): number {
@@ -312,10 +349,65 @@ export class CkChartRadialDaysComponent implements OnChanges {
     return this.days[day]?.shortLabel || this.days[day]?.dateLabel || this.centerCaption;
   }
 
+  /** Ring on the tip of the locked spoke: tells a lock from a passing preview, without motion. */
+  get lockMark(): { x: number; y: number } | null {
+    const day = this.lockedDay;
+    if (day == null) return null;
+    const spoke = this.spokes[day];
+    if (!spoke) return null;
+    const angle = radialDayAngle(day, this.days.length || 30);
+    const reach = this.innerRadius + Math.max(8, spoke.len) + 7;
+    return { x: this.cx + reach * Math.cos(angle), y: this.cy + reach * Math.sin(angle) };
+  }
+
   ngOnChanges(changes: SimpleChanges): void {
     if (shouldRebuildLayout(Object.keys(changes)) || !this.built) {
       this.built = this.build();
     }
+    if (changes['days'] && this.focusDay != null && this.focusDay >= this.days.length) this.focusDay = null;
+  }
+
+  /** The one spoke in the tab order: the last one reached by arrows, else the lock, else the peak. */
+  rovingDay(): number {
+    const n = this.spokes.length;
+    const pick = this.focusDay ?? this.lockedDay;
+    if (pick != null && pick >= 0 && pick < n) return pick;
+    const peak = this.spokes.findIndex((spoke) => spoke.peak);
+    return peak >= 0 ? peak : 0;
+  }
+
+  onClick(event: MouseEvent): void {
+    const dayAttr = attrFromTarget(event.target, 'data-day');
+    if (dayAttr == null) return;
+    this.dayLock.emit(Number(dayAttr));
+  }
+
+  onKeydown(event: KeyboardEvent): void {
+    const dayAttr = attrFromTarget(event.target, 'data-day');
+    if (dayAttr == null) return;
+    const index = Number(dayAttr);
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      this.dayLock.emit(index);
+      return;
+    }
+    const n = this.spokes.length;
+    if (!n) return;
+    const next = rovingTarget(event.key, index, n);
+    if (next == null) return;
+    event.preventDefault();
+    this.focusSpoke(event.currentTarget, next);
+  }
+
+  private focusSpoke(svg: EventTarget | null, index: number): void {
+    if (!(svg instanceof Element)) return;
+    const target = svg.querySelector(`[data-day="${index}"]`);
+    if (!(target instanceof SVGElement)) return;
+    // The global ring skips [tabindex="-1"]; the stop moves before focus does.
+    svg.querySelectorAll('[data-day][tabindex="0"]').forEach((node) => node.setAttribute('tabindex', '-1'));
+    target.setAttribute('tabindex', '0');
+    this.focusDay = index;
+    target.focus();
   }
 
   isDayLit(index: number): boolean {
@@ -323,6 +415,11 @@ export class CkChartRadialDaysComponent implements OnChanges {
     if (day === index) return true;
     if (this.hoverWeek != null) return index >= this.hoverWeek && index < this.hoverWeek + 7;
     return false;
+  }
+
+  /** The lit day is the lock, not a pointer or keyboard preview. */
+  isLockView(): boolean {
+    return this.lockedDay != null && this.localDay == null && this.hoverWeek == null && this.hoverDay === this.lockedDay;
   }
 
   isDimmed(): boolean {
@@ -493,6 +590,25 @@ export class CkChartRadialDaysComponent implements OnChanges {
       0,
     );
     return peak || 1;
+  }
+}
+
+/** Arrow keys walk the days (the dial reads clockwise), Home and End jump to the ends. */
+export function rovingTarget(key: string, index: number, count: number): number | null {
+  if (count <= 0) return null;
+  switch (key) {
+    case 'ArrowRight':
+    case 'ArrowDown':
+      return (index + 1) % count;
+    case 'ArrowLeft':
+    case 'ArrowUp':
+      return (index - 1 + count) % count;
+    case 'Home':
+      return 0;
+    case 'End':
+      return count - 1;
+    default:
+      return null;
   }
 }
 

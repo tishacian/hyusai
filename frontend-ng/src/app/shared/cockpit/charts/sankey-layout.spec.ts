@@ -50,7 +50,7 @@ test('dense layout reproduces the approved scale and stacks stubs under the hour
   assert.ok(layout.labels.some((label) => label.text === '612 runs'), 'run count under tall nodes');
   assert.ok(!layout.labels.some((label) => label.text === '96 runs'), 'no run count under short nodes');
   assert.deepEqual(
-    layout.labels.filter((label) => label.tracking === 1).map((label) => label.text),
+    layout.labels.filter((label) => label.caption).map((label) => label.text),
     ['RUNS ●', 'RÉSULTATS', 'VALEUR ◐'],
   );
 });

@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -652,7 +653,9 @@ test.describe('Hypervisor V2 — mocked visual', () => {
 
         if (kind === 'dense') {
           await expect(page.locator('[data-testid="hypervisor-v2-hero"] .hv2-monument')).toContainText(/1\s*284/);
-          await expect(page.locator('[data-testid="hypervisor-v2-hero"] .hv2-peak-value')).toContainText(/71/);
+          // L28: the peak card became the selection panel; at rest it names the busiest day.
+          await expect(page.getByTestId('hypervisor-v2-selection-day')).toHaveAttribute('data-mode', 'peak');
+          await expect(page.getByTestId('hypervisor-v2-selection-day')).toContainText(/71/);
         } else {
           await expect(page.locator('[data-testid="hypervisor-v2-hero"] .hv2-monument')).toContainText(/2[,.]5/);
         }
@@ -678,7 +681,7 @@ test.describe('Hypervisor V2 — mocked visual', () => {
           await expect(page.locator('app-hypervisor-v2.hv2-enter')).toHaveCount(0, { timeout: 4_000 });
           await captureHoverProof(page, theme, shots);
           await page.getByTestId('hypervisor-v2-view-operations').click();
-          await expect(page.locator('[data-testid="hypervisor-v2-hero"] .hv2-monument-unit')).toContainText(/runs/i);
+          await expect(page.locator('[data-testid="hypervisor-v2-hero"] .hv2-monument-unit')).toContainText(/exécutions/i);
           const operations = path.join(RESULTS, `dense-${theme}-operations.png`);
           await captureFullLedger(page, operations);
           shots[`dense-${theme}-operations`] = operations;
@@ -878,6 +881,103 @@ test.describe('Hypervisor V2 — L24 honest labels and per-block degraded state'
       await expect(page.getByText('Aucune série visible sur cette fenêtre.')).toHaveCount(0);
       await expect(page.locator('.hv2-card-decision')).toBeVisible();
       await captureFullLedger(page, path.join(RESULTS, `l24-${theme}-degraded-series.png`));
+      await context.close();
+    });
+  }
+});
+
+test.describe('Hypervisor V2 — L28 Synthèse W2-v5', () => {
+  test.skip(!visualEnabled, 'Set E2E_HYPERVISOR_V2_VISUAL=1 to run');
+  test.setTimeout(3 * 60 * 1_000);
+
+  for (const theme of ['dark', 'light'] as const) {
+    test(`command band, day locked from the keyboard, axe (${theme})`, async ({ browser }) => {
+      await mkdir(RESULTS, { recursive: true });
+      const context = await browser.newContext({
+        viewport: { width: 1680, height: 1100 },
+        locale: 'fr-FR',
+        colorScheme: theme,
+      });
+      const page = await context.newPage();
+      await installMocks(page, 'dense', theme);
+      await openHypervisor(page);
+
+      // Command band: accepted L24 wording, no ratio, the facts column.
+      const hero = page.getByTestId('hypervisor-v2-hero');
+      await expect(hero).toContainText('heures de travail attribuées aux agents en 30 jours');
+      await expect(hero.getByTestId('hypervisor-v2-measured-part')).toContainText(/dont \d+\s*% mesurées/);
+      await expect(hero.locator('[data-fact="ratio"]'), 'the ratio lives in Coûts').toHaveCount(0);
+      await expect(hero).not.toContainText('×');
+      await expect(hero).toContainText('Systèmes comptés en heures');
+      await expect(hero.locator('[data-fact="counted"]')).toHaveText(/3\s*\/\s*6/);
+      await expect(page.getByTestId('hypervisor-v2-activity-strip').locator('.hv2-strip-mark')).toHaveCount(30);
+      await expect(page.locator('.hv2-kicker, .hv2-label').first()).not.toHaveCSS('text-transform', 'uppercase');
+
+      const day = page.getByTestId('hypervisor-v2-selection-day');
+      await expect(day).toHaveAttribute('data-mode', 'peak');
+      await expect(page.locator('app-hypervisor-v2.hv2-enter')).toHaveCount(0, { timeout: 4_000 });
+      await captureFullLedger(page, path.join(RESULTS, `l28-${theme}-synthese.png`));
+      await page.setViewportSize({ width: 1680, height: 1100 });
+
+      // Keyboard: the peak spoke is the tab stop, arrows walk the days, Enter locks.
+      await page.getByTestId('ck-radial-peak').focus();
+      await page.keyboard.press('ArrowRight');
+      await expect(page.locator('ck-chart-radial-days [data-day="17"]')).toBeFocused();
+      await page.locator('ck-chart-radial-days').screenshot({ path: path.join(RESULTS, `l28-${theme}-focus.png`) });
+      await page.keyboard.press('Enter');
+      const announcer = page.getByTestId('hypervisor-v2-lock-announcer');
+      await expect(announcer).toHaveText(/^Jour verrouillé : mercredi 26 août, \d+ h$/);
+      const lockedTotal = (await announcer.textContent())?.match(/(\d+) h$/)?.[1] ?? '';
+      await expect(day.locator('.hv2-sel-value')).toHaveText(`${lockedTotal} h`);
+      await expect(day).toHaveAttribute('data-mode', 'locked');
+      await expect(page.locator('ck-chart-radial-days [data-day="17"]')).toHaveAttribute('aria-pressed', 'true');
+      await page.evaluate(() => (document.activeElement as HTMLElement | SVGElement | null)?.blur());
+      await page.mouse.move(4, 4);
+      await expect(day, 'the lock outlives focus and pointer').toHaveAttribute('data-mode', 'locked');
+
+      // Rivers follow: a solid crosshair on the same day, its breakdown docked beside it.
+      const rivers = page.getByTestId('hypervisor-v2-rivers');
+      const crosshair = rivers.locator('ck-chart-stream .ck-crosshair');
+      await expect(crosshair).toHaveCount(1);
+      await expect(crosshair).toHaveClass(/is-locked/);
+      const offset = await rivers.locator('ck-chart-stream').evaluate((el) => {
+        const line = el.querySelector('.ck-crosshair');
+        const rect = el.querySelector('[data-testid="ck-stream-day-17"]');
+        const x = Number(line?.getAttribute('x1'));
+        return Math.abs(x - (Number(rect?.getAttribute('x')) + Number(rect?.getAttribute('width')) / 2));
+      });
+      expect(offset).toBeLessThan(0.5);
+      await expect(rivers.getByTestId('ck-stream-day-17')).toHaveAttribute('aria-pressed', 'true');
+      await expect(rivers.locator('[data-testid="ck-chart-tip"]')).toBeVisible();
+      await expect(page.getByTestId('hypervisor-v2-activity-strip').locator('.hv2-strip-mark.is-selected')).toHaveAttribute('data-day', '17');
+      await expect(page.getByTestId('hypervisor-v2-selection-rivers').locator('li')).not.toHaveCount(0);
+      await expect(page.getByTestId('hypervisor-v2-selected-system')).toContainText('Premier système ce jour-là');
+      await captureFullLedger(page, path.join(RESULTS, `l28-${theme}-locked.png`));
+      await page.setViewportSize({ width: 1680, height: 1100 });
+
+      const axe = await new AxeBuilder({ page })
+        .include('app-hypervisor-v2')
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+        .analyze();
+      expect(
+        axe.violations,
+        JSON.stringify(axe.violations.map((v) => ({ id: v.id, nodes: v.nodes.slice(0, 3).map((n) => n.target) })), null, 1),
+      ).toEqual([]);
+
+      // Escape unlocks; a click locks; a hover elsewhere previews without replacing the lock.
+      await page.keyboard.press('Escape');
+      await expect(announcer).toHaveText('Jour déverrouillé.');
+      await expect(day).toHaveAttribute('data-mode', 'peak');
+      await rivers.getByTestId('ck-stream-day-9').click();
+      await page.mouse.move(4, 4);
+      await expect(day).toHaveAttribute('data-mode', 'locked');
+      await expect(announcer).toContainText('Jour verrouillé');
+      await rivers.getByTestId('ck-stream-day-22').hover();
+      await expect(day).toHaveAttribute('data-mode', 'preview');
+      await page.mouse.move(4, 4);
+      await expect(day).toHaveAttribute('data-mode', 'locked');
+      await rivers.getByTestId('ck-stream-day-9').click();
+      await expect(announcer).toHaveText('Jour déverrouillé.');
       await context.close();
     });
   }
