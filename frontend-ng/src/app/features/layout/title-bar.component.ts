@@ -877,14 +877,30 @@ export class TitleBarComponent {
       this.helpOverlay.close();
       return;
     }
-    const originLabel = this.workspaceService.current()?.name
-      || this.i18n.t('titlebar.help');
+    // L16 — origin is the open page title (h1 / route surface), not the workspace name.
+    const originLabel = this.helpOriginLabel();
     if (!helpPrefersPanel()) {
       this.helpOverlay.open({ originLabel, originUrl: this.router.url });
       this.helpOverlay.openFullPage();
       return;
     }
     this.helpOverlay.open({ originLabel, originUrl: this.router.url });
+  }
+
+  /** Page title for « Aide · liée à … » / Escape hint — never the workspace name. */
+  private helpOriginLabel(): string {
+    if (typeof document !== 'undefined') {
+      const heading = document
+        .querySelector<HTMLElement>('main h1, [role="main"] h1, h1')
+        ?.textContent
+        ?.trim();
+      if (heading) return heading;
+    }
+    const labeled = this.locationLabel(this.router.url);
+    const sep = ' › ';
+    const idx = labeled.lastIndexOf(sep);
+    const page = (idx >= 0 ? labeled.slice(idx + sep.length) : labeled).trim();
+    return page || this.i18n.t('titlebar.help');
   }
 
   openChat(): void {
