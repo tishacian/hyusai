@@ -111,7 +111,7 @@ test('Members displays and sends a manifest-defined non-Andritz entitlement on i
   assert.deepEqual(invitations[0], [
     WORKSPACE.slug,
     'invitee@example.com',
-    'member',
+    'workspace_contributor',
     ['future-surface'],
   ]);
 });
