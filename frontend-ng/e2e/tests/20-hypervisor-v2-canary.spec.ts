@@ -235,7 +235,9 @@ async function assertHonesty(
   const hero = page.locator('[data-testid="hypervisor-v2-hero"]');
   assertMissingFact((await hero.locator('[data-fact="cost"]').innerText()).trim(), view.costTotal, 'hero cost');
   assertMissingFact((await hero.locator('[data-fact="value"]').innerText()).trim(), view.valueTotal, 'hero value');
-  assertMissingFact((await hero.locator('[data-fact="ratio"]').innerText()).trim(), view.ratio, 'hero ratio');
+  await expect(hero.locator('[data-fact="ratio"]'), 'the value/cost ratio never sits in the hero').toHaveCount(0);
+  await expect(hero, 'the hero never says hours were returned to teams').not.toContainText(/rendues|returned/i);
+  await expect(hero.getByTestId('hypervisor-v2-measured-part')).toBeVisible();
 
   const register = page.getByTestId('hypervisor-v2-register');
   await expect(register, 'synthese register testid must be unique').toHaveCount(1);
@@ -343,6 +345,16 @@ test.describe.serial('Hypervisor V2 — instrumented ledger canary', () => {
       await page.locator('#ck-tab-registre').click();
       await expect.poll(() => new URL(page.url()).searchParams.get('facet')).toBe('registre');
       await expect(page.locator('#ck-tab-registre')).toHaveAttribute('aria-selected', 'true');
+
+      await page.locator('#ck-tab-couts').click();
+      await expect.poll(() => new URL(page.url()).searchParams.get('facet')).toBe('couts');
+      const ratio = page.getByTestId('hypervisor-v2-couts-ratio').locator('[data-fact="ratio"]');
+      await expect(ratio, 'the value/cost ratio lives in the Coûts facet').toBeVisible();
+      assertMissingFact(
+        (await ratio.innerText()).split('·')[0]!.trim(),
+        projectSeries(seriesResult.body, 'hours').ratio,
+        'Coûts ratio',
+      );
 
       await page.locator('#ck-tab-synthese').click();
       await expect.poll(() => new URL(page.url()).searchParams.get('facet')).toBe('synthese');
