@@ -518,6 +518,15 @@ async function installMocks(page: Page, kind: FixtureKind, theme: ThemeKind): Pr
     }
     if (apiPath.startsWith('/hypervisor/series')) return json(route, seriesPayload(kind));
     if (apiPath === '/hypervisor/views') return json(route, viewsPayload());
+    if (apiPath === '/hypervisor/map-settings') {
+      return json(route, {
+        external_tiles_enabled: true,
+        tile_provider: 'carto',
+        attribution: 'OpenStreetMap contributors / CARTO',
+        tile_url_template: null,
+        tile_url_template_dark: null,
+      });
+    }
     if (apiPath === '/hypervisor/value-bases') return json(route, valueBases(kind));
     if (apiPath.startsWith('/hypervisor/balance-sheet')) return json(route, balanceSheet(kind));
     if (apiPath === '/hypervisor/recommendations') return json(route, recommendations(kind));
@@ -716,6 +725,97 @@ test.describe('Hypervisor V2 — mocked visual', () => {
     await expect(page.getByTestId('impact-block-echeancier')).toBeVisible();
     await expect(page.getByText('Revue portefeuille')).toBeVisible();
     await expect(page.getByTestId('impact-block-echeancier-empty')).toHaveCount(0);
+    await context.close();
+  });
+
+  test('L13b Impact views — agenda, veille, securite, reunion, carte', async ({ browser }) => {
+    test.skip(!visualEnabled, 'Set E2E_HYPERVISOR_V2_VISUAL=1 to run');
+    await mkdir(RESULTS, { recursive: true });
+    const expectations: Record<string, readonly string[]> = {
+      agenda: ['impact-block-echeancier', 'impact-block-ordre_du_jour'],
+      veille: ['impact-block-indicateurs', 'impact-block-flux', 'impact-block-alertes'],
+      securite: ['impact-block-carte', 'impact-block-alertes', 'impact-block-echeancier'],
+      reunion: ['impact-block-echeancier', 'impact-block-ordre_du_jour'],
+      carte: ['impact-block-indicateurs', 'impact-block-carte', 'impact-block-alertes'],
+    };
+
+    const context = await browser.newContext({
+      viewport: { width: 1680, height: 1100 },
+      locale: 'fr-FR',
+      colorScheme: 'dark',
+    });
+    const page = await context.newPage();
+    await installMocks(page, 'dense', 'dark');
+
+    for (const [view, blocks] of Object.entries(expectations)) {
+      await page.goto(`/hypervisor?view=${view}`);
+      await expect(page.locator('app-hypervisor-v2')).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('hypervisor-v2-impact-blocks')).toHaveAttribute('data-view', view);
+      for (const block of blocks) {
+        await expect(page.getByTestId(block)).toBeVisible();
+      }
+      const dest = path.join(RESULTS, `l13b-view-${view}.png`);
+      await captureFullLedger(page, dest);
+    }
+    await context.close();
+  });
+
+  test('L13b Réunion en thème Présentation', async ({ browser }) => {
+    test.skip(!visualEnabled, 'Set E2E_HYPERVISOR_V2_VISUAL=1 to run');
+    await mkdir(RESULTS, { recursive: true });
+    const context = await browser.newContext({
+      viewport: { width: 1680, height: 1100 },
+      locale: 'fr-FR',
+      colorScheme: 'dark',
+    });
+    const page = await context.newPage();
+    await installMocks(page, 'dense', 'dark');
+    await page.goto('/hypervisor?view=reunion&theme=presentation');
+    await expect(page.locator('app-hypervisor-v2')).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('app-hypervisor-v2.hv2-theme-presentation')).toBeVisible();
+    await expect(page.getByTestId('hypervisor-presentation-lisere')).toBeVisible();
+    await expect(page.getByTestId('hypervisor-v2-impact-blocks')).toHaveAttribute('data-view', 'reunion');
+    await expect(page.getByTestId('impact-block-ordre_du_jour')).toBeVisible();
+    const dest = path.join(RESULTS, 'l13b-reunion-presentation.png');
+    await captureFullLedger(page, dest);
+    await context.close();
+  });
+
+  test('L13b carte with external tiles disabled emits no third-party tile requests', async ({
+    browser,
+  }) => {
+    test.skip(!visualEnabled, 'Set E2E_HYPERVISOR_V2_VISUAL=1 to run');
+    await mkdir(RESULTS, { recursive: true });
+    const context = await browser.newContext({
+      viewport: { width: 1680, height: 1100 },
+      locale: 'fr-FR',
+      colorScheme: 'dark',
+    });
+    const page = await context.newPage();
+    const tileHosts: string[] = [];
+    page.on('request', (request) => {
+      const host = new URL(request.url()).hostname;
+      if (host.includes('cartocdn') || host.includes('openstreetmap') || host.includes('tile')) {
+        tileHosts.push(host);
+      }
+    });
+    await installMocks(page, 'dense', 'dark');
+    await page.route('**/api/v1/hypervisor/map-settings', async (route) => {
+      return json(route, {
+        external_tiles_enabled: false,
+        tile_provider: 'none',
+        attribution: 'Fond neutre',
+        tile_url_template: null,
+        tile_url_template_dark: null,
+      });
+    });
+    await page.goto('/hypervisor?view=carte');
+    await expect(page.locator('app-hypervisor-v2')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('impact-block-carte')).toBeVisible();
+    await expect(page.getByTestId('impact-block-carte-zone-z-nord')).toBeVisible();
+    await expect.poll(() => tileHosts.length).toBe(0);
+    const dest = path.join(RESULTS, 'l13b-carte-tiles-off.png');
+    await captureFullLedger(page, dest);
     await context.close();
   });
 });
