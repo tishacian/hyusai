@@ -458,7 +458,7 @@ export const FLOW_FR = {
     'Charger Déclencheur → Boucle agent → Porte humaine → Sortie',
   'flow.inspector.section.human_gate': 'Pause structurée',
   'flow.inspector.human_gate.hint':
-    'La boucle s’arrête ici, puis reprend sur le même run. Jamais un redémarrage.',
+    'La boucle s’arrête ici, puis reprend dans la même exécution. Jamais un redémarrage.',
   'flow.inspector.human_gate.prompt': 'Question posée à la personne',
   'flow.inspector.human_gate.prompt.placeholder': 'Approuver cette écriture ?',
   'flow.inspector.human_gate.kind': 'Type de décision',
@@ -841,7 +841,7 @@ export const FLOW_FR = {
   'flow.workbench.golden.expected': 'Attendu',
   'flow.workbench.golden.expected.none': 'Aucun résultat attendu : la réponse ne sera pas évaluée.',
   'flow.workbench.golden.actual': 'Sortie réelle',
-  'flow.workbench.golden.open_run': 'Ouvrir le Run',
+  'flow.workbench.golden.open_run': 'Ouvrir l’exécution',
   'flow.workbench.golden.human': 'En attente de revue humaine',
   'flow.workbench.golden.paused': 'Exécution en pause',
   'flow.workbench.golden.stopped': 'Exécution interrompue · non évaluée',
@@ -1332,7 +1332,7 @@ export const FLOW_FR = {
     'Aucun modèle entraîné dans cet espace de travail : entraînez-en un avant de brancher ce node.',
   'flow.ml.serving.output': 'Jeu de données produit',
   'flow.ml.serving.output.auto': 'Déduit du modèle',
-  'flow.ml.serving.output.produced': 'Les lignes écrites au dernier run',
+  'flow.ml.serving.output.produced': 'Les lignes écrites à la dernière exécution',
   'flow.ml.serving.output.open': 'Ouvrir le jeu de données',
   'flow.ml.serving.explain': 'Contributions par ligne',
   'flow.ml.serving.explain.hint':

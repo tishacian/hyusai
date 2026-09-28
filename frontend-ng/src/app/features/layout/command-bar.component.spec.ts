@@ -6,6 +6,7 @@ import { Router } from '@angular/router';
 import { Subject } from 'rxjs';
 import { EN_DICT } from '@app/core/i18n.dict';
 import { I18nService } from '@app/core/i18n.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { ZoomContextService, type ZoomGraphNode } from '@app/core/zoom-context.service';
 import { CommandBarComponent } from './command-bar.component';
 
@@ -24,7 +25,12 @@ function i18n() {
   };
 }
 
-function harness(nodes: ZoomGraphNode[], deepest: string | null = 'system') {
+function harness(
+  nodes: ZoomGraphNode[],
+  deepest: string | null = 'system',
+  mode: 'builder' | 'operator' | 'executive' | 'demo' = 'builder',
+  systemId: string | null = null,
+) {
   const events = new Subject<NavigationEnd>();
   const injector = Injector.create({
     providers: [
@@ -35,7 +41,7 @@ function harness(nodes: ZoomGraphNode[], deepest: string | null = 'system') {
           navV5Enabled: () => true,
           zoneI18nKey: () => 'experience.adoption.nav.build',
           deepestResolvedType: () => deepest,
-          systemId: () => null,
+          systemId: () => systemId,
           capabilityId: () => null,
           nodes: () => nodes,
           visibleNodes: () => nodes,
@@ -56,6 +62,7 @@ function harness(nodes: ZoomGraphNode[], deepest: string | null = 'system') {
         },
       },
       { provide: I18nService, useValue: i18n() },
+      { provide: WorkspaceService, useValue: { isBuilderMode: () => mode === 'builder' } },
     ],
   });
   return injector.get(CommandBarComponent);
@@ -86,4 +93,28 @@ test('command bar names ⌘Z already at the top on the Portfolio', () => {
   ], null);
   assert.match(bar.position(), /level 1 of 1/);
   assert.equal(bar.zoomHint(), i18n().t('nav.zoom.hint_at_top'));
+});
+
+test('outside builder mode the bar keeps the zone but drops the zoom depth', () => {
+  const nodes: ZoomGraphNode[] = [
+    { key: 'portfolio', id: null, label: 'Portfolio', sub: '', href: '/hypervisor' },
+    { key: 'system', id: 'sys-1', label: 'NAWA Chat', sub: '', href: '/systems/sys-1' },
+  ];
+  for (const mode of ['operator', 'executive', 'demo'] as const) {
+    const bar = harness(nodes, 'system', mode);
+    assert.equal(bar.showZoomDepth(), false, `${mode}: no ⌘Z hint`);
+    assert.equal(bar.position(), EN_DICT['experience.adoption.nav.build'], `${mode}: zone only`);
+    assert.doesNotMatch(bar.position(), /level/);
+  }
+  assert.equal(harness(nodes, 'system', 'builder').showZoomDepth(), true);
+});
+
+test('outside builder mode an active filter is still named', () => {
+  const bar = harness(
+    [{ key: 'portfolio', id: null, label: 'Portfolio', sub: '', href: '/hypervisor' }],
+    null,
+    'operator',
+    'sys-1',
+  );
+  assert.equal(bar.position(), `${EN_DICT['experience.adoption.nav.build']} · filter on`);
 });
