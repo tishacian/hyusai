@@ -1,14 +1,10 @@
 /**
  * Models (Build > Models) — the registry, and the door into the training studio.
  *
- * Three things make this page carry a demo rather than merely list rows:
- *
- * - the one version that answers wears a crown, so "which model is live" is a
- *   glance and not a click;
- * - a run in flight shows the worker's own step (`status_detail`) with a live
- *   pulse, so the seconds between "start training" and a score read as work;
- * - every row states its score in the metric that scored it, coloured only when
- *   the metric's scale makes a verdict possible.
+ * The list is a cockpit table (mo1): one row per model, served version as a
+ * column, versions living on the sheet. A fit in flight keeps its checklist
+ * under the row so the seconds between "start training" and a score read as
+ * work; the score keeps the metric that scored it.
  */
 import {
   ChangeDetectionStrategy,
@@ -32,7 +28,6 @@ import { DataService } from '@app/features/data/data.service';
 import { ModelTrainComponent } from './model-train.component';
 import { ModelsService, isModelActive } from './models.service';
 import {
-  algoIcon,
   bestScore,
   formatMetric,
   groupModelsBySlug,
@@ -150,115 +145,113 @@ type ModelFilter = 'all' | ModelTask | 'serving';
           }
         </app-empty-state>
       } @else {
-        <ul class="space-y-2" data-testid="models-list">
-          @for (entry of visible(); track entry.slug) {
-            <li>
-              <a
-                [navLink]="{ leaf: 'model-doc', ref: entry.id }"
-                class="flex items-center gap-3 ck-surface rounded-md px-4 py-3 transition group ck-row"
-              >
-                <div
-                  class="ck-icon-tile"
-                  [class.ck-icon-tile--warn]="entry.row.status === 'failed'"
-                  [class.ck-icon-tile--champion]="entry.served_version !== null"
-                >
-                  <app-icon [name]="algoIcon(entry.algo)" [size]="16" />
-                </div>
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2 flex-wrap">
-                    <span class="text-sm font-medium truncate" style="color: var(--ck-fg-1)">
-                      {{ entry.name }}
-                    </span>
-                    <span class="ck-badge ck-mono">
-                      {{ i18n.t('models.task.' + entry.task) }}
-                    </span>
-                    @if (entry.row.status !== 'ready') {
-                      <span
-                        class="ck-badge ck-mono"
-                        data-testid="model-status"
-                        [class.ck-badge--warn]="entry.row.status === 'failed'"
-                        [class.ck-badge--live]="isActive(entry.row)"
-                      >
-                        {{ i18n.t('models.status.' + entry.row.status) }}
-                      </span>
-                    }
-                    @if (entry.row.monitor_status) {
-                      <span
-                        class="ck-badge ck-mono"
-                        data-testid="monitor-badge"
-                        [attr.data-tone]="entry.row.monitor_status"
-                        [class.ck-badge--warn]="
-                          entry.row.monitor_status === 'watch' || entry.row.monitor_status === 'alert'
-                        "
-                        [class.ck-badge--live]="entry.row.monitor_status === 'ok'"
-                      >
-                        {{ i18n.t('models.list.monitor.' + entry.row.monitor_status) }}
-                      </span>
-                    }
-                  </div>
-                  @if (isActive(entry.row)) {
-                    <ol class="ck-steps" data-testid="train-checklist">
-                      @for (step of checklist(entry.row); track step.step) {
-                        <li class="ck-steps__item" [attr.data-state]="step.state">
-                          @if (step.state === 'done') {
-                            <app-icon name="check" [size]="11" class="shrink-0" />
-                          } @else if (step.state === 'active') {
-                            <span class="ck-pulse shrink-0"></span>
-                          } @else {
-                            <span class="ck-steps__dot shrink-0"></span>
-                          }
-                          <span class="truncate">{{ i18n.t(step.key, step.params) }}</span>
-                        </li>
+        <div class="ck-h-scroll" data-testid="models-list">
+          <table class="ck-models-table">
+            <thead>
+              <tr>
+                <th scope="col">{{ i18n.t('models.list.col.model') }}</th>
+                <th scope="col">{{ i18n.t('models.list.col.target') }}</th>
+                <th scope="col">{{ i18n.t('models.list.col.dataset') }}</th>
+                <th scope="col">{{ i18n.t('models.list.col.served') }}</th>
+                <th scope="col" class="ck-num">{{ i18n.t('models.list.col.score') }}</th>
+                <th scope="col">{{ i18n.t('models.list.col.monitor') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (entry of visible(); track entry.slug) {
+                <tr class="ck-models-row" [class.is-busy]="isActive(entry.row)">
+                  <td>
+                    <a
+                      [navLink]="{ leaf: 'model-doc', ref: entry.id }"
+                      class="ck-models-primary"
+                    >
+                      <span class="ck-models-name">{{ entry.name }}</span>
+                      @if (entry.row.status !== 'ready') {
+                        <span
+                          class="ck-models-tag"
+                          data-testid="model-status"
+                          [attr.data-tone]="entry.row.status === 'failed' ? 'neg' : 'cool'"
+                        >
+                          {{ i18n.t('models.status.' + entry.row.status) }}
+                        </span>
                       }
-                    </ol>
-                  } @else if (entry.row.status === 'failed') {
-                    <div class="text-[11px] ck-mono mt-1 truncate" style="color: var(--ck-signal-neg)">
-                      {{ entry.row.error }}
-                    </div>
-                  } @else {
-                    <div class="text-[11px] ck-mono mt-1 truncate" style="color: var(--ck-fg-4)">
-                      {{ i18n.t('models.list.target', { target: entry.target }) }} ·
-                      {{
-                        i18n.t('models.list.meta', {
-                          rows: (entry.row.row_count ?? 0).toLocaleString(i18n.locale()),
-                          features: entry.row.features.length,
-                          duration: duration(entry.row.train_duration_ms)
-                        })
-                      }}
-                    </div>
-                  }
-                </div>
-                <div class="text-right shrink-0 min-w-[4.5rem]" data-testid="served-version">
-                  @if (entry.served_version !== null) {
-                    <div class="text-[12px] font-medium" style="color: var(--ck-fg-1)">
-                      {{
-                        i18n.t('models.list.served', { version: entry.served_version })
-                      }}
-                    </div>
-                  } @else {
-                    <div class="text-[11px] ck-mono" style="color: var(--ck-fg-4)">
-                      {{ i18n.t('models.list.served.none') }}
-                    </div>
-                  }
-                </div>
-                @if (scoreOf(entry.row); as score) {
-                  <div class="text-right shrink-0">
-                    <div class="ck-score">{{ score.value }}</div>
-                    <div class="text-[10px] ck-mono" style="color: var(--ck-fg-4)">
-                      {{ score.label }}
-                    </div>
-                  </div>
-                }
-                <app-icon
-                  name="chevron-right"
-                  [size]="14"
-                  class="shrink-0 transition"
-                  style="color: var(--ck-fg-4)"
-                />
-              </a>
-            </li>
-          }
-        </ul>
+                      <span class="ck-models-sub">
+                        {{ i18n.t('models.task.' + entry.task) }}
+                        · {{ i18n.t('models.algo.' + entry.algo) }}
+                      </span>
+                    </a>
+                    @if (isActive(entry.row)) {
+                      <ol class="ck-steps" data-testid="train-checklist">
+                        @for (step of checklist(entry.row); track step.step) {
+                          <li class="ck-steps__item" [attr.data-state]="step.state">
+                            @if (step.state === 'done') {
+                              <app-icon name="check" [size]="11" class="shrink-0" />
+                            } @else if (step.state === 'active') {
+                              <span class="ck-pulse shrink-0"></span>
+                            } @else {
+                              <span class="ck-steps__dot shrink-0"></span>
+                            }
+                            <span class="truncate">{{ i18n.t(step.key, step.params) }}</span>
+                          </li>
+                        }
+                      </ol>
+                    } @else if (entry.row.status === 'failed' && entry.row.error) {
+                      <div class="ck-models-error ck-mono">{{ entry.row.error }}</div>
+                    }
+                  </td>
+                  <td class="ck-mono ck-models-target">{{ entry.target }}</td>
+                  <td class="ck-models-dataset">
+                    @if (entry.row.dataset_slug) {
+                      <span [class.is-neg]="entry.row.status === 'failed'">{{
+                        entry.row.dataset_slug
+                      }}</span>
+                    } @else {
+                      <span class="ck-muted">{{ i18n.t('models.list.dataset.none') }}</span>
+                    }
+                  </td>
+                  <td data-testid="served-version">
+                    @if (isActive(entry.row)) {
+                      <span class="ck-models-served is-progress">{{
+                        i18n.t('models.list.served.progress', { version: entry.row.version })
+                      }}</span>
+                    } @else if (entry.served_version !== null) {
+                      <span class="ck-models-served is-live">
+                        <span class="ck-models-live-mark" aria-hidden="true"></span>
+                        {{ i18n.t('models.list.served', { version: entry.served_version }) }}
+                      </span>
+                    } @else {
+                      <span class="ck-muted">{{ i18n.t('models.list.served.none') }}</span>
+                    }
+                  </td>
+                  <td class="ck-num">
+                    @if (scoreOf(entry.row); as score) {
+                      <div class="ck-score">{{ score.value }}</div>
+                      <div class="ck-models-metric ck-mono">{{ score.label }}</div>
+                    } @else {
+                      <span class="ck-muted">—</span>
+                    }
+                  </td>
+                  <td>
+                    @if (entry.row.monitor_status; as tone) {
+                      <span
+                        class="ck-models-monitor"
+                        data-testid="monitor-badge"
+                        [attr.data-tone]="tone"
+                      >
+                        @if (tone === 'watch' || tone === 'alert') {
+                          <app-icon name="alert-triangle" [size]="12" class="shrink-0" />
+                        }
+                        {{ i18n.t('models.list.monitor.' + tone) }}
+                      </span>
+                    } @else {
+                      <span class="ck-muted">{{ i18n.t('models.list.monitor.none') }}</span>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
       }
     }
 
@@ -272,57 +265,137 @@ type ModelFilter = 'all' | ModelTask | 'serving';
   `,
   styles: [
     `
-      .ck-row:hover {
-        background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.04));
+      .ck-models-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
       }
-      .ck-icon-tile {
-        width: 36px;
-        height: 36px;
-        border-radius: 6px;
+      .ck-models-table thead th {
+        text-align: left;
+        padding: 6px 12px 10px 0;
+        border-bottom: 1px solid var(--ck-stroke-2);
+        font-size: 10px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        font-weight: 500;
+        color: var(--ck-fg-3);
+        white-space: nowrap;
+      }
+      .ck-models-table thead th.ck-num,
+      .ck-models-table td.ck-num {
+        text-align: right;
+      }
+      .ck-models-table tbody td {
+        padding: 14px 12px 14px 0;
+        border-bottom: 1px solid var(--ck-stroke-2);
+        vertical-align: top;
+        color: var(--ck-fg-2);
+      }
+      .ck-models-row {
+        position: relative;
+      }
+      .ck-models-row:hover {
+        background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.03));
+      }
+      .ck-models-primary {
+        position: relative;
         display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-        color: var(--ck-signal-cool, #7dd3fc);
-        background: rgba(125, 211, 252, 0.12);
-        box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.25);
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+        min-width: 0;
+        text-decoration: none;
+        color: inherit;
       }
-      /* The version that answers is the one fact worth a colour of its own. */
-      .ck-icon-tile--champion {
-        color: var(--ck-signal-pos, #34d399);
-        background: rgba(52, 211, 153, 0.12);
-        box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.3);
+      /* Whole row is the hit target; nested interactive bits stay above. */
+      .ck-models-primary::after {
+        content: '';
+        position: absolute;
+        inset: -14px 0 -14px -4px;
+        right: -9999px;
       }
-      .ck-icon-tile--warn {
-        color: var(--ck-signal-neg, #ef5a6f);
-        background: rgba(239, 90, 111, 0.12);
-        box-shadow: inset 0 0 0 1px rgba(239, 90, 111, 0.25);
+      .ck-models-name {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--ck-fg-1);
       }
-      .ck-badge {
+      .ck-models-sub {
+        font-size: 11px;
+        color: var(--ck-fg-4);
+      }
+      .ck-models-tag {
         display: inline-flex;
         align-items: center;
-        gap: 3px;
+        margin-top: 2px;
+        padding: 1px 6px;
+        border-radius: 4px;
         font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
         text-transform: uppercase;
-        letter-spacing: 0.06em;
-        padding: 2px 5px;
-        border-radius: 3px;
-        color: var(--ck-fg-4, #8891a0);
-        background: rgba(255, 255, 255, 0.04);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
       }
-      .ck-badge--champion {
-        color: var(--ck-signal-pos, #34d399);
-        background: rgba(52, 211, 153, 0.1);
-        box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.28);
-      }
-      .ck-badge--warn {
-        color: var(--ck-signal-neg, #ef5a6f);
-        background: rgba(239, 90, 111, 0.08);
-      }
-      .ck-badge--live {
+      .ck-models-tag[data-tone='cool'] {
         color: var(--ck-signal-cool, #7dd3fc);
         background: rgba(125, 211, 252, 0.1);
+      }
+      .ck-models-tag[data-tone='neg'] {
+        color: var(--ck-signal-neg, #ef5a6f);
+        background: rgba(239, 90, 111, 0.1);
+      }
+      .ck-models-target {
+        font-size: 12px;
+        color: var(--ck-fg-2);
+      }
+      .ck-models-dataset {
+        font-size: 12px;
+        color: var(--ck-fg-2);
+      }
+      .ck-models-dataset .is-neg {
+        color: var(--ck-signal-cool, #7dd3fc);
+      }
+      .ck-models-served {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--ck-fg-1);
+      }
+      .ck-models-served.is-progress {
+        color: var(--ck-fg-3);
+      }
+      .ck-models-live-mark {
+        width: 7px;
+        height: 7px;
+        flex: 0 0 auto;
+        border-radius: 1px;
+        background: var(--ck-signal-pos, #34d399);
+      }
+      .ck-models-metric {
+        margin-top: 2px;
+        font-size: 10px;
+        color: var(--ck-fg-4);
+      }
+      .ck-models-monitor {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 12px;
+        color: var(--ck-fg-2);
+      }
+      .ck-models-monitor[data-tone='watch'],
+      .ck-models-monitor[data-tone='alert'] {
+        color: var(--ck-signal-warn, #f5c451);
+      }
+      .ck-models-error {
+        position: relative;
+        z-index: 1;
+        margin-top: 6px;
+        font-size: 11px;
+        color: var(--ck-signal-neg);
+      }
+      .ck-muted {
+        color: var(--ck-fg-4);
+        font-size: 12px;
       }
       .ck-pulse {
         width: 6px;
@@ -347,14 +420,13 @@ type ModelFilter = 'all' | ModelTask | 'serving';
           animation: none;
         }
       }
-      /* Same check-list as the ingest plane's and the model card's: the steps
-         already passed stay visible and ticked, so the seconds a fit takes read
-         as distance covered rather than as a stall. */
       .ck-steps {
+        position: relative;
+        z-index: 1;
         display: flex;
         flex-wrap: wrap;
         gap: 2px 12px;
-        margin-top: 4px;
+        margin-top: 8px;
         font-size: 11px;
         font-variant-numeric: tabular-nums;
       }
@@ -364,7 +436,6 @@ type ModelFilter = 'all' | ModelTask | 'serving';
         gap: 5px;
         min-width: 0;
         color: var(--ck-fg-4, #8891a0);
-        transition: color var(--ck-dur-fast, 120ms) var(--ck-ease-out, ease);
       }
       .ck-steps__item[data-state='done'] {
         color: var(--ck-signal-pos, #4ade80);
@@ -400,9 +471,9 @@ type ModelFilter = 'all' | ModelTask | 'serving';
         color: var(--ck-fg-1, #e6e9ef);
       }
       .ck-chip--on {
-        color: var(--ck-signal-cool, #7dd3fc);
-        background: rgba(125, 211, 252, 0.1);
-        box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.35);
+        color: var(--ck-fg-1, #e6e9ef);
+        background: rgba(255, 255, 255, 0.06);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
       }
     `,
   ],
@@ -490,21 +561,6 @@ export class ModelsListComponent implements OnInit {
       model.cross_validation,
       this.i18n.locale(),
     );
-  }
-
-  protected algoIcon(algo: string): string {
-    return algoIcon(algo);
-  }
-
-  protected duration(ms: number | null | undefined): string {
-    if (!ms || ms <= 0) return '—';
-    if (ms < 1000) return `${Math.round(ms)} ms`;
-    const seconds = ms / 1000;
-    if (seconds < 60) {
-      return `${seconds.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 1 })} s`;
-    }
-    const minutes = Math.floor(seconds / 60);
-    return `${minutes} min ${Math.round(seconds % 60)} s`;
   }
 
   /** The row's own score, in the metric that produced it. */

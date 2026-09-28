@@ -1507,7 +1507,7 @@
 }
 
 .xp-wizard-body {
-  width: min(1140px, calc(100vw - 48px));
+  width: min(1140px, calc(100% - 48px));
   min-width: 0;
   margin: 0 auto;
   padding: 28px 0 24px;
@@ -1688,7 +1688,7 @@
   .xp-canvas-stage { padding: 12px; }
   .xp-wizard .xp-cards,
   .xp-channel-choices { grid-template-columns: 1fr; }
-  .xp-wizard-body { width: calc(100vw - 28px); }
+  .xp-wizard-body { width: calc(100% - 28px); }
   .xp-wizard-title { display: none; }
   .xp-wizard-topbar { grid-template-columns: 1fr auto; }
   .xp-inventory-tools { flex-direction: column; }

@@ -937,6 +937,9 @@ test('Studio editor renders in Cockpit chrome with sommaire, fil, and focus mode
   assert.ok(wizardBlock, 'expected a .xp-wizard rule');
   assert.match(wizardBlock[0], /position:\s*relative/);
   assert.doesNotMatch(wizardBlock[0], /position:\s*fixed/);
+  // Authoring column width tracks the chrome column, never the viewport (100vw).
+  assert.match(styles, /\.xp-wizard-body \{[\s\S]*?width:\s*min\(1140px,\s*calc\(100%\s*-\s*48px\)\)/);
+  assert.doesNotMatch(styles, /\.xp-wizard-body[^{]*\{[^}]*100vw/);
   assert.match(EDITOR_SOURCE, /\[class\.is-focus-mode\]="focusMode\(\)"/);
   assert.match(EDITOR_SOURCE, /toggleFocusMode|Escape.*focusMode/);
   assert.match(EDITOR_SOURCE, /experience\.editor\.focus\.exit/);
