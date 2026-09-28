@@ -696,14 +696,20 @@ export class WorkspaceService {
   inviteMember(
     slug: string,
     email: string,
-    role: 'admin' | 'member' = 'member',
+    roleOrTemplate: 'admin' | 'member' | RoleTemplate = 'workspace_contributor',
     appEntitlements?: readonly WorkspaceAppEntitlement[],
   ): Observable<InviteMemberResponse> {
     const body: {
       email: string;
-      role: 'admin' | 'member';
+      role?: 'admin' | 'member';
+      role_template?: RoleTemplate;
       app_entitlements?: readonly WorkspaceAppEntitlement[];
-    } = { email, role };
+    } = { email };
+    if (roleOrTemplate === 'admin' || roleOrTemplate === 'member') {
+      body.role = roleOrTemplate;
+    } else {
+      body.role_template = roleOrTemplate;
+    }
     if (appEntitlements !== undefined) {
       body.app_entitlements = normalizeWorkspaceAppEntitlements(appEntitlements);
     }
@@ -716,13 +722,19 @@ export class WorkspaceService {
   updateMemberRole(
     slug: string,
     userId: string,
-    role: 'admin' | 'member',
+    roleOrTemplate: 'admin' | 'member' | RoleTemplate,
     appEntitlements?: readonly WorkspaceAppEntitlement[],
   ): Observable<unknown> {
     const body: {
-      role: 'admin' | 'member';
+      role?: 'admin' | 'member';
+      role_template?: RoleTemplate;
       app_entitlements?: readonly WorkspaceAppEntitlement[];
-    } = { role };
+    } = {};
+    if (roleOrTemplate === 'admin' || roleOrTemplate === 'member') {
+      body.role = roleOrTemplate;
+    } else {
+      body.role_template = roleOrTemplate;
+    }
     if (appEntitlements !== undefined) {
       body.app_entitlements = normalizeWorkspaceAppEntitlements(appEntitlements);
     }

@@ -385,3 +385,33 @@ test('ChatKnowledge keeps guide writes and their refresh in one cancellable A sc
     injector.destroy();
   }
 });
+
+test('L22: collection matrix toggles produce the same collection_slugs payload', () => {
+  const { injector, component } = createHarness();
+  try {
+    component.collections.set(['alpha', 'beta', 'gamma']);
+    component.scopes.set([{
+      key: 'scope-a',
+      label: 'Scope A',
+      description: '',
+      collection_slugs_text: 'alpha',
+      default_mode: 'chah',
+      top_k: 5,
+      is_default: true,
+      table_profile_key: '',
+      document_profile_key: '',
+    }]);
+    const scope = component.scopes()[0]!;
+    assert.equal(component.scopeHasCollection(scope, 'alpha'), true);
+    assert.equal(component.scopeHasCollection(scope, 'beta'), false);
+    component.toggleScopeCollection(scope, 'beta', { target: { checked: true } } as unknown as Event);
+    component.toggleScopeCollection(component.scopes()[0]!, 'alpha', { target: { checked: false } } as unknown as Event);
+    assert.equal(component.scopes()[0]!.collection_slugs_text, 'beta');
+    assert.deepEqual(
+      component.scopes()[0]!.collection_slugs_text.split(',').map((s) => s.trim()).filter(Boolean),
+      ['beta'],
+    );
+  } finally {
+    injector.destroy();
+  }
+});

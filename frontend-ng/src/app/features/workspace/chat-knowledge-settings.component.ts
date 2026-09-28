@@ -322,12 +322,28 @@ interface AssistantProfileDraft {
 
                 <label class="block mt-4">
                   <span class="field-label">{{ i18n.t('workspace.chat_sources.scopes.collections') }}</span>
-                  <input
-                    class="ag-field font-mono"
-                    [(ngModel)]="scope.collection_slugs_text"
-                    [disabled]="!canEdit()"
-                    placeholder="collection-a, collection-b"
-                  />
+                  @if (collections().length === 0) {
+                    <p class="mt-2 text-xs text-gray-500">{{ i18n.t('workspace.chat_sources.collections.empty') }}</p>
+                  } @else {
+                    <div
+                      class="mt-2 grid gap-2 sm:grid-cols-2"
+                      data-testid="chat-scope-collections-matrix"
+                      role="group"
+                      [attr.aria-label]="i18n.t('workspace.chat_sources.scopes.collections')"
+                    >
+                      @for (collection of collections(); track collection) {
+                        <label class="inline-flex items-center gap-2 text-sm text-gray-200">
+                          <input
+                            type="checkbox"
+                            [checked]="scopeHasCollection(scope, collection)"
+                            [disabled]="!canEdit()"
+                            (change)="toggleScopeCollection(scope, collection, $event)"
+                          />
+                          <span class="font-mono text-xs">{{ collection }}</span>
+                        </label>
+                      }
+                    </div>
+                  }
                 </label>
 
                 <div class="knowledge-guide-panel mt-5">
@@ -2329,6 +2345,27 @@ export class ChatKnowledgeSettingsComponent {
   collectionInDefaultScope(collection: string): boolean {
     const scope = this.workspaceDefaultScopeDraft();
     return !!scope && this.collectionSlugs(scope).includes(collection.trim());
+  }
+
+  scopeHasCollection(scope: KnowledgeScopeDraft, collection: string): boolean {
+    return this.collectionSlugs(scope).includes(collection.trim());
+  }
+
+  toggleScopeCollection(scope: KnowledgeScopeDraft, collection: string, event: Event): void {
+    if (!this.canEdit()) return;
+    const slug = collection.trim();
+    if (!slug) return;
+    const enabled = (event.target as HTMLInputElement).checked;
+    const current = this.collectionSlugs(scope);
+    const nextSlugs = enabled
+      ? (current.includes(slug) ? current : [...current, slug])
+      : current.filter((item) => item !== slug);
+    const next = this.scopes().map((item) =>
+      item.key === scope.key
+        ? { ...item, collection_slugs_text: nextSlugs.join(', ') }
+        : item,
+    );
+    this.scopes.set(next);
   }
 
   currentGuideForScope(scopeKey: string): KnowledgeGuide | null {
