@@ -101,6 +101,18 @@ import {
   type HypervisorViewDenominator,
   type ImpactViewId,
 } from './hypervisor-v2-views';
+import {
+  LOADING_SOURCES,
+  impactPageProblem,
+  impactSourceRequests,
+  settleSource,
+  withSourceState,
+  type ImpactSourceId,
+  type ImpactSourceState,
+  type ImpactSourceStates,
+  type ImpactSourceValues,
+  type SourceOutcome,
+} from './impact-sources';
 import { ImpactBlockAlertesComponent } from './blocks/impact-block-alertes.component';
 import { ImpactBlockCarteComponent } from './blocks/impact-block-carte.component';
 import { ImpactBlockEcheancierComponent } from './blocks/impact-block-echeancier.component';
@@ -187,6 +199,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     @if (presentationTheme()) {
       <div class="hv2-presentation-liseré" aria-hidden="true" data-testid="hypervisor-presentation-lisere"></div>
     }
+    <p class="sr-only" role="status" aria-live="polite" data-testid="hypervisor-v2-source-announcer">{{ sourceAnnouncement() }}</p>
     <ck-page-frame
       [eyebrow]="pageEyebrow()"
       [title]="pageTitle()"
@@ -340,7 +353,16 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
             <app-operational-objective />
             <app-hypervisor-automation />
             <ng-container [ngTemplateOutlet]="legendTpl"></ng-container>
-            @if (!series()) {
+            @if (sourceStates().series !== 'ready') {
+              <div class="hv2-degraded-page" data-testid="hypervisor-v2-series-degraded">
+                <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'series' }"></ng-container>
+                @if (showBlock('comprendre', 'decisions') || showBlock('decider', 'decisions')) {
+                  <article class="hv2-card hv2-card-decision">
+                    <ng-container [ngTemplateOutlet]="decisionTpl"></ng-container>
+                  </article>
+                }
+              </div>
+            } @else if (!series()) {
               <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p><a [navLink]="{leaf:'help-guide',params:{guideId:'value'}}">{{i18n.t('experience.adoption.help')}}</a>
             } @else {
               <div class="hv2-page">
@@ -365,11 +387,19 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                             }
                             @if (showBlock('comprendre', 'monument')) {
                               @if (monument(); as mon) {
-                                <div class="hv2-monument-row">
-                                  <span class="hv2-monument ck-tnum">{{ monumentValue() }}</span>
-                                  <span class="hv2-monument-unit">{{ mon.unit }}</span>
-                                </div>
-                                <p class="hv2-sentence">{{ heroSentence() }}</p>
+                                <p class="hv2-monument-group" data-testid="hypervisor-v2-monument">
+                                  <span class="sr-only">{{ monumentLabel() }}</span>
+                                  <span class="hv2-monument-row" aria-hidden="true">
+                                    <span class="hv2-monument-figure">
+                                      <span class="hv2-monument ck-tnum">{{ monumentValue() }}</span>
+                                      <span class="hv2-monument-unit">{{ mon.unit }}</span>
+                                    </span>
+                                    @if (measuredPart(); as part) {
+                                      <span class="ck-mono hv2-measured-part" data-testid="hypervisor-v2-measured-part">{{ measuredMark }} {{ part }}</span>
+                                    }
+                                  </span>
+                                  <span class="hv2-sentence" aria-hidden="true">{{ heroSentence() }}</span>
+                                </p>
                                 <p class="hv2-sub">{{ heroSub() }}</p>
                               } @else {
                                 <div class="hv2-monument-row">
@@ -447,10 +477,6 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                                 <div class="hv2-fact">
                                   <dt>{{ i18n.t('hypervisor.v2.hero.value') }}</dt>
                                   <dd class="ck-mono ck-tnum" [class.hv2-teal]="series()!.valueTotal.state === 'available'" data-fact="value">{{ valueFact() }}</dd>
-                                </div>
-                                <div class="hv2-fact">
-                                  <dt>{{ i18n.t('hypervisor.v2.metric.ratio') }}</dt>
-                                  <dd class="ck-mono ck-tnum" [class.hv2-teal]="series()!.ratio.state === 'available'" data-fact="ratio">{{ ratioFact() }}</dd>
                                 </div>
                               </dl>
                             </div>
@@ -627,7 +653,9 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
 
         @if (activeFacet() === 'registre') {
           <ng-container [ngTemplateOutlet]="legendTpl"></ng-container>
-          @if (series()) {
+          @if (sourceStates().series !== 'ready') {
+            <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'series' }"></ng-container>
+          } @else if (series()) {
             <ng-container [ngTemplateOutlet]="registerTpl" [ngTemplateOutletContext]="{ testid: 'hypervisor-v2-register-registre' }"></ng-container>
           } @else {
             <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p><a [navLink]="{leaf:'help-guide',params:{guideId:'value'}}">{{i18n.t('experience.adoption.help')}}</a>
@@ -637,13 +665,26 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
         @if (activeFacet() === 'couts') {
           <ng-container [ngTemplateOutlet]="legendTpl"></ng-container>
           <div class="hv2-stack">
-            @if (series(); as view) {
+            @if (sourceStates().series !== 'ready') {
+              <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'series' }"></ng-container>
+            } @else if (series(); as view) {
               <article class="hv2-card">
-                <header class="hv2-card-head">
+                <header class="hv2-card-head hv2-card-head-wrap">
                   <div>
                     <h3 class="hv2-card-title">{{ i18n.t('hypervisor.v2.hero.cost') }}</h3>
                     <p class="hv2-card-sub">{{ costFact() }}</p>
                   </div>
+                  <dl class="hv2-facts hv2-facts-aside" data-testid="hypervisor-v2-couts-ratio">
+                    <div class="hv2-fact">
+                      <dt>{{ i18n.t('hypervisor.v2.metric.ratio') }}</dt>
+                      <dd class="ck-mono ck-tnum" data-fact="ratio">
+                        <span [class.hv2-teal]="view.ratio.state === 'available'">{{ ratioFact() }}</span>
+                        @if (valueDeclaredShare(); as share) {
+                          <span class="hv2-fact-share" data-testid="hypervisor-v2-couts-declared-share">· {{ share }}</span>
+                        }
+                      </dd>
+                    </div>
+                  </dl>
                 </header>
                 @if (costStreamSeries().length) {
                   <ck-chart-stream
@@ -677,12 +718,14 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
           <div class="hv2-stack">
             <article class="hv2-card">
               <header class="hv2-card-head">
-                <h3 class="hv2-card-title">{{ i18n.t('hypervisor.v2.decisions.proposed') }} <span class="ck-mono hv2-count">{{ proposedDecisions().length }}</span></h3>
+                <h3 class="hv2-card-title">{{ i18n.t('hypervisor.v2.decisions.proposed') }}@if (sourceStates().decisions === 'ready') { <span class="ck-mono hv2-count">{{ proposedDecisions().length }}</span>}</h3>
                 <button type="button" class="hv2-text-btn" (click)="scanRecommendations()" [disabled]="scanning()">
                   {{ scanning() ? i18n.t('hypervisor.reco.scanning') : i18n.t('hypervisor.reco.scan') }}
                 </button>
               </header>
-              @if (proposedDecisions().length === 0) {
+              @if (sourceStates().decisions !== 'ready') {
+                <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'decisions' }"></ng-container>
+              } @else if (proposedDecisions().length === 0) {
                 <p class="hv2-muted">{{ i18n.t('hypervisor.v2.decisions.none_proposed') }}</p>
               } @else {
                 <ul class="hv2-list">
@@ -705,9 +748,11 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
             </a>
             <article class="hv2-card">
               <header class="hv2-card-head">
-                <h3 class="hv2-card-title">{{ i18n.t('hypervisor.v2.decisions.recommendations') }} <span class="ck-mono hv2-count">{{ recommendationGroups().length }}</span></h3>
+                <h3 class="hv2-card-title">{{ i18n.t('hypervisor.v2.decisions.recommendations') }}@if (sourceStates().recos === 'ready') { <span class="ck-mono hv2-count">{{ recommendationGroups().length }}</span>}</h3>
               </header>
-              @if (recommendationGroups().length === 0) {
+              @if (sourceStates().recos !== 'ready') {
+                <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'recos' }"></ng-container>
+              } @else if (recommendationGroups().length === 0) {
                 <p class="hv2-muted">{{ i18n.t('hypervisor.v2.decisions.none_reco') }}</p>
               } @else {
                 <ul class="hv2-list">
@@ -725,14 +770,16 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
             </article>
             <article class="hv2-card">
               <header class="hv2-card-head">
-                <h3 class="hv2-card-title">{{ i18n.t('hypervisor.v2.decisions.history') }} <span class="ck-mono hv2-count">{{ historyDecisions().length }}</span></h3>
+                <h3 class="hv2-card-title">{{ i18n.t('hypervisor.v2.decisions.history') }}@if (sourceStates().decisions === 'ready') { <span class="ck-mono hv2-count">{{ historyDecisions().length }}</span>}</h3>
                 @if (historyDecisions().length) {
                   <button type="button" class="hv2-text-btn" (click)="historyOpen.set(!historyOpen())" [attr.aria-expanded]="historyOpen()">
                     {{ historyOpen() ? i18n.t('hypervisor.v2.decisions.history_hide') : i18n.t('hypervisor.v2.decisions.history_show', { count: historyDecisions().length }) }}
                   </button>
                 }
               </header>
-              @if (historyDecisions().length === 0) {
+              @if (sourceStates().decisions !== 'ready') {
+                <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'decisions' }"></ng-container>
+              } @else if (historyDecisions().length === 0) {
                 <p class="hv2-muted">{{ i18n.t('hypervisor.v2.decisions.none_history') }}</p>
               } @else if (historyOpen()) {
                 <ul class="hv2-list">
@@ -752,7 +799,9 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
         @if (activeFacet() === 'journal') {
           <article class="hv2-card">
             <h3 class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.journal.title') }}</h3>
-            @if (series(); as view) {
+            @if (sourceStates().series !== 'ready') {
+              <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'series' }"></ng-container>
+            } @else if (series(); as view) {
               <ck-chart-pulse
                 [values]="view.pulseValues"
                 [staleFrom]="view.staleFrom"
@@ -762,7 +811,9 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                 [valueLabel]="pulseTip"
               />
             }
-            @if (journalEntries().length === 0) {
+            @if (sourceStates().decisions !== 'ready') {
+              <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'decisions' }"></ng-container>
+            } @else if (journalEntries().length === 0) {
               <p class="hv2-muted">{{ i18n.t('hypervisor.v2.journal.empty') }}</p>
             } @else {
               <ul class="hv2-list" data-testid="hypervisor-v2-journal-entries">
@@ -872,7 +923,9 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     </ng-template>
 
     <ng-template #decisionTpl>
-      @if (firstProposed(); as decision) {
+      @if (sourceStates().decisions !== 'ready') {
+        <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'decisions' }"></ng-container>
+      } @else if (firstProposed(); as decision) {
         <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.decision.kicker', { date: formatDate(decision.created_at, true) }) }}</div>
         <h3 class="hv2-card-title">
           @if (isAgentSuggested(decision)) {
@@ -900,7 +953,9 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
 
     <ng-template #presentationTpl>
       <div class="hv2-presentation" data-testid="hypervisor-presentation">
-        @if (!series()) {
+        @if (sourceStates().series !== 'ready') {
+          <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'series' }"></ng-container>
+        } @else if (!series()) {
           <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p>
         } @else {
           <div class="hv2-presentation-kpis">
@@ -918,10 +973,14 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
             </div>
             <div class="hv2-presentation-kpi">
               <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.theme.kpi.decisions') }}</div>
-              <div
-                class="hv2-presentation-num ck-tnum"
-                [class.hv2-presentation-warn]="proposedDecisions().length > 0"
-              >{{ proposedDecisions().length }}</div>
+              @if (sourceStates().decisions === 'ready') {
+                <div
+                  class="hv2-presentation-num ck-tnum"
+                  [class.hv2-presentation-warn]="proposedDecisions().length > 0"
+                >{{ proposedDecisions().length }}</div>
+              } @else {
+                <div class="ck-mono hv2-presentation-state">{{ i18n.t('hypervisor.state.unavailable') }}</div>
+              }
             </div>
           </div>
           <p class="hv2-presentation-summary">{{ pageSummary() }}</p>
@@ -931,17 +990,24 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                 <h3 class="hv2-card-title">{{ i18n.t('hypervisor.v2.theme.decide.title') }}</h3>
                 <a class="hv2-link" [navLink]="decisionsFacetLink()">{{ i18n.t('hypervisor.v2.theme.decide.open') }}</a>
               </header>
-              @if (presentationDecideRows().length === 0) {
-                <p class="hv2-muted">{{ i18n.t('hypervisor.v2.theme.decide.empty') }}</p>
+              @if (sourceStates().decisions !== 'ready') {
+                <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'decisions' }"></ng-container>
               } @else {
-                <ul class="hv2-presentation-list">
-                  @for (row of presentationDecideRows(); track row.id) {
-                    <li>
-                      <span>{{ row.label }}</span>
-                      <span class="ck-mono hv2-muted">{{ row.meta }}</span>
-                    </li>
-                  }
-                </ul>
+                @if (presentationDecideRows().length) {
+                  <ul class="hv2-presentation-list">
+                    @for (row of presentationDecideRows(); track row.id) {
+                      <li>
+                        <span>{{ row.label }}</span>
+                        <span class="ck-mono hv2-muted">{{ row.meta }}</span>
+                      </li>
+                    }
+                  </ul>
+                } @else if (sourceStates().recos === 'ready') {
+                  <p class="hv2-muted">{{ i18n.t('hypervisor.v2.theme.decide.empty') }}</p>
+                }
+                @if (sourceStates().recos !== 'ready') {
+                  <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'recos' }"></ng-container>
+                }
               }
             </article>
             <article class="hv2-card" data-testid="hypervisor-presentation-watch">
@@ -964,6 +1030,25 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
             </article>
           </div>
         }
+      </div>
+    </ng-template>
+
+    <ng-template #unavailableTpl let-source="source">
+      <div class="hv2-unavailable" [attr.data-testid]="'hypervisor-v2-unavailable-' + source">
+        <div class="hv2-unavailable-copy">
+          <span class="ck-mono hv2-unavailable-kicker">{{ sourceName(source) }}</span>
+          <p class="hv2-unavailable-text" role="status" aria-live="polite">{{ sourceRetrying(source)
+            ? i18n.t('hypervisor.v2.source.retrying')
+            : i18n.t('hypervisor.v2.source.unavailable') }}</p>
+        </div>
+        <button
+          type="button"
+          class="hv2-retry ck-press"
+          [attr.data-testid]="'hypervisor-v2-retry-' + source"
+          [attr.aria-label]="i18n.t('hypervisor.v2.source.retry_label', { source: sourceName(source) })"
+          [attr.aria-disabled]="sourceRetrying(source) ? 'true' : null"
+          (click)="retrySource(source)"
+        >{{ i18n.t('hypervisor.v2.source.retry') }}</button>
       </div>
     </ng-template>
 
@@ -1078,7 +1163,9 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     <ng-template #basesTpl>
       <article class="hv2-card ck-h-scroll" data-testid="hypervisor-v2-value-bases">
         <h3 class="ck-mono hv2-kicker">{{ i18n.t('nav.facet.bases') }}</h3>
-        @if (bases().length === 0) {
+        @if (sourceStates().bases !== 'ready') {
+          <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'bases' }"></ng-container>
+        } @else if (bases().length === 0) {
           <p class="hv2-muted">{{ i18n.t('hypervisor.v2.bases.empty') }}</p>
         } @else {
           <table class="hv2-table">
@@ -1385,11 +1472,14 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     .hv2-hero-couverture .hv2-link { margin-top: auto; }
     .hv2-card.hv2-hero-signal { align-self: stretch; }
     .hv2-kicker { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ck-fg-3); margin: 0 0 10px; }
-    .hv2-monument-row { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; }
+    .hv2-monument-group { margin: 4px 0 0; }
+    .hv2-monument-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+    .hv2-monument-figure { display: inline-flex; align-items: baseline; gap: 8px; white-space: nowrap; }
+    .hv2-measured-part { font-size: 12px; line-height: 1.3; letter-spacing: 0.02em; color: var(--ck-fg-1); white-space: nowrap; }
     .hv2-monument { font-size: 88px; font-weight: 600; letter-spacing: -0.05em; line-height: 0.9; color: var(--ck-fg-1); }
     .hv2-monument-state { font-size: 22px; letter-spacing: 0.08em; line-height: 1.2; color: var(--ck-fg-2); }
     .hv2-monument-unit { font-size: 34px; font-weight: 500; color: var(--ck-fg-3); }
-    .hv2-sentence { margin: 14px 0 0; font-size: 17px; line-height: 1.3; color: var(--ck-fg-2); }
+    .hv2-sentence { display: block; margin: 12px 0 0; font-size: 17px; line-height: 1.3; color: var(--ck-fg-2); }
     .hv2-sub { margin: 6px 0 0; font-size: 12px; line-height: 1.4; color: var(--ck-fg-3); }
     .hv2-provenance-block { display: flex; flex-direction: column; gap: 12px; }
     .hv2-provenance { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--ck-stroke-2); }
@@ -1410,6 +1500,29 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     .hv2-fact { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; }
     .hv2-fact dt { font-size: 12px; color: var(--ck-fg-2); }
     .hv2-fact dd { margin: 0; font-size: 12px; color: var(--ck-fg-1); }
+    .hv2-card-head-wrap { flex-wrap: wrap; }
+    .hv2-facts-aside { border-top: 0; padding-top: 0; min-width: min(100%, 320px); }
+    .hv2-facts-aside .hv2-fact dt, .hv2-facts-aside .hv2-fact dd { font-size: 13px; }
+    .hv2-fact-share { color: var(--ck-fg-2); margin-left: 4px; }
+    .hv2-degraded-page { display: flex; flex-direction: column; gap: 14px; }
+    .hv2-unavailable {
+      display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px;
+      padding: 12px 14px; border: 1px dashed var(--ck-stroke-strong); border-left: 2px solid var(--ck-signal-warn);
+      border-radius: 8px; background: var(--ck-bg-panel);
+    }
+    .hv2-unavailable-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .hv2-unavailable-kicker { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ck-fg-3); }
+    .hv2-unavailable-text { margin: 0; font-size: 13px; line-height: 1.4; color: var(--ck-fg-1); }
+    /* Inside a card the card is the frame: no second box, same copy and action. */
+    .hv2-card .hv2-unavailable { padding: 0; border: 0; border-radius: 0; background: transparent; }
+    .hv2-degraded-page > .hv2-card { max-width: 640px; }
+    .hv2-retry {
+      min-height: 32px; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--ck-stroke-strong);
+      background: transparent; color: var(--ck-fg-1); font-size: 12px; cursor: pointer;
+    }
+    .hv2-retry:hover { background: var(--ck-bg-inset); }
+    .hv2-retry[aria-disabled='true'] { cursor: progress; color: var(--ck-fg-3); }
+    .hv2-presentation-state { font-size: 16px; letter-spacing: 0.08em; line-height: 48px; color: var(--ck-fg-2); }
     .hv2-chart-caption { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ck-fg-3); text-align: center; }
     .hv2-flow-title { margin: 0 0 6px; font-size: 15px; font-weight: 600; line-height: 1.3; color: var(--ck-fg-1); }
     .hv2-flow-explainer { margin: 0 0 12px; font-size: 11px; line-height: 1.45; color: var(--ck-fg-3); max-width: 420px; }
@@ -1466,18 +1579,19 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     .hv2-table tbody tr { transition: background 120ms var(--ck-ease-out, ease-out); }
     .hv2-row-lit { background: var(--ck-bg-inset); }
     .hv2-row-flash { outline: 1px solid var(--ck-signal-cool); outline-offset: -1px; }
-    .hv2-enter .hv2-register tbody tr,
-    .hv2-enter .hv2-cards3 > .hv2-card {
-      animation: hv2FadeUp 400ms var(--ck-ease-out, ease-out) both;
-      animation-delay: calc(var(--stagger, 0) * 30ms);
+    /* The entering class sits on the host: only :host() matches it under
+       emulated encapsulation. Tokens v2 home entrance, first rows staggered. */
+    :host(.hv2-enter) .hv2-register tbody tr,
+    :host(.hv2-enter) .hv2-cards3 > .hv2-card {
+      animation: hv2FadeUp var(--ck-dur-med, 200ms) var(--ck-ease-out, ease-out) both;
+      animation-delay: calc(min(var(--stagger, 0), 3) * 30ms);
     }
     @keyframes hv2FadeUp {
-      from { opacity: 0; transform: translateY(6px); }
-      to { opacity: 1; transform: none; }
+      from { opacity: 0; transform: translateY(8px); }
     }
     @media (prefers-reduced-motion: reduce) {
-      .hv2-enter .hv2-register tbody tr,
-      .hv2-enter .hv2-cards3 > .hv2-card { animation: none; }
+      :host(.hv2-enter) .hv2-register tbody tr,
+      :host(.hv2-enter) .hv2-cards3 > .hv2-card { animation: none; }
       .hv2-table tbody tr, .hv2-hors-row, .hv2-peak-card { transition: none; }
     }
 
@@ -1555,6 +1669,10 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
 
   readonly loading = signal(true);
   readonly loadProblem = signal<string | null>(null);
+  /** One state per data source, so a failed request only degrades its own blocks. */
+  readonly sourceStates = signal<ImpactSourceStates>(LOADING_SOURCES);
+  /** Polite announcement once a retried source is back (its inline block is gone). */
+  readonly sourceAnnouncement = signal('');
   readonly views = signal<HypervisorNamedView[]>([]);
   readonly canEdit = signal(false);
   readonly activeViewId = signal('direction');
@@ -1823,6 +1941,27 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     };
   });
 
+  private readonly sourceGenerations: Record<ImpactSourceId, number> = { series: 0, bases: 0, decisions: 0, recos: 0 };
+  private readonly applySourceOutcome: { [K in ImpactSourceId]: (outcome: SourceOutcome<ImpactSourceValues[K]>) => void } = {
+    series: (outcome) => {
+      const value = outcome.ok ? outcome.value : null;
+      this.lastSeries = value;
+      this.series.set(value ? projectSeries(value, viewDenominator(this.activeView())) : null);
+      this.markSource('series', outcome.ok ? 'ready' : 'unavailable');
+    },
+    bases: (outcome) => {
+      this.bases.set(outcome.ok ? outcome.value : []);
+      this.markSource('bases', outcome.ok ? 'ready' : 'unavailable');
+    },
+    decisions: (outcome) => {
+      this.decisions.set(outcome.ok ? outcome.value : []);
+      this.markSource('decisions', outcome.ok ? 'ready' : 'unavailable');
+    },
+    recos: (outcome) => {
+      this.recommendations.set(outcome.ok ? outcome.value : []);
+      this.markSource('recos', outcome.ok ? 'ready' : 'unavailable');
+    },
+  };
   private routeSub: Subscription | null = null;
   private impactLiveSub: Subscription | null = null;
   private impactLiveGeneration = 0;
@@ -2048,7 +2187,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     if (this.presentationTheme()) {
       return this.i18n.t('hypervisor.v2.theme.title');
     }
-    return this.i18n.t(`hypervisor.v2.page.title.${viewPeriod(this.activeView())}`);
+    return this.i18n.t('hypervisor.v2.page.title');
   }
 
   presentationRuns(): string {
@@ -2172,6 +2311,29 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     return this.i18n.t(`hypervisor.v2.hero.sentence.${this.denominator()}`, { days: this.dayCount() });
   }
 
+  /** The measured share, shown right next to the monument number. */
+  measuredPart(): string {
+    const prov = this.provenance();
+    if (!prov) return '';
+    return this.i18n.t(`hypervisor.v2.hero.measured_part.${this.denominator()}`, { pct: prov.measuredPct });
+  }
+
+  /**
+   * The monument read as one sentence by screen readers, with the final
+   * value (never the count-up frames): "2 496 heures de travail attribuées
+   * aux agents en 91 jours, dont 38 % mesurées".
+   */
+  monumentLabel(): string {
+    const mon = this.monument();
+    if (!mon) return '';
+    const amount = this.denominator() === 'value' ? `${mon.value} ${mon.unit}`.trim() : mon.value;
+    const sentence = this.heroSentence();
+    const measured = this.measuredPart();
+    return measured
+      ? this.i18n.t('hypervisor.v2.hero.monument_label_measured', { amount, sentence, measured })
+      : this.i18n.t('hypervisor.v2.hero.monument_label', { amount, sentence });
+  }
+
   heroSub(): string {
     const view = this.series();
     if (!view) return '';
@@ -2233,6 +2395,22 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     return `× ${this.formatNumber(value, 1)} ${MARK_DECLARED}`;
   }
 
+  /** Share of the declared value that rests on a declared (not measured) basis. */
+  valueDeclaredShare(): string {
+    const view = this.series();
+    if (!view) return '';
+    let total = 0;
+    let declared = 0;
+    for (const row of view.register) {
+      const value = availableNumber(row.valueDeclared);
+      if (value == null || value <= 0) continue;
+      total += value;
+      if (row.basisStatus !== 'measured') declared += value;
+    }
+    if (total <= 0) return '';
+    return this.i18n.t('hypervisor.v2.metric.ratio_declared_share', { pct: this.formatPercent(declared / total) });
+  }
+
   // --- Charts -------------------------------------------------------------
 
   rangeLabel(): string {
@@ -2268,11 +2446,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   }
 
   riversTitle(): string {
-    const count = this.series()?.streams.length ?? 0;
-    const denominator = this.denominator();
-    return count === 1
-      ? this.i18n.t(`hypervisor.v2.rivers.title.${denominator}_one`)
-      : this.i18n.t(`hypervisor.v2.rivers.title.${denominator}`, { count });
+    return this.i18n.t(`hypervisor.v2.rivers.title.${this.denominator()}`);
   }
 
   riversLegend(): string {
@@ -2926,6 +3100,8 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     this.impactMap.set(null);
     this.impactMonitor.set(null);
     this.impactMacro.set(null);
+    this.sourceStates.set(LOADING_SOURCES);
+    this.sourceAnnouncement.set('');
     this.editingId.set(null);
     this.painted = false;
     this.entering.set(false);
@@ -2938,35 +3114,29 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   reload(): void {
     const request = this.workspaceView.beginRequest();
     const period = viewPeriod(this.activeView() ?? DEFAULT_HYPERVISOR_VIEWS[0]);
+    const sources = impactSourceRequests(this.http, period);
     this.loading.set(true);
     this.loadProblem.set(null);
+    // Each block source settles on its own: one failure never blanks the page.
     forkJoin({
-      series: this.api.hypervisorSeries(period),
-      views: this.api.hypervisorViews(),
-      bases: this.api.hypervisorValueBases(),
-      capabilities: this.api.listCapabilities(),
-      balance: this.api.hypervisorBalanceSheet(period === '90d' ? 'rolling_90d' : 'rolling_30d'),
-      recos: this.api.hypervisorRecommendations(),
-      decisions: this.api.listDecisions({ limit: 20 }),
-      mapSettings: this.api.hypervisorMapSettings(),
-    }).pipe(
-      catchError((error: unknown) => {
-        if (this.workspaceView.isCurrent(request)) this.loadProblem.set(
-          error instanceof HttpErrorResponse && error.status === 403
-            ? 'experience.adoption.access_denied' : 'experience.adoption.load_failed');
-        return of({
-        series: null,
-        views: null,
-        bases: [] as HypervisorValueBasisItem[],
-        capabilities: [] as Capability[],
-        balance: null,
-        recos: [] as Recommendation[],
-        decisions: { items: [] as DecisionRow[], total: 0, limit: 20, offset: 0 },
-        mapSettings: null,
-      }); }),
-    ).subscribe((bundle) => {
+      series: settleSource(sources.series()),
+      bases: settleSource(sources.bases()),
+      decisions: settleSource(sources.decisions()),
+      recos: settleSource(sources.recos()),
+      views: this.api.hypervisorViews().pipe(catchError(() => of(null))),
+      capabilities: this.api.listCapabilities().pipe(catchError(() => of([] as Capability[]))),
+      balance: this.api.hypervisorBalanceSheet(period === '90d' ? 'rolling_90d' : 'rolling_30d').pipe(
+        catchError(() => of(null)),
+      ),
+      mapSettings: this.api.hypervisorMapSettings().pipe(catchError(() => of(null))),
+    }).subscribe((bundle) => {
       if (!this.workspaceView.isCurrent(request)) return;
-      if (this.loadProblem()) { this.loading.set(false); return; }
+      const problem = impactPageProblem(bundle);
+      if (problem) {
+        this.loadProblem.set(problem);
+        this.loading.set(false);
+        return;
+      }
       const parsed = parseViewsPayload(bundle.views);
       this.views.set(parsed.views);
       this.canEdit.set(parsed.can_edit);
@@ -2980,24 +3150,67 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
         this.reload();
         return;
       }
-      this.lastSeries = bundle.series;
-      this.series.set(bundle.series ? projectSeries(bundle.series, viewDenominator(this.activeView())) : null);
-      this.bases.set(bundle.bases);
+      this.applySourceOutcome.series(bundle.series);
+      this.applySourceOutcome.bases(bundle.bases);
+      this.applySourceOutcome.decisions(bundle.decisions);
+      this.applySourceOutcome.recos(bundle.recos);
       this.capabilities.set(bundle.capabilities);
-      this.recommendations.set(bundle.recos);
-      this.decisions.set(bundle.decisions.items);
       this.signals.set(bundle.balance?.signals ?? []);
+      this.sourceAnnouncement.set('');
       this.loading.set(false);
-      const firstPaint = !this.painted && this.series() != null;
-      if (this.series()) this.painted = true;
-      this.syncMonument(firstPaint);
-      if (firstPaint) this.beginEntrance();
-      const cameFrom = this.cameFromSystem();
-      if (cameFrom && firstPaint) {
-        queueMicrotask(() => this.onSystemClick(cameFrom));
-      }
+      this.afterSeriesPaint();
       this.reloadImpactLive();
     });
+  }
+
+  sourceName(id: ImpactSourceId): string {
+    return this.i18n.t(`hypervisor.v2.source.name.${id}`);
+  }
+
+  sourceRetrying(id: ImpactSourceId): boolean {
+    return this.sourceStates()[id] === 'loading';
+  }
+
+  /** Re-requests only the failed source; the other blocks stay as they are. */
+  retrySource(id: ImpactSourceId): void {
+    if (this.sourceRetrying(id)) return;
+    const scope = this.workspaceView.captureRequest();
+    const generation = ++this.sourceGenerations[id];
+    const period = viewPeriod(this.activeView() ?? DEFAULT_HYPERVISOR_VIEWS[0]);
+    this.sourceAnnouncement.set('');
+    this.markSource(id, 'loading');
+    this.settleOne(id, impactSourceRequests(this.http, period)[id](), scope, generation);
+  }
+
+  private settleOne<K extends ImpactSourceId>(
+    id: K,
+    request: Observable<ImpactSourceValues[K]>,
+    scope: ReturnType<WorkspaceViewContext['captureRequest']>,
+    generation: number,
+  ): void {
+    settleSource(request).subscribe((outcome) => {
+      if (!this.workspaceView.isCurrent(scope) || generation !== this.sourceGenerations[id]) return;
+      this.applySourceOutcome[id](outcome);
+      if (id === 'series') this.afterSeriesPaint();
+      if (outcome.ok) {
+        this.sourceAnnouncement.set(this.i18n.t('hypervisor.v2.source.loaded', { source: this.sourceName(id) }));
+      }
+    });
+  }
+
+  private markSource(id: ImpactSourceId, state: ImpactSourceState): void {
+    this.sourceStates.update((states) => withSourceState(states, id, state));
+  }
+
+  private afterSeriesPaint(): void {
+    const firstPaint = !this.painted && this.series() != null;
+    if (this.series()) this.painted = true;
+    this.syncMonument(firstPaint);
+    if (firstPaint) this.beginEntrance();
+    const cameFrom = this.cameFromSystem();
+    if (cameFrom && firstPaint) {
+      queueMicrotask(() => this.onSystemClick(cameFrom));
+    }
   }
 
   /** Fetch Mission Room payloads only when a generic Impact view is open. */
