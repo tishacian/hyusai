@@ -9,6 +9,7 @@ import {
   reduceDayLock,
   selectedDay,
   selectionModel,
+  stripKeyTarget,
   type DayLockEvent,
   type DayLockState,
 } from './impact-synthese';
@@ -84,6 +85,38 @@ test('activity strip: the selected day lights its mark and bands its week', () =
   assert.deepEqual(strip.marks.map((m) => m.selected), [false, false, false, false, false, true]);
   assert.equal(activityStrip(DAYS, 99).selectedWeek, null, 'an out-of-range day selects nothing');
   assert.equal(activityStrip([], null).max, 0);
+});
+
+test('activity strip: the locked week is named apart from a passing preview', () => {
+  const locked = activityStrip(DAYS, 1, 5);
+  assert.deepEqual([locked.lockedWeek?.start, locked.lockedWeek?.end, locked.lockedWeek?.isoWeek], [4, 6, 36]);
+  assert.deepEqual([locked.selectedWeek?.start, locked.selectedWeek?.isoWeek], [0, 35], 'the band follows the preview');
+  assert.deepEqual(locked.marks.map((m) => m.locked), [false, false, false, false, false, true]);
+  assert.equal(activityStrip(DAYS, 3).lockedWeek, null, 'no lock, no locked week');
+  assert.equal(activityStrip(DAYS, null, 42).lockedWeek, null, 'an out-of-range lock names nothing');
+});
+
+test('activity strip: a lock from the strip is the same toggle as a spoke or a river day', () => {
+  // Enter or a click on day 4 of the strip, then the same day again.
+  const locked = run([{ type: 'hover', day: 4 }, { type: 'toggle', day: 4 }]);
+  assert.equal(activityStrip(DAYS, selectedDay(locked), locked.locked).lockedWeek?.isoWeek, 36);
+  assert.equal(lockTransition(DAY_LOCK_IDLE, locked), 'locked');
+  const unlocked = reduceDayLock(locked, { type: 'toggle', day: 4 });
+  assert.equal(unlocked.locked, null);
+  assert.equal(activityStrip(DAYS, selectedDay(unlocked), unlocked.locked).lockedWeek, null);
+});
+
+test('activity strip keys: arrows walk a day, Page keys a week, Home/End the ends, no wrap', () => {
+  assert.equal(stripKeyTarget('ArrowRight', 3, 30), 4);
+  assert.equal(stripKeyTarget('ArrowLeft', 3, 30), 2);
+  assert.equal(stripKeyTarget('ArrowRight', 29, 30), 29, 'the strip stops at the last day');
+  assert.equal(stripKeyTarget('ArrowLeft', 0, 30), 0);
+  assert.equal(stripKeyTarget('PageDown', 3, 30), 10);
+  assert.equal(stripKeyTarget('PageUp', 3, 30), 0);
+  assert.equal(stripKeyTarget('Home', 12, 30), 0);
+  assert.equal(stripKeyTarget('End', 12, 30), 29);
+  assert.equal(stripKeyTarget('Enter', 12, 30), null, 'Enter locks, it does not move');
+  assert.equal(stripKeyTarget('ArrowRight', 0, 0), null);
 });
 
 function fact(value: number | null): SeriesFact {

@@ -142,11 +142,19 @@ import {
   reduceDayLock,
   selectedDay,
   selectionModel,
+  stripKeyTarget,
   type DayLockEvent,
   type DayLockState,
   type SelectionDayMode,
   type SelectionSystemMode,
 } from './impact-synthese';
+import {
+  presentationEscape,
+  proofChain,
+  type ProofBasis,
+  type ProofBasisAuthor,
+  type ProofDay,
+} from './impact-presentation';
 
 interface BasisDraft {
   unit: string;
@@ -361,7 +369,6 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
           } @else if (presentationTheme()) {
             <ng-container [ngTemplateOutlet]="presentationTpl"></ng-container>
           } @else {
-            <ng-container [ngTemplateOutlet]="legendTpl"></ng-container>
             <p class="sr-only" role="status" aria-live="polite" data-testid="hypervisor-v2-lock-announcer">{{ lockAnnouncement() }}</p>
             @if (sourceStates().series !== 'ready') {
               <div class="hv2-degraded-page" data-testid="hypervisor-v2-series-degraded">
@@ -441,48 +448,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                         }
                       </div>
                       @if (strip().marks.length) {
-                        <div class="hv2-command-col hv2-command-strip" data-testid="hypervisor-v2-activity-strip">
-                          <div class="hv2-strip-head">
-                            <p class="hv2-label">{{ i18n.t('hypervisor.v2.strip.title', { days: dayCount() }) }}</p>
-                            <p class="hv2-label ck-tnum">{{ rangeLabel() }}</p>
-                          </div>
-                          <p class="sr-only">{{ stripSummary() }}</p>
-                          <svg
-                            class="hv2-strip"
-                            aria-hidden="true"
-                            focusable="false"
-                            preserveAspectRatio="none"
-                            [attr.viewBox]="'0 0 ' + strip().marks.length + ' 100'"
-                          >
-                            @if (strip().selectedWeek; as week) {
-                              <rect class="hv2-strip-week" [attr.x]="week.start" y="0" [attr.width]="week.end - week.start" height="100" />
-                            }
-                            @for (mark of strip().marks; track mark.index) {
-                              @if (mark.total > 0) {
-                                <rect
-                                  class="hv2-strip-mark"
-                                  [class.is-weekend]="mark.weekend"
-                                  [class.is-in-week]="mark.inSelectedWeek"
-                                  [class.is-selected]="mark.selected"
-                                  [attr.data-day]="mark.index"
-                                  [attr.x]="mark.index + 0.22"
-                                  width="0.56"
-                                  [attr.y]="100 - (4 + mark.share * 96)"
-                                  [attr.height]="4 + mark.share * 96"
-                                />
-                              }
-                            }
-                          </svg>
-                          <div class="hv2-strip-axis ck-tnum" aria-hidden="true">
-                            @for (week of strip().weeks; track week.start; let w = $index) {
-                              <span
-                                class="hv2-strip-tick"
-                                [class.is-selected]="week.selected"
-                                [style.left.%]="stripMarkX(week.start)"
-                              >@if (stripShowsWeek(week, w)) { {{ stripWeekLabel(week.isoWeek) }} }</span>
-                            }
-                          </div>
-                        </div>
+                        <ng-container [ngTemplateOutlet]="stripTpl"></ng-container>
                       }
                     }
                     @if (showBlock('comprendre', 'unites')) {
@@ -550,101 +516,13 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                   </section>
                 }
                 @if (showBlock('comprendre', 'rivers')) {
-                  <section class="hv2-band hv2-rivers" data-testid="hypervisor-v2-rivers" aria-labelledby="hv2-rivers-title">
-                    <header class="hv2-band-head">
-                      <div>
-                        <h3 class="hv2-band-title" id="hv2-rivers-title">{{ riversTitle() }}</h3>
-                        <p class="hv2-band-sub">{{ i18n.t('hypervisor.v2.rivers.sub') }}</p>
-                      </div>
-                      <span class="hv2-band-legend">{{ riversLegend() }}</span>
-                    </header>
-                    @if (streamSeries().length) {
-                      <ck-chart-stream
-                        fluid
-                        followTip
-                        [height]="280"
-                        [series]="streamSeries()"
-                        [dayLabels]="dayLabels()"
-                        [weekendStarts]="series()!.weekendStarts"
-                        [ticks]="streamTicks()"
-                        [peak]="streamPeak()"
-                        [gridLabel]="quantityLabel"
-                        [hoverDay]="selectedDayIndex()"
-                        [lockedDay]="lockedDay()"
-                        [hoverSystem]="hoverSystem()"
-                        [dayAriaLabel]="riverDayAria"
-                        (dayHover)="onDayHover($event)"
-                        (dayLock)="onDayLock($event)"
-                        (systemHover)="onSystemHover($event)"
-                      />
-                    } @else {
-                      <p class="hv2-muted">{{ i18n.t('hypervisor.v2.rivers.empty') }}</p>
-                    }
-                  </section>
+                  <ng-container [ngTemplateOutlet]="riversTpl" [ngTemplateOutletContext]="{ height: 280 }"></ng-container>
                 }
                 @if (showBlock('comprendre', 'rivers') || showBlock('comprendre', 'hors_denominateur')) {
-                  <div class="hv2-band hv2-pair">
-                    @if (selection().system; as sys) {
-                      <section class="hv2-pair-col hv2-selected-system" data-testid="hypervisor-v2-selected-system" aria-labelledby="hv2-selected-system-title">
-                        <h3 class="hv2-label" id="hv2-selected-system-title">{{ systemModeLabel(sys.mode) }}</h3>
-                        <p class="hv2-system-title">{{ sys.row.name }}</p>
-                        <dl class="hv2-inline-facts">
-                          <div>
-                            <dt>{{ i18n.t('hypervisor.v2.tip.label.hours') }}</dt>
-                            <dd class="ck-tnum" [class.hv2-teal]="sys.row.basisStatus !== 'measured' && sys.row.hours.state === 'available'">{{ systemHours(sys.row) }}</dd>
-                          </div>
-                          <div>
-                            <dt>{{ i18n.t('hypervisor.v2.hero.cost') }}</dt>
-                            <dd class="ck-tnum">{{ systemCost(sys.row) }}</dd>
-                          </div>
-                          <div>
-                            <dt>{{ i18n.t('hypervisor.v2.hero.value') }}</dt>
-                            <dd class="ck-tnum" [class.hv2-teal]="sys.row.valueDeclared.state === 'available'">{{ systemValue(sys.row) }}</dd>
-                          </div>
-                        </dl>
-                        <a class="hv2-link" [navLink]="systemLink(sys.row)" [navState]="registreProvenanceState()">{{ i18n.t('hypervisor.v2.selected.open', { name: sys.row.name }) }}</a>
-                      </section>
-                    }
-                    @if (showBlock('comprendre', 'hors_denominateur')) {
-                      <section class="hv2-pair-col hv2-hors" data-testid="hypervisor-v2-hors-denominateur" aria-labelledby="hv2-hors-title">
-                        <h3 class="hv2-label" id="hv2-hors-title">{{ i18n.t('hypervisor.v2.hors.kicker') }}</h3>
-                        @if (series()!.outside.length === 0) {
-                          <p class="hv2-system-title">{{ i18n.t('hypervisor.v2.hors.title') }}</p>
-                          <p class="hv2-muted">{{ i18n.t('hypervisor.v2.hors.empty') }}</p>
-                        } @else {
-                          <p class="hv2-system-title">{{ horsTitle() }}</p>
-                          <p class="hv2-band-sub">{{ i18n.t('hypervisor.v2.hors.note') }}</p>
-                          <div class="hv2-hors-list">
-                            @for (row of series()!.outside; track row.systemId) {
-                              <div
-                                class="hv2-hors-row"
-                                [class.hv2-row-lit]="hoverSystem() === row.systemId"
-                                (pointerenter)="onSystemHover(row.systemId)"
-                                (pointerleave)="onSystemHover(null)"
-                              >
-                                <div class="hv2-hors-line">
-                                  <span class="hv2-hors-name">{{ row.name }}</span>
-                                  <span class="ck-tnum hv2-hors-value" [attr.title]="dotsTitle(row)">{{ outcomeLabel(row) }} {{ outcomeMark(row) }}</span>
-                                </div>
-                                @if (outcomeCount(row) > 0) {
-                                  <ck-chart-unit-dots
-                                    [units]="outcomeCount(row)"
-                                    [unitsPerDot]="unitsPerDot()"
-                                    [dotSize]="5"
-                                    [gap]="3"
-                                    [tipTitle]="dotsTip(row)"
-                                  />
-                                }
-                              </div>
-                            }
-                          </div>
-                          @if (horsDeclareLink(); as link) {
-                            <a class="hv2-link" [navLink]="link">{{ i18n.t('hypervisor.v2.hors.declare') }}</a>
-                          }
-                        }
-                      </section>
-                    }
-                  </div>
+                  <ng-container
+                    [ngTemplateOutlet]="pairTpl"
+                    [ngTemplateOutletContext]="{ present: false, hors: showBlock('comprendre', 'hors_denominateur') }"
+                  ></ng-container>
                 }
                 @if (showBlock('comprendre', 'sankey')) {
                   <section class="hv2-band hv2-flow-band" aria-labelledby="hv2-flow-title">
@@ -917,6 +795,180 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       }
     </ck-page-frame>
 
+    <!-- Activity strip, shared by the Synthèse and the Présentation theme: a
+         horizontal listbox of days. Focus stays on the list (one tab stop,
+         aria-activedescendant names the day); arrows preview, Enter or Space
+         locks, a click locks. Selection does not follow focus. -->
+    <ng-template #stripTpl>
+      <div class="hv2-command-col hv2-command-strip" data-testid="hypervisor-v2-activity-strip">
+        <div class="hv2-strip-head">
+          <p class="hv2-label" id="hv2-strip-title">{{ i18n.t('hypervisor.v2.strip.title') }}</p>
+          <p class="hv2-label ck-tnum">{{ rangeLabel() }}</p>
+        </div>
+        <p class="sr-only" id="hv2-strip-desc">{{ stripSummary() }}. {{ i18n.t('hypervisor.v2.strip.help') }}</p>
+        <div class="hv2-strip-frame">
+          @if (strip().selectedWeek; as week) {
+            <span
+              class="hv2-strip-week"
+              aria-hidden="true"
+              [style.left.%]="stripMarkX(week.start)"
+              [style.width.%]="stripMarkX(week.end) - stripMarkX(week.start)"
+            ></span>
+          }
+          <div
+            class="hv2-strip"
+            role="listbox"
+            aria-orientation="horizontal"
+            aria-labelledby="hv2-strip-title"
+            aria-describedby="hv2-strip-desc"
+            tabindex="0"
+            data-testid="hypervisor-v2-strip-days"
+            [attr.aria-activedescendant]="stripFocused() ? 'hv2-strip-day-' + stripActiveIndex() : null"
+            (focus)="onStripFocus()"
+            (blur)="onStripBlur()"
+            (keydown)="onStripKey($event)"
+            (pointerleave)="onStripPointerLeave()"
+          >
+            @for (mark of strip().marks; track mark.index) {
+              <div
+                class="hv2-strip-day"
+                role="option"
+                [attr.id]="'hv2-strip-day-' + mark.index"
+                [attr.data-day]="mark.index"
+                [attr.aria-selected]="mark.locked"
+                [attr.aria-label]="stripDayAria(mark.index)"
+                [class.is-active]="stripFocused() && mark.index === stripActiveIndex()"
+                (pointerenter)="onDayHover(mark.index)"
+                (click)="onStripDayClick(mark.index)"
+              >
+                @if (mark.total > 0) {
+                  <span
+                    class="hv2-strip-mark"
+                    [class.is-weekend]="mark.weekend"
+                    [class.is-in-week]="mark.inSelectedWeek"
+                    [class.is-selected]="mark.selected"
+                    [class.is-locked]="mark.locked"
+                    [attr.data-day]="mark.index"
+                    [style.height.%]="4 + mark.share * 96"
+                  ></span>
+                }
+              </div>
+            }
+          </div>
+        </div>
+        <div class="hv2-strip-axis ck-tnum" aria-hidden="true">
+          @for (week of strip().weeks; track week.start; let w = $index) {
+            <span
+              class="hv2-strip-tick"
+              [class.is-selected]="week.selected"
+              [class.is-locked]="strip().lockedWeek?.start === week.start"
+              [style.left.%]="stripMarkX(week.start)"
+            >@if (stripShowsWeek(week, w)) { {{ stripWeekLabel(week.isoWeek) }} }</span>
+          }
+        </div>
+        <p class="hv2-strip-lock" data-testid="hypervisor-v2-strip-lock" [class.is-locked]="strip().lockedWeek != null">{{ stripLockLine() }}</p>
+      </div>
+    </ng-template>
+
+    <ng-template #riversTpl let-height="height">
+      <section class="hv2-band hv2-rivers" data-testid="hypervisor-v2-rivers" aria-labelledby="hv2-rivers-title">
+        <header class="hv2-band-head">
+          <div>
+            <h3 class="hv2-band-title" id="hv2-rivers-title">{{ riversTitle() }}</h3>
+            <p class="hv2-band-sub">{{ i18n.t('hypervisor.v2.rivers.sub') }}</p>
+          </div>
+          <span class="hv2-band-legend">{{ riversLegend() }}</span>
+        </header>
+        @if (streamSeries().length) {
+          <ck-chart-stream
+            fluid
+            followTip
+            [height]="height"
+            [series]="streamSeries()"
+            [dayLabels]="dayLabels()"
+            [weekendStarts]="series()!.weekendStarts"
+            [ticks]="streamTicks()"
+            [peak]="streamPeak()"
+            [gridLabel]="quantityLabel"
+            [hoverDay]="selectedDayIndex()"
+            [lockedDay]="lockedDay()"
+            [hoverSystem]="hoverSystem()"
+            [dayAriaLabel]="riverDayAria"
+            (dayHover)="onDayHover($event)"
+            (dayLock)="onDayLock($event)"
+            (systemHover)="onSystemHover($event)"
+          />
+        } @else {
+          <p class="hv2-muted">{{ i18n.t('hypervisor.v2.rivers.empty') }}</p>
+        }
+      </section>
+    </ng-template>
+
+    <ng-template #pairTpl let-present="present" let-hors="hors">
+      <div class="hv2-band hv2-pair">
+        @if (selection().system; as sys) {
+          <section class="hv2-pair-col hv2-selected-system" data-testid="hypervisor-v2-selected-system" aria-labelledby="hv2-selected-system-title">
+            <h3 class="hv2-label" id="hv2-selected-system-title">{{ present ? presentSystemLabel(sys.mode) : systemModeLabel(sys.mode) }}</h3>
+            <p class="hv2-system-title">{{ sys.row.name }}</p>
+            <dl class="hv2-inline-facts">
+              <div>
+                <dt>{{ i18n.t('hypervisor.v2.tip.label.hours') }}</dt>
+                <dd class="ck-tnum" [class.hv2-teal]="sys.row.basisStatus !== 'measured' && sys.row.hours.state === 'available'">{{ systemHours(sys.row) }}</dd>
+              </div>
+              <div>
+                <dt>{{ i18n.t('hypervisor.v2.hero.cost') }}</dt>
+                <dd class="ck-tnum">{{ systemCost(sys.row) }}</dd>
+              </div>
+              <div>
+                <dt>{{ i18n.t('hypervisor.v2.hero.value') }}</dt>
+                <dd class="ck-tnum" [class.hv2-teal]="sys.row.valueDeclared.state === 'available'">{{ systemValue(sys.row) }}</dd>
+              </div>
+            </dl>
+            <a class="hv2-link" [navLink]="systemLink(sys.row)" [navState]="registreProvenanceState()">{{ i18n.t('hypervisor.v2.selected.open', { name: sys.row.name }) }}</a>
+          </section>
+        }
+        @if (hors) {
+          <section class="hv2-pair-col hv2-hors" data-testid="hypervisor-v2-hors-denominateur" aria-labelledby="hv2-hors-title">
+            <h3 class="hv2-label" id="hv2-hors-title">{{ i18n.t('hypervisor.v2.hors.kicker') }}</h3>
+            @if (series()!.outside.length === 0) {
+              <p class="hv2-system-title">{{ i18n.t('hypervisor.v2.hors.title') }}</p>
+              <p class="hv2-muted">{{ i18n.t('hypervisor.v2.hors.empty') }}</p>
+            } @else {
+              <p class="hv2-system-title">{{ horsTitle() }}</p>
+              <p class="hv2-band-sub">{{ i18n.t('hypervisor.v2.hors.note') }}</p>
+              <div class="hv2-hors-list">
+                @for (row of series()!.outside; track row.systemId) {
+                  <div
+                    class="hv2-hors-row"
+                    [class.hv2-row-lit]="hoverSystem() === row.systemId"
+                    (pointerenter)="onSystemHover(row.systemId)"
+                    (pointerleave)="onSystemHover(null)"
+                  >
+                    <div class="hv2-hors-line">
+                      <span class="hv2-hors-name">{{ row.name }}</span>
+                      <span class="ck-tnum hv2-hors-value" [attr.title]="dotsTitle(row)">{{ outcomeLabel(row) }} {{ outcomeMark(row) }}</span>
+                    </div>
+                    @if (outcomeCount(row) > 0) {
+                      <ck-chart-unit-dots
+                        [units]="outcomeCount(row)"
+                        [unitsPerDot]="unitsPerDot()"
+                        [dotSize]="5"
+                        [gap]="3"
+                        [tipTitle]="dotsTip(row)"
+                      />
+                    }
+                  </div>
+                }
+              </div>
+              @if (horsDeclareLink(); as link) {
+                <a class="hv2-link" [navLink]="link">{{ i18n.t('hypervisor.v2.hors.declare') }}</a>
+              }
+            }
+          </section>
+        }
+      </div>
+    </ng-template>
+
     <ng-template #legendTpl>
       <p class="hv2-legend">{{ i18n.t('hypervisor.v2.legend') }}</p>
     </ng-template>
@@ -1023,84 +1075,195 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       }
     </ng-template>
 
+    <!-- Thème Présentation W2-v6 (L29): the Synthèse state told for a room.
+         Same day lock, same selection model, same charts, bigger; one copper
+         element (the lock needle and its ring). No register, no sankey, no
+         filled button, no orb. Escape: a locked day first, then the theme. -->
     <ng-template #presentationTpl>
-      <div class="hv2-presentation" data-testid="hypervisor-presentation">
+      <div class="hv2-present" data-testid="hypervisor-presentation">
         @if (sourceStates().series !== 'ready') {
           <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'series' }"></ng-container>
         } @else if (!series()) {
           <p class="hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p>
         } @else {
-          <div class="hv2-presentation-kpis">
-            <div class="hv2-presentation-kpi">
-              <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.theme.kpi.systems') }}</p>
-              <div class="hv2-presentation-num ck-tnum">{{ series()!.register.length }}</div>
-            </div>
-            <div class="hv2-presentation-kpi">
-              <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.theme.kpi.runs') }}</p>
-              <div class="hv2-presentation-num ck-tnum">{{ presentationRuns() }}</div>
-            </div>
-            <div class="hv2-presentation-kpi">
-              <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.theme.kpi.cost') }}</p>
-              <div class="hv2-presentation-num ck-tnum">{{ costFact() }}</div>
-            </div>
-            <div class="hv2-presentation-kpi">
-              <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.theme.kpi.decisions') }}</p>
-              @if (sourceStates().decisions === 'ready') {
-                <div
-                  class="hv2-presentation-num ck-tnum"
-                  [class.hv2-presentation-warn]="proposedDecisions().length > 0"
-                >{{ proposedDecisions().length }}</div>
-              } @else {
-                <div class="ck-mono hv2-presentation-state">{{ i18n.t('hypervisor.state.unavailable') }}</div>
-              }
-            </div>
-          </div>
-          <p class="hv2-presentation-summary">{{ pageSummary() }}</p>
-          <div class="hv2-presentation-columns">
-            <article class="hv2-card" data-testid="hypervisor-presentation-decide">
-              <header class="hv2-card-head">
-                <h3 class="hv2-card-title">{{ i18n.t('hypervisor.v2.theme.decide.title') }}</h3>
-                <a class="hv2-link" [navLink]="decisionsFacetLink()">{{ i18n.t('hypervisor.v2.theme.decide.open') }}</a>
-              </header>
-              @if (sourceStates().decisions !== 'ready') {
-                <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'decisions' }"></ng-container>
-              } @else {
-                @if (presentationDecideRows().length) {
-                  <ul class="hv2-presentation-list">
-                    @for (row of presentationDecideRows(); track row.id) {
-                      <li>
-                        <span>{{ row.label }}</span>
-                        <span class="ck-mono hv2-muted">{{ row.meta }}</span>
-                      </li>
-                    }
-                  </ul>
-                } @else if (sourceStates().recos === 'ready') {
-                  <p class="hv2-muted">{{ i18n.t('hypervisor.v2.theme.decide.empty') }}</p>
-                }
-                @if (sourceStates().recos !== 'ready') {
-                  <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'recos' }"></ng-container>
-                }
-              }
-            </article>
-            <article class="hv2-card" data-testid="hypervisor-presentation-watch">
-              <header class="hv2-card-head">
-                <h3 class="hv2-card-title">{{ i18n.t('hypervisor.v2.theme.watch.title') }}</h3>
-                <a class="hv2-link" [navLink]="registreFacetLink()">{{ i18n.t('hypervisor.v2.theme.watch.open') }}</a>
-              </header>
-              @if (presentationWatchRows().length === 0) {
-                <p class="hv2-muted">{{ i18n.t('hypervisor.v2.theme.watch.empty') }}</p>
-              } @else {
-                <ul class="hv2-presentation-list">
-                  @for (row of presentationWatchRows(); track row.id) {
-                    <li>
-                      <span>{{ row.label }}</span>
-                      <span class="hv2-presentation-status" [attr.data-tone]="row.tone">{{ row.status }}</span>
-                    </li>
+          <p class="sr-only" role="status" aria-live="polite" data-testid="hypervisor-v2-lock-announcer">{{ lockAnnouncement() }}</p>
+          <ng-container [ngTemplateOutlet]="leaderTpl" [ngTemplateOutletContext]="{ id: 'comprendre', hidden: true }"></ng-container>
+
+          <!-- 1 · Command band: the monument at display size, the day strip, three facts. -->
+          <section class="hv2-band hv2-command hv2-present-command" data-testid="hypervisor-presentation-command">
+            <div class="hv2-command-col hv2-command-monument">
+              <p class="hv2-label">{{ i18n.t('hypervisor.v2.hero.kicker', { days: dayCount() }) }}</p>
+              @if (monument(); as mon) {
+                <p class="hv2-monument-group" data-testid="hypervisor-v2-monument">
+                  <span class="sr-only">{{ monumentLabel() }}</span>
+                  <span class="hv2-monument-row" aria-hidden="true">
+                    <span class="hv2-monument-figure">
+                      <span class="hv2-monument ck-tnum">{{ monumentValue() }}</span>
+                      <span class="hv2-monument-unit">{{ mon.unit }}</span>
+                    </span>
+                  </span>
+                  <span class="hv2-sentence" aria-hidden="true">{{ heroSentence() }}</span>
+                  @if (measuredPart(); as part) {
+                    <span class="hv2-measured-part" aria-hidden="true" data-testid="hypervisor-v2-measured-part">{{ measuredMark }} {{ part }}</span>
                   }
-                </ul>
+                </p>
+              } @else {
+                <div class="hv2-monument-row">
+                  <span class="hv2-monument hv2-monument-state">{{ factLabel(series()!.monument) }}</span>
+                </div>
+                <p class="hv2-sub">{{ i18n.t('hypervisor.v2.hero.not_configured') }}</p>
               }
-            </article>
-          </div>
+            </div>
+            @if (strip().marks.length) {
+              <ng-container [ngTemplateOutlet]="stripTpl"></ng-container>
+            }
+            <dl class="hv2-command-col hv2-facts hv2-command-facts">
+              <div class="hv2-fact">
+                <dt>{{ i18n.t('hypervisor.v2.hero.cost') }}</dt>
+                <dd class="ck-tnum" data-fact="cost">{{ costFact() }}</dd>
+              </div>
+              <div class="hv2-fact">
+                <dt>{{ i18n.t('hypervisor.v2.hero.value') }}</dt>
+                <dd class="ck-tnum" [class.hv2-teal]="series()!.valueTotal.state === 'available'" data-fact="value">{{ valueFact() }}</dd>
+              </div>
+              <div class="hv2-fact">
+                <dt>{{ i18n.t('hypervisor.v2.present.decisions') }}</dt>
+                <dd class="ck-tnum" data-fact="decisions" data-testid="hypervisor-presentation-decisions">
+                  @if (sourceStates().decisions === 'ready') {
+                    <a
+                      class="hv2-link hv2-fact-link"
+                      [navLink]="decisionsFacetLink()"
+                      [attr.aria-label]="i18n.t('hypervisor.v2.present.decisions_link', { count: proposedDecisions().length })"
+                    >{{ proposedDecisions().length }} →</a>
+                  } @else {
+                    <span class="hv2-fact-state">{{ decisionsStateLabel() }}</span>
+                  }
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          <!-- 2 · Cadran with reference circles and the lock needle | chaîne de preuve. -->
+          <section class="hv2-band hv2-cadran-band hv2-present-cadran" data-testid="hypervisor-presentation-cadran" aria-labelledby="hv2-present-cadran-title">
+            <div class="hv2-cadran-col">
+              <h3 class="hv2-band-title" id="hv2-present-cadran-title">{{ cadranTitle() }}</h3>
+              <div class="hv2-cadran-dial">
+                <ck-chart-radial-days
+                  [days]="radialDays()"
+                  [ticks]="radialTicks()"
+                  [size]="660"
+                  [innerRadius]="112"
+                  [outerRadius]="252"
+                  [referenceRings]="2"
+                  [needle]="true"
+                  [needleMotion]="needleMotion()"
+                  [centerValue]="i18n.t('hypervisor.v2.cadran.center', { days: dayCount() })"
+                  [centerCaption]="i18n.t('hypervisor.v2.cadran.grammar')"
+                  [rangeLabel]="rangeLabel()"
+                  [peakLabel]="quantityLabel"
+                  [hoverDay]="selectedDayIndex()"
+                  [lockedDay]="lockedDay()"
+                  (dayHover)="onDayHover($event)"
+                  (dayLock)="onDayLock($event)"
+                />
+              </div>
+              <p class="hv2-chart-caption">{{ cadranLegend() }} · {{ i18n.t('hypervisor.v2.present.cadran.needle') }}</p>
+            </div>
+            @let chain = proof();
+            <aside class="hv2-proof" data-testid="hypervisor-presentation-proof" aria-labelledby="hv2-proof-title">
+              <div>
+                <h3 class="hv2-band-title" id="hv2-proof-title">{{ i18n.t('hypervisor.v2.present.proof.title') }}</h3>
+                <p class="hv2-band-sub">{{ i18n.t('hypervisor.v2.present.proof.sub') }}</p>
+              </div>
+              <ol class="hv2-proof-list" role="list">
+                <li class="hv2-proof-step" data-testid="hypervisor-presentation-proof-1" [attr.data-state]="chain[0].state">
+                  <span class="hv2-proof-n ck-tnum" aria-hidden="true">01</span>
+                  <div class="hv2-proof-body">
+                    <div class="hv2-sel-head">
+                      <p class="hv2-label">{{ proofDayTitle(chain[0].state) }}</p>
+                      @if (chain[0].state === 'locked') {
+                        <button type="button" class="hv2-text-btn" data-testid="hypervisor-v2-unlock" (click)="unlockDay()">
+                          {{ i18n.t('hypervisor.v2.selection.unlock') }}
+                          <ck-kbd>{{ i18n.t('hypervisor.v2.theme.quit_kbd') }}</ck-kbd>
+                        </button>
+                      }
+                    </div>
+                    @if (chain[0].date) {
+                      <p class="hv2-proof-main">{{ formatLongDate(chain[0].date) }}</p>
+                      <p class="hv2-proof-meta ck-tnum">{{ proofDayFigures(chain[0]) }}</p>
+                      @if (chain[0].state === 'peak') {
+                        <p class="hv2-proof-note">{{ i18n.t('hypervisor.v2.present.proof.peak_note') }}</p>
+                      }
+                    } @else {
+                      <p class="hv2-proof-note">{{ i18n.t('hypervisor.v2.hero.peak.none') }}</p>
+                    }
+                  </div>
+                </li>
+                <li class="hv2-proof-step" data-testid="hypervisor-presentation-proof-2" [attr.data-state]="chain[1].state">
+                  <span class="hv2-proof-n ck-tnum" aria-hidden="true">02</span>
+                  <div class="hv2-proof-body">
+                    <p class="hv2-label">{{ i18n.t('hypervisor.v2.present.proof.rivers') }}</p>
+                    @if (chain[1].state === 'parts') {
+                      <ul class="hv2-sel-list">
+                        @for (part of chain[1].parts; track part.systemId) {
+                          <li
+                            class="hv2-sel-row"
+                            [class.hv2-row-lit]="hoverSystem() === part.systemId"
+                            (pointerenter)="onSystemHover(part.systemId)"
+                            (pointerleave)="onSystemHover(null)"
+                          >
+                            <span class="hv2-sel-name">{{ part.label }}</span>
+                            <span class="ck-tnum hv2-sel-num" [class.hv2-teal]="part.declared">{{ riverPartValue(part.value, part.declared) }}</span>
+                          </li>
+                        }
+                      </ul>
+                      @if (chain[1].more > 0) {
+                        <p class="hv2-proof-note">{{ proofMore(chain[1].more) }}</p>
+                      }
+                    } @else if (chain[1].state === 'empty') {
+                      <p class="hv2-proof-note">{{ i18n.t('hypervisor.v2.selection.rivers_empty') }}</p>
+                    } @else {
+                      <p class="hv2-proof-note">{{ i18n.t('hypervisor.v2.present.proof.none') }}</p>
+                    }
+                  </div>
+                </li>
+                <li class="hv2-proof-step" data-testid="hypervisor-presentation-proof-3" [attr.data-state]="chain[2].state">
+                  <span class="hv2-proof-n ck-tnum" aria-hidden="true">03</span>
+                  <div class="hv2-proof-body">
+                    <p class="hv2-label">{{ i18n.t('hypervisor.v2.present.proof.register') }}</p>
+                    @if (chain[2].row; as row) {
+                      <p class="hv2-proof-main">{{ row.name }}</p>
+                      <p class="hv2-proof-meta">{{ systemModeLabel(chain[2].mode!) }}</p>
+                      <p class="hv2-proof-meta ck-tnum">{{ i18n.t('hypervisor.v2.present.proof.register_period', { days: dayCount(), hours: systemHours(row), runs: runsLabel(row) }) }}</p>
+                      <a class="hv2-link" [navLink]="systemLink(row)" [navState]="registreProvenanceState()">{{ i18n.t('hypervisor.v2.selected.open', { name: row.name }) }}</a>
+                    } @else {
+                      <p class="hv2-proof-note">{{ i18n.t('hypervisor.v2.present.proof.none') }}</p>
+                    }
+                  </div>
+                </li>
+                <li class="hv2-proof-step" data-testid="hypervisor-presentation-proof-4" [attr.data-state]="chain[3].state">
+                  <span class="hv2-proof-n ck-tnum" aria-hidden="true">04</span>
+                  <div class="hv2-proof-body">
+                    <p class="hv2-label">{{ i18n.t('hypervisor.v2.present.proof.basis') }}</p>
+                    @if (chain[2].row; as row) {
+                      <p class="hv2-proof-main ck-tnum" [class.hv2-teal]="chain[3].state === 'declared'">{{ basisLabel(row) }}</p>
+                      @if (chain[3].state !== 'missing') {
+                        <p class="hv2-proof-meta">{{ proofBasisAuthor(chain[3]) }}</p>
+                      }
+                    } @else {
+                      <p class="hv2-proof-note">{{ i18n.t('hypervisor.v2.present.proof.none') }}</p>
+                    }
+                  </div>
+                </li>
+              </ol>
+            </aside>
+          </section>
+
+          <!-- 3 · Rivers, full width and taller, same crosshair on the locked day. -->
+          <ng-container [ngTemplateOutlet]="riversTpl" [ngTemplateOutletContext]="{ height: 360 }"></ng-container>
+
+          <!-- 4 · The system of the locked day | Hors du total. -->
+          <ng-container [ngTemplateOutlet]="pairTpl" [ngTemplateOutletContext]="{ present: true, hors: true }"></ng-container>
         }
       </div>
     </ng-template>
@@ -1486,34 +1649,52 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
   styles: [`
     :host { display: block; color: var(--ck-fg-1); position: relative; }
     :host.hv2-theme-presentation { --hv2-presentation-mark: var(--sentinel-accent, #65d66e); }
+    /* The eyebrow text takes the theme green where it reads (dark); on light
+       surfaces the Sentinel green falls to 1.7:1, so the text takes a darker
+       mix of it (5.7:1). The liseré keeps the brand green in both. */
+    :host { --hv2-presentation-ink: var(--sentinel-accent, #65d66e); }
+    :host-context(html:not(.dark)), :host-context([data-theme="light"]) {
+      --hv2-presentation-ink: color-mix(in srgb, var(--sentinel-accent, #65d66e) 45%, var(--ck-fg-1));
+    }
     :host.hv2-theme-presentation ::ng-deep .ck-label {
-      color: var(--hv2-presentation-mark) !important;
+      color: var(--hv2-presentation-ink) !important;
     }
     .hv2-presentation-liseré {
       height: 2px;
       margin: -8px -32px 16px;
       background: var(--hv2-presentation-mark, var(--sentinel-accent, #65d66e));
     }
-    :host.hv2-theme-presentation .hv2-monument { font-size: 112px; }
-    :host.hv2-theme-presentation .hv2-presentation-num { font-size: 48px; font-weight: 600; letter-spacing: -0.04em; line-height: 1; color: var(--ck-fg-1); }
-    :host.hv2-theme-presentation .hv2-presentation-warn { color: var(--ck-signal-warn, #f1b45a); }
-    .hv2-presentation { display: flex; flex-direction: column; gap: 28px; }
-    .hv2-presentation-kpis {
-      display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px;
-      padding: 8px 0 4px;
+    /* Thème Présentation W2-v6: the Synthèse bands at room scale. The daily
+       Synthèse stays sober; the intensity lives here, in size, not in colour. */
+    .hv2-present { display: flex; flex-direction: column; }
+    .hv2-present > .hv2-band:first-of-type { border-top-color: var(--ck-stroke-strong); }
+    .hv2-present-command .hv2-command-monument { flex: 1.35 1 0; }
+    .hv2-present-command .hv2-monument { font-size: clamp(88px, 8.4vw, 152px); }
+    .hv2-present-command .hv2-monument-unit { font-size: clamp(30px, 2.6vw, 46px); }
+    .hv2-present-command .hv2-sentence { font-size: 19px; }
+    .hv2-present-command .hv2-measured-part { font-size: 14px; }
+    .hv2-present .hv2-strip { height: 128px; }
+    .hv2-present .hv2-cadran-dial { padding: 16px 0 8px; }
+    .hv2-fact-link { font-size: inherit; }
+    .hv2-fact-state { color: var(--ck-fg-2); }
+    /* Chaîne de preuve: numbered links between hairlines, never boxes. */
+    .hv2-proof {
+      min-width: 0; display: flex; flex-direction: column; gap: 14px;
+      padding: 24px 0 24px 28px; border-left: 1px solid var(--ck-stroke-2);
     }
-    .hv2-presentation-kpi { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-    .hv2-presentation-summary { margin: 0; font-size: 14px; line-height: 1.45; color: var(--ck-fg-2); max-width: 52rem; }
-    .hv2-presentation-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-    .hv2-presentation-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
-    .hv2-presentation-list li {
-      display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
-      font-size: 14px; color: var(--ck-fg-1);
+    .hv2-proof-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+    .hv2-proof-step {
+      display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px;
+      padding: 14px 0; border-top: 1px solid var(--ck-stroke-2);
     }
-    .hv2-presentation-status { font-size: 12px; font-weight: 600; white-space: nowrap; }
-    .hv2-presentation-status[data-tone='neg'] { color: var(--ck-signal-neg, #f06476); }
-    .hv2-presentation-status[data-tone='warn'] { color: var(--ck-signal-warn, #f1b45a); }
-    .hv2-presentation-status[data-tone='pos'] { color: var(--ck-signal-pos); }
+    .hv2-proof-n { font-size: 12px; line-height: 28px; color: var(--ck-fg-3); }
+    .hv2-proof-body { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+    .hv2-proof-body > .hv2-label, .hv2-proof-body .hv2-sel-head .hv2-label { line-height: 28px; }
+    .hv2-proof-main { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.35; color: var(--ck-fg-1); }
+    .hv2-proof-meta { margin: 0; font-size: 13px; line-height: 1.45; color: var(--ck-fg-2); }
+    .hv2-proof-note { margin: 0; font-size: 12px; line-height: 1.45; color: var(--ck-fg-3); }
+    .hv2-proof-body .hv2-link { align-self: flex-start; margin-top: 2px; }
+    .hv2-proof-body .hv2-sel-list { margin: 0; }
     .hv2-actions, .hv2-list-row, .hv2-block-row, .hv2-btn-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     .hv2-customize-grid {
       display: grid;
@@ -1614,16 +1795,36 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       background-image: repeating-linear-gradient(-45deg, var(--ck-data-declared) 0 2px, transparent 2px 5px);
     }
     .hv2-strip-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
-    .hv2-strip { display: block; width: 100%; height: 104px; margin-top: auto; border-bottom: 1px solid var(--ck-stroke-strong); }
-    .hv2-strip-week { fill: var(--ck-fg-1); fill-opacity: 0.07; stroke: var(--ck-fg-3); stroke-width: 1; vector-effect: non-scaling-stroke; }
+    .hv2-strip-frame { position: relative; margin-top: auto; }
+    /* A listbox of days: one tab stop; the ring is drawn on the active day
+       (aria-activedescendant), so the list itself shows none. */
+    .hv2-strip {
+      position: relative; display: flex; align-items: stretch; height: 104px;
+      border-bottom: 1px solid var(--ck-stroke-strong); cursor: pointer;
+    }
+    .hv2-strip:focus-visible { outline: none; }
+    .hv2-strip-week {
+      position: absolute; top: 0; bottom: 0; pointer-events: none;
+      background: color-mix(in srgb, var(--ck-fg-1) 7%, transparent);
+      border: 1px solid var(--ck-fg-3); border-bottom: 0;
+    }
+    .hv2-strip-day { flex: 1 1 0; min-width: 0; display: flex; align-items: flex-end; justify-content: center; }
+    .hv2-strip:focus-visible .hv2-strip-day.is-active { outline: 2px solid var(--ck-primary); outline-offset: 1px; }
     /* Follows every hover and arrow key: the highlight is instant, no transition. */
-    .hv2-strip-mark { fill: var(--ck-fg-3); opacity: 0.75; }
+    .hv2-strip-mark { position: relative; display: block; width: 56%; min-width: 2px; max-width: 12px; background: var(--ck-fg-3); opacity: 0.75; }
     .hv2-strip-mark.is-weekend { opacity: 0.45; }
     .hv2-strip-mark.is-in-week { opacity: 1; }
-    .hv2-strip-mark.is-selected { fill: var(--ck-fg-1); opacity: 1; }
+    .hv2-strip-mark.is-selected, .hv2-strip-mark.is-locked { background: var(--ck-fg-1); opacity: 1; }
+    /* The locked day keeps a cap over its mark, so a preview elsewhere never hides where the lock is. */
+    .hv2-strip-mark.is-locked::before {
+      content: ''; position: absolute; left: 50%; top: -8px; width: 4px; height: 4px;
+      margin-left: -2px; border-radius: 2px; background: var(--ck-fg-1);
+    }
     .hv2-strip-axis { position: relative; height: 16px; font-size: 11px; color: var(--ck-fg-3); }
     .hv2-strip-tick { position: absolute; top: 2px; white-space: nowrap; }
-    .hv2-strip-tick.is-selected { color: var(--ck-fg-1); font-weight: 600; }
+    .hv2-strip-tick.is-selected, .hv2-strip-tick.is-locked { color: var(--ck-fg-1); font-weight: 600; }
+    .hv2-strip-lock { margin: 0; min-height: 1.4em; font-size: 12px; line-height: 1.4; color: var(--ck-fg-3); }
+    .hv2-strip-lock.is-locked { color: var(--ck-fg-1); }
     .hv2-teal { color: var(--ck-signal-cool); }
     .hv2-facts { margin: 0; display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--ck-stroke-2); }
     .hv2-facts-plain { border-top: 0; padding-top: 0; margin: 10px 0 14px; }
@@ -1719,7 +1920,6 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     }
     .hv2-retry:hover { background: var(--ck-bg-inset); }
     .hv2-retry[aria-disabled='true'] { cursor: progress; color: var(--ck-fg-3); }
-    .hv2-presentation-state { font-size: 16px; line-height: 48px; color: var(--ck-fg-2); }
     .hv2-chart-caption { margin: 0; font-size: 12px; line-height: 1.4; color: var(--ck-fg-3); text-align: center; }
     .hv2-card { border: 1px solid var(--ck-stroke-2); border-radius: 10px; background: var(--ck-bg-panel); padding: 16px 18px; }
     .hv2-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
@@ -1829,7 +2029,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       .hv2-command-strip { order: 3; flex-basis: 100%; border-left: 0; border-top: 1px solid var(--ck-stroke-2); padding-inline: 0; }
       .hv2-cadran-band, .hv2-flow-band { grid-template-columns: minmax(0, 1fr); }
       .hv2-cadran-col { padding-right: 0; }
-      .hv2-selection { border-left: 0; border-top: 1px solid var(--ck-stroke-2); padding-left: 0; }
+      .hv2-selection, .hv2-proof { border-left: 0; border-top: 1px solid var(--ck-stroke-2); padding-left: 0; }
     }
     @media (max-width: 900px) {
       .hv2-command { flex-direction: column; }
@@ -1924,7 +2124,16 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   readonly selection = computed(() =>
     selectionModel(this.series(), this.dayLock(), this.hoverSystem(), this.pinnedSystem()),
   );
-  readonly strip = computed(() => activityStrip(this.series()?.days ?? [], this.selectedDayIndex()));
+  readonly strip = computed(() =>
+    activityStrip(this.series()?.days ?? [], this.selectedDayIndex(), this.lockedDay()),
+  );
+  /** Activity strip (listbox): the day the arrows reached while it has focus. */
+  readonly stripActive = signal<number | null>(null);
+  readonly stripFocused = signal(false);
+  /** Présentation: the needle draws in for a pointer lock only; keyboard locks never animate. */
+  readonly needleMotion = signal(false);
+  /** Présentation: the chaîne de preuve, read from the same selection as the Synthèse panel. */
+  readonly proof = computed(() => proofChain(this.selection(), (row) => this.basisAuthor(row)));
   readonly flashSystem = signal<string | null>(null);
   readonly cameFromSystem = signal<string | null>(null);
   readonly arrival = signal<ArrivalProvenance | null>(null);
@@ -2193,8 +2402,22 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   private enterTimer: ReturnType<typeof setTimeout> | null = null;
   private flashTimer: ReturnType<typeof setTimeout> | null = null;
   private monumentRaf = 0;
+  /**
+   * Last input modality, recorded in the capture phase so it is known before
+   * any chart handler emits a lock: keyboard-driven locks never animate.
+   */
+  private lastInput: 'pointer' | 'keyboard' = 'pointer';
+  private readonly markPointer = (): void => {
+    this.lastInput = 'pointer';
+  };
+  private readonly markKeyboard = (): void => {
+    this.lastInput = 'keyboard';
+  };
 
   ngOnInit(): void {
+    const el = this.host.nativeElement as HTMLElement;
+    el.addEventListener('pointerdown', this.markPointer, true);
+    el.addEventListener('keydown', this.markKeyboard, true);
     const provenance = readArrivalProvenance();
     this.arrival.set(provenance);
     if (provenance?.kind === 'system' || provenance?.kind === 'object') {
@@ -2218,6 +2441,9 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    const el = this.host.nativeElement as HTMLElement;
+    el.removeEventListener('pointerdown', this.markPointer, true);
+    el.removeEventListener('keydown', this.markKeyboard, true);
     this.routeSub?.unsubscribe();
     this.impactLiveSub?.unsubscribe();
     this.workspaceView.destroy();
@@ -2230,23 +2456,140 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     this.applyDayLock({ type: 'hover', day: index });
   }
 
-  /** Click, Enter or Space on a spoke or a river day: lock it, or unlock it if it is the locked day. */
+  /** Click, Enter or Space on a spoke, a river day or a strip day: lock it, or unlock it if it is the locked day. */
   onDayLock(index: number): void {
+    this.needleMotion.set(this.lastInput === 'pointer' && !prefersReducedMotion());
     this.applyDayLock({ type: 'toggle', day: index });
   }
 
-  unlockDay(): void {
-    this.applyDayLock({ type: 'escape' });
+  /** `viaThemeEscape`: the Présentation Escape unlocked, so the announcement says the next one leaves. */
+  unlockDay(viaThemeEscape = false): void {
+    this.applyDayLock(
+      { type: 'escape' },
+      viaThemeEscape ? 'hypervisor.v2.lock.unlocked_theme' : 'hypervisor.v2.lock.unlocked',
+    );
   }
 
-  private applyDayLock(event: DayLockEvent): void {
+  private applyDayLock(event: DayLockEvent, unlockedKey = 'hypervisor.v2.lock.unlocked'): void {
     const prev = this.dayLock();
     const next = reduceDayLock(prev, event);
     if (next === prev) return;
     this.dayLock.set(next);
     const change = lockTransition(prev, next);
     if (change === 'locked') this.lockAnnouncement.set(this.lockedDayAnnouncement(next.locked!));
-    else if (change === 'unlocked') this.lockAnnouncement.set(this.i18n.t('hypervisor.v2.lock.unlocked'));
+    else if (change === 'unlocked') this.lockAnnouncement.set(this.i18n.t(unlockedKey));
+  }
+
+  // --- Activity strip (listbox of days) ----------------------------------------
+
+  /** The day under the listbox focus: the last one reached by keys, else the lock, else the preview, else the peak. */
+  stripActiveIndex(): number {
+    const n = this.strip().marks.length;
+    const pick = this.stripActive() ?? this.lockedDay() ?? this.selectedDayIndex() ?? this.series()?.peak?.index ?? 0;
+    return Math.min(Math.max(0, pick), Math.max(0, n - 1));
+  }
+
+  onStripFocus(): void {
+    this.stripFocused.set(true);
+    // Keyboard focus previews the active day, as a focused spoke does; a click previews what it hits.
+    if (this.lastInput === 'keyboard') this.onDayHover(this.stripActiveIndex());
+  }
+
+  onStripBlur(): void {
+    this.stripFocused.set(false);
+    this.stripActive.set(null);
+    this.onDayHover(null);
+  }
+
+  onStripPointerLeave(): void {
+    this.onDayHover(this.stripFocused() && this.lastInput === 'keyboard' ? this.stripActiveIndex() : null);
+  }
+
+  /** Arrows and Page keys preview a day (no animation), Enter or Space lock it. Escape bubbles to the page. */
+  onStripKey(event: KeyboardEvent): void {
+    const n = this.strip().marks.length;
+    if (!n) return;
+    const index = this.stripActiveIndex();
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      this.stripActive.set(index);
+      this.onDayLock(index);
+      return;
+    }
+    const next = stripKeyTarget(event.key, index, n);
+    if (next == null) return;
+    event.preventDefault();
+    this.stripActive.set(next);
+    this.onDayHover(next);
+  }
+
+  onStripDayClick(index: number): void {
+    this.stripActive.set(index);
+    this.onDayLock(index);
+  }
+
+  stripDayAria(index: number): string {
+    const point = this.series()?.days[index];
+    if (!point) return '';
+    return `${this.formatDate(point.date, true)} · ${this.formatQuantity(point.measured + point.declared)}`;
+  }
+
+  /** « Semaine verrouillée · S.35 · du 24 août au 30 août », or the plain state when nothing is locked. */
+  stripLockLine(): string {
+    const week = this.strip().lockedWeek;
+    if (!week) return this.i18n.t('hypervisor.v2.strip.no_lock');
+    const days = this.series()?.days ?? [];
+    return this.i18n.t('hypervisor.v2.strip.locked_week', {
+      week: this.stripWeekLabel(week.isoWeek),
+      from: this.formatDate(days[week.start]?.date),
+      to: this.formatDate(days[week.end - 1]?.date),
+    });
+  }
+
+  // --- Présentation W2-v6 ----------------------------------------------------------
+
+  /** Footer of the theme: the top system of a locked day is « the system of the locked day ». */
+  presentSystemLabel(mode: SelectionSystemMode): string {
+    return mode === 'day' && this.selection().day?.mode === 'locked'
+      ? this.i18n.t('hypervisor.v2.present.system.locked_day')
+      : this.systemModeLabel(mode);
+  }
+
+  /** Pending decisions never read 0 while unknown: the state label stands in for the count. */
+  decisionsStateLabel(): string {
+    return this.sourceStates().decisions === 'loading'
+      ? this.i18n.t('hypervisor.v2.present.state.loading')
+      : this.i18n.t('hypervisor.state.unavailable');
+  }
+
+  proofDayTitle(state: ProofDay['state']): string {
+    return state === 'none' ? this.i18n.t('hypervisor.v2.present.proof.day_none') : this.dayModeLabel(state);
+  }
+
+  /** « 109 h · 73 exécutions · 2 systèmes » (runs view: the value already is the runs). */
+  proofDayFigures(day: ProofDay): string {
+    return `${this.formatQuantity(day.total)} · ${this.selectionDayMeta(day.runs, day.systems)}`;
+  }
+
+  proofMore(count: number): string {
+    return count === 1
+      ? this.i18n.t('hypervisor.v2.present.proof.rivers_more_one')
+      : this.i18n.t('hypervisor.v2.present.proof.rivers_more', { count });
+  }
+
+  /** Author and date of the basis when the bases source knows them; says so when it does not. */
+  proofBasisAuthor(basis: ProofBasis): string {
+    if (basis.by && basis.at) {
+      return this.i18n.t('hypervisor.v2.bases.posed_by', { who: basis.by, when: this.formatDate(basis.at) });
+    }
+    if (basis.by) return this.i18n.t('hypervisor.v2.present.proof.basis_by', { who: basis.by });
+    if (basis.at) return this.i18n.t('hypervisor.v2.present.proof.basis_at', { when: this.formatDate(basis.at) });
+    return this.i18n.t('hypervisor.v2.present.proof.basis_unknown');
+  }
+
+  private basisAuthor(row: HypervisorRegisterRow): ProofBasisAuthor | null {
+    const basis = this.bases().find((item) => item.capability_id === row.capabilityId)?.value_basis;
+    return basis ? { by: basis.declared_by ?? null, at: basis.declared_at ?? null } : null;
   }
 
   private lockedDayAnnouncement(index: number): string {
@@ -2337,9 +2680,13 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       this.customizeOpen.set(true);
       return;
     }
+    // Présentation peels one layer per Escape: a locked day first (the unlock
+    // is announced, with a hint that the next Escape leaves), then the theme.
+    // The Synthèse only has the first layer (below).
     if (event.key === 'Escape' && this.presentationTheme() && this.canExitPresentationTheme()) {
       event.preventDefault();
-      this.exitPresentationTheme();
+      if (presentationEscape(this.dayLock()) === 'unlock') this.unlockDay(true);
+      else this.exitPresentationTheme();
       return;
     }
     if (
@@ -2375,7 +2722,8 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   private canExitPresentationTheme(): boolean {
     if (this.customizeOpen() || this.pageTipOpen()) return false;
     if (typeof document === 'undefined') return true;
-    if (document.querySelector('[role="menu"], [role="listbox"], [aria-expanded="true"]')) {
+    // The activity strip is a listbox that is always there, not an open popup.
+    if (document.querySelector('[role="menu"], [role="listbox"]:not(.hv2-strip), [aria-expanded="true"]')) {
       return false;
     }
     return true;
@@ -2446,59 +2794,12 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
 
   pageTitle(): string {
     if (this.presentationTheme()) {
-      return this.i18n.t('hypervisor.v2.theme.title');
+      const days = this.dayCount();
+      return days && this.activeFacet() === 'synthese' && !this.activeImpactView()
+        ? this.i18n.t('hypervisor.v2.theme.title_days', { days })
+        : this.i18n.t('hypervisor.v2.theme.title');
     }
     return this.i18n.t('hypervisor.v2.page.title');
-  }
-
-  presentationRuns(): string {
-    const view = this.series();
-    if (!view) return '—';
-    const total = availableNumber(view.unitsTotal);
-    if (total == null) {
-      const summed = view.register.reduce((sum, row) => sum + (availableNumber(row.runs) ?? 0), 0);
-      return this.formatNumber(summed, 0);
-    }
-    return this.formatNumber(total, 0);
-  }
-
-  presentationDecideRows(): Array<{ id: string; label: string; meta: string }> {
-    this.i18n.locale();
-    const rows: Array<{ id: string; label: string; meta: string }> = [];
-    for (const item of this.proposedDecisions().slice(0, 5)) {
-      rows.push({
-        id: item.id,
-        label: item.title,
-        meta: this.formatDate(item.created_at, true),
-      });
-    }
-    for (const group of this.recommendationGroups().slice(0, 5 - rows.length)) {
-      rows.push({
-        id: group.item.id,
-        label: group.item.title,
-        meta: group.count > 1 ? `×${group.count}` : '',
-      });
-    }
-    return rows;
-  }
-
-  presentationWatchRows(): Array<{ id: string; label: string; status: string; tone: 'neg' | 'warn' | 'pos' }> {
-    this.i18n.locale();
-    const stale = this.staleRows().slice(0, 5).map((row) => ({
-      id: row.systemId,
-      label: row.name,
-      status: this.i18n.t('hypervisor.v2.theme.watch.stale'),
-      tone: 'warn' as const,
-    }));
-    if (stale.length) return stale;
-    return this.registerRows().slice(0, 5).map((row) => ({
-      id: row.systemId,
-      label: row.name,
-      status: row.outsideDenominator
-        ? this.i18n.t('hypervisor.v2.theme.watch.outside')
-        : this.i18n.t('hypervisor.v2.theme.watch.ready'),
-      tone: row.outsideDenominator ? 'neg' as const : 'pos' as const,
-    }));
   }
 
   pageSummary(): string {
@@ -2586,7 +2887,9 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   monumentLabel(): string {
     const mon = this.monument();
     if (!mon) return '';
-    const amount = this.denominator() === 'value' ? `${mon.value} ${mon.unit}`.trim() : mon.value;
+    // Hours read « 1 284 heures de travail… »: the sentence names the unit. Runs and
+    // value keep theirs, since their sentence no longer repeats it.
+    const amount = this.denominator() === 'hours' ? mon.value : `${mon.value} ${mon.unit}`.trim();
     const sentence = this.heroSentence();
     const measured = this.measuredPart();
     return measured
