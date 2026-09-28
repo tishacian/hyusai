@@ -98,6 +98,7 @@ const GROUP_ORDER: CockpitSectionGroup[] = ['workspace', 'integrations', 'govern
                   [class.ck-mini-item-active]="isSectionActive(entry.section)"
                   [class.ck-mini-item-action]="entry.section.role === 'action'"
                   [attr.aria-current]="isSectionActive(entry.section) ? 'page' : null"
+                  [attr.aria-label]="backToListName(entry.section)"
                   (click)="onItemClick(entry.section)"
                 >
                   @if (isSectionActive(entry.section)) {
@@ -107,6 +108,9 @@ const GROUP_ORDER: CockpitSectionGroup[] = ['workspace', 'integrations', 'govern
                     <ck-glyph [name]="entry.section.glyph" [size]="14" />
                   </span>
                   <span class="ck-mini-label">{{ sectionLabel(entry.section) }}</span>
+                  @if (isInsideObject(entry.section)) {
+                    <span class="ck-mini-back" aria-hidden="true">{{ i18n.t('nav.sommaire.back_to_list') }}</span>
+                  }
                 </a>
               }
             }
@@ -259,6 +263,15 @@ const GROUP_ORDER: CockpitSectionGroup[] = ['workspace', 'integrations', 'govern
       .ck-mini-label {
         flex: 1 1 auto;
         font-weight: 500;
+      }
+      .ck-mini-back {
+        flex: none;
+        padding: 0 6px;
+        border: 1px solid var(--ck-stroke-2);
+        border-radius: 4px;
+        font-size: 12px;
+        line-height: 20px;
+        color: var(--ck-fg-3);
       }
 
       @media (max-width: 700px) {
@@ -497,7 +510,7 @@ export class MiniRailComponent {
     return patterns.some((m) => path === m || path.startsWith(m + '/'));
   }
 
-  /** Active on a child object (not the list itself) → show « ↰ Liste ». */
+  /** Active on a child object (not the list itself) → add the « ↰ Liste » way back. */
   isInsideObject(s: CockpitSection): boolean {
     if (!this.isSectionActive(s) || s.facet) return false;
     const listPath = this.routeFor(s).split('?')[0];
@@ -512,10 +525,14 @@ export class MiniRailComponent {
     return this.navigation.urlTreeForScope(s);
   }
 
+  /** Inside an object the link also says where it leads; its visible label starts the name (WCAG 2.5.3). */
+  backToListName(s: CockpitSection): string | null {
+    return this.isInsideObject(s)
+      ? this.i18n.t('nav.sommaire.back_to_list_name', { section: this.sectionLabel(s) })
+      : null;
+  }
+
   sectionLabel(s: CockpitSection): string {
-    if (this.isInsideObject(s)) {
-      return this.i18n.t('nav.sommaire.back_to_list');
-    }
     const naming = navigationSectionNaming(s, this.routeFor(s));
     const translated = this.i18n.t(naming.i18nKey);
     const base = translated === naming.i18nKey ? naming.label : translated;

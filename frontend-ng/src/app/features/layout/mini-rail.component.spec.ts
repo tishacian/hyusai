@@ -132,7 +132,10 @@ test('the active item leads back to its list from a child', () => {
   const systems = rail.visibleSections().find((section) => section.key === 'systems')!;
   assert.equal(rail.isSectionActive(systems), true);
   assert.equal(rail.routeFor(systems), '/systems');
-  assert.equal(rail.sectionLabel(systems), 'nav.sommaire.back_to_list');
+  assert.equal(rail.isInsideObject(systems), true);
+  // The section keeps its name; the way back is an extra pill, not a rename.
+  assert.notEqual(rail.sectionLabel(systems), 'nav.sommaire.back_to_list');
+  assert.equal(rail.backToListName(systems), 'nav.sommaire.back_to_list_name');
 
   rail.onItemClick(systems);
   assert.deepEqual(triggers, ['minirail']);
