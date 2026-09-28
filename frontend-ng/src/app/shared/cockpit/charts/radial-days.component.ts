@@ -102,6 +102,39 @@ const HIT_PAD = 12;
           stroke-width="1"
         />
       }
+      <!-- Reference circles past the spokes: grid on the chart canvas only, fainter than the guides. -->
+      @for (r of referenceRadii; track r) {
+        <circle
+          class="ck-reference-ring"
+          [attr.cx]="cx"
+          [attr.cy]="cy"
+          [attr.r]="r"
+          fill="none"
+          stroke="var(--ck-fg-1)"
+          stroke-opacity="0.06"
+          stroke-width="1"
+          aria-hidden="true"
+        />
+      }
+      <!-- Lock needle, under the spokes so it never hides a day's ink: it shows
+           in the hollow (from the edge of the centre copy) and past the tip. -->
+      @for (n of needleShown; track n.day) {
+        <line
+          class="ck-needle"
+          data-testid="ck-radial-needle"
+          [class.is-drawn]="needleMotion"
+          [attr.data-day]="n.day"
+          [attr.x1]="n.x1"
+          [attr.y1]="n.y1"
+          [attr.x2]="n.x2"
+          [attr.y2]="n.y2"
+          pathLength="100"
+          stroke="var(--ck-copper)"
+          stroke-width="2"
+          stroke-linecap="round"
+          aria-hidden="true"
+        />
+      }
       @for (spoke of spokes; track spoke.index) {
         <g
           class="ck-spoke"
@@ -149,12 +182,14 @@ const HIT_PAD = 12;
         <circle
           class="ck-lock-mark"
           data-testid="ck-radial-lock"
+          [class.is-needle]="needle"
+          [class.is-drawn]="needle && needleMotion"
           [attr.cx]="mark.x"
           [attr.cy]="mark.y"
-          r="3.5"
+          [attr.r]="needle ? 5 : 3.5"
           fill="var(--ck-bg-base)"
-          stroke="var(--ck-fg-1)"
-          stroke-width="1.5"
+          [attr.stroke]="needle ? 'var(--ck-copper)' : 'var(--ck-fg-1)'"
+          [attr.stroke-width]="needle ? 2 : 1.5"
           aria-hidden="true"
         />
       }
@@ -259,7 +294,21 @@ const HIT_PAD = 12;
     }
     @keyframes ckSpokeIn { to { stroke-dashoffset: 0; } }
     @keyframes ckSpokeFade { to { opacity: 1; } }
+    /* The needle draws out from the centre in under 220 ms, stroke and
+       opacity only, and only for a pointer lock: a keyboard lock or reduced
+       motion shows it at once (no is-drawn class, or animation none). */
+    .ck-needle, .ck-reference-ring { pointer-events: none; }
+    .ck-needle.is-drawn {
+      stroke-dasharray: 100;
+      animation: ckNeedleIn 200ms var(--ck-ease-out, ease-out) both;
+    }
+    .ck-lock-mark.is-drawn { animation: ckSpokeFade 200ms var(--ck-ease-out, ease-out) both; }
+    @keyframes ckNeedleIn {
+      from { stroke-dashoffset: 100; opacity: 0; }
+      to { stroke-dashoffset: 0; opacity: 1; }
+    }
     @media (prefers-reduced-motion: reduce) {
+      .ck-needle.is-drawn, .ck-lock-mark.is-drawn { animation: none; }
       .ck-spoke { transition: none; }
       :host-context(.hv2-enter) .ck-spoke-stroke { animation: none; stroke-dashoffset: 0; }
       :host-context(.hv2-enter) .ck-spoke-declared { animation: none; opacity: 1; }
@@ -281,6 +330,12 @@ export class CkChartRadialDaysComponent implements OnChanges {
   @Input() hoverDay: number | null = null;
   /** The day the page locked (click, Enter, Space): keeps its ring and the keyboard entry point. */
   @Input() lockedDay: number | null = null;
+  /** Concentric reference circles between the outer guide and the canvas edge (Présentation). */
+  @Input() referenceRings = 0;
+  /** Présentation: a copper needle from the centre to the locked day, and a copper ring at its tip. */
+  @Input() needle = false;
+  /** The needle draws in only for a pointer lock; keyboard locks and reduced motion show it at once. */
+  @Input() needleMotion = false;
   @Output() readonly dayHover = new EventEmitter<number | null>();
   /** Click, Enter or Space on a spoke: the page toggles its lock on that day. */
   @Output() readonly dayLock = new EventEmitter<number>();
@@ -324,6 +379,39 @@ export class CkChartRadialDaysComponent implements OnChanges {
     return [this.innerRadius, (this.innerRadius + this.outerRadius) / 2, this.outerRadius];
   }
 
+  /** Evenly spaced between the outer guide and the canvas edge, past the tick labels. */
+  get referenceRadii(): number[] {
+    const count = Math.max(0, Math.floor(this.referenceRings));
+    const edge = this.size / 2 - 4;
+    const room = edge - this.outerRadius;
+    if (!count || room <= 24) return [];
+    const step = room / count;
+    return Array.from({ length: count }, (_, i) => Math.round(this.outerRadius + step * (i + 1)));
+  }
+
+  /**
+   * One needle per lock, keyed by day so a new lock inserts a new line (and
+   * replays the draw-in) instead of sliding the old one. It starts where the
+   * centre copy ends and stops at the ring on the locked spoke's tip.
+   */
+  get needleShown(): Array<{ day: number; x1: number; y1: number; x2: number; y2: number }> {
+    const day = this.lockedDay;
+    const mark = this.lockMark;
+    if (!this.needle || day == null || !mark) return [];
+    const angle = radialDayAngle(day, this.days.length || 30);
+    const start = this.innerRadius * 0.64;
+    const dx = mark.x - this.cx;
+    const dy = mark.y - this.cy;
+    const reach = Math.max(start, Math.hypot(dx, dy) - 5);
+    return [{
+      day,
+      x1: this.cx + start * Math.cos(angle),
+      y1: this.cy + start * Math.sin(angle),
+      x2: this.cx + reach * Math.cos(angle),
+      y2: this.cy + reach * Math.sin(angle),
+    }];
+  }
+
   get spokes(): RadialSpoke[] {
     return this.layout().spokes;
   }
@@ -349,14 +437,21 @@ export class CkChartRadialDaysComponent implements OnChanges {
     return this.days[day]?.shortLabel || this.days[day]?.dateLabel || this.centerCaption;
   }
 
-  /** Ring on the tip of the locked spoke: tells a lock from a passing preview, without motion. */
+  /**
+   * Ring on the tip of the locked spoke: tells a lock from a passing preview,
+   * without motion. With the needle, the ring sits on the first reference
+   * circle instead, so the copper reads as a gauge pointer past every spoke
+   * and label, whatever the day's value.
+   */
   get lockMark(): { x: number; y: number } | null {
     const day = this.lockedDay;
     if (day == null) return null;
     const spoke = this.spokes[day];
     if (!spoke) return null;
     const angle = radialDayAngle(day, this.days.length || 30);
-    const reach = this.innerRadius + Math.max(8, spoke.len) + 7;
+    const tip = this.innerRadius + Math.max(8, spoke.len) + 7;
+    const reference = this.needle ? this.referenceRadii[0] : undefined;
+    const reach = reference != null ? Math.max(tip, reference) : tip;
     return { x: this.cx + reach * Math.cos(angle), y: this.cy + reach * Math.sin(angle) };
   }
 

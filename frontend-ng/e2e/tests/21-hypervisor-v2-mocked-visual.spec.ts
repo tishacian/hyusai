@@ -983,6 +983,140 @@ test.describe('Hypervisor V2 — L28 Synthèse W2-v5', () => {
   }
 });
 
+test.describe('Hypervisor V2 — L29 Présentation W2-v6', () => {
+  test.skip(!visualEnabled, 'Set E2E_HYPERVISOR_V2_VISUAL=1 to run');
+  test.setTimeout(3 * 60 * 1_000);
+
+  for (const theme of ['dark', 'light'] as const) {
+    test(`enter by « Présenter », lock a day on the strip, Escape twice, axe (${theme})`, async ({ browser }) => {
+      await mkdir(RESULTS, { recursive: true });
+      const context = await browser.newContext({
+        viewport: { width: 1680, height: 1100 },
+        locale: 'fr-FR',
+        colorScheme: theme,
+      });
+      const page = await context.newPage();
+      await installMocks(page, 'dense', theme);
+      await openHypervisor(page);
+      await expect(page.locator('app-hypervisor-v2.hv2-enter')).toHaveCount(0, { timeout: 4_000 });
+
+      // Entry: « Présenter » replaces the URL with ?theme=presentation.
+      await page.getByTestId('hypervisor-enter-presentation').click();
+      await expect.poll(() => new URL(page.url()).searchParams.get('theme')).toBe('presentation');
+      const host = page.locator('app-hypervisor-v2.hv2-theme-presentation');
+      await expect(host).toBeVisible();
+      await expect(page.getByTestId('hypervisor-presentation-lisere')).toBeVisible();
+      const present = page.getByTestId('hypervisor-presentation');
+      await expect(present).toBeVisible();
+      await expect(page.locator('h1')).toContainText('Synthèse du portefeuille · 30 jours');
+
+      // Command band: accepted hero, measured share, no ratio, pending decisions link to Décisions.
+      const command = page.getByTestId('hypervisor-presentation-command');
+      await expect(command).toContainText('heures de travail attribuées aux agents en 30 jours');
+      await expect(command.getByTestId('hypervisor-v2-measured-part')).toContainText(/dont \d+\s*% mesurées/);
+      await expect(command).not.toContainText('×');
+      const decisions = command.getByTestId('hypervisor-presentation-decisions').getByRole('link');
+      await expect(decisions).toHaveAttribute('aria-label', /^Décisions en attente : \d+, ouvrir Décisions$/);
+      await expect(decisions).toHaveAttribute('href', /facet=decisions/);
+      // L13a rules: no register, no sankey, no filled button, no orb in this theme.
+      await expect(present.getByTestId('hypervisor-v2-register')).toHaveCount(0);
+      await expect(present.locator('ck-chart-sankey-flow')).toHaveCount(0);
+      await expect(page.locator('app-hypervisor-v2 .hv2-btn-primary:visible, app-hypervisor-v2 .hv2-agent-orb:visible')).toHaveCount(0);
+      await expect(present.locator('.hv2-label').first()).not.toHaveCSS('text-transform', 'uppercase');
+      await expect(present.locator('ck-chart-radial-days .ck-reference-ring')).toHaveCount(2);
+
+      const step1 = page.getByTestId('hypervisor-presentation-proof-1');
+      await expect(step1).toHaveAttribute('data-state', 'peak');
+      await expect(page.getByTestId('hypervisor-v2-strip-lock')).toHaveText('Aucun jour verrouillé');
+      await expect(present.getByTestId('ck-radial-needle')).toHaveCount(0);
+      await captureFullLedger(page, path.join(RESULTS, `l29-${theme}-presentation.png`));
+      await page.setViewportSize({ width: 1680, height: 1100 });
+
+      // Keyboard on the strip: one tab stop, arrows move the active day, Enter locks it.
+      const strip = page.getByTestId('hypervisor-v2-strip-days');
+      await expect(strip).toHaveAttribute('role', 'listbox');
+      await strip.focus();
+      await page.keyboard.press('ArrowRight');
+      await expect(strip).toHaveAttribute('aria-activedescendant', 'hv2-strip-day-17');
+      await expect(step1, 'arrows preview, they do not lock').toHaveAttribute('data-state', 'preview');
+      await page.keyboard.press('Enter');
+      const announcer = page.getByTestId('hypervisor-v2-lock-announcer');
+      await expect(announcer).toHaveText(/^Jour verrouillé : mercredi 26 août, \d+ h$/);
+      const lockedTotal = (await announcer.textContent())?.match(/(\d+) h$/)?.[1] ?? '';
+      await expect(strip.locator('#hv2-strip-day-17')).toHaveAttribute('aria-selected', 'true');
+      await expect(page.getByTestId('hypervisor-v2-strip-lock')).toContainText(/^Semaine verrouillée · S\.35/);
+
+      // The needle points at the locked day, in copper, drawn at once for a keyboard lock.
+      const needle = present.getByTestId('ck-radial-needle');
+      await expect(needle).toHaveCount(1);
+      await expect(needle).toHaveAttribute('data-day', '17');
+      await expect(needle).not.toHaveClass(/is-drawn/);
+      await expect(present.getByTestId('ck-radial-lock')).toHaveClass(/is-needle/);
+
+      // Chaîne de preuve: every link states the locked day's live state.
+      await expect(step1).toHaveAttribute('data-state', 'locked');
+      await expect(step1).toContainText('Jour verrouillé');
+      await expect(step1).toContainText('mercredi 26 août');
+      await expect(step1).toContainText(`${lockedTotal} h ·`);
+      await expect(page.getByTestId('hypervisor-presentation-proof-2').locator('li')).not.toHaveCount(0);
+      await expect(page.getByTestId('hypervisor-presentation-proof-3')).toContainText('Premier système ce jour-là');
+      await expect(page.getByTestId('hypervisor-presentation-proof-4')).toContainText(/Posée|non renseigné|non déclarée/);
+      const rivers = page.getByTestId('hypervisor-v2-rivers');
+      await expect(rivers.locator('ck-chart-stream .ck-crosshair')).toHaveClass(/is-locked/);
+      await expect(rivers.getByTestId('ck-stream-day-17')).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByTestId('hypervisor-v2-selected-system')).toContainText('Système du jour verrouillé');
+      await page.getByTestId('hypervisor-v2-activity-strip').screenshot({ path: path.join(RESULTS, `l29-${theme}-strip-focus.png`) });
+      await captureFullLedger(page, path.join(RESULTS, `l29-${theme}-locked.png`));
+      await page.setViewportSize({ width: 1680, height: 1100 });
+
+      const axe = await new AxeBuilder({ page })
+        .include('app-hypervisor-v2')
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+        .analyze();
+      expect(
+        axe.violations,
+        JSON.stringify(axe.violations.map((v) => ({ id: v.id, nodes: v.nodes.slice(0, 3).map((n) => n.target) })), null, 1),
+      ).toEqual([]);
+
+      // A pointer lock on a spoke moves the needle and draws it in.
+      await present.locator('ck-chart-radial-days [data-day="9"]').click();
+      await expect(needle).toHaveAttribute('data-day', '9');
+      await expect(needle).toHaveClass(/is-drawn/);
+      await expect(announcer).toContainText('Jour verrouillé');
+
+      // Escape order: the first one unlocks (announced), the next one leaves the theme.
+      await page.keyboard.press('Escape');
+      await expect(announcer).toHaveText('Jour déverrouillé. Échap de nouveau pour quitter le thème.');
+      await expect(needle).toHaveCount(0);
+      await expect.poll(() => new URL(page.url()).searchParams.get('theme')).toBe('presentation');
+      await expect(host).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect.poll(() => new URL(page.url()).searchParams.get('theme')).toBeNull();
+      await expect(page.locator('app-hypervisor-v2.hv2-theme-presentation')).toHaveCount(0);
+      await expect(page.getByTestId('hypervisor-v2-hero')).toBeVisible();
+      await context.close();
+    });
+  }
+
+  test('shared link, reduced motion: the needle appears without drawing in', async ({ browser }) => {
+    const context = await browser.newContext({
+      viewport: { width: 1680, height: 1100 },
+      locale: 'fr-FR',
+      colorScheme: 'dark',
+      reducedMotion: 'reduce',
+    });
+    const page = await context.newPage();
+    await installMocks(page, 'dense', 'dark');
+    await page.goto('/hypervisor?theme=presentation');
+    await expect(page.getByTestId('hypervisor-presentation-command')).toBeVisible({ timeout: 30_000 });
+    await page.locator('ck-chart-radial-days [data-day="9"]').click();
+    const needle = page.getByTestId('ck-radial-needle');
+    await expect(needle).toHaveAttribute('data-day', '9');
+    await expect(needle).not.toHaveClass(/is-drawn/);
+    await context.close();
+  });
+});
+
 async function captureHoverProof(
   page: Page,
   theme: ThemeKind,
