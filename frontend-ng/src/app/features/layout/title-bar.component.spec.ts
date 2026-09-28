@@ -423,7 +423,7 @@ test('the title bar never shows a tenant emblem image (ADR lot 2)', () => {
       join(process.cwd(), 'src/app/features/layout/title-bar.component.ts'),
       'utf8',
     );
-    assert.match(source, /tb-mark/, 'the Agentium « A » mark stays in the 56px column');
+    assert.match(source, /agentium-mark\.svg/, 'the Agentium mark stays in the 56px column');
     assert.doesNotMatch(source, /platformBrand|tb-emblem-brand|emblemIsKeyed/, 'tenant artwork left the bandeau');
     assert.equal(titleBar.builderChip(), null);
     resolved.set('light');
@@ -438,8 +438,8 @@ test('a workspace with no brand keeps the Agentium mark only', () => {
     join(process.cwd(), 'src/app/features/layout/title-bar.component.ts'),
     'utf8',
   );
-  assert.match(source, />A</);
-  assert.doesNotMatch(source, /Agentium<\/span>/);
+  assert.match(source, /agentium-mark\.svg/);
+  assert.match(source, /alt="Agentium"/);
 });
 
 test('the account menu no longer offers Settings', () => {

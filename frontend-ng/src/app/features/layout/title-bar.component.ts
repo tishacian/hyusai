@@ -55,8 +55,14 @@ const THEME_ICONS: Record<ThemeMode, string> = {
   ],
   template: `
     <header class="tb">
-      <div class="tb-brand" [attr.aria-label]="'Agentium'">
-        <span class="tb-mark" aria-hidden="true">A</span>
+      <div class="tb-brand">
+        <img
+          class="tb-mark"
+          src="/assets/brand/agentium-mark.svg"
+          alt="Agentium"
+          width="28"
+          height="28"
+        />
       </div>
 
       <div class="tb-workspace-cell">
@@ -340,12 +346,9 @@ const THEME_ICONS: Record<ThemeMode, string> = {
       border-right: 1px solid var(--ck-stroke-2);
     }
     .tb-mark {
-      font-family: var(--ck-font-sans);
-      font-weight: 700;
-      font-size: 18px;
-      letter-spacing: -0.02em;
-      color: var(--ck-primary);
-      line-height: 1;
+      display: block;
+      width: 28px;
+      height: 28px;
     }
 
     .tb-workspace-cell {
