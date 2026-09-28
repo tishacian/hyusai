@@ -18,6 +18,9 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 import { ChatOverlayService } from './chat-overlay.service';
 import { ChatWorkspaceComponent } from './chat-workspace.component';
 
+/** Width the proof rail adds beside the thread (px). */
+export const CHAT_PROOF_RAIL_WIDTH = 380;
+
 function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boolean {
   if (!profile) return false;
   return profile['key'] === 'vigie_executive'
@@ -52,17 +55,22 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       (openChange)="onOpenChange($event)"
       position="side"
       [modal]="overlay.blocksPage()"
-      [eyebrow]="i18n.t('chat.overlay.eyebrow')"
       [title]="title()"
       [width]="panelWidth()"
+      [extraWidth]="proofExtraWidth()"
+      [animateWidth]="overlay.proofAnimate()"
       [resizable]="!overlay.narrow() && !expanded()"
       resizeStorageKey="agentium.chat-panel-width"
     >
       <div class="chat-overlay-frame" [class.sentinel-chat-overlay]="sentinelShowcase()" [class.adoption-companion]="overlay.adoption.enabled()">
         <div class="chat-overlay-toolbar">
-          <span class="chat-overlay-hint">
-            {{ i18n.t('chat.overlay.hint') }}
-          </span>
+          @if (threadMeta(); as meta) {
+            <span class="chat-overlay-meta" data-testid="chat-overlay-meta">{{ meta }}</span>
+          } @else {
+            <span class="chat-overlay-hint">
+              {{ i18n.t('chat.overlay.hint') }}
+            </span>
+          }
           <div class="chat-overlay-toolbar-actions">
             <a
               [navLink]="{ surface: 'conversations' }"
@@ -108,6 +116,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
             [initialPromptRevision]="overlay.initialPromptRevision()"
             [autoStartVoiceLoop]="overlay.autoStartVoiceLoop()"
             [resumeSessionId]="overlay.sessionId()"
+            [proofThread]="true"
           />
         }
         <footer class="chat-overlay-footer" data-testid="chat-overlay-footer">
@@ -149,6 +158,15 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       font: 700 9px/1 var(--ck-font-mono, ui-monospace, monospace);
       letter-spacing: 0.16em;
       text-transform: uppercase;
+    }
+    .chat-overlay-meta {
+      min-width: 0;
+      overflow: hidden;
+      color: var(--ck-fg-3);
+      font-size: 12px;
+      line-height: 1.3;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .chat-overlay-history {
       color: var(--ck-fg-3);
@@ -232,7 +250,7 @@ export class ChatOverlayComponent {
     this.i18n.locale();
     const linked = this.overlay.linkedLabel();
     if (linked) {
-      return this.i18n.t('chat.overlay.title.linked', { name: linked });
+      return this.i18n.t('chat.overlay.thread_title', { name: linked });
     }
     const profile = this.activeProfile();
     if (profile?.['label']) return `Interroger ${profile['label']}`;
@@ -243,6 +261,26 @@ export class ChatOverlayComponent {
       default:       return this.i18n.t('chat.overlay.title');
     }
   });
+
+  /** « Dans : {objet} · Sources : {collection} », only with what is known. */
+  readonly threadMeta = computed<string | null>(() => {
+    this.i18n.locale();
+    const parts: string[] = [];
+    const linked = this.overlay.linkedLabel();
+    if (linked) parts.push(this.i18n.t('chat.overlay.meta.in', { name: linked }));
+    const scope = this.showsThread() ? this.overlay.threadScope() : null;
+    if (scope) parts.push(this.i18n.t('chat.overlay.meta.sources', { label: scope }));
+    return parts.length ? parts.join(' · ') : null;
+  });
+
+  private readonly showsThread = computed(() => !(this.pilotAvailable() && this.overlay.pilot()));
+
+  /** The proof rail widens the panel beside the thread, never on a phone. */
+  readonly proofExtraWidth = computed(() =>
+    this.showsThread() && this.overlay.proofOpen() && !this.overlay.narrow() && !this.expanded()
+      ? CHAT_PROOF_RAIL_WIDTH
+      : 0,
+  );
 
   readonly pilotAvailable = computed(
     () => this.overlay.adoption.enabled() && !this.overlay.assistantProfile() && this.overlay.startMode() !== 'drop',

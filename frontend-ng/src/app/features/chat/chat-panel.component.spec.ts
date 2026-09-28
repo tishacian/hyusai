@@ -46,6 +46,7 @@ class WorkspaceStub {
   brandName = () => DEFAULT_BRAND_NAME;
   contextEpoch = () => this.epoch;
   isDemoSafeMode = () => false;
+  readonly mode = signal('executive');
 
   captureRequestScope(): WorkspaceRequestScope {
     return Object.freeze({ workspaceSlug: this.slug, workspaceId: `workspace-${this.slug}`, epoch: this.epoch });
@@ -202,7 +203,14 @@ function makeHarness() {
       { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } },
       {
         provide: ChatOverlayService,
-        useValue: { linkedLabel: () => null },
+        useValue: {
+          linkedLabel: () => null,
+          proofOpen: signal(false),
+          proofAnimate: signal(false),
+          threadScope: signal<string | null>(null),
+          blocksPage: () => false,
+          close: () => undefined,
+        },
       },
       { provide: ChangeDetectorRef, useValue: { markForCheck: () => undefined } },
       {
@@ -539,4 +547,119 @@ test('publication context describes its collection rather than uploaded session 
     component.setSessionDocsMode('combine');
     assert.equal(component.assistantScopeLabel(),'chat.scope.collection_plus');
   } finally {injector.destroy();}
+});
+
+
+// --- L30 · sourced working thread (overlay) ---------------------------------
+
+function threadMessages() {
+  return [
+    { id: 'q1', role: 'user' as const, content: 'Peut-on relancer une exécution terminée ?', at: '2026-09-28T14:02:00Z' },
+    {
+      id: 'a1',
+      role: 'assistant' as const,
+      content: 'Non. La relance crée une nouvelle exécution liée, avec exactement les mêmes entrées [1]. Voir le guide [2].',
+      sources: [
+        {
+          document_id: 'doc-policy',
+          collection: 'politiques-release',
+          title: 'Politique de Run immuable v2.pdf',
+          page: 3,
+          snippet: '3.1 Une exécution terminée est immuable. 3.2 La relance réutilise exactement les entrées de l’exécution d’origine et produit une nouvelle exécution liée. 3.3 Les journaux restent attachés.',
+        },
+        { title: 'Guide de qualification release.md', snippet: 'Passage 14 du guide.' },
+        { title: 'Checklist mise en production.docx', snippet: 'Lue, non citée.' },
+      ],
+    },
+  ];
+}
+
+test('L30 — in the overlay thread a citation opens the proof rail with cited and read passages apart', () => {
+  const { injector, component } = makeHarness();
+  try {
+    Object.defineProperty(component, 'proofThread', { value: signal(true) });
+    component.messages.set(threadMessages());
+    const answer = component.messages()[1];
+    assert.equal(component.proofRail(), null);
+
+    // Enter on the chip: a click with detail 0, so nothing animates.
+    component.onCitation(answer, 1, 'a1', true, { detail: 0, currentTarget: null } as unknown as Event);
+    const rail = component.proofRail()!;
+    assert.equal(rail.selected.n, 1);
+    assert.equal(rail.selected.cited, true);
+    assert.equal(rail.selected.canPreview, true);
+    assert.equal(rail.animate, false);
+    assert.equal(rail.selected.passage?.mark, '3.2 La relance réutilise exactement les entrées de l’exécution d’origine et produit une nouvelle exécution liée.');
+    assert.deepEqual(rail.others.map((view) => view.n), [2]);
+    assert.deepEqual(rail.readOnly.map((view) => view.n), [3]);
+    assert.equal(component.isProofSelected('a1', 1), true);
+    assert.equal(component.proofFocusToken(), 1);
+
+    // A citation without a source leaves the proof as it was.
+    component.onCitation(answer, 9, 'a1', true);
+    assert.equal(component.proofRail()!.selected.n, 1);
+
+    component.selectProof(3);
+    assert.equal(component.proofRail()!.selected.cited, false);
+    assert.deepEqual(component.proofRail()!.others.map((view) => view.n), [1, 2]);
+
+    component.onThreadEscape({ stopPropagation: () => undefined, preventDefault: () => undefined } as Event);
+    assert.equal(component.proofRail(), null);
+  } finally { injector.destroy(); }
+});
+
+test('L30 — the meta line counts real passages and citations; other hosts keep scrolling to the source', () => {
+  const { injector, component } = makeHarness();
+  try {
+    const calls: unknown[][] = [];
+    Object.defineProperty(component, 'gotoSourceTarget', { value: (...args: unknown[]) => calls.push(args) });
+    component.messages.set(threadMessages());
+    const answer = component.messages()[1];
+    component.onCitation(answer, 1, 'a1', true);
+    assert.equal(calls.length, 1);
+    assert.equal(component.proofRail(), null);
+
+    const view = component.threadView(answer);
+    assert.equal(view.countsLabel, 'chat.thread.passages · chat.thread.cited');
+    assert.equal(view.firstProof, 1);
+    assert.equal(component.threadView({ id: 'bare', role: 'assistant', content: 'Sans source.' }).countsLabel, null);
+  } finally { injector.destroy(); }
+});
+
+test('L30 — the live trace follows the real decision steps and the first tokens', () => {
+  const { injector, component } = makeHarness();
+  try {
+    component.streaming.set(true);
+    assert.deepEqual(component.liveTrace().phases, []);
+    component.liveSteps.set([{ id: 's1', type: 'retrieve', status: 'active' }]);
+    assert.deepEqual(component.liveTrace().phases, [{ key: 'search', status: 'current' }]);
+    component.liveSteps.set([
+      { id: 's1', type: 'retrieve', status: 'completed' },
+      { id: 's2', type: 'synthesis', status: 'active' },
+    ]);
+    component.streamBuffer.set('Non.');
+    assert.deepEqual(component.liveTrace().phases.map((phase) => `${phase.key}:${phase.status}`), ['search:done', 'compose:current']);
+    assert.equal(component.liveTraceLabel(), 'chat.progress.composing');
+  } finally { injector.destroy(); }
+});
+
+test('L30 — « Avancé » holds the model controls for non-builders; builders keep them in place', () => {
+  const { injector, component, workspace } = makeHarness();
+  try {
+    const thread = signal(false);
+    Object.defineProperty(component, 'proofThread', { value: thread });
+    assert.equal(component.advancedInComposer(), false);
+    thread.set(true);
+    assert.equal(component.advancedInComposer(), true);
+    workspace.mode.set('builder');
+    assert.equal(component.advancedInComposer(), false);
+
+    workspace.mode.set('operator');
+    const stored = component.advancedControlsOpen();
+    component.toggleAdvancedControls();
+    assert.equal(component.threadAdvancedOpen(), true);
+    assert.equal(component.advancedControlsOpen(), stored);
+    // The thread folds the conversation list without rewriting the preference.
+    assert.equal(component.historyShown(), false);
+  } finally { injector.destroy(); }
 });

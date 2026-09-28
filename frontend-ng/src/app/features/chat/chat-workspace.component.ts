@@ -131,10 +131,13 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
             }
           </div>
         } @else {
-          <div class="t-header-left">
-            <ck-tag [tone]="modeTone()" variant="solid">{{ modeLabel() }}</ck-tag>
-            <span class="t-header-hint">{{ modeHint() }}</span>
-          </div>
+          <!-- L30: the overlay's meta line already names the scope. -->
+          @if (!proofThread()) {
+            <div class="t-header-left">
+              <ck-tag [tone]="modeTone()" variant="solid">{{ modeLabel() }}</ck-tag>
+              <span class="t-header-hint">{{ modeHint() }}</span>
+            </div>
+          }
           <div class="t-header-right">
             <div class="t-system-control">
               <span class="t-picker-label">
@@ -149,6 +152,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
               <div class="t-picker-wrap">
                 <select
                   class="t-picker"
+                  [attr.aria-label]="i18n.t('chat.workspace.context_label')"
                   [ngModel]="selectedSystemId()"
                   (ngModelChange)="onSystemChange($event)"
                 >
@@ -339,6 +343,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
             [initialPromptRevision]="initialPromptRevision()"
             [autoStartVoiceLoop]="autoStartVoiceLoop()"
             [resumeSessionId]="resumeSessionId()"
+            [proofThread]="proofThread()"
           />
         </section>
       </div>
@@ -847,6 +852,12 @@ export class ChatWorkspaceComponent implements OnInit {
   readonly initialPromptRevision = input<number>(0);
   /** When true, open the chat in persistent session voice loop mode. */
   readonly autoStartVoiceLoop = input(false);
+  /**
+   * L30 — the overlay shows the conversation as a sourced working thread
+   * (question card, work trace, answer document, proof rail). Other hosts
+   * keep today's presentation.
+   */
+  readonly proofThread = input(false);
   /** Open an existing durable session (Conversations › Reprendre). */
   readonly resumeSessionId = input<string | null>(null);
 
