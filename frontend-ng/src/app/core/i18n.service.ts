@@ -1,6 +1,7 @@
 import { Injectable, effect, inject, signal } from '@angular/core';
 
 import { FR_DICT, EN_DICT, type I18nKey } from './i18n.dict';
+import { InterfaceLocale } from './interface-locale';
 import { LOCALES, isLocale, type Locale } from './locale';
 import { workspaceLocale } from './workspace-locale';
 import { WorkspaceService } from './workspace.service';
@@ -37,6 +38,7 @@ export type { Locale };
 @Injectable({ providedIn: 'root' })
 export class I18nService {
   private readonly workspace = inject(WorkspaceService);
+  private readonly interfaceLocale = inject(InterfaceLocale);
 
   /**
    * Whether the reader has expressed a locale of their own — a stored choice or
@@ -59,8 +61,10 @@ export class I18nService {
         this.locale.set(declared);
       }
     });
+    this.interfaceLocale.locale.set(this.locale());
     effect(() => {
       const locale = this.locale();
+      this.interfaceLocale.locale.set(locale);
       // Persisted only once somebody has chosen: writing an inferred locale
       // here would make the first render indistinguishable from a decision, and
       // the workspace's default could then never apply again.

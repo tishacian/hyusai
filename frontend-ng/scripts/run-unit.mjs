@@ -181,6 +181,7 @@ const storeSpecs = [
   'src/app/features/chat/conversation-page.component.spec.ts',
   'src/app/features/help/help-panel.component.spec.ts',
   'src/app/features/help/help-guide.component.spec.ts',
+  'src/app/core/help.service.spec.ts',
   'src/app/features/experience/work/work-bar.component.spec.ts',
   'src/app/features/knowledge/capture-published-chat.component.spec.ts',
   'src/app/features/client360/client360-page.component.spec.ts',

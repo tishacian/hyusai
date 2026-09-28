@@ -24,6 +24,7 @@ import {
 } from '@app/core/workspace.service';
 import { DEFAULT_BRAND_NAME } from '@app/core/platform-brand';
 import { I18nService } from '@app/core/i18n.service';
+import { InterfaceLocale } from '@app/core/interface-locale';
 import { ChatKnowledgeSettingsComponent } from './chat-knowledge-settings.component';
 
 const WORKSPACE_A: WorkspaceDetail = {
@@ -203,6 +204,7 @@ function createHarness(): {
       // are rendered from the dictionary, so the assertions below read the
       // actual FR copy a user would see.
       I18nService,
+      InterfaceLocale,
       { provide: ApiService, useValue: api },
       { provide: WorkspaceService, useValue: workspace },
       {
