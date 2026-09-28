@@ -99,6 +99,6 @@ test('help-guide nav links open the panel on desktop instead of navigating', () 
   assert.deepEqual(navigations, []);
   assert.deepEqual(opens, [{
     guideId: 'start',
-    origin: { originLabel: 'Showcase', originUrl: '/work' },
+    origin: { originLabel: 'experience.work.title', originUrl: '/work' },
   }]);
 });

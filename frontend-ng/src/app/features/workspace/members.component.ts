@@ -512,7 +512,7 @@ export class WorkspaceMembersComponent {
       case 'workspace_admin':
         return 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30';
       case 'workspace_reviewer':
-        return 'bg-violet-500/15 text-violet-300 border border-violet-500/30';
+        return 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30';
       case 'workspace_viewer':
         return 'bg-white/5 text-gray-400 border border-white/10';
       default:
