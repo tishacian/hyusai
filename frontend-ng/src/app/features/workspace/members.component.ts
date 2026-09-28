@@ -10,6 +10,7 @@ import {
   WorkspaceMemberDetail,
   WorkspaceService,
   toggleWorkspaceAppEntitlement,
+  type RoleTemplate,
   type WorkspaceAppEntitlement,
   workspaceAppEntitlementOptions,
 } from '@app/core/workspace.service';
@@ -17,6 +18,14 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
+
+const INVITE_TEMPLATES: Array<{ id: RoleTemplate; labelKey: string; inviteable: boolean }> = [
+  { id: 'workspace_viewer', labelKey: 'workspace.role.viewer', inviteable: true },
+  { id: 'workspace_contributor', labelKey: 'workspace.role.contributor', inviteable: true },
+  { id: 'workspace_reviewer', labelKey: 'workspace.role.reviewer', inviteable: true },
+  { id: 'workspace_admin', labelKey: 'workspace.role.admin', inviteable: true },
+  { id: 'workspace_owner', labelKey: 'workspace.role.owner', inviteable: false },
+];
 
 @Component({
   selector: 'app-workspace-members',
@@ -79,12 +88,19 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
               class="flex-1 min-w-[220px] px-3 py-2 rounded bg-black/20 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 transition"
             />
             <select
-              [(ngModel)]="inviteRole"
-              name="role"
+              [(ngModel)]="inviteTemplate"
+              name="role_template"
               class="workspace-select"
+              data-testid="workspace-invite-role-template"
             >
-              <option value="member">{{ i18n.t('workspace.role.member') }}</option>
-              <option value="admin">{{ i18n.t('workspace.role.admin') }}</option>
+              @for (template of inviteTemplates; track template.id) {
+                <option [value]="template.id" [disabled]="!template.inviteable">
+                  {{ i18n.t(template.labelKey) }}
+                  @if (!template.inviteable) {
+                    — {{ i18n.t('workspace.role.owner_transfer_only') }}
+                  }
+                </option>
+              }
             </select>
             @if (appEntitlementsEnabled()) {
               <fieldset class="w-full rounded-md border border-white/10 bg-black/15 px-3 py-2">
@@ -198,13 +214,15 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
                 <div class="text-sm">
                   @if (canAdmin() && !isOwner(m) && !m.is_current_user) {
                     <select
-                      [value]="m.role"
+                      [value]="memberTemplate(m)"
                       (change)="changeRole(m, $event)"
                       [disabled]="savingMember() === m.user_id"
                       class="workspace-select workspace-select-sm"
+                      data-testid="workspace-member-role-template"
                     >
-                      <option value="admin">{{ i18n.t('workspace.role.admin') }}</option>
-                      <option value="member">{{ i18n.t('workspace.role.member') }}</option>
+                      @for (template of editableTemplates; track template.id) {
+                        <option [value]="template.id">{{ i18n.t(template.labelKey) }}</option>
+                      }
                     </select>
                   } @else {
                     <span
@@ -309,7 +327,9 @@ export class WorkspaceMembersComponent {
   });
 
   inviteEmail = '';
-  inviteRole: 'admin' | 'member' = 'member';
+  inviteTemplate: RoleTemplate = 'workspace_contributor';
+  readonly inviteTemplates = INVITE_TEMPLATES;
+  readonly editableTemplates = INVITE_TEMPLATES.filter((item) => item.inviteable);
   inviteAppEntitlements: WorkspaceAppEntitlement[] = [];
   readonly inviteAppOptions = computed(() => workspaceAppEntitlementOptions(
     this.workspaceService.current(),
@@ -358,10 +378,10 @@ export class WorkspaceMembersComponent {
     const appEntitlements = this.appEntitlementsEnabled()
       ? [...this.inviteAppEntitlements]
       : undefined;
-    this.workspaceService.inviteMember(slug, email, this.inviteRole, appEntitlements).subscribe({
+    this.workspaceService.inviteMember(slug, email, this.inviteTemplate, appEntitlements).subscribe({
       next: (res) => {
         this.inviting.set(false);
-        const role = this.roleName(this.inviteRole).toLocaleLowerCase();
+        const role = this.roleName(this.inviteTemplate).toLocaleLowerCase();
         if (res?.invitation_email_sent) {
           this.toastr.success(
             this.i18n.t('workspace.members.toast.invited', { email, role }),
@@ -374,6 +394,7 @@ export class WorkspaceMembersComponent {
           );
         }
         this.inviteEmail = '';
+        this.inviteTemplate = 'workspace_contributor';
         this.inviteAppEntitlements = this.inviteAppOptions().map((app) => app.key);
         this.load(slug);
       },
@@ -420,16 +441,16 @@ export class WorkspaceMembersComponent {
   changeRole(member: WorkspaceMemberDetail, ev: Event): void {
     const slug = this.routeSlug();
     if (!slug) return;
-    const newRole = (ev.target as HTMLSelectElement).value as 'admin' | 'member';
-    if (newRole === member.role) return;
+    const newTemplate = (ev.target as HTMLSelectElement).value as RoleTemplate;
+    if (newTemplate === this.memberTemplate(member)) return;
     this.savingMember.set(member.user_id);
-    this.workspaceService.updateMemberRole(slug, member.user_id, newRole).subscribe({
+    this.workspaceService.updateMemberRole(slug, member.user_id, newTemplate).subscribe({
       next: () => {
         this.savingMember.set(null);
         this.toastr.success(
           this.i18n.t('workspace.members.toast.role', {
             name: member.email || member.username,
-            role: this.roleName(newRole).toLocaleLowerCase(),
+            role: this.roleName(newTemplate).toLocaleLowerCase(),
           }),
           this.i18n.t('workspace.members.toast.role_title'),
         );
@@ -441,6 +462,7 @@ export class WorkspaceMembersComponent {
           err?.error?.detail || this.i18n.t('workspace.members.toast.role_failed'),
           this.i18n.t('workspace.toast.error_title'),
         );
+        this.load(slug);
       },
     });
   }
@@ -484,9 +506,15 @@ export class WorkspaceMembersComponent {
   roleBadgeClass(role: string): string {
     switch (role) {
       case 'owner':
+      case 'workspace_owner':
         return 'bg-amber-500/15 text-amber-400 border border-amber-500/30';
       case 'admin':
+      case 'workspace_admin':
         return 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30';
+      case 'workspace_reviewer':
+        return 'bg-violet-500/15 text-violet-300 border border-violet-500/30';
+      case 'workspace_viewer':
+        return 'bg-white/5 text-gray-400 border border-white/10';
       default:
         return 'bg-white/5 text-gray-300 border border-white/10';
     }
@@ -500,15 +528,36 @@ export class WorkspaceMembersComponent {
     return member.role === 'admin' || member.role_template === 'workspace_admin';
   }
 
+  memberTemplate(member: WorkspaceMemberDetail): RoleTemplate {
+    if (member.role_template === 'workspace_viewer'
+      || member.role_template === 'workspace_contributor'
+      || member.role_template === 'workspace_reviewer'
+      || member.role_template === 'workspace_admin'
+      || member.role_template === 'workspace_owner') {
+      return member.role_template;
+    }
+    if (member.role === 'owner') return 'workspace_owner';
+    if (member.role === 'admin') return 'workspace_admin';
+    return 'workspace_contributor';
+  }
+
   roleLabel(member: WorkspaceMemberDetail): string {
-    if (this.isOwner(member)) return 'owner';
-    if (this.isAdmin(member)) return 'admin';
-    return 'member';
+    return this.memberTemplate(member);
   }
 
   /** Role values come from the API — translate with a fallback to the raw value. */
   roleName(role: string): string {
-    const key = 'workspace.role.' + role;
+    const templateKeys: Record<string, string> = {
+      workspace_viewer: 'workspace.role.viewer',
+      workspace_contributor: 'workspace.role.contributor',
+      workspace_reviewer: 'workspace.role.reviewer',
+      workspace_admin: 'workspace.role.admin',
+      workspace_owner: 'workspace.role.owner',
+      owner: 'workspace.role.owner',
+      admin: 'workspace.role.admin',
+      member: 'workspace.role.member',
+    };
+    const key = templateKeys[role] || ('workspace.role.' + role);
     const label = this.i18n.t(key);
     return label === key ? role : label;
   }

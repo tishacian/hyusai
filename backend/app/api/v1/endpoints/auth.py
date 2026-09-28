@@ -23,6 +23,7 @@ from app.core.auth import (
 )
 from app.core.config import settings
 from app.core.iam.roles import (
+    CANONICAL_WORKSPACE_ROLES,
     WORKSPACE_ADMIN,
     WORKSPACE_OWNER,
     legacy_role_for_template,
@@ -231,17 +232,40 @@ class WorkspaceModeUpdate(BaseModel):
 
 class MemberInvite(BaseModel):
     email: EmailStr
-    role: str = "member"
+    role: Optional[str] = None
     role_template: Optional[str] = None
     custom_labels: list[str] = []
     app_entitlements: Optional[list[str]] = None
 
 
 class MemberUpdate(BaseModel):
-    role: str
+    role: Optional[str] = None
     role_template: Optional[str] = None
     custom_labels: Optional[list[str]] = None
     app_entitlements: Optional[list[str]] = None
+
+
+def _resolve_member_role_template(
+    *,
+    role: Optional[str],
+    role_template: Optional[str],
+) -> str:
+    """Accept ``role_template`` alone, or legacy ``admin``/``member`` role."""
+    if role_template is not None:
+        cleaned = role_template.strip()
+        if cleaned not in CANONICAL_WORKSPACE_ROLES:
+            raise HTTPException(status_code=400, detail="Unknown role_template")
+        template = cleaned
+    elif role in ("admin", "member"):
+        template = normalize_role_template(None, role)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide role_template or role ('admin'|'member')",
+        )
+    if template == WORKSPACE_OWNER:
+        raise HTTPException(status_code=400, detail="Use transfer ownership to assign owner")
+    return template
 
 
 class TransferOwnershipRequest(BaseModel):
@@ -1857,11 +1881,10 @@ async def invite_member(
             },
         )
 
-    if body.role not in ("admin", "member"):
-        raise HTTPException(status_code=400, detail="Role must be 'admin' or 'member'")
-    role_template = normalize_role_template(body.role_template, body.role)
-    if role_template == WORKSPACE_OWNER:
-        raise HTTPException(status_code=400, detail="Use transfer ownership to assign owner")
+    role_template = _resolve_member_role_template(
+        role=body.role,
+        role_template=body.role_template,
+    )
 
     email = body.email.lower()
     target_user = db.query(User).filter(User.email == email).first()
@@ -2012,12 +2035,10 @@ async def update_member_role(
             status_code=400,
             detail="Use the transfer-ownership endpoint to promote someone to owner.",
         )
-    if body.role not in ("admin", "member"):
-        raise HTTPException(status_code=400, detail="Role must be 'admin' or 'member'")
-
-    role_template = normalize_role_template(body.role_template, body.role)
-    if role_template == WORKSPACE_OWNER:
-        raise HTTPException(status_code=400, detail="Use transfer ownership to assign owner")
+    role_template = _resolve_member_role_template(
+        role=body.role,
+        role_template=body.role_template,
+    )
     target.role_template = role_template
     target.role = legacy_role_for_template(role_template)
     if body.custom_labels is not None:

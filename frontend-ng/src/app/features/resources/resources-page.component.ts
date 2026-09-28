@@ -129,6 +129,35 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
       </button>
     </app-section-header>
 
+    <section
+      class="mb-6 rounded-md border border-white/10 bg-black/20 p-4"
+      data-testid="integrations-map-card"
+      aria-labelledby="integrations-map-title"
+    >
+      <div class="mb-3">
+        <h2 id="integrations-map-title" class="text-sm font-semibold text-white">
+          {{ i18n.t('resources.map.title') }}
+        </h2>
+        <p class="mt-1 text-xs text-gray-500">{{ i18n.t('resources.map.description') }}</p>
+      </div>
+      <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        @for (entry of integrationsMap(); track entry.id) {
+          <a
+            [routerLink]="entry.link"
+            [queryParams]="entry.queryParams || null"
+            class="rounded-md border border-white/10 bg-white/[0.03] px-3 py-3 text-left transition hover:border-cyan-500/40 hover:bg-cyan-500/5"
+          >
+            <div class="flex items-center gap-2 text-cyan-300">
+              <app-icon [name]="entry.icon" [size]="14" />
+              <span class="text-xs font-semibold uppercase tracking-wider">{{ i18n.t(entry.labelKey) }}</span>
+            </div>
+            <p class="mt-2 text-sm text-gray-200">{{ entry.countLabel }}</p>
+            <p class="mt-1 text-[11px] leading-snug text-gray-500">{{ i18n.t(entry.hintKey) }}</p>
+          </a>
+        }
+      </div>
+    </section>
+
     <!-- KPIs -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
       @if (isDemoMode()) {
@@ -1243,6 +1272,62 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
     this.appsVersion();
     const t = readAppToggles(this.workspace.currentSlug());
     return Object.values(t).filter(Boolean).length;
+  });
+
+  /** L22 — minimal integrations map over destinations already in the catalog/API. */
+  readonly integrationsMap = computed(() => {
+    const connectorsListed = Object.keys(this.connectorConfigs()).length;
+    return [
+      {
+        id: 'outils',
+        icon: 'zap',
+        labelKey: 'resources.map.outils',
+        hintKey: 'resources.map.outils.hint',
+        link: '/skills',
+        queryParams: null as Record<string, string> | null,
+        countLabel: this.i18n.t('resources.map.managed_in_create'),
+      },
+      {
+        id: 'extensions',
+        icon: 'boxes',
+        labelKey: 'resources.map.extensions',
+        hintKey: 'resources.map.extensions.hint',
+        link: '/apps',
+        queryParams: null,
+        countLabel: this.i18n.t('resources.map.count.extensions', { n: APPS.length }),
+      },
+      {
+        id: 'connectors',
+        icon: 'plug',
+        labelKey: 'resources.map.connectors',
+        hintKey: 'resources.map.connectors.hint',
+        link: '/resources',
+        queryParams: { facet: 'connectors' },
+        countLabel: this.i18n.t('resources.map.count.connectors', {
+          n: connectorsListed || CONNECTORS.length,
+        }),
+      },
+      {
+        id: 'language_models',
+        icon: 'cpu',
+        labelKey: 'resources.map.language_models',
+        hintKey: 'resources.map.language_models.hint',
+        link: '/resources',
+        queryParams: { facet: 'providers' },
+        countLabel: this.i18n.t('resources.map.count.providers', {
+          n: this.showPortalTabs() ? this.liveProviders().length : this.providers().length,
+        }),
+      },
+      {
+        id: 'trained_models',
+        icon: 'brain',
+        labelKey: 'resources.map.trained_models',
+        hintKey: 'resources.map.trained_models.hint',
+        link: '/models',
+        queryParams: null,
+        countLabel: this.i18n.t('resources.map.managed_in_create'),
+      },
+    ];
   });
 
   /** Labels resolved inside the computed: `t()` reads the locale signal, so

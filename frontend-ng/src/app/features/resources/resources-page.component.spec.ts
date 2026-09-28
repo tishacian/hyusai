@@ -256,3 +256,20 @@ test('invocation evidence links preserve Govern as a query parameter', () => {
     assert.equal(url.searchParams.get('lens'), 'govern');
   } finally { h.close(); }
 });
+
+test('L22: integrations map card lists the five destinations', () => {
+  const h = harness();
+  try {
+    const map = h.component.integrationsMap();
+    assert.deepEqual(map.map((entry) => entry.id), [
+      'outils',
+      'extensions',
+      'connectors',
+      'language_models',
+      'trained_models',
+    ]);
+    assert.equal(map.find((entry) => entry.id === 'connectors')?.queryParams?.facet, 'connectors');
+  } finally {
+    h.close();
+  }
+});

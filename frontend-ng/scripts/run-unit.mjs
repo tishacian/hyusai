@@ -127,6 +127,7 @@ const pureSpecs = [
   'src/app/features/experience/runtime/system-home.spec.ts',
   'src/app/features/experience/experience.guard.spec.ts',
   'src/app/features/experience/work/work-catalog.spec.ts',
+  'src/app/features/workspace/members.component.spec.ts',
   'src/app/features/experience/work/work-launcher.vm.spec.ts',
   'src/app/features/experience/work/work-language.spec.ts',
   'src/app/features/experience/work/pr-to-po-runtime.spec.ts',
