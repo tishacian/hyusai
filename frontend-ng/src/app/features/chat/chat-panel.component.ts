@@ -69,6 +69,30 @@ import {
 import { DocumentPreviewComponent } from '@app/shared/document-preview/document-preview.component';
 import { SystemMandateComponent } from '../mandate/system-mandate.component';
 import { RunMandateComponent } from '../mandate/run-mandate.component';
+import {
+  advancedBehindComposer,
+  answerProofCounts,
+  classifyProofSources,
+  deriveWorkTrace,
+  markSupportingSentence,
+  reduceProofRail,
+  type ProofRailState,
+  type ProofSelection,
+  type WorkTrace,
+} from './chat-proof';
+import { ChatProofRailComponent, type ProofSourceView } from './chat-proof-rail.component';
+import { ChatWorkTraceComponent, type TraceStepView } from './chat-work-trace.component';
+
+/** L30 — what the thread shows around one finished answer. */
+interface ThreadAnswerView {
+  trace: WorkTrace;
+  steps: TraceStepView[];
+  summary: string;
+  countsLabel: string | null;
+  firstProof: number | null;
+}
+
+const NO_TRACE_STEPS: TraceStepView[] = [];
 
 interface DecisionStep {
   id: string;
@@ -150,6 +174,8 @@ interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  /** ISO time the message was sent or stored (question card, L30). */
+  at?: string | null;
   /**
    * Distinguishes special assistant bubbles from regular answers. A
    * ``correction_ack`` message is the sober conversational acknowledgement
@@ -497,14 +523,18 @@ const STEP_ICONS: Record<string, string> = {
     DocumentPreviewComponent,
     SystemMandateComponent,
     RunMandateComponent,
+    ChatProofRailComponent,
+    ChatWorkTraceComponent,
   ],
   template: `
     <div
       class="chat-history-shell"
       [class.chat-history-embed]="compact()"
-      [class.chat-history-collapsed]="!compact() && !chatHistoryOpen()"
+      [class.chat-history-collapsed]="!compact() && !historyShown()"
+      [class.chat-thread-shell]="threadMode()"
+      (keydown.escape)="onThreadEscape($event)"
     >
-      @if (!compact() && !chatHistoryOpen()) {
+      @if (!compact() && !historyShown()) {
         <button
           type="button"
           class="chat-history-expand"
@@ -517,7 +547,7 @@ const STEP_ICONS: Record<string, string> = {
           <span>{{ chatSessions().length }}</span>
         </button>
       }
-      <aside class="chat-history-panel" [hidden]="compact() || !chatHistoryOpen()">
+      <aside class="chat-history-panel" [hidden]="compact() || !historyShown()">
         <div class="chat-history-head">
           <div>
             <div class="chat-history-kicker">{{ i18n.t('chat.history.title') }}</div>
@@ -644,7 +674,7 @@ const STEP_ICONS: Record<string, string> = {
         </div>
       }
 
-      @if (showAdvancedChatControls() && !advancedControlsOpen()) {
+      @if (showAdvancedChatControls() && !advancedControlsOpen() && !advancedInComposer()) {
         <div class="chat-control-bar chat-control-collapsed">
           <button
             type="button"
@@ -662,7 +692,12 @@ const STEP_ICONS: Record<string, string> = {
         </div>
       }
 
-      @if (advancedControlsVisible()) {
+      @if (advancedControlsVisible() && !advancedInComposer()) {
+        <ng-container [ngTemplateOutlet]="advancedControls"></ng-container>
+      }
+      <!-- Model, retrieval and voice controls: at the top of the panel, or
+           behind « Avancé » in the thread composer for non-builders (L30). -->
+      <ng-template #advancedControls>
       <!-- Toolbar -->
       <div class="chat-control-bar">
         <div class="chat-control-main">
@@ -830,9 +865,7 @@ const STEP_ICONS: Record<string, string> = {
           </button>
         </div>
       </div>
-      }
 
-      @if (advancedControlsVisible()) {
       <app-voice-controls
         [runtimeOptions]="voiceControlRuntimeOptions()"
         [provider]="voiceProvider()"
@@ -890,9 +923,8 @@ const STEP_ICONS: Record<string, string> = {
           </div>
         </div>
       }
-      }
 
-      @if (advancedControlsVisible() && effectiveChatActions().length) {
+      @if (effectiveChatActions().length) {
         <div class="action-surface-bar">
           <span class="action-surface-label">
             <app-icon name="zap" [size]="12" />
@@ -916,6 +948,7 @@ const STEP_ICONS: Record<string, string> = {
           }
         </div>
       }
+      </ng-template>
 
       <!-- Messages -->
       <div
@@ -982,7 +1015,15 @@ const STEP_ICONS: Record<string, string> = {
 
         @for (msg of messages(); track msg.id) {
           <!-- User bubble -->
-          @if (msg.role === 'user') {
+          @if (msg.role === 'user' && threadMode()) {
+            <!-- L30: the question is a readable card, not a bubble. -->
+            <div class="ck-thread-question" data-testid="chat-thread-question">
+              <p class="ck-thread-question-meta">
+                {{ i18n.t('chat.thread.you') }}@if (timeLabel(msg.at); as time) { · <time [attr.datetime]="msg.at">{{ time }}</time>}
+              </p>
+              <p class="ck-thread-question-text">{{ msg.content }}</p>
+            </div>
+          } @else if (msg.role === 'user') {
             <div class="flex justify-end">
               <div
                 class="ck-chat-user-bubble max-w-[80%] bg-cyan-500 text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm whitespace-pre-wrap shadow-sm"
@@ -1003,8 +1044,15 @@ const STEP_ICONS: Record<string, string> = {
             </div>
           } @else {
             <!-- Assistant bubble with reasoning trail -->
-            <div class="flex flex-col gap-2">
-              @if (!isDemoMode() && msg.decisionSteps && msg.decisionSteps.length > 0) {
+            <div class="flex flex-col gap-2" [class.ck-thread-turn]="threadMode()">
+              @if (threadMode() && msg.decisionSteps?.length) {
+                <app-chat-work-trace
+                  [phases]="threadView(msg).trace.phases"
+                  [summary]="threadView(msg).summary"
+                  [steps]="threadSteps(msg)"
+                />
+              }
+              @if (!threadMode() && !isDemoMode() && msg.decisionSteps && msg.decisionSteps.length > 0) {
                 <div class="ml-0 space-y-1.5">
                   <button
                     type="button"
@@ -1191,6 +1239,17 @@ const STEP_ICONS: Record<string, string> = {
                     <code class="rounded bg-black/5 dark:bg-white/10 px-1 py-0.5 font-mono text-[0.92em]">{{ tok.value }}</code>
                   } @else if (tok.kind === 'link') {
                     <a class="text-cyan-500 dark:text-cyan-300 underline underline-offset-2" [href]="safeMarkdownHref(tok.href)" target="_blank" rel="noreferrer">{{ tok.value }}</a>
+                  } @else if (threadMode() && isValidCitationForSources(sources, tok.n)) {
+                    <button
+                      type="button"
+                      class="ck-cite"
+                      [class.ck-cite--active]="isProofSelected(sourceHostId || msg.id, tok.n)"
+                      [attr.data-proof-cite]="proofCiteKey(sourceHostId || msg.id, tok.n)"
+                      [attr.aria-current]="isProofSelected(sourceHostId || msg.id, tok.n) ? 'true' : null"
+                      [attr.aria-label]="i18n.t('chat.thread.cite_aria', { n: tok.label || tok.n, title: citationTooltipForSources(sources, tok.n) })"
+                      [title]="citationTooltipForSources(sources, tok.n)"
+                      (click)="onCitation(msg, tok.n, sourceHostId || msg.id, openDirectSources !== false, $event)"
+                    >{{ tok.label || tok.n }}</button>
                   } @else if (isValidCitationForSources(sources, tok.n)) {
                     <button
                       type="button"
@@ -1248,9 +1307,25 @@ const STEP_ICONS: Record<string, string> = {
               </ng-template>
 
               <!-- Content -->
+              @if (threadMode()) {
+                <div class="ck-thread-answer-head">
+                  <span class="ck-thread-label">{{ i18n.t('chat.thread.answer') }}</span>
+                  @if (threadView(msg).countsLabel; as counts) {
+                    <button
+                      type="button"
+                      class="ck-thread-counts"
+                      data-testid="chat-thread-counts"
+                      [attr.aria-label]="i18n.t('chat.thread.counts_aria', { counts })"
+                      (click)="openFirstProof(msg, $event)"
+                    >{{ counts }}</button>
+                  }
+                </div>
+              }
               <div class="flex justify-start">
                 <div
-                  class="ck-chat-assistant-bubble max-w-[85%] bg-gray-100 dark:bg-white/[0.04] text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ring-1 ring-black/5 dark:ring-white/5"
+                  [class]="threadMode()
+                    ? 'ck-thread-answer'
+                    : 'ck-chat-assistant-bubble max-w-[85%] bg-gray-100 dark:bg-white/[0.04] text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ring-1 ring-black/5 dark:ring-white/5'"
                   [class.vigie-assistant-bubble]="executiveMode()"
                 >
                   @for (block of renderMarkdownAnswer(msg.content, msg.sources); track $index) {
@@ -1314,8 +1389,8 @@ const STEP_ICONS: Record<string, string> = {
                 }
               }
 
-              <!-- Sources / citations -->
-              @if (msg.sources && msg.sources.length > 0) {
+              <!-- Sources / citations (the thread shows them in the proof rail) -->
+              @if (!threadMode() && msg.sources && msg.sources.length > 0) {
                 <div class="ml-0 space-y-1.5">
                   <button
                     type="button"
@@ -1408,8 +1483,11 @@ const STEP_ICONS: Record<string, string> = {
               @if (!isDemoMode() && msg.decisionSteps && msg.decisionSteps.length > 0) {
                 <div
                   class="ck-chat-trace-summary ml-0 mt-1 rounded-md px-3 py-2 flex items-center gap-3 text-[11px] text-gray-700 dark:text-gray-300"
+                  [class.ck-thread-summary]="threadMode()"
                   [class.hidden]="isDemoMode() || (executiveMode() && !traceOpen())"
                 >
+                  <!-- The thread's trace and meta line already say steps, time and passages. -->
+                  @if (!threadMode()) {
                   <app-icon name="circle-dot" [size]="11" class="text-cyan-400 shrink-0" />
                   <span class="font-medium">
                     {{
@@ -1423,6 +1501,7 @@ const STEP_ICONS: Record<string, string> = {
                   }
                   @if (msg.sources?.length) {
                     <span class="font-mono text-gray-500">· {{ i18n.t('chat.summary.sources', { count: msg.sources!.length }) }}</span>
+                  }
                   }
                   @if (msg.ragMode) {
                     <span
@@ -1697,7 +1776,7 @@ const STEP_ICONS: Record<string, string> = {
               }
 
               <!-- Post-chat audit toolbar -->
-              <div class="flex items-center gap-1.5 ml-2 text-[11px] text-gray-500">
+              <div class="flex items-center gap-1.5 ml-2 text-[11px] text-gray-500" [class.ck-thread-actions]="threadMode()">
                 <button
                   type="button"
                   class="p-1 rounded hover:bg-white/5 transition"
@@ -1983,7 +2062,22 @@ const STEP_ICONS: Record<string, string> = {
         }
 
         <!-- Live streaming -->
-        @if (streaming()) {
+        @if (streaming() && threadMode()) {
+          <!-- L30: the live trace carries the only orb; streamed text never moves. -->
+          <div class="flex flex-col gap-2 ck-thread-turn">
+            <app-chat-work-trace
+              [phases]="liveTrace().phases"
+              [live]="true"
+              [statusLabel]="liveTraceLabel()"
+            />
+            @if (streamBuffer().length > 0) {
+              <div class="ck-thread-answer-head">
+                <span class="ck-thread-label">{{ i18n.t('chat.thread.answer') }}</span>
+              </div>
+              <div class="ck-thread-answer" aria-busy="true" data-testid="chat-thread-streaming">{{ streamBuffer() }}<span class="ck-thread-caret" aria-hidden="true"></span></div>
+            }
+          </div>
+        } @else if (streaming()) {
           <div class="flex flex-col gap-2">
             <!-- Staged, plain-language progress (driven by real decision_step
                  lifecycle events). Shown until the answer text starts arriving,
@@ -2089,11 +2183,46 @@ const STEP_ICONS: Record<string, string> = {
         </div>
       }
 
+      @if (threadMode()) {
+        @if (advancedInComposer() && threadAdvancedOpen() && showAdvancedChatControls()) {
+          <div class="ck-thread-advanced" [id]="threadAdvancedId">
+            <ng-container [ngTemplateOutlet]="advancedControls"></ng-container>
+          </div>
+        }
+        @if (threadScopeLabel() || threadVoiceReady() || (advancedInComposer() && showAdvancedChatControls())) {
+          <div class="ck-thread-chips" data-testid="chat-thread-chips">
+            @if (threadScopeLabel(); as scope) {
+              <span class="ck-thread-chip ck-thread-chip--scope" [title]="i18n.t('chat.thread.scope_aria', { label: scope })">
+                <span class="ck-visually-hidden">{{ i18n.t('chat.thread.scope_aria', { label: '' }) }}</span>{{ scope }}
+              </span>
+            }
+            @if (threadVoiceReady()) {
+              <span class="ck-thread-chip">{{ i18n.t('chat.thread.voice_ready') }}</span>
+            }
+            @if (advancedInComposer() && showAdvancedChatControls()) {
+              <button
+                type="button"
+                class="ck-thread-chip ck-thread-advanced-toggle"
+                data-testid="chat-thread-advanced"
+                [attr.aria-expanded]="threadAdvancedOpen()"
+                [attr.aria-controls]="threadAdvancedOpen() ? threadAdvancedId : null"
+                [title]="i18n.t('chat.thread.advanced_hint')"
+                (click)="threadAdvancedOpen.set(!threadAdvancedOpen())"
+              >
+                {{ i18n.t('chat.thread.advanced') }}
+                <app-icon [name]="threadAdvancedOpen() ? 'chevron-down' : 'chevron-up'" [size]="12" />
+              </button>
+            }
+          </div>
+        }
+      }
+
       <!-- Input -->
       <form
         (ngSubmit)="send()"
         class="ck-chat-input-bar flex items-end gap-2 p-3 border-t border-white/5 bg-white/[0.02]"
         [class.vigie-input-bar]="executiveMode()"
+        [class.ck-thread-form]="threadMode()"
       >
         <button
           type="button"
@@ -2140,6 +2269,21 @@ const STEP_ICONS: Record<string, string> = {
         </button>
       </form>
     </div>
+      @if (proofRail(); as rail) {
+        <!-- L30: the proof opens beside the answer, inside the overlay. -->
+        <app-chat-proof-rail
+          class="ck-proof-slot"
+          [selected]="rail.selected"
+          [others]="rail.others"
+          [readOnly]="rail.readOnly"
+          [animate]="rail.animate"
+          [focusToken]="proofFocusToken()"
+          (closed)="closeProof(true, $event)"
+          (selectedChange)="selectProof($event)"
+          (pageRequested)="openProofPage($event)"
+          (collectionOpened)="onProofCollectionOpened()"
+        />
+      }
     </div>
 
     <app-document-preview
@@ -2153,6 +2297,167 @@ const STEP_ICONS: Record<string, string> = {
     />
   `,
 	  styles: [`
+    /* --- L30 · sourced working thread (overlay only) ------------------- */
+    .chat-thread-shell { position: relative; container-type: inline-size; }
+    .ck-proof-slot {
+      flex: 0 0 380px;
+      width: 380px;
+      min-width: 0;
+      height: 100%;
+      border-left: 1px solid var(--ck-stroke-2);
+    }
+    /* Too narrow for a second column (phone): the proof covers the thread;
+       Escape or « Fermer la preuve » brings the answer back. */
+    @container (max-width: 700px) {
+      .ck-proof-slot { position: absolute; inset: 0; z-index: 5; width: auto; border-left: 0; }
+    }
+    .ck-thread-question {
+      margin-left: auto;
+      max-width: min(88%, 62ch);
+      padding: 12px 16px;
+      border: 1px solid var(--ck-stroke-2);
+      border-right: 2px solid var(--ck-fg-2);
+      border-radius: 6px;
+      background: var(--ck-bg-panel);
+    }
+    .ck-thread-question-meta { margin: 0 0 4px; font-size: 12px; color: var(--ck-fg-3); }
+    .ck-thread-question-text {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.5;
+      color: var(--ck-fg-1);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .ck-thread-turn { gap: 12px; }
+    .ck-thread-answer-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      max-width: 72ch;
+    }
+    .ck-thread-label { font-size: 12px; font-weight: 600; color: var(--ck-fg-2); }
+    .ck-thread-counts {
+      min-height: 24px;
+      padding: 0 4px;
+      border: 0;
+      background: transparent;
+      color: var(--ck-fg-3);
+      font-size: 12px;
+      text-decoration: underline;
+      text-decoration-color: var(--ck-stroke-3, var(--ck-stroke-2));
+      text-underline-offset: 3px;
+      cursor: pointer;
+    }
+    .ck-thread-counts:hover { color: var(--ck-fg-1); }
+    .ck-thread-answer {
+      max-width: 72ch;
+      font-size: 15px;
+      line-height: 1.65;
+      color: var(--ck-fg-1);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .ck-cite {
+      position: relative;
+      isolation: isolate;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 1.9em;
+      height: 1.45em;
+      margin: 0 0.15em;
+      padding: 0 0.25em;
+      vertical-align: 0.08em;
+      border: 1px solid var(--ck-stroke-hot);
+      border-radius: 3px;
+      background: transparent;
+      color: var(--ck-primary);
+      font: 600 0.75em/1 var(--ck-font-mono);
+      cursor: pointer;
+    }
+    .ck-cite::before { content: "[" / ""; }
+    .ck-cite::after { content: "]" / ""; }
+    /* Highlight by opacity only: 140 ms on hover, instant when selected. */
+    .ck-cite:hover { background: color-mix(in oklab, var(--ck-primary) 14%, transparent); transition: background-color 140ms ease; }
+    .ck-cite--active,
+    .ck-cite--active:hover { background: var(--ck-primary); border-color: var(--ck-primary); color: var(--ck-bg-base); transition: none; }
+    .ck-cite:focus-visible { outline: 2px solid var(--ck-primary); outline-offset: 2px; }
+    .ck-thread-caret {
+      display: inline-block;
+      width: 2px;
+      height: 1.1em;
+      margin-left: 2px;
+      vertical-align: text-bottom;
+      background: var(--ck-primary);
+      animation: ck-thread-caret 1s steps(1, end) infinite;
+    }
+    @keyframes ck-thread-caret { 50% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) {
+      .ck-thread-caret { animation: none; }
+    }
+    .ck-thread-chips {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px 0;
+      border-top: 1px solid var(--ck-stroke-2);
+    }
+    .ck-thread-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      min-height: 24px;
+      padding: 0 8px;
+      border: 1px solid var(--ck-stroke-2);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--ck-fg-2);
+      font-size: 12px;
+      line-height: 1.2;
+    }
+    .ck-thread-chip--scope { border-color: var(--ck-stroke-hot); color: var(--ck-primary); }
+    .ck-thread-advanced-toggle { margin-left: auto; cursor: pointer; }
+    .ck-thread-advanced-toggle:hover { color: var(--ck-fg-1); border-color: var(--ck-stroke-3, var(--ck-stroke-2)); }
+    .ck-thread-advanced-toggle:focus-visible,
+    .ck-thread-counts:focus-visible { outline: 2px solid var(--ck-primary); outline-offset: 2px; }
+    .ck-thread-advanced {
+      max-height: 45vh;
+      overflow: auto;
+      border-top: 1px solid var(--ck-stroke-2);
+    }
+    .ck-thread-form { border-top: 0 !important; }
+    /* Below the answer: plain links and actions, AA on both themes. */
+    .ck-chat-trace-summary.ck-thread-summary {
+      max-width: 72ch;
+      margin-top: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+    }
+    .ck-thread-summary a { color: var(--ck-primary); }
+    .ck-thread-actions { margin-left: 0; color: var(--ck-fg-3); }
+    .chat-thread-shell { background: var(--ck-bg-base); }
+    .chat-thread-shell .chat-history-expand {
+      border-right-color: var(--ck-stroke-2);
+      background: var(--ck-bg-panel);
+      color: var(--ck-fg-3);
+    }
+    .chat-thread-shell .chat-history-expand:hover { color: var(--ck-fg-1); background: var(--ck-bg-panel-hi, var(--ck-bg-panel)); }
+    .ck-visually-hidden {
+      position: absolute !important;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      border: 0;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
     .ck-chat-empty-mark {
       border: 1px solid color-mix(in oklab, var(--ck-signal-cool, #22d3ee) 24%, transparent);
       background: color-mix(in oklab, var(--ck-signal-cool, #22d3ee) 10%, var(--ck-bg-inset, #0f172a));
@@ -3587,6 +3892,89 @@ export class ChatPanelComponent implements AfterViewInit {
   );
   readonly traceOpen = signal(false);
 
+  // --- L30 · sourced working thread (overlay only) -------------------------
+  /**
+   * Set by the overlay host: the question becomes a card, the agent's work a
+   * trace, the answer a short document whose citations open a proof rail.
+   * Every other host keeps today's messenger presentation.
+   */
+  readonly proofThread = input(false);
+  /** The Sentinel showcase keeps its own layout, even inside the overlay. */
+  readonly threadMode = computed(() => this.proofThread() && !this.executiveMode());
+  /** Non-builders find the model and retrieval controls behind « Avancé ». */
+  readonly advancedInComposer = computed(() =>
+    advancedBehindComposer(this.threadMode(), this.workspace.mode()),
+  );
+  readonly threadAdvancedOpen = signal(false);
+  readonly threadAdvancedId = `chat-thread-advanced-${cryptoId().slice(0, 8)}`;
+  /** The overlay has its own « Historique » link: the list starts folded. */
+  readonly threadHistoryOpen = signal(false);
+  readonly historyShown = computed(() =>
+    this.threadMode() ? this.threadHistoryOpen() : this.chatHistoryOpen(),
+  );
+  /** Scope chip and overlay meta: only a scope the request really uses. */
+  readonly threadScopeLabel = computed<string | null>(() => {
+    const collection = this.contextCollection();
+    if (collection) return collection;
+    const scope = this.activeKnowledgeScope();
+    if (scope) return this.scopeLabel(scope);
+    return this.contextId() ? this.i18n.t('chat.thread.session_docs') : null;
+  });
+  /**
+   * « Voix disponible » only once the runtime catalog has answered and the
+   * microphone can transcribe: the mic's optimistic default (no catalog yet)
+   * is not a promise the chip may make.
+   */
+  readonly threadVoiceReady = computed(() => {
+    if (!this.threadMode()) return false;
+    const catalog = this.voiceRuntimes();
+    return !!catalog && Array.isArray(catalog.providers) && this.canTranscribeVoice();
+  });
+
+  private readonly proofState = signal<ProofRailState>({ selection: null, animate: false });
+  /** Bumped on each opening so the rail moves focus to its heading. */
+  readonly proofFocusToken = signal(0);
+  private proofTrigger: HTMLElement | null = null;
+
+  readonly proofRail = computed(() => {
+    if (!this.threadMode()) return null;
+    const { selection, animate } = this.proofState();
+    if (!selection) return null;
+    const msg = this.messages().find((item) => item.id === selection.msgId);
+    if (!msg) return null;
+    const { sources, content } = this.proofSourcesFor(msg, selection.hostId);
+    const source = sources?.[selection.n - 1];
+    if (!sources || !source) return null;
+    const cited = this.citedIndicesForContent(content, sources);
+    const groups = classifyProofSources(sources, cited);
+    const claim = this.claimBeforeCitation(content, sources, selection.n);
+    return {
+      selected: this.proofView(source, selection.n, cited.has(selection.n), claim, true),
+      others: groups.cited
+        .filter((entry) => entry.n !== selection.n)
+        .map((entry) => this.proofView(entry.source, entry.n, true, null, false)),
+      readOnly: groups.readNotCited
+        .filter((entry) => entry.n !== selection.n)
+        .map((entry) => this.proofView(entry.source, entry.n, false, null, false)),
+      animate,
+    };
+  });
+
+  /** Live trace from the real `decision_step` events and the first tokens. */
+  readonly liveTrace = computed(() =>
+    deriveWorkTrace(this.liveSteps(), {
+      streaming: this.streaming(),
+      textStarted: this.streamBuffer().length > 0,
+    }),
+  );
+  readonly liveTraceLabel = computed(() => {
+    const progress = this.streamProgress();
+    if (progress) return progress.label;
+    return this.streaming() && this.streamBuffer().length > 0 ? this.i18n.t('chat.progress.composing') : '';
+  });
+
+  private readonly threadViewCache = new Map<string, ThreadAnswerView>();
+
   readonly activeAssistantProfile = computed<AssistantProfile | null>(() => {
     const settings = this.workspace.current()?.settings;
     const explicitKey = this.assistantProfileKey();
@@ -4061,6 +4449,15 @@ export class ChatPanelComponent implements AfterViewInit {
   private autoVoiceLoopStarted = false;
 
   constructor() {
+    // L30 — the overlay widens for the rail and shows the scope it reads from.
+    effect(() => {
+      if (!this.threadMode()) return;
+      this.overlay.proofOpen.set(this.proofRail() !== null);
+    });
+    effect(() => {
+      if (!this.threadMode()) return;
+      this.overlay.threadScope.set(this.threadScopeLabel());
+    });
     const unregisterVoiceWorkspaceReset = this.workspace.registerContextReset(() => {
       this.resetVoiceForWorkspaceChange();
     });
@@ -4344,6 +4741,10 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
   toggleChatHistory(): void {
+    if (this.threadMode()) {
+      this.threadHistoryOpen.update((open) => !open);
+      return;
+    }
     const next = !this.chatHistoryOpen();
     this.chatHistoryOpen.set(next);
     try {
@@ -4354,6 +4755,10 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
   toggleAdvancedControls(): void {
+    if (this.advancedInComposer()) {
+      this.threadAdvancedOpen.update((open) => !open);
+      return;
+    }
     const next = !this.advancedControlsOpen();
     this.advancedControlsOpen.set(next);
     try {
@@ -4514,6 +4919,7 @@ export class ChatPanelComponent implements AfterViewInit {
       id: message.id,
       role: message.role,
       content: message.content,
+      at: message.timestamp ?? null,
       kind,
       decisionSteps,
       sources,
@@ -5719,6 +6125,214 @@ export class ChatPanelComponent implements AfterViewInit {
     return trimmed.length >= 8 ? trimmed : null;
   }
 
+  // --- L30 · proof rail ------------------------------------------------------
+
+  /** Citation chip: the thread opens the proof, other hosts scroll to the source. */
+  onCitation(msg: ChatMessage, n: number, sourceHostId: string, openDirectSources: boolean, event?: Event): void {
+    if (this.threadMode()) {
+      this.openProof(msg, n, sourceHostId, event);
+      return;
+    }
+    this.gotoSourceTarget(msg, n, sourceHostId, openDirectSources);
+  }
+
+  openProof(msg: ChatMessage, n: number, sourceHostId: string, event?: Event): void {
+    const { sources } = this.proofSourcesFor(msg, sourceHostId);
+    const detail = (event as MouseEvent | undefined)?.detail;
+    const current = this.proofState();
+    const next = reduceProofRail(current, {
+      kind: 'open',
+      selection: { msgId: msg.id, hostId: sourceHostId, n },
+      // Enter/Space on a button fire a click whose `detail` is 0: no motion.
+      byPointer: typeof detail === 'number' && detail > 0,
+      valid: this.isValidCitationForSources(sources, n),
+    });
+    if (next === current) return;
+    const trigger = event?.currentTarget as HTMLElement | null | undefined;
+    if (trigger && typeof trigger.focus === 'function') this.proofTrigger = trigger;
+    this.overlay.proofAnimate.set(next.animate);
+    this.proofState.set(next);
+    this.proofFocusToken.update((token) => token + 1);
+    this.adoptionInteraction.emit({ step: 'source' });
+    this.cdr.markForCheck();
+  }
+
+  /** « Autres preuves »: switch the proof without leaving the rail. */
+  selectProof(n: number): void {
+    const selection = this.proofState().selection;
+    if (!selection) return;
+    const msg = this.messages().find((item) => item.id === selection.msgId);
+    if (msg) this.openProof(msg, n, selection.hostId);
+  }
+
+  /** The answer's meta line opens the first cited proof (or the first passage). */
+  openFirstProof(msg: ChatMessage, event?: Event): void {
+    const n = this.threadView(msg).firstProof;
+    if (n) this.openProof(msg, n, msg.id, event);
+  }
+
+  closeProof(restoreFocus = true, byPointer = false): void {
+    const selection = this.proofState().selection;
+    if (!selection) return;
+    this.overlay.proofAnimate.set(byPointer);
+    this.proofState.set(reduceProofRail(this.proofState(), { kind: 'close' }));
+    this.cdr.markForCheck();
+    if (restoreFocus) this.restoreProofFocus(selection);
+    else this.proofTrigger = null;
+  }
+
+  /** Escape closes the rail first; the overlay stays open. */
+  onThreadEscape(event: Event): void {
+    if (!this.proofRail()) return;
+    event.stopPropagation();
+    event.preventDefault();
+    const doc = globalThis.document;
+    const active = doc?.activeElement as HTMLElement | null | undefined;
+    const fromRail = !!active && (!!active.closest?.('app-chat-proof-rail') || active === doc?.body);
+    this.closeProof(fromRail);
+  }
+
+  openProofPage(n: number): void {
+    const selection = this.proofState().selection;
+    const msg = selection ? this.messages().find((item) => item.id === selection.msgId) : null;
+    if (!selection || !msg) return;
+    const source = this.proofSourcesFor(msg, selection.hostId).sources?.[n - 1];
+    if (source) this.previewSource(source);
+  }
+
+  /** Leaving for the collection: a page-blocking overlay gets out of the way. */
+  onProofCollectionOpened(): void {
+    if (this.overlay.blocksPage()) this.overlay.close();
+  }
+
+  isProofSelected(sourceHostId: string, n: number): boolean {
+    const selection = this.proofState().selection;
+    return !!selection && selection.hostId === sourceHostId && selection.n === n;
+  }
+
+  proofCiteKey(sourceHostId: string, n: number): string {
+    return `${sourceHostId}:${n}`;
+  }
+
+  /** Trace, counts and first proof around one finished answer (cached). */
+  threadView(msg: ChatMessage): ThreadAnswerView {
+    const steps = msg.decisionSteps ?? [];
+    const key = `${msg.id}:${msg.content?.length ?? 0}:${steps.length}:${this.sourceSignature(msg.sources)}:${this.i18n.locale()}`;
+    const cached = this.threadViewCache.get(key);
+    if (cached) return cached;
+    const cited = this.citedIndices(msg);
+    const counts = answerProofCounts(msg.sources, cited);
+    const summaryParts = [
+      steps.length === 1
+        ? this.i18n.t('chat.thread.trace.steps_one')
+        : this.i18n.t('chat.thread.trace.steps', { count: steps.length }),
+    ];
+    if (msg.durationMs) summaryParts.push(this.durationLabel(msg.durationMs));
+    const firstCited = [...cited].filter((n) => n >= 1 && n <= (msg.sources?.length ?? 0)).sort((a, b) => a - b)[0];
+    const view: ThreadAnswerView = {
+      trace: deriveWorkTrace(steps, { streaming: false, textStarted: !!msg.content }),
+      steps: steps.map((step) => ({
+        id: step.id,
+        title: step.title || step.type || this.i18n.t('chat.trail.step'),
+        status: step.status,
+        duration: step.duration,
+      })),
+      summary: steps.length ? summaryParts.join(' · ') : '',
+      countsLabel: counts
+        ? [
+            counts.passages === 1
+              ? this.i18n.t('chat.thread.passages_one')
+              : this.i18n.t('chat.thread.passages', { count: counts.passages }),
+            counts.cited > 1
+              ? this.i18n.t('chat.thread.cited', { count: counts.cited })
+              : this.i18n.t('chat.thread.cited_one', { count: counts.cited }),
+          ].join(' · ')
+        : null,
+      firstProof: firstCited ?? (msg.sources?.length ? 1 : null),
+    };
+    this.threadViewCache.set(key, view);
+    return view;
+  }
+
+  threadSteps(msg: ChatMessage): TraceStepView[] {
+    return this.isDemoMode() ? NO_TRACE_STEPS : this.threadView(msg).steps;
+  }
+
+  /** « 14:02 » in the reader's locale; nothing when the time is unknown. */
+  timeLabel(iso: string | null | undefined): string {
+    if (!iso) return '';
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleTimeString(this.i18n.locale(), { hour: '2-digit', minute: '2-digit' });
+  }
+
+  private durationLabel(ms: number): string {
+    if (ms < 1000) return `${Math.round(ms)} ms`;
+    return `${(ms / 1000).toLocaleString(this.i18n.locale(), { maximumFractionDigits: 1 })} s`;
+  }
+
+  private proofSourcesFor(msg: ChatMessage, sourceHostId: string): { sources: Source[] | undefined; content: string } {
+    if (sourceHostId === this.deepSourceHostId(msg)) {
+      const deep = msg.retrievalInfo?.deepSources;
+      return {
+        sources: deep?.length ? deep : msg.sources,
+        content: msg.retrievalInfo?.deepAnswer || msg.content,
+      };
+    }
+    return { sources: msg.sources, content: msg.content };
+  }
+
+  /** The answer sentence that carries citation `n`, to find its support. */
+  private claimBeforeCitation(content: string, sources: Source[], n: number): string | null {
+    const tokens = this.renderAnswer(content, sources);
+    const at = tokens.findIndex((token) => token.kind === 'cite' && token.n === n);
+    if (at < 0) return null;
+    const before = tokens
+      .slice(0, at)
+      .map((token) => (token.kind === 'cite' ? ' ' : token.value))
+      .join('');
+    const sentences = before.split(/(?<=[.!?])\s+/).map((part) => part.trim()).filter(Boolean);
+    return sentences.length ? sentences[sentences.length - 1].slice(-400) : null;
+  }
+
+  private proofView(source: Source, n: number, cited: boolean, claim: string | null, withPassage: boolean): ProofSourceView {
+    const raw = String(source.snippet || source.content || source.text || '').trim();
+    const text = raw.length > 900 ? `${raw.slice(0, 900).trim()}…` : raw;
+    const collectionRef = this.sourceCollection(source) || null;
+    return {
+      n,
+      title: this.sourceTitle(source),
+      collection: collectionRef ? this.collectionDisplayName(collectionRef) : null,
+      collectionRef,
+      locator: this.sourceLocator(source)?.label ?? null,
+      passage: withPassage && text ? markSupportingSentence(text, claim) : null,
+      cited,
+      canPreview: this.canPreviewSource(source),
+    };
+  }
+
+  /** A collection reads as its scope's label only when that scope holds it alone. */
+  private collectionDisplayName(slug: string): string {
+    const scope = this.knowledgeScopeOptions().find(
+      (option) => option.label && option.collection_slugs?.length === 1 && option.collection_slugs[0] === slug,
+    );
+    return scope?.label ? this.cleanSourceLabel(scope.label) : slug;
+  }
+
+  private restoreProofFocus(selection: ProofSelection): void {
+    const fallback = this.proofTrigger;
+    this.proofTrigger = null;
+    globalThis.setTimeout?.(() => {
+      const doc = globalThis.document;
+      if (!doc) return;
+      const key = this.proofCiteKey(selection.hostId, selection.n);
+      const escaped = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(key) : key.replace(/"/g, '\\"');
+      const citation = doc.querySelector<HTMLElement>(`[data-proof-cite="${escaped}"]`);
+      const target = citation ?? (fallback?.isConnected ? fallback : null) ?? this.inputEl?.nativeElement ?? null;
+      target?.focus();
+    }, 0);
+  }
+
   closeSourcePreview(): void {
     this.sourcePreviewOpen.set(false);
     this.sourcePreviewUrl.set(null);
@@ -6602,6 +7216,7 @@ export class ChatPanelComponent implements AfterViewInit {
       id: cryptoId(),
       role: 'user',
       content: text,
+      at: new Date().toISOString(),
     };
     this.messages.update((msgs) => [...msgs, userMsg]);
     this.userInput = '';

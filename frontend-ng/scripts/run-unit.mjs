@@ -26,6 +26,7 @@ const stub = join(here, 'ng-core.stub.mjs');
 // metadata-only stub (the serializer uses it only for `@Injectable`).
 const pureSpecs = [
   'src/app/features/mandate/mandate.models.spec.ts',
+  'src/app/features/chat/chat-proof.spec.ts',
   'src/app/features/mandate/mandate-editor.vm.spec.ts',
   'src/app/features/systems/system-mandate-coverage.vm.spec.ts',
   'src/app/features/experience/work/work-decision.spec.ts',
