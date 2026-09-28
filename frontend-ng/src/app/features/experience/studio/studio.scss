@@ -960,14 +960,14 @@
   }
 }
 
-/* Wizard stays a route overlay; the editor sits in Cockpit chrome (L20c). */
+/* Create wizard stays in Cockpit chrome like the editor (L20c); focus mode stays editor-only. */
 .xp-wizard {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
+  position: relative;
+  z-index: auto;
   gap: 0;
   min-width: 0;
-  height: 100dvh;
+  height: calc(100dvh - 76px);
+  max-height: calc(100dvh - 76px);
   overflow: hidden;
   background: var(--ck-bg-0, #05070a);
   color: var(--ck-fg-2);
