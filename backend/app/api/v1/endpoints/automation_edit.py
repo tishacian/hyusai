@@ -350,7 +350,7 @@ async def automation_preparation(
     indexed: bool | None = None
     index_detail: str | None = None
     try:
-        indexed, index_detail = _indexed_collections(db, workspace)
+        indexed, index_detail = _indexed_collections(db, workspace, user)
     except Exception:
         indexed = None
     return preparation_diagnostic(
@@ -363,13 +363,18 @@ async def automation_preparation(
     )
 
 
-def _indexed_collections(db: DBSession, workspace: Workspace) -> tuple[bool, str | None]:
+def _indexed_collections(
+    db: DBSession, workspace: Workspace, user: User
+) -> tuple[bool, str | None]:
     """Whether this workspace has chunks a search can read. An empty result was looked at."""
 
     from app.models.knowledge_collection import KnowledgeCollection
 
+    from app.services.collection_access import can_read_collection, get_membership
+
+    member = get_membership(db, workspace=workspace, user_id=getattr(user, "id", None))
     rows = (
-        db.query(KnowledgeCollection.slug)
+        db.query(KnowledgeCollection)
         .filter(
             KnowledgeCollection.workspace_id == workspace.id,
             KnowledgeCollection.chunk_count > 0,
@@ -377,6 +382,7 @@ def _indexed_collections(db: DBSession, workspace: Workspace) -> tuple[bool, str
         .order_by(KnowledgeCollection.slug.asc())
         .all()
     )
+    rows = [row for row in rows if can_read_collection(member, row)]
     if not rows:
         return False, None
     return True, ", ".join(row.slug for row in rows[:3])

@@ -600,6 +600,7 @@ def _rows_for_collections(
     workspace_id: str | None,
     *,
     source_lookup_query: str | None = None,
+    allowed_collection_refs: set[str] | None = None,
 ) -> tuple[list[Any], list[KnowledgeCollection]]:
     rows: list[Any] = []
     collection_rows: list[KnowledgeCollection] = []
@@ -613,6 +614,8 @@ def _rows_for_collections(
         )
     )
     for ref in collections:
+        if allowed_collection_refs is not None and str(ref) not in allowed_collection_refs:
+            continue
         query = db.query(KnowledgeCollection).filter(
             (KnowledgeCollection.slug == ref) | (KnowledgeCollection.id == ref)
         )
@@ -730,15 +733,27 @@ def _missing_document_name_rows(
     return fallback
 
 
-def _workspace_collections(db: DBSession, workspace_id: str | None) -> list[KnowledgeCollection]:
+def _workspace_collections(
+    db: DBSession,
+    workspace_id: str | None,
+    *,
+    allowed_collection_refs: set[str] | None = None,
+) -> list[KnowledgeCollection]:
     if not workspace_id:
         return []
-    return (
+    rows = (
         db.query(KnowledgeCollection)
         .filter(KnowledgeCollection.workspace_id == workspace_id)
         .order_by(KnowledgeCollection.updated_at.desc())
         .all()
     )
+    if allowed_collection_refs is None:
+        return rows
+    return [
+        row
+        for row in rows
+        if str(row.slug or "") in allowed_collection_refs or row.id in allowed_collection_refs
+    ]
 
 
 def _deep_ledger_is_large(db: DBSession, collections: list[str], workspace_id: str | None) -> bool:
@@ -1801,6 +1816,14 @@ def _plan_corpus_ungated(
         for item in (profile.get("collections") or [profile.get("collection") or "documents"])
         if item
     ]
+    raw_allowed_refs = (request or {}).get("accessible_collection_refs")
+    allowed_collection_refs = (
+        {str(item) for item in raw_allowed_refs}
+        if isinstance(raw_allowed_refs, (list, tuple, set))
+        else None
+    )
+    if allowed_collection_refs is not None:
+        collections = [item for item in collections if item in allowed_collection_refs]
     raw_authoritative = (request or {}).get("authoritative_collections")
     authoritative_collections = (
         list(
@@ -1846,6 +1869,7 @@ def _plan_corpus_ungated(
         collections,
         workspace_id,
         source_lookup_query=source_lookup_query,
+        allowed_collection_refs=allowed_collection_refs,
     )
     workspace_rows = rows
     fast_local_ledger_rows: list[Any] = []
@@ -1870,7 +1894,11 @@ def _plan_corpus_ungated(
         if should_expand_workspace:
             workspace_collection_refs = [
                 str(row.slug or row.id)
-                for row in _workspace_collections(db, workspace_id)
+                for row in _workspace_collections(
+                    db,
+                    workspace_id,
+                    allowed_collection_refs=allowed_collection_refs,
+                )
                 if str(row.slug or row.id)
             ]
         else:
@@ -1881,6 +1909,7 @@ def _plan_corpus_ungated(
                 workspace_collection_refs,
                 workspace_id,
                 source_lookup_query=source_lookup_query,
+                allowed_collection_refs=allowed_collection_refs,
             )
             if candidate_rows:
                 workspace_rows = candidate_rows

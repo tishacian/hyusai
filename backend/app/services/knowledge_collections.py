@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session as DBSession
 from app.core.config import settings
 from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource, WorkerJob
 from app.models.workspace import Workspace
+from app.services.collection_access import normalize_collection_access
 from app.services.object_store import ObjectStore, get_object_store
 from app.services.rag.bm25_store import bm25_artifact_key
 from app.services.vector_db.factory import VectorDBFactory
@@ -500,6 +501,7 @@ def collection_inventory(
         "collection_slug": collection.slug,
         "collection_name": collection.name,
         "status": collection.status,
+        "access": normalize_collection_access(collection.access),
         "source_count": len(rows),
         "sources_total": len(filtered_rows),
         "document_count": len(rows) or (collection.document_count or len(collection.document_names or [])),
@@ -735,6 +737,7 @@ async def serialize_collection(
         "name": collection.name,
         "description": collection.description,
         "status": collection.status,
+        "access": normalize_collection_access(collection.access),
         "created_at": collection.created_at.isoformat() if collection.created_at else None,
         "updated_at": collection.updated_at.isoformat() if collection.updated_at else None,
         "created_by_user_id": collection.created_by_user_id,

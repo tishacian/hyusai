@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session as DBSession
 from app.core.iam.roles import WORKSPACE_VIEWER, normalize_role_template
 from app.models.knowledge_collection import KnowledgeCollection
 from app.models.workspace import Workspace, WorkspaceMember
+from app.services.collection_access import can_read_collection, can_write_collection
 
 # A collection answers questions once ready, and is worth waiting for while
 # its documents are queued or indexed. ``created`` (empty) and ``error`` only
@@ -74,7 +75,12 @@ def member_sources(
     )
     # Underscore-prefixed collections are internal, as in the collection list.
     rows = [row for row in rows if not str(row.slug or "").startswith("_")]
-    usable = [row for row in rows if may_add or row.status in READABLE_STATUSES]
+    usable = [
+        row
+        for row in rows
+        if can_read_collection(member, row)
+        and (can_write_collection(member, row) or row.status in READABLE_STATUSES)
+    ]
     usable.sort(key=_rank)
     usable = usable[:MAX_SOURCES]
     candidate = next((row for row in usable if row.id == chosen_collection_id), None)
@@ -102,6 +108,8 @@ def usable_collection(
     )
     if row is None or str(row.slug or "").startswith("_"):
         return None
-    if not can_add_documents(member) and row.status not in READABLE_STATUSES:
+    if not can_read_collection(member, row):
+        return None
+    if not can_write_collection(member, row) and row.status not in READABLE_STATUSES:
         return None
     return row

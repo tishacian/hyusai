@@ -100,8 +100,17 @@ def _experience_payload(db: DBSession, workspace: Workspace, member: WorkspaceMe
     from app.schemas.adoption import SHOWCASE_WORKSPACE_SLUG, for_journey, journey_for_workspace
     journey = journey_for_workspace(workspace.slug)
     progress = for_journey(progress.model_dump(mode="json"), journey)
-    example_available = workspace.slug == SHOWCASE_WORKSPACE_SLUG and db.query(KnowledgeCollection).filter_by(
-        workspace_id=workspace.id, slug="agentium-showcase-notices", status="ready").filter(KnowledgeCollection.document_count > 0, KnowledgeCollection.chunk_count > 0).first() is not None
+    example_row = (
+        db.query(KnowledgeCollection).filter_by(
+            workspace_id=workspace.id,
+            slug="agentium-showcase-notices",
+            status="ready",
+        ).filter(KnowledgeCollection.document_count > 0, KnowledgeCollection.chunk_count > 0).first()
+        if workspace.slug == SHOWCASE_WORKSPACE_SLUG
+        else None
+    )
+    from app.services.collection_access import can_read_collection
+    example_available = example_row is not None and can_read_collection(member, example_row)
     payload = {**progress.model_dump(mode="json"), "example_available": example_available}
     if journey == "northforge_sources":
         return {**payload, "available": example_available}

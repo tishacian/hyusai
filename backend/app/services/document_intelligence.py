@@ -568,10 +568,13 @@ class DocumentQueryEngine:
         system_id: str | None = None,
         document_profile_key: str | None = None,
         include_evidence: bool = True,
+        allowed_collections: list[str] | None = None,
     ) -> dict[str, Any]:
         filters = filters or {}
         scope = self._resolve_scope(workspace, collection_or_scope)
         collections = self._resolve_collections(workspace, collection_or_scope, scope)
+        if allowed_collections is not None:
+            collections = [item for item in collections if item in allowed_collections] or ["__none__"]
         system = self._resolve_system(workspace, system_id)
         profile = resolve_document_profile(
             workspace=workspace,
