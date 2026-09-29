@@ -167,6 +167,7 @@ export class WorkBarComponent {
     this.chat.open({
       mode: 'quick',
       linkedLabel: app ? this.i18n.t('experience.work.chat.in_app', { app }) : null,
+      surface: 'work',
     });
   }
 

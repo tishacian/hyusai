@@ -63,6 +63,39 @@ export function pdfFindPhrase(snippet: string | null | undefined, maxChars = 64)
 }
 
 /**
+ * The whole passage as consecutive find segments (L36): pdf.js find stays
+ * reliable on short phrases, so a long or multi-line passage is matched piece
+ * by piece and every piece is marked. Pieces are cut at word boundaries and
+ * cover the passage end to end; a short tail joins the previous piece so no
+ * piece is common enough to match text outside the passage.
+ */
+export function pdfFindSegments(
+  snippet: string | null | undefined,
+  maxChars = 60,
+  minChars = 16,
+  maxSegments = 40,
+): string[] {
+  const norm = cleanSnippet(snippet || '').replace(/\s+/g, ' ').trim();
+  if (!norm) return [];
+  if (norm.length <= maxChars) return [norm];
+  const segments: string[] = [];
+  let current = '';
+  for (const word of norm.split(' ')) {
+    if (current && `${current} ${word}`.length > maxChars) {
+      segments.push(current);
+      current = word;
+    } else {
+      current = current ? `${current} ${word}` : word;
+    }
+  }
+  if (current) {
+    if (current.length < minChars && segments.length) segments[segments.length - 1] += ` ${current}`;
+    else segments.push(current);
+  }
+  return segments.slice(0, maxSegments);
+}
+
+/**
  * Build a whitespace-collapsed, lower-cased view of ``text`` together with a
  * map from each normalized index to the index of the corresponding character
  * in the ORIGINAL string. Whitespace runs collapse to a single space whose map

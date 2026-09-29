@@ -27,6 +27,7 @@ const stub = join(here, 'ng-core.stub.mjs');
 const pureSpecs = [
   'src/app/features/mandate/mandate.models.spec.ts',
   'src/app/features/chat/chat-proof.spec.ts',
+  'src/app/shared/work-sources/work-source.spec.ts',
   'src/app/features/mandate/mandate-editor.vm.spec.ts',
   'src/app/features/systems/system-mandate-coverage.vm.spec.ts',
   'src/app/features/experience/work/work-decision.spec.ts',
