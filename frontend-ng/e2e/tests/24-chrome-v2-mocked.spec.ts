@@ -783,6 +783,24 @@ test.describe('L30 — chat overlay: sourced thread and open proof', () => {
       await expect(chips).not.toContainText('Voix disponible');
       await expect(overlay.getByTestId('chat-thread-advanced')).toHaveAttribute('aria-expanded', 'false');
 
+      // L31 — only the toolbar sits above the question: the context picker
+      // waits behind « Avancé », the session documents are a composer button.
+      await expect(overlay.getByTestId('chat-thread-context')).toHaveCount(0);
+      await expect(overlay.locator('.t-header, .t-sidebar')).toHaveCount(0);
+      const history = overlay.getByTestId('chat-overlay-history');
+      await expect(history).toHaveText('Historique');
+      await expect(history).toHaveCSS('text-transform', 'none');
+      const footer = overlay.getByTestId('chat-overlay-footer');
+      await expect(footer).toHaveText('Enregistrée dans Suivre › Conversations');
+      await expect(footer).toHaveCSS('text-transform', 'none');
+      const attach = overlay.getByRole('button', { name: 'Documents de session' });
+      await expect(attach).toHaveAttribute('aria-expanded', 'false');
+      await attach.click();
+      await expect(attach).toHaveAttribute('aria-expanded', 'true');
+      await expect(overlay.getByLabel('Ajouter des documents à la session')).toHaveAttribute('type', 'file');
+      await attach.click();
+      await expect(overlay.getByTestId('chat-thread-attach-panel')).toHaveCount(0);
+
       await input.fill('Peut-on relancer une exécution terminée avec d’autres entrées ?');
       await input.press('Enter');
 
@@ -793,6 +811,11 @@ test.describe('L30 — chat overlay: sourced thread and open proof', () => {
       await expect(trace).toContainText('Rédaction');
       await expect(trace).toContainText('4 étapes');
       await expect(overlay.getByTestId('chat-thread-counts')).toHaveText('3 passages · 2 cités');
+      // L31 — « Exécutions · Qualité » sit in the answer's action row, not on a line of their own.
+      const links = overlay.locator('.ck-thread-actions').getByTestId('chat-thread-links');
+      await expect(links.getByRole('link', { name: 'Exécutions' })).toBeVisible();
+      await expect(links.getByRole('link', { name: 'Qualité' })).toBeVisible();
+      await expect(overlay.locator('.ck-thread-summary')).toHaveCount(0);
 
       const cite = overlay.locator('[data-proof-cite$=":1"]').first();
       await cite.focus();
@@ -830,7 +853,24 @@ test.describe('L30 — chat overlay: sourced thread and open proof', () => {
       const advanced = overlay.getByTestId('chat-thread-advanced');
       await advanced.click();
       await expect(advanced).toHaveAttribute('aria-expanded', 'true');
+      // L31 — the context picker lives here now, and the voice controls speak French.
+      const advancedPanel = overlay.getByTestId('chat-thread-advanced-panel');
+      await expect(advancedPanel.getByRole('combobox', { name: 'Contexte' })).toBeVisible();
+      await expect(advancedPanel).toContainText('Moteur vocal');
+      await expect(advancedPanel).toContainText('Contexte en direct');
+      for (const english of ['Voice runtime', 'Batch', 'Live context', 'Auto-send', 'Realtime']) {
+        await expect(advancedPanel).not.toContainText(english);
+      }
       await page.screenshot({ path: shot(`l30-chat-advanced-${theme}.png`) });
+      await attach.click();
+      await expect(overlay.getByTestId('chat-thread-attach-panel')).toBeVisible();
+      const axeOpen = await new AxeBuilder({ page })
+        .include('app-chat-overlay')
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+        .analyze();
+      expect(axeOpen.violations, axeOpen.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(' ')}`).join('\n')).toEqual([]);
+      await page.screenshot({ path: shot(`l31-chat-advanced-attach-${theme}.png`) });
+      await attach.click();
       await advanced.click();
       await expect(advanced).toHaveAttribute('aria-expanded', 'false');
 
@@ -844,4 +884,69 @@ test.describe('L30 — chat overlay: sourced thread and open proof', () => {
       await expect(cite).toBeFocused();
     });
   }
+});
+
+// --- L31 — finishing touches -------------------------------------------------
+
+test.describe('L31 — sentence case, one filled button, honest bottom bar', () => {
+  test.use({ locale: 'fr-FR' });
+  test.skip(!enabled, 'Set E2E_CHROME_V2_MOCKED=1 to run the mocked chrome safety net');
+
+  for (const theme of ['dark', 'light'] as const) {
+    test(`/systems reads in sentence case with a single filled button; axe (${theme})`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: theme });
+      await installMocks(page, theme);
+      await mockExperience(page, { rail_labels: 'hidden', first_seen_at: daysAgo(30) });
+      await page.goto('/systems');
+      const main = page.locator('#main-content');
+      await expect(main.locator('h1').first()).toBeVisible({ timeout: 30_000 });
+      await expect(main.getByText('Créer · Systèmes', { exact: true })).toBeVisible();
+      await expect(main.getByTestId('page-frame-status')).toHaveText('0 actif');
+      await expect(main.getByTestId('systems-count')).toHaveText('Systèmes · 0');
+      const create = main.getByTestId('systems-new');
+      const first = main.getByTestId('systems-create-first');
+      await expect(first).toHaveText(/Créer le premier système/);
+      for (const control of [create, first, main.getByTestId('systems-compose'), main.getByRole('button', { name: 'Analyse contrats' })]) {
+        await expect(control).toHaveCSS('text-transform', 'none');
+        await expect(control).not.toHaveCSS('font-family', /Plex Mono|monospace/i);
+      }
+      // The empty state leads: its button is the only filled one.
+      await expect(first).toHaveClass(/ck-cta/);
+      await expect(create).not.toHaveClass(/ck-cta/);
+      await expect(main.locator('.ck-cta')).toHaveCount(1);
+
+      const bar = page.locator('app-command-bar');
+      await expect(bar).toContainText('Plateforme opérationnelle');
+      await expect(bar).not.toContainText('Système opérationnel');
+      await expect(bar.getByTestId('command-bar-version')).toHaveText('v0.4.0 · build 1');
+      await expect(bar.getByTestId('command-bar-version')).toHaveCSS('text-transform', 'none');
+      await expect(bar.getByText('Plateforme opérationnelle')).toHaveCSS('text-transform', 'none');
+      await page.screenshot({ path: shot(`l31-systems-${theme}.png`) });
+
+      const axe = await new AxeBuilder({ page })
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+        .analyze();
+      expect(axe.violations, axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(' ')}`).join('\n')).toEqual([]);
+    });
+  }
+
+  test('a builder keeps a compact context control beside the scope, no « Avancé »', async ({ page }) => {
+    test.setTimeout(90_000);
+    await installMocks(page, 'dark');
+    await mockExperience(page, { rail_labels: 'hidden', first_seen_at: daysAgo(30) });
+    await mockThread(page);
+    const builder = { ...THREAD_WORKSPACE, mode: 'builder' };
+    await page.route(`**/api/v1/auth/workspaces/${WORKSPACE.slug}`, async (route) => json(route, builder));
+    await page.route('**/api/v1/auth/workspaces', async (route) => json(route, [builder]));
+    await page.goto('/systems');
+    await expect(page.locator('#main-content h1').first()).toBeVisible({ timeout: 30_000 });
+    await page.keyboard.press('ControlOrMeta+j');
+    const overlay = page.locator('app-chat-overlay');
+    await expect(overlay.locator('textarea[name="userInput"]')).toBeVisible({ timeout: 30_000 });
+    const chips = overlay.getByTestId('chat-thread-chips');
+    await expect(chips.getByRole('combobox', { name: 'Contexte' })).toBeVisible();
+    await expect(overlay.getByTestId('chat-thread-advanced')).toHaveCount(0);
+    await expect(overlay.locator('.t-header')).toHaveCount(0);
+    await page.screenshot({ path: shot('l31-chat-builder-dark.png') });
+  });
 });

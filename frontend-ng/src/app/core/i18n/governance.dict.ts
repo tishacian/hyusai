@@ -56,7 +56,7 @@ export const GOVERNANCE_FR = {
   'governance.audit.showing': 'Affichage de {shown} sur {total}',
 
   // --- Experience lifecycle ---------------------------------------
-  'governance.experience.eyebrow': 'Gouverner · Applications métier',
+  'governance.experience.eyebrow': 'Administrer · Applications métier',
   'governance.experience.title': 'Cycle de vie des applications',
   'governance.experience.description':
     'Releases, canaux, audiences, dérives de liaisons et preuves d’audit des applications de ce workspace.',
@@ -597,7 +597,7 @@ export const GOVERNANCE_EN: Record<keyof typeof GOVERNANCE_FR, string> = {
   'governance.audit.showing': 'Showing {shown} of {total}',
 
   // --- Experience lifecycle ---------------------------------------
-  'governance.experience.eyebrow': 'Govern · Business applications',
+  'governance.experience.eyebrow': 'Administer · Business applications',
   'governance.experience.title': 'Application lifecycle',
   'governance.experience.description':
     'Releases, channels, audiences, binding drift and audit evidence for this workspace’s applications.',

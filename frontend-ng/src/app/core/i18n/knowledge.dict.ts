@@ -11,7 +11,7 @@ export const KNOWLEDGE_FR = {
 
   // --- Object header ------------------------------------------------
   // Eyebrow rendered uppercase by the header's CSS; natural case here.
-  'knowledge.header.eyebrow': 'Construire · Connaissances',
+  'knowledge.header.eyebrow': 'Créer · Knowledge',
   'knowledge.header.subtitle': 'Ingérez des documents et donnez à chaque système un contexte à jour.',
   'knowledge.header.capture': 'Capture',
   'knowledge.header.upload': 'Téléverser',
@@ -148,7 +148,7 @@ export const KNOWLEDGE_EN: Record<keyof typeof KNOWLEDGE_FR, string> = {
   'knowledge.title': 'Knowledge',
 
   // --- Object header ------------------------------------------------
-  'knowledge.header.eyebrow': 'Build · Knowledge',
+  'knowledge.header.eyebrow': 'Create · Knowledge',
   'knowledge.header.subtitle': 'Ingest documents and give every system fresh context.',
   'knowledge.header.capture': 'Capture',
   'knowledge.header.upload': 'Upload',

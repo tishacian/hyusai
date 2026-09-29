@@ -148,6 +148,7 @@ export const HYPERVISOR_FR = {
   // --- Thème Présentation W2-v6 (L29) ---------------------------------
   'hypervisor.v2.present.decisions': 'Décisions en attente',
   'hypervisor.v2.present.decisions_link': 'Décisions en attente : {count}, ouvrir Décisions',
+  'hypervisor.v2.present.decisions_none': 'aucune',
   'hypervisor.v2.present.state.loading': 'en chargement',
   'hypervisor.v2.present.cadran.needle': 'aiguille = jour verrouillé',
   'hypervisor.v2.present.proof.title': 'Chaîne de preuve',
@@ -461,22 +462,22 @@ export const HYPERVISOR_FR = {
   'hypervisor.v2.range.90d': '90 jours',
 
   // === Steering · control plane =============================================
-  'steering.page.eyebrow': 'Steering · Plan de contrôle',
+  'steering.page.eyebrow': 'Améliorer · Plan de contrôle',
   'steering.page.title': 'Leviers & politiques',
   'steering.page.description':
     'Façonnez le comportement de votre portefeuille en temps réel. Trois leviers canoniques, impact projeté avant de vous engager.',
   'steering.scope.label': 'Portée',
   'steering.state.live_sim': 'Simulation en direct',
   'steering.state.no_data': 'Aucune donnée',
-  'steering.value_loop.title': 'BOUCLE DE VALEUR DE RÉFÉRENCE',
+  'steering.value_loop.title': 'Boucle de valeur de référence',
   'steering.value_loop.not_configured':
-    'Les leviers du portefeuille ne sont pas configurés. Ouvrez un Système dans Steer pour créer, simuler, approuver, agir et mesurer un scénario de valeur gouverné.',
+    'Les leviers du portefeuille ne sont pas configurés. Ouvrez un Système dans Améliorer pour créer, simuler, approuver, agir et mesurer un scénario de valeur gouverné.',
   'steering.control.title': 'Politiques de contrôle',
   'steering.control.empty': 'Aucune politique de contrôle',
   'steering.control.max_cost': 'COÛT MAX',
   'steering.control.max_latency': 'LATENCE MAX',
   'steering.adaptive.title': 'Politiques adaptatives',
-  'steering.adaptive.empty': 'AUCUNE POLITIQUE ADAPTATIVE',
+  'steering.adaptive.empty': 'Aucune politique adaptative',
   'steering.adaptive.creating': 'Création…',
   'steering.adaptive.add': '+ Ajouter une politique adaptative',
   'steering.policy.live': 'Active',
@@ -503,7 +504,7 @@ export const HYPERVISOR_FR = {
   'steering.review.confirm_accept': 'Décision acceptée',
   'steering.review.confirm_reject': 'Décision rejetée',
   'steering.review.open_impact': 'Voir la décision dans Impact ↗ · change de zone',
-  'steering.review.eyebrow': 'Steering · File de revue',
+  'steering.review.eyebrow': 'Améliorer · File de revue',
   'steering.review.title': 'File de revue des évaluations',
   'steering.review.description':
     'Exécutions signalées par la boucle d’auto-évaluation pour revue manuelle. Accepter lève la décision (faux positif) ; Rejeter la conserve comme signal de réentraînement.',
@@ -707,6 +708,7 @@ export const HYPERVISOR_EN: Record<keyof typeof HYPERVISOR_FR, string> = {
   // --- Presentation theme W2-v6 (L29) ---------------------------------
   'hypervisor.v2.present.decisions': 'Pending decisions',
   'hypervisor.v2.present.decisions_link': 'Pending decisions: {count}, open Decisions',
+  'hypervisor.v2.present.decisions_none': 'none',
   'hypervisor.v2.present.state.loading': 'loading',
   'hypervisor.v2.present.cadran.needle': 'needle = locked day',
   'hypervisor.v2.present.proof.title': 'Chain of evidence',
@@ -1022,22 +1024,22 @@ export const HYPERVISOR_EN: Record<keyof typeof HYPERVISOR_FR, string> = {
   'hypervisor.v2.range.90d': '90 days',
 
   // === Steering · control plane =============================================
-  'steering.page.eyebrow': 'Steering · Control plane',
+  'steering.page.eyebrow': 'Improve · Control plane',
   'steering.page.title': 'Levers & policies',
   'steering.page.description':
     'Shape the behaviour of your portfolio in real time. Three canonical levers, projected impact before you commit.',
   'steering.scope.label': 'Scope',
   'steering.state.live_sim': 'Live sim',
   'steering.state.no_data': 'No data',
-  'steering.value_loop.title': 'AUTHORITATIVE VALUE LOOP',
+  'steering.value_loop.title': 'Authoritative value loop',
   'steering.value_loop.not_configured':
-    'Portfolio levers are not configured. Open a System in Steer to create, simulate, approve, act and measure a governed value scenario.',
+    'Portfolio levers are not configured. Open a System in Improve to create, simulate, approve, act and measure a governed value scenario.',
   'steering.control.title': 'Control policies',
   'steering.control.empty': 'No control policy',
   'steering.control.max_cost': 'MAX COST',
   'steering.control.max_latency': 'MAX LATENCY',
   'steering.adaptive.title': 'Adaptive policies',
-  'steering.adaptive.empty': 'NO ADAPTIVE POLICY',
+  'steering.adaptive.empty': 'No adaptive policy',
   'steering.adaptive.creating': 'Creating…',
   'steering.adaptive.add': '+ Add adaptive policy',
   'steering.policy.live': 'Live',
@@ -1063,7 +1065,7 @@ export const HYPERVISOR_EN: Record<keyof typeof HYPERVISOR_FR, string> = {
   'steering.review.confirm_accept': 'Decision accepted',
   'steering.review.confirm_reject': 'Decision rejected',
   'steering.review.open_impact': 'View the decision in Impact ↗ · leaves this zone',
-  'steering.review.eyebrow': 'Steering · Review queue',
+  'steering.review.eyebrow': 'Improve · Review queue',
   'steering.review.title': 'Evaluation review queue',
   'steering.review.description':
     'Runs flagged by the auto-eval loop for manual review. Accept clears the decision (false positive); Reject keeps it for retraining signal.',

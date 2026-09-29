@@ -9,7 +9,8 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
 
 /**
  * Bottom command bar (28px). Mirrors the BottomCommand region of the
- * mockup: system status pulse, current path, command-palette hint,
+ * mockup: platform status pulse (« Plateforme opérationnelle », never
+ * « Système », which names a lexicon object), current path, command-palette hint,
  * semantic-zoom hint and build identifier.
  *
  * The zoom depth (« niveau 2 sur 3 ») and the ⌘Z hint are engineering
@@ -40,17 +41,13 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
       <ck-live-dot tone="pos" [label]="i18n.t('nav.footer.status_operational')" />
       <span class="ck-hairline-v" [style.height.px]="14"></span>
       <span
-        class="ck-mono"
-        [style.fontSize.px]="10"
-        [style.letterSpacing]="'0.10em'"
+        data-testid="command-bar-position"
+        [style.fontSize.px]="11"
         [style.color]="'var(--ck-fg-2)'"
       >{{ position() }}</span>
       <span [style.flex]="'1 1 auto'"></span>
       <span
-        class="ck-mono"
-        [style.fontSize.px]="9"
-        [style.letterSpacing]="'0.14em'"
-        [style.textTransform]="'uppercase'"
+        [style.fontSize.px]="11"
         [style.color]="'var(--ck-fg-4)'"
         [style.display]="'inline-flex'"
         [style.alignItems]="'center'"
@@ -58,11 +55,8 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
       ><ck-kbd>⌘K</ck-kbd>{{ i18n.t('nav.footer.command') }}</span>
       @if (showZoomDepth()) {
       <span
-        class="ck-mono"
         [title]="zoomHintTitle()"
-        [style.fontSize.px]="9"
-        [style.letterSpacing]="'0.04em'"
-        [style.textTransform]="'none'"
+        [style.fontSize.px]="11"
         [style.color]="'var(--ck-fg-4)'"
         [style.display]="'inline-flex'"
         [style.alignItems]="'center'"
@@ -71,11 +65,11 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
       ><ck-kbd>⌘Z</ck-kbd>{{ zoomHint() }}</span>
       }
       <span class="ck-hairline-v" [style.height.px]="14"></span>
+      <!-- An identifier: the only mono text on the bar. -->
       <span
         class="ck-mono"
-        [style.fontSize.px]="9"
-        [style.letterSpacing]="'0.14em'"
-        [style.textTransform]="'uppercase'"
+        data-testid="command-bar-version"
+        [style.fontSize.px]="10"
         [style.color]="'var(--ck-fg-5)'"
       >v0.4.0 · build 1</span>
     </footer>

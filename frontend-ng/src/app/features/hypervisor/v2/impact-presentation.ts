@@ -13,6 +13,23 @@ import type {
  * and the chaîne de preuve are tested without Angular.
  */
 
+// --- Pending decisions fact ------------------------------------------------------------
+
+/**
+ * The command band's « Décisions en attente » fact. A link only when there is
+ * something to open: a known zero reads « aucune », not « 0 → »; a source
+ * that has not answered keeps its own state label (caller's job).
+ */
+export type PendingDecisionsFact =
+  | { readonly kind: 'state' }
+  | { readonly kind: 'none' }
+  | { readonly kind: 'open'; readonly count: number };
+
+export function pendingDecisionsFact(sourceReady: boolean, count: number): PendingDecisionsFact {
+  if (!sourceReady) return { kind: 'state' };
+  return count > 0 ? { kind: 'open', count } : { kind: 'none' };
+}
+
 // --- Escape ---------------------------------------------------------------------
 
 /**

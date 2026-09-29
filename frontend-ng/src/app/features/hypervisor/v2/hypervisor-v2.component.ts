@@ -149,6 +149,7 @@ import {
   type SelectionSystemMode,
 } from './impact-synthese';
 import {
+  pendingDecisionsFact,
   presentationEscape,
   proofChain,
   type ProofBasis,
@@ -1129,14 +1130,20 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
               <div class="hv2-fact">
                 <dt>{{ i18n.t('hypervisor.v2.present.decisions') }}</dt>
                 <dd class="ck-tnum" data-fact="decisions" data-testid="hypervisor-presentation-decisions">
-                  @if (sourceStates().decisions === 'ready') {
-                    <a
-                      class="hv2-link hv2-fact-link"
-                      [navLink]="decisionsFacetLink()"
-                      [attr.aria-label]="i18n.t('hypervisor.v2.present.decisions_link', { count: proposedDecisions().length })"
-                    >{{ proposedDecisions().length }} →</a>
-                  } @else {
-                    <span class="hv2-fact-state">{{ decisionsStateLabel() }}</span>
+                  @switch (pendingDecisions().kind) {
+                    @case ('open') {
+                      <a
+                        class="hv2-link hv2-fact-link"
+                        [navLink]="decisionsFacetLink()"
+                        [attr.aria-label]="i18n.t('hypervisor.v2.present.decisions_link', { count: proposedDecisions().length })"
+                      >{{ proposedDecisions().length }} →</a>
+                    }
+                    @case ('none') {
+                      <span class="hv2-fact-state">{{ i18n.t('hypervisor.v2.present.decisions_none') }}</span>
+                    }
+                    @default {
+                      <span class="hv2-fact-state">{{ decisionsStateLabel() }}</span>
+                    }
                   }
                 </dd>
               </div>
@@ -2187,6 +2194,10 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     return view.register.filter((row) => view.staleSystemIds.includes(row.systemId));
   });
   readonly proposedDecisions = computed(() => this.decisions().filter((row) => row.status === 'proposed'));
+  /** Présentation command band: « aucune » for a known zero, a link only with something to open. */
+  readonly pendingDecisions = computed(() =>
+    pendingDecisionsFact(this.sourceStates().decisions === 'ready', this.proposedDecisions().length),
+  );
   readonly firstProposed = computed(() => this.proposedDecisions()[0] ?? null);
   readonly historyDecisions = computed(() => this.decisions().filter((row) => row.status !== 'proposed'));
   /** Recommendations by title, minus those already materialised as a decision. */

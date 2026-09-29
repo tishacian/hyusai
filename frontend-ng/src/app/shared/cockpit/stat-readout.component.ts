@@ -11,7 +11,7 @@ export type CkReadoutSentiment = 'positive' | 'negative' | 'neutral';
 /**
  * Canonical cockpit readout primitive. Two variants share the same public API:
  *
- *  - `readout` (default): mono ALL-CAPS label above a tabular-numeric value,
+ *  - `readout` (default): sentence-case sans label above a tabular mono value,
  *    optional delta — used in title bars, Hypervisor surfaces, Run Outcome card.
  *
  *  - `tile`: full-bleed stat card with icon chip, sparkline, trend arrow and
@@ -33,7 +33,7 @@ export type CkReadoutSentiment = 'positive' | 'negative' | 'neutral';
       >
         <div class="flex items-center justify-between">
           <span
-            class="text-[10px] uppercase tracking-[0.14em] font-semibold"
+            class="text-[11px] font-medium"
             [style.color]="'var(--ck-fg-4)'"
           >
             {{ label }}
@@ -93,10 +93,7 @@ export type CkReadoutSentiment = 'positive' | 'negative' | 'neutral';
         [style.alignItems]="align === 'end' ? 'flex-end' : 'flex-start'"
       >
         <span
-          class="ck-mono"
-          [style.fontSize.px]="9"
-          [style.letterSpacing]="'0.14em'"
-          [style.textTransform]="'uppercase'"
+          [style.fontSize.px]="11"
           [style.color]="'var(--ck-fg-4)'"
         >{{ label }}</span>
         <span
@@ -119,7 +116,7 @@ export type CkReadoutSentiment = 'positive' | 'negative' | 'neutral';
   `,
 })
 export class StatReadoutComponent {
-  /** Label text (rendered ALL-CAPS in both variants). */
+  /** Label text, shown as written (sentence case; Tokens v2). */
   @Input() label = '';
   /** Primary value. */
   @Input() value: string | number = '—';

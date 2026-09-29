@@ -64,7 +64,7 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
             />
             <a
               [navLink]="{ type: 'system', ref: sysId }"
-              class="ck-mono text-[10px] uppercase"
+              class="text-xs"
               style="color:var(--ck-signal-cool);"
             >{{ i18n.t('nav.facet.open_system', { name: sysId }) }}</a>
           }
@@ -77,12 +77,9 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
           (submit)="applyOrigin($event)"
         >
           <label
-            class="ck-mono"
             for="runs-experience-filter"
-            [style.color]="'var(--ck-fg-4)'"
-            [style.fontSize.px]="9"
-            [style.letterSpacing]="'0.08em'"
-            [style.textTransform]="'uppercase'"
+            [style.color]="'var(--ck-fg-3)'"
+            [style.fontSize.px]="12"
           >
             {{ i18n.t('runs.list.filter.experience') }}
           </label>
@@ -128,15 +125,13 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
           [ngModel]="statusFilter()"
           (ngModelChange)="statusFilter.set($event)"
           [attr.aria-label]="i18n.t('runs.list.column.status')"
-          class="ck-mono"
           [style.height.px]="28"
           [style.padding]="'0 10px'"
           [style.background]="'var(--ck-bg-inset)'"
           [style.color]="'var(--ck-fg-1)'"
           [style.border]="'1px solid var(--ck-stroke-2)'"
           [style.borderRadius.px]="4"
-          [style.fontSize.px]="11"
-          [style.letterSpacing]="'0.04em'"
+          [style.fontSize.px]="12"
         >
           <option value="all">{{ i18n.t('runs.list.filter.all') }}</option>
           <option value="completed">{{ i18n.t('runs.status.completed') }}</option>
@@ -182,11 +177,14 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
             [description]="i18n.t(originActive()
               ? 'runs.list.empty.experience_description'
               : 'runs.list.empty.description')"
-          ><button type="button" class="ck-btn-soft" (click)="statusFilter.set('all'); clearOrigin()">{{i18n.t('experience.adoption.clear')}}</button>
- <a [navLink]="{leaf:'help-guide',params:{guideId:'runs'}}">{{i18n.t('experience.adoption.help')}}</a></app-empty-state>
+          ><div class="flex flex-wrap items-center justify-center gap-3">
+            <button type="button" class="ck-btn-soft" (click)="statusFilter.set('all'); clearOrigin()">{{i18n.t('experience.adoption.clear')}}</button>
+            <a class="ck-accent text-xs underline underline-offset-2" [navLink]="{leaf:'help-guide',params:{guideId:'runs'}}">{{i18n.t('experience.adoption.help')}}</a>
+          </div></app-empty-state>
         } @else {
           <div
-            class="px-5 py-2 text-[10px] uppercase tracking-wider text-gray-500 font-semibold grid grid-cols-12 gap-3 border-b border-white/5"
+            class="px-5 py-2 text-[11px] font-medium grid grid-cols-12 gap-3 border-b border-white/5"
+            style="color:var(--ck-fg-3)"
           >
             <div class="col-span-4">{{ i18n.t('runs.list.column.identity') }}</div>
             <div class="col-span-2">{{ i18n.t('runs.list.column.status') }}</div>
@@ -212,7 +210,7 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
                 </div>
                 <div class="col-span-2">
                   <span
-                    class="text-[10px] uppercase tracking-wider font-mono px-1.5 py-0.5 rounded border"
+                    class="text-[11px] font-medium px-1.5 py-0.5 rounded border"
                     [class.bg-emerald-500\\/10]="r.status === 'completed'"
                     [class.text-emerald-300]="r.status === 'completed'"
                     [class.border-emerald-500\\/30]="r.status === 'completed'"

@@ -7,7 +7,7 @@
 
 export const CONTEXTS_FR = {
   // --- List page -------------------------------------------------------
-  'contexts.page.eyebrow': 'Steer · Contextes',
+  'contexts.page.eyebrow': 'Améliorer · Contextes',
   'contexts.page.title': 'Contextes',
   'contexts.page.subtitle':
     'Des ensembles d’état versionnés attachés aux Systèmes. Chaque Exécution référence un instantané de Contexte.',
@@ -97,7 +97,7 @@ export const CONTEXTS_FR = {
  */
 export const CONTEXTS_EN: Record<keyof typeof CONTEXTS_FR, string> = {
   // --- List page -------------------------------------------------------
-  'contexts.page.eyebrow': 'Steer · Contexts',
+  'contexts.page.eyebrow': 'Improve · Contexts',
   'contexts.page.title': 'Contexts',
   'contexts.page.subtitle':
     'Versioned bags of state attached to Systems. Each Run references a Context snapshot.',
