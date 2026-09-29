@@ -382,10 +382,9 @@
 }
 
 .xp-work-eyebrow {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
+  /* Tokens v2: sentence case, no letter-spaced capitals. */
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .xp-work-studio-link {

@@ -90,7 +90,7 @@ const POLL_MS = 8000;
       <app-work-app-header
         [title]="title()"
         [emblem]="brandLogo() ? null : emblem()"
-        [eyebrow]="i18n.t('experience.work.eyebrow.app', { type: i18n.t('experience.work.pattern.other') })"
+        [eyebrow]="i18n.t('experience.work.eyebrow.app_plain')"
         [identifier]="slug() || null"
         [status]="channelStatus()"
         [description]="description() || null"
