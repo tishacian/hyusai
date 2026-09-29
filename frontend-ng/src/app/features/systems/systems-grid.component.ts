@@ -12,10 +12,10 @@ import {
   NavLinkDirective,
   PageFrameComponent,
   StatReadoutComponent,
-  TagComponent,
 } from '@app/shared/cockpit';
 import { SystemsStore, SystemAgent } from './systems.store';
 import { isPromotedFromScratchpad, systemCatalogBadge } from './system-flow-profile';
+import { activeSystemsKey, systemsPrimaryAction } from './systems-grid.vm';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { WorkspaceViewContext } from '@app/core/workspace-view-context';
@@ -36,7 +36,7 @@ interface Template {
 /**
  * Systems grid — catalog of every System deployed in the workspace.
  * Cockpit-grade: eyebrow + title + description via PageFrame, quick-start
- * composer on top, grid of mono-labeled cards below. No legacy section header.
+ * composer on top, grid of cards below. No legacy section header.
  */
 @Component({
   selector: 'app-systems-grid',
@@ -51,36 +51,42 @@ interface Template {
     KbdComponent,
     LiveDotComponent,
     StatReadoutComponent,
-    TagComponent,
   ],
+  styles: [`
+    .sg-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 0 10px;
+      border: 1px solid var(--ck-stroke-2);
+      border-radius: 99px;
+      background: transparent;
+      color: var(--ck-fg-3);
+      font-family: var(--ck-font-sans);
+      font-size: 12px;
+      cursor: pointer;
+      transition: border-color var(--ck-dur-fast) var(--ck-ease-out), color var(--ck-dur-fast) var(--ck-ease-out);
+    }
+    .sg-chip:hover { border-color: var(--ck-stroke-3, var(--ck-stroke-2)); color: var(--ck-fg-1); }
+    .sg-chip:focus-visible { outline: 2px solid var(--ck-primary); outline-offset: 2px; }
+  `],
   template: `
 
     <ck-page-frame
       [eyebrow]="i18n.t('systems.grid.eyebrow')"
       [title]="i18n.t('systems.grid.title')"
       [description]="i18n.t('systems.grid.description')"
-      [status]="loadProblem() ? '' : i18n.t('systems.grid.status_active', { count: systems().length })"
+      [status]="loadProblem() ? '' : i18n.t(activeKey(), { count: systems().length })"
     >
       <ck-help titleHelp id="adoption.systems" />
+      <!-- One filled button per view: secondary while the empty state leads. -->
       <a
         actions
         [navLink]="{ leaf: 'system-new' }"
-        [style.display]="'inline-flex'"
-        [style.alignItems]="'center'"
-        [style.gap.px]="6"
-        [style.padding]="'6px 12px'"
-        [style.height.px]="28"
-        [style.background]="'var(--ck-signal-cool)'"
-        [style.color]="'var(--ck-on-signal)'"
-        [style.border]="'none'"
-        [style.borderRadius.px]="4"
-        [style.fontFamily]="'var(--ck-font-mono)'"
-        [style.fontSize.px]="11"
-        [style.fontWeight]="600"
-        [style.letterSpacing]="'0.08em'"
-        [style.textTransform]="'uppercase'"
-        [style.cursor]="'pointer'"
-        [style.textDecoration]="'none'"
+        class="ck-btn ck-btn--sm ck-press"
+        [class.ck-cta]="primaryAction() === 'header'"
+        [class.ck-btn-quiet]="primaryAction() !== 'header'"
+        data-testid="systems-new"
       >
         <ck-glyph name="bolt" [size]="12" />
         {{ i18n.t('systems.create') }}
@@ -134,20 +140,9 @@ interface Template {
           </div>
           <button
             type="submit"
+            class="ck-btn ck-btn-accent ck-press"
+            data-testid="systems-compose"
             [disabled]="!prompt.trim()"
-            [style.padding]="'0 14px'"
-            [style.height.px]="32"
-            [style.background]="'var(--ck-signal-cool)'"
-            [style.color]="'var(--ck-on-signal)'"
-            [style.border]="'none'"
-            [style.borderRadius.px]="4"
-            [style.fontFamily]="'var(--ck-font-mono)'"
-            [style.fontSize.px]="11"
-            [style.fontWeight]="600"
-            [style.letterSpacing]="'0.08em'"
-            [style.textTransform]="'uppercase'"
-            [style.cursor]="prompt.trim() ? 'pointer' : 'not-allowed'"
-            [style.opacity]="prompt.trim() ? 1 : 0.4"
           >{{ i18n.t('systems.grid.compose') }}</button>
         </form>
 
@@ -155,17 +150,8 @@ interface Template {
           @for (tpl of templates; track tpl.id) {
             <button
               type="button"
+              class="sg-chip"
               (click)="applyTemplate(tpl)"
-              [style.padding]="'3px 10px'"
-              [style.background]="'transparent'"
-              [style.border]="'1px solid var(--ck-stroke-2)'"
-              [style.borderRadius.px]="99"
-              [style.color]="'var(--ck-fg-3)'"
-              [style.fontFamily]="'var(--ck-font-mono)'"
-              [style.fontSize.px]="10"
-              [style.letterSpacing]="'0.08em'"
-              [style.textTransform]="'uppercase'"
-              [style.cursor]="'pointer'"
               [title]="i18n.t(tpl.descriptionKey)"
             >{{ i18n.t(tpl.labelKey) }}</button>
           }
@@ -174,8 +160,8 @@ interface Template {
 
       <!-- Grid header -->
       <div [style.display]="'flex'" [style.alignItems]="'center'" [style.justifyContent]="'space-between'" [style.marginBottom.px]="12">
-        <span class="ck-label">{{ loadProblem() ? '' : i18n.t('systems.grid.count', { count: systems().length }) }}</span>
-        <span class="ck-mono" [style.fontSize.px]="10" [style.color]="'var(--ck-fg-4)'" [style.letterSpacing]="'0.10em'">
+        <span class="ck-label ck-tnum" data-testid="systems-count">{{ loadProblem() ? '' : i18n.t('systems.grid.count', { count: systems().length }) }}</span>
+        <span class="ck-label" [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6">
           <ck-kbd>⌘K</ck-kbd> {{ i18n.t('systems.grid.navigate_hint') }}
         </span>
       </div>
@@ -221,20 +207,8 @@ interface Template {
           </p>
           <a
             [navLink]="{ leaf: 'system-new' }"
-            [style.display]="'inline-flex'"
-            [style.alignItems]="'center'"
-            [style.gap.px]="6"
-            [style.padding]="'6px 14px'"
-            [style.height.px]="30"
-            [style.background]="'var(--ck-signal-cool)'"
-            [style.color]="'var(--ck-on-signal)'"
-            [style.borderRadius.px]="4"
-            [style.fontFamily]="'var(--ck-font-mono)'"
-            [style.fontSize.px]="11"
-            [style.fontWeight]="600"
-            [style.letterSpacing]="'0.08em'"
-            [style.textTransform]="'uppercase'"
-            [style.textDecoration]="'none'"
+            class="ck-btn ck-cta ck-press"
+            data-testid="systems-create-first"
           >
             <ck-glyph name="bolt" [size]="12" />
             {{ i18n.t('systems.grid.create_first') }}
@@ -288,7 +262,7 @@ interface Template {
                       [style.whiteSpace]="'nowrap'"
                     >{{ system.name }}</span>
                     @if (system.draft) {
-                      <ck-tag tone="warn" variant="outline">DRAFT</ck-tag>
+                      <span class="ck-pill ck-tone-warn">{{ i18n.t('systems.grid.draft') }}</span>
                     } @else {
                       <ck-live-dot tone="pos" />
                     }
@@ -313,11 +287,9 @@ interface Template {
 
               <div [style.display]="'flex'" [style.alignItems]="'center'" [style.justifyContent]="'space-between'">
                 <span [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6">
-                  <ck-tag tone="cool" variant="soft">
-                    {{ badgeFor(system) }}
-                  </ck-tag>
+                  <span class="ck-pill ck-tone-info">{{ badgeFor(system) }}</span>
                   @if (isPromotedScratchpad(system)) {
-                    <ck-tag tone="neutral" variant="outline">SCRATCHPAD</ck-tag>
+                    <span class="ck-pill ck-tone-neutral">{{ i18n.t('systems.grid.scratchpad') }}</span>
                   }
                 </span>
                 <span [style.color]="'var(--ck-fg-4)'">
@@ -393,6 +365,12 @@ export class SystemsGridComponent implements OnInit, OnDestroy {
   }
 
   readonly systems = this.store.systems;
+  readonly activeKey = computed(() => activeSystemsKey(this.systems().length));
+  readonly primaryAction = computed(() => systemsPrimaryAction({
+    loading: this.store.loading(),
+    problem: !!this.loadProblem(),
+    count: this.systems().length,
+  }));
 
   readonly templates: Template[] = [
     { id: 'contract',   labelKey: 'systems.template.contract',   descriptionKey: 'systems.template.contract.desc',   promptKey: 'systems.template.contract.prompt' },

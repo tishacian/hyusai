@@ -78,6 +78,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
               data-testid="chat-overlay-history"
               (click)="overlay.close()"
             >
+              <app-icon name="history" [size]="13" />
               {{ i18n.t('chat.overlay.history') }}
             </a>
             @if (pilotAvailable()) {
@@ -154,10 +155,9 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       gap: 8px;
     }
     .chat-overlay-hint {
-      color: var(--ck-fg-4, rgba(177, 190, 210, 0.68));
-      font: 700 9px/1 var(--ck-font-mono, ui-monospace, monospace);
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
+      color: var(--ck-fg-3);
+      font-size: 12px;
+      line-height: 1.3;
     }
     .chat-overlay-meta {
       min-width: 0;
@@ -168,13 +168,24 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    /* Sentence case, sans, same shape as its two neighbours (Tokens v2). */
     .chat-overlay-history {
-      color: var(--ck-fg-3);
-      font: 700 10px/1 var(--ck-font-mono, ui-monospace, monospace);
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      text-decoration: underline;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 24px;
+      padding: 0 8px;
+      border-radius: 3px;
+      border: 1px solid var(--ck-stroke-2);
+      background: var(--ck-bg-inset);
+      color: var(--ck-fg-1);
+      font-size: 12px;
+      font-weight: 500;
+      text-decoration: none;
     }
+    .chat-overlay-history:hover { border-color: var(--ck-stroke-hot); background: var(--ck-bg-raised); }
+    .chat-overlay-history:focus-visible,
+    .chat-overlay-expand:focus-visible { outline: 2px solid var(--ck-primary); outline-offset: 2px; }
     .chat-overlay-expand {
       display: inline-flex;
       align-items: center;
@@ -185,9 +196,9 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       border: 1px solid var(--ck-stroke-2);
       background: var(--ck-bg-inset);
       color: var(--ck-fg-1);
-      font-size: 11px;
-      font-weight: 700;
-      transition: 140ms ease;
+      font-size: 12px;
+      font-weight: 500;
+      transition: border-color 140ms ease, background-color 140ms ease;
     }
     .chat-overlay-expand:hover {
       border-color: var(--ck-stroke-hot, rgba(103, 213, 246, 0.36));
@@ -214,10 +225,9 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       flex: 0 0 auto;
       padding: 8px 12px;
       border-top: 1px solid var(--ck-stroke-2);
-      color: var(--ck-fg-4);
-      font: 700 9px/1.3 var(--ck-font-mono, ui-monospace, monospace);
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
+      color: var(--ck-fg-3);
+      font-size: 11px;
+      line-height: 1.3;
     }
   `],
 })

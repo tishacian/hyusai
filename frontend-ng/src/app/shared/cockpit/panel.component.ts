@@ -104,10 +104,7 @@ let panelCounter = 0;
           >
             @if (eyebrow) {
               <span
-                class="ck-mono"
-                [style.fontSize.px]="9"
-                [style.letterSpacing]="'0.14em'"
-                [style.textTransform]="'uppercase'"
+                [style.fontSize.px]="11"
                 [style.color]="'var(--ck-fg-4)'"
               >
                 {{ eyebrow }}

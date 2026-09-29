@@ -1,5 +1,5 @@
 import { Component, EventEmitter, Input, Output, inject } from '@angular/core';
-import { WorkspaceService } from '@app/core/workspace.service';
+import { I18nService } from '@app/core/i18n.service';
 import { FormsModule } from '@angular/forms';
 import { VoiceCaptureMode } from '@app/core/voice-capture-config';
 import { IconComponent } from '@app/shared/ui/icon.component';
@@ -29,10 +29,10 @@ export interface SharedVoiceOracleStep {
       <div class="voice-control-group">
         <span class="voice-control-label">
           <app-icon name="waves" [size]="13" class="text-cyan-300" />
-          Voice runtime
+          {{ i18n.t('chat.voice.controls.runtime') }}
           <span
             class="control-info-dot"
-            title="Select the voice runtime used for speech-to-text and voice session events."
+            [title]="i18n.t('chat.voice.controls.runtime_hint')"
           >
             <app-icon name="info" [size]="10" />
           </span>
@@ -40,6 +40,7 @@ export interface SharedVoiceOracleStep {
         <div class="voice-select-wrap" [title]="selectedRuntimeDescription">
           <select
             class="voice-select"
+            [attr.aria-label]="i18n.t('chat.voice.controls.runtime')"
             [ngModel]="provider"
             (ngModelChange)="providerChange.emit($event)"
           >
@@ -59,9 +60,10 @@ export interface SharedVoiceOracleStep {
           class="voice-transport-button"
           [class.voice-transport-active]="transport === 'batch_http'"
           (click)="transportChange.emit('batch_http')"
-          title="Record one audio segment, then transcribe through the batch voice endpoint."
+          [attr.aria-pressed]="transport === 'batch_http'"
+          [title]="i18n.t('chat.voice.controls.batch_hint')"
         >
-          Batch
+          {{ i18n.t('chat.voice.controls.batch') }}
         </button>
         <button
           type="button"
@@ -69,41 +71,43 @@ export interface SharedVoiceOracleStep {
           [class.voice-transport-active]="transport === 'backend_ws'"
           [disabled]="!canUseSession"
           (click)="transportChange.emit('backend_ws')"
+          [attr.aria-pressed]="transport === 'backend_ws'"
           [title]="sessionButtonTitle"
         >
-          Conversation
+          {{ i18n.t('chat.voice.controls.conversation') }}
         </button>
         <button
           type="button"
           class="voice-transport-button"
           disabled
-          [title]="realtimeBlockedHint || 'Realtime voice uses WebRTC and is enabled only when the workspace/provider lane is ready.'"
+          [title]="realtimeBlockedHint || i18n.t('chat.voice.controls.realtime_hint')"
         >
-          Realtime
+          {{ i18n.t('chat.voice.controls.realtime') }}
         </button>
       </div>
 
       <div class="voice-control-group">
         <span class="voice-control-label">
           <app-icon name="shield-check" [size]="13" class="text-emerald-300" />
-          Capture
+          {{ i18n.t('chat.voice.controls.capture') }}
         </span>
         <div class="voice-select-wrap voice-capture-select-wrap" [title]="captureModeHint">
           <select
             class="voice-select"
+            [attr.aria-label]="i18n.t('chat.voice.controls.capture')"
             [ngModel]="captureMode"
             (ngModelChange)="captureModeChange.emit($event)"
           >
-            <option value="normal">Normal</option>
-            <option value="robust">Robuste</option>
-            <option value="manual_safe">Manuel</option>
+            <option value="normal">{{ i18n.t('chat.voice.controls.capture_normal') }}</option>
+            <option value="robust">{{ i18n.t('chat.voice.controls.capture_robust') }}</option>
+            <option value="manual_safe">{{ i18n.t('chat.voice.controls.capture_manual') }}</option>
           </select>
           <app-icon name="chevron-down" [size]="12" class="voice-select-chevron" />
         </div>
       </div>
 
       @if (transport === 'backend_ws') {
-        <div class="voice-loop-actions" title="Start, pause or stop the voice conversation. The microphone can reopen after the spoken answer.">
+        <div class="voice-loop-actions" [title]="i18n.t('chat.voice.controls.loop_hint')">
           @if (!conversationActive) {
             <button
               type="button"
@@ -112,7 +116,7 @@ export interface SharedVoiceOracleStep {
               (click)="startConversation.emit()"
             >
               <app-icon name="play" [size]="12" />
-              Start
+              {{ i18n.t('chat.voice.controls.start') }}
             </button>
           } @else {
             <button
@@ -122,7 +126,7 @@ export interface SharedVoiceOracleStep {
               (click)="conversationPaused ? resumeConversation.emit() : pauseConversation.emit()"
             >
               <app-icon [name]="conversationPaused ? 'play' : 'pause'" [size]="12" />
-              {{ conversationPaused ? 'Resume' : 'Pause' }}
+              {{ i18n.t(conversationPaused ? 'chat.voice.controls.resume' : 'chat.voice.controls.pause') }}
             </button>
             <button
               type="button"
@@ -130,7 +134,7 @@ export interface SharedVoiceOracleStep {
               (click)="stopConversation.emit()"
             >
               <app-icon name="square" [size]="12" />
-              Stop
+              {{ i18n.t('chat.voice.controls.stop') }}
             </button>
           }
         </div>
@@ -139,16 +143,16 @@ export interface SharedVoiceOracleStep {
       @if (realtimeBlockedHint) {
         <span class="voice-warning-pill" [title]="realtimeBlockedHint">
           <app-icon name="radio" [size]="12" />
-          WebRTC required
+          {{ i18n.t('chat.voice.controls.webrtc_required') }}
         </span>
       }
 
       <span class="tandem-oracle-pill" [title]="tandemOracleHint">
         <app-icon name="activity" [size]="12" />
-        Live context
+        {{ i18n.t('chat.voice.controls.live_context') }}
         <span
           class="control-info-dot"
-          title="Background Knowledge search can refresh context while the conversation continues."
+          [title]="i18n.t('chat.voice.controls.live_context_hint')"
         >
           <app-icon name="info" [size]="10" />
         </span>
@@ -156,7 +160,7 @@ export interface SharedVoiceOracleStep {
 
       <label
         class="voice-checkbox"
-        title="When enabled, the final voice transcript replaces the current draft and is sent as one chat turn."
+        [title]="i18n.t('chat.voice.controls.auto_send_hint')"
       >
         <input
           type="checkbox"
@@ -165,13 +169,13 @@ export interface SharedVoiceOracleStep {
           (ngModelChange)="autoSendChange.emit($event)"
           [disabled]="!canTranscribe"
         />
-        Auto-send final transcript
+        {{ i18n.t('chat.voice.controls.auto_send') }}
       </label>
 
       @if (transport === 'backend_ws') {
         <label
           class="voice-checkbox"
-          title="When enabled, {{ brand() }} ends the current voice turn after speech followed by a short silence."
+          [title]="i18n.t('chat.voice.controls.auto_endpoint_hint')"
         >
           <input
             type="checkbox"
@@ -180,7 +184,7 @@ export interface SharedVoiceOracleStep {
             (ngModelChange)="autoEndpointChange.emit($event)"
             [disabled]="!canUseSession"
           />
-          Auto endpoint
+          {{ i18n.t('chat.voice.controls.auto_endpoint') }}
         </label>
       }
 
@@ -195,7 +199,7 @@ export interface SharedVoiceOracleStep {
     @if (transport === 'backend_ws') {
       <div class="voice-oracle-panel" [title]="oraclePanelHint">
         <div class="voice-oracle-copy">
-          <span class="voice-oracle-kicker">Session vocale</span>
+          <span class="voice-oracle-kicker">{{ i18n.t('chat.voice.controls.session') }}</span>
           <span class="voice-oracle-message">{{ oracleMessage }}</span>
         </div>
         <div class="voice-oracle-steps">
@@ -394,9 +398,9 @@ export interface SharedVoiceOracleStep {
     }
     .voice-oracle-kicker {
       color: rgb(103, 213, 246);
-      font: 700 10px/1.2 var(--ck-font-mono, ui-monospace, monospace);
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.2;
       white-space: nowrap;
     }
     .voice-oracle-message {
@@ -506,8 +510,14 @@ export interface SharedVoiceOracleStep {
       color: var(--ck-fg-1);
     }
     /* The saturated states keep their meaning, on the light signal tones. */
+    /* The selected transport reads in body ink: the info tone on its own
+       wash fell under 4.5:1 at 11 px (axe, light theme). */
+    :host-context([data-theme="light"]) .voice-transport-active {
+      color: var(--ck-fg-1);
+      background: var(--ck-status-info-bg);
+      box-shadow: inset 0 0 0 1px var(--ck-status-info-line);
+    }
     :host-context([data-theme="light"]) .tandem-oracle-pill,
-    :host-context([data-theme="light"]) .voice-transport-active,
     :host-context([data-theme="light"]) .voice-oracle-step-active {
       color: var(--ck-status-info-fg);
       background: var(--ck-status-info-bg);
@@ -536,8 +546,8 @@ export interface SharedVoiceOracleStep {
   `],
 })
 export class VoiceControlsComponent {
-  /** Screen copy names the product by its brand in this workspace. */
-  protected readonly brand = inject(WorkspaceService).brandName;
+  /** Every label and hint comes from `chat.voice.controls.*` (FR + EN). */
+  protected readonly i18n = inject(I18nService);
   @Input() runtimeOptions: SharedVoiceRuntimeOption[] = [];
   @Input() provider = 'cascade_openai';
   @Input() selectedRuntimeDescription = '';
