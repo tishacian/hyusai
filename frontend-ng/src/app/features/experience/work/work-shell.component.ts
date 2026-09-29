@@ -440,6 +440,8 @@ export class WorkShellComponent {
       }
       this.runtime.resumeAfterDecision(updated);
       this.decidedRun.set(updated);
+      // L34 — a real decision on agent work ends the client getting-started journey.
+      this.adoption.recordDecision();
       this.pending.update((rows) => rows.filter((item) => item.id !== run.id));
       this.announcement.set(
         this.i18n.t(

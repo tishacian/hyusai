@@ -3708,6 +3708,31 @@ const STEP_ICONS: Record<string, string> = {
     :host-context(.xp-studio-portal) .text-emerald-300 {
       color: var(--studio-ok);
     }
+    /* --- L34 · Work getting-started skin (.xp-onb-chat). The page keeps a
+           single filled button, « Envoyer »: the question bubble turns
+           neutral, labels drop the letter-spaced capitals (Tokens v2) and
+           muted text takes the theme greys so it reads in both themes. --- */
+    :host-context(.xp-onb-chat) .ck-chat-user-bubble {
+      border: 1px solid var(--ck-stroke-2);
+      background: var(--ck-bg-inset);
+      color: var(--ck-fg-1);
+      box-shadow: none;
+    }
+    :host-context(.xp-onb-chat) .ck-chat-send {
+      background: var(--ck-signal-cool);
+      color: var(--ck-on-signal, #0b1220);
+    }
+    :host-context(.xp-onb-chat) .chat-control-expand,
+    :host-context(.xp-onb-chat) .chat-control-toggle {
+      color: var(--ck-fg-2);
+    }
+    :host-context(.xp-onb-chat) .uppercase {
+      text-transform: none;
+      letter-spacing: normal;
+    }
+    :host-context(.xp-onb-chat) .text-gray-500 {
+      color: var(--ck-fg-3);
+    }
   `],
 })
 export class ChatPanelComponent implements AfterViewInit {
@@ -3726,7 +3751,12 @@ export class ChatPanelComponent implements AfterViewInit {
   readonly systemId = input<string | null>(null);
   readonly resumeSessionId = input<string | null>(null);
   readonly knowledgeScopeOverride = input<string | null>(null);
-  readonly adoptionInteraction = output<{step:'question'|'source'|'answer';runId?:string;sessionId?:string}>();
+  /**
+   * Guided-journey signals. L34 adds `decision`: the member confirmed (`up`),
+   * flagged (`down`) or corrected an answer, emitted once the feedback or the
+   * correction was saved.
+   */
+  readonly adoptionInteraction = output<{step:'question'|'source'|'answer'|'decision';runId?:string;sessionId?:string;verdict?:'up'|'down'|'corrected'}>();
   /**
    * Optional ephemeral Context id (drop-and-ask). When set, the chat
    * automatically attaches the context ids to every outgoing query so
@@ -8193,7 +8223,34 @@ export class ChatPanelComponent implements AfterViewInit {
       message_id: msg.id,
       agent_id: this.systemId(),
       verdict,
-    });
+    }, () => this.adoptionInteraction.emit({ step: 'decision', verdict, sessionId: this.chatSessionId || undefined }));
+  }
+
+  /** L34 — the latest finished answer a host may ask a verdict on. */
+  private latestAnswer(): ChatMessage | null {
+    if (this.streaming()) return null;
+    const msgs = this.messages();
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const msg = msgs[i]!;
+      if (msg.role === 'assistant' && msg.kind !== 'correction_ack' && msg.content.trim()) return msg;
+    }
+    return null;
+  }
+
+  /** L34 — confirm or flag the latest answer through the usual feedback. */
+  rateLatestAnswer(verdict: 'up' | 'down'): boolean {
+    const msg = this.latestAnswer();
+    if (!msg) return false;
+    this.rate(msg, verdict);
+    return true;
+  }
+
+  /** L34 — open the expert correction under the latest answer, when allowed. */
+  correctLatestAnswer(): boolean {
+    const msg = this.latestAnswer();
+    if (!msg || !this.canCorrectInChat()) return false;
+    if (this.correctionOpenFor() !== msg.id) this.toggleCorrection(msg);
+    return true;
   }
 
   copy(text: string): void {
@@ -8553,6 +8610,7 @@ export class ChatPanelComponent implements AfterViewInit {
               at: Date.now(),
             },
           }));
+          this.adoptionInteraction.emit({ step: 'decision', verdict: 'corrected', sessionId: sessionId || undefined });
           const toastRef: ActiveToast<unknown> = published
             ? this.toast.success(
                 this.i18n.t('chat.correction.published'),
@@ -9744,7 +9802,7 @@ export class ChatPanelComponent implements AfterViewInit {
     return undefined;
   }
 
-  private logAudit(event_type: string, details: Record<string, unknown>): void {
+  private logAudit(event_type: string, details: Record<string, unknown>, onSaved?: () => void): void {
     this.api
       .post('/audit', {
         event_type,
@@ -9754,9 +9812,7 @@ export class ChatPanelComponent implements AfterViewInit {
         severity: 'info',
       })
       .subscribe({
-        next: () => {
-          /* non-blocking */
-        },
+        next: () => onSaved?.(),
         error: () => {
           /* non-blocking */
         },
