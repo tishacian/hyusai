@@ -23,7 +23,7 @@ from app.db.base import get_db
 from app.models.knowledge_collection import KnowledgeCollection
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services.knowledge_collections import get_collection_or_404
+from app.services.collection_access import require_named_collection_read
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -44,19 +44,15 @@ def readable_collection(
 ) -> Optional[KnowledgeCollection]:
     """The collection read gate of the Work source panel.
 
-    Today a member reads every collection of the workspace, which is exactly
-    what the preview and download endpoints check (workspace membership, then
-    a workspace-scoped lookup). Per-collection access (L35) hooks in here:
-    call ``can_read_collection`` and raise 404 when the member may not read
-    it, so a removed access reads like a deleted source. Returns ``None`` for
-    a store that has no ledger row (session documents), which stays scoped to
-    the workspace's own vector store.
+    Same check as the preview and download endpoints: per-collection access
+    (L35) raises 404 when the member may not read the collection, so a
+    removed access reads like a deleted source. Returns ``None`` for a store
+    that has no ledger row (legacy or session documents), which has no policy
+    and stays scoped to the workspace's own vector store.
     """
-    del user  # Used by the per-collection check once it lands.
-    try:
-        return get_collection_or_404(db, workspace_id=workspace.id, collection_ref=collection_ref)
-    except HTTPException:
-        return None
+    return require_named_collection_read(
+        db, workspace=workspace, collection_ref=collection_ref, user_id=user.id
+    )
 
 
 def _chunk_index(payload: dict[str, Any]) -> Optional[int]:
