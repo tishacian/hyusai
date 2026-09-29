@@ -72,7 +72,7 @@
     },
     "src/app/features/experience/work/work.scss": {
       "pill": 8,
-      "halo": 2
+      "halo": 1
     },
     "src/app/features/governance/access-roles.component.ts": {
       "pill": 1,

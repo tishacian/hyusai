@@ -131,5 +131,11 @@ test('Work chrome exposes the shared bar and hides the creator hand-off from rea
   assert.match(scss, /height:\s*48px/);
   assert.match(studioSource, /app-work-app-header/);
   assert.match(studioSource, /back_apps|experience\.work\.back/);
-  assert.equal((studioSource.match(/ck-thinking-orb/g) || []).length, 1);
+  // L32 — one orb per screen, on the step in progress: the header in the
+  // conversation, the receipt while the agent works, the gate while it waits.
+  // Three placements, three mutually exclusive guards.
+  assert.equal((studioSource.match(/<ck-thinking-orb/g) || []).length, 3);
+  assert.match(studioSource, /@if \(mode\(\) === 'chat'\) \{\s*<ck-thinking-orb/);
+  assert.match(studioSource, /@if \(busy\(\) && !gateOpen\(\)\) \{\s*<ck-thinking-orb/);
+  assert.match(studioSource, /@if \(gateOpen\(\) && !busy\(\)\) \{\s*<ck-thinking-orb/);
 });
