@@ -143,7 +143,7 @@ const RAIL_TOOLS: readonly RailTool[] = [
       />
       <app-work-app-header
         [title]="i18n.t('experience.pr_to_po.studio.title')"
-        [eyebrow]="i18n.t('experience.work.eyebrow.app', { type: i18n.t('experience.work.pattern.other') })"
+        [eyebrow]="i18n.t('experience.work.eyebrow.app', { type: i18n.t('experience.work.pattern.approval') })"
         [description]="i18n.t('experience.pr_to_po.studio.subtitle')"
         [returnTo]="cockpitReturnTo()"
         defaultBackKey="experience.work.back_apps"
