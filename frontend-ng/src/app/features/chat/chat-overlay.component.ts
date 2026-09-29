@@ -72,15 +72,18 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
             </span>
           }
           <div class="chat-overlay-toolbar-actions">
-            <a
-              [navLink]="{ surface: 'conversations' }"
-              class="chat-overlay-history"
-              data-testid="chat-overlay-history"
-              (click)="overlay.close()"
-            >
-              <app-icon name="history" [size]="13" />
-              {{ i18n.t('chat.overlay.history') }}
-            </a>
+            @if (!inWork()) {
+              <!-- The history lives in Cockpit: never linked from Work (L36). -->
+              <a
+                [navLink]="{ surface: 'conversations' }"
+                class="chat-overlay-history"
+                data-testid="chat-overlay-history"
+                (click)="overlay.close()"
+              >
+                <app-icon name="history" [size]="13" />
+                {{ i18n.t('chat.overlay.history') }}
+              </a>
+            }
             @if (pilotAvailable()) {
               <button
                 type="button"
@@ -91,7 +94,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
                 {{ i18n.t(overlay.pilot() ? 'experience.adoption.pilot.back' : 'experience.adoption.pilot.switch') }}
               </button>
             }
-            @if (!overlay.adoption.enabled() || !overlay.narrow()) {
+            @if ((!overlay.adoption.enabled() || !overlay.narrow()) && (overlay.adoption.enabled() || !inWork())) {
               <button
                 type="button"
                 class="chat-overlay-expand"
@@ -118,10 +121,11 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
             [autoStartVoiceLoop]="overlay.autoStartVoiceLoop()"
             [resumeSessionId]="overlay.sessionId()"
             [proofThread]="true"
+            [surface]="overlay.surface()"
           />
         }
         <footer class="chat-overlay-footer" data-testid="chat-overlay-footer">
-          {{ i18n.t('chat.overlay.footer') }}
+          {{ i18n.t(inWork() ? 'experience.work.chat.footer' : 'chat.overlay.footer') }}
         </footer>
       </div>
     </ck-panel>
@@ -292,8 +296,10 @@ export class ChatOverlayComponent {
       : 0,
   );
 
+  /** The System pilot is a Cockpit tool: never offered from Work (L36). */
   readonly pilotAvailable = computed(
-    () => this.overlay.adoption.enabled() && !this.overlay.assistantProfile() && this.overlay.startMode() !== 'drop',
+    () => this.overlay.adoption.enabled() && !this.overlay.assistantProfile() && this.overlay.startMode() !== 'drop'
+      && this.overlay.surface() !== 'work',
   );
 
   readonly panelWidth = computed<string>(() => {
@@ -303,6 +309,9 @@ export class ChatOverlayComponent {
   });
 
   readonly expanded = computed(() => this.overlay.adoption.enabled() && this.overlay.expanded());
+
+  /** L36 — opened from Work: no way out to a Cockpit page from here. */
+  readonly inWork = computed(() => this.overlay.surface() === 'work');
 
   readonly sentinelShowcase = computed<boolean>(() => isSentinelShowcaseProfile(this.activeProfile()));
 

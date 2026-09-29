@@ -1,5 +1,7 @@
 import '@angular/compiler';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import {
   ChangeDetectorRef,
@@ -33,7 +35,7 @@ import type { HierarchyObjectType } from '@app/core/navigation.catalog';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { REGISTERED_LUCIDE_ICONS } from '@app/shared/ui/icon-registry';
 import { ChatPanelComponent } from './chat-panel.component';
-import { ChatOverlayService } from './chat-overlay.service';
+import { ChatOverlayService, isWorkUrl } from './chat-overlay.service';
 
 class WorkspaceStub {
   private slug = 'andritz';
@@ -662,4 +664,66 @@ test('L30 — « Avancé » holds the model controls for non-builders; builders 
     // The thread folds the conversation list without rewriting the preference.
     assert.equal(component.historyShown(), false);
   } finally { injector.destroy(); }
+});
+
+test('L36 — in Work a citation opens the source in place, never the proof rail nor a Cockpit tool', () => {
+  const { injector, component, workspace } = makeHarness();
+  try {
+    Object.defineProperty(component, 'surface', { value: signal('work') });
+    workspace.mode.set('operator');
+    component.messages.set(threadMessages());
+    const answer = component.messages()[1];
+    // The sourced thread, without the model controls, execution links or engine step names.
+    assert.equal(component.threadMode(), true);
+    assert.equal(component.cockpitAffordances(), false);
+    assert.equal(component.advancedInComposer(), false);
+    assert.equal(component.showAdvancedChatControls(), false);
+    assert.deepEqual(component.threadSteps({ ...answer, decisionSteps: [{ id: 's1', type: 'retrieve', title: 'Reranking' }] }), []);
+
+    component.onCitation(answer, 1, 'a1', true, { detail: 1, currentTarget: null } as unknown as Event);
+    assert.equal(component.proofRail(), null);
+    const panel = component.workSourcePanel()!;
+    assert.equal(panel.selected, 1);
+    assert.equal(panel.animate, true);
+    assert.deepEqual(panel.sources.map((source) => [source.n, source.cited, source.page]), [[1, true, 3], [2, true, null], [3, false, null]]);
+    assert.equal(panel.sources[0].documentId, 'doc-policy');
+    assert.equal(panel.sources[0].collection, 'politiques-release');
+    assert.equal(component.proofFocusToken(), 1);
+    assert.equal(component.workCiteAria(answer.sources, 1), 'experience.work.sources.cite_aria');
+
+    // Previous / next keep focus where it is and never re-animate.
+    component.selectProof(2);
+    assert.equal(component.workSourcePanel()!.selected, 2);
+    assert.equal(component.workSourcePanel()!.animate, false);
+    assert.equal(component.proofFocusToken(), 1);
+
+    component.onThreadEscape({ stopPropagation: () => undefined, preventDefault: () => undefined } as Event);
+    assert.equal(component.workSourcePanel(), null);
+  } finally { injector.destroy(); }
+});
+
+test('L36 — every execution, mandate or quality link of the panel is Cockpit-only', () => {
+  const source = readFileSync(join(process.cwd(), 'src/app/features/chat/chat-panel.component.ts'), 'utf8');
+  const template = source.slice(source.indexOf('template: `'), source.indexOf('styles: ['));
+  // Each use of the evidence links, the mandates and the engine trace sits behind cockpitAffordances().
+  for (const marker of ['[ngTemplateOutlet]="evidenceLinks"', '<app-run-mandate', '<app-system-mandate', 'msg.retrievalInfo?.decisionTrace; as trace']) {
+    let from = 0;
+    let seen = 0;
+    for (let at = template.indexOf(marker, from); at >= 0; at = template.indexOf(marker, from)) {
+      const guard = template.lastIndexOf('@if (', at);
+      assert.match(template.slice(guard, at), /cockpitAffordances\(\)/, `${marker} is shown in Work`);
+      from = at + marker.length;
+      seen++;
+    }
+    assert.ok(seen > 0, marker);
+  }
+  assert.doesNotMatch(template, /navLink\]="\{ leaf: 'knowledge-doc'/);
+});
+
+test('L36 — the chat opened on a Work page reads in Work mode', () => {
+  assert.equal(isWorkUrl('/work'), true);
+  assert.equal(isWorkUrl('/work/getting-started?x=1'), true);
+  assert.equal(isWorkUrl('/workspace/acme/chat'), false);
+  assert.equal(isWorkUrl('/systems'), false);
+  assert.equal(isWorkUrl(null), false);
 });

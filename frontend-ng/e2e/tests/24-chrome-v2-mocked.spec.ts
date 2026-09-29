@@ -1171,3 +1171,384 @@ test.describe('L34 — getting started on the client’s own documents', () => {
     });
   }
 });
+
+// --- L36 — cited sources readable in place, in Work ---------------------------
+
+const L36_PASSAGE_1 = "3.1 Tout dépassement du plafond de commande exige la validation écrite de l'acheteur responsable.";
+const L36_PASSAGE_2 = 'La demande d’achat passe par le formulaire en ligne, visé par le responsable du budget.';
+const L36_CITATIONS = [
+  {
+    document_id: 'doc-atex',
+    collection: 'contrats-fournisseurs',
+    title: 'contrat-atex-2026.pdf',
+    page: 3,
+    score: 0.91,
+    snippet: L36_PASSAGE_1,
+    metadata: { chunk_index: 12 },
+  },
+  { document_id: 'doc-proc', collection: 'contrats-fournisseurs', title: 'procedure-achats.txt', score: 0.84, snippet: L36_PASSAGE_2 },
+  {
+    document_id: 'doc-gone',
+    collection: 'contrats-fournisseurs',
+    title: 'tarifs-2025.csv',
+    page: 1,
+    score: 0.62,
+    snippet: 'Grille tarifaire 2025 retirée depuis.',
+  },
+];
+const L36_COLLECTION = { id: 'c-ready', slug: 'contrats-fournisseurs', name: 'Contrats fournisseurs' };
+
+/** A three-page PDF whose page 3 carries the cited passage (WinAnsi, Helvetica). */
+function l36Pdf(): Buffer {
+  const pages = ['1. Objet du contrat', '2. Fournisseurs references', L36_PASSAGE_1];
+  const objects: string[] = [];
+  const kids = pages.map((_, i) => `${3 + i * 2} 0 R`).join(' ');
+  objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+  objects[2] = `<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>`;
+  const font = 3 + pages.length * 2;
+  pages.forEach((text, i) => {
+    // Lines wrap inside the page (at most 62 characters at 13 pt), like a real document.
+    const lines = text.split(' ').reduce<string[]>((acc, word) => {
+      const last = acc[acc.length - 1];
+      if (last !== undefined && `${last} ${word}`.length <= 62) acc[acc.length - 1] = `${last} ${word}`;
+      else acc.push(word);
+      return acc;
+    }, []);
+    const shown = lines.map((line) => `(${line.replace(/[\\()]/g, (c) => `\\${c}`)}) Tj`).join(' 0 -18 Td ');
+    const stream = `BT /F1 13 Tf 56 760 Td ${shown} ET`;
+    objects[3 + i * 2] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${font} 0 R >> >> /Contents ${4 + i * 2} 0 R >>`;
+    objects[4 + i * 2] = `<< /Length ${Buffer.byteLength(stream, 'latin1')} >>\nstream\n${stream}\nendstream`;
+  });
+  objects[font] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+  let body = '%PDF-1.4\n';
+  const offsets: number[] = [];
+  for (let n = 1; n < objects.length; n++) {
+    offsets[n] = Buffer.byteLength(body, 'latin1');
+    body += `${n} 0 obj\n${objects[n]}\nendobj\n`;
+  }
+  const xref = Buffer.byteLength(body, 'latin1');
+  body += `xref\n0 ${objects.length}\n0000000000 65535 f \n`;
+  for (let n = 1; n < objects.length; n++) body += `${String(offsets[n]).padStart(10, '0')} 00000 n \n`;
+  body += `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(body, 'latin1');
+}
+
+/** L36 — the answer cites two readable sources; the third was deleted since. */
+async function mockWorkSources(page: Page): Promise<string[]> {
+  const requested: string[] = [];
+  await page.route('**/api/v1/chat/stream', async (route) => route.fulfill({
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
+    body: sse([
+      { chunk_type: 'session', session_id: CLIENT_SESSION },
+      { chunk_type: 'decision_step', decision_step: { id: 's1', type: 'retrieve', title: 'Reranking (top-k=8)', status: 'completed', duration: 420 } },
+      { chunk_type: 'text', content: 'Non. Tout dépassement du plafond exige la validation écrite de l’acheteur responsable ', sources: L36_CITATIONS },
+      { chunk_type: 'text', content: '[1]. La demande passe par le formulaire d’achat [2].' },
+    ]),
+  }));
+  await page.route('**/api/v1/documents/**', async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace(/^\/api\/v1/, '');
+    requested.push(`${path}${url.search}`);
+    if (path === '/documents/doc-atex/passage') {
+      return json(route, {
+        document_id: 'doc-atex',
+        filename: 'contrat-atex-2026.pdf',
+        collection: L36_COLLECTION,
+        passage: { text: L36_PASSAGE_1, truncated: false, chunk_index: 12, page: 3 },
+        before: '2.4 Les commandes sont passées par le service achats, dans la limite du plafond annuel.',
+        after: '3.2 La validation est archivée avec la commande.',
+        preview_available: true,
+      });
+    }
+    if (path === '/documents/doc-proc/passage') {
+      return json(route, {
+        document_id: 'doc-proc',
+        filename: 'procedure-achats.txt',
+        collection: L36_COLLECTION,
+        passage: { text: L36_PASSAGE_2, truncated: false, chunk_index: 0, page: null },
+        before: null,
+        after: 'Le visa est donné sous deux jours ouvrés.',
+        preview_available: true,
+      });
+    }
+    if (path === '/documents/doc-gone/passage') return json(route, { detail: 'Document not found' }, 404);
+    if (path === '/documents/doc-atex/rich-preview') {
+      return json(route, {
+        kind: 'pdf',
+        filename: 'contrat-atex-2026.pdf',
+        content_type: 'application/pdf',
+        size_bytes: 1200,
+        download_url: '/api/v1/documents/doc-atex/raw?collection_name=contrats-fournisseurs&filename=contrat-atex-2026.pdf',
+      });
+    }
+    if (path === '/documents/doc-atex/raw') {
+      return route.fulfill({ status: 200, contentType: 'application/pdf', body: l36Pdf() });
+    }
+    if (path === '/documents/doc-proc/rich-preview') {
+      return json(route, {
+        kind: 'text',
+        filename: 'procedure-achats.txt',
+        content_type: 'text/plain',
+        size_bytes: 400,
+        download_url: '/api/v1/documents/doc-proc/raw?collection_name=contrats-fournisseurs&filename=procedure-achats.txt',
+        content: `Procédure d’achat\n\n${L36_PASSAGE_2}\nLe visa est donné sous deux jours ouvrés.`,
+      });
+    }
+    return json(route, { detail: 'Not Found' }, 404);
+  });
+  return requested;
+}
+
+/** The whole cited passage is marked on the PDF page, and nothing outside it. */
+async function expectWholePassageMarked(scope: ReturnType<Page['locator']>): Promise<void> {
+  const marks = scope.locator('.textLayer .highlight');
+  await expect.poll(async () => (await marks.allTextContents()).join(' '), { timeout: 15_000 }).toContain('responsable');
+  const texts = (await marks.allTextContents()).map((text) => text.trim()).filter(Boolean);
+  expect(texts.join(' ')).toContain('3.1 Tout');
+  for (const text of texts) expect(L36_PASSAGE_1).toContain(text);
+}
+
+/** axe on the page (or one region), nothing excluded — the PDF page included. */
+async function l36Axe(page: Page, scope?: string): Promise<void> {
+  let builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']);
+  if (scope) builder = builder.include(scope);
+  const axe = await builder.analyze();
+  expect(axe.violations, axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(' ')}`).join('\n')).toEqual([]);
+}
+
+/** Internal links of the page that leave Work (a Cockpit route). */
+async function hrefsOutsideWork(page: Page, scope = 'body'): Promise<string[]> {
+  const hrefs = await page.locator(`${scope} a[href]`).evaluateAll((links) => links.map((link) => link.getAttribute('href') ?? ''));
+  return hrefs.filter((href) => !/^(?:\/work(?:[/?#]|$)|#|blob:|mailto:|https?:)/.test(href));
+}
+
+test.describe('L36 — cited sources readable in place in Work', () => {
+  test.use({ locale: 'fr-FR' });
+  test.skip(!enabled, 'Set E2E_CHROME_V2_MOCKED=1 to run the mocked chrome safety net');
+
+  for (const theme of ['light', 'dark'] as const) {
+    test(`getting started: citation 1 opens its passage and page, keyboard to source 2, Escape back, a deleted source says so (${theme})`, async ({ page }) => {
+      test.setTimeout(150_000);
+      await page.emulateMedia({ colorScheme: theme });
+      await installMocks(page, theme);
+      await mockClientOnboarding(page, { completed_steps: ['source'], collection_id: 'c-ready' });
+      const requested = await mockWorkSources(page);
+
+      await page.goto('/work/getting-started');
+      const input = page.locator('app-client-onboarding textarea[name="userInput"]');
+      await expect(input).toBeVisible({ timeout: 30_000 });
+      // Work: a short placeholder on one line (the scope is the chip and the line above).
+      await expect(input).toHaveAttribute('placeholder', 'Posez votre question…');
+      await expect(input).toHaveCSS('white-space', 'nowrap');
+      await input.fill('Un fournisseur peut-il dépasser le plafond sans validation ?');
+      await input.press('Enter');
+
+      const chat = page.locator('app-client-onboarding app-chat-panel');
+      await expect(chat).toContainText('validation écrite de l’acheteur responsable', { timeout: 30_000 });
+      // The question is a neutral card: a hairline edge, no heavy accent bar.
+      await expect(chat.getByTestId('chat-thread-question')).toHaveCSS('border-right-width', '1px');
+      // Work: the sourced thread without « Exécutions », Deep Search nor engine step names.
+      await expect(chat.getByTestId('chat-thread-links')).toHaveCount(0);
+      await expect(chat).not.toContainText('Exécutions');
+      await expect(chat).not.toContainText('Deep Search');
+      await expect(chat).not.toContainText('Reranking');
+      const list = chat.getByTestId('work-source-list');
+      await expect(list).toContainText('Sources · 3');
+      await expect(list.getByRole('button', { name: /Source 3 : tarifs-2025\.csv/ })).toContainText('Lue, non citée');
+
+      const cite = chat.getByRole('button', { name: 'Source 1 : contrat-atex-2026.pdf, page 3' });
+      await expect(cite).toBeVisible();
+      const citeBox = await cite.boundingBox();
+      expect(citeBox && citeBox.height >= 24 && citeBox.width >= 24).toBeTruthy();
+      await cite.click();
+
+      const panel = page.getByTestId('work-source-panel');
+      await expect(panel).toBeVisible();
+      await expect(panel.getByRole('heading', { name: 'contrat-atex-2026.pdf' })).toBeFocused();
+      await expect(panel.getByTestId('work-source-step')).toHaveText('Source 1 sur 3');
+      await expect(panel.getByTestId('work-source-meta')).toHaveText('PDF · page 3 · Contrats fournisseurs');
+      await expect(panel.getByText('Passage cité', { exact: true })).toBeVisible();
+      await expect(panel.getByTestId('work-source-mark')).toHaveText(L36_PASSAGE_1);
+      await expect(panel.getByTestId('work-source-before')).toContainText('dans la limite du plafond annuel');
+      await expect(panel.getByTestId('work-source-after')).toContainText('3.2 La validation est archivée');
+      await expect(panel.getByText('Page 3 du document')).toBeVisible();
+      await expect(panel.getByTestId('work-source-preview').locator('ngx-extended-pdf-viewer')).toBeVisible({ timeout: 30_000 });
+      // The whole page width fits the panel; the find mark wears the theme highlight.
+      const pdfPage = panel.locator('.page').first();
+      await expect(pdfPage).toBeVisible({ timeout: 15_000 });
+      const pageBox = await pdfPage.boundingBox();
+      const previewBox = await panel.getByTestId('work-source-preview').boundingBox();
+      expect(pageBox && previewBox && pageBox.x >= previewBox.x - 1 && pageBox.x + pageBox.width <= previewBox.x + previewBox.width + 1).toBeTruthy();
+      const mark = panel.locator('.textLayer .highlight').first();
+      await expect(mark).toBeVisible({ timeout: 15_000 });
+      expect(await mark.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toMatch(/180,\s*0,\s*170/);
+      await expectWholePassageMarked(panel);
+      // The page is marked without scrolling the page around it: focus stays in view.
+      await page.waitForTimeout(1500);
+      await expect(panel.getByRole('heading', { name: 'contrat-atex-2026.pdf' })).toBeInViewport();
+      await expect(cite).toHaveAttribute('aria-current', 'true');
+      expect(requested.some((entry) => entry.startsWith('/documents/doc-atex/passage?') && entry.includes('chunk_index=12') && entry.includes('page=3'))).toBe(true);
+      // Beside the answer, not over it.
+      const panelBox = await panel.boundingBox();
+      const inputBox = await input.boundingBox();
+      expect(panelBox && inputBox && panelBox.x >= inputBox.x + inputBox.width - 1).toBeTruthy();
+      expect(await hrefsOutsideWork(page)).toEqual([]);
+      await page.waitForTimeout(400);
+      await page.screenshot({ path: shot(`l36-onboarding-source-${theme}.png`), fullPage: true });
+      await l36Axe(page);
+
+      // « Agrandir la page »: the cited page at reading size in a dialog, opened by keyboard.
+      const enlarge = panel.getByRole('button', { name: 'Agrandir la page' });
+      await enlarge.focus();
+      await page.keyboard.press('Enter');
+      const reader = page.getByRole('dialog', { name: 'contrat-atex-2026.pdf · page 3' });
+      await expect(reader).toBeVisible();
+      await expect(reader).toHaveAttribute('aria-modal', 'true');
+      await expect.poll(() => reader.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+      await expect(reader.locator('ngx-extended-pdf-viewer')).toBeVisible({ timeout: 30_000 });
+      await expect(reader).toContainText('Page 3 sur 3', { timeout: 15_000 });
+      await expect(reader.getByRole('button', { name: 'Fermer' })).toBeVisible();
+      await expect(reader.locator('.textLayer .highlight').first()).toBeVisible({ timeout: 15_000 });
+      await expectWholePassageMarked(reader);
+      // Tab stays inside the dialog.
+      for (let i = 0; i < 6; i++) await page.keyboard.press('Tab');
+      expect(await reader.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+      await reader.getByRole('button', { name: 'Page précédente' }).click();
+      await expect(reader).toContainText('Page 2 sur 3');
+      await reader.getByRole('button', { name: 'Page suivante' }).click();
+      await expect(reader).toContainText('Page 3 sur 3');
+      await page.waitForTimeout(400);
+      await page.screenshot({ path: shot(`l36-reader-${theme}.png`) });
+      await l36Axe(page);
+      await page.keyboard.press('Escape');
+      await expect(reader).toHaveCount(0);
+      await expect(enlarge).toBeFocused();
+      await expect(panel).toBeVisible();
+      await expect(panel.getByTestId('work-source-preview').locator('ngx-extended-pdf-viewer')).toBeVisible({ timeout: 30_000 });
+
+      // « Ouvrir le document »: the original in a new tab, never a Cockpit page.
+      const [popup] = await Promise.all([page.waitForEvent('popup'), panel.getByTestId('work-source-open').click()]);
+      await expect.poll(() => popup.url(), { timeout: 15_000 }).toMatch(/^blob:/);
+      await popup.close();
+
+      // Keyboard to source 2: focus stays on « Source suivante », the page falls back to its text.
+      const next = panel.getByRole('button', { name: 'Source suivante' });
+      await next.focus();
+      await page.keyboard.press('Enter');
+      await expect(panel.getByTestId('work-source-step')).toHaveText('Source 2 sur 3');
+      await expect(panel.getByRole('heading', { name: 'procedure-achats.txt' })).toBeVisible();
+      await expect(next).toBeFocused();
+      await expect(panel.getByTestId('work-source-mark')).toHaveText(L36_PASSAGE_2);
+      await expect(panel.getByTestId('work-source-preview')).toContainText('Procédure d’achat', { timeout: 15_000 });
+      await expect(panel.getByTestId('work-source-preview').locator('mark, .omnirag-hl').first()).toBeVisible();
+      await expect(panel).not.toHaveClass(/wsrc--enter/);
+
+      await page.keyboard.press('Escape');
+      await expect(panel).toHaveCount(0);
+      await expect(cite).toBeFocused();
+
+      // A source deleted since the answer: said plainly, with no excerpt.
+      await list.getByRole('button', { name: /Source 3 : tarifs-2025\.csv/ }).click();
+      await expect(panel.getByTestId('work-source-step')).toHaveText(/^\s*Source 3 sur 3 · Lue, non citée\s*$/);
+      const gone = panel.getByTestId('work-source-unavailable');
+      await expect(gone).toContainText('Cette source n’est plus accessible');
+      await expect(panel.getByTestId('work-source-mark')).toHaveCount(0);
+      await expect(panel).not.toContainText('Grille tarifaire');
+      await expect(panel.getByRole('button', { name: 'Source suivante' })).toHaveAttribute('aria-disabled', 'true');
+      await page.screenshot({ path: shot(`l36-onboarding-unavailable-${theme}.png`), fullPage: true });
+      await l36Axe(page);
+      await page.keyboard.press('Escape');
+      await expect(panel).toHaveCount(0);
+
+      // A phone: the source is a full-width sheet over the conversation.
+      await page.setViewportSize({ width: 390, height: 844 });
+      await cite.scrollIntoViewIfNeeded();
+      await cite.click();
+      await expect(panel).toBeVisible();
+      // Focus lands on the document name, and stays in view once the page preview settles.
+      const title = panel.getByRole('heading', { name: 'contrat-atex-2026.pdf' });
+      await expect(title).toBeFocused();
+      await page.waitForTimeout(1500);
+      await expect(title).toBeInViewport();
+      const sheet = await panel.boundingBox();
+      const frame = await page.locator('.xp-onb-chat').boundingBox();
+      expect(sheet && frame && Math.abs(sheet.width - frame.width) <= 3).toBeTruthy();
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(0);
+      await page.waitForTimeout(400);
+      await page.locator('.xp-onb-chat').screenshot({ path: shot(`l36-onboarding-sheet-390-${theme}.png`) });
+      await l36Axe(page);
+
+      // On a phone the reader is a full-screen sheet; « Fermer » gives focus back.
+      const enlargeNarrow = panel.getByRole('button', { name: 'Agrandir la page' });
+      await enlargeNarrow.click();
+      const sheetReader = page.getByTestId('document-reader');
+      await expect(sheetReader).toBeVisible();
+      await expect(sheetReader.locator('ngx-extended-pdf-viewer')).toBeVisible({ timeout: 30_000 });
+      const readerBox = await sheetReader.boundingBox();
+      expect(readerBox && Math.abs(readerBox.width - 390) <= 2 && readerBox.x <= 1).toBeTruthy();
+      await expectWholePassageMarked(sheetReader);
+      // Two header rows: the title, then pages and actions side by side.
+      const previousBox = await sheetReader.getByRole('button', { name: 'Page précédente' }).boundingBox();
+      const closeBox = await sheetReader.getByRole('button', { name: 'Fermer' }).boundingBox();
+      expect(previousBox && closeBox && Math.abs(previousBox.y - closeBox.y) <= 4).toBeTruthy();
+      // The start of the marked passage is in view, not cut by centring its line.
+      await page.waitForTimeout(1800);
+      const firstMark = await sheetReader.locator('.textLayer .highlight').first().boundingBox();
+      expect(firstMark && firstMark.x >= 0 && firstMark.x < 200).toBeTruthy();
+      await page.screenshot({ path: shot(`l36-reader-390-${theme}.png`) });
+      await l36Axe(page);
+      await sheetReader.getByRole('button', { name: 'Fermer' }).click();
+      await expect(sheetReader).toHaveCount(0);
+      await expect(enlargeNarrow).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(panel).toHaveCount(0);
+      await expect(cite).toBeFocused();
+    });
+  }
+
+  test('the chat opened from Work reads sources in place, with no Cockpit link', async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await installMocks(page, 'dark');
+    await mockClientOnboarding(page, { completed_steps: ['source'], collection_id: 'c-ready' });
+    await mockWorkSources(page);
+
+    await page.goto('/work/getting-started');
+    await expect(page.locator('app-client-onboarding textarea[name="userInput"]')).toBeVisible({ timeout: 30_000 });
+    await page.keyboard.press('ControlOrMeta+j');
+    const overlay = page.locator('app-chat-overlay');
+    const input = overlay.locator('textarea[name="userInput"]');
+    await expect(input).toBeVisible({ timeout: 30_000 });
+    await expect(overlay.getByTestId('chat-overlay-history')).toHaveCount(0);
+    // The System pilot is a Cockpit tool: not offered from Work.
+    await expect(overlay.getByRole('button', { name: /syst[eè]mes?/i })).toHaveCount(0);
+    await expect(overlay.getByTestId('chat-overlay-footer')).toHaveText('Conversation enregistrée dans votre espace.');
+    await input.fill('Un fournisseur peut-il dépasser le plafond ?');
+    await input.press('Enter');
+    await expect(overlay).toContainText('validation écrite de l’acheteur responsable', { timeout: 30_000 });
+    await expect(overlay.getByTestId('chat-thread-links')).toHaveCount(0);
+
+    const cite = overlay.getByRole('button', { name: 'Source 1 : contrat-atex-2026.pdf, page 3' });
+    await cite.focus();
+    await page.keyboard.press('Enter');
+    const panel = overlay.getByTestId('work-source-panel');
+    await expect(panel).toBeVisible();
+    await expect(overlay.getByTestId('chat-proof-rail')).toHaveCount(0);
+    await expect(panel.getByTestId('work-source-mark')).toHaveText(L36_PASSAGE_1);
+    await expect(panel.getByRole('heading', { name: 'contrat-atex-2026.pdf' })).toBeFocused();
+    const panelBox = await panel.boundingBox();
+    const inputBox = await input.boundingBox();
+    expect(panelBox && inputBox && panelBox.x >= inputBox.x + inputBox.width - 1).toBeTruthy();
+    expect(await hrefsOutsideWork(page)).toEqual([]);
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: shot('l36-work-overlay-source-dark.png') });
+    await l36Axe(page, 'app-chat-overlay');
+
+    await page.keyboard.press('Escape');
+    await expect(panel).toHaveCount(0);
+    await expect(cite).toBeFocused();
+    await expect(overlay.locator('textarea[name="userInput"]')).toBeVisible();
+  });
+});

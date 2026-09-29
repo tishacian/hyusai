@@ -1,7 +1,7 @@
 import { A11yModule } from '@angular/cdk/a11y';
 import { HttpClient } from '@angular/common/http';
 import { NgTemplateOutlet } from '@angular/common';
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, ViewEncapsulation, computed, effect, inject, input, output, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, ViewEncapsulation, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Subscription } from 'rxjs';
@@ -10,7 +10,7 @@ import { NgxExtendedPdfViewerModule, NgxExtendedPdfViewerService, pdfDefaultOpti
 
 import { I18nService } from '@app/core/i18n.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
-import { HIGHLIGHT_ANCHOR_ID, cellMatchesNeedle, escapeText, highlightPlainText, markRangeInDom, normalizeNeedleForCells, pdfFindPhrase } from './highlight-text.util';
+import { HIGHLIGHT_ANCHOR_ID, cellMatchesNeedle, escapeText, highlightPlainText, markRangeInDom, normalizeNeedleForCells, pdfFindPhrase, pdfFindSegments } from './highlight-text.util';
 
 // pdf.js runtime assets are copied to /assets/pdfjs by angular.json. ngx only
 // treats an assetsFolder containing "://" as absolute — a bare "assets/pdfjs"
@@ -64,6 +64,70 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
         box-shadow: 0 0 0 1px rgba(202, 138, 4, 0.55);
         scroll-margin: 25vh;
       }
+      /* Contained (L36 Work sources): the find mark takes the theme highlight, not pdf.js magenta. */
+      .omnirag-preview-contained ngx-extended-pdf-viewer .textLayer .highlight,
+      .omnirag-preview-contained ngx-extended-pdf-viewer .textLayer .highlight.color0 {
+        --highlight-bg-color: color-mix(in oklab, var(--ck-primary) 28%, transparent);
+        --highlight-selected-bg-color: color-mix(in oklab, var(--ck-primary) 28%, transparent);
+        background-color: color-mix(in oklab, var(--ck-primary) 28%, transparent) !important;
+      }
+      /* Reader (L36): the cited page at reading size, in a dialog over Work. */
+      .dp-reader-backdrop { animation: dp-reader-fade 180ms var(--ck-ease-out) both; }
+      section.dp-reader-dialog {
+        display: flex;
+        flex-direction: column;
+        background: var(--ck-bg-panel) !important;
+        color: var(--ck-fg-1);
+        border: 1px solid var(--ck-stroke-2);
+        animation: dp-reader-in 180ms var(--ck-ease-out) both;
+      }
+      @keyframes dp-reader-fade { from { opacity: 0; } }
+      @keyframes dp-reader-in { from { opacity: 0; transform: scale(0.98); } }
+      @media (prefers-reduced-motion: reduce) {
+        .dp-reader-backdrop, section.dp-reader-dialog { animation: none; }
+      }
+      /* A phone: a full-screen sheet. */
+      @media (max-width: 640px) {
+        .dp-reader-backdrop { padding: 0 !important; }
+        section.dp-reader-dialog { width: 100vw; max-width: none; height: 100dvh; max-height: none; border-radius: 0; border: 0; }
+        /* Title on its own line, then pages and actions side by side (wins over the base rules). */
+        section.dp-reader-dialog .dp-reader-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+        section.dp-reader-dialog .dp-reader-titles { display: contents; }
+        section.dp-reader-dialog .dp-reader-title { grid-column: 1 / -1; }
+      }
+      .dp-reader-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px 16px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--ck-stroke-2);
+      }
+      .dp-reader-titles { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-width: 0; }
+      .dp-reader-title { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.35; color: var(--ck-fg-1); overflow-wrap: anywhere; }
+      .dp-reader-pages { display: inline-flex; align-items: center; gap: 6px; }
+      .dp-reader-count { min-width: 7.5em; text-align: center; font-size: 13px; color: var(--ck-fg-2); font-variant-numeric: tabular-nums; }
+      .dp-reader-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+      .dp-reader-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-width: 32px;
+        min-height: 32px;
+        padding: 0 10px;
+        border: 1px solid var(--ck-stroke-2);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--ck-fg-1);
+        font: 600 13px/1.2 var(--ck-font-sans);
+        cursor: pointer;
+      }
+      .dp-reader-btn.dp-reader-icon { padding: 0; }
+      .dp-reader-btn:hover:not([aria-disabled='true']):not(:disabled) { border-color: var(--ck-stroke-hot); }
+      .dp-reader-btn[aria-disabled='true'], .dp-reader-btn:disabled { opacity: .45; cursor: default; }
+      .dp-reader-btn:focus-visible { outline: 2px solid var(--ck-primary); outline-offset: 2px; }
       .omnirag-cell-hl {
         outline: 2px solid rgba(250, 204, 21, 0.95);
         outline-offset: -2px;
@@ -80,13 +144,18 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
           <ng-container *ngTemplateOutlet="shell"></ng-container>
         </div>
       } @else {
-        <div class="rounded-lg overflow-hidden bg-gray-950 text-white ring-1 ring-white/10" style="background:var(--ck-bg-panel, #030712)">
+        <div class="rounded-lg overflow-hidden bg-gray-950 text-white ring-1 ring-white/10" [class.omnirag-preview-contained]="contained()" style="background:var(--ck-bg-panel, #030712)">
           <ng-container *ngTemplateOutlet="shell"></ng-container>
         </div>
       }
     } @else if (open()) {
-      <div class="fixed inset-0 z-[80] bg-black/55 backdrop-blur-sm flex items-center justify-center p-4">
-        <section role="dialog" aria-modal="true" [attr.aria-label]="title() || i18n.t('common.preview.title')"
+      <div class="fixed inset-0 z-[80] bg-black/55 backdrop-blur-sm flex items-center justify-center p-4" [class.dp-reader-backdrop]="reader()">
+        <section role="dialog" aria-modal="true"
+          [attr.aria-label]="reader() ? null : (title() || i18n.t('common.preview.title'))"
+          [attr.aria-labelledby]="reader() ? readerHeadingId : null"
+          [class.dp-reader-dialog]="reader()"
+          [class.omnirag-preview-contained]="reader()"
+          [attr.data-testid]="reader() ? 'document-reader' : null"
           cdkTrapFocus [cdkTrapFocusAutoCapture]="true"
           (keydown.escape)="$event.stopPropagation(); closed.emit()"
           class="w-full max-w-5xl max-h-[88vh] rounded-lg overflow-hidden bg-gray-950 text-white ring-1 ring-white/10 shadow-2xl" style="background:var(--ck-bg-panel, #030712)">
@@ -96,7 +165,46 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
     }
 
     <ng-template #shell>
-          @if (!inline()) {
+          @if (!inline() && reader()) {
+            <header class="dp-reader-head">
+              <div class="dp-reader-titles">
+                <h2 class="dp-reader-title" [id]="readerHeadingId">{{ title() || i18n.t('common.preview.title') }}</h2>
+                @if (preview()?.kind === 'pdf' && pageCount() > 1) {
+                  <div class="dp-reader-pages">
+                    <button
+                      type="button"
+                      class="dp-reader-btn dp-reader-icon"
+                      [attr.aria-label]="i18n.t('common.preview.previous_page')"
+                      [title]="i18n.t('common.preview.previous_page')"
+                      [attr.aria-disabled]="readerPage() <= 1 ? 'true' : null"
+                      (click)="goPage(-1)"
+                    ><app-icon name="chevron-left" [size]="16" /></button>
+                    <span class="dp-reader-count" aria-live="polite">{{ i18n.t('common.preview.page_of', { page: readerPage(), total: pageCount() }) }}</span>
+                    <button
+                      type="button"
+                      class="dp-reader-btn dp-reader-icon"
+                      [attr.aria-label]="i18n.t('common.preview.next_page')"
+                      [title]="i18n.t('common.preview.next_page')"
+                      [attr.aria-disabled]="readerPage() >= pageCount() ? 'true' : null"
+                      (click)="goPage(1)"
+                    ><app-icon name="chevron-right" [size]="16" /></button>
+                  </div>
+                }
+              </div>
+              <div class="dp-reader-actions">
+                @if (previewUrl()) {
+                  <button type="button" class="dp-reader-btn" [disabled]="openingExternal() || !preview()" (click)="openExternal()">
+                    <app-icon [name]="openingExternal() ? 'loader-2' : 'external-link'" [size]="14" [class.animate-spin]="openingExternal()" />
+                    {{ i18n.t('common.preview.open') }}
+                  </button>
+                }
+                <button type="button" class="dp-reader-btn" (click)="closed.emit()">
+                  <app-icon name="x" [size]="16" />
+                  {{ i18n.t('common.close') }}
+                </button>
+              </div>
+            </header>
+          } @else if (!inline()) {
             <header class="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
               <div class="min-w-0">
                 <p class="text-[10px] uppercase tracking-[0.18em] text-cyan-300" style="color:var(--ck-fg-2, #67e8f9)">{{ subtitle() || 'Document' }}</p>
@@ -223,12 +331,12 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
                 @if (objectUrl(); as pdfUrl) {
                   <ngx-extended-pdf-viewer
                     [src]="pdfUrl"
-                    [page]="normalizedPage() || 1"
+                    [page]="reader() ? readerPage() : (normalizedPage() || 1)"
                     [textLayer]="!thumbnail()"
                     [height]="bodyHeight()"
-                    [showToolbar]="!thumbnail()"
-                    [zoom]="thumbnail() ? 'page-fit' : 'auto'"
-                    [backgroundColor]="thumbnail() ? '#e8ecf0' : '#0b1220'"
+                    [showToolbar]="!thumbnail() && toolbar()"
+                    [zoom]="viewerZoom()"
+                    [backgroundColor]="thumbnail() ? '#e8ecf0' : (pageBackground() || '#0b1220')"
                     [showSidebarButton]="false"
                     [showOpenFileButton]="false"
                     [showPrintButton]="false"
@@ -241,6 +349,7 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
                     [showTextEditor]="false"
                     [showHighlightEditor]="false"
                     (pdfLoaded)="onPdfLoaded()"
+                    (pagesLoaded)="pageCount.set($event.pagesCount)"
                     (pageChange)="onPdfPageChange($event)"
                     (textLayerRendered)="onPdfTextLayer()"
                   />
@@ -289,6 +398,7 @@ export class DocumentPreviewComponent {
   private readonly http = inject(HttpClient);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly pdfFind = inject(NgxExtendedPdfViewerService);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private loadSeq = 0;
   private currentPreviewUrl: string | null = null;
   private previewRequestSub: Subscription | null = null;
@@ -317,6 +427,32 @@ export class DocumentPreviewComponent {
   readonly page = input<number | null>(null);
   /** Chunk/snippet text to locate and highlight inside the rendered preview. */
   readonly highlight = input<string | null>(null);
+  /** Inline embeds may drop the PDF toolbar (the host offers its own « open » action). */
+  readonly toolbar = input(true);
+  /** Colour behind PDF pages; defaults to the dark viewer backdrop. */
+  readonly pageBackground = input<string | null>(null);
+  /**
+   * Embedded in a scrolling panel (L36 Work sources): reaching the highlight
+   * scrolls the preview only, never the panel or the page around it.
+   */
+  readonly contained = input(false);
+  /**
+   * Reader dialog (L36 Work sources): the modal at reading size, titled by
+   * the document and page, with a visible « Fermer », previous / next page,
+   * theme tokens and a full-screen sheet on a phone.
+   */
+  readonly reader = input(false);
+  private static readerSeq = 0;
+  readonly readerHeadingId = `dp-reader-title-${++DocumentPreviewComponent.readerSeq}`;
+  readonly pageCount = signal(0);
+  readonly readerPage = signal(1);
+  /** A phone reads the page at actual size (panning sideways), not shrunk to unreadable text. */
+  private readonly narrowReader = typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 640px)').matches;
+  readonly viewerZoom = computed(() => {
+    if (this.thumbnail()) return 'page-fit';
+    if (this.reader() && !this.inline()) return this.narrowReader ? 'page-actual' : 'page-width';
+    return this.contained() ? 'page-width' : 'auto';
+  });
   readonly closed = output<void>();
   readonly viewChanged = output<DocumentPreviewViewChange>();
 
@@ -334,6 +470,7 @@ export class DocumentPreviewComponent {
 
   /** Scroll-host / pdf viewer height: fixed px inline, 72vh in the modal. */
   readonly bodyHeight = computed(() => {
+    if (this.reader() && !this.inline()) return this.narrowReader ? 'calc(100dvh - 112px)' : 'min(78vh, calc(100dvh - 150px))';
     const px = this.heightPx();
     return px && px > 0 ? `${px}px` : '72vh';
   });
@@ -407,6 +544,11 @@ export class DocumentPreviewComponent {
       }
       this.loadPreview(url);
     });
+    // Reader: opens on the cited page.
+    effect(() => {
+      const cited = this.normalizedPage();
+      untracked(() => this.readerPage.set(cited || 1));
+    });
     // Scroll the highlighted passage into view once the preview DOM is painted.
     // (HTML previews self-scroll from inside their sandboxed iframe instead.)
     effect(() => {
@@ -434,6 +576,11 @@ export class DocumentPreviewComponent {
     const host = this.scrollHost()?.nativeElement;
     if (!host) return;
     const target = host.querySelector('#' + HIGHLIGHT_ANCHOR_ID) as HTMLElement | null;
+    if (target && this.contained()) {
+      const offset = target.getBoundingClientRect().top - host.getBoundingClientRect().top + host.scrollTop;
+      host.scrollTo({ top: Math.max(0, offset - host.clientHeight / 2), behavior: 'smooth' });
+      return;
+    }
     target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }
 
@@ -467,12 +614,19 @@ export class DocumentPreviewComponent {
    */
   private runPdfFind(): void {
     if (!this.pdfReady) return;
-    const phrase = pdfFindPhrase(this.highlight());
+    // Work sources (contained / reader) mark the whole passage, piece by piece.
+    const whole = this.contained() || this.reader();
+    const segments = whole ? pdfFindSegments(this.highlight()) : [];
+    const phrase = whole ? segments.join(' ') : pdfFindPhrase(this.highlight());
     if (!phrase || phrase === this.pdfLastFind) return;
     this.pdfLastFind = phrase;
     setTimeout(() => {
       try {
-        this.pdfFind.find(phrase, { highlightAll: true, matchCase: false, findMultiple: false });
+        // Contained: the page is already the cited one; marking must not scroll the page around it.
+        const query: string | string[] = whole && segments.length > 1 ? [...segments] : phrase;
+        this.pdfFind.find(query as string, { highlightAll: true, matchCase: false, findMultiple: false, dontScrollIntoView: this.contained() });
+        // A phone reader shows the start of the passage, not the centre of its line.
+        if (this.reader() && this.narrowReader) for (const delay of [300, 800, 1600]) setTimeout(() => this.alignFindStart(), delay);
       } catch {
         /* viewer not ready yet — a later textLayerRendered will retry */
         this.pdfLastFind = '';
@@ -706,9 +860,29 @@ export class DocumentPreviewComponent {
     return page ? `${url}#page=${page}` : url;
   }
 
+  /** Reader on a phone: scroll sideways to where the marked passage starts. */
+  private alignFindStart(): void {
+    const root = this.host.nativeElement;
+    const container = root.querySelector<HTMLElement>('#viewerContainer');
+    // The first mark in reading order is where the passage starts.
+    const mark = root.querySelector<HTMLElement>('.textLayer .highlight');
+    if (!container || !mark) return;
+    const offset = mark.getBoundingClientRect().left - container.getBoundingClientRect().left;
+    container.scrollLeft = Math.max(0, container.scrollLeft + offset - 16);
+  }
+
+  /** Reader: previous / next page, within the document. */
+  goPage(delta: number): void {
+    const next = this.readerPage() + delta;
+    if (next < 1 || (this.pageCount() && next > this.pageCount())) return;
+    this.readerPage.set(next);
+  }
+
   protected onPdfPageChange(page: unknown): void {
     const doc = this.preview();
     if (!doc) return;
+    const shown = typeof page === 'number' ? page : Number.parseInt(String((page as { pageNumber?: unknown })?.pageNumber ?? page), 10);
+    if (this.reader() && Number.isFinite(shown) && shown > 0) this.readerPage.set(shown);
     const pageNo =
       typeof page === 'number'
         ? page
