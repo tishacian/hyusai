@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource
 from app.models.knowledge_document_fact import KnowledgeDocumentFact
+from app.services.collection_access import retrieval_collection_access
 from app.services.knowledge_collections import collection_source_rows
 from app.services.rag.conversation_anchors import (
     LINE_POSITION_RE,
@@ -600,6 +601,7 @@ def _rows_for_collections(
     workspace_id: str | None,
     *,
     source_lookup_query: str | None = None,
+    denied_collection_refs: frozenset[str] = frozenset(),
 ) -> tuple[list[Any], list[KnowledgeCollection]]:
     rows: list[Any] = []
     collection_rows: list[KnowledgeCollection] = []
@@ -613,6 +615,8 @@ def _rows_for_collections(
         )
     )
     for ref in collections:
+        if str(ref) in denied_collection_refs:
+            continue
         query = db.query(KnowledgeCollection).filter(
             (KnowledgeCollection.slug == ref) | (KnowledgeCollection.id == ref)
         )
@@ -730,15 +734,27 @@ def _missing_document_name_rows(
     return fallback
 
 
-def _workspace_collections(db: DBSession, workspace_id: str | None) -> list[KnowledgeCollection]:
+def _workspace_collections(
+    db: DBSession,
+    workspace_id: str | None,
+    *,
+    denied_collection_refs: frozenset[str] = frozenset(),
+) -> list[KnowledgeCollection]:
     if not workspace_id:
         return []
-    return (
+    rows = (
         db.query(KnowledgeCollection)
         .filter(KnowledgeCollection.workspace_id == workspace_id)
         .order_by(KnowledgeCollection.updated_at.desc())
         .all()
     )
+    if not denied_collection_refs:
+        return rows
+    return [
+        row
+        for row in rows
+        if str(row.slug or "") not in denied_collection_refs and row.id not in denied_collection_refs
+    ]
 
 
 def _deep_ledger_is_large(db: DBSession, collections: list[str], workspace_id: str | None) -> bool:
@@ -1801,6 +1817,13 @@ def _plan_corpus_ungated(
         for item in (profile.get("collections") or [profile.get("collection") or "documents"])
         if item
     ]
+    # Per-collection access (L35): the planner never reads the ledger of a
+    # collection the requester cannot read, including on workspace expansion.
+    # Resolved from the request's signed identity, fail-closed; legacy
+    # vector-only collections have no policy and stay in scope.
+    denied_collection_refs = retrieval_collection_access(request, db=db).denied
+    if denied_collection_refs:
+        collections = [item for item in collections if item not in denied_collection_refs]
     raw_authoritative = (request or {}).get("authoritative_collections")
     authoritative_collections = (
         list(
@@ -1811,6 +1834,10 @@ def _plan_corpus_ungated(
         if isinstance(raw_authoritative, (list, tuple, set))
         else []
     )
+    if denied_collection_refs:
+        authoritative_collections = [
+            item for item in authoritative_collections if item not in denied_collection_refs
+        ]
     if authoritative_collections:
         collections = authoritative_collections
     workspace_id = str(profile.get("workspace_id") or "") or None
@@ -1846,6 +1873,7 @@ def _plan_corpus_ungated(
         collections,
         workspace_id,
         source_lookup_query=source_lookup_query,
+        denied_collection_refs=denied_collection_refs,
     )
     workspace_rows = rows
     fast_local_ledger_rows: list[Any] = []
@@ -1870,7 +1898,11 @@ def _plan_corpus_ungated(
         if should_expand_workspace:
             workspace_collection_refs = [
                 str(row.slug or row.id)
-                for row in _workspace_collections(db, workspace_id)
+                for row in _workspace_collections(
+                    db,
+                    workspace_id,
+                    denied_collection_refs=denied_collection_refs,
+                )
                 if str(row.slug or row.id)
             ]
         else:
@@ -1881,6 +1913,7 @@ def _plan_corpus_ungated(
                 workspace_collection_refs,
                 workspace_id,
                 source_lookup_query=source_lookup_query,
+                denied_collection_refs=denied_collection_refs,
             )
             if candidate_rows:
                 workspace_rows = candidate_rows
@@ -2186,6 +2219,14 @@ def _plan_corpus_ungated(
         ]
         recall_floor_collections = [
             item for item in recall_floor_collections if item in authoritative_collections
+        ]
+    if denied_collection_refs:
+        collections = [item for item in collections if item not in denied_collection_refs]
+        soft_scope_collections = [
+            item for item in soft_scope_collections if item not in denied_collection_refs
+        ]
+        recall_floor_collections = [
+            item for item in recall_floor_collections if item not in denied_collection_refs
         ]
     retrieval_scope = {
         "collections": collections,

@@ -53,6 +53,7 @@ async def answer(
     system_prompt: Optional[str] = None,
     extra_preferences: Optional[Dict[str, Any]] = None,
     token_sink: Optional[Callable[[str], None]] = None,
+    collection_identity: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Run one RAG request end-to-end and return an aggregated payload.
 
@@ -131,6 +132,10 @@ async def answer(
         request_dict["max_tokens"] = max_tokens
     if system_prompt:
         request_dict["system_prompt"] = system_prompt
+    if collection_identity:
+        # Signed by ``collection_access``; retrieval verifies it and otherwise
+        # reads open collections only.
+        request_dict["collection_identity"] = dict(collection_identity)
     try:
         from app.services.rag.context import apply_retrieval_profile_to_request
 

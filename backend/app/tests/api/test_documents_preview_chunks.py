@@ -13,12 +13,29 @@ from app.core.config import settings
 from app.models.knowledge_collection import KnowledgeCollectionSource
 from app.models.secure_deposit import DepositAccessLink, DepositFile
 from app.models.user import User
-from app.models.workspace import Workspace
+from app.models.workspace import Workspace, WorkspaceMember
 from app.services.knowledge_collections import create_collection, original_key
 from app.services.object_store import get_object_store
 
 
 def _client(db_session, workspace: Workspace) -> TestClient:
+    if db_session.query(User).filter_by(id="user-1").first() is None:
+        db_session.add(User(id="user-1", username="user-1", email="user-1@example.test"))
+    if (
+        db_session.query(WorkspaceMember)
+        .filter_by(user_id="user-1", workspace_id=workspace.id)
+        .first()
+        is None
+    ):
+        db_session.add(
+            WorkspaceMember(
+                user_id="user-1",
+                workspace_id=workspace.id,
+                role="admin",
+                role_template="workspace_admin",
+            )
+        )
+        db_session.commit()
     app = FastAPI()
     app.include_router(documents.router, prefix="/documents")
     app.dependency_overrides[documents.get_current_workspace] = lambda: workspace

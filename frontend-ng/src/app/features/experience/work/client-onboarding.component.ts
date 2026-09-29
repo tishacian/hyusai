@@ -104,7 +104,7 @@ const VISIBLE_FILES = 6;
                   @if (optionalDocuments()) {
                     <p class="xp-onb-note">{{ i18n.t('experience.work.onboarding.documents.optional', { n: format(src.document_count) }) }}</p>
                   }
-                  @if (adoption.progress()?.can_add_documents) {
+                  @if (src.can_add_documents ?? adoption.progress()?.can_add_documents) {
                     <label
                       class="xp-onb-drop"
                       [class.is-dragging]="dragging()"

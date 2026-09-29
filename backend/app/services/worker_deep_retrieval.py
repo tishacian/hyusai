@@ -12,6 +12,7 @@ from app.models.user import Message
 from app.models.workspace import Workspace
 from app.models.workspace_job import WorkspaceJob
 from app.services.knowledge_collections import update_job
+from app.services.collection_access import bind_retrieval_identity
 from app.services.rag.context import retrieve_rag_context
 from app.services.rag.decision_trace import build_retrieval_decision_trace
 from app.services.workspace_jobs import transition_job
@@ -593,6 +594,15 @@ async def _run_workspace_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             raise ValueError(f"Workspace Deep retrieval job {job_id!r} has no request payload")
         payload["latency_profile"] = "deep"
         payload["deep_retrieval"] = True
+        # The job row, not the stored payload, says who asked: retrieval reads
+        # with that member's collection rights, or open collections only.
+        payload["workspace_id"] = workspace.id
+        payload["workspace_slug"] = workspace.slug
+        bind_retrieval_identity(
+            payload,
+            workspace_id=workspace.id,
+            user_id=job.created_by_user_id,
+        )
         job_metadata = {key: value for key, value in initial_input.items() if key not in {"request"}}
         previous_answer = _previous_answer_from_payload(payload, job_metadata)
         if previous_answer:

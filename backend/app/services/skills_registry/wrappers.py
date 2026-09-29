@@ -525,6 +525,7 @@ async def _llm_rag_answer_v1(
 
     # No supplied context -> classic orchestrator retrieval (unchanged contract),
     # now with the tenant slug resolved so it never targets a phantom collection.
+    from app.services.collection_access import request_identity_for_context
     from app.services.rag.rag_service import answer
 
     result = await answer(
@@ -547,6 +548,7 @@ async def _llm_rag_answer_v1(
         # time (Vague D / D2). Non-streaming callers simply don't pass
         # the sink and observe no behavioural change.
         token_sink=ctx.get("token_sink"),
+        collection_identity=request_identity_for_context(ctx),
     )
     # The classic orchestrator is a separate generation facade.  It currently
     # exposes no usage; if it starts doing so, consume the real counters.  Until
@@ -571,6 +573,10 @@ async def _llm_rag_answer_v1(
 async def _semantic_search_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
+    from app.services.collection_access import (
+        request_identity_for_context,
+        strip_client_retrieval_keys,
+    )
     from app.services.rag.context import apply_retrieval_profile_to_request, retrieve_rag_context
 
     ctx = ctx or {}
@@ -675,6 +681,12 @@ async def _semantic_search_v1(
         ):
             request["answer_profile"] = "transversal_inventory"
         request = {key: value for key, value in request.items() if value is not None}
+        # A run reads with its launching user's collection rights; a run no
+        # user launched reads open collections and those granted to its System.
+        identity = request_identity_for_context(ctx)
+        strip_client_retrieval_keys(request)
+        if identity:
+            request["collection_identity"] = identity
         apply_retrieval_profile_to_request(request)
         return request
 

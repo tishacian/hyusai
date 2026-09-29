@@ -47,6 +47,7 @@ type MockKnowledgeCollectionItem = {
   document_count?: number | null;
   chunk_count?: number | null;
   updated_at?: string | null;
+  permissions?: { can_read: boolean; can_write: boolean; can_manage: boolean };
 };
 type MockChatSystem = {
   id: string;
@@ -126,6 +127,15 @@ function json(route: Route, body: unknown, status = 200) {
     contentType: 'application/json',
     body: JSON.stringify(body),
   });
+}
+
+function withCollectionPermissions(
+  items: MockKnowledgeCollectionItem[],
+): MockKnowledgeCollectionItem[] {
+  return items.map((item) => ({
+    ...item,
+    permissions: item.permissions ?? { can_read: true, can_write: true, can_manage: true },
+  }));
 }
 
 function sse(route: Route, chunks: unknown[]) {
@@ -957,6 +967,14 @@ async function installAndritzMocks(
     if (path === '/auth/validate' && method === 'POST') {
       return json(route, { valid: true, user_id: activeUser.id, email: activeUser.email, role: activeUser.role });
     }
+    if (path === '/help-content' && method === 'GET') {
+      return json(route, {
+        version: 'e2e',
+        personas: ['builder', 'operator', 'executive'],
+        languages: ['en', 'fr'],
+        items: [],
+      });
+    }
     if (path === '/auth/workspaces') {
       return json(route, [activeWorkspace]);
     }
@@ -1064,16 +1082,16 @@ async function installAndritzMocks(
         collections: collectionNames,
         default: collectionNames[0] ?? null,
         items: [
-          ...baseItems,
-          ...knowledgeCollectionItems.filter((item) => item.slug !== 'andritz-qa'),
-          ...createdCollections.map((name) => ({
+          ...withCollectionPermissions(baseItems),
+          ...withCollectionPermissions(knowledgeCollectionItems.filter((item) => item.slug !== 'andritz-qa')),
+          ...withCollectionPermissions(createdCollections.map((name): MockKnowledgeCollectionItem => ({
             slug: name,
             name,
             document_count: 0,
             chunk_count: 0,
             updated_at: '2026-06-23T00:00:00Z',
             status: 'ready',
-          })),
+          }))),
         ],
       });
     }

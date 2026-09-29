@@ -918,6 +918,10 @@ class OmniRAGAgent(BaseAgent):
         request = request or {}
         workspace_slug = request.get("workspace_slug")
         profile = get_retrieval_profile(request)
+        if profile.get("collection_access_blocked") or not profile.get("collection"):
+            # Nothing readable in scope (per-collection access): retrieval
+            # answers with an empty context, never through a default collection.
+            return None
         collection_name = profile.get("collection", "documents")
         vector_db_type = profile.get("vector_db", "qdrant")
 

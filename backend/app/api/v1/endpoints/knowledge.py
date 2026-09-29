@@ -15,6 +15,12 @@ from app.models.knowledge_collection import KnowledgeCollection
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.document_intelligence import DocumentQueryEngine
+from app.services.collection_access import (
+    can_read_collection,
+    get_membership,
+    load_principal,
+    require_named_collection_read,
+)
 from app.services.iam.app_entitlements import (
     WorkspaceEntitlementMutationConflictError,
     lock_workspace_for_app_entitlement_mutation,
@@ -101,14 +107,41 @@ def _require_workspace_admin(db: Session, user: User, workspace: Workspace) -> N
         raise HTTPException(status_code=403, detail={"code": "WORKSPACE_PERMISSION_DENIED"})
 
 
-def _collection_stats(db: Session, workspace_id: str) -> dict[str, dict[str, Any]]:
+def _denied_collection_refs(db: Session, workspace: Workspace, member: Any) -> frozenset[str]:
+    """Slugs/ids of the workspace collections this member cannot read — one query."""
+    denied: set[str] = set()
+    for row in db.query(KnowledgeCollection).filter(KnowledgeCollection.workspace_id == workspace.id).all():
+        if not can_read_collection(member, row):
+            denied.update(value for value in (row.id, row.slug) if value)
+    return frozenset(denied)
+
+
+def _require_requested_collection_access(
+    db: Session, workspace: Workspace, member: Any, collection_or_scope: str | None
+) -> None:
+    """A collection named directly must be readable (404); a Knowledge Scope is
+    filtered instead, so one restricted member collection does not break it."""
+    if not collection_or_scope:
+        return
+    scopes = normalize_knowledge_scopes((workspace.settings or {}).get("knowledge_scopes"))
+    if any(item.get("key") == collection_or_scope for item in scopes):
+        return
+    require_named_collection_read(
+        db, workspace=workspace, collection_ref=str(collection_or_scope), member=member
+    )
+
+
+def _collection_stats(
+    db: Session, workspace_id: str, member: Any
+) -> tuple[dict[str, dict[str, Any]], set[str]]:
+    """Stats of the readable collections, and every ledger slug of the workspace."""
     from app.services.knowledge_collections import collection_inventory
 
-    rows = (
-        db.query(KnowledgeCollection).filter(KnowledgeCollection.workspace_id == workspace_id).all()
-    )
+    all_rows = db.query(KnowledgeCollection).filter(KnowledgeCollection.workspace_id == workspace_id).all()
     stats: dict[str, dict[str, Any]] = {}
-    for row in rows:
+    for row in all_rows:
+        if not can_read_collection(member, row):
+            continue
         inventory = collection_inventory(db, collection=row, include_sources=False)
         stats[row.slug] = {
             "id": row.id,
@@ -120,27 +153,34 @@ def _collection_stats(db: Session, workspace_id: str) -> dict[str, dict[str, Any
             "source_kind_counts": inventory.get("by_kind") or {},
             "source_extension_counts": inventory.get("by_extension") or {},
         }
-    return stats
+    return stats, {row.slug for row in all_rows}
 
 
 def _serialize_scopes(
     *,
     workspace: Workspace,
     db: Session,
+    member: Any,
 ) -> dict[str, Any]:
     scopes = normalize_knowledge_scopes((workspace.settings or {}).get("knowledge_scopes"))
-    stats = _collection_stats(db, workspace.id)
+    stats, existing_slugs = _collection_stats(db, workspace.id, member)
     enriched = []
     for scope in scopes:
+        # A restricted collection the member cannot read is not listed at all;
+        # legacy vector-only names (no ledger row) stay visible.
+        visible = [
+            slug for slug in scope["collection_slugs"] if slug in stats or slug not in existing_slugs
+        ]
         enriched.append(
             {
                 **scope,
+                "collection_slugs": visible,
                 "collections": [
                     {
                         "slug": slug,
                         **(stats.get(slug) or {"status": "external_or_empty"}),
                     }
-                    for slug in scope["collection_slugs"]
+                    for slug in visible
                 ],
             }
         )
@@ -156,9 +196,11 @@ def _serialize_scopes(
 @router.get("/scopes")
 def list_knowledge_scopes(
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return _serialize_scopes(workspace=workspace, db=db)
+    member = get_membership(db, workspace=workspace, user_id=getattr(user, "id", None))
+    return _serialize_scopes(workspace=workspace, db=db, member=member)
 
 
 @router.get("/guides")
@@ -276,18 +318,22 @@ def patch_knowledge_scopes(
     # every turn; refresh it here so a scope edit (top_k, mode) is the budget
     # actually used instead of a stale snapshot from the last seed run.
     ensure_workspace_chat_system_default(db, workspace.id)
-    return _serialize_scopes(workspace=workspace, db=db)
+    member = get_membership(db, workspace=workspace, user_id=getattr(user, "id", None))
+    return _serialize_scopes(workspace=workspace, db=db, member=member)
 
 
 @router.post("/table-query")
 def query_table_knowledge(
     payload: TableQueryRequest,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Run analytic lookup/aggregation over structured table facts."""
     if not payload.question.strip():
         raise HTTPException(status_code=422, detail="question is required")
+    member = load_principal(db, workspace_id=workspace.id, user_id=getattr(user, "id", None))
+    _require_requested_collection_access(db, workspace, member, payload.collection_or_scope)
     engine = TableQueryEngine(db)
     return engine.query(
         workspace=workspace,
@@ -298,6 +344,7 @@ def query_table_knowledge(
         system_id=payload.system_id,
         table_profile_key=payload.table_profile_key,
         include_evidence=payload.include_evidence,
+        denied_collections=_denied_collection_refs(db, workspace, member),
     )
 
 
@@ -305,11 +352,14 @@ def query_table_knowledge(
 def query_document_knowledge(
     payload: DocumentQueryRequest,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Run structured lookup over document facts from manuals/procedures."""
     if not payload.question.strip():
         raise HTTPException(status_code=422, detail="question is required")
+    member = load_principal(db, workspace_id=workspace.id, user_id=getattr(user, "id", None))
+    _require_requested_collection_access(db, workspace, member, payload.collection_or_scope)
     engine = DocumentQueryEngine(db)
     return engine.query(
         workspace=workspace,
@@ -320,4 +370,5 @@ def query_document_knowledge(
         system_id=payload.system_id,
         document_profile_key=payload.document_profile_key,
         include_evidence=payload.include_evidence,
+        denied_collections=_denied_collection_refs(db, workspace, member),
     )

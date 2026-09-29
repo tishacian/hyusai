@@ -12,8 +12,10 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from statistics import mean
+from collections.abc import Collection
 from typing import Any
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -393,10 +395,16 @@ class TableQueryEngine:
         system_id: str | None = None,
         table_profile_key: str | None = None,
         include_evidence: bool = True,
+        denied_collections: Collection[str] | None = None,
     ) -> dict[str, Any]:
         filters = filters or {}
         scope = self._resolve_scope(workspace, collection_or_scope)
         collections = self._resolve_collections(workspace, collection_or_scope, scope)
+        # Per-collection access (L35): collections the requester cannot read
+        # are left out, including when the scope means "every collection".
+        denied = frozenset(str(item) for item in (denied_collections or ()) if item)
+        if denied and collections:
+            collections = [item for item in collections if item not in denied] or ["__none__"]
         system = self._resolve_system(workspace, system_id)
         effective_profile = resolve_table_profile(
             workspace=workspace,
@@ -406,7 +414,7 @@ class TableQueryEngine:
         )
         intent = _intent(question, mode)
         query_terms = _expand_terms(question, effective_profile.profile)
-        facts = self._load_facts(workspace, collections, filters, effective_profile.profile)
+        facts = self._load_facts(workspace, collections, filters, effective_profile.profile, excluded=denied)
         ranked = _rank_facts(facts, query_terms, question)
         plan = {
             "intent": intent,
@@ -478,10 +486,15 @@ class TableQueryEngine:
         collections: list[str],
         filters: dict[str, Any],
         profile: dict[str, Any],
+        excluded: Collection[str] = frozenset(),
     ) -> list[KnowledgeTableFact]:
         query = self.db.query(KnowledgeTableFact).filter(KnowledgeTableFact.workspace_id == workspace.id)
         if collections:
             query = query.filter(KnowledgeTableFact.collection_slug.in_(collections))
+        elif excluded:
+            query = query.filter(
+                or_(KnowledgeTableFact.collection_slug.is_(None), ~KnowledgeTableFact.collection_slug.in_(sorted(excluded)))
+            )
         if filters.get("sheet_name"):
             query = query.filter(KnowledgeTableFact.sheet_name.ilike(f"%{filters['sheet_name']}%"))
         if filters.get("semantic_type"):

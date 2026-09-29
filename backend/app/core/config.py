@@ -684,6 +684,12 @@ class Settings(BaseSettings):
     secure_deposit_public_base_url: Optional[str] = None
     secure_deposit_session_secret: str = ""
     secure_deposit_session_ttl_seconds: int = 7200
+
+    # Per-collection access (L35) — HMAC key that signs the member identity a
+    # retrieval carries across processes (Celery deep retrieval). Shared by the
+    # API and the workers; derived from ``database_url`` when left empty.
+    collection_access_signing_key: str = ""
+    collection_access_identity_ttl_seconds: int = 43200
     secure_deposit_default_max_file_size_mb: int = 100
     secure_deposit_allowed_extensions: str = (
         "pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,md,png,jpg,jpeg,tif,tiff,webp"
