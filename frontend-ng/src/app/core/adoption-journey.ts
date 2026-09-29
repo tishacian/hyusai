@@ -23,6 +23,8 @@ export interface AdoptionSource {
   status: string;
   document_count: number;
   chunk_count: number;
+  /** L35 — server-computed: this member may add documents to this collection. */
+  can_add_documents?: boolean;
 }
 
 /** The part of the experience record the step machine reads. */

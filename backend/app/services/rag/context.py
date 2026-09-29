@@ -25,6 +25,11 @@ from app.core.settings_manager import get_resolved_settings
 from app.db.base import SessionLocal
 from app.models.knowledge_collection import KnowledgeCollection
 from app.models.workspace import Workspace
+from app.services.collection_access import (
+    RetrievalCollectionAccess,
+    retrieval_collection_access,
+    scoped_retrieval_access,
+)
 from app.services.document_intelligence import DocumentQueryEngine, should_run_document_analysis
 from app.services.knowledge_collections import collection_inventory
 from app.services.knowledge_guides import effective_guides, guide_context_entries, guide_query_hint
@@ -960,8 +965,18 @@ def _enforce_authoritative_document_evidence(
     return kept_chunks, kept_scores, kept_metadatas, dropped
 
 
-def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
-    """Resolve retrieval settings that do not require a live vector search."""
+def get_retrieval_profile(
+    request: dict[str, Any],
+    *,
+    collection_access: RetrievalCollectionAccess | None = None,
+) -> dict[str, Any]:
+    """Resolve retrieval settings that do not require a live vector search.
+
+    Collections the requester cannot read (per-collection access, L35) are
+    removed here, after every scope source and the Membrane have spoken. When
+    nothing readable is left, ``collection_access_blocked`` is set and
+    ``collections`` is empty: callers answer with an empty context.
+    """
     app_settings = get_resolved_settings(
         workspace_id=request.get("workspace_id"),
         capability_id=request.get("capability_id"),
@@ -1124,6 +1139,13 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         collections,
         source_policy=request.get("source_policy"),
     )
+    if collection_access is None:
+        collection_access = retrieval_collection_access(request)
+    collection_access_blocked = False
+    if collection_access.denied:
+        readable = collection_access.filter(collections)
+        collection_access_blocked = bool(collections) and not readable
+        collections = readable
     raw_authoritative_document_refs = request.get("authoritative_document_refs")
     authoritative_document_refs = _normalise_authoritative_document_refs(
         raw_authoritative_document_refs,
@@ -1140,8 +1162,9 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         "candidate_pool_k": candidate_pool_k,
         "synthesis_k": synthesis_k,
         "source_display_k": source_display_k,
-        "collection": collections[0],
+        "collection": collections[0] if collections else "",
         "collections": collections,
+        "collection_access_blocked": collection_access_blocked,
         "knowledge_scope": scope.get("key"),
         "scope_label": scope.get("label"),
         "vector_db": vector_db_type,
@@ -1439,7 +1462,10 @@ def _retrieval_policy_payload(
 
 
 def _table_analysis_for_profile(
-    request: dict[str, Any], profile: dict[str, Any]
+    request: dict[str, Any],
+    profile: dict[str, Any],
+    *,
+    collection_access: RetrievalCollectionAccess | None = None,
 ) -> dict[str, Any] | None:
     question = str(profile.get("query") or request.get("query") or "")
     workspace_id = profile.get("workspace_id")
@@ -1457,6 +1483,7 @@ def _table_analysis_for_profile(
             mode="auto",
             system_id=request.get("system_id"),
             include_evidence=True,
+            denied_collections=(collection_access or retrieval_collection_access(request, db=db)).denied,
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("rag_context: table analysis failed", error=str(exc))
@@ -1466,7 +1493,10 @@ def _table_analysis_for_profile(
 
 
 def _document_analysis_for_profile(
-    request: dict[str, Any], profile: dict[str, Any]
+    request: dict[str, Any],
+    profile: dict[str, Any],
+    *,
+    collection_access: RetrievalCollectionAccess | None = None,
 ) -> dict[str, Any] | None:
     question = str(profile.get("query") or request.get("query") or "")
     workspace_id = profile.get("workspace_id")
@@ -1484,6 +1514,7 @@ def _document_analysis_for_profile(
             mode="auto",
             system_id=request.get("system_id"),
             include_evidence=True,
+            denied_collections=(collection_access or retrieval_collection_access(request, db=db)).denied,
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("rag_context: document analysis failed", error=str(exc))
@@ -2940,7 +2971,14 @@ async def retrieve_rag_context(
     from app.services.evaluation.judge import provider_usage_evidence
 
     workspace_id = str(request.get("workspace_id") or "") or None
-    with using_workspace_id_project_scheme(workspace_id), capture_embedding_provider_usage() as embedding_usage:
+    # Per-collection access (L35), resolved once per retrieval from the signed
+    # identity the request carries; no identity means open collections only.
+    collection_access = retrieval_collection_access(request)
+    with (
+        using_workspace_id_project_scheme(workspace_id),
+        capture_embedding_provider_usage() as embedding_usage,
+        scoped_retrieval_access(request, collection_access),
+    ):
         result = await _retrieve_rag_context(
             request,
             doc_svc=doc_svc,
@@ -2948,6 +2986,9 @@ async def retrieve_rag_context(
         )
     if not isinstance(result, dict):
         return result
+    # Final pass: whatever lane produced it, a chunk from a collection the
+    # requester cannot read is never returned nor cited.
+    result = collection_access.filter_payload(result)
     metrics = result.setdefault("metrics", {})
     if isinstance(metrics, dict):
         calls = embedding_usage.get("calls") or []
@@ -2965,15 +3006,78 @@ async def retrieve_rag_context(
     return result
 
 
+def _collection_access_empty_context(
+    profile: dict[str, Any], *, query: str, started: float
+) -> dict[str, Any]:
+    """Nothing the requester may read is in scope: an empty, honest context."""
+    metrics: dict[str, Any] = {
+        "query": query,
+        "retrieval_query": query,
+        "duration_ms": int((time.time() - started) * 1000),
+        "chunks_retrieved": 0,
+        "scope": profile.get("knowledge_scope"),
+        "scope_label": profile.get("scope_label"),
+        "collections_touched": [],
+        "collection": "",
+        "collections": [],
+        "vector_db": profile.get("vector_db"),
+        "profile": profile.get("retrieval_profile"),
+        "retrieval_profile": profile.get("retrieval_profile"),
+        "top_k": profile.get("top_k"),
+        "no_context": True,
+        "fallback": False,
+        "fallback_reason": None,
+        "collection_access_blocked": True,
+    }
+    _finalize_retrieval_metrics(metrics)
+    return {
+        "chunks": [],
+        "scores": [],
+        "metadatas": [],
+        "pipeline": "none",
+        "label": "none",
+        "reason": "No readable collection in scope",
+        "detail": None,
+        "mode_label": "none",
+        "mode_reason": "No readable collection in scope",
+        "use_hybrid": False,
+        "top_k": profile.get("top_k"),
+        "candidate_pool_k": profile.get("candidate_pool_k"),
+        "synthesis_k": profile.get("synthesis_k"),
+        "source_display_k": profile.get("source_display_k"),
+        "query": query,
+        "retrieval_query": query,
+        "retrieval_constraints": {},
+        "clarification": None,
+        "collection": "",
+        "collections": [],
+        "knowledge_scope": profile.get("knowledge_scope"),
+        "scope_label": profile.get("scope_label"),
+        "vector_db": profile.get("vector_db"),
+        "workspace_slug": profile.get("workspace_slug"),
+        "metrics": _jsonable(metrics),
+        "retrieval_profile": profile.get("retrieval_profile"),
+        "collections_touched": [],
+        "collection_errors": [],
+    }
+
+
 async def _retrieve_rag_context(
     request: dict[str, Any],
     *,
     doc_svc: Any | None = None,
     fallback_reason: str | None = None,
+    collection_access: RetrievalCollectionAccess | None = None,
 ) -> dict[str, Any]:
     """Run retrieval only and return a stable, serialisable context payload."""
     started = time.time()
+    if collection_access is None:
+        collection_access = retrieval_collection_access(request)
     profile = get_retrieval_profile(request)
+    if profile.get("collection_access_blocked"):
+        return _collection_access_empty_context(
+            profile, query=str(profile.get("query") or request.get("query") or ""), started=started
+        )
     requested_authoritative_collections = [
         str(item).strip()
         for item in (request.get("authoritative_collections") or [])
@@ -3004,7 +3108,9 @@ async def _retrieve_rag_context(
     # must be disabled under a Builder-authored hard scope instead of silently
     # searching the whole collection.
     table_analysis = (
-        None if authoritative_document_scope else _table_analysis_for_profile(request, profile)
+        None
+        if authoritative_document_scope
+        else _table_analysis_for_profile(request, profile)
     )
     document_analysis = (
         None
@@ -3145,6 +3251,21 @@ async def _retrieve_rag_context(
         profile["collections"] = authoritative_collections
         profile["collection"] = authoritative_collections[0]
         collections = authoritative_collections
+    if collection_access.denied:
+        # The planner, the recall floor and the expert-fiche overlay may bring
+        # collections back after ``get_retrieval_profile``: filter once more.
+        collections = collection_access.filter(collections)
+        if not collections:
+            return _collection_access_empty_context(profile, query=query, started=started)
+        profile["collections"] = collections
+        profile["collection"] = collections[0]
+        for key in ("_corpus_plan_soft_scope_collections", "_corpus_plan_recall_floor_collections"):
+            if isinstance(profile.get(key), list):
+                profile[key] = collection_access.filter(profile[key])
+        if expert_fiche_collection and not collection_access.allows(expert_fiche_collection):
+            expert_fiche_collection = ""
+            expert_fiche_included = False
+            profile.pop("_expert_fiche_collection", None)
     retrieval_filters = dict(profile.get("retrieval_filters") or {})
     metrics: dict[str, Any] = {
         "query": query,
@@ -3205,6 +3326,9 @@ async def _retrieve_rag_context(
         "expert_fiche_collection": expert_fiche_collection or None,
         "expert_fiche_collection_included": expert_fiche_included,
     }
+    if collection_access.denied:
+        for key in ("soft_scope_collections", "recall_floor_collections"):
+            metrics[key] = collection_access.filter(metrics.get(key))
     cache_key = _retrieval_context_cache_key(
         profile=profile,
         query=retrieval_query,

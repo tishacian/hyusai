@@ -11,7 +11,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { HttpClient } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
-import { WorkspaceService, type RoleTemplate, type WorkspaceMemberDetail } from '@app/core/workspace.service';
+import { WorkspaceService, type WorkspaceMemberDetail } from '@app/core/workspace.service';
 import { NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import {
@@ -23,6 +23,21 @@ import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
 import { DrawerComponent } from '@app/shared/ui/drawer.component';
 import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
 import { collectionIndexPresentation } from './knowledge-facets';
+import {
+  ACCESS_ROLE_TEMPLATES,
+  accessFormErrors,
+  canGrant,
+  formFromPolicy,
+  isGranted,
+  policyFromForm,
+  samePolicy,
+  setMode,
+  togglePrincipal,
+  type AccessAction,
+  type AccessMode,
+  type CollectionAccessForm,
+  type CollectionAccessPolicy,
+} from './collection-access-form';
 
 interface CollectionInfo {
   id?: string;
@@ -48,10 +63,7 @@ interface CollectionItemPayload {
   permissions?: CollectionPermissions;
 }
 
-interface CollectionAccess {
-  read?: string[];
-  write?: string[];
-}
+type CollectionAccess = CollectionAccessPolicy;
 
 interface CollectionPermissions {
   can_read?: boolean;
@@ -344,8 +356,11 @@ interface SearchResult {
                 </button>
                 @if (doc.permissions?.can_manage) {
                   <button
+                    type="button"
                     class="ck-ghost-icon p-1.5 rounded"
+                    data-testid="collection-access-open"
                     [title]="i18n.t('knowledge.collections.access.manage')"
+                    [attr.aria-label]="i18n.t('knowledge.collections.access.manage') + ' — ' + doc.name"
                     (click)="openAccess(doc)"
                   >
                     <app-icon name="shield-check" [size]="14" />
@@ -365,86 +380,124 @@ interface SearchResult {
       </div>
     }
 
-    <!-- L35 · Collection access drawer -->
+    <!-- L35 · Accès: who reads the collection, who adds documents -->
     <app-drawer
       [open]="accessTarget() !== null"
       [title]="i18n.t('knowledge.collections.access.title')"
       [subtitle]="accessTarget()?.name || accessTarget()?.slug || ''"
       icon="shield-check"
-      (close)="accessTarget.set(null)"
+      (close)="closeAccess()"
     >
       @if (accessTarget(); as target) {
-        <div class="space-y-5">
-          <label class="flex items-start gap-3 text-sm" style="color:var(--ck-fg-2);">
-            <input
-              type="radio"
-              name="collection-access-mode"
-              [checked]="!accessRestricted()"
-              (change)="setAccessRestricted(false)"
-            />
-            <span>
-              <strong style="color:var(--ck-fg-1);">{{ i18n.t('knowledge.collections.access.open') }}</strong>
-              <span class="block text-xs mt-1">{{ i18n.t('knowledge.collections.access.open_hint') }}</span>
-            </span>
-          </label>
-          <label class="flex items-start gap-3 text-sm" style="color:var(--ck-fg-2);">
-            <input
-              type="radio"
-              name="collection-access-mode"
-              [checked]="accessRestricted()"
-              (change)="setAccessRestricted(true)"
-            />
-            <span>
-              <strong style="color:var(--ck-fg-1);">{{ i18n.t('knowledge.collections.access.restricted') }}</strong>
-              <span class="block text-xs mt-1">{{ i18n.t('knowledge.collections.access.restricted_hint') }}</span>
-            </span>
-          </label>
-
-          @if (accessRestricted()) {
-            <div class="rounded-md p-4 space-y-4" style="background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-2);">
-              <div class="grid grid-cols-[minmax(0,1fr)_72px_72px] gap-2 text-xs font-medium" style="color:var(--ck-fg-3);">
-                <span>{{ i18n.t('knowledge.collections.access.who') }}</span>
-                <span class="text-center">{{ i18n.t('knowledge.collections.access.read') }}</span>
-                <span class="text-center">{{ i18n.t('knowledge.collections.access.write') }}</span>
-              </div>
-              @for (role of accessRoles; track role) {
-                <div class="grid grid-cols-[minmax(0,1fr)_72px_72px] gap-2 items-center text-sm">
-                  <span class="truncate">{{ accessPrincipalLabel('role:' + role) }}</span>
-                  <input class="justify-self-center" type="checkbox" [attr.aria-label]="i18n.t('knowledge.collections.access.read') + ' — ' + role" [checked]="hasAccessPrincipal('read', 'role:' + role)" (change)="toggleAccessPrincipal('read', 'role:' + role, $event)" />
-                  <input class="justify-self-center" type="checkbox" [attr.aria-label]="i18n.t('knowledge.collections.access.write') + ' — ' + role" [checked]="hasAccessPrincipal('write', 'role:' + role)" (change)="toggleAccessPrincipal('write', 'role:' + role, $event)" />
+        <form class="kb-access" data-testid="collection-access" (submit)="$event.preventDefault(); saveAccess(target)">
+          <p class="kb-access-note">{{ i18n.t('knowledge.collections.access.admins_note') }}</p>
+          @for (action of accessActions; track action) {
+            <fieldset class="kb-access-set" [attr.data-testid]="'collection-access-' + action">
+              <legend class="kb-access-legend">{{ i18n.t('knowledge.collections.access.' + action + '.legend') }}</legend>
+              <label class="kb-access-choice">
+                <input
+                  type="radio"
+                  [name]="'collection-access-' + action"
+                  [checked]="accessForm()[action].mode === 'all'"
+                  (change)="setAccessMode(action, 'all')"
+                />
+                <span>{{ i18n.t('knowledge.collections.access.all_members') }}</span>
+              </label>
+              <label class="kb-access-choice">
+                <input
+                  type="radio"
+                  [name]="'collection-access-' + action"
+                  [checked]="accessForm()[action].mode === 'selected'"
+                  (change)="setAccessMode(action, 'selected')"
+                />
+                <span>{{ i18n.t('knowledge.collections.access.selected') }}</span>
+              </label>
+              @if (action === 'write') {
+                <p class="kb-access-hint">{{ i18n.t('knowledge.collections.access.write.hint') }}</p>
+              }
+              @if (accessForm()[action].mode === 'selected') {
+                <div class="kb-access-grants">
+                  @if (accessForm()[action].principals.length === 0) {
+                    <p class="kb-access-hint">{{ i18n.t('knowledge.collections.access.admins_only') }}</p>
+                  }
+                  <p class="kb-access-group-title" [id]="'access-roles-' + action">{{ i18n.t('knowledge.collections.access.roles') }}</p>
+                  <ul class="kb-access-list" [attr.aria-labelledby]="'access-roles-' + action">
+                    @for (role of accessRoles; track role) {
+                      @if (canGrantAccess(action, 'role:' + role)) {
+                        <li>
+                          <label class="kb-access-choice">
+                            <input
+                              type="checkbox"
+                              [checked]="accessGranted(action, 'role:' + role)"
+                              (change)="toggleAccess(action, 'role:' + role, $event)"
+                            />
+                            <span>{{ accessPrincipalLabel('role:' + role) }}</span>
+                          </label>
+                        </li>
+                      }
+                    }
+                  </ul>
+                  @if (accessGroups().length) {
+                    <p class="kb-access-group-title" [id]="'access-groups-' + action">{{ i18n.t('knowledge.collections.access.groups') }}</p>
+                    <ul class="kb-access-list" [attr.aria-labelledby]="'access-groups-' + action">
+                      @for (group of accessGroups(); track group) {
+                        <li>
+                          <label class="kb-access-choice">
+                            <input
+                              type="checkbox"
+                              [checked]="accessGranted(action, 'group:' + group)"
+                              (change)="toggleAccess(action, 'group:' + group, $event)"
+                            />
+                            <span>{{ group }}</span>
+                          </label>
+                        </li>
+                      }
+                    </ul>
+                  }
+                  @if (accessMembers().length) {
+                    <p class="kb-access-group-title" [id]="'access-people-' + action">{{ i18n.t('knowledge.collections.access.people') }}</p>
+                    <ul class="kb-access-list" [attr.aria-labelledby]="'access-people-' + action">
+                      @for (member of accessMembers(); track member.user_id) {
+                        <li>
+                          <label class="kb-access-choice">
+                            <input
+                              type="checkbox"
+                              [checked]="accessGranted(action, 'user:' + member.user_id)"
+                              (change)="toggleAccess(action, 'user:' + member.user_id, $event)"
+                            />
+                            <span>{{ member.username || member.email || member.user_id }}</span>
+                          </label>
+                        </li>
+                      }
+                    </ul>
+                  } @else if (accessLoading()) {
+                    <p class="kb-access-hint">{{ i18n.t('knowledge.collections.access.loading_people') }}</p>
+                  }
                 </div>
               }
-              @for (group of accessGroups(); track group) {
-                <div class="grid grid-cols-[minmax(0,1fr)_72px_72px] gap-2 items-center text-sm">
-                  <span class="truncate">{{ accessPrincipalLabel('group:' + group) }}</span>
-                  <input class="justify-self-center" type="checkbox" [attr.aria-label]="i18n.t('knowledge.collections.access.read') + ' — ' + group" [checked]="hasAccessPrincipal('read', 'group:' + group)" (change)="toggleAccessPrincipal('read', 'group:' + group, $event)" />
-                  <input class="justify-self-center" type="checkbox" [attr.aria-label]="i18n.t('knowledge.collections.access.write') + ' — ' + group" [checked]="hasAccessPrincipal('write', 'group:' + group)" (change)="toggleAccessPrincipal('write', 'group:' + group, $event)" />
-                </div>
-              }
-              @for (member of accessMembers(); track member.user_id) {
-                <div class="grid grid-cols-[minmax(0,1fr)_72px_72px] gap-2 items-center text-sm">
-                  <span class="truncate">{{ accessPrincipalLabel('user:' + member.user_id) }}</span>
-                  <input class="justify-self-center" type="checkbox" [attr.aria-label]="i18n.t('knowledge.collections.access.read') + ' — ' + member.username" [checked]="hasAccessPrincipal('read', 'user:' + member.user_id)" (change)="toggleAccessPrincipal('read', 'user:' + member.user_id, $event)" />
-                  <input class="justify-self-center" type="checkbox" [attr.aria-label]="i18n.t('knowledge.collections.access.write') + ' — ' + member.username" [checked]="hasAccessPrincipal('write', 'user:' + member.user_id)" (change)="toggleAccessPrincipal('write', 'user:' + member.user_id, $event)" />
-                </div>
-              }
-            </div>
+            </fieldset>
           }
-
-          <div class="flex justify-end gap-2">
-            <button type="button" class="ck-btn-ghost px-4 py-2 text-sm rounded" (click)="accessTarget.set(null)">
+          @for (error of accessErrors(); track error.code) {
+            <p class="kb-access-error" role="alert" data-testid="collection-access-error">
+              {{ i18n.t('knowledge.collections.access.error.' + error.code, { names: accessNames(error.principals) }) }}
+            </p>
+          }
+          @if (accessSaveError()) {
+            <p class="kb-access-error" role="alert">{{ accessSaveError() }}</p>
+          }
+          <div class="kb-access-actions">
+            <button type="button" class="ck-btn-ghost px-4 py-2 text-sm rounded" (click)="closeAccess()">
               {{ i18n.t('common.cancel') }}
             </button>
             <button
-              type="button"
+              type="submit"
               class="ck-btn-primary px-4 py-2 text-sm font-medium rounded"
-              [disabled]="savingAccess() || (accessRestricted() && (accessRead().length === 0 || accessWrite().length === 0))"
-              (click)="saveAccess(target)"
+              [disabled]="savingAccess() || accessErrors().length > 0"
             >
               {{ i18n.t('common.save') }}
             </button>
           </div>
-        </div>
+        </form>
       }
     </app-drawer>
 
@@ -745,6 +798,21 @@ interface SearchResult {
     />
   `,
   styles: [`
+    /* L35 · Accès — sober, token-driven form (Tokens v2). */
+    .kb-access { display: flex; flex-direction: column; gap: 20px; font-size: 14px; color: var(--ck-fg-2); }
+    .kb-access-note, .kb-access-hint { margin: 0; font-size: 13px; color: var(--ck-fg-3); }
+    .kb-access-set { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+    .kb-access-legend { padding: 0; margin-bottom: 4px; font-weight: 600; color: var(--ck-fg-1); }
+    .kb-access-choice { display: flex; align-items: center; gap: 8px; min-height: 28px; cursor: pointer; color: var(--ck-fg-1); }
+    .kb-access-choice input { width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--ck-signal-cool); }
+    .kb-access-grants {
+      display: flex; flex-direction: column; gap: 6px; margin-left: 24px; padding: 12px;
+      border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-sm); background: var(--ck-bg-inset);
+    }
+    .kb-access-group-title { margin: 6px 0 0; font-size: 12px; font-weight: 600; color: var(--ck-fg-2); }
+    .kb-access-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+    .kb-access-error { margin: 0; font-size: 13px; color: var(--ck-status-neg-fg); }
+    .kb-access-actions { display: flex; justify-content: flex-end; gap: 8px; }
     /* Cockpit DS-C — component-scoped helpers (token-driven; mirrors auth/exemplar pattern). */
     .ck-field-input,
     .ck-field-select,
@@ -901,21 +969,16 @@ export class KnowledgeBaseComponent implements OnInit {
   // Delete collection
   deleteCollectionTarget = signal<string | null>(null);
 
-  // L35 · per-collection read/write ACL
+  // L35 · Accès: per-collection read / add-documents policy
   accessTarget = signal<CollectionInfo | null>(null);
-  accessRestricted = signal(false);
-  accessRead = signal<string[]>([]);
-  accessWrite = signal<string[]>([]);
+  accessForm = signal<CollectionAccessForm>(formFromPolicy(null));
   accessMembers = signal<WorkspaceMemberDetail[]>([]);
   accessLoading = signal(false);
   savingAccess = signal(false);
-  readonly accessRoles: RoleTemplate[] = [
-    'workspace_viewer',
-    'workspace_contributor',
-    'workspace_reviewer',
-    'workspace_admin',
-    'workspace_owner',
-  ];
+  accessSaveError = signal<string | null>(null);
+  readonly accessActions: readonly AccessAction[] = ['read', 'write'];
+  readonly accessRoles = ACCESS_ROLE_TEMPLATES;
+  readonly accessErrors = computed(() => accessFormErrors(this.accessForm()));
 
   // Browse
   browseOpen = signal(false);
@@ -1190,9 +1253,8 @@ export class KnowledgeBaseComponent implements OnInit {
 
   openAccess(collection: CollectionInfo): void {
     this.accessTarget.set(collection);
-    this.accessRestricted.set(!!collection.access);
-    this.accessRead.set(collection.access?.read ?? ['role:workspace_contributor']);
-    this.accessWrite.set(collection.access?.write ?? ['role:workspace_contributor']);
+    this.accessForm.set(formFromPolicy(collection.access));
+    this.accessSaveError.set(null);
     if (this.accessMembers().length > 0) return;
     const slug = this.workspaceService.currentSlug();
     if (!slug) return;
@@ -1209,67 +1271,74 @@ export class KnowledgeBaseComponent implements OnInit {
     });
   }
 
-  setAccessRestricted(restricted: boolean): void {
-    this.accessRestricted.set(restricted);
-    if (!restricted) return;
-    if (this.accessRead().length === 0) this.accessRead.set(['role:workspace_contributor']);
-    if (this.accessWrite().length === 0) this.accessWrite.set(['role:workspace_contributor']);
+  closeAccess(): void {
+    this.accessTarget.set(null);
+    this.accessSaveError.set(null);
   }
 
-  hasAccessPrincipal(action: 'read' | 'write', principal: string): boolean {
-    return (action === 'read' ? this.accessRead() : this.accessWrite()).includes(principal);
+  setAccessMode(action: AccessAction, mode: AccessMode): void {
+    this.accessForm.update((form) => setMode(form, action, mode));
   }
 
-  toggleAccessPrincipal(action: 'read' | 'write', principal: string, event: Event): void {
-    const checked = (event.target as HTMLInputElement).checked;
-    const current = action === 'read' ? this.accessRead() : this.accessWrite();
-    const next = checked
-      ? [...current, principal]
-      : current.filter((item) => item !== principal);
-    (action === 'read' ? this.accessRead : this.accessWrite).set(next);
+  toggleAccess(action: AccessAction, principal: string, event: Event): void {
+    const granted = (event.target as HTMLInputElement).checked;
+    this.accessForm.update((form) => togglePrincipal(form, action, principal, granted));
+  }
+
+  accessGranted(action: AccessAction, principal: string): boolean {
+    return isGranted(this.accessForm(), action, principal);
+  }
+
+  canGrantAccess(action: AccessAction, principal: string): boolean {
+    return canGrant(action, principal);
   }
 
   accessPrincipalLabel(principal: string): string {
     const [kind, value] = principal.split(':');
     if (kind === 'role') {
-      const keys: Record<RoleTemplate, string> = {
+      const keys: Record<string, string> = {
         workspace_viewer: 'workspace.role.viewer',
         workspace_contributor: 'workspace.role.contributor',
         workspace_reviewer: 'workspace.role.reviewer',
         workspace_admin: 'workspace.role.admin',
         workspace_owner: 'workspace.role.owner',
       };
-      return this.i18n.t(keys[value as RoleTemplate] || 'workspace.role.contributor');
+      return this.i18n.t(keys[value] || 'workspace.role.contributor');
     }
-    if (kind === 'group') return `${value}`;
+    if (kind === 'group') return value;
     const member = this.accessMembers().find((item) => item.user_id === value);
     return member?.username || member?.email || value;
   }
 
+  accessNames(principals: string[]): string {
+    return principals.map((principal) => this.accessPrincipalLabel(principal)).join(', ');
+  }
+
   saveAccess(collection: CollectionInfo): void {
+    if (this.savingAccess() || this.accessErrors().length > 0) return;
+    const access = policyFromForm(this.accessForm());
+    if (samePolicy(access, collection.access ?? null)) {
+      this.closeAccess();
+      return;
+    }
     const id = collection.id || collection.slug;
     this.savingAccess.set(true);
+    this.accessSaveError.set(null);
     this.http
-      .patch<CollectionItemPayload>(
-        `${this.base}/collections/${encodeURIComponent(id)}`,
-        { access: this.accessRestricted() ? { read: this.accessRead(), write: this.accessWrite() } : null },
-      )
+      .patch<CollectionItemPayload>(`${this.base}/collections/${encodeURIComponent(id)}`, { access })
       .subscribe({
         next: () => {
           this.savingAccess.set(false);
-          this.accessTarget.set(null);
+          this.closeAccess();
           this.toast.success(
             this.i18n.t('knowledge.collections.access.saved', { name: collection.name }),
             this.i18n.t('knowledge.title'),
           );
           this.loadCollections();
         },
-        error: (err) => {
+        error: () => {
           this.savingAccess.set(false);
-          this.toast.error(
-            err?.error?.detail || this.i18n.t('knowledge.collections.access.save_failed'),
-            this.i18n.t('knowledge.title'),
-          );
+          this.accessSaveError.set(this.i18n.t('knowledge.collections.access.save_failed'));
         },
       });
   }

@@ -40,6 +40,24 @@ def _seed_sources(db, workspace):
     db.commit()
 
 
+def _record_chat_feedback(db, workspace, user, *, event_type="chat_feedback", when=None):
+    """What ``POST /audit`` stores when the chat saves a thumbs up/down."""
+    from datetime import datetime
+    from uuid import uuid4
+
+    db.add(
+        AuditLog(
+            id=str(uuid4()),
+            workspace_id=workspace.id,
+            event_type=event_type,
+            actor=user.username or user.email or user.id,
+            details={"verdict": "up"},
+            timestamp=when or datetime.utcnow(),
+        )
+    )
+    db.commit()
+
+
 def _set_role(db, user, template, legacy="member"):
     member = db.query(WorkspaceMember).filter_by(user_id=user.id).one()
     member.role = legacy
@@ -71,6 +89,7 @@ def test_a_contributor_gets_the_client_journey_on_this_workspace_sources(db_sess
         "status": "ready",
         "document_count": 14,
         "chunk_count": 3480,
+        "can_add_documents": True,
     }
 
 
@@ -120,7 +139,11 @@ def test_client_steps_are_idempotent_resume_on_the_chosen_source_and_are_audited
     for _ in range(2):
         response = client.patch(URL, json={"completed_step": "source", "collection_id": "c-indexing"})
         assert response.status_code == 200, response.text
-    for step in ["documents", "question", "decision", "decision"]:
+    for step in ["documents", "question"]:
+        assert client.patch(URL, json={"completed_step": step}).status_code == 200
+    # Step 4 needs a real decision by the member (L35): their chat feedback.
+    _record_chat_feedback(db_session, workspace, user)
+    for step in ["decision", "decision"]:
         assert client.patch(URL, json={"completed_step": step}).status_code == 200
 
     body = client.get(URL).json()
@@ -230,3 +253,110 @@ def test_showcase_keeps_the_northforge_journey_unchanged(db_session):
     assert client.patch(url, json={"completed_step": "documents"}).status_code == 422
     assert client.patch(url, json={"completed_step": "decision"}).status_code == 422
     assert client.get(url).json()["completed_steps"] == ["example", "question", "source", "result"]
+
+
+# --- L35: step 4 needs a real decision, sources follow collection access ----
+
+
+def _walk_to_question(client):
+    for step, extra in (("source", {"collection_id": "c-ready"}), ("documents", {}), ("question", {})):
+        assert client.patch(URL, json={"completed_step": step, **extra}).status_code == 200
+
+
+def test_step_four_is_refused_without_a_decision_by_the_member(db_session):
+    workspace, user = _seed(db_session)
+    _seed_sources(db_session, workspace)
+    client = auth_client(db_session, workspace, user)
+    _walk_to_question(client)
+    # Someone else's feedback, or an older one, proves nothing for this member.
+    other = User(id="other-member", username="other@example.test")
+    db_session.add_all([other, WorkspaceMember(user_id=other.id, workspace_id=workspace.id, role="member")])
+    db_session.commit()
+    _record_chat_feedback(db_session, workspace, other)
+
+    response = client.patch(URL, json={"completed_step": "decision"})
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "ADOPTION_DECISION_NOT_RECORDED"
+    assert "decision" not in client.get(URL).json()["completed_steps"]
+
+
+def test_a_feedback_from_before_the_journey_does_not_count(db_session):
+    from datetime import datetime, timedelta
+
+    workspace, user = _seed(db_session)
+    _seed_sources(db_session, workspace)
+    _record_chat_feedback(db_session, workspace, user, when=datetime.utcnow() - timedelta(days=3))
+    client = auth_client(db_session, workspace, user)
+    _walk_to_question(client)
+
+    assert client.patch(URL, json={"completed_step": "decision"}).status_code == 409
+
+
+def test_step_four_is_accepted_after_a_chat_feedback_and_is_idempotent(db_session):
+    workspace, user = _seed(db_session)
+    _seed_sources(db_session, workspace)
+    client = auth_client(db_session, workspace, user)
+    _walk_to_question(client)
+    _record_chat_feedback(db_session, workspace, user)
+
+    for _ in range(2):
+        response = client.patch(URL, json={"completed_step": "decision"})
+        assert response.status_code == 200, response.text
+    assert client.get(URL).json()["completed_steps"] == ["source", "documents", "question", "decision"]
+
+
+def test_step_four_is_accepted_after_a_chat_correction(db_session):
+    workspace, user = _seed(db_session)
+    _seed_sources(db_session, workspace)
+    client = auth_client(db_session, workspace, user)
+    _walk_to_question(client)
+    _record_chat_feedback(db_session, workspace, user, event_type="kc.chat_correction.created")
+
+    assert client.patch(URL, json={"completed_step": "decision"}).status_code == 200
+
+
+def test_step_four_is_accepted_after_a_work_gate_decision_by_the_member(db_session):
+    from datetime import datetime
+
+    from app.models.decision import Decision
+
+    workspace, user = _seed(db_session)
+    _seed_sources(db_session, workspace)
+    client = auth_client(db_session, workspace, user)
+    _walk_to_question(client)
+    db_session.add(
+        Decision(
+            workspace_id=workspace.id,
+            scope="run",
+            kind="hitl_gate",
+            status="accepted",
+            title="Valider l'envoi",
+            human_confirmed_by=user.id,
+            human_confirmed_at=datetime.utcnow(),
+        )
+    )
+    db_session.commit()
+
+    assert client.patch(URL, json={"completed_step": "decision"}).status_code == 200
+
+
+def test_restricted_collections_are_not_offered_and_writing_follows_the_grant(db_session):
+    workspace, user = _seed(db_session)
+    _seed_sources(db_session, workspace)
+    ready = db_session.get(KnowledgeCollection, "c-ready")
+    ready.access = {"read": ["role:workspace_admin"]}
+    indexing = db_session.get(KnowledgeCollection, "c-indexing")
+    indexing.access = {"read": ["role:workspace_contributor"], "write": ["role:workspace_admin"]}
+    db_session.commit()
+    client = auth_client(db_session, workspace, user)
+
+    body = client.get(URL).json()
+    by_id = {source["id"]: source for source in body["sources"]}
+    assert "c-ready" not in by_id
+    assert by_id["c-indexing"]["can_add_documents"] is False
+    assert by_id["c-empty"]["can_add_documents"] is True
+    assert body["candidate_collection_id"] == "c-indexing"
+    assert body["can_add_documents"] is False
+    # Choosing the hidden collection is refused like an unknown one.
+    assert client.patch(URL, json={"completed_step": "source", "collection_id": "c-ready"}).status_code == 404

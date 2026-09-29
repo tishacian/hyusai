@@ -128,6 +128,7 @@ def _text_arg(args: Mapping[str, Any], name: str, *, limit: int = 2000) -> str:
 # search_knowledge
 # ---------------------------------------------------------------------------
 async def _search_knowledge(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    from app.services.collection_access import bind_retrieval_identity, retrieval_collection_access
     from app.services.rag.context import retrieve_rag_context
 
     query = _text_arg(args, "query")
@@ -148,6 +149,12 @@ async def _search_knowledge(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
     }
     if ctx.config.knowledge_scope:
         request["knowledge_scope"] = ctx.config.knowledge_scope
+    # The assistant searches with the asking member's collection rights.
+    bind_retrieval_identity(
+        request,
+        workspace_id=ctx.workspace.id,
+        user_id=getattr(ctx.user, "id", None),
+    )
 
     result = await retrieve_rag_context(request)
     chunks = list(result.get("chunks") or [])[:top_k]
@@ -168,7 +175,8 @@ async def _search_knowledge(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
     return _ok(
         query=query,
         knowledge_scope=ctx.config.knowledge_scope,
-        collections=list(ctx.config.collection_slugs),
+        # Only the collections this member may read are named back.
+        collections=retrieval_collection_access(request, db=ctx.db).filter(ctx.config.collection_slugs),
         passages=passages,
         citations=[passage["citation"] for passage in passages],
     )

@@ -14,7 +14,11 @@ from sqlalchemy.orm import Session as DBSession
 from app.core.iam.roles import WORKSPACE_VIEWER, normalize_role_template
 from app.models.knowledge_collection import KnowledgeCollection
 from app.models.workspace import Workspace, WorkspaceMember
-from app.services.collection_access import can_read_collection, can_write_collection
+from app.services.collection_access import (
+    can_read_collection,
+    can_write_collection,
+    principal_for_member,
+)
 
 # A collection answers questions once ready, and is worth waiting for while
 # its documents are queued or indexed. ``created`` (empty) and ``error`` only
@@ -25,7 +29,8 @@ MAX_SOURCES = 50
 
 
 def can_add_documents(member: WorkspaceMember) -> bool:
-    """Viewers read; every other workspace role may add documents."""
+    """Viewers read; every other workspace role may add documents to an open
+    collection (a restricted one also needs its write grant, see L35)."""
     return normalize_role_template(member.role_template, member.role) != WORKSPACE_VIEWER
 
 
@@ -42,7 +47,7 @@ def _rank(row: KnowledgeCollection) -> tuple[int, str]:
     return tier, str(row.name or row.slug or "").lower()
 
 
-def _serialize(row: KnowledgeCollection) -> dict[str, Any]:
+def _serialize(row: KnowledgeCollection, *, writable: bool) -> dict[str, Any]:
     return {
         "id": row.id,
         "slug": row.slug,
@@ -50,6 +55,7 @@ def _serialize(row: KnowledgeCollection) -> dict[str, Any]:
         "status": row.status,
         "document_count": int(row.document_count or 0),
         "chunk_count": int(row.chunk_count or 0),
+        "can_add_documents": writable,
     }
 
 
@@ -67,7 +73,7 @@ def member_sources(
     candidate is the member's earlier choice when still usable, else the first
     ready collection with passages, else the first usable one.
     """
-    may_add = can_add_documents(member)
+    principal = principal_for_member(member, workspace_id=workspace.id)
     rows = (
         db.query(KnowledgeCollection)
         .filter(KnowledgeCollection.workspace_id == workspace.id)
@@ -75,12 +81,16 @@ def member_sources(
     )
     # Underscore-prefixed collections are internal, as in the collection list.
     rows = [row for row in rows if not str(row.slug or "").startswith("_")]
-    usable = [
-        row
-        for row in rows
-        if can_read_collection(member, row)
-        and (can_write_collection(member, row) or row.status in READABLE_STATUSES)
-    ]
+    # Only collections the member reads; the unfinished ones only when they
+    # can fill them (per-collection access, L35).
+    writable: dict[str, bool] = {}
+    usable = []
+    for row in rows:
+        if not can_read_collection(principal, row):
+            continue
+        writable[row.id] = can_write_collection(principal, row)
+        if writable[row.id] or row.status in READABLE_STATUSES:
+            usable.append(row)
     usable.sort(key=_rank)
     usable = usable[:MAX_SOURCES]
     candidate = next((row for row in usable if row.id == chosen_collection_id), None)
@@ -88,8 +98,9 @@ def member_sources(
         candidate = usable[0]
     return {
         "available": bool(usable),
-        "can_add_documents": may_add,
-        "sources": [_serialize(row) for row in usable],
+        # For the collection the journey starts on; each source says its own.
+        "can_add_documents": writable.get(candidate.id, False) if candidate else can_add_documents(member),
+        "sources": [_serialize(row, writable=writable[row.id]) for row in usable],
         "candidate_collection_id": candidate.id if candidate else None,
     }
 
@@ -108,8 +119,9 @@ def usable_collection(
     )
     if row is None or str(row.slug or "").startswith("_"):
         return None
-    if not can_read_collection(member, row):
+    principal = principal_for_member(member, workspace_id=workspace.id)
+    if not can_read_collection(principal, row):
         return None
-    if not can_write_collection(member, row) and row.status not in READABLE_STATUSES:
+    if not can_write_collection(principal, row) and row.status not in READABLE_STATUSES:
         return None
     return row
