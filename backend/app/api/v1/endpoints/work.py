@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
@@ -17,7 +18,7 @@ from app.core.iam.dependencies import current_membership
 from app.core.iam.roles import WORKSPACE_ADMIN, is_admin_template, normalize_role_template
 from app.db.base import get_db
 from app.models.decision import Decision
-from app.models.run import Run
+from app.models.run import Run, SkillInvocation
 from app.models.system import System
 from app.services import automation_portfolio
 from app.models.user import User
@@ -32,7 +33,8 @@ from app.services.iam.decision_plane import (
     enforce_action,
     resolve_action,
 )
-from app.services.run_access import run_read_attrs
+from app.services.experience.work_receipt import run_receipt
+from app.services.run_access import readable_run_page, readable_runs, run_read_attrs
 from app.services.run_engine.dispatch_outbox import (
     TRIGGER_RUN,
     durable_initial_dispatch_source,
@@ -201,13 +203,20 @@ def _project_decidable_hitl(
     bound_system_ids: set[str] | frozenset[str] = frozenset(),
     limit: int = 100,
     emit_shadow: bool = True,
+    origins: set[str] | frozenset[str] = frozenset(),
+    include_origin: bool = False,
 ) -> list[dict[str, Any]]:
-    """HITL pauses this reader may decide — same rights filter as /{slug}/validations."""
+    """HITL pauses this reader may decide — same rights filter as /{slug}/validations.
+
+    ``origins`` widens one query to several apps (L33 home, no per-app loop);
+    ``include_origin`` adds the ingress origin so the caller can name the app.
+    """
     membership_clauses: list[Any] = []
+    origin_col = Run.input_ref["_ingress"]["adapter"]["origin"].as_string()
     if origin:
-        membership_clauses.append(
-            Run.input_ref["_ingress"]["adapter"]["origin"].as_string() == origin
-        )
+        membership_clauses.append(origin_col == origin)
+    if origins:
+        membership_clauses.append(origin_col.in_(sorted(origins)))
     if bound_system_ids:
         # Scheduled ticks stay out: they are not someone's approval.
         membership_clauses.append(
@@ -320,23 +329,24 @@ def _project_decidable_hitl(
                 ),
                 {},
             )
-            visible.append(
-                {
-                    "id": run.id,
-                    "system_id": run.system_id,
-                    "capability_id": run.capability_id,
-                    "status": run.status,
-                    "started_at": run.started_at.isoformat() if run.started_at else None,
-                    "hitl": {
-                        "node_id": checkpoint.get("node_id"),
-                        "prompt": checkpoint.get("prompt"),
-                        "decision_id": checkpoint.get("decision_id"),
-                        "decision_title": checkpoint.get("decision_title"),
-                        "decision_status": decision_status.get(checkpoint.get("decision_id")),
-                        "expires_at": checkpoint.get("expires_at"),
-                    },
-                }
-            )
+            projected = {
+                "id": run.id,
+                "system_id": run.system_id,
+                "capability_id": run.capability_id,
+                "status": run.status,
+                "started_at": run.started_at.isoformat() if run.started_at else None,
+                "hitl": {
+                    "node_id": checkpoint.get("node_id"),
+                    "prompt": checkpoint.get("prompt"),
+                    "decision_id": checkpoint.get("decision_id"),
+                    "decision_title": checkpoint.get("decision_title"),
+                    "decision_status": decision_status.get(checkpoint.get("decision_id")),
+                    "expires_at": checkpoint.get("expires_at"),
+                },
+            }
+            if include_origin:
+                projected["origin"] = _run_origin(run)
+            visible.append(projected)
             if len(visible) == limit:
                 return
 
@@ -360,6 +370,13 @@ def _project_decidable_hitl(
             resolutions=resolutions,
         )
     return visible
+
+
+def _run_origin(run: Run) -> str | None:
+    ingress = run.input_ref.get("_ingress") if isinstance(run.input_ref, dict) else None
+    adapter = ingress.get("adapter") if isinstance(ingress, dict) else None
+    origin = adapter.get("origin") if isinstance(adapter, dict) else None
+    return origin if isinstance(origin, str) and origin else None
 
 
 def _pending_decisions_payload(
@@ -434,6 +451,239 @@ async def list_work_apps(
         "experiences": experiences,
         "automation_jobs": jobs,
     }
+
+
+HOME_WINDOW_DAYS = 7
+HOME_ITEMS_LIMIT = 10
+HOME_AGENT_WORK_LIMIT = 5
+HOME_REVIEWS_SCAN = 200
+
+
+def _iso(value: Optional[datetime]) -> Optional[str]:
+    return value.isoformat() if value else None
+
+
+def _can_review(db: DBSession, *, workspace: Workspace, user: User) -> bool:
+    """Same boundary as the review queue: reviewer or admin, never a plain member."""
+    from app.api.v1.endpoints.evaluation import _require_review_queue_access
+
+    try:
+        _require_review_queue_access(db, workspace=workspace, user=user)
+    except HTTPException:
+        return False
+    return True
+
+
+def _home_reviews(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    user: User,
+    source_for_run: Any,
+) -> Optional[dict[str, Any]]:
+    """Proposed review items this reader may open; ``None`` when they cannot review."""
+    if not _can_review(db, workspace=workspace, user=user):
+        return None
+    decisions = (
+        db.query(Decision)
+        .filter(
+            Decision.workspace_id == workspace.id,
+            Decision.kind == "review_required",
+            Decision.status == "proposed",
+        )
+        .order_by(Decision.created_at.asc())
+        .limit(HOME_REVIEWS_SCAN)
+        .all()
+    )
+    run_ids = [item.target_id for item in decisions if item.target_id]
+    runs = (
+        db.query(Run).filter(Run.id.in_(run_ids), Run.workspace_id == workspace.id).all()
+        if run_ids
+        else []
+    )
+    readable = {run.id: run for run in readable_runs(db, runs=runs, user=user, workspace=workspace)}
+    items: list[dict[str, Any]] = []
+    for decision in decisions:
+        run = readable.get(decision.target_id) if decision.target_id else None
+        if run is None:
+            continue
+        items.append(
+            {
+                "decision_id": decision.id,
+                "run_id": run.id,
+                "title": decision.title,
+                "created_at": _iso(decision.created_at),
+                "source": source_for_run(run),
+            }
+        )
+    return {
+        "count": len(items),
+        "oldest_at": items[0]["created_at"] if items else None,
+        "items": items[:HOME_ITEMS_LIMIT],
+    }
+
+
+@router.get("/_home")
+async def work_home(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """L33 — the business home: what waits for this reader, what agents did this week.
+
+    Composes the catalogue this reader may open, one decidable-pause projection
+    across all of it (same rights filter as each app's validations), the review
+    queue when the reader may review, and the week's completed agent work.
+    ``_home`` cannot collide with an app slug (slugs start with a letter).
+    """
+    _require_enabled(workspace)
+    _enforce_consume(db, user=user, workspace=workspace)
+    role, groups = _viewer_claims(db, user=user, workspace=workspace)
+    rows = experience_service.list_work(
+        db, workspace_id=workspace.id, role=role, groups=groups
+    )
+    by_origin: dict[str, dict[str, Any]] = {}
+    by_system: dict[str, dict[str, Any]] = {}
+    for experience, _deployment, release in rows:
+        try:
+            identity = experience_service.release_identity(release)
+            slug, name = identity["slug"], identity.get("name") or experience.name
+        except experience_service.ExperienceError:
+            slug, name = experience.slug, experience.name
+        source = {"kind": "app", "slug": slug, "name": name}
+        by_origin[f"experience:{slug}"] = source
+        for system_id in experience_service.binding_system_ids_from_release(release):
+            by_system.setdefault(system_id, source)
+    jobs = automation_portfolio.list_job_explanations(db, workspace, user)
+    automations: dict[str, dict[str, Any]] = {}
+    for card in jobs:
+        system_id = str(card.get("job", {}).get("system_id") or "")
+        if not system_id:
+            continue
+        name = (card.get("job", {}).get("name") or "").strip() or system_id
+        automations[system_id] = {"kind": "automation", "system_id": system_id, "name": name}
+
+    def source_for(origin: Optional[str], system_id: Optional[str]) -> Optional[dict[str, Any]]:
+        if origin and origin in by_origin:
+            return by_origin[origin]
+        if system_id and system_id in by_system:
+            return by_system[system_id]
+        if system_id and system_id in automations:
+            return automations[system_id]
+        return None
+
+    def source_for_run(run: Run) -> Optional[dict[str, Any]]:
+        return source_for(_run_origin(run), str(run.system_id) if run.system_id else None)
+
+    # 1. Decisions — one projection across every app and automation.
+    pauses = _project_decidable_hitl(
+        db,
+        workspace=workspace,
+        user=user,
+        origins=frozenset(by_origin),
+        bound_system_ids=frozenset(by_system) | frozenset(automations),
+        limit=100,
+        emit_shadow=False,
+        include_origin=True,
+    )
+    decisions = []
+    for pause in pauses:
+        hitl = pause.get("hitl") or {}
+        decisions.append(
+            {
+                "run_id": pause["id"],
+                "decision_id": hitl.get("decision_id"),
+                "title": hitl.get("decision_title") or hitl.get("prompt") or None,
+                "started_at": pause.get("started_at"),
+                "source": source_for(pause.get("origin"), pause.get("system_id")),
+            }
+        )
+    decisions.sort(key=lambda item: (item["started_at"] is None, item["started_at"] or ""))
+
+    # 2. Reviews — only for a reader the review queue admits.
+    reviews = _home_reviews(db, workspace=workspace, user=user, source_for_run=source_for_run)
+
+    # 3. The week's completed agent work, in Work apps and automations only.
+    since = datetime.utcnow() - timedelta(days=HOME_WINDOW_DAYS)
+    scope: list[Any] = []
+    if by_origin:
+        scope.append(
+            Run.input_ref["_ingress"]["adapter"]["origin"].as_string().in_(sorted(by_origin))
+        )
+    if automations:
+        scope.append(Run.system_id.in_(sorted(automations)))
+    recent: list[Run] = []
+    if scope:
+        recent = readable_run_page(
+            db,
+            query=db.query(Run)
+            .filter(
+                Run.workspace_id == workspace.id,
+                Run.status == "completed",
+                Run.completed_at.isnot(None),
+                Run.completed_at >= since,
+                or_(Run.execution_surface.is_(None), Run.execution_surface != "golden_preview"),
+                or_(*scope),
+            )
+            .order_by(Run.completed_at.desc()),
+            limit=HOME_AGENT_WORK_LIMIT,
+            user=user,
+            workspace=workspace,
+        )
+    calls: dict[str, list[SkillInvocation]] = {}
+    if recent:
+        for invocation in (
+            db.query(SkillInvocation)
+            .filter(SkillInvocation.run_id.in_([run.id for run in recent]))
+            .all()
+        ):
+            calls.setdefault(invocation.run_id, []).append(invocation)
+    agent_work = [
+        {
+            "run_id": run.id,
+            "completed_at": _iso(run.completed_at),
+            "source": source_for_run(run),
+            "receipt": run_receipt(run, calls.get(run.id, [])),
+        }
+        for run in recent
+    ]
+
+    # 4. New results — an automation's work finished since it was last opened.
+    results = []
+    for item, run in zip(agent_work, recent):
+        source = item["source"]
+        if not source or source.get("kind") != "automation":
+            continue
+        opened = experience_service.read_work_last_opened(
+            workspace,
+            experience_service.work_last_opened_key(kind="automation", app_id=source["system_id"]),
+        )
+        opened_at = _checkpoint_stamp(opened)
+        if opened_at is not None and run.completed_at and run.completed_at <= opened_at:
+            continue
+        results.append(item)
+
+    return {
+        "window_days": HOME_WINDOW_DAYS,
+        "decisions": {
+            "count": len(decisions),
+            "oldest_at": decisions[0]["started_at"] if decisions else None,
+            "items": decisions[:HOME_ITEMS_LIMIT],
+        },
+        "reviews": reviews,
+        "results": {"items": results[:HOME_ITEMS_LIMIT]},
+        "agent_work": {"items": agent_work},
+    }
+
+
+def _checkpoint_stamp(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    raw = value[:-1] if value.endswith("Z") else value
+    try:
+        return datetime.fromisoformat(raw).replace(tzinfo=None)
+    except ValueError:
+        return None
 
 
 @router.get("/automation-jobs/{system_id}")

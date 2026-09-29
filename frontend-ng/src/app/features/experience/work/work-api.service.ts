@@ -5,6 +5,7 @@ import { catchError, map } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
 import type { WorkCatalogItem, WorkResolve, SystemLinkedWorkApp, PendingDecisions } from './work-catalog';
+import type { WorkHome } from './work-home.vm';
 
 export type WorkResolveResult =
   | { kind: 'ok'; body: WorkResolve }
@@ -29,6 +30,10 @@ export type SystemWorkAppsResult =
   | { kind: 'ok'; apps: SystemLinkedWorkApp[] }
   | { kind: 'unavailable' };
 
+export type WorkHomeResult =
+  | { kind: 'ok'; body: WorkHome }
+  | { kind: 'unavailable' };
+
 export type WorkValidationsResult =
   | { kind: 'ok'; items: Run[] }
   | { kind: 'unavailable' };
@@ -47,6 +52,19 @@ export class WorkApiService {
       })),
       catchError(() => of({ kind: 'unavailable' as const })),
     );
+  }
+
+  /** L33 — what waits for this reader and what agents did this week. */
+  home(): Observable<WorkHomeResult> {
+    return this.api.get<WorkHome>('/work/_home').pipe(
+      map((body) => ({ kind: 'ok' as const, body: body ?? {} })),
+      catchError(() => of({ kind: 'unavailable' as const })),
+    );
+  }
+
+  /** One Run, for a receipt line; unreadable → null and the line is omitted. */
+  run(id: string): Observable<Run | null> {
+    return this.canonical.getRun(id).pipe(catchError(() => of(null)));
   }
 
   listSystemWorkApps(systemId: string): Observable<SystemWorkAppsResult> {
