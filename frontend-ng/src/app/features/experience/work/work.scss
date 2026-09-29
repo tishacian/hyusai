@@ -112,9 +112,7 @@
 
 .xp-work-brand-line > span:last-child {
   color: var(--ck-fg-3);
-  font-size: 12px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: 13px;
 }
 
 .xp-work-logo,
@@ -550,6 +548,32 @@
 
   .xp-work-nav {
     order: 3;
+  }
+
+  /* The global bar keeps 48px on desktop; on a phone its controls wrap
+     onto extra rows instead of spilling over the page below. */
+  .xp-work-bar.xp-work-global-bar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    height: auto;
+    max-height: none;
+    padding: 8px 16px;
+    row-gap: 8px;
+  }
+
+  .xp-work-global-bar .xp-work-actions {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .xp-work-global-bar .xp-work-creator {
+    max-width: 100%;
+  }
+
+  .xp-work-global-bar .xp-work-search {
+    flex: 1 1 100%;
   }
 }
 
