@@ -86,10 +86,27 @@ async def get_member_experience(
         if created:
             member.experience_progress = progress.model_dump(mode="json")
         db.commit()
+    return _experience_payload(db, workspace, member, progress)
+
+
+def _experience_payload(db: DBSession, workspace: Workspace, member: WorkspaceMember, progress) -> dict:
+    """The member's progress for the journey this workspace offers, and whether it can run.
+
+    Showcase keeps the NorthForge example (available once its corpus is
+    indexed); every other workspace walks its own collections, available only
+    when the member can read or fill one of them. Never a Showcase redirect.
+    """
     from app.models.knowledge_collection import KnowledgeCollection
-    available = workspace.slug == "agentium-showcase" and db.query(KnowledgeCollection).filter_by(
+    from app.schemas.adoption import SHOWCASE_WORKSPACE_SLUG, for_journey, journey_for_workspace
+    journey = journey_for_workspace(workspace.slug)
+    progress = for_journey(progress.model_dump(mode="json"), journey)
+    example_available = workspace.slug == SHOWCASE_WORKSPACE_SLUG and db.query(KnowledgeCollection).filter_by(
         workspace_id=workspace.id, slug="agentium-showcase-notices", status="ready").filter(KnowledgeCollection.document_count > 0, KnowledgeCollection.chunk_count > 0).first() is not None
-    return {**progress.model_dump(mode="json"), "example_available": available}
+    payload = {**progress.model_dump(mode="json"), "example_available": example_available}
+    if journey == "northforge_sources":
+        return {**payload, "available": example_available}
+    from app.services.adoption_sources import member_sources
+    return {**payload, **member_sources(db, workspace=workspace, member=member, chosen_collection_id=progress.collection_id)}
 
 
 @router.patch("/workspaces/{slug}/me/experience")
@@ -111,7 +128,15 @@ async def update_member_experience(
         run = db.query(Run).filter_by(id=body.run_id, workspace_id=workspace.id, initiated_by_user_id=user.id).first()
         if run is None or not run_is_visible(db, run=run, user=user, workspace=workspace):
             raise HTTPException(404, "Run unavailable")
-    progress = update_progress(member.experience_progress or {}, body)
+    if body.collection_id:
+        from app.services.adoption_sources import usable_collection
+        if usable_collection(db, workspace=workspace, member=member, collection_id=body.collection_id) is None:
+            raise HTTPException(404, "Source unavailable")
+    from app.schemas.adoption import journey_for_workspace
+    try:
+        progress = update_progress(member.experience_progress or {}, body, journey_for_workspace(workspace.slug))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     # JSON mode: ``first_seen_at`` is a datetime and the column is plain JSON.
     member.experience_progress = progress.model_dump(mode="json")
     emit_audit_event(
