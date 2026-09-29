@@ -257,3 +257,29 @@ test('overlay template keeps Historique link and retainContent (no destroy-on-cl
   assert.match(panel, /retainContent/);
   assert.match(panel, /open \|\| retainContent/);
 });
+
+test('L31 · overlay thread: no band above the question, documents from the composer, French voice controls', () => {
+  const read = (file: string) => readFileSync(join(process.cwd(), file), 'utf8');
+  const workspace = read('src/app/features/chat/chat-workspace.component.ts');
+  // The header band (context picker) and the session-docs sidebar step aside in the thread.
+  assert.match(workspace, /@if \(!threadChrome\(\)\) \{\s*<header class="t-header">/);
+  assert.match(workspace, /@if \(!threadChrome\(\) && chatUploadEnabled\(\)/);
+  // Same accessible name as the old band, a real toggle, and a labelled file input.
+  assert.match(workspace, /data-testid="chat-thread-attach"[\s\S]*?\[attr\.aria-label\]="i18n\.t\('chat\.workspace\.session_docs'\)"[\s\S]*?\[attr\.aria-expanded\]="dropOpen\(\)"/);
+  assert.match(workspace, /type="file"[\s\S]*?\[attr\.aria-label\]="i18n\.t\('chat\.workspace\.attach_input'\)"/);
+  assert.doesNotMatch(workspace, /\(click\)="fileInput\.click\(\)"/, 'no click-only div opens the picker');
+
+  const panel = read('src/app/features/chat/chat-panel.component.ts');
+  for (const slot of ['threadContextAdvanced', 'threadContextCompact', 'threadAttachPanel', 'threadAttach']) {
+    assert.match(panel, new RegExp(`<ng-content select="\\[${slot}\\]"></ng-content>`), `${slot} has a place in the composer`);
+  }
+  assert.match(panel, /data-testid="chat-thread-links"/, '« Exécutions · Qualité » join the action row');
+
+  const overlay = read('src/app/features/chat/chat-overlay.component.ts');
+  assert.doesNotMatch(overlay, /text-transform:\s*uppercase/, 'Historique and the footer are sentence case');
+
+  const voice = read('src/app/shared/voice/voice-controls.component.ts');
+  for (const english of ['Voice runtime', 'Auto-send final transcript', 'Live context', 'WebRTC required', '>\\s*Batch\\s*<']) {
+    assert.doesNotMatch(voice, new RegExp(english), `${english} comes from the dictionary`);
+  }
+});

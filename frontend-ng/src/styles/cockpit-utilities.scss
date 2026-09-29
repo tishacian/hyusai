@@ -124,6 +124,52 @@
 }
 .ck-btn-accent:hover { border-color: var(--ck-stroke-hot); }
 
+/* Shape for the three colour roles above: sans, sentence case, one size.
+   Tokens v2 — no mono, no capitals, no letter-spacing on an action. */
+.ck-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: var(--ck-radius-sm);
+  font-family: var(--ck-font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+}
+.ck-btn--sm { min-height: 28px; padding: 0 12px; font-size: 12px; }
+.ck-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.ck-btn:focus-visible { outline: 2px solid var(--ck-primary); outline-offset: 2px; }
+
+/* `ck-btn-soft` is referenced by ~70 empty-state actions but was only ever
+   defined locally by two components; everywhere else it rendered as a bare
+   16px browser button. One class of specificity: it beats Tailwind's
+   `button` preflight, while a Tailwind utility on the same element (loaded
+   later) or a component-scoped definition (higher specificity) still wins. */
+.ck-btn-soft {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: var(--ck-radius-sm);
+  background: var(--ck-tint-faint);
+  color: var(--ck-fg-2);
+  font-family: var(--ck-font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.ck-btn-soft:hover:not(:disabled) { background: var(--ck-tint-soft); color: var(--ck-fg-1); }
+.ck-btn-soft:focus-visible { outline: 2px solid var(--ck-primary); outline-offset: 2px; }
+
 /* ---------- Motion ---------- */
 /* The only three movements: a zone home enters, a button is pressed, a
    summary item is hovered. Nothing moves on the rail, the ⌘K palette, or a

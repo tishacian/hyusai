@@ -15,7 +15,7 @@
 
 export const SETTINGS_FR = {
   // === Presets catalog (`/presets`) =================================
-  'presets.list.eyebrow': 'Gouverner · Presets',
+  'presets.list.eyebrow': 'Administrer · Presets',
   'presets.list.title': 'Presets RAG',
   'presets.list.description':
     "Configuration de recherche + génération multi-portée. Le preset le plus spécifique gagne à l'exécution : système > capability > workspace.",
@@ -117,8 +117,8 @@ export const SETTINGS_FR = {
   'presets.toast.resolve.error': 'Échec de la résolution du preset',
 
   // === Preset detail (`/presets/:id`) ===============================
-  'presets.view.eyebrow': 'Gouverner · Preset',
-  'presets.view.eyebrow.scoped': 'Gouverner · Preset · {scope}',
+  'presets.view.eyebrow': 'Administrer · Preset',
+  'presets.view.eyebrow.scoped': 'Administrer · Preset · {scope}',
   'presets.view.title.fallback': 'Preset',
   'presets.view.subtitle.workspace':
     "S'applique à tout le workspace quand aucun preset de capability ou de système ne correspond.",
@@ -277,7 +277,7 @@ export const SETTINGS_FR = {
  */
 export const SETTINGS_EN: Record<keyof typeof SETTINGS_FR, string> = {
   // === Presets catalog (`/presets`) =================================
-  'presets.list.eyebrow': 'Govern · Presets',
+  'presets.list.eyebrow': 'Administer · Presets',
   'presets.list.title': 'RAG Presets',
   'presets.list.description':
     'Multi-scope retrieval + generation configuration. The most specific preset wins at run time: system > capability > workspace.',
@@ -378,8 +378,8 @@ export const SETTINGS_EN: Record<keyof typeof SETTINGS_FR, string> = {
   'presets.toast.resolve.error': 'Failed to resolve preset',
 
   // === Preset detail (`/presets/:id`) ===============================
-  'presets.view.eyebrow': 'Govern · Preset',
-  'presets.view.eyebrow.scoped': 'Govern · Preset · {scope}',
+  'presets.view.eyebrow': 'Administer · Preset',
+  'presets.view.eyebrow.scoped': 'Administer · Preset · {scope}',
   'presets.view.title.fallback': 'Preset',
   'presets.view.subtitle.workspace':
     'Applies workspace-wide when no capability or system preset matches.',

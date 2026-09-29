@@ -108,6 +108,7 @@ const pureSpecs = [
   'src/app/features/connectors/mcp/mcp-catalog.spec.ts',
   'src/app/features/connectors/mcp/mcp-showcase.spec.ts',
   'src/app/features/systems/system-flow-profile.spec.ts',
+  'src/app/features/systems/systems-grid.vm.spec.ts',
   'src/app/features/hypervisor/hypervisor-impact.spec.ts',
   'src/app/features/hypervisor/hypervisor-value-loop.spec.ts',
   'src/app/features/hypervisor/v2/hypervisor-v2-series.spec.ts',

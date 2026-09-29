@@ -47,7 +47,7 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
                 >{{ title }}</h1>
                 <ng-content select="[titleHelp]"></ng-content>
                 @if (status) {
-                  <span class="ck-mono" [style.fontSize.px]="10" [style.letterSpacing]="'0.14em'" [style.textTransform]="'uppercase'" [style.color]="'var(--ck-fg-4)'">{{ status }}</span>
+                  <span class="ck-tnum" data-testid="page-frame-status" [style.fontSize.px]="12" [style.color]="'var(--ck-fg-3)'">{{ status }}</span>
                 }
               </div>
               @if (description) {

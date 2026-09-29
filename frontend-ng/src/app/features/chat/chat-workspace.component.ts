@@ -9,6 +9,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { NgTemplateOutlet } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { ZoomContextService } from '@app/core/zoom-context.service';
@@ -27,6 +28,7 @@ import { TagComponent } from '@app/shared/cockpit';
 import { ChatPanelComponent } from './chat-panel.component';
 import { ThinkingOrbComponent } from '@app/shared/cockpit';
 import { type ChatStartMode, ChatOverlayService } from './chat-overlay.service';
+import { advancedBehindComposer } from './chat-proof';
 
 /**
  * Shape of the docmeta payload returned by
@@ -95,10 +97,13 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
   selector: 'app-chat-workspace',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, TagComponent, ChatPanelComponent, ThinkingOrbComponent],
+  imports: [FormsModule, NgTemplateOutlet, IconComponent, TagComponent, ChatPanelComponent, ThinkingOrbComponent],
   template: `
     <div class="t-shell" [class.t-inline]="inline()" [class.t-executive-shell]="executiveAssistant()">
-      <!-- Header — system picker + mode badge -->
+      <!-- Header — system picker + mode badge. L31: in the overlay thread the
+           context picker moves to the composer (« Avancé », or a compact
+           control for builders), so no band sits above the question. -->
+      @if (!threadChrome()) {
       <header class="t-header">
         @if (businessSurface()) {
           <div class="t-header-left">
@@ -178,11 +183,12 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
           </div>
         }
       </header>
+      }
 
       <!-- Body: two-column (side panel in inline mode, full split in full-screen) -->
       <div class="t-body">
         <!-- Drop-and-ask sidebar -->
-        @if (chatUploadEnabled() && (!executiveAssistant() || startMode() === 'drop' || sessionDocs().length > 0)) {
+        @if (!threadChrome() && chatUploadEnabled() && (!executiveAssistant() || startMode() === 'drop' || sessionDocs().length > 0)) {
         <aside class="t-sidebar" [class.t-sidebar-collapsed]="!dropOpen() && inline()">
           <div class="t-sidebar-head">
             <span class="ck-mono t-sidebar-eyebrow">
@@ -207,128 +213,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
           </div>
 
           @if (dropOpen() || !inline()) {
-            <!-- Dropzone -->
-            <div
-              class="t-dropzone"
-              [class.t-dropzone-hot]="dragging()"
-              (dragover)="onDragOver($event)"
-              (dragleave)="onDragLeave($event)"
-              (drop)="onDrop($event)"
-              (click)="fileInput.click()"
-            >
-              <input
-                #fileInput
-                type="file"
-                multiple
-                class="t-file-input"
-                (change)="onFileSelect($event)"
-                accept=".pdf,.txt,.md,.docx,.csv,.json,.xlsx,.xlsm,.xltx,.xltm,.png,.jpg,.jpeg,.tif,.tiff,.webp"
-              />
-              <div class="t-drop-icon">
-                <app-icon name="cloud-upload" [size]="18" />
-              </div>
-              <div class="t-drop-text">
-                {{ i18n.t('chat.workspace.drop_files') }} <span class="t-drop-accent">{{ i18n.t('chat.workspace.or_click') }}</span>
-              </div>
-              <div class="t-drop-hint">PDF · DOCX · XLSX · CSV · TXT · MD · JSON</div>
-              @if (uploading()) {
-                <div class="t-drop-progress">
-                  <ck-thinking-orb state="shaping" [size]="20" [label]="i18n.t('chat.workspace.indexing')" />
-                  {{ i18n.t('chat.workspace.indexing_count', { count: uploadingCount() }) }}
-                </div>
-              }
-            </div>
-
-            <!-- Attached docs — each entry carries an expandable "Doc facts"
-                 panel populated by GET /documents/{id}/metadata. We render
-                 title + filename, and on docmeta arrival show top keywords
-                 + page/token counts so operators can eyeball retrieval at
-                 a glance without leaving the chat. -->
-            @if (sessionDocs().length > 0) {
-              <div class="t-docs">
-                <div class="t-docs-head">
-                  <span class="ck-mono t-docs-count">
-                    {{ i18n.t(sessionDocs().length === 1 ? 'chat.workspace.files_one' : 'chat.workspace.files_many', { count: sessionDocs().length }) }}
-                  </span>
-                  @if (ephemeralContextId()) {
-                    <button
-                      type="button"
-                      class="t-persist-btn"
-                      (click)="persistContext()"
-                      [disabled]="persisting()"
-                      [title]="i18n.t('chat.persist.hint')"
-                    >
-                      <app-icon [name]="persisting() ? 'loader-2' : 'save'" [size]="11" [class.animate-spin]="persisting()" />
-                      {{ i18n.t('chat.persist') }}
-                    </button>
-                  }
-                </div>
-                <ul class="t-docs-list">
-                  @for (d of sessionDocs(); track (d.id || d.filename)) {
-                    <li class="t-doc-item">
-                      <div class="t-doc-row">
-                        <app-icon name="file-text" [size]="11" />
-                        <span class="t-doc-name" [title]="displayTitle(d)">
-                          {{ displayTitle(d) }}
-                        </span>
-                        @if (d.metaLoading) {
-                          <app-icon name="loader-2" [size]="10" class="animate-spin t-doc-spin" />
-                        }
-                        <button
-                          type="button"
-                          class="t-doc-remove"
-                          (click)="detachSessionDoc(d)"
-                          [disabled]="detachingDocKey() === docKey(d)"
-                          [title]="i18n.t('chat.workspace.remove_doc', { name: displayTitle(d) })"
-                          [attr.aria-label]="i18n.t('chat.workspace.remove_doc', { name: displayTitle(d) })"
-                        >
-                          <app-icon [name]="detachingDocKey() === docKey(d) ? 'loader-2' : 'x'" [size]="10" [class.animate-spin]="detachingDocKey() === docKey(d)" />
-                        </button>
-                      </div>
-                      @if (d.meta) {
-                        <div class="t-doc-facts">
-                          <!-- Counts line: pages · tokens · chunks. We keep
-                               it glyph-free (the icon registry curates only
-                               the icons shipped with the app bundle) and
-                               rely on labels + mono font for scannability. -->
-                          <div class="t-doc-stats">
-                            @if (pageCount(d); as p) {
-                              <span class="t-doc-stat">
-                                {{ i18n.t(p === 1 ? 'chat.workspace.pages_one' : 'chat.workspace.pages_many', { count: p }) }}
-                              </span>
-                            }
-                            @if (d.meta.document_token_count !== undefined) {
-                              <span class="t-doc-stat">
-                                {{ i18n.t('chat.workspace.tokens', { count: formatTokens(d.meta.document_token_count) }) }}
-                              </span>
-                            }
-                            @if (d.meta.chunks_count !== undefined && d.meta.chunks_count !== null) {
-                              <span class="t-doc-stat">
-                                {{ i18n.t('chat.workspace.chunks', { count: d.meta.chunks_count }) }}
-                              </span>
-                            }
-                          </div>
-                          @if (d.meta.document_author) {
-                            <div class="t-doc-author">{{ i18n.t('chat.workspace.by_author', { name: d.meta.document_author }) }}</div>
-                          }
-                          @if (topKeywords(d).length > 0) {
-                            <div class="t-doc-keywords">
-                              @for (kw of topKeywords(d); track kw) {
-                                <span class="t-doc-kw">{{ kw }}</span>
-                              }
-                            </div>
-                          }
-                        </div>
-                      }
-                    </li>
-                  }
-                </ul>
-              </div>
-            } @else {
-              <div class="t-empty-hint">
-                {{ i18n.t('chat.workspace.no_docs') }}
-              </div>
-            }
+            <ng-container [ngTemplateOutlet]="sessionDocsBody"></ng-container>
           }
         </aside>
         }
@@ -344,10 +229,221 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
             [autoStartVoiceLoop]="autoStartVoiceLoop()"
             [resumeSessionId]="resumeSessionId()"
             [proofThread]="proofThread()"
-          />
+          >
+            <!-- L31 · overlay thread: the panel places each slot; a slot left
+                 empty here renders nothing there. -->
+            <div threadContextAdvanced class="t-thread-slot">
+              @if (threadChrome() && !threadBuilder()) {
+                <ng-container [ngTemplateOutlet]="contextControl"></ng-container>
+              }
+            </div>
+            <div threadContextCompact class="t-thread-slot">
+              @if (threadChrome() && threadBuilder()) {
+                <ng-container [ngTemplateOutlet]="contextControl"></ng-container>
+              }
+            </div>
+            <div threadAttachPanel class="t-thread-slot">
+              @if (threadChrome() && chatUploadEnabled() && dropOpen()) {
+                <div
+                  class="t-attach-panel"
+                  role="region"
+                  [id]="attachPanelId"
+                  data-testid="chat-thread-attach-panel"
+                  [attr.aria-label]="i18n.t('chat.workspace.session_docs')"
+                >
+                  <ng-container [ngTemplateOutlet]="sessionDocsBody"></ng-container>
+                </div>
+              }
+            </div>
+            <div threadAttach class="t-thread-slot">
+              @if (threadChrome() && chatUploadEnabled()) {
+                <button
+                  type="button"
+                  class="t-attach"
+                  data-testid="chat-thread-attach"
+                  [class.t-attach-open]="dropOpen()"
+                  [attr.aria-label]="i18n.t('chat.workspace.session_docs')"
+                  [attr.aria-expanded]="dropOpen()"
+                  [attr.aria-controls]="dropOpen() ? attachPanelId : null"
+                  [attr.aria-describedby]="sessionDocs().length ? attachCountId : null"
+                  [title]="i18n.t('chat.workspace.session_docs_hint')"
+                  (click)="dropOpen.set(!dropOpen())"
+                >
+                  <app-icon [name]="uploading() ? 'loader-2' : 'file-plus'" [size]="15" [class.animate-spin]="uploading()" />
+                  @if (sessionDocs().length) {
+                    <span class="t-attach-count" aria-hidden="true">{{ sessionDocs().length }}</span>
+                    <span class="t-vh" [id]="attachCountId">{{ i18n.t(sessionDocs().length === 1 ? 'chat.workspace.files_one' : 'chat.workspace.files_many', { count: sessionDocs().length }) }}</span>
+                  }
+                </button>
+              }
+            </div>
+          </app-chat-panel>
         </section>
       </div>
     </div>
+
+    <!-- Context picker: header band on full pages, composer in the overlay. -->
+    <ng-template #contextControl>
+      <div class="t-thread-context" data-testid="chat-thread-context">
+        <label class="t-thread-context-label" [for]="contextSelectId">{{ i18n.t('chat.workspace.context_label') }}</label>
+        <div class="t-picker-wrap t-thread-picker-wrap">
+          <select
+            class="t-picker"
+            [id]="contextSelectId"
+            [title]="i18n.t('chat.workspace.context_hint')"
+            [ngModel]="selectedSystemId()"
+            (ngModelChange)="onSystemChange($event)"
+          >
+            <option [ngValue]="null">{{ i18n.t('chat.workspace.mode.quick_ask') }}</option>
+            @for (s of systems(); track s.id) {
+              <option [ngValue]="s.id">{{ s.name }}</option>
+            }
+          </select>
+          <app-icon name="chevron-down" [size]="12" class="t-picker-chevron" />
+        </div>
+        @if (flowBuilderSystemId()) {
+          <button
+            type="button"
+            class="t-flow-link"
+            (click)="openFlowBuilder()"
+            [title]="i18n.t('chat.workspace.open_flow_builder')"
+          >
+            <app-icon name="workflow" [size]="13" />
+            Flow
+          </button>
+        }
+      </div>
+    </ng-template>
+
+    <!-- Dropzone and attached documents: sidebar on full pages, attach panel
+         above the composer in the overlay thread. -->
+    <ng-template #sessionDocsBody>
+        <!-- Dropzone -->
+        <div
+          class="t-dropzone"
+          [class.t-dropzone-hot]="dragging()"
+          (dragover)="onDragOver($event)"
+          (dragleave)="onDragLeave($event)"
+          (drop)="onDrop($event)"
+        >
+          <input
+            [id]="fileInputId"
+            type="file"
+            multiple
+            class="t-file-input"
+            data-testid="chat-session-file-input"
+            [attr.aria-label]="i18n.t('chat.workspace.attach_input')"
+            (change)="onFileSelect($event)"
+            accept=".pdf,.txt,.md,.docx,.csv,.json,.xlsx,.xlsm,.xltx,.xltm,.png,.jpg,.jpeg,.tif,.tiff,.webp"
+          />
+          <label class="t-drop-label" [for]="fileInputId">
+            <span class="t-drop-icon">
+              <app-icon name="cloud-upload" [size]="18" />
+            </span>
+            <span class="t-drop-text">
+              {{ i18n.t('chat.workspace.drop_files') }} <span class="t-drop-accent">{{ i18n.t('chat.workspace.or_click') }}</span>
+            </span>
+            <span class="t-drop-hint">PDF · DOCX · XLSX · CSV · TXT · MD · JSON</span>
+          </label>
+          @if (uploading()) {
+            <div class="t-drop-progress">
+              <ck-thinking-orb state="shaping" [size]="20" [label]="i18n.t('chat.workspace.indexing')" />
+              {{ i18n.t('chat.workspace.indexing_count', { count: uploadingCount() }) }}
+            </div>
+          }
+        </div>
+
+        <!-- Attached docs — each entry carries an expandable "Doc facts"
+             panel populated by GET /documents/{id}/metadata. We render
+             title + filename, and on docmeta arrival show top keywords
+             + page/token counts so operators can eyeball retrieval at
+             a glance without leaving the chat. -->
+        @if (sessionDocs().length > 0) {
+          <div class="t-docs">
+            <div class="t-docs-head">
+              <span class="ck-mono t-docs-count">
+                {{ i18n.t(sessionDocs().length === 1 ? 'chat.workspace.files_one' : 'chat.workspace.files_many', { count: sessionDocs().length }) }}
+              </span>
+              @if (ephemeralContextId()) {
+                <button
+                  type="button"
+                  class="t-persist-btn"
+                  (click)="persistContext()"
+                  [disabled]="persisting()"
+                  [title]="i18n.t('chat.persist.hint')"
+                >
+                  <app-icon [name]="persisting() ? 'loader-2' : 'save'" [size]="11" [class.animate-spin]="persisting()" />
+                  {{ i18n.t('chat.persist') }}
+                </button>
+              }
+            </div>
+            <ul class="t-docs-list">
+              @for (d of sessionDocs(); track (d.id || d.filename)) {
+                <li class="t-doc-item">
+                  <div class="t-doc-row">
+                    <app-icon name="file-text" [size]="11" />
+                    <span class="t-doc-name" [title]="displayTitle(d)">
+                      {{ displayTitle(d) }}
+                    </span>
+                    @if (d.metaLoading) {
+                      <app-icon name="loader-2" [size]="10" class="animate-spin t-doc-spin" />
+                    }
+                    <button
+                      type="button"
+                      class="t-doc-remove"
+                      (click)="detachSessionDoc(d)"
+                      [disabled]="detachingDocKey() === docKey(d)"
+                      [title]="i18n.t('chat.workspace.remove_doc', { name: displayTitle(d) })"
+                      [attr.aria-label]="i18n.t('chat.workspace.remove_doc', { name: displayTitle(d) })"
+                    >
+                      <app-icon [name]="detachingDocKey() === docKey(d) ? 'loader-2' : 'x'" [size]="10" [class.animate-spin]="detachingDocKey() === docKey(d)" />
+                    </button>
+                  </div>
+                  @if (d.meta) {
+                    <div class="t-doc-facts">
+                      <!-- Counts line: pages · tokens · chunks. We keep
+                           it glyph-free (the icon registry curates only
+                           the icons shipped with the app bundle) and
+                           rely on labels + mono font for scannability. -->
+                      <div class="t-doc-stats">
+                        @if (pageCount(d); as p) {
+                          <span class="t-doc-stat">
+                            {{ i18n.t(p === 1 ? 'chat.workspace.pages_one' : 'chat.workspace.pages_many', { count: p }) }}
+                          </span>
+                        }
+                        @if (d.meta.document_token_count !== undefined) {
+                          <span class="t-doc-stat">
+                            {{ i18n.t('chat.workspace.tokens', { count: formatTokens(d.meta.document_token_count) }) }}
+                          </span>
+                        }
+                        @if (d.meta.chunks_count !== undefined && d.meta.chunks_count !== null) {
+                          <span class="t-doc-stat">
+                            {{ i18n.t('chat.workspace.chunks', { count: d.meta.chunks_count }) }}
+                          </span>
+                        }
+                      </div>
+                      @if (d.meta.document_author) {
+                        <div class="t-doc-author">{{ i18n.t('chat.workspace.by_author', { name: d.meta.document_author }) }}</div>
+                      }
+                      @if (topKeywords(d).length > 0) {
+                        <div class="t-doc-keywords">
+                          @for (kw of topKeywords(d); track kw) {
+                            <span class="t-doc-kw">{{ kw }}</span>
+                          }
+                        </div>
+                      }
+                    </div>
+                  }
+                </li>
+              }
+            </ul>
+          </div>
+        } @else {
+          <div class="t-empty-hint">
+            {{ i18n.t('chat.workspace.no_docs') }}
+          </div>
+        }
+    </ng-template>
   `,
   styles: [`
     :host {
@@ -607,7 +703,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       position: relative;
       border: 1px dashed var(--ck-stroke-2);
       border-radius: 6px;
-      padding: 14px 12px;
+      padding: 0;
       text-align: center;
       cursor: pointer;
       transition: border-color 120ms, background 120ms;
@@ -621,7 +717,95 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       border-color: var(--ck-signal-cool) !important;
       background: var(--ck-tint-soft) !important;
     }
-    .t-file-input { display: none; }
+    /* Visually hidden, still focusable: Tab reaches it, Space opens the
+       picker, and its label is the whole dropzone. */
+    .t-file-input,
+    .t-vh {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      border: 0;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    .t-drop-label {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 14px 12px;
+      cursor: pointer;
+    }
+    .t-drop-text,
+    .t-drop-hint { display: block; }
+    .t-file-input:focus-visible + .t-drop-label {
+      outline: 2px solid var(--ck-primary);
+      outline-offset: 2px;
+      border-radius: 6px;
+    }
+    /* L31 · overlay thread slots and controls */
+    .t-thread-slot { display: contents; }
+    .t-thread-context {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .t-thread-context-label {
+      color: var(--ck-fg-3);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .t-thread-picker-wrap { min-width: 0; max-width: 280px; flex: 0 1 280px; }
+    .t-thread-picker-wrap .t-picker {
+      min-height: 28px;
+      border: 1px solid var(--ck-stroke-2);
+      border-radius: 4px;
+      font-weight: 500;
+    }
+    .t-attach {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      width: 40px;
+      height: 40px;
+      border: 1px solid var(--ck-stroke-2);
+      border-radius: 12px;
+      background: var(--ck-tint-faint);
+      color: var(--ck-fg-2);
+      cursor: pointer;
+      transition: border-color 120ms ease, background-color 120ms ease;
+    }
+    .t-attach:hover,
+    .t-attach-open { border-color: var(--ck-stroke-hot); color: var(--ck-fg-1); }
+    .t-attach:focus-visible { outline: 2px solid var(--ck-primary); outline-offset: 2px; }
+    .t-attach-count {
+      position: absolute;
+      top: -5px;
+      right: -5px;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      border-radius: 8px;
+      background: var(--ck-primary);
+      color: var(--ck-on-signal);
+      font: 600 10px/16px var(--ck-font-mono);
+      text-align: center;
+    }
+    .t-attach-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 40vh;
+      overflow: auto;
+      padding: 10px 12px;
+      border-top: 1px solid var(--ck-stroke-2);
+    }
     .t-drop-icon {
       display: inline-flex;
       align-items: center;
@@ -880,6 +1064,15 @@ export class ChatWorkspaceComponent implements OnInit {
 
   /** Collapsed state of the dropzone in inline mode (always open full-screen). */
   readonly dropOpen = signal(true);
+  /** L31 · overlay thread: no header band, no sidebar — the composer carries both. */
+  readonly threadChrome = computed(() => this.proofThread() && !this.businessSurface() && !this.executiveAssistant());
+  /** Builders keep a compact context control; everyone else finds it behind « Avancé ». */
+  readonly threadBuilder = computed(() => !advancedBehindComposer(true, this.workspace.mode()));
+  private readonly uid = Math.random().toString(36).slice(2, 10);
+  readonly fileInputId = `chat-session-files-${this.uid}`;
+  readonly contextSelectId = `chat-context-${this.uid}`;
+  readonly attachPanelId = `chat-attach-panel-${this.uid}`;
+  readonly attachCountId = `chat-attach-count-${this.uid}`;
 
   readonly activeAssistantProfile = computed<Record<string, unknown> | null>(() => {
     const key = this.assistantProfileKey() || this.workspace.current()?.settings?.['assistant_profile_default'];
