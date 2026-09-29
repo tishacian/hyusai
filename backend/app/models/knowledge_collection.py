@@ -53,6 +53,7 @@ class KnowledgeCollection(Base):
     status = Column(String(32), nullable=False, default="created", server_default="created")
 
     document_names = Column(JSON, nullable=False, default=list)
+    access = Column(JSON, nullable=True)
     vector_collection_name = Column(String(255), nullable=False)
     artifact_prefix = Column(Text, nullable=False)
 

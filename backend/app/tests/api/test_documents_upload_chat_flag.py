@@ -14,10 +14,20 @@ from fastapi.testclient import TestClient
 from app.api.v1.endpoints import documents
 from app.core.config import settings
 from app.models.user import User
-from app.models.workspace import Workspace
+from app.models.workspace import Workspace, WorkspaceMember
 
 
 def _client(db_session, workspace: Workspace, user: User) -> TestClient:
+    # Uploading needs a writing member since L35 (viewers and non-members never write).
+    db_session.add(
+        WorkspaceMember(
+            user_id=user.id,
+            workspace_id=workspace.id,
+            role="member",
+            role_template="workspace_contributor",
+        )
+    )
+    db_session.commit()
     app = FastAPI()
     app.include_router(documents.router, prefix="/documents")
     app.dependency_overrides[documents.get_current_workspace] = lambda: workspace

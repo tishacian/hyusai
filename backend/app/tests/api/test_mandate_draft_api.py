@@ -33,6 +33,14 @@ def clean_policy_fixture(db_session):
 
 def seed(db):
     workspace, user, system = _seed(db)
+    if not db.query(WorkspaceMember).filter_by(user_id=user.id, workspace_id=workspace.id).first():
+        db.add(WorkspaceMember(
+            user_id=user.id,
+            workspace_id=workspace.id,
+            role="admin",
+            role_template="workspace_admin",
+        ))
+        db.commit()
     app = FastAPI()
     app.include_router(mandates.router)
     app.include_router(endpoint.router, prefix="/systems")
@@ -146,7 +154,9 @@ def test_read_has_no_mutation_and_scope_permissions_do_not_follow_editor_prefere
     assert before["permissions"]["can_edit"]
     assert before["draft"]["policy_binding"] == "frozen" and before["draft"]["spec_is_seed"] is True
     user.role = "user"
-    db_session.add(WorkspaceMember(user_id=user.id, workspace_id=workspace.id, role="viewer", role_template="workspace_viewer"))
+    membership = db_session.query(WorkspaceMember).filter_by(user_id=user.id, workspace_id=workspace.id).one()
+    membership.role = "viewer"
+    membership.role_template = "workspace_viewer"
     db_session.commit()
     def deny(*args, **kwargs):
         raise HTTPException(403, "Canonical System administration denied")

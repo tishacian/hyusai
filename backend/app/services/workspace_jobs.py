@@ -150,6 +150,15 @@ def transition_job(
     return job
 
 
+def _public_input_ref(input_ref: Any) -> dict[str, Any]:
+    """Hide the signed member identity a Deep retrieval request carries."""
+    value = dict(input_ref or {})
+    request = value.get("request")
+    if isinstance(request, dict) and "collection_identity" in request:
+        value["request"] = {key: item for key, item in request.items() if key != "collection_identity"}
+    return value
+
+
 def serialize_job(job: WorkspaceJob) -> dict[str, Any]:
     return {
         "id": job.id,
@@ -166,7 +175,7 @@ def serialize_job(job: WorkspaceJob) -> dict[str, Any]:
         "progress": job.progress,
         "stage": job.stage,
         "error": job.error,
-        "input_ref": job.input_ref or {},
+        "input_ref": _public_input_ref(job.input_ref),
         "result": job.result or {},
         "events": job.events or [],
         "created_at": job.created_at.isoformat() if job.created_at else None,

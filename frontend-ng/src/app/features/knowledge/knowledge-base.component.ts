@@ -11,6 +11,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { HttpClient } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
+import { WorkspaceService, type WorkspaceMemberDetail } from '@app/core/workspace.service';
 import { NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import {
@@ -22,23 +23,52 @@ import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
 import { DrawerComponent } from '@app/shared/ui/drawer.component';
 import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
 import { collectionIndexPresentation } from './knowledge-facets';
+import {
+  ACCESS_ROLE_TEMPLATES,
+  accessFormErrors,
+  canGrant,
+  formFromPolicy,
+  isGranted,
+  policyFromForm,
+  samePolicy,
+  setMode,
+  togglePrincipal,
+  type AccessAction,
+  type AccessMode,
+  type CollectionAccessForm,
+  type CollectionAccessPolicy,
+} from './collection-access-form';
 
 interface CollectionInfo {
+  id?: string;
   slug: string;
   name: string;
   chunks: number;
   docs: number;
   status?: string;
   loading?: boolean;
+  access?: CollectionAccess | null;
+  permissions?: CollectionPermissions;
 }
 
 interface CollectionItemPayload {
+  id?: string;
   slug?: string;
   name?: string;
   document_count?: number;
   source_count?: number;
   chunk_count?: number;
   status?: string;
+  access?: CollectionAccess | null;
+  permissions?: CollectionPermissions;
+}
+
+type CollectionAccess = CollectionAccessPolicy;
+
+interface CollectionPermissions {
+  can_read?: boolean;
+  can_write?: boolean;
+  can_manage?: boolean;
 }
 
 interface CollectionsPayload {
@@ -122,43 +152,46 @@ interface SearchResult {
       >
         <app-icon name="folder-plus" [size]="14" /> {{ i18n.t('knowledge.collections.new') }}
       </button>
-      <button
-        actions
-        type="button"
-        (click)="openFilePicker(fileInput)"
-        [class.opacity-50]="collectionsError()"
-        [class.cursor-not-allowed]="collectionsError()"
-        [disabled]="!!collectionsError()"
-        class="ck-btn-primary inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
-      >
-        <app-icon name="cloud-upload" [size]="14" /> {{ i18n.t('knowledge.header.upload') }}
-      </button>
+      @if (canUpload()) {
+        <button
+          actions
+          type="button"
+          (click)="openFilePicker(fileInput)"
+          [class.opacity-50]="collectionsError()"
+          [class.cursor-not-allowed]="collectionsError()"
+          [disabled]="!!collectionsError()"
+          class="ck-btn-primary inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
+        >
+          <app-icon name="cloud-upload" [size]="14" /> {{ i18n.t('knowledge.header.upload') }}
+        </button>
+      }
     </ck-object-header>
 
     <!-- Dropzone -->
-    <div
-      class="relative rounded-md p-8 text-center mb-6 transition-colors group"
-      [class.border-2]="true"
-      [class.border-dashed]="true"
-      [class.ck-drop-idle]="!dragging()"
-      [class.ck-drop-active]="dragging()"
-      [class.cursor-pointer]="!collectionsError()"
-      [class.cursor-not-allowed]="collectionsError()"
-      [class.opacity-60]="collectionsError()"
-      (dragover)="onDragOver($event)"
-      (dragleave)="onDragLeave($event)"
-      (drop)="onDrop($event)"
-      (click)="openFilePicker(fileInput)"
-    >
-      <input
-        #fileInput
-        type="file"
-        multiple
-        class="hidden"
-        [disabled]="!!collectionsError()"
-        (change)="onFileSelect($event)"
-        accept=".pdf,.txt,.md,.docx,.csv,.json,.png,.jpg,.jpeg,.tif,.tiff,.webp"
-      />
+    <input
+      #fileInput
+      type="file"
+      multiple
+      class="hidden"
+      [disabled]="!!collectionsError()"
+      (change)="onFileSelect($event)"
+      accept=".pdf,.txt,.md,.docx,.csv,.json,.png,.jpg,.jpeg,.tif,.tiff,.webp"
+    />
+    @if (canUpload()) {
+      <div
+        class="relative rounded-md p-8 text-center mb-6 transition-colors group"
+        [class.border-2]="true"
+        [class.border-dashed]="true"
+        [class.ck-drop-idle]="!dragging()"
+        [class.ck-drop-active]="dragging()"
+        [class.cursor-pointer]="!collectionsError()"
+        [class.cursor-not-allowed]="collectionsError()"
+        [class.opacity-60]="collectionsError()"
+        (dragover)="onDragOver($event)"
+        (dragleave)="onDragLeave($event)"
+        (drop)="onDrop($event)"
+        (click)="openFilePicker(fileInput)"
+      >
       <div class="flex items-center justify-center gap-4">
         <div
           class="w-12 h-12 rounded-md flex items-center justify-center shrink-0"
@@ -177,9 +210,11 @@ interface SearchResult {
               [disabled]="!!collectionsError()"
               (click)="$event.stopPropagation()"
             >
-              <option value="documents">documents</option>
+              @if (canUploadDefaultCollection()) {
+                <option value="documents">documents</option>
+              }
               @for (c of collections(); track c.slug) {
-                @if (c.slug !== 'documents') {
+                @if (c.slug !== 'documents' && c.permissions?.can_write !== false) {
                   <option [value]="c.slug">{{ c.name }}</option>
                 }
               }
@@ -199,6 +234,7 @@ interface SearchResult {
         </div>
       }
     </div>
+    }
 
     <section
       class="ck-surface rounded-md p-5 mb-6"
@@ -281,6 +317,12 @@ interface SearchResult {
                     <app-icon name="braces" [size]="11" />
                     {{ i18n.t('knowledge.collections.chunks_count', { count: doc.chunks }) }}
                   </span>
+                  @if (doc.access) {
+                    <span class="flex items-center gap-1">
+                      <app-icon name="shield" [size]="11" />
+                      {{ i18n.t('knowledge.collections.restricted') }}
+                    </span>
+                  }
                 </div>
               </div>
             </div>
@@ -312,6 +354,18 @@ interface SearchResult {
                 >
                   <app-icon name="search" [size]="14" />
                 </button>
+                @if (doc.permissions?.can_manage) {
+                  <button
+                    type="button"
+                    class="ck-ghost-icon p-1.5 rounded"
+                    data-testid="collection-access-open"
+                    [title]="i18n.t('knowledge.collections.access.manage')"
+                    [attr.aria-label]="i18n.t('knowledge.collections.access.manage') + ' — ' + doc.name"
+                    (click)="openAccess(doc)"
+                  >
+                    <app-icon name="shield-check" [size]="14" />
+                  </button>
+                }
                 <button
                   class="ck-ghost-icon ck-ghost-icon-danger p-1.5 rounded"
                   [title]="i18n.t('knowledge.collections.delete')"
@@ -325,6 +379,127 @@ interface SearchResult {
         }
       </div>
     }
+
+    <!-- L35 · Accès: who reads the collection, who adds documents -->
+    <app-drawer
+      [open]="accessTarget() !== null"
+      [title]="i18n.t('knowledge.collections.access.title')"
+      [subtitle]="accessTarget()?.name || accessTarget()?.slug || ''"
+      icon="shield-check"
+      (close)="closeAccess()"
+    >
+      @if (accessTarget(); as target) {
+        <form class="kb-access" data-testid="collection-access" (submit)="$event.preventDefault(); saveAccess(target)">
+          <p class="kb-access-note">{{ i18n.t('knowledge.collections.access.admins_note') }}</p>
+          @for (action of accessActions; track action) {
+            <fieldset class="kb-access-set" [attr.data-testid]="'collection-access-' + action">
+              <legend class="kb-access-legend">{{ i18n.t('knowledge.collections.access.' + action + '.legend') }}</legend>
+              <label class="kb-access-choice">
+                <input
+                  type="radio"
+                  [name]="'collection-access-' + action"
+                  [checked]="accessForm()[action].mode === 'all'"
+                  (change)="setAccessMode(action, 'all')"
+                />
+                <span>{{ i18n.t('knowledge.collections.access.all_members') }}</span>
+              </label>
+              <label class="kb-access-choice">
+                <input
+                  type="radio"
+                  [name]="'collection-access-' + action"
+                  [checked]="accessForm()[action].mode === 'selected'"
+                  (change)="setAccessMode(action, 'selected')"
+                />
+                <span>{{ i18n.t('knowledge.collections.access.selected') }}</span>
+              </label>
+              @if (action === 'write') {
+                <p class="kb-access-hint">{{ i18n.t('knowledge.collections.access.write.hint') }}</p>
+              }
+              @if (accessForm()[action].mode === 'selected') {
+                <div class="kb-access-grants">
+                  @if (accessForm()[action].principals.length === 0) {
+                    <p class="kb-access-hint">{{ i18n.t('knowledge.collections.access.admins_only') }}</p>
+                  }
+                  <p class="kb-access-group-title" [id]="'access-roles-' + action">{{ i18n.t('knowledge.collections.access.roles') }}</p>
+                  <ul class="kb-access-list" [attr.aria-labelledby]="'access-roles-' + action">
+                    @for (role of accessRoles; track role) {
+                      @if (canGrantAccess(action, 'role:' + role)) {
+                        <li>
+                          <label class="kb-access-choice">
+                            <input
+                              type="checkbox"
+                              [checked]="accessGranted(action, 'role:' + role)"
+                              (change)="toggleAccess(action, 'role:' + role, $event)"
+                            />
+                            <span>{{ accessPrincipalLabel('role:' + role) }}</span>
+                          </label>
+                        </li>
+                      }
+                    }
+                  </ul>
+                  @if (accessGroups().length) {
+                    <p class="kb-access-group-title" [id]="'access-groups-' + action">{{ i18n.t('knowledge.collections.access.groups') }}</p>
+                    <ul class="kb-access-list" [attr.aria-labelledby]="'access-groups-' + action">
+                      @for (group of accessGroups(); track group) {
+                        <li>
+                          <label class="kb-access-choice">
+                            <input
+                              type="checkbox"
+                              [checked]="accessGranted(action, 'group:' + group)"
+                              (change)="toggleAccess(action, 'group:' + group, $event)"
+                            />
+                            <span>{{ group }}</span>
+                          </label>
+                        </li>
+                      }
+                    </ul>
+                  }
+                  @if (accessMembers().length) {
+                    <p class="kb-access-group-title" [id]="'access-people-' + action">{{ i18n.t('knowledge.collections.access.people') }}</p>
+                    <ul class="kb-access-list" [attr.aria-labelledby]="'access-people-' + action">
+                      @for (member of accessMembers(); track member.user_id) {
+                        <li>
+                          <label class="kb-access-choice">
+                            <input
+                              type="checkbox"
+                              [checked]="accessGranted(action, 'user:' + member.user_id)"
+                              (change)="toggleAccess(action, 'user:' + member.user_id, $event)"
+                            />
+                            <span>{{ member.username || member.email || member.user_id }}</span>
+                          </label>
+                        </li>
+                      }
+                    </ul>
+                  } @else if (accessLoading()) {
+                    <p class="kb-access-hint">{{ i18n.t('knowledge.collections.access.loading_people') }}</p>
+                  }
+                </div>
+              }
+            </fieldset>
+          }
+          @for (error of accessErrors(); track error.code) {
+            <p class="kb-access-error" role="alert" data-testid="collection-access-error">
+              {{ i18n.t('knowledge.collections.access.error.' + error.code, { names: accessNames(error.principals) }) }}
+            </p>
+          }
+          @if (accessSaveError()) {
+            <p class="kb-access-error" role="alert">{{ accessSaveError() }}</p>
+          }
+          <div class="kb-access-actions">
+            <button type="button" class="ck-btn-ghost px-4 py-2 text-sm rounded" (click)="closeAccess()">
+              {{ i18n.t('common.cancel') }}
+            </button>
+            <button
+              type="submit"
+              class="ck-btn-primary px-4 py-2 text-sm font-medium rounded"
+              [disabled]="savingAccess() || accessErrors().length > 0"
+            >
+              {{ i18n.t('common.save') }}
+            </button>
+          </div>
+        </form>
+      }
+    </app-drawer>
 
     <!-- Search drawer -->
     <app-drawer
@@ -623,6 +798,21 @@ interface SearchResult {
     />
   `,
   styles: [`
+    /* L35 · Accès — sober, token-driven form (Tokens v2). */
+    .kb-access { display: flex; flex-direction: column; gap: 20px; font-size: 14px; color: var(--ck-fg-2); }
+    .kb-access-note, .kb-access-hint { margin: 0; font-size: 13px; color: var(--ck-fg-3); }
+    .kb-access-set { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+    .kb-access-legend { padding: 0; margin-bottom: 4px; font-weight: 600; color: var(--ck-fg-1); }
+    .kb-access-choice { display: flex; align-items: center; gap: 8px; min-height: 28px; cursor: pointer; color: var(--ck-fg-1); }
+    .kb-access-choice input { width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--ck-signal-cool); }
+    .kb-access-grants {
+      display: flex; flex-direction: column; gap: 6px; margin-left: 24px; padding: 12px;
+      border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-sm); background: var(--ck-bg-inset);
+    }
+    .kb-access-group-title { margin: 6px 0 0; font-size: 12px; font-weight: 600; color: var(--ck-fg-2); }
+    .kb-access-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+    .kb-access-error { margin: 0; font-size: 13px; color: var(--ck-status-neg-fg); }
+    .kb-access-actions { display: flex; justify-content: flex-end; gap: 8px; }
     /* Cockpit DS-C — component-scoped helpers (token-driven; mirrors auth/exemplar pattern). */
     .ck-field-input,
     .ck-field-select,
@@ -754,6 +944,7 @@ interface SearchResult {
 export class KnowledgeBaseComponent implements OnInit {
   readonly i18n = inject(I18nService);
   private readonly http = inject(HttpClient);
+  private readonly workspaceService = inject(WorkspaceService);
   private readonly toast = inject(ToastrService);
 
   private readonly base = '/api/v1/documents';
@@ -777,6 +968,17 @@ export class KnowledgeBaseComponent implements OnInit {
 
   // Delete collection
   deleteCollectionTarget = signal<string | null>(null);
+
+  // L35 · Accès: per-collection read / add-documents policy
+  accessTarget = signal<CollectionInfo | null>(null);
+  accessForm = signal<CollectionAccessForm>(formFromPolicy(null));
+  accessMembers = signal<WorkspaceMemberDetail[]>([]);
+  accessLoading = signal(false);
+  savingAccess = signal(false);
+  accessSaveError = signal<string | null>(null);
+  readonly accessActions: readonly AccessAction[] = ['read', 'write'];
+  readonly accessRoles = ACCESS_ROLE_TEMPLATES;
+  readonly accessErrors = computed(() => accessFormErrors(this.accessForm()));
 
   // Browse
   browseOpen = signal(false);
@@ -879,13 +1081,16 @@ export class KnowledgeBaseComponent implements OnInit {
           const displayItems = names.length ? names.map((name) => bySlug.get(name) ?? { slug: name }) : items;
           const infos: CollectionInfo[] = displayItems.map((item) => {
             const slug = item.slug || item.name || '';
-            return {
-              slug,
+              return {
+                id: item.id,
+                slug,
               name: item.name || slug,
               chunks: item.chunk_count ?? 0,
               docs: item.source_count ?? item.document_count ?? 0,
-              status: item.status,
-              loading: false,
+                status: item.status,
+                access: item.access ?? null,
+                permissions: item.permissions,
+                loading: false,
             };
           }).filter((item) => !!item.slug);
           this.collections.set(infos);
@@ -928,6 +1133,13 @@ export class KnowledgeBaseComponent implements OnInit {
   private uploadFiles(files: FileList): void {
     if (this.collectionsError()) {
       this.toast.error(this.i18n.t('knowledge.toast.retry_before_upload'), this.i18n.t('knowledge.title'));
+      return;
+    }
+    if (!this.canUpload()) {
+      this.toast.warning(
+        this.i18n.t('knowledge.collections.access.upload_denied'),
+        this.i18n.t('knowledge.title'),
+      );
       return;
     }
     this.uploading.set(true);
@@ -1020,8 +1232,115 @@ export class KnowledgeBaseComponent implements OnInit {
     input.click();
   }
 
+  canUploadDefaultCollection(): boolean {
+    const workspace = this.workspaceService.current();
+    return workspace?.role !== 'viewer' && workspace?.role_template !== 'workspace_viewer';
+  }
+
+  canUpload(): boolean {
+    if (!this.canUploadDefaultCollection()) return false;
+    const selected = this.collections().find((collection) => collection.slug === this.uploadTarget);
+    return selected?.permissions?.can_write !== false;
+  }
+
   requestDeleteCollection(name: string): void {
     this.deleteCollectionTarget.set(name);
+  }
+
+  readonly accessGroups = computed(() =>
+    Array.from(new Set(this.accessMembers().flatMap((member) => member.custom_labels ?? []))).sort(),
+  );
+
+  openAccess(collection: CollectionInfo): void {
+    this.accessTarget.set(collection);
+    this.accessForm.set(formFromPolicy(collection.access));
+    this.accessSaveError.set(null);
+    if (this.accessMembers().length > 0) return;
+    const slug = this.workspaceService.currentSlug();
+    if (!slug) return;
+    this.accessLoading.set(true);
+    this.workspaceService.listMembers(slug).subscribe({
+      next: (members) => {
+        this.accessMembers.set(members);
+        this.accessLoading.set(false);
+      },
+      error: () => {
+        this.accessMembers.set([]);
+        this.accessLoading.set(false);
+      },
+    });
+  }
+
+  closeAccess(): void {
+    this.accessTarget.set(null);
+    this.accessSaveError.set(null);
+  }
+
+  setAccessMode(action: AccessAction, mode: AccessMode): void {
+    this.accessForm.update((form) => setMode(form, action, mode));
+  }
+
+  toggleAccess(action: AccessAction, principal: string, event: Event): void {
+    const granted = (event.target as HTMLInputElement).checked;
+    this.accessForm.update((form) => togglePrincipal(form, action, principal, granted));
+  }
+
+  accessGranted(action: AccessAction, principal: string): boolean {
+    return isGranted(this.accessForm(), action, principal);
+  }
+
+  canGrantAccess(action: AccessAction, principal: string): boolean {
+    return canGrant(action, principal);
+  }
+
+  accessPrincipalLabel(principal: string): string {
+    const [kind, value] = principal.split(':');
+    if (kind === 'role') {
+      const keys: Record<string, string> = {
+        workspace_viewer: 'workspace.role.viewer',
+        workspace_contributor: 'workspace.role.contributor',
+        workspace_reviewer: 'workspace.role.reviewer',
+        workspace_admin: 'workspace.role.admin',
+        workspace_owner: 'workspace.role.owner',
+      };
+      return this.i18n.t(keys[value] || 'workspace.role.contributor');
+    }
+    if (kind === 'group') return value;
+    const member = this.accessMembers().find((item) => item.user_id === value);
+    return member?.username || member?.email || value;
+  }
+
+  accessNames(principals: string[]): string {
+    return principals.map((principal) => this.accessPrincipalLabel(principal)).join(', ');
+  }
+
+  saveAccess(collection: CollectionInfo): void {
+    if (this.savingAccess() || this.accessErrors().length > 0) return;
+    const access = policyFromForm(this.accessForm());
+    if (samePolicy(access, collection.access ?? null)) {
+      this.closeAccess();
+      return;
+    }
+    const id = collection.id || collection.slug;
+    this.savingAccess.set(true);
+    this.accessSaveError.set(null);
+    this.http
+      .patch<CollectionItemPayload>(`${this.base}/collections/${encodeURIComponent(id)}`, { access })
+      .subscribe({
+        next: () => {
+          this.savingAccess.set(false);
+          this.closeAccess();
+          this.toast.success(
+            this.i18n.t('knowledge.collections.access.saved', { name: collection.name }),
+            this.i18n.t('knowledge.title'),
+          );
+          this.loadCollections();
+        },
+        error: () => {
+          this.savingAccess.set(false);
+          this.accessSaveError.set(this.i18n.t('knowledge.collections.access.save_failed'));
+        },
+      });
   }
 
   confirmDeleteCollection(): void {

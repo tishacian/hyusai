@@ -11,8 +11,10 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import datetime
+from collections.abc import Collection
 from typing import Any
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -568,10 +570,16 @@ class DocumentQueryEngine:
         system_id: str | None = None,
         document_profile_key: str | None = None,
         include_evidence: bool = True,
+        denied_collections: Collection[str] | None = None,
     ) -> dict[str, Any]:
         filters = filters or {}
         scope = self._resolve_scope(workspace, collection_or_scope)
         collections = self._resolve_collections(workspace, collection_or_scope, scope)
+        # Per-collection access (L35): collections the requester cannot read
+        # are left out, including when the scope means "every collection".
+        denied = frozenset(str(item) for item in (denied_collections or ()) if item)
+        if denied and collections:
+            collections = [item for item in collections if item not in denied] or ["__none__"]
         system = self._resolve_system(workspace, system_id)
         profile = resolve_document_profile(
             workspace=workspace,
@@ -581,7 +589,7 @@ class DocumentQueryEngine:
         )
         intent = _intent(question, mode)
         terms = _expand_terms(question, profile.profile)
-        facts = self._load_facts(workspace, collections, filters, profile.profile)
+        facts = self._load_facts(workspace, collections, filters, profile.profile, excluded=denied)
         ranked = _rank_facts(facts, terms, question, intent)
         answer_payload, evidence, warnings = _compose_answer(intent, ranked, profile.profile)
         return {
@@ -632,10 +640,15 @@ class DocumentQueryEngine:
         collections: list[str],
         filters: dict[str, Any],
         profile: dict[str, Any],
+        excluded: Collection[str] = frozenset(),
     ) -> list[KnowledgeDocumentFact]:
         query = self.db.query(KnowledgeDocumentFact).filter(KnowledgeDocumentFact.workspace_id == workspace.id)
         if collections:
             query = query.filter(KnowledgeDocumentFact.collection_slug.in_(collections))
+        elif excluded:
+            query = query.filter(
+                or_(KnowledgeDocumentFact.collection_slug.is_(None), ~KnowledgeDocumentFact.collection_slug.in_(sorted(excluded)))
+            )
         if filters.get("semantic_type"):
             query = query.filter(KnowledgeDocumentFact.semantic_type == str(filters["semantic_type"]))
         if filters.get("predicate"):

@@ -37,6 +37,7 @@ const pureSpecs = [
   'src/app/features/observability/observability.routes.spec.ts',
   'src/app/features/observability/traces-facet.spec.ts',
   'src/app/features/knowledge/knowledge-facets.spec.ts',
+  'src/app/features/knowledge/collection-access-form.spec.ts',
   'src/app/features/knowledge/knowledge-capture-redirect.spec.ts',
   'src/app/features/knowledge/knowledge-base-status.spec.ts',
   'src/app/features/runs/run-trace.vm.spec.ts',
