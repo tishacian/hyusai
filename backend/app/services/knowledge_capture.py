@@ -687,6 +687,7 @@ async def warm_capture_context_cache(
                     "capability_id": session.capability_id,
                     "system_id": session.system_id,
                     "context_collection": collection_name,
+                    "collection_identity": _capture_collection_identity(workspace_id, session),
                     "retrieval_profile": "oracle_fast",
                     "latency_profile": "fast",
                     "rag_pipeline_mode": "auto",
@@ -1416,6 +1417,16 @@ def _is_plan_build_schema(plan: Dict[str, Any]) -> bool:
     }
 
 
+def _capture_collection_identity(workspace_id: str, session: Any) -> Optional[Dict[str, Any]]:
+    """A capture session retrieves with its expert's collection rights (L35)."""
+    from app.services.collection_access import sign_retrieval_identity
+
+    user_id = getattr(session, "created_by_user_id", None)
+    if not workspace_id or not user_id:
+        return None
+    return sign_retrieval_identity(workspace_id=workspace_id, user_id=str(user_id))
+
+
 def _build_retrieval_request(
     *,
     text: str,
@@ -1438,6 +1449,7 @@ def _build_retrieval_request(
         "capability_id": session.capability_id,
         "system_id": session.system_id,
         "context_collection": collection_name,
+        "collection_identity": _capture_collection_identity(workspace_id, session),
         "retrieval_profile": profile,
         "latency_profile": latency_profile,
         "rag_pipeline_mode": "auto",
@@ -9607,6 +9619,7 @@ async def prefetch_capture_retrieval(
                     "capability_id": session.capability_id,
                     "system_id": session.system_id,
                     "context_collection": collection_name,
+                    "collection_identity": _capture_collection_identity(workspace_id, session),
                     "retrieval_profile": "oracle_fast",
                     "latency_profile": "fast",
                     "rag_pipeline_mode": "auto",

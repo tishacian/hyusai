@@ -4,7 +4,7 @@ import json
 import logging
 import random
 from collections.abc import Mapping
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import uuid4
 
@@ -118,6 +118,67 @@ def _experience_payload(db: DBSession, workspace: Workspace, member: WorkspaceMe
     return {**payload, **member_sources(db, workspace=workspace, member=member, chosen_collection_id=progress.collection_id)}
 
 
+# Server-side evidence that a member decided on an answer: the chat feedback
+# (saved through ``/audit`` before the client records the step) and the chat
+# correction (written by ``/knowledge-capture/chat-correction``).
+_CLIENT_DECISION_EVENTS = ("chat_feedback", "kc.chat_correction.created")
+
+
+def _client_journey_started_at(db: DBSession, *, workspace: Workspace, user: User, progress) -> Optional[datetime]:
+    """When the member started ``client_sources``: their first recorded step,
+    else their first sighting in the workspace (naive UTC, like audit rows)."""
+    from app.models.audit import AuditLog
+
+    rows = (
+        db.query(AuditLog.timestamp, AuditLog.details)
+        .filter(
+            AuditLog.workspace_id == workspace.id,
+            AuditLog.event_type == "adoption.progress",
+            AuditLog.actor == user.id,
+        )
+        .order_by(AuditLog.timestamp.asc())
+        .limit(200)
+        .all()
+    )
+    for row in rows:
+        if isinstance(row.details, dict) and row.details.get("journey") == "client_sources":
+            return row.timestamp
+    first_seen = getattr(progress, "first_seen_at", None)
+    if first_seen is None:
+        return None
+    if first_seen.tzinfo is not None:
+        first_seen = first_seen.astimezone(timezone.utc).replace(tzinfo=None)
+    return first_seen
+
+
+def _client_decision_recorded(db: DBSession, *, workspace: Workspace, user: User, progress) -> bool:
+    """Step 4 proof: a decision by this member, in this workspace, since the
+    journey started — a chat feedback or correction, or a Work gate/HITL
+    decision they confirmed."""
+    from app.models.audit import AuditLog
+    from app.models.decision import Decision
+
+    started = _client_journey_started_at(db, workspace=workspace, user=user, progress=progress)
+    actors = sorted({value for value in (user.email, user.username, user.id) if value})
+    events = db.query(AuditLog.id).filter(
+        AuditLog.workspace_id == workspace.id,
+        AuditLog.event_type.in_(_CLIENT_DECISION_EVENTS),
+        AuditLog.actor.in_(actors),
+    )
+    if started is not None:
+        events = events.filter(AuditLog.timestamp >= started)
+    if events.first() is not None:
+        return True
+    decisions = db.query(Decision.id).filter(
+        Decision.workspace_id == workspace.id,
+        Decision.human_confirmed_by == user.id,
+        Decision.human_confirmed_at.isnot(None),
+    )
+    if started is not None:
+        decisions = decisions.filter(Decision.human_confirmed_at >= started)
+    return decisions.first() is not None
+
+
 @router.patch("/workspaces/{slug}/me/experience")
 async def update_member_experience(
     slug: str, body: "ExperienceProgressUpdate",
@@ -141,9 +202,23 @@ async def update_member_experience(
         from app.services.adoption_sources import usable_collection
         if usable_collection(db, workspace=workspace, member=member, collection_id=body.collection_id) is None:
             raise HTTPException(404, "Source unavailable")
-    from app.schemas.adoption import journey_for_workspace
+    from app.schemas.adoption import for_journey, journey_for_workspace
+    journey = journey_for_workspace(workspace.slug)
+    if journey == "client_sources" and body.completed_step == "decision":
+        current = for_journey(member.experience_progress or {}, journey)
+        if "decision" not in current.completed_steps and not _client_decision_recorded(
+            db, workspace=workspace, user=user, progress=current
+        ):
+            raise HTTPException(
+                409,
+                {
+                    "code": "ADOPTION_DECISION_NOT_RECORDED",
+                    "message": "No decision by this member since the journey started: "
+                    "rate or correct an answer, or decide on agent work, first.",
+                },
+            )
     try:
-        progress = update_progress(member.experience_progress or {}, body, journey_for_workspace(workspace.slug))
+        progress = update_progress(member.experience_progress or {}, body, journey)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     # JSON mode: ``first_seen_at`` is a datetime and the column is plain JSON.

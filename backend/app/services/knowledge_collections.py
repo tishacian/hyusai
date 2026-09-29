@@ -684,6 +684,11 @@ def document_manifest_key(collection: KnowledgeCollection) -> str:
 
 def serialize_job(job: WorkerJob, *, include_retrieval_context: bool = False) -> dict[str, Any]:
     result = dict(job.result or {})
+    if isinstance(result.get("request"), dict) and "collection_identity" in result["request"]:
+        # The signed member identity is server-to-worker plumbing, never API output.
+        result["request"] = {
+            key: value for key, value in result["request"].items() if key != "collection_identity"
+        }
     if (
         job.kind == "rag_deep_retrieval"
         and not include_retrieval_context
