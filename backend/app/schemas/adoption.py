@@ -4,7 +4,16 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-Step = Literal["example", "question", "source", "result"]
+Step = Literal["example", "question", "source", "result", "documents", "decision"]
+Journey = Literal["northforge_sources", "client_sources"]
+# Each journey owns its steps. ``northforge_sources`` walks the fictional
+# NorthForge corpus of the Showcase; ``client_sources`` walks the workspace's
+# own collections and ends on a human decision about agent work.
+JOURNEY_STEPS: dict[str, tuple[str, ...]] = {
+    "northforge_sources": ("example", "question", "source", "result"),
+    "client_sources": ("source", "documents", "question", "decision"),
+}
+SHOWCASE_WORKSPACE_SLUG = "agentium-showcase"
 # How the Cockpit rail shows its zone names. ``auto`` shows them during the
 # member's first two weeks in the workspace (from ``first_seen_at``), then
 # hides them; ``shown`` and ``hidden`` are the member's explicit choice.
@@ -16,11 +25,14 @@ class ExperienceProgress(BaseModel):
 
     version: Literal[1] = 1
     persona: Literal["builder", "operator", "executive"] = "operator"
-    journey: Literal["northforge_sources"] = "northforge_sources"
+    journey: Journey = "northforge_sources"
     completed_steps: list[Step] = Field(default_factory=list, max_length=4)
     dismissed: bool = False
     session_id: str | None = Field(default=None, max_length=64)
     run_id: str | None = Field(default=None, max_length=64)
+    # ``client_sources`` only: the collection the member chose, so the
+    # journey resumes on it. Checked against the workspace on every write.
+    collection_id: str | None = Field(default=None, max_length=64)
     rail_labels: RailLabels = "auto"
     # Server-owned: set on the member's first read, never overwritten, never
     # accepted from a client (``ExperienceProgressUpdate`` forbids it).
@@ -35,11 +47,52 @@ class ExperienceProgressUpdate(BaseModel):
     dismissed: bool | None = None
     session_id: str | None = Field(default=None, max_length=64)
     run_id: str | None = Field(default=None, max_length=64)
+    collection_id: str | None = Field(default=None, max_length=64)
     rail_labels: RailLabels | None = None
 
 
-def update_progress(current: dict, patch: ExperienceProgressUpdate) -> ExperienceProgress:
+def journey_for_workspace(slug: str | None) -> Journey:
+    """The journey a workspace offers: the fictional example only in Showcase."""
+    return "northforge_sources" if slug == SHOWCASE_WORKSPACE_SLUG else "client_sources"
+
+
+def step_allowed(journey: str, step: str | None) -> bool:
+    return step is None or step in JOURNEY_STEPS.get(journey, ())
+
+
+def for_journey(current: dict, journey: Journey) -> ExperienceProgress:
+    """Return the progress as seen by ``journey``.
+
+    A record written for another journey (for instance NorthForge steps kept
+    from before a workspace offered its own sources) says nothing about this
+    one: its steps, its dismissal and its conversation are dropped, while the
+    member's preferences (persona, rail labels, first sighting) stay.
+    """
     progress = ExperienceProgress.model_validate(current or {})
+    if progress.journey == journey:
+        return progress
+    return progress.model_copy(
+        update={
+            "journey": journey,
+            "completed_steps": [],
+            "dismissed": False,
+            "session_id": None,
+            "run_id": None,
+            "collection_id": None,
+        }
+    )
+
+
+def update_progress(
+    current: dict,
+    patch: ExperienceProgressUpdate,
+    journey: Journey | None = None,
+) -> ExperienceProgress:
+    progress = (
+        for_journey(current, journey) if journey else ExperienceProgress.model_validate(current or {})
+    )
+    if not step_allowed(progress.journey, patch.completed_step):
+        raise ValueError(f"step {patch.completed_step!r} is not part of {progress.journey}")
     if patch.persona is not None:
         progress.persona = patch.persona
     if patch.dismissed is not None:
@@ -50,6 +103,8 @@ def update_progress(current: dict, patch: ExperienceProgressUpdate) -> Experienc
         progress.session_id = patch.session_id
     if patch.run_id is not None:
         progress.run_id = patch.run_id
+    if patch.collection_id is not None:
+        progress.collection_id = patch.collection_id
     if patch.rail_labels is not None:
         progress.rail_labels = patch.rail_labels
     return progress

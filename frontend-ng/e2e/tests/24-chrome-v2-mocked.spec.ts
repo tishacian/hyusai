@@ -950,3 +950,224 @@ test.describe('L31 — sentence case, one filled button, honest bottom bar', () 
     await page.screenshot({ path: shot('l31-chat-builder-dark.png') });
   });
 });
+
+// --- L34 — getting started on the client's own documents (artboard A2) -------
+
+const CLIENT_WORKSPACE = {
+  ...WORKSPACE,
+  name: 'Atelier Nord',
+  mode: 'operator',
+  settings: { features: { experience_v1: true } },
+};
+const CLIENT_SOURCES = [
+  { id: 'c-ready', slug: 'contrats-fournisseurs', name: 'Contrats fournisseurs', status: 'ready', document_count: 14, chunk_count: 3480 },
+  { id: 'c-indexing', slug: 'procedures', name: 'Procédures qualité', status: 'ingesting', document_count: 3, chunk_count: 40 },
+];
+const CLIENT_INVENTORY = {
+  collection_id: 'c-ready',
+  status: 'ready',
+  source_count: 14,
+  document_count: 14,
+  chunk_count: 3480,
+  error_sources: 0,
+  by_status: { ready: 12, ingesting: 2 },
+  sources: [
+    { id: 's1', filename: 'contrat-atex-2026.pdf', status: 'ready', chunk_count: 42 },
+    { id: 's2', filename: 'conditions-achats.docx', status: 'ingesting', chunk_count: 0 },
+    { id: 's3', filename: 'tarifs-fournisseurs.csv', status: 'ready', chunk_count: 118 },
+  ],
+};
+const CLIENT_SESSION = 'session-l34';
+const CLIENT_CITATIONS = [
+  {
+    document_id: 'doc-conditions',
+    collection: 'contrats-fournisseurs',
+    title: 'conditions-achats.docx',
+    page: 4,
+    score: 0.9,
+    snippet: '4.2 Tout dépassement du plafond de commande exige la validation écrite de l’acheteur responsable.',
+  },
+];
+
+/**
+ * L34 — a client workspace: the experience record, its collections, the
+ * inventory, a scoped conversation and a streamed answer with a citation.
+ * Returns the PATCH bodies so a scenario can prove what was recorded.
+ */
+async function mockClientOnboarding(
+  page: Page,
+  overrides: Record<string, unknown> = {},
+): Promise<Array<Record<string, unknown>>> {
+  const patches: Array<Record<string, unknown>> = [];
+  let state: Record<string, unknown> = {
+    version: 1,
+    persona: 'operator',
+    journey: 'client_sources',
+    completed_steps: [],
+    dismissed: false,
+    session_id: null,
+    run_id: null,
+    collection_id: null,
+    rail_labels: 'hidden',
+    first_seen_at: daysAgo(30),
+    example_available: false,
+    available: true,
+    can_add_documents: true,
+    sources: CLIENT_SOURCES,
+    candidate_collection_id: 'c-ready',
+    ...overrides,
+  };
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname.replace(/^\/api\/v1/, '');
+    const method = request.method();
+    if (path === '/auth/workspaces') return json(route, [CLIENT_WORKSPACE]);
+    if (path === `/auth/workspaces/${WORKSPACE.slug}`) return json(route, CLIENT_WORKSPACE);
+    if (path === `/auth/workspaces/${WORKSPACE.slug}/me/experience`) {
+      if (method === 'PATCH') {
+        const body = request.postDataJSON() as Record<string, unknown>;
+        patches.push(body);
+        const steps = [...(state['completed_steps'] as string[])];
+        const step = body['completed_step'] as string | undefined;
+        if (step && !steps.includes(step)) steps.push(step);
+        const { completed_step: _step, ...rest } = body;
+        state = { ...state, ...rest, completed_steps: steps };
+        // A PATCH echoes the stored record only, like the server.
+        const { example_available: _e, available: _a, can_add_documents: _c, sources: _s, candidate_collection_id: _k, ...stored } = state;
+        return json(route, stored);
+      }
+      return json(route, state);
+    }
+    if (path === '/work') return json(route, { experiences: [], automation_jobs: [] });
+    if (path === '/documents/collections/c-ready/inventory') return json(route, CLIENT_INVENTORY);
+    if (path === '/documents/jobs') {
+      return json(route, {
+        items: [{ id: 'job-l34', status: 'running', stage: 'embedding', progress: 78, updated_at: new Date().toISOString(), celery_task_id: 'task-l34' }],
+      });
+    }
+    if (path === '/contexts' && method === 'POST') {
+      return json(route, { id: 'ctx-l34', name: 'Prise en main', environment_state: { collection: 'contrats-fournisseurs' } });
+    }
+    if (path === '/sessions') {
+      if (method === 'POST') return json(route, { id: CLIENT_SESSION, title: 'Plafond fournisseur' });
+      return json(route, { sessions: [] });
+    }
+    if (path === '/chat/stream') {
+      return route.fulfill({
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+        body: sse([
+          { chunk_type: 'session', session_id: CLIENT_SESSION },
+          { chunk_type: 'text', content: 'Non. Un dépassement du plafond exige la validation écrite de l’acheteur responsable ', sources: CLIENT_CITATIONS },
+          { chunk_type: 'text', content: '[1].' },
+        ]),
+      });
+    }
+    return route.fallback();
+  });
+  return patches;
+}
+
+async function expectNoAxeViolations(page: Page): Promise<void> {
+  const axe = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+    .analyze();
+  expect(axe.violations, axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(' ')}`).join('\n')).toEqual([]);
+}
+
+test.describe('L34 — getting started on the client’s own documents', () => {
+  test.use({ locale: 'fr-FR' });
+  test.skip(!enabled, 'Set E2E_CHROME_V2_MOCKED=1 to run the mocked chrome safety net');
+
+  for (const theme of ['light', 'dark'] as const) {
+    test(`a ready collection: choose it, see its counts, ask, confirm — the decision is recorded (${theme})`, async ({ page }) => {
+      test.setTimeout(120_000);
+      await page.emulateMedia({ colorScheme: theme });
+      await installMocks(page, theme);
+      const patches = await mockClientOnboarding(page);
+
+      // Work home: the compact card names the current step and offers one action.
+      await page.goto('/work');
+      const card = page.getByTestId('onboarding-card');
+      await expect(card).toBeVisible({ timeout: 30_000 });
+      await expect(card).toContainText('Votre prise en main');
+      await expect(card).toContainText('Étape 1 sur 4 : Choisir une source');
+      await card.screenshot({ path: shot(`l34-onboarding-card-${theme}.png`) });
+      await card.getByRole('link', { name: 'Commencer' }).click();
+
+      await expect(page.getByRole('heading', { level: 1, name: 'Obtenez une réponse vérifiable sur vos documents' })).toBeVisible({ timeout: 30_000 });
+      const steps = page.getByTestId('onboarding-steps');
+      await expect(steps.locator('li')).toHaveCount(4);
+      await expect(steps.locator('[aria-current="step"]')).toContainText('Choisir une source');
+      // Tokens v2: sentence case, no letter-spaced capitals, no designer notes.
+      await expect(page.locator('app-client-onboarding')).not.toContainText('Un utilisateur est activé');
+      await expect(page.locator('app-client-onboarding')).not.toContainText('Showcase');
+      await expect(page.getByText('Ce que vous pourrez vérifier')).toHaveCSS('text-transform', 'none');
+
+      // Step 1 — the first ready collection is preselected; confirming records the step.
+      await expect(page.getByRole('radio', { name: /Contrats fournisseurs/ })).toBeChecked();
+      await page.getByTestId('onboarding-use-source').click();
+      await expect.poll(() => patches.some((p) => p['completed_step'] === 'source' && p['collection_id'] === 'c-ready')).toBe(true);
+
+      // Step 2 — real figures from the inventory; no « Temps restant » without an estimate.
+      const source = page.getByTestId('onboarding-source');
+      await expect(source.getByRole('heading', { level: 2, name: 'Contrats fournisseurs' })).toBeVisible();
+      const counts = page.getByTestId('onboarding-counts');
+      await expect(counts).toContainText(/Documents\s*12 \/ 14/);
+      await expect(counts).toContainText(/Passages\s*3\s?480/);
+      await expect(counts).toContainText(/Erreurs\s*0/);
+      await expect(page.locator('app-client-onboarding')).not.toContainText('Temps restant');
+      await expect(page.getByTestId('onboarding-files')).toContainText('conditions-achats.docx');
+      await expect(page.getByTestId('onboarding-files')).toContainText('Indexation en cours');
+      await expect(page.getByLabel('Choisir des fichiers')).toHaveAttribute('type', 'file');
+      await expect(steps.locator('li').nth(1)).toContainText('Facultative');
+      await expect(steps.locator('[aria-current="step"]')).toContainText('Poser une question');
+
+      // Step 3 — a question on this collection, a streamed answer that cites its passage.
+      const input = page.locator('app-client-onboarding textarea[name="userInput"]');
+      await expect(input).toBeVisible({ timeout: 30_000 });
+      await input.fill('Un fournisseur peut-il dépasser le plafond sans validation ?');
+      await input.press('Enter');
+      await expect(page.locator('app-client-onboarding app-chat-panel')).toContainText('validation écrite de l’acheteur responsable', { timeout: 30_000 });
+      await expect.poll(() => patches.some((p) => p['completed_step'] === 'question' && p['session_id'] === CLIENT_SESSION)).toBe(true);
+
+      const decision = page.getByTestId('onboarding-decision');
+      await expect(decision.getByRole('button', { name: 'Confirmer la réponse' })).toBeVisible();
+      await page.screenshot({ path: shot(`l34-onboarding-answer-${theme}.png`), fullPage: true });
+      await expectNoAxeViolations(page);
+
+      // Step 4 — the member confirms the answer: recorded only once the feedback is saved.
+      expect(patches.some((p) => p['completed_step'] === 'decision')).toBe(false);
+      await decision.getByRole('button', { name: 'Confirmer la réponse' }).click();
+      await expect(decision).toContainText('Décision enregistrée', { timeout: 15_000 });
+      expect(patches.filter((p) => p['completed_step'] === 'decision')).toHaveLength(1);
+      await expect(steps.locator('[aria-current="step"]')).toHaveCount(0);
+      await expect(steps.locator('li').nth(3)).toContainText('Terminée');
+      await expect(page.getByTestId('onboarding-objective-progress')).toHaveText('3 étapes sur 4 terminées');
+      // The feedback toast is measured at rest, not halfway through its fade-in.
+      await expect(page.locator('.ngx-toastr.ng-animating')).toHaveCount(0);
+      await page.screenshot({ path: shot(`l34-onboarding-decided-${theme}.png`), fullPage: true });
+      await expectNoAxeViolations(page);
+    });
+
+    test(`no readable collection: no card on the Work home, the page explains (${theme})`, async ({ page }) => {
+      test.setTimeout(90_000);
+      await page.emulateMedia({ colorScheme: theme });
+      await installMocks(page, theme);
+      await mockClientOnboarding(page, { available: false, can_add_documents: false, sources: [], candidate_collection_id: null });
+
+      await page.goto('/work');
+      await expect(page.locator('#work-app-title, h1').first()).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('onboarding-card')).toHaveCount(0);
+
+      await page.goto('/work/getting-started');
+      const unavailable = page.getByTestId('onboarding-unavailable');
+      await expect(unavailable).toBeVisible({ timeout: 30_000 });
+      await expect(unavailable).toContainText('Aucune source disponible pour l’instant');
+      await expect(unavailable.getByRole('link')).toHaveCount(0);
+      await expect(page.locator('app-client-onboarding')).not.toContainText('NorthForge');
+      await page.screenshot({ path: shot(`l34-onboarding-unavailable-${theme}.png`), fullPage: true });
+      await expectNoAxeViolations(page);
+    });
+  }
+});

@@ -4,17 +4,32 @@ import { ApiService } from "./api.service";
 import { WorkspaceService, workspaceSettingFeature } from "./workspace.service";
 import { HelpService, type Persona } from "./help.service";
 import { railLabelsVisible, type RailLabelsPreference } from "./rail-labels";
+import {
+  compactCardVisible,
+  isClientJourney,
+  journeyAvailable,
+  type AdoptionJourney,
+  type AdoptionSource,
+  type AdoptionStep,
+} from "./adoption-journey";
 
-export type AdoptionStep = "example" | "question" | "source" | "result";
+export type { AdoptionStep } from "./adoption-journey";
 export interface AdoptionProgress {
   version: 1;
   persona: Persona;
-  journey: "northforge_sources";
+  journey: AdoptionJourney;
   completed_steps: AdoptionStep[];
   dismissed: boolean;
-  session_id?: string;
-  run_id?: string;
+  session_id?: string | null;
+  run_id?: string | null;
+  /** L34 — the collection the member chose on the client journey. */
+  collection_id?: string | null;
   example_available?: boolean;
+  /** L34 — server-computed: the journey this workspace offers can run. */
+  available?: boolean;
+  can_add_documents?: boolean;
+  sources?: AdoptionSource[];
+  candidate_collection_id?: string | null;
   /** L27 — how the Cockpit rail shows its zone names (default `auto`). */
   rail_labels?: RailLabelsPreference;
   /** Server-owned, set on the member's first read; drives `auto`. */
@@ -26,8 +41,25 @@ type ExperiencePatch = {
   dismissed?: boolean;
   session_id?: string;
   run_id?: string;
+  collection_id?: string;
   rail_labels?: RailLabelsPreference;
 };
+/** Fields GET computes for the member; a PATCH echoes only the stored record. */
+const SERVER_FIELDS = [
+  "example_available",
+  "available",
+  "can_add_documents",
+  "sources",
+  "candidate_collection_id",
+] as const;
+function serverFields(value: AdoptionProgress | null): Partial<AdoptionProgress> {
+  const out: Partial<AdoptionProgress> = {};
+  if (!value) return out;
+  for (const key of SERVER_FIELDS) {
+    if (key in value) (out as Record<string, unknown>)[key] = value[key];
+  }
+  return out;
+}
 @Injectable({ providedIn: "root" })
 export class AdoptionService {
   private readonly api = inject(ApiService);
@@ -43,6 +75,11 @@ export class AdoptionService {
   readonly exampleAvailable = computed(
     () => this.enabled() && this.progress()?.example_available === true,
   );
+  /** L34 — the journey this workspace offers (server-decided) can run here. */
+  readonly journeyAvailable = computed(() => this.enabled() && journeyAvailable(this.progress()));
+  readonly isClientJourney = computed(() => isClientJourney(this.progress()));
+  /** The compact card: available, not dismissed, and the record is known. */
+  readonly compactVisible = computed(() => compactCardVisible(this.enabled(), this.progress()));
   /**
    * Whether the Cockpit rail shows its labels; `null` while the experience
    * record is unknown, so the rail keeps its icon column and never shows
@@ -77,10 +114,7 @@ export class AdoptionService {
             .pipe(
               tap((value) => {
                 if (!this.workspace.isRequestScopeCurrent(scope)) return;
-                this.progress.set({
-                  ...value,
-                  example_available: this.progress()?.example_available,
-                });
+                this.progress.set({ ...value, ...serverFields(this.progress()) });
                 this.help.setPersona(value.persona);
                 this.saving.set(false);
                 this.error.set(false);
@@ -123,9 +157,7 @@ export class AdoptionService {
           if (!this.workspace.isRequestScopeCurrent(scope)) return;
           if (revision !== this.revision) {
             this.progress.update((current) =>
-              current
-                ? { ...current, example_available: value.example_available }
-                : current,
+              current ? { ...current, ...serverFields(value) } : current,
             );
             return;
           }
@@ -142,6 +174,17 @@ export class AdoptionService {
     if (!this.enabled()) return;
     this.revision++;
     this.patches.next({ patch, scope: this.workspace.captureRequestScope() });
+  }
+  /**
+   * L34 — a member decided on agent work (confirmed or corrected an answer,
+   * approved or refused a pending decision). Ends the client journey once;
+   * the NorthForge example has no such step.
+   */
+  recordDecision(): void {
+    const current = this.progress();
+    if (!current || !isClientJourney(current) || !journeyAvailable(current)) return;
+    if (current.completed_steps.includes("decision")) return;
+    this.update({ completed_step: "decision" });
   }
   /**
    * Show or hide the rail labels. Optimistic: the rail follows at once; if
