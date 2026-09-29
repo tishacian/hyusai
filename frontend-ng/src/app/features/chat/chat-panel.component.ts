@@ -82,6 +82,8 @@ import {
 } from './chat-proof';
 import { ChatProofRailComponent, type ProofSourceView } from './chat-proof-rail.component';
 import { ChatWorkTraceComponent, type TraceStepView } from './chat-work-trace.component';
+import { WorkSourcePanelComponent } from '@app/shared/work-sources/work-source-panel.component';
+import { workSourceRef, type WorkSourceRef } from '@app/shared/work-sources/work-source';
 
 /** L30 — what the thread shows around one finished answer. */
 interface ThreadAnswerView {
@@ -525,6 +527,7 @@ const STEP_ICONS: Record<string, string> = {
     RunMandateComponent,
     ChatProofRailComponent,
     ChatWorkTraceComponent,
+    WorkSourcePanelComponent,
   ],
   template: `
     <div
@@ -532,6 +535,7 @@ const STEP_ICONS: Record<string, string> = {
       [class.chat-history-embed]="compact()"
       [class.chat-history-collapsed]="!compact() && !historyShown()"
       [class.chat-thread-shell]="threadMode()"
+      [class.ck-work-surface]="workSurface()"
       (keydown.escape)="onThreadEscape($event)"
     >
       @if (!compact() && !historyShown()) {
@@ -975,7 +979,7 @@ const STEP_ICONS: Record<string, string> = {
         class="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-5"
         [class.vigie-messages]="executiveMode()"
       >
-        @if (systemId(); as mandateSystemId) {
+        @if (cockpitAffordances() && systemId(); as mandateSystemId) {
           <app-system-mandate [systemId]="mandateSystemId" [compact]="true" />
         }
         @if (messages().length === 0 && !streaming()) {
@@ -1262,10 +1266,11 @@ const STEP_ICONS: Record<string, string> = {
                     <button
                       type="button"
                       class="ck-cite"
+                      [class.ck-cite--work]="workSurface()"
                       [class.ck-cite--active]="isProofSelected(sourceHostId || msg.id, tok.n)"
                       [attr.data-proof-cite]="proofCiteKey(sourceHostId || msg.id, tok.n)"
                       [attr.aria-current]="isProofSelected(sourceHostId || msg.id, tok.n) ? 'true' : null"
-                      [attr.aria-label]="i18n.t('chat.thread.cite_aria', { n: tok.label || tok.n, title: citationTooltipForSources(sources, tok.n) })"
+                      [attr.aria-label]="workSurface() ? workCiteAria(sources, tok.n) : i18n.t('chat.thread.cite_aria', { n: tok.label || tok.n, title: citationTooltipForSources(sources, tok.n) })"
                       [title]="citationTooltipForSources(sources, tok.n)"
                       (click)="onCitation(msg, tok.n, sourceHostId || msg.id, openDirectSources !== false, $event)"
                     >{{ tok.label || tok.n }}</button>
@@ -1329,7 +1334,7 @@ const STEP_ICONS: Record<string, string> = {
               @if (threadMode()) {
                 <div class="ck-thread-answer-head">
                   <span class="ck-thread-label">{{ i18n.t('chat.thread.answer') }}</span>
-                  @if (threadView(msg).countsLabel; as counts) {
+                  @if (cockpitAffordances() && threadView(msg).countsLabel; as counts) {
                     <button
                       type="button"
                       class="ck-thread-counts"
@@ -1364,6 +1369,36 @@ const STEP_ICONS: Record<string, string> = {
                   }
                 </div>
               </div>
+
+              @if (workSurface() && threadMode() && msg.sources?.length) {
+                <!-- L36: every source of the answer, each read in place. -->
+                <div class="ck-wsrc-list" data-testid="work-source-list">
+                  <p class="ck-wsrc-list-title" [id]="'wsrc-list-' + msg.id">{{ i18n.t('experience.work.sources.list_title', { count: msg.sources!.length }) }}</p>
+                  <ol class="ck-wsrc-items" [attr.aria-labelledby]="'wsrc-list-' + msg.id">
+                    @for (src of msg.sources!; track $index; let i = $index) {
+                      <li>
+                        <button
+                          type="button"
+                          class="ck-wsrc-item"
+                          [class.ck-wsrc-item--active]="isProofSelected(msg.id, i + 1)"
+                          [attr.aria-current]="isProofSelected(msg.id, i + 1) ? 'true' : null"
+                          (click)="openProof(msg, i + 1, msg.id, $event)"
+                        >
+                          <span class="ck-wsrc-num" aria-hidden="true">{{ i + 1 }}</span>
+                          <span class="ck-visually-hidden">{{ i18n.t('experience.work.sources.item_prefix', { n: i + 1 }) }}</span>
+                          <span class="ck-wsrc-name">{{ sourceTitle(src) }}</span>
+                          @if (workSourcePage(src); as where) {
+                            <span class="ck-wsrc-where">· {{ where }}</span>
+                          }
+                          @if (!isSourceCited(msg, i + 1)) {
+                            <span class="ck-wsrc-tag">· {{ i18n.t('experience.work.sources.read_not_cited') }}</span>
+                          }
+                        </button>
+                      </li>
+                    }
+                  </ol>
+                </div>
+              }
 
               @if (msg.mapCommand) {
                 <div
@@ -1592,17 +1627,17 @@ const STEP_ICONS: Record<string, string> = {
                       · {{ (msg.evaluation.composite_score?.toFixed(1) ?? '—') }}/100
                     </span>
                   }
-                  @if (!threadMode()) {
+                  @if (!threadMode() && cockpitAffordances()) {
                     <ng-container [ngTemplateOutlet]="evidenceLinks" [ngTemplateOutletContext]="{ $implicit: msg }"></ng-container>
                   }
                 </div>
               }
 
-              @if (msg.runId; as mandateRunId) {
+              @if (cockpitAffordances() && msg.runId; as mandateRunId) {
                 <app-run-mandate [runId]="mandateRunId" [compact]="true" />
               }
 
-              @if (msg.retrievalInfo?.decisionTrace; as trace) {
+              @if (cockpitAffordances() && msg.retrievalInfo?.decisionTrace; as trace) {
                 <details
                   class="ml-0 mt-1 rounded-md bg-emerald-500/5 ring-1 ring-emerald-500/15 text-[11px] text-gray-700 dark:text-gray-300"
                 >
@@ -1811,6 +1846,7 @@ const STEP_ICONS: Record<string, string> = {
                 >
                   <app-icon name="copy" [size]="12" />
                 </button>
+                @if (cockpitAffordances()) {
                 <button
                   type="button"
                   class="p-1 rounded hover:bg-sky-500/10 transition flex items-center gap-1 text-sky-300 disabled:opacity-50"
@@ -1829,7 +1865,8 @@ const STEP_ICONS: Record<string, string> = {
                     <span>{{ i18n.t('chat.audit.deep_search') }}</span>
                   }
                 </button>
-                @if (!isDemoMode()) {
+                }
+                @if (cockpitAffordances() && !isDemoMode()) {
                   <button
                     type="button"
                     class="p-1 rounded hover:bg-white/5 transition flex items-center gap-1"
@@ -1858,13 +1895,13 @@ const STEP_ICONS: Record<string, string> = {
                     <span>{{ i18n.t('chat.correct.action') }}</span>
                   </button>
                 }
-                @if (threadMode() && !isDemoMode() && msg.decisionSteps?.length) {
-                  <!-- L31: « Exécutions · Qualité » join the answer's actions. -->
+                @if (threadMode() && cockpitAffordances() && !isDemoMode() && msg.decisionSteps?.length) {
+                  <!-- L31: « Exécutions · Qualité » join the answer's actions (never in Work, L36). -->
                   <span class="ck-thread-links" data-testid="chat-thread-links">
                     <ng-container [ngTemplateOutlet]="evidenceLinks" [ngTemplateOutletContext]="{ $implicit: msg }"></ng-container>
                   </span>
                 }
-                @if (!isDemoMode() && msg.evaluation) {
+                @if (cockpitAffordances() && !isDemoMode() && msg.evaluation) {
                   <span class="font-mono text-[10px] text-emerald-400" [class.ml-auto]="!threadMode()"
                     >{{ i18n.t('chat.audit.score', { value: (msg.evaluation.composite_score?.toFixed(1) ?? '—') }) }}</span
                   >
@@ -2312,6 +2349,21 @@ const STEP_ICONS: Record<string, string> = {
           (collectionOpened)="onProofCollectionOpened()"
         />
       }
+      @if (workSourcePanel(); as panel) {
+        <!-- L36: the cited source, readable in place (lazy: its own chunk). -->
+        <div class="ck-wsrc-slot" data-testid="work-source-slot">
+          @defer (on immediate) {
+            <app-work-source-panel
+              [sources]="panel.sources"
+              [selected]="panel.selected"
+              [animate]="panel.animate"
+              [focusToken]="proofFocusToken()"
+              (selectedChange)="selectProof($event)"
+              (closed)="closeProof(true, $event)"
+            />
+          }
+        </div>
+      }
     </div>
 
     <app-document-preview
@@ -2327,6 +2379,55 @@ const STEP_ICONS: Record<string, string> = {
 	  styles: [`
     /* --- L30 · sourced working thread (overlay only) ------------------- */
     .chat-thread-shell { position: relative; container-type: inline-size; }
+    /* --- L36 · Work: the cited source beside the answer, a sheet when narrow. */
+    .chat-history-shell.chat-history-embed.chat-thread-shell { display: flex; }
+    .ck-wsrc-slot {
+      flex: 0 0 400px;
+      width: 400px;
+      min-width: 0;
+      height: 100%;
+      border-left: 1px solid var(--ck-stroke-2);
+    }
+    @container (max-width: 760px) {
+      .ck-wsrc-slot { position: absolute; inset: 0; z-index: 5; width: auto; border-left: 0; }
+    }
+    /* Work: the question reads as a neutral card, no accent edge. */
+    .ck-work-surface .ck-thread-question { border-right: 1px solid var(--ck-stroke-2); }
+    /* Work: a short placeholder on one line, never wrapped nor clipped mid-word. */
+    .ck-work-surface .ck-chat-input:placeholder-shown { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ck-work-surface .ck-chat-input::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ck-cite.ck-cite--work {
+      min-width: 28px;
+      height: 24px;
+      font-size: 12px;
+      vertical-align: 0.05em;
+    }
+    .ck-wsrc-list { display: flex; flex-direction: column; gap: 6px; max-width: 72ch; }
+    .ck-wsrc-list-title { margin: 0; font-size: 12px; font-weight: 600; color: var(--ck-fg-2); }
+    .ck-wsrc-items { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+    .ck-wsrc-item {
+      display: flex;
+      align-items: baseline;
+      flex-wrap: wrap;
+      gap: 6px;
+      width: 100%;
+      min-height: 32px;
+      padding: 6px 10px;
+      border: 1px solid var(--ck-stroke-2);
+      border-radius: 4px;
+      background: var(--ck-bg-panel);
+      color: var(--ck-fg-1);
+      font-size: 13px;
+      line-height: 1.4;
+      text-align: left;
+      cursor: pointer;
+    }
+    .ck-wsrc-item:hover { border-color: var(--ck-stroke-hot); }
+    .ck-wsrc-item--active { border-color: var(--ck-primary); box-shadow: inset 3px 0 0 var(--ck-primary); }
+    .ck-wsrc-item:focus-visible { outline: 2px solid var(--ck-primary); outline-offset: 2px; }
+    .ck-wsrc-num { font: 600 12px/1 var(--ck-font-mono); color: var(--ck-primary); }
+    .ck-wsrc-name { font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
+    .ck-wsrc-where, .ck-wsrc-tag { color: var(--ck-fg-3); }
     .ck-proof-slot {
       flex: 0 0 380px;
       width: 380px;
@@ -3968,7 +4069,7 @@ export class ChatPanelComponent implements AfterViewInit {
 
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
   readonly showAdvancedChatControls = computed(() =>
-    !this.isDemoMode() && (!this.executiveMode() || this.traceOpen()),
+    this.cockpitAffordances() && !this.isDemoMode() && (!this.executiveMode() || this.traceOpen()),
   );
   readonly advancedControlsOpen = signal(this.readStoredAdvancedControlsOpen());
   readonly advancedControlsVisible = computed(() =>
@@ -3988,11 +4089,21 @@ export class ChatPanelComponent implements AfterViewInit {
    * Every other host keeps today's messenger presentation.
    */
   readonly proofThread = input(false);
+  /**
+   * L36 — where the conversation is read. `work` (the getting-started page,
+   * the chat opened from Work) keeps the sourced thread but opens each cited
+   * source in place, and drops every Cockpit-only affordance: no links to
+   * executions or quality, no model controls, no engine step names.
+   */
+  readonly surface = input<'cockpit' | 'work'>('cockpit');
+  readonly workSurface = computed(() => this.surface() === 'work');
+  /** Cockpit-only tools around an answer (execution links, Deep Search, fact-check, model controls). */
+  readonly cockpitAffordances = computed(() => !this.workSurface());
   /** The Sentinel showcase keeps its own layout, even inside the overlay. */
-  readonly threadMode = computed(() => this.proofThread() && !this.executiveMode());
+  readonly threadMode = computed(() => (this.proofThread() || this.workSurface()) && !this.executiveMode());
   /** Non-builders find the model and retrieval controls behind « Avancé ». */
   readonly advancedInComposer = computed(() =>
-    advancedBehindComposer(this.threadMode(), this.workspace.mode()),
+    this.cockpitAffordances() && advancedBehindComposer(this.threadMode(), this.workspace.mode()),
   );
   readonly threadAdvancedOpen = signal(false);
   readonly threadAdvancedId = `chat-thread-advanced-${cryptoId().slice(0, 8)}`;
@@ -4026,7 +4137,7 @@ export class ChatPanelComponent implements AfterViewInit {
   private proofTrigger: HTMLElement | null = null;
 
   readonly proofRail = computed(() => {
-    if (!this.threadMode()) return null;
+    if (!this.threadMode() || this.workSurface()) return null;
     const { selection, animate } = this.proofState();
     if (!selection) return null;
     const msg = this.messages().find((item) => item.id === selection.msgId);
@@ -4047,6 +4158,18 @@ export class ChatPanelComponent implements AfterViewInit {
         .map((entry) => this.proofView(entry.source, entry.n, false, null, false)),
       animate,
     };
+  });
+
+  /** L36 — in Work the selected citation opens the source itself, beside the answer. */
+  readonly workSourcePanel = computed<{ sources: WorkSourceRef[]; selected: number; animate: boolean } | null>(() => {
+    if (!this.workSurface() || !this.threadMode()) return null;
+    const { selection, animate } = this.proofState();
+    if (!selection) return null;
+    const msg = this.messages().find((item) => item.id === selection.msgId);
+    if (!msg) return null;
+    const sources = this.workSourceRefs(msg, selection.hostId);
+    if (!sources[selection.n - 1]) return null;
+    return { sources, selected: selection.n, animate };
   });
 
   /** Live trace from the real `decision_step` events and the first tokens. */
@@ -4267,6 +4390,8 @@ export class ChatPanelComponent implements AfterViewInit {
     return this.i18n.t('chat.ask.subtitle_default');
   });
   readonly inputPlaceholder = computed(() => {
+    // Work: the scope chip and the page already say where the answer reads from.
+    if (this.workSurface()) return this.i18n.t('experience.work.chat.placeholder');
     if (this.contextId() && this.contextCollection()) return this.i18n.t('chat.ask.placeholder_scope', { source: this.assistantScopeLabel() });
     const configured = this.workspaceChatConfig().placeholder;
     if (configured) return configured;
@@ -4540,11 +4665,12 @@ export class ChatPanelComponent implements AfterViewInit {
   constructor() {
     // L30 — the overlay widens for the rail and shows the scope it reads from.
     effect(() => {
-      if (!this.threadMode()) return;
-      this.overlay.proofOpen.set(this.proofRail() !== null);
+      // Only the overlay's own panel widens the overlay (L36: Work sources too).
+      if (!this.threadMode() || !this.proofThread()) return;
+      this.overlay.proofOpen.set(this.proofRail() !== null || this.workSourcePanel() !== null);
     });
     effect(() => {
-      if (!this.threadMode()) return;
+      if (!this.threadMode() || !this.proofThread()) return;
       this.overlay.threadScope.set(this.threadScopeLabel());
     });
     const unregisterVoiceWorkspaceReset = this.workspace.registerContextReset(() => {
@@ -6229,7 +6355,7 @@ export class ChatPanelComponent implements AfterViewInit {
     this.gotoSourceTarget(msg, n, sourceHostId, openDirectSources);
   }
 
-  openProof(msg: ChatMessage, n: number, sourceHostId: string, event?: Event): void {
+  openProof(msg: ChatMessage, n: number, sourceHostId: string, event?: Event, moveFocus = true): void {
     const { sources } = this.proofSourcesFor(msg, sourceHostId);
     const detail = (event as MouseEvent | undefined)?.detail;
     const current = this.proofState();
@@ -6245,7 +6371,7 @@ export class ChatPanelComponent implements AfterViewInit {
     if (trigger && typeof trigger.focus === 'function') this.proofTrigger = trigger;
     this.overlay.proofAnimate.set(next.animate);
     this.proofState.set(next);
-    this.proofFocusToken.update((token) => token + 1);
+    if (moveFocus) this.proofFocusToken.update((token) => token + 1);
     this.adoptionInteraction.emit({ step: 'source' });
     this.cdr.markForCheck();
   }
@@ -6255,7 +6381,8 @@ export class ChatPanelComponent implements AfterViewInit {
     const selection = this.proofState().selection;
     if (!selection) return;
     const msg = this.messages().find((item) => item.id === selection.msgId);
-    if (msg) this.openProof(msg, n, selection.hostId);
+    // Work: previous / next keep focus on the button pressed; the panel announces the source.
+    if (msg) this.openProof(msg, n, selection.hostId, undefined, !this.workSurface());
   }
 
   /** The answer's meta line opens the first cited proof (or the first passage). */
@@ -6276,12 +6403,12 @@ export class ChatPanelComponent implements AfterViewInit {
 
   /** Escape closes the rail first; the overlay stays open. */
   onThreadEscape(event: Event): void {
-    if (!this.proofRail()) return;
+    if (!this.proofRail() && !this.workSourcePanel()) return;
     event.stopPropagation();
     event.preventDefault();
     const doc = globalThis.document;
     const active = doc?.activeElement as HTMLElement | null | undefined;
-    const fromRail = !!active && (!!active.closest?.('app-chat-proof-rail') || active === doc?.body);
+    const fromRail = !!active && (!!active.closest?.('app-chat-proof-rail, app-work-source-panel') || active === doc?.body);
     this.closeProof(fromRail);
   }
 
@@ -6348,7 +6475,8 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
   threadSteps(msg: ChatMessage): TraceStepView[] {
-    return this.isDemoMode() ? NO_TRACE_STEPS : this.threadView(msg).steps;
+    // Step names are engine words: Work keeps the three phases only.
+    return this.isDemoMode() || this.workSurface() ? NO_TRACE_STEPS : this.threadView(msg).steps;
   }
 
   /** « 14:02 » in the reader's locale; nothing when the time is unknown. */
@@ -6404,6 +6532,38 @@ export class ChatPanelComponent implements AfterViewInit {
     };
   }
 
+  /** L36 — every source of an answer as the Work panel reads it, numbered like its citations. */
+  private workSourceRefs(msg: ChatMessage, sourceHostId: string): WorkSourceRef[] {
+    const { sources, content } = this.proofSourcesFor(msg, sourceHostId);
+    if (!sources?.length) return [];
+    const cited = this.citedIndicesForContent(content, sources);
+    return sources.map((source, index) => {
+      const collection = this.sourceCollection(source);
+      return workSourceRef(source, index + 1, {
+        cited: cited.has(index + 1),
+        // A host grounded on one collection (getting started) knows its name.
+        collectionLabel: this.contextCollection() || (collection ? this.collectionDisplayName(collection) : null),
+      });
+    });
+  }
+
+  /** « page 3 » for the Work source list; nothing without a page. */
+  workSourcePage(src: Source): string | null {
+    const page = this.sourcePageNumber(src);
+    return page ? this.i18n.t('experience.work.sources.page', { page }) : null;
+  }
+
+  /** « Source 1 : contrat-atex-2026.pdf, page 3 », the name of a Work citation marker. */
+  workCiteAria(sources: Source[] | undefined | null, n: number): string {
+    const src = sources?.[n - 1];
+    if (!src) return this.i18n.t('chat.citation.missing', { n });
+    const title = this.sourceTitle(src);
+    const page = this.sourcePageNumber(src);
+    return page
+      ? this.i18n.t('experience.work.sources.cite_aria', { n, title, page })
+      : this.i18n.t('experience.work.sources.cite_aria_nopage', { n, title });
+  }
+
   /** A collection reads as its scope's label only when that scope holds it alone. */
   private collectionDisplayName(slug: string): string {
     const scope = this.knowledgeScopeOptions().find(
@@ -6421,7 +6581,9 @@ export class ChatPanelComponent implements AfterViewInit {
       const key = this.proofCiteKey(selection.hostId, selection.n);
       const escaped = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(key) : key.replace(/"/g, '\\"');
       const citation = doc.querySelector<HTMLElement>(`[data-proof-cite="${escaped}"]`);
-      const target = citation ?? (fallback?.isConnected ? fallback : null) ?? this.inputEl?.nativeElement ?? null;
+      const trigger = fallback?.isConnected ? fallback : null;
+      // Work gives focus back to what opened the source (marker or list item).
+      const target = (this.workSurface() ? trigger : null) ?? citation ?? trigger ?? this.inputEl?.nativeElement ?? null;
       target?.focus();
     }, 0);
   }

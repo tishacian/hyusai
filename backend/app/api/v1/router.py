@@ -23,6 +23,7 @@ from app.api.v1.endpoints import (
     contexts,
     control_plane,
     datasets,
+    document_passages,
     documents,
     evaluation,
     evaluation_campaigns,
@@ -95,6 +96,7 @@ api_router.include_router(models.router, prefix="/models", tags=["models"])
 api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
 api_router.include_router(assistant.router, prefix="/assistant", tags=["assistant"])
 api_router.include_router(documents.router, prefix="/documents", tags=["documents"])
+api_router.include_router(document_passages.router, prefix="/documents", tags=["documents"])
 api_router.include_router(agents.router, prefix="/agents", tags=["agents (legacy alias of /systems)"])
 api_router.include_router(sessions.router, prefix="/sessions", tags=["sessions"])
 api_router.include_router(metrics.router, prefix="/metrics", tags=["metrics"])
