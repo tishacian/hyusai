@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import document_passages, documents
 from app.core.config import settings
-from app.models.workspace import Workspace
+from app.models.workspace import Workspace, WorkspaceMember
 from app.services.knowledge_collections import create_collection, original_key
 from app.services.object_store import get_object_store
 
@@ -60,6 +60,12 @@ def _patch(monkeypatch, vector_db):
 def _workspace(db_session, slug: str) -> Workspace:
     ws = Workspace(id=f"ws-{slug}", name=slug, slug=slug)
     db_session.add(ws)
+    # The reader is a plain member: open collections are read by members only (L35).
+    db_session.add(
+        WorkspaceMember(
+            user_id="user-1", workspace_id=ws.id, role="member", role_template="workspace_contributor"
+        )
+    )
     db_session.commit()
     return ws
 
@@ -179,3 +185,23 @@ def test_the_collection_gate_is_the_single_access_hook(db_session, monkeypatch):
 
     assert resp.status_code == 404
     assert seen == ["contrats-fournisseurs"]
+
+
+def test_a_restricted_collection_reads_like_a_deleted_source(db_session, monkeypatch):
+    ws = _workspace(db_session, "passage-restricted")
+    collection = create_collection(db_session, workspace=ws, name="Contrats fournisseurs")
+    collection.access = {"read": ["role:workspace_admin"], "write": ["role:workspace_admin"]}
+    db_session.commit()
+    vector_db = FakeVectorDB(CHUNKS, [{"document_id": "doc-atex", "filename": "atex.pdf"}])
+    _patch(monkeypatch, vector_db)
+
+    resp = _client(db_session, ws).get(
+        "/documents/doc-atex/passage",
+        params={"collection_name": "contrats-fournisseurs", "chunk_index": 3},
+    )
+
+    # Same answer as a missing collection, and the store is never read.
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Collection not found"
+    assert "3.1 Tout dépassement" not in resp.text
+    assert vector_db.calls == []
