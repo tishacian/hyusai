@@ -59,6 +59,10 @@ def test_operational_objective_write_uses_system_admin_guard_and_preserves_setti
     assert client.get("/systems/foreign/operational-metrics").status_code == 404
 
 
+# Read-only fields GET computes for the member; PATCH echoes the stored record.
+SERVER_COMPUTED = {"example_available", "available", "can_add_documents", "sources", "candidate_collection_id"}
+
+
 def auth_client(db, workspace, user):
     app = FastAPI()
     app.include_router(auth.router, prefix="/auth")
@@ -78,13 +82,14 @@ def test_progress_is_per_member_and_workspace_and_never_changes_access(db_sessio
     client = auth_client(db_session, workspace, user)
     url = "/auth/workspaces/assistant-api/me/experience"
     assert client.get(url).json()["completed_steps"] == []
-    for step in ["example", "question", "source", "source"]:
+    # A client workspace walks its own sources (L34); NorthForge stays in Showcase.
+    for step in ["source", "documents", "question", "question"]:
         assert (
             client.patch(url, json={"persona": "builder", "completed_step": step}).status_code
             == 200
         )
     assert client.patch(url, json={"dismissed": True}).json()["dismissed"] is True
-    assert client.get(url).json()["completed_steps"] == ["example", "question", "source"]
+    assert client.get(url).json()["completed_steps"] == ["source", "documents", "question"]
     assert auth_client(db_session, workspace, other).get(url).json()["completed_steps"] == []
     assert client.patch(url, json={"role": "owner"}).status_code == 422
     assert client.patch(url, json={"system_ids": ["hidden"]}).status_code == 422
@@ -164,7 +169,7 @@ def test_rail_labels_patch_is_validated_and_leaves_other_fields_untouched(db_ses
     client = auth_client(db_session, workspace, user)
     url = "/auth/workspaces/assistant-api/me/experience"
     client.get(url)
-    assert client.patch(url, json={"persona": "builder", "completed_step": "example"}).status_code == 200
+    assert client.patch(url, json={"persona": "builder", "completed_step": "source"}).status_code == 200
     assert client.patch(url, json={"dismissed": True}).status_code == 200
     before = client.get(url).json()
 
@@ -183,7 +188,7 @@ def test_rail_labels_patch_is_validated_and_leaves_other_fields_untouched(db_ses
         after = response.json()
         assert after["rail_labels"] == value
         assert {k: v for k, v in after.items() if k != "rail_labels"} == {
-            k: v for k, v in before.items() if k not in {"rail_labels", "example_available"}
+            k: v for k, v in before.items() if k not in {"rail_labels", *SERVER_COMPUTED}
         }
     assert client.get(url).json()["rail_labels"] == "auto"
     audited = [

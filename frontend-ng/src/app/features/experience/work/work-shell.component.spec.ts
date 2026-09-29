@@ -16,6 +16,7 @@ function decisionHarness() {
   const response = new Subject<Run | null>();
   const calls: unknown[][] = [];
   const resumed: Run[] = [];
+  const decisions: string[] = [];
   let currentScope = true;
   const destruction = new Set<() => void>();
   const shell = Object.assign(Object.create(WorkShellComponent.prototype), {
@@ -28,12 +29,13 @@ function decisionHarness() {
     workspace: { captureRequestScope: () => ({ workspaceId: 'workspace-a' }), isRequestScopeCurrent: () => currentScope },
     api: { decide: (...args: unknown[]) => { calls.push(args); return response; } },
     runtime: { resumeAfterDecision: (value: Run) => resumed.push(value) },
+    adoption: { recordDecision: () => decisions.push(run.id) },
   }) as WorkShellComponent;
-  return { shell, run, response, calls, resumed, switchWorkspace: () => { currentScope = false; }, destroy: () => { for (const callback of destruction) callback(); } };
+  return { shell, run, response, calls, resumed, decisions, switchWorkspace: () => { currentScope = false; }, destroy: () => { for (const callback of destruction) callback(); } };
 }
 
 test('Work requires review of the exact request before a decision and submits it only once', () => {
-  const { shell, run, response, calls, resumed } = decisionHarness();
+  const { shell, run, response, calls, resumed, decisions } = decisionHarness();
   shell.decide(run, 'accept');
   assert.equal(calls.length, 0);
   shell.reviewDecision(run);
@@ -46,6 +48,7 @@ test('Work requires review of the exact request before a decision and submits it
   assert.deepEqual(resumed, [continued]);
   assert.equal(shell.decidedRun()?.id, run.id);
   assert.deepEqual(shell.pending(), []);
+  assert.deepEqual(decisions, [run.id], 'L34 — a saved decision ends the getting-started journey');
 });
 
 test('Work invalidates a review when the decision or submitted payload changes', () => {
@@ -79,7 +82,7 @@ test('leaving Work cancels decision delivery before it can resume another applic
 });
 
 test('refusal keeps the existing required reason and failed submissions retain the request', () => {
-  const { shell, run, response, calls } = decisionHarness();
+  const { shell, run, response, calls, decisions } = decisionHarness();
   shell.reviewDecision(run);
   shell.decide(run, 'reject');
   assert.equal(calls.length, 0);
@@ -89,6 +92,7 @@ test('refusal keeps the existing required reason and failed submissions retain t
   assert.deepEqual(calls[0], [run, 'reject', 'Missing source']);
   response.next(null);
   assert.equal(shell.pending().length, 1);
+  assert.deepEqual(decisions, [], 'a failed decision records nothing');
   assert.equal(shell.decidedRun(), null);
   assert.equal(shell.decisionBusy().size, 0);
 });

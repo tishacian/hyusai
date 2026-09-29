@@ -109,3 +109,49 @@ test('a failed write brings the previous preference back and says so politely', 
   adoption.setRailLabels('hidden');
   assert.equal(adoption.railLabelsError(), false, 'a new attempt clears the message');
 });
+
+// --- L34 — client journey -----------------------------------------------------
+
+test('a client workspace: the card follows server availability, and a write keeps it', () => {
+  const { adoption, patches } = setup();
+  const source = { id: 'c-ready', slug: 'contrats', name: 'Contrats', status: 'ready', document_count: 14, chunk_count: 3480 };
+  adoption.progress.set(progress({
+    journey: 'client_sources',
+    available: true,
+    can_add_documents: true,
+    sources: [source],
+    candidate_collection_id: 'c-ready',
+  }));
+  assert.equal(adoption.isClientJourney(), true);
+  assert.equal(adoption.journeyAvailable(), true);
+  assert.equal(adoption.compactVisible(), true);
+
+  adoption.update({ completed_step: 'source', collection_id: 'c-ready' });
+  patches[0].reply.next(progress({ journey: 'client_sources', completed_steps: ['source'], collection_id: 'c-ready' }));
+  const after = adoption.progress();
+  assert.deepEqual(after?.completed_steps, ['source']);
+  assert.equal(after?.available, true, 'the PATCH echo does not erase what GET computed');
+  assert.deepEqual(after?.sources, [source]);
+  assert.equal(after?.candidate_collection_id, 'c-ready');
+
+  adoption.progress.set(progress({ journey: 'client_sources', available: false }));
+  assert.equal(adoption.compactVisible(), false, 'no readable source: no card, no Showcase redirect');
+});
+
+test('a decision ends the client journey once and never touches NorthForge', () => {
+  const { adoption, patches } = setup();
+  adoption.progress.set(progress({ journey: 'northforge_sources', example_available: true }));
+  adoption.recordDecision();
+  assert.equal(patches.length, 0, 'NorthForge has no decision step');
+
+  adoption.progress.set(progress({ journey: 'client_sources', available: false }));
+  adoption.recordDecision();
+  assert.equal(patches.length, 0, 'nothing to record where the journey cannot run');
+
+  adoption.progress.set(progress({ journey: 'client_sources', available: true, completed_steps: ['source', 'question'] }));
+  adoption.recordDecision();
+  assert.deepEqual(patches.map((p) => p.body), [{ completed_step: 'decision' }]);
+  patches[0].reply.next(progress({ journey: 'client_sources', completed_steps: ['source', 'question', 'decision'] }));
+  adoption.recordDecision();
+  assert.equal(patches.length, 1, 'already recorded');
+});
