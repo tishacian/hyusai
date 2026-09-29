@@ -12,7 +12,7 @@ _This block is generated from `config/agentium/product-compliance.v1.json`. Run 
 | Lot | Contract claim | Repository state |
 |---:|---|---|
 | 0 | `LOT0-BASELINE-CONTRACT` — Workspace experience baseline is explicit and regression-tested | 🟠 Static verified |
-| 1 | `LOT1-STABILITY-CONTRACT` — Workspace navigation remains stable across retries, rails and switches | 🟠 Static verified |
+| 1 | `LOT1-STABILITY-CONTRACT` — Workspace navigation remains stable across retries, rails and switches | 🟡 Partial |
 | 2 | `LOT2-WORKSPACE-EXPERIENCE-RESOLVER` — Workspace experience resolver is flagged, shadowed and fail-closed | 🟠 Static verified |
 | 3 | `LOT3-COCKPIT-AXES` — Cockpit lenses preserve object identity and hierarchy | 🟠 Static verified |
 | 4 | `LOT4-SHOWCASE-CANARY-DISCOVERY` — Showcase canary discovers the live graph instead of a fixed slug | 🟠 Static verified |
@@ -23,14 +23,14 @@ _This block is generated from `config/agentium/product-compliance.v1.json`. Run 
 | 5 | `LOT5-SURFACE-CATALOG-COVERAGE` — API catalog coverage uses the production router as oracle | 🟠 Static verified |
 | 5 | `LOT5-CANONICAL-CONTRACTS` — Canonical workspace contracts replace implicit tenant branching progressively | 🟡 Partial |
 | 5 | `LOT5-COMPLIANCE-GOVERNANCE` — Product claims are computed and external evidence cannot self-promote | 🟠 Static verified |
-| 6 | `LOT6-NAV-ONE-SCALE-PER-AXIS` — Cockpit navigation uses one scale per axis | 🟠 Static verified |
+| 6 | `LOT6-NAV-ONE-SCALE-PER-AXIS` — Cockpit navigation uses one scale per axis | 🟡 Partial |
 | 6 | `LOT6-SYSTEM360-PERSPECTIVES` — One marked System exposes four distinct, evidence-backed perspectives | 🟠 Static verified |
 | 6 | `LOT6-P4-DURABLE-SUBFLOWS` — Durable Celery subflows preserve delegated Run identity | 🟠 Static verified |
 | 7 | `LOT7-OBJECT-GRAPH-PROJECTIONS` — Capability, Run and SkillInvocation expose governed object perspectives | 🟡 Partial |
 | 7 | `LOT7-AUTHORIZATION-ROLLOUT` — Action-level authorization advances through compat, shadow and enforce | 🟠 Static verified |
 | 7 | `LOT7-MEMBRANE-MEASUREMENTS` — Membrane budgets distinguish measured zero from unavailable telemetry | 🟠 Static verified |
 | 7 | `LOT7-ANDRITZ-MEMBRANE-SHADOW` — Andritz Membrane v2 shadow preparation is append-only and reversible | 🟠 Static verified |
-| 8 | `LOT8-AUTHORITATIVE-VALUE-LOOP` — System value scenarios follow one governed evidence lifecycle | 🟠 Static verified |
+| 8 | `LOT8-AUTHORITATIVE-VALUE-LOOP` — System value scenarios follow one governed evidence lifecycle | 🟡 Partial |
 | 9 | `LOT9-WORKSPACE-APP-LIFECYCLE` — Workspace Apps use content-addressed lifecycle and runtime authority | 🟠 Static verified |
 | 9 | `LOT9-IMMUTABLE-SUPPLY-CHAIN` — Release contract binds source, images and semantic evidence by digest | 🟠 Static verified |
 

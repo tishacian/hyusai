@@ -9,7 +9,7 @@ Source contract: [`config/agentium/product-compliance.v1.json`](../config/agenti
 | Lot | Claim | Kind | Implementation | API | Frontend | Tests | Required runners | Computed repository state |
 |---:|---|---|---|---|---|---|---|---|
 | 0 | `LOT0-BASELINE-CONTRACT` — Workspace experience baseline is explicit and regression-tested | `governance` | ✅ 1/1 required | — | — | ✅ 2/2 required | `playwright`, `pytest` | 🟠 Static verified |
-| 1 | `LOT1-STABILITY-CONTRACT` — Workspace navigation remains stable across retries, rails and switches | `frontend` | ✅ 5/5 required | — | ✅ 2/2 required | ✅ 4/4 required | `node` | 🟠 Static verified |
+| 1 | `LOT1-STABILITY-CONTRACT` — Workspace navigation remains stable across retries, rails and switches | `frontend` | ❌ 4/5 required | — | ❌ 1/2 required | ✅ 4/4 required | `node` | 🟡 Partial |
 | 2 | `LOT2-WORKSPACE-EXPERIENCE-RESOLVER` — Workspace experience resolver is flagged, shadowed and fail-closed | `frontend` | ✅ 3/3 required | — | ✅ 1/1 required | ✅ 2/2 required | `node` | 🟠 Static verified |
 | 3 | `LOT3-COCKPIT-AXES` — Cockpit lenses preserve object identity and hierarchy | `frontend` | ✅ 2/2 required | — | ✅ 1/1 required | ✅ 1/1 required | `node` | 🟠 Static verified |
 | 4 | `LOT4-SHOWCASE-CANARY-DISCOVERY` — Showcase canary discovers the live graph instead of a fixed slug | `governance` | ✅ 1/1 required | — | — | ✅ 1/1 required | `playwright` | 🟠 Static verified |
@@ -20,14 +20,14 @@ Source contract: [`config/agentium/product-compliance.v1.json`](../config/agenti
 | 5 | `LOT5-SURFACE-CATALOG-COVERAGE` — API catalog coverage uses the production router as oracle | `api` | ✅ 1/1 required | ✅ 1/1 required | — | ✅ 1/1 required | `pytest` | 🟠 Static verified |
 | 5 | `LOT5-CANONICAL-CONTRACTS` — Canonical workspace contracts replace implicit tenant branching progressively | `full_stack` | ✅ 7/7 required | ✅ 2/2 required | ❌ 2/3 required | ✅ 8/8 required | `node`, `pytest` | 🟡 Partial |
 | 5 | `LOT5-COMPLIANCE-GOVERNANCE` — Product claims are computed and external evidence cannot self-promote | `governance` | ✅ 4/4 required | — | — | ✅ 1/1 required | `pytest` | 🟠 Static verified |
-| 6 | `LOT6-NAV-ONE-SCALE-PER-AXIS` — Cockpit navigation uses one scale per axis | `frontend` | ✅ 3/3 required | — | ✅ 2/2 required | ✅ 2/2 required | `node`, `playwright` | 🟠 Static verified |
+| 6 | `LOT6-NAV-ONE-SCALE-PER-AXIS` — Cockpit navigation uses one scale per axis | `frontend` | ✅ 3/3 required | — | ❌ 1/2 required | ❌ 1/2 required | `node`, `playwright` | 🟡 Partial |
 | 6 | `LOT6-SYSTEM360-PERSPECTIVES` — One marked System exposes four distinct, evidence-backed perspectives | `full_stack` | ✅ 5/5 required | ✅ 1/1 required | ✅ 1/1 required | ✅ 1/1 required | `playwright` | 🟠 Static verified |
 | 6 | `LOT6-P4-DURABLE-SUBFLOWS` — Durable Celery subflows preserve delegated Run identity | `backend` | ✅ 6/6 required | — | — | ✅ 4/4 required | `pytest` | 🟠 Static verified |
 | 7 | `LOT7-OBJECT-GRAPH-PROJECTIONS` — Capability, Run and SkillInvocation expose governed object perspectives | `full_stack` | ❌ 7/8 required | ✅ 2/2 required | ✅ 1/1 required | ✅ 7/7 required | `playwright`, `pytest` | 🟡 Partial |
 | 7 | `LOT7-AUTHORIZATION-ROLLOUT` — Action-level authorization advances through compat, shadow and enforce | `api` | ✅ 4/4 required | ✅ 2/2 required | — | ✅ 6/6 required | `pytest` | 🟠 Static verified |
 | 7 | `LOT7-MEMBRANE-MEASUREMENTS` — Membrane budgets distinguish measured zero from unavailable telemetry | `backend` | ✅ 2/2 required | — | — | ✅ 2/2 required | `pytest` | 🟠 Static verified |
 | 7 | `LOT7-ANDRITZ-MEMBRANE-SHADOW` — Andritz Membrane v2 shadow preparation is append-only and reversible | `backend` | ✅ 1/1 required | — | — | ✅ 1/1 required | `pytest` | 🟠 Static verified |
-| 8 | `LOT8-AUTHORITATIVE-VALUE-LOOP` — System value scenarios follow one governed evidence lifecycle | `full_stack` | ✅ 14/14 required | ✅ 4/4 required | ✅ 2/2 required | ✅ 19/19 required | `node`, `playwright`, `pytest` | 🟠 Static verified |
+| 8 | `LOT8-AUTHORITATIVE-VALUE-LOOP` — System value scenarios follow one governed evidence lifecycle | `full_stack` | ✅ 14/14 required | ✅ 4/4 required | ❌ 1/2 required | ✅ 19/19 required | `node`, `playwright`, `pytest` | 🟡 Partial |
 | 9 | `LOT9-WORKSPACE-APP-LIFECYCLE` — Workspace Apps use content-addressed lifecycle and runtime authority | `full_stack` | ✅ 11/11 required | ✅ 2/2 required | ✅ 4/4 required | ✅ 19/19 required | `node`, `playwright`, `pytest` | 🟠 Static verified |
 | 9 | `LOT9-IMMUTABLE-SUPPLY-CHAIN` — Release contract binds source, images and semantic evidence by digest | `governance` | ✅ 2/2 required | — | — | ✅ 1/1 required | `pytest` | 🟠 Static verified |
 
@@ -47,11 +47,11 @@ The workspace header survives retry, one resolver owns redirects, the expanded r
 
 - **implementation / PASS** — [Workspace-scoped authentication retry](../frontend-ng/src/app/core/auth.interceptor.ts)
 - **implementation / PASS** — [Single navigation redirect owner](../frontend-ng/src/app/core/navigation-resolver.service.ts)
-- **implementation / PASS** — [Constant rail layout slot with overlay expansion](../frontend-ng/src/app/features/layout/side-rail.component.ts)
+- **implementation / FAIL** — [Constant rail layout slot with overlay expansion](../frontend-ng/src/app/features/layout/side-rail.component.ts); 2 literal(s) missing
 - **implementation / PASS** — [Client360 Operate classification](../frontend-ng/src/app/core/navigation.catalog.ts)
 - **implementation / PASS** — [Atomic workspace context epoch](../frontend-ng/src/app/core/workspace.service.ts)
 - **frontend / PASS** — [Workspace request-scope public contract](../frontend-ng/src/app/core/workspace.service.ts)
-- **frontend / PASS** — [Five-verb rail implementation](../frontend-ng/src/app/features/layout/side-rail.component.ts)
+- **frontend / FAIL** — [Five-verb rail implementation](../frontend-ng/src/app/features/layout/side-rail.component.ts); 1 literal(s) missing
 - **tests / PASS** — [Retry header tests](../frontend-ng/src/app/core/auth.interceptor.spec.ts)
 - **tests / PASS** — [Resolver ownership tests](../frontend-ng/src/app/core/navigation-resolver.service.spec.ts)
 - **tests / PASS** — [Client360 lens test](../frontend-ng/src/app/core/navigation.catalog.spec.ts)
@@ -181,9 +181,9 @@ Zone is the rail, object is the breadcrumb, facet is ?facet=. The zone summary n
 - **implementation / PASS** — [Lot 6 one-scale-per-axis contract](../docs/agentium-navigation-lot-6-one-scale-per-axis.md)
 - **implementation / PASS** — [URL grammar v5](../docs/agentium-reference.md)
 - **implementation / PASS** — [Facet catalogue and zone sections](../frontend-ng/src/app/core/navigation.catalog.ts)
-- **frontend / PASS** — [Zone summary and System facet branch](../frontend-ng/src/app/features/layout/mini-rail.component.ts)
+- **frontend / FAIL** — [Zone summary and System facet branch](../frontend-ng/src/app/features/layout/mini-rail.component.ts); 1 literal(s) missing
 - **frontend / PASS** — [Builder mode home](../frontend-ng/src/app/core/navigation-resolver.service.ts)
-- **tests / PASS** — [I1 sommaire and OBJECT\_FACETS](../frontend-ng/src/app/core/navigation.catalog.spec.ts)
+- **tests / FAIL** — [I1 sommaire and OBJECT\_FACETS](../frontend-ng/src/app/core/navigation.catalog.spec.ts); 1 literal(s) missing
 - **tests / PASS** — [Navigation v5 canary](../frontend-ng/e2e/tests/19-navigation-v5-canary.spec.ts)
 
 ### `LOT6-SYSTEM360-PERSPECTIVES` — One marked System exposes four distinct, evidence-backed perspectives
@@ -292,7 +292,7 @@ Outcome, decision, simulation, immutable approval snapshot, bounded actuation an
 - **api / PASS** — [Atomic Run outcome override boundary](../backend/app/api/v1/endpoints/runs.py)
 - **api / PASS** — [Portfolio value-loop aggregation](../backend/app/api/v1/endpoints/hypervisor.py)
 - **api / PASS** — [Server-managed Showcase seed marker](../backend/app/api/v1/endpoints/auth.py)
-- **frontend / PASS** — [Steer value-loop evidence UI](../frontend-ng/src/app/features/systems/system-value-loop.component.ts)
+- **frontend / FAIL** — [Steer value-loop evidence UI](../frontend-ng/src/app/features/systems/system-value-loop.component.ts); 1 literal(s) missing
 - **frontend / PASS** — [Portfolio Capability count avoids Run substitution](../frontend-ng/src/app/features/hypervisor/hypervisor-impact.ts)
 - **tests / PASS** — [Value-loop transaction and evidence semantics](../backend/app/tests/services/test_value_loop.py)
 - **tests / PASS** — [Current-authority API boundary](../backend/app/tests/api/test_value_loop_api.py)
@@ -365,7 +365,7 @@ Release schema v2 binds the exact repository revision, populated SBOM, SLSA buil
 
 ## Residual workspace-slug branch debt
 
-Inventory schema v1 declares **3 occurrence(s)** across **3 expression(s)**. Any new, removed, duplicated or edited branch fails `--check` until this versioned debt list is reviewed explicitly.
+Inventory schema v1 declares **4 occurrence(s)** across **4 expression(s)**. Any new, removed, duplicated or edited branch fails `--check` until this versioned debt list is reviewed explicitly.
 
 Runtime scan roots: `backend/app`, `frontend-ng/src/app`. Excluded paths: `backend/app/tests`, `backend/app/cli`. Excluded suffixes: `*.spec.ts`.
 
@@ -373,7 +373,8 @@ Alembic migrations and repository utilities under `backend/scripts` are outside 
 
 | Path | Expression | Occurrences | Category | Reason |
 |---|---|---:|---|---|
-| [`backend/app/api/v1/endpoints/auth.py`](../backend/app/api/v1/endpoints/auth.py) | `workspace.slug == "agentium-showcase"` | 1 | `ui_compatibility` | The initial NorthForge adoption exercise is offered only inside the synthetic Showcase workspace with a ready tenant-scoped corpus. This eligibility check grants no role, entitlement or document permission. Revisit it when the exercise is packaged for portable installation; the current rollout explicitly excludes client corpora. |
+| [`backend/app/api/v1/endpoints/auth.py`](../backend/app/api/v1/endpoints/auth.py) | `workspace.slug == SHOWCASE_WORKSPACE_SLUG` | 1 | `ui_compatibility` | The NorthForge example is offered only inside the synthetic Showcase workspace with a ready tenant-scoped corpus; every other workspace gets the client\_sources journey on its own collections. This eligibility check grants no role, entitlement or document permission. |
+| [`backend/app/schemas/adoption.py`](../backend/app/schemas/adoption.py) | `slug == SHOWCASE_WORKSPACE_SLUG` | 1 | `ui_compatibility` | Selects which getting-started journey a workspace shows: the NorthForge example in the synthetic Showcase, the journey on the workspace's own collections everywhere else. It grants no role, entitlement or document permission. |
 | [`backend/app/services/mission_room.py`](../backend/app/services/mission_room.py) | `Workspace.slug == OCTOCITY_WORKSPACE_SLUG` | 1 | `provisioning_identity` | The explicit, idempotent Octocity provisioning command locates the workspace identity it owns; runtime presentation and authorization use the Mission Room profile instead. |
 | [`backend/app/services/mission_room.py`](../backend/app/services/mission_room.py) | `Workspace.slug == SENTINEL_WORKSPACE_SLUG` | 1 | `provisioning_identity` | The explicit, idempotent Sentinel provisioning command locates the workspace identity it owns; runtime behavior is family/profile/action-pack driven. |
 
