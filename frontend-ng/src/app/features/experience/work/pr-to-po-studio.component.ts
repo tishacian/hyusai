@@ -3,6 +3,8 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  Injector,
+  afterNextRender,
   OnDestroy,
   OnInit,
   computed,
@@ -16,6 +18,7 @@ import { ApiService } from '@app/core/api.service';
 import { appearanceStyles } from '@app/core/brand-appearance';
 import { CanonicalApiService, type Run, type System } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
+import { navigationObjectUrl } from '@app/core/navigation.catalog';
 import { focusAfterRoute, navigationFocusFromState } from '@app/core/route-focus';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { ThinkingOrbComponent } from '@app/shared/cockpit';
@@ -27,6 +30,18 @@ import {
   factoryRunHref,
   factoryRuntimeContext,
 } from './pr-to-po-runtime';
+import {
+  chronology,
+  formatReceiptAmount,
+  formatReceiptDuration,
+  gateChecks,
+  gateConsequences,
+  readSystemLabel,
+  rejectReasonError,
+  runDisabledTools,
+  workReceipt,
+  type ChronologyStep,
+} from './pr-to-po-receipt';
 import { WorkApiService } from './work-api.service';
 import { WorkBarComponent } from './work-bar.component';
 import { WorkAppHeaderComponent } from './work-app-header.component';
@@ -62,8 +77,20 @@ import {
   type ChatWriteDialogue,
   type StudioMode,
   type StudioNodeId,
+  type StudioNodeState,
   type StudioProposal,
 } from './pr-to-po-studio';
+
+interface ReceiptPart {
+  text: string;
+  /** Screen-reader prefix for a bare figure (the working time). */
+  sr?: string;
+}
+
+interface ChronologyRow extends ChronologyStep {
+  node: StudioNodeState;
+  href: string | null;
+}
 
 interface RailServer {
   id: string;
@@ -121,7 +148,9 @@ const RAIL_TOOLS: readonly RailTool[] = [
         [returnTo]="cockpitReturnTo()"
         defaultBackKey="experience.work.back_apps"
       >
-        <ck-thinking-orb [state]="busy() ? 'working' : 'listening'" [size]="20" />
+        @if (mode() === 'chat') {
+          <ck-thinking-orb [state]="busy() ? 'working' : 'listening'" [size]="20" />
+        }
         <nav class="xp-studio-modes" role="tablist">
           <button
             type="button"
@@ -164,25 +193,27 @@ const RAIL_TOOLS: readonly RailTool[] = [
           }
 
           @if (mode() === 'run') {
-            <section class="xp-studio-hero">
-              <div>
-                <p class="xp-studio-kicker">{{ i18n.t('experience.pr_to_po.studio.hero.kicker') }}</p>
-                <h2>{{ i18n.t('experience.pr_to_po.studio.hero.title') }}</h2>
-                <p class="xp-studio-note">{{ i18n.t('experience.pr_to_po.studio.hero.hint') }}</p>
-              </div>
-              <button
-                type="button"
-                class="xp-work-btn xp-work-btn-primary xp-studio-run"
-                (click)="runNow()"
-                [disabled]="busy() || gateOpen()"
-              >
-                {{
-                  busy()
-                    ? i18n.t('experience.pr_to_po.studio.running')
-                    : i18n.t('experience.pr_to_po.studio.run_now')
-                }}
-              </button>
-            </section>
+            @if (!gateOpen()) {
+              <section class="xp-studio-hero">
+                <div>
+                  <p class="xp-studio-kicker">{{ i18n.t('experience.pr_to_po.studio.hero.kicker') }}</p>
+                  <h2>{{ i18n.t('experience.pr_to_po.studio.hero.title') }}</h2>
+                  <p class="xp-studio-note">{{ i18n.t('experience.pr_to_po.studio.hero.hint') }}</p>
+                </div>
+                <button
+                  type="button"
+                  class="xp-work-btn xp-work-btn-primary xp-studio-run"
+                  (click)="runNow()"
+                  [disabled]="busy() || gateOpen()"
+                >
+                  {{
+                    busy()
+                      ? i18n.t('experience.pr_to_po.studio.running')
+                      : i18n.t('experience.pr_to_po.studio.run_now')
+                  }}
+                </button>
+              </section>
+            }
 
             @if (posted().length) {
               <section class="xp-studio-result" data-live="true">
@@ -198,187 +229,412 @@ const RAIL_TOOLS: readonly RailTool[] = [
               </section>
             }
 
-            <ol class="xp-studio-nodes">
-              @for (node of nodes(); track node.id; let i = $index) {
-                <li [attr.data-status]="node.status" [attr.data-node]="node.id">
-                  <button type="button" class="xp-studio-node-head" (click)="toggleNode(node.id)">
-                    <span class="xp-studio-node-index">{{ i + 1 }}</span>
-                    <span class="xp-studio-node-name">
-                      <code>{{ i18n.t('experience.pr_to_po.studio.node.' + node.id) }}</code>
-                      @if (node.noteKey) {
-                        <em>{{ i18n.t(node.noteKey, node.noteParams) }}</em>
-                      } @else if (node.error) {
-                        <em>{{ node.error }}</em>
+            @if (run()) {
+              <section class="xp-receipt" aria-labelledby="xp-receipt-title" data-testid="work-receipt">
+                <div class="xp-receipt-main">
+                  <h2 id="xp-receipt-title" class="xp-receipt-title">{{ i18n.t('experience.pr_to_po.studio.receipt.title') }}</h2>
+                  @if (receiptParts().length) {
+                    <p class="xp-receipt-line">
+                      @for (part of receiptParts(); track $index) {
+                        @if ($index > 0) {
+                          <span class="xp-receipt-sep" aria-hidden="true">·</span>
+                        }
+                        <span>
+                          @if (part.sr) {
+                            <span class="sr-only">{{ part.sr }}</span>
+                          }
+                          {{ part.text }}
+                        </span>
                       }
-                    </span>
-                    <span class="xp-studio-node-kind" [attr.data-kind]="nodeKind(node.id)">
-                      {{ i18n.t('experience.pr_to_po.studio.kind.' + nodeKind(node.id)) }}
-                    </span>
-                    <span class="xp-studio-node-status">
-                      {{ i18n.t('experience.pr_to_po.studio.status.' + node.status) }}
-                    </span>
+                    </p>
+                  }
+                  <p class="xp-receipt-now" role="status" aria-live="polite">
+                    @if (busy() && !gateOpen()) {
+                      <ck-thinking-orb [state]="orbState()" [size]="20" [label]="receiptNow()" />
+                    }
+                    <span>{{ receiptNow() }}</span>
+                  </p>
+                </div>
+                @if (steps().length) {
+                  <button
+                    type="button"
+                    class="xp-work-btn xp-receipt-toggle"
+                    [attr.aria-expanded]="chronologyOpen()"
+                    aria-controls="xp-receipt-chronology"
+                    (click)="toggleChronology($event)"
+                    (keydown)="guardRepeat($event)"
+                  >
+                    {{
+                      chronologyOpen()
+                        ? i18n.t('experience.pr_to_po.studio.receipt.hide')
+                        : i18n.t('experience.pr_to_po.studio.receipt.show')
+                    }}
+                    <span class="xp-receipt-chevron" aria-hidden="true"></span>
                   </button>
-                  @if (expanded().has(node.id)) {
-                    <div class="xp-studio-node-detail">
-                      @if (node.calls.length === 0) {
-                        <p class="xp-studio-note">{{ i18n.t('experience.pr_to_po.studio.no_calls') }}</p>
-                      }
-                      @for (call of node.calls; track $index) {
-                        <details class="xp-studio-call" [attr.data-blocked]="call.blocked" [attr.data-sealed]="call.sealed">
-                          <summary>
-                            <code>{{ call.server }} · {{ call.tool }}</code>
-                            <span [attr.data-kind]="call.write ? 'write' : 'read'">
-                              {{ i18n.t(call.write ? 'experience.pr_to_po.studio.call.write' : 'experience.pr_to_po.studio.call.read') }}
-                            </span>
-                            @if (call.blocked) {
-                              <b>{{ i18n.t('experience.pr_to_po.studio.call.blocked') }}</b>
-                            } @else if (call.sealed && call.write) {
-                              <b>{{ i18n.t('experience.pr_to_po.studio.call.sealed') }}</b>
-                            } @else if (call.write) {
-                              <b [attr.data-ok]="call.ok">
-                                {{
-                                  call.ok
-                                    ? i18n.t('experience.pr_to_po.studio.call.live')
-                                    : i18n.t('experience.pr_to_po.studio.call.failed')
-                                }}
-                              </b>
-                            }
-                            @if (call.durationMs) {
-                              <small>{{ call.durationMs | number: '1.0-0' }} ms</small>
-                            }
-                          </summary>
-                          <p>{{ i18n.t('experience.pr_to_po.studio.call.request') }}</p>
-                          <pre>{{ json(call.request) }}</pre>
-                          <p>{{ i18n.t('experience.pr_to_po.studio.call.response') }}</p>
-                          <pre>{{ json(call.response) }}</pre>
-                        </details>
-                      }
+                }
+              </section>
 
-                      @if (node.id === 'gate' && proposal(); as proposal) {
-                        <div class="xp-studio-gate">
-                          <article class="xp-studio-card" [attr.data-decision]="decision()">
-                            <header>
-                              <div>
-                                <h4>{{ proposal.label }}</h4>
-                                <p>
-                                  {{ i18n.t('experience.pr_to_po.studio.gate.line', {
-                                    pr: proposal.prId,
-                                    item: proposal.item,
-                                    plant: proposal.plant,
-                                  }) }}
-                                </p>
-                              </div>
-                              <strong>{{ amount(proposal) }}</strong>
-                            </header>
-                            @if (!proposal.budgetOk) {
-                              <p class="xp-studio-warn">
-                                {{ i18n.t('experience.pr_to_po.studio.gate.budget_ko', { reason: proposal.budgetReason }) }}
-                              </p>
-                            }
-                            @if (proposal.priceMissing) {
-                              <p class="xp-studio-warn">
-                                {{ i18n.t('experience.pr_to_po.studio.gate.price_missing') }}
-                              </p>
-                            }
-                            @if (proposal.justification) {
-                              <p class="xp-studio-summary">{{ proposal.justification }}</p>
-                            }
-                            <dl>
-                              <div>
-                                <dt>{{ i18n.t('experience.pr_to_po.studio.gate.supplier') }}</dt>
-                                <dd>{{ proposal.supplier || '—' }}</dd>
-                              </div>
-                              <div>
-                                <dt>{{ i18n.t('experience.pr_to_po.studio.gate.payment') }}</dt>
-                                <dd>{{ proposal.paymentTerms || '—' }}</dd>
-                              </div>
-                              <div>
-                                <dt>{{ i18n.t('experience.pr_to_po.studio.gate.incoterms') }}</dt>
-                                <dd>{{ proposal.incoterms || '—' }}</dd>
-                              </div>
-                              <div>
-                                <dt>{{ i18n.t('experience.pr_to_po.studio.gate.type') }}</dt>
-                                <dd>{{ proposal.format || 'ZLPO' }}</dd>
-                              </div>
-                            </dl>
-                            <ul class="xp-studio-provenance">
-                              @for (row of proposal.provenance; track row.field) {
-                                <li>{{ i18n.t(row.sourceKey, row.sourceParams) }}</li>
-                              }
-                            </ul>
-                            @if (proposal.dossier) {
-                              <details>
-                                <summary>{{ i18n.t('experience.pr_to_po.studio.gate.dossier') }}</summary>
-                                <pre>{{ proposal.dossier }}</pre>
-                              </details>
-                            }
-                            @if (outcome(); as outcome) {
-                              <p class="xp-studio-outcome" [attr.data-ok]="outcome.sealed || outcome.sapOk">
-                                @if (outcome.blocked) {
-                                  {{ i18n.t('experience.pr_to_po.studio.outcome.blocked') }}
-                                } @else if (outcome.sealed) {
-                                  {{ i18n.t('experience.pr_to_po.studio.outcome.sealed') }}
-                                } @else if (outcome.sapOk && outcome.poNumber) {
-                                  {{ i18n.t('experience.pr_to_po.studio.outcome.po', { po: outcome.poNumber }) }}
-                                } @else {
-                                  {{ i18n.t('experience.pr_to_po.studio.outcome.failed') }}
-                                  {{ outcome.messages[0] || '' }}
+              <div
+                id="xp-receipt-chronology"
+                class="xp-receipt-chronology"
+                [attr.data-open]="chronologyOpen()"
+                [attr.data-instant]="chronologyInstant()"
+                [attr.inert]="chronologyOpen() ? null : ''"
+              >
+                <div class="xp-receipt-chronology-inner">
+                  <ol class="xp-studio-nodes" [attr.aria-label]="i18n.t('experience.pr_to_po.studio.receipt.chronology')">
+                    @for (step of steps(); track step.id; let i = $index) {
+                      <li [attr.data-status]="step.status" [attr.data-node]="step.id">
+                        <div class="xp-studio-node-row">
+                          <button
+                            type="button"
+                            class="xp-studio-node-head"
+                            [attr.aria-expanded]="expanded().has(step.id)"
+                            [attr.aria-controls]="'xp-node-' + step.id"
+                            (click)="toggleNode(step.id)"
+                            (keydown)="guardRepeat($event)"
+                          >
+                            <span class="xp-studio-node-index" aria-hidden="true">{{ i + 1 }}</span>
+                            <span class="xp-studio-node-name">
+                              <strong>{{ i18n.t(step.labelKey) }}</strong>
+                              <span class="xp-studio-node-sub">
+                                @if (step.node.noteKey) {
+                                  <em>{{ i18n.t(step.node.noteKey, step.node.noteParams) }}</em>
+                                } @else if (step.node.error) {
+                                  <em>{{ step.node.error }}</em>
                                 }
-                              </p>
-                            }
-                            @if (gateOpen()) {
-                              <div class="xp-work-hitl-actions">
-                                <button
-                                  type="button"
-                                  class="xp-work-btn xp-work-btn-primary xp-studio-approve"
-                                  (click)="approve()"
-                                  [disabled]="deciding()"
-                                >
-                                  {{ i18n.t('experience.pr_to_po.studio.gate.approve') }}
-                                </button>
-                                <button
-                                  type="button"
-                                  class="xp-work-btn xp-studio-reject"
-                                  (click)="reject()"
-                                  [disabled]="deciding()"
-                                >
-                                  {{ i18n.t('experience.pr_to_po.studio.gate.reject') }}
-                                </button>
-                                @if (deciding()) {
-                                }
-                              </div>
-                            } @else if (decision() !== 'pending') {
-                              <p class="xp-studio-note">
-                                {{
-                                  decision() === 'approved'
-                                    ? i18n.t('experience.pr_to_po.studio.gate.approved')
-                                    : i18n.t('experience.pr_to_po.studio.gate.rejected')
-                                }}
-                              </p>
-                            }
-                          </article>
-                          @if (candidates().length && !busy()) {
-                            <div class="xp-studio-next">
-                              <p class="xp-studio-note">{{ i18n.t('experience.pr_to_po.studio.gate.next') }}</p>
-                              @for (prId of candidates(); track prId) {
-                                <button
-                                  type="button"
-                                  class="xp-work-btn xp-studio-next-btn"
-                                  (click)="runNow(prId)"
-                                  [disabled]="gateOpen()"
-                                >
-                                  {{ i18n.t('experience.pr_to_po.studio.gate.next_run', { pr: prId }) }}
-                                </button>
+                                <span class="xp-studio-node-kind">{{ i18n.t('experience.pr_to_po.studio.kind.' + step.kind) }}</span>
+                                <code>{{ step.technical }}</code>
+                              </span>
+                            </span>
+                            <span class="xp-studio-node-time">
+                              @if (step.durationMs != null) {
+                                {{ duration(step.durationMs) }}
                               }
-                            </div>
+                            </span>
+                            <span class="xp-studio-node-status">
+                              {{ i18n.t('experience.pr_to_po.studio.status.' + step.status) }}
+                            </span>
+                          </button>
+                          @if (step.href) {
+                            <a
+                              class="xp-studio-node-link"
+                              [routerLink]="step.href"
+                              [attr.aria-label]="i18n.t('experience.pr_to_po.studio.receipt.invocation_aria', { step: i18n.t(step.labelKey) })"
+                            >
+                              {{ i18n.t('experience.pr_to_po.studio.receipt.invocation') }}
+                            </a>
+                          } @else {
+                            <span class="xp-studio-node-link" aria-hidden="true"></span>
                           }
                         </div>
+                        @if (expanded().has(step.id)) {
+                          <div class="xp-studio-node-detail" [id]="'xp-node-' + step.id">
+                            @if (step.node.calls.length === 0) {
+                              <p class="xp-studio-note">{{ i18n.t('experience.pr_to_po.studio.no_calls') }}</p>
+                            }
+                            @for (call of step.node.calls; track $index) {
+                              <details class="xp-studio-call" [attr.data-blocked]="call.blocked" [attr.data-sealed]="call.sealed">
+                                <summary>
+                                  <code>{{ call.server }} · {{ call.tool }}</code>
+                                  <span [attr.data-kind]="call.write ? 'write' : 'read'">
+                                    {{ i18n.t(call.write ? 'experience.pr_to_po.studio.call.write' : 'experience.pr_to_po.studio.call.read') }}
+                                  </span>
+                                  @if (call.blocked) {
+                                    <b>{{ i18n.t('experience.pr_to_po.studio.call.blocked') }}</b>
+                                  } @else if (call.sealed && call.write) {
+                                    <b>{{ i18n.t('experience.pr_to_po.studio.call.sealed') }}</b>
+                                  } @else if (call.write) {
+                                    <b [attr.data-ok]="call.ok">
+                                      {{
+                                        call.ok
+                                          ? i18n.t('experience.pr_to_po.studio.call.live')
+                                          : i18n.t('experience.pr_to_po.studio.call.failed')
+                                      }}
+                                    </b>
+                                  }
+                                  @if (call.durationMs) {
+                                    <small>{{ duration(call.durationMs) }}</small>
+                                  }
+                                </summary>
+                                <p>{{ i18n.t('experience.pr_to_po.studio.call.request') }}</p>
+                                <pre>{{ json(call.request) }}</pre>
+                                <p>{{ i18n.t('experience.pr_to_po.studio.call.response') }}</p>
+                                <pre>{{ json(call.response) }}</pre>
+                              </details>
+                            }
+                          </div>
+                        }
+                      </li>
+                    }
+                  </ol>
+                </div>
+              </div>
+            }
+
+            @if (proposal(); as proposal) {
+              <article class="xp-studio-card xp-gate" [attr.data-decision]="decision()" aria-labelledby="xp-gate-title">
+                <header class="xp-gate-head">
+                  <div class="xp-gate-id">
+                    <p class="xp-gate-eyebrow">
+                      @if (gateOpen() && !busy()) {
+                        <ck-thinking-orb state="listening" [size]="20" [label]="i18n.t('experience.pr_to_po.studio.gate.waiting')" />
                       }
-                    </div>
+                      <span>{{ i18n.t('experience.pr_to_po.studio.gate.eyebrow') }}</span>
+                      @if (gateOpen()) {
+                        <span class="xp-gate-waiting">· {{ i18n.t('experience.pr_to_po.studio.gate.waiting') }}</span>
+                      }
+                    </p>
+                    <h2 id="xp-gate-title">{{ proposal.label }}</h2>
+                    <p>
+                      {{ i18n.t('experience.pr_to_po.studio.gate.line', {
+                        pr: proposal.prId,
+                        item: proposal.item,
+                        plant: proposal.plant,
+                      }) }}
+                    </p>
+                  </div>
+                  <div class="xp-gate-amount">
+                    <strong>{{ amount(proposal) }}</strong>
+                    <span>{{ i18n.t('experience.pr_to_po.studio.gate.amount') }}</span>
+                  </div>
+                </header>
+                @if (gateOpen()) {
+                  <p class="xp-gate-lede">{{ i18n.t('experience.pr_to_po.studio.gate.lede') }}</p>
+                }
+                @if (!proposal.budgetOk) {
+                  <p class="xp-studio-warn">
+                    {{ i18n.t('experience.pr_to_po.studio.gate.budget_ko', { reason: proposal.budgetReason }) }}
+                  </p>
+                }
+                @if (proposal.priceMissing) {
+                  <p class="xp-studio-warn">
+                    {{ i18n.t('experience.pr_to_po.studio.gate.price_missing') }}
+                  </p>
+                }
+
+                <dl class="xp-gate-terms">
+                  <div>
+                    <dt>{{ i18n.t('experience.pr_to_po.studio.gate.supplier') }}</dt>
+                    <dd><span class="xp-gate-id-value">{{ proposal.supplier || '—' }}</span></dd>
+                  </div>
+                  <div>
+                    <dt>{{ i18n.t('experience.pr_to_po.studio.gate.payment') }}</dt>
+                    <dd><span class="xp-gate-id-value">{{ proposal.paymentTerms || '—' }}</span></dd>
+                  </div>
+                  <div>
+                    <dt>{{ i18n.t('experience.pr_to_po.studio.gate.incoterms') }}</dt>
+                    <dd><span class="xp-gate-id-value">{{ proposal.incoterms || '—' }}</span></dd>
+                  </div>
+                  <div>
+                    <dt>{{ i18n.t('experience.pr_to_po.studio.gate.type') }}</dt>
+                    <dd><span class="xp-gate-id-value">{{ proposal.format || 'ZLPO' }}</span></dd>
+                  </div>
+                </dl>
+
+                <section class="xp-gate-lines" aria-labelledby="xp-gate-lines-title">
+                  <h3 id="xp-gate-lines-title">{{ i18n.t('experience.pr_to_po.studio.gate.lines') }}</h3>
+                  <div class="xp-gate-table">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th scope="col">{{ i18n.t('experience.pr_to_po.studio.gate.col.item') }}</th>
+                          <th scope="col">{{ i18n.t('experience.pr_to_po.studio.gate.col.article') }}</th>
+                          <th scope="col" class="xp-num">{{ i18n.t('experience.pr_to_po.studio.gate.col.quantity') }}</th>
+                          <th scope="col" class="xp-num">{{ i18n.t('experience.pr_to_po.studio.gate.col.price') }}</th>
+                          <th scope="col" class="xp-num">{{ i18n.t('experience.pr_to_po.studio.gate.col.total') }}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td class="xp-gate-id-value">{{ proposal.item }}</td>
+                          <td>{{ proposal.label }}</td>
+                          <td class="xp-num">{{ quantity(proposal) }}</td>
+                          <td class="xp-num">{{ unitPrice(proposal) }}</td>
+                          <td class="xp-num">{{ amount(proposal) }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <p class="xp-gate-caption">{{ i18n.t('experience.pr_to_po.studio.gate.lines_caption', { pr: proposal.prId }) }}</p>
+                </section>
+
+                <div class="xp-gate-columns">
+                  <section aria-labelledby="xp-gate-checked-title">
+                    <h3 id="xp-gate-checked-title">{{ i18n.t('experience.pr_to_po.studio.gate.checked') }}</h3>
+                    <ul class="xp-gate-list">
+                      @for (check of checks(); track check.id) {
+                        <li [attr.data-ok]="check.ok">
+                          <span class="xp-gate-mark" aria-hidden="true">{{ check.ok ? '✓' : '!' }}</span>
+                          <span>
+                            <span class="sr-only">
+                              {{ i18n.t(check.ok ? 'experience.pr_to_po.studio.gate.check_ok' : 'experience.pr_to_po.studio.gate.check_warn') }}
+                            </span>
+                            {{ i18n.t(check.key, check.params) }}
+                            @if (check.tool) {
+                              <code>{{ check.tool }}</code>
+                            }
+                          </span>
+                        </li>
+                      }
+                    </ul>
+                    @if (proposal.justification) {
+                      <blockquote class="xp-gate-quote">{{ proposal.justification }}</blockquote>
+                    }
+                  </section>
+                  @if (gateOpen()) {
+                    <section aria-labelledby="xp-gate-triggers-title">
+                      <h3 id="xp-gate-triggers-title">{{ i18n.t('experience.pr_to_po.studio.gate.triggers') }}</h3>
+                      <ol class="xp-gate-list">
+                        @for (item of approveNext(); track item.step) {
+                          <li [attr.data-tone]="item.tone">
+                            <span class="xp-gate-mark" aria-hidden="true">{{ $index + 1 }}</span>
+                            <span>
+                              {{ i18n.t(item.key, item.params) }}
+                              @if (item.tools.length) {
+                                <code>{{ item.tools.join(' · ') }}</code>
+                              }
+                            </span>
+                          </li>
+                        }
+                      </ol>
+                      @if (rejectNext().length) {
+                        <h4 class="xp-gate-subhead">{{ i18n.t('experience.pr_to_po.studio.gate.if_reject') }}</h4>
+                        <ol class="xp-gate-list">
+                          @for (item of rejectNext(); track item.step) {
+                            <li [attr.data-tone]="item.tone">
+                              <span class="xp-gate-mark" aria-hidden="true">{{ $index + 1 }}</span>
+                              <span>{{ i18n.t(item.key, item.params) }}</span>
+                            </li>
+                          }
+                        </ol>
+                      }
+                    </section>
                   }
-                </li>
+                </div>
+
+                @if (proposal.dossier) {
+                  <details class="xp-gate-dossier">
+                    <summary>{{ i18n.t('experience.pr_to_po.studio.gate.dossier') }}</summary>
+                    <pre>{{ proposal.dossier }}</pre>
+                  </details>
+                }
+
+                @if (gateOpen()) {
+                  <div class="xp-gate-actions">
+                    <button
+                      type="button"
+                      class="xp-work-btn xp-gate-btn xp-studio-approve"
+                      (click)="approve()"
+                      [disabled]="deciding()"
+                      [attr.aria-label]="i18n.t('experience.pr_to_po.studio.gate.approve_aria', { pr: proposal.prId })"
+                    >
+                      {{ i18n.t('experience.pr_to_po.studio.gate.approve') }}
+                    </button>
+                    <button
+                      type="button"
+                      class="xp-work-btn xp-gate-btn xp-studio-reject"
+                      (click)="reject()"
+                      [disabled]="deciding()"
+                      [attr.aria-expanded]="rejecting()"
+                      aria-controls="xp-gate-reject"
+                      [attr.aria-label]="i18n.t('experience.pr_to_po.studio.gate.reject_aria', { pr: proposal.prId })"
+                    >
+                      {{ i18n.t('experience.pr_to_po.studio.gate.reject') }}
+                    </button>
+                  </div>
+                  @if (rejecting()) {
+                    <form id="xp-gate-reject" class="xp-gate-reject" (submit)="confirmReject($event)" novalidate>
+                      <label for="xp-gate-reason">{{ i18n.t('experience.pr_to_po.studio.gate.reason_label') }}</label>
+                      <p id="xp-gate-reason-hint" class="xp-gate-hint">{{ i18n.t('experience.pr_to_po.studio.gate.reason_hint') }}</p>
+                      <textarea
+                        id="xp-gate-reason"
+                        rows="3"
+                        required
+                        [value]="rejectReason()"
+                        (input)="onReason($event)"
+                        [attr.aria-invalid]="reasonError() ? 'true' : null"
+                        [attr.aria-describedby]="reasonError() ? 'xp-gate-reason-hint xp-gate-reason-error' : 'xp-gate-reason-hint'"
+                      ></textarea>
+                      @if (reasonError(); as err) {
+                        <p id="xp-gate-reason-error" class="xp-gate-error" role="alert">{{ i18n.t(err) }}</p>
+                      }
+                      <div class="xp-gate-reject-actions">
+                        <button type="submit" class="xp-work-btn xp-gate-btn xp-studio-reject-confirm" [disabled]="deciding()">
+                          {{ i18n.t('experience.pr_to_po.studio.gate.reject_confirm') }}
+                        </button>
+                        <button type="button" class="xp-work-btn xp-gate-cancel" (click)="cancelReject()">
+                          {{ i18n.t('experience.pr_to_po.studio.gate.reject_cancel') }}
+                        </button>
+                      </div>
+                    </form>
+                  }
+                } @else if (decision() !== 'pending' || gateDecidedNow()) {
+                  <section class="xp-gate-after" aria-labelledby="xp-gate-after-title">
+                    <p class="xp-studio-outcome" role="status" [attr.data-ok]="outcomeOk()">
+                      <strong id="xp-gate-after-title">
+                        {{
+                          decision() === 'rejected'
+                            ? i18n.t('experience.pr_to_po.studio.gate.decided_reject')
+                            : i18n.t('experience.pr_to_po.studio.gate.decided_approve')
+                        }}
+                      </strong>
+                      @if (decision() !== 'rejected' && outcome(); as outcome) {
+                        @if (outcome.blocked) {
+                          {{ i18n.t('experience.pr_to_po.studio.outcome.blocked') }}
+                        } @else if (outcome.sealed) {
+                          {{ i18n.t('experience.pr_to_po.studio.outcome.sealed') }}
+                        } @else if (outcome.sapOk && outcome.poNumber) {
+                          {{ i18n.t('experience.pr_to_po.studio.outcome.po', { po: outcome.poNumber }) }}
+                        } @else {
+                          {{ i18n.t('experience.pr_to_po.studio.outcome.failed') }}
+                          {{ outcome.messages[0] || '' }}
+                        }
+                      } @else if (busy()) {
+                        {{ i18n.t('experience.pr_to_po.studio.gate.resuming') }}
+                      }
+                    </p>
+                    @if (decision() === 'rejected' && lastReason()) {
+                      <p class="xp-gate-hint">{{ i18n.t('experience.pr_to_po.studio.gate.reason_given', { reason: lastReason() }) }}</p>
+                    }
+                    @if (afterSteps().length) {
+                      <h3 class="xp-gate-subhead">{{ i18n.t('experience.pr_to_po.studio.gate.then') }}</h3>
+                      <ol class="xp-gate-list">
+                        @for (step of afterSteps(); track step.id) {
+                          <li [attr.data-status]="step.status">
+                            <span class="xp-gate-mark" aria-hidden="true">{{ step.status === 'done' ? '✓' : '·' }}</span>
+                            <span>
+                              <strong>{{ i18n.t(step.labelKey) }}</strong>
+                              ·
+                              @if (step.node.noteKey) {
+                                {{ i18n.t(step.node.noteKey, step.node.noteParams) }}
+                              } @else {
+                                {{ i18n.t('experience.pr_to_po.studio.status.' + step.status) }}
+                              }
+                            </span>
+                          </li>
+                        }
+                      </ol>
+                    }
+                  </section>
+                }
+              </article>
+              @if (candidates().length && !busy() && !gateOpen()) {
+                <div class="xp-studio-next">
+                  <p class="xp-studio-note">{{ i18n.t('experience.pr_to_po.studio.gate.next') }}</p>
+                  @for (prId of candidates(); track prId) {
+                    <button
+                      type="button"
+                      class="xp-work-btn xp-studio-next-btn"
+                      (click)="runNow(prId)"
+                      [disabled]="gateOpen()"
+                    >
+                      {{ i18n.t('experience.pr_to_po.studio.gate.next_run', { pr: prId }) }}
+                    </button>
+                  }
+                </div>
               }
-            </ol>
+            }
           } @else {
             <section class="xp-studio-chat-wrap">
               <div class="xp-studio-chips">
@@ -556,12 +812,13 @@ const RAIL_TOOLS: readonly RailTool[] = [
           <ul class="xp-studio-tools">
             @for (tool of railTools; track tool.name) {
               <li [attr.data-write]="tool.write" [attr.data-off]="isDisabled(tool.name)">
-                <code>{{ tool.name }}</code>
+                <code [id]="'xp-tool-' + tool.name">{{ tool.name }}</code>
                 @if (tool.toggle) {
                   <button
                     type="button"
                     class="xp-studio-toggle"
                     role="switch"
+                    [attr.aria-labelledby]="'xp-tool-' + tool.name"
                     [attr.aria-checked]="!isDisabled(tool.name)"
                     (click)="toggleTool(tool.name)"
                   >
@@ -592,6 +849,7 @@ export class PrToPoStudioComponent implements OnInit, OnDestroy {
   private readonly runtime = inject(ExperienceRuntimeService);
   private readonly workApi = inject(WorkApiService);
   private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly injector = inject(Injector);
   private readonly router = inject(Router);
   readonly i18n = inject(I18nService);
   readonly workspace = inject(WorkspaceService);
@@ -622,7 +880,15 @@ export class PrToPoStudioComponent implements OnInit, OnDestroy {
   readonly error = signal<string | null>(null);
   readonly run = signal<Run | null>(null);
   readonly posted = signal<PostedRow[]>([]);
-  readonly expanded = signal<Set<StudioNodeId>>(new Set(['gate']));
+  readonly expanded = signal<Set<StudioNodeId>>(new Set());
+  readonly chronologyOpen = signal(false);
+  /** Keyboard-initiated toggles skip the reveal (Emil: never animate a key press). */
+  readonly chronologyInstant = signal(false);
+  readonly rejecting = signal(false);
+  readonly rejectReason = signal('');
+  readonly reasonError = signal<string | null>(null);
+  /** The reason given in this session, echoed after the decision. */
+  readonly lastReason = signal('');
   readonly disabledTools = signal<Set<string>>(new Set());
   readonly railServers = signal<RailServer[]>([]);
   readonly system = signal<System | null>(null);
@@ -646,6 +912,75 @@ export class PrToPoStudioComponent implements OnInit, OnDestroy {
   readonly candidates = computed(() => nextCandidates(this.proposal()));
   readonly runHref = computed(() => (this.run() ? factoryRunHref(this.run()!.id) : '/work/pr-to-po'));
   readonly chatFacts = computed(() => studioFactSheet(this.run()));
+
+  /** L32 — the work receipt: only what the Run recorded, nothing estimated. */
+  readonly receipt = computed(() => workReceipt(this.run(), this.nodes()));
+  readonly steps = computed<ChronologyRow[]>(() => {
+    const run = this.run();
+    const byId = new Map(this.nodes().map((node) => [node.id, node]));
+    return chronology(run, this.nodes()).map((step) => ({
+      ...step,
+      node: byId.get(step.id)!,
+      href: run && step.invocationId
+        ? navigationObjectUrl('skill_invocation', step.invocationId, { runId: run.id })
+        : null,
+    }));
+  });
+  readonly receiptParts = computed<ReceiptPart[]>(() => {
+    const receipt = this.receipt();
+    const t = (key: string, params?: Record<string, string | number>) =>
+      this.i18n.t(`experience.pr_to_po.studio.receipt.${key}`, params);
+    const count = (key: string, value: number, params: Record<string, string | number> = {}) =>
+      t(`${key}_${value === 1 ? 'one' : 'other'}`, { count: value, ...params });
+    const parts: ReceiptPart[] = [];
+    if (receipt.stepsDone) parts.push({ text: count('steps', receipt.stepsDone) });
+    if (receipt.stepsFailed) parts.push({ text: count('failed', receipt.stepsFailed) });
+    for (const read of receipt.reads) {
+      parts.push({ text: count('reads', read.count, { system: readSystemLabel(read.server) }) });
+    }
+    if (receipt.budget) parts.push({ text: t(receipt.budget.ok ? 'budget_ok' : 'budget_ko') });
+    if (receipt.agentMs != null && !this.busy()) {
+      parts.push({ text: this.duration(receipt.agentMs), sr: t('time_label') });
+    }
+    return parts;
+  });
+  readonly receiptNow = computed(() => {
+    const t = (key: string, params?: Record<string, string | number>) =>
+      this.i18n.t(`experience.pr_to_po.studio.receipt.${key}`, params);
+    const current = this.receipt().current;
+    if (current) return t('now', { step: this.i18n.t(`experience.pr_to_po.studio.node.${current}`) });
+    if (this.gateOpen()) return t('waiting');
+    if (this.busy()) return t('starting');
+    if (this.run()?.status === 'failed') return t('failed_run');
+    if (this.run()?.status === 'completed') return t('done');
+    return '';
+  });
+  /** One orb per screen: it sits on the step the agent is on. */
+  readonly orbState = computed(() => {
+    const current = this.receipt().current;
+    if (current === 'summarise') return 'composing' as const;
+    const kind = current ? STUDIO_NODE_KIND[current] : null;
+    if (kind === 'read') return 'searching' as const;
+    if (kind === 'derive') return 'solving' as const;
+    return 'working' as const;
+  });
+  readonly checks = computed(() => gateChecks(this.run(), this.nodes(), this.proposal(), this.i18n.locale()));
+  private readonly consequenceOptions = computed(() => ({
+    unsealed: this.writeUnsealed(),
+    disabledTools: runDisabledTools(this.run()),
+    prId: this.proposal()?.prId ?? '',
+  }));
+  readonly approveNext = computed(() => gateConsequences('approve', this.nodes(), this.consequenceOptions()));
+  readonly rejectNext = computed(() => gateConsequences('reject', this.nodes(), this.consequenceOptions()));
+  readonly gateDecidedNow = computed(() => gateDecided(this.run()));
+  readonly afterSteps = computed(() =>
+    this.steps().filter((step) => (step.id === 'post' || step.id === 'reject' || step.id === 'audit') && step.status !== 'skipped'),
+  );
+  readonly outcomeOk = computed(() => {
+    if (this.decision() === 'rejected') return true;
+    const outcome = this.outcome();
+    return outcome ? outcome.sealed || outcome.sapOk : true;
+  });
   readonly chatSystemPrompt = computed(() =>
     this.i18n.t('experience.pr_to_po.studio.chat.system', { facts: this.chatFacts() || '—' }),
   );
@@ -687,12 +1022,35 @@ export class PrToPoStudioComponent implements OnInit, OnDestroy {
     return studioJson(value);
   }
 
-  nodeKind(id: StudioNodeId): string {
-    return STUDIO_NODE_KIND[id];
+  amount(proposal: StudioProposal): string {
+    return formatReceiptAmount(proposal.amount, proposal.currency, this.i18n.locale());
   }
 
-  amount(proposal: StudioProposal): string {
-    return formatStudioAmount(proposal.amount, proposal.currency);
+  unitPrice(proposal: StudioProposal): string {
+    return formatReceiptAmount(Number(proposal.netPrice) || 0, proposal.currency, this.i18n.locale());
+  }
+
+  quantity(proposal: StudioProposal): string {
+    const value = Number(proposal.quantity);
+    const figure = Number.isFinite(value)
+      ? value.toLocaleString(this.i18n.locale() === 'fr' ? 'fr-FR' : 'en-US', { maximumFractionDigits: 3 })
+      : proposal.quantity;
+    return `${figure} ${proposal.unit}`.trim();
+  }
+
+  duration(ms: number): string {
+    return formatReceiptDuration(ms, this.i18n.locale());
+  }
+
+  toggleChronology(event: MouseEvent): void {
+    // `detail === 0`: the click came from Enter or Space, not a pointer.
+    this.chronologyInstant.set(event.detail === 0);
+    this.chronologyOpen.update((open) => !open);
+  }
+
+  /** A held key must not flicker a disclosure open and shut. */
+  guardRepeat(event: KeyboardEvent): void {
+    if (event.repeat && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
   }
 
   toggleNode(id: StudioNodeId): void {
@@ -748,8 +1106,43 @@ export class PrToPoStudioComponent implements OnInit, OnDestroy {
     this.decide('accept');
   }
 
+  /** A refusal needs a reason: the button opens the labelled field first. */
   reject(): void {
-    this.decide('reject');
+    if (!this.gateOpen() || this.deciding()) return;
+    this.rejecting.set(true);
+    this.reasonError.set(null);
+    this.focusAfterRender('#xp-gate-reason');
+  }
+
+  onReason(event: Event): void {
+    this.rejectReason.set((event.target as HTMLTextAreaElement).value);
+    if (this.reasonError() && !rejectReasonError(this.rejectReason())) this.reasonError.set(null);
+  }
+
+  confirmReject(event?: Event): void {
+    event?.preventDefault();
+    const error = rejectReasonError(this.rejectReason());
+    if (error) {
+      this.reasonError.set(error);
+      (this.host.nativeElement as HTMLElement).querySelector<HTMLTextAreaElement>('#xp-gate-reason')?.focus();
+      return;
+    }
+    const reason = this.rejectReason().trim();
+    this.lastReason.set(reason);
+    this.decide('reject', this.i18n.t('experience.pr_to_po.studio.gate.note_reject_reason', { reason }));
+  }
+
+  cancelReject(): void {
+    this.rejecting.set(false);
+    this.reasonError.set(null);
+    this.focusAfterRender('.xp-studio-reject');
+  }
+
+  private focusAfterRender(selector: string): void {
+    afterNextRender(
+      () => (this.host.nativeElement as HTMLElement).querySelector<HTMLElement>(selector)?.focus(),
+      { injector: this.injector },
+    );
   }
 
   askChip(chip: string): void {
@@ -799,16 +1192,17 @@ export class PrToPoStudioComponent implements OnInit, OnDestroy {
     );
   }
 
-  private decide(action: 'accept' | 'reject'): void {
+  private decide(action: 'accept' | 'reject', note?: string): void {
     const current = this.run();
     if (!current || !this.gateOpen() || this.deciding()) return;
     this.deciding.set(true);
     this.chatBusy.set(true);
     this.workApi
-      .decide(current, action, this.i18n.t(`experience.pr_to_po.studio.gate.note_${action}`))
+      .decide(current, action, note ?? this.i18n.t(`experience.pr_to_po.studio.gate.note_${action}`))
       .subscribe((decided) => {
         this.deciding.set(false);
         this.chatBusy.set(false);
+        if (decided) this.rejecting.set(false);
         if (!decided) {
           this.error.set(this.i18n.t('experience.pr_to_po.studio.error.decision_failed'));
           this.chatDialogue.update((dialogue) =>
@@ -867,9 +1261,6 @@ export class PrToPoStudioComponent implements OnInit, OnDestroy {
               },
             ],
       );
-    }
-    if (run.status === 'hitl_pending') {
-      this.expanded.update((current) => new Set([...current, 'gate']));
     }
   }
 
