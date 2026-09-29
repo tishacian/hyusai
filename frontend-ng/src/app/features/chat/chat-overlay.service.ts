@@ -1,5 +1,6 @@
 import { AdoptionService } from '@app/core/adoption.service';
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import { WorkspaceService } from '@app/core/workspace.service';
 
 /**
@@ -20,10 +21,19 @@ import { WorkspaceService } from '@app/core/workspace.service';
  * can be opened from the panel without replacing this quick access.
  */
 export type ChatStartMode = 'quick' | 'system' | 'drop';
+/** L36 — where the chat was opened from: Work reads sources in place, without Cockpit links. */
+export type ChatSurface = 'cockpit' | 'work';
+
+/** A Work page (`/work`, `/work/…`): the business side of the product. */
+export function isWorkUrl(url: string | null | undefined): boolean {
+  return /^\/work(?:[/?#]|$)/.test(url ?? '');
+}
 
 @Injectable({ providedIn: 'root' })
 export class ChatOverlayService {
   private readonly workspace = inject(WorkspaceService);
+  /** Optional: a bare injector (unit specs) opens in Cockpit mode. */
+  private readonly router = inject(Router, { optional: true });
 
   readonly adoption = inject(AdoptionService);
   readonly isOpen = signal(false);
@@ -53,6 +63,8 @@ export class ChatOverlayService {
   readonly proofAnimate = signal(false);
   /** Source scope the thread reads from, shown in the overlay's meta line. */
   readonly threadScope = signal<string | null>(null);
+  /** L36 — Work or Cockpit, fixed at each opening (explicit, else from the page it opens on). */
+  readonly surface = signal<ChatSurface>('cockpit');
 
   constructor() {
     this.workspace.registerContextReset(() => this.reset());
@@ -80,6 +92,7 @@ export class ChatOverlayService {
     pilot?: boolean;
     sessionId?: string | null;
     linkedLabel?: string | null;
+    surface?: ChatSurface;
   }): void {
     let mode = options?.mode ?? 'quick';
     this.pilot.set(!!options?.pilot);
@@ -97,6 +110,7 @@ export class ChatOverlayService {
     this.autoStartVoiceLoop.set(!!options?.autoStartVoiceLoop);
     this.sessionId.set(options?.sessionId ?? null);
     this.linkedLabel.set(options?.linkedLabel ?? null);
+    this.surface.set(options?.surface ?? (isWorkUrl(this.router?.url) ? 'work' : 'cockpit'));
     this.isOpen.set(true);
   }
 
@@ -118,6 +132,7 @@ export class ChatOverlayService {
     this.linkedLabel.set(null);
     this.proofOpen.set(false);
     this.proofAnimate.set(false);
+    this.surface.set('cockpit');
   }
 
   toggle(): void {

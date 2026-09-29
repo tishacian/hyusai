@@ -229,6 +229,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
             [autoStartVoiceLoop]="autoStartVoiceLoop()"
             [resumeSessionId]="resumeSessionId()"
             [proofThread]="proofThread()"
+            [surface]="surface()"
           >
             <!-- L31 · overlay thread: the panel places each slot; a slot left
                  empty here renders nothing there. -->
@@ -1042,6 +1043,8 @@ export class ChatWorkspaceComponent implements OnInit {
    * keep today's presentation.
    */
   readonly proofThread = input(false);
+  /** L36 — `work` when opened from Work: sources read in place, no Cockpit links. */
+  readonly surface = input<'cockpit' | 'work'>('cockpit');
   /** Open an existing durable session (Conversations › Reprendre). */
   readonly resumeSessionId = input<string | null>(null);
 

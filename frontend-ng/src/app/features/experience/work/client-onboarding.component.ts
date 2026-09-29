@@ -192,6 +192,7 @@ const VISIBLE_FILES = 6;
                       [resumeSessionId]="adoption.progress()?.session_id || null"
                       [contextId]="id"
                       [contextCollection]="src.name"
+                      surface="work"
                       (adoptionInteraction)="onChat($event)"
                     />
                   </div>
@@ -333,6 +334,8 @@ const VISIBLE_FILES = 6;
     .xp-onb-job { margin-top: 16px; }
     .xp-onb-question, .xp-onb-decision { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--ck-stroke-2); }
     .xp-onb-chat { height: 30rem; min-height: 22rem; margin-top: 8px; border: 1px solid var(--ck-stroke-2); border-radius: 8px; overflow: hidden; }
+    /* L36: a cited source reads beside the answer; the frame grows to hold its page. */
+    .xp-onb-chat:has([data-testid='work-source-slot']) { height: min(44rem, calc(100dvh - 7rem)); }
     .xp-onb-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
     .xp-onb-btn { display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px; border: 1px solid var(--ck-stroke-3); border-radius: 4px; background: transparent; color: var(--ck-fg-1); font: 600 13px/1.2 var(--ck-font-sans); cursor: pointer; }
     .xp-onb-btn:hover:not(:disabled) { border-color: var(--ck-signal-cool); }
