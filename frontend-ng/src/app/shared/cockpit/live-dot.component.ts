@@ -20,10 +20,7 @@ export type CkLiveTone = 'pos' | 'cool' | 'violet' | 'warn' | 'neg' | 'neutral';
       <span class="ck-live-dot" [class.cool]="tone==='cool'" [class.violet]="tone==='violet'" [class.warn]="tone==='warn'" [class.neg]="tone==='neg'" [class.neutral]="tone==='neutral'"></span>
       @if (label) {
         <span
-          class="ck-mono"
-          [style.fontSize.px]="9"
-          [style.letterSpacing]="'0.14em'"
-          [style.textTransform]="'uppercase'"
+          [style.fontSize.px]="11"
           [style.color]="'var(--ck-fg-3)'"
         >{{ label }}</span>
       }

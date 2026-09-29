@@ -697,6 +697,22 @@ const STEP_ICONS: Record<string, string> = {
       }
       <!-- Model, retrieval and voice controls: at the top of the panel, or
            behind « Avancé » in the thread composer for non-builders (L30). -->
+      <ng-template #evidenceLinks let-msg>
+        <a
+          [navLink]="msg.runId ? { type: 'run', ref: msg.runId } : { surface: 'runs' }"
+          class="ml-auto text-cyan-500 hover:text-cyan-400 inline-flex items-center gap-1"
+        >
+          <app-icon name="git-commit" [size]="11" />
+          {{ i18n.t('chat.summary.runs_link') }}
+        </a>
+        <a
+          [navLink]="msg.runId ? { type: 'run', ref: msg.runId } : { surface: 'observability' }"
+          class="text-cyan-500 hover:text-cyan-400 inline-flex items-center gap-1"
+        >
+          <app-icon name="activity" [size]="11" />
+          {{ i18n.t('chat.summary.quality_link') }}
+        </a>
+      </ng-template>
       <ng-template #advancedControls>
       <!-- Toolbar -->
       <div class="chat-control-bar">
@@ -725,6 +741,7 @@ const STEP_ICONS: Record<string, string> = {
               <div class="source-picker-select-wrap">
                 <select
                   class="source-picker-select"
+                  [attr.aria-label]="i18n.t('chat.controls.sources')"
                   [ngModel]="selectedSource()"
                   (ngModelChange)="onSourceSelectionChange($event)"
                 >
@@ -785,6 +802,7 @@ const STEP_ICONS: Record<string, string> = {
             <div class="mini-select-wrap">
               <select
                 class="mini-select"
+                [attr.aria-label]="i18n.t('chat.controls.retrieval')"
                 [ngModel]="ragModeOverride()"
                 (ngModelChange)="ragModeOverride.set($event)"
               >
@@ -812,6 +830,7 @@ const STEP_ICONS: Record<string, string> = {
             <div class="mini-select-wrap">
               <select
                 class="mini-select"
+                [attr.aria-label]="i18n.t('chat.controls.reasoning')"
                 [ngModel]="promptType()"
                 (ngModelChange)="promptType.set($event)"
               >
@@ -1480,7 +1499,7 @@ const STEP_ICONS: Record<string, string> = {
               }
 
               <!-- Task summary -->
-              @if (!isDemoMode() && msg.decisionSteps && msg.decisionSteps.length > 0) {
+              @if (!isDemoMode() && msg.decisionSteps && msg.decisionSteps.length > 0 && (!threadMode() || threadSummaryHasBadges(msg))) {
                 <div
                   class="ck-chat-trace-summary ml-0 mt-1 rounded-md px-3 py-2 flex items-center gap-3 text-[11px] text-gray-700 dark:text-gray-300"
                   [class.ck-thread-summary]="threadMode()"
@@ -1573,20 +1592,9 @@ const STEP_ICONS: Record<string, string> = {
                       · {{ (msg.evaluation.composite_score?.toFixed(1) ?? '—') }}/100
                     </span>
                   }
-                  <a
-                    [navLink]="msg.runId ? { type: 'run', ref: msg.runId } : { surface: 'runs' }"
-                    class="ml-auto text-cyan-500 hover:text-cyan-400 inline-flex items-center gap-1"
-                  >
-                    <app-icon name="git-commit" [size]="11" />
-                    {{ i18n.t('chat.summary.runs_link') }}
-                  </a>
-                  <a
-                    [navLink]="msg.runId ? { type: 'run', ref: msg.runId } : { surface: 'observability' }"
-                    class="text-cyan-500 hover:text-cyan-400 inline-flex items-center gap-1"
-                  >
-                    <app-icon name="activity" [size]="11" />
-                    {{ i18n.t('chat.summary.quality_link') }}
-                  </a>
+                  @if (!threadMode()) {
+                    <ng-container [ngTemplateOutlet]="evidenceLinks" [ngTemplateOutletContext]="{ $implicit: msg }"></ng-container>
+                  }
                 </div>
               }
 
@@ -1850,8 +1858,14 @@ const STEP_ICONS: Record<string, string> = {
                     <span>{{ i18n.t('chat.correct.action') }}</span>
                   </button>
                 }
+                @if (threadMode() && !isDemoMode() && msg.decisionSteps?.length) {
+                  <!-- L31: « Exécutions · Qualité » join the answer's actions. -->
+                  <span class="ck-thread-links" data-testid="chat-thread-links">
+                    <ng-container [ngTemplateOutlet]="evidenceLinks" [ngTemplateOutletContext]="{ $implicit: msg }"></ng-container>
+                  </span>
+                }
                 @if (!isDemoMode() && msg.evaluation) {
-                  <span class="ml-auto font-mono text-[10px] text-emerald-400"
+                  <span class="font-mono text-[10px] text-emerald-400" [class.ml-auto]="!threadMode()"
                     >{{ i18n.t('chat.audit.score', { value: (msg.evaluation.composite_score?.toFixed(1) ?? '—') }) }}</span
                   >
                 }
@@ -2184,13 +2198,24 @@ const STEP_ICONS: Record<string, string> = {
       }
 
       @if (threadMode()) {
-        @if (advancedInComposer() && threadAdvancedOpen() && showAdvancedChatControls()) {
-          <div class="ck-thread-advanced" [id]="threadAdvancedId">
-            <ng-container [ngTemplateOutlet]="advancedControls"></ng-container>
+        <!-- L31: session documents open here, from the composer's attach button. -->
+        <ng-content select="[threadAttachPanel]"></ng-content>
+        @if (advancedInComposer() && threadAdvancedOpen()) {
+          <div class="ck-thread-advanced" [id]="threadAdvancedId" data-testid="chat-thread-advanced-panel">
+            <!-- L31: the context picker lives here for non-builders. -->
+            <div class="ck-thread-advanced-context">
+              <ng-content select="[threadContextAdvanced]"></ng-content>
+            </div>
+            @if (showAdvancedChatControls()) {
+              <ng-container [ngTemplateOutlet]="advancedControls"></ng-container>
+            }
           </div>
         }
-        @if (threadScopeLabel() || threadVoiceReady() || (advancedInComposer() && showAdvancedChatControls())) {
-          <div class="ck-thread-chips" data-testid="chat-thread-chips">
+        <div class="ck-thread-chips" data-testid="chat-thread-chips">
+            @if (!advancedInComposer()) {
+              <!-- Builders keep a compact context control beside the scope. -->
+              <ng-content select="[threadContextCompact]"></ng-content>
+            }
             @if (threadScopeLabel(); as scope) {
               <span class="ck-thread-chip ck-thread-chip--scope" [title]="i18n.t('chat.thread.scope_aria', { label: scope })">
                 <span class="ck-visually-hidden">{{ i18n.t('chat.thread.scope_aria', { label: '' }) }}</span>{{ scope }}
@@ -2199,7 +2224,7 @@ const STEP_ICONS: Record<string, string> = {
             @if (threadVoiceReady()) {
               <span class="ck-thread-chip">{{ i18n.t('chat.thread.voice_ready') }}</span>
             }
-            @if (advancedInComposer() && showAdvancedChatControls()) {
+            @if (advancedInComposer()) {
               <button
                 type="button"
                 class="ck-thread-chip ck-thread-advanced-toggle"
@@ -2213,8 +2238,7 @@ const STEP_ICONS: Record<string, string> = {
                 <app-icon [name]="threadAdvancedOpen() ? 'chevron-down' : 'chevron-up'" [size]="12" />
               </button>
             }
-          </div>
-        }
+        </div>
       }
 
       <!-- Input -->
@@ -2224,6 +2248,10 @@ const STEP_ICONS: Record<string, string> = {
         [class.vigie-input-bar]="executiveMode()"
         [class.ck-thread-form]="threadMode()"
       >
+        @if (threadMode()) {
+          <!-- L31: « Documents de session » is an attach button, not a band. -->
+          <ng-content select="[threadAttach]"></ng-content>
+        }
         <button
           type="button"
           class="p-2.5 rounded-xl transition ring-1 relative"
@@ -2265,7 +2293,7 @@ const STEP_ICONS: Record<string, string> = {
           [class.vigie-send-button]="executiveMode()"
         >
           <app-icon [name]="streaming() ? 'loader-2' : 'send'" [size]="14" [class.animate-spin]="streaming()" />
-          {{ streaming() ? streamingLabel() : sendLabel() }}
+          <span class="ck-chat-send-label">{{ streaming() ? streamingLabel() : sendLabel() }}</span>
         </button>
       </form>
     </div>
@@ -2429,6 +2457,19 @@ const STEP_ICONS: Record<string, string> = {
       border-top: 1px solid var(--ck-stroke-2);
     }
     .ck-thread-form { border-top: 0 !important; }
+    /* L31 · a phone-width thread has attach + mic + send around the field:
+       the send button keeps its icon, its text stays for the accessible name. */
+    @container (max-width: 480px) {
+      .ck-thread-form .ck-chat-send { gap: 0; padding-left: 12px; padding-right: 12px; }
+      .ck-thread-form .ck-chat-send-label {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
+    }
     /* Below the answer: plain links and actions, AA on both themes. */
     .ck-chat-trace-summary.ck-thread-summary {
       max-width: 72ch;
@@ -2438,7 +2479,25 @@ const STEP_ICONS: Record<string, string> = {
       background: transparent;
     }
     .ck-thread-summary a { color: var(--ck-primary); }
-    .ck-thread-actions { margin-left: 0; color: var(--ck-fg-3); }
+    .ck-thread-actions { margin-left: 0; color: var(--ck-fg-3); flex-wrap: wrap; }
+    .ck-thread-links { display: inline-flex; align-items: center; gap: 12px; margin-left: auto; }
+    .ck-thread-links a { color: var(--ck-primary); min-height: 24px; }
+    .ck-thread-links a:hover { text-decoration: underline; text-underline-offset: 2px; }
+    .ck-thread-advanced-context {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--ck-stroke-2);
+    }
+    /* Inside « Avancé »: sentence case sans, like the rest of the thread. */
+    .ck-thread-advanced .chat-mode-chip,
+    .ck-thread-advanced .source-picker-label,
+    .ck-thread-advanced .session-doc-label,
+    .ck-thread-advanced .mini-control-label {
+      font-family: var(--ck-font-sans);
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0;
+      text-transform: none;
+    }
     .chat-thread-shell { background: var(--ck-bg-base); }
     .chat-thread-shell .chat-history-expand {
       border-right-color: var(--ck-stroke-2);
@@ -5135,6 +5194,10 @@ export class ChatPanelComponent implements AfterViewInit {
 	    const label = runtime.slug.replace(/_/g, ' ');
 	    if (webRtcRequired) return this.i18n.t('chat.voice.title_webrtc_not_wired', { label });
 	    if (runtime.status === 'bound') return label;
+	    // L31: the runtime status is an API value; the option shows its words.
+	    if (runtime.status === 'disabled') return this.i18n.t('chat.voice.title_unavailable', { label });
+	    if (runtime.status === 'unconfigured') return this.i18n.t('chat.voice.title_not_configured', { label });
+	    if (runtime.status === 'experimental') return this.i18n.t('chat.voice.title_experimental', { label });
 	    return `${label} · ${runtime.status}`;
 	  }
 
@@ -6732,6 +6795,27 @@ export class ChatPanelComponent implements AfterViewInit {
     else if (info.latencyProfile === 'fast') label = this.i18n.t('chat.retrieval_policy.fast');
     else if (info.latencyProfile === 'balanced') label = this.i18n.t('chat.retrieval_policy.balanced');
     return [label, scope, budget].filter(Boolean).join(' · ');
+  }
+
+  /**
+   * L31 · in the thread the summary line only carries badges (route, mode,
+   * score…); its « Exécutions · Qualité » links moved to the action row, so
+   * a summary with no badge is not rendered at all.
+   */
+  threadSummaryHasBadges(msg: ChatMessage): boolean {
+    const retrieval = msg.retrievalInfo;
+    return Boolean(
+      msg.ragMode
+      || msg.promptType
+      || msg.evaluationStatus
+      || msg.evaluation
+      || (retrieval && (
+        this.retrievalBadgeVisible(retrieval)
+        || retrieval.decisionTrace
+        || this.sparseDegraded(retrieval)
+        || retrieval.deepJobId
+      )),
+    );
   }
 
   retrievalBadgeVisible(info: NonNullable<ChatMessage['retrievalInfo']>): boolean {

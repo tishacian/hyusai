@@ -1115,6 +1115,32 @@ test.describe('Hypervisor V2 — L29 Présentation W2-v6', () => {
     await expect(needle).not.toHaveClass(/is-drawn/);
     await context.close();
   });
+
+  for (const theme of ['dark', 'light'] as const) {
+    test(`L31 — no pending decision reads « aucune », with nothing to open; axe (${theme})`, async ({ browser }) => {
+      await mkdir(RESULTS, { recursive: true });
+      const context = await browser.newContext({ viewport: { width: 1680, height: 1100 }, locale: 'fr-FR', colorScheme: theme });
+      const page = await context.newPage();
+      await installMocks(page, 'dense', theme);
+      // Same portfolio, an empty decision queue: a known zero, not a failure.
+      await page.route('**/api/v1/hypervisor/decisions**', (route) => json(route, { items: [], total: 0, limit: 20, offset: 0 }));
+      await page.goto('/hypervisor?theme=presentation');
+      const fact = page.getByTestId('hypervisor-presentation-decisions');
+      await expect(fact).toHaveText('aucune', { timeout: 30_000 });
+      await expect(fact.getByRole('link')).toHaveCount(0);
+      await expect(fact).not.toContainText('→');
+      await page.getByTestId('hypervisor-presentation-command').screenshot({ path: path.join(RESULTS, `l31-${theme}-decisions-none.png`) });
+      const axe = await new AxeBuilder({ page })
+        .include('app-hypervisor-v2')
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+        .analyze();
+      expect(
+        axe.violations,
+        JSON.stringify(axe.violations.map((v) => ({ id: v.id, nodes: v.nodes.slice(0, 3).map((n) => n.target) })), null, 1),
+      ).toEqual([]);
+      await context.close();
+    });
+  }
 });
 
 async function captureHoverProof(

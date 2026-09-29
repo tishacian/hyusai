@@ -3,7 +3,22 @@ import { test } from 'node:test';
 
 import type { HypervisorDayPoint, HypervisorRegisterRow, HypervisorStreamRow, SeriesFact } from './hypervisor-v2-series';
 import { DAY_LOCK_IDLE, reduceDayLock, selectionModel, type DayLockState } from './impact-synthese';
-import { presentationEscape, proofChain, type ProofBasisAuthor } from './impact-presentation';
+import { pendingDecisionsFact, presentationEscape, proofChain, type ProofBasisAuthor } from './impact-presentation';
+import { HYPERVISOR_EN, HYPERVISOR_FR } from '../../../core/i18n/hypervisor.dict';
+
+// --- Pending decisions ---------------------------------------------------------------
+
+test('pending decisions: a known zero reads « aucune » and opens nothing', () => {
+  assert.deepEqual(pendingDecisionsFact(true, 0), { kind: 'none' });
+  assert.equal(HYPERVISOR_FR['hypervisor.v2.present.decisions_none'], 'aucune');
+  assert.equal(HYPERVISOR_EN['hypervisor.v2.present.decisions_none'], 'none');
+});
+
+test('pending decisions: a count links to Décisions; an unknown count keeps its state', () => {
+  assert.deepEqual(pendingDecisionsFact(true, 2), { kind: 'open', count: 2 });
+  assert.deepEqual(pendingDecisionsFact(false, 0), { kind: 'state' }, 'loading or failed is not zero');
+  assert.deepEqual(pendingDecisionsFact(false, 3), { kind: 'state' });
+});
 
 // --- Escape order ------------------------------------------------------------------
 

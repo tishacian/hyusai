@@ -158,11 +158,10 @@ type SystemRow = {
     }
     .steer-panel-head h3 {
       margin: 0;
-      font-family: var(--ck-font-mono);
-      font-size: 11px;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: var(--ck-fg-2);
+      font-family: var(--ck-font-display);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--ck-fg-1);
     }
     .steer-count {
       margin-left: auto;

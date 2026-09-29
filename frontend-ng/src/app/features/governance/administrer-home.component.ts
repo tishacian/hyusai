@@ -57,12 +57,11 @@ const GROUP_ORDER: CockpitSectionGroup[] = ['workspace', 'integrations', 'govern
         max-width: 560px;
       }
       .admin-group-title {
-        margin: 0 0 10px;
-        font-family: var(--ck-font-mono);
-        font-size: 11px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: var(--ck-fg-3);
+        margin: 0 0 8px;
+        font-family: var(--ck-font-display);
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--ck-fg-2);
       }
       .admin-list {
         list-style: none;

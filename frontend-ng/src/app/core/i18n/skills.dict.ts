@@ -23,7 +23,7 @@
 export const SKILLS_FR = {
   // -- Catalog ------------------------------------------------------------
   'skills.title': 'Registre des skills',
-  'skills.list.eyebrow': 'Build · Skills',
+  'skills.list.eyebrow': 'Créer · Skills',
   'skills.list.description':
     'Opérations typées, versionnées et certifiées — les briques que les systèmes orchestrent.',
   'skills.list.search': 'Filtrer les skills…',
@@ -353,7 +353,7 @@ export const SKILLS_FR = {
 export const SKILLS_EN: Record<keyof typeof SKILLS_FR, string> = {
   // -- Catalog ------------------------------------------------------------
   'skills.title': 'Skill registry',
-  'skills.list.eyebrow': 'Build · Skills',
+  'skills.list.eyebrow': 'Create · Skills',
   'skills.list.description':
     'Typed, versioned, certified operations — the building blocks systems orchestrate.',
   'skills.list.search': 'Filter skills…',

@@ -178,7 +178,7 @@ export const CHROME_FR = {
   'nav.zoom.hint_to_portfolio': 'remonte au Portefeuille',
   'nav.zoom.hint_to_parent': 'remonte à {parent}',
   'nav.zoom.hint': '⌘Z dézoomer · ⇧⌘Z zoomer  ({chain})',
-  'nav.footer.status_operational': 'Système opérationnel',
+  'nav.footer.status_operational': 'Plateforme opérationnelle',
   'nav.footer.command': 'Commande',
   'nav.footer.zoom': 'Zoom',
   // --- Verb hints (side-rail second line) --------------------------
@@ -1077,7 +1077,7 @@ export const CHROME_EN: Record<keyof typeof CHROME_FR, string> = {
   'nav.zoom.hint_to_portfolio': 'zoom out to Portfolio',
   'nav.zoom.hint_to_parent': 'zoom out to {parent}',
   'nav.zoom.hint': '⌘Z zoom out · ⇧⌘Z zoom in  ({chain})',
-  'nav.footer.status_operational': 'System operational',
+  'nav.footer.status_operational': 'Platform operational',
   'nav.footer.command': 'Command',
   'nav.footer.zoom': 'Zoom',
   'nav.hint.hypervisor': 'Decide · balance sheet, outcomes, what-if',

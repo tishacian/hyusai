@@ -119,7 +119,7 @@ export const RUNS_FR = {
   'runs.status.debug_pending': 'Pause debug',
 
   // --- Runs list ---------------------------------------------------
-  'runs.list.eyebrow': 'Mesurer · Exécutions',
+  'runs.list.eyebrow': 'Suivre · Exécutions',
   'runs.list.description':
     "Une ligne par exécution : son entrée, son résultat, sa trace de skills. Cliquez une ligne pour l'ouvrir.",
   'runs.list.filter.all': 'Tous les statuts',
@@ -369,7 +369,7 @@ export const RUNS_EN: Record<keyof typeof RUNS_FR, string> = {
   'runs.status.debug_pending': 'Debug pause',
 
   // --- Runs list ---------------------------------------------------
-  'runs.list.eyebrow': 'Measure · Runs',
+  'runs.list.eyebrow': 'Monitor · Runs',
   'runs.list.description':
     'Every execution is a Run: its input, its outcome, its skill trail. Click a row to open it.',
   'runs.list.filter.all': 'All statuses',
