@@ -47,6 +47,17 @@ from app.services.collection_source_backing import (
     read_backing_source_bytes,
     source_locator,
 )
+from app.services.collection_access import (
+    can_read_collection,
+    collection_permissions,
+    collection_permissions_for_member,
+    get_membership,
+    normalize_collection_access,
+    require_named_collection_read,
+    require_named_collection_write,
+    require_read_collection,
+    require_write_collection,
+)
 from app.services.knowledge_collections import (
     collection_inventory,
     collection_source_rows,
@@ -186,6 +197,7 @@ class CollectionCreateRequest(BaseModel):
 class CollectionPatchRequest(BaseModel):
     name: str | None = None
     description: str | None = None
+    access: dict[str, list[str]] | None = None
 
 
 class RetrievalArtifactJobRequest(BaseModel):
@@ -417,6 +429,12 @@ async def upload_document(
 ):
     """Upload and index a document"""
     _validate_supported_upload_files([file])
+    require_named_collection_write(
+        db,
+        workspace=workspace,
+        user_id=getattr(user, "id", None),
+        collection_ref=collection_name,
+    )
     try:
         if settings.document_ingest_async_enabled:
             collection = create_or_get_collection(
@@ -496,6 +514,12 @@ async def upload_documents_batch(
             detail="Document upload in chat is disabled for this workspace",
         )
     _validate_supported_upload_files(files)
+    require_named_collection_write(
+        db,
+        workspace=workspace,
+        user_id=getattr(user, "id", None),
+        collection_ref=collection_name,
+    )
     if settings.document_ingest_async_enabled:
         collection = create_or_get_collection(
             db,
@@ -588,6 +612,7 @@ async def upload_documents_batch(
 async def search_documents(
     request: DocumentSearchRequest,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Search documents with the same dense-corpus guardrails as chat retrieval."""
@@ -596,6 +621,12 @@ async def search_documents(
         raw_filters = dict(request.filters or {})
         system_scope = raw_filters.get("collection_slug") or raw_filters.get("collection")
         collection_name = str(system_scope or request.collection_name or "documents").strip() or "documents"
+        require_named_collection_read(
+            db,
+            workspace=workspace,
+            user_id=getattr(user, "id", None),
+            collection_ref=collection_name,
+        )
         payload_filters = {
             key: value
             for key, value in raw_filters.items()
@@ -718,6 +749,8 @@ async def search_documents(
             total_is_dense=bool(plan.dense or dense_from_vectors),
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error searching documents: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -733,8 +766,15 @@ async def list_table_facts(
     offset: int = Query(0, ge=0),
     vector_db_type: Optional[str] = Query(None),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    require_named_collection_read(
+        db,
+        workspace=workspace,
+        user_id=getattr(user, "id", None),
+        collection_ref=collection_name,
+    )
     """List spreadsheet facts/chunks for Knowledge diagnostics."""
     try:
         db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
@@ -866,6 +906,8 @@ async def list_table_facts(
             "total_is_exact": False,
             "source": "vector",
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error listing table facts: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -879,8 +921,15 @@ def list_document_facts(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    require_named_collection_read(
+        db,
+        workspace=workspace,
+        user_id=getattr(user, "id", None),
+        collection_ref=collection_name,
+    )
     """List structured document facts for Knowledge diagnostics."""
     base_query = db.query(KnowledgeDocumentFact).filter(
         KnowledgeDocumentFact.workspace_id == workspace.id,
@@ -1281,7 +1330,15 @@ async def get_document_metadata(
     document_id: str,
     collection_name: str = Query("documents"),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
+    require_named_collection_read(
+        db,
+        workspace=workspace,
+        user_id=getattr(user, "id", None),
+        collection_ref=collection_name,
+    )
     """Return docmeta-enriched metadata for a single document.
 
     Surfaces the ``document_*`` fields persisted at ingestion time (title,
@@ -1316,8 +1373,15 @@ async def preview_document(
     document_id: str,
     collection_name: str = Query("documents"),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    require_named_collection_read(
+        db,
+        workspace=workspace,
+        user_id=getattr(user, "id", None),
+        collection_ref=collection_name,
+    )
     """Return raw content of a document for preview (text) or redirect info for binary files."""
     try:
         db_type = _resolve_document_vector_db_type(workspace)
@@ -1371,8 +1435,15 @@ async def serve_document_file(
     document_id: str,
     collection_name: str = Query("documents"),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    require_named_collection_read(
+        db,
+        workspace=workspace,
+        user_id=getattr(user, "id", None),
+        collection_ref=collection_name,
+    )
     """Serve the original uploaded file (PDF, DOCX, etc.) for in-browser viewing."""
     try:
         db_type = _resolve_document_vector_db_type(workspace)
@@ -1426,7 +1497,14 @@ async def rich_preview_document(
     cell_range: Optional[str] = Query(None, min_length=1, max_length=32),
     db: DBSession = Depends(get_db),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
 ):
+    require_named_collection_read(
+        db,
+        workspace=workspace,
+        user_id=getattr(user, "id", None),
+        collection_ref=collection_name,
+    )
     """Return an inline preview for an indexed source document.
 
     Mirrors the Secure Deposit preview contract (``kind`` text / spreadsheet /
@@ -1526,7 +1604,14 @@ async def serve_document_raw(
     ),
     db: DBSession = Depends(get_db),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
 ):
+    require_named_collection_read(
+        db,
+        workspace=workspace,
+        user_id=getattr(user, "id", None),
+        collection_ref=collection_name,
+    )
     """Serve the original source bytes (object store or local) for inline view."""
     try:
         resolved_name = filename
@@ -1596,7 +1681,14 @@ async def converted_preview_document(
     ),
     db: DBSession = Depends(get_db),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
 ):
+    require_named_collection_read(
+        db,
+        workspace=workspace,
+        user_id=getattr(user, "id", None),
+        collection_ref=collection_name,
+    )
     try:
         resolved_name = filename
         if not resolved_name:
@@ -1667,8 +1759,15 @@ async def list_document_chunks(
     offset: int = Query(0, ge=0),
     max_chars: int = Query(800, ge=80, le=8000),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    require_named_collection_read(
+        db,
+        workspace=workspace,
+        user_id=getattr(user, "id", None),
+        collection_ref=collection_name,
+    )
     """Browse indexed chunks (vector payloads) for a collection or document.
 
     Powers the Knowledge "Chunks" tab: returns the chunk body (truncated to
@@ -1869,8 +1968,15 @@ async def embedding_graph(
     neighbors: int = Query(4, ge=1, le=15),
     min_score: float = Query(0.55, ge=0.0, le=1.0),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    require_named_collection_read(
+        db,
+        workspace=workspace,
+        user_id=getattr(user, "id", None),
+        collection_ref=collection_name,
+    )
     """Embedding map: 2D projection of sampled chunks + similarity edges.
 
     Inspired by the Qdrant graph/visualize tools. Sampled chunk vectors are
@@ -2011,7 +2117,15 @@ async def embedding_graph(
 async def get_document_stats(
     collection_name: str = "documents",
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
+    require_named_collection_read(
+        db,
+        workspace=workspace,
+        user_id=getattr(user, "id", None),
+        collection_ref=collection_name,
+    )
     """Get document statistics"""
     try:
         db_type = _resolve_document_vector_db_type(workspace)
@@ -2110,8 +2224,16 @@ async def delete_document(
     collection_name: str = Query("documents"),
     vector_db_type: Optional[str] = Query(None),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
     """Delete a document and its chunks"""
+    require_named_collection_write(
+        db,
+        workspace=workspace,
+        user_id=getattr(user, "id", None),
+        collection_ref=collection_name,
+    )
     try:
         db_type = _resolve_document_vector_db_type(workspace, vector_db_type, destructive=True)
 
@@ -2149,6 +2271,7 @@ async def delete_document(
 async def list_collections(
     vector_db_type: Optional[str] = Query(None),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """List canonical collections for the current workspace.
@@ -2161,12 +2284,14 @@ async def list_collections(
 
         db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
 
+        membership = get_membership(db, workspace=workspace, user_id=getattr(user, "id", None))
         rows = (
             db.query(KnowledgeCollection)
             .filter(KnowledgeCollection.workspace_id == workspace.id)
             .order_by(KnowledgeCollection.created_at.desc())
             .all()
         )
+        rows = [row for row in rows if can_read_collection(membership, row)]
         items = [
             await serialize_collection(
                 row,
@@ -2177,6 +2302,8 @@ async def list_collections(
             )
             for row in rows
         ]
+        for item, row in zip(items, rows, strict=True):
+            item["permissions"] = collection_permissions_for_member(membership, row)
 
         legacy_names = VectorDBFactory.list_collections_for_workspace(
             db_type=db_type, workspace_slug=workspace.slug
@@ -2224,6 +2351,12 @@ async def create_collection(
         requested_name = (payload.name if payload else collection_name) or ""
         if not requested_name.strip():
             raise HTTPException(status_code=422, detail="Collection name is required")
+        require_named_collection_write(
+            db,
+            workspace=workspace,
+            user_id=getattr(user, "id", None),
+            collection_ref=payload.slug if payload else requested_name,
+        )
 
         if payload is None and collection_name:
             row = create_or_get_collection(
@@ -2315,6 +2448,7 @@ async def get_collection_detail(
     sort: str = Query("filename"),
     sort_dir: str = Query("asc"),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Return collection metadata enriched with storage/vector metrics."""
@@ -2324,6 +2458,7 @@ async def get_collection_detail(
         workspace_id=workspace.id,
         collection_ref=collection_id,
     )
+    require_read_collection(db, workspace=workspace, user_id=getattr(user, "id", None), collection=row)
     jobs = (
         db.query(WorkerJob)
         .filter(WorkerJob.collection_id == row.id)
@@ -2354,6 +2489,9 @@ async def get_collection_detail(
         sort=sort,
         sort_dir=sort_dir,
     )
+    payload["permissions"] = collection_permissions(
+        db, workspace=workspace, user_id=getattr(user, "id", None), collection=row
+    )
     return _attach_collection_job_diagnostics(payload, jobs)
 
 
@@ -2372,6 +2510,7 @@ async def get_collection_inventory(
     sort: str = Query("filename"),
     sort_dir: str = Query("asc"),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Return authoritative source cardinality and typology for a collection."""
@@ -2380,6 +2519,7 @@ async def get_collection_inventory(
         workspace_id=workspace.id,
         collection_ref=collection_id,
     )
+    require_read_collection(db, workspace=workspace, user_id=getattr(user, "id", None), collection=row)
     return collection_inventory(
         db,
         collection=row,
@@ -2403,6 +2543,7 @@ async def get_collection_diagnostics(
     collection_id: str,
     vector_db_type: Optional[str] = Query(None),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Return corpus quality and scalability diagnostics for a collection."""
@@ -2411,6 +2552,7 @@ async def get_collection_diagnostics(
         workspace_id=workspace.id,
         collection_ref=collection_id,
     )
+    require_read_collection(db, workspace=workspace, user_id=getattr(user, "id", None), collection=row)
     db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
     inventory = collection_inventory(db, collection=row, include_sources=False)
     vector_points: int | None = None
@@ -2571,6 +2713,12 @@ async def create_retrieval_artifact_job(
         workspace_id=workspace.id,
         collection_ref=collection_id,
     )
+    require_write_collection(
+        db,
+        workspace=workspace,
+        user_id=getattr(user, "id", None),
+        collection=row,
+    )
     if payload.kind not in SUPPORTED_RETRIEVAL_ARTIFACT_KINDS:
         raise HTTPException(status_code=422, detail="Unsupported retrieval artifact job kind")
     base_result = {
@@ -2630,16 +2778,25 @@ async def patch_collection(
         row.name = payload.name
     if payload.description is not None:
         row.description = payload.description
+    if "access" in payload.model_fields_set:
+        try:
+            row.access = normalize_collection_access(payload.access)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     db.commit()
     db.refresh(row)
     db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
-    return await serialize_collection(
+    item = await serialize_collection(
         row,
         vector_db_type=db_type,
         workspace_slug=workspace.slug,
         include_metrics=True,
         include_document_names=False,
     )
+    item["permissions"] = collection_permissions(
+        db, workspace=workspace, user_id=getattr(user, "id", None), collection=row
+    )
+    return item
 
 
 @router.post("/collections/{collection_id}/documents")
@@ -2647,6 +2804,7 @@ async def upload_collection_documents(
     collection_id: str,
     files: list[UploadFile] = File(...),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Store originals and queue worker-owned parse/chunk/embed/index work."""
@@ -2654,6 +2812,12 @@ async def upload_collection_documents(
         db,
         workspace_id=workspace.id,
         collection_ref=collection_id,
+    )
+    require_write_collection(
+        db,
+        workspace=workspace,
+        user_id=getattr(user, "id", None),
+        collection=row,
     )
     return await _queue_collection_ingest(
         db=db,
@@ -2670,6 +2834,7 @@ async def list_worker_jobs(
     collection_id: str | None = Query(None, description="Optional collection id or slug filter."),
     limit: int = Query(20, ge=1, le=100),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """List recent worker jobs in the current workspace.
@@ -2698,12 +2863,31 @@ async def list_worker_jobs(
         )
         if not collection:
             return {"items": [], "total_returned": 0, "limit": limit}
+        require_read_collection(
+            db,
+            workspace=workspace,
+            user_id=getattr(user, "id", None),
+            collection=collection,
+        )
         query = query.filter(WorkerJob.collection_id == collection.id)
     jobs = (
         query.order_by(WorkerJob.updated_at.desc(), WorkerJob.created_at.desc())
         .limit(limit)
         .all()
     )
+    membership = get_membership(db, workspace=workspace, user_id=getattr(user, "id", None))
+    collection_rows = {
+        row.id: row
+        for row in db.query(KnowledgeCollection)
+        .filter(KnowledgeCollection.workspace_id == workspace.id)
+        .all()
+    }
+    jobs = [
+        job
+        for job in jobs
+        if job.collection_id not in collection_rows
+        or can_read_collection(membership, collection_rows[job.collection_id])
+    ]
     return {
         "items": [serialize_job(job) for job in jobs],
         "total_returned": len(jobs),
@@ -2716,6 +2900,7 @@ async def get_worker_job(
     job_id: str,
     include_context: bool = Query(False, description="Include heavy deep retrieval context when explicitly requested."),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     job = (
@@ -2725,6 +2910,18 @@ async def get_worker_job(
     )
     if not job:
         raise HTTPException(status_code=404, detail="Worker job not found")
+    if job.collection_id:
+        collection = db.query(KnowledgeCollection).filter(
+            KnowledgeCollection.id == job.collection_id,
+            KnowledgeCollection.workspace_id == workspace.id,
+        ).first()
+        if collection is not None:
+            require_read_collection(
+                db,
+                workspace=workspace,
+                user_id=getattr(user, "id", None),
+                collection=collection,
+            )
     return serialize_job(job, include_retrieval_context=include_context)
 
 
@@ -2933,6 +3130,7 @@ async def list_documents(
     limit: int | None = Query(default=None, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """List documents in a collection (scoped to current workspace).
@@ -2945,16 +3143,13 @@ async def list_documents(
         db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
         safe_offset = max(0, int(offset or 0))
 
-        try:
-            collection = get_collection_or_404(
-                db,
-                workspace_id=workspace.id,
-                collection_ref=collection_name,
-            )
-            source_rows = collection_source_rows(db, collection=collection)
-        except HTTPException:
-            collection = None
-            source_rows = []
+        collection = require_named_collection_read(
+            db,
+            workspace=workspace,
+            user_id=getattr(user, "id", None),
+            collection_ref=collection_name,
+        )
+        source_rows = collection_source_rows(db, collection=collection) if collection else []
 
         if collection is not None and source_rows:
             source_rows = [
@@ -3009,6 +3204,8 @@ async def list_documents(
             "source": "vector",
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error listing documents: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

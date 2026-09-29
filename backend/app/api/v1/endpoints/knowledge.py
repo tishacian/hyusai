@@ -15,6 +15,11 @@ from app.models.knowledge_collection import KnowledgeCollection
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.document_intelligence import DocumentQueryEngine
+from app.services.collection_access import (
+    can_read_collection,
+    get_membership,
+    require_named_collection_read,
+)
 from app.services.iam.app_entitlements import (
     WorkspaceEntitlementMutationConflictError,
     lock_workspace_for_app_entitlement_mutation,
@@ -101,12 +106,48 @@ def _require_workspace_admin(db: Session, user: User, workspace: Workspace) -> N
         raise HTTPException(status_code=403, detail={"code": "WORKSPACE_PERMISSION_DENIED"})
 
 
-def _collection_stats(db: Session, workspace_id: str) -> dict[str, dict[str, Any]]:
+def _accessible_collection_slugs(
+    db: Session, workspace: Workspace, user: User
+) -> list[str]:
+    member = get_membership(db, workspace=workspace, user_id=getattr(user, "id", None))
+    return [
+        row.slug
+        for row in db.query(KnowledgeCollection)
+        .filter(KnowledgeCollection.workspace_id == workspace.id)
+        .all()
+        if can_read_collection(member, row)
+    ]
+
+
+def _require_requested_collection_access(
+    db: Session, workspace: Workspace, user: User, collection_or_scope: str | None
+) -> None:
+    if not collection_or_scope:
+        return
+    scopes = normalize_knowledge_scopes((workspace.settings or {}).get("knowledge_scopes"))
+    scope = next((item for item in scopes if item.get("key") == collection_or_scope), None)
+    refs = list(scope.get("collection_slugs") or []) if scope else [collection_or_scope]
+    for ref in refs:
+        require_named_collection_read(
+            db,
+            workspace=workspace,
+            user_id=getattr(user, "id", None),
+            collection_ref=str(ref),
+        )
+
+
+def _collection_stats(
+    db: Session, workspace_id: str, member: WorkspaceMember | None
+) -> dict[str, dict[str, Any]]:
     from app.services.knowledge_collections import collection_inventory
 
-    rows = (
-        db.query(KnowledgeCollection).filter(KnowledgeCollection.workspace_id == workspace_id).all()
-    )
+    rows = [
+        row
+        for row in db.query(KnowledgeCollection)
+        .filter(KnowledgeCollection.workspace_id == workspace_id)
+        .all()
+        if can_read_collection(member, row)
+    ]
     stats: dict[str, dict[str, Any]] = {}
     for row in rows:
         inventory = collection_inventory(db, collection=row, include_sources=False)
@@ -127,9 +168,16 @@ def _serialize_scopes(
     *,
     workspace: Workspace,
     db: Session,
+    member: WorkspaceMember | None,
 ) -> dict[str, Any]:
     scopes = normalize_knowledge_scopes((workspace.settings or {}).get("knowledge_scopes"))
-    stats = _collection_stats(db, workspace.id)
+    stats = _collection_stats(db, workspace.id, member)
+    existing_slugs = {
+        row.slug
+        for row in db.query(KnowledgeCollection)
+        .filter(KnowledgeCollection.workspace_id == workspace.id)
+        .all()
+    }
     enriched = []
     for scope in scopes:
         enriched.append(
@@ -141,6 +189,7 @@ def _serialize_scopes(
                         **(stats.get(slug) or {"status": "external_or_empty"}),
                     }
                     for slug in scope["collection_slugs"]
+                    if slug in stats or slug not in existing_slugs
                 ],
             }
         )
@@ -156,9 +205,11 @@ def _serialize_scopes(
 @router.get("/scopes")
 def list_knowledge_scopes(
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return _serialize_scopes(workspace=workspace, db=db)
+    member = get_membership(db, workspace=workspace, user_id=getattr(user, "id", None))
+    return _serialize_scopes(workspace=workspace, db=db, member=member)
 
 
 @router.get("/guides")
@@ -276,18 +327,21 @@ def patch_knowledge_scopes(
     # every turn; refresh it here so a scope edit (top_k, mode) is the budget
     # actually used instead of a stale snapshot from the last seed run.
     ensure_workspace_chat_system_default(db, workspace.id)
-    return _serialize_scopes(workspace=workspace, db=db)
+    member = get_membership(db, workspace=workspace, user_id=getattr(user, "id", None))
+    return _serialize_scopes(workspace=workspace, db=db, member=member)
 
 
 @router.post("/table-query")
 def query_table_knowledge(
     payload: TableQueryRequest,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Run analytic lookup/aggregation over structured table facts."""
     if not payload.question.strip():
         raise HTTPException(status_code=422, detail="question is required")
+    _require_requested_collection_access(db, workspace, user, payload.collection_or_scope)
     engine = TableQueryEngine(db)
     return engine.query(
         workspace=workspace,
@@ -298,6 +352,7 @@ def query_table_knowledge(
         system_id=payload.system_id,
         table_profile_key=payload.table_profile_key,
         include_evidence=payload.include_evidence,
+        allowed_collections=_accessible_collection_slugs(db, workspace, user),
     )
 
 
@@ -305,11 +360,13 @@ def query_table_knowledge(
 def query_document_knowledge(
     payload: DocumentQueryRequest,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Run structured lookup over document facts from manuals/procedures."""
     if not payload.question.strip():
         raise HTTPException(status_code=422, detail="question is required")
+    _require_requested_collection_access(db, workspace, user, payload.collection_or_scope)
     engine = DocumentQueryEngine(db)
     return engine.query(
         workspace=workspace,
@@ -320,4 +377,5 @@ def query_document_knowledge(
         system_id=payload.system_id,
         document_profile_key=payload.document_profile_key,
         include_evidence=payload.include_evidence,
+        allowed_collections=_accessible_collection_slugs(db, workspace, user),
     )

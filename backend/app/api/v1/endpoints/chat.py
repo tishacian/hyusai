@@ -41,6 +41,7 @@ from app.models.system import System
 from app.models.user import Message, User
 from app.models.user import Session as ChatSession
 from app.models.workspace import Workspace, WorkspaceMember
+from app.services.collection_access import can_read_collection, get_membership, require_named_collection_read
 from app.models.workspace_job import WorkspaceJob
 from app.services.action_plans import action_context_for_chat
 from app.services.actions import handle_registry_chat_action, handle_transverse_chat_action
@@ -1387,6 +1388,42 @@ def _sanitize_workspace_collection_filters(
         else:
             sanitized.pop(key, None)
     return sanitized
+
+
+def _apply_collection_access(
+    db: Session,
+    *,
+    workspace: Workspace,
+    user: Optional[User],
+    request_dict: Dict[str, Any],
+) -> None:
+    """Keep chat retrieval inside collections the current member can read."""
+    from app.models.knowledge_collection import KnowledgeCollection
+
+    member = get_membership(db, workspace=workspace, user_id=getattr(user, "id", None))
+    rows = (
+        db.query(KnowledgeCollection)
+        .filter(KnowledgeCollection.workspace_id == workspace.id)
+        .all()
+    )
+    readable = [row for row in rows if can_read_collection(member, row)]
+    request_dict["accessible_collection_refs"] = [
+        value for row in readable for value in (row.slug, row.id) if value
+    ]
+
+    filters = request_dict.get("retrieval_filters") if isinstance(request_dict.get("retrieval_filters"), dict) else {}
+    explicit = list(filters.get("collection_slug") or []) if isinstance(filters.get("collection_slug"), list) else ([filters["collection_slug"]] if filters.get("collection_slug") else [])
+    explicit.extend(list(filters.get("collection") or []) if isinstance(filters.get("collection"), list) else ([filters["collection"]] if filters.get("collection") else []))
+    for key in ("context_collection",):
+        if request_dict.get(key):
+            explicit.append(request_dict[key])
+    authoritative = request_dict.get("authoritative_collections")
+    if isinstance(authoritative, (list, tuple, set)):
+        explicit.extend(authoritative)
+    for ref in dict.fromkeys(str(item) for item in explicit if str(item or "").strip()):
+        require_named_collection_read(
+            db, workspace=workspace, user_id=getattr(user, "id", None), collection_ref=ref
+        )
 
 
 def _inferred_scope_filters(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -2986,11 +3023,13 @@ async def chat_completion(
         request_dict["query"] = validated_query
         request_dict["workspace_slug"] = workspace.slug
         request_dict["workspace_id"] = workspace.id
+        _apply_collection_access(db, workspace=workspace, user=user, request_dict=request_dict)
         request_dict["ui_locale"] = request.ui_locale
         _apply_response_language_contract(request_dict, response_language)
         _apply_context_to_chat_request(request_dict, chat_context)
         if not execution_decision.is_agentic or agentic_fallback_metadata:
             _apply_agentic_classic_fallback_scope(request_dict, execution_decision)
+            _apply_collection_access(db, workspace=workspace, user=user, request_dict=request_dict)
         if request.assistant_profile in {"vigie_executive", "octave_executive"}:
             request_dict.setdefault("context", {})[
                 "workspace_calendar"
@@ -3374,6 +3413,7 @@ async def create_deep_retrieval_job(
     request_dict["query"] = validated_query
     request_dict["workspace_slug"] = workspace.slug
     request_dict["workspace_id"] = workspace.id
+    _apply_collection_access(db, workspace=workspace, user=user, request_dict=request_dict)
     request_dict["latency_profile"] = "deep"
     request_dict["deep_retrieval"] = True
     request_dict["ui_locale"] = request.ui_locale
@@ -3392,6 +3432,7 @@ async def create_deep_retrieval_job(
         allow_forced_agentic=False,
     )
     _apply_agentic_classic_fallback_scope(request_dict, retrieval_scope_decision)
+    _apply_collection_access(db, workspace=workspace, user=user, request_dict=request_dict)
     _apply_retrieval_budget_policy(request_dict)
 
     profile = get_retrieval_profile(request_dict)
@@ -3515,6 +3556,7 @@ async def preview_retrieval_plan(
     request_dict["query"] = validated_query
     request_dict["workspace_slug"] = workspace.slug
     request_dict["workspace_id"] = workspace.id
+    _apply_collection_access(db, workspace=workspace, user=user, request_dict=request_dict)
     request_dict["retrieval_filters"] = _sanitize_workspace_collection_filters(
         db,
         workspace_id=workspace.id,
@@ -3534,6 +3576,7 @@ async def preview_retrieval_plan(
         allow_forced_agentic=False,
     )
     _apply_agentic_classic_fallback_scope(request_dict, retrieval_scope_decision)
+    _apply_collection_access(db, workspace=workspace, user=user, request_dict=request_dict)
     _apply_retrieval_budget_policy(request_dict)
     profile = get_retrieval_profile(request_dict)
     planner_request = dict(request_dict)
@@ -3654,6 +3697,7 @@ async def chat_stream(
             request_dict = request.model_dump()
             request_dict["workspace_slug"] = workspace.slug
             request_dict["workspace_id"] = workspace.id
+            _apply_collection_access(db, workspace=workspace, user=user, request_dict=request_dict)
             _apply_context_to_chat_request(request_dict, chat_context)
             if request.rag_mode_override:
                 request_dict["rag_pipeline_mode"] = request.rag_mode_override
@@ -4335,6 +4379,7 @@ async def chat_stream(
             )
             if not execution_decision.is_agentic:
                 _apply_agentic_classic_fallback_scope(request_dict, execution_decision)
+                _apply_collection_access(db, workspace=workspace, user=user, request_dict=request_dict)
             agentic_fallback_metadata: Optional[dict[str, Any]] = None
             if execution_decision.is_agentic:
                 try:

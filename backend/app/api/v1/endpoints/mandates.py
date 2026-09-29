@@ -78,10 +78,12 @@ def _options(db, *, system, snapshot, workspace, user, flow=None):
     if resolve_action(db, user=user, workspace=workspace, resource_kind="skill", action="read",
                       legacy_allowed=True, resource_attrs={"scope": "collection"}).effective_allowed:
         skill_options.update({row.slug: row.name for row in _visible_skill_rows(db, workspace) if row.id in bound_ids})
-    # Collection catalog has the same workspace membership boundary as the
-    # canonical documents/collections endpoint; no private ACL exists here.
+    from app.services.collection_access import can_read_collection, get_membership
+
+    member = get_membership(db, workspace=workspace, user_id=getattr(user, "id", None))
     collections = {row.slug: row.name for row in db.query(KnowledgeCollection)
-                   .filter(KnowledgeCollection.workspace_id == workspace.id).all()}
+                   .filter(KnowledgeCollection.workspace_id == workspace.id).all()
+                   if can_read_collection(member, row)}
     models = mandate_draft.configured_models(system, workspace, flow=flow)
     return {"skills": [{"id": key, "label": value} for key, value in sorted(skill_options.items())],
             "collections": [{"id": key, "label": value} for key, value in sorted(collections.items())],
