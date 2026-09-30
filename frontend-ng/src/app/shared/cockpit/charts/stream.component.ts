@@ -33,7 +33,7 @@ import {
   type CkChartTick,
   type CkStreamTone,
 } from './chart.types';
-import { accumulateStackedSeries, cubicSmoothAreaPath, niceStep, spreadLabelRows } from './svg-path';
+import { accumulateStackedSeries, cubicSmoothAreaPath, cubicSmoothPath, niceStep, spreadLabelRows } from './svg-path';
 
 export interface CkStreamSeries {
   id?: string;
@@ -58,6 +58,10 @@ interface StreamArea {
   fill: string;
   /** Declared areas: `url(#hatch)` painted over the tint, so the estimate reads without colour. */
   hatch: string | null;
+  /** Upper boundary alone: the declared layer's 1 px top edge. */
+  top: string;
+  /** Lower boundary alone, or null on the baseline: where the 1 px gap is cut. */
+  base: string | null;
   id?: string;
 }
 
@@ -133,6 +137,8 @@ const LABEL_MIN = 150;
           <stop offset="0" stop-color="var(--ck-data-measured)" stop-opacity="0.42" />
           <stop offset="1" stop-color="var(--ck-data-measured)" stop-opacity="0.18" />
         </linearGradient>
+        <!-- One direction and one phase for every declared layer; the soft
+             neighbour only carries a lighter ink. -->
         <pattern
           [attr.id]="hatchId"
           patternUnits="userSpaceOnUse"
@@ -140,17 +146,30 @@ const LABEL_MIN = 150;
           [attr.height]="hatchPeriod"
           patternTransform="rotate(45)"
         >
-          <rect [attr.width]="hatchWidth" [attr.height]="hatchPeriod" fill="var(--ck-data-declared)" />
+          <rect [attr.width]="hatchWidth" [attr.height]="hatchPeriod" fill="var(--ck-data-declared)" fill-opacity="0.75" />
         </pattern>
         <pattern
           [attr.id]="hatchSoftId"
           patternUnits="userSpaceOnUse"
           [attr.width]="hatchPeriod"
           [attr.height]="hatchPeriod"
-          patternTransform="rotate(-45)"
+          patternTransform="rotate(45)"
         >
-          <rect [attr.width]="hatchWidth" [attr.height]="hatchPeriod" fill="var(--ck-data-declared)" />
+          <rect [attr.width]="hatchWidth" [attr.height]="hatchPeriod" fill="var(--ck-data-declared)" fill-opacity="0.5" />
         </pattern>
+        <!-- Declared layer mask: keeps the layer's own shape (so its 2-unit top
+             stroke shows as a 1 px inner edge) and cuts a 1 px gap along its
+             lower boundary, where the page shows through between stacked layers. -->
+        @for (area of areas; track $index) {
+          @if (area.hatch) {
+            <mask [attr.id]="layerMaskId + '-' + $index">
+              <path [attr.d]="area.d" fill="#fff" />
+              @if (area.base) {
+                <path [attr.d]="area.base" fill="none" stroke="#000" stroke-width="2" />
+              }
+            </mask>
+          }
+        }
       </defs>
       @for (line of grid; track $index) {
         <line
@@ -182,25 +201,31 @@ const LABEL_MIN = 150;
         />
       }
       @for (area of areas; track $index) {
-        <path
-          class="ck-area"
+        <g
+          class="ck-layer"
           [class.is-lit]="isSeriesLit(area.id)"
           [class.is-dim]="isSeriesDimmed() && !isSeriesLit(area.id)"
           [style.--i]="$index"
-          [attr.d]="area.d"
-          [attr.fill]="area.fill"
-        />
-        @if (area.hatch) {
-          <path
-            class="ck-area ck-area-hatch"
-            [class.is-lit]="isSeriesLit(area.id)"
-            [class.is-dim]="isSeriesDimmed() && !isSeriesLit(area.id)"
-            [style.--i]="$index"
-            [attr.d]="area.d"
-            [attr.fill]="area.hatch"
-            pointer-events="none"
-          />
-        }
+          [attr.mask]="area.hatch ? 'url(#' + layerMaskId + '-' + $index + ')' : null"
+        >
+          <path class="ck-area" [attr.d]="area.d" [attr.fill]="area.fill" />
+          @if (area.hatch) {
+            <path
+              class="ck-area ck-area-hatch"
+              [attr.d]="area.d"
+              [attr.fill]="area.hatch"
+              pointer-events="none"
+            />
+            <path
+              class="ck-area-edge"
+              [attr.d]="area.top"
+              fill="none"
+              stroke="var(--ck-data-declared)"
+              stroke-width="2"
+              pointer-events="none"
+            />
+          }
+        </g>
       }
       @for (i of dayHits; track i) {
         <rect
@@ -292,14 +317,15 @@ const LABEL_MIN = 150;
   `,
   styles: [`
     :host { display: block; position: relative; width: 100%; }
-    .ck-area, .ck-stream-label { transition: opacity 160ms var(--ck-ease-out, ease-out); }
-    svg:has(.ck-day-hit:focus-visible) .ck-area, svg:has(.ck-day-hit:focus-visible) .ck-stream-label { transition: none; }
+    .ck-layer, .ck-stream-label { transition: opacity 160ms var(--ck-ease-out, ease-out); }
+    svg:has(.ck-day-hit:focus-visible) .ck-layer, svg:has(.ck-day-hit:focus-visible) .ck-stream-label { transition: none; }
     .is-dim { opacity: 0.35; }
     .is-lit { opacity: 1; }
     .ck-day-hit { fill: transparent; cursor: pointer; }
     .ck-day-hit:focus-visible { outline: 2px solid var(--ck-primary); outline-offset: -2px; }
     .ck-stream-label { cursor: pointer; }
-    :host-context(.hv2-enter) .ck-area {
+    /* The entrance grows each layer as one group, so its edge and mask follow its fill. */
+    :host-context(.hv2-enter) .ck-layer {
       transform: scaleY(0);
       transform-box: fill-box;
       transform-origin: 50% 100%;
@@ -308,8 +334,8 @@ const LABEL_MIN = 150;
     }
     @keyframes ckAreaIn { to { transform: none; } }
     @media (prefers-reduced-motion: reduce) {
-      .ck-area, .ck-stream-label { transition: none; }
-      :host-context(.hv2-enter) .ck-area { animation: none; transform: none; }
+      .ck-layer, .ck-stream-label { transition: none; }
+      :host-context(.hv2-enter) .ck-layer { animation: none; transform: none; }
     }
   `],
 })
@@ -353,6 +379,7 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
   readonly declaredSoftId = ckChartUid('ck-stream-teal-soft');
   readonly hatchId = ckChartUid('ck-stream-hatch');
   readonly hatchSoftId = ckChartUid('ck-stream-hatch-soft');
+  readonly layerMaskId = ckChartUid('ck-stream-layer');
   readonly hatchPeriod = CK_DECLARED_HATCH_PERIOD;
   readonly hatchWidth = CK_DECLARED_HATCH_WIDTH;
 
@@ -677,12 +704,13 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
       const tone = row.tone ?? 'ink';
       const upper = band.upper.map((value, i) => ({ x: xOf(i), y: this.yOf(value, max) }));
       const lower = band.lower.map((value, i) => ({ x: xOf(i), y: this.yOf(value, max) }));
+      const onBaseline = band.lower.every((value) => value === 0);
       areas.push({
-        d: band.lower.every((value) => value === 0)
-          ? cubicSmoothAreaPath(upper, null, this.yOf(0, max))
-          : cubicSmoothAreaPath(upper, lower),
+        d: onBaseline ? cubicSmoothAreaPath(upper, null, this.yOf(0, max)) : cubicSmoothAreaPath(upper, lower),
         fill: this.fillFor(tone),
         hatch: this.hatchFor(tone),
+        top: cubicSmoothPath(upper),
+        base: onBaseline ? null : cubicSmoothPath(lower),
         id: row.id,
       });
       upperY.push(upper.map((point) => point.y));
