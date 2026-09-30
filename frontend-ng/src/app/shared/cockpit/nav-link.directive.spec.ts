@@ -102,3 +102,31 @@ test('help-guide nav links open the panel on desktop instead of navigating', () 
     origin: { originLabel: 'experience.work.title', originUrl: '/work' },
   }]);
 });
+
+test('an unresolvable link yields no href instead of throwing during change detection', () => {
+  const injector = Injector.create({
+    providers: [
+      NavLinkDirective,
+      { provide: Router, useValue: { url: '/hypervisor', navigateByUrl: () => Promise.resolve(true) } },
+      {
+        provide: ZoomContextService,
+        useValue: { resolveLink: () => { throw new Error('Unknown Agentium leaf: review-queue'); } },
+      },
+      { provide: NavigationTelemetryService, useValue: { registerTrigger: () => undefined } },
+      { provide: HelpOverlayService, useValue: { openFromLink: () => false } },
+      { provide: WorkspaceService, useValue: { current: () => ({ name: 'WS' }) } },
+      { provide: I18nService, useValue: { t: (key: string) => key } },
+    ],
+  });
+  const link = injector.get(NavLinkDirective);
+  Object.defineProperty(link, 'navLink', { value: () => ({ leaf: 'review-queue' }) });
+  const original = console.error;
+  const logged: unknown[] = [];
+  console.error = (...args: unknown[]) => { logged.push(args); };
+  try {
+    assert.equal(link.href(), null);
+  } finally {
+    console.error = original;
+  }
+  assert.equal(logged.length, 1);
+});
