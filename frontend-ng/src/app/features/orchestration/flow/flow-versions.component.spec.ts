@@ -10,10 +10,14 @@ import type {
 } from '@app/core/canonical-api.service';
 import {
   exactFlowVersionPreviewError,
-  formatServerFlowSemanticDiff,
+  flowVersionRestoreBlockReason,
+  formatServerFlowSemanticDiff as formatDiff,
   isFlowVersionCurrent,
   isFlowVersionRestoreBlocked,
 } from './flow-versions.component';
+import { FLOW_EN, FLOW_FR } from '@app/core/i18n/flow.dict';
+const formatServerFlowSemanticDiff = (diff: SystemFlowDiff) => formatDiff(diff,
+  (key, params) => (FLOW_EN[key as keyof typeof FLOW_EN] ?? key).replace(/\{(\w+)\}/g, (_, name) => String(params?.[name] ?? '')));
 
 const SOURCE = readFileSync(
   join(process.cwd(), 'src/app/features/orchestration/flow/flow-versions.component.ts'),
@@ -161,4 +165,26 @@ test('component gates rollback on dual exact evidence and revision-bound fences'
   assert.match(SOURCE, /this\.persistence\.draftRevision\(\)/);
   assert.match(SOURCE, /this\.persistence\.savedFlowSha256\(\)/);
   assert.match(SOURCE, /this\.persistence\.publishedVersionId\(\)/);
+});
+
+
+test('restore guards keep their precedence and every reason is translated in FR and EN', () => {
+  const version = summary();
+  const gate = { publicationMode: true, publishedVersionId: version.id, draftMatchesPublished: false,
+    historyError: false, restorePending: false, writeInProgress: false, localChanges: false };
+  assert.equal(flowVersionRestoreBlockReason(version, 0, gate), null);
+  for (const [condition, expected] of [
+    ['draftMatchesPublished', 'matches_published'], ['historyError', 'history'],
+    ['localChanges', 'local_changes'], ['restorePending', 'pending'], ['writeInProgress', 'write'],
+  ]) {
+    const reason = flowVersionRestoreBlockReason(version, 0, { ...gate, [condition]: true })!;
+    assert.equal(reason, `flow.versions.blocked.${expected}`);
+    assert.ok(FLOW_FR[reason as keyof typeof FLOW_FR]);
+    assert.ok(FLOW_EN[reason as keyof typeof FLOW_EN]);
+  }
+  assert.equal(flowVersionRestoreBlockReason(version, 0, { ...gate, publicationMode: false }), 'flow.versions.blocked.current');
+  const reason = exactFlowVersionPreviewError({ publicationMode: false, systemId: 'system-a',
+    summary: version, full: null, semanticDiff: null, draftRevision: null, draftFlowSha256: null })!;
+  assert.equal(FLOW_FR[reason as keyof typeof FLOW_FR], 'Le contenu de la version enregistrée n’a pas été renvoyé.');
+  assert.match(formatDiff(serverDiff(), (key, params) => FLOW_FR[key as keyof typeof FLOW_FR].replace(/\{(\w+)\}/g, (_, name) => String(params?.[name] ?? ''))), /rupture.*ordre des nœuds.*contrat/);
 });

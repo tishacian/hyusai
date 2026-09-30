@@ -93,7 +93,7 @@ function blocks(...types: string[]): HypervisorBlockRef[] {
 export const DEFAULT_HYPERVISOR_VIEWS: readonly HypervisorNamedView[] = [
   {
     id: 'direction',
-    label: 'Direction',
+    label: 'hypervisor.v2.view.direction',
     denominator: 'hours',
     period: '90d',
     schema_version: 2,
@@ -107,7 +107,7 @@ export const DEFAULT_HYPERVISOR_VIEWS: readonly HypervisorNamedView[] = [
   },
   {
     id: 'operations',
-    label: 'Operations',
+    label: 'hypervisor.v2.view.operations',
     denominator: 'runs',
     period: '30d',
     schema_version: 2,
@@ -121,7 +121,7 @@ export const DEFAULT_HYPERVISOR_VIEWS: readonly HypervisorNamedView[] = [
   },
   {
     id: 'conformite',
-    label: 'Conformite',
+    label: 'hypervisor.v2.view.conformite',
     denominator: 'runs',
     period: '90d',
     schema_version: 2,
@@ -139,7 +139,7 @@ export const DEFAULT_HYPERVISOR_VIEWS: readonly HypervisorNamedView[] = [
 export const IMPACT_GENERIC_VIEWS: readonly HypervisorNamedView[] = [
   {
     id: 'agenda',
-    label: 'Agenda',
+    label: 'hypervisor.v2.view.agenda',
     denominator: 'hours',
     period: '30d',
     schema_version: 2,
@@ -156,7 +156,7 @@ export const IMPACT_GENERIC_VIEWS: readonly HypervisorNamedView[] = [
   },
   {
     id: 'veille',
-    label: 'Veille',
+    label: 'hypervisor.v2.view.veille',
     denominator: 'hours',
     period: '30d',
     schema_version: 2,
@@ -174,7 +174,7 @@ export const IMPACT_GENERIC_VIEWS: readonly HypervisorNamedView[] = [
   },
   {
     id: 'securite',
-    label: 'Securite',
+    label: 'hypervisor.v2.view.securite',
     denominator: 'hours',
     period: '30d',
     schema_version: 2,
@@ -192,7 +192,7 @@ export const IMPACT_GENERIC_VIEWS: readonly HypervisorNamedView[] = [
   },
   {
     id: 'reunion',
-    label: 'Reunion',
+    label: 'hypervisor.v2.view.reunion',
     denominator: 'hours',
     period: '30d',
     schema_version: 2,
@@ -209,7 +209,7 @@ export const IMPACT_GENERIC_VIEWS: readonly HypervisorNamedView[] = [
   },
   {
     id: 'carte',
-    label: 'Carte',
+    label: 'hypervisor.v2.view.carte',
     denominator: 'hours',
     period: '30d',
     schema_version: 2,
@@ -429,4 +429,16 @@ export function impactGenericView(id: string | null | undefined): HypervisorName
   if (!isImpactViewId(id)) return null;
   const found = IMPACT_GENERIC_VIEWS.find((view) => view.id === id);
   return found ? cloneView(found) : null;
+}
+
+/** Mission Room views must never leak from a saved catalog into another workspace. */
+export function availableHypervisorViews(
+  views: readonly HypervisorNamedView[],
+  missionRoomAvailable: boolean,
+  synthese: boolean,
+): HypervisorNamedView[] {
+  const portfolio = views.filter(view => !isImpactViewId(view.id));
+  return synthese && missionRoomAvailable
+    ? [...portfolio, ...IMPACT_GENERIC_VIEWS.map(cloneView)]
+    : portfolio;
 }

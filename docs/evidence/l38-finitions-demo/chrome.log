@@ -1,0 +1,6 @@
+
+> agentium@0.1.0 check:ui-chrome
+> node scripts/check-ui-chrome.mjs
+
+check-ui-chrome: 443 ratchet hit(s) across 104 file(s) · baseline docs/compliance/ui-chrome-baseline.v1.json
+Agentium UI chrome guard OK.

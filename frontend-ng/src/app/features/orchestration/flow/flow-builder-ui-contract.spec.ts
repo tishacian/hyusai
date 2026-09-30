@@ -399,10 +399,10 @@ test('version preview is semantic while unloaded rows are explicitly count-only'
   )?.[1] ?? '';
   assert.match(
     versions,
-    /formatFlowSemanticDiff\(diffCanonicalFlows\(baseline, flow\)\)/,
+    /formatFlowSemanticDiff\(diffCanonicalFlows\(baseline, flow\),/,
   );
-  assert.match(versions, /counts match · preview for semantic diff/);
-  assert.match(versions, /counts · preview for semantic diff/);
+  assert.match(versions, /flow\.versions\.diff\.counts_match/);
+  assert.match(versions, /flow\.versions\.diff\.counts/);
   assert.match(
     previewButton,
     /\[disabled\]="previewStatus\(v\) === 'loading'"/,

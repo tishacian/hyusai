@@ -154,7 +154,7 @@ export function diffCanonicalFlows(
   };
 }
 
-export function formatFlowSemanticDiff(diff: FlowSemanticDiff): string {
+export function formatFlowSemanticDiff(diff: FlowSemanticDiff, t: (key: string) => string): string {
   const parts: string[] = [];
   const nodeParts = [
     diff.nodesAdded ? `+${diff.nodesAdded}` : '',
@@ -162,20 +162,20 @@ export function formatFlowSemanticDiff(diff: FlowSemanticDiff): string {
     diff.nodesChanged ? `~${diff.nodesChanged}` : '',
   ].filter(Boolean);
   if (nodeParts.length > 0) parts.push(`${nodeParts.join(' ')}n`);
-  if (diff.nodeOrderChanged) parts.push('↕n order');
+  if (diff.nodeOrderChanged) parts.push(t('flow.versions.diff.node_order'));
   const edgeParts = [
     diff.edgesAdded ? `+${diff.edgesAdded}` : '',
     diff.edgesRemoved ? `-${diff.edgesRemoved}` : '',
   ].filter(Boolean);
   if (edgeParts.length > 0) parts.push(`${edgeParts.join(' ')}e`);
-  if (diff.edgeOrderChanged) parts.push('↕e order');
-  if (diff.metadataChanged) parts.push('~flow');
-  if (diff.executionContract === 'changed') parts.push('~contract');
+  if (diff.edgeOrderChanged) parts.push(t('flow.versions.diff.edge_order'));
+  if (diff.metadataChanged) parts.push(t('flow.versions.diff.flow'));
+  if (diff.executionContract === 'changed') parts.push(t('flow.versions.diff.contract'));
   if (diff.executionContract === 'pinned_uncompared') {
-    parts.push('pinned contract · not comparable to draft');
+    parts.push(t('flow.versions.diff.pinned_contract'));
   }
   if (diff.executionContract === 'unavailable_uncompared') {
-    parts.push('contract unavailable · not comparable to draft');
+    parts.push(t('flow.versions.diff.unavailable_contract'));
   }
-  return parts.length > 0 ? parts.join(' · ') : '= canvas';
+  return parts.length > 0 ? parts.join(' · ') : t('flow.versions.diff.canvas_equal');
 }

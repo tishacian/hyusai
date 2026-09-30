@@ -77,7 +77,7 @@ import {
   DECIDER_BLOCKS,
   DEFAULT_HYPERVISOR_VIEWS,
   DETAILLER_BLOCKS,
-  IMPACT_GENERIC_VIEWS,
+  availableHypervisorViews,
   REGISTER_COLUMNS,
   VIEW_SORTS,
   cloneView,
@@ -287,7 +287,15 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       } @else {
         <div data-testid="hypervisor-v2-facets">
         @if (activeFacet() === 'synthese') {
-          @if (activeImpactView(); as impactView) {
+          @if (impactViewUnavailable()) {
+            <section class="hv2-muted" role="status" data-testid="hypervisor-v2-impact-unavailable">
+              <h2>{{ i18n.t('hypervisor.v2.mission_room.unavailable.title') }}</h2>
+              <p>{{ i18n.t('hypervisor.v2.mission_room.unavailable.description') }}</p>
+              <button type="button" class="hv2-text-btn" (click)="selectView('direction')">
+                {{ i18n.t('hypervisor.v2.mission_room.unavailable.action') }}
+              </button>
+            </section>
+          } @else if (activeImpactView(); as impactView) {
             <section
               class="hv2-impact-blocks"
               data-testid="hypervisor-v2-impact-blocks"
@@ -2165,11 +2173,11 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     this.views().find((view) => view.id === this.activeViewId()) ?? this.views()[0] ?? null,
   );
   readonly activeImpactView = computed(() => impactGenericView(this.activeImpactViewId()));
-  readonly switcherViews = computed(() => {
-    const portfolio = this.views();
-    if (this.activeFacet() !== 'synthese') return portfolio;
-    return [...portfolio, ...IMPACT_GENERIC_VIEWS.map(cloneView)];
-  });
+  readonly missionRoomAvailable = computed(() => !!this.workspace.current()?.workspace_app_runtime?.experience?.mission_room);
+  readonly impactViewUnavailable = computed(() => !!this.activeImpactViewId() && !this.missionRoomAvailable());
+  readonly switcherViews = computed(() => availableHypervisorViews(
+    this.views(), this.missionRoomAvailable(), this.activeFacet() === 'synthese',
+  ));
   readonly switcherActiveId = computed(() => this.activeImpactViewId() ?? this.activeViewId());
   readonly impactComprendreBlocks = computed(() => this.activeImpactView()?.strata.comprendre ?? []);
   readonly journalEntries = computed(() => {
@@ -3886,7 +3894,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     this.impactLiveSub?.unsubscribe();
     this.impactLiveSub = null;
     const generation = ++this.impactLiveGeneration;
-    if (!this.activeImpactViewId()) {
+    if (!this.activeImpactViewId() || !this.missionRoomAvailable()) {
       this.impactTimeline.set(null);
       this.impactNews.set(null);
       this.impactMap.set(null);
