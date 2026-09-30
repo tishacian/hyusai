@@ -238,3 +238,21 @@ test('L14: several linked apps open a menu', () => {
   view.onDocumentClick();
   assert.equal(view.workMenuOpen(), false);
 });
+
+
+import { SYSTEMS_FR, SYSTEMS_EN } from '@app/core/i18n/systems.dict';
+
+test('System pipeline labels translate in both locales and retain the translation product name', () => {
+  for (const dict of [SYSTEMS_FR, SYSTEMS_EN]) {
+    const view = Object.assign(Object.create(SystemViewComponent.prototype), {
+      systemId: 'demo', isTranslationSuite: () => true, isExpertKnowledgeCapture: () => false,
+      i18n: { t: (key: string) => dict[key as keyof typeof dict] ?? key },
+      navigation: { leafUrlTree: () => new UrlTree(), surfaceUrlTree: () => new UrlTree() },
+    }) as SystemViewComponent;
+    const stages = view.pipelineStages;
+    assert.equal(stages[0].name, dict['systems.view.stage.archive']);
+    assert.equal(stages[3].configureLabel, dict['systems.view.runtime']);
+    assert.equal(stages[4].configureLabel, dict['systems.view.guardrails']);
+    assert.equal(stages[0].description, dict['systems.view.stage.archive.description']);
+  }
+});

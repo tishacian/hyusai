@@ -5,6 +5,10 @@
  */
 
 export const HYPERVISOR_FR = {
+  "hypervisor.v2.mission_room.unavailable.title": "Cette vue nécessite une Mission Room",
+  "hypervisor.v2.mission_room.unavailable.description": "Cet espace de travail ne dispose pas de Mission Room pour alimenter cette vue. Retrouvez les résultats de vos systèmes dans la synthèse du portefeuille.",
+  "hypervisor.v2.mission_room.unavailable.action": "Revenir à la synthèse du portefeuille",
+
   // --- Page chrome ---------------------------------------------------
   'hypervisor.page.eyebrow': 'Hypervisor · Bilan de valeur',
   'hypervisor.page.title': 'Valeur nette générée',
@@ -566,6 +570,10 @@ export const HYPERVISOR_FR = {
  * other, before the guard even runs.
  */
 export const HYPERVISOR_EN: Record<keyof typeof HYPERVISOR_FR, string> = {
+  "hypervisor.v2.mission_room.unavailable.title": "This view requires a Mission Room",
+  "hypervisor.v2.mission_room.unavailable.description": "This workspace has no Mission Room to supply this view. See your systems’ results in the portfolio summary.",
+  "hypervisor.v2.mission_room.unavailable.action": "Return to the portfolio summary",
+
   // --- Page chrome ---------------------------------------------------
   'hypervisor.page.eyebrow': 'Hypervisor · Balance sheet',
   'hypervisor.page.title': 'Net value generated',

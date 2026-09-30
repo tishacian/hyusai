@@ -483,7 +483,20 @@ function json(route: Route, body: unknown, status = 200) {
   });
 }
 
-async function installMocks(page: Page, kind: FixtureKind, theme: ThemeKind): Promise<void> {
+async function installMocks(page: Page, kind: FixtureKind, theme: ThemeKind, missionRoom = false): Promise<void> {
+  const workspace = { ...WORKSPACE, workspace_app_runtime: {
+    schema_version: 1, mode: 'legacy_shadow', enabled: false, valid: true, installations: [],
+    experience: {
+      shell: 'standard', routes: [], primary_surface_ids: [], default_routes: {},
+      branding_namespaces: [], api_prefixes: [], action_packs: [],
+      mission_room: missionRoom ? {
+        profile: 'sentinel_government_v1', assistant_profile: 'sentinel', label: 'Mission Room',
+        assistant_label: 'Sentinel', brand_style: 'standard', navigation_keys: [],
+        app_id: 'sentinel', version: '1', manifest_digest: 'local',
+        default_route: '/hypervisor', primary_surface_id: 'hypervisor',
+      } : null,
+    },
+  } };
   await page.addInitScript(
     ({ themeMode, slug }) => {
       localStorage.setItem('agentium_token', 'Bearer mocked-hv2-visual');
@@ -503,8 +516,8 @@ async function installMocks(page: Page, kind: FixtureKind, theme: ThemeKind): Pr
     if (apiPath === '/auth/validate' && method === 'POST') {
       return json(route, { valid: true, user_id: USER.id, email: USER.email, role: USER.role });
     }
-    if (apiPath === '/auth/workspaces') return json(route, [WORKSPACE]);
-    if (apiPath === `/auth/workspaces/${WORKSPACE.slug}`) return json(route, WORKSPACE);
+    if (apiPath === '/auth/workspaces') return json(route, [workspace]);
+    if (apiPath === `/auth/workspaces/${WORKSPACE.slug}`) return json(route, workspace);
     if (apiPath === '/auth/me') return json(route, USER);
     if (apiPath === '/iam/matrix') {
       return json(route, {
@@ -723,7 +736,7 @@ test.describe('Hypervisor V2 — mocked visual', () => {
       colorScheme: 'dark',
     });
     const page = await context.newPage();
-    await installMocks(page, 'dense', 'dark');
+    await installMocks(page, 'dense', 'dark', true);
     await page.goto('/hypervisor?view=agenda');
     await expect(page.locator('app-hypervisor-v2')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('impact-block-echeancier')).toBeVisible();
@@ -749,7 +762,7 @@ test.describe('Hypervisor V2 — mocked visual', () => {
       colorScheme: 'dark',
     });
     const page = await context.newPage();
-    await installMocks(page, 'dense', 'dark');
+    await installMocks(page, 'dense', 'dark', true);
 
     for (const [view, blocks] of Object.entries(expectations)) {
       await page.goto(`/hypervisor?view=${view}`);
@@ -773,7 +786,7 @@ test.describe('Hypervisor V2 — mocked visual', () => {
       colorScheme: 'dark',
     });
     const page = await context.newPage();
-    await installMocks(page, 'dense', 'dark');
+    await installMocks(page, 'dense', 'dark', true);
     await page.goto('/hypervisor?view=reunion&theme=presentation');
     await expect(page.locator('app-hypervisor-v2')).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('app-hypervisor-v2.hv2-theme-presentation')).toBeVisible();
@@ -803,7 +816,7 @@ test.describe('Hypervisor V2 — mocked visual', () => {
         tileHosts.push(host);
       }
     });
-    await installMocks(page, 'dense', 'dark');
+    await installMocks(page, 'dense', 'dark', true);
     await page.route('**/api/v1/hypervisor/map-settings', async (route) => {
       return json(route, {
         external_tiles_enabled: false,
@@ -1177,3 +1190,41 @@ async function captureHoverProof(
   await page.locator('[data-testid="hypervisor-v2-register"] [data-system-id="sys-capture"]').hover();
   await expect(page.locator('ck-chart-sankey-flow [data-system="sys-capture"].is-lit').first()).toBeVisible();
 }
+
+
+test.describe('L38 — Mission Room availability', () => {
+  test.skip(!visualEnabled, 'Set E2E_HYPERVISOR_V2_VISUAL=1 to run');
+  for (const theme of ['dark', 'light'] as const) {
+    for (const missionRoom of [false, true]) {
+      test(`views, accents, URL recovery and axe (${theme}, Mission Room=${missionRoom})`, async ({ page }) => {
+        await mkdir(RESULTS, { recursive: true });
+        await page.setViewportSize({ width: 1680, height: 1100 });
+        await installMocks(page, 'dense', theme, missionRoom);
+        const missionRequests: string[] = [];
+        page.on('request', request => { if (request.url().includes('/mission-room/')) missionRequests.push(request.url()); });
+        await openHypervisor(page);
+        await expect(page.getByTestId('hypervisor-v2-view-conformite')).toHaveText('Conformité');
+        for (const id of ['agenda', 'veille', 'securite', 'reunion', 'carte']) {
+          await expect(page.getByTestId(`hypervisor-v2-view-${id}`)).toHaveCount(missionRoom ? 1 : 0);
+        }
+        await page.goto('/hypervisor?view=agenda');
+        if (missionRoom) {
+          await expect(page.getByTestId('hypervisor-v2-impact-blocks')).toBeVisible();
+          await expect(page.getByTestId('impact-block-echeancier')).toContainText('Revue portefeuille');
+        } else {
+          await expect(page.getByTestId('hypervisor-v2-impact-unavailable')).toContainText('Cet espace de travail ne dispose pas de Mission Room');
+          await expect(page.getByTestId('hypervisor-v2-impact-blocks')).toHaveCount(0);
+          expect(missionRequests).toEqual([]);
+        }
+        await page.screenshot({ path: path.join(RESULTS, `l38-impact-${missionRoom ? 'with' : 'without'}-room-${theme}.png`), animations: 'disabled' });
+        const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
+        expect(axe.violations, JSON.stringify(axe.violations, null, 2)).toEqual([]);
+        if (!missionRoom) {
+          await page.getByRole('button', { name: 'Revenir à la synthèse du portefeuille' }).click();
+          await expect(page.getByTestId('hypervisor-v2-hero')).toBeVisible();
+          await expect(page).not.toHaveURL(/view=agenda/);
+        }
+      });
+    }
+  }
+});
