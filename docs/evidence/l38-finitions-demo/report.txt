@@ -1,0 +1,17 @@
+L38 · Finitions de démo — 30 septembre 2026
+
+Corrigé : vues Agenda, Veille, Sécurité, Réunion et Carte réservées aux workspaces dont workspace_app_runtime.experience.mission_room est présent. Une URL indisponible explique la situation et permet de revenir au portefeuille, sans requête Mission Room. Les workspaces équipés conservent les cinq vues. Libellés natifs traduits, dont Conformité / Compliance.
+
+Page Système : textes statiques, actions, onglets, étapes, paramètres, états et notifications traduits FR/EN ; Translation Suite reste un nom propre. Historique du Flow : erreurs, blocages, confirmations, différences et dates relatives traduits ; conditions de restauration conservées. Identifiant redondant de déclencheur retiré ; contrastes corrigés par les tokens existants.
+
+Fichiers modifiés (frontend-ng) : dictionnaires flow/hypervisor/systems ; hypervisor-v2-views.ts, hypervisor-v2.component.ts ; system-view.component.ts ; flow-versions.component.ts/.scss, flow-semantic-diff.vm.ts, flow-toolbar.component.scss ; shared/ui/drawer.component.ts ; specs associés, nouveau demo-finishings.spec.ts enregistré dans run-unit.mjs ; e2e/tests/21 et 24. Preuves dans ce dossier. Aucun fichier L37 ni backend modifié.
+
+Validation finale : check:i18n, check:nav-links, check:ui-chrome, TypeScript et compilation Angular sans émission réussis. 1 879 unitaires réussis, zéro échec. Deux builds production réussis : Initial total 910,16 kB ; dictionnaires toujours chargés à la demande. Deux retouches visuelles après le dernier build : constantes CSS/classes des assets locaux synchronisées, parité complète Sass/Angular et template vérifiée, puis suites e2e complètes exécutées. Aucun troisième build.
+
+E2E 21 et 24 : 46/46 réussis, dont six nouveaux scénarios L38. Zéro violation axe dans les scénarios contrôlés en clair et sombre. Captures inspectées et conservées dans docs/status-screenshots/l38-finitions-demo/ (10 PNG).
+
+Échecs intermédiaires corrigés : « t is not a function » dans les adaptateurs unitaires ; « locator.click: Timeout … Versions » (ouvrir Exploiter d’abord) ; « color-contrast … 3.85 » sur l’identifiant, puis « 4.49 » et « 1.4 » sur la barre d’outils et l’en-tête du tiroir. Aucun échec final.
+
+Restent : valeurs techniques issues des données (manual, kinds/statuts, identifiants de nœuds/skills, clés de contexte, bindings/hashes de publication, contenus BRD serveur) ; lexique partagé Skills/Knowledge/Capabilities, aria-label Close du tiroir et capitales des composants partagés. Pages de runs laissées à L37.
+
+Nettoyage effectué : serveur 4239 arrêté ; dist, .angular, e2e/results, e2e/report et probes supprimés. Livraison : un seul commit sur eaf9b79f, sans push.

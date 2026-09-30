@@ -95,18 +95,18 @@ export function flowVersionRestoreBlockReason(
 ): string | null {
   if (isFlowVersionRestoreBlocked(version, index, gate)) {
     return gate.publicationMode
-      ? 'The server draft already matches this published version.'
-      : 'This is already the current version.';
+      ? 'flow.versions.blocked.matches_published'
+      : 'flow.versions.blocked.current';
   }
   if (gate.historyError) {
-    return 'Version history could not be loaded. Refresh before restoring.';
+    return 'flow.versions.blocked.history';
   }
   if (gate.localChanges) {
-    return 'Save or discard your local changes before restoring a version.';
+    return 'flow.versions.blocked.local_changes';
   }
-  if (gate.restorePending) return 'A restore is already running.';
+  if (gate.restorePending) return 'flow.versions.blocked.pending';
   if (gate.writeInProgress) {
-    return 'Wait for the Flow to finish loading or saving.';
+    return 'flow.versions.blocked.write';
   }
   return null;
 }
@@ -127,70 +127,73 @@ export function exactFlowVersionPreviewError(
   evidence: ExactFlowVersionPreviewEvidence,
 ): string | null {
   const { full, summary, systemId } = evidence;
-  if (!full) return 'The immutable version payload was not returned.';
+  if (!full) return 'flow.versions.evidence.missing_payload';
   if (
     full.id !== summary.id ||
     full.system_id !== systemId ||
     summary.system_id !== systemId ||
     full.version_number !== summary.version_number
   ) {
-    return 'The immutable version payload does not match the selected history row.';
+    return 'flow.versions.evidence.wrong_payload';
   }
   if (
     !full.flow_definition ||
     typeof full.flow_definition !== 'object' ||
     Array.isArray(full.flow_definition)
   ) {
-    return 'The immutable version contains a malformed Flow payload.';
+    return 'flow.versions.evidence.malformed_flow';
   }
   if (
     full.execution_contract !== undefined &&
     full.execution_contract !== null &&
     (typeof full.execution_contract !== 'object' || Array.isArray(full.execution_contract))
   ) {
-    return 'The immutable version contains a malformed execution contract.';
+    return 'flow.versions.evidence.malformed_contract';
   }
   if (!evidence.publicationMode) return null;
 
   const diff = evidence.semanticDiff;
-  if (!diff) return 'The authoritative semantic diff was not returned.';
+  if (!diff) return 'flow.versions.evidence.missing_diff';
   if (!full.flow_sha256 || !summary.flow_sha256) {
-    return 'The immutable version digest is missing.';
+    return 'flow.versions.evidence.missing_digest';
   }
   if (full.flow_sha256 !== summary.flow_sha256) {
-    return 'The immutable version digest does not match the history row.';
+    return 'flow.versions.evidence.wrong_digest';
   }
   if (diff.base.identity !== `version:${summary.version_number}`) {
-    return 'The semantic diff does not describe the selected immutable version.';
+    return 'flow.versions.evidence.wrong_base';
   }
   if (diff.base.flow_sha256 !== full.flow_sha256) {
-    return 'The semantic diff base digest does not match the immutable version.';
+    return 'flow.versions.evidence.wrong_base_digest';
   }
   if (
     evidence.draftRevision === null ||
     diff.target.identity !== `draft:${evidence.draftRevision}`
   ) {
-    return 'The semantic diff does not describe the current server draft revision.';
+    return 'flow.versions.evidence.wrong_revision';
   }
   if (
     !evidence.draftFlowSha256 ||
     diff.target.flow_sha256 !== evidence.draftFlowSha256
   ) {
-    return 'The semantic diff target digest does not match the current server draft.';
+    return 'flow.versions.evidence.wrong_target_digest';
   }
   return null;
 }
 
-export function formatServerFlowSemanticDiff(diff: SystemFlowDiff): string {
+export function formatServerFlowSemanticDiff(
+  diff: SystemFlowDiff,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
   const parts: string[] = [];
-  if (diff.summary.breaking) parts.push(`${diff.summary.breaking} breaking`);
-  if (diff.summary.behavioral) parts.push(`${diff.summary.behavioral} behavioral`);
-  if (diff.summary.presentation) parts.push(`${diff.summary.presentation} presentation`);
+  if (diff.summary.breaking) parts.push(t('flow.versions.diff.breaking', { count: diff.summary.breaking }));
+  if (diff.summary.behavioral) parts.push(t('flow.versions.diff.behavioral', { count: diff.summary.behavioral }));
+  if (diff.summary.presentation) parts.push(t('flow.versions.diff.presentation', { count: diff.summary.presentation }));
   const paths = new Set(diff.changes.map((change) => change.path));
-  if (paths.has('nodes/order')) parts.push('↕n order');
-  if (paths.has('edges/order')) parts.push('↕e order');
-  if (paths.has('execution_contract')) parts.push('~contract');
-  return parts.length > 0 ? parts.join(' · ') : '= draft (server verified)';
+  if (paths.has('nodes/order')) parts.push(t('flow.versions.diff.node_order'));
+  if (paths.has('edges/order')) parts.push(t('flow.versions.diff.edge_order'));
+  if (paths.has('execution_contract')) parts.push(t('flow.versions.diff.contract'));
+  return parts.length > 0 ? parts.join(' · ') : t('flow.versions.diff.server_equal');
 }
 
 @Component({
@@ -226,7 +229,7 @@ export function formatServerFlowSemanticDiff(diff: SystemFlowDiff): string {
         </header>
 
         @if (historyError(); as error) {
-          <p class="ck-vers__error" role="alert">{{ error }}</p>
+          <p class="ck-vers__error" role="alert">{{ i18n.t(error) }}</p>
         }
 
         @if (loading() && versions().length === 0) {
@@ -258,7 +261,7 @@ export function formatServerFlowSemanticDiff(diff: SystemFlowDiff): string {
                 <div class="ck-vers__meta">
                   <span>{{ v.created_by }}</span>
                   <span class="ck-vers__dot"></span>
-                  <span>{{ v.node_count }}n · {{ v.edge_count }}e</span>
+                  <span>{{ i18n.t('flow.versions.graph_counts', { nodes: v.node_count, edges: v.edge_count }) }}</span>
                   @if (diffLabel(v); as d) {
                     <span class="ck-vers__dot"></span>
                     <span class="ck-vers__diff">{{ d }}</span>
@@ -303,7 +306,7 @@ export function formatServerFlowSemanticDiff(diff: SystemFlowDiff): string {
                   <p class="ck-vers__restore-reason">{{ reason }}</p>
                 }
                 @if (previewError(v); as error) {
-                  <p class="ck-vers__preview-error" role="alert">{{ error }}</p>
+                  <p class="ck-vers__preview-error" role="alert">{{ i18n.t(error) }}</p>
                 }
               </li>
             }
@@ -344,7 +347,7 @@ export function formatServerFlowSemanticDiff(diff: SystemFlowDiff): string {
               </p>
             } @else if (previewError(tgt); as error) {
               <div class="ck-vers__preview-state ck-vers__preview-state--error" role="alert">
-                <span>{{ error }}</span>
+                <span>{{ i18n.t(error) }}</span>
                 <button type="button" class="ck-vers__btn" (click)="preview(tgt)">
                   {{ i18n.t('flow.versions.confirm.retry') }}
                 </button>
@@ -511,9 +514,9 @@ export class FlowVersionsComponent {
       error: () => {
         if (!this.workspace.isRequestScopeCurrent(scope)) return;
         this.loading.set(false);
-        const message = 'Could not load version history. Existing rows may be stale.';
+        const message = 'flow.versions.history_error';
         this.historyError.set(message);
-        this.toastr.error(message, 'Versions');
+        this.toastr.error(this.i18n.t(message), this.i18n.t('flow.versions.title'));
       },
     });
   }
@@ -544,7 +547,7 @@ export class FlowVersionsComponent {
         error: () => {
           if (!this.workspace.isRequestScopeCurrent(scope)) return;
           this.loadingMore.set(false);
-          this.toastr.error('Could not load more versions.', 'Versions');
+          this.toastr.error(this.i18n.t('flow.versions.more_error'), this.i18n.t('flow.versions.title'));
         },
       });
   }
@@ -554,7 +557,7 @@ export class FlowVersionsComponent {
     const status = this.previewStatus(v);
     if (!sid || status === 'loading' || status === 'ready') return;
     if (!this.persistence.hydrationReady() || this.store.dirty()) {
-      this.setPreviewError(v, 'Save or discard local changes before loading rollback evidence.');
+      this.setPreviewError(v, 'flow.versions.preview.local_changes');
       return;
     }
     const publicationMode = this.persistence.publicationMode();
@@ -562,7 +565,7 @@ export class FlowVersionsComponent {
     const draftFlowSha256 = this.persistence.savedFlowSha256();
     const evidenceFence = this.currentEvidenceFence();
     if (publicationMode && (draftRevision === null || !draftFlowSha256 || !v.flow_sha256)) {
-      this.setPreviewError(v, 'Reload the authoritative Draft/Published pointers first.');
+      this.setPreviewError(v, 'flow.versions.preview.reload');
       return;
     }
     const generation = this.previewGeneration;
@@ -593,7 +596,7 @@ export class FlowVersionsComponent {
           draftFlowSha256,
         });
         if (error || !full) {
-          this.setPreviewError(v, error ?? 'The exact preview could not be verified.');
+          this.setPreviewError(v, error ?? 'flow.versions.preview.unverified');
           return;
         }
         this.previews.update((current) => ({ ...current, [v.id]: full }));
@@ -613,8 +616,8 @@ export class FlowVersionsComponent {
         this.setPreviewError(
           v,
           publicationMode
-            ? 'Could not verify the immutable payload and authoritative semantic diff.'
-            : 'Could not load the immutable version payload.',
+            ? 'flow.versions.preview.verification_failed'
+            : 'flow.versions.preview.load_failed',
         );
       },
     });
@@ -629,21 +632,22 @@ export class FlowVersionsComponent {
   }
 
   restoreBlockReason(v: SystemVersionSummary, index: number): string | null {
-    return flowVersionRestoreBlockReason(v, index, {
+    const reason = flowVersionRestoreBlockReason(v, index, {
       ...this.versionIdentityContext(),
       historyError: !!this.historyError(),
       restorePending: this.rollbackPending(),
       writeInProgress: this.persistence.actionsDisabled(),
       localChanges: this.store.dirty(),
     });
+    return reason ? this.i18n.t(reason) : null;
   }
 
   restoreTitle(v: SystemVersionSummary, index: number): string {
     const reason = this.restoreBlockReason(v, index);
     if (reason) return reason;
     return this.persistence.publicationMode()
-      ? 'Restore this immutable version into the server draft; the published pointer stays unchanged'
-      : 'Restore this version by appending a copy of its graph';
+      ? this.i18n.t('flow.versions.restore_hint.published')
+      : this.i18n.t('flow.versions.restore_hint.draft');
   }
 
   previewStatus(v: SystemVersionSummary): FlowVersionPreviewStatus {
@@ -652,7 +656,7 @@ export class FlowVersionsComponent {
 
   previewError(v: SystemVersionSummary): string | null {
     const state = this.previewStates()[v.id];
-    return state?.status === 'error' ? state.message ?? 'Exact preview failed.' : null;
+    return state?.status === 'error' ? state.message ?? 'flow.versions.preview.failed' : null;
   }
 
   previewReady(v: SystemVersionSummary): boolean {
@@ -687,15 +691,15 @@ export class FlowVersionsComponent {
     if (!this.previewReady(tgt)) {
       this.preview(tgt);
       this.toastr.warning(
-        'Load and verify the exact immutable version before confirming.',
-        'Rollback blocked',
+        this.i18n.t('flow.versions.confirm.verify_first'),
+        this.i18n.t('flow.versions.blocked.title'),
       );
       return;
     }
     if (this.store.dirty()) {
       this.toastr.warning(
-        'Save or discard local changes before rolling back.',
-        'Rollback blocked',
+        this.i18n.t('flow.versions.confirm.local_changes'),
+        this.i18n.t('flow.versions.blocked.title'),
       );
       return;
     }
@@ -706,15 +710,15 @@ export class FlowVersionsComponent {
     const writeOptions = this.persistence.rollbackWriteOptions();
     if (!writeOptions) {
       this.toastr.warning(
-        'Reload the authoritative System before rolling back.',
-        'Rollback blocked',
+        this.i18n.t('flow.versions.confirm.reload_system'),
+        this.i18n.t('flow.versions.blocked.title'),
       );
       return;
     }
     if (!this.persistence.beginExternalMutation()) return;
     this.rollbackPending.set(true);
     const scope = this.workspace.captureRequestScope();
-    const message = this.rollbackMessage().trim() || `rollback to v${tgt.version_number}`;
+    const message = this.rollbackMessage().trim() || this.i18n.t('flow.versions.rollback_message', { version: tgt.version_number });
     this.canonical
       .rollbackSystemVersion(sid, tgt.version_number, message, writeOptions)
       .subscribe({
@@ -728,8 +732,8 @@ export class FlowVersionsComponent {
             this.persistence.beginHydration();
             this.reloadRequired.emit();
             this.toastr.warning(
-              'Rollback outcome is unknown. Reloading the authoritative Flow.',
-              'Rollback verification',
+              this.i18n.t('flow.versions.rollback_unknown'),
+              this.i18n.t('flow.versions.rollback_verification'),
             );
             return;
           }
@@ -742,8 +746,8 @@ export class FlowVersionsComponent {
           this.captureBaseline();
           this.refresh();
           this.toastr.success(
-            `Rolled back to v${tgt.version_number} (new v${res.new_version.version_number}).`,
-            'Rollback',
+            this.i18n.t('flow.versions.rollback_success', { version: tgt.version_number, newVersion: res.new_version.version_number }),
+            this.i18n.t('flow.versions.rollback_title'),
           );
         },
         error: () => {
@@ -753,8 +757,8 @@ export class FlowVersionsComponent {
           this.persistence.beginHydration();
           this.reloadRequired.emit();
           this.toastr.warning(
-            'Rollback outcome is unknown. Reloading the authoritative Flow.',
-            'Rollback verification',
+            this.i18n.t('flow.versions.rollback_unknown'),
+            this.i18n.t('flow.versions.rollback_verification'),
           );
         },
       });
@@ -767,8 +771,8 @@ export class FlowVersionsComponent {
     const expectedRevision = this.persistence.draftRevision();
     if (expectedRevision === null) {
       this.toastr.warning(
-        'Reload the authoritative server draft before restoring a version.',
-        'Restore blocked',
+        this.i18n.t('flow.versions.restore.reload_draft'),
+        this.i18n.t('flow.versions.blocked.restore_title'),
       );
       return;
     }
@@ -789,8 +793,8 @@ export class FlowVersionsComponent {
           this.persistence.beginHydration();
           this.reloadRequired.emit();
           this.toastr.success(
-            `v${tgt.version_number} restored to the server draft. Published Flow unchanged.`,
-            'Draft restored',
+            this.i18n.t('flow.versions.restore.success', { version: tgt.version_number }),
+            this.i18n.t('flow.versions.restore.success_title'),
           );
         },
         error: () => {
@@ -800,8 +804,8 @@ export class FlowVersionsComponent {
           this.persistence.beginHydration();
           this.reloadRequired.emit();
           this.toastr.warning(
-            'Restore outcome is unknown. Reloading the authoritative server draft.',
-            'Restore verification',
+            this.i18n.t('flow.versions.restore.unknown'),
+            this.i18n.t('flow.versions.restore.verification'),
           );
         },
       });
@@ -816,35 +820,33 @@ export class FlowVersionsComponent {
     if (!preview) {
       const dn = v.node_count - baseline.nodes.length;
       const de = v.edge_count - baseline.edges.length;
-      if (dn === 0 && de === 0) return 'counts match · preview for semantic diff';
+      if (dn === 0 && de === 0) return this.i18n.t('flow.versions.diff.counts_match');
       const parts: string[] = [];
       if (dn !== 0) parts.push(`${dn > 0 ? '+' : ''}${dn}n`);
       if (de !== 0) parts.push(`${de > 0 ? '+' : ''}${de}e`);
-      return `${parts.join(' ')} counts · preview for semantic diff`;
+      return this.i18n.t('flow.versions.diff.counts', { counts: parts.join(' ') });
     }
     const serverDiff = this.semanticDiffs()[v.id];
     if (this.persistence.publicationMode()) {
       return serverDiff
-        ? formatServerFlowSemanticDiff(serverDiff)
-        : 'authoritative semantic diff unavailable';
+        ? formatServerFlowSemanticDiff(serverDiff, (key, params) => this.i18n.t(key, params))
+        : this.i18n.t('flow.versions.diff.server_unavailable');
     }
     const flow = preview.flow_definition as unknown as CanonicalFlow;
-    return formatFlowSemanticDiff(diffCanonicalFlows(baseline, flow));
+    return formatFlowSemanticDiff(diffCanonicalFlows(baseline, flow), (key) => this.i18n.t(key));
   }
 
   relativeTime(iso: string): string {
     if (!iso) return '';
     const t = new Date(iso).getTime();
     if (Number.isNaN(t)) return iso;
-    const sec = Math.round((Date.now() - t) / 1000);
-    if (sec < 60) return `${sec}s ago`;
-    const min = Math.round(sec / 60);
-    if (min < 60) return `${min}m ago`;
-    const hr = Math.round(min / 60);
-    if (hr < 24) return `${hr}h ago`;
-    const day = Math.round(hr / 24);
-    if (day < 14) return `${day}d ago`;
-    return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const sec = Math.round((t - Date.now()) / 1000);
+    const formatter = new Intl.RelativeTimeFormat(this.i18n.locale(), { numeric: 'auto' });
+    if (Math.abs(sec) < 60) return formatter.format(sec, 'second');
+    if (Math.abs(sec) < 3600) return formatter.format(Math.round(sec / 60), 'minute');
+    if (Math.abs(sec) < 86400) return formatter.format(Math.round(sec / 3600), 'hour');
+    if (Math.abs(sec) < 14 * 86400) return formatter.format(Math.round(sec / 86400), 'day');
+    return new Date(t).toLocaleDateString(this.i18n.locale(), { month: 'short', day: 'numeric' });
   }
 
   private captureBaseline(): void {

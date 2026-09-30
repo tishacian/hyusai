@@ -3,8 +3,11 @@ import { test } from 'node:test';
 import type { CanonicalFlow } from '@app/core/flow-serializer.service';
 import {
   diffCanonicalFlows,
-  formatFlowSemanticDiff,
+  formatFlowSemanticDiff as formatDiff,
 } from './flow-semantic-diff.vm';
+import { FLOW_EN } from '@app/core/i18n/flow.dict';
+const formatFlowSemanticDiff = (diff: Parameters<typeof formatDiff>[0]) =>
+  formatDiff(diff, key => FLOW_EN[key as keyof typeof FLOW_EN] ?? key);
 
 function flow(): CanonicalFlow {
   return {

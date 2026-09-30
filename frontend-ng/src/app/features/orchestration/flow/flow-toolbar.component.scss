@@ -168,7 +168,7 @@
   }
 
   &.is-active {
-    color: var(--ck-signal-cool, #6ea8fe);
+    color: var(--ck-fg-1);
     border-color: color-mix(in srgb, var(--ck-signal-cool, #6ea8fe) 48%, transparent);
     background: color-mix(in srgb, var(--ck-signal-cool, #6ea8fe) 10%, transparent);
   }

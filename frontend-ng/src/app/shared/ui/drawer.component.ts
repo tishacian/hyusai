@@ -23,7 +23,7 @@ import { IconComponent } from './icon.component';
           (click)="$event.stopPropagation()"
         >
           <header
-            class="sticky top-0 z-10 px-6 py-4 flex items-center justify-between border-b border-white/10 bg-gray-900/60 backdrop-blur-xl"
+            class="sticky top-0 z-10 px-6 py-4 flex items-center justify-between border-b border-white/10 ck-surface"
           >
             <div class="flex items-center gap-3 min-w-0">
               @if (icon) {

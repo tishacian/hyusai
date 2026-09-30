@@ -155,27 +155,30 @@ interface ContextConfigRow {
     SystemMandateCoverageComponent,
     MandateEditorComponent,
   ],
+  styles: [`
+    :host .text-gray-500, :host .text-gray-600 { color: var(--ck-fg-3); }
+  `],
   template: `
     <ck-object-header
       [eyebrow]="headerEyebrow()"
-      [title]="agentName()"
+      [title]="agentName() || i18n.t('systems.view.system')"
       [subtitle]="agentDescription() || headerFallbackSubtitle()"
       [kpis]="objectKpis()"
     >
       <app-status-pulse
         status
         [tone]="isDraft() ? 'warning' : 'success'"
-        [label]="isDraft() ? 'Draft' : 'Ready'"
+        [label]="isDraft() ? i18n.t('systems.view.draft') : i18n.t('systems.view.ready')"
       />
       @if (flowPublicationEnabled()) {
         <a
           actions
           [navLink]="{ leaf: 'system-run', ref: systemId }"
           class="ck-btn-accent inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium transition"
-          title="Open the published Flow in the Operator Runner"
+          [title]="i18n.t('systems.view.operator_hint')"
           data-testid="system-operator-runner-link"
         >
-          <app-icon name="play-circle" [size]="14" /> Operator Runner
+          <app-icon name="play-circle" [size]="14" /> {{ i18n.t('systems.view.operator') }}
         </a>
       }
       @if (!isExpertKnowledgeCapture()) {
@@ -259,9 +262,9 @@ interface ContextConfigRow {
         type="button"
         (click)="chatPanelOpen.set(true)"
         class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
-        title="Open chat panel"
+        [title]="i18n.t('systems.view.chat_hint')"
       >
-        <app-icon name="message-square" [size]="14" /> Chat
+        <app-icon name="message-square" [size]="14" /> {{ i18n.t('systems.view.chat') }}
       </button>
       <a
         actions
@@ -277,9 +280,9 @@ interface ContextConfigRow {
           type="button"
           (click)="settingsPanelOpen.set(true)"
           class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
-          title="Open settings panel"
+          [title]="i18n.t('systems.view.settings_hint')"
         >
-          <app-icon name="settings" [size]="14" /> Settings
+          <app-icon name="settings" [size]="14" /> {{ i18n.t('systems.view.settings') }}
         </button>
       }
     </ck-object-header>
@@ -287,10 +290,10 @@ interface ContextConfigRow {
     <ck-tabs
       [active]="activeTab()"
       (activeChange)="onTabChange($event)"
-      ariaLabel="System facets"
+      [ariaLabel]="i18n.t('systems.view.facets')"
     >
       @if (isIntelligence()) {
-        <ck-tab id="intelligence" label="News Lab">
+        <ck-tab id="intelligence" [label]="i18n.t('systems.view.news_lab')">
           <app-news-lab [systemId]="systemId" />
         </ck-tab>
       }
@@ -327,7 +330,7 @@ interface ContextConfigRow {
             <section class="ck-surface t-elevated rounded-md p-6">
               <div class="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
                 <div class="max-w-2xl">
-                  <p class="ck-mono ck-accent text-[10px] uppercase tracking-[0.18em]">{{ i18n.t('systems.view.capture.eyebrow') }}</p>
+                  <p class="ck-mono ck-accent text-[10px] tracking-[0.18em]">{{ i18n.t('systems.view.capture.eyebrow') }}</p>
                   <h2 class="mt-2 text-2xl font-semibold text-white">{{ i18n.t('systems.view.capture.title') }}</h2>
                   <p class="mt-3 text-sm leading-relaxed text-gray-400">
                     {{ i18n.t('systems.view.capture.description') }}
@@ -345,7 +348,7 @@ interface ContextConfigRow {
             <section class="grid gap-3 md:grid-cols-4">
               @for (step of captureSteps(); track step.label) {
                 <div class="rounded border border-white/10 bg-white/[0.03] p-4">
-                  <p class="ck-mono ck-accent text-[10px] uppercase tracking-wider">{{ step.label }}</p>
+                  <p class="ck-mono ck-accent text-[10px] tracking-wider">{{ step.label }}</p>
                   <p class="mt-2 text-sm text-gray-300">{{ step.description }}</p>
                 </div>
               }
@@ -369,7 +372,6 @@ interface ContextConfigRow {
                     <li class="flex items-center gap-3 rounded border border-white/5 bg-black/20 px-3 py-2.5">
                       <span class="ck-pill ck-tone-info shrink-0">{{ trigger.kind }}</span>
                       <span class="text-sm text-white truncate">{{ trigger.label }}</span>
-                      <span class="ml-auto font-mono text-[10px] text-gray-500 truncate">{{ trigger.nodeId }}</span>
                     </li>
                   }
                 </ul>
@@ -377,18 +379,18 @@ interface ContextConfigRow {
             </section>
 
             <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-              <ck-stat-readout variant="tile" label="Steps" [value]="flow.nodeCount" icon="layers" />
-              <ck-stat-readout variant="tile" label="Connections" [value]="flow.edgeCount" icon="git-commit" />
-              <ck-stat-readout variant="tile" label="Bound skills" [value]="flow.skillSlugs.length" icon="zap" />
+              <ck-stat-readout variant="tile" [label]="i18n.t('systems.view.steps')" [value]="flow.nodeCount" icon="layers" />
+              <ck-stat-readout variant="tile" [label]="i18n.t('systems.view.connections')" [value]="flow.edgeCount" icon="git-commit" />
+              <ck-stat-readout variant="tile" [label]="i18n.t('systems.view.bound_skills')" [value]="flow.skillSlugs.length" icon="zap" />
               <ck-stat-readout variant="tile"
-                label="Runs"
+                [label]="i18n.t('systems.view.runs')"
                 [value]="kpiTraces()"
                 icon="git-commit"
                 [interactive]="true"
                 (click)="goto('/runs')"
               />
               <ck-stat-readout variant="tile"
-                label="Errors"
+                [label]="i18n.t('systems.view.errors')"
                 [value]="kpiErrors()"
                 [trend]="errorsTrend()"
                 icon="alert-triangle"
@@ -396,7 +398,7 @@ interface ContextConfigRow {
                 (click)="goto('/observability/performance')"
               />
               <ck-stat-readout variant="tile"
-                label="Avg latency"
+                [label]="i18n.t('systems.view.latency')"
                 [value]="kpiLatency()"
                 unit="ms"
                 icon="gauge"
@@ -405,26 +407,26 @@ interface ContextConfigRow {
               />
             </div>
             @if (kpisLoading()) {
-              <p class="text-[11px] text-gray-500 -mt-2">Loading metrics…</p>
+              <p class="text-[11px] text-gray-500 -mt-2">{{ i18n.t('systems.view.metrics_loading') }}</p>
             }
 
             <section class="ck-surface t-elevated rounded-md p-5">
               <div class="flex items-center gap-2 mb-3">
                 <app-icon name="git-commit" [size]="16" class="ck-accent" />
-                <h3 class="text-sm font-semibold text-white">Latest runs</h3>
+                <h3 class="text-sm font-semibold text-white">{{ i18n.t('systems.view.latest_runs') }}</h3>
                 <button
                   type="button"
                   (click)="onTabChange('runs')"
                   class="ck-accent ml-auto text-[11px]"
                 >
-                  See all
+                  {{ i18n.t('systems.view.see_all') }}
                 </button>
               </div>
               @if (runsLoading()) {
-                <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-4);">Loading runs…</p>
+                <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-4);">{{ i18n.t('systems.view.runs_loading') }}</p>
               } @else if (recentRuns().length === 0) {
                 <p class="text-xs text-gray-400">
-                  This flow has not produced any run yet.
+                  {{ i18n.t('systems.view.flow_no_runs') }}
                 </p>
               } @else {
                 <div class="space-y-3">
@@ -445,7 +447,7 @@ interface ContextConfigRow {
           <div class="absolute -right-16 -top-16 w-56 h-56 rounded-full bg-cyan-500/15 blur-3xl pointer-events-none"></div>
           <div class="relative flex items-center gap-3 flex-wrap">
             <app-icon name="atom" set="phosphor" [size]="18" class="ck-accent" />
-            <span class="ck-accent text-xs uppercase tracking-wider font-semibold">
+            <span class="ck-accent text-xs tracking-wider font-semibold">
               {{ pipelineBannerLabel() }}
             </span>
             <div class="flex items-center gap-2 ml-auto text-[11px]">
@@ -453,7 +455,7 @@ interface ContextConfigRow {
                 <a
                   [routerLink]="stage.route"
                   class="ck-btn-quiet inline-flex items-center gap-1.5 px-2 py-1 rounded"
-                  [title]="'Open ' + stage.configureLabel"
+                  [title]="i18n.t('systems.view.stage.open', { name: stage.configureLabel })"
                 >
                   <app-icon [name]="stage.icon" [size]="11" class="ck-accent" />
                   {{ stage.name }}
@@ -469,15 +471,15 @@ interface ContextConfigRow {
         <!-- KPI row — each tile is actionable and routes to observability -->
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           <ck-stat-readout variant="tile"
-            label="Requests"
+            [label]="i18n.t('systems.view.requests')"
             [value]="kpiRequests()"
-            hint="since restart"
+            [hint]="i18n.t('systems.view.since_restart')"
             icon="play-circle"
             [interactive]="true"
             (click)="goto('/observability/performance')"
           />
           <ck-stat-readout variant="tile"
-            label="Errors"
+            [label]="i18n.t('systems.view.errors')"
             [value]="kpiErrors()"
             [trend]="errorsTrend()"
             icon="alert-triangle"
@@ -485,7 +487,7 @@ interface ContextConfigRow {
             (click)="goto('/observability/performance')"
           />
           <ck-stat-readout variant="tile"
-            label="Avg latency"
+            [label]="i18n.t('systems.view.latency')"
             [value]="kpiLatency()"
             unit="ms"
             icon="gauge"
@@ -493,7 +495,7 @@ interface ContextConfigRow {
             (click)="goto('/runs')"
           />
           <ck-stat-readout variant="tile"
-            label="Quality"
+            [label]="i18n.t('systems.view.quality')"
             [value]="kpiQuality()"
             unit="/100"
             icon="target"
@@ -501,7 +503,7 @@ interface ContextConfigRow {
             (click)="goto('/observability')"
           />
           <ck-stat-readout variant="tile"
-            label="Error rate"
+            [label]="i18n.t('systems.view.error_rate')"
             [value]="kpiErrorRate()"
             unit="%"
             [trend]="errorRateTrend()"
@@ -510,7 +512,7 @@ interface ContextConfigRow {
             (click)="goto('/observability/performance')"
           />
           <ck-stat-readout variant="tile"
-            label="Runs"
+            [label]="i18n.t('systems.view.runs')"
             [value]="kpiTraces()"
             icon="git-commit"
             [interactive]="true"
@@ -518,15 +520,15 @@ interface ContextConfigRow {
           />
         </div>
         @if (kpisLoading()) {
-          <p class="text-[11px] text-gray-500 -mt-2">Loading metrics…</p>
+          <p class="text-[11px] text-gray-500 -mt-2">{{ i18n.t('systems.view.metrics_loading') }}</p>
         }
 
         <!-- Setup wizard — each step has an actionable CTA -->
         <section class="ck-surface t-elevated rounded-md p-6">
           <div class="flex items-center gap-2 mb-4">
             <app-icon name="list-checks" set="phosphor" [size]="16" class="ck-accent" />
-            <h3 class="text-base font-semibold text-white">Setup checklist</h3>
-            <span class="ml-auto text-xs text-gray-400">{{ completedSteps() }} / {{ wizard().length }} done</span>
+            <h3 class="text-base font-semibold text-white">{{ i18n.t('systems.view.checklist') }}</h3>
+            <span class="ml-auto text-xs text-gray-400">{{ i18n.t('systems.view.completed', { done: completedSteps(), total: wizard().length }) }}</span>
           </div>
 
           <div class="w-full h-1.5 rounded-full bg-white/5 overflow-hidden mb-4">
@@ -552,7 +554,7 @@ interface ContextConfigRow {
                 </div>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2">
-                    <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Step {{ i + 1 }}</span>
+                    <span class="text-[10px] tracking-wider text-gray-500 font-semibold">{{ i18n.t('systems.view.step', { number: i + 1 }) }}</span>
                     <span class="text-sm font-medium text-white">{{ step.title }}</span>
                   </div>
                   <p class="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{{ step.description }}</p>
@@ -575,7 +577,7 @@ interface ContextConfigRow {
         }
       </ck-tab>
 
-      <ck-tab id="runs" label="Runs">
+      <ck-tab id="runs" [label]="i18n.t('systems.view.runs')">
         @if (system360Enabled()) {
           <app-system-perspective
             [lens]="activeObjectLens()"
@@ -588,37 +590,37 @@ interface ContextConfigRow {
         <div class="space-y-4">
           <div class="flex items-center justify-between">
             <div>
-              <h3 class="text-sm font-semibold text-white">Run outcomes</h3>
+              <h3 class="text-sm font-semibold text-white">{{ i18n.t('systems.view.outcomes') }}</h3>
               @if (navigation.navV5Enabled()) {
                 <a [navLink]="{ surface: 'runs' }" class="ck-mono text-xs" style="color:var(--ck-signal-cool);">
                   {{ i18n.t('nav.facet.see_in_runs') }}
                 </a>
               }
               <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); letter-spacing:0.08em; margin-top:2px;">
-                Decision · Confidence · Value · Cost · Efficiency — canonical Outcome block per run.
+                {{ i18n.t('systems.view.outcomes_hint') }}
               </p>
             </div>
             <button
               type="button"
               (click)="loadRuns()"
               class="ck-mono inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs transition"
-              style="background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-3); letter-spacing:0.12em; text-transform:uppercase;"
+              style="background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-3); letter-spacing:0.12em; "
             >
               <app-icon name="refresh-cw" [size]="12" />
-              Refresh
+              {{ i18n.t('systems.view.refresh') }}
             </button>
           </div>
 
           @if (runsLoading()) {
-            <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-4);">Loading runs…</div>
+            <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-4);">{{ i18n.t('systems.view.runs_loading') }}</div>
           } @else if (runs().length === 0) {
             <div class="ck-surface rounded-md" style="padding:32px; text-align:center;">
-              <div class="ck-mono" style="font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
-                NO RUNS YET
+              <div class="ck-mono" style="font-size:10px; letter-spacing:0.16em;  color:var(--ck-fg-4); margin-bottom:8px;">
+                {{ i18n.t('systems.view.no_runs') }}
               </div>
-              <p class="text-sm text-white mb-1">This system has not produced any outcome.</p>
+              <p class="text-sm text-white mb-1">{{ i18n.t('systems.view.no_outcomes') }}</p>
               <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-4);">
-                Click <span class="text-white">Run now</span> above to trigger a canonical run.
+                {{ i18n.t('systems.view.run_next_step') }}
               </p>
             </div>
           } @else {
@@ -692,7 +694,7 @@ interface ContextConfigRow {
                 <div class="flex flex-wrap gap-2">
                   @for (trigger of flow.triggers; track trigger.nodeId) {
                     <span class="ck-tone-neutral inline-flex items-center gap-2 rounded px-2.5 py-1.5">
-                      <span class="ck-accent text-[10px] uppercase tracking-wider">{{ trigger.kind }}</span>
+                      <span class="ck-accent text-[10px] tracking-wider">{{ trigger.kind }}</span>
                       <span class="text-xs text-gray-200">{{ trigger.label }}</span>
                     </span>
                   }
@@ -706,7 +708,7 @@ interface ContextConfigRow {
                   <app-icon name="layers" set="phosphor" [size]="16" class="ck-accent" />
                   {{ i18n.t('systems.design.steps') }}
                 </h3>
-                <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                <span class="text-[10px] tracking-wider text-gray-500 font-semibold">
                   {{ i18n.t('systems.design.counts', { nodes: flow.nodeCount, edges: flow.edgeCount }) }}
                 </span>
               </div>
@@ -721,7 +723,7 @@ interface ContextConfigRow {
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center gap-2 flex-wrap">
                         <span class="text-sm font-medium text-white truncate">{{ step.label }}</span>
-                        <span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/5 text-gray-400 ring-1 ring-white/10">
+                        <span class="text-[10px] tracking-wider px-1.5 py-0.5 rounded bg-white/5 text-gray-400 ring-1 ring-white/10">
                           {{ step.kind }}
                         </span>
                         @if (step.runtimeStatus) {
@@ -779,11 +781,9 @@ interface ContextConfigRow {
             <app-icon name="workflow" set="phosphor" [size]="18" />
           </div>
           <div class="flex-1 min-w-0">
-            <div class="text-sm font-semibold text-white">Pipeline blueprint</div>
+            <div class="text-sm font-semibold text-white">{{ i18n.t('systems.view.blueprint') }}</div>
             <p class="text-xs text-gray-400 mt-0.5 leading-relaxed max-w-2xl">
-              Each stage of this system is configurable independently. For a free-form, multi-branch
-              composition (tool calls, guardrails, conditional routing), open this system in the Flow
-              builder.
+              {{ i18n.t('systems.view.blueprint_hint') }}
             </p>
           </div>
           <a
@@ -799,10 +799,10 @@ interface ContextConfigRow {
           <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
             <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
               <app-icon name="layers" set="phosphor" [size]="16" class="ck-accent" />
-              Stages
+              {{ i18n.t('systems.view.stages') }}
             </h3>
-            <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
-              {{ pipelineStages.length }} active
+            <span class="text-[10px] tracking-wider text-gray-500 font-semibold">
+              {{ i18n.t('systems.view.stages_active', { count: pipelineStages.length }) }}
             </span>
           </div>
           <ul>
@@ -820,7 +820,7 @@ interface ContextConfigRow {
                 </div>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2">
-                    <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">L{{ i + 1 }}</span>
+                    <span class="text-[10px] tracking-wider text-gray-500 font-semibold">L{{ i + 1 }}</span>
                     <span class="text-sm font-medium text-white">{{ stage.name }}</span>
                   </div>
                   <p class="text-[12px] text-gray-400 mt-0.5 leading-relaxed">{{ stage.description }}</p>
@@ -867,11 +867,11 @@ interface ContextConfigRow {
               </div>
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2 flex-wrap">
-                  <h3 class="text-sm font-semibold text-white">Effective retrieval context</h3>
-                  <span class="ck-pill ck-tone-ok">Runtime scoped</span>
+                  <h3 class="text-sm font-semibold text-white">{{ i18n.t('systems.view.retrieval_context') }}</h3>
+                  <span class="ck-pill ck-tone-ok">{{ i18n.t('systems.view.scoped') }}</span>
                 </div>
                 <p class="text-xs text-gray-400 mt-1 leading-relaxed">
-                  No dedicated Context row is attached. This System is scoped by its workspace chat retrieval profile.
+                  {{ i18n.t('systems.view.retrieval_context_hint') }}
                 </p>
               </div>
               <div class="flex items-center gap-2 shrink-0">
@@ -879,38 +879,38 @@ interface ContextConfigRow {
                   [navLink]="{ surface: 'knowledge' }"
                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
                 >
-                  <app-icon name="database" [size]="12" /> Open Knowledge
+                  <app-icon name="database" [size]="12" /> {{ i18n.t('systems.view.open_knowledge') }}
                 </a>
                 <a
                   [navLink]="{ leaf: 'system-flow', ref: systemId }"
                   class="ck-cta inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium"
                 >
-                  <app-icon name="workflow" [size]="12" /> Open flow
+                  <app-icon name="workflow" [size]="12" /> {{ i18n.t('systems.view.open_flow') }}
                 </a>
               </div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
               <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Knowledge scope</div>
+                <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-1">{{ i18n.t('systems.view.knowledge_scope') }}</div>
                 <div class="font-mono text-xs text-gray-200 break-all">{{ retrievalContext.knowledgeScope || '—' }}</div>
               </div>
               <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Assistant profile</div>
+                <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-1">{{ i18n.t('systems.view.assistant_profile') }}</div>
                 <div class="font-mono text-xs text-gray-200 break-all">{{ retrievalContext.assistantProfile || '—' }}</div>
               </div>
               <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Surface</div>
+                <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-1">{{ i18n.t('systems.view.surface') }}</div>
                 <div class="font-mono text-xs text-gray-200 break-all">{{ retrievalContext.surface || '—' }}</div>
               </div>
               <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">System type</div>
+                <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-1">{{ i18n.t('systems.view.system_type') }}</div>
                 <div class="font-mono text-xs text-gray-200 break-all">{{ retrievalContext.systemType || '—' }}</div>
               </div>
             </div>
 
             <div class="rounded bg-black/20 ring-1 ring-white/10 p-3 mb-4">
-              <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-2">Collections</div>
+              <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-2">{{ i18n.t('systems.view.collections') }}</div>
               @if (retrievalContext.collections.length === 0) {
                 <div class="text-sm text-gray-500">—</div>
               } @else {
@@ -926,7 +926,7 @@ interface ContextConfigRow {
 
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
               <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-2">Retrieval defaults</div>
+                <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-2">{{ i18n.t('systems.view.retrieval_defaults') }}</div>
                 @if (retrievalDefaultsRows().length === 0) {
                   <div class="text-sm text-gray-500">—</div>
                 } @else {
@@ -941,7 +941,7 @@ interface ContextConfigRow {
                 }
               </div>
               <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-2">Grounding</div>
+                <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-2">{{ i18n.t('systems.view.grounding') }}</div>
                 @if (groundingRows().length === 0) {
                   <div class="text-sm text-gray-500">—</div>
                 } @else {
@@ -956,7 +956,7 @@ interface ContextConfigRow {
                 }
               </div>
               <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-2">Source policy</div>
+                <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-2">{{ i18n.t('systems.view.source_policy') }}</div>
                 @if (sourcePolicyRows().length === 0) {
                   <div class="text-sm text-gray-500">—</div>
                 } @else {
@@ -974,13 +974,13 @@ interface ContextConfigRow {
           </section>
         } @else if (!currentContext()) {
           <div class="ck-surface t-elevated rounded-md p-8 text-center text-gray-400 text-sm">
-            No dedicated Context attached. This System runs on the workspace default.
+            {{ i18n.t('systems.view.no_context') }}
             <div class="mt-3">
               <a
                 [navLink]="{ surface: 'contexts' }"
                 class="ck-cta inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium"
               >
-                <app-icon name="external-link" [size]="12" /> Manage contexts
+                <app-icon name="external-link" [size]="12" /> {{ i18n.t('systems.view.manage_contexts') }}
               </a>
             </div>
           </div>
@@ -995,7 +995,7 @@ interface ContextConfigRow {
             </div>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
               <div>
-                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Data refs</div>
+                <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-1">{{ i18n.t('systems.view.data_refs') }}</div>
                 @if ((currentContext()!.data_refs ?? []).length === 0) {
                   <div class="text-gray-500">—</div>
                 } @else {
@@ -1007,7 +1007,7 @@ interface ContextConfigRow {
                 }
               </div>
               <div>
-                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Memory refs</div>
+                <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-1">{{ i18n.t('systems.view.memory_refs') }}</div>
                 @if ((currentContext()!.memory_refs ?? []).length === 0) {
                   <div class="text-gray-500">—</div>
                 } @else {
@@ -1019,7 +1019,7 @@ interface ContextConfigRow {
                 }
               </div>
               <div>
-                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Permissions</div>
+                <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-1">{{ i18n.t('systems.view.permissions') }}</div>
                 <pre class="font-mono text-[11px] text-gray-300 whitespace-pre-wrap break-all">{{ permissionsPreview() }}</pre>
               </div>
             </div>
@@ -1041,94 +1041,93 @@ interface ContextConfigRow {
       [open]="settingsPanelOpen()"
       (openChange)="settingsPanelOpen.set($event)"
       position="side"
-      eyebrow="System · panel"
-      title="Settings"
+      [eyebrow]="i18n.t('systems.view.panel')"
+      [title]="i18n.t('systems.view.settings')"
       width="480px"
     >
       <div class="space-y-4">
         <p class="text-xs text-gray-400">
-          These values come from your workspace-wide settings. Changes apply to every system unless
-          overridden on a per-system basis.
+          {{ i18n.t('systems.view.settings_description') }}
         </p>
         <a
           [navLink]="{ surface: 'presets' }"
           class="ck-cta inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium"
         >
-          <app-icon name="sliders-horizontal" [size]="12" /> Edit in Settings
+          <app-icon name="sliders-horizontal" [size]="12" /> {{ i18n.t('systems.view.settings_edit') }}
         </a>
         <a
           [routerLink]="workspaceAccessRoute()"
           class="ml-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 text-gray-200 ring-1 ring-white/10 transition"
         >
-          <app-icon name="shield-check" [size]="12" /> Manage IAM
+          <app-icon name="shield-check" [size]="12" /> {{ i18n.t('systems.view.manage_iam') }}
         </a>
 
         <section class="ck-surface t-elevated rounded-md p-5">
           <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
-            <app-icon name="tag" set="phosphor" [size]="14" class="ck-accent" /> Identity
+            <app-icon name="tag" set="phosphor" [size]="14" class="ck-accent" /> {{ i18n.t('systems.view.identity') }}
           </h3>
           <div class="space-y-3 text-sm">
             <div>
-              <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Name</div>
+              <div class="text-[10px] tracking-wider text-gray-500 font-semibold">{{ i18n.t('systems.view.name') }}</div>
               <div class="text-white">{{ agentName() }}</div>
             </div>
             <div>
-              <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">System ID</div>
+              <div class="text-[10px] tracking-wider text-gray-500 font-semibold">{{ i18n.t('systems.view.system_id') }}</div>
               <div class="text-gray-300 font-mono text-xs break-all">{{ systemId }}</div>
             </div>
             <div>
-              <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Status</div>
-              <div class="text-white capitalize">{{ isDraft() ? 'Draft' : 'Ready' }}</div>
+              <div class="text-[10px] tracking-wider text-gray-500 font-semibold">{{ i18n.t('systems.view.status') }}</div>
+              <div class="text-white capitalize">{{ isDraft() ? i18n.t('systems.view.draft') : i18n.t('systems.view.ready') }}</div>
             </div>
             <div>
-              <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Execution mode</div>
+              <div class="text-[10px] tracking-wider text-gray-500 font-semibold">{{ i18n.t('systems.view.execution_mode') }}</div>
               <div class="text-white">
                 {{ executionModeLabel() }}
-                <span class="ml-1 text-[10px] uppercase tracking-wider text-gray-500 font-mono">{{ executionModeRaw() }}</span>
+                <span class="ml-1 text-[10px] tracking-wider text-gray-500 font-mono">{{ executionModeRaw() }}</span>
               </div>
             </div>
           </div>
         </section>
         <section class="ck-surface t-elevated rounded-md p-5">
           <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
-            <app-icon name="cpu" set="phosphor" [size]="14" class="ck-accent" /> {{ isDemoMode() ? 'Runtime' : 'Model' }}
+            <app-icon name="cpu" set="phosphor" [size]="14" class="ck-accent" /> {{ isDemoMode() ? i18n.t('systems.view.runtime') : i18n.t('systems.view.model') }}
           </h3>
           <div class="space-y-3 text-sm text-gray-300">
             <div>
-              {{ isDemoMode() ? 'Runtime policy:' : 'Default model:' }}
+              {{ isDemoMode() ? i18n.t('systems.view.runtime_policy') : i18n.t('systems.view.default_model') }}
               <span class="text-white font-mono">{{ effectiveModel() }}</span>
               @if (!isDemoMode() && systemDefaults()?.default_model) {
-                <span class="ck-pill ck-tone-info ml-1">override</span>
+                <span class="ck-pill ck-tone-info ml-1">{{ i18n.t('systems.view.override') }}</span>
               }
             </div>
             <div>
-              Reasoning template:
-              <span class="text-white font-mono">{{ isDemoMode() ? 'managed' : (systemDefaults()?.default_prompt_type || 'auto') }}</span>
+              {{ i18n.t('systems.view.reasoning_template') }}
+              <span class="text-white font-mono">{{ isDemoMode() ? i18n.t('systems.view.managed') : (systemDefaults()?.default_prompt_type || i18n.t('systems.view.auto')) }}</span>
             </div>
-            <div>Temperature: <span class="text-white font-mono">{{ isDemoMode() ? 'managed' : (settings.settings().temperature?.toFixed(2) ?? '—') }}</span></div>
-            <div>Max tokens: <span class="text-white font-mono">{{ isDemoMode() ? 'managed' : (settings.settings().maxTokens ?? '—') }}</span></div>
+            <div>{{ i18n.t('systems.view.temperature') }} <span class="text-white font-mono">{{ isDemoMode() ? i18n.t('systems.view.managed') : (settings.settings().temperature?.toFixed(2) ?? '—') }}</span></div>
+            <div>{{ i18n.t('systems.view.max_tokens') }} <span class="text-white font-mono">{{ isDemoMode() ? i18n.t('systems.view.managed') : (settings.settings().maxTokens ?? '—') }}</span></div>
           </div>
         </section>
         <section class="ck-surface t-elevated rounded-md p-5">
           <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
-            <app-icon name="database" set="phosphor" [size]="14" class="ck-accent" /> Retrieval
+            <app-icon name="database" set="phosphor" [size]="14" class="ck-accent" /> {{ i18n.t('systems.view.retrieval') }}
           </h3>
           <div class="space-y-3 text-sm text-gray-300">
             <div>
-              Pipeline:
+              {{ i18n.t('systems.view.pipeline') }}
               <span class="text-white font-mono">{{ systemDefaults()?.retrieval_mode_default || settings.ragPipelineMode() || '—' }}</span>
               @if (systemDefaults()?.retrieval_mode_default && systemDefaults()?.retrieval_mode_default !== 'auto') {
-                <span class="ck-pill ck-tone-info ml-1">pinned</span>
+                <span class="ck-pill ck-tone-info ml-1">{{ i18n.t('systems.view.pinned') }}</span>
               }
             </div>
-            <div>Top-K: <span class="text-white font-mono">{{ settings.settings().ragTopK ?? '—' }}</span></div>
-            <div>Similarity: <span class="text-white font-mono">{{ settings.settings().ragSimilarityThreshold?.toFixed(2) ?? '—' }}</span></div>
+            <div>{{ i18n.t('systems.view.top_k') }} <span class="text-white font-mono">{{ settings.settings().ragTopK ?? '—' }}</span></div>
+            <div>{{ i18n.t('systems.view.similarity') }} <span class="text-white font-mono">{{ settings.settings().ragSimilarityThreshold?.toFixed(2) ?? '—' }}</span></div>
             <div class="pt-1">
               <a
                 [navLink]="{ surface: 'knowledge' }"
                 class="ck-accent inline-flex items-center gap-1 text-xs"
               >
-                <app-icon name="external-link" [size]="11" /> Manage collections
+                <app-icon name="external-link" [size]="11" /> {{ i18n.t('systems.view.manage_collections') }}
               </a>
             </div>
           </div>
@@ -1141,8 +1140,8 @@ interface ContextConfigRow {
       [open]="chatPanelOpen()"
       (openChange)="chatPanelOpen.set($event)"
       position="side"
-      eyebrow="System · panel"
-      title="Chat"
+      [eyebrow]="i18n.t('systems.view.panel')"
+      [title]="i18n.t('systems.view.chat')"
       width="520px"
     >
       <div class="ck-surface t-elevated rounded-md p-0 overflow-hidden min-h-[520px]">
@@ -1194,7 +1193,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   readonly triggering = signal(false);
 
   systemId = '';
-  agentName = signal('System');
+  agentName = signal('');
   agentDescription = signal('');
   isDraft = signal(false);
   activeTab = signal<SystemTabId>('overview');
@@ -1210,14 +1209,14 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   readonly isTranslationSuite = computed(() => this.variant() === 'translation_suite');
   readonly headerEyebrow = computed(() => {
     const type = this.isIntelligence()
-      ? 'Systems · Intelligence'
+      ? this.i18n.t('systems.view.eyebrow_intelligence')
       : this.isExpertKnowledgeCapture()
         ? this.i18n.t('systems.view.capture.eyebrow')
         : this.isTranslationSuite()
-          ? 'PMI Sovereign Stack'
+          ? this.i18n.t('systems.view.eyebrow_translation')
           : this.flowChromeActive()
-            ? 'Systems · Flow'
-            : 'Systems · System';
+            ? this.i18n.t('systems.view.eyebrow_flow')
+            : this.i18n.t('systems.view.eyebrow_system');
     if (!this.navigation.navV5Enabled()) return type;
     return this.i18n.t('nav.eyebrow.from_zone', {
       type,
@@ -1226,14 +1225,14 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   });
   readonly headerFallbackSubtitle = computed(() =>
     this.isIntelligence()
-      ? 'Market-signal briefs and continuous monitoring.'
+      ? this.i18n.t('systems.view.subtitle_intelligence')
       : this.isExpertKnowledgeCapture()
         ? this.i18n.t('systems.view.capture.subtitle')
         : this.isTranslationSuite()
-          ? 'Sovereign DITA translation, replay, agent QA, RBAC and audit-ready delivery.'
+          ? this.i18n.t('systems.view.subtitle_translation')
           : this.flowChromeActive()
-            ? 'A graph the run engine executes, step by step.'
-            : 'Configure, run and refine this AI system.',
+            ? this.i18n.t('systems.view.subtitle_flow')
+            : this.i18n.t('systems.view.subtitle_system'),
   );
 
   /** Banner label above the stage strip — names what the stages belong to. */
@@ -1242,7 +1241,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
       ? 'Translation Suite'
       : this.isExpertKnowledgeCapture()
         ? this.i18n.t('systems.view.capture.journey')
-        : 'OmniRAG pipeline',
+        : this.i18n.t('systems.view.pipeline_banner'),
   );
 
   /** The four beats of a capture session, shown before the first one starts. */
@@ -1278,22 +1277,22 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   readonly executionModeLabel = computed(() => {
     switch (this.executionModeRaw()) {
       case 'real_time_decision':
-        return 'Real-time decision';
+        return this.i18n.t('systems.view.realtime');
       case 'batch_processing':
-        return 'Batch processing';
+        return this.i18n.t('systems.view.batch');
       case 'event_driven_automation':
-        return 'Event-driven automation';
+        return this.i18n.t('systems.view.event_driven');
       case 'continuous_monitoring':
-        return 'Continuous monitoring';
+        return this.i18n.t('systems.view.monitoring');
       case 'human_augmented':
-        return 'Human-augmented';
+        return this.i18n.t('systems.view.human_augmented');
       default:
         return this.executionModeRaw();
     }
   });
 
   readonly effectiveModel = computed(() => {
-    if (this.isDemoMode()) return 'Managed by workspace';
+    if (this.isDemoMode()) return this.i18n.t('systems.view.managed_workspace');
     const d = this.systemDefaults();
     return d?.default_model || this.settings.settings().defaultModel || '—';
   });
@@ -1348,7 +1347,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     () => !this.system360Enabled() && this.flowProfile() !== null,
   );
   readonly flowPublicationLabel = computed(() =>
-    this.flowProfile()?.publishedVersionId ? 'Published' : 'Draft only',
+    this.flowProfile()?.publishedVersionId ? this.i18n.t('systems.view.published') : this.i18n.t('systems.view.draft_only'),
   );
 
   launchRunLabel(): string {
@@ -1366,22 +1365,18 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     const flow = this.flowProfile();
     if (!flow) return '';
     if (!flow.publishedVersionId) {
-      return 'No published version yet — runs execute the saved draft.';
+      return this.i18n.t('systems.view.unpublished_detail');
     }
-    const by = flow.publishedBy ? ` by ${flow.publishedBy}` : '';
-    const at = flow.publishedAt ? ` on ${flow.publishedAt.slice(0, 10)}` : '';
-    return `Published${at}${by}.`;
+    const by = flow.publishedBy ? this.i18n.t('systems.view.published_by', { name: flow.publishedBy }) : '';
+    const at = flow.publishedAt ? this.i18n.t('systems.view.published_at', { date: new Intl.DateTimeFormat(this.i18n.locale()).format(new Date(flow.publishedAt)) }) : '';
+    return this.i18n.t('systems.view.published_detail', { at, by });
   });
   readonly flowSummaryLine = computed(() => {
     const flow = this.flowProfile();
-    if (!flow) return '';
-    const parts = [
-      `${flow.nodeCount} ${flow.nodeCount === 1 ? 'step' : 'steps'}`,
-      `${flow.edgeCount} ${flow.edgeCount === 1 ? 'connection' : 'connections'}`,
-      `${flow.triggers.length} ${flow.triggers.length === 1 ? 'trigger' : 'triggers'}`,
-      `${flow.skillSlugs.length} bound ${flow.skillSlugs.length === 1 ? 'skill' : 'skills'}`,
-    ];
-    return `${parts.join(' · ')}.`;
+    return flow ? this.i18n.t('systems.view.flow_summary', {
+      nodes: flow.nodeCount, edges: flow.edgeCount,
+      triggers: flow.triggers.length, skills: flow.skillSlugs.length,
+    }) : '';
   });
   readonly recentRuns = computed(() => this.runs().slice(0, 3));
 
@@ -1478,10 +1473,10 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     if (this.system360Enabled()) {
       const header = this.perspectives()['build']?.header;
       return [
-        { label: 'Status', value: perspectiveHeaderValue(header?.status) },
-        { label: 'Runs', value: perspectiveHeaderValue(header?.run_count) },
-        { label: 'Success', value: perspectiveHeaderValue(header?.success_rate, '%') },
-        { label: 'Last run', value: perspectiveHeaderValue(header?.last_run_at) },
+        { label: this.i18n.t('systems.view.status'), value: this.perspectiveHeaderValue(header?.status) },
+        { label: this.i18n.t('systems.view.runs'), value: this.perspectiveHeaderValue(header?.run_count) },
+        { label: this.i18n.t('systems.view.success'), value: this.perspectiveHeaderValue(header?.success_rate, '%') },
+        { label: this.i18n.t('systems.view.last_run'), value: this.perspectiveHeaderValue(header?.last_run_at) },
       ];
     }
     const quality = this.latestEval()?.composite_score;
@@ -1489,21 +1484,33 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     const yieldValue =
       quality != null ? quality.toFixed(0) : errRate != null ? (100 - errRate).toFixed(0) : '—';
     return [
-      { label: 'ROI', value: '—', hint: 'Return on decision — coming when Outcome.value is priced.' },
-      { label: 'Cost', value: '—', hint: 'Unit cost per run — coming with cost accounting.' },
+      { label: this.i18n.t('systems.view.roi'), value: '—', hint: this.i18n.t('systems.view.roi_hint') },
+      { label: this.i18n.t('systems.view.cost'), value: '—', hint: this.i18n.t('systems.view.cost_hint') },
       {
-        label: 'Yield',
+        label: this.i18n.t('systems.view.yield'),
         value: yieldValue === '—' ? '—' : `${yieldValue}%`,
         tone: yieldValue === '—' ? 'neutral' : 'cool',
-        hint: 'Composite quality score (latest evaluation).',
+        hint: this.i18n.t('systems.view.yield_hint'),
       },
       {
-        label: 'Runs',
+        label: this.i18n.t('systems.view.runs'),
         value: String(this.traces().length || this.runs().length || 0),
         tone: 'neutral',
       },
     ];
   });
+
+  private perspectiveHeaderValue(fact: PerspectiveFact | undefined, suffix = ''): string {
+    if (!fact) return this.i18n.t('systems.view.state.loading');
+    if (fact.state !== 'available' || fact.value == null) {
+      return this.i18n.t(`systems.view.state.${fact.state === 'available' ? 'unavailable' : fact.state}`);
+    }
+    if (typeof fact.value === 'string') {
+      const label = this.i18n.t(`runs.status.${fact.value}`);
+      if (label !== `runs.status.${fact.value}`) return label;
+    }
+    return `${String(fact.value)}${suffix || fact.unit || ''}`;
+  }
 
   onTabChange(id: string): void {
     this.activeTab.set(id as SystemTabId);
@@ -1523,48 +1530,48 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     return [
       {
         key: 'identity',
-        title: 'Identity',
-        description: 'Name, description and prompt.',
+        title: this.i18n.t('systems.view.identity'),
+        description: this.i18n.t('systems.view.identity_description'),
         icon: 'tag',
-        cta: 'Review',
+        cta: this.i18n.t('systems.view.review'),
         route: this.navigation.objectUrl('system', this.systemId),
         done: !!this.agentName() && this.agentName() !== 'System',
       },
       {
         key: 'knowledge',
-        title: 'Knowledge',
-        description: 'Collections the system can retrieve from.',
+        title: this.i18n.t('systems.view.knowledge'),
+        description: this.i18n.t('systems.view.knowledge_description'),
         icon: 'database',
-        cta: 'Open Knowledge',
+        cta: this.i18n.t('systems.view.open_knowledge'),
         route: this.navigation.surfaceUrl('knowledge'),
         done: this.hasCollections(),
       },
       {
         key: 'model',
-        title: this.isDemoMode() ? 'Runtime' : 'Model',
+        title: this.isDemoMode() ? this.i18n.t('systems.view.runtime') : this.i18n.t('systems.view.model'),
         description: this.isDemoMode()
-          ? 'Provider and model details are managed by workspace policy.'
-          : 'Default LLM, temperature, max tokens.',
+          ? this.i18n.t('systems.view.model_managed_description')
+          : this.i18n.t('systems.view.model_description'),
         icon: 'cpu',
-        cta: this.isDemoMode() ? 'Review' : 'Configure',
+        cta: this.isDemoMode() ? this.i18n.t('systems.view.review') : this.i18n.t('systems.view.configure'),
         route: this.navigation.surfaceUrl('presets'),
         done: this.isDemoMode() ? true : hasModel,
       },
       {
         key: 'guardrails',
-        title: 'Guardrails',
-        description: 'RAG pipeline mode, similarity threshold, safety filters.',
+        title: this.i18n.t('systems.view.guardrails'),
+        description: this.i18n.t('systems.view.guardrails_description'),
         icon: 'shield-check',
-        cta: 'Configure',
+        cta: this.i18n.t('systems.view.configure'),
         route: this.navigation.surfaceUrl('presets'),
         done: hasPipeline,
       },
       {
         key: 'launch',
-        title: 'Launch',
-        description: 'Promote this draft and start serving traffic.',
+        title: this.i18n.t('systems.view.launch'),
+        description: this.i18n.t('systems.view.launch_description'),
         icon: 'rocket',
-        cta: 'Open chat',
+        cta: this.i18n.t('systems.view.open_chat'),
         route: this.navigation.objectUrl('system', this.systemId),
         done: !draft,
       },
@@ -1576,55 +1583,55 @@ export class SystemViewComponent implements OnInit, OnDestroy {
       return [
         {
           key: 'archive',
-          name: 'Ingest',
+          name: this.i18n.t('systems.view.stage.archive'),
           icon: 'archive',
-          description: 'Validate DITA archive, manifest hash and topic inventory.',
-          configureLabel: 'Source',
+          description: this.i18n.t('systems.view.stage.archive.description'),
+          configureLabel: this.i18n.t('systems.view.source'),
           route: this.navigation.leafUrlTree('system-flow', { systemId: this.systemId }),
           tone: 'brand',
         },
         {
           key: 'memory',
-          name: 'Memory',
+          name: this.i18n.t('systems.view.stage.memory'),
           icon: 'database',
-          description: 'Retrieve reviewed bilingual examples from sovereign translation memory.',
-          configureLabel: 'Knowledge',
+          description: this.i18n.t('systems.view.stage.memory.description'),
+          configureLabel: this.i18n.t('systems.view.knowledge'),
           route: this.navigation.surfaceUrlTree('knowledge'),
           tone: 'violet',
         },
         {
           key: 'pivot',
-          name: 'F1 Pivot',
+          name: this.i18n.t('systems.view.stage.pivot'),
           icon: 'workflow',
-          description: 'Normalize source DITA into a deterministic en-GB pivot.',
-          configureLabel: 'Flow',
+          description: this.i18n.t('systems.view.stage.pivot.description'),
+          configureLabel: this.i18n.t('systems.view.flow'),
           route: this.navigation.leafUrlTree('system-flow', { systemId: this.systemId }),
           tone: 'brand',
         },
         {
           key: 'fanout',
-          name: 'F2 Fan-out',
+          name: this.i18n.t('systems.view.stage.fanout'),
           icon: 'globe-2',
-          description: 'Translate the pivot into 39 target locales with bounded parallelism.',
-          configureLabel: 'Runtime',
+          description: this.i18n.t('systems.view.stage.fanout.description'),
+          configureLabel: this.i18n.t('systems.view.runtime'),
           route: this.navigation.leafUrlTree('system-flow', { systemId: this.systemId }),
           tone: 'violet',
         },
         {
           key: 'qa',
-          name: 'J2450 QA',
+          name: this.i18n.t('systems.view.stage.qa'),
           icon: 'list-checks',
-          description: 'Run seven category agents and supervisor convergence.',
-          configureLabel: 'Guardrails',
+          description: this.i18n.t('systems.view.stage.qa.description'),
+          configureLabel: this.i18n.t('systems.view.guardrails'),
           route: this.navigation.surfaceUrlTree('workspace-blueprints'),
           tone: 'emerald',
         },
         {
           key: 'delivery',
-          name: 'Gate',
+          name: this.i18n.t('systems.view.stage.delivery'),
           icon: 'shield-check',
-          description: 'Apply CDC E1 guards, CDT approval and ACCEPT_4D delivery evidence.',
-          configureLabel: 'Audit',
+          description: this.i18n.t('systems.view.stage.delivery.description'),
+          configureLabel: this.i18n.t('systems.view.audit'),
           route: this.navigation.leafUrlTree('governance-audit'),
           tone: 'emerald',
         },
@@ -1673,37 +1680,37 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     return [
       {
         key: 'query',
-        name: 'Query',
+        name: this.i18n.t('systems.view.stage.query'),
         icon: 'message-square',
-        description: 'User intent parsing, query rewriting and routing.',
-        configureLabel: 'System prompt',
+        description: this.i18n.t('systems.view.stage.query.description'),
+        configureLabel: this.i18n.t('systems.view.system_prompt'),
         route: this.navigation.surfaceUrlTree('presets'),
         tone: 'brand',
       },
       {
         key: 'retrieve',
-        name: 'Retrieve',
+        name: this.i18n.t('systems.view.stage.retrieve'),
         icon: 'database',
-        description: 'Planner-bounded retrieval over your collections.',
-        configureLabel: 'Collections',
+        description: this.i18n.t('systems.view.stage.retrieve.description'),
+        configureLabel: this.i18n.t('systems.view.collections'),
         route: this.navigation.surfaceUrlTree('knowledge'),
         tone: 'violet',
       },
       {
         key: 'rerank',
-        name: 'Rerank',
+        name: this.i18n.t('systems.view.stage.rerank'),
         icon: 'filter',
-        description: 'Cross-encoder reranking + context filtering.',
-        configureLabel: 'Top-K & threshold',
+        description: this.i18n.t('systems.view.stage.rerank.description'),
+        configureLabel: this.i18n.t('systems.view.top_k_threshold'),
         route: this.navigation.surfaceUrlTree('presets'),
         tone: 'brand',
       },
       {
         key: 'generate',
-        name: 'Generate',
+        name: this.i18n.t('systems.view.stage.generate'),
         icon: 'sparkles',
-        description: 'LLM synthesis with citations and guardrails.',
-        configureLabel: 'Model',
+        description: this.i18n.t('systems.view.stage.generate.description'),
+        configureLabel: this.i18n.t('systems.view.model'),
         route: this.navigation.surfaceUrlTree('presets'),
         tone: 'emerald',
       },
@@ -2008,8 +2015,8 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     const expectedFlowSha256 = this.systemSnapshot()?.flow_sha256;
     if (!expectedFlowSha256) {
       this.toast.warning(
-        'Reload this System before running it: its Flow revision is unavailable.',
-        'Run not triggered',
+        this.i18n.t('systems.view.run_missing_revision'),
+        this.i18n.t('systems.view.run_not_triggered'),
       );
       return;
     }
@@ -2042,10 +2049,10 @@ export class SystemViewComponent implements OnInit, OnDestroy {
         if (!this.requestIsCurrent(request, systemId)) return;
         this.triggering.set(false);
         if (!run) {
-          this.toast.warning('Could not reach the run engine', 'Run not triggered');
+          this.toast.warning(this.i18n.t('systems.view.run_engine_unavailable'), this.i18n.t('systems.view.run_not_triggered'));
           return;
         }
-        this.toast.success(`Run ${run.id.slice(0, 8)} scheduled`, 'Run triggered');
+        this.toast.success(this.i18n.t('systems.view.run_scheduled', { id: run.id.slice(0, 8) }), this.i18n.t('systems.view.run_triggered'));
         this.loadRuns(request, systemId);
         // Refresh once the engine has had time to execute the sequence.
         this.refreshTimer = setTimeout(() => {
@@ -2056,7 +2063,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
       error: () => {
         if (!this.requestIsCurrent(request, systemId)) return;
         this.triggering.set(false);
-        this.toast.warning('Could not reach the run engine', 'Run not triggered');
+        this.toast.warning(this.i18n.t('systems.view.run_engine_unavailable'), this.i18n.t('systems.view.run_not_triggered'));
       },
     });
     this.viewSubscriptions.add(subscription);
@@ -2153,7 +2160,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   }
 
   private clearSystemData(): void {
-    this.agentName.set('System');
+    this.agentName.set('');
     this.agentDescription.set('');
     this.isDraft.set(false);
     this.variant.set('standard');
@@ -2283,14 +2290,4 @@ function formatContextValue(value: unknown): string {
   } catch {
     return String(value);
   }
-}
-
-function perspectiveHeaderValue(fact: PerspectiveFact | undefined, suffix = ''): string {
-  if (!fact) return 'Loading';
-  if (fact.state === 'not_measured') return 'Not measured';
-  if (fact.state === 'not_configured') return 'Not configured';
-  if (fact.state === 'restricted') return 'Restricted';
-  if (fact.state === 'unavailable') return 'Unavailable';
-  if (fact.value == null) return 'Unavailable';
-  return `${String(fact.value)}${suffix || fact.unit || ''}`;
 }
