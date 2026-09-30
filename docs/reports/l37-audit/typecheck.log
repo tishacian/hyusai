@@ -1,0 +1,22 @@
+src/app/features/experience/work/adoption-journey.component.ts:357:39 - warning NG8113: RouterLink is not used within the template of AdoptionPageComponent
+
+357   imports: [AdoptionJourneyComponent, RouterLink, WorkBarComponent, WorkAppHeaderComponent],
+                                          ~~~~~~~~~~
+src/app/features/experience/work/work-automation.component.ts:17:13 - warning NG8113: RouterLink is not used within the template of WorkAutomationComponent
+
+17   imports: [RouterLink, WorkBarComponent, WorkAppHeaderComponent],
+               ~~~~~~~~~~
+src/app/features/experience/work/work-shell.component.ts:211:34 - warning NG8102: The left side of this nullish coalescing operation does not include 'null' or 'undefined' in its type, therefore the '??' operator can be safely removed.
+
+211                         [value]="reasons()[run.id] ?? ''"
+                                     ~~~~~~~~~~~~~~~~~~~~~~~
+
+src/app/features/observability/quality-evidence-charts.component.ts:18:75 - warning NG8107: The left side of this optional chain operation does not include 'null' or 'undefined' in its type, therefore the '?.' operator can be replaced with the '.' operator.
+
+18     <circle [attr.cx]="point.x" [attr.cy]="point.y" [attr.r]="selected()?.id===point.row.id?9:6" class="point" tabindex="0" role="button" [attr.aria-label]="point.label" (click)="selectedId.set(point.row.id)" (keydown.enter)="selectedId.set(point.row.id)" (keydown.space)="$event.preventDefault();selectedId.set(point.row.id)"><title>{{point.label}}</title></circle>
+                                                                             ~~
+
+src/app/features/observability/quality-evidence-charts.component.ts:26:103 - warning NG8107: The left side of this optional chain operation does not include 'null' or 'undefined' in its type, therefore the '?.' operator can be replaced with the '.' operator.
+
+26    @for(row of ordered();track row.id){<button type="button" class="cell" [class.active]="selected()?.id===row.id" [class.absent]="value(row,dimension)===null" [style.background-color]="cellColor(row,dimension)" [attr.aria-label]="dimension + ': ' + (value(row,dimension) ?? i18n.t('observability.charts.missing')) + ' · ' + (row.run_id || row.id)" (click)="selectedId.set(row.id)">{{value(row,dimension) ?? '—'}}</button>}
+                                                                                                         ~~
