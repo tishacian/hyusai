@@ -40,7 +40,20 @@ export class NavLinkDirective {
   /** Optional `history.state` (L10 provenance). Not encoded in the URL. */
   readonly navState = input<Record<string, unknown> | null>(null);
 
-  readonly href = computed(() => this.navigation.resolveLink(this.navLink()).url);
+  /**
+   * Never throws: with zoneless change detection, an error in a binding
+   * aborts the whole tick, so one unknown catalogue id froze every later
+   * update on the page (the chat panel took ~25 s to close on Impact).
+   */
+  readonly href = computed<string | null>(() => {
+    const input = this.navLink();
+    try {
+      return this.navigation.resolveLink(input).url;
+    } catch (error) {
+      console.error('[navLink] unresolvable link', input, error);
+      return null;
+    }
+  });
 
   onClick(event: MouseEvent): void {
     const anchor = event.currentTarget as HTMLAnchorElement | null;
