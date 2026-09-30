@@ -1,0 +1,12 @@
+
+Running 3 tests using 1 worker
+
+(node:64430) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:64430) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › e2e/tests/27-audit-trail-mocked.spec.ts:69:9 › L37 — complete audit trail › server pages, navigation toggle, run links and accessibility (light) (2.1s)
+  ✓  2 [chromium] › e2e/tests/27-audit-trail-mocked.spec.ts:69:9 › L37 — complete audit trail › server pages, navigation toggle, run links and accessibility (dark) (2.0s)
+  ✓  3 [chromium] › e2e/tests/27-audit-trail-mocked.spec.ts:101:7 › L37 — complete audit trail › CSV exports every filtered server page and actor/period filters reach the server (899ms)
+
+  3 passed (6.0s)
