@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import {
   AGENTIUM_SURFACE_LEAVES,
   AGENTIUM_SURFACE_ROUTES,
@@ -509,4 +509,25 @@ test('comparison invocation links retain their explicit Run instead of inherited
   assert.equal(link.url, '/runs/candidate%2Frun/invocations/proof%2F1?systemId=sys-1');
   const context = navigationRouteContext(link.url);
   assert.equal(context.runId, 'candidate/run');
+});
+
+test('every literal [navLink] names a catalogue leaf or surface (a throw froze Impact)', () => {
+  const root = join(process.cwd(), 'src/app');
+  const leaves = new Set(AGENTIUM_SURFACE_LEAVES.map((leaf) => leaf.id));
+  const surfaces = new Set(AGENTIUM_SURFACE_ROUTES.map((surface) => surface.id));
+  const unknown: string[] = [];
+  const walk = (dir: string): void => {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) { walk(full); continue; }
+      if (!/\.(ts|html)$/.test(name) || name.endsWith('.spec.ts')) continue;
+      const text = readFileSync(full, 'utf8');
+      for (const match of text.matchAll(/\[navLink\]="\{\s*(leaf|surface):\s*'([^']+)'/g)) {
+        const known = match[1] === 'leaf' ? leaves : surfaces;
+        if (!known.has(match[2]!)) unknown.push(`${relative(root, full)}: ${match[1]} '${match[2]}'`);
+      }
+    }
+  };
+  walk(root);
+  assert.deepEqual(unknown, []);
 });
