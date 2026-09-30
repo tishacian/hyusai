@@ -702,7 +702,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                 </ul>
               }
             </article>
-            <a class="hv2-link" data-testid="hypervisor-decisions-review-queue" [navLink]="{ leaf: 'review-queue' }">
+            <a class="hv2-link" data-testid="hypervisor-decisions-review-queue" [navLink]="{ surface: 'review-queue' }">
               {{ i18n.t('hypervisor.v2.decisions.review_queue') }}
             </a>
             <article class="hv2-card">
@@ -1077,7 +1077,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
           <button type="button" class="hv2-btn" (click)="accept(decision)">{{ i18n.t('hypervisor.v2.decision.accept') }}</button>
           <button type="button" class="hv2-btn" (click)="reject(decision)">{{ i18n.t('hypervisor.v2.decision.reject') }}</button>
         </div>
-        <a class="hv2-link" [navLink]="{ leaf: 'review-queue' }">{{ i18n.t('hypervisor.v2.decisions.review_queue') }}</a>
+        <a class="hv2-link" [navLink]="{ surface: 'review-queue' }">{{ i18n.t('hypervisor.v2.decisions.review_queue') }}</a>
       } @else {
         <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.decision.kicker_none') }}</p>
         <p class="hv2-card-sub">{{ i18n.t('hypervisor.v2.decision.empty') }}</p>

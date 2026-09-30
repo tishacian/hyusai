@@ -1228,3 +1228,70 @@ test.describe('L38 — Mission Room availability', () => {
     }
   }
 });
+
+// --- L39 — the docked chat closes and goes full screen at once ---------------
+// A navLink that threw during change detection aborted every zoneless tick on
+// Impact, so the panel only closed on the next unrelated tick (~25 s).
+
+type ChatSettle = 'hidden' | 'full';
+
+async function latencyOf(page: Page, settle: ChatSettle, act: () => Promise<void>): Promise<number> {
+  await page.evaluate((kind) => {
+    const w = window as unknown as { __chatLatency?: number };
+    delete w.__chatLatency;
+    addEventListener('pointerdown', () => {
+      const start = performance.now();
+      const settled = () => {
+        const el = document.querySelector<HTMLElement>('app-chat-overlay [aria-label="Conversation"]');
+        if (!el) return false;
+        return kind === 'hidden'
+          ? getComputedStyle(el).display === 'none'
+          : el.getBoundingClientRect().width >= innerWidth - 2;
+      };
+      const tick = () => {
+        if (settled()) w.__chatLatency = performance.now() - start;
+        else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }, { capture: true, once: true });
+  }, settle);
+  await act();
+  const handle = await page.waitForFunction(
+    () => (window as unknown as { __chatLatency?: number }).__chatLatency,
+    undefined,
+    { timeout: 30_000 },
+  );
+  return Number(await handle.jsonValue());
+}
+
+test.describe('L39 — docked chat on Impact', () => {
+  test.skip(!visualEnabled, 'Set E2E_HYPERVISOR_V2_VISUAL=1 to run');
+
+  test('close (×) and full screen land within 500 ms, with no broken link', async ({ page }) => {
+    const linkErrors: string[] = [];
+    page.on('console', (message) => {
+      if (message.type() === 'error' && /Unknown Agentium|\[navLink\]/.test(message.text())) linkErrors.push(message.text());
+    });
+    await installMocks(page, 'dense', 'dark');
+    await openHypervisor(page);
+    const panel = page.locator('app-chat-overlay [aria-label="Conversation"]');
+    const openDocked = async () => {
+      await page.keyboard.press('Meta+j');
+      await expect(panel).toBeVisible({ timeout: 20_000 });
+    };
+
+    await openDocked();
+    const closeMs = await latencyOf(page, 'hidden', () => panel.getByRole('button', { name: 'Fermer', exact: true }).click());
+    await expect(panel).toBeHidden();
+
+    await openDocked();
+    const fullMs = await latencyOf(page, 'full', () => panel.getByRole('button', { name: 'Plein écran' }).click());
+    const closeFullMs = await latencyOf(page, 'hidden', () => panel.getByRole('button', { name: 'Fermer', exact: true }).click());
+    await expect(panel).toBeHidden();
+
+    expect(closeMs, 'docked close').toBeLessThan(500);
+    expect(fullMs, 'full screen').toBeLessThan(500);
+    expect(closeFullMs, 'full screen close').toBeLessThan(500);
+    expect(linkErrors).toEqual([]);
+  });
+});
