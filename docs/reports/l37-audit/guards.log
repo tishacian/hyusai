@@ -1,0 +1,4 @@
+i18n OK — 9449 keys across 25 domains, 49 navigation keys, 268 templates and 307 code files scanned, 24 lexicon rules and 6 French-term rules enforced.
+check-nav-links (fail-closed): cockpit 0 raw links (A 0 · B 0 · C 0) · allowlist 65
+check-ui-chrome: 441 ratchet hit(s) across 103 file(s) · baseline docs/compliance/ui-chrome-baseline.v1.json
+Agentium UI chrome guard OK.

@@ -78,10 +78,6 @@
       "pill": 1,
       "halo": 1
     },
-    "src/app/features/governance/audit-logs.component.ts": {
-      "pill": 1,
-      "halo": 1
-    },
     "src/app/features/governance/chat-history.component.ts": {
       "pill": 8,
       "halo": 1

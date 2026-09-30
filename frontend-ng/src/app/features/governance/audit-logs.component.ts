@@ -1,400 +1,227 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
-import { DatePipe, NgClass } from '@angular/common';
+import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, signal, untracked } from '@angular/core';
+import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { firstValueFrom } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
-import { IconComponent } from '@app/shared/ui/icon.component';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { NavLinkDirective } from '@app/shared/cockpit/nav-link.directive';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
-import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
-import { SearchInputComponent } from '@app/shared/ui/search-input.component';
-
-interface AuditLog {
-  id: string | number;
-  timestamp: string;
-  event_type: string;
-  actor?: string;
-  severity?: string;
-  resource?: string;
-  details?: string | Record<string, unknown>;
-  trace_id?: string | null;
-  agent_id?: string | null;
-}
-
-interface AuditLogResponse {
-  logs?: AuditLog[];
-  total?: number;
-}
-
-type Severity = 'info' | 'warning' | 'error' | 'critical';
+import { auditCsv, auditEventKey, auditParams, appendAuditPage, type AuditFilters, type AuditLog, type AuditPage } from './audit-trail.vm';
 
 @Component({
   selector: 'app-audit-logs',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
-    FormsModule,
-    DatePipe,
-    NgClass,
-    IconComponent,
-    SectionHeaderComponent,
-    EmptyStateComponent,
-    SkeletonComponent,
-    SearchInputComponent,
-  ],
+  imports: [FormsModule, DatePipe, NavLinkDirective, SectionHeaderComponent, EmptyStateComponent],
   template: `
-    <app-section-header
-      [breadcrumb]="i18n.t('governance.breadcrumb')"
-      [title]="i18n.t('governance.audit.title')"
-      icon="scroll-text"
-      [subtitle]="i18n.t('governance.audit.subtitle')"
-    >
-      <button
-        type="button"
-        (click)="exportCsv()"
-        [disabled]="filteredLogs().length === 0"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition disabled:opacity-40"
-      >
-        <app-icon name="download" [size]="14" /> {{ i18n.t('governance.audit.export_csv') }}
+    <app-section-header [breadcrumb]="i18n.t('governance.breadcrumb')" [title]="i18n.t('governance.audit.title')"
+      icon="scroll-text" [subtitle]="i18n.t('governance.audit.subtitle')">
+      <button type="button" class="audit-button" (click)="exportCsv()" [disabled]="exporting() || loading() || !logs().length">
+        {{ i18n.t(exporting() ? 'governance.audit.exporting' : 'governance.audit.export_csv') }}
       </button>
-      <button
-        type="button"
-        (click)="reload()"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
-      >
-        <app-icon name="refresh-cw" [size]="14" /> {{ i18n.t('common.refresh') }}
-      </button>
+      <button type="button" class="audit-button" (click)="reload()">{{ i18n.t('common.refresh') }}</button>
     </app-section-header>
 
-    <div class="flex flex-wrap items-center gap-3 mb-4">
-      <app-search-input
-        [(value)]="query"
-        [placeholder]="i18n.t('governance.audit.search.placeholder')"
-        class="flex-1 min-w-[260px]"
-      />
-      <select
-        [ngModel]="actorFilter()"
-        (ngModelChange)="actorFilter.set($event)"
-        class="audit-select"
-        [title]="i18n.t('governance.audit.filter.actor')"
-      >
-        <option value="">{{ i18n.t('governance.audit.filter.actor.all') }}</option>
-        @for (a of actors(); track a) {
-          <option [value]="a">{{ a }}</option>
-        }
-      </select>
-      <select
-        [ngModel]="kindFilter()"
-        (ngModelChange)="kindFilter.set($event)"
-        class="audit-select"
-        [title]="i18n.t('governance.audit.filter.kind')"
-      >
-        <option value="">{{ i18n.t('governance.audit.filter.kind.all') }}</option>
-        @for (k of kinds(); track k) {
-          <option [value]="k">{{ k }}</option>
-        }
-      </select>
-      <div class="flex items-center gap-1 p-1 rounded bg-black/20 border border-white/5">
-        @for (f of severityFilters; track f.key) {
-          <button
-            type="button"
-            (click)="severity.set(f.key)"
-            class="px-2.5 py-1 text-xs rounded transition"
-            [class.bg-cyan-500\\/20]="severity() === f.key"
-            [class.text-cyan-300]="severity() === f.key"
-            [class.text-gray-400]="severity() !== f.key"
-            [class.hover:text-gray-200]="severity() !== f.key"
-          >
-            {{ i18n.t(f.labelKey) }}
-          </button>
-        }
-      </div>
-      <span class="text-[11px] text-gray-500 font-mono ml-auto">
-        {{ i18n.t('governance.audit.count', { filtered: filteredLogs().length, total: logs().length }) }}
-      </span>
-    </div>
-
-    <section class="ck-surface rounded-md overflow-hidden">
-      @if (loading()) {
-        <div class="p-6 space-y-3">
-          @for (_ of skeletonRows; track $index) {
-            <app-skeleton variant="line" height="44px" />
+    <form class="audit-filters" (ngSubmit)="reload()">
+      <label>{{ i18n.t('governance.audit.search.placeholder') }}
+        <input name="search" type="search" [(ngModel)]="filters.search" maxlength="255" />
+      </label>
+      <label>{{ i18n.t('governance.audit.filter.actor') }}
+        <input name="actor" [(ngModel)]="filters.actor" maxlength="255" />
+      </label>
+      <label>{{ i18n.t('governance.audit.filter.kind') }}
+        <input name="kind" [(ngModel)]="filters.eventType" list="audit-kinds" />
+        <datalist id="audit-kinds">@for (kind of kinds(); track kind) { <option [value]="kind"></option> }</datalist>
+      </label>
+      <label>{{ i18n.t('governance.audit.filter.since') }}
+        <input name="since" type="datetime-local" [(ngModel)]="filters.since" />
+      </label>
+      <label>{{ i18n.t('governance.audit.filter.until') }}
+        <input name="until" type="datetime-local" [(ngModel)]="filters.until" />
+      </label>
+      <label>{{ i18n.t('governance.audit.filter.trace') }}
+        <input name="trace" [(ngModel)]="filters.trace" maxlength="36" />
+      </label>
+      <label>{{ i18n.t('governance.audit.column.severity') }}
+        <select name="severity" [(ngModel)]="filters.severity">
+          <option value="">{{ i18n.t('governance.audit.severity.all') }}</option>
+          @for (severity of severities; track severity) {
+            <option [value]="severity">{{ severityLabel(severity) }}</option>
           }
-        </div>
-      } @else if (filteredLogs().length === 0) {
-        <app-empty-state
-          icon="scroll-text"
-          [title]="i18n.t('governance.audit.empty.title')"
-          [description]="i18n.t('governance.audit.empty.description')"
-        />
-      } @else {
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="text-left text-[11px] uppercase tracking-wider text-gray-500 border-b border-white/5">
-                <th class="px-5 py-3 font-semibold">{{ i18n.t('governance.audit.column.time') }}</th>
-                <th class="px-5 py-3 font-semibold">{{ i18n.t('governance.audit.column.event') }}</th>
-                <th class="px-5 py-3 font-semibold">{{ i18n.t('governance.audit.column.actor') }}</th>
-                <th class="px-5 py-3 font-semibold">{{ i18n.t('governance.audit.column.resource') }}</th>
-                <th class="px-5 py-3 font-semibold">{{ i18n.t('governance.audit.column.severity') }}</th>
+        </select>
+      </label>
+      <label class="audit-toggle">
+        <input name="navigation" type="checkbox" role="switch" [(ngModel)]="filters.navigation" (ngModelChange)="reload()" />
+        {{ i18n.t('governance.audit.show_navigation') }}
+      </label>
+      <button class="audit-button" type="submit">{{ i18n.t('governance.audit.apply') }}</button>
+    </form>
+    <p role="status" class="audit-status">
+      {{ i18n.t(loading() ? 'governance.audit.loading' : 'governance.audit.showing', { shown: logs().length, total: total() }) }}
+    </p>
+    @if (error()) { <p role="alert">{{ i18n.t('governance.audit.error') }}</p> }
+    <section class="ck-surface audit-table" [attr.aria-busy]="loading()">
+      @if (!loading() && !logs().length && !error()) {
+        <app-empty-state icon="scroll-text" [title]="i18n.t('governance.audit.empty.title')"
+          [description]="i18n.t('governance.audit.empty.description')" />
+      }
+      @if (logs().length) {
+        <div class="audit-scroll">
+          <table>
+            <thead><tr>
+              <th scope="col">{{ i18n.t('governance.audit.column.time') }}</th>
+              <th scope="col">{{ i18n.t('governance.audit.column.event') }}</th>
+              <th scope="col">{{ i18n.t('governance.audit.column.actor') }}</th>
+              <th scope="col">{{ i18n.t('governance.audit.column.resource') }}</th>
+              <th scope="col">{{ i18n.t('governance.audit.column.severity') }}</th>
+            </tr></thead>
+            <tbody>@for (log of logs(); track log.id) {
+              <tr>
+                <td>{{ log.timestamp | date: 'dd/MM/yyyy HH:mm:ss' }}</td>
+                <td><strong>{{ i18n.t(eventKey(log.event_type)) }}</strong><code>{{ log.event_type }}</code>
+                  @if (log.details) { <span class="audit-details">{{ detailsText(log) }}</span> }
+                </td>
+                <td>{{ log.actor || '—' }}</td>
+                <td>
+                  <code>{{ log.trace_id || log.agent_id || '—' }}</code>
+                  @if (log.run_id) {
+                    <a [navLink]="{ type: 'run', ref: log.run_id, lens: 'operate' }">{{ i18n.t('governance.audit.open_run') }}</a>
+                  }
+                </td>
+                <td>{{ severityLabel(log.severity || 'info') }}</td>
               </tr>
-            </thead>
-            <tbody class="divide-y divide-white/5">
-              @for (log of pageLogs(); track log.id) {
-                <tr class="hover:bg-white/[0.02] transition">
-                  <td class="px-5 py-3 text-gray-400 whitespace-nowrap">
-                    {{ log.timestamp | date: 'MMM d, HH:mm:ss' }}
-                  </td>
-                  <td class="px-5 py-3">
-                    <div class="flex items-center gap-2 text-white font-medium">
-                      <app-icon [name]="eventIcon(log.event_type)" [size]="14" class="text-cyan-400" />
-                      {{ log.event_type }}
-                    </div>
-                    @if (log.details) {
-                      <div class="text-[11px] text-gray-500 mt-0.5 truncate max-w-md">{{ detailsText(log) }}</div>
-                    }
-                  </td>
-                  <td class="px-5 py-3 text-gray-300">{{ log.actor || '—' }}</td>
-                  <td class="px-5 py-3 text-gray-400 font-mono text-xs">{{ log.resource || '—' }}</td>
-                  <td class="px-5 py-3">
-                    <span
-                      class="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-full uppercase tracking-wider"
-                      [ngClass]="severityClass(log.severity)"
-                    >
-                      <app-icon [name]="severityIcon(log.severity)" [size]="10" />
-                      {{ severityLabel(log.severity) }}
-                    </span>
-                  </td>
-                </tr>
-              }
-            </tbody>
+            }</tbody>
           </table>
         </div>
-        @if (filteredLogs().length > pageLogs().length) {
-          <div class="px-5 py-3 flex items-center justify-between border-t border-white/5">
-            <span class="text-[11px] text-gray-500 font-mono">
-              {{ i18n.t('governance.audit.showing', { shown: pageLogs().length, total: filteredLogs().length }) }}
-            </span>
-            <button
-              type="button"
-              (click)="loadMore()"
-              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-[11px] font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
-            >
-              <app-icon name="chevron-down" [size]="12" /> {{ i18n.t('governance.load_more') }}
-            </button>
-          </div>
-        }
+      }
+      @if (nextCursor()) {
+        <div class="audit-footer"><button type="button" class="audit-button" (click)="loadMore()" [disabled]="loading()">
+          {{ i18n.t('governance.load_more') }}
+        </button></div>
       }
     </section>
   `,
   styles: [`
-    .audit-select {
-      appearance: none;
-      min-height: 2rem;
-      min-width: 9rem;
-      border-radius: 0.375rem;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      background-color: rgba(2, 6, 23, 0.68);
-      background-image:
-        linear-gradient(45deg, transparent 50%, rgba(148, 163, 184, 0.9) 50%),
-        linear-gradient(135deg, rgba(148, 163, 184, 0.9) 50%, transparent 50%);
-      background-position:
-        calc(100% - 14px) 50%,
-        calc(100% - 9px) 50%;
-      background-size: 5px 5px, 5px 5px;
-      background-repeat: no-repeat;
-      color: #e5e7eb;
-      font-size: 0.75rem;
-      line-height: 1rem;
-      padding: 0.375rem 2rem 0.375rem 0.75rem;
-    }
-
-    .audit-select:focus {
-      outline: none;
-      border-color: rgba(103, 232, 249, 0.42);
-      box-shadow: 0 0 0 1px rgba(103, 232, 249, 0.24);
-    }
+    :host { display: block; color: var(--ck-fg-1); }
+    .audit-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-bottom: 12px; }
+    label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ck-fg-2); }
+    input, select, .audit-button { min-height: 36px; border: 1px solid var(--ck-stroke-2); border-radius: 6px;
+      padding: 6px 10px; background: var(--ck-bg-inset); color: var(--ck-fg-1); font: inherit; }
+    input { max-width: 100%; }
+    .audit-button { font-size: 13px; cursor: pointer; }
+    .audit-button:disabled { opacity: .5; cursor: default; }
+    :is(input, select, button, a):focus-visible { outline: 2px solid var(--ck-primary); outline-offset: 3px; }
+    .audit-toggle { flex-direction: row; align-items: center; min-height: 36px; }
+    .audit-toggle input { width: 18px; }
+    .audit-status { font-size: 12px; color: var(--ck-fg-2); margin: 12px 0; }
+    .audit-table { border-radius: 6px; overflow: hidden; }
+    .audit-scroll { overflow-x: auto; }
+    table { width: 100%; font-size: 13px; border-collapse: collapse; }
+    th, td { padding: 12px 16px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--ck-stroke-1); }
+    th { font-weight: 600; color: var(--ck-fg-2); }
+    td:first-child { white-space: nowrap; }
+    code { display: block; font-size: 11px; color: var(--ck-fg-2); overflow-wrap: anywhere; }
+    .audit-details { display: block; font-size: 12px; color: var(--ck-fg-2); overflow-wrap: anywhere; max-width: 32rem; }
+    a { display: inline-block; min-height: 24px; color: var(--ck-fg-1); text-decoration: underline; margin-top: 4px; }
+    .audit-footer { display: flex; justify-content: end; padding: 12px; }
   `],
 })
-export class AuditLogsComponent implements OnInit {
+export class AuditLogsComponent {
   private readonly api = inject(ApiService);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly destroyRef = inject(DestroyRef);
   readonly i18n = inject(I18nService);
+  readonly logs = signal<AuditLog[]>([]);
+  readonly total = signal(0);
+  readonly nextCursor = signal<string | null>(null);
+  readonly loading = signal(false);
+  readonly exporting = signal(false);
+  readonly error = signal(false);
+  readonly kinds = signal<string[]>([]);
+  readonly severities = ['info', 'warning', 'error', 'critical'];
+  readonly eventKey = auditEventKey;
+  filters: AuditFilters = { navigation: false, actor: '', eventType: '', since: '', until: '',
+    trace: this.route.snapshot.queryParamMap.get('trace_id') || '', severity: '', search: '' };
+  private applied = { ...this.filters };
+  private requestId = 0;
 
-  logs = signal<AuditLog[]>([]);
-  loading = signal(true);
-  query = '';
-  severity = signal<Severity | 'all'>('all');
-  actorFilter = signal<string>('');
-  kindFilter = signal<string>('');
-  readonly pageSize = 50;
-  private readonly limit = signal(this.pageSize);
-
-  readonly skeletonRows = Array(6);
-
-  readonly actors = computed(() =>
-    Array.from(
-      new Set(this.logs().map((l) => l.actor).filter((a): a is string => !!a)),
-    ).sort(),
-  );
-  readonly kinds = computed(() =>
-    Array.from(
-      new Set(this.logs().map((l) => l.event_type).filter((k): k is string => !!k)),
-    ).sort(),
-  );
-
-  readonly severityFilters: { key: Severity | 'all'; labelKey: string }[] = [
-    { key: 'all', labelKey: 'governance.audit.severity.all' },
-    { key: 'info', labelKey: 'governance.audit.severity.info' },
-    { key: 'warning', labelKey: 'governance.audit.severity.warning' },
-    { key: 'error', labelKey: 'governance.audit.severity.error' },
-    { key: 'critical', labelKey: 'governance.audit.severity.critical' },
-  ];
-
-  readonly filteredLogs = computed(() => {
-    const q = this.query.trim().toLowerCase();
-    const sev = this.severity();
-    const actor = this.actorFilter();
-    const kind = this.kindFilter();
-    return this.logs().filter((log) => {
-      if (sev !== 'all' && (log.severity || 'info') !== sev) return false;
-      if (actor && log.actor !== actor) return false;
-      if (kind && log.event_type !== kind) return false;
-      if (!q) return true;
-      return (
-        log.event_type?.toLowerCase().includes(q) ||
-        log.actor?.toLowerCase().includes(q) ||
-        log.resource?.toLowerCase().includes(q) ||
-        this.detailsText(log).toLowerCase().includes(q)
-      );
+  constructor() {
+    effect(() => {
+      this.workspace.current()?.slug;
+      untracked(() => { this.kinds.set([]); this.reload(); });
     });
-  });
-
-  readonly pageLogs = computed(() => this.filteredLogs().slice(0, this.limit()));
-
-  ngOnInit(): void {
-    this.reload();
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(params => {
+      const trace = params.get('trace_id') || '';
+      if (trace !== this.filters.trace) { this.filters.trace = trace; this.reload(); }
+    });
+    this.destroyRef.onDestroy(() => { this.requestId++; });
   }
 
   reload(): void {
+    this.applied = { ...this.filters };
+    this.logs.set([]);
+    this.total.set(0);
+    this.nextCursor.set(null);
+    void this.fetchPage();
+  }
+
+  loadMore(): void { if (!this.loading() && this.nextCursor()) void this.fetchPage(this.nextCursor()); }
+
+  private async fetchPage(before?: string | null): Promise<void> {
+    const id = ++this.requestId;
+    const slug = this.workspace.current()?.slug;
     this.loading.set(true);
-    this.limit.set(this.pageSize);
-    this.api.get<AuditLog[] | AuditLogResponse>('/audit').subscribe({
-      next: (data) => {
-        const rows = Array.isArray(data) ? data : (data?.logs ?? []);
-        this.logs.set(rows.map((row) => ({
-          ...row,
-          resource: row.resource || row.agent_id || row.trace_id || this.resourceFromDetails(row.details),
-        })));
-        this.loading.set(false);
-      },
-      error: () => {
-        this.logs.set([]);
-        this.loading.set(false);
-      },
-    });
-  }
-
-  loadMore(): void {
-    this.limit.update((v) => v + this.pageSize);
-  }
-
-  exportCsv(): void {
-    const rows = this.filteredLogs();
-    if (!rows.length) return;
-    const header = ['Timestamp', 'Event', 'Actor', 'Resource', 'Severity', 'Details'];
-    const escape = (value: unknown): string => {
-      const s = value == null ? '' : String(value);
-      return `"${s.replace(/"/g, '""')}"`;
-    };
-    const lines = [header.map(escape).join(',')];
-    for (const log of rows) {
-      lines.push(
-        [
-          log.timestamp,
-          log.event_type,
-          log.actor || '',
-          log.resource || '',
-          log.severity || 'info',
-          this.detailsText(log),
-        ]
-          .map(escape)
-          .join(','),
-      );
+    this.error.set(false);
+    try {
+      const page: AuditPage = await firstValueFrom(this.api.get<AuditPage>('/audit', auditParams(this.applied, before), { workspaceSlug: slug }));
+      if (id !== this.requestId || slug !== this.workspace.current()?.slug) return;
+      this.logs.set(appendAuditPage(before ? this.logs() : [], page));
+      this.total.set(page.total);
+      this.nextCursor.set(page.has_more ? page.next_cursor || null : null);
+      this.kinds.update(kinds => [...new Set([...kinds, ...page.logs.map(row => row.event_type)])].sort());
+    } catch {
+      if (id === this.requestId) this.error.set(true);
+    } finally {
+      if (id === this.requestId) this.loading.set(false);
     }
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    link.download = `audit-log-${stamp}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
   }
 
-  eventIcon(type: string): string {
-    const t = (type || '').toLowerCase();
-    if (t.includes('login') || t.includes('sign')) return 'log-in';
-    if (t.includes('logout')) return 'log-out';
-    if (t.includes('delete') || t.includes('remove')) return 'trash-2';
-    if (t.includes('create') || t.includes('add')) return 'plus';
-    if (t.includes('update') || t.includes('edit')) return 'edit-3';
-    if (t.includes('invite')) return 'user-plus';
-    if (t.includes('role')) return 'key-round';
-    if (t.includes('upload')) return 'cloud-upload';
-    return 'circle-dot';
+  async exportCsv(): Promise<void> {
+    if (this.exporting()) return;
+    const slug = this.workspace.current()?.slug;
+    const filters = { ...this.applied };
+    const id = this.requestId;
+    this.exporting.set(true);
+    this.error.set(false);
+    try {
+      // ponytail: CSV assembled in memory; stream server-side for very large trails.
+      let rows: AuditLog[] = [];
+      let before: string | null = null;
+      do {
+        const page: AuditPage = await firstValueFrom(this.api.get<AuditPage>('/audit', auditParams(filters, before, 500), { workspaceSlug: slug }));
+        if (slug !== this.workspace.current()?.slug || id !== this.requestId) return;
+        rows = appendAuditPage(rows, page);
+        before = page.has_more ? page.next_cursor || null : null;
+      } while (before);
+      const url = URL.createObjectURL(new Blob(['\uFEFF', auditCsv(rows)], { type: 'text/csv;charset=utf-8' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `audit-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch { this.error.set(true); }
+    finally { this.exporting.set(false); }
   }
 
-  /** Severity comes from the API; translate known values, fall back to the raw one. */
-  severityLabel(severity?: string): string {
-    const value = severity || 'info';
+  detailsText(log: AuditLog): string { return typeof log.details === 'string' ? log.details : JSON.stringify(log.details); }
+  severityLabel(value: string): string {
     const key = 'governance.audit.severity.' + value;
     const label = this.i18n.t(key);
     return label === key ? value : label;
-  }
-
-  severityIcon(severity?: string): string {
-    switch (severity) {
-      case 'critical':
-      case 'error':
-        return 'alert-octagon';
-      case 'warning':
-        return 'alert-triangle';
-      default:
-        return 'info';
-    }
-  }
-
-  severityClass(severity?: string): string {
-    switch (severity) {
-      case 'critical':
-        return 'bg-red-500/20 text-red-300 ring-1 ring-red-500/40';
-      case 'error':
-        return 'bg-red-500/15 text-red-400 ring-1 ring-red-500/30';
-      case 'warning':
-        return 'bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30';
-      default:
-        return 'bg-cyan-500/10 text-cyan-300 ring-1 ring-cyan-500/30';
-    }
-  }
-
-  detailsText(log: AuditLog): string {
-    if (typeof log.details === 'string') return log.details;
-    if (!log.details) return '';
-    try {
-      return JSON.stringify(log.details);
-    } catch {
-      return String(log.details);
-    }
-  }
-
-  private resourceFromDetails(details: AuditLog['details']): string {
-    if (!details || typeof details !== 'object') return '';
-    for (const key of ['run_id', 'new_run_id', 'decision_id', 'canonical_answer_id', 'system_id', 'job_id']) {
-      const value = (details as Record<string, unknown>)[key];
-      if (typeof value === 'string' && value) return value;
-    }
-    return '';
   }
 }

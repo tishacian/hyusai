@@ -1,0 +1,30 @@
+................................................................         [100%]
+=============================== warnings summary ===============================
+app/tests/api/test_audit_trail_api.py: 22 warnings
+app/tests/api/test_audit_read_authorization.py: 5 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-ux-l2/backend/app/tests/api/test_audit_read_authorization.py:31: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+app/tests/api/test_audit_trail_api.py: 111 warnings
+app/tests/api/test_audit_read_authorization.py: 18 warnings
+app/tests/api/test_navigation_audit_api.py: 82 warnings
+app/tests/api/test_navigation_transition_audit_api.py: 6 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag/backend/.venv/lib/python3.14/site-packages/sqlalchemy/sql/schema.py:3624: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+app/tests/api/test_audit_trail_api.py::test_cursor_has_no_gaps_even_with_equal_timestamps_and_new_events
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-ux-l2/backend/app/tests/api/test_audit_trail_api.py:43: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(), event_type="navigation.resolved"))
+
+app/tests/api/test_audit_trail_api.py: 3 warnings
+app/tests/api/test_navigation_audit_api.py: 27 warnings
+app/tests/api/test_navigation_transition_audit_api.py: 1 warning
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-ux-l2/backend/app/api/v1/endpoints/audit.py:528: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+app/tests/api/test_audit_read_authorization.py::test_audit_list_filters_by_event_type_prefix
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-ux-l2/backend/app/tests/api/test_audit_read_authorization.py:99: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+64 passed, 277 warnings in 5.31s
