@@ -33,17 +33,17 @@ export function ckChartIsDeclared(tone: CkChartTone | CkStreamTone | null | unde
 }
 
 /**
- * Declared hatch for areas: 1.5-unit lines of the declared ink every 10 user
- * units, tilted 45° (the soft variant tilts -45° so two declared neighbours
- * stay apart). L28 opened it from 2 every 6: on the rivers and the Flux value
- * ribbon the denser hatch read as zebra noise. At 45° a 1.5-unit line still
- * fully covers one device pixel in the worst phase at 1x (≥ 90 % coverage),
- * so its core keeps the ink. The tint under the hatch stays at or below 0.18
- * so the lines keep 3:1 on it in both themes (worst case, light theme at 1x:
- * 3.35:1 computed, see docs/hypervisor-v2-chart-grammar.md).
+ * Declared hatch for areas: 1-unit lines of the declared ink every 6 user
+ * units, always tilted 45°. The charts draw one viewBox unit per CSS pixel
+ * (fluid charts track the host width), so this is a 1 px hairline on a 6 px
+ * period on screen. Every declared layer shares the same direction and phase:
+ * the 1.5-every-10 hatch with alternating ±45° read as chunky chevrons where
+ * two declared layers met. Neighbours are told apart by their tint, a 1 px gap
+ * and a 1 px top edge instead (see the stream chart). The hatch is a texture;
+ * the meaning is carried by the legend text and `◐`.
  */
-export const CK_DECLARED_HATCH_PERIOD = 10;
-export const CK_DECLARED_HATCH_WIDTH = 1.5;
+export const CK_DECLARED_HATCH_PERIOD = 6;
+export const CK_DECLARED_HATCH_WIDTH = 1;
 
 /**
  * Declared dashes for strokes and bars, where a hatch would not read. `BOLD`

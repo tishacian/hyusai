@@ -28,10 +28,15 @@ say nothing to a reader who cannot tell teal from grey (WCAG 1.4.1). Every
 declared mark carries a second, colour-free cue:
 
 - **Areas** (river bands, the Sankey value ribbon): an SVG `<pattern>` hatch,
-  1.5-unit lines of `--ck-data-declared` every 10 units at 45°, over a teal
-  tint of at most 0.18 opacity. L28 opened it from 2 every 6 (tint 0.22): on
-  those large areas the denser hatch read as zebra noise. Two declared neighbours hatch in opposite
-  directions. Pattern ids are unique per chart (`ckChartUid`). The Sankey
+  1-unit hairlines of `--ck-data-declared` every 6 units, always at 45°, over a
+  teal tint of at most 0.18 opacity. One viewBox unit is one CSS pixel (fluid
+  charts track the host width), so the hatch is never stretched. Every declared
+  layer shares the direction and phase (the old 1.5-every-10 hatch alternated
+  ±45° and read as chevrons); in the rivers, neighbours are told apart by a
+  lighter hatch and tint on the soft tone, a 1 px top edge in the declared ink
+  and a 1 px gap cut by a mask along each declared layer's lower boundary.
+  The hatch is a texture: the legend text and `◐` carry the meaning. Pattern
+  and mask ids are unique per chart (`ckChartUid`). The Sankey
   ribbon's hatch fades in with its teal, so the part that leaves the measured
   hours stays unhatched.
 - **Thin marks** (Cadran declared segment, register spark, Sankey value node):
@@ -46,11 +51,10 @@ declared mark carries a second, colour-free cue:
 
 The tints stay low so the pattern lines keep 3:1 against what they sit on, in
 both themes and at 1x as well as 2x device pixel ratio (measured on the
-rendered page: 3.34:1 at worst, the light provenance bar). For the lighter
-area hatch, the worst case is the light theme at 1x: a 1.5-unit line at 45°
-covers at least 90 % of one device pixel in its worst phase, which gives
-3.35:1 on the 0.18 tint over the canvas (3.47:1 over a panel), and 3.88:1 at
-full coverage (2x). Dark theme: 5.09:1 and above.
+rendered page: 3.34:1 at worst, the light provenance bar). The area hatch is
+the exception: since the 1 px hairline hatch it is a decorative texture, not
+a contrast-bearing mark. The shape of each declared layer reads through its
+full-ink 1 px top edge, and the meaning through the legend text and `◐`.
 
 Constants live in `shared/cockpit/charts/chart.types.ts`
 (`CK_DECLARED_HATCH_*`, `CK_DECLARED_DASH_*`, `ckChartIsDeclared`) and

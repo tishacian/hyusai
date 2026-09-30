@@ -63,16 +63,30 @@ test('stream: every declared area is hatched on top of its tint, measured areas 
   const [ink, declared, soft] = stream.areas;
   assert.equal(ink!.hatch, null);
   assert.equal(declared!.hatch, `url(#${stream.hatchId})`);
-  assert.equal(soft!.hatch, `url(#${stream.hatchSoftId})`, 'two declared neighbours hatch in opposite directions');
+  assert.equal(soft!.hatch, `url(#${stream.hatchSoftId})`, 'the soft neighbour carries a lighter hatch');
   assert.equal(declared!.fill, `url(#${stream.declaredId})`, 'the teal tint stays under the hatch');
+  // Each declared layer is told apart by a 1 px top edge and a 1 px gap on its lower boundary.
+  assert.ok(declared!.top.startsWith('M') && declared!.base?.startsWith('M'));
+  assert.equal(ink!.base, null, 'the bottom layer sits on the baseline: no gap to cut');
 
   const other = make(CkChartStreamComponent);
   assert.notEqual(other.hatchId, stream.hatchId, 'pattern ids are unique per chart instance');
+  assert.notEqual(other.layerMaskId, stream.layerMaskId, 'mask ids are unique per chart instance');
 
   const template = source('stream.component.ts');
   assert.match(template, /<pattern\s+\[attr\.id\]="hatchId"/);
   assert.match(template, /<pattern\s+\[attr\.id\]="hatchSoftId"/);
+  assert.doesNotMatch(template, /rotate\(-45\)/, 'every declared layer hatches in the same direction');
   assert.match(template, /@if \(area\.hatch\) \{\s*<path\s+class="ck-area ck-area-hatch"[\s\S]*?\[attr\.fill\]="area\.hatch"/);
+  assert.match(template, /class="ck-area-edge"\s+\[attr\.d\]="area\.top"/);
+  assert.match(template, /\[attr\.mask\]="area\.hatch \? 'url\(#' \+ layerMaskId/);
+});
+
+test('stream: the chart keeps one viewBox unit per CSS pixel, so the hatch is never stretched', () => {
+  const template = source('stream.component.ts');
+  assert.doesNotMatch(template, /preserveAspectRatio/);
+  assert.match(template, /\[style\.height\]="fluid \? 'auto' : null"/);
+  assert.match(template, /this\.width = next;/);
 });
 
 test('radial days: a declared segment is dashed, a measured one stays a solid stroke', () => {
