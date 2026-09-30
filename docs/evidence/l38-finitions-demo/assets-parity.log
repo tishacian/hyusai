@@ -1,0 +1,3 @@
+PASS: complete Flow toolbar stylesheet recompiled with Sass and Angular encapsulation equals production CSS (formatting normalized).
+PASS: Angular-parsed drawer header classes exactly match the production template constant.
+PASS: 32 initial static JS modules; no new lazy dictionary keys in initial bundle.

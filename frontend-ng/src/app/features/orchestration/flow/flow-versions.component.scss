@@ -18,7 +18,6 @@
 .ck-vers__total {
   font-size: 11px;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--ck-fg-4, #7b8391);
 }
 
@@ -138,6 +137,7 @@
 
 .ck-vers__meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 7px;
   margin-top: 5px;

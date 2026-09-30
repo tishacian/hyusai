@@ -1552,3 +1552,62 @@ test.describe('L36 — cited sources readable in place in Work', () => {
     await expect(overlay.locator('textarea[name="userInput"]')).toBeVisible();
   });
 });
+
+
+test.describe('L38 — French System and Flow history', () => {
+  test.skip(!enabled, 'Set E2E_CHROME_V2_MOCKED=1 to run');
+  for (const theme of ['dark', 'light'] as const) {
+    test(`System, version history and error copy, axe (${theme})`, async ({ page }, testInfo) => {
+      test.skip(!localOnly(testInfo), 'Mocked net is local-only');
+      await mockCockpit(page);
+      await page.addInitScript(theme => {
+        localStorage.setItem('agentium_locale', 'fr');
+        localStorage.setItem('agentium_theme', theme);
+      }, theme);
+      const frenchSystem = { ...system, name: 'Système de démonstration', status: 'active',
+        flow_definition: { ...flowDefinition, nodes: flowDefinition.nodes.map(node => ({ ...node, label: node.kind === 'source' ? 'Demande' : 'Réponse' })) } };
+      const demoWorkspace = { ...workspace, mode: 'operator', effective_features: { flow_publication_v1: false }, settings: { features: { flow_publication_v1: false } } };
+      await page.route('**/api/v1/auth/workspaces', route => json(route, [demoWorkspace]));
+      await page.route(`**/api/v1/auth/workspaces/${WORKSPACE_SLUG}`, route => json(route, demoWorkspace));
+      await page.route(`**/api/v1/systems/${SYSTEM_ID}`, route => json(route, frenchSystem));
+      await page.route('**/api/v1/systems', route => json(route, { systems: [frenchSystem] }));
+      await page.route(`**/api/v1/systems/${SYSTEM_ID}/versions?*`, route => json(route, { total: 2, versions: [
+        { id: 'v2', system_id: SYSTEM_ID, version_number: 2, created_at: new Date(Date.now() - 120000).toISOString(), created_by: 'Ada', node_count: 2, edge_count: 1 },
+        { id: 'v1', system_id: SYSTEM_ID, version_number: 1, created_at: new Date(Date.now() - 3600000).toISOString(), created_by: 'Ada', node_count: 1, edge_count: 0 },
+      ] }));
+      await page.goto(`/systems/${SYSTEM_ID}`);
+      const view = page.locator('app-system-view');
+      await expect(view).toBeVisible();
+      await expect(view.getByRole('tab', { name: 'Exécutions', exact: true })).toBeVisible();
+      await expect(view).toContainText('Un graphe exécuté étape par étape par le moteur.');
+      await expect(view).not.toContainText(/Loading runs|Latest runs|Run outcomes|Avg latency|Bound skills/);
+      await page.screenshot({ path: shot(`l38-system-${theme}.png`), animations: 'disabled' });
+      await expectNoAxeViolations(page);
+      await page.route(`**/api/v1/systems/${SYSTEM_ID}`, route => json(route, {
+        ...frenchSystem, name: 'Translation Suite', flow_definition: { variant: 'translation_suite' },
+      }));
+      await page.goto(`/systems/${SYSTEM_ID}`);
+      await expect(view).toContainText('Traduction DITA souveraine');
+      await expect(view).toContainText('Garde-fous');
+      await expect(view).toContainText('Modèle');
+      await expect(view).toContainText('Valider l’archive DITA');
+      await page.screenshot({ path: shot(`l38-translation-suite-${theme}.png`), animations: 'disabled' });
+      await expectNoAxeViolations(page);
+      await page.route(`**/api/v1/systems/${SYSTEM_ID}`, route => json(route, frenchSystem));
+      await page.goto(`/systems/${SYSTEM_ID}/flow`);
+      await page.getByRole('button', { name: 'Exploiter', exact: true }).click();
+      await page.getByRole('button', { name: 'Versions', exact: true }).click();
+      const drawer = page.locator('app-flow-versions');
+      await expect(drawer.getByText('Il s’agit déjà de la version courante.')).toBeVisible();
+      await expect(drawer).toContainText('Historique du Flow');
+      await expect(drawer).toContainText('il y a');
+      await expect(drawer).not.toContainText(/counts match| ago|This is already|current version/);
+      await page.screenshot({ path: shot(`l38-versions-${theme}.png`), animations: 'disabled' });
+      await expectNoAxeViolations(page);
+      await page.route(`**/api/v1/systems/${SYSTEM_ID}/versions?*`, route => json(route, { detail: 'Unavailable' }, 503));
+      await drawer.getByRole('button', { name: 'Actualiser les versions' }).click();
+      await expect(drawer.getByRole('alert')).toContainText('L’historique n’a pas pu être chargé.');
+      await expect(drawer).toContainText('Actualisez-le avant de restaurer une version.');
+    });
+  }
+});
