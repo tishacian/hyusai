@@ -520,7 +520,7 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         "compatibility",
         "workspace-user",
         "Runtime",
-        ("/chat",),
+        ("/chat", "/conversations", "/conversations/:id"),
         notes="Chat/session compatibility surface; canonical evidence lives under Runs.",
     ),
     SurfaceMetadata(

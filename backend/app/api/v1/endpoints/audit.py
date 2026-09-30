@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal
 from urllib.parse import unquote
 
@@ -23,12 +23,15 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.logging import get_logger
 from app.db.base import get_db
 from app.models.audit import AuditLog
+from app.models.run import Run, SkillInvocation
+from app.models.decision import Decision
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.audit_access import enforce_audit_read
@@ -91,6 +94,9 @@ _NAVIGATION_SURFACES = frozenset(
         "chat",
         "client360-pdr",
         "connectors",
+        "conversations",
+        "mcp",
+        "work",
         "contexts",
         "create",
         "create-apps",
@@ -220,6 +226,9 @@ _SURFACE_ROUTE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("/governance/surface-map", "surface-map"),
     ("/governance/blueprints", "workspace-blueprints"),
     ("/connectors/sharepoint", "sharepoint"),
+    ("/connectors/mcp", "mcp"),
+    ("/conversations", "conversations"),
+    ("/work", "work"),
     ("/connectors/sftp", "secure-deposit"),
     ("/settings/legacy", "legacy-settings"),
     ("/client360", "client360-pdr"),
@@ -544,26 +553,132 @@ async def create_audit_event(
     }
 
 
+def _utc(value: datetime) -> datetime:
+    return value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo else value
+
+
+def _cursor(value: str) -> tuple[datetime, str]:
+    try:
+        timestamp, row_id = value.rsplit(",", 1)
+        if not row_id or len(row_id) > 36:
+            raise ValueError()
+        return _utc(datetime.fromisoformat(timestamp)), row_id
+    except ValueError as exc:
+        raise HTTPException(422, "Invalid audit cursor") from exc
+
+
+def _audit_run_ids(db: Session, logs: list[AuditLog], workspace: Workspace, user: User) -> dict[str, str]:
+    """Resolve persisted execution references, never guess from a trace string."""
+    from app.services.run_access import readable_runs
+
+    candidates = {}
+    decision_ids = set()
+    for log in logs:
+        details = log.details if isinstance(log.details, dict) else {}
+        candidates[log.id] = [value for value in (
+            log.trace_id, details.get("run_id"), details.get("canonical_run_id"),
+            details.get("new_run_id"), details.get("invocation_id"),
+            details.get("skill_invocation_id"),
+        ) if isinstance(value, str) and value]
+        if isinstance(details.get("decision_id"), str):
+            decision_ids.add(details["decision_id"])
+    decisions = {row.id: row.target_id for row in db.query(Decision).filter(
+        Decision.workspace_id == workspace.id, Decision.scope == "run",
+        Decision.id.in_(decision_ids),
+    ).all()} if decision_ids else {}
+    for log in logs:
+        details = log.details if isinstance(log.details, dict) else {}
+        decision_id = details.get("decision_id")
+        target = decisions.get(decision_id) if isinstance(decision_id, str) else None
+        if target:
+            candidates[log.id].append(target)
+    refs = {ref for values in candidates.values() for ref in values}
+    if not refs:
+        return {}
+    invocations = dict(db.query(SkillInvocation.id, SkillInvocation.run_id).join(
+        Run, Run.id == SkillInvocation.run_id,
+    ).filter(Run.workspace_id == workspace.id, SkillInvocation.id.in_(refs)).all())
+    runs = db.query(Run).filter(
+        Run.workspace_id == workspace.id, Run.id.in_(refs | set(invocations.values())),
+    ).all()
+    visible = {run.id for run in readable_runs(db, runs=runs, user=user, workspace=workspace)}
+    resolved = {}
+    for log_id, values in candidates.items():
+        for ref in values:
+            run_id = ref if ref in visible else invocations.get(ref)
+            if run_id in visible:
+                resolved[log_id] = run_id
+                break
+    return resolved
+
+
 @router.get("")
 async def list_audit_logs(
     limit: int = Query(50, ge=1, le=500),
     event_type: str | None = None,
     event_type_prefix: str | None = None,
+    exclude_navigation: bool = False,
+    before: str | None = Query(None, max_length=100),
+    actor: str | None = Query(None, max_length=255),
+    since: datetime | None = None,
+    until: datetime | None = None,
+    trace_id: str | None = Query(None, max_length=36),
+    severity: str | None = Query(None, max_length=20),
+    search: str | None = Query(None, max_length=255),
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     enforce_audit_read(db, user=user, workspace=workspace)
-    query = (
-        db.query(AuditLog)
-        .filter(AuditLog.workspace_id == workspace.id)
-        .order_by(AuditLog.timestamp.desc())
-    )
+    if since and until and _utc(since) > _utc(until):
+        raise HTTPException(422, "Audit period start must precede end")
+    query = db.query(AuditLog).filter(AuditLog.workspace_id == workspace.id)
     if event_type:
         query = query.filter(AuditLog.event_type == event_type)
     elif event_type_prefix:
-        query = query.filter(AuditLog.event_type.startswith(event_type_prefix))
-    logs = query.limit(limit).all()
+        query = query.filter(AuditLog.event_type.startswith(event_type_prefix, autoescape=True))
+    if exclude_navigation:
+        query = query.filter(~AuditLog.event_type.startswith("navigation.", autoescape=True))
+    if actor:
+        query = query.filter(AuditLog.actor == actor)
+    if since:
+        query = query.filter(AuditLog.timestamp >= _utc(since))
+    if until:
+        query = query.filter(AuditLog.timestamp <= _utc(until))
+    if trace_id:
+        invocation_ids = [row[0] for row in db.query(SkillInvocation.id).join(
+            Run, Run.id == SkillInvocation.run_id,
+        ).filter(Run.workspace_id == workspace.id, Run.id == trace_id).all()]
+        decision_ids = [row[0] for row in db.query(Decision.id).filter(
+            Decision.workspace_id == workspace.id, Decision.scope == "run",
+            Decision.target_id == trace_id,
+        ).all()]
+        query = query.filter(or_(AuditLog.trace_id.in_([trace_id, *invocation_ids]), *(
+            AuditLog.details[key].as_string() == trace_id
+            for key in ("run_id", "canonical_run_id", "new_run_id")
+        ), *(
+            AuditLog.details[key].as_string().in_(invocation_ids)
+            for key in ("invocation_id", "skill_invocation_id")
+        ), AuditLog.details["decision_id"].as_string().in_(decision_ids)))
+    if severity:
+        query = query.filter(AuditLog.severity == severity)
+    if search:
+        from sqlalchemy import String, cast
+        query = query.filter(or_(*(
+            column.icontains(search, autoescape=True)
+            for column in (AuditLog.event_type, AuditLog.actor, AuditLog.agent_id,
+                           AuditLog.trace_id, cast(AuditLog.details, String))
+        )))
+    total = query.count()
+    if before:
+        timestamp, row_id = _cursor(before)
+        query = query.filter(or_(AuditLog.timestamp < timestamp, and_(
+            AuditLog.timestamp == timestamp, AuditLog.id < row_id,
+        )))
+    rows = query.order_by(AuditLog.timestamp.desc(), AuditLog.id.desc()).limit(limit + 1).all()
+    logs = rows[:limit]
+    run_ids = _audit_run_ids(db, logs, workspace, user)
+    has_more = len(rows) > limit
     return {
         "logs": [
             {
@@ -573,12 +688,15 @@ async def list_audit_logs(
                 "actor": log.actor,
                 "details": log.details,
                 "trace_id": log.trace_id,
+                "run_id": run_ids.get(log.id),
                 "agent_id": log.agent_id,
                 "severity": log.severity,
             }
             for log in logs
         ],
-        "total": len(logs),
+        "total": total,
+        "has_more": has_more,
+        "next_cursor": f"{logs[-1].timestamp.isoformat()},{logs[-1].id}" if has_more else None,
     }
 
 

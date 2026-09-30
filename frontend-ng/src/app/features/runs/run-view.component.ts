@@ -25,7 +25,7 @@ import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-persp
 import { CanonicalApiService, type RetrievalDecisionTrace, type Run, type SkillInvocation } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { LensService } from '@app/core/lens';
-import { isObjectLens, type ObjectLens } from '@app/core/navigation.catalog';
+import { isObjectLens, navigationLeafUrl, type ObjectLens } from '@app/core/navigation.catalog';
 import {
   ObjectPerspectiveGateRevokedError,
   ObjectPerspectiveStore,
@@ -70,6 +70,9 @@ import { observabilityNumber } from '../observability/observability-labels';
     RunTraceComponent,
   ],
   template: `
+    @if (run(); as auditRun) {
+      <a [routerLink]="auditUrl" [queryParams]="{ trace_id: auditRun.id }" class="inline-flex items-center px-3 py-2 text-sm underline">{{ i18n.t('governance.audit.run_audit') }}</a>
+    }
 
     @if (projectionEnabled()) {
       <ck-object-header
@@ -574,6 +577,8 @@ import { observabilityNumber } from '../observability/observability-labels';
   `],
 })
 export class RunViewComponent implements OnInit, OnDestroy {
+  readonly auditUrl = navigationLeafUrl('governance-audit');
+
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly canonical = inject(CanonicalApiService);
