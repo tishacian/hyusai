@@ -11,6 +11,7 @@ import { I18nService } from '@app/core/i18n.service';
 import type { I18nKey } from '@app/core/i18n.dict';
 import { ThinkingOrbComponent, type CkOrbState } from '@app/shared/cockpit';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
+import { CursorWakeComponent } from './cursor-wake.component';
 
 /**
  * The instrument panel walks one abstract system — objective, retrieve,
@@ -46,7 +47,7 @@ const REDUCED_MOTION_STEP = 3;
 @Component({
   selector: 'app-auth-shell',
   standalone: true,
-  imports: [RouterOutlet, StatusPulseComponent, ThinkingOrbComponent],
+  imports: [RouterOutlet, StatusPulseComponent, ThinkingOrbComponent, CursorWakeComponent],
   template: `
     <div class="ck-auth-shell">
       <!-- Layered ambient backdrop (grid + subtle blooms) -->
@@ -55,6 +56,7 @@ const REDUCED_MOTION_STEP = 3;
         <div class="ck-auth-bloom ck-auth-bloom-cool"></div>
         <div class="ck-auth-bloom ck-auth-bloom-violet"></div>
         <div class="ck-auth-scanline"></div>
+        <app-cursor-wake />
       </div>
 
       <!-- Compact bar, only when the panel is folded away (<960px) -->
