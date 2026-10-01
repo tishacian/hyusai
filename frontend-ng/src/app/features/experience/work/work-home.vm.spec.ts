@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   agePhrase,
   homeQueue,
+  homeReviewPhrase,
   homeTiles,
   homeTitle,
   homeWaitingTotal,
@@ -12,6 +13,29 @@ import {
 } from './work-home.vm';
 
 const NOW = Date.parse('2026-09-29T12:00:00Z');
+
+test('automatic review notices preserve the observed score and localise its number', () => {
+  assert.deepEqual(homeReviewPhrase('Run has high hallucination rate (33.3%)', 'fr'), {
+    key: 'experience.work.home.review.hallucination', params: { rate: '33,3' },
+  });
+  assert.deepEqual(homeReviewPhrase('Run has high hallucination rate (33.3%)', 'en'), {
+    key: 'experience.work.home.review.hallucination', params: { rate: '33.3' },
+  });
+  assert.deepEqual(homeReviewPhrase('Run below composite threshold (69/100)', 'fr'), {
+    key: 'experience.work.home.review.quality', params: { score: '69' },
+  });
+  assert.deepEqual(homeReviewPhrase('Run flagged for review', 'fr'), {
+    key: 'experience.work.home.review.flagged',
+  });
+});
+
+test('custom, partial and invalid notices do not acquire an invented quality claim', () => {
+  for (const title of [null, 'Compléter le grade', 'Run below composite threshold (69/100) — draft',
+    'Run has high hallucination rate (101%)', 'Run has high hallucination rate (-1%)',
+    'Run has high hallucination rate (unknown%)']) {
+    assert.equal(homeReviewPhrase(title, 'fr'), null, title ?? 'missing title');
+  }
+});
 const app = { kind: 'app', slug: 'pr-to-po', name: 'PR to PO' };
 const automation = { kind: 'automation', system_id: 'sys-1', name: 'Nightly check' };
 

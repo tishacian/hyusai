@@ -159,13 +159,21 @@ function quietHome(): Record<string, unknown> {
   };
 }
 
-async function installHome(page: Page, theme: 'dark' | 'light', home: Record<string, unknown>): Promise<void> {
-  await page.addInitScript(({ slug, theme }) => {
+async function installHome(page: Page, theme: 'dark' | 'light', home: Record<string, unknown>, options: {
+  locale?: 'fr' | 'en'; catalogue?: Record<string, unknown>;
+} = {}): Promise<void> {
+  const baseURL = test.info().project.use.baseURL;
+  if (!baseURL || !['localhost', '127.0.0.1'].includes(new URL(baseURL).hostname)) {
+    throw new Error('Work home fixtures require a loopback E2E_BASE_URL');
+  }
+  await page.route('**/*', (route) => ['localhost', '127.0.0.1'].includes(new URL(route.request().url()).hostname)
+    ? route.fallback() : route.abort('blockedbyclient'));
+  await page.addInitScript(({ slug, theme, locale }) => {
     localStorage.setItem('agentium_token', 'Bearer mocked-l33');
     localStorage.setItem('agentium_workspace_slug', slug);
     localStorage.setItem('agentium_theme', theme);
-    localStorage.setItem('agentium_locale', 'fr');
-  }, { slug: WORKSPACE.slug, theme });
+    localStorage.setItem('agentium_locale', locale);
+  }, { slug: WORKSPACE.slug, theme, locale: options.locale ?? 'fr' });
 
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -181,7 +189,7 @@ async function installHome(page: Page, theme: 'dark' | 'light', home: Record<str
     }
     if (apiPath === '/auth/me') return json(route, USER);
     if (apiPath === '/help-content') return json(route, { version: 'local', personas: [], languages: [], items: [] });
-    if (apiPath === '/work') return json(route, catalogue());
+    if (apiPath === '/work') return json(route, options.catalogue ?? catalogue());
     if (apiPath === '/work/_home') return json(route, home);
     if (apiPath === `/runs/${PR_RUN}` && method === 'GET') return json(route, prRun());
     if (apiPath === '/work/pr-to-po/validations') return json(route, { runs: [] });
@@ -205,6 +213,31 @@ async function expectNoAxeViolations(page: Page): Promise<void> {
 
 test.describe('L33 — Work home « À faire »', () => {
   test.skip(!enabled, 'Set E2E_CHROME_V2_MOCKED=1 to run the mocked chrome safety net');
+
+  for (const locale of ['fr', 'en'] as const) {
+    for (const theme of ['light', 'dark'] as const) {
+      test(`automatic reviews use business language and one application stays singular (${locale}, ${theme})`, async ({ page }, info) => {
+        const apps = catalogue() as { experiences: unknown[] };
+        await installHome(page, theme, { ...quietHome(), reviews: { count: 3, items: [
+          { decision_id: 'review-rate', title: 'Run has high hallucination rate (33.3%)' },
+          { decision_id: 'review-quality', title: 'Run below composite threshold (69/100)' },
+          { decision_id: 'review-custom', title: 'Vérifier la référence fournisseur' },
+        ] } }, { locale, catalogue: { experiences: apps.experiences.slice(0, 1), automation_jobs: [] } });
+        await page.goto('/work');
+        const app = page.locator('app-work-launcher');
+        await expect(app.getByRole('heading', { level: 1 })).toHaveText(locale === 'fr' ? '3 choses vous attendent' : '3 things are waiting for you');
+        await expect(app.locator('.xp-home-list')).toContainText(locale === 'fr'
+          ? 'Réponse à vérifier · taux d’hallucination : 33,3 %' : 'Answer to check · hallucination rate: 33.3%');
+        await expect(app.locator('.xp-home-list')).toContainText(locale === 'fr'
+          ? 'Réponse à relire · qualité sous le seuil (69/100)' : 'Answer to review · quality below threshold (69/100)');
+        await expect(app.locator('.xp-home-list')).toContainText('Vérifier la référence fournisseur');
+        await expect(app.locator('.xp-home-list')).not.toContainText('Run has');
+        await expect(app.locator('.xp-work-summary')).toContainText('1 application ·');
+        await expectNoAxeViolations(page);
+        await page.screenshot({ path: info.outputPath(`work-reviews-${locale}-${theme}.png`), fullPage: true });
+      });
+    }
+  }
 
   for (const theme of ['light', 'dark'] as const) {
     test(`home with items, receipts and a keyboard path to the first decision (${theme})`, async ({ page }) => {
