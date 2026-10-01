@@ -1,5 +1,7 @@
 # Agentium Showcase — QA utilisateur du 1er octobre 2026
 
+> Évolution du cadrage : le demandeur a retenu une nouvelle démo **e-commerce — réclamations et remboursements**, décrite dans le [brief dédié](../showcase-ecommerce/BRIEF.md). La préparation PR to PO/Data Demo ci-dessous correspond à la piste initiale et ne constitue plus le plan du nouveau scénario.
+
 Le parcours réel **Work → Operational Analysis → résultat → exécution → audit → retour à l’exécution** fonctionne sur `https://agentium.papai.ai`, dans le workspace `agentium-showcase`. La trame complète de 35–40 minutes n’est pas encore prête : PR to PO, Retention Board, les datasets et les modèles attendus ne sont pas disponibles dans ce workspace au moment du contrôle.
 
 Les défauts corrigés dans ce lot sont validés sur un build local avec des réponses API simulées. Ils ne sont pas déployés sur la VM. La révision de production observée dans la trace est `65767cb606d6681d118a8b2ed73e603b40d302b4`. La branche `ux/l40-demo-qa-utilisateur` inclut aussi le lot C3 précédent (`3847de8`), qui explicite les limites PostgreSQL et la provenance des aperçus HANA.
