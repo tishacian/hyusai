@@ -1,5 +1,7 @@
 # Préparer Showcase sur la VM
 
+> Piste initiale : ces commandes préparent PR to PO et Data Demo. Pour la nouvelle démo retenue, suivre le [brief e-commerce](../showcase-ecommerce/BRIEF.md). Ne pas exécuter les commandes ci-dessous comme préparation par défaut de ce nouveau scénario.
+
 Ces commandes **n’ont pas été exécutées sur la VM** : l’alias SSH `omnirag-demo` n’est pas configuré dans l’environnement cloud. Utiliser le checkout et l’environnement Python du backend réellement déployé, avec sa configuration de base de données. Aucun chemin d’un poste local n’est nécessaire.
 
 ## S1 — Seed du scénario
