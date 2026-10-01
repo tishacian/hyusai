@@ -241,6 +241,12 @@ const MASKED_PASSWORD = /^[*•]+$/;
           @if (preview.ok === false) {
             <p class="mt-3 text-sm text-amber-200">{{ preview.detail || i18n.t('connectors.hana.preview_failed') }}</p>
           } @else {
+            @if (preview.source === 'demo_dataset') {
+              <div role="status" class="mt-3 rounded-md p-3 ck-tone-warn ring-1 ring-current/25">
+                <p class="text-sm font-semibold">{{ i18n.t('connectors.hana.preview_demo') }}</p>
+                <p class="mt-1 text-sm leading-5">{{ i18n.t('connectors.hana.preview_demo_help') }}</p>
+              </div>
+            }
             <div class="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
               @if (preview.current_schema) {
                 <span class="ck-mono text-cyan-300">{{ preview.current_schema }}</span>
@@ -256,11 +262,13 @@ const MASKED_PASSWORD = /^[*•]+$/;
                     : 'bg-amber-500/10 text-amber-200 ring-amber-400/25'
                 "
               >
-                {{
-                  preview.source === 'hana_live'
-                    ? i18n.t('connectors.hana.preview_live')
-                    : i18n.t('connectors.hana.preview_demo')
-                }}
+                @if (preview.source === 'hana_live') {
+                  {{ i18n.t('connectors.hana.preview_live') }}
+                } @else if (preview.source === 'demo_dataset') {
+                  {{ i18n.t('connectors.hana.preview_demo') }}
+                } @else {
+                  {{ i18n.t('connectors.hana.preview_unknown') }}
+                }
               </span>
             </div>
             <p class="mt-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
@@ -290,7 +298,7 @@ const MASKED_PASSWORD = /^[*•]+$/;
             @if (preview.sample_table) {
               <p class="mt-4 text-[12px] font-semibold text-gray-200">
                 {{ i18n.t('connectors.hana.preview_sample', { table: preview.sample_table }) }}
-                · {{ i18n.t('connectors.hana.preview_rows', { count: preview.row_count || 0 }) }}
+                · {{ i18n.t('connectors.hana.preview_rows', { count: preview.row_count ?? '—' }) }}
               </p>
             }
             @if ((preview.columns || []).length) {

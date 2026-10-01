@@ -39,6 +39,7 @@ import {
   CONNECTOR_CATEGORIES,
   CONNECTORS,
   ConnectorDef,
+  type ConnectorStatus,
   readAppToggles,
 } from './resources.catalog';
 import {
@@ -1025,7 +1026,9 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                   >
                     <app-icon [name]="c.icon" [size]="18" />
                   </div>
-                  @if (c.status === 'active' || isConfigured(c.id)) {
+                  @if (connectorStatus(c) === 'configuration-only') {
+                    <span class="ck-pill ck-tone-preview">{{ i18n.t('connectors.status.configuration_only') }}</span>
+                  } @else if (connectorStatus(c) === 'active') {
                     <app-status-pulse tone="success" [label]="i18n.t('connectors.status.connected')" />
                   } @else if (c.status === 'beta') {
                     <span class="ck-pill ck-tone-preview">{{ i18n.t('connectors.status.beta') }}</span>
@@ -1260,7 +1263,7 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
     CONNECTORS.filter((c) => this.isConnectorVisible(c)),
   );
   readonly connectorsActive = computed(
-    () => this.visibleConnectors().filter((c) => c.status === 'active' || this.isConfigured(c.id)).length,
+    () => this.visibleConnectors().filter((c) => this.connectorStatus(c) === 'active').length,
   );
   readonly connectorsAvailable = computed(
     () => this.visibleConnectors().filter((c) => c.status !== 'coming-soon').length,
@@ -2142,6 +2145,11 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
 
   isConfigured(id: string): boolean {
     return this.connectorConfigs()[id]?.configured === true;
+  }
+
+  connectorStatus(connector: ConnectorDef): ConnectorStatus {
+    if (connector.status === 'configuration-only') return connector.status;
+    return this.isConfigured(connector.id) ? 'active' : connector.status;
   }
 
   openConnector(c: ConnectorDef): void {

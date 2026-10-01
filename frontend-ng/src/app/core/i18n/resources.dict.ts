@@ -246,6 +246,7 @@ export const RESOURCES_FR = {
   'connectors.category.count': '{count} connecteurs',
   'connectors.status.connected': 'connecté',
   'connectors.status.configured': 'configuré',
+  'connectors.status.configuration_only': 'Configuration uniquement',
   'connectors.status.ready': 'prêt',
   'connectors.status.available': 'disponible',
   'connectors.status.beta': 'bêta',
@@ -381,7 +382,10 @@ export const RESOURCES_FR = {
   'connectors.hana.preview_tables': 'Tables',
   'connectors.hana.preview_sample': 'Échantillon · {table}',
   'connectors.hana.preview_live': 'HANA actif',
-  'connectors.hana.preview_demo': 'Jeu de démo (HANA injoignable)',
+  'connectors.hana.preview_demo': 'Jeu de démonstration',
+  'connectors.hana.preview_demo_help':
+    'Cet aperçu utilise des données de démonstration internes. Elles ne proviennent pas de votre instance SAP HANA.',
+  'connectors.hana.preview_unknown': 'Source inconnue',
   'connectors.hana.preview_rows': '{count} lignes',
   'connectors.hana.preview_empty': 'Aucune table dans ce schéma.',
   'connectors.hana.preview_failed': 'Impossible de prévisualiser le schéma HANA',
@@ -508,7 +512,7 @@ export const RESOURCES_FR = {
   'resources.catalog.visual_streams.description':
     "Capture d'instantanés depuis des flux publics ou autorisés, observations et synchronisation vers les Connaissances.",
   'resources.catalog.postgresql.description':
-    'Requêtes sur données structurées et analytique.',
+    'Configuration et test de connexion uniquement. Les requêtes et les imports de données ne sont pas encore disponibles.',
   'resources.catalog.sap_hana.description':
     'Interrogez SAP HANA Cloud pour des données ERP / maintenance structurées depuis les skills du Flow Builder.',
   'resources.catalog.mcp.description':
@@ -774,6 +778,7 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
   'connectors.category.count': '{count} connectors',
   'connectors.status.connected': 'connected',
   'connectors.status.configured': 'configured',
+  'connectors.status.configuration_only': 'Configuration only',
   'connectors.status.ready': 'ready',
   'connectors.status.available': 'available',
   'connectors.status.beta': 'beta',
@@ -909,7 +914,10 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
   'connectors.hana.preview_tables': 'Tables',
   'connectors.hana.preview_sample': 'Sample · {table}',
   'connectors.hana.preview_live': 'Live HANA',
-  'connectors.hana.preview_demo': 'Demo set (HANA unreachable)',
+  'connectors.hana.preview_demo': 'Demo dataset',
+  'connectors.hana.preview_demo_help':
+    'This preview uses internal demonstration data. It does not come from your SAP HANA instance.',
+  'connectors.hana.preview_unknown': 'Unknown source',
   'connectors.hana.preview_rows': '{count} rows',
   'connectors.hana.preview_empty': 'No tables in this schema.',
   'connectors.hana.preview_failed': 'Could not preview the HANA schema',
@@ -1028,7 +1036,7 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
   'resources.catalog.visual_streams.description':
     'Snapshot capture from public or authorized streams, observations and Knowledge sync.',
   'resources.catalog.postgresql.description':
-    'Structured data queries and analytics.',
+    'Configuration and connection test only. Data queries and imports are not available yet.',
   'resources.catalog.sap_hana.description':
     'Query SAP HANA Cloud for structured ERP / maintenance data from Flow Builder skills.',
   'resources.catalog.mcp.description':

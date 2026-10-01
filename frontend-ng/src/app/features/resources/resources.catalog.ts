@@ -17,7 +17,7 @@
  *   - the System Builder wizard Skills step (enabled workspace apps).
  */
 
-export type ConnectorStatus = 'active' | 'available' | 'coming-soon' | 'beta';
+export type ConnectorStatus = 'active' | 'available' | 'coming-soon' | 'beta' | 'configuration-only';
 export type ConnectorCategory = 'microsoft' | 'channels' | 'data-storage';
 
 export interface ConnectorField {
@@ -218,9 +218,9 @@ export const CONNECTORS: ConnectorDef[] = [
     category: 'data-storage',
     icon: 'database',
     name: 'PostgreSQL',
-    description: 'Structured data queries and analytics.',
+    description: 'Configuration and connection test only. Data queries and imports are not available yet.',
     version: 'v16',
-    status: 'active',
+    status: 'configuration-only',
     fields: [
       { key: 'host', label: 'Host', type: 'text', placeholder: 'localhost', required: true },
       { key: 'port', label: 'Port', type: 'number', placeholder: '5432' },

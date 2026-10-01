@@ -25,6 +25,9 @@ class WorkspaceStub {
   readonly current = () => ({ id: this.currentSlug() });
   readonly contextEpoch = () => this.epoch;
   readonly modelPortalEnabled = () => this.enabled;
+  readonly sapHanaConnectorEnabled = () => true;
+  readonly rpaBridgeEnabled = () => true;
+  readonly mcpConnectorEnabled = () => true;
   readonly isDemoSafeMode = () => false;
   private resetters = new Set<(t: WorkspaceContextTransition) => void>();
   captureRequestScope(): WorkspaceRequestScope { return { workspaceSlug: this.currentSlug(), workspaceId: this.currentSlug(), epoch: this.epoch }; }
@@ -246,6 +249,26 @@ test('connector state comes from the server, and none of it reaches browser stor
       else Reflect.deleteProperty(globalThis, name);
     }
   }
+});
+
+test('saved PostgreSQL configuration does not imply an operational data connector', () => {
+  const h = harness();
+  try {
+    const postgres = CONNECTORS.find((connector) => connector.id === 'postgresql')!;
+    assert.equal(h.component.connectorStatus(postgres), 'configuration-only');
+    const initiallyActive = h.component.connectorsActive();
+    h.responses.set('/connectors', {
+      can_configure: true,
+      connectors: [{ id: 'postgresql', values: { host: 'postgres.example.test' },
+        secrets_set: { password: true }, configured: true, testable: true }],
+    });
+    h.component.refresh();
+    assert.equal(h.component.isConfigured('postgresql'), true);
+    assert.equal(h.component.connectorStatus(postgres), 'configuration-only');
+    assert.equal(h.component.connectorsActive(), initiallyActive);
+    h.component.openConnector(postgres);
+    assert.equal(h.component.drawerOpen(), true, 'configuration and connection testing remain accessible');
+  } finally { h.close(); }
 });
 
 test('invocation evidence links preserve Govern as a query parameter', () => {

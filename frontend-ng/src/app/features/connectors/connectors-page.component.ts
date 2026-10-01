@@ -269,6 +269,7 @@ export class ConnectorsPageComponent implements OnInit, OnDestroy {
   }
 
   connectorStatus(connector: ConnectorDef): string {
+    if (connector.status === 'configuration-only') return this.i18n.t('connectors.status.configuration_only');
     if (this.isConnectedOrConfigured(connector)) return this.i18n.t('connectors.status.configured');
     if (connector.status === 'active') return this.i18n.t('connectors.status.ready');
     if (connector.status === 'beta') return this.i18n.t('connectors.status.beta');
@@ -292,6 +293,7 @@ export class ConnectorsPageComponent implements OnInit, OnDestroy {
   }
 
   statusClass(connector: ConnectorDef): string {
+    if (connector.status === 'configuration-only') return 'ck-tone-preview';
     if (this.isConnectedOrConfigured(connector)) return 'ck-tone-ok';
     if (connector.status === 'beta') return 'ck-tone-preview';
     if (connector.status === 'active' || connector.status === 'available') return 'ck-tone-info';
