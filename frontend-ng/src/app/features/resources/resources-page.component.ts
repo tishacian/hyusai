@@ -39,6 +39,7 @@ import {
   CONNECTOR_CATEGORIES,
   CONNECTORS,
   ConnectorDef,
+  type ConnectorStatus,
   readAppToggles,
   type ConnectorStatus,
 } from './resources.catalog';
@@ -1026,7 +1027,9 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                   >
                     <app-icon [name]="c.icon" [size]="18" />
                   </div>
-                  @if (c.status === 'active' || isConfigured(c.id)) {
+                  @if (connectorStatus(c) === 'configuration-only') {
+                    <span class="ck-pill ck-tone-preview">{{ i18n.t('connectors.status.configuration_only') }}</span>
+                  } @else if (connectorStatus(c) === 'active') {
                     <app-status-pulse tone="success" [label]="i18n.t('connectors.status.connected')" />
                   } @else if (c.status === 'beta') {
                     <span class="ck-pill ck-tone-preview">{{ i18n.t('connectors.status.beta') }}</span>
