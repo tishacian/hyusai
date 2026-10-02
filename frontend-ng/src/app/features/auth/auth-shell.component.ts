@@ -364,7 +364,7 @@ const REDUCED_MOTION_STEP = 3;
         inset: 0;
         width: 100%;
         height: 100%;
-        animation: ck-auth-orbit-drift 240s linear infinite;
+        animation: ck-auth-orbit-drift 72s linear infinite;
       }
       @keyframes ck-auth-orbit-drift {
         to { transform: rotate(360deg); }
@@ -378,9 +378,27 @@ const REDUCED_MOTION_STEP = 3;
         stroke-dasharray: 2 6;
         stroke-linecap: round;
       }
-      .ck-auth-ring-1 { opacity: 0.8; }
-      .ck-auth-ring-2 { opacity: 0.55; }
-      .ck-auth-ring-3 { opacity: 0.35; }
+      .ck-auth-ring-1 {
+        opacity: 0.8;
+        animation: ck-auth-ring-flow 22s linear infinite;
+      }
+      .ck-auth-ring-2 {
+        opacity: 0.55;
+        animation: ck-auth-ring-flow 15s linear infinite reverse;
+      }
+      .ck-auth-ring-3 {
+        opacity: 0.35;
+        animation: ck-auth-ring-flow 29s linear infinite;
+      }
+      @keyframes ck-auth-ring-flow {
+        to { stroke-dashoffset: -128; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .ck-auth-ring,
+        .ck-auth-ring-1,
+        .ck-auth-ring-2,
+        .ck-auth-ring-3 { animation: none; }
+      }
       .ck-auth-mote-cool { fill: var(--ck-signal-cool); opacity: 0.9; }
       .ck-auth-mote-violet { fill: var(--ck-signal-violet); opacity: 0.75; }
       .ck-auth-mote-ice { fill: var(--ck-signal-ice); opacity: 0.55; }
@@ -587,11 +605,14 @@ export class AuthShellComponent {
   protected readonly activeStep = signal(REDUCED_MOTION_STEP);
   protected readonly orbState = computed<CkOrbState>(() => PANEL_FLOW_STEPS[this.activeStep()].orb);
   private readonly wake = signal<WakeField | null>(null);
+  private readonly magneticField = signal<WakeField | null>(null);
   private readonly orbitBox = signal<{ x: number; y: number; width: number } | null>(null);
+  private magneticFrame = 0;
+  private readonly destroyRef = inject(DestroyRef);
 
   private readonly influence = computed(() => {
     const box = this.orbitBox();
-    const field = this.wake();
+    const field = this.magneticField();
     if (!box) return magneticInfluence(null, { x: 0, y: 0 });
     return magneticInfluence(field, { x: box.x, y: box.y });
   });
@@ -600,25 +621,24 @@ export class AuthShellComponent {
     const influence = this.influence();
     const strength = influence.strength;
     if (strength <= 0) return 'none';
-    const shift = 6 * strength;
-    const tilt = 0.8 * strength * (this.wake()?.vx ?? 0);
-    const scale = 1 + 0.018 * strength;
+    const shift = 24 * strength;
+    const tilt = 2.4 * strength * (this.magneticField()?.vx ?? 0);
+    const scale = 1 + 0.05 * strength;
     return `translate3d(${(influence.x * shift).toFixed(2)}px, ${(influence.y * shift).toFixed(2)}px, 0) rotate(${tilt.toFixed(2)}deg) scale(${scale.toFixed(3)})`;
   });
 
-  protected readonly orbSpeed = computed(() => (this.influence().strength > 0.08 ? 1.15 : 1));
-  protected readonly orbGlowOpacity = computed(() => (0.82 + 0.18 * this.influence().strength).toFixed(3));
+  protected readonly orbSpeed = computed(() => (this.influence().strength > 0.08 ? 1.55 : 1));
+  protected readonly orbGlowOpacity = computed(() => (0.78 + 0.22 * this.influence().strength).toFixed(3));
   protected readonly orbGlowTransform = computed(() => {
     const strength = this.influence().strength;
-    return `scale(${(1 + 0.12 * strength).toFixed(3)})`;
+    return `scale(${(1 + 0.3 * strength).toFixed(3)})`;
   });
   protected readonly orbFilter = computed(() => {
     const strength = this.influence().strength;
-    return strength <= 0 ? 'none' : `brightness(${(1 + 0.12 * strength).toFixed(3)})`;
+    return strength <= 0 ? 'none' : `brightness(${(1 + 0.3 * strength).toFixed(3)})`;
   });
 
   constructor() {
-    const destroyRef = inject(DestroyRef);
     afterNextRender(() => {
       if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
       this.activeStep.set(0);
@@ -626,7 +646,7 @@ export class AuthShellComponent {
         () => this.activeStep.update((i) => (i + 1) % PANEL_FLOW_STEPS.length),
         STEP_INTERVAL_MS,
       );
-      destroyRef.onDestroy(() => clearInterval(timer));
+      this.destroyRef.onDestroy(() => clearInterval(timer));
 
       const measure = () => {
         const shell = this.host.nativeElement.getBoundingClientRect();
@@ -640,7 +660,7 @@ export class AuthShellComponent {
       const observer = new ResizeObserver(measure);
       observer.observe(this.orbit().nativeElement);
       window.addEventListener('resize', measure);
-      destroyRef.onDestroy(() => {
+      this.destroyRef.onDestroy(() => {
         observer.disconnect();
         window.removeEventListener('resize', measure);
       });
@@ -649,23 +669,72 @@ export class AuthShellComponent {
 
   protected wakeChanged(field: WakeField | null): void {
     this.wake.set(field);
+    if (!this.magneticFrame) this.startMagneticRelaxation();
   }
 
   protected ringTransform(depth: number): string {
-    return magneticTransform(this.influence(), this.wake(), depth);
+    return magneticTransform(this.influence(), this.magneticField(), depth);
   }
 
   protected moteTransform(x: number, y: number, factor: number): string {
     const box = this.orbitBox();
-    const field = this.wake();
+    const field = this.magneticField();
     if (!box || !field) return '';
     const scale = box.width / 400;
     const local = magneticInfluence(field, {
       x: box.x + (x - 200) * scale,
       y: box.y + (y - 200) * scale,
-    }, Math.max(60, box.width * 0.28));
+    }, Math.max(120, box.width * 0.5));
     if (local.strength <= 0) return '';
-    const push = 9 * local.strength * factor;
+    const push = 34 * local.strength * factor;
     return `translate(${(local.x * push).toFixed(2)} ${(local.y * push).toFixed(2)})`;
+  }
+
+  private startMagneticRelaxation(): void {
+    let last = performance.now();
+
+    const step = (now: number) => {
+      const dt = Math.min(64, now - last);
+      last = now;
+      const target = this.wake();
+      const current = this.magneticField();
+      const rise = 1 - Math.exp(-dt / 80);
+      const fall = 1 - Math.exp(-dt / 380);
+
+      if (!target) {
+        if (!current) {
+          this.magneticFrame = 0;
+          return;
+        }
+        const energy = current.energy * (1 - fall);
+        if (energy < 0.002) {
+          this.magneticField.set(null);
+          this.magneticFrame = 0;
+          return;
+        }
+        this.magneticField.set({ ...current, energy });
+        this.magneticFrame = requestAnimationFrame(step);
+        return;
+      }
+
+      if (!current) {
+        this.magneticField.set({ ...target, energy: target.energy * rise });
+      } else {
+        this.magneticField.set({
+          x: current.x + (target.x - current.x) * rise,
+          y: current.y + (target.y - current.y) * rise,
+          vx: current.vx + (target.vx - current.vx) * rise,
+          vy: current.vy + (target.vy - current.vy) * rise,
+          energy: current.energy + (target.energy - current.energy) * rise,
+        });
+      }
+      this.magneticFrame = requestAnimationFrame(step);
+    };
+
+    this.magneticFrame = requestAnimationFrame(step);
+    this.destroyRef.onDestroy(() => {
+      if (this.magneticFrame) cancelAnimationFrame(this.magneticFrame);
+      this.magneticFrame = 0;
+    });
   }
 }

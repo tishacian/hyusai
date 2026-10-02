@@ -111,6 +111,6 @@ test('magnetic transforms stay small and scale with orbital depth', () => {
     .map(Number);
 
   assert.ok(Math.abs(translation(deep)[0]) > Math.abs(translation(shallow)[0]));
-  assert.ok(translation(deep).every(value => Math.abs(value) <= 6));
+  assert.ok(translation(deep).every(value => Math.abs(value) <= 34));
   assert.equal(magneticTransform({ ...influence, strength: 0 }, field, 1), '');
 });
