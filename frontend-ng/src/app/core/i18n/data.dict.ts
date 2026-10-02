@@ -38,6 +38,8 @@ export const DATA_FR = {
   'data.source.transform': 'Transformation',
   'data.source.score': 'Scoring',
   'data.source.generated': 'Généré',
+  'data.source.postgresql': 'PostgreSQL',
+  'data.lineage.postgresql_snapshot': 'Version figée le',
 
   // ---- statuts -----------------------------------------------------------
   'data.status.pending': 'En attente',
@@ -154,6 +156,7 @@ export const DATA_FR = {
   'data.table.select.toggle': 'Inclure ou exclure {column} des features',
   'data.table.profile.open': 'Profil de la colonne {column}',
   'data.table.profile.title': 'Profil — {column}',
+  'data.table.row_number': 'Numéro de ligne',
   'data.table.profile.rows': 'Lignes',
   'data.table.profile.nulls': 'Nulles',
   'data.table.profile.distinct': 'Distinctes',
@@ -193,6 +196,8 @@ export const DATA_EN: Record<keyof typeof DATA_FR, string> = {
   'data.source.transform': 'Transform',
   'data.source.score': 'Scoring',
   'data.source.generated': 'Generated',
+  'data.source.postgresql': 'PostgreSQL',
+  'data.lineage.postgresql_snapshot': 'Snapshot captured at',
 
   'data.status.pending': 'Queued',
   'data.status.ingesting': 'Preparing',
@@ -296,6 +301,7 @@ export const DATA_EN: Record<keyof typeof DATA_FR, string> = {
   'data.table.select.toggle': 'Include or exclude {column} from the features',
   'data.table.profile.open': 'Profile of column {column}',
   'data.table.profile.title': 'Profile — {column}',
+  'data.table.row_number': 'Row number',
   'data.table.profile.rows': 'Rows',
   'data.table.profile.nulls': 'Null',
   'data.table.profile.distinct': 'Distinct',

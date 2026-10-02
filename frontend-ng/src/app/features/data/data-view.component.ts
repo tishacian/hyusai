@@ -236,6 +236,13 @@ const PAGE_SIZE = 50;
                       </div>
                     </a>
                   }
+                } @else if (dataset()?.lineage?.postgresql; as pg) {
+                  <div class="ck-lineage-card" data-testid="postgresql-provenance">
+                    <a [navLink]="{ leaf: 'connector-postgresql' }" class="ck-lineage-chip">PostgreSQL · {{ pg.database }}</a>
+                    <div class="text-[11px] ck-mono mt-2">{{ pg.schema }}.{{ pg.table }}</div>
+                    <div class="text-xs mt-2">{{ i18n.t('data.lineage.postgresql_snapshot') }} · {{ postgresCapturedAt(pg.captured_at) }}</div>
+                    <div class="text-[11px] ck-mono mt-2 break-all">SHA-256 · {{ pg.snapshot_sha256 }}</div>
+                  </div>
                 } @else {
                   <div class="ck-lineage-card ck-lineage-card--muted">
                     <div class="text-[11px] ck-mono" style="color: var(--ck-fg-4)">{{ originLabel() }}</div>
@@ -720,6 +727,10 @@ export class DataViewComponent implements OnInit {
 
   protected isActive(dataset: DatasetDto): boolean {
     return isDatasetActive(dataset);
+  }
+
+  protected postgresCapturedAt(value: string): string {
+    return new Intl.DateTimeFormat(this.i18n.locale(), { dateStyle: 'short', timeStyle: 'medium', timeZone: 'Europe/Paris' }).format(new Date(value));
   }
 
   /** The worker names its step as a code; the locale supplies the sentence. */
