@@ -58,9 +58,11 @@ export const WAKE_STRAND: StrandOptions = {
 };
 
 /** The orbit reacts nearby, not across the whole sign-in screen. */
-export const MAGNETIC_RADIUS_PX = 620;
-export const MAGNETIC_MAX_SHIFT_PX = 26;
-export const MAGNETIC_MAX_TILT_DEG = 3.2;
+export const MAGNETIC_RADIUS_PX = 520;
+/** How far one ring yields, in px. The instrument itself does not slide. */
+export const MAGNETIC_MAX_SHIFT_PX = 9;
+/** Precession of a ring about its own centre, in degrees. */
+export const MAGNETIC_MAX_TILT_DEG = 5.5;
 
 /**
  * Records a pointer sample at the head of the wake. Moves under `minStep`
@@ -201,7 +203,12 @@ export function magneticInfluence(
   };
 }
 
-/** A differential SVG transform; `depth` gives each ring its own inertia. */
+/**
+ * A ring yields a few pixels away from the pointer and precesses about its
+ * own centre. `depth` is that ring's inertia: outer rings travel further.
+ * The tilt follows the pointer's motion along the ring, not a card-tilt of
+ * the whole instrument.
+ */
 export function magneticTransform(
   influence: MagneticInfluence,
   field: WakeField | null,
@@ -209,6 +216,7 @@ export function magneticTransform(
 ): string {
   if (!field || influence.strength <= 0) return '';
   const shift = MAGNETIC_MAX_SHIFT_PX * influence.strength * depth;
-  const tilt = MAGNETIC_MAX_TILT_DEG * influence.strength * depth * field.vx;
-  return `translate(${(influence.x * shift).toFixed(2)} ${(influence.y * shift).toFixed(2)}) rotate(${tilt.toFixed(2)} 200 200)`;
+  const tangent = influence.x * field.vy - influence.y * field.vx;
+  const precess = MAGNETIC_MAX_TILT_DEG * influence.strength * depth * tangent;
+  return `translate(${(influence.x * shift).toFixed(2)} ${(influence.y * shift).toFixed(2)}) rotate(${precess.toFixed(2)} 200 200)`;
 }

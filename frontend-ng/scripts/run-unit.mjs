@@ -26,6 +26,7 @@ const stub = join(here, 'ng-core.stub.mjs');
 // metadata-only stub (the serializer uses it only for `@Injectable`).
 const pureSpecs = [
   'src/app/features/auth/cursor-wake.spec.ts',
+  'src/app/features/auth/orb-swarm.spec.ts',
   'src/app/features/experience/work/claim-run.spec.ts',
   'src/app/features/governance/audit-trail.vm.spec.ts',
   'src/app/features/hypervisor/v2/demo-finishings.spec.ts',
