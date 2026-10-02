@@ -34,10 +34,8 @@
 .claims-steps li { display: grid; grid-template-columns: 8px 1fr auto; gap: 12px; align-items: center; padding: 10px 0; font-size: 12px; border-bottom: 1px solid var(--ck-stroke-2); }
 .claims-steps li.claims-step-empty { display: block; }
 .claims-step-dot { width: 6px; height: 6px; border-radius: 100%; background: var(--ck-fg-3); }
-.claims-steps li[data-state=completed] .claims-steps li.claims-step-empty { display: block; }
-.claims-step-dot { background: var(--ck-signal-cool); }
-.claims-steps li[data-state=failed] .claims-steps li.claims-step-empty { display: block; }
-.claims-step-dot { background: var(--ck-signal-danger); }
+.claims-steps li[data-state=completed] .claims-step-dot { background: var(--ck-signal-cool); }
+.claims-steps li[data-state=failed] .claims-step-dot { background: var(--ck-signal-danger); }
 .claims-error { color: var(--ck-signal-danger); padding: 12px; }
 .claims-receipt { border-top: 1px solid var(--ck-stroke-2); margin: 16px 0; padding-top: 16px; }
 .claims-receipt code { font-size: 10px; overflow-wrap: anywhere; }

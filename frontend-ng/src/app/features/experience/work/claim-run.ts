@@ -24,6 +24,9 @@ export const CLAIM_TOOL_LABELS: Record<string, string> = {
   ecommerce_resolution_simulate_v1: 'experience.claims.step.receipt',
 };
 export const CLAIM_REASON_LABELS: Record<string, string> = {
+  delivery_disputed: 'experience.claims.reason.delivery_disputed',
+  parcel_lost: 'experience.claims.reason.parcel_lost',
+  refund_requested: 'experience.claims.reason.refund_requested',
   missing_evidence: 'experience.claims.reason.missing',
   already_refunded: 'experience.claims.reason.duplicate',
   carrier_loss_confirmed: 'experience.claims.reason.loss',
