@@ -5,9 +5,19 @@ import {
   DestroyRef,
   ElementRef,
   inject,
+  output,
   viewChild,
 } from '@angular/core';
-import { prune, pushPoint, strand, WAKE_LIFETIME_MS, type WakePoint, type WakeSample } from './cursor-wake';
+import {
+  prune,
+  pushPoint,
+  strand,
+  wakeField,
+  WAKE_LIFETIME_MS,
+  type WakeField,
+  type WakePoint,
+  type WakeSample,
+} from './cursor-wake';
 
 /** Peak opacity of a fresh strand: the wake accompanies the page, it never covers it. */
 const STRAND_ALPHA = 0.75;
@@ -42,24 +52,35 @@ const STRAND_ALPHA = 0.75;
 export class CursorWakeComponent {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly canvas = viewChild.required<ElementRef<HTMLCanvasElement>>('canvas');
+  /** Feeds the orbital instrument; the decorative canvas stays independently disposable. */
+  readonly wakeChange = output<WakeField | null>();
 
   constructor() {
     const destroyRef = inject(DestroyRef);
     afterNextRender(() => {
       if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-      const stop = startWake(this.host.nativeElement, this.canvas().nativeElement);
+      const stop = startWake(
+        this.host.nativeElement,
+        this.canvas().nativeElement,
+        field => this.wakeChange.emit(field),
+      );
       destroyRef.onDestroy(stop);
     });
   }
 }
 
-function startWake(host: HTMLElement, canvas: HTMLCanvasElement): () => void {
+function startWake(
+  host: HTMLElement,
+  canvas: HTMLCanvasElement,
+  emit: (field: WakeField | null) => void,
+): () => void {
   const context = canvas.getContext('2d');
   if (!context) return () => undefined;
 
   const points: WakePoint[] = [];
   let frame = 0;
   let colors: [string, string] = ['#1f9db0', '#8a94a6'];
+  let coupledToInstrument = true;
 
   const resize = () => {
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
@@ -91,11 +112,14 @@ function startWake(host: HTMLElement, canvas: HTMLCanvasElement): () => void {
 
   const render = (now: number) => {
     prune(points, now, WAKE_LIFETIME_MS);
+    const field = coupledToInstrument && points.length >= 2 ? wakeField(points, now) : null;
     context.clearRect(0, 0, host.clientWidth, host.clientHeight);
     if (points.length < 2) {
       frame = 0;
+      emit(field);
       return;
     }
+    emit(field);
     draw(strand(points, now, 0), colors[0]);
     draw(strand(points, now, Math.PI), colors[1]);
     context.globalAlpha = 1;
@@ -104,6 +128,7 @@ function startWake(host: HTMLElement, canvas: HTMLCanvasElement): () => void {
 
   const onMove = (event: PointerEvent) => {
     if (event.pointerType === 'touch') return;
+    coupledToInstrument = !(event.target instanceof Element && event.target.closest('.ck-auth-main'));
     const box = host.getBoundingClientRect();
     if (!pushPoint(points, event.clientX - box.left, event.clientY - box.top, performance.now())) return;
     if (!frame) {
