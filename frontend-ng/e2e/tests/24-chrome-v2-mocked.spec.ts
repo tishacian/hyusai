@@ -245,6 +245,89 @@ test.describe('L1 — swallowed gestures', () => {
   });
 });
 
+test.describe('System Flow — direct navigation', () => {
+  for (const [theme, locale, width] of [
+    ['dark', 'fr', 1440], ['light', 'fr', 390], ['light', 'en', 1440],
+  ] as const) {
+    test(`${theme}/${locale}/${width}: card, header and menu open the existing graph`, async ({ page }, testInfo) => {
+      test.skip(process.env['E2E_CHROME_V2_MOCKED'] !== '1' || !localOnly(testInfo), 'Local mocked QA only.');
+      await mockCockpit(page);
+      await page.addInitScript(({ theme, locale }) => {
+        localStorage.setItem('agentium_theme', theme);
+        localStorage.setItem('agentium_locale', locale);
+      }, { theme, locale });
+      await page.setViewportSize({ width, height: 1000 });
+      const chat = {
+        ...system, id: 'workspace-chat', name: 'Workspace Chat',
+        settings: { system_type: 'workspace_chat' },
+        flow_definition: { ...flowDefinition, variant: 'chat_transverse_v1' },
+      };
+      await page.route('**/api/v1/systems', route => json(route, { systems: [system, chat] }));
+      await page.route(`**/api/v1/systems/${SYSTEM_ID}/flow-state`, route => json(route, {
+        system_id: SYSTEM_ID, status: 'active',
+        draft: { revision: 4, base_published_version_id: 'published-v1', flow_sha256: FLOW_HASH, flow_definition: flowDefinition },
+        published: { version_id: 'published-v1', version_number: 1, flow_sha256: FLOW_HASH, flow_definition: flowDefinition },
+      }));
+      const writes: string[] = [];
+      page.on('request', request => {
+        const path = new URL(request.url()).pathname;
+        // The editor analyzes the loaded graph through a read-only POST.
+        if (request.method() !== 'GET' && /\/api\/v1\/(systems|runs)(\/|$)/.test(path) && path !== `/api/v1/systems/${SYSTEM_ID}/validate-flow`) {
+          writes.push(`${request.method()} ${path}`);
+        }
+      });
+      const english = locale === 'en';
+      const card = page.getByTestId('system-card').filter({ hasText: system.name });
+      const menu = page.getByRole('complementary', { name: english ? 'Summary' : 'Sommaire', exact: true });
+      const flowName = english ? 'System flow' : 'Flow du système';
+      const target = new RegExp(`/systems/${SYSTEM_ID}/flow(\\?|$)`);
+
+      await page.goto('/systems?lens=build');
+      await expect(card).toBeVisible();
+      await expect(page.getByTestId('system-card').filter({ hasText: chat.name }).getByTestId('system-card-open-flow')).toHaveCount(0);
+      if (width > 500) await expect(menu.getByRole('link', { name: english ? '+ New flow' : '+ Nouveau flux', exact: true })).toBeVisible();
+      expect(await page.locator('#main-content').evaluate(e => e.scrollWidth <= e.clientWidth + 1)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath('system-cards.png'), fullPage: true });
+      const audit = await new AxeBuilder({ page }).include('app-systems-grid').analyze();
+      expect(audit.violations).toEqual([]);
+
+      await card.getByTestId('system-card-open-flow').click();
+      await expect(page).toHaveURL(target);
+      await expect(page.locator('app-flow-node')).toHaveCount(2);
+      if (width > 500) {
+        await expect(menu.getByRole('link', { name: flowName, exact: true })).toHaveAttribute('aria-current', 'page');
+        await expect(menu.locator('[aria-current="page"]')).toHaveCount(1);
+      }
+
+      await page.goto('/systems?lens=build');
+      await card.getByRole('link', { name: new RegExp(system.name) }).first().click();
+      await expect(page).toHaveURL(new RegExp(`/systems/${SYSTEM_ID}(\\?|$)`));
+      const open = page.getByTestId('system-open-flow');
+      await expect(open).toBeVisible();
+      await expect(open).toHaveAttribute('href', target);
+      await open.focus();
+      await expect(open).toBeFocused();
+      expect(await page.locator('#main-content').evaluate(e => e.scrollWidth <= e.clientWidth + 1)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath('system-header.png'), fullPage: true });
+      await page.keyboard.press('Enter');
+      await expect(page).toHaveURL(target);
+      await expect(page.locator('app-flow-node')).toHaveCount(2);
+
+      if (width > 500) {
+        await page.goto(`/systems/${SYSTEM_ID}?lens=build`);
+        await menu.getByRole('link', { name: flowName, exact: true }).click();
+        await expect(page).toHaveURL(target);
+        await expect(page.locator('app-flow-node')).toHaveCount(2);
+        await page.screenshot({ path: testInfo.outputPath('system-flow.png'), fullPage: true });
+        await menu.getByRole('link', { name: 'Systems', exact: true }).or(menu.getByRole('link', { name: 'Systèmes', exact: true })).click();
+        await expect(page).toHaveURL(/\/systems(\?|$)/);
+        await expect(menu.getByRole('link', { name: english ? '+ New flow' : '+ Nouveau flux', exact: true })).toHaveAttribute('href', /\/orchestration/);
+      }
+      expect(writes).toEqual([]);
+    });
+  }
+});
+
 // --- L3 — Focus de route sur le titre ---------------------------------------
 
 test.describe('L3 — route focus on the title', () => {

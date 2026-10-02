@@ -170,6 +170,16 @@ interface ContextConfigRow {
         [tone]="isDraft() ? 'warning' : 'success'"
         [label]="isDraft() ? i18n.t('systems.view.draft') : i18n.t('systems.view.ready')"
       />
+      @if (flowProfile() || designFlowProfile()) {
+        <a
+          actions
+          [navLink]="{ leaf: 'system-flow', ref: systemId, lens: 'build' }"
+          class="ck-btn-accent inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+          data-testid="system-open-flow"
+        >
+          <app-icon name="workflow" [size]="14" /> {{ i18n.t('systems.design.open_flow') }}
+        </a>
+      }
       @if (flowPublicationEnabled()) {
         <a
           actions
@@ -678,7 +688,7 @@ interface ContextConfigRow {
                 </p>
               </div>
               <a
-                [navLink]="{ leaf: 'system-flow', ref: systemId }"
+                [navLink]="{ leaf: 'system-flow', ref: systemId, lens: 'build' }"
                 class="ck-cta inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium shrink-0"
               >
                 <app-icon name="workflow" [size]="14" /> {{ i18n.t('systems.design.open_flow') }}
@@ -766,7 +776,7 @@ interface ContextConfigRow {
         } @else if (designFlowState()) {
           <section class="ck-surface rounded-md p-5">
             <p>{{ i18n.t('systems.design.configuration') }}</p>
-            <a [navLink]="{ leaf: 'system-flow', ref: systemId }" class="ck-btn-soft mt-3 inline-flex">
+            <a [navLink]="{ leaf: 'system-flow', ref: systemId, lens: 'build' }" class="ck-btn-soft mt-3 inline-flex">
               {{ i18n.t('systems.design.open_flow') }}
             </a>
           </section>
@@ -787,7 +797,7 @@ interface ContextConfigRow {
             </p>
           </div>
           <a
-            [navLink]="{ leaf: 'system-flow', ref: systemId }"
+            [navLink]="{ leaf: 'system-flow', ref: systemId, lens: 'build' }"
             class="ck-cta inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium shrink-0"
           >
             <app-icon name="workflow" [size]="14" /> {{ i18n.t('systems.design.open_flow') }}
@@ -882,7 +892,7 @@ interface ContextConfigRow {
                   <app-icon name="database" [size]="12" /> {{ i18n.t('systems.view.open_knowledge') }}
                 </a>
                 <a
-                  [navLink]="{ leaf: 'system-flow', ref: systemId }"
+                  [navLink]="{ leaf: 'system-flow', ref: systemId, lens: 'build' }"
                   class="ck-cta inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium"
                 >
                   <app-icon name="workflow" [size]="12" /> {{ i18n.t('systems.view.open_flow') }}

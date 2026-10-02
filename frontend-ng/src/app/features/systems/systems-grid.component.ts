@@ -14,7 +14,7 @@ import {
   StatReadoutComponent,
 } from '@app/shared/cockpit';
 import { SystemsStore, SystemAgent } from './systems.store';
-import { isPromotedFromScratchpad, systemCatalogBadge } from './system-flow-profile';
+import { isFlowBackedSystem, isPromotedFromScratchpad, systemCatalogBadge } from './system-flow-profile';
 import { activeSystemsKey, systemsPrimaryAction } from './systems-grid.vm';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -215,12 +215,10 @@ interface Template {
           </a>
         </div>
       } @else {
-        <div [style.display]="'grid'" [style.gridTemplateColumns]="'repeat(auto-fill, minmax(340px, 1fr))'" [style.gap.px]="12">
+        <div [style.display]="'grid'" [style.gridTemplateColumns]="'repeat(auto-fill, minmax(min(340px, 100%), 1fr))'" [style.gap.px]="12">
           @for (system of systems(); track system.id) {
-            <a
-              [routerLink]="navigation.objectUrlTree('system', system.id, {
-                capabilityId: navigation.capabilityId()
-              })"
+            <article
+              data-testid="system-card"
               [style.position]="'relative'"
               [style.display]="'flex'"
               [style.flexDirection]="'column'"
@@ -229,11 +227,16 @@ interface Template {
               [style.background]="'var(--ck-bg-panel)'"
               [style.border]="'1px solid var(--ck-stroke-2)'"
               [style.borderRadius.px]="6"
-              [style.color]="'inherit'"
-              [style.textDecoration]="'none'"
               [style.transition]="'border-color 120ms var(--ck-ease-out), transform 120ms'"
               onmouseover="this.style.borderColor='var(--ck-stroke-3)'"
               onmouseout="this.style.borderColor='var(--ck-stroke-2)'"
+            >
+            <a
+              [routerLink]="navigation.objectUrlTree('system', system.id, {
+                capabilityId: navigation.capabilityId()
+              })"
+              class="flex flex-col gap-3 flex-1 min-w-0"
+              style="color:inherit; text-decoration:none;"
             >
               <div [style.display]="'flex'" [style.alignItems]="'flex-start'" [style.gap.px]="10">
                 <div
@@ -297,6 +300,17 @@ interface Template {
                 </span>
               </div>
             </a>
+            @if (hasFlow(system)) {
+              <a
+                [navLink]="{ leaf: 'system-flow', ref: system.id, lens: 'build' }"
+                class="ck-btn-accent inline-flex items-center justify-center gap-2 rounded px-3 py-2 text-sm font-medium"
+                [attr.aria-label]="i18n.t('systems.design.open_flow_for', { name: system.name })"
+                data-testid="system-card-open-flow"
+              >
+                <ck-glyph name="flow" [size]="14" /> {{ i18n.t('systems.design.open_flow') }}
+              </a>
+            }
+            </article>
           }
         </div>
       }
@@ -441,6 +455,10 @@ export class SystemsGridComponent implements OnInit, OnDestroy {
 
   badgeFor(system: SystemAgent): string {
     return systemCatalogBadge(system, system.rag_mode);
+  }
+
+  hasFlow(system: SystemAgent): boolean {
+    return !system.draft && isFlowBackedSystem(system);
   }
 
   isPromotedScratchpad(system: SystemAgent): boolean {

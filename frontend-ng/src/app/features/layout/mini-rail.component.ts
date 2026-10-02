@@ -475,6 +475,9 @@ export class MiniRailComponent {
     if (!s) return false;
     if (this.stableLayout()) {
       const path = this.currentPath();
+      if (/^\/systems\/[^/]+\/flow$/.test(path) && (s.key === 'flows' || s.key === 'systems')) {
+        return s.key === 'flows';
+      }
       const route = s.route.split('?')[0];
       const patterns = s.matches ?? [route];
       const pathMatch = patterns.some((m) => path === m || path.startsWith(m + '/'));

@@ -78,6 +78,7 @@ export class CkTabComponent {
       [attr.aria-label]="ariaLabel || i18n.t('common.tabs.aria')"
       [style.display]="'flex'"
       [style.alignItems]="'stretch'"
+      [style.flexWrap]="'wrap'"
       [style.gap.px]="2"
       [style.borderBottom]="'1px solid var(--ck-stroke-2, rgba(255,255,255,0.06))'"
       [style.marginBottom.px]="16"

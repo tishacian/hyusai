@@ -125,13 +125,11 @@ test('explicit feature opt-out and specialist/360 surfaces keep their existing p
 });
 
 
-test('L20a: System sheet has no Executable flow door and Launch run is outline', () => {
+test('System sheet keeps the launch action secondary alongside navigation', () => {
   const source = readFileSync(
     join(process.cwd(), 'src/app/features/systems/system-view.component.ts'),
     'utf8',
   );
-  assert.doesNotMatch(source, /Executable flow/);
-  assert.doesNotMatch(source, /Open in flow builder|system-flow-open-builder/);
   assert.match(source, /data-testid="system-launch-run"/);
   assert.match(source, /systems\.run\.launch/);
   assert.doesNotMatch(source, /background:var\(--ck-signal-pos\); color:var\(--ck-on-signal\);[\s\S]{0,200}Run now/);
