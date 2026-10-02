@@ -15,7 +15,7 @@ import {
 import { EN_DICT } from './i18n.dict';
 import { I18nService } from './i18n.service';
 import { WorkspaceService, type WorkspaceContextTransition } from './workspace.service';
-import { COCKPIT_VERBS } from './navigation.catalog';
+import { COCKPIT_VERBS, navigationRouteContext } from './navigation.catalog';
 import { ZoomContextService } from './zoom-context.service';
 
 function i18nStub() {
@@ -446,15 +446,31 @@ test('nav v5 zone sommaire omits ?scope= (I5)', () => {
 });
 
 test('Flow builder follows the proven System, else the scratchpad — never session memory', () => {
-  const { router, navigation } = graphHarness('/systems/sys-real?lens=build');
-  const flows = flowsSection();
+  for (const navV5 of [false, true]) {
+    const { router, navigation } = graphHarness('/systems/sys-real?lens=build', { navV5 });
+    const flows = flowsSection();
 
-  assert.equal(navigation.systemId(), 'sys-real');
-  assert.equal(navigation.urlForScope(flows).split('?')[0], '/systems/sys-real/flow');
+    assert.equal(navigation.systemId(), 'sys-real');
+    assert.equal(navigation.urlForScope(flows).split('?')[0], '/systems/sys-real/flow');
 
-  router.navigate('/skills');
-  assert.equal(navigation.systemId(), null);
-  assert.equal(navigation.urlForScope(flows).split('?')[0], '/orchestration');
+    router.navigate('/skills');
+    assert.equal(navigation.systemId(), null);
+    assert.equal(navigation.urlForScope(flows).split('?')[0], '/orchestration');
+  }
+});
+
+test('nav v5 System Flow ignores forged query parents and unproven Systems', () => {
+  const { router, navigation } = graphHarness(
+    '/systems/sys-real?lens=operate&systemId=forged&capabilityId=forged',
+    { navV5: true },
+  );
+  const target = new URL(navigation.urlForScope(flowsSection()), 'https://agentium.local');
+  assert.equal(target.pathname, '/systems/sys-real/flow');
+  assert.equal(navigationRouteContext(target.pathname + target.search).lens, 'build');
+  assert.equal(target.searchParams.get('capabilityId'), 'cap-real');
+  assert.equal(target.searchParams.get('scope'), null);
+  router.navigate('/systems/unknown?lens=build&systemId=sys-real');
+  assert.equal(navigation.urlForScope(flowsSection()).split('?')[0], '/orchestration');
 });
 
 test('parentUrl is the breadcrumb parent (D6)', () => {
