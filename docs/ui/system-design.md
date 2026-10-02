@@ -35,3 +35,23 @@ is corrected on def0b3cc: the draft/publication summary is visible after scrolli
 at 390×844. No whole-screen/mobile acceptance or R1 closure claimed.
 
 ![Actual narrow Design after correction](../evidence/release-def0b3cc-2026-09-17/pih-design-390.png)
+
+## Accès direct au Flow — octobre 2026
+
+Les cartes des systèmes portant un Flow enregistré proposent **Ouvrir le Flow**,
+à côté de l'accès à leur fiche. Le même lien figure dans l'en-tête du système
+et dans Conception ; il ouvre `/systems/:systemId/flow` dans la zone Créer.
+Les cartes du chat transversal et les brouillons locaux ne proposent pas cet
+accès à un graphe exécutable.
+
+Dans le sommaire Créer, **Flow du système** ouvre le système vérifié dans le
+workspace courant. Cette entrée est sélectionnée dans l'éditeur. En revenant à
+une liste générale, **+ Nouveau flux** ouvre le brouillon libre. Pendant le
+chargement d'un système, le lien attend sa résolution ; une ancienne sélection
+ou un paramètre d'URL non vérifié ne choisit pas un autre flow.
+
+La QA locale couvre les accès depuis la carte, l'en-tête au clavier et le
+sommaire, en français sombre (1440 px), français clair (390 px) et anglais clair
+(1440 px). Les API sont simulées et la navigation est vérifiée sans sauvegarde,
+publication ni exécution. Le build frontend doit être déployé via le miroir
+Bitbucket avant la recette sur `agentium.papai.ai`.

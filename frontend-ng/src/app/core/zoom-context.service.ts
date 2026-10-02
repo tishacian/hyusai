@@ -289,7 +289,18 @@ export class ZoomContextService implements OnDestroy {
 
   urlForScope(section: CockpitSection): string {
     if (this.navV5Enabled()) {
-      // L8: Créer › « + Nouveau flux » is always the free draft, not a System graph.
+      if (section.key === 'flows') {
+        // Wait for workspace-scoped hydration before linking a System's graph.
+        // A flat list has no selected System and keeps the free draft action.
+        if (this.loading()) return this.route().url;
+        const systemId = this.systemId();
+        if (systemId) {
+          return navigationLeafUrl('system-flow', { systemId }, {
+            lens: 'build',
+            capabilityId: this.capabilityId(),
+          });
+        }
+      }
       return navigationZoneSurfaceUrl(section, this.lens(), this.route().url);
     }
     if (!this.axesV3Enabled()) {

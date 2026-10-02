@@ -50,10 +50,10 @@ test('the Flow entry is named after the destination it resolves to', () => {
     { ...EMPTY_ANCESTRY, systemId: 'sys-42' },
     'build',
   );
-  assert.equal(navigationSectionNaming(section, systemFlow).label, 'Flow builder');
+  assert.equal(navigationSectionNaming(section, systemFlow).label, 'System flow');
 
   const remembered = navigationScopeUrl(section, EMPTY_ANCESTRY, 'build', 'sys-42');
-  assert.equal(navigationSectionNaming(section, remembered).label, 'Flow builder');
+  assert.equal(navigationSectionNaming(section, remembered).label, 'System flow');
 });
 
 test('destination naming exposes a dedicated key so a locale can override it', () => {
@@ -65,7 +65,7 @@ test('destination naming exposes a dedicated key so a locale can override it', (
   );
   assert.equal(
     navigationSectionNaming(section, '/systems/sys-42/flow').i18nKey,
-    'nav.flows',
+    'nav.flows.system',
   );
 });
 

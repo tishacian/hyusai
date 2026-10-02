@@ -1670,6 +1670,9 @@ export function navigationSectionNaming(
   if (section.key === 'flows' && pathOnly(resolvedUrl) === section.route) {
     return { i18nKey: 'nav.flows.scratchpad', label: SCRATCHPAD_SECTION_LABEL };
   }
+  if (section.key === 'flows' && /^\/systems\/[^/]+\/flow$/.test(pathOnly(resolvedUrl))) {
+    return { i18nKey: 'nav.flows.system', label: 'System flow' };
+  }
   return { i18nKey: `nav.${section.key}`, label: section.label };
 }
 

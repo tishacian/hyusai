@@ -284,7 +284,7 @@ test('the Flow action reads Nouveau flux only while it opens the free draft', ()
 
     const opened = railWithFlowScope(axesV3, 'sys-42');
     const openedFlows = opened.visibleSections().find((section) => section.key === 'flows')!;
-    assert.equal(opened.sectionLabel(openedFlows), 'Flow builder', `axesV3=${axesV3}`);
+    assert.equal(opened.sectionLabel(openedFlows), 'System flow', `axesV3=${axesV3}`);
 
     assert.equal(openedFlows.key, 'flows');
     assert.equal(openedFlows.glyph, flows.glyph);
