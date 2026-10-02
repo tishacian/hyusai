@@ -6926,6 +6926,19 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     ),
 }
 
+def _claim_tool(mode: str):
+    async def call(payload, ctx=None):
+        from app.services.ecommerce_claims import invoke
+        return await invoke(mode, payload, ctx)
+    return call
+
+
+_REGISTRY.update({slug: (_claim_tool(mode), "app.services.ecommerce_claims", "bound") for mode, slug in {
+    "snapshot": "postgresql_claim_snapshot_v1", "policy": "ecommerce_policy_evidence_v1",
+    "delivery": "ecommerce_delivery_evidence_v1", "refund": "ecommerce_refund_evidence_v1",
+    "propose": "ecommerce_resolution_propose_v1", "simulate": "ecommerce_resolution_simulate_v1",
+}.items()})
+
 _RESOLVED_STATUS: dict[str, str] = {}
 
 

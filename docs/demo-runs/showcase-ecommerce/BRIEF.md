@@ -10,7 +10,7 @@ Exigences ajoutées par le demandeur : **Document Center/OmniRAG + PostgreSQL + 
 
 L’objectif est de réduire le travail de recherche et de rapprochement, accélérer la résolution et maîtriser les remboursements. La démonstration doit rendre ces actions visibles ; elle ne doit pas annoncer un gain de temps ou d’argent sans mesure et méthode de comparaison.
 
-Le cadre proposé est **Luma Maison**, une enseigne fictive de décoration et d’équipement de la maison vendant en ligne en France. Le workspace est `agentium-showcase`. Commandes, clients, preuves, politiques commerciales et échanges sont synthétiques et cohérents entre eux. Ce scénario a ses propres fixtures, objets et vocabulaire métier. La préparation initialement envisagée avec les seeds PR to PO et Data Demo est remplacée par un seed e-commerce dédié à concevoir.
+Le cadre proposé est **Luma Maison**, une enseigne fictive de décoration et d’équipement de la maison vendant en ligne en France. Le workspace est `agentium-showcase`. Commandes, clients, preuves, politiques commerciales et échanges sont synthétiques et cohérents entre eux. Ce scénario a ses propres fixtures, objets et vocabulaire métier. La préparation initialement envisagée avec les seeds PR to PO et Data Demo est remplacée par un seed e-commerce dédié, désormais préparé.
 
 ## Le cas principal : une livraison contestée à 420 €
 
@@ -78,3 +78,5 @@ La répétition part de Work, en français, avec un dossier neuf. À 1440 px et 
 La preuve de réussite est : **le dossier sélectionné conduit à une décision compréhensible, son action conserve le bon statut, et le reçu retrouve les mêmes dossier, commande et exécution**. Vérifier aussi le cas sans preuve, le doublon, un échec de l’action et une double validation. Les données de démonstration restent identifiées sur les vues concernées.
 
 La prochaine étape est de confronter ce cadrage aux composants Experience et aux contrats d’exécution existants, puis de définir le premier parcours réalisable. Aucun seed historique ne doit être lancé pour préparer ce nouveau scénario par défaut.
+
+La livraison comprend le [runbook opérateur](OPERATOR-RUNBOOK.md) et le [rapport de QA](QA-2026-10-02.md). Les sources sont indexées dans Showcase ; l’activation du nouveau runtime et le benchmark humain restent à réaliser après déploiement.

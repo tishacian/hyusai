@@ -8,7 +8,10 @@
  * See `./CONVENTION.md`.
  */
 
+import { CLAIMS_FR, CLAIMS_EN } from './claims.dict';
+
 export const EXPERIENCE_FR = {
+  ...CLAIMS_FR,
   "experience.brand.title": "Identité visuelle",
   "experience.brand.hint": "Choisissez un style, une couleur et vos logos. L’aperçu montre les composants communs de votre application.",
   "experience.brand.palette": "Palette",
@@ -1363,6 +1366,7 @@ export const EXPERIENCE_FR = {
 } as const satisfies Record<string, string>;
 
 export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
+  ...CLAIMS_EN,
   "experience.brand.title": "Visual identity",
   "experience.brand.hint": "Choose a style, an accent and your logos. The preview shows your application’s shared components.",
   "experience.brand.palette": "Palette",
