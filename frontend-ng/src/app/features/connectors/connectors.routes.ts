@@ -9,6 +9,10 @@ export const connectorsRoutes: Routes = [
       import('./connectors-page.component').then((m) => m.ConnectorsPageComponent),
   },
   {
+    path: 'postgresql',
+    loadComponent: () => import('./postgresql/postgresql-connector.component').then(m => m.PostgresqlConnectorComponent),
+  },
+  {
     path: 'sharepoint',
     loadComponent: () =>
       import('./sharepoint/sharepoint-connector.component').then(

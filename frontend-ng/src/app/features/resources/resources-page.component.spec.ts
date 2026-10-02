@@ -62,10 +62,11 @@ function harness(skillsSurfaceUrl = '/skills') {
   const injector = Injector.create({ providers: [ResourcesPageComponent,
     { provide: ApiService, useValue: api }, { provide: CanonicalApiService, useValue: canonical },
     { provide: WorkspaceService, useValue: workspace }, { provide: I18nService, useValue: { t: (key: string) => EN_DICT[key as keyof typeof EN_DICT] ?? key } },
-    { provide: ToastrService, useValue: { success() {}, error() {}, info() {} } }, { provide: Router, useValue: { navigate: async () => true } },
+    { provide: ToastrService, useValue: { success() {}, error() {}, info() {} } }, { provide: Router, useValue: { navigate: async () => true, navigateByUrl: async (url: unknown) => { calls.push({ method: 'NAV', path: String(url) }); return true; } } },
     { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap({}) } } },
     { provide: ZoomContextService, useValue: {
       surfaceUrlTree: () => serializer.parse(skillsSurfaceUrl),
+      leafUrl: (id: string) => id === 'connector-postgresql' ? '/connectors/postgresql?lens=build' : id,
       objectUrlTree: (_t: string, id: string, opts: { runId: string }) => serializer.parse(`/runs/${opts.runId}/invocations/${id}${contextQuery}`),
     } },
     { provide: ɵAfterRenderManager, useValue: { impl: { register() {}, unregister() {} } } },
@@ -255,7 +256,7 @@ test('saved PostgreSQL configuration does not imply an operational data connecto
   const h = harness();
   try {
     const postgres = CONNECTORS.find((connector) => connector.id === 'postgresql')!;
-    assert.equal(h.component.connectorStatus(postgres), 'configuration-only');
+    assert.equal(h.component.connectorStatus(postgres), 'available');
     const initiallyActive = h.component.connectorsActive();
     h.responses.set('/connectors', {
       can_configure: true,
@@ -264,10 +265,11 @@ test('saved PostgreSQL configuration does not imply an operational data connecto
     });
     h.component.refresh();
     assert.equal(h.component.isConfigured('postgresql'), true);
-    assert.equal(h.component.connectorStatus(postgres), 'configuration-only');
+    assert.equal(h.component.connectorStatus(postgres), 'available');
     assert.equal(h.component.connectorsActive(), initiallyActive);
     h.component.openConnector(postgres);
-    assert.equal(h.component.drawerOpen(), true, 'configuration and connection testing remain accessible');
+    assert.equal(h.component.drawerOpen(), false);
+    assert.equal(h.calls.at(-1)?.path, '/connectors/postgresql?lens=build', 'the explorer opens with the current navigation context');
   } finally { h.close(); }
 });
 

@@ -144,9 +144,7 @@ def detect_format(filename: str, content_type: str | None = None) -> str:
         return "xlsx"
     raise TabularError(
         code="DATASET_FORMAT_UNSUPPORTED",
-        message=(
-            "Supported files: CSV, TSV, Parquet, JSON/NDJSON and XLSX."
-        ),
+        message=("Supported files: CSV, TSV, Parquet, JSON/NDJSON and XLSX."),
         details={"filename": str(filename or "")[:200]},
     )
 
@@ -264,6 +262,14 @@ def _top_values(series: Any) -> list[dict[str, Any]]:
         return []
 
 
+def _preview_scalar(value: Any) -> Any:
+    # Keep Int64 values exact in browser previews while leaving the Parquet
+    # numeric, and leave statistical summaries and execution rows unchanged.
+    if isinstance(value, int) and not isinstance(value, bool) and abs(value) > 2**53 - 1:
+        return str(value)
+    return _json_scalar(value)
+
+
 def profile_frame(frame: Any) -> dict[str, Any]:
     """Turn a polars frame into the read model every tabular surface renders."""
 
@@ -304,7 +310,7 @@ def profile_frame(frame: Any) -> dict[str, Any]:
         stats[name] = column_stats
 
     preview = [
-        {key: _json_scalar(value) for key, value in row.items()}
+        {key: _preview_scalar(value) for key, value in row.items()}
         for row in frame.head(preview_rows).iter_rows(named=True)
     ]
     return {
@@ -362,9 +368,7 @@ def _read_source(path: Path, fmt: str) -> Any:
         records = [dict(zip(columns, row, strict=False)) for row in rows]
         workbook.close()
         if not records:
-            raise TabularError(
-                code="DATASET_EMPTY", message="The uploaded sheet has no data rows."
-            )
+            raise TabularError(code="DATASET_EMPTY", message="The uploaded sheet has no data rows.")
         return pl.DataFrame(records, infer_schema_length=None)
     raise TabularError(
         code="DATASET_FORMAT_UNSUPPORTED",
@@ -506,7 +510,7 @@ def read_page(
         local = materialize(dataset, Path(tmp) / "data.parquet")
         frame = pl.scan_parquet(local).slice(start, size).collect()
     rows = [
-        {key: _json_scalar(value) for key, value in row.items()}
+        {key: _preview_scalar(value) for key, value in row.items()}
         for row in frame.iter_rows(named=True)
     ]
     return {"rows": rows, "offset": start, "limit": size, "total": total}
@@ -620,9 +624,7 @@ def ingest_dataset(dataset_id: str) -> dict[str, Any]:
 
     started = time.monotonic()
     with SessionLocal() as db:
-        dataset = (
-            db.query(TabularDataset).filter(TabularDataset.id == dataset_id).first()
-        )
+        dataset = db.query(TabularDataset).filter(TabularDataset.id == dataset_id).first()
         if dataset is None:
             return {"id": dataset_id, "status": "missing"}
         if dataset.status in ("ready", "deleted"):
@@ -641,9 +643,7 @@ def ingest_dataset(dataset_id: str) -> dict[str, Any]:
                 )
                 frame = _read_source(local, fmt)
                 if frame.height == 0:
-                    raise TabularError(
-                        code="DATASET_EMPTY", message="The file has no data rows."
-                    )
+                    raise TabularError(code="DATASET_EMPTY", message="The file has no data rows.")
                 max_columns = int(settings.tabular_max_columns)
                 if frame.width > max_columns:
                     raise TabularError(
@@ -852,9 +852,7 @@ def register_frame(
     db.flush()
 
     profile = profile_frame(frame)
-    key, size = _write_frame(
-        frame, workspace_id=workspace_id, dataset_id=dataset.id
-    )
+    key, size = _write_frame(frame, workspace_id=workspace_id, dataset_id=dataset.id)
     _apply_profile(dataset, profile)
     dataset.storage_key = key
     dataset.size_bytes = size
@@ -891,9 +889,7 @@ def soft_delete(db: DBSession, dataset: TabularDataset) -> TabularDataset:
 # ---------------------------------------------------------------------------
 
 
-def serialize_dataset(
-    dataset: TabularDataset, *, include_preview: bool = False
-) -> dict[str, Any]:
+def serialize_dataset(dataset: TabularDataset, *, include_preview: bool = False) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "id": dataset.id,
         "name": dataset.name,
@@ -905,9 +901,7 @@ def serialize_dataset(
         "status_detail": dataset.status_detail,
         "error": dataset.error,
         "row_count": int(dataset.row_count) if dataset.row_count is not None else None,
-        "column_count": (
-            int(dataset.column_count) if dataset.column_count is not None else None
-        ),
+        "column_count": (int(dataset.column_count) if dataset.column_count is not None else None),
         "size_bytes": int(dataset.size_bytes) if dataset.size_bytes is not None else None,
         "schema": list(dataset.schema_json or []),
         "original_filename": dataset.original_filename,
@@ -932,6 +926,7 @@ def serialize_dataset(
 # A curated list rather than the whole bag: the block also holds the authored
 # statement, and a dataset page is not where a Flow's program is published.
 _PUBLIC_LINEAGE_KEYS = (
+    "postgresql",
     "engine",
     "model",
     "added_columns",
@@ -984,10 +979,7 @@ def dataset_used_by(db: DBSession, *, dataset: TabularDataset) -> dict[str, Any]
         if model.system_id:
             system_ids.add(str(model.system_id))
     systems = (
-        db.query(System)
-        .filter(System.id.in_(list(system_ids)))
-        .order_by(System.name.asc())
-        .all()
+        db.query(System).filter(System.id.in_(list(system_ids))).order_by(System.name.asc()).all()
         if system_ids
         else []
     )

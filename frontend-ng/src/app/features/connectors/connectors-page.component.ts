@@ -100,7 +100,11 @@ import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
               </div>
 
               <div class="mt-5">
-                @if (connector.id === 'sftp') {
+                @if (connector.id === 'postgresql') {
+                  <a [navLink]="{ leaf: 'connector-postgresql' }" class="ck-btn ck-btn-accent w-full justify-center">
+                    <app-icon name="database" [size]="14" /> {{ i18n.t('connectors.pg.open') }}
+                  </a>
+                } @else if (connector.id === 'sftp') {
                   <a
                     [navLink]="{ surface: 'secure-deposit' }"
                     class="inline-flex w-full items-center justify-center gap-2 rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-400"
@@ -311,6 +315,10 @@ export class ConnectorsPageComponent implements OnInit, OnDestroy {
   }
 
   openSetup(connector: ConnectorDef): void {
+    if (connector.id === 'postgresql') {
+      void this.router.navigateByUrl(this.navigation.leafUrl('connector-postgresql'));
+      return;
+    }
     if (connector.id === 'sharepoint') {
       void this.router.navigateByUrl(this.navigation.surfaceUrl('sharepoint'));
       return;

@@ -218,9 +218,9 @@ export const CONNECTORS: ConnectorDef[] = [
     category: 'data-storage',
     icon: 'database',
     name: 'PostgreSQL',
-    description: 'Configuration and connection test only. Data queries and imports are not available yet.',
+    description: 'Explore tables, preview live data and import versioned datasets for DataOps.',
     version: 'v16',
-    status: 'configuration-only',
+    status: 'available',
     fields: [
       { key: 'host', label: 'Host', type: 'text', placeholder: 'localhost', required: true },
       { key: 'port', label: 'Port', type: 'number', placeholder: '5432' },

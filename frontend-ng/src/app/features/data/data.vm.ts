@@ -6,7 +6,7 @@
  * dataset row (its lifecycle and its provenance cue).
  */
 
-export type DatasetSource = 'upload' | 'transform' | 'score' | 'generated';
+export type DatasetSource = 'upload' | 'transform' | 'score' | 'generated' | 'postgresql';
 export type DatasetStatus = 'pending' | 'ingesting' | 'ready' | 'failed' | 'deleted';
 
 /** Statuses the worker is still working through; surfaces poll while any holds. */
@@ -136,6 +136,8 @@ export function ingestChecklist(
 /** Lucide icon for a dataset origin — the list's at-a-glance provenance cue. */
 export function sourceIcon(source: DatasetSource | undefined): string {
   switch (source) {
+    case 'postgresql':
+      return 'database';
     case 'transform':
       return 'git-branch';
     case 'score':
@@ -159,6 +161,11 @@ export interface DatasetLineageModel {
 
 /** How a produced dataset came to exist, as the detail page tells it. */
 export interface DatasetLineage {
+  postgresql?: {
+    database: string; schema: string; table: string; columns: string[];
+    captured_at: string; mode: 'snapshot'; row_count: number; truncated: false;
+    schema_fingerprint: string; snapshot_sha256: string; text_columns: string[];
+  };
   engine?: string;
   model?: DatasetLineageModel;
   added_columns?: string[];

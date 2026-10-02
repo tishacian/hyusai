@@ -2148,11 +2148,17 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
   }
 
   connectorStatus(connector: ConnectorDef): ConnectorStatus {
+    // A saved setup does not constitute an observed PostgreSQL connection.
+    if (connector.id === 'postgresql') return connector.status;
     if (connector.status === 'configuration-only') return connector.status;
     return this.isConfigured(connector.id) ? 'active' : connector.status;
   }
 
   openConnector(c: ConnectorDef): void {
+    if (c.id === 'postgresql') {
+      void this.router.navigateByUrl(this.navigation.leafUrl('connector-postgresql'));
+      return;
+    }
     if (c.id === 'sharepoint') {
       void this.router.navigateByUrl(this.navigation.surfaceUrl('sharepoint'));
       return;
