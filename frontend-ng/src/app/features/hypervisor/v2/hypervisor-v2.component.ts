@@ -113,6 +113,7 @@ import {
   type ImpactSourceValues,
   type SourceOutcome,
 } from './impact-sources';
+import { ClaimsBenchmarkComponent } from '../../experience/work/claims-benchmark.component';
 import { ImpactBlockAlertesComponent } from './blocks/impact-block-alertes.component';
 import { ImpactBlockCarteComponent } from './blocks/impact-block-carte.component';
 import { ImpactBlockEcheancierComponent } from './blocks/impact-block-echeancier.component';
@@ -213,6 +214,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     ImpactBlockFluxComponent,
     ImpactBlockCarteComponent,
     ImpactBlockAlertesComponent,
+    ClaimsBenchmarkComponent,
     ImpactBlockOrdreDuJourComponent,
     ImpactBlockIndicateursComponent,
   ],
@@ -274,6 +276,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
         }
       </div>
 
+      @if (activeFacet() === 'synthese') { <app-claims-benchmark [readOnly]="true" /> }
       @if (loading()) {
         <p class="hv2-muted">{{ i18n.t('hypervisor.v2.loading') }}</p>
       } @else if (loadProblem(); as problem) {

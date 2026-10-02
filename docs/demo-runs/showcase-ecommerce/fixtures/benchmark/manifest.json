@@ -1,0 +1,185 @@
+{
+  "evidence_kind": "synthetic_demo_benchmark",
+  "documents": [
+    {
+      "reference": "claim-lm5001",
+      "filename": "reclamation-lm5001.pdf",
+      "sha256": "6acb127c42891fad409ac0a148c89d95c2a003409ac24b6323452adcf563bc4b"
+    },
+    {
+      "reference": "delivery-lm5001",
+      "filename": "bordereau-livraison-lm5001.pdf",
+      "sha256": "4a69b8bf32197b744c976d5d24fe5e2f3002bb285ae327866f8d22127fa664d4"
+    },
+    {
+      "reference": "claim-lm5002",
+      "filename": "reclamation-lm5002.pdf",
+      "sha256": "4dec846e8f169e90a71d9a05cee47b47643c9fe4b6f659b52955d2b740328c42"
+    },
+    {
+      "reference": "delivery-lm5002",
+      "filename": "bordereau-livraison-lm5002.pdf",
+      "sha256": "b9d5a44fcf99461b967316e51f252cc8132b6fb9f5ae29c5e4a120afd16ec6c2"
+    },
+    {
+      "reference": "claim-lm5003",
+      "filename": "reclamation-lm5003.pdf",
+      "sha256": "3e91d220d43bcf7aa979242b6b2f545db8235321f296819699b988eafa4119bf"
+    },
+    {
+      "reference": "loss-lm5003",
+      "filename": "confirmation-perte-lm5003.pdf",
+      "sha256": "938be37536bd0af2d3e04ffaa29e4c3731319dc7f9df3bc8af3c6f9e9ed034d5"
+    },
+    {
+      "reference": "claim-lm5004",
+      "filename": "reclamation-lm5004.pdf",
+      "sha256": "8f0ca67baddc960e49a3e12961308e047e1aa9d28eb86f61868e5b3ede99598b"
+    },
+    {
+      "reference": "loss-lm5004",
+      "filename": "confirmation-perte-lm5004.pdf",
+      "sha256": "f15938a5366c51d6cf2f2adcef783a61e2644173e2ea1a3038f9ca37bb61b677"
+    },
+    {
+      "reference": "claim-lm5005",
+      "filename": "reclamation-lm5005.pdf",
+      "sha256": "1c9c2ec45f9fd0b852b4fadf2bd32264f07fe0c7332b0f9a7c665b5cfef7bdaa"
+    },
+    {
+      "reference": "refund-receipt-lm5005",
+      "filename": "recu-remboursement-lm5005.pdf",
+      "sha256": "0e8a99356ffec6c4bea626c87ce3d90b6063f2d9b88d4b9df0ce641a83dff2d1"
+    },
+    {
+      "reference": "claim-lm5006",
+      "filename": "reclamation-lm5006.pdf",
+      "sha256": "728329e2b1dc4a93efa81d2de23260cbe14ac0e92cdbde022edee26fb693c5b4"
+    },
+    {
+      "reference": "refund-receipt-lm5006",
+      "filename": "recu-remboursement-lm5006.pdf",
+      "sha256": "4c41d0d829e08bed14dd205e68c310fb425b9427dff99b5070285da6d80d5f18"
+    },
+    {
+      "reference": "claim-lm5007",
+      "filename": "reclamation-lm5007.pdf",
+      "sha256": "33bdca7d6bf7681fc57a161e69f168f9f14a9f33c85fe8d7d15119c95f83ed45"
+    },
+    {
+      "reference": "claim-lm5008",
+      "filename": "reclamation-lm5008.pdf",
+      "sha256": "b3e60ed2509ddadc16db15f13160f40635c7851f4fe35feaf9d9687c2592c463"
+    },
+    {
+      "reference": "claim-lm5009",
+      "filename": "reclamation-lm5009.pdf",
+      "sha256": "0c087d86fecf187d24431d4da5c3a865b72e78a395e468364faeec45acc4a7dc"
+    },
+    {
+      "reference": "delivery-lm5009",
+      "filename": "bordereau-livraison-lm5009.pdf",
+      "sha256": "f77f308ed5940ec7aa3b74a0021e3574eb095e1ec376b76056a979e26002eaee"
+    },
+    {
+      "reference": "claim-lm5010",
+      "filename": "reclamation-lm5010.pdf",
+      "sha256": "8ef9c5bec4f66370a3155cbbceb08ff84dbf36e79998fd6b71205cf61352e51a"
+    },
+    {
+      "reference": "delivery-lm5010",
+      "filename": "bordereau-livraison-lm5010.pdf",
+      "sha256": "bac0f96b516ca953e281c9be225c24bf91419a9e563c7bdbde0bdf2f0c56a1e4"
+    },
+    {
+      "reference": "claim-lm5011",
+      "filename": "reclamation-lm5011.pdf",
+      "sha256": "49ddbd986160fd6d2744035a9c1e729e2a30502986ff886a44000dac44ce11de"
+    },
+    {
+      "reference": "loss-lm5011",
+      "filename": "confirmation-perte-lm5011.pdf",
+      "sha256": "04b1da226d124aa4cc43a7e7311c48f51f857d4e336793a395080c14e202153d"
+    },
+    {
+      "reference": "claim-lm5012",
+      "filename": "reclamation-lm5012.pdf",
+      "sha256": "3808332c0cc15808ce3dd3db13895062c8628c39f417b59a103978df72fa08ff"
+    },
+    {
+      "reference": "loss-lm5012",
+      "filename": "confirmation-perte-lm5012.pdf",
+      "sha256": "a0caf36954fc7eedee55c0cddc69483277721aa25dd7a6318c01ab991eb70b56"
+    },
+    {
+      "reference": "claim-lm5013",
+      "filename": "reclamation-lm5013.pdf",
+      "sha256": "4ed3c529136d7ef5aaf890b5a23777f504b84993d58a258cb0d4db90e200776c"
+    },
+    {
+      "reference": "refund-receipt-lm5013",
+      "filename": "recu-remboursement-lm5013.pdf",
+      "sha256": "bcb7f9f2c132f1e4fb131e6dd2870e3a92e8cba700dd13dfc51099167306435e"
+    },
+    {
+      "reference": "claim-lm5014",
+      "filename": "reclamation-lm5014.pdf",
+      "sha256": "59c7148e6b074ef0f716d9106bf08ce3212f4878935f331d981d4959da922be2"
+    },
+    {
+      "reference": "refund-receipt-lm5014",
+      "filename": "recu-remboursement-lm5014.pdf",
+      "sha256": "73741cb9e7f79be73839ce5b0e735cf93102cd4df5c7f22d4439cce840d3ccf8"
+    },
+    {
+      "reference": "claim-lm5015",
+      "filename": "reclamation-lm5015.pdf",
+      "sha256": "1eff070fb3e80944e2dc0be42e30e91985bbc6db56dae79ad6a30337bd3e3d64"
+    },
+    {
+      "reference": "claim-lm5016",
+      "filename": "reclamation-lm5016.pdf",
+      "sha256": "7ae0794767133c317447f3033072a1d1f42baa5248e6622968afc95f0a4365a5"
+    },
+    {
+      "reference": "claim-lm5017",
+      "filename": "reclamation-lm5017.pdf",
+      "sha256": "b6b7113797cbf8d351838a345bdfd3b653c8778b007bf6ec92d7d1c28ab408d7"
+    },
+    {
+      "reference": "delivery-lm5017",
+      "filename": "bordereau-livraison-lm5017.pdf",
+      "sha256": "c6a799a8f35c823797454e897659f7800f96650d2ed91d60278ab41e98b154b4"
+    },
+    {
+      "reference": "claim-lm5018",
+      "filename": "reclamation-lm5018.pdf",
+      "sha256": "d23c18fe021b37ec1aea010ae8ef5031e4d641b28b7b7d2ff8e867a1090a6a3b"
+    },
+    {
+      "reference": "delivery-lm5018",
+      "filename": "bordereau-livraison-lm5018.pdf",
+      "sha256": "bf586558aae0e7fe145b62c102d1c025850b85dc8b1cc5738561252122b60223"
+    },
+    {
+      "reference": "claim-lm5019",
+      "filename": "reclamation-lm5019.pdf",
+      "sha256": "e2707e30a6f62c5746edc958262c04c22ff854fe9fd5915769bb84ecab891c54"
+    },
+    {
+      "reference": "loss-lm5019",
+      "filename": "confirmation-perte-lm5019.pdf",
+      "sha256": "c1613882da3bb99a0f290f1b830d0642ae268df7e1b4c6e575551504329e9971"
+    },
+    {
+      "reference": "claim-lm5020",
+      "filename": "reclamation-lm5020.pdf",
+      "sha256": "d512ae40c979278946c8ca03d3a471b3a25dd191c0f71d9b57cc67b556f7a246"
+    },
+    {
+      "reference": "loss-lm5020",
+      "filename": "confirmation-perte-lm5020.pdf",
+      "sha256": "09935ff1254f144e616ba359b763a4cce471e602ce409f5ddd530e0d3d363ee8"
+    }
+  ]
+}

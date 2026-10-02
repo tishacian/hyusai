@@ -46,10 +46,17 @@ WRITE_SKILLS = frozenset(
         "sap_reject_pr_v1",
         "sap_create_po_v1",
         "sap_handle_rejection_v1",
+        "ecommerce_resolution_simulate_v1",
     }
 )
 
 SKILL_PURPOSES: dict[str, str] = {
+    "postgresql_claim_snapshot_v1": "Read this claim's PostgreSQL order, delivery and past-refund facts",
+    "ecommerce_policy_evidence_v1": "Find and cite the applicable refund policy and procedure",
+    "ecommerce_delivery_evidence_v1": "Investigate this claim's delivery receipt or loss confirmation",
+    "ecommerce_refund_evidence_v1": "Find the previous refund receipt when a refund already exists",
+    "ecommerce_resolution_propose_v1": "Prepare a guarded recommendation or ask for missing evidence",
+    "ecommerce_resolution_simulate_v1": "Record a simulated action after human approval and live rechecks",
     "azure_llm_v1": "Classify or draft with a hosted LLM",
     "audit_log_v1": "Write a structured audit ledger entry",
     "semantic_search_v1": "Retrieve grounded evidence",

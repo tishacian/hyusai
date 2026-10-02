@@ -147,6 +147,8 @@ def db_session():
 
     # Order matters for FK constraints.
     _TRUNCATE_ORDER = [
+        "claim_actions",
+        "claim_trials",
         "brd_proposals",
         "brd_documents",
         "client360_impact_events",

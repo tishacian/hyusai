@@ -618,6 +618,7 @@ export const AGENTIUM_SURFACE_LEAVES: AgentiumSurfaceLeaf[] = [
   { id: 'workspace-app-repair', parent: 'hypervisor', route: '/workspace-app-repair', label: 'Workspace app repair' },
   { id: 'help-guide', parent: 'work', route: '/help/:guideId', label: 'Help guide' },
   { id: 'work-getting-started', parent: 'work', route: '/work/getting-started', label: 'Getting started' },
+  { id: 'work-claims-studio', parent: 'work', route: '/work/reclamations/studio', label: 'Claims studio' },
   { id: 'work-pr-to-po', parent: 'work', route: '/work/pr-to-po', label: 'PR to PO Studio' },
   { id: 'work-automation', parent: 'work', route: '/work/automation/:systemId', label: 'Published automation' },
   { id: 'work-page', parent: 'work', route: '/work/:slug/:pageId', label: 'Work page' },

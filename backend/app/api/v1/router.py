@@ -26,6 +26,8 @@ from app.api.v1.endpoints import (
     document_passages,
     documents,
     evaluation,
+    ecommerce_claims,
+    claims_benchmark,
     evaluation_campaigns,
     evaluation_corrections,
     flow_diffs,
@@ -133,6 +135,8 @@ api_router.include_router(
     tags=["experiences"],
 )
 api_router.include_router(work.router, prefix="/work", tags=["work"])
+api_router.include_router(claims_benchmark.router, prefix="/ecommerce-claims/benchmark", tags=["claims-benchmark"])
+api_router.include_router(ecommerce_claims.router, prefix="/ecommerce-claims", tags=["ecommerce-claims"])
 api_router.include_router(flow_publication.router, prefix="/systems", tags=["flow-publication"])
 api_router.include_router(automation_edit.router, prefix="/systems", tags=["automation-edit"])
 api_router.include_router(mandates.router, tags=["mandates"])
