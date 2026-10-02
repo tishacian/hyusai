@@ -1,0 +1,13 @@
+# Bordereau ColisAzur - LM-1042
+
+DÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel
+
+Version : 1 | Date : 2026-09-24 | En vigueur / pièce courante
+
+Commande : LM-1042. Suivi : CA-1042. Date de remise déclarée : 24 septembre 2026. Statut déclaré : livré.
+
+Lieu de remise enregistré sur ce bordereau : Paris, code postal 75012.
+
+Identité du destinataire ayant réceptionné le colis : non renseignée. Confirmation de réception par le client de la commande : non disponible.
+
+Pièce de démonstration : ce document rapporte les informations du transporteur. Il doit être rapproché de l'adresse de la commande et de la réclamation.
