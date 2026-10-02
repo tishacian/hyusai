@@ -1,5 +1,9 @@
 # Livraison Luma Maison dans Showcase
 
+L’activation a été effectuée par l’opérateur. Le
+[rapport de QA après activation](LIVE-QA-2026-10-02.md) décrit les parcours réels
+et les correctifs frontend ; il n’est pas nécessaire de rejouer l’installation.
+
 Cette livraison ajoute le lecteur PostgreSQL borné, six outils, l’application
 Work Réclamations et le benchmark humain dans Impact. L’utilisateur a retenu un
 déploiement par un opérateur. La cible est `origin/demo/agentic` ; le code n’arrive

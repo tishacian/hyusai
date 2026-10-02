@@ -5,12 +5,13 @@ const enabled = process.env['E2E_CHROME_V2_MOCKED'] === '1';
 test.use({ serviceWorkers: 'block', video: 'off', ignoreHTTPSErrors: false });
 const workspace = { id: 'qa-claims-ws', slug: 'qa-claims', name: 'Showcase QA', role: 'owner', role_template: 'workspace_owner', settings: { features: { experience_v1: true, ecommerce_claims_v1: true } } };
 const rows = [
- { claim_id: 'RC-1042', order_id: 'LM-1042', paid_amount: '420.00', display_name: 'Client fictif A', reason: 'Colis indiqué livré, réception contestée' },
- { claim_id: 'RC-1043', order_id: 'LM-1043', paid_amount: '49.90', display_name: 'Client fictif B', reason: 'Perte confirmée par le transporteur' },
- { claim_id: 'RC-1044', order_id: 'LM-1044', paid_amount: '89.00', display_name: 'Client fictif C', reason: 'Nouvelle demande après remboursement' },
+ { claim_id: 'RC-1042', order_id: 'LM-1042', paid_amount: '420.00', display_name: 'Client fictif A', reason: 'delivery_disputed' },
+ { claim_id: 'RC-1043', order_id: 'LM-1043', paid_amount: '49.90', display_name: 'Client fictif B', reason: 'parcel_lost' },
+ { claim_id: 'RC-1044', order_id: 'LM-1044', paid_amount: '89.00', display_name: 'Client fictif C', reason: 'refund_requested' },
 ].map(r => ({ ...r, currency: 'EUR', state: 'to_investigate', opened_at: '2026-09-29T10:00:00Z' }));
 const source = { reference: 'refund-policy-v2', document_id: 'qa-original-doc', collection: 'qa-rules', filename: 'politique-remboursement-v2.pdf', title: 'politique-remboursement-v2.pdf' };
-function detail(id: string) { const row = rows.find(r => r.claim_id === id)!; return { data: { context: [{ ...row, shipping_postcode: '75011', payment_status: 'paid' }], items: [{ product_name: 'Lampe Aube', quantity: 1, unit_price: row.paid_amount }], shipments: [{ status: id === 'RC-1043' ? 'lost' : 'delivered', carrier: 'ColisAzur', tracking_id: 'CA-' + id.slice(3) }], refunds: id === 'RC-1044' ? [{ refund_id: 'RF-1044', amount: '89.00', currency: 'EUR', status: 'executed' }] : [] }, provenance: { captured_at: '2026-10-02T09:00:00Z', snapshot_sha256: 'qa-snapshot', read_mode: 'live' }, sources: [source], receipts: [], latest_run_id: null }; }
+const claimSource = { reference: 'claim-lm1042', document_id: 'qa-claim-doc', collection: 'qa-case', filename: 'reclamation-lm1042.pdf', title: 'reclamation-lm1042.pdf' };
+function detail(id: string) { const row = rows.find(r => r.claim_id === id)!; return { data: { context: [{ ...row, shipping_postcode: '75011', payment_status: 'paid' }], items: [{ product_name: 'Lampe Aube', quantity: 1, unit_price: row.paid_amount }], shipments: [{ status: id === 'RC-1043' ? 'lost' : 'delivered', carrier: 'ColisAzur', tracking_id: 'CA-' + id.slice(3) }], refunds: id === 'RC-1044' ? [{ refund_id: 'RF-1044', amount: '89.00', currency: 'EUR', status: 'executed' }] : [] }, provenance: { captured_at: '2026-10-02T09:00:00Z', snapshot_sha256: 'qa-snapshot', read_mode: 'live' }, sources: [source, claimSource], receipts: [], latest_run_id: null }; }
 
 async function setup(page: Page, theme: string, locale: string, unavailable = false) {
  const posts: unknown[] = []; let run: Record<string, unknown> | null = null;
@@ -30,14 +31,14 @@ async function setup(page: Page, theme: string, locale: string, unavailable = fa
    if (path.endsWith('/bindings/showcase.claims.investigate/runs')) {
      posts.push(request.postDataJSON()); const id = (posts.at(-1) as { payload: { claim_id: string } }).payload.claim_id;
      const action = id === 'RC-1043' ? 'refund' : id === 'RC-1044' ? 'close_duplicate' : 'carrier_investigation';
-     const proposal = { claim_id: id, order_id: 'LM-' + id.slice(3), action, reason: id === 'RC-1043' ? 'carrier_loss_confirmed' : id === 'RC-1044' ? 'already_refunded' : 'delivery_address_mismatch', amount: action === 'refund' ? '49.90' : '0', currency: 'EUR', evidence_kind: 'synthetic_demo', missing_references: [], requires_human: true, citations: [{ ...source, content: 'Toute résolution exige une validation humaine.', page: 1, chunk_index: 0 }] };
+     const proposal = { claim_id: id, order_id: 'LM-' + id.slice(3), action, reason: id === 'RC-1043' ? 'carrier_loss_confirmed' : id === 'RC-1044' ? 'already_refunded' : 'delivery_address_mismatch', amount: action === 'refund' ? '49.90' : '0', currency: 'EUR', evidence_kind: 'synthetic_demo', missing_references: [], requires_human: true, citations: [claimSource, source].map(s => ({ ...s, content: 'Toute résolution exige une validation humaine.', page: 1, chunk_index: 0 })) };
      const tool = id === 'RC-1044' ? 'ecommerce_refund_evidence_v1' : 'ecommerce_delivery_evidence_v1';
      run = { id: 'qa-native-run', system_id: 'qa-system', status: 'hitl_pending', hitl: { decision_id: 'qa-decision', node_id: 'hitl.review' }, skill_invocations: ['postgresql_claim_snapshot_v1', 'ecommerce_policy_evidence_v1', tool, 'ecommerce_resolution_propose_v1'].map((slug, i) => ({ id: 'qa-inv-' + i, skill_slug: slug, status: 'completed', output_ref: slug === 'ecommerce_resolution_propose_v1' ? proposal : {} })) };
      return json(route, { id: 'qa-native-run', status: 'pending' }, 201);
    }
    if (path === '/runs/qa-native-run' && request.method() === 'GET') return json(route, run);
-   if (path === '/runs/qa-native-run/hitl') { posts.push(request.postDataJSON()); return json(route, run); }
-   if (path.includes('/documents/') && path.includes('/passages')) return json(route, { passage: { content: 'Toute résolution exige une validation humaine.' }, document_id: source.document_id, available: true });
+   if (path === '/runs/qa-native-run/hitl') { posts.push(request.postDataJSON()); return json(route, { id: 'qa-native-run', system_id: 'qa-system', status: 'running' }); }
+   if (path.includes('/documents/') && path.endsWith('/passage')) { const s = path.includes(claimSource.document_id) ? claimSource : source; return json(route, { passage: { text: 'Toute résolution exige une validation humaine.' }, document_id: s.document_id, filename: s.filename, collection: { id: null, slug: s.collection, name: s.collection }, preview_available: false }); }
    if (path.includes('/documents/preview/')) return json(route, { status: 'unavailable' });
    if (request.method() === 'GET') return json(route, path.endsWith('s') ? [] : {});
    return json(route, {});
@@ -53,10 +54,18 @@ test.describe('Claims studio — isolated end-user QA', () => {
     await page.goto('/work/reclamations/studio');
     await expect(page.getByRole('heading', { name: 'Réclamations', exact: true })).toBeVisible();
     await expect(page.getByText('Commande lue dans PostgreSQL', { exact: false })).toBeVisible();
+    await expect(page.getByText('Livraison contestée', { exact: true })).toBeVisible();
+    await expect(page.getByText('delivery_disputed', { exact: true })).toHaveCount(0);
     await page.getByRole('button', { name: /LM-1043/ }).click();
     await page.getByRole('button', { name: 'Lancer l’enquête', exact: true }).click();
     await expect(page.getByText('Proposer un remboursement', { exact: true })).toBeVisible();
+    const completionColors = await page.locator('.claims-steps li[data-state="completed"] .claims-step-dot').first().evaluate(marker => {
+      const probe = document.createElement('span'); probe.style.backgroundColor = 'var(--ck-signal-cool)'; marker.parentElement!.append(probe);
+      const colors = { actual: getComputedStyle(marker).backgroundColor, expected: getComputedStyle(probe).backgroundColor }; probe.remove(); return colors;
+    });
+    expect(completionColors.actual).toBe(completionColors.expected);
     await page.getByRole('button', { name: 'Valider la proposition', exact: true }).click();
+    await expect(page.getByText('Proposer un remboursement', { exact: true })).toBeVisible();
     expect(posts[0]).toMatchObject({ payload: { claim_id: 'RC-1043' }, page_id: 'dossier', component_id: 'investigation', confirmed: true });
     expect(posts[1]).toMatchObject({ action: 'accept', expected_decision_id: 'qa-decision' });
     await page.getByRole('button', { name: /LM-1044/ }).click();
@@ -75,9 +84,23 @@ test.describe('Claims studio — isolated end-user QA', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
  }
+ test('an original stays open when incoming citations reorder the sources', async ({ page }) => {
+   await setup(page, 'light', 'fr'); await page.goto('/work/reclamations/studio');
+   await page.getByRole('button', { name: source.title, exact: true }).click();
+   const panel = page.getByTestId('work-source-panel');
+   await expect(panel.getByRole('heading', { name: source.title, exact: true })).toBeVisible();
+   await expect(page.getByTestId('work-source-step')).toContainText('Source 1 sur 2');
+   await page.getByRole('button', { name: 'Lancer l’enquête', exact: true }).click();
+   await expect(page.getByText('Ouvrir une enquête transporteur', { exact: true })).toBeVisible();
+   await expect(panel.getByRole('heading', { name: source.title, exact: true })).toBeVisible();
+   await expect(page.getByTestId('work-source-step')).toContainText('Source 2 sur 2');
+   await page.getByTestId('work-source-previous').click();
+   await expect(panel.getByRole('heading', { name: claimSource.title, exact: true })).toBeVisible();
+ });
  test('mobile English and a failed data connection remain readable', async ({ page }) => {
    await setup(page, 'light', 'en'); await page.setViewportSize({ width: 390, height: 844 }); await page.goto('/work/reclamations/studio');
    await expect(page.getByRole('heading', { name: 'Claims', exact: true })).toBeVisible();
+   await expect(page.getByText('Delivery disputed', { exact: true })).toBeVisible();
    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
    await page.screenshot({ path: '/workspace/scratch/demo-qa-2026-10-02/claims-mobile-en.png', fullPage: true });
  });

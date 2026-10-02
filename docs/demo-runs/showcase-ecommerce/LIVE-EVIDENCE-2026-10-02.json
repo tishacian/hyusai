@@ -1,0 +1,443 @@
+{
+  "checked_at": "2026-10-02T14:08:37.714099+02:00",
+  "evidence_kind": "automated_end_user_qa_of_synthetic_demo",
+  "human_benchmark_measurement": false,
+  "workspace_slug": "agentium-showcase",
+  "delivery_git_revision": "f51e6dad653f10e96b5b0a2599715adf10dcc7cd",
+  "served_build": {
+    "service": "frontend",
+    "revision": "5f8583211f01a3ccd157d88ca7b68fd5fbdc9b25",
+    "revision_verified": true
+  },
+  "deployment_origin": "Bitbucket mirror, as confirmed by the user",
+  "runs": [
+    {
+      "claim_id": "RC-1042",
+      "run_id": "2bd52a30-8ea5-4cb8-89f6-1fbb20a382ea",
+      "run_url": "https://agentium.papai.ai/runs/2bd52a30-8ea5-4cb8-89f6-1fbb20a382ea",
+      "status": "completed",
+      "error": null,
+      "runtime_revision": "5f8583211f01a3ccd157d88ca7b68fd5fbdc9b25",
+      "published_flow_version_id": "86c285c8-76b9-42ed-98e0-a98a7ced1c41",
+      "flow_sha256": "30465eae80dd3f3ab3a49b44e561151742fc7829b3f6b95778bc87ad50b41c3f",
+      "tools": [
+        {
+          "skill_slug": "postgresql_claim_snapshot_v1",
+          "status": "completed",
+          "invocation_id": "fa0aaba6-5204-4156-b606-c37b201001cd"
+        },
+        {
+          "skill_slug": "ecommerce_policy_evidence_v1",
+          "status": "completed",
+          "invocation_id": "ec09076e-c77f-40ff-9b0f-e510831a96d6"
+        },
+        {
+          "skill_slug": "ecommerce_delivery_evidence_v1",
+          "status": "completed",
+          "invocation_id": "932e5101-0358-47d5-8a94-230fbfb2ec3f"
+        },
+        {
+          "skill_slug": "ecommerce_resolution_propose_v1",
+          "status": "completed",
+          "invocation_id": "83152092-189d-4b9a-803c-8da52d8c6cae"
+        },
+        {
+          "skill_slug": "ecommerce_resolution_simulate_v1",
+          "status": "completed",
+          "invocation_id": "de655757-fbdd-4a71-9141-c22b4c34f593"
+        }
+      ],
+      "postgresql_provenance": {
+        "source": "postgresql",
+        "connector_id": "postgresql",
+        "read_mode": "live",
+        "isolation": "repeatable_read",
+        "captured_at": "2026-10-02T11:52:41.900819+00:00",
+        "snapshot_sha256": "b46adeb6f8127ba429ab4d7a6f46365e1c809b21c79917f2bf31c312e37e477c",
+        "business_parameters": {
+          "claim_id": "RC-1042"
+        },
+        "queries": [
+          {
+            "id": "context",
+            "sha256": "50fc1db4bbb2e5fd27132703714e6359b38ad9781da27fe8ef1e7935180119af"
+          },
+          {
+            "id": "items",
+            "sha256": "124b426acf1a03f3a5f092a9edb0d82929efe15b944fad75b03f563ae45aea8d"
+          },
+          {
+            "id": "shipments",
+            "sha256": "da0ba3fc3135d64fc730e3e3b0dc4030672f981b8df8160983fe49a30621061c"
+          },
+          {
+            "id": "refunds",
+            "sha256": "66d9cd4b79ea1413fd3f1251e2d5b0d22a821570289d01808b8e1cdfafb2fc07"
+          },
+          {
+            "id": "documents",
+            "sha256": "c67444458f7c58dffa292c996704688afa5e0af65c6b7286e211168f6e00182b"
+          }
+        ],
+        "schema": "showcase_ecommerce",
+        "evidence_kind": "synthetic_demo"
+      },
+      "citations": [
+        {
+          "document_id": "8cbbe64c-9337-5263-bfee-4e52ab7aca7b",
+          "collection": "luma-maison-regles",
+          "filename": "contrat-transporteur-v1.pdf",
+          "reference": null,
+          "sha256": "293f6a9e88c31113cdbf253b93626147eb40305991c6db0835ed47b2d871cf20",
+          "page": 1
+        },
+        {
+          "document_id": "5aed6055-096f-5d3d-b4cd-ddb4a39ddb52",
+          "collection": "luma-maison-regles",
+          "filename": "guide-validation-sav-v1.pdf",
+          "reference": null,
+          "sha256": "642cf61d82934e2160d7c7fc9729a9cac6f6a8ee951b9fca3a322287937cbf02",
+          "page": 1
+        },
+        {
+          "document_id": "9480eab9-95a2-511d-a0c7-3862e3cb5cbd",
+          "collection": "luma-maison-regles",
+          "filename": "politique-remboursement-v2.pdf",
+          "reference": null,
+          "sha256": "240adbc2cd772111c015b5b3530b4dc8c3c9c98cf16d14c4aef6229420eb66a5",
+          "page": 1
+        },
+        {
+          "document_id": "32efcef7-2bde-5648-be9f-ce6a9b6bf2a3",
+          "collection": "luma-maison-regles",
+          "filename": "procedure-enquete-livraison-v1.docx",
+          "reference": null,
+          "sha256": "e352f66e19676abf8c0b9659412d7fe8de4799b100607bc8ddf533127aca2369",
+          "page": null
+        },
+        {
+          "document_id": "6017d14b-a7ba-5b5f-97f5-975f180a07ee",
+          "collection": "luma-maison-dossier-lm1042",
+          "filename": "reclamation-lm1042.pdf",
+          "reference": null,
+          "sha256": "93bf77e89542d7f412d7e040886cfd6908fdff10d6cae6513a8573c0328dd623",
+          "page": 1
+        },
+        {
+          "document_id": "719f04c1-4645-5088-a60d-a34b24f49534",
+          "collection": "luma-maison-dossier-lm1042",
+          "filename": "bordereau-livraison-lm1042.pdf",
+          "reference": null,
+          "sha256": "6339d30a66dea9e283f78c6a169d060da3123fca734634f71f9773191af24832",
+          "page": 1
+        }
+      ],
+      "receipt": {
+        "receipt_id": "3e971e54-4ad7-4ad2-ad28-fb322c216ba5",
+        "action": "carrier_investigation",
+        "reason": "delivery_address_mismatch",
+        "amount": "0",
+        "currency": "EUR",
+        "status": "simulated",
+        "external_payment_called": false,
+        "decision_id": "af4a1ee1-8598-46da-acc9-a2acceb73600"
+      },
+      "recorded_receipt_count": 1
+    },
+    {
+      "claim_id": "RC-1043",
+      "run_id": "4c904050-d44a-46db-ac7f-90651c054c4d",
+      "run_url": "https://agentium.papai.ai/runs/4c904050-d44a-46db-ac7f-90651c054c4d",
+      "status": "completed",
+      "error": null,
+      "runtime_revision": "5f8583211f01a3ccd157d88ca7b68fd5fbdc9b25",
+      "published_flow_version_id": "86c285c8-76b9-42ed-98e0-a98a7ced1c41",
+      "flow_sha256": "30465eae80dd3f3ab3a49b44e561151742fc7829b3f6b95778bc87ad50b41c3f",
+      "tools": [
+        {
+          "skill_slug": "postgresql_claim_snapshot_v1",
+          "status": "completed",
+          "invocation_id": "240af641-d23c-480a-93c0-57e7e7bf070a"
+        },
+        {
+          "skill_slug": "ecommerce_policy_evidence_v1",
+          "status": "completed",
+          "invocation_id": "e0b76e3f-da59-4d6a-b422-ba43feea9bd5"
+        },
+        {
+          "skill_slug": "ecommerce_delivery_evidence_v1",
+          "status": "completed",
+          "invocation_id": "13560eb8-94a2-4695-a160-770cc72a3bfa"
+        },
+        {
+          "skill_slug": "ecommerce_resolution_propose_v1",
+          "status": "completed",
+          "invocation_id": "9530b245-e044-4be2-8491-59cd545e2529"
+        },
+        {
+          "skill_slug": "ecommerce_resolution_simulate_v1",
+          "status": "completed",
+          "invocation_id": "7a593919-e394-42f1-94ee-2b5b752fd333"
+        }
+      ],
+      "postgresql_provenance": {
+        "source": "postgresql",
+        "connector_id": "postgresql",
+        "read_mode": "live",
+        "isolation": "repeatable_read",
+        "captured_at": "2026-10-02T11:55:15.677336+00:00",
+        "snapshot_sha256": "e831c8136fcb0556cdfa96656ab51ef898102e2d7e86b34da060b7bd61d16a57",
+        "business_parameters": {
+          "claim_id": "RC-1043"
+        },
+        "queries": [
+          {
+            "id": "context",
+            "sha256": "50fc1db4bbb2e5fd27132703714e6359b38ad9781da27fe8ef1e7935180119af"
+          },
+          {
+            "id": "items",
+            "sha256": "124b426acf1a03f3a5f092a9edb0d82929efe15b944fad75b03f563ae45aea8d"
+          },
+          {
+            "id": "shipments",
+            "sha256": "da0ba3fc3135d64fc730e3e3b0dc4030672f981b8df8160983fe49a30621061c"
+          },
+          {
+            "id": "refunds",
+            "sha256": "66d9cd4b79ea1413fd3f1251e2d5b0d22a821570289d01808b8e1cdfafb2fc07"
+          },
+          {
+            "id": "documents",
+            "sha256": "c67444458f7c58dffa292c996704688afa5e0af65c6b7286e211168f6e00182b"
+          }
+        ],
+        "schema": "showcase_ecommerce",
+        "evidence_kind": "synthetic_demo"
+      },
+      "citations": [
+        {
+          "document_id": "8cbbe64c-9337-5263-bfee-4e52ab7aca7b",
+          "collection": "luma-maison-regles",
+          "filename": "contrat-transporteur-v1.pdf",
+          "reference": null,
+          "sha256": "293f6a9e88c31113cdbf253b93626147eb40305991c6db0835ed47b2d871cf20",
+          "page": 1
+        },
+        {
+          "document_id": "5aed6055-096f-5d3d-b4cd-ddb4a39ddb52",
+          "collection": "luma-maison-regles",
+          "filename": "guide-validation-sav-v1.pdf",
+          "reference": null,
+          "sha256": "642cf61d82934e2160d7c7fc9729a9cac6f6a8ee951b9fca3a322287937cbf02",
+          "page": 1
+        },
+        {
+          "document_id": "9480eab9-95a2-511d-a0c7-3862e3cb5cbd",
+          "collection": "luma-maison-regles",
+          "filename": "politique-remboursement-v2.pdf",
+          "reference": null,
+          "sha256": "240adbc2cd772111c015b5b3530b4dc8c3c9c98cf16d14c4aef6229420eb66a5",
+          "page": 1
+        },
+        {
+          "document_id": "32efcef7-2bde-5648-be9f-ce6a9b6bf2a3",
+          "collection": "luma-maison-regles",
+          "filename": "procedure-enquete-livraison-v1.docx",
+          "reference": null,
+          "sha256": "e352f66e19676abf8c0b9659412d7fe8de4799b100607bc8ddf533127aca2369",
+          "page": null
+        },
+        {
+          "document_id": "de6152f6-29ea-57a5-b973-3b045c6a7249",
+          "collection": "luma-maison-dossier-lm1043",
+          "filename": "confirmation-perte-lm1043.pdf",
+          "reference": null,
+          "sha256": "7810b679e1376999e4b4f81ed92970237708665623cf5a11ccc70c6f9310b354",
+          "page": 1
+        },
+        {
+          "document_id": "db49c8cd-62a2-5ee9-a0ea-9b1664b5bfb6",
+          "collection": "luma-maison-dossier-lm1043",
+          "filename": "reclamation-lm1043.pdf",
+          "reference": null,
+          "sha256": "1fecc56c020544d4341552d816528c90106aa34fb14a8f4f1f497de2030ec6b8",
+          "page": 1
+        }
+      ],
+      "receipt": {
+        "receipt_id": "f4d97482-7ea5-48c7-95c0-5220d6f1b97b",
+        "action": "refund",
+        "reason": "carrier_loss_confirmed",
+        "amount": "49.90",
+        "currency": "EUR",
+        "status": "simulated",
+        "external_payment_called": false,
+        "decision_id": "b3178dcd-4dc5-4ec5-87f0-53bd69d844ed"
+      },
+      "recorded_receipt_count": 1
+    },
+    {
+      "claim_id": "RC-1044",
+      "run_id": "0157a455-dc81-4ae0-9e1e-5e54bb9bc9b5",
+      "run_url": "https://agentium.papai.ai/runs/0157a455-dc81-4ae0-9e1e-5e54bb9bc9b5",
+      "status": "completed",
+      "error": null,
+      "runtime_revision": "5f8583211f01a3ccd157d88ca7b68fd5fbdc9b25",
+      "published_flow_version_id": "86c285c8-76b9-42ed-98e0-a98a7ced1c41",
+      "flow_sha256": "30465eae80dd3f3ab3a49b44e561151742fc7829b3f6b95778bc87ad50b41c3f",
+      "tools": [
+        {
+          "skill_slug": "postgresql_claim_snapshot_v1",
+          "status": "completed",
+          "invocation_id": "5e7e4bd5-e4a6-4e0e-9f05-204b58d61a77"
+        },
+        {
+          "skill_slug": "ecommerce_policy_evidence_v1",
+          "status": "completed",
+          "invocation_id": "865ec7fd-7917-4e96-b925-373a241063e0"
+        },
+        {
+          "skill_slug": "ecommerce_refund_evidence_v1",
+          "status": "completed",
+          "invocation_id": "2126f9ee-0fee-4707-bb1e-b77eb5a17ecd"
+        },
+        {
+          "skill_slug": "ecommerce_resolution_propose_v1",
+          "status": "completed",
+          "invocation_id": "44c5f605-ac8b-4d8d-95ef-06ad5f54cf82"
+        },
+        {
+          "skill_slug": "ecommerce_resolution_simulate_v1",
+          "status": "completed",
+          "invocation_id": "3e42ce89-ac4c-4a44-9545-7163116e0e4b"
+        }
+      ],
+      "postgresql_provenance": {
+        "source": "postgresql",
+        "connector_id": "postgresql",
+        "read_mode": "live",
+        "isolation": "repeatable_read",
+        "captured_at": "2026-10-02T11:55:18.489632+00:00",
+        "snapshot_sha256": "e6c1ebdcebd033a13e67cf8afee0667d3eee54f73a2f1ff295ab41f7967a0556",
+        "business_parameters": {
+          "claim_id": "RC-1044"
+        },
+        "queries": [
+          {
+            "id": "context",
+            "sha256": "50fc1db4bbb2e5fd27132703714e6359b38ad9781da27fe8ef1e7935180119af"
+          },
+          {
+            "id": "items",
+            "sha256": "124b426acf1a03f3a5f092a9edb0d82929efe15b944fad75b03f563ae45aea8d"
+          },
+          {
+            "id": "shipments",
+            "sha256": "da0ba3fc3135d64fc730e3e3b0dc4030672f981b8df8160983fe49a30621061c"
+          },
+          {
+            "id": "refunds",
+            "sha256": "66d9cd4b79ea1413fd3f1251e2d5b0d22a821570289d01808b8e1cdfafb2fc07"
+          },
+          {
+            "id": "documents",
+            "sha256": "c67444458f7c58dffa292c996704688afa5e0af65c6b7286e211168f6e00182b"
+          }
+        ],
+        "schema": "showcase_ecommerce",
+        "evidence_kind": "synthetic_demo"
+      },
+      "citations": [
+        {
+          "document_id": "8cbbe64c-9337-5263-bfee-4e52ab7aca7b",
+          "collection": "luma-maison-regles",
+          "filename": "contrat-transporteur-v1.pdf",
+          "reference": null,
+          "sha256": "293f6a9e88c31113cdbf253b93626147eb40305991c6db0835ed47b2d871cf20",
+          "page": 1
+        },
+        {
+          "document_id": "5aed6055-096f-5d3d-b4cd-ddb4a39ddb52",
+          "collection": "luma-maison-regles",
+          "filename": "guide-validation-sav-v1.pdf",
+          "reference": null,
+          "sha256": "642cf61d82934e2160d7c7fc9729a9cac6f6a8ee951b9fca3a322287937cbf02",
+          "page": 1
+        },
+        {
+          "document_id": "9480eab9-95a2-511d-a0c7-3862e3cb5cbd",
+          "collection": "luma-maison-regles",
+          "filename": "politique-remboursement-v2.pdf",
+          "reference": null,
+          "sha256": "240adbc2cd772111c015b5b3530b4dc8c3c9c98cf16d14c4aef6229420eb66a5",
+          "page": 1
+        },
+        {
+          "document_id": "32efcef7-2bde-5648-be9f-ce6a9b6bf2a3",
+          "collection": "luma-maison-regles",
+          "filename": "procedure-enquete-livraison-v1.docx",
+          "reference": null,
+          "sha256": "e352f66e19676abf8c0b9659412d7fe8de4799b100607bc8ddf533127aca2369",
+          "page": null
+        },
+        {
+          "document_id": "51687ef8-2958-5648-9a41-a3a5be3d0094",
+          "collection": "luma-maison-dossier-lm1044",
+          "filename": "reclamation-lm1044.pdf",
+          "reference": null,
+          "sha256": "c7d21c93045852ffd0694a0fc6f05f7aa69ebc10f8ce331977ef3dce1f8eaab6",
+          "page": 1
+        },
+        {
+          "document_id": "d098f084-6fe6-5086-9701-9558fe729822",
+          "collection": "luma-maison-dossier-lm1044",
+          "filename": "recu-remboursement-lm1044.pdf",
+          "reference": null,
+          "sha256": "46409b2411b6c479b747b5befbddca83e3bf3dac572cd3c4b2d86ce77a95527e",
+          "page": 1
+        }
+      ],
+      "receipt": {
+        "receipt_id": "4770049c-0a79-4923-9264-74a2b256f235",
+        "action": "close_duplicate",
+        "reason": "already_refunded",
+        "amount": "0",
+        "currency": "EUR",
+        "status": "simulated",
+        "external_payment_called": false,
+        "decision_id": "c31724ea-c3f6-441c-a6dd-06daa8d282f4"
+      },
+      "recorded_receipt_count": 1
+    }
+  ],
+  "benchmark": {
+    "protocol_sha256": "300da013f2305004a8de8e7b199795abbdde2cfa33b4aaa8d609b8220b921bfa",
+    "planned_pairs": 10,
+    "completed_quality_pairs": 0,
+    "complete": false,
+    "hourly_eur": "40.00",
+    "hourly_nature": "declared_demo_assumption",
+    "state": "experiment_not_complete",
+    "capacity_value_eur": null,
+    "incremental_cost_eur": null,
+    "net_benefit_eur": null,
+    "roi": null,
+    "production_baseline_eligible": false,
+    "recorded_trials": 0
+  },
+  "repeated_hitl_confirmation": {
+    "status": 409,
+    "body": {
+      "detail": "Run is not awaiting HITL (status='completed')"
+    }
+  },
+  "out_of_scope_claim": {
+    "status": 404,
+    "body": {
+      "detail": {
+        "code": "CLAIM_NOT_FOUND"
+      }
+    }
+  }
+}

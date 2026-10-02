@@ -8,6 +8,7 @@ import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { NavLinkDirective } from '@app/shared/cockpit';
+import { IconComponent } from '@app/shared/ui/icon.component';
 import { WorkSourcePanelComponent } from '@app/shared/work-sources/work-source-panel.component';
 import { workSourceRef } from '@app/shared/work-sources/work-source';
 import { WorkBarComponent } from './work-bar.component';
@@ -18,7 +19,7 @@ import { CLAIM_ACTION_LABELS, CLAIM_REASON_LABELS, CLAIM_TOOL_LABELS, claimRunPr
 
 @Component({
   selector: 'app-claims-studio', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, WorkBarComponent, WorkAppHeaderComponent, WorkSourcePanelComponent, NavLinkDirective, ClaimsBenchmarkComponent],
+  imports: [DatePipe, WorkBarComponent, WorkAppHeaderComponent, WorkSourcePanelComponent, NavLinkDirective, ClaimsBenchmarkComponent, IconComponent],
   styleUrls: ['./work.scss', './claims-studio.scss'],
   template: `
     <div class="xp-work claims-app">
@@ -38,7 +39,7 @@ import { CLAIM_ACTION_LABELS, CLAIM_REASON_LABELS, CLAIM_TOOL_LABELS, claimRunPr
               <button class="claims-case" [class.is-selected]="selected() === row.claim_id" [attr.aria-pressed]="selected() === row.claim_id"
                 [disabled]="busy() || manualMode()" (click)="select(row.claim_id)">
                 <span class="claims-case-top"><strong>{{ row.order_id }}</strong><b>{{ money(row.paid_amount, row.currency) }}</b></span>
-                <span>{{ row.display_name }}</span><span class="claims-case-reason">{{ row.reason }}</span>
+                <span>{{ row.display_name }}</span><span class="claims-case-reason">{{ i18n.t(reasonLabel(row.reason)) }}</span>
                 <span class="claims-case-foot">{{ row.claim_id }} · {{ row.opened_at | date:'dd/MM' }}</span>
               </button>
             } @empty { <p>{{ i18n.t('experience.claims.empty') }}</p> }
@@ -62,10 +63,10 @@ import { CLAIM_ACTION_LABELS, CLAIM_REASON_LABELS, CLAIM_TOOL_LABELS, claimRunPr
                 @empty { <p class="claims-quiet">{{ i18n.t('experience.claims.no_refund') }}</p> }
               </article>
               <article class="claims-panel"><h3>{{ i18n.t('experience.claims.documents') }}</h3>
-                <div class="claims-source-list">@for (source of sources(); track source.n) {
-                  <button class="claims-source" (click)="sourceIndex.set(source.n)"><span aria-hidden="true">↗</span><span>{{ source.title }}</span></button>
+                <div class="claims-source-list">@for (source of sources(); track source.documentId) {
+                  <button class="claims-source" (click)="selectSource(source.n)"><app-icon name="external-link" [size]="14" /><span>{{ source.title }}</span></button>
                 } @empty { <p>{{ i18n.t('experience.claims.no_sources') }}</p> }</div>
-                @if (sourceIndex(); as n) { <app-work-source-panel [sources]="sources()" [selected]="n" (selectedChange)="sourceIndex.set($event)" (closed)="sourceIndex.set(null)" /> }
+                @if (sourceIndex(); as n) { <app-work-source-panel [sources]="sources()" [selected]="n" (selectedChange)="selectSource($event)" (closed)="sourceDocumentId.set(null)" /> }
               </article>
               <article class="claims-panel"><h3>{{ i18n.t('experience.claims.inquiry') }}</h3>
                 <ol class="claims-steps" aria-live="polite">@for (step of projection().steps; track step.id) {
@@ -110,7 +111,7 @@ export class ClaimsStudioComponent {
   readonly detail = signal<ClaimSnapshot | null>(null); readonly run = signal<Run | null>(null);
   readonly loading = signal(true); readonly detailLoading = signal(false); readonly error = signal(false);
   readonly manualMode = signal(false);
-  readonly busy = signal(false); readonly actionError = signal(false); readonly sourceIndex = signal<number | null>(null);
+  readonly busy = signal(false); readonly actionError = signal(false); readonly sourceDocumentId = signal<string | null>(null);
   readonly projection = computed(() => claimRunProjection(this.manualMode() ? null : this.run()));
   readonly sources = computed(() => {
     const cited = this.projection().proposal?.citations ?? [];
@@ -122,6 +123,10 @@ export class ClaimsStudioComponent {
       if (seen.has(key)) return false; seen.add(key); return true;
     }).map((source, index) => workSourceRef(source, index + 1, { cited: citedIds.has(String(source['document_id'])) }));
   });
+  readonly sourceIndex = computed(() => this.sources().find(source => source.documentId === this.sourceDocumentId())?.n ?? null);
+  selectSource(index: number): void {
+    this.sourceDocumentId.set(this.sources().find(source => source.n === index)?.documentId ?? null);
+  }
   private poll?: Subscription; private detailRequest?: Subscription; private generation = 0;
   constructor() {
     effect(() => { this.workspace.current()?.id; void this.load(); });
@@ -130,7 +135,7 @@ export class ClaimsStudioComponent {
   async load(): Promise<void> {
     const generation = ++this.generation;
     this.poll?.unsubscribe(); this.detailRequest?.unsubscribe();
-    this.rows.set([]); this.detail.set(null); this.run.set(null); this.selected.set(null); this.sourceIndex.set(null);
+    this.rows.set([]); this.detail.set(null); this.run.set(null); this.selected.set(null); this.sourceDocumentId.set(null);
     this.error.set(false); this.loading.set(true); this.busy.set(false);
     try {
       const release = await firstValueFrom(this.work.resolve('reclamations'));
@@ -144,7 +149,7 @@ export class ClaimsStudioComponent {
   }
   select(id: string): void {
     this.poll?.unsubscribe(); this.detailRequest?.unsubscribe(); this.run.set(null); this.detail.set(null);
-    this.selected.set(id); this.sourceIndex.set(null); this.actionError.set(false); this.detailLoading.set(true);
+    this.selected.set(id); this.sourceDocumentId.set(null); this.actionError.set(false); this.detailLoading.set(true);
     this.refreshDetail(id);
   }
   private refreshDetail(id: string): void {
@@ -182,7 +187,7 @@ export class ClaimsStudioComponent {
     const run = this.run(); if (!run || this.busy()) return;
     this.busy.set(true); this.actionError.set(false);
     const generation = this.generation;
-    try { const updated = await firstValueFrom(this.work.decide(run, action, this.i18n.t('experience.claims.decision_note'))); if (updated && generation === this.generation) this.run.set(updated); }
+    try { const updated = await firstValueFrom(this.work.decide(run, action, this.i18n.t('experience.claims.decision_note'))); if (updated && generation === this.generation && this.run()?.id === run.id) this.run.set({ ...run, ...updated, skill_invocations: updated.skill_invocations ?? run.skill_invocations }); }
     catch { if (generation === this.generation) this.actionError.set(true); } finally { if (generation === this.generation) this.busy.set(false); }
   }
   money(value: string | null | undefined, currency: string): string {
