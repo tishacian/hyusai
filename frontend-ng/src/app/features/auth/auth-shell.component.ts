@@ -613,7 +613,7 @@ export class AuthShellComponent {
   private magneticFrame = 0;
   private readonly destroyRef = inject(DestroyRef);
 
-  private readonly influence = computed(() => {
+  protected readonly influence = computed(() => {
     const box = this.orbitBox();
     const field = this.magneticField();
     if (!box) return magneticInfluence(null, { x: 0, y: 0 });
