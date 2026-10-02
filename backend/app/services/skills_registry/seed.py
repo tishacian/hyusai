@@ -2418,6 +2418,9 @@ SEED_SKILLS: List[Dict[str, Any]] = [
 
 
 # ---- Universal Capabilities -------------------------------------------------
+from app.services.ecommerce_skill_catalog import CLAIM_SKILLS
+SEED_SKILLS.extend(CLAIM_SKILLS)
+
 SEED_CAPABILITIES: List[Dict[str, Any]] = [
     {
         "slug": "workspace_assistant",

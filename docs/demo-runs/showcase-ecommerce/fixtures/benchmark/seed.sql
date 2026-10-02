@@ -1,0 +1,165 @@
+-- Additional synthetic benchmark cases. Load base seed first.
+BEGIN;
+
+INSERT INTO showcase_ecommerce.customers (customer_id, display_name) VALUES
+  ('C-B5001', 'Client fictif B5001'),
+  ('C-B5002', 'Client fictif B5002'),
+  ('C-B5003', 'Client fictif B5003'),
+  ('C-B5004', 'Client fictif B5004'),
+  ('C-B5005', 'Client fictif B5005'),
+  ('C-B5006', 'Client fictif B5006'),
+  ('C-B5007', 'Client fictif B5007'),
+  ('C-B5008', 'Client fictif B5008'),
+  ('C-B5009', 'Client fictif B5009'),
+  ('C-B5010', 'Client fictif B5010'),
+  ('C-B5011', 'Client fictif B5011'),
+  ('C-B5012', 'Client fictif B5012'),
+  ('C-B5013', 'Client fictif B5013'),
+  ('C-B5014', 'Client fictif B5014'),
+  ('C-B5015', 'Client fictif B5015'),
+  ('C-B5016', 'Client fictif B5016'),
+  ('C-B5017', 'Client fictif B5017'),
+  ('C-B5018', 'Client fictif B5018'),
+  ('C-B5019', 'Client fictif B5019'),
+  ('C-B5020', 'Client fictif B5020')
+ON CONFLICT (customer_id) DO NOTHING;
+
+INSERT INTO showcase_ecommerce.orders (order_id, customer_id, ordered_at, paid_amount, currency, shipping_postcode, payment_status) VALUES
+  ('LM-5001', 'C-B5001', '2026-09-20T10:00:00Z', '420.00', 'EUR', '75011', 'paid'),
+  ('LM-5002', 'C-B5002', '2026-09-20T10:00:00Z', '420.00', 'EUR', '75011', 'paid'),
+  ('LM-5003', 'C-B5003', '2026-09-21T10:00:00Z', '49.90', 'EUR', '69003', 'paid'),
+  ('LM-5004', 'C-B5004', '2026-09-21T10:00:00Z', '49.90', 'EUR', '69003', 'paid'),
+  ('LM-5005', 'C-B5005', '2026-09-02T10:00:00Z', '89.00', 'EUR', '33000', 'paid'),
+  ('LM-5006', 'C-B5006', '2026-09-02T10:00:00Z', '89.00', 'EUR', '33000', 'paid'),
+  ('LM-5007', 'C-B5007', '2026-09-20T10:00:00Z', '420.00', 'EUR', '75011', 'paid'),
+  ('LM-5008', 'C-B5008', '2026-09-20T10:00:00Z', '420.00', 'EUR', '75011', 'paid'),
+  ('LM-5009', 'C-B5009', '2026-09-20T10:00:00Z', '420.00', 'EUR', '75011', 'paid'),
+  ('LM-5010', 'C-B5010', '2026-09-20T10:00:00Z', '420.00', 'EUR', '75011', 'paid'),
+  ('LM-5011', 'C-B5011', '2026-09-21T10:00:00Z', '49.90', 'EUR', '69003', 'paid'),
+  ('LM-5012', 'C-B5012', '2026-09-21T10:00:00Z', '49.90', 'EUR', '69003', 'paid'),
+  ('LM-5013', 'C-B5013', '2026-09-02T10:00:00Z', '89.00', 'EUR', '33000', 'paid'),
+  ('LM-5014', 'C-B5014', '2026-09-02T10:00:00Z', '89.00', 'EUR', '33000', 'paid'),
+  ('LM-5015', 'C-B5015', '2026-09-20T10:00:00Z', '420.00', 'EUR', '75011', 'paid'),
+  ('LM-5016', 'C-B5016', '2026-09-20T10:00:00Z', '420.00', 'EUR', '75011', 'paid'),
+  ('LM-5017', 'C-B5017', '2026-09-20T10:00:00Z', '420.00', 'EUR', '75011', 'paid'),
+  ('LM-5018', 'C-B5018', '2026-09-20T10:00:00Z', '420.00', 'EUR', '75011', 'paid'),
+  ('LM-5019', 'C-B5019', '2026-09-21T10:00:00Z', '49.90', 'EUR', '69003', 'paid'),
+  ('LM-5020', 'C-B5020', '2026-09-21T10:00:00Z', '49.90', 'EUR', '69003', 'paid')
+ON CONFLICT (order_id) DO NOTHING;
+
+INSERT INTO showcase_ecommerce.order_items (item_id, order_id, product_name, quantity, unit_price) VALUES
+  ('LI-5001', 'LM-5001', 'Lampe Aube', 1, '420.00'),
+  ('LI-5002', 'LM-5002', 'Lampe Aube', 1, '420.00'),
+  ('LI-5003', 'LM-5003', 'Vase Horizon', 1, '49.90'),
+  ('LI-5004', 'LM-5004', 'Vase Horizon', 1, '49.90'),
+  ('LI-5005', 'LM-5005', 'Plaid Nuage', 1, '89.00'),
+  ('LI-5006', 'LM-5006', 'Plaid Nuage', 1, '89.00'),
+  ('LI-5007', 'LM-5007', 'Lampe Aube', 1, '420.00'),
+  ('LI-5008', 'LM-5008', 'Lampe Aube', 1, '420.00'),
+  ('LI-5009', 'LM-5009', 'Lampe Aube', 1, '420.00'),
+  ('LI-5010', 'LM-5010', 'Lampe Aube', 1, '420.00'),
+  ('LI-5011', 'LM-5011', 'Vase Horizon', 1, '49.90'),
+  ('LI-5012', 'LM-5012', 'Vase Horizon', 1, '49.90'),
+  ('LI-5013', 'LM-5013', 'Plaid Nuage', 1, '89.00'),
+  ('LI-5014', 'LM-5014', 'Plaid Nuage', 1, '89.00'),
+  ('LI-5015', 'LM-5015', 'Lampe Aube', 1, '420.00'),
+  ('LI-5016', 'LM-5016', 'Lampe Aube', 1, '420.00'),
+  ('LI-5017', 'LM-5017', 'Lampe Aube', 1, '420.00'),
+  ('LI-5018', 'LM-5018', 'Lampe Aube', 1, '420.00'),
+  ('LI-5019', 'LM-5019', 'Vase Horizon', 1, '49.90'),
+  ('LI-5020', 'LM-5020', 'Vase Horizon', 1, '49.90')
+ON CONFLICT (item_id) DO NOTHING;
+
+INSERT INTO showcase_ecommerce.shipments (shipment_id, order_id, tracking_id, carrier, status, status_at) VALUES
+  ('SH-5001', 'LM-5001', 'CA-5001', 'ColisAzur', 'delivered', '2026-09-24T14:00:00Z'),
+  ('SH-5002', 'LM-5002', 'CA-5002', 'ColisAzur', 'delivered', '2026-09-24T14:00:00Z'),
+  ('SH-5003', 'LM-5003', 'CA-5003', 'ColisAzur', 'lost', '2026-09-28T14:00:00Z'),
+  ('SH-5004', 'LM-5004', 'CA-5004', 'ColisAzur', 'lost', '2026-09-28T14:00:00Z'),
+  ('SH-5005', 'LM-5005', 'CA-5005', 'ColisAzur', 'delivered', '2026-09-04T14:00:00Z'),
+  ('SH-5006', 'LM-5006', 'CA-5006', 'ColisAzur', 'delivered', '2026-09-04T14:00:00Z'),
+  ('SH-5007', 'LM-5007', 'CA-5007', 'ColisAzur', 'delivered', '2026-09-24T14:00:00Z'),
+  ('SH-5008', 'LM-5008', 'CA-5008', 'ColisAzur', 'delivered', '2026-09-24T14:00:00Z'),
+  ('SH-5009', 'LM-5009', 'CA-5009', 'ColisAzur', 'delivered', '2026-09-24T14:00:00Z'),
+  ('SH-5010', 'LM-5010', 'CA-5010', 'ColisAzur', 'delivered', '2026-09-24T14:00:00Z'),
+  ('SH-5011', 'LM-5011', 'CA-5011', 'ColisAzur', 'lost', '2026-09-28T14:00:00Z'),
+  ('SH-5012', 'LM-5012', 'CA-5012', 'ColisAzur', 'lost', '2026-09-28T14:00:00Z'),
+  ('SH-5013', 'LM-5013', 'CA-5013', 'ColisAzur', 'delivered', '2026-09-04T14:00:00Z'),
+  ('SH-5014', 'LM-5014', 'CA-5014', 'ColisAzur', 'delivered', '2026-09-04T14:00:00Z'),
+  ('SH-5015', 'LM-5015', 'CA-5015', 'ColisAzur', 'delivered', '2026-09-24T14:00:00Z'),
+  ('SH-5016', 'LM-5016', 'CA-5016', 'ColisAzur', 'delivered', '2026-09-24T14:00:00Z'),
+  ('SH-5017', 'LM-5017', 'CA-5017', 'ColisAzur', 'delivered', '2026-09-24T14:00:00Z'),
+  ('SH-5018', 'LM-5018', 'CA-5018', 'ColisAzur', 'delivered', '2026-09-24T14:00:00Z'),
+  ('SH-5019', 'LM-5019', 'CA-5019', 'ColisAzur', 'lost', '2026-09-28T14:00:00Z'),
+  ('SH-5020', 'LM-5020', 'CA-5020', 'ColisAzur', 'lost', '2026-09-28T14:00:00Z')
+ON CONFLICT (shipment_id) DO NOTHING;
+
+INSERT INTO showcase_ecommerce.refunds (refund_id, order_id, amount, currency, status, executed_at) VALUES
+  ('RF-5005', 'LM-5005', '89.00', 'EUR', 'executed', '2026-09-06T10:00:00Z'),
+  ('RF-5006', 'LM-5006', '89.00', 'EUR', 'executed', '2026-09-06T10:00:00Z'),
+  ('RF-5013', 'LM-5013', '89.00', 'EUR', 'executed', '2026-09-06T10:00:00Z'),
+  ('RF-5014', 'LM-5014', '89.00', 'EUR', 'executed', '2026-09-06T10:00:00Z')
+ON CONFLICT (refund_id) DO NOTHING;
+
+INSERT INTO showcase_ecommerce.claims (claim_id, order_id, reason, state, opened_at) VALUES
+  ('RC-5001', 'LM-5001', 'delivery_disputed', 'to_investigate', '2026-09-25T10:00:00Z'),
+  ('RC-5002', 'LM-5002', 'delivery_disputed', 'to_investigate', '2026-09-25T10:00:00Z'),
+  ('RC-5003', 'LM-5003', 'parcel_lost', 'to_investigate', '2026-09-29T10:00:00Z'),
+  ('RC-5004', 'LM-5004', 'parcel_lost', 'to_investigate', '2026-09-29T10:00:00Z'),
+  ('RC-5005', 'LM-5005', 'refund_requested', 'to_investigate', '2026-09-29T11:00:00Z'),
+  ('RC-5006', 'LM-5006', 'refund_requested', 'to_investigate', '2026-09-29T11:00:00Z'),
+  ('RC-5007', 'LM-5007', 'delivery_disputed', 'to_investigate', '2026-09-25T10:00:00Z'),
+  ('RC-5008', 'LM-5008', 'delivery_disputed', 'to_investigate', '2026-09-25T10:00:00Z'),
+  ('RC-5009', 'LM-5009', 'delivery_disputed', 'to_investigate', '2026-09-25T10:00:00Z'),
+  ('RC-5010', 'LM-5010', 'delivery_disputed', 'to_investigate', '2026-09-25T10:00:00Z'),
+  ('RC-5011', 'LM-5011', 'parcel_lost', 'to_investigate', '2026-09-29T10:00:00Z'),
+  ('RC-5012', 'LM-5012', 'parcel_lost', 'to_investigate', '2026-09-29T10:00:00Z'),
+  ('RC-5013', 'LM-5013', 'refund_requested', 'to_investigate', '2026-09-29T11:00:00Z'),
+  ('RC-5014', 'LM-5014', 'refund_requested', 'to_investigate', '2026-09-29T11:00:00Z'),
+  ('RC-5015', 'LM-5015', 'delivery_disputed', 'to_investigate', '2026-09-25T10:00:00Z'),
+  ('RC-5016', 'LM-5016', 'delivery_disputed', 'to_investigate', '2026-09-25T10:00:00Z'),
+  ('RC-5017', 'LM-5017', 'delivery_disputed', 'to_investigate', '2026-09-25T10:00:00Z'),
+  ('RC-5018', 'LM-5018', 'delivery_disputed', 'to_investigate', '2026-09-25T10:00:00Z'),
+  ('RC-5019', 'LM-5019', 'parcel_lost', 'to_investigate', '2026-09-29T10:00:00Z'),
+  ('RC-5020', 'LM-5020', 'parcel_lost', 'to_investigate', '2026-09-29T10:00:00Z')
+ON CONFLICT (claim_id) DO NOTHING;
+
+INSERT INTO showcase_ecommerce.document_refs (document_key, source_filename, document_type, version, effective_from, is_current, order_id, sha256, knowledge_source_id) VALUES
+  ('claim-lm5001', 'reclamation-lm5001.pdf', 'customer_claim', '1', '2026-09-25', TRUE, 'LM-5001', '6acb127c42891fad409ac0a148c89d95c2a003409ac24b6323452adcf563bc4b', NULL),
+  ('delivery-lm5001', 'bordereau-livraison-lm5001.pdf', 'delivery_receipt', '1', '2026-09-24', TRUE, 'LM-5001', '4a69b8bf32197b744c976d5d24fe5e2f3002bb285ae327866f8d22127fa664d4', NULL),
+  ('claim-lm5002', 'reclamation-lm5002.pdf', 'customer_claim', '1', '2026-09-25', TRUE, 'LM-5002', '4dec846e8f169e90a71d9a05cee47b47643c9fe4b6f659b52955d2b740328c42', NULL),
+  ('delivery-lm5002', 'bordereau-livraison-lm5002.pdf', 'delivery_receipt', '1', '2026-09-24', TRUE, 'LM-5002', 'b9d5a44fcf99461b967316e51f252cc8132b6fb9f5ae29c5e4a120afd16ec6c2', NULL),
+  ('claim-lm5003', 'reclamation-lm5003.pdf', 'customer_claim', '1', '2026-09-29', TRUE, 'LM-5003', '3e91d220d43bcf7aa979242b6b2f545db8235321f296819699b988eafa4119bf', NULL),
+  ('loss-lm5003', 'confirmation-perte-lm5003.pdf', 'carrier_loss_confirmation', '1', '2026-09-28', TRUE, 'LM-5003', '938be37536bd0af2d3e04ffaa29e4c3731319dc7f9df3bc8af3c6f9e9ed034d5', NULL),
+  ('claim-lm5004', 'reclamation-lm5004.pdf', 'customer_claim', '1', '2026-09-29', TRUE, 'LM-5004', '8f0ca67baddc960e49a3e12961308e047e1aa9d28eb86f61868e5b3ede99598b', NULL),
+  ('loss-lm5004', 'confirmation-perte-lm5004.pdf', 'carrier_loss_confirmation', '1', '2026-09-28', TRUE, 'LM-5004', 'f15938a5366c51d6cf2f2adcef783a61e2644173e2ea1a3038f9ca37bb61b677', NULL),
+  ('claim-lm5005', 'reclamation-lm5005.pdf', 'customer_claim', '1', '2026-09-29', TRUE, 'LM-5005', '1c9c2ec45f9fd0b852b4fadf2bd32264f07fe0c7332b0f9a7c665b5cfef7bdaa', NULL),
+  ('refund-receipt-lm5005', 'recu-remboursement-lm5005.pdf', 'refund_receipt', '1', '2026-09-06', TRUE, 'LM-5005', '0e8a99356ffec6c4bea626c87ce3d90b6063f2d9b88d4b9df0ce641a83dff2d1', NULL),
+  ('claim-lm5006', 'reclamation-lm5006.pdf', 'customer_claim', '1', '2026-09-29', TRUE, 'LM-5006', '728329e2b1dc4a93efa81d2de23260cbe14ac0e92cdbde022edee26fb693c5b4', NULL),
+  ('refund-receipt-lm5006', 'recu-remboursement-lm5006.pdf', 'refund_receipt', '1', '2026-09-06', TRUE, 'LM-5006', '4c41d0d829e08bed14dd205e68c310fb425b9427dff99b5070285da6d80d5f18', NULL),
+  ('claim-lm5007', 'reclamation-lm5007.pdf', 'customer_claim', '1', '2026-09-25', TRUE, 'LM-5007', '33bdca7d6bf7681fc57a161e69f168f9f14a9f33c85fe8d7d15119c95f83ed45', NULL),
+  ('claim-lm5008', 'reclamation-lm5008.pdf', 'customer_claim', '1', '2026-09-25', TRUE, 'LM-5008', 'b3e60ed2509ddadc16db15f13160f40635c7851f4fe35feaf9d9687c2592c463', NULL),
+  ('claim-lm5009', 'reclamation-lm5009.pdf', 'customer_claim', '1', '2026-09-25', TRUE, 'LM-5009', '0c087d86fecf187d24431d4da5c3a865b72e78a395e468364faeec45acc4a7dc', NULL),
+  ('delivery-lm5009', 'bordereau-livraison-lm5009.pdf', 'delivery_receipt', '1', '2026-09-24', TRUE, 'LM-5009', 'f77f308ed5940ec7aa3b74a0021e3574eb095e1ec376b76056a979e26002eaee', NULL),
+  ('claim-lm5010', 'reclamation-lm5010.pdf', 'customer_claim', '1', '2026-09-25', TRUE, 'LM-5010', '8ef9c5bec4f66370a3155cbbceb08ff84dbf36e79998fd6b71205cf61352e51a', NULL),
+  ('delivery-lm5010', 'bordereau-livraison-lm5010.pdf', 'delivery_receipt', '1', '2026-09-24', TRUE, 'LM-5010', 'bac0f96b516ca953e281c9be225c24bf91419a9e563c7bdbde0bdf2f0c56a1e4', NULL),
+  ('claim-lm5011', 'reclamation-lm5011.pdf', 'customer_claim', '1', '2026-09-29', TRUE, 'LM-5011', '49ddbd986160fd6d2744035a9c1e729e2a30502986ff886a44000dac44ce11de', NULL),
+  ('loss-lm5011', 'confirmation-perte-lm5011.pdf', 'carrier_loss_confirmation', '1', '2026-09-28', TRUE, 'LM-5011', '04b1da226d124aa4cc43a7e7311c48f51f857d4e336793a395080c14e202153d', NULL),
+  ('claim-lm5012', 'reclamation-lm5012.pdf', 'customer_claim', '1', '2026-09-29', TRUE, 'LM-5012', '3808332c0cc15808ce3dd3db13895062c8628c39f417b59a103978df72fa08ff', NULL),
+  ('loss-lm5012', 'confirmation-perte-lm5012.pdf', 'carrier_loss_confirmation', '1', '2026-09-28', TRUE, 'LM-5012', 'a0caf36954fc7eedee55c0cddc69483277721aa25dd7a6318c01ab991eb70b56', NULL),
+  ('claim-lm5013', 'reclamation-lm5013.pdf', 'customer_claim', '1', '2026-09-29', TRUE, 'LM-5013', '4ed3c529136d7ef5aaf890b5a23777f504b84993d58a258cb0d4db90e200776c', NULL),
+  ('refund-receipt-lm5013', 'recu-remboursement-lm5013.pdf', 'refund_receipt', '1', '2026-09-06', TRUE, 'LM-5013', 'bcb7f9f2c132f1e4fb131e6dd2870e3a92e8cba700dd13dfc51099167306435e', NULL),
+  ('claim-lm5014', 'reclamation-lm5014.pdf', 'customer_claim', '1', '2026-09-29', TRUE, 'LM-5014', '59c7148e6b074ef0f716d9106bf08ce3212f4878935f331d981d4959da922be2', NULL),
+  ('refund-receipt-lm5014', 'recu-remboursement-lm5014.pdf', 'refund_receipt', '1', '2026-09-06', TRUE, 'LM-5014', '73741cb9e7f79be73839ce5b0e735cf93102cd4df5c7f22d4439cce840d3ccf8', NULL),
+  ('claim-lm5015', 'reclamation-lm5015.pdf', 'customer_claim', '1', '2026-09-25', TRUE, 'LM-5015', '1eff070fb3e80944e2dc0be42e30e91985bbc6db56dae79ad6a30337bd3e3d64', NULL),
+  ('claim-lm5016', 'reclamation-lm5016.pdf', 'customer_claim', '1', '2026-09-25', TRUE, 'LM-5016', '7ae0794767133c317447f3033072a1d1f42baa5248e6622968afc95f0a4365a5', NULL),
+  ('claim-lm5017', 'reclamation-lm5017.pdf', 'customer_claim', '1', '2026-09-25', TRUE, 'LM-5017', 'b6b7113797cbf8d351838a345bdfd3b653c8778b007bf6ec92d7d1c28ab408d7', NULL),
+  ('delivery-lm5017', 'bordereau-livraison-lm5017.pdf', 'delivery_receipt', '1', '2026-09-24', TRUE, 'LM-5017', 'c6a799a8f35c823797454e897659f7800f96650d2ed91d60278ab41e98b154b4', NULL),
+  ('claim-lm5018', 'reclamation-lm5018.pdf', 'customer_claim', '1', '2026-09-25', TRUE, 'LM-5018', 'd23c18fe021b37ec1aea010ae8ef5031e4d641b28b7b7d2ff8e867a1090a6a3b', NULL),
+  ('delivery-lm5018', 'bordereau-livraison-lm5018.pdf', 'delivery_receipt', '1', '2026-09-24', TRUE, 'LM-5018', 'bf586558aae0e7fe145b62c102d1c025850b85dc8b1cc5738561252122b60223', NULL),
+  ('claim-lm5019', 'reclamation-lm5019.pdf', 'customer_claim', '1', '2026-09-29', TRUE, 'LM-5019', 'e2707e30a6f62c5746edc958262c04c22ff854fe9fd5915769bb84ecab891c54', NULL),
+  ('loss-lm5019', 'confirmation-perte-lm5019.pdf', 'carrier_loss_confirmation', '1', '2026-09-28', TRUE, 'LM-5019', 'c1613882da3bb99a0f290f1b830d0642ae268df7e1b4c6e575551504329e9971', NULL),
+  ('claim-lm5020', 'reclamation-lm5020.pdf', 'customer_claim', '1', '2026-09-29', TRUE, 'LM-5020', 'd512ae40c979278946c8ca03d3a471b3a25dd191c0f71d9b57cc67b556f7a246', NULL),
+  ('loss-lm5020', 'confirmation-perte-lm5020.pdf', 'carrier_loss_confirmation', '1', '2026-09-28', TRUE, 'LM-5020', '09935ff1254f144e616ba359b763a4cce471e602ce409f5ddd530e0d3d363ee8', NULL)
+ON CONFLICT (document_key) DO NOTHING;
+
+COMMIT;

@@ -1,0 +1,224 @@
+{
+  "version": "showcase-ecommerce-roi-v1",
+  "hourly_eur": "40.00",
+  "hourly_nature": "declared_demo_assumption",
+  "pairs": [
+    {
+      "pair_id": "P01",
+      "first_condition": "manual",
+      "manual_claim_id": "RC-5001",
+      "manual_expected": {
+        "action": "carrier_investigation",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2",
+          "delivery-lm5001"
+        ]
+      },
+      "assisted_claim_id": "RC-5002",
+      "assisted_expected": {
+        "action": "carrier_investigation",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2",
+          "delivery-lm5002"
+        ]
+      }
+    },
+    {
+      "pair_id": "P02",
+      "first_condition": "assisted",
+      "manual_claim_id": "RC-5003",
+      "manual_expected": {
+        "action": "refund",
+        "amount": "49.90",
+        "references": [
+          "refund-policy-v2",
+          "loss-lm5003"
+        ]
+      },
+      "assisted_claim_id": "RC-5004",
+      "assisted_expected": {
+        "action": "refund",
+        "amount": "49.90",
+        "references": [
+          "refund-policy-v2",
+          "loss-lm5004"
+        ]
+      }
+    },
+    {
+      "pair_id": "P03",
+      "first_condition": "manual",
+      "manual_claim_id": "RC-5005",
+      "manual_expected": {
+        "action": "close_duplicate",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2",
+          "refund-receipt-lm5005"
+        ]
+      },
+      "assisted_claim_id": "RC-5006",
+      "assisted_expected": {
+        "action": "close_duplicate",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2",
+          "refund-receipt-lm5006"
+        ]
+      }
+    },
+    {
+      "pair_id": "P04",
+      "first_condition": "assisted",
+      "manual_claim_id": "RC-5007",
+      "manual_expected": {
+        "action": "request_information",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2"
+        ]
+      },
+      "assisted_claim_id": "RC-5008",
+      "assisted_expected": {
+        "action": "request_information",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2"
+        ]
+      }
+    },
+    {
+      "pair_id": "P05",
+      "first_condition": "manual",
+      "manual_claim_id": "RC-5009",
+      "manual_expected": {
+        "action": "carrier_investigation",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2",
+          "delivery-lm5009"
+        ]
+      },
+      "assisted_claim_id": "RC-5010",
+      "assisted_expected": {
+        "action": "carrier_investigation",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2",
+          "delivery-lm5010"
+        ]
+      }
+    },
+    {
+      "pair_id": "P06",
+      "first_condition": "assisted",
+      "manual_claim_id": "RC-5011",
+      "manual_expected": {
+        "action": "refund",
+        "amount": "49.90",
+        "references": [
+          "refund-policy-v2",
+          "loss-lm5011"
+        ]
+      },
+      "assisted_claim_id": "RC-5012",
+      "assisted_expected": {
+        "action": "refund",
+        "amount": "49.90",
+        "references": [
+          "refund-policy-v2",
+          "loss-lm5012"
+        ]
+      }
+    },
+    {
+      "pair_id": "P07",
+      "first_condition": "manual",
+      "manual_claim_id": "RC-5013",
+      "manual_expected": {
+        "action": "close_duplicate",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2",
+          "refund-receipt-lm5013"
+        ]
+      },
+      "assisted_claim_id": "RC-5014",
+      "assisted_expected": {
+        "action": "close_duplicate",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2",
+          "refund-receipt-lm5014"
+        ]
+      }
+    },
+    {
+      "pair_id": "P08",
+      "first_condition": "assisted",
+      "manual_claim_id": "RC-5015",
+      "manual_expected": {
+        "action": "request_information",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2"
+        ]
+      },
+      "assisted_claim_id": "RC-5016",
+      "assisted_expected": {
+        "action": "request_information",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2"
+        ]
+      }
+    },
+    {
+      "pair_id": "P09",
+      "first_condition": "manual",
+      "manual_claim_id": "RC-5017",
+      "manual_expected": {
+        "action": "carrier_investigation",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2",
+          "delivery-lm5017"
+        ]
+      },
+      "assisted_claim_id": "RC-5018",
+      "assisted_expected": {
+        "action": "carrier_investigation",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2",
+          "delivery-lm5018"
+        ]
+      }
+    },
+    {
+      "pair_id": "P10",
+      "first_condition": "assisted",
+      "manual_claim_id": "RC-5019",
+      "manual_expected": {
+        "action": "refund",
+        "amount": "49.90",
+        "references": [
+          "refund-policy-v2",
+          "loss-lm5019"
+        ]
+      },
+      "assisted_claim_id": "RC-5020",
+      "assisted_expected": {
+        "action": "refund",
+        "amount": "49.90",
+        "references": [
+          "refund-policy-v2",
+          "loss-lm5020"
+        ]
+      }
+    }
+  ],
+  "allocation": null
+}

@@ -1,0 +1,254 @@
+{
+  "pages": [
+    {
+      "id": "dossier",
+      "title": {
+        "$i18n": "text.pages.0.title",
+        "fallback": "Dossier"
+      },
+      "components": [
+        {
+          "id": "header",
+          "type": "header",
+          "props": {
+            "title": {
+              "$i18n": "text.pages.0.components.0.props.title",
+              "fallback": "Réclamations — Luma Maison"
+            },
+            "description": {
+              "$i18n": "text.pages.0.components.0.props.description",
+              "fallback": "Démonstration synthétique. Toutes les actions sont simulées."
+            }
+          }
+        },
+        {
+          "id": "investigation",
+          "type": "form",
+          "props": {
+            "bindingKey": "showcase.claims.investigate",
+            "schema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "claim_id"
+              ],
+              "properties": {
+                "claim_id": {
+                  "type": "string",
+                  "enum": [
+                    "RC-1042",
+                    "RC-1043",
+                    "RC-1044",
+                    "RC-5001",
+                    "RC-5002",
+                    "RC-5003",
+                    "RC-5004",
+                    "RC-5005",
+                    "RC-5006",
+                    "RC-5007",
+                    "RC-5008",
+                    "RC-5009",
+                    "RC-5010",
+                    "RC-5011",
+                    "RC-5012",
+                    "RC-5013",
+                    "RC-5014",
+                    "RC-5015",
+                    "RC-5016",
+                    "RC-5017",
+                    "RC-5018",
+                    "RC-5019",
+                    "RC-5020"
+                  ]
+                }
+              }
+            },
+            "fieldPresentation": {
+              "claim_id": {
+                "label": {
+                  "$i18n": "claim_label",
+                  "fallback": "Réclamation"
+                },
+                "options": {
+                  "RC-1042": {
+                    "$i18n": "claim_RC-1042",
+                    "fallback": "RC-1042"
+                  },
+                  "RC-1043": {
+                    "$i18n": "claim_RC-1043",
+                    "fallback": "RC-1043"
+                  },
+                  "RC-1044": {
+                    "$i18n": "claim_RC-1044",
+                    "fallback": "RC-1044"
+                  },
+                  "RC-5001": {
+                    "$i18n": "claim_RC-5001",
+                    "fallback": "RC-5001"
+                  },
+                  "RC-5002": {
+                    "$i18n": "claim_RC-5002",
+                    "fallback": "RC-5002"
+                  },
+                  "RC-5003": {
+                    "$i18n": "claim_RC-5003",
+                    "fallback": "RC-5003"
+                  },
+                  "RC-5004": {
+                    "$i18n": "claim_RC-5004",
+                    "fallback": "RC-5004"
+                  },
+                  "RC-5005": {
+                    "$i18n": "claim_RC-5005",
+                    "fallback": "RC-5005"
+                  },
+                  "RC-5006": {
+                    "$i18n": "claim_RC-5006",
+                    "fallback": "RC-5006"
+                  },
+                  "RC-5007": {
+                    "$i18n": "claim_RC-5007",
+                    "fallback": "RC-5007"
+                  },
+                  "RC-5008": {
+                    "$i18n": "claim_RC-5008",
+                    "fallback": "RC-5008"
+                  },
+                  "RC-5009": {
+                    "$i18n": "claim_RC-5009",
+                    "fallback": "RC-5009"
+                  },
+                  "RC-5010": {
+                    "$i18n": "claim_RC-5010",
+                    "fallback": "RC-5010"
+                  },
+                  "RC-5011": {
+                    "$i18n": "claim_RC-5011",
+                    "fallback": "RC-5011"
+                  },
+                  "RC-5012": {
+                    "$i18n": "claim_RC-5012",
+                    "fallback": "RC-5012"
+                  },
+                  "RC-5013": {
+                    "$i18n": "claim_RC-5013",
+                    "fallback": "RC-5013"
+                  },
+                  "RC-5014": {
+                    "$i18n": "claim_RC-5014",
+                    "fallback": "RC-5014"
+                  },
+                  "RC-5015": {
+                    "$i18n": "claim_RC-5015",
+                    "fallback": "RC-5015"
+                  },
+                  "RC-5016": {
+                    "$i18n": "claim_RC-5016",
+                    "fallback": "RC-5016"
+                  },
+                  "RC-5017": {
+                    "$i18n": "claim_RC-5017",
+                    "fallback": "RC-5017"
+                  },
+                  "RC-5018": {
+                    "$i18n": "claim_RC-5018",
+                    "fallback": "RC-5018"
+                  },
+                  "RC-5019": {
+                    "$i18n": "claim_RC-5019",
+                    "fallback": "RC-5019"
+                  },
+                  "RC-5020": {
+                    "$i18n": "claim_RC-5020",
+                    "fallback": "RC-5020"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "state",
+          "type": "runtime_status",
+          "props": {
+            "sourceComponentId": "investigation"
+          }
+        },
+        {
+          "id": "result",
+          "type": "result",
+          "props": {
+            "sourceComponentId": "investigation"
+          }
+        },
+        {
+          "id": "evidence",
+          "type": "evidence",
+          "props": {
+            "sourceComponentId": "investigation"
+          }
+        }
+      ]
+    }
+  ],
+  "i18n": {
+    "fr": {
+      "text.pages.0.title": "Dossier",
+      "text.pages.0.components.0.props.title": "Réclamations — Luma Maison",
+      "text.pages.0.components.0.props.description": "Démonstration synthétique. Toutes les actions sont simulées.",
+      "claim_label": "Réclamation",
+      "claim_RC-1042": "RC-1042",
+      "claim_RC-1043": "RC-1043",
+      "claim_RC-1044": "RC-1044",
+      "claim_RC-5001": "RC-5001",
+      "claim_RC-5002": "RC-5002",
+      "claim_RC-5003": "RC-5003",
+      "claim_RC-5004": "RC-5004",
+      "claim_RC-5005": "RC-5005",
+      "claim_RC-5006": "RC-5006",
+      "claim_RC-5007": "RC-5007",
+      "claim_RC-5008": "RC-5008",
+      "claim_RC-5009": "RC-5009",
+      "claim_RC-5010": "RC-5010",
+      "claim_RC-5011": "RC-5011",
+      "claim_RC-5012": "RC-5012",
+      "claim_RC-5013": "RC-5013",
+      "claim_RC-5014": "RC-5014",
+      "claim_RC-5015": "RC-5015",
+      "claim_RC-5016": "RC-5016",
+      "claim_RC-5017": "RC-5017",
+      "claim_RC-5018": "RC-5018",
+      "claim_RC-5019": "RC-5019",
+      "claim_RC-5020": "RC-5020"
+    },
+    "en": {
+      "text.pages.0.title": "Case",
+      "text.pages.0.components.0.props.title": "Claims — Luma Maison",
+      "text.pages.0.components.0.props.description": "Synthetic demonstration. Every action is simulated.",
+      "claim_label": "Claim",
+      "claim_RC-1042": "RC-1042",
+      "claim_RC-1043": "RC-1043",
+      "claim_RC-1044": "RC-1044",
+      "claim_RC-5001": "RC-5001",
+      "claim_RC-5002": "RC-5002",
+      "claim_RC-5003": "RC-5003",
+      "claim_RC-5004": "RC-5004",
+      "claim_RC-5005": "RC-5005",
+      "claim_RC-5006": "RC-5006",
+      "claim_RC-5007": "RC-5007",
+      "claim_RC-5008": "RC-5008",
+      "claim_RC-5009": "RC-5009",
+      "claim_RC-5010": "RC-5010",
+      "claim_RC-5011": "RC-5011",
+      "claim_RC-5012": "RC-5012",
+      "claim_RC-5013": "RC-5013",
+      "claim_RC-5014": "RC-5014",
+      "claim_RC-5015": "RC-5015",
+      "claim_RC-5016": "RC-5016",
+      "claim_RC-5017": "RC-5017",
+      "claim_RC-5018": "RC-5018",
+      "claim_RC-5019": "RC-5019",
+      "claim_RC-5020": "RC-5020"
+    }
+  }
+}

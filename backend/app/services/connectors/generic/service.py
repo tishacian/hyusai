@@ -142,8 +142,8 @@ def get_config(
 ) -> dict[str, Any]:
     """Return one connector: its plain values and which secrets are set.
 
-    ``include_secrets=True`` adds the decrypted secrets, for the connection
-    test only.
+    ``include_secrets=True`` adds decrypted secrets for the connection test
+    and verified server-side readers. Never return that envelope to a client.
     """
     spec = CONNECTORS[connector_id]
     entry = _mapping(_entries(workspace).get(connector_id))
