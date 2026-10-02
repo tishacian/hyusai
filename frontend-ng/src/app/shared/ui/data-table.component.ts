@@ -142,7 +142,7 @@ interface RenderedColumn {
           <thead>
             <tr>
               @if (showRowNumbers()) {
-                <th class="ck-dt__th ck-dt__th--gutter"></th>
+                <th class="ck-dt__th ck-dt__th--gutter" scope="col"><span class="sr-only">{{ i18n.t('data.table.row_number') }}</span></th>
               }
               @for (col of rendered(); track col.name) {
                 <th

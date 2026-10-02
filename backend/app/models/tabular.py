@@ -17,6 +17,7 @@ Deletes are soft: the production MinIO policy is append-only by design, so
 dropping a dataset retires the row and leaves byte reclamation to the storage
 lifecycle.
 """
+
 from datetime import datetime
 from uuid import uuid4
 
@@ -39,7 +40,7 @@ from app.db.base import Base
 DATASET_STATUSES = ("pending", "ingesting", "ready", "failed", "deleted")
 DATASET_TERMINAL_STATUSES = frozenset({"ready", "failed", "deleted"})
 # How the bytes came to exist. Drives the icon and the lineage wording.
-DATASET_SOURCES = ("upload", "transform", "score", "generated")
+DATASET_SOURCES = ("upload", "transform", "score", "generated", "postgresql")
 
 MODEL_TASKS = ("classification", "regression")
 MODEL_STATUSES = ("pending", "training", "ready", "failed", "cancelled")
@@ -63,7 +64,7 @@ class TabularDataset(Base):
     version = Column(Integer, default=1, nullable=False)
     description = Column(Text, nullable=True)
 
-    # upload | transform | score | generated
+    # upload | transform | score | generated | postgresql
     source = Column(String(16), default="upload", nullable=False, index=True)
     # pending | ingesting | ready | failed | deleted
     status = Column(String(16), default="pending", nullable=False, index=True)
@@ -105,9 +106,7 @@ class TabularDataset(Base):
     celery_task_id = Column(String(255), nullable=True)
     created_by = Column(String(36), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     ingested_at = Column(DateTime, nullable=True)
     ingest_duration_ms = Column(Float, nullable=True)
 
@@ -223,9 +222,7 @@ class MLModel(Base):
 
     created_by = Column(String(36), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     trained_at = Column(DateTime, nullable=True)
     train_duration_ms = Column(Float, nullable=True)
 

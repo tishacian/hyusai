@@ -1,0 +1,140 @@
+<div class="pg-page">
+  <app-section-header [breadcrumb]="i18n.t('connectors.title')" title="PostgreSQL" icon="database"
+    [subtitle]="i18n.t('connectors.pg.subtitle', { name: workspace.current()?.name ?? '' })">
+    <ck-back-link [fallback]="{ surface: 'connectors' }" />
+  </app-section-header>
+
+  @if (error()) { <div class="pg-notice ck-tone-neg" role="alert">{{ error() }}</div> }
+  @if (!config() && !loading()) { <button class="ck-btn ck-btn-quiet" type="button" (click)="load()">{{ i18n.t('common.refresh') }}</button> }
+  @if (loading()) { <p role="status" class="pg-note">{{ i18n.t('connectors.pg.loading') }}</p> }
+  @if (!loading() && config() && !canConfigure()) {
+    <p class="pg-notice ck-tone-warn">{{ i18n.t('connectors.pg.admin_required') }}</p>
+  }
+
+  <section class="pg-card" aria-labelledby="pg-connection-title">
+    <header class="pg-card-head">
+      <div><p class="pg-eyebrow">01 · {{ i18n.t('connectors.pg.connection') }}</p>
+        <h2 id="pg-connection-title">{{ i18n.t('connectors.pg.connection_title') }}</h2></div>
+      <span class="ck-pill" [class.ck-tone-ok]="config()?.configured">
+        <app-icon name="shield" [size]="13" /> {{ i18n.t('connectors.pg.read_only') }}
+      </span>
+    </header>
+    @if (config()?.configured && !editOpen()) {
+      <div class="pg-endpoint" data-testid="pg-endpoint">
+        <app-icon name="database" [size]="22" />
+        <div><strong>{{ config()?.values?.['database'] }}</strong>
+          <p class="pg-note ck-mono">{{ config()?.values?.['host'] }}:{{ config()?.values?.['port'] || '5432' }} · {{ config()?.values?.['username'] }}</p></div>
+        <button class="ck-btn ck-btn-quiet" type="button" (click)="editOpen.set(true)" [disabled]="busy() || !canConfigure()">
+          <app-icon name="pencil" [size]="14" /> {{ i18n.t('connectors.pg.edit') }}</button>
+      </div>
+    }
+    @if (editOpen()) {
+      <form (ngSubmit)="save()" class="pg-form">
+        <label><span>{{ i18n.t('connectors.pg.host') }}</span>
+          <input name="pg-host" [(ngModel)]="host" (ngModelChange)="edited()" [disabled]="busy() || !canConfigure()" required autocomplete="off" /></label>
+        <label><span>{{ i18n.t('connectors.pg.port') }}</span>
+          <input name="pg-port" type="number" [(ngModel)]="port" (ngModelChange)="edited()" [disabled]="busy() || !canConfigure()" min="1" max="65535" required /></label>
+        <label><span>{{ i18n.t('connectors.pg.database') }}</span>
+          <input name="pg-database" [(ngModel)]="database" (ngModelChange)="edited()" [disabled]="busy() || !canConfigure()" required autocomplete="off" /></label>
+        <label><span>{{ i18n.t('connectors.pg.username') }}</span>
+          <input name="pg-username" [(ngModel)]="username" (ngModelChange)="edited()" [disabled]="busy() || !canConfigure()" required autocomplete="off" /></label>
+        <label class="pg-wide"><span>{{ i18n.t('connectors.pg.password') }}</span>
+          <input name="pg-password" type="password" [(ngModel)]="password" (ngModelChange)="edited()" [disabled]="busy() || !canConfigure()" autocomplete="new-password" [attr.aria-label]="i18n.t('connectors.pg.password')" aria-describedby="pg-password-help" />
+          <small id="pg-password-help" class="pg-note">{{ i18n.t(config()?.secrets_set?.['password'] ? 'connectors.pg.password_keep' : 'connectors.pg.password_help') }}</small></label>
+        <div class="pg-actions pg-wide">
+          <button class="ck-btn ck-btn-accent" type="submit" [disabled]="!canSave()">{{ i18n.t(saving() ? 'connectors.pg.saving' : 'connectors.pg.save') }}</button>
+          @if (config()?.configured) { <button class="ck-btn ck-btn-quiet" type="button" (click)="cancelEdit()" [disabled]="busy()">{{ i18n.t('connectors.pg.cancel') }}</button> }
+        </div>
+      </form>
+    }
+    <p class="pg-note">{{ i18n.t('connectors.pg.connection_help') }}</p>
+    <div class="pg-actions">
+      <button class="ck-btn ck-btn-quiet" type="button" (click)="test()" [disabled]="!connectionReady()">
+        <app-icon name="plug" [size]="14" /> {{ i18n.t(testing() ? 'connectors.pg.testing' : 'connectors.pg.test') }}</button>
+      @if (saved()) { <span class="pg-note" role="status">{{ i18n.t('connectors.pg.saved') }}</span> }
+      @if (testResult(); as result) {
+        <span class="pg-note" role="status" data-testid="pg-test-result">{{ i18n.t(result.status === 'connected' ? 'connectors.pg.test_ok' : 'connectors.pg.test_failed') }} · {{ formattedTime(result.checked_at) }}</span>
+      }
+    </div>
+  </section>
+
+  <section class="pg-card" aria-labelledby="pg-explorer-title">
+    <header class="pg-card-head">
+      <div><p class="pg-eyebrow">02 · {{ i18n.t('connectors.pg.explorer') }}</p>
+        <h2 id="pg-explorer-title">{{ i18n.t('connectors.pg.explorer_title') }}</h2></div>
+      <button class="ck-btn ck-btn-accent" type="button" (click)="discover()" [disabled]="!connectionReady()">
+        <app-icon name="search" [size]="14" /> {{ i18n.t(discovering() ? 'connectors.pg.discovering' : 'connectors.pg.discover') }}</button>
+    </header>
+    @if (catalog(); as discovered) {
+      <p class="pg-note">{{ i18n.t('connectors.pg.discovered', { count: discovered.tables.length }) }} · {{ formattedTime(discovered.checked_at) }}</p>
+      @if (!discovered.tables.length) { <p class="pg-empty">{{ i18n.t('connectors.pg.no_tables') }}</p> }
+      @else {
+        <div class="pg-form">
+          <label><span>{{ i18n.t('connectors.pg.schema') }}</span>
+            <select name="pg-schema" [ngModel]="schema()" (ngModelChange)="chooseSchema($event)" [disabled]="busy()">
+              @for (item of schemas(); track item) { <option [value]="item">{{ item }}</option> }
+            </select></label>
+          <label><span>{{ i18n.t('connectors.pg.table') }}</span>
+            <select name="pg-table" [ngModel]="table()" (ngModelChange)="chooseTable($event)" [disabled]="busy()">
+              <option value="">{{ i18n.t('connectors.pg.choose_table') }}</option>
+              @for (item of tables(); track item.name) { <option [value]="item.name">{{ item.name }}</option> }
+            </select></label>
+        </div>
+      }
+      @if (description(); as relation) {
+        <fieldset class="pg-columns" [disabled]="busy()">
+          <legend>{{ i18n.t('connectors.pg.columns', { count: selectedColumns().length }) }}</legend>
+          @for (column of relation.columns; track column.name) {
+            <label class="pg-column" [class.pg-column-disabled]="!column.supported">
+              <input type="checkbox" [checked]="selectedColumns().includes(column.name)" [disabled]="!column.supported" (change)="toggleColumn(column.name)" />
+              <span><strong class="ck-mono">{{ column.name }}</strong>
+                <small>{{ column.dtype }}{{ column.primary_key ? ' · PK' : '' }}</small>
+                @if (column.as_text) { <small>{{ i18n.t('connectors.pg.exact_text') }}</small> }
+                @if (!column.supported) { <small>{{ i18n.t('connectors.pg.unsupported_type') }}</small> }
+              </span>
+            </label>
+          }
+        </fieldset>
+        <div class="pg-actions">
+          <button class="ck-btn ck-btn-accent" type="button" (click)="read()" [disabled]="!readable()">
+            <app-icon name="table" [size]="14" /> {{ i18n.t(reading() ? 'connectors.pg.reading' : 'connectors.pg.preview') }}</button>
+          <span class="pg-note">{{ i18n.t('connectors.pg.preview_help') }}</span>
+        </div>
+      }
+      @if (reading() && !description()) { <p role="status" class="pg-note">{{ i18n.t('connectors.pg.reading_schema') }}</p> }
+      @if (preview(); as sample) {
+        <div class="pg-preview" data-testid="pg-preview">
+          <h3>{{ selectedKey() }}</h3>
+          <p class="pg-note">{{ i18n.t('connectors.pg.preview_captured') }} {{ formattedTime(sample.captured_at) }}
+            · {{ i18n.t(sample.has_more ? 'connectors.pg.more_rows' : 'connectors.pg.all_rows') }}</p>
+          @if (!sample.ordered_by.length) { <p class="pg-note">{{ i18n.t('connectors.pg.no_order') }}</p> }
+          <ck-data-table [columns]="sample.schema" [rows]="sample.rows" [rowCount]="sample.row_count" [maxHeight]="'340px'" />
+        </div>
+      }
+    } @else { <p class="pg-empty">{{ i18n.t('connectors.pg.explorer_help') }}</p> }
+  </section>
+
+  <section class="pg-card" aria-labelledby="pg-dataset-title">
+    <header class="pg-card-head"><div><p class="pg-eyebrow">03 · DataOps</p>
+      <h2 id="pg-dataset-title">{{ i18n.t('connectors.pg.dataset_title') }}</h2></div>
+      <app-icon name="git-branch" [size]="22" /></header>
+    <p class="pg-note">{{ i18n.t('connectors.pg.import_help', { count: catalog()?.limits?.import_rows ?? 10000 }) }}</p>
+    @if (catalog() && !catalog()?.datasets_enabled) { <p class="pg-notice ck-tone-warn">{{ i18n.t('connectors.pg.error.PG_DATASETS_DISABLED') }}</p> }
+    @if (imported(); as dataset) {
+      <div class="pg-success" role="status" data-testid="pg-import-success">
+        <app-icon name="check-circle-2" [size]="24" />
+        <div><h3>{{ dataset.name }} · v{{ dataset.version }}</h3>
+          <p>{{ i18n.t('connectors.pg.imported', { rows: dataset.row_count ?? 0, columns: dataset.column_count ?? 0 }) }}</p>
+          <a class="ck-btn ck-cta" [navLink]="{ leaf: 'data-doc', ref: dataset.id }">{{ i18n.t('connectors.pg.open_dataset') }} <app-icon name="arrow-right" [size]="14" /></a></div>
+      </div>
+    } @else {
+      <div class="pg-import-form">
+        <label><span>{{ i18n.t('connectors.pg.dataset_name') }}</span><input name="pg-dataset-name" [(ngModel)]="datasetName" maxlength="200" [disabled]="busy() || !description()" /></label>
+        <button class="ck-btn ck-cta" type="button" (click)="createDataset()" [disabled]="!importReady() || !datasetName.trim()">
+          <app-icon name="download" [size]="14" /> {{ i18n.t(importing() ? 'connectors.pg.importing' : 'connectors.pg.import') }}</button>
+      </div>
+      @if (!preview()) { <p class="pg-note">{{ i18n.t('connectors.pg.preview_first') }}</p> }
+      @if (importing()) { <p role="status" class="pg-note">{{ i18n.t('connectors.pg.importing_help') }}</p> }
+    }
+  </section>
+</div>
