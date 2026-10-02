@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { prune, pushPoint, strand, WAKE_STRAND, type WakePoint } from './cursor-wake';
+import {
+  magneticInfluence,
+  magneticTransform,
+  prune,
+  pushPoint,
+  strand,
+  wakeField,
+  WAKE_STRAND,
+  type WakePoint,
+} from './cursor-wake';
 
 function line(count: number, step = 10, t0 = 0, dt = 10): WakePoint[] {
   const points: WakePoint[] = [];
@@ -64,4 +73,44 @@ test('an expired point is fully transparent, and an empty wake draws nothing', (
   const samples = strand(points, 10_000, 0);
   assert.ok(samples.every((s) => s.alpha === 0));
   assert.deepEqual(strand([], 0, 0), []);
+});
+
+test('the magnetic field follows the freshest pointer sample and decays with it', () => {
+  const points = line(12, 20, 0, 10);
+  const fresh = wakeField(points, 110);
+  const aged = wakeField(points, 500);
+  const gone = wakeField(points, 1200);
+
+  assert.ok(fresh && fresh.energy > 0.8);
+  assert.ok(Math.abs((fresh?.vx ?? 0) - 1) < 1e-9);
+  assert.ok(Math.abs(fresh?.vy ?? 1) < 1e-9);
+  assert.ok(aged && aged.energy < fresh!.energy);
+  assert.equal(gone, null);
+});
+
+test('magnetic influence is local, directional and bounded', () => {
+  const field = { x: 0, y: 0, vx: 1, vy: 0, energy: 1 };
+  const near = magneticInfluence(field, { x: 120, y: 0 }, 360);
+  const far = magneticInfluence(field, { x: 400, y: 0 }, 360);
+
+  assert.equal(near.x, 1);
+  assert.equal(near.y, 0);
+  assert.ok(near.strength > 0.3 && near.strength < 1);
+  assert.equal(far.strength, 0);
+  assert.equal(magneticInfluence(null, { x: 0, y: 0 }).strength, 0);
+});
+
+test('magnetic transforms stay small and scale with orbital depth', () => {
+  const field = { x: 0, y: 0, vx: 1, vy: 0, energy: 1 };
+  const influence = magneticInfluence(field, { x: 100, y: 0 }, 360);
+  const shallow = magneticTransform(influence, field, 0.45);
+  const deep = magneticTransform(influence, field, 1.1);
+  const translation = (value: string) => value
+    .slice(value.indexOf('translate(') + 'translate('.length, value.indexOf(') rotate'))
+    .match(/-?\d+(?:\.\d+)?/g)!
+    .map(Number);
+
+  assert.ok(Math.abs(translation(deep)[0]) > Math.abs(translation(shallow)[0]));
+  assert.ok(translation(deep).every(value => Math.abs(value) <= 6));
+  assert.equal(magneticTransform({ ...influence, strength: 0 }, field, 1), '');
 });

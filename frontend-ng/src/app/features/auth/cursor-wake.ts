@@ -24,6 +24,16 @@ export interface WakeSample {
   width: number;
 }
 
+export interface WakeField {
+  x: number;
+  y: number;
+  /** Unit direction of the latest pointer movement. */
+  vx: number;
+  vy: number;
+  /** 0 gone to 1 fresh and fast. */
+  energy: number;
+}
+
 export interface StrandOptions {
   lifetimeMs: number;
   /** Offset from the path at the oldest end, in px. */
@@ -46,6 +56,11 @@ export const WAKE_STRAND: StrandOptions = {
   wavelength: 40,
   width: 2,
 };
+
+/** The orbit reacts nearby, not across the whole sign-in screen. */
+export const MAGNETIC_RADIUS_PX = 360;
+export const MAGNETIC_MAX_SHIFT_PX = 5;
+export const MAGNETIC_MAX_TILT_DEG = 0.9;
 
 /**
  * Records a pointer sample at the head of the wake. Moves under `minStep`
@@ -128,4 +143,72 @@ export function strand(
     });
   }
   return samples;
+}
+
+/** The pointer's current position and strength, derived from the wake itself. */
+export function wakeField(
+  points: readonly WakePoint[],
+  now: number,
+  lifetimeMs = WAKE_LIFETIME_MS,
+): WakeField | null {
+  const head = points[points.length - 1];
+  if (!head) return null;
+  const previous = points[points.length - 2] ?? head;
+  const dt = Math.max(1, head.t - previous.t);
+  const speed = (Math.hypot(head.x - previous.x, head.y - previous.y) / dt) * 1000;
+  const direction = Math.hypot(head.x - previous.x, head.y - previous.y) || 1;
+  const freshness = Math.max(0, 1 - (now - head.t) / lifetimeMs);
+  const speedFactor = Math.min(1, speed / 900);
+  if (freshness <= 0) return null;
+  return {
+    x: head.x,
+    y: head.y,
+    vx: (head.x - previous.x) / direction,
+    vy: (head.y - previous.y) / direction,
+    energy: freshness * (0.3 + 0.7 * speedFactor),
+  };
+}
+
+export interface MagneticInfluence {
+  /** Unit vector pushing the orbit away from the pointer. */
+  x: number;
+  y: number;
+  /** 0 unaffected to 1 full local perturbation. */
+  strength: number;
+  distance: number;
+}
+
+export function magneticInfluence(
+  field: WakeField | null,
+  target: { x: number; y: number },
+  radius = MAGNETIC_RADIUS_PX,
+): MagneticInfluence {
+  if (!field || field.energy <= 0) {
+    return { x: 0, y: 0, strength: 0, distance: Number.POSITIVE_INFINITY };
+  }
+  const dx = target.x - field.x;
+  const dy = target.y - field.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance <= 0 || distance >= radius) {
+    return { x: 0, y: 0, strength: 0, distance };
+  }
+  const proximity = 1 - distance / radius;
+  return {
+    x: dx / distance,
+    y: dy / distance,
+    strength: field.energy * proximity * proximity,
+    distance,
+  };
+}
+
+/** A differential SVG transform; `depth` gives each ring its own inertia. */
+export function magneticTransform(
+  influence: MagneticInfluence,
+  field: WakeField | null,
+  depth = 1,
+): string {
+  if (!field || influence.strength <= 0) return '';
+  const shift = MAGNETIC_MAX_SHIFT_PX * influence.strength * depth;
+  const tilt = MAGNETIC_MAX_TILT_DEG * influence.strength * depth * field.vx;
+  return `translate(${(influence.x * shift).toFixed(2)} ${(influence.y * shift).toFixed(2)}) rotate(${tilt.toFixed(2)} 200 200)`;
 }

@@ -3,8 +3,10 @@ import {
   Component,
   computed,
   DestroyRef,
+  ElementRef,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { I18nService } from '@app/core/i18n.service';
@@ -12,6 +14,11 @@ import type { I18nKey } from '@app/core/i18n.dict';
 import { ThinkingOrbComponent, type CkOrbState } from '@app/shared/cockpit';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
 import { CursorWakeComponent } from './cursor-wake.component';
+import {
+  magneticInfluence,
+  magneticTransform,
+  type WakeField,
+} from './cursor-wake';
 
 /**
  * The instrument panel walks one abstract system — objective, retrieve,
@@ -56,7 +63,7 @@ const REDUCED_MOTION_STEP = 3;
         <div class="ck-auth-bloom ck-auth-bloom-cool"></div>
         <div class="ck-auth-bloom ck-auth-bloom-violet"></div>
         <div class="ck-auth-scanline"></div>
-        <app-cursor-wake />
+        <app-cursor-wake (wakeChange)="wakeChanged($event)" />
       </div>
 
       <!-- Compact bar, only when the panel is folded away (<960px) -->
@@ -89,17 +96,43 @@ const REDUCED_MOTION_STEP = 3;
         </div>
 
         <div class="ck-auth-hero">
-          <div class="ck-auth-orbit" aria-hidden="true">
-            <svg class="ck-auth-orbit-rings" viewBox="0 0 400 400" fill="none">
-              <ellipse class="ck-auth-ring ck-auth-ring-1" cx="200" cy="200" rx="188" ry="72" transform="rotate(-24 200 200)" />
-              <ellipse class="ck-auth-ring ck-auth-ring-2" cx="200" cy="200" rx="160" ry="62" transform="rotate(20 200 200)" />
-              <ellipse class="ck-auth-ring ck-auth-ring-3" cx="200" cy="200" rx="128" ry="112" transform="rotate(-6 200 200)" />
-              <circle class="ck-auth-mote ck-auth-mote-cool" cx="342" cy="141" r="3.5" />
-              <circle class="ck-auth-mote ck-auth-mote-violet" cx="82" cy="262" r="3" />
-              <circle class="ck-auth-mote ck-auth-mote-ice" cx="255" cy="322" r="2.5" />
-            </svg>
-            <div class="ck-auth-orb-glow"></div>
-            <ck-thinking-orb class="ck-auth-orb" [state]="orbState()" [size]="64" />
+          <div #orbit class="ck-auth-orbit" aria-hidden="true">
+            <div class="ck-auth-orbit-field" [style.transform]="orbitTransform()">
+              <svg class="ck-auth-orbit-rings" viewBox="0 0 400 400" fill="none">
+                <g [attr.transform]="ringTransform(0.45)">
+                  <ellipse class="ck-auth-ring ck-auth-ring-1" cx="200" cy="200" rx="188" ry="72" transform="rotate(-24 200 200)" />
+                </g>
+                <g [attr.transform]="ringTransform(0.75)">
+                  <ellipse class="ck-auth-ring ck-auth-ring-2" cx="200" cy="200" rx="160" ry="62" transform="rotate(20 200 200)" />
+                </g>
+                <g [attr.transform]="ringTransform(1.1)">
+                  <ellipse class="ck-auth-ring ck-auth-ring-3" cx="200" cy="200" rx="128" ry="112" transform="rotate(-6 200 200)" />
+                </g>
+                <circle
+                  class="ck-auth-mote ck-auth-mote-cool"
+                  cx="342" cy="141" r="3.5"
+                  [attr.transform]="moteTransform(342, 141, 1)"
+                />
+                <circle
+                  class="ck-auth-mote ck-auth-mote-violet"
+                  cx="82" cy="262" r="3"
+                  [attr.transform]="moteTransform(82, 262, 0.82)"
+                />
+                <circle
+                  class="ck-auth-mote ck-auth-mote-ice"
+                  cx="255" cy="322" r="2.5"
+                  [attr.transform]="moteTransform(255, 322, 0.68)"
+                />
+              </svg>
+              <div class="ck-auth-orb-glow" [style.opacity]="orbGlowOpacity()" [style.transform]="orbGlowTransform()"></div>
+              <ck-thinking-orb
+                class="ck-auth-orb"
+                [state]="orbState()"
+                [size]="64"
+                [speed]="orbSpeed()"
+                [style.filter]="orbFilter()"
+              />
+            </div>
           </div>
           <div class="ck-auth-hero-copy">
             <span class="ck-auth-hero-eyebrow">{{ i18n.t('auth.panel.eyebrow') }}</span>
@@ -317,6 +350,14 @@ const REDUCED_MOTION_STEP = 3;
         aspect-ratio: 1 / 1;
         display: grid;
         place-items: center;
+      }
+      .ck-auth-orbit-field {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        display: grid;
+        place-items: center;
+        will-change: transform;
       }
       .ck-auth-orbit-rings {
         position: absolute;
@@ -540,9 +581,41 @@ const REDUCED_MOTION_STEP = 3;
 export class AuthShellComponent {
   protected readonly i18n = inject(I18nService);
   protected readonly steps = PANEL_FLOW_STEPS;
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly orbit = viewChild.required<ElementRef<HTMLElement>>('orbit');
 
   protected readonly activeStep = signal(REDUCED_MOTION_STEP);
   protected readonly orbState = computed<CkOrbState>(() => PANEL_FLOW_STEPS[this.activeStep()].orb);
+  private readonly wake = signal<WakeField | null>(null);
+  private readonly orbitBox = signal<{ x: number; y: number; width: number } | null>(null);
+
+  private readonly influence = computed(() => {
+    const box = this.orbitBox();
+    const field = this.wake();
+    if (!box) return magneticInfluence(null, { x: 0, y: 0 });
+    return magneticInfluence(field, { x: box.x, y: box.y });
+  });
+
+  protected readonly orbitTransform = computed(() => {
+    const influence = this.influence();
+    const strength = influence.strength;
+    if (strength <= 0) return 'none';
+    const shift = 6 * strength;
+    const tilt = 0.8 * strength * (this.wake()?.vx ?? 0);
+    const scale = 1 + 0.018 * strength;
+    return `translate3d(${(influence.x * shift).toFixed(2)}px, ${(influence.y * shift).toFixed(2)}px, 0) rotate(${tilt.toFixed(2)}deg) scale(${scale.toFixed(3)})`;
+  });
+
+  protected readonly orbSpeed = computed(() => (this.influence().strength > 0.08 ? 1.15 : 1));
+  protected readonly orbGlowOpacity = computed(() => (0.82 + 0.18 * this.influence().strength).toFixed(3));
+  protected readonly orbGlowTransform = computed(() => {
+    const strength = this.influence().strength;
+    return `scale(${(1 + 0.12 * strength).toFixed(3)})`;
+  });
+  protected readonly orbFilter = computed(() => {
+    const strength = this.influence().strength;
+    return strength <= 0 ? 'none' : `brightness(${(1 + 0.12 * strength).toFixed(3)})`;
+  });
 
   constructor() {
     const destroyRef = inject(DestroyRef);
@@ -554,6 +627,45 @@ export class AuthShellComponent {
         STEP_INTERVAL_MS,
       );
       destroyRef.onDestroy(() => clearInterval(timer));
+
+      const measure = () => {
+        const shell = this.host.nativeElement.getBoundingClientRect();
+        const box = this.orbit().nativeElement.getBoundingClientRect();
+        this.orbitBox.set({
+          x: box.left - shell.left + box.width / 2,
+          y: box.top - shell.top + box.height / 2,
+          width: box.width,
+        });
+      };
+      const observer = new ResizeObserver(measure);
+      observer.observe(this.orbit().nativeElement);
+      window.addEventListener('resize', measure);
+      destroyRef.onDestroy(() => {
+        observer.disconnect();
+        window.removeEventListener('resize', measure);
+      });
     });
+  }
+
+  protected wakeChanged(field: WakeField | null): void {
+    this.wake.set(field);
+  }
+
+  protected ringTransform(depth: number): string {
+    return magneticTransform(this.influence(), this.wake(), depth);
+  }
+
+  protected moteTransform(x: number, y: number, factor: number): string {
+    const box = this.orbitBox();
+    const field = this.wake();
+    if (!box || !field) return '';
+    const scale = box.width / 400;
+    const local = magneticInfluence(field, {
+      x: box.x + (x - 200) * scale,
+      y: box.y + (y - 200) * scale,
+    }, Math.max(60, box.width * 0.28));
+    if (local.strength <= 0) return '';
+    const push = 9 * local.strength * factor;
+    return `translate(${(local.x * push).toFixed(2)} ${(local.y * push).toFixed(2)})`;
   }
 }
