@@ -13,6 +13,7 @@ import { I18nService } from '@app/core/i18n.service';
 import type { I18nKey } from '@app/core/i18n.dict';
 import { ThinkingOrbComponent, type CkOrbState } from '@app/shared/cockpit';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
+import { AuthOrbSwarmComponent } from './orb-swarm.component';
 import { CursorWakeComponent } from './cursor-wake.component';
 import {
   magneticInfluence,
@@ -54,7 +55,7 @@ const REDUCED_MOTION_STEP = 3;
 @Component({
   selector: 'app-auth-shell',
   standalone: true,
-  imports: [RouterOutlet, StatusPulseComponent, ThinkingOrbComponent, CursorWakeComponent],
+  imports: [RouterOutlet, StatusPulseComponent, ThinkingOrbComponent, CursorWakeComponent, AuthOrbSwarmComponent],
   template: `
     <div class="ck-auth-shell">
       <!-- Layered ambient backdrop (grid + subtle blooms) -->
@@ -125,6 +126,7 @@ const REDUCED_MOTION_STEP = 3;
                 />
               </svg>
               <div class="ck-auth-orb-glow" [style.opacity]="orbGlowOpacity()" [style.transform]="orbGlowTransform()"></div>
+              <app-auth-orb-swarm [open]="influence().strength" [aimX]="swarmAim().x" [aimY]="swarmAim().y" />
               <ck-thinking-orb
                 class="ck-auth-orb"
                 [state]="orbState()"
@@ -410,7 +412,8 @@ const REDUCED_MOTION_STEP = 3;
         background: radial-gradient(circle, rgba(125, 211, 252, 0.16), transparent 65%);
         filter: blur(6px);
       }
-      .ck-auth-orb { position: relative; }
+      .ck-auth-orb { position: relative; z-index: 1; }
+      app-auth-orb-swarm { z-index: 0; }
 
       .ck-auth-hero-copy {
         position: relative;
@@ -619,23 +622,26 @@ export class AuthShellComponent {
 
   protected readonly orbitTransform = computed(() => {
     const influence = this.influence();
-    const strength = influence.strength;
-    if (strength <= 0) return 'none';
-    const shift = 24 * strength;
-    const tilt = 2.4 * strength * (this.magneticField()?.vx ?? 0);
-    const scale = 1 + 0.05 * strength;
-    return `translate3d(${(influence.x * shift).toFixed(2)}px, ${(influence.y * shift).toFixed(2)}px, 0) rotate(${tilt.toFixed(2)}deg) scale(${scale.toFixed(3)})`;
+    if (influence.strength <= 0) return 'none';
+    const shift = 4 * influence.strength;
+    return `translate3d(${(influence.x * shift).toFixed(2)}px, ${(influence.y * shift).toFixed(2)}px, 0)`;
   });
 
-  protected readonly orbSpeed = computed(() => (this.influence().strength > 0.08 ? 1.55 : 1));
-  protected readonly orbGlowOpacity = computed(() => (0.78 + 0.22 * this.influence().strength).toFixed(3));
+  protected readonly orbSpeed = computed(() => (this.influence().strength > 0.2 ? 1.12 : 1));
+  protected readonly orbGlowOpacity = computed(() => (0.78 + 0.06 * this.influence().strength).toFixed(3));
   protected readonly orbGlowTransform = computed(() => {
     const strength = this.influence().strength;
-    return `scale(${(1 + 0.3 * strength).toFixed(3)})`;
+    return `scale(${(1 + 0.06 * strength).toFixed(3)})`;
   });
-  protected readonly orbFilter = computed(() => {
-    const strength = this.influence().strength;
-    return strength <= 0 ? 'none' : `brightness(${(1 + 0.3 * strength).toFixed(3)})`;
+  protected readonly orbFilter = computed(() => 'none');
+  protected readonly swarmAim = computed(() => {
+    const box = this.orbitBox();
+    const field = this.magneticField();
+    if (!box || !field) return { x: 0, y: 0 };
+    const dx = field.x - box.x;
+    const dy = field.y - box.y;
+    const distance = Math.hypot(dx, dy) || 1;
+    return { x: dx / distance, y: dy / distance };
   });
 
   constructor() {
@@ -686,8 +692,17 @@ export class AuthShellComponent {
       y: box.y + (y - 200) * scale,
     }, Math.max(120, box.width * 0.5));
     if (local.strength <= 0) return '';
-    const push = 34 * local.strength * factor;
-    return `translate(${(local.x * push).toFixed(2)} ${(local.y * push).toFixed(2)})`;
+    let rx = x - 200;
+    let ry = y - 200;
+    const radius = Math.hypot(rx, ry) || 1;
+    rx /= radius;
+    ry /= radius;
+    const tx = -ry;
+    const ty = rx;
+    const along = field.vx * tx + field.vy * ty;
+    const drift = 14 * local.strength * factor * along;
+    const yieldR = 5 * local.strength * factor;
+    return `translate(${(tx * drift + rx * yieldR).toFixed(2)} ${(ty * drift + ry * yieldR).toFixed(2)})`;
   }
 
   private startMagneticRelaxation(): void {
@@ -698,8 +713,8 @@ export class AuthShellComponent {
       last = now;
       const target = this.wake();
       const current = this.magneticField();
-      const rise = 1 - Math.exp(-dt / 80);
-      const fall = 1 - Math.exp(-dt / 380);
+      const rise = 1 - Math.exp(-dt / 180);
+      const fall = 1 - Math.exp(-dt / 560);
 
       if (!target) {
         if (!current) {
