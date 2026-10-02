@@ -58,9 +58,9 @@ export const WAKE_STRAND: StrandOptions = {
 };
 
 /** The orbit reacts nearby, not across the whole sign-in screen. */
-export const MAGNETIC_RADIUS_PX = 360;
-export const MAGNETIC_MAX_SHIFT_PX = 5;
-export const MAGNETIC_MAX_TILT_DEG = 0.9;
+export const MAGNETIC_RADIUS_PX = 620;
+export const MAGNETIC_MAX_SHIFT_PX = 26;
+export const MAGNETIC_MAX_TILT_DEG = 3.2;
 
 /**
  * Records a pointer sample at the head of the wake. Moves under `minStep`
