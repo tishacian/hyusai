@@ -1,0 +1,117 @@
+{
+  "fixture_version": 1,
+  "workspace_slug": "agentium-showcase",
+  "evidence_kind": "synthetic_demo",
+  "documents": [
+    {
+      "reference": "refund-policy-v2",
+      "filename": "politique-remboursement-v2.pdf",
+      "type": "policy",
+      "version": "2",
+      "effective_from": "2026-09-01",
+      "current": true,
+      "order_id": null,
+      "sha256": "240adbc2cd772111c015b5b3530b4dc8c3c9c98cf16d14c4aef6229420eb66a5"
+    },
+    {
+      "reference": "investigation-guide-v1",
+      "filename": "procedure-enquete-livraison-v1.docx",
+      "type": "procedure",
+      "version": "1",
+      "effective_from": "2026-09-01",
+      "current": true,
+      "order_id": null,
+      "sha256": "e352f66e19676abf8c0b9659412d7fe8de4799b100607bc8ddf533127aca2369"
+    },
+    {
+      "reference": "carrier-contract-v1",
+      "filename": "contrat-transporteur-v1.pdf",
+      "type": "contract",
+      "version": "1",
+      "effective_from": "2026-09-01",
+      "current": true,
+      "order_id": null,
+      "sha256": "293f6a9e88c31113cdbf253b93626147eb40305991c6db0835ed47b2d871cf20"
+    },
+    {
+      "reference": "decision-guide-v1",
+      "filename": "guide-validation-sav-v1.pdf",
+      "type": "decision_guide",
+      "version": "1",
+      "effective_from": "2026-09-01",
+      "current": true,
+      "order_id": null,
+      "sha256": "642cf61d82934e2160d7c7fc9729a9cac6f6a8ee951b9fca3a322287937cbf02"
+    },
+    {
+      "reference": "refund-policy-v1-archived",
+      "filename": "politique-remboursement-v1-archive.md",
+      "type": "policy",
+      "version": "1",
+      "effective_from": "2026-01-01",
+      "current": false,
+      "order_id": null,
+      "sha256": "258e2430c4dcc8132372029304d24cd223b372ec84e85a2790d04abcde6dc80c"
+    },
+    {
+      "reference": "claim-lm1042",
+      "filename": "reclamation-lm1042.pdf",
+      "type": "customer_claim",
+      "version": "1",
+      "effective_from": "2026-09-25",
+      "current": true,
+      "order_id": "LM-1042",
+      "sha256": "93bf77e89542d7f412d7e040886cfd6908fdff10d6cae6513a8573c0328dd623"
+    },
+    {
+      "reference": "delivery-lm1042",
+      "filename": "bordereau-livraison-lm1042.pdf",
+      "type": "delivery_receipt",
+      "version": "1",
+      "effective_from": "2026-09-24",
+      "current": true,
+      "order_id": "LM-1042",
+      "sha256": "6339d30a66dea9e283f78c6a169d060da3123fca734634f71f9773191af24832"
+    },
+    {
+      "reference": "claim-lm1043",
+      "filename": "reclamation-lm1043.pdf",
+      "type": "customer_claim",
+      "version": "1",
+      "effective_from": "2026-09-29",
+      "current": true,
+      "order_id": "LM-1043",
+      "sha256": "1fecc56c020544d4341552d816528c90106aa34fb14a8f4f1f497de2030ec6b8"
+    },
+    {
+      "reference": "loss-lm1043",
+      "filename": "confirmation-perte-lm1043.pdf",
+      "type": "carrier_loss_confirmation",
+      "version": "1",
+      "effective_from": "2026-09-28",
+      "current": true,
+      "order_id": "LM-1043",
+      "sha256": "7810b679e1376999e4b4f81ed92970237708665623cf5a11ccc70c6f9310b354"
+    },
+    {
+      "reference": "claim-lm1044",
+      "filename": "reclamation-lm1044.pdf",
+      "type": "customer_claim",
+      "version": "1",
+      "effective_from": "2026-09-29",
+      "current": true,
+      "order_id": "LM-1044",
+      "sha256": "c7d21c93045852ffd0694a0fc6f05f7aa69ebc10f8ce331977ef3dce1f8eaab6"
+    },
+    {
+      "reference": "refund-receipt-lm1044",
+      "filename": "recu-remboursement-lm1044.pdf",
+      "type": "refund_receipt",
+      "version": "1",
+      "effective_from": "2026-09-06",
+      "current": true,
+      "order_id": "LM-1044",
+      "sha256": "46409b2411b6c479b747b5befbddca83e3bf3dac572cd3c4b2d86ce77a95527e"
+    }
+  ]
+}

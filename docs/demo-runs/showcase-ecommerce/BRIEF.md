@@ -2,6 +2,8 @@
 
 Date : 1er octobre 2026. Secteur et famille de cas d’usage retenus avec le demandeur : **commerce en ligne — réclamations et remboursements**. Le scénario détaillé ci-dessous constitue le cadrage proposé avant implémentation ; aucune application ni donnée de ce nouveau scénario n’est encore déployée.
 
+Exigences ajoutées par le demandeur : **Document Center/OmniRAG + PostgreSQL + orchestration agentique explicable + application métier soignée + ROI démontré dans Impact**. Elles structurent le [parcours et les sources](PARCOURS-SOURCES.md) et le [protocole ROI](ROI-PROTOCOL.md). Le premier [pack de données](fixtures/README.md) prépare les documents et les tables ; il ne contient aucune mesure de gain inventée.
+
 ## La promesse métier
 
 **Aider une responsable SAV à résoudre une réclamation de livraison et à décider d’un remboursement, avec les preuves sous les yeux.**
@@ -42,6 +44,8 @@ Une application Work **Réclamations**, avec trois vues principales :
 - **Dossier** : demande client, commande, preuves ouvrables, analyse structurée et décision. Les informations nécessaires à la décision restent visibles ensemble.
 - **Historique** : décisions, actions, reçus et liens vers les preuves. Une action préparée, approuvée et exécutée a trois états distincts.
 
+La fiche dossier associe une synthèse de la commande et des remboursements lus dans PostgreSQL, des passages documentaires cités et ouvrables dans Document Center, puis une recommandation et une zone de décision. La progression de l’enquête doit montrer ce que les agents cherchent, ce qu’ils ont établi et ce qui manque. Un accès à Impact retrouve l’expérimentation et les mesures du même périmètre.
+
 États proposés : **À instruire**, **En attente d’information**, **À décider**, **Résolue**. Une résolution conserve son résultat : enquête demandée, réexpédition, remboursement ou demande déjà traitée. L’application doit proposer un prochain geste utile pour chaque état.
 
 Le présentateur utilise un seul compte owner du workspace. La différence entre conseil et décision relève du scénario et de la politique réellement appliquée ; des étiquettes de persona seules ne constituent pas une preuve d’autorisation.
@@ -64,6 +68,8 @@ Le parcours métier est le fil rouge. Les étapes de construction montrent ensui
 Une extension DataOps/ML pourra porter sur **le risque de dépasser le délai de résolution du SAV**, à partir d’un historique synthétique distinct des trois dossiers. Un modèle entraîné et évalué devra avoir son dataset, sa séparation entraînement/test, ses métriques et sa version. Un tri par règles doit rester présenté comme un tri par règles. Ce volet sera cadré après validation du parcours métier principal.
 
 Dans Impact, séparer le montant des commandes et remboursements, le coût enregistré de l’exécution, les hypothèses de valeur déclarées et les éventuelles mesures observées. Un remboursement bloqué ne devient pas automatiquement une économie attribuable à Agentium.
+
+Le ROI demandé sera fondé sur un traitement manuel et un traitement assisté réellement chronométrés, à qualité comparable, avec une convention de coût horaire affichée et les coûts Agentium couverts. Il mesure une performance sur les données de démonstration. La conversion du temps en euros est une valorisation de capacité ; un gain financier réalisé exige une preuve financière supplémentaire. Le détail, les formules et les conditions d’affichage sont dans le protocole ROI.
 
 ## Qualification visuelle et utilisateur
 

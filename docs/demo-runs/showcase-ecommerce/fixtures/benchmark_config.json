@@ -1,0 +1,29 @@
+{
+  "protocol_version": "showcase-ecommerce-roi-v1",
+  "workspace_slug": "agentium-showcase",
+  "evidence_kind": "synthetic_demo_benchmark",
+  "state": "experiment_not_run",
+  "conditions": ["manual", "assisted"],
+  "minimum_exploratory_pairs": 10,
+  "cost_convention": {
+    "hourly_loaded_cost": "40.00",
+    "currency": "EUR",
+    "nature": "declared_demo_assumption",
+    "selected_by_user": true,
+    "application_approval_id": null
+  },
+  "observations": {
+    "manual_human_seconds": null,
+    "assisted_human_seconds": null,
+    "quality_status": "not_evaluated",
+    "agentium_incremental_cost": null,
+    "cost_coverage": "not_measured",
+    "net_benefit": null,
+    "operational_roi": null
+  },
+  "projection": {
+    "monthly_case_volume": null,
+    "state": "not_configured"
+  },
+  "production_baseline_eligible": false
+}

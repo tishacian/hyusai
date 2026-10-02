@@ -1,0 +1,311 @@
+{
+  "fixture_version": 1,
+  "workspace_slug": "agentium-showcase",
+  "company": "Luma Maison",
+  "evidence_kind": "synthetic_demo",
+  "documents": [
+    {
+      "filename": "politique-remboursement-v2.pdf",
+      "type": "policy",
+      "version": "2",
+      "effective_from": "2026-09-01",
+      "current": true,
+      "order_id": null,
+      "title": "Politique de remboursement - version 2",
+      "paragraphs": [
+        "Applicable aux commandes Luma Maison passées à compter du 1er septembre 2026. Cette version remplace la version 1 archivée.",
+        "Article 1 - Avant toute proposition, rapprocher la commande payée, le statut de livraison, les pièces du dossier et les remboursements déjà enregistrés. L'identifiant de commande relie les preuves.",
+        "Article 2 - Un statut transporteur livré ne prouve pas la réception à la bonne adresse. Si le code postal du bordereau diffère de celui de la commande, la preuve est contradictoire : demander une enquête transporteur. Ne pas affirmer que le client a reçu le colis.",
+        "Article 3 - Une perte confirmée par le transporteur rend le remboursement éligible à l'examen humain. Le montant proposé ne peut dépasser le montant payé moins les remboursements déjà exécutés.",
+        "Article 4 - Tout remboursement exige une validation humaine avant exécution. Au-delà de 300 EUR, la responsable SAV examine personnellement la proposition et ses justificatifs.",
+        "Article 5 - Un remboursement déjà exécuté pour la même commande doit être présenté dans le dossier. Une nouvelle demande identique ne génère pas un second remboursement.",
+        "Article 6 - Une preuve manquante produit une demande d'information. Aucun fait ni accord financier ne doit être inventé. Conserver décision, motif, sources et reçu d'action."
+      ],
+      "reference": "refund-policy-v2"
+    },
+    {
+      "filename": "procedure-enquete-livraison-v1.docx",
+      "type": "procedure",
+      "version": "1",
+      "effective_from": "2026-09-01",
+      "current": true,
+      "order_id": null,
+      "title": "Procédure SAV - enquêter sur une livraison",
+      "paragraphs": [
+        "Objectif : rapprocher les preuves avant de proposer une resolution. Les opérations de consultation et d'analyse sont distinctes de la validation humaine et de l'exécution.",
+        "1. Lire la demande client et retrouver la commande dans la boutique. Verifier montant payé, produit et adresse de livraison.",
+        "2. Consulter l'expedition et son historique. Rechercher le bordereau du même identifiant de commande et de suivi. Comparer code postal et date.",
+        "3. Lire la politique applicable à la date de commande. Une politique archivée ne remplace pas la version en vigueur.",
+        "4. Verifier les remboursements existants avant de poursuivre. Si la demande est déjà satisfaite, montrer le reçu et bloquer la répétition de l'action.",
+        "5. Si le bordereau manque, demander cette pièce au transporteur et mettre le dossier en attente. Si les adresses divergent, consigner la contradiction et ouvrir une enquête.",
+        "6. Presenter les faits, les informations manquantes et les options : enquête, réexpédition ou remboursement sous validation humaine. Ne pas confondre une recommandation avec une action réalisée.",
+        "7. Apres décision, conserver un reçu unique et les references des preuves. Une mise a jour des pièces doit conduire a revérifier la proposition."
+      ],
+      "reference": "investigation-guide-v1"
+    },
+    {
+      "filename": "contrat-transporteur-v1.pdf",
+      "type": "contract",
+      "version": "1",
+      "effective_from": "2026-09-01",
+      "current": true,
+      "order_id": null,
+      "title": "Contrat de service - transporteur fictif ColisAzur",
+      "paragraphs": [
+        "ColisAzur est un transporteur fictif du jeu de démonstration Luma Maison. Aucune livraison commerciale réelle n'est représentée par ce contrat.",
+        "Clause 1 - Une preuve de livraison doit identifier la commande, le numero de suivi, la date et le code postal du lieu de remise.",
+        "Clause 2 - En cas de divergence entre le code postal de commande et celui du bordereau, fournir une confirmation du lieu de remise. Le statut livré seul ne clôt pas l'enquête.",
+        "Clause 3 - Le SAV peut demander une enquête avec la référence de commande et la pièce contradictoire. La réponse de démonstration doit identifier clairement les informations confirmées et celles encore inconnues.",
+        "Clause 4 - Une confirmation de perte doit porter le numero de suivi, la commande et la date de confirmation. Elle autorise l'examen d'une solution commerciale, pas une exécution financière automatique."
+      ],
+      "reference": "carrier-contract-v1"
+    },
+    {
+      "filename": "guide-validation-sav-v1.pdf",
+      "type": "decision_guide",
+      "version": "1",
+      "effective_from": "2026-09-01",
+      "current": true,
+      "order_id": null,
+      "title": "Guide de validation - décisions SAV",
+      "paragraphs": [
+        "Le conseiller et l'agent peuvent instruire un dossier, rechercher des preuves et préparer une proposition. Ils ne remplacent pas la décision humaine pour une action monétaire.",
+        "Chaque validation expose l'action proposee, son montant, la commande, les preuves et le motif. Au-delà de 300 EUR, une responsable SAV examine le dossier.",
+        "Avant l'action, revérifier que la proposition est toujours actuelle et qu'aucune action équivalente n'a déjà ete executee. Une validation répétée conserve le même reçu ; elle ne cree pas un nouveau remboursement.",
+        "Une décision humaine enregistrée ne prouve pas encore que l'action a reussi. Conserver un etat préparé, approuve, exécuté ou échoué et le reçu du service sollicite.",
+        "Le jeu de démonstration utilise un service de remboursement simulé. Aucun montant du dossier ne represente une économie mesurée ni une transaction financière réelle."
+      ],
+      "reference": "decision-guide-v1"
+    },
+    {
+      "filename": "politique-remboursement-v1-archive.md",
+      "type": "policy",
+      "version": "1",
+      "effective_from": "2026-01-01",
+      "current": false,
+      "order_id": null,
+      "title": "ARCHIVE - politique de remboursement version 1",
+      "paragraphs": [
+        "Document archivé. Applicable uniquement du 1er janvier au 31 août 2026. Remplace par la version 2 à compter du 1er septembre 2026.",
+        "Ancienne règle : après confirmation de perte, un remboursement inférieur a 500 EUR pouvait suivre le traitement standard de l'ancien processus.",
+        "Cette ancienne règle ne s'applique à aucune des commandes LM-1042, LM-1043 et LM-1044 du present jeu de démonstration. Utiliser la version 2 pour ces dossiers."
+      ],
+      "reference": "refund-policy-v1-archived"
+    },
+    {
+      "filename": "reclamation-lm1042.pdf",
+      "type": "customer_claim",
+      "version": "1",
+      "effective_from": "2026-09-25",
+      "current": true,
+      "order_id": "LM-1042",
+      "title": "Réclamation RC-1042 - livraison contestée",
+      "paragraphs": [
+        "Référence : RC-1042. Commande : LM-1042. Client fictif : C-014. Date de demande : 25 septembre 2026.",
+        "Demande client : ma commande de lampe, d'un montant de 420 EUR, apparaît livree mais je n'ai pas reçu le colis. Merci de vérifier le lieu de remise et de me proposer une solution.",
+        "Le client conteste la réception. Ce document ne constitue pas une preuve que le colis a ete perdu ni une autorisation de remboursement."
+      ],
+      "reference": "claim-lm1042"
+    },
+    {
+      "filename": "bordereau-livraison-lm1042.pdf",
+      "type": "delivery_receipt",
+      "version": "1",
+      "effective_from": "2026-09-24",
+      "current": true,
+      "order_id": "LM-1042",
+      "title": "Bordereau ColisAzur - LM-1042",
+      "paragraphs": [
+        "Commande : LM-1042. Suivi : CA-1042. Date de remise déclarée : 24 septembre 2026. Statut déclaré : livré.",
+        "Lieu de remise enregistré sur ce bordereau : Paris, code postal 75012.",
+        "Identité du destinataire ayant réceptionné le colis : non renseignée. Confirmation de réception par le client de la commande : non disponible.",
+        "Pièce de démonstration : ce document rapporte les informations du transporteur. Il doit être rapproché de l'adresse de la commande et de la réclamation."
+      ],
+      "reference": "delivery-lm1042"
+    },
+    {
+      "filename": "reclamation-lm1043.pdf",
+      "type": "customer_claim",
+      "version": "1",
+      "effective_from": "2026-09-29",
+      "current": true,
+      "order_id": "LM-1043",
+      "title": "Réclamation RC-1043 - colis non reçu",
+      "paragraphs": [
+        "Référence : RC-1043. Commande : LM-1043. Client fictif : C-015. Date : 29 septembre 2026.",
+        "Demande client : le vase de ma commande de 49,90 EUR n'est pas arrivé. Je souhaite un remboursement après verification de la situation du colis."
+      ],
+      "reference": "claim-lm1043"
+    },
+    {
+      "filename": "confirmation-perte-lm1043.pdf",
+      "type": "carrier_loss_confirmation",
+      "version": "1",
+      "effective_from": "2026-09-28",
+      "current": true,
+      "order_id": "LM-1043",
+      "title": "Confirmation ColisAzur - perte du colis CA-1043",
+      "paragraphs": [
+        "Commande : LM-1043. Suivi : CA-1043. Date de confirmation : 28 septembre 2026.",
+        "Conclusion de l'enquête transporteur : colis perdu. Aucune preuve de livraison disponible.",
+        "Cette confirmation concerne seulement l'expedition CA-1043. Le choix commercial et l'autorisation du remboursement relevent de Luma Maison."
+      ],
+      "reference": "loss-lm1043"
+    },
+    {
+      "filename": "reclamation-lm1044.pdf",
+      "type": "customer_claim",
+      "version": "1",
+      "effective_from": "2026-09-29",
+      "current": true,
+      "order_id": "LM-1044",
+      "title": "Réclamation RC-1044 - nouvelle demande",
+      "paragraphs": [
+        "Référence : RC-1044. Commande : LM-1044. Client fictif : C-016. Date : 29 septembre 2026.",
+        "Demande client : je demande un remboursement de 89 EUR pour cette commande. Merci de confirmer le traitement de mon dossier.",
+        "Avant toute action, consulter l'historique de la commande et les remboursements enregistrés. Une demande répétée ne constitue pas, à elle seule, une fraude."
+      ],
+      "reference": "claim-lm1044"
+    },
+    {
+      "filename": "recu-remboursement-lm1044.pdf",
+      "type": "refund_receipt",
+      "version": "1",
+      "effective_from": "2026-09-06",
+      "current": true,
+      "order_id": "LM-1044",
+      "title": "Reçu de démonstration RF-1044",
+      "paragraphs": [
+        "Référence du reçu : RF-1044. Commande : LM-1044. Montant : 89 EUR. Date : 6 septembre 2026.",
+        "État de la fixture : remboursement exécuté. Cette référence doit correspondre au remboursement déjà enregistré dans le jeu PostgreSQL.",
+        "Ce reçu est synthétique. Il n'atteste aucune transaction financière réelle. Il permet de vérifier le contrôle de doublon du scenario."
+      ],
+      "reference": "refund-receipt-lm1044"
+    }
+  ],
+  "customers": [
+    {
+      "customer_id": "C-014",
+      "display_name": "Client fictif 014"
+    },
+    {
+      "customer_id": "C-015",
+      "display_name": "Client fictif 015"
+    },
+    {
+      "customer_id": "C-016",
+      "display_name": "Client fictif 016"
+    }
+  ],
+  "orders": [
+    {
+      "order_id": "LM-1042",
+      "customer_id": "C-014",
+      "ordered_at": "2026-09-20T10:00:00Z",
+      "paid_amount": "420.00",
+      "currency": "EUR",
+      "shipping_postcode": "75011",
+      "payment_status": "paid"
+    },
+    {
+      "order_id": "LM-1043",
+      "customer_id": "C-015",
+      "ordered_at": "2026-09-21T10:00:00Z",
+      "paid_amount": "49.90",
+      "currency": "EUR",
+      "shipping_postcode": "69003",
+      "payment_status": "paid"
+    },
+    {
+      "order_id": "LM-1044",
+      "customer_id": "C-016",
+      "ordered_at": "2026-09-02T10:00:00Z",
+      "paid_amount": "89.00",
+      "currency": "EUR",
+      "shipping_postcode": "33000",
+      "payment_status": "paid"
+    }
+  ],
+  "order_items": [
+    {
+      "item_id": "LI-1042",
+      "order_id": "LM-1042",
+      "product_name": "Lampe Aube",
+      "quantity": 1,
+      "unit_price": "420.00"
+    },
+    {
+      "item_id": "LI-1043",
+      "order_id": "LM-1043",
+      "product_name": "Vase Horizon",
+      "quantity": 1,
+      "unit_price": "49.90"
+    },
+    {
+      "item_id": "LI-1044",
+      "order_id": "LM-1044",
+      "product_name": "Plaid Nuage",
+      "quantity": 1,
+      "unit_price": "89.00"
+    }
+  ],
+  "shipments": [
+    {
+      "shipment_id": "SH-1042",
+      "order_id": "LM-1042",
+      "tracking_id": "CA-1042",
+      "carrier": "ColisAzur",
+      "status": "delivered",
+      "status_at": "2026-09-24T14:00:00Z"
+    },
+    {
+      "shipment_id": "SH-1043",
+      "order_id": "LM-1043",
+      "tracking_id": "CA-1043",
+      "carrier": "ColisAzur",
+      "status": "lost",
+      "status_at": "2026-09-28T14:00:00Z"
+    },
+    {
+      "shipment_id": "SH-1044",
+      "order_id": "LM-1044",
+      "tracking_id": "CA-1044",
+      "carrier": "ColisAzur",
+      "status": "delivered",
+      "status_at": "2026-09-04T14:00:00Z"
+    }
+  ],
+  "refunds": [
+    {
+      "refund_id": "RF-1044",
+      "order_id": "LM-1044",
+      "amount": "89.00",
+      "currency": "EUR",
+      "status": "executed",
+      "executed_at": "2026-09-06T10:00:00Z"
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "RC-1042",
+      "order_id": "LM-1042",
+      "reason": "delivery_disputed",
+      "state": "to_investigate",
+      "opened_at": "2026-09-25T10:00:00Z"
+    },
+    {
+      "claim_id": "RC-1043",
+      "order_id": "LM-1043",
+      "reason": "parcel_lost",
+      "state": "to_investigate",
+      "opened_at": "2026-09-29T10:00:00Z"
+    },
+    {
+      "claim_id": "RC-1044",
+      "order_id": "LM-1044",
+      "reason": "refund_requested",
+      "state": "to_investigate",
+      "opened_at": "2026-09-29T11:00:00Z"
+    }
+  ]
+}
