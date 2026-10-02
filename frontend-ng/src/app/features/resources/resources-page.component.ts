@@ -40,6 +40,7 @@ import {
   CONNECTORS,
   ConnectorDef,
   readAppToggles,
+  type ConnectorStatus,
 } from './resources.catalog';
 import {
   GenericConnectorDrawerComponent,

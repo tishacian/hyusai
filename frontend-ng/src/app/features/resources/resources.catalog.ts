@@ -17,7 +17,7 @@
  *   - the System Builder wizard Skills step (enabled workspace apps).
  */
 
-export type ConnectorStatus = 'active' | 'available' | 'coming-soon' | 'beta';
+export type ConnectorStatus = 'active' | 'available' | 'coming-soon' | 'beta' | 'configuration-only';
 export type ConnectorCategory = 'microsoft' | 'channels' | 'data-storage';
 
 export interface ConnectorField {
