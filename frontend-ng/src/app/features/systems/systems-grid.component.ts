@@ -303,11 +303,11 @@ interface Template {
             @if (hasFlow(system)) {
               <a
                 [navLink]="{ leaf: 'system-flow', ref: system.id, lens: 'build' }"
-                class="ck-btn-accent inline-flex items-center justify-center gap-2 rounded px-3 py-2 text-sm font-medium"
+                class="ck-btn ck-btn--sm ck-btn-quiet self-end"
                 [attr.aria-label]="i18n.t('systems.design.open_flow_for', { name: system.name })"
                 data-testid="system-card-open-flow"
               >
-                <ck-glyph name="flow" [size]="14" /> {{ i18n.t('systems.design.open_flow') }}
+                <ck-glyph name="flow" [size]="12" /> {{ i18n.t('systems.design.open_flow') }}
               </a>
             }
             </article>
