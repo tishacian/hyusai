@@ -6,20 +6,14 @@ import {
   ElementRef,
   inject,
   signal,
-  viewChild,
 } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { I18nService } from '@app/core/i18n.service';
 import type { I18nKey } from '@app/core/i18n.dict';
-import { ThinkingOrbComponent, type CkOrbState } from '@app/shared/cockpit';
+import type { CkOrbState } from '@app/shared/cockpit';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
-import { AuthOrbSwarmComponent } from './orb-swarm.component';
+import { AuthAtomComponent } from './auth-atom.component';
 import { CursorWakeComponent } from './cursor-wake.component';
-import {
-  magneticInfluence,
-  magneticTransform,
-  type WakeField,
-} from './cursor-wake';
 
 /**
  * The instrument panel walks one abstract system — objective, retrieve,
@@ -55,16 +49,17 @@ const REDUCED_MOTION_STEP = 3;
 @Component({
   selector: 'app-auth-shell',
   standalone: true,
-  imports: [RouterOutlet, StatusPulseComponent, ThinkingOrbComponent, CursorWakeComponent, AuthOrbSwarmComponent],
+  imports: [RouterOutlet, StatusPulseComponent, AuthAtomComponent, CursorWakeComponent],
   template: `
     <div class="ck-auth-shell">
       <!-- Layered ambient backdrop (grid + subtle blooms) -->
       <div class="ck-auth-bg" aria-hidden="true">
         <div class="ck-auth-grid"></div>
+        <div class="ck-auth-grid-spot"></div>
         <div class="ck-auth-bloom ck-auth-bloom-cool"></div>
         <div class="ck-auth-bloom ck-auth-bloom-violet"></div>
         <div class="ck-auth-scanline"></div>
-        <app-cursor-wake (wakeChange)="wakeChanged($event)" />
+        <app-cursor-wake />
       </div>
 
       <!-- Compact bar, only when the panel is folded away (<960px) -->
@@ -97,45 +92,7 @@ const REDUCED_MOTION_STEP = 3;
         </div>
 
         <div class="ck-auth-hero">
-          <div #orbit class="ck-auth-orbit" aria-hidden="true">
-            <div class="ck-auth-orbit-field" [style.transform]="orbitTransform()">
-              <svg class="ck-auth-orbit-rings" viewBox="0 0 400 400" fill="none">
-                <g [attr.transform]="ringTransform(0.45)">
-                  <ellipse class="ck-auth-ring ck-auth-ring-1" cx="200" cy="200" rx="188" ry="72" transform="rotate(-24 200 200)" />
-                </g>
-                <g [attr.transform]="ringTransform(0.75)">
-                  <ellipse class="ck-auth-ring ck-auth-ring-2" cx="200" cy="200" rx="160" ry="62" transform="rotate(20 200 200)" />
-                </g>
-                <g [attr.transform]="ringTransform(1.1)">
-                  <ellipse class="ck-auth-ring ck-auth-ring-3" cx="200" cy="200" rx="128" ry="112" transform="rotate(-6 200 200)" />
-                </g>
-                <circle
-                  class="ck-auth-mote ck-auth-mote-cool"
-                  cx="342" cy="141" r="3.5"
-                  [attr.transform]="moteTransform(342, 141, 1)"
-                />
-                <circle
-                  class="ck-auth-mote ck-auth-mote-violet"
-                  cx="82" cy="262" r="3"
-                  [attr.transform]="moteTransform(82, 262, 0.82)"
-                />
-                <circle
-                  class="ck-auth-mote ck-auth-mote-ice"
-                  cx="255" cy="322" r="2.5"
-                  [attr.transform]="moteTransform(255, 322, 0.68)"
-                />
-              </svg>
-              <div class="ck-auth-orb-glow" [style.opacity]="orbGlowOpacity()" [style.transform]="orbGlowTransform()"></div>
-              <app-auth-orb-swarm [open]="influence().strength" [aimX]="swarmAim().x" [aimY]="swarmAim().y" />
-              <ck-thinking-orb
-                class="ck-auth-orb"
-                [state]="orbState()"
-                [size]="64"
-                [speed]="orbSpeed()"
-                [style.filter]="orbFilter()"
-              />
-            </div>
-          </div>
+          <app-auth-atom class="ck-auth-orbit" [orbState]="orbState()" />
           <div class="ck-auth-hero-copy">
             <span class="ck-auth-hero-eyebrow">{{ i18n.t('auth.panel.eyebrow') }}</span>
             <h1 class="ck-auth-hero-title">{{ i18n.t('auth.panel.headline') }}</h1>
@@ -211,6 +168,19 @@ const REDUCED_MOTION_STEP = 3;
         mask-image: radial-gradient(ellipse 80% 70% at 50% 50%, rgba(0, 0, 0, 0.9), transparent 75%);
         -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 50%, rgba(0, 0, 0, 0.9), transparent 75%);
         opacity: 0.7;
+      }
+      /* The grid lights up around the pointer, like a lamp passed over a map. */
+      .ck-auth-grid-spot {
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(color-mix(in srgb, var(--ck-signal-cool) 38%, transparent) 1px, transparent 1px),
+          linear-gradient(90deg, color-mix(in srgb, var(--ck-signal-cool) 38%, transparent) 1px, transparent 1px);
+        background-size: 48px 48px;
+        mask-image: radial-gradient(circle 260px at var(--spot-x, -999px) var(--spot-y, -999px), rgba(0, 0, 0, 0.85), transparent 70%);
+        -webkit-mask-image: radial-gradient(circle 260px at var(--spot-x, -999px) var(--spot-y, -999px), rgba(0, 0, 0, 0.85), transparent 70%);
+        opacity: var(--spot-on, 0);
+        transition: opacity 600ms var(--ck-ease-out, ease-out);
       }
       .ck-auth-bloom {
         position: absolute;
@@ -353,68 +323,6 @@ const REDUCED_MOTION_STEP = 3;
         display: grid;
         place-items: center;
       }
-      .ck-auth-orbit-field {
-        position: relative;
-        width: 100%;
-        height: 100%;
-        display: grid;
-        place-items: center;
-        will-change: transform;
-      }
-      .ck-auth-orbit-rings {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        animation: ck-auth-orbit-drift 72s linear infinite;
-      }
-      @keyframes ck-auth-orbit-drift {
-        to { transform: rotate(360deg); }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .ck-auth-orbit-rings { animation: none; }
-      }
-      .ck-auth-ring {
-        stroke: var(--ck-fg-5);
-        stroke-width: 1.5;
-        stroke-dasharray: 2 6;
-        stroke-linecap: round;
-      }
-      .ck-auth-ring-1 {
-        opacity: 0.8;
-        animation: ck-auth-ring-flow 22s linear infinite;
-      }
-      .ck-auth-ring-2 {
-        opacity: 0.55;
-        animation: ck-auth-ring-flow 15s linear infinite reverse;
-      }
-      .ck-auth-ring-3 {
-        opacity: 0.35;
-        animation: ck-auth-ring-flow 29s linear infinite;
-      }
-      @keyframes ck-auth-ring-flow {
-        to { stroke-dashoffset: -128; }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .ck-auth-ring,
-        .ck-auth-ring-1,
-        .ck-auth-ring-2,
-        .ck-auth-ring-3 { animation: none; }
-      }
-      .ck-auth-mote-cool { fill: var(--ck-signal-cool); opacity: 0.9; }
-      .ck-auth-mote-violet { fill: var(--ck-signal-violet); opacity: 0.75; }
-      .ck-auth-mote-ice { fill: var(--ck-signal-ice); opacity: 0.55; }
-      .ck-auth-orb-glow {
-        position: absolute;
-        width: 220px;
-        height: 220px;
-        border-radius: 50%;
-        background: radial-gradient(circle, rgba(125, 211, 252, 0.16), transparent 65%);
-        filter: blur(6px);
-      }
-      .ck-auth-orb { position: relative; z-index: 1; }
-      app-auth-orb-swarm { z-index: 0; }
-
       .ck-auth-hero-copy {
         position: relative;
         z-index: 1;
@@ -603,48 +511,12 @@ export class AuthShellComponent {
   protected readonly i18n = inject(I18nService);
   protected readonly steps = PANEL_FLOW_STEPS;
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
-  private readonly orbit = viewChild.required<ElementRef<HTMLElement>>('orbit');
 
   protected readonly activeStep = signal(REDUCED_MOTION_STEP);
   protected readonly orbState = computed<CkOrbState>(() => PANEL_FLOW_STEPS[this.activeStep()].orb);
-  private readonly wake = signal<WakeField | null>(null);
-  private readonly magneticField = signal<WakeField | null>(null);
-  private readonly orbitBox = signal<{ x: number; y: number; width: number } | null>(null);
-  private magneticFrame = 0;
-  private readonly destroyRef = inject(DestroyRef);
-
-  protected readonly influence = computed(() => {
-    const box = this.orbitBox();
-    const field = this.magneticField();
-    if (!box) return magneticInfluence(null, { x: 0, y: 0 });
-    return magneticInfluence(field, { x: box.x, y: box.y });
-  });
-
-  protected readonly orbitTransform = computed(() => {
-    const influence = this.influence();
-    if (influence.strength <= 0) return 'none';
-    const shift = 4 * influence.strength;
-    return `translate3d(${(influence.x * shift).toFixed(2)}px, ${(influence.y * shift).toFixed(2)}px, 0)`;
-  });
-
-  protected readonly orbSpeed = computed(() => (this.influence().strength > 0.2 ? 1.12 : 1));
-  protected readonly orbGlowOpacity = computed(() => (0.78 + 0.06 * this.influence().strength).toFixed(3));
-  protected readonly orbGlowTransform = computed(() => {
-    const strength = this.influence().strength;
-    return `scale(${(1 + 0.06 * strength).toFixed(3)})`;
-  });
-  protected readonly orbFilter = computed(() => 'none');
-  protected readonly swarmAim = computed(() => {
-    const box = this.orbitBox();
-    const field = this.magneticField();
-    if (!box || !field) return { x: 0, y: 0 };
-    const dx = field.x - box.x;
-    const dy = field.y - box.y;
-    const distance = Math.hypot(dx, dy) || 1;
-    return { x: dx / distance, y: dy / distance };
-  });
 
   constructor() {
+    const destroyRef = inject(DestroyRef);
     afterNextRender(() => {
       if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
       this.activeStep.set(0);
@@ -652,104 +524,49 @@ export class AuthShellComponent {
         () => this.activeStep.update((i) => (i + 1) % PANEL_FLOW_STEPS.length),
         STEP_INTERVAL_MS,
       );
-      this.destroyRef.onDestroy(() => clearInterval(timer));
-
-      const measure = () => {
-        const shell = this.host.nativeElement.getBoundingClientRect();
-        const box = this.orbit().nativeElement.getBoundingClientRect();
-        this.orbitBox.set({
-          x: box.left - shell.left + box.width / 2,
-          y: box.top - shell.top + box.height / 2,
-          width: box.width,
-        });
-      };
-      const observer = new ResizeObserver(measure);
-      observer.observe(this.orbit().nativeElement);
-      window.addEventListener('resize', measure);
-      this.destroyRef.onDestroy(() => {
-        observer.disconnect();
-        window.removeEventListener('resize', measure);
-      });
+      destroyRef.onDestroy(() => clearInterval(timer));
+      destroyRef.onDestroy(this.followSpotlight());
     });
   }
 
-  protected wakeChanged(field: WakeField | null): void {
-    this.wake.set(field);
-    if (!this.magneticFrame) this.startMagneticRelaxation();
-  }
+  /**
+   * Moves the grid's lamp with the pointer (one style write per frame) and
+   * lets it fade out once the pointer rests or leaves. Touch is ignored.
+   */
+  private followSpotlight(): () => void {
+    const shell = this.host.nativeElement.querySelector<HTMLElement>('.ck-auth-shell');
+    if (!shell) return () => undefined;
+    let pending: { x: number; y: number } | null = null;
+    let frame = 0;
+    let idle = 0;
 
-  protected ringTransform(depth: number): string {
-    return magneticTransform(this.influence(), this.magneticField(), depth);
-  }
-
-  protected moteTransform(x: number, y: number, factor: number): string {
-    const box = this.orbitBox();
-    const field = this.magneticField();
-    if (!box || !field) return '';
-    const scale = box.width / 400;
-    const local = magneticInfluence(field, {
-      x: box.x + (x - 200) * scale,
-      y: box.y + (y - 200) * scale,
-    }, Math.max(120, box.width * 0.5));
-    if (local.strength <= 0) return '';
-    let rx = x - 200;
-    let ry = y - 200;
-    const radius = Math.hypot(rx, ry) || 1;
-    rx /= radius;
-    ry /= radius;
-    const tx = -ry;
-    const ty = rx;
-    const along = field.vx * tx + field.vy * ty;
-    const drift = 14 * local.strength * factor * along;
-    const yieldR = 5 * local.strength * factor;
-    return `translate(${(tx * drift + rx * yieldR).toFixed(2)} ${(ty * drift + ry * yieldR).toFixed(2)})`;
-  }
-
-  private startMagneticRelaxation(): void {
-    let last = performance.now();
-
-    const step = (now: number) => {
-      const dt = Math.min(64, now - last);
-      last = now;
-      const target = this.wake();
-      const current = this.magneticField();
-      const rise = 1 - Math.exp(-dt / 180);
-      const fall = 1 - Math.exp(-dt / 560);
-
-      if (!target) {
-        if (!current) {
-          this.magneticFrame = 0;
-          return;
-        }
-        const energy = current.energy * (1 - fall);
-        if (energy < 0.002) {
-          this.magneticField.set(null);
-          this.magneticFrame = 0;
-          return;
-        }
-        this.magneticField.set({ ...current, energy });
-        this.magneticFrame = requestAnimationFrame(step);
-        return;
-      }
-
-      if (!current) {
-        this.magneticField.set({ ...target, energy: target.energy * rise });
-      } else {
-        this.magneticField.set({
-          x: current.x + (target.x - current.x) * rise,
-          y: current.y + (target.y - current.y) * rise,
-          vx: current.vx + (target.vx - current.vx) * rise,
-          vy: current.vy + (target.vy - current.vy) * rise,
-          energy: current.energy + (target.energy - current.energy) * rise,
-        });
-      }
-      this.magneticFrame = requestAnimationFrame(step);
+    const write = () => {
+      frame = 0;
+      if (!pending) return;
+      const box = shell.getBoundingClientRect();
+      shell.style.setProperty('--spot-x', `${(pending.x - box.left).toFixed(0)}px`);
+      shell.style.setProperty('--spot-y', `${(pending.y - box.top).toFixed(0)}px`);
+      shell.style.setProperty('--spot-on', '1');
+    };
+    const rest = () => shell.style.setProperty('--spot-on', '0');
+    const onMove = (event: PointerEvent) => {
+      if (event.pointerType === 'touch') return;
+      pending = { x: event.clientX, y: event.clientY };
+      if (!frame) frame = requestAnimationFrame(write);
+      clearTimeout(idle);
+      idle = window.setTimeout(rest, 1400);
+    };
+    const onLeave = (event: MouseEvent) => {
+      if (!event.relatedTarget) rest();
     };
 
-    this.magneticFrame = requestAnimationFrame(step);
-    this.destroyRef.onDestroy(() => {
-      if (this.magneticFrame) cancelAnimationFrame(this.magneticFrame);
-      this.magneticFrame = 0;
-    });
+    window.addEventListener('pointermove', onMove, { passive: true });
+    document.addEventListener('mouseout', onLeave);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      document.removeEventListener('mouseout', onLeave);
+      if (frame) cancelAnimationFrame(frame);
+      clearTimeout(idle);
+    };
   }
 }
