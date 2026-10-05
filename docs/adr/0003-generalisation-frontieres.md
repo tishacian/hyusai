@@ -153,6 +153,39 @@ aucun code ne produisait d'écart.
   L'écart n'est jamais converti en argent : la convention est nommée, et l'impact
   économique reste à attester par la boucle de valeur.
 
+### D9 — Une application client reste dans sa famille, quels que soient les drapeaux — **Acté** (lot 5)
+
+Constat du 5 octobre : Showcase, famille `generic`, affichait Client360 et les
+rapports FSE d'ANDRITZ. Les manifests les réservaient bien à la famille
+`andritz`, mais ils ne font foi qu'avec `app_entitlements_v1` ou
+`workspace_app_platform_v1`. Sans eux, le contrat historique accordait les quatre
+applications métier d'ANDRITZ à tout membre de tout workspace, et le lot L8 avait
+placé Client360 dans le rail « Opérer » de chacun. Intelligence portait en plus le
+vocabulaire et les données de Sentinel CI dans tous les workspaces.
+
+- **La porte.** Une surface d'application client déclare ses familles
+  (`families` dans `features/<client>/<client>.surfaces.ts`). Le rail, l'en-tête
+  métier, les droits proposés aux membres et le résolveur de navigation l'écartent
+  des autres familles ; une URL directe renvoie à l'accueil. Côté API,
+  `require_app_entitlement` refuse en 404 une clé qu'aucun manifest de la famille
+  ne déclare, drapeaux ou pas. Seuls le chat et la Capture sont des clés produit
+  (`PRODUCT_APP_KEYS`).
+- **La Capture.** Le moteur de capture de savoir expert est une Capability
+  universelle : il alimente la Knowledge, au même titre que les documents et les
+  connecteurs. Le gabarit (questions, fiche, collection, marque du rapport) est du
+  contenu propre au workspace. FSE Reports, gabarit et surface ANDRITZ, reste
+  réservé à cette famille.
+- **Client360** vit dans `features/andritz/client360/`, sa route passe par la
+  liste de composition `CLIENT_APPLICATION_SHELL_ROUTES` : aucun module générique
+  ne nomme plus ANDRITZ pour l'atteindre.
+- **Work** n'ouvre plus « l'application Nawa » : toute application client montée
+  hors du shell (`standalone`) s'ouvre dans un nouvel onglet, avec le même
+  bandeau créateur.
+- **Le contrat voit plus loin.** Il comptait `nawa|andritz|pih|spark-089`. Il
+  compte aussi `sentinel-ci`, `aya`, `octocity` et le vocabulaire du pilote
+  ANDRITZ (`septona`, `montbonnot`, `jetlace`), que personne ne voyait passer dans
+  le code générique.
+
 ### D5 — Une feuille de route par lots livrables — **Acté**
 
 Pas de branche unique pour toute la feuille de route : chaque lot est une unité qui se
@@ -168,6 +201,7 @@ relit, se déploie et se retire seule. Chaque lot met à jour cet ADR.
 | **4** | sûreté de l'action SAP PO (D4) | — | fait en partie : cinq propriétés corrigées et testées (voir D7) |
 | **4b** | intention d'écriture par poste de DA (migration 112), lecture SAP avant écriture et référence `COLLECT_NO` derrière `sap_po_reconciliation`, run en échec sur issue inconnue, pas de retry d'une écriture | lot 4 déployé | fait : deux approbations d'un même poste ne créent qu'une PO ; drapeau à activer après un test en QA |
 | **Intelligence** | Intelligence / News Lab devient un produit neutre, isolé par workspace : articles rattachés au workspace (migration 120, dédoublonnage par workspace et URL, une ligne sans workspace n'est jamais servie), lot et planificateur workspace par workspace, skill refusé sans workspace, collection `workspace-intelligence` et libellés neutres, aucun flux ni cible inséré d'office, System créé à la demande (`POST /intelligence/watch`) et non plus au démarrage. Sentinel CI garde son comportement via `app/tenants/sentinel_ci/intelligence.py` | décision produit | fait : épinglé par `fixtures/sentinel_ci_intelligence_pin.json` |
+| **5** | porte de famille des applications client (D9), Client360 dans `features/andritz`, Work sans NAWA, Capture produit et FSE ANDRITZ, contrat élargi à Sentinel CI, AYA, Octocity et au vocabulaire du pilote ANDRITZ | constat de porosité dans Showcase | fait : Showcase ne voit plus Client360 ni FSE (test e2e `31-customer-apps-family-mocked`) ; contrat vert |
 | — | framework d'actions ; contrat BRD générique | deuxième action ; deuxième BRD | — |
 
 Porte 0 (un contributeur NAWA crée et lance un System) se ferme en parallèle : c'est
@@ -179,16 +213,23 @@ une validation, pas du développement.
 
 Mesurées sur la branche du lot 1, code exécutable seulement :
 
-| Indicateur | Avant | Après lot 1 | Après lot 1b | Après lot 2 |
-|---|---|---|---|---|
-| Listes de slugs dans la configuration ou en dur | 7 | **0** | 0 | 0 |
-| Workspaces nouveaux gouvernés par défaut | non | **oui** | oui | oui |
-| Fichiers `fixture` / occurrences | — | 9 / 77 | **2 / 15** | 1 / 3 |
-| Fichiers `client-app` / occurrences | — | 25 / 753 | 25 / 753 | 22 / 572, tous dans `features/nawa` |
-| Fichiers `client-app` hors `features/<client>` | — | 5 | 5 | **0** |
-| Fichiers `composition` / occurrences | — | — | — | 2 / 8 |
-| Fichiers `demo` / occurrences | — | 9 / 203 | 10 / 220 | 10 / 220 |
-| Fichiers `adapter` / occurrences | — | 37 / 254 | 40 / 283 | 40 / 263 |
+| Indicateur | Avant | Après lot 1 | Après lot 1b | Après lot 2 | Après lot 5¹ |
+|---|---|---|---|---|---|
+| Listes de slugs dans la configuration ou en dur | 7 | **0** | 0 | 0 | 0 |
+| Workspaces nouveaux gouvernés par défaut | non | **oui** | oui | oui | oui |
+| Fichiers `fixture` / occurrences | — | 9 / 77 | **2 / 15** | 1 / 3 | 6 / 27 |
+| Fichiers `client-app` / occurrences | — | 25 / 753 | 25 / 753 | 22 / 572, tous dans `features/nawa` | 26 / 643, dans `features/nawa` et `features/andritz` |
+| Fichiers `client-app` hors `features/<client>` | — | 5 | 5 | **0** | 0 |
+| Fichiers `composition` / occurrences | — | — | — | 2 / 8 | 2 / 16 |
+| Fichiers `demo` / occurrences | — | 9 / 203 | 10 / 220 | 10 / 220 | 11 / 840 |
+| Fichiers `adapter` / occurrences | — | 37 / 254 | 40 / 283 | 40 / 263 | 81 / 1079 |
+
+¹ Le lot 5 élargit les identifiants comptés : ses chiffres ne se comparent pas
+aux colonnes précédentes. Les six `fixture` restants sont la dette visible : le
+prompt BRD (D4), le vocabulaire produit ANDRITZ de la recherche lexicale et des
+wrappers de skills, le tiroir de brouillon (« Brouillon AYA »), un nom de
+collection Octocity dans l'ancienne page de capture et des exemples Sentinel CI
+dans les réglages du chat.
 
 Lot 2 : le shell produit ne porte plus ni application ni habillage client.
 
