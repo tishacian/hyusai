@@ -16,6 +16,7 @@ Keeping the per-node and finalization logic in one place guarantees the DAG
 walker behaves *identically* on task semantics: same cost model, same error
 capture, same Outcome derivation, same Decision side-effects.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -27,7 +28,7 @@ from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from sqlalchemy.orm import Session as DBSession
@@ -118,15 +119,12 @@ def schedule_run(run_id: str) -> None:
                     .first()
                 )
                 workspace = (
-                    db.query(Workspace)
-                    .filter(Workspace.id == run.workspace_id)
-                    .first()
+                    db.query(Workspace).filter(Workspace.id == run.workspace_id).first()
                     if system and run.workspace_id
                     else None
                 )
                 use_dag = bool(
-                    system
-                    and resolve_run_flow_execution(run, system, workspace).uses_dag
+                    system and resolve_run_flow_execution(run, system, workspace).uses_dag
                 )
         finally:
             db.close()
@@ -144,7 +142,7 @@ def schedule_run(run_id: str) -> None:
         logger.exception("run_engine.schedule_run failed", run_id=run_id, error=str(exc))
 
 
-def run_subflow_child(child_run_id: str) -> Dict[str, Any]:
+def run_subflow_child(child_run_id: str) -> dict[str, Any]:
     """Synchronous entry point to execute a delegated child run (P4).
 
     Used by the ``agentium.subflow_run`` Celery task. Picks the DAG or
@@ -153,7 +151,7 @@ def run_subflow_child(child_run_id: str) -> Dict[str, Any]:
     """
     from .dag import execute_run_dag  # noqa: WPS433
 
-    async def _entry() -> Dict[str, Any]:
+    async def _entry() -> dict[str, Any]:
         use_dag = False
         scoped_error: Optional[str] = None
         db = SessionLocal()
@@ -182,8 +180,7 @@ def run_subflow_child(child_run_id: str) -> Dict[str, Any]:
                 if system is not None and run.workspace_id and workspace is None:
                     scoped_error = "delegated_workspace_missing"
                 use_dag = bool(
-                    system
-                    and resolve_run_flow_execution(run, system, workspace).uses_dag
+                    system and resolve_run_flow_execution(run, system, workspace).uses_dag
                 )
                 if scoped_error:
                     run.status = "failed"
@@ -216,9 +213,7 @@ def schedule_subflow_run(child_run_id: str, *, task_id: Optional[str] = None) ->
     try:
         from app.workers.tasks import subflow_run as subflow_task  # noqa: WPS433
 
-        task_id = task_id or str(
-            uuid5(NAMESPACE_URL, f"agentium:subflow-run:{child_run_id}")
-        )
+        task_id = task_id or str(uuid5(NAMESPACE_URL, f"agentium:subflow-run:{child_run_id}"))
         remaining = _subflow_deadline_remaining(child_run_id)
         if remaining is None:
             async_result = subflow_task.apply_async(
@@ -348,9 +343,7 @@ def schedule_run_hitl_resume(
     try:
         from app.workers.tasks import run_hitl_resume  # noqa: WPS433
 
-        task_id = task_id or str(
-            uuid5(NAMESPACE_URL, f"agentium:run-hitl:{run_id}:{decision_id}")
-        )
+        task_id = task_id or str(uuid5(NAMESPACE_URL, f"agentium:run-hitl:{run_id}:{decision_id}"))
         result = run_hitl_resume.apply_async(
             args=[run_id, decision_id],
             task_id=task_id,
@@ -368,7 +361,7 @@ def schedule_run_hitl_resume(
         raise RuntimeError(f"ambiguous Run HITL dispatch for {run_id}") from exc
 
 
-async def execute_run(run_id: str) -> Dict[str, Any]:
+async def execute_run(run_id: str) -> dict[str, Any]:
     """Sequential walker — executes skill_ids in order, threading outputs.
 
     Behaviorally identical to pre-C6; now delegates per-node work to
@@ -399,11 +392,7 @@ async def execute_run(run_id: str) -> Dict[str, Any]:
         )
         if run.workspace_id and workspace is None:
             return _fail(db, run, "system_catalog_binding_invalid:workspace_not_found")
-        debug_config = (
-            run.input_ref.get("_debug")
-            if isinstance(run.input_ref, dict)
-            else None
-        )
+        debug_config = run.input_ref.get("_debug") if isinstance(run.input_ref, dict) else None
         if (
             debug_config is not None
             and not resolve_run_flow_execution(run, system, workspace).debug_supported
@@ -477,8 +466,8 @@ async def execute_run(run_id: str) -> Dict[str, Any]:
         _attach_authoritative_membrane(ctx, control)
 
         start = time.monotonic()
-        invocations_out: List[SkillInvocation] = []
-        last_output: Dict[str, Any] = {}
+        invocations_out: list[SkillInvocation] = []
+        last_output: dict[str, Any] = {}
         total_cost = 0.0
 
         for slug in skill_slugs:
@@ -553,7 +542,7 @@ def _build_initial_ctx(
     run: Run,
     system: System,
     capability: Optional[Capability],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build the shared context bag exposed to every skill invocation.
 
     System-level defaults (prompt type, model, retrieval mode) are propagated
@@ -687,8 +676,7 @@ def validated_existing_run_flow_version_id(
         return None
     execution = (
         run.input_ref.get("execution")
-        if isinstance(run.input_ref, dict)
-        and isinstance(run.input_ref.get("execution"), Mapping)
+        if isinstance(run.input_ref, dict) and isinstance(run.input_ref.get("execution"), Mapping)
         else {}
     )
     snapshot_at = _parse_snapshot_boundary(execution.get("snapshot_at"))
@@ -778,9 +766,7 @@ def _bind_run_flow_version(
     # make the Run appear better evidenced than it really is.
     latest_exact = exact_versions[0]
     run.flow_version_id = (
-        latest_exact.id
-        if _version_configuration_matches_system(latest_exact, system)
-        else None
+        latest_exact.id if _version_configuration_matches_system(latest_exact, system) else None
     )
 
 
@@ -810,9 +796,7 @@ def _snapshot_run_flow(
     workspace = None
     workspace_slug = None
     if canonical_workspace_id:
-        workspace = (
-            db.query(Workspace).filter(Workspace.id == canonical_workspace_id).one_or_none()
-        )
+        workspace = db.query(Workspace).filter(Workspace.id == canonical_workspace_id).one_or_none()
         if workspace is None:
             raise RuntimeError("run_workspace_not_found")
         workspace_slug = workspace.slug
@@ -825,16 +809,14 @@ def _snapshot_run_flow(
     input_ref["user_id"] = run.initiated_by_user_id
     if first_start:
         system_settings = system.settings if isinstance(system.settings, dict) else {}
-        input_ref["retrieval_contract"] = deepcopy(
-            system_settings.get("retrieval_contract") or {}
-        )
+        input_ref["retrieval_contract"] = deepcopy(system_settings.get("retrieval_contract") or {})
     execution = dict(input_ref.get("execution") or {})
     if first_start:
         snapshot_at = datetime.now(UTC).replace(tzinfo=None)
         execution["snapshot_at"] = snapshot_at.isoformat(timespec="microseconds") + "Z"
-        execution["runtime_revision"] = str(
-            settings.agentium_image_revision or "development"
-        ).strip().lower()
+        execution["runtime_revision"] = (
+            str(settings.agentium_image_revision or "development").strip().lower()
+        )
         # This field is server-owned.  A caller cannot manufacture causal
         # evidence by sending a policy digest in Run.input_ref before start.
         execution["control_policy"] = (
@@ -846,21 +828,23 @@ def _snapshot_run_flow(
         # without inferring that every configured control actually executed.
         from app.services.mandate_projection import snapshot as mandate_snapshot
 
-        run.checkpoints = [*(run.checkpoints or []), {
-            "kind": "mandate_snapshot", "t": execution["snapshot_at"],
-            "snapshot_at": execution["snapshot_at"],
-            "control_policy": deepcopy(execution["control_policy"]),
-            "mandate": mandate_snapshot(control),
-        }]
+        run.checkpoints = [
+            *(run.checkpoints or []),
+            {
+                "kind": "mandate_snapshot",
+                "t": execution["snapshot_at"],
+                "snapshot_at": execution["snapshot_at"],
+                "control_policy": deepcopy(execution["control_policy"]),
+                "mandate": mandate_snapshot(control),
+            },
+        ]
     else:
         snapshot_at = _parse_snapshot_boundary(execution.get("snapshot_at"))
         # Runs started before the server-owned boundary was introduced retain
         # their existing history without manufacturing a new execution time.
         if snapshot_at is None and run.flow_version_id:
             snapshot_at = run.started_at
-    pinned_runtime_mode = (
-        execution_runtime_mode(input_ref) if flow_was_frozen else None
-    )
+    pinned_runtime_mode = execution_runtime_mode(input_ref) if flow_was_frozen else None
     execution_resolution = resolve_flow_execution(
         run.flow_snapshot,
         workspace,
@@ -892,7 +876,9 @@ def _snapshot_run_flow(
         )
 
 
-def _frozen_node_executor(run: Run, node_id: Optional[str], slug: Optional[str] = None) -> Optional[Dict[str, Any]]:
+def _frozen_node_executor(
+    run: Run, node_id: Optional[str], slug: Optional[str] = None
+) -> Optional[dict[str, Any]]:
     """The authored runtime this node's contract pinned, if it pinned one.
 
     Absent for seeded Skills, and absent from contracts compiled before authored
@@ -922,13 +908,13 @@ def _frozen_node_executor(run: Run, node_id: Optional[str], slug: Optional[str] 
 async def _execute_task_node(
     db: DBSession,
     run: Run,
-    ctx: Dict[str, Any],
+    ctx: dict[str, Any],
     slug: str,
     *,
     control: Optional[ControlPolicy],
-    last_output: Dict[str, Any],
+    last_output: dict[str, Any],
     node_id: Optional[str] = None,
-    resolved_input: Optional[Dict[str, Any]] = None,
+    resolved_input: Optional[dict[str, Any]] = None,
     attempt_kind: Optional[str] = None,
     attempt_index: Optional[int] = None,
 ) -> Optional[SkillInvocation]:
@@ -957,7 +943,8 @@ async def _execute_task_node(
     # remains compatible, while an explicit v2+ contract fails closed before
     # any invocation ledger row or Skill side effect is created.
     from app.services.model_plane.execution import (
-        ModelExecutionError, resolve_skill_model_execution,
+        ModelExecutionError,
+        resolve_skill_model_execution,
     )
 
     skill_input = (
@@ -971,17 +958,25 @@ async def _execute_task_node(
     frozen_tool = frozen_tools.get(slug)
     executor_binding = frozen_executor
     if executor_binding is None and slug.startswith("ws."):
-        authored_row = db.query(Skill).filter(
-            Skill.slug == slug, Skill.workspace_id == run.workspace_id,
-        ).first()
+        authored_row = (
+            db.query(Skill)
+            .filter(
+                Skill.slug == slug,
+                Skill.workspace_id == run.workspace_id,
+            )
+            .first()
+        )
         executor_binding = authored_row.executor if authored_row is not None else None
     model_workspace = db.get(Workspace, run.workspace_id) if run.workspace_id else None
     model_execution = None
     model_resolution_error = None
     try:
         model_execution = resolve_skill_model_execution(
-            model_workspace, executor=executor_binding, input_ref=skill_input,
-            system_default_model=ctx.get("default_model"), slug=slug,
+            model_workspace,
+            executor=executor_binding,
+            input_ref=skill_input,
+            system_default_model=ctx.get("default_model"),
+            slug=slug,
             published=frozen_executor is not None and run.flow_version_id is not None,
         )
     except ModelExecutionError as exc:
@@ -1079,11 +1074,18 @@ async def _execute_task_node(
         input_ref=skill_input,
         trace={
             **({"node_id": node_id} if node_id else {}),
-            **({"tool_contract_sha256": frozen_node["tool_contract"]["contract_sha256"]}
-               if frozen_tool is not None else {}),
+            **(
+                {"tool_contract_sha256": frozen_node["tool_contract"]["contract_sha256"]}
+                if frozen_tool is not None
+                else {}
+            ),
             **({"membrane_attempt_kind": attempt_kind} if attempt_kind else {}),
             **({"membrane_attempt_index": attempt_index} if attempt_index is not None else {}),
-            **({"model_resolution": model_execution.public()} if model_execution else {"effective_model": model}),
+            **(
+                {"model_resolution": model_execution.public()}
+                if model_execution
+                else {"effective_model": model}
+            ),
         },
     )
     db.add(invocation)
@@ -1095,7 +1097,7 @@ async def _execute_task_node(
     # ``_azure_llm_v1`` / ``_llm_rag_answer_v1``) dispatch deltas to it
     # token-by-token. We build a shallow copy so sibling DAG branches
     # don't pick up each other's sinks through a shared ctx reference.
-    skill_ctx: Dict[str, Any] = dict(ctx) if ctx is not None else {}
+    skill_ctx: dict[str, Any] = dict(ctx) if ctx is not None else {}
     # These objects/callbacks are constructed here, never copied from inputs.
     # They remain in this invocation's ephemeral context, outside JSON ledgers.
     skill_ctx["_model_workspace"] = model_workspace
@@ -1125,17 +1127,26 @@ async def _execute_task_node(
         decision = evaluate_capability(membrane_spec, skill=slug, model=effective)
         if not decision.allowed:
             _record_capability_block(
-                db, run, system_id=ctx.get("system_id"),
-                violations=list(decision.violations), skill=slug, model=effective,
+                db,
+                run,
+                system_id=ctx.get("system_id"),
+                violations=list(decision.violations),
+                skill=slug,
+                model=effective,
             )
             run.error = f"membrane_capability_block:{','.join(decision.violations)}"
             db.commit()
             raise MembraneEnforcementError(run.error)
         if decision.would_block and decision.mode == "shadow":
             _record_capability_shadow(
-                db, run, system_id=ctx.get("system_id"),
-                violations=list(decision.violations), skill=slug, model=effective,
+                db,
+                run,
+                system_id=ctx.get("system_id"),
+                violations=list(decision.violations),
+                skill=slug,
+                model=effective,
             )
+
     skill_ctx["_model_policy_check"] = check_model_attempt
     token_sink = None
     if event_bus.is_live(run.id):
@@ -1144,6 +1155,10 @@ async def _execute_task_node(
 
     t0 = time.monotonic()
     try:
+        from app.services.flow_data_sources import bound_data_sources
+
+        # Server-owned context: caller input cannot forge a source binding.
+        skill_ctx["_flow_data_sources"] = bound_data_sources(run.flow_snapshot, node_id)
         if model_resolution_error is not None:
             raise model_resolution_error
         # A workspace-defined Skill carries its runtime on its own row, so the
@@ -1158,12 +1173,21 @@ async def _execute_task_node(
         fn = resolve_skill(slug) if authored is None else authored
         if frozen_tool is not None:
             from app.services.flow_contracts import validate_payload
-            validate_payload(invocation.input_ref, frozen_tool["input_schema"],
-                             code="tool_input_schema_violation", subject="AgentLoop tool input")
+
+            validate_payload(
+                invocation.input_ref,
+                frozen_tool["input_schema"],
+                code="tool_input_schema_violation",
+                subject="AgentLoop tool input",
+            )
         output = await fn(invocation.input_ref, skill_ctx)
         if frozen_tool is not None:
-            validate_payload(output, frozen_tool["output_schema"],
-                             code="tool_output_schema_violation", subject="AgentLoop tool output")
+            validate_payload(
+                output,
+                frozen_tool["output_schema"],
+                code="tool_output_schema_violation",
+                subject="AgentLoop tool output",
+            )
         # A Skill output is arbitrary JSON.  Falsy values (``False``, ``0``
         # and ``""``) are valid contract outputs and must not be rewritten to
         # an empty object before the DAG validates or publishes them.
@@ -1216,8 +1240,7 @@ async def _execute_task_node(
         )
         metrics["token_evidence"] = {
             "measurement_coverage": "complete",
-            "measurement_source": output_usage.get("measurement_source")
-            or "reported_payload",
+            "measurement_source": output_usage.get("measurement_source") or "reported_payload",
             "provider_calls": output_usage.get("provider_calls"),
         }
     elif isinstance(invocation.output_ref, dict) and isinstance(
@@ -1229,8 +1252,7 @@ async def _execute_task_node(
         # trace as a complete measurement.
         provider_evidence = dict(invocation.output_ref["provider_usage"])
         metrics["token_evidence"] = {
-            "measurement_coverage": provider_evidence.get("measurement_coverage")
-            or "unavailable",
+            "measurement_coverage": provider_evidence.get("measurement_coverage") or "unavailable",
             "provider_calls": provider_evidence.get("provider_calls"),
             "reported_calls": provider_evidence.get("reported_calls"),
             "unreported_calls": provider_evidence.get("unreported_calls"),
@@ -1240,8 +1262,7 @@ async def _execute_task_node(
     invocation.metrics = _model_runtime_metrics(metrics, skill_ctx)
     trace = _model_runtime_trace(invocation.trace, skill_ctx)
     if "self_correct" in slug or (
-        isinstance(invocation.output_ref, dict)
-        and invocation.output_ref.get("action_taken")
+        isinstance(invocation.output_ref, dict) and invocation.output_ref.get("action_taken")
     ):
         trace["membrane_autocorrections"] = max(
             1,
@@ -1294,22 +1315,16 @@ def _finalize_run(
     system: System,
     capability: Optional[Capability],
     control: Optional[ControlPolicy],
-    invocations: List[SkillInvocation],
+    invocations: list[SkillInvocation],
     duration_ms: float,
     last_output: Any,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Derive the canonical Outcome block, apply post-checks, persist."""
     # A race/any join (or parent cancellation) may cancel this child from a
     # different worker while its final node is still unwinding. Refresh before
     # publish so a late completion can never overwrite the authoritative
     # cancellation persisted by the coordinator.
-    locked = (
-        db.query(Run)
-        .filter(Run.id == run.id)
-        .populate_existing()
-        .with_for_update()
-        .first()
-    )
+    locked = db.query(Run).filter(Run.id == run.id).populate_existing().with_for_update().first()
     if locked is not None:
         run = locked
     if run.status in {"cancelled", "failed"}:
@@ -1335,9 +1350,7 @@ def _finalize_run(
     # still present at the terminal output is unhandled; a successful recovery
     # must not fail merely because its invocation ledger contains an error.
     terminal_failure = (
-        bool(failed)
-        and isinstance(last_output, dict)
-        and last_output.get("_status") == "failed"
+        bool(failed) and isinstance(last_output, dict) and last_output.get("_status") == "failed"
     )
     # An external write whose outcome is unknown (the call left, no answer came
     # back) is never a completed run, whatever the Flow did afterwards: SAP may
@@ -1423,9 +1436,9 @@ def _finalize_run(
 # ---------------------------------------------------------------------------
 def _resolve_skill_sequence(
     db: DBSession, system: System, capability: Optional[Capability]
-) -> List[str]:
+) -> list[str]:
     """Return the ordered list of skill slugs to invoke for this System."""
-    skill_ids: List[str] = list(system.skill_ids or [])
+    skill_ids: list[str] = list(system.skill_ids or [])
     if not skill_ids and capability:
         skill_ids = list(capability.skill_ids or [])
     if not skill_ids:
@@ -1436,7 +1449,10 @@ def _resolve_skill_sequence(
 
 
 def _load_control_policy(
-    db: DBSession, system: System, *, run: Run | None = None,
+    db: DBSession,
+    system: System,
+    *,
+    run: Run | None = None,
 ) -> Optional[ControlPolicy]:
     if run is not None:
         if run.system_id != system.id or run.workspace_id != system.workspace_id:
@@ -1450,7 +1466,8 @@ def _load_control_policy(
             validate_execution_contract(contract)
             return thaw_control_policy(
                 contract["control_policy_snapshot"],
-                workspace_id=run.workspace_id, system_id=run.system_id,
+                workspace_id=run.workspace_id,
+                system_id=run.system_id,
             )
         # A historical contract without policy content keeps its legacy live
         # guard semantics (including revocation on resume). The draft editor
@@ -1509,16 +1526,16 @@ def _load_adaptive_policy(db: DBSession, system: System) -> Optional[AdaptivePol
 # ---------------------------------------------------------------------------
 def _build_skill_input(
     slug: str,
-    run_input: Dict[str, Any],
-    last_output: Dict[str, Any],
-    ctx: Dict[str, Any],
-) -> Dict[str, Any]:
+    run_input: dict[str, Any],
+    last_output: dict[str, Any],
+    ctx: dict[str, Any],
+) -> dict[str, Any]:
     """Thread the right fields into each skill's input schema.
 
     Simple heuristic: start from the run's input, merge last_output, let
     skill-specific conventions override.
     """
-    payload: Dict[str, Any] = {}
+    payload: dict[str, Any] = {}
     payload.update(run_input or {})
     payload.update(last_output or {})
     if slug.startswith("eval_radar") and "answer" not in payload:
@@ -1563,9 +1580,7 @@ def _safe_membrane(control: Optional[ControlPolicy]) -> MembraneSpec:
         except (TypeError, ValueError):
             is_v2_or_later = False
         if is_v2_or_later:
-            raise MembraneEnforcementError(
-                f"membrane_spec_invalid:{str(exc)[:240]}"
-            ) from exc
+            raise MembraneEnforcementError(f"membrane_spec_invalid:{str(exc)[:240]}") from exc
         logger.warning(
             "membrane: compat resolve failed, using empty spec",
             error=str(exc),
@@ -1573,9 +1588,7 @@ def _safe_membrane(control: Optional[ControlPolicy]) -> MembraneSpec:
         return MembraneSpec()
 
 
-def _attach_authoritative_membrane(
-    ctx: Dict[str, Any], control: Optional[ControlPolicy]
-) -> None:
+def _attach_authoritative_membrane(ctx: dict[str, Any], control: Optional[ControlPolicy]) -> None:
     """Expose the server-owned v2 contract to RAG, never caller policy.
 
     This is deliberately limited to explicit ControlPolicy specs.  Existing
@@ -1586,34 +1599,41 @@ def _attach_authoritative_membrane(
     if not spec.authoritative:
         return
     source_policy = (
-        dict(ctx.get("source_policy"))
-        if isinstance(ctx.get("source_policy"), dict)
-        else {}
+        dict(ctx.get("source_policy")) if isinstance(ctx.get("source_policy"), dict) else {}
     )
     source_policy["membrane_spec"] = spec.to_dict()
     ctx["source_policy"] = source_policy
 
 
-def _effective_invocation_model(ctx: Dict[str, Any], payload: Any) -> Optional[str]:
+def _effective_invocation_model(ctx: dict[str, Any], payload: Any) -> Optional[str]:
     payload = payload if isinstance(payload, dict) else {}
     value = payload.get("model") or payload.get("model_name") or ctx.get("default_model")
     return str(value).strip() if value else None
 
 
-def _evaluate_run_capability(control: Optional[ControlPolicy], system: System, *, db=None, run=None):
+def _evaluate_run_capability(
+    control: Optional[ControlPolicy], system: System, *, db=None, run=None
+):
     spec = _safe_membrane(control)
     if spec.capabilities.allowed_models and db is not None and run is not None:
         flow = run.flow_snapshot if isinstance(run.flow_snapshot, dict) else system.flow_definition
         nodes = flow.get("nodes", []) if isinstance(flow, dict) else []
         tasks = [node for node in nodes if node.get("kind") == "task"]
-        guarded = bool(tasks) and all(node.get("kind") in {"source", "task", "sink"} for node in nodes)
+        guarded = bool(tasks) and all(
+            node.get("kind") in {"source", "task", "sink"} for node in nodes
+        )
         if guarded:
             from app.services.model_plane.execution import skill_model_request
+
             for node in tasks:
                 slug = (node.get("config") or {}).get("skill_slug", "")
                 executor = _frozen_node_executor(run, node.get("id"))
                 if executor is None and slug.startswith("ws."):
-                    row = db.query(Skill).filter(Skill.workspace_id == run.workspace_id, Skill.slug == slug).first()
+                    row = (
+                        db.query(Skill)
+                        .filter(Skill.workspace_id == run.workspace_id, Skill.slug == slug)
+                        .first()
+                    )
                     executor = row.executor if row is not None else None
                 if skill_model_request(slug, executor, {}, None) is None:
                     guarded = False
@@ -1622,7 +1642,9 @@ def _evaluate_run_capability(control: Optional[ControlPolicy], system: System, *
             # Every LLM task resolves its effective model before dispatch.
             # AgentLoop, subflows and unknown wrappers retain the old gate.
             spec = replace(spec, capabilities=replace(spec.capabilities, allowed_models=[]))
-    return evaluate_capability(spec, model=getattr(system, "default_model", None), action="system.engine.run")
+    return evaluate_capability(
+        spec, model=getattr(system, "default_model", None), action="system.engine.run"
+    )
 
 
 def _record_capability_block(
@@ -1630,7 +1652,7 @@ def _record_capability_block(
     run: Run,
     *,
     system_id: Optional[str],
-    violations: List[str],
+    violations: list[str],
     skill: Optional[str] = None,
     model: Optional[str] = None,
 ) -> None:
@@ -1656,7 +1678,7 @@ def _record_capability_shadow(
     run: Run,
     *,
     system_id: Optional[str],
-    violations: List[str],
+    violations: list[str],
     skill: Optional[str] = None,
     model: Optional[str] = None,
     action: Optional[str] = None,
@@ -1692,9 +1714,7 @@ def _runtime_valves_blocked(
         return True
     invocations, measurement_gaps = _valve_invocation_ledger(db, run)
     measured_latencies = [
-        float(item.latency_ms)
-        for item in invocations
-        if item.latency_ms is not None
+        float(item.latency_ms) for item in invocations if item.latency_ms is not None
     ]
     duration_ms = (
         sum(measured_latencies)
@@ -1878,7 +1898,7 @@ def _log_decision(
     scope: str,
     target_id: Optional[str],
     kind: str,
-    rationale: Dict[str, Any],
+    rationale: dict[str, Any],
     status: str = "applied",
     title: Optional[str] = None,
 ) -> Optional[Decision]:
@@ -1912,14 +1932,8 @@ def _log_decision(
         return None
 
 
-def _fail(db: DBSession, run: Run, error: str) -> Dict[str, Any]:
-    locked = (
-        db.query(Run)
-        .filter(Run.id == run.id)
-        .populate_existing()
-        .with_for_update()
-        .first()
-    )
+def _fail(db: DBSession, run: Run, error: str) -> dict[str, Any]:
+    locked = db.query(Run).filter(Run.id == run.id).populate_existing().with_for_update().first()
     if locked is not None:
         run = locked
     if run.status in {"completed", "cancelled"}:

@@ -19,6 +19,8 @@ import {
 import { I18nService } from '@app/core/i18n.service';
 import { FLOW_EN } from '@app/core/i18n/flow.dict';
 import { FlowCatalogService } from './flow-catalog.service';
+import { FlowDataSourcesService } from './flow-data-sources.service';
+import { connectorSourceItems } from './flow-data-sources.vm';
 import { FlowPaletteComponent } from './flow-palette.component';
 import type { PaletteInsertContext } from './flow-palette.vm';
 import { DEFAULT_PALETTE, type PaletteItem, type SkillPaletteSection } from './flow.types';
@@ -102,6 +104,7 @@ function setup(options: {
   industriesConfigured?: boolean;
   context?: PaletteInsertContext | null;
   items?: PaletteItem[];
+  sources?: PaletteItem[];
   nodeCount?: number;
   flowSkillSlugs?: string[];
 } = {}): { palette: FlowPaletteComponent; controls: PaletteControls; added: PaletteItem[] } {
@@ -123,6 +126,7 @@ function setup(options: {
   const injector = Injector.create({
     providers: [
       { provide: FlowCatalogService, useValue: catalog },
+      { provide: FlowDataSourcesService, useValue: { items: signal(options.sources ?? []) } },
       { provide: ChangeDetectionScheduler, useValue: { notify() {}, runningTick: false } },
       { provide: EffectScheduler, useValue: { add() {}, schedule() {}, flush() {}, remove() {} } },
       { provide: I18nService, useValue: i18nStub() },
@@ -145,6 +149,15 @@ function type(controls: PaletteControls, value: string): void {
 function key(controls: PaletteControls, name: string): void {
   controls.onSearchKey({ key: name, preventDefault: () => undefined } as KeyboardEvent);
 }
+
+test('workspace sources are searchable and insert their connector reference', () => {
+  const sources = connectorSourceItems([{ id: 'postgresql', configured: true, values: { database: 'Luma' } }]);
+  const { controls, added } = setup({ sources });
+  type(controls, 'PostgreSQL');
+  assert.deepEqual(controls.rankedItems(), sources);
+  key(controls, 'Enter');
+  assert.deepEqual(added[0].config, { connector_id: 'postgresql', read_mode: 'live', resources: [] });
+});
 
 test('the default surface is Capabilities, not the registry', () => {
   const { controls } = setup({

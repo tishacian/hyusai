@@ -4,6 +4,7 @@ No caller SQL, connection parameters, identifiers or credentials are accepted.
 All five dossier reads share one read-only, repeatable-read transaction. A failed
 lookup is an error, never an empty refund list or a synthetic replacement.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -18,6 +19,18 @@ from app.services.connectors.generic.service import get_config
 CLAIM_ID = re.compile(r"RC-[0-9]{4,8}")
 MAX_ROWS = 100
 MAX_RESULT_BYTES = 256_000
+CLAIM_RESOURCES = [
+    {"schema": "showcase_ecommerce", "table": table}
+    for table in (
+        "claims",
+        "orders",
+        "customers",
+        "order_items",
+        "shipments",
+        "refunds",
+        "document_refs",
+    )
+]
 QUERIES = {
     "context": """SELECT c.claim_id, LEFT(c.reason,4000) AS reason, c.state, c.opened_at,
  o.order_id, o.ordered_at, o.paid_amount, o.currency, o.payment_status,
@@ -88,12 +101,18 @@ def _read(workspace, names: tuple[str, ...], params: dict[str, Any]) -> dict[str
     try:
         config = get_config(workspace, "postgresql", include_secrets=True)
         values, secrets = config.get("values") or {}, config.get("secrets") or {}
-        if not all(values.get(key) for key in ("host", "database", "username")) or not secrets.get("password"):
+        if not all(values.get(key) for key in ("host", "database", "username")) or not secrets.get(
+            "password"
+        ):
             raise ClaimReadError("POSTGRESQL_NOT_CONFIGURED", 409)
         connection = psycopg2.connect(
-            host=values["host"], port=int(values.get("port") or 5432),
-            dbname=values["database"], user=values["username"], password=secrets["password"],
-            connect_timeout=5, application_name="agentium-claims-reader",
+            host=values["host"],
+            port=int(values.get("port") or 5432),
+            dbname=values["database"],
+            user=values["username"],
+            password=secrets["password"],
+            connect_timeout=5,
+            application_name="agentium-claims-reader",
         )
         connection.set_session(isolation_level="REPEATABLE READ", readonly=True, autocommit=False)
         results: dict[str, Any] = {}
@@ -103,7 +122,10 @@ def _read(workspace, names: tuple[str, ...], params: dict[str, Any]) -> dict[str
             cursor.execute("SET LOCAL idle_in_transaction_session_timeout = '5s'")
             for name in names:
                 cursor.execute(QUERIES[name], params)
-                rows = [{key: _value(value) for key, value in dict(row).items()} for row in cursor.fetchall()]
+                rows = [
+                    {key: _value(value) for key, value in dict(row).items()}
+                    for row in cursor.fetchall()
+                ]
                 if len(rows) > MAX_ROWS:
                     raise ClaimReadError("POSTGRESQL_RESULT_LIMIT", 409)
                 results[name] = rows
@@ -112,18 +134,27 @@ def _read(workspace, names: tuple[str, ...], params: dict[str, Any]) -> dict[str
         return {
             "data": results,
             "provenance": {
-                "source": "postgresql", "connector_id": "postgresql", "read_mode": "live",
-                "isolation": "repeatable_read", "captured_at": datetime.now(timezone.utc).isoformat(),
-                "snapshot_sha256": digest(results), "business_parameters": params,
-                "queries": [{"id": name, "sha256": hashlib.sha256(QUERIES[name].encode()).hexdigest()} for name in names],
-                "schema": "showcase_ecommerce", "evidence_kind": "synthetic_demo",
+                "source": "postgresql",
+                "connector_id": "postgresql",
+                "read_mode": "live",
+                "isolation": "repeatable_read",
+                "captured_at": datetime.now(timezone.utc).isoformat(),
+                "snapshot_sha256": digest(results),
+                "business_parameters": params,
+                "queries": [
+                    {"id": name, "sha256": hashlib.sha256(QUERIES[name].encode()).hexdigest()}
+                    for name in names
+                ],
+                "schema": "showcase_ecommerce",
+                "evidence_kind": "synthetic_demo",
             },
         }
     except ClaimReadError:
         raise
     except Exception as exc:
         code = {
-            "42P01": "POSTGRESQL_SCHEMA_NOT_LOADED", "42501": "POSTGRESQL_PERMISSION_DENIED",
+            "42P01": "POSTGRESQL_SCHEMA_NOT_LOADED",
+            "42501": "POSTGRESQL_PERMISSION_DENIED",
             "57014": "POSTGRESQL_READ_TIMEOUT",
         }.get(getattr(exc, "pgcode", None), "POSTGRESQL_READ_UNAVAILABLE")
         # Driver messages can contain connection credentials or SQL. Never echo.
@@ -141,14 +172,20 @@ def _read(workspace, names: tuple[str, ...], params: dict[str, Any]) -> dict[str
 
 
 def snapshot(workspace, claim_id: str) -> dict[str, Any]:
-    result = _read(workspace, ("context", "items", "shipments", "refunds", "documents"),
-                   {"claim_id": validate_claim_id(claim_id)})
+    result = _read(
+        workspace,
+        ("context", "items", "shipments", "refunds", "documents"),
+        {"claim_id": validate_claim_id(claim_id)},
+    )
     if not result["data"]["context"]:
         raise ClaimReadError("CLAIM_NOT_FOUND", 404)
+    result["provenance"]["resources_read"] = [dict(resource) for resource in CLAIM_RESOURCES]
     return result
 
 
 def queue(workspace, claim_ids: list[str]) -> dict[str, Any]:
     if not isinstance(claim_ids, list) or not 1 <= len(claim_ids) <= MAX_ROWS:
         raise ClaimReadError("CLAIM_COHORT_INVALID", 422)
-    return _read(workspace, ("queue",), {"claim_ids": sorted({validate_claim_id(c) for c in claim_ids})})
+    return _read(
+        workspace, ("queue",), {"claim_ids": sorted({validate_claim_id(c) for c in claim_ids})}
+    )

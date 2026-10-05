@@ -8,17 +8,13 @@ import { WorkspaceService } from '@app/core/workspace.service';
 import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
-import { DataTableComponent, TabularColumn, TabularRow } from '@app/shared/ui/data-table.component';
+import { DataTableComponent } from '@app/shared/ui/data-table.component';
+import type { PgDescription as Description, PgPreview as Preview, PgCatalog as Catalog } from './postgresql.types';
 import { DatasetDto } from '@app/features/data/data.service';
 
 interface Config {
   id: string; values: Record<string, string>; secrets_set: Record<string, boolean>; configured: boolean;
 }
-interface Table { schema: string; name: string; kind: string; }
-interface Column extends TabularColumn { supported: boolean; as_text: boolean; primary_key: boolean; }
-interface Description { schema: string; table: string; columns: Column[]; fingerprint: string; }
-interface Preview { schema: Column[]; rows: TabularRow[]; row_count: number; has_more: boolean; captured_at: string; ordered_by: string[]; }
-interface Catalog { tables: Table[]; checked_at: string; datasets_enabled: boolean; limits: { import_rows: number }; }
 interface TestResult { status: string; checked_at: string; }
 
 @Component({

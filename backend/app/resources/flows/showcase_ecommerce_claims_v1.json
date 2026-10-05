@@ -1,6 +1,28 @@
 {
   "schema_version": 3,
+  "runtime_contract": { "requires_postgresql_source": true },
   "nodes": [
+    {
+      "id": "asset.postgresql",
+      "type": "source.connector",
+      "kind": "asset",
+      "label": "PostgreSQL · Luma Maison",
+      "outputs": [{ "name": "source", "schema": "object" }],
+      "config": {
+        "connector_id": "postgresql",
+        "read_mode": "live",
+        "resources": [
+          { "schema": "showcase_ecommerce", "table": "claims" },
+          { "schema": "showcase_ecommerce", "table": "orders" },
+          { "schema": "showcase_ecommerce", "table": "customers" },
+          { "schema": "showcase_ecommerce", "table": "order_items" },
+          { "schema": "showcase_ecommerce", "table": "shipments" },
+          { "schema": "showcase_ecommerce", "table": "refunds" },
+          { "schema": "showcase_ecommerce", "table": "document_refs" }
+        ]
+      },
+      "position": { "x": 80, "y": 80 }
+    },
     {
       "id": "source.request",
       "type": "source",
@@ -137,6 +159,8 @@
     }
   ],
   "edges": [
+    { "from": "asset.postgresql", "to": "loop.investigate", "kind": "data", "from_port": "source" },
+    { "from": "asset.postgresql", "to": "task.simulate", "kind": "data", "from_port": "source" },
     {
       "from": "source.request",
       "to": "loop.investigate",

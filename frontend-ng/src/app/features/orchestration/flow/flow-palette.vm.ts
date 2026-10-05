@@ -65,7 +65,8 @@ export const UNCARRIED_CAPABILITY_SLUG = '__uncarried__';
 
 export function paletteItemSlug(item: PaletteItem): string {
   const slug = item.config?.['skill_slug'];
-  return typeof slug === 'string' ? slug : item.type;
+  const source = item.config?.['connector_id'] ?? item.config?.['collection_slug'];
+  return typeof slug === 'string' ? slug : typeof source === 'string' && source ? source : item.type;
 }
 
 export function paletteItemUsage(item: PaletteItem): number {
