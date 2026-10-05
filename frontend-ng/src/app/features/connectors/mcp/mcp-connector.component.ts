@@ -155,13 +155,13 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
     </app-section-header>
 
     @if (!featureEnabled()) {
-      <div class="mb-4 rounded-md bg-amber-500/10 p-3 text-sm text-amber-100 ring-1 ring-amber-400/25">
+      <div role="status" class="mb-4 rounded-md p-3 text-sm ck-tone-warn">
         {{ i18n.t('connectors.mcp.flag_off', { name: workspaceName() }) }}
       </div>
     }
 
     @if (error(); as err) {
-      <div class="mb-4 rounded-md bg-red-500/10 p-3 text-sm text-red-100 ring-1 ring-red-400/25">
+      <div role="alert" class="mb-4 rounded-md p-3 text-sm ck-tone-neg">
         {{ err }}
       </div>
     }
@@ -228,7 +228,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
       <div class="mt-4 flex flex-wrap gap-2">
         <a
           [navLink]="{ surface: 'systems' }"
-          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-cyan-500 text-white hover:bg-cyan-400"
+          class="ck-btn ck-btn-accent"
         >
           <app-icon name="arrow-right" [size]="14" />
           {{ i18n.t('connectors.mcp.use.systems') }}
@@ -748,7 +748,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
     >
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-semibold bg-cyan-500 text-white hover:bg-cyan-400 disabled:opacity-50"
+        class="ck-btn ck-cta"
         (click)="saveServers()"
         [disabled]="!featureEnabled() || saving()"
       >

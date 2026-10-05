@@ -53,38 +53,49 @@ const MASKED_PASSWORD = /^[*•]+$/;
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, CkBackLinkComponent, IconComponent, SectionHeaderComponent],
+  styles: [`
+    :host { display: block; color: var(--ck-fg-1); }
+    .hana-help { color: var(--ck-fg-3); }
+    .hana-label { color: var(--ck-fg-2); font-size: 13px; font-weight: 500; }
+    .hana-required { color: var(--ck-status-neg-fg); }
+    .hana-input {
+      width: 100%; min-height: 40px; padding: 8px 10px;
+      border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-sm);
+      background: var(--ck-bg-inset); color: var(--ck-fg-1);
+      font: inherit; font-size: 14px;
+    }
+    .hana-input::placeholder { color: var(--ck-fg-3); }
+    .hana-input:focus-visible { outline: 2px solid var(--ck-primary); outline-offset: 2px; }
+    .hana-input:disabled { opacity: 0.6; }
+    .hana-row { border-top: 1px solid var(--ck-stroke-2); }
+  `],
   template: `
     <app-section-header
-      breadcrumb="Connectors"
+      [breadcrumb]="i18n.t('connectors.title')"
       title="SAP HANA"
       icon="database"
-      [subtitle]="
-        'Workspace-scoped HANA Cloud SQL connection for ' +
-        workspaceName() +
-        '. Credentials stay server-side; password is write-only.'
-      "
+      [subtitle]="i18n.t('connectors.hana.subtitle', { name: workspaceName() })"
     >
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
+        class="ck-btn ck-btn-quiet"
         (click)="loadConfig()"
         [disabled]="loading()"
       >
         <app-icon name="refresh-cw" [size]="14" [class.animate-spin]="loading()" />
-        Refresh
+        {{ i18n.t('common.refresh') }}
       </button>
       <ck-back-link [fallback]="{ surface: 'connectors' }" />
     </app-section-header>
 
     @if (!featureEnabled()) {
-      <div class="mb-4 rounded-md bg-amber-500/10 p-3 text-sm text-amber-100 ring-1 ring-amber-400/25">
-        SAP HANA connector is not enabled for {{ workspaceName() }}. Enable
-        <span class="font-mono text-amber-200">features.sap_hana_connector</span> on this workspace to configure it.
+      <div role="status" class="mb-4 rounded-md p-3 text-sm ck-tone-warn">
+        {{ i18n.t('connectors.hana.flag_off', { name: workspaceName() }) }}
       </div>
     }
 
     @if (error(); as err) {
-      <div class="mb-4 rounded-md bg-red-500/10 p-3 text-sm text-red-100 ring-1 ring-red-400/25">
+      <div role="alert" class="mb-4 rounded-md p-3 text-sm ck-tone-neg">
         {{ err }}
       </div>
     }
@@ -92,31 +103,31 @@ const MASKED_PASSWORD = /^[*•]+$/;
     <section class="max-w-xl ck-surface t-elevated rounded-md p-5">
       <header class="mb-4 flex items-start justify-between gap-3">
         <div>
-          <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Connection</p>
-          <h2 class="mt-1 text-base font-semibold text-white">HANA Cloud endpoint</h2>
-          <p class="mt-1 text-[11px] text-gray-400 leading-relaxed">
-            SQL endpoint host, port, and DB user. Password is never echoed after save.
+          <p class="text-sm hana-help">{{ i18n.t('connectors.hana.connection') }}</p>
+          <h2 class="mt-1 text-base font-semibold">{{ i18n.t('connectors.hana.endpoint') }}</h2>
+          <p class="mt-1 text-sm hana-help leading-relaxed">
+            {{ i18n.t('connectors.hana.connection_help') }}
           </p>
         </div>
         @if (passwordSet()) {
           <span
-            class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20"
+            class="ck-pill ck-tone-ok"
           >
-            <app-icon name="check-circle-2" [size]="10" /> password set
+            <app-icon name="check-circle-2" [size]="12" /> {{ i18n.t('connectors.hana.password_set') }}
           </span>
         }
       </header>
 
       <form class="space-y-4" (ngSubmit)="saveConfig()">
         <label class="block">
-          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-            Host <span class="text-red-400">*</span>
+          <span class="mb-1.5 block hana-label">
+            {{ i18n.t('connectors.hana.host') }} <span class="hana-required">*</span>
           </span>
           <input
             name="host"
             [(ngModel)]="host"
             [disabled]="!featureEnabled() || saving()"
-            class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+            class="hana-input"
             placeholder="xxxx.hna1.prod-us10.hanacloud.ondemand.com"
             required
           />
@@ -124,8 +135,8 @@ const MASKED_PASSWORD = /^[*•]+$/;
 
         <div class="grid grid-cols-2 gap-3">
           <label class="block min-w-0">
-            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-              Port <span class="text-red-400">*</span>
+            <span class="mb-1.5 block hana-label">
+              {{ i18n.t('connectors.hana.port') }} <span class="hana-required">*</span>
             </span>
             <input
               name="port"
@@ -134,86 +145,86 @@ const MASKED_PASSWORD = /^[*•]+$/;
               max="65535"
               [(ngModel)]="port"
               [disabled]="!featureEnabled() || saving()"
-              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+              class="hana-input"
               placeholder="443"
               required
             />
           </label>
           <label class="block min-w-0">
-            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-              User <span class="text-red-400">*</span>
+            <span class="mb-1.5 block hana-label">
+              {{ i18n.t('connectors.hana.user') }} <span class="hana-required">*</span>
             </span>
             <input
               name="user"
               [(ngModel)]="user"
               [disabled]="!featureEnabled() || saving()"
-              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+              class="hana-input"
               placeholder="DBADMIN"
               required
             />
           </label>
         </div>
 
-        <label class="block">
-          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-            Password
+        <div>
+          <label for="hana-password" class="mb-1.5 block hana-label">
+            {{ i18n.t('connectors.hana.password') }}
             @if (!passwordSet()) {
-              <span class="text-red-400">*</span>
+              <span class="hana-required">*</span>
             }
-          </span>
+          </label>
           <input
+            id="hana-password"
             name="password"
             type="password"
             [(ngModel)]="password"
             [disabled]="!featureEnabled() || saving()"
             autocomplete="new-password"
-            class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-            [placeholder]="passwordSet() ? 'Leave blank to keep current password' : '••••••••'"
+            class="hana-input"
+            [placeholder]="passwordSet() ? i18n.t('connectors.hana.password_keep') : '••••••••'"
+            [required]="!passwordSet()"
+            [attr.aria-describedby]="passwordSet() ? 'hana-password-help' : null"
           />
           @if (passwordSet()) {
-            <span class="mt-1 block text-xs text-gray-500">Write-only — enter a new value only to rotate.</span>
+            <p id="hana-password-help" class="mt-1 text-sm hana-help">{{ i18n.t('connectors.hana.password_help') }}</p>
           }
-        </label>
+        </div>
 
         <div class="flex flex-wrap items-center gap-2 pt-2">
           <button
             type="submit"
-            class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 text-white text-sm font-medium transition disabled:opacity-50"
+            class="ck-btn ck-cta"
             [disabled]="!featureEnabled() || saving() || loading()"
           >
             <app-icon name="save" [size]="14" />
-            {{ saving() ? 'Saving…' : 'Save' }}
+            {{ i18n.t(saving() ? 'connectors.action.saving' : 'common.save') }}
           </button>
           <button
             type="button"
             (click)="testConnection()"
-            class="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-gray-200 text-sm ring-1 ring-white/10 transition disabled:opacity-50"
+            class="ck-btn ck-btn-quiet"
             [disabled]="!featureEnabled() || testing() || loading()"
           >
             <app-icon name="zap" [size]="14" [class.animate-pulse]="testing()" />
-            {{ testing() ? 'Testing…' : 'Test connection' }}
+            {{ i18n.t(testing() ? 'connectors.action.testing' : 'connectors.hana.test') }}
           </button>
         </div>
       </form>
 
       @if (testResult(); as result) {
         <div
-          class="mt-4 rounded-md p-3 text-sm ring-1"
-          [ngClass]="
-            result.ok === false
-              ? 'bg-red-500/10 text-red-100 ring-red-400/25'
-              : 'bg-emerald-500/10 text-emerald-100 ring-emerald-400/25'
-          "
+          role="status"
+          class="mt-4 rounded-md p-3 text-sm"
+          [ngClass]="result.ok === false ? 'ck-tone-neg' : 'ck-tone-ok'"
         >
           @if (result.ok === false) {
-            {{ result.detail || result.message || 'Connection failed' }}
+            {{ result.detail || result.message || i18n.t('connectors.hana.test_failed') }}
           } @else {
-            Connected
+            {{ i18n.t('connectors.test.status.connected') }}
             @if (result.current_user) {
-              as <span class="font-mono">{{ result.current_user }}</span>
+              · {{ i18n.t('connectors.hana.user') }} <span class="ck-mono">{{ result.current_user }}</span>
             }
             @if (result.current_schema) {
-              · schema <span class="font-mono">{{ result.current_schema }}</span>
+              · {{ i18n.t('connectors.hana.schema') }} <span class="ck-mono">{{ result.current_schema }}</span>
             }
           }
         </div>
@@ -224,12 +235,12 @@ const MASKED_PASSWORD = /^[*•]+$/;
       <section class="mt-4 max-w-3xl ck-surface t-elevated rounded-md p-5">
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 class="text-base font-semibold text-white">{{ i18n.t('connectors.hana.preview') }}</h2>
-            <p class="mt-1 text-[12px] leading-5 text-gray-400">{{ i18n.t('connectors.hana.preview_help') }}</p>
+            <h2 class="text-base font-semibold">{{ i18n.t('connectors.hana.preview') }}</h2>
+            <p class="mt-1 text-sm leading-5 hana-help">{{ i18n.t('connectors.hana.preview_help') }}</p>
           </div>
           <button
             type="button"
-            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 disabled:opacity-50"
+            class="ck-btn ck-btn-quiet"
             (click)="loadPreview()"
             [disabled]="previewLoading()"
           >
@@ -239,7 +250,7 @@ const MASKED_PASSWORD = /^[*•]+$/;
         </div>
         @if (preview(); as preview) {
           @if (preview.ok === false) {
-            <p class="mt-3 text-sm text-amber-200">{{ preview.detail || i18n.t('connectors.hana.preview_failed') }}</p>
+            <p role="alert" class="mt-3 rounded-md p-3 text-sm ck-tone-warn">{{ preview.detail || i18n.t('connectors.hana.preview_failed') }}</p>
           } @else {
             @if (preview.source === 'demo_dataset') {
               <div role="status" class="mt-3 rounded-md p-3 ck-tone-warn ring-1 ring-current/25">
@@ -247,20 +258,16 @@ const MASKED_PASSWORD = /^[*•]+$/;
                 <p class="mt-1 text-sm leading-5">{{ i18n.t('connectors.hana.preview_demo_help') }}</p>
               </div>
             }
-            <div class="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
+            <div class="mt-3 flex flex-wrap items-center gap-2 text-sm hana-help">
               @if (preview.current_schema) {
-                <span class="ck-mono text-cyan-300">{{ preview.current_schema }}</span>
+                <span class="ck-mono">{{ preview.current_schema }}</span>
               }
               @if (preview.current_user) {
                 <span class="ck-mono">{{ preview.current_user }}</span>
               }
               <span
-                class="inline-flex items-center px-2 py-0.5 rounded font-mono ring-1"
-                [class]="
-                  preview.source === 'hana_live'
-                    ? 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/20'
-                    : 'bg-amber-500/10 text-amber-200 ring-amber-400/25'
-                "
+                class="ck-pill"
+                [ngClass]="preview.source === 'hana_live' ? 'ck-tone-ok' : 'ck-tone-warn'"
               >
                 @if (preview.source === 'hana_live') {
                   {{ i18n.t('connectors.hana.preview_live') }}
@@ -271,7 +278,7 @@ const MASKED_PASSWORD = /^[*•]+$/;
                 }
               </span>
             </div>
-            <p class="mt-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+            <p class="mt-3 text-sm font-semibold hana-help">
               {{ i18n.t('connectors.hana.preview_tables') }}
             </p>
             @if ((preview.tables || []).length) {
@@ -279,12 +286,9 @@ const MASKED_PASSWORD = /^[*•]+$/;
                 @for (table of preview.tables || []; track table.name) {
                   <button
                     type="button"
-                    class="ck-mono rounded px-2 py-0.5 text-[10px] ring-1"
-                    [class]="
-                      table.name === preview.sample_table
-                        ? 'bg-cyan-500/15 text-cyan-200 ring-cyan-400/30'
-                        : 'bg-white/5 text-gray-200 ring-white/10 hover:bg-white/10'
-                    "
+                    class="ck-btn ck-btn--sm ck-mono"
+                    [ngClass]="table.name === preview.sample_table ? 'ck-btn-accent' : 'ck-btn-quiet'"
+                    [attr.aria-pressed]="table.name === preview.sample_table"
                     (click)="loadPreview(table.name || '')"
                     [disabled]="previewLoading() || !table.name"
                   >
@@ -293,29 +297,30 @@ const MASKED_PASSWORD = /^[*•]+$/;
                 }
               </div>
             } @else {
-              <p class="mt-2 text-sm text-gray-500">{{ i18n.t('connectors.hana.preview_empty') }}</p>
+              <p class="mt-2 text-sm hana-help">{{ i18n.t('connectors.hana.preview_empty') }}</p>
             }
             @if (preview.sample_table) {
-              <p class="mt-4 text-[12px] font-semibold text-gray-200">
+              <p class="mt-4 text-sm font-semibold">
                 {{ i18n.t('connectors.hana.preview_sample', { table: preview.sample_table }) }}
                 · {{ i18n.t('connectors.hana.preview_rows', { count: preview.row_count ?? '—' }) }}
               </p>
             }
             @if ((preview.columns || []).length) {
-              <div class="mt-2 overflow-x-auto">
-                <table class="min-w-full text-left text-[11px]">
+              <div class="mt-2 overflow-x-auto" role="region" tabindex="0"
+                [attr.aria-label]="i18n.t('connectors.hana.preview_sample', { table: preview.sample_table || '—' })">
+                <table class="min-w-full text-left text-sm" [attr.aria-label]="i18n.t('connectors.hana.preview_sample', { table: preview.sample_table || '—' })">
                   <thead>
                     <tr>
                       @for (col of preview.columns; track col) {
-                        <th class="ck-mono whitespace-nowrap px-2 py-1 font-medium text-gray-400">{{ col }}</th>
+                        <th class="ck-mono whitespace-nowrap px-2 py-2 font-medium hana-help">{{ col }}</th>
                       }
                     </tr>
                   </thead>
                   <tbody>
                     @for (line of preview.rows || []; track $index) {
-                      <tr class="border-t border-white/5">
+                      <tr class="hana-row">
                         @for (cell of line; track $index) {
-                          <td class="max-w-[14rem] truncate px-2 py-1 text-gray-200" [title]="cellText(cell)">
+                          <td class="max-w-[14rem] truncate px-2 py-2" [title]="cellText(cell)">
                             {{ cellText(cell) }}
                           </td>
                         }
@@ -339,7 +344,7 @@ export class HanaConnectorComponent implements OnInit {
 
   readonly featureEnabled = this.workspace.sapHanaConnectorEnabled;
   readonly workspaceName = computed(
-    () => this.workspace.current()?.name || this.workspace.currentSlug() || 'current workspace',
+    () => this.workspace.current()?.name || this.workspace.currentSlug() || this.i18n.t('connectors.hana.current_workspace'),
   );
 
   readonly loading = signal(false);
@@ -376,14 +381,14 @@ export class HanaConnectorComponent implements OnInit {
       error: (err) => {
         this.loading.set(false);
         if (err?.status === 403) {
-          this.error.set('SAP HANA connector is not available for this workspace (403).');
+          this.error.set(this.i18n.t('connectors.hana.unavailable'));
           return;
         }
         if (err?.status === 404) {
           // No config yet — leave defaults.
           return;
         }
-        this.error.set(err?.error?.detail || 'Failed to load HANA config');
+        this.error.set(err?.error?.detail || this.i18n.t('connectors.hana.load_failed'));
       },
     });
   }
@@ -392,11 +397,11 @@ export class HanaConnectorComponent implements OnInit {
     if (!this.featureEnabled()) return;
     const payload = this.buildPayload({ includePasswordIfEmpty: false });
     if (!payload['host'] || !payload['user']) {
-      this.toast.error('Host and user are required', 'SAP HANA');
+      this.toast.error(this.i18n.t('connectors.hana.host_user_required'), 'SAP HANA');
       return;
     }
     if (!this.passwordSet() && !this.password.trim()) {
-      this.toast.error('Password is required for the first save', 'SAP HANA');
+      this.toast.error(this.i18n.t('connectors.hana.password_required'), 'SAP HANA');
       return;
     }
     this.saving.set(true);
@@ -406,11 +411,11 @@ export class HanaConnectorComponent implements OnInit {
         this.applyConfig(cfg);
         this.password = '';
         this.saving.set(false);
-        this.toast.success('HANA configuration saved', 'SAP HANA');
+        this.toast.success(this.i18n.t('connectors.hana.saved'), 'SAP HANA');
       },
       error: (err) => {
         this.saving.set(false);
-        const detail = err?.error?.detail || 'Failed to save HANA config';
+        const detail = err?.error?.detail || this.i18n.t('connectors.hana.save_failed');
         this.error.set(detail);
         this.toast.error(detail, 'SAP HANA');
       },
@@ -431,15 +436,15 @@ export class HanaConnectorComponent implements OnInit {
         const ok = result?.ok !== false && result?.status !== 'error';
         this.testResult.set({ ...result, ok });
         if (ok) {
-          this.toast.success('Connection OK', 'SAP HANA');
+          this.toast.success(this.i18n.t('connectors.test.status.connected'), 'SAP HANA');
           this.loadPreview();
         } else {
-          this.toast.error(result?.detail || result?.message || 'Connection failed', 'SAP HANA');
+          this.toast.error(result?.detail || result?.message || this.i18n.t('connectors.hana.test_failed'), 'SAP HANA');
         }
       },
       error: (err) => {
         this.testing.set(false);
-        const detail = err?.error?.detail || 'Connection test failed';
+        const detail = err?.error?.detail || this.i18n.t('connectors.hana.test_failed');
         this.testResult.set({ ok: false, detail });
         this.toast.error(detail, 'SAP HANA');
       },
