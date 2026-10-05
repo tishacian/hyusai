@@ -2,6 +2,7 @@ import { Injectable, inject, signal, computed } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { EMPTY, Observable, Subject, catchError, filter, finalize, map, of, shareReplay, switchMap, tap } from 'rxjs';
 import { DEFAULT_BRAND_NAME, platformBrand } from './platform-brand';
+import { surfaceOfferedToFamily, workspaceFamily } from './navigation.catalog';
 
 export type WorkspaceMode = 'builder' | 'operator' | 'executive' | 'demo' | 'portfolio';
 export type SelectableWorkspaceMode = Exclude<WorkspaceMode, 'demo' | 'portfolio'>;
@@ -201,7 +202,12 @@ export function workspaceAppEntitlementOptions(
       }
     }
   } else {
-    for (const option of BUSINESS_WORKSPACE_APPS) add(option.key, option.label, null);
+    // Only the apps this workspace's family is offered: a customer
+    // application is never a grant elsewhere.
+    const family = workspaceFamily(workspace?.settings);
+    for (const option of BUSINESS_WORKSPACE_APPS) {
+      if (surfaceOfferedToFamily(option.key, family)) add(option.key, option.label, null);
+    }
   }
 
   for (const key of normalizeWorkspaceAppEntitlements(activeEntitlements)) {

@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { NavigationProfileService } from './navigation-profile.service';
 import type { NavigationRedirectDecision } from './navigation-telemetry.service';
 import { WorkspaceService, workspaceSettingFeature } from './workspace.service';
-import { agentiumSurfaceRoute, matchAgentiumSurface } from './navigation.catalog';
+import { agentiumSurfaceRoute, matchAgentiumSurface, workspaceFamily } from './navigation.catalog';
 import {
   missionRoomImpactTarget,
   missionRoomImpactUrl,
@@ -26,6 +26,7 @@ export class NavigationResolverService {
   resolve(requestedRoute: string): NavigationRedirectDecision | null {
     return (
       this.resolveGenericHome(requestedRoute) ||
+      this.resolveCustomerSurface(requestedRoute) ||
       this.resolveLegacyHypervisorObjectLens(requestedRoute) ||
       this.resolveLegacyQueryAliases(requestedRoute) ||
       this.resolvePresentationThemeAlias(requestedRoute) ||
@@ -60,6 +61,17 @@ export class NavigationResolverService {
     }
     return this.resolveBusinessProfile(requestedRoute) || this.decision(requestedRoute,
       current?.mode === 'builder' ? agentiumSurfaceRoute('create') : agentiumSurfaceRoute('hypervisor'), 'workspace_mode_home');
+  }
+
+  /**
+   * A customer application's surface opened from another family's workspace
+   * (a bookmark, a shared link) goes to that workspace's home instead.
+   */
+  private resolveCustomerSurface(requestedRoute: string): NavigationRedirectDecision | null {
+    const families = matchAgentiumSurface(this.pathOnly(requestedRoute))?.families;
+    if (!families?.length) return null;
+    if (families.includes(workspaceFamily(this.workspace.current()?.settings))) return null;
+    return this.decision(requestedRoute, '/', 'workspace_extension_unavailable');
   }
 
   /**

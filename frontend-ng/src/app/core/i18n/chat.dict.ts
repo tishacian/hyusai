@@ -101,8 +101,8 @@ export const CHAT_FR = {
   // --- Recommendation draft drawer ---------------------------------
   'chat.draft.badge': 'Brouillon de recommandation',
   'chat.draft.doc_preview': 'Aperçu document',
-  'chat.draft.cited': 'Extraits cités par AYA',
-  'chat.draft.cited_eyebrow': 'Aperçu document · extraits cités par AYA',
+  'chat.draft.cited': 'Extraits cités par l’assistant',
+  'chat.draft.cited_eyebrow': 'Aperçu document · extraits cités par l’assistant',
   'chat.draft.page': 'Page {page}',
   'chat.draft.pdf_hint': 'PDF complet disponible via « Télécharger ».',
   'chat.draft.preview_loading': "Chargement de l'aperçu PDF…",
@@ -860,8 +860,8 @@ export const CHAT_EN: Record<keyof typeof CHAT_FR, string> = {
   // --- Recommendation draft drawer ---------------------------------
   'chat.draft.badge': 'Recommendation draft',
   'chat.draft.doc_preview': 'Document preview',
-  'chat.draft.cited': 'Passages cited by AYA',
-  'chat.draft.cited_eyebrow': 'Document preview · passages cited by AYA',
+  'chat.draft.cited': 'Passages cited by the assistant',
+  'chat.draft.cited_eyebrow': 'Document preview · passages cited by the assistant',
   'chat.draft.page': 'Page {page}',
   'chat.draft.pdf_hint': 'Full PDF available from “Download”.',
   'chat.draft.preview_loading': 'Loading the PDF preview…',

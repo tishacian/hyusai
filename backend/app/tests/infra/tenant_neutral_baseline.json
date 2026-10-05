@@ -2,7 +2,7 @@
   "_comment": "Ratchet for backend/app/tests/infra/test_tenant_neutral_contract.py. Counts are exact; see docs/adr/0003-generalisation-frontieres.md.",
   "files": {
     "backend/app/api/v1/endpoints/admin.py": {
-      "count": 2,
+      "count": 5,
       "kind": "adapter",
       "why": "Sentinel CI report rebuild, gated on the sentinel_ci family."
     },
@@ -17,9 +17,34 @@
       "why": "Andritz migration marker."
     },
     "backend/app/api/v1/endpoints/chat.py": {
-      "count": 4,
+      "count": 5,
       "kind": "adapter",
       "why": "Andritz migration marker and provenance-bound retrieval, selected by family."
+    },
+    "backend/app/api/v1/endpoints/intelligence.py": {
+      "count": 3,
+      "kind": "fixture",
+      "why": "Sentinel CI selector and collection in the generic Intelligence API (Intelligence lot)."
+    },
+    "backend/app/api/v1/endpoints/maps.py": {
+      "count": 6,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "backend/app/api/v1/endpoints/mission_room.py": {
+      "count": 2,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "backend/app/api/v1/endpoints/reports.py": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "backend/app/cli/build_sentinel_reports.py": {
+      "count": 1,
+      "kind": "tooling",
+      "why": "Command-line seeds and syncs for the Sentinel CI and Octocity demo tenants."
     },
     "backend/app/cli/build_voice_glossary.py": {
       "count": 2,
@@ -31,28 +56,58 @@
       "kind": "tooling",
       "why": "Command-line example."
     },
-    "backend/app/main.py": {
+    "backend/app/cli/seed_agentium_video_demo.py": {
+      "count": 5,
+      "kind": "tooling",
+      "why": "Command-line seeds and syncs for the Sentinel CI and Octocity demo tenants."
+    },
+    "backend/app/cli/seed_octocity_mission_room.py": {
+      "count": 21,
+      "kind": "tooling",
+      "why": "Command-line seeds and syncs for the Sentinel CI and Octocity demo tenants."
+    },
+    "backend/app/cli/seed_sentinel_ci.py": {
+      "count": 3,
+      "kind": "tooling",
+      "why": "Command-line seeds and syncs for the Sentinel CI and Octocity demo tenants."
+    },
+    "backend/app/cli/sync_sentinel_ci_knowledge.py": {
       "count": 2,
+      "kind": "tooling",
+      "why": "Command-line seeds and syncs for the Sentinel CI and Octocity demo tenants."
+    },
+    "backend/app/main.py": {
+      "count": 5,
       "kind": "adapter",
       "why": "Andritz FSE System ensured at startup."
     },
     "backend/app/schemas/canonical.py": {
-      "count": 4,
+      "count": 6,
       "kind": "family",
       "why": "WorkspaceFamily values."
     },
+    "backend/app/services/action_plans.py": {
+      "count": 3,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
     "backend/app/services/actions/contracts.py": {
-      "count": 2,
+      "count": 10,
       "kind": "adapter",
       "why": "Action pack identifiers."
     },
+    "backend/app/services/actions/executor.py": {
+      "count": 6,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
     "backend/app/services/actions/packs/mission_room.py": {
-      "count": 17,
+      "count": 59,
       "kind": "demo",
       "why": "Mission Room pack handlers (Sentinel CI AYA and its Octocity OCTAVE copy) and their scripted scenario, moved verbatim out of the shared executor."
     },
     "backend/app/services/actions/registry.py": {
-      "count": 39,
+      "count": 268,
       "kind": "adapter",
       "why": "The andritz_industrial_v1 action pack and the sentinel_ci branch, declared inline."
     },
@@ -72,7 +127,7 @@
       "why": "Andritz FSE report collection."
     },
     "backend/app/services/catalog_visibility.py": {
-      "count": 1,
+      "count": 2,
       "kind": "adapter",
       "why": "Catalogue visibility by family."
     },
@@ -87,12 +142,12 @@
       "why": "Andritz agentic defaults and its retrieval contract, selected by family."
     },
     "backend/app/services/chat_grounding.py": {
-      "count": 5,
+      "count": 7,
       "kind": "adapter",
       "why": "Andritz and Sentinel CI vocabularies, selected by family."
     },
     "backend/app/services/client360_chat.py": {
-      "count": 4,
+      "count": 6,
       "kind": "adapter",
       "why": "Client360, an Andritz capability."
     },
@@ -102,12 +157,12 @@
       "why": "Client360, an Andritz capability."
     },
     "backend/app/services/client360_pdr.py": {
-      "count": 6,
+      "count": 8,
       "kind": "adapter",
       "why": "Client360, an Andritz capability."
     },
     "backend/app/services/client360_spl_adapter.py": {
-      "count": 4,
+      "count": 5,
       "kind": "adapter",
       "why": "Client360, an Andritz capability."
     },
@@ -122,22 +177,57 @@
       "why": "Experience keys of customer applications."
     },
     "backend/app/services/experience/dual_run_seeds.py": {
-      "count": 22,
+      "count": 87,
       "kind": "demo",
       "why": "Lot 8 dual-run seeds."
     },
     "backend/app/services/experience/keys.py": {
-      "count": 10,
+      "count": 39,
       "kind": "adapter",
       "why": "Experience keys of customer applications."
     },
+    "backend/app/services/iam/manifest.py": {
+      "count": 4,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "backend/app/services/intelligence/adsb_sahel.py": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "backend/app/services/intelligence/batch.py": {
+      "count": 1,
+      "kind": "fixture",
+      "why": "Sentinel CI defaults in the generic Intelligence engine (Intelligence lot)."
+    },
+    "backend/app/services/intelligence/feed_manager.py": {
+      "count": 1,
+      "kind": "fixture",
+      "why": "Sentinel CI User-Agent in the generic Intelligence engine (Intelligence lot)."
+    },
+    "backend/app/services/intelligence/knowledge_sync.py": {
+      "count": 4,
+      "kind": "fixture",
+      "why": "Sentinel CI collection in the generic Intelligence engine (Intelligence lot)."
+    },
+    "backend/app/services/intelligence/rss_security.py": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "backend/app/services/maritime_tracking.py": {
+      "count": 2,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
     "backend/app/services/mission_room.py": {
-      "count": 30,
+      "count": 399,
       "kind": "demo",
       "why": "Sentinel CI mission-room scenario content."
     },
     "backend/app/services/mission_room_knowledge_sync.py": {
-      "count": 2,
+      "count": 43,
       "kind": "demo",
       "why": "Sentinel CI knowledge sync."
     },
@@ -145,6 +235,11 @@
       "count": 1,
       "kind": "adapter",
       "why": "Andritz notice importer."
+    },
+    "backend/app/services/rag/lexical_retrieval.py": {
+      "count": 1,
+      "kind": "fixture",
+      "why": "ANDRITZ product-line vocabulary in generic lexical retrieval."
     },
     "backend/app/services/rag/project_references.py": {
       "count": 13,
@@ -167,7 +262,7 @@
       "why": "Andritz project scheme binding (ADR 0002)."
     },
     "backend/app/services/sentinel_ci_reports.py": {
-      "count": 8,
+      "count": 14,
       "kind": "demo",
       "why": "Sentinel CI report pre-render."
     },
@@ -175,6 +270,16 @@
       "count": 3,
       "kind": "fixture",
       "why": "PIH / SPARK-089 rules inside the generic BRD generation prompt. Moves with the generic BRD contract, once a second real BRD exists (ADR 0003 D4), with the SPARK-089 evaluation."
+    },
+    "backend/app/services/skills_registry/seed.py": {
+      "count": 5,
+      "kind": "demo",
+      "why": "Seeded Mission Room skills (AYA voice and advisory) in the shared catalogue."
+    },
+    "backend/app/services/skills_registry/wrappers.py": {
+      "count": 2,
+      "kind": "fixture",
+      "why": "ANDRITZ product-line vocabulary and Sentinel demo participants in generic skill wrappers."
     },
     "backend/app/services/spl_wave_importer.py": {
       "count": 2,
@@ -187,17 +292,37 @@
       "why": "Andritz Client360 surface label."
     },
     "backend/app/services/systems/bootstrap.py": {
-      "count": 17,
+      "count": 26,
       "kind": "adapter",
       "why": "Andritz FSE System bootstrap, selected by family."
     },
+    "backend/app/services/visual_intelligence.py": {
+      "count": 13,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "backend/app/services/webcam_proxy.py": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
     "backend/app/services/workspace_app_manifests.py": {
-      "count": 21,
+      "count": 51,
       "kind": "adapter",
       "why": "Application manifests selected by workspace family."
     },
-    "backend/app/services/workspace_calendar.py": {
+    "backend/app/services/workspace_app_runtime.py": {
       "count": 4,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "backend/app/services/workspace_blueprints.py": {
+      "count": 11,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "backend/app/services/workspace_calendar.py": {
+      "count": 11,
       "kind": "demo",
       "why": "Sentinel CI calendar seed event inside the calendar service."
     },
@@ -205,6 +330,11 @@
       "count": 1,
       "kind": "family",
       "why": "Industrial families set."
+    },
+    "backend/app/services/workspace_maps.py": {
+      "count": 191,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
     },
     "backend/app/tenants/andritz/answer_hygiene.py": {
       "count": 5,
@@ -222,34 +352,59 @@
       "why": "Andritz wording of the grounded-answer and agentic-chat prompts, selected by family."
     },
     "backend/app/tenants/sentinel_ci/demo_skills.py": {
-      "count": 18,
+      "count": 21,
       "kind": "adapter",
       "why": "Sentinel CI scripted demo skills, selected by family."
     },
+    "backend/app/workers/celery_app.py": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "backend/app/workers/tasks.py": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
     "frontend-ng/src/app/core/client-application-routes.ts": {
-      "count": 4,
+      "count": 8,
       "kind": "composition",
       "why": "The one list of customer application routes this build carries (lot 2)."
     },
     "frontend-ng/src/app/core/client-applications.ts": {
-      "count": 4,
+      "count": 8,
       "kind": "composition",
       "why": "The one list of customer application surfaces this build carries (lot 2)."
     },
+    "frontend-ng/src/app/core/i18n/chat.dict.ts": {
+      "count": 24,
+      "kind": "adapter",
+      "why": "Sentinel CI executive chat copy, shown only under that assistant profile."
+    },
     "frontend-ng/src/app/core/i18n/chrome.dict.ts": {
-      "count": 4,
+      "count": 12,
       "kind": "adapter",
       "why": "Labels of customer applications."
     },
-    "frontend-ng/src/app/core/i18n/experience.dict.ts": {
-      "count": 8,
+    "frontend-ng/src/app/core/i18n/client360.dict.ts": {
+      "count": 2,
       "kind": "adapter",
-      "why": "Labels of customer applications."
+      "why": "Copy of Client360, an ANDRITZ application."
+    },
+    "frontend-ng/src/app/core/i18n/experience.dict.ts": {
+      "count": 10,
+      "kind": "adapter",
+      "why": "Labels of the NAWA PR to PO Agent Studio, a customer application."
     },
     "frontend-ng/src/app/core/i18n/governance.dict.ts": {
       "count": 2,
       "kind": "adapter",
       "why": "Labels of customer applications."
+    },
+    "frontend-ng/src/app/core/i18n/mission.dict.ts": {
+      "count": 4,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
     },
     "frontend-ng/src/app/core/i18n/runs.dict.ts": {
       "count": 2,
@@ -257,14 +412,59 @@
       "why": "Labels of customer applications."
     },
     "frontend-ng/src/app/core/workspace-experience-canaries.ts": {
-      "count": 12,
+      "count": 25,
       "kind": "canary",
       "why": "The live workspaces the workspace-experience shadow gate must prove before the resolver rolls out."
     },
-    "frontend-ng/src/app/features/client360/client360-page.component.ts": {
-      "count": 4,
+    "frontend-ng/src/app/core/workspace-experience.ts": {
+      "count": 22,
       "kind": "adapter",
-      "why": "Client360, an Andritz capability."
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "frontend-ng/src/app/features/andritz/andritz.app.ts": {
+      "count": 1,
+      "kind": "client-app",
+      "why": "Routes of the ANDRITZ applications mounted inside the shell."
+    },
+    "frontend-ng/src/app/features/andritz/andritz.surfaces.ts": {
+      "count": 2,
+      "kind": "client-app",
+      "why": "Catalogue surfaces of the ANDRITZ applications, offered to that family only."
+    },
+    "frontend-ng/src/app/features/andritz/client360/client360-page.component.ts": {
+      "count": 5,
+      "kind": "client-app",
+      "why": "The ANDRITZ Client360 application, in its own folder (lot 2)."
+    },
+    "frontend-ng/src/app/features/auth/signin-experience.ts": {
+      "count": 5,
+      "kind": "adapter",
+      "why": "Sovereign demo tenant branding, rewritten by the Octocity presentation adapter."
+    },
+    "frontend-ng/src/app/features/chat/assistant-draft-drawer.component.ts": {
+      "count": 14,
+      "kind": "fixture",
+      "why": "Mission Room advisory-draft wording (\"Brouillon AYA\", \"AYA, peux-tu…\") in the generic draft drawer."
+    },
+    "frontend-ng/src/app/features/chat/chat-overlay.component.ts": {
+      "count": 2,
+      "kind": "adapter",
+      "why": "Sentinel CI executive chat mode, selected by the assistant profile."
+    },
+    "frontend-ng/src/app/features/chat/chat-panel.component.ts": {
+      "count": 8,
+      "kind": "adapter",
+      "why": "Sentinel CI executive chat mode, selected by the assistant profile."
+    },
+    "frontend-ng/src/app/features/chat/chat-workspace.component.ts": {
+      "count": 2,
+      "kind": "adapter",
+      "why": "Sentinel CI executive chat mode, selected by the assistant profile."
+    },
+    "frontend-ng/src/app/features/intelligence/intelligence-entry.component.ts": {
+      "count": 1,
+      "kind": "fixture",
+      "why": "Sentinel CI template selector in the generic Intelligence entry (Intelligence lot)."
     },
     "frontend-ng/src/app/features/knowledge/capture-fil/capture-fil-shell.component.ts": {
       "count": 2,
@@ -281,15 +481,100 @@
       "kind": "adapter",
       "why": "Andritz FSE capture templates."
     },
+    "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts": {
+      "count": 2,
+      "kind": "fixture",
+      "why": "An Octocity collection name hard-coded in the legacy capture page."
+    },
+    "frontend-ng/src/app/features/mission-room/mission-control-monitor.component.html": {
+      "count": 3,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "frontend-ng/src/app/features/mission-room/mission-control-monitor.component.scss": {
+      "count": 9,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "frontend-ng/src/app/features/mission-room/mission-control-monitor.component.ts": {
+      "count": 26,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
     "frontend-ng/src/app/features/mission-room/mission-room.component.ts": {
-      "count": 1,
+      "count": 55,
       "kind": "demo",
       "why": "Sentinel CI mission room."
     },
+    "frontend-ng/src/app/features/mission-room/mission-room.extension.ts": {
+      "count": 5,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
     "frontend-ng/src/app/features/mission-room/mission-room.presentation.ts": {
-      "count": 2,
+      "count": 35,
       "kind": "demo",
       "why": "Sentinel CI mission room."
+    },
+    "frontend-ng/src/app/features/mission-room/security-monitor.component.ts": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "frontend-ng/src/app/features/mission-room/vp-agenda-timeline.component.ts": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "frontend-ng/src/app/features/mission-room/vp-arbitration-strip.component.ts": {
+      "count": 6,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "frontend-ng/src/app/features/mission-room/vp-aya-priority-banner.component.ts": {
+      "count": 8,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "frontend-ng/src/app/features/mission-room/vp-cockpit.component.ts": {
+      "count": 5,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "frontend-ng/src/app/features/mission-room/vp-cockpit.types.ts": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "frontend-ng/src/app/features/mission-room/vp-map-preview.component.ts": {
+      "count": 4,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "frontend-ng/src/app/features/mission-room/vp-meeting.component.ts": {
+      "count": 2,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "frontend-ng/src/app/features/mission-room/vp-press-preview.component.ts": {
+      "count": 7,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "frontend-ng/src/app/features/mission-room/vp-rumor-trace-timeline.component.ts": {
+      "count": 4,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "frontend-ng/src/app/features/mission-room/vp-social-pulse-drawer.component.ts": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "frontend-ng/src/app/features/mission-room/workspace-map.component.ts": {
+      "count": 82,
+      "kind": "adapter",
+      "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
     },
     "frontend-ng/src/app/features/nawa/nawa-assistant.component.scss": {
       "count": 82,
@@ -297,7 +582,7 @@
       "why": "The NAWA application inside the product bundle (lot 2)."
     },
     "frontend-ng/src/app/features/nawa/nawa-assistant.component.ts": {
-      "count": 51,
+      "count": 52,
       "kind": "client-app",
       "why": "The NAWA application inside the product bundle (lot 2)."
     },
@@ -312,6 +597,11 @@
       "why": "The NAWA application inside the product bundle (lot 2)."
     },
     "frontend-ng/src/app/features/nawa/nawa-conversation.ts": {
+      "count": 6,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa-creator-banner.component.ts": {
       "count": 6,
       "kind": "client-app",
       "why": "The NAWA application inside the product bundle (lot 2)."
@@ -332,12 +622,12 @@
       "why": "The NAWA application inside the product bundle (lot 2)."
     },
     "frontend-ng/src/app/features/nawa/nawa-itsd-catalog.component.scss": {
-      "count": 58,
+      "count": 59,
       "kind": "client-app",
       "why": "The NAWA application inside the product bundle (lot 2)."
     },
     "frontend-ng/src/app/features/nawa/nawa-itsd-catalog.component.ts": {
-      "count": 47,
+      "count": 48,
       "kind": "client-app",
       "why": "The NAWA application inside the product bundle (lot 2)."
     },
@@ -352,12 +642,12 @@
       "why": "The NAWA application inside the product bundle (lot 2)."
     },
     "frontend-ng/src/app/features/nawa/nawa-password-reset.component.scss": {
-      "count": 87,
+      "count": 86,
       "kind": "client-app",
       "why": "The NAWA application inside the product bundle (lot 2)."
     },
     "frontend-ng/src/app/features/nawa/nawa-password-reset.component.ts": {
-      "count": 62,
+      "count": 63,
       "kind": "client-app",
       "why": "The NAWA application inside the product bundle (lot 2)."
     },
@@ -382,7 +672,7 @@
       "why": "The NAWA application inside the product bundle (lot 2)."
     },
     "frontend-ng/src/app/features/nawa/nawa-theme.scss": {
-      "count": 87,
+      "count": 141,
       "kind": "client-app",
       "why": "The NAWA application inside the product bundle (lot 2)."
     },
@@ -400,6 +690,11 @@
       "count": 5,
       "kind": "client-app",
       "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts": {
+      "count": 5,
+      "kind": "fixture",
+      "why": "Sentinel CI placeholders in the generic chat settings form."
     }
   }
 }

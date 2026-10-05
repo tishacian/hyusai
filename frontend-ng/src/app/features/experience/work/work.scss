@@ -451,12 +451,12 @@
   border-color: var(--ck-stroke-hot);
 }
 
-.xp-work-card-nawa {
+.xp-work-card-standalone {
   position: relative;
 }
 
-.xp-work-card-nawa:hover,
-.xp-work-card-nawa:focus-visible {
+.xp-work-card-standalone:hover,
+.xp-work-card-standalone:focus-visible {
   border-color: var(--ck-primary);
 }
 
@@ -493,9 +493,9 @@
   line-height: 1.45;
 }
 
-.xp-work-card-nawa:hover .xp-work-exit-preview,
-.xp-work-card-nawa:focus-visible .xp-work-exit-preview,
-.xp-work-card-nawa:focus-within .xp-work-exit-preview {
+.xp-work-card-standalone:hover .xp-work-exit-preview,
+.xp-work-card-standalone:focus-visible .xp-work-exit-preview,
+.xp-work-card-standalone:focus-within .xp-work-exit-preview {
   display: block;
 }
 
