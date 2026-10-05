@@ -35,6 +35,7 @@ import {
 import {
   agePhrase,
   homeQueue,
+  homeReviewPhrase,
   homeTiles,
   homeTitle,
   homeWaitingTotal,
@@ -439,7 +440,7 @@ export class WorkLauncherComponent {
   readonly summaryText = computed(() => {
     const { total, live, pilot } = this.summary();
     if (total === 0) return this.i18n.t('experience.work.apps');
-    return this.i18n.t('experience.work.home.summary', { n: total, live, pilot });
+    return this.i18n.t(total === 1 ? 'experience.work.home.summary.one' : 'experience.work.home.summary', { n: total, live, pilot });
   });
   readonly appSections = computed(() => groupLauncherApps(this.items()));
 
@@ -519,6 +520,10 @@ export class WorkLauncherComponent {
   }
 
   itemTitle(item: QueueItem): string {
+    if (item.kind === 'review') {
+      const notice = homeReviewPhrase(item.title, this.i18n.locale());
+      if (notice) return this.phrase(notice);
+    }
     if (item.title) return item.title;
     if (item.kind === 'result') return item.source?.name || this.i18n.t('experience.work.home.result.title');
     return this.i18n.t(`experience.work.home.untitled.${item.kind}`);

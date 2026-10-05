@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 
 test.use({ serviceWorkers: 'block', video: 'off' });
 
@@ -16,18 +17,26 @@ const workspace = {
 type Preview = {
   source?: string;
   row_count?: number;
+  columns?: string[];
+  rows?: unknown[][];
 };
 
 async function prepare(page: Page, options: {
   configured?: boolean;
   preview?: Preview;
   locale?: 'fr' | 'en';
+  theme?: 'light' | 'dark';
+  hanaEnabled?: boolean;
 } = {}) {
   const baseURL = test.info().project.use.baseURL;
   if (!baseURL || !['localhost', '127.0.0.1'].includes(new URL(baseURL).hostname)) {
     throw new Error('Connector honesty tests require a loopback E2E_BASE_URL');
   }
   const unexpected: string[] = [];
+  const scopedWorkspace = { ...workspace,
+    settings: { features: { sap_hana_connector: options.hanaEnabled !== false, mcp_connector: false } },
+    effective_features: { sap_hana_connector: options.hanaEnabled !== false, mcp_connector: false },
+  };
   await page.route('**/*', (route) => {
     const host = new URL(route.request().url()).hostname;
     return ['localhost', '127.0.0.1'].includes(host)
@@ -43,10 +52,10 @@ async function prepare(page: Page, options: {
     if (path === '/auth/validate' && method === 'POST') {
       return json({ valid: true, user_id: 'connector-operator', role: 'admin' });
     }
-    if (path === '/auth/workspaces') return json([workspace]);
+    if (path === '/auth/workspaces') return json([scopedWorkspace]);
     if (path === '/auth/me') return json({
       id: 'connector-operator', username: 'operator', email: 'operator@example.test',
-      role: 'admin', is_active: true, workspaces: [workspace],
+      role: 'admin', is_active: true, workspaces: [scopedWorkspace],
     });
     if (path === `/auth/workspaces/${workspace.slug}/me/experience` && method === 'GET') {
       return json({ version: 1, persona: 'builder', journey: 'client_sources',
@@ -80,6 +89,10 @@ async function prepare(page: Page, options: {
       sample_table: 'EQUIPMENT', columns: ['EQUIPMENT_ID'], rows: [],
       ...options.preview,
     });
+    if (path === '/hana/test' && method === 'POST') {
+      expect(request.postDataJSON()).toEqual({ host: 'hana.example.test', port: 443, user: 'OPERATOR' });
+      return json({ ok: true, current_user: 'OPERATOR', current_schema: 'DEMO' });
+    }
     if (path === '/models') return json({ models: [] });
     if (path === '/help-content') return json({ version: 'local', items: [], personas: [], languages: [] });
     if (path === '/telemetry/live') return json({ throughput_rpm: null, latency_ms: null, runs_count: 0 });
@@ -87,12 +100,74 @@ async function prepare(page: Page, options: {
     unexpected.push(`${method} ${path}`);
     return json({ detail: `Unhandled local mock endpoint: ${method} ${path}` }, 501);
   });
-  await page.addInitScript(({ slug, locale }) => {
+  await page.addInitScript(({ slug, locale, theme }) => {
     localStorage.setItem('agentium_token', 'Bearer local-connector-honesty-token');
     localStorage.setItem('agentium_workspace_slug', slug);
     localStorage.setItem('agentium_locale', locale);
-  }, { slug: workspace.slug, locale: options.locale ?? 'en' });
+    localStorage.setItem('agentium_theme', theme);
+  }, { slug: workspace.slug, locale: options.locale ?? 'en', theme: options.theme ?? 'light' });
   return unexpected;
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`HANA can be configured and tested in French with accessible feedback (${theme})`, async ({ page }, info) => {
+    const unexpected = await prepare(page, { locale: 'fr', theme, preview: {
+      source: 'demo_dataset', row_count: 2,
+      columns: ['EQUIPMENT_ID', 'NAME', 'PLANT', 'FUNCTIONAL_LOCATION', 'EQUIPMENT_TYPE', 'CRITICALITY', 'STATUS', 'COMMISSIONED_ON'],
+      rows: [['EQ-01', 'Demo generator', 'DEMO-PLANT', 'DEMO/G1/GENERATOR', 'Generator', 'A', 'OPERATING', '2012-04-18'],
+        ['EQ-02', 'Demo bearing assembly', 'DEMO-PLANT', 'DEMO/G2/BEARING', 'Bearing', 'A', 'MAINTENANCE', '2014-06-12']],
+    } });
+    await page.goto('/connectors/sap-hana');
+    const app = page.locator('app-hana-connector');
+    await expect(app.getByRole('heading', { name: 'Connexion à SAP HANA Cloud', exact: true })).toBeVisible();
+    await expect(app.getByText('Mot de passe enregistré', { exact: true })).toBeVisible();
+    const host = app.getByRole('textbox', { name: 'Hôte *', exact: true });
+    await expect(host).toHaveValue('hana.example.test');
+    await expect(app.getByLabel('Mot de passe', { exact: true })).toHaveValue('');
+    await host.focus();
+    for (let i = 0; i < 5; i++) await page.keyboard.press('Tab');
+    const connectionTest = app.getByRole('button', { name: 'Tester la connexion', exact: true });
+    await expect(connectionTest).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(app.getByRole('status').filter({ hasText: 'Connecté' })).toBeVisible();
+    const table = app.getByRole('button', { name: 'EQUIPMENT', exact: true });
+    await expect(table).toHaveAttribute('aria-pressed', 'true');
+    expect((await table.boundingBox())!.height).toBeGreaterThanOrEqual(24);
+    await expect(app.getByRole('table')).toContainText('EQ-02');
+    await expect(app).not.toContainText('Write-only');
+    const violations = await new AxeBuilder({ page }).include('app-hana-connector')
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
+    expect(violations.violations).toEqual([]);
+    await host.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: info.outputPath(`hana-fr-form-${theme}.png`), fullPage: true });
+    await app.getByRole('status').filter({ hasText: 'Jeu de démonstration' }).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: info.outputPath(`hana-fr-preview-${theme}.png`), fullPage: true });
+    await page.setViewportSize({ width: 1024, height: 768 });
+    const region = app.getByRole('region', { name: 'Échantillon · EQUIPMENT', exact: true });
+    await region.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(() => region.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+    expect(await page.locator('main.shell-main').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.screenshot({ path: info.outputPath(`hana-fr-laptop-${theme}.png`), fullPage: true });
+    expect(unexpected).toEqual([]);
+  });
+
+  for (const connector of ['hana', 'mcp'] as const) {
+    test(`${connector.toUpperCase()} activation warning is readable and accessible (${theme})`, async ({ page }, info) => {
+      const unexpected = await prepare(page, { locale: 'fr', theme, hanaEnabled: false });
+      await page.goto(connector === 'hana' ? '/connectors/sap-hana' : '/connectors/mcp');
+      const selector = connector === 'hana' ? 'app-hana-connector' : 'app-mcp-connector';
+      const app = page.locator(selector);
+      const warning = app.getByRole('status').filter({ hasText: /n’est pas activé/ });
+      await expect(warning).toBeVisible();
+      await expect(warning).toHaveClass(/ck-tone-warn/);
+      const violations = await new AxeBuilder({ page }).include(selector)
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
+      expect(violations.violations).toEqual([]);
+      await page.screenshot({ path: info.outputPath(`${connector}-inactive-${theme}.png`), fullPage: true });
+      expect(unexpected).toEqual([]);
+    });
+  }
 }
 
 for (const configured of [false, true]) {

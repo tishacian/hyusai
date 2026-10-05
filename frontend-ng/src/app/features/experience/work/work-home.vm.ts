@@ -65,6 +65,21 @@ export interface Phrase {
   params?: Record<string, string | number>;
 }
 
+/** Known auto-evaluation notices; custom titles stay as authored. */
+export function homeReviewPhrase(title: string | null, locale: string): Phrase | null {
+  if (title === 'Run flagged for review') return { key: 'experience.work.home.review.flagged' };
+  const hallucination = /^Run has high hallucination rate \((\d+(?:\.\d+)?)%\)$/.exec(title ?? '');
+  const quality = /^Run below composite threshold \((\d+(?:\.\d+)?)\/100\)$/.exec(title ?? '');
+  const match = hallucination ?? quality;
+  if (!match) return null;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value) || value < 0 || value > 100) return null;
+  const formatted = new Intl.NumberFormat(locale, { maximumFractionDigits: 20 }).format(value);
+  return hallucination
+    ? { key: 'experience.work.home.review.hallucination', params: { rate: formatted } }
+    : { key: 'experience.work.home.review.quality', params: { score: formatted } };
+}
+
 export type QueueKind = 'decision' | 'review' | 'result';
 
 export type QueueTarget =
