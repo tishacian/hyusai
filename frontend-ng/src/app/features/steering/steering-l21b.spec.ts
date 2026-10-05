@@ -34,7 +34,10 @@ test('Intelligence is a list, not a News Lab redirect loop', () => {
   assert.doesNotMatch(source, /setInterval|retryNews/);
   assert.doesNotMatch(source, /router\.navigate\(\s*\[\s*'\/systems'/);
   assert.match(source, /facet: 'intelligence'/);
-  assert.match(source, /listSystems\(\)/);
+  // The server lists the workspace's watches; there is no fallback list of
+  // unrelated Systems when it has none.
+  assert.match(source, /'\/intelligence\/watch'/);
+  assert.doesNotMatch(source, /listSystems\(\)|slice\(0, 12\)/);
 });
 
 test('Runs format cost with the workspace currency helper', () => {

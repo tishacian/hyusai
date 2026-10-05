@@ -1135,15 +1135,39 @@ def test_government_capabilities_and_skills_are_seeded_and_bound(db_session):
 
 
 def test_intelligence_defaults_are_workspace_scoped(db_session):
+    """Starter rows exist only for a family that declares them, never globally.
+
+    The call without a workspace used to write NULL-workspace feeds shared by
+    every workspace; it now writes nothing.
+    """
+    db_session.add_all(
+        [
+            Workspace(
+                id="workspace-demo",
+                slug="sentinel-demo",
+                name="Sentinel demo",
+                settings={"family": "sentinel_ci"},
+            ),
+            Workspace(id="workspace-generic", slug="generic-demo", name="Generic demo"),
+        ]
+    )
+    db_session.commit()
+
     global_added = ensure_intelligence_defaults(db_session)
     workspace_added = ensure_intelligence_defaults(db_session, workspace_id="workspace-demo")
+    generic_added = ensure_intelligence_defaults(db_session, workspace_id="workspace-generic")
 
-    assert global_added is True
+    assert global_added is False
     assert workspace_added is True
-    assert db_session.query(FeedSource).filter(FeedSource.workspace_id.is_(None)).count() == 2
+    assert generic_added is False
+    assert db_session.query(FeedSource).filter(FeedSource.workspace_id.is_(None)).count() == 0
     assert (
         db_session.query(FeedSource).filter(FeedSource.workspace_id == "workspace-demo").count()
         == 2
+    )
+    assert (
+        db_session.query(FeedSource).filter(FeedSource.workspace_id == "workspace-generic").count()
+        == 0
     )
 
 
