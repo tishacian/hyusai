@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { angleAtLength, arcTable, ATOM_RINGS, electronSpeed, nearness, ringPoint } from './auth-atom';
+import {
+  angleAtLength,
+  arcTable,
+  ATOM_RINGS,
+  bridgePoints,
+  bridgeStrength,
+  electronSpeed,
+  nearness,
+  ringPoint,
+} from './auth-atom';
 
 test('an electron stays on its ring, drift included', () => {
   const ring = ATOM_RINGS[0];
@@ -50,4 +59,22 @@ test('electrons speed up when the pointer is near, and keep their direction', ()
   assert.ok(electronSpeed(first, 1) > electronSpeed(first, 0) * 3);
   assert.ok(electronSpeed(second, 0) < 0, 'the middle ring turns the other way');
   assert.equal(electronSpeed(first, 0), (Math.PI * 2) / first.periodS);
+});
+
+test('the bridge runs from the electron to the pointer and sags to one side', () => {
+  const points = bridgePoints(0, 0, 100, 0, 5);
+  assert.deepEqual([points[0].x, points[0].y], [0, 0]);
+  const end = points[points.length - 1];
+  assert.ok(Math.abs(end.x - 100) < 1e-9 && Math.abs(end.y) < 1e-9);
+  const middle = points[Math.floor(points.length / 2)];
+  assert.ok(middle.y > 5, 'the thread sags off the straight line');
+  assert.ok(points.every((p, i) => i === 0 || p.d > points[i - 1].d), 'distance grows along it');
+  assert.deepEqual(bridgePoints(3, 3, 3.2, 3, 0), []);
+});
+
+test('the bridge appears close to an electron and grows with the pull', () => {
+  assert.equal(bridgeStrength(250, 1), 0);
+  assert.equal(bridgeStrength(60, 1), 1);
+  assert.ok(bridgeStrength(150, 1) > 0 && bridgeStrength(150, 1) < 1);
+  assert.equal(bridgeStrength(60, 0.5), 0.5);
 });

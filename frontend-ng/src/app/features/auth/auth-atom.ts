@@ -91,3 +91,44 @@ export function nearness(distance: number, radius = ATOM_NEAR_RADIUS_PX): number
 export function electronSpeed(ring: Ring, near: number, boost = ATOM_ELECTRON_BOOST): number {
   return ((Math.PI * 2) / ring.periodS) * (1 + (boost - 1) * Math.min(1, Math.max(0, near)));
 }
+
+/**
+ * Points of the braided bridge from an electron at (ex, ey) to the pointer at
+ * (px, py): a thread that sags to one side by `sag` × its length, sampled
+ * every `step` px. Each point carries the distance along the thread, as the
+ * pointer wake does, so the same braid can be drawn along it.
+ */
+export function bridgePoints(
+  ex: number,
+  ey: number,
+  px: number,
+  py: number,
+  t: number,
+  sag = 0.18,
+  step = 5,
+): { x: number; y: number; t: number; d: number }[] {
+  const length = Math.hypot(px - ex, py - ey);
+  if (length < 1) return [];
+  const nx = -(py - ey) / length;
+  const ny = (px - ex) / length;
+  const cx = (ex + px) / 2 + nx * sag * length;
+  const cy = (ey + py) / 2 + ny * sag * length;
+  const count = Math.max(2, Math.ceil(length / step));
+  const points: { x: number; y: number; t: number; d: number }[] = [];
+  let travelled = 0;
+  for (let i = 0; i <= count; i++) {
+    const f = i / count;
+    const x = (1 - f) * (1 - f) * ex + 2 * (1 - f) * f * cx + f * f * px;
+    const y = (1 - f) * (1 - f) * ey + 2 * (1 - f) * f * cy + f * f * py;
+    const previous = points[points.length - 1];
+    if (previous) travelled += Math.hypot(x - previous.x, y - previous.y);
+    points.push({ x, y, t, d: travelled });
+  }
+  return points;
+}
+
+/** How strongly the bridge shows: 0 beyond `radius`, 1 at half of it and closer. */
+export function bridgeStrength(distance: number, mass: number, radius = 190): number {
+  if (distance >= radius) return 0;
+  return Math.min(1, (radius - distance) / (radius * 0.5)) * Math.min(1, Math.max(0, mass));
+}
