@@ -24,24 +24,69 @@ OSINT_JOBS: tuple[tuple[str, int], ...] = (
 )
 
 
+def _scheduled_workspace_ids() -> list[str]:
+    """Active workspaces that have at least one active feed of their own.
+
+    Feeds without a workspace are never scheduled: they belong to nobody.
+    """
+    from app.db.base import SessionLocal
+    from app.models.intelligence import FeedSource
+    from app.models.workspace import Workspace
+
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(FeedSource.workspace_id)
+            .join(Workspace, Workspace.id == FeedSource.workspace_id)
+            .filter(
+                FeedSource.active == True,  # noqa: E712
+                FeedSource.workspace_id.isnot(None),
+                Workspace.is_active.is_(True),
+                Workspace.deleted_at.is_(None),
+            )
+            .distinct()
+            .all()
+        )
+        return sorted(str(workspace_id) for (workspace_id,) in rows)
+    finally:
+        db.close()
+
+
 def _run_batch_sync() -> None:
-    """Run the async batch in a new event loop (for the background thread)."""
+    """Run the async batch once per workspace, in a new event loop (background thread).
+
+    Each workspace gets its own batch with its own feeds, targets and safety
+    filters; one workspace failing does not stop the next.
+    """
     from app.services.intelligence.batch import run_batch
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        async def consume():
+        async def consume(workspace_id: str):
             count = 0
-            async for event in run_batch():
+            async for event in run_batch(workspace_id=workspace_id):
                 if event.get("type") == "batch_complete":
                     count = event.get("analyzed", 0)
                 elif event.get("type") == "batch_error":
-                    logger.warning("Scheduled batch error", error=event.get("message"))
+                    logger.warning(
+                        "Scheduled batch error",
+                        workspace_id=workspace_id,
+                        error=event.get("message"),
+                    )
                     return
-            logger.info("Scheduled batch completed", analyzed=count, time=datetime.utcnow().isoformat())
+            logger.info(
+                "Scheduled batch completed",
+                workspace_id=workspace_id,
+                analyzed=count,
+                time=datetime.utcnow().isoformat(),
+            )
 
-        loop.run_until_complete(consume())
+        for workspace_id in _scheduled_workspace_ids():
+            try:
+                loop.run_until_complete(consume(workspace_id))
+            except Exception as exc:  # noqa: BLE001
+                logger.error(f"Scheduled batch exception: {exc}", workspace_id=workspace_id)
     except Exception as exc:  # noqa: BLE001
         logger.error(f"Scheduled batch exception: {exc}")
     finally:

@@ -17,7 +17,7 @@ import { WorkApiService, type WorkAutomationJob } from './work-api.service';
 import {
   canEditExperience,
   catalogLaunchHref,
-  isNawaLiveLaunch,
+  isStandaloneLaunch,
   studioHref,
   workEmblem,
   workIdentity,
@@ -234,14 +234,14 @@ const ENRICHED_DECISIONS = 3;
                       </h3>
                       <div class="xp-work-grid">
                         @for (item of section.items; track item.experience.id) {
-                          @if (isNawaLive(item)) {
+                          @if (isStandalone(item)) {
                             <a
-                              class="xp-work-card xp-work-card-nawa"
+                              class="xp-work-card xp-work-card-standalone"
                               [href]="launchHref(item)"
                               target="_blank"
                               rel="noopener noreferrer"
-                              [attr.aria-describedby]="'nawa-exit-' + item.experience.id"
-                              (click)="openNawaLive($event, item)"
+                              [attr.aria-describedby]="'app-exit-' + item.experience.id"
+                              (click)="openStandalone($event, item)"
                             >
                               <div class="xp-work-card-head">
                                 <span class="xp-work-app-icon" aria-hidden="true">{{ emblem(item) }}</span>
@@ -252,10 +252,10 @@ const ENRICHED_DECISIONS = 3;
                               </div>
                               <h4>{{ identity(item).name }}</h4>
                               <p>{{ identity(item).description || patternLabel(item.experience.pattern) }}</p>
-                              <span class="xp-work-open">{{ i18n.t('experience.work.open_nawa') }}</span>
-                              <span [id]="'nawa-exit-' + item.experience.id" class="xp-work-exit-preview" role="tooltip">
-                                <strong>{{ i18n.t('experience.work.open_nawa.announce.title') }}</strong>
-                                <p>{{ i18n.t('experience.work.open_nawa.announce.body') }}</p>
+                              <span class="xp-work-open">{{ i18n.t('experience.work.open_application') }}</span>
+                              <span [id]="'app-exit-' + item.experience.id" class="xp-work-exit-preview" role="tooltip">
+                                <strong>{{ i18n.t('experience.work.open_application.announce.title') }}</strong>
+                                <p>{{ i18n.t('experience.work.open_application.announce.body') }}</p>
                               </span>
                             </a>
                           } @else {
@@ -387,7 +387,7 @@ export class WorkLauncherComponent {
   readonly hasQuery = computed(() => this.query().trim().length > 0);
   readonly studioLink = studioHref(null);
   readonly launchHref = catalogLaunchHref;
-  readonly isNawaLive = isNawaLiveLaunch;
+  readonly isStandalone = isStandaloneLaunch;
   readonly short = shortId;
   readonly exitAnnouncement = signal('');
   readonly items = computed(() => {
@@ -589,10 +589,10 @@ export class WorkLauncherComponent {
     return this.i18n.t(`experience.work.section.${id}`);
   }
 
-  /** Announce the leave-Work preview, then open Nawa in a new tab (L18 / n1). */
-  openNawaLive(event: Event, item: WorkCatalogItem): void {
+  /** Announce the leave-Work preview, then open the application in a new tab (L18 / n1). */
+  openStandalone(event: Event, item: WorkCatalogItem): void {
     event.preventDefault();
-    this.exitAnnouncement.set(this.i18n.t('experience.work.open_nawa.announce.body'));
+    this.exitAnnouncement.set(this.i18n.t('experience.work.open_application.announce.body'));
     const href = catalogLaunchHref(item);
     window.open(href, '_blank', 'noopener,noreferrer');
   }

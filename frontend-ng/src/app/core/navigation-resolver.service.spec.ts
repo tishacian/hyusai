@@ -80,6 +80,8 @@ class WorkspaceStub {
         role: options.role || 'member',
         mode: options.mode || 'builder',
         settings: {
+          // The default fixture is the ANDRITZ workspace, stamped as such.
+          ...(slug === 'andritz' ? { family: 'andritz' } : {}),
           ...(options.settings || {}),
           features: {
             cockpit_nav_v5: false,
@@ -154,6 +156,23 @@ const V2_BUSINESS_PROFILE = {
   ...BUSINESS_PROFILE,
   features: { workspace_experience_v2: true },
 };
+
+test('a customer application opened from another family goes to that workspace home', () => {
+  for (const family of ['generic', 'sentinel_ci']) {
+    const { resolver } = makeHarness({ slug: 'showcase', settings: { family } });
+    for (const route of ['/client360', '/client360/opportunities?customer=x', '/knowledge/interventions']) {
+      assert.deepEqual(resolver.resolve(route), {
+        requestedRoute: route,
+        resolvedRoute: '/',
+        owner: 'navigation_resolver',
+        reason: 'workspace_extension_unavailable',
+      }, `${family} ${route}`);
+    }
+    assert.equal(resolver.resolve('/knowledge/capture'), null, 'the capture product stays open');
+  }
+  const andritz = makeHarness({ slug: 'andritz' }).resolver;
+  assert.equal(andritz.resolve('/client360'), null);
+});
 
 test('business policy matrix is owned once and every destination is terminal', () => {
   const { resolver } = makeHarness({ settings: BUSINESS_PROFILE });

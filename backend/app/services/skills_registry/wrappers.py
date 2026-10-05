@@ -1068,12 +1068,21 @@ async def _claim_audit_v1(
 async def _intelligence_batch_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
+    """Run the intelligence batch for the workspace the skill runs for.
+
+    The workspace comes from the run context only: a batch without one would
+    read every workspace's feeds and targets, and a workspace named in the
+    payload is caller input, not the tenant boundary.
+    """
     from app.db.base import SessionLocal
     from app.models.workspace import Workspace
     from app.services.intelligence.batch import get_dashboard_data, run_batch
     from app.services.intelligence.knowledge_sync import sync_intelligence_to_knowledge
 
     ctx = ctx or {}
+    workspace_id = ctx.get("workspace_id")
+    if not workspace_id:
+        raise ValueError("intelligence_batch_v1 requires the workspace it runs for")
     ingested = 0
     errors = 0
     events: list[str] = []
@@ -1081,37 +1090,35 @@ async def _intelligence_batch_v1(
     target_id = payload.get("target_id") or (payload.get("feed_ids") or [None])[0]
     async for event in run_batch(
         target_id=target_id,
-        workspace_id=ctx.get("workspace_id"),
+        workspace_id=workspace_id,
     ):
         kind = event.get("type") or event.get("status")
         if kind:
             events.append(str(kind))
         if event.get("type") == "article_stored":
             ingested += 1
-        if event.get("type") == "error" or event.get("status") == "error":
+        if event.get("type") in {"error", "batch_error"} or event.get("status") == "error":
             errors += 1
 
-    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
-    if workspace_id:
-        db = SessionLocal()
-        try:
-            workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
-            if workspace:
-                dashboard = get_dashboard_data(db, workspace_id=workspace.id)
-                knowledge_sync = await sync_intelligence_to_knowledge(
-                    db,
-                    workspace,
-                    dashboard_payload=dashboard,
-                )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "intelligence_batch_v1.knowledge_sync_failed",
-                workspace_id=workspace_id,
-                error=str(exc),
+    db = SessionLocal()
+    try:
+        workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+        if workspace:
+            dashboard = get_dashboard_data(db, workspace_id=workspace.id)
+            knowledge_sync = await sync_intelligence_to_knowledge(
+                db,
+                workspace,
+                dashboard_payload=dashboard,
             )
-            knowledge_sync = {"status": "error", "error": str(exc)}
-        finally:
-            db.close()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "intelligence_batch_v1.knowledge_sync_failed",
+            workspace_id=workspace_id,
+            error=str(exc),
+        )
+        knowledge_sync = {"status": "error", "error": str(exc)}
+    finally:
+        db.close()
     return {
         "ingested": ingested,
         "errors": errors,

@@ -4,6 +4,8 @@ import {
   BUSINESS_NAVIGATION_SURFACE_IDS,
   agentiumSurfaceRoute,
   pathAllowedBySurfaceIds,
+  surfaceOfferedToFamily,
+  workspaceFamily,
 } from './navigation.catalog';
 import {
   resolveWorkspaceExperienceV2,
@@ -49,6 +51,7 @@ export class NavigationProfileService {
   });
 
   readonly configuredBusinessProfile = computed(() => this.config().key === 'business_end_user');
+  readonly family = computed(() => workspaceFamily(this.workspace.current()?.settings));
   readonly admin = computed(() => this.workspace.isAdmin());
   readonly workspaceExperienceV2Enabled = computed(() =>
     this.featureEnabled('workspace_experience_v2'),
@@ -106,9 +109,12 @@ export class NavigationProfileService {
     // exactly the historical three applications, even if a stale/partial
     // navigation_profile payload is present. The flag is the only boundary
     // allowed to make those links membership-specific.
-    const primarySurfaces = this.appEntitlementsEnabled()
+    // A customer application's surface stays in its own families, whatever
+    // the flags: the historical default lists ANDRITZ's apps for everyone.
+    const primarySurfaces = (this.appEntitlementsEnabled()
       ? this.entitledBusinessSurfaces(declaredSurfaces)
-      : [...DEFAULT_BUSINESS_SURFACES];
+      : [...DEFAULT_BUSINESS_SURFACES]
+    ).filter((surfaceId) => surfaceOfferedToFamily(surfaceId, this.family()));
     const defaultRoute = this.appEntitlementsEnabled()
       ? this.entitledDefaultRoute(configuredDefault, primarySurfaces)
       : configuredDefault;

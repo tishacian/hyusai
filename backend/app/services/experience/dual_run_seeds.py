@@ -51,6 +51,7 @@ from app.services.experience.keys import (
     SENTINEL_PROFILES,
     SENTINEL_SLUG,
 )
+from app.services.intelligence.systems import LEGACY_INTELLIGENCE_TEMPLATE_IDS
 
 SEED_ORIGIN = "090_xp_dual_run"
 RENDERER_VERSION = "certified-components-0.2.0"
@@ -759,7 +760,9 @@ def _is_sentinel_agenda(row: Any) -> bool:
 
 
 def _is_sentinel_intelligence(row: Any) -> bool:
-    if _template_id(row) == "sentinel-ci-intelligence":
+    # The template this workspace's own seed stamped; the neutral marker is
+    # deliberately not accepted here, so the 090/091 seed picks the same System.
+    if _template_id(row) in LEGACY_INTELLIGENCE_TEMPLATE_IDS:
         return True
     return _variant(row) == "intelligence" and "veille" in (row["name"] or "").lower()
 

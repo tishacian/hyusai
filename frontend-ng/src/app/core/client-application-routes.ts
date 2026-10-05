@@ -1,4 +1,5 @@
-import type { LoadChildrenCallback } from '@angular/router';
+import type { LoadChildrenCallback, Route } from '@angular/router';
+import { ANDRITZ_SHELL_ROUTES } from '@app/features/andritz/andritz.app';
 import { NAWA_ROUTE } from '@app/features/nawa/nawa.app';
 
 /**
@@ -19,3 +20,9 @@ export interface ClientApplicationRoute {
 }
 
 export const CLIENT_APPLICATION_ROUTES: readonly ClientApplicationRoute[] = [NAWA_ROUTE];
+
+/**
+ * The customer application routes mounted inside the Agentium shell, among its
+ * children: they keep the shell's navigation and its family redirect.
+ */
+export const CLIENT_APPLICATION_SHELL_ROUTES: readonly Route[] = [...ANDRITZ_SHELL_ROUTES];
