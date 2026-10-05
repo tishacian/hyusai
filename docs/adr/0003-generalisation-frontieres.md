@@ -167,6 +167,7 @@ relit, se déploie et se retire seule. Chaque lot met à jour cet ADR.
 | **3** | contrat de valeur du portfolio : responsable, indicateur, unité, cible, période, convention, source, approbation | définition produit (D8) | fait : saisie gouvernée en place (migration 114) |
 | **4** | sûreté de l'action SAP PO (D4) | — | fait en partie : cinq propriétés corrigées et testées (voir D7) |
 | **4b** | intention d'écriture par poste de DA (migration 112), lecture SAP avant écriture et référence `COLLECT_NO` derrière `sap_po_reconciliation`, run en échec sur issue inconnue, pas de retry d'une écriture | lot 4 déployé | fait : deux approbations d'un même poste ne créent qu'une PO ; drapeau à activer après un test en QA |
+| **Intelligence** | Intelligence / News Lab devient un produit neutre, isolé par workspace : articles rattachés au workspace (migration 120, dédoublonnage par workspace et URL, une ligne sans workspace n'est jamais servie), lot et planificateur workspace par workspace, skill refusé sans workspace, collection `workspace-intelligence` et libellés neutres, aucun flux ni cible inséré d'office, System créé à la demande (`POST /intelligence/watch`) et non plus au démarrage. Sentinel CI garde son comportement via `app/tenants/sentinel_ci/intelligence.py` | décision produit | fait : épinglé par `fixtures/sentinel_ci_intelligence_pin.json` |
 | — | framework d'actions ; contrat BRD générique | deuxième action ; deuxième BRD | — |
 
 Porte 0 (un contributeur NAWA crée et lance un System) se ferme en parallèle : c'est
