@@ -39,7 +39,6 @@ import {
   CONNECTOR_CATEGORIES,
   CONNECTORS,
   ConnectorDef,
-  type ConnectorStatus,
   readAppToggles,
   type ConnectorStatus,
 } from './resources.catalog';
