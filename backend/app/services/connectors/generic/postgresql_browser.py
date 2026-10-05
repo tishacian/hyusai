@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import time
 from contextlib import contextmanager
@@ -29,12 +30,23 @@ MAX_IMPORT_ROWS = 10_000
 MAX_PREVIEW_ROWS = 100
 MAX_IMPORT_BYTES = 16 * 1024 * 1024
 MAX_PREVIEW_BYTES = 512 * 1024
+# Rows per round trip. The server-side running budget bounds what one batch
+# can carry, so a large batch never holds more than the byte limit.
+FETCH_BATCH_ROWS = 500
+
+logger = logging.getLogger(__name__)
 
 
 class PostgresBrowseError(Exception):
-    def __init__(self, code: str, status: int = 422):
-        self.code, self.status = code, status
+    def __init__(self, code: str, status: int = 422, sqlstate: str | None = None):
+        self.code, self.status, self.sqlstate = code, status, sqlstate
         super().__init__(code)
+
+
+def _sqlstate(exc: BaseException) -> str | None:
+    """The standard five-character SQLSTATE, never the driver's message."""
+    code = getattr(exc, "pgcode", None)
+    return code if isinstance(code, str) and len(code) == 5 and code.isalnum() else None
 
 
 def _canonical(value: Any) -> str:
@@ -58,6 +70,7 @@ def _connection(workspace):
     import psycopg2
 
     connection = None
+    stage = "connect"
     try:
         config = get_config(workspace, "postgresql", include_secrets=True)
         values, secrets = config.get("values", {}), config.get("secrets", {})
@@ -87,20 +100,37 @@ def _connection(workspace):
             cursor.execute("SET LOCAL statement_timeout = '5s'")
             cursor.execute("SET LOCAL lock_timeout = '1s'")
             cursor.execute("SET LOCAL idle_in_transaction_session_timeout = '5s'")
+        stage = "query"
         yield connection, config
     except PostgresBrowseError:
         raise
     except Exception as exc:
         # Driver strings can contain connection details; only closed codes leave
         # this boundary. It also covers decryption/configuration failures.
-        code = getattr(exc, "pgcode", None)
-        if code == "42501":
-            raise PostgresBrowseError("PG_PERMISSION_DENIED", 403) from None
-        if code in {"57014", "55P03"}:
-            raise PostgresBrowseError("PG_TIMEOUT", 504) from None
-        if code in {"42P01", "42703"}:
-            raise PostgresBrowseError("PG_SOURCE_CHANGED", 409) from None
-        raise PostgresBrowseError("PG_UNAVAILABLE", 503) from None
+        import psycopg2
+
+        sqlstate = _sqlstate(exc)
+        driver_error = isinstance(exc, psycopg2.Error)
+        # The log keeps what support needs to tell a refused query from an
+        # unreachable server: the stage, the error class and the SQLSTATE.
+        # The driver's message, which can name the host or the account, stays out.
+        logger.warning(
+            "postgresql_explorer.%s_failed error=%s sqlstate=%s",
+            stage,
+            type(exc).__name__,
+            sqlstate or "-",
+            exc_info=None if driver_error else exc,
+        )
+        if sqlstate == "42501":
+            raise PostgresBrowseError("PG_PERMISSION_DENIED", 403, sqlstate) from None
+        if sqlstate in {"57014", "55P03"}:
+            raise PostgresBrowseError("PG_TIMEOUT", 504, sqlstate) from None
+        if sqlstate in {"42P01", "42703"}:
+            raise PostgresBrowseError("PG_SOURCE_CHANGED", 409, sqlstate) from None
+        if stage == "query" and driver_error:
+            # Connected, then the server refused the statement.
+            raise PostgresBrowseError("PG_QUERY_FAILED", 502, sqlstate) from None
+        raise PostgresBrowseError("PG_UNAVAILABLE", 503, sqlstate) from None
     finally:
         if connection is not None:
             for finish in (connection.rollback, connection.close):
@@ -246,6 +276,62 @@ def _json_value(value: Any) -> Any:
     return value.isoformat() if isinstance(value, (date, datetime)) else value
 
 
+def _bounded_query(
+    schema: str,
+    table: str,
+    selected: list[dict[str, Any]],
+    keys: list[str],
+    budget_name: str,
+    *,
+    byte_limit: int,
+    limit: int,
+):
+    """The single bounded SELECT: the flag column first, then the cells.
+
+    A running total of the text size, in read order, flags the first row that
+    would cross the byte limit: from there the server returns NULLs, never the
+    large cells, so a whole batch stays within the limit. The subquery keeps
+    its LIMIT, so PostgreSQL computes the flag once per row on every supported
+    version (no MATERIALIZED CTE, which needs PostgreSQL 12). The LIMIT is a
+    literal: with no parameters, a "%" in a quoted identifier cannot be taken
+    for a placeholder by the driver.
+    """
+    from psycopg2 import sql
+
+    budget = sql.Identifier(budget_name)
+    names = [sql.Identifier(col["name"]) for col in selected]
+    expressions = [
+        sql.SQL("{}::pg_catalog.text AS {}").format(name, name) if col["as_text"] else name
+        for col, name in zip(selected, names)
+    ]
+    sizes = sql.SQL(" + ").join(
+        sql.SQL("COALESCE(pg_catalog.octet_length({}::pg_catalog.text), 0)::bigint").format(name)
+        for name in names
+    )
+    bounded = sql.SQL(", ").join(
+        sql.SQL("CASE WHEN {} THEN {} ELSE NULL END").format(budget, name) for name in names
+    )
+    by_key = sql.SQL(", ").join(map(sql.Identifier, keys))
+    order = sql.SQL(" ORDER BY {}").format(by_key) if keys else sql.SQL("")
+    window = sql.SQL("ORDER BY {} ").format(by_key) if keys else sql.SQL("")
+    return sql.SQL(
+        "SELECT {}, {} FROM (SELECT {}, pg_catalog.sum({}) OVER ({}ROWS UNBOUNDED PRECEDING)"
+        " <= {} AS {} FROM {}.{}{} LIMIT {}) AS agentium_source"
+    ).format(
+        budget,
+        bounded,
+        sql.SQL(", ").join(expressions),
+        sizes,
+        window,
+        sql.Literal(byte_limit),
+        budget,
+        sql.Identifier(schema),
+        sql.Identifier(table),
+        order,
+        sql.Literal(limit),
+    )
+
+
 def read(
     workspace,
     *,
@@ -280,59 +366,18 @@ def read(
             raise PostgresBrowseError("PG_SELECTION_INVALID")
         selected = [by_name[name] for name in columns]
         keys = [col["name"] for col in metadata["columns"] if col["primary_key"]]
-        order = (
-            sql.SQL(" ORDER BY {}").format(sql.SQL(", ").join(map(sql.Identifier, keys)))
-            if keys
-            else sql.SQL("")
-        )
-        expressions = [
-            sql.SQL("{}::pg_catalog.text AS {}").format(
-                sql.Identifier(col["name"]), sql.Identifier(col["name"])
-            )
-            if col["as_text"]
-            else sql.Identifier(col["name"])
-            for col in selected
-        ]
         rows, byte_count = [], 0
         byte_limit = MAX_IMPORT_BYTES if importing else MAX_PREVIEW_BYTES
         budget_name = "__agentium_fits_" + uuid4().hex[:16]
         while budget_name in by_name:
             budget_name = "__agentium_fits_" + uuid4().hex[:16]
-        budget = sql.Identifier(budget_name)
-        sizes = sql.SQL(" + ").join(
-            sql.SQL("COALESCE(pg_catalog.octet_length({}::pg_catalog.text), 0)::bigint").format(
-                sql.Identifier(col["name"])
-            )
-            for col in selected
-        )
-        bounded = sql.SQL(", ").join(
-            sql.SQL("CASE WHEN {} THEN {} ELSE NULL END").format(
-                budget, sql.Identifier(col["name"])
-            )
-            for col in selected
-        )
-        # Oversized rows return a flag and NULLs, never their large cells. A
-        # materialized CTE computes the size once; fetching one row at a time
-        # keeps the client buffer bounded even with many wide rows.
-        query = sql.SQL("""
-            WITH agentium_source AS MATERIALIZED (
-                SELECT {}, ({}) <= {} AS {} FROM {}.{}{} LIMIT %s
-            ) SELECT {}, {} FROM agentium_source
-        """).format(
-            sql.SQL(", ").join(expressions),
-            sizes,
-            sql.Literal(byte_limit),
-            budget,
-            sql.Identifier(schema),
-            sql.Identifier(table),
-            order,
-            budget,
-            bounded,
+        query = _bounded_query(
+            schema, table, selected, keys, budget_name, byte_limit=byte_limit, limit=limit + 1
         )
         with connection.cursor(name="agentium_snapshot") as cursor:
-            cursor.execute(query, (limit + 1,))
+            cursor.execute(query)
             while True:
-                batch = cursor.fetchmany(1)
+                batch = cursor.fetchmany(FETCH_BATCH_ROWS)
                 if not batch:
                     break
                 for values in batch:
@@ -370,6 +415,23 @@ def read(
     }
 
 
+def _previous_import(db, workspace, request_id: str, request_hash: str):
+    previous = (
+        db.query(TabularDataset)
+        .filter(
+            TabularDataset.workspace_id == workspace.id,
+            TabularDataset.source == "postgresql",
+            TabularDataset.lineage_json["request_id"].as_string() == request_id,
+        )
+        .first()
+    )
+    if previous and (
+        previous.lineage_json.get("request_hash") != request_hash or previous.status != "ready"
+    ):
+        raise PostgresBrowseError("PG_REQUEST_CONFLICT", 409)
+    return previous
+
+
 def import_dataset(db, workspace, user, *, name: str, request_id: str, **selection):
     if not settings.tabular_data_enabled:
         raise PostgresBrowseError("PG_DATASETS_DISABLED", 409)
@@ -381,24 +443,11 @@ def import_dataset(db, workspace, user, *, name: str, request_id: str, **selecti
     if not name or len(name) > 200:
         raise PostgresBrowseError("PG_NAME_INVALID")
     request_hash = _hash({"name": name, **selection})
-    # Serializes version allocation and idempotency in this workspace. The
-    # lock is held through the bounded read/write and commit by the API caller.
-    db.query(Workspace).filter(
-        Workspace.id == workspace.id
-    ).populate_existing().with_for_update().one()
-    previous = (
-        db.query(TabularDataset)
-        .filter(
-            TabularDataset.workspace_id == workspace.id,
-            TabularDataset.source == "postgresql",
-            TabularDataset.lineage_json["request_id"].as_string() == request_id,
-        )
-        .first()
-    )
+    previous = _previous_import(db, workspace, request_id, request_hash)
     if previous:
-        if previous.lineage_json.get("request_hash") != request_hash or previous.status != "ready":
-            raise PostgresBrowseError("PG_REQUEST_CONFLICT", 409)
         return previous, True
+    # The remote read runs before any lock: a slow source must not hold the
+    # workspace row while it streams.
     result = read(workspace, **selection, importing=True, limit=MAX_IMPORT_ROWS)
     import polars as pl
 
@@ -416,6 +465,16 @@ def import_dataset(db, workspace, user, *, name: str, request_id: str, **selecti
             else dtype[column["kind"]]
         )
     frame = pl.DataFrame(result["native_rows"], schema=schema, strict=True)
+    # Serializes version allocation and idempotency in this workspace until the
+    # API caller commits. NO KEY UPDATE leaves foreign-key checks alone, so
+    # runs, messages and audit rows of the workspace keep being written.
+    db.query(Workspace).filter(Workspace.id == workspace.id).populate_existing().with_for_update(
+        key_share=True
+    ).one()
+    # The same request may have finished while this one was reading.
+    previous = _previous_import(db, workspace, request_id, request_hash)
+    if previous:
+        return previous, True
     dataset = datasets.register_frame(
         db,
         workspace_id=workspace.id,

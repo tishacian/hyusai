@@ -431,7 +431,7 @@ def _effective_dag_config(flow: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _connector_sources(flow: Mapping[str, Any]) -> list[dict[str, Any]]:
-    from app.services.flow_data_sources import connector_reference
+    from app.services.flow_data_sources import connector_reference, edge_ends
 
     sources = []
     for node in _as_list(flow.get("nodes")):
@@ -442,10 +442,10 @@ def _connector_sources(flow: Mapping[str, Any]) -> list[dict[str, Any]]:
         except ValueError:
             continue
         source["consumers"] = [
-            edge.get("to")
+            edge_ends(edge)[1]
             for edge in _as_list(flow.get("edges"))
             if isinstance(edge, Mapping)
-            and edge.get("from") == node.get("id")
+            and edge_ends(edge)[0] == node.get("id")
             and edge.get("kind", "data") == "data"
         ]
         sources.append(source)

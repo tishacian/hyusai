@@ -705,7 +705,12 @@ export class DataTableComponent {
         rows: rows.toLocaleString(this.i18n.locale()),
       });
     }
-    return this.i18n.t('data.table.rows_columns', {
+    // One row or one column reads in the singular (« 1 ligne », "1 column").
+    const key =
+      rows === 1
+        ? columns === 1 ? 'data.table.row_column' : 'data.table.row_columns'
+        : columns === 1 ? 'data.table.rows_column' : 'data.table.rows_columns';
+    return this.i18n.t(key, {
       rows: rows.toLocaleString(this.i18n.locale()),
       columns,
     });
