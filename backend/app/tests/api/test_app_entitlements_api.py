@@ -1198,3 +1198,55 @@ def test_iam_member_update_lock_conflict_preserves_membership_and_grants(
         CHAT_APP,
         KNOWLEDGE_CAPTURE_APP,
     ]
+
+
+def _app_probe_client(db_session, workspace: Workspace, user: User) -> TestClient:
+    app = FastAPI()
+    for key in BUSINESS_APP_KEYS:
+
+        @app.get(f"/probe/{key}", dependencies=[Depends(require_app_entitlement(key))])
+        def probe() -> dict[str, bool]:
+            return {"ok": True}
+
+    @app.get(
+        "/probe/capture-or-fse",
+        dependencies=[
+            Depends(iam_dependencies.require_any_app_entitlement(KNOWLEDGE_CAPTURE_APP, "fse-reports"))
+        ],
+    )
+    def shared_probe() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.dependency_overrides[iam_dependencies.get_current_user] = lambda: user
+    app.dependency_overrides[iam_dependencies.get_current_workspace] = lambda: workspace
+    app.dependency_overrides[iam_dependencies.get_db] = lambda: db_session
+    return TestClient(app)
+
+
+@pytest.mark.parametrize("family", ["generic", "industrial", "sentinel_ci", None])
+def test_a_customer_application_never_opens_outside_its_family_even_without_flags(
+    db_session, family
+) -> None:
+    workspace, owner, *_ = _seed_workspace(db_session)
+    # The legacy contract (no entitlement or platform flag) used to grant every
+    # member every app, so a generic workspace could open ANDRITZ's apps.
+    workspace.settings = {"features": {}, **({"family": family} if family else {})}
+    db_session.commit()
+    client = _app_probe_client(db_session, workspace, owner)
+
+    for product in (CHAT_APP, KNOWLEDGE_CAPTURE_APP, "capture-or-fse"):
+        assert client.get(f"/probe/{product}").status_code == 200, product
+    for customer_app in (CLIENT360_APP, "fse-reports"):
+        response = client.get(f"/probe/{customer_app}")
+        assert response.status_code == 404, customer_app
+        assert response.json()["detail"] == {"code": "WORKSPACE_APP_NOT_FOUND"}
+
+
+def test_the_andritz_family_keeps_its_applications(db_session) -> None:
+    workspace, owner, *_ = _seed_workspace(db_session)
+    workspace.settings = {"features": {}, "family": "andritz"}
+    db_session.commit()
+    client = _app_probe_client(db_session, workspace, owner)
+
+    for key in (*BUSINESS_APP_KEYS, "capture-or-fse"):
+        assert client.get(f"/probe/{key}").status_code == 200, key

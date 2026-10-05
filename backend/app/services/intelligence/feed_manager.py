@@ -5,17 +5,22 @@ from typing import Optional
 
 from app.core.logging import get_logger
 from app.db.base import SessionLocal
+from app.services.intelligence.profile import RSS_USER_AGENT
 
 logger = get_logger(__name__)
 
 RSS_REQUEST_HEADERS = {
-    "User-Agent": "Agentium-SENTINEL-CI/1.0 (+https://agentium.papai.ai)",
+    "User-Agent": RSS_USER_AGENT,
     "Accept": "application/rss+xml, application/xml, text/xml, */*",
 }
 
 
-async def fetch_feed(url: str) -> list[dict]:
-    """Fetch and parse an RSS feed. Returns list of article dicts."""
+async def fetch_feed(url: str, user_agent: Optional[str] = None) -> list[dict]:
+    """Fetch and parse an RSS feed. Returns list of article dicts.
+
+    ``user_agent`` is the workspace profile's (``profile.rss_user_agent``);
+    without one the neutral product User-Agent is sent.
+    """
     try:
         import feedparser
         import httpx
@@ -25,7 +30,10 @@ async def fetch_feed(url: str) -> list[dict]:
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(url, follow_redirects=True, headers=RSS_REQUEST_HEADERS)
+            headers = dict(RSS_REQUEST_HEADERS)
+            if user_agent:
+                headers["User-Agent"] = user_agent
+            resp = await client.get(url, follow_redirects=True, headers=headers)
             resp.raise_for_status()
         feed = feedparser.parse(resp.text)
     except Exception as e:
@@ -57,22 +65,43 @@ async def fetch_feed(url: str) -> list[dict]:
     return articles
 
 
-def save_articles(source_id: str, articles: list[dict]) -> int:
-    """Persist articles to database. Returns count of newly inserted articles."""
+def save_articles(source_id: str, articles: list[dict], workspace_id: Optional[str] = None) -> int:
+    """Persist a feed's articles for one workspace. Returns the newly inserted count.
+
+    An article is unique per (workspace, url): another workspace having the
+    same URL never stops this one from keeping its own row. Without a
+    workspace nothing is written.
+    """
     from app.models.intelligence import FeedArticle
+
+    if not workspace_id:
+        logger.warning("intelligence.save_articles.no_workspace", source_id=source_id)
+        return 0
 
     db = SessionLocal()
     inserted = 0
     try:
+        urls = sorted({art.get("url") or "" for art in articles})
+        seen: set[str] = set()
+        if urls:
+            seen = {
+                url
+                for (url,) in db.query(FeedArticle.url).filter(
+                    FeedArticle.workspace_id == workspace_id,
+                    FeedArticle.url.in_(urls),
+                )
+            }
         for art in articles:
-            existing = db.query(FeedArticle).filter(FeedArticle.url == art["url"]).first()
-            if existing:
+            url = art.get("url") or ""
+            if url in seen:
                 continue
+            seen.add(url)
             row = FeedArticle(
                 id=art["id"],
+                workspace_id=workspace_id,
                 source_id=source_id,
                 title=art["title"],
-                url=art["url"],
+                url=url,
                 content=art["content"],
                 published_at=art.get("published_at"),
                 fetched_at=datetime.utcnow(),
@@ -95,14 +124,16 @@ def get_articles(
     limit: int = 50,
     workspace_id: str = None,
 ) -> list[dict]:
-    from app.models.intelligence import FeedArticle, FeedSource
+    """The workspace's articles, newest first. No workspace, no articles."""
+    from app.models.intelligence import FeedArticle
 
-    q = db.query(FeedArticle).order_by(FeedArticle.fetched_at.desc())
-    if workspace_id:
-        # Filter articles whose source belongs to the workspace
-        q = q.join(FeedSource, FeedSource.id == FeedArticle.source_id).filter(
-            FeedSource.workspace_id == workspace_id
-        )
+    if not workspace_id:
+        return []
+    q = (
+        db.query(FeedArticle)
+        .filter(FeedArticle.workspace_id == workspace_id)
+        .order_by(FeedArticle.fetched_at.desc())
+    )
     if source_id:
         q = q.filter(FeedArticle.source_id == source_id)
     if min_relevance > 0:

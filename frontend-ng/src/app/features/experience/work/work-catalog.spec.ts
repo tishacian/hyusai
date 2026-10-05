@@ -6,8 +6,7 @@ import {
   canEditExperience,
   documentNeedsValidations,
   isInternalWorkHref,
-  isNawaLiveHref,
-  isNawaLiveLaunch,
+  isStandaloneLaunch,
   launchHref,
   launcherDecision,
   liveHref,
@@ -22,6 +21,7 @@ import {
   type SystemLinkedWorkApp,
   type WorkExperience,
 } from './work-catalog';
+import { isStandaloneApplicationPath } from '@app/core/navigation.catalog';
 import { isCataloguedReturnTo, returnToFromParams } from './work-return';
 
 function app(over: Partial<WorkExperience> = {}): WorkExperience {
@@ -71,7 +71,7 @@ test('live_href on theme is the launch target for dual-run apps', () => {
   );
 });
 
-test('Nawa live_href tiles are the dedicated shell that leaves Work', () => {
+test('a live link to a standalone customer application leaves Work', () => {
   const nawa = {
     experience: app({ slug: 'nawa', theme: { live_href: '/nawa' } }),
     channel: 'live' as const,
@@ -99,12 +99,13 @@ test('Nawa live_href tiles are the dedicated shell that leaves Work', () => {
       renderer_version: 'certified-components-0.2.0',
     },
   };
-  assert.equal(isNawaLiveHref('/nawa'), true);
-  assert.equal(isNawaLiveHref('/nawa/itsd'), true);
-  assert.equal(isNawaLiveHref('/work/pr-to-po'), false);
-  assert.equal(isNawaLiveLaunch(nawa), true);
-  assert.equal(isNawaLiveLaunch(reset), true);
-  assert.equal(isNawaLiveLaunch(workApp), false);
+  assert.equal(isStandaloneApplicationPath('/nawa'), true);
+  assert.equal(isStandaloneApplicationPath('/nawa/itsd'), true);
+  assert.equal(isStandaloneApplicationPath('/work/pr-to-po'), false);
+  assert.equal(isStandaloneApplicationPath('/client360'), false, 'a customer app inside the shell stays in Work');
+  assert.equal(isStandaloneLaunch(nawa), true);
+  assert.equal(isStandaloneLaunch(reset), true);
+  assert.equal(isStandaloneLaunch(workApp), false);
 });
 
 test('validations surface from pattern or certified nodes', () => {

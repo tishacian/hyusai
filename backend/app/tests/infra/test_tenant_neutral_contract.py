@@ -40,7 +40,14 @@ BACKEND_APP = REPO / "backend" / "app"
 FRONTEND_APP = REPO / "frontend-ng" / "src" / "app"
 BASELINE = Path(__file__).with_name("tenant_neutral_baseline.json")
 
-IDENTIFIERS = re.compile(r"(?<![a-z])(nawa|andritz|pih)(?![a-z])|spark-?0?89", re.IGNORECASE)
+# Customer and tenant names, plus the ANDRITZ pilot's own vocabulary (its
+# customers, sites and product lines), which used to slip into generic modules
+# unnoticed because only the customer names were counted.
+IDENTIFIERS = re.compile(
+    r"(?<![a-z])(nawa|andritz|pih|aya|octocity|septona|montbonnot|jetlace)(?![a-z])"
+    r"|spark-?0?89|sentinel[-_ ]?ci",
+    re.IGNORECASE,
+)
 WEB_COMMENTS = re.compile(r"/\*.*?\*/|<!--.*?-->|(?<![:\w])//[^\n]*", re.DOTALL)
 KINDS = {"adapter", "family", "fixture", "demo", "client-app", "composition", "tooling", "canary"}
 CLIENT_APP_HOME = re.compile(r"^frontend-ng/src/app/features/([a-z0-9-]+)/")

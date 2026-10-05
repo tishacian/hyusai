@@ -14,16 +14,16 @@ import { I18nService } from '@app/core/i18n.service';
   template: `
     <aside class="nawa-creator-banner" role="status">
       <p class="nawa-creator-banner-copy">
-        <strong>{{ i18n.t('experience.nawa.creator.label') }}</strong>
+        <strong>{{ i18n.t('experience.creator.label') }}</strong>
         —
-        {{ i18n.t('experience.nawa.creator.hint') }}
+        {{ i18n.t('experience.creator.hint') }}
       </p>
-      <nav class="nawa-creator-banner-links" [attr.aria-label]="i18n.t('experience.nawa.creator.label')">
-        <a [routerLink]="editHref()">{{ i18n.t('experience.nawa.creator.edit') }}</a>
+      <nav class="nawa-creator-banner-links" [attr.aria-label]="i18n.t('experience.creator.label')">
+        <a [routerLink]="editHref()">{{ i18n.t('experience.creator.edit') }}</a>
         <span class="nawa-creator-banner-sep" aria-hidden="true">·</span>
-        <a routerLink="/knowledge">{{ i18n.t('experience.nawa.creator.library') }}</a>
+        <a routerLink="/knowledge">{{ i18n.t('experience.creator.library') }}</a>
         <span class="nawa-creator-banner-sep" aria-hidden="true">·</span>
-        <a routerLink="/work">{{ i18n.t('experience.nawa.creator.back') }}</a>
+        <a routerLink="/work">{{ i18n.t('experience.creator.back') }}</a>
       </nav>
     </aside>
   `,

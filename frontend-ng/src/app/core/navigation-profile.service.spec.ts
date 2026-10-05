@@ -63,6 +63,7 @@ class WorkspaceStub {
     workspaceAppPlatformV1?: boolean;
     appEntitlements?: WorkspaceInfo['app_entitlements'];
     appRuntime?: WorkspaceAppRuntimeProjection;
+    family?: string | null;
   } = {}): void {
     this.workspaces.set([
       {
@@ -73,6 +74,7 @@ class WorkspaceStub {
         app_entitlements: options.appEntitlements ?? [],
         workspace_app_runtime: options.appRuntime,
         settings: {
+          family: options.family === undefined ? 'andritz' : options.family,
           features: {
             workspace_experience_v2: options.workspaceExperienceV2 === true,
             app_entitlements_v1: options.appEntitlementsV1 === true,
@@ -141,6 +143,18 @@ test('business profile resolves the Andritz applications in their stable order',
     primary_surfaces: ANDRITZ_SURFACES,
     advanced_access: 'admin_only',
   });
+});
+
+test('another family is offered the product apps only, flags or not', () => {
+  // The historical default listed ANDRITZ's apps for every workspace without
+  // entitlement flags, so a generic workspace showed Client360 and FSE.
+  for (const family of ['generic', 'sentinel_ci', null]) {
+    const { profile } = makeHarness('member', { family });
+    assert.deepEqual(profile.effective().primarySurfaces, ['chat', 'knowledge-capture'], String(family));
+    assert.equal(profile.businessSurfaceEnabled('client360-pdr'), false);
+    assert.equal(profile.businessSurfaceEnabled('fse-reports'), false);
+    assert.equal(profile.isBusinessAllowedPath('/client360'), false);
+  }
 });
 
 test('a partial legacy profile cannot hide an app before the entitlement flag', () => {

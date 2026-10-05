@@ -469,7 +469,7 @@ test('Client360 landing page collapses alerts to a digest and pages the table', 
 
 test('Client360 business selections use named keyboard controls instead of clickable rows', () => {
   const source = readFileSync(
-    join(process.cwd(), 'src/app/features/client360/client360-page.component.ts'),
+    join(process.cwd(), 'src/app/features/andritz/client360/client360-page.component.ts'),
     'utf8',
   );
 
@@ -516,7 +516,7 @@ test('Client360 pins syncFromCollection to A and cancels refresh on A -> B', () 
 
 test('every Client360 network call is pinned to a workspace epoch and scoped by header', () => {
   const source = readFileSync(
-    join(process.cwd(), 'src/app/features/client360/client360-page.component.ts'),
+    join(process.cwd(), 'src/app/features/andritz/client360/client360-page.component.ts'),
     'utf8',
   );
   const lines = source.split('\n');

@@ -9,9 +9,11 @@ from app.models.knowledge_collection import KnowledgeCollection
 from app.models.workspace import Workspace
 from app.services.intelligence import knowledge_sync
 from app.services.intelligence.knowledge_sync import (
+    INTELLIGENCE_COLLECTION_NAME,
     INTELLIGENCE_COLLECTION_SLUG,
     sync_intelligence_to_knowledge,
 )
+from app.tenants.sentinel_ci import intelligence as sentinel_intelligence
 
 
 class _FakeVectorDB:
@@ -57,7 +59,14 @@ async def test_intelligence_sync_indexes_consolidated_and_raw_workspace_sources(
     monkeypatch.setattr(knowledge_sync, "rebuild_bm25_artifact", _fake_bm25)
     _FakeDocumentService.instances = []
 
-    sentinel = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    # The Sentinel collection is selected by the stamped family, not the slug.
+    sentinel = Workspace(
+        id="workspace-sentinel",
+        slug="sentinel-ci",
+        name="SENTINEL-CI",
+        mode="demo",
+        settings={"family": "sentinel_ci"},
+    )
     andritz = Workspace(id="workspace-andritz", slug="andritz", name="Andritz")
     db_session.add_all([sentinel, andritz])
     db_session.add_all(
@@ -84,6 +93,7 @@ async def test_intelligence_sync_indexes_consolidated_and_raw_workspace_sources(
         [
             FeedArticle(
                 id="article-ci-1",
+                workspace_id=sentinel.id,
                 source_id="feed-sentinel",
                 title="Cote d'Ivoire: coordination gouvernementale",
                 url="https://example.test/ci",
@@ -103,6 +113,7 @@ async def test_intelligence_sync_indexes_consolidated_and_raw_workspace_sources(
             ),
             FeedArticle(
                 id="article-andritz-1",
+                workspace_id=andritz.id,
                 source_id="feed-andritz",
                 title="Andritz maintenance update",
                 content="This article must not leak into SENTINEL-CI.",
@@ -134,12 +145,12 @@ async def test_intelligence_sync_indexes_consolidated_and_raw_workspace_sources(
     )
 
     assert result["status"] == "ready"
-    assert result["collection_slug"] == INTELLIGENCE_COLLECTION_SLUG
+    assert result["collection_slug"] == sentinel_intelligence.COLLECTION_SLUG
     assert result["articles_synced"] == 1
     assert result["documents_written"] == 2
 
     service = _FakeDocumentService.instances[-1]
-    assert service.collection_name == INTELLIGENCE_COLLECTION_SLUG
+    assert service.collection_name == sentinel_intelligence.COLLECTION_SLUG
     assert service.workspace_slug == "sentinel-ci"
     assert any(path.endswith("news-lab-consolidated-latest.md") for path in service.ingested_paths)
     assert any(path.endswith("rss-article-article-ci-1.md") for path in service.ingested_paths)
@@ -150,3 +161,68 @@ async def test_intelligence_sync_indexes_consolidated_and_raw_workspace_sources(
     assert row.status == "ready"
     assert "rss-article-article-ci-1.md" in row.document_names
     assert all("andritz" not in name.lower() for name in row.document_names)
+
+
+@pytest.mark.asyncio
+async def test_generic_workspace_syncs_into_its_own_neutral_collection(db_session, monkeypatch):
+    monkeypatch.setattr(knowledge_sync, "DocumentService", _FakeDocumentService)
+
+    async def _fake_bm25(**_kwargs):
+        return {"status": "ready"}
+
+    monkeypatch.setattr(knowledge_sync, "rebuild_bm25_artifact", _fake_bm25)
+    _FakeDocumentService.instances = []
+
+    showcase = Workspace(id="workspace-showcase", slug="agentium-showcase", name="Showcase")
+    db_session.add(showcase)
+    db_session.add(
+        FeedSource(
+            id="feed-showcase",
+            workspace_id=showcase.id,
+            name="Retail news",
+            url="https://retail.example/rss",
+            active=True,
+        )
+    )
+    db_session.add_all(
+        [
+            FeedArticle(
+                id="article-showcase",
+                workspace_id=showcase.id,
+                source_id="feed-showcase",
+                title="Store opening",
+                url="https://retail.example/a",
+                fetched_at=datetime.utcnow(),
+            ),
+            # A pre-120 row whose workspace could not be backfilled.
+            FeedArticle(
+                id="article-unscoped",
+                workspace_id=None,
+                source_id="feed-showcase",
+                title="Unscoped",
+                url="https://retail.example/b",
+                fetched_at=datetime.utcnow(),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    result = await sync_intelligence_to_knowledge(
+        db_session,
+        showcase,
+        dashboard_payload={"synthesis": {"summary": "Brief."}},
+    )
+
+    assert result["collection_slug"] == INTELLIGENCE_COLLECTION_SLUG == "workspace-intelligence"
+    assert result["articles_synced"] == 1
+    row = db_session.query(KnowledgeCollection).filter(KnowledgeCollection.id == result["collection_id"]).one()
+    assert row.name == INTELLIGENCE_COLLECTION_NAME
+    for word in ("AYA", "SENTINEL", "cabinet"):
+        assert word not in (row.name or "") + (row.description or "")
+    consolidated = next(
+        path for path in _FakeDocumentService.instances[-1].ingested_paths
+        if path.endswith("news-lab-consolidated-latest.md")
+    )
+    with open(consolidated, encoding="utf-8") as handle:
+        assert handle.readline().strip() == "# News Lab consolidated brief"
+    assert "rss-article-article-unscoped.md" not in row.document_names

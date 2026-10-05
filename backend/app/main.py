@@ -110,7 +110,8 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("Canonical registry seeding failed (non-blocking)", error=str(e))
 
-    # Seed Intelligence System per workspace (idempotent, Vague A commit 2).
+    # Seed per-workspace Systems (idempotent). The Intelligence (News Lab)
+    # System is not among them: it is created on demand (POST /intelligence/watch).
     if startup_reconciliation_enabled:
         try:
             from app.db.base import SessionLocal
@@ -118,19 +119,16 @@ async def lifespan(app: FastAPI):
                 ensure_client360_pdr_system_for_all_workspaces,
                 ensure_expert_capture_system_for_all_workspaces,
                 ensure_fse_report_system_for_andritz,
-                ensure_intelligence_system_for_all_workspaces,
                 ensure_workspace_chat_system_for_all_workspaces,
             )
             from app.services.mission_room import ensure_sentinel_ci_workspace
 
             with SessionLocal() as _db:
                 sentinel_report = ensure_sentinel_ci_workspace(_db)
-                intel_report = ensure_intelligence_system_for_all_workspaces(_db)
                 expert_capture_report = ensure_expert_capture_system_for_all_workspaces(_db)
                 fse_report_report = ensure_fse_report_system_for_andritz(_db)
                 workspace_chat_report = ensure_workspace_chat_system_for_all_workspaces(_db)
                 client360_report = ensure_client360_pdr_system_for_all_workspaces(_db)
-            logger.info("Intelligence System seeded", **intel_report)
             logger.info("Expert Knowledge Capture System seeded", **expert_capture_report)
             logger.info("FSE intervention report System seeded", **fse_report_report)
             logger.info("Workspace Chat System seeded", **workspace_chat_report)

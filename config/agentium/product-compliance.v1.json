@@ -147,7 +147,7 @@
           },
           {
             "label": "Client360 Operate classification",
-            "path": "frontend-ng/src/app/core/navigation.catalog.ts",
+            "path": "frontend-ng/src/app/features/andritz/andritz.surfaces.ts",
             "contains": [
               "id: 'client360-pdr'",
               "lens: 'operate'"

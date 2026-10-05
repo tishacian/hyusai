@@ -23,6 +23,11 @@ class FeedArticle(Base):
     __tablename__ = "feed_articles"
 
     id = Column(String(36), primary_key=True)
+    # Stamped from the feed source's workspace when the article is saved, and
+    # backfilled the same way by migration 120. An article is unique per
+    # (workspace, url): two workspaces following the same feed each keep their
+    # own row. A NULL workspace (an orphaned pre-120 row) is never served.
+    workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=True, index=True)
     source_id = Column(String(36), nullable=False)
     title = Column(String(500), nullable=False)
     url = Column(String(2000), nullable=True)
