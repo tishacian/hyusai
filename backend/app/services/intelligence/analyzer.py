@@ -5,52 +5,11 @@ from typing import Optional
 from app.core.config import settings
 from app.core.logging import get_logger
 
+# The neutral prompts. A family adapter may word its own
+# (``profile.analysis_prompt`` / ``profile.safety_prompt``), passed per call.
+from app.services.intelligence.profile import ANALYSIS_PROMPT, SAFETY_CHECK_PROMPT
+
 logger = get_logger(__name__)
-
-ANALYSIS_PROMPT = """Analyze this news article for intelligence purposes.
-
-## Article
-Title: {title}
-Content (truncated): {content}
-
-## Semantic Target
-{target_description}
-
-## Instructions
-Extract:
-1. Key entities (people, organizations, locations, events)
-2. Sentiment (positive / negative / neutral / mixed)
-3. Risk level (low / medium / high / critical)
-4. Key findings (2-3 bullet points)
-5. Geopolitical relevance (if applicable)
-
-Return ONLY valid JSON:
-{{
-  "entities": ["entity1", "entity2"],
-  "sentiment": "neutral",
-  "risk_level": "low",
-  "key_findings": ["finding1", "finding2"],
-  "geopolitical_relevance": "brief note or null"
-}}"""
-
-SAFETY_CHECK_PROMPT = """You are a content safety filter for a geopolitical intelligence platform.
-
-## Content to check
-{content_summary}
-
-## Safety filter rules
-{filter_rules}
-
-## Instructions
-Evaluate if this content is safe to include in the intelligence dashboard.
-Consider the configured geopolitical alignment and sensitivity rules.
-
-Return ONLY valid JSON:
-{{
-  "safe": true/false,
-  "flag": "clear|flagged|blocked",
-  "reason": "brief explanation"
-}}"""
 
 
 class SemanticAnalyzer:
@@ -90,9 +49,15 @@ class SemanticAnalyzer:
             logger.error(f"Relevance computation failed: {e}")
             return 0.0
 
-    async def analyze_article(self, title: str, content: str, target_description: str) -> dict:
+    async def analyze_article(
+        self,
+        title: str,
+        content: str,
+        target_description: str,
+        prompt_template: Optional[str] = None,
+    ) -> dict:
         llm = self._get_llm()
-        prompt = ANALYSIS_PROMPT.format(
+        prompt = (prompt_template or ANALYSIS_PROMPT).format(
             title=title,
             content=content[:2000],
             target_description=target_description,
@@ -107,9 +72,14 @@ class SemanticAnalyzer:
             logger.error(f"Article analysis failed: {e}")
             return {"entities": [], "sentiment": "unknown", "risk_level": "unknown", "key_findings": []}
 
-    async def check_safety(self, content_summary: str, filter_rules: str) -> dict:
+    async def check_safety(
+        self,
+        content_summary: str,
+        filter_rules: str,
+        prompt_template: Optional[str] = None,
+    ) -> dict:
         llm = self._get_llm()
-        prompt = SAFETY_CHECK_PROMPT.format(
+        prompt = (prompt_template or SAFETY_CHECK_PROMPT).format(
             content_summary=content_summary[:1000],
             filter_rules=filter_rules,
         )

@@ -4,7 +4,7 @@ import time
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as DBSession
@@ -12,14 +12,24 @@ from sqlalchemy.orm import Session as DBSession
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
 from app.db.base import SessionLocal, get_db
-from app.models.intelligence import FeedSource, SafetyFilter, SemanticTarget
+from app.models.capability import Capability
+from app.models.intelligence import FeedArticle, FeedSource, SafetyFilter, SemanticTarget
 from app.models.run import Run, SkillInvocation
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.services.iam.decision_plane import enforce_action, resolve_action
+from app.services.iam.legacy_authority import legacy_object_action_allowed
 from app.services.intelligence.batch import get_dashboard_data, run_batch
 from app.services.intelligence.feed_manager import get_articles
 from app.services.intelligence.knowledge_sync import sync_intelligence_to_knowledge
+from app.services.intelligence.profile import workspace_intelligence_profile
+from app.services.intelligence.systems import (
+    INTELLIGENCE_TEMPLATE_ID,
+    intelligence_systems,
+    preferred_intelligence_system,
+    template_id_of,
+)
 from app.services.skill_invocation_snapshot import (
     SkillInvocationCostEvidence,
     capture_skill_execution_evidence,
@@ -60,10 +70,9 @@ def _preferred_intelligence_system(db: DBSession, workspace_id: str, requested_i
     if requested_id:
         return q.filter(System.id == requested_id).first()
     systems = q.all()
-    for system in systems:
-        flow = system.flow_definition or {}
-        if flow.get("template_id") == "sentinel-ci-intelligence":
-            return system
+    marked = preferred_intelligence_system(systems)
+    if marked is not None:
+        return marked
     for system in systems:
         if (system.flow_definition or {}).get("variant") == "intelligence":
             return system
@@ -126,6 +135,10 @@ async def delete_feed(
         FeedSource.workspace_id == workspace.id,
     ).first()
     if feed:
+        db.query(FeedArticle).filter(
+            FeedArticle.source_id == feed.id,
+            FeedArticle.workspace_id == workspace.id,
+        ).delete(synchronize_session=False)
         db.delete(feed)
         db.commit()
     return {"deleted": True}
@@ -247,6 +260,7 @@ async def trigger_batch(
             source="intelligence.analyze",
         )
     authorized_system_id = authorized_system.id if authorized_system is not None else body.system_id
+    collection_slug = workspace_intelligence_profile(workspace).collection_slug
 
     async def stream():
         db = SessionLocal()
@@ -325,7 +339,7 @@ async def trigger_batch(
                 knowledge_sync = {"status": "skipped"}
                 sync_started = {
                     "type": "knowledge_sync_started",
-                    "collection_slug": "sentinel-ci-open-intelligence",
+                    "collection_slug": collection_slug,
                     "run_id": run.id,
                     "system_id": run.system_id,
                 }
@@ -346,7 +360,7 @@ async def trigger_batch(
                 except Exception as sync_error:  # noqa: BLE001
                     knowledge_sync = {
                         "status": "error",
-                        "collection_slug": "sentinel-ci-open-intelligence",
+                        "collection_slug": collection_slug,
                         "error": str(sync_error),
                     }
                     sync_event = {
@@ -424,8 +438,26 @@ async def dashboard(
 # ── Scheduler ──
 
 @router.get("/scheduler")
-async def scheduler_status():
+async def scheduler_status(
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """The scheduler as this workspace sees it.
+
+    Workspace-scoped rather than platform-admin only: every News Lab reader
+    needs to know whether its watch refreshes on its own. The process-wide
+    part is deployment configuration; the rest is read from this workspace's
+    own feeds only.
+    """
+    from sqlalchemy import func
+
     from app.services.intelligence.scheduler import is_running
+
+    active_feeds, last_fetched = (
+        db.query(func.count(FeedSource.id), func.max(FeedSource.last_fetched))
+        .filter(FeedSource.workspace_id == workspace.id, FeedSource.active == True)  # noqa: E712
+        .one()
+    )
     return {
         "running": is_running(),
         "enabled": settings.intelligence_scheduler_enabled,
@@ -433,4 +465,131 @@ async def scheduler_status():
         "max_articles": settings.intelligence_batch_max_articles,
         "retry_skipped": settings.intelligence_batch_retry_skipped,
         "safety_check_enabled": settings.intelligence_batch_safety_check_enabled,
+        "workspace_active_feeds": int(active_feeds or 0),
+        "workspace_last_fetched": last_fetched.isoformat() if last_fetched else None,
     }
+
+
+# ── Watch Systems ──
+
+def _watch_row(system: System) -> dict:
+    return {
+        "id": system.id,
+        "name": system.name,
+        "status": system.status,
+        "objective": system.objective,
+        "template_id": template_id_of(system),
+        "created_at": system.created_at.isoformat() if system.created_at else None,
+        "updated_at": system.updated_at.isoformat() if system.updated_at else None,
+    }
+
+
+def _watch_capability(db: DBSession) -> Capability | None:
+    from app.services.systems.bootstrap import INTELLIGENCE_CAPABILITY_SLUG
+
+    return db.query(Capability).filter(Capability.slug == INTELLIGENCE_CAPABILITY_SLUG).first()
+
+
+def _system_admin_legacy(db: DBSession, *, user: User, workspace: Workspace) -> bool:
+    return legacy_object_action_allowed(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="system",
+        action="admin",
+    )
+
+
+@router.get("/watch")
+async def list_watch_systems(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """The workspace's Intelligence Systems, and whether this user may create one.
+
+    Only Systems carrying the intelligence marker (or its legacy template)
+    are listed: never a fallback list of unrelated Systems.
+    """
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="system",
+        action="read",
+        legacy_allowed=True,
+        resource_attrs={"scope": "collection"},
+    )
+    systems = (
+        db.query(System)
+        .filter(System.workspace_id == workspace.id, System.status != "retired")
+        .order_by(System.updated_at.desc())
+        .all()
+    )
+    capability = _watch_capability(db)
+    can_create = capability is not None and resolve_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="system",
+        action="admin",
+        legacy_allowed=_system_admin_legacy(db, user=user, workspace=workspace),
+        resource_attrs={"capability_id": capability.id},
+        audit_shadow_diff=False,
+        audit_shadow_evidence=False,
+    ).effective_allowed
+    return {
+        "systems": [_watch_row(system) for system in intelligence_systems(systems)],
+        "can_create": bool(can_create),
+        "template_id": INTELLIGENCE_TEMPLATE_ID,
+    }
+
+
+@router.post("/watch")
+async def create_watch_system(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Create the workspace's News Lab System on demand (idempotent).
+
+    Same right as creating any System. A workspace that already has a watch
+    gets it back; an earlier unmarked News Lab seed is adopted, not duplicated.
+    """
+    from app.services.systems.bootstrap import ensure_intelligence_system_default
+
+    capability = _watch_capability(db)
+    if capability is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "intelligence_capability_missing",
+                "message": "The intelligence capability is not in the catalog yet.",
+            },
+        )
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="system",
+        action="admin",
+        legacy_allowed=_system_admin_legacy(db, user=user, workspace=workspace),
+        resource_attrs={"capability_id": capability.id},
+    )
+    existing = preferred_intelligence_system(
+        db.query(System)
+        .filter(System.workspace_id == workspace.id, System.status != "retired")
+        .all()
+    )
+    if existing is not None:
+        return {"system": _watch_row(existing), "created": False}
+    system = ensure_intelligence_system_default(db, workspace.id)
+    if system is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "intelligence_capability_missing",
+                "message": "The intelligence capability is not in the catalog yet.",
+            },
+        )
+    return {"system": _watch_row(system), "created": True}

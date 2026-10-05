@@ -149,7 +149,6 @@ async def test_disabled_startup_does_not_reconcile_or_seed(
         "ensure_client360_pdr_system_for_all_workspaces",
         "ensure_expert_capture_system_for_all_workspaces",
         "ensure_fse_report_system_for_andritz",
-        "ensure_intelligence_system_for_all_workspaces",
         "ensure_workspace_chat_system_for_all_workspaces",
     ):
         monkeypatch.setattr(
