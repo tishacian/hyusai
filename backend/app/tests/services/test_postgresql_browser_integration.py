@@ -176,9 +176,9 @@ def test_real_source_snapshot_becomes_native_dataset_and_survives_source_changes
             )
         )
         cursor.execute(sql.SQL("DELETE FROM {}.claims").format(sql.Identifier(schema)))
-    assert tabular_datasets.read_frame(dataset).height == 2, (
-        "the native snapshot is independent of the live table"
-    )
+    assert (
+        tabular_datasets.read_frame(dataset).height == 2
+    ), "the native snapshot is independent of the live table"
     with pytest.raises(browser.PostgresBrowseError) as error:
         browser.read(object(), **selected, limit=25)
     assert error.value.code == "PG_SOURCE_CHANGED"
@@ -216,3 +216,53 @@ def test_schema_recheck_sees_ddl_committed_while_acquiring_the_table_lock(postgr
     with pytest.raises(browser.PostgresBrowseError) as error:
         browser.read(object(), **selected, limit=25)
     assert error.value.code == "PG_SOURCE_CHANGED"
+
+
+def test_real_batches_odd_identifiers_and_a_running_byte_budget(postgres, monkeypatch):
+    schema, _, admin = postgres
+    with admin.cursor() as cursor:
+        cursor.execute(
+            sql.SQL('CREATE TABLE {}.ratios (id int PRIMARY KEY, "growth_%" text)').format(
+                sql.Identifier(schema)
+            )
+        )
+        cursor.execute(
+            sql.SQL(
+                "INSERT INTO {}.ratios SELECT i, repeat('x', 10) FROM generate_series(1, 7) i"
+            ).format(sql.Identifier(schema))
+        )
+    with browser._connection(object()) as (_, config):
+        reader = config["values"]["username"]
+    with admin.cursor() as cursor:
+        cursor.execute(
+            sql.SQL("GRANT SELECT ON {}.ratios TO {}").format(
+                sql.Identifier(schema), sql.Identifier(reader)
+            )
+        )
+    metadata = browser.describe(object(), schema, "ratios")
+    selected = {
+        "schema": schema,
+        "table": "ratios",
+        "columns": ["id", "growth_%"],
+        "fingerprint": metadata["fingerprint"],
+    }
+    # Several round trips, read in primary-key order, with a "%" in a name.
+    monkeypatch.setattr(browser, "FETCH_BATCH_ROWS", 2)
+    result = browser.read(object(), **selected, limit=7)
+    assert [row["id"] for row in result["rows"]] == list(range(1, 8))
+    assert result["rows"][0]["growth_%"] == "x" * 10 and result["has_more"] is False
+    # Each row weighs 11 bytes of text: from the fourth, the running total
+    # crosses 40 bytes and the server sends the flag and NULLs, not the cells.
+    columns = [col for col in metadata["columns"] if col["name"] in {"id", "growth_%"}]
+    query = browser._bounded_query(
+        schema, "ratios", columns, ["id"], "__fits", byte_limit=40, limit=8
+    )
+    with admin.cursor() as cursor:
+        cursor.execute(query)
+        flagged = cursor.fetchall()
+    assert [row[0] for row in flagged] == [True] * 3 + [False] * 4
+    assert flagged[3][1:] == (None, None)
+    monkeypatch.setattr(browser, "MAX_PREVIEW_BYTES", 40)
+    with pytest.raises(browser.PostgresBrowseError) as error:
+        browser.read(object(), **selected, limit=7)
+    assert error.value.code == "PG_RESULT_TOO_LARGE"

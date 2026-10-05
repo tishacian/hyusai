@@ -37,7 +37,11 @@ class Import(Selection):
 
 
 def _error(exc):
-    raise HTTPException(status_code=exc.status, detail={"code": exc.code}) from None
+    detail = {"code": exc.code}
+    if exc.sqlstate:
+        # A standard SQLSTATE names the class of failure without any server text.
+        detail["sqlstate"] = exc.sqlstate
+    raise HTTPException(status_code=exc.status, detail=detail) from None
 
 
 @router.get("/catalog")

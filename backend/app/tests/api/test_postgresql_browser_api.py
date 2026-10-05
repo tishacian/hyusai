@@ -44,6 +44,17 @@ def column(name="id", pg_type="int8", **extra):
     }
 
 
+def parts(value):
+    if isinstance(value, sql.Composed):
+        return [part for child in value.seq for part in parts(child)]
+    return [value]
+
+
+def row_limit(query):
+    # The bounded read inlines its LIMIT as the last literal of the statement.
+    return [part.wrapped for part in parts(query) if isinstance(part, sql.Literal)][-1]
+
+
 class Cursor:
     def __init__(self, connection, named=False):
         self.connection, self.named, self.rows, self.offset = connection, named, [], 0
@@ -57,7 +68,8 @@ class Cursor:
     def execute(self, query, params=None):
         self.connection.calls.append((query, params))
         if self.named:
-            self.rows = [(True, *row) for row in self.connection.rows[: params[0]]]
+            assert params is None, "the bounded read sends no driver parameters"
+            self.rows = [(True, *row) for row in self.connection.rows[: row_limit(query)]]
         elif isinstance(query, str) and "format_type" in query:
             self.rows = self.connection.columns
         elif isinstance(query, str) and "AS kind" in query:
@@ -215,14 +227,9 @@ def test_odd_identifiers_are_quoted_identifiers_not_sql(setup):
         for query, _ in connection.calls
         if isinstance(query, sql.Composed) and "agentium_source" in str(query)
     )
-
-    def parts(value):
-        if isinstance(value, sql.Composed):
-            return [part for child in value.seq for part in parts(child)]
-        return [value]
-
     assert sql.Identifier(name) in parts(query)
     assert all(name not in part.string for part in parts(query) if isinstance(part, sql.SQL))
+    assert "MATERIALIZED" not in str(query), "the read runs on PostgreSQL before 12 too"
 
 
 def test_import_rereads_all_rows_and_registers_versioned_native_parquet(setup, db_session):
@@ -439,3 +446,95 @@ def test_int64_preview_stays_exact_and_empty_snapshots_keep_the_schema(setup, db
         "/postgresql/import", json={**body, "name": "Empty", "request_id": str(uuid4())}
     ).json()["dataset"]
     assert dataset["row_count"] == 0 and dataset["schema"][0]["kind"] == "integer"
+
+
+def test_import_reads_the_source_before_taking_a_non_blocking_workspace_lock(
+    setup, db_session, monkeypatch
+):
+    from sqlalchemy import event
+
+    client, _, _, _ = setup
+    c = client()
+    body = selection(c)
+    events = []
+    original = browser.read
+
+    def read(*args, **kwargs):
+        events.append("read")
+        return original(*args, **kwargs)
+
+    def spy(state):
+        lock = getattr(state.statement, "_for_update_arg", None)
+        if lock is not None:
+            events.append(("lock", lock.key_share))
+
+    monkeypatch.setattr(browser, "read", read)
+    event.listen(db_session, "do_orm_execute", spy)
+    try:
+        response = c.post(
+            "/postgresql/import", json={**body, "name": "Claims", "request_id": str(uuid4())}
+        )
+    finally:
+        event.remove(db_session, "do_orm_execute", spy)
+    assert response.status_code == 200, response.text
+    # FOR NO KEY UPDATE does not block the foreign-key checks of other writes.
+    assert events == ["read", ("lock", True)]
+
+
+def test_a_refused_statement_is_told_apart_from_an_unreachable_server(monkeypatch, caplog):
+    import psycopg2
+
+    class Refused(psycopg2.ProgrammingError):
+        pgcode = "42601"
+
+    class RefusingConnection(Connection):
+        def cursor(self, name=None, **_):
+            cursor = Cursor(self, named=bool(name))
+            if name:
+
+                def refuse(query, params=None):
+                    raise Refused(f"syntax error near {SECRET}")
+
+                cursor.execute = refuse
+            return cursor
+
+    connection = RefusingConnection()
+    monkeypatch.setattr(browser, "get_config", lambda *a, **kw: CONFIG)
+    monkeypatch.setattr("psycopg2.connect", lambda **kwargs: connection)
+    metadata = browser.describe(object(), "showcase_ecommerce", "claims")
+    with caplog.at_level("WARNING"), pytest.raises(browser.PostgresBrowseError) as error:
+        browser.read(
+            object(),
+            schema="showcase_ecommerce",
+            table="claims",
+            columns=["id"],
+            fingerprint=metadata["fingerprint"],
+            limit=1,
+        )
+    assert (error.value.code, error.value.status, error.value.sqlstate) == (
+        "PG_QUERY_FAILED",
+        502,
+        "42601",
+    )
+    assert "query_failed" in caplog.text and "42601" in caplog.text
+    assert SECRET not in caplog.text, "the driver message never reaches the log"
+
+    def unreachable(**kwargs):
+        raise psycopg2.OperationalError(f"could not connect with {SECRET}")
+
+    monkeypatch.setattr("psycopg2.connect", unreachable)
+    with pytest.raises(browser.PostgresBrowseError) as error:
+        browser.catalog(object())
+    assert (error.value.code, error.value.sqlstate) == ("PG_UNAVAILABLE", None)
+
+
+def test_the_api_returns_the_sqlstate_but_never_the_server_text(setup, monkeypatch):
+    client, _, _, _ = setup
+
+    def refuse(*args, **kwargs):
+        raise browser.PostgresBrowseError("PG_QUERY_FAILED", 502, "42601")
+
+    monkeypatch.setattr(browser, "catalog", refuse)
+    response = client().get("/postgresql/catalog")
+    assert response.status_code == 502
+    assert response.json()["detail"] == {"code": "PG_QUERY_FAILED", "sqlstate": "42601"}
