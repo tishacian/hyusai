@@ -1,8 +1,10 @@
 /**
- * Geometry of the sign-in atom: three dashed rings, an electron on each, in
- * a 400 × 400 frame. The rings drift slowly, their dashes flow along them,
- * and the electrons speed up as the pointer comes near. How each point then
- * bends under the pointer's gravity lives in `gravity.ts`. Pure math, no DOM.
+ * Geometry of the sign-in atom, in a 400 × 400 frame. There are no drawn
+ * orbits: each electron draws its own, a long braided trail behind it that
+ * covers most of the turn and fades toward its tail — the same double helix
+ * as the pointer wake. The electrons speed up as the pointer comes near. How
+ * each point then bends under the pointer's gravity lives in `gravity.ts`.
+ * Pure math, no DOM.
  */
 
 export interface Ring {
@@ -12,22 +14,19 @@ export interface Ring {
   rotation: number;
   /** One turn of its electron at rest, in seconds; negative turns the other way. */
   periodS: number;
-  /** Opacity of the ring at rest. */
+  /** Opacity of the ring's braid at rest. */
   alpha: number;
-  /** Speed of the dashes along the ring, in frame units per second; the sign is the direction. */
-  flow: number;
 }
 
 /** The three rings of the sign-in atom. */
 export const ATOM_RINGS: readonly Ring[] = [
-  { rx: 188, ry: 72, rotation: -24, periodS: 46, alpha: 0.8, flow: 4.3 },
-  { rx: 160, ry: 62, rotation: 20, periodS: -61, alpha: 0.55, flow: -5.3 },
-  { rx: 128, ry: 112, rotation: -6, periodS: 78, alpha: 0.35, flow: 3.4 },
+  { rx: 188, ry: 72, rotation: -24, periodS: 46, alpha: 0.85 },
+  { rx: 160, ry: 62, rotation: 20, periodS: -61, alpha: 0.65 },
+  { rx: 128, ry: 112, rotation: -6, periodS: 78, alpha: 0.5 },
 ];
 
-/** Dash pattern of the rings, in frame units: a short dash every 8. */
-export const DASH_PERIOD = 8;
-export const DASH_LENGTH = 2;
+/** Share of its orbit an electron's braid covers behind it. */
+export const TRAIL_FRACTION = 0.78;
 /** One full drift of the whole atom, in seconds. */
 export const DRIFT_PERIOD_S = 240;
 export const ATOM_NEAR_RADIUS_PX = 420;
@@ -63,21 +62,6 @@ export function arcTable(ring: Ring, steps = 720): ArcTable {
     previous = point;
   }
   return { lengths, total: lengths[steps], steps };
-}
-
-/** The parameter angle at arc distance `s` along the ring (wrapping around). */
-export function angleAtLength(table: ArcTable, s: number): number {
-  const target = ((s % table.total) + table.total) % table.total;
-  let low = 0;
-  let high = table.steps;
-  while (high - low > 1) {
-    const mid = (low + high) >> 1;
-    if (table.lengths[mid] <= target) low = mid;
-    else high = mid;
-  }
-  const span = table.lengths[high] - table.lengths[low] || 1;
-  const fraction = (target - table.lengths[low]) / span;
-  return ((low + fraction) / table.steps) * Math.PI * 2;
 }
 
 /** 0 far from the atom, 1 on it, easing smoothly in between. */
@@ -131,4 +115,71 @@ export function bridgePoints(
 export function bridgeStrength(distance: number, mass: number, radius = 190): number {
   if (distance >= radius) return 0;
   return Math.min(1, (radius - distance) / (radius * 0.5)) * Math.min(1, Math.max(0, mass));
+}
+
+/** Keeps only the last `maxLength` px of a trail, measured along it from its head. */
+export function pruneByLength(points: { d: number }[], maxLength: number): void {
+  const head = points[points.length - 1];
+  if (!head) return;
+  let expired = 0;
+  while (expired < points.length && head.d - points[expired].d > maxLength) expired++;
+  if (expired) points.splice(0, expired);
+}
+
+export interface BraidOptions {
+  /** Offset from the trail at its head, in px. */
+  amplitude: number;
+  /** Distance between two crossings, in px. */
+  wavelength: number;
+  /** Stroke width at the head, in px. */
+  width: number;
+  /** How much wider the braid opens at the tail: 1 doubles the offset. */
+  spread: number;
+}
+
+export interface BraidSample {
+  x: number;
+  y: number;
+  /** 1 at the head, 0 at the end of the trail. */
+  life: number;
+  width: number;
+}
+
+/**
+ * One strand of an electron's braid: the trail offset along its normal by a
+ * sine of the distance travelled (stable while the electron moves on), opening
+ * toward the tail and fading with the distance from the head, so the orbit
+ * reads as the trace of its electron.
+ */
+export function orbitBraid(
+  points: readonly { x: number; y: number; d: number }[],
+  phase: number,
+  maxLength: number,
+  options: BraidOptions,
+): BraidSample[] {
+  const count = points.length;
+  const head = points[count - 1];
+  if (!head) return [];
+  const samples: BraidSample[] = [];
+  for (let i = 0; i < count; i++) {
+    const point = points[i];
+    const prev = points[Math.max(0, i - 1)];
+    const next = points[Math.min(count - 1, i + 1)];
+    let nx = -(next.y - prev.y);
+    let ny = next.x - prev.x;
+    const length = Math.hypot(nx, ny) || 1;
+    nx /= length;
+    ny /= length;
+    const behind = Math.min(1, Math.max(0, (head.d - point.d) / Math.max(1, maxLength)));
+    const life = 1 - behind;
+    const offset =
+      Math.sin((point.d / options.wavelength) * Math.PI * 2 + phase) * options.amplitude * (1 + options.spread * behind);
+    samples.push({
+      x: point.x + nx * offset,
+      y: point.y + ny * offset,
+      life,
+      width: options.width * (0.35 + 0.65 * life),
+    });
+  }
+  return samples;
 }
