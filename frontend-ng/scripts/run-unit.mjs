@@ -27,6 +27,7 @@ const stub = join(here, 'ng-core.stub.mjs');
 const pureSpecs = [
   'src/app/features/auth/cursor-wake.spec.ts',
   'src/app/features/auth/auth-atom.spec.ts',
+  'src/app/features/auth/gravity.spec.ts',
   'src/app/features/experience/work/claim-run.spec.ts',
   'src/app/features/governance/audit-trail.vm.spec.ts',
   'src/app/features/hypervisor/v2/demo-finishings.spec.ts',
