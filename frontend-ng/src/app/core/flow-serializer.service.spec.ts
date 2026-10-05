@@ -121,6 +121,47 @@ test('validateFlow accepts a bound skill task with no warnings for it', () => {
   assert.ok(!issues.some((i) => i.code === 'task_no_skill'));
 });
 
+test('error routing requires an explicit policy and a real error edge', () => {
+  const valid: CanonicalFlow = {
+    schema_version: 3,
+    nodes: [
+      { id: 'task', type: 'skill', kind: 'task', config: { skill_slug: 'x', on_error: 'route' } },
+      { id: 'handler', type: 'skill', kind: 'task', config: { skill_slug: 'audit_log_v1' } },
+    ],
+    edges: [{ from: 'task', to: 'handler', kind: 'error', from_port: 'error' }],
+  };
+  const missing: CanonicalFlow = {
+    schema_version: 3,
+    nodes: [
+      { id: 'task', type: 'skill', kind: 'task', config: { skill_slug: 'x', on_error: 'route' } },
+    ],
+    edges: [],
+  };
+  const invalid: CanonicalFlow = {
+    schema_version: 3,
+    nodes: [
+      { id: 'task', type: 'skill', kind: 'task', config: { skill_slug: 'x', on_error: 'ignore' } },
+    ],
+    edges: [],
+  };
+
+  assert.ok(!svc().validateFlow(valid).some((issue) => issue.code.startsWith('on_error_')));
+  assert.ok(svc().validateFlow(missing).some((issue) => issue.code === 'on_error_route_missing'));
+  assert.ok(svc().validateFlow(invalid).some((issue) => issue.code === 'on_error_invalid'));
+});
+
+test('join quorum is bounded by its incoming branches', () => {
+  const flow: CanonicalFlow = {
+    schema_version: 3,
+    nodes: [
+      { id: 'join', type: 'join', kind: 'join', config: { strategy: 'all', min_success: 2 } },
+    ],
+    edges: [],
+  };
+
+  assert.ok(svc().validateFlow(flow).some((issue) => issue.code === 'join_min_success_invalid'));
+});
+
 test('validateFlow rejects duplicate node ids before ambiguous map construction', () => {
   const flow: CanonicalFlow = {
     nodes: [

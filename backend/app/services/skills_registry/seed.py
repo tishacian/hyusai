@@ -2414,6 +2414,110 @@ SEED_SKILLS: List[Dict[str, Any]] = [
             "flagged_count": {"type": "integer"},
         }},
     },
+    {
+        "slug": "grounding_check_v1",
+        "version": "1",
+        "name": "Grounding Check",
+        "description": "Deterministic mid-flow grounding gate: every claim must name a source id present in the retrieved evidence.",
+        "type": "governance",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["draft", "evidence"],
+            "properties": {
+                "draft": {
+                    "type": "object",
+                    "required": ["claims"],
+                    "properties": {
+                        "claims": {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                                "type": "object",
+                                "required": ["text", "source_id"],
+                                "properties": {
+                                    "text": {"type": "string", "minLength": 1},
+                                    "source_id": {"type": "string", "minLength": 1},
+                                },
+                                "additionalProperties": False,
+                            },
+                        },
+                    },
+                    "additionalProperties": True,
+                },
+                "evidence": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["id"],
+                        "properties": {
+                            "id": {"type": "string", "minLength": 1},
+                            "text": {"type": "string"},
+                        },
+                        "additionalProperties": True,
+                    },
+                },
+            },
+            "additionalProperties": False,
+        },
+        "output_schema": {
+            "type": "object",
+            "required": ["accepted", "violations"],
+            "properties": {
+                "accepted": {"type": "boolean"},
+                "violations": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["claim_index", "code", "source_id"],
+                        "properties": {
+                            "claim_index": {"type": "integer", "minimum": 0},
+                            "code": {"type": "string", "enum": ["missing_source"]},
+                            "source_id": {"type": "string"},
+                        },
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "slug": "evaluate_v1",
+        "version": "1",
+        "name": "Typed Evaluation",
+        "description": "Runs the native judge inside a Flow and exposes typed answers (closed choice, bounded score, yes probability) for routing.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 60_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["query", "response", "context_chunks", "questions"],
+            "properties": {
+                "query": {"type": "string", "minLength": 1},
+                "response": {"type": "string", "minLength": 1},
+                "context_chunks": {"type": "array", "items": {"type": "string"}},
+                "questions": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+            },
+            "additionalProperties": False,
+        },
+        "output_schema": {
+            "type": "object",
+            "required": ["answers", "composite_score", "hallucination_rate"],
+            "properties": {
+                "answers": {"type": "object"},
+                "composite_score": {"type": ["number", "null"]},
+                "hallucination_rate": {"type": ["number", "null"]},
+                "status": {"type": "string"},
+            },
+            "additionalProperties": True,
+        },
+    },
 ]
 
 
@@ -2444,6 +2548,8 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
             "eval_radar_v1",
             "claim_audit_v1",
             "response_eval_v1",
+            "grounding_check_v1",
+            "evaluate_v1",
             "audit_log_v1",
         ],
         "pricing": {"unit": "per_outcome", "unit_price": 0.06, "currency": "USD"},
@@ -3148,6 +3254,8 @@ SKILL_CATEGORIES: Dict[str, str] = {
     "python_recipe_v1": "Automation",
     "reconciliation_report_v1": "Governance",
     "response_eval_v1": "Governance",
+    "grounding_check_v1": "Governance",
+    "evaluate_v1": "Governance",
     "rpa_dispatch_v1": "Automation",
     "rumor_origin_trace_v1": "Analysis",
     "mcp_call_v1": "Connections",

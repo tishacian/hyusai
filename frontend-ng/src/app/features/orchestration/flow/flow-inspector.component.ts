@@ -323,6 +323,54 @@ export function publishedNodeExecutor(
             }
           }
 
+          @if ((n.kind ?? 'task') === 'task' || (n.kind ?? 'task') === 'retry') {
+            <section class="ck-flow-section" data-testid="node-error-policy">
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.error_policy.title') }}
+              </span>
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">
+                  {{ i18n.t('flow.inspector.error_policy.label') }}
+                </span>
+                <select
+                  class="ck-flow-input"
+                  data-testid="node-error-policy-select"
+                  [value]="errorPolicy(n)"
+                  (change)="onErrorPolicy($event)"
+                >
+                  <option value="continue">{{ i18n.t('flow.inspector.error_policy.continue') }}</option>
+                  <option value="fail">{{ i18n.t('flow.inspector.error_policy.fail') }}</option>
+                  <option value="route">{{ i18n.t('flow.inspector.error_policy.route') }}</option>
+                </select>
+              </label>
+              @if (errorPolicy(n) === 'route') {
+                <p class="ck-flow-hint">{{ i18n.t('flow.inspector.error_policy.route_hint') }}</p>
+              }
+            </section>
+          }
+
+          @if ((n.kind ?? 'task') === 'join') {
+            <section class="ck-flow-section" data-testid="join-quorum">
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.join.title') }}
+              </span>
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">
+                  {{ i18n.t('flow.inspector.join.min_success') }}
+                </span>
+                <input
+                  class="ck-flow-input"
+                  type="number"
+                  min="0"
+                  step="1"
+                  [value]="joinMinSuccess(n)"
+                  (change)="onJoinMinSuccess($event)"
+                />
+                <p class="ck-flow-hint">{{ i18n.t('flow.inspector.join.hint') }}</p>
+              </label>
+            </section>
+          }
+
           @if ((n.kind ?? 'task') === 'agent_loop') {
             <section class="ck-flow-section ck-flow-agent-loop">
               <span class="ck-flow-section__label">
@@ -1587,6 +1635,35 @@ export class FlowInspectorComponent {
     const key = `flow.node.kind.${kind}`;
     const label = this.i18n.t(key);
     return label === key ? kind : label;
+  }
+
+  errorPolicy(node: CanonicalFlowNode): 'continue' | 'fail' | 'route' {
+    const value = (node.config as Record<string, unknown> | undefined)?.['on_error'];
+    return value === 'fail' || value === 'route' ? value : 'continue';
+  }
+
+  onErrorPolicy(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'on_error',
+      (event.target as HTMLSelectElement).value as 'continue' | 'fail' | 'route',
+    );
+  }
+
+  joinMinSuccess(node: CanonicalFlowNode): number | '' {
+    const value = (node.config as Record<string, unknown> | undefined)?.['min_success'];
+    return typeof value === 'number' && Number.isFinite(value) ? value : '';
+  }
+
+  onJoinMinSuccess(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    const raw = (event.target as HTMLInputElement).value;
+    const value = raw === '' ? null : Math.max(0, Math.trunc(Number(raw)));
+    if (raw !== '' && !Number.isFinite(value)) return;
+    this.store.updateNodeConfig(id, 'min_success', value);
   }
 
   readonly privilegeTiers = PRIVILEGE_TIERS;

@@ -76,6 +76,11 @@ import { observabilityNumber, observabilityText } from '../observability/observa
               {{ inv.skill_slug || inv.skill_id || inv.id || '—' }}
             </button>
             <span>{{ status(inv.status) }}</span>
+            @if (inv.status === 'failed' && run().status === 'completed') {
+              <span class="tolerated" data-testid="tolerated-failure">
+                {{ i18n.t('runs.trace.tolerated_failure') }}
+              </span>
+            }
             <span class="tabular">{{ i18n.t('runs.trace.retries') }}: {{ retries(inv) }}</span>
             <span class="tabular">{{ i18n.t('runs.trace.tokens') }}: {{ tokensLabel(inv) }}</span>
           </article>
@@ -158,7 +163,7 @@ import { observabilityNumber, observabilityText } from '../observability/observa
       }
       .attr-row {
         display: grid;
-        grid-template-columns: minmax(120px, 1.4fr) 1fr 1fr 1fr;
+        grid-template-columns: minmax(120px, 1.4fr) 1fr 1fr 1fr 1fr;
         gap: 12px;
         align-items: center;
         padding: 10px 0;
@@ -167,6 +172,14 @@ import { observabilityNumber, observabilityText } from '../observability/observa
       }
       .attr-row.failed {
         color: var(--ck-signal-neg);
+      }
+      .tolerated {
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--ck-status-warn-fg);
+        white-space: nowrap;
       }
       .skill {
         background: none;

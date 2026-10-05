@@ -186,6 +186,7 @@ export interface TaskNodeConfig {
   passthrough_inputs?: string[];
   /** Map output port name → context key to write. */
   outputs_map?: Record<string, string>;
+  on_error?: 'continue' | 'fail' | 'route';
 }
 
 export interface DecisionNodeConfig {
@@ -201,6 +202,7 @@ export interface ForkNodeConfig {
 export interface JoinNodeConfig {
   /** Wait for all, any, or race-win strategy. */
   strategy: 'all' | 'any' | 'race';
+  min_success?: number;
 }
 
 export interface LoopNodeConfig {
@@ -228,6 +230,7 @@ export interface RetryNodeConfig {
   backoff_ms: number;
   /** Optional filter: only retry for specific error kinds. */
   on_errors?: string[];
+  on_error?: 'continue' | 'fail' | 'route';
 }
 
 export interface HitlNodeConfig {
@@ -289,7 +292,7 @@ export interface CanonicalFlowEdge {
    * `control` = pure sequencing, `branch` = outcome of a `decision`
    * or `fork` (requires `branch_label`).
    */
-  kind?: 'data' | 'control' | 'branch';
+  kind?: 'data' | 'control' | 'branch' | 'error';
   branch_label?: string;
   /** Source port name (when kind='data'). */
   from_port?: string;
@@ -407,6 +410,9 @@ export interface FlowValidationIssue {
     | 'join_without_matching_fork'
     | 'branch_label_invalid'
     | 'join_strategy_invalid'
+    | 'on_error_invalid'
+    | 'on_error_route_missing'
+    | 'join_min_success_invalid'
     | 'task_no_skill'
     | 'cycle_detected'
     | 'unreachable_node'
@@ -1046,6 +1052,31 @@ export class FlowSerializerService {
         });
       }
 
+      if (kind === 'task' || kind === 'retry') {
+        const onError = cfg['on_error'] ?? 'continue';
+        if (onError !== 'continue' && onError !== 'fail' && onError !== 'route') {
+          issues.push({
+            level: 'error',
+            node_id: n.id,
+            code: 'on_error_invalid',
+            message: 'on_error must be continue, fail or route.',
+          });
+        } else if (onError === 'route' && !flow.edges.some((edge) =>
+          edge.from === n.id && (
+            edge.kind === 'error' ||
+            edge.from_port === 'error' ||
+            edge.to_port === 'error'
+          )
+        )) {
+          issues.push({
+            level: 'error',
+            node_id: n.id,
+            code: 'on_error_route_missing',
+            message: `Node "${n.label ?? n.id}" routes errors but has no error edge.`,
+          });
+        }
+      }
+
       if (kind === 'task') {
         const skillId = cfg['skill_id'];
         const skillSlug = cfg['skill_slug'];
@@ -1208,6 +1239,24 @@ export class FlowSerializerService {
             node_id: n.id,
             code: 'retry_no_target',
             message: `Retry "${n.label ?? n.id}" is missing a positive max_attempts.`,
+          });
+        }
+      }
+      if (kind === 'join') {
+        const minSuccess = cfg['min_success'];
+        if (
+          minSuccess !== undefined && (
+            typeof minSuccess !== 'number' ||
+            !Number.isSafeInteger(minSuccess) ||
+            minSuccess < 0 ||
+            minSuccess > (rev.get(n.id)?.length ?? 0)
+          )
+        ) {
+          issues.push({
+            level: 'error',
+            node_id: n.id,
+            code: 'join_min_success_invalid',
+            message: 'Join min_success must be an integer between 0 and its incoming branch count.',
           });
         }
       }

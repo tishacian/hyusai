@@ -152,6 +152,45 @@ def test_task_without_skill_warns_but_does_not_error() -> None:
     assert not has_errors(issues)
 
 
+def test_on_error_accepts_declared_policies() -> None:
+    for on_error in ("continue", "fail", "route"):
+        flow = {
+            "nodes": [
+                {"id": "task", "kind": "task", "config": {"on_error": on_error}},
+                {"id": "handler", "kind": "task", "config": {"skill_slug": "handler"}},
+            ],
+            "edges": [{"from": "task", "to": "handler", "kind": "error"}],
+        }
+        assert not has_errors(validate_flow(flow))
+
+
+def test_on_error_rejects_unknown_policy() -> None:
+    flow = {
+        "nodes": [{"id": "task", "kind": "task", "config": {"on_error": "ignore"}}],
+        "edges": [],
+    }
+
+    issues = validate_flow(flow)
+
+    assert _codes(issues) == {"on_error_invalid", "task_no_skill"}
+    assert has_errors(issues)
+
+
+def test_on_error_route_requires_an_error_edge() -> None:
+    flow = {
+        "nodes": [
+            {"id": "task", "kind": "task", "config": {"on_error": "route"}},
+            {"id": "normal", "kind": "task", "config": {"skill_slug": "next"}},
+        ],
+        "edges": [{"from": "task", "to": "normal", "kind": "data"}],
+    }
+
+    issues = validate_flow(flow)
+
+    assert "on_error_route_missing" in _codes(issues)
+    assert has_errors(issues)
+
+
 def test_builder_canonical_nodes_exempted_from_task_no_skill() -> None:
     flow = {
         "nodes": [{"id": "builder.objective", "kind": "task"}],

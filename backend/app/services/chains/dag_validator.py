@@ -864,6 +864,36 @@ def validate_flow(flow: Mapping[str, Any]) -> list[ValidationIssue]:
         cfg = node.get("config") or {}
         if not isinstance(cfg, Mapping):
             cfg = {}
+        if kind in {"task", "retry"}:
+            on_error = cfg.get("on_error", "continue")
+            if on_error not in {"continue", "fail", "route"}:
+                issues.append(
+                    ValidationIssue(
+                        level="error",
+                        code="on_error_invalid",
+                        message=(
+                            f"Node {node.get('label') or nid!r} on_error must be continue, fail or route."
+                        ),
+                        node_id=nid,
+                    )
+                )
+            elif on_error == "route" and not any(
+                edge.get("from") == nid
+                and (
+                    str(edge.get("kind") or "") == "error"
+                    or edge.get("from_port") == "error"
+                    or edge.get("to_port") == "error"
+                )
+                for edge in edges
+            ):
+                issues.append(
+                    ValidationIssue(
+                        level="error",
+                        code="on_error_route_missing",
+                        message=f"Node {node.get('label') or nid!r} routes errors but has no error edge.",
+                        node_id=nid,
+                    )
+                )
         if "ingress_kind" in cfg:
             ingress_kind = cfg.get("ingress_kind")
             if not isinstance(ingress_kind, str) or ingress_kind not in _INGRESS_KINDS:
@@ -1078,6 +1108,26 @@ def validate_flow(flow: Mapping[str, Any]) -> list[ValidationIssue]:
                         level="warn",
                         code="hitl_no_prompt",
                         message=f"HITL {node.get('label') or nid!r} should include an approver prompt.",
+                        node_id=nid,
+                    )
+                )
+        elif kind == "join":
+            min_success = cfg.get("min_success")
+            predecessor_count = sum(1 for edge in edges if edge.get("to") == nid)
+            if min_success is not None and (
+                not isinstance(min_success, int)
+                or isinstance(min_success, bool)
+                or min_success < 0
+                or min_success > predecessor_count
+            ):
+                issues.append(
+                    ValidationIssue(
+                        level="error",
+                        code="join_min_success_invalid",
+                        message=(
+                            f"Join {node.get('label') or nid!r} min_success must be an integer "
+                            f"between 0 and its {predecessor_count} incoming branch(es)."
+                        ),
                         node_id=nid,
                     )
                 )
