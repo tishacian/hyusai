@@ -6,44 +6,32 @@ from typing import AsyncGenerator
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.base import SessionLocal
+from app.services.intelligence.profile import (
+    IntelligenceProfile,
+    intelligence_profile,
+    profile_for_workspace_id,
+)
 
 logger = get_logger(__name__)
-
-# Seeded when DB has no rows so "Run Analysis" works without manual config (demo / first run).
-DEFAULT_FEEDS = [
-    {"name": "BBC World News (default)", "url": "https://feeds.bbci.co.uk/news/world/rss.xml", "category": "world"},
-    {"name": "NYT World (default)", "url": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml", "category": "world"},
-]
-DEFAULT_TARGET = {
-    "name": "General intelligence (default)",
-    "description": (
-        "World news, geopolitics, economy, technology, security, and major events "
-        "relevant to enterprise risk awareness."
-    ),
-    "keywords": [],
-    "relevance_threshold": 0.10,
-}
-DEFAULT_FILTER = {
-    "name": "Standard safety (default)",
-    "prompt_template": (
-        "Flag content that is primarily illegal, graphic violence, or explicit hate speech. "
-        "Allow neutral factual news reporting."
-    ),
-    "severity": "flag",
-}
-
 
 def _risk_rank(level: str | None) -> int:
     return {"critical": 4, "high": 3, "medium": 2, "low": 1}.get(level or "low", 1)
 
 
-def _build_reference_synthesis(articles: list[dict], risk_counts: dict, top_entities: list[tuple[str, int]]) -> dict:
+def _build_reference_synthesis(
+    articles: list[dict],
+    risk_counts: dict,
+    top_entities: list[tuple[str, int]],
+    profile: IntelligenceProfile | None = None,
+) -> dict:
     """Build a deterministic, source-backed brief from the dashboard rows.
 
     This is intentionally not an LLM summary: it gives the system a reliable
     baseline artifact that can later be promoted to Knowledge or consumed by
-    the Mission Room even when external model providers are disabled.
+    the Mission Room even when external model providers are disabled. Its
+    wording and target collection come from the workspace profile.
     """
+    profile = profile or intelligence_profile(None)
     ranked = sorted(
         articles,
         key=lambda a: (
@@ -58,24 +46,20 @@ def _build_reference_synthesis(articles: list[dict], risk_counts: dict, top_enti
     entities = [name for name, _count in top_entities[:6]]
     if focus:
         titles = "; ".join(a.get("title") or "Untitled" for a in focus[:3])
-        summary = f"{len(articles)} articles analyses. {high_count} signal(s) haut risque. Priorite: {titles}."
+        summary = profile.brief_summary(len(articles), high_count, titles)
     else:
         summary = (
             "No articles analysed yet. Trigger an RSS analysis to produce the reference synthesis."
         )
     return {
-        "title": "Synthese de veille RSS",
+        "title": profile.brief_title,
         "summary": summary,
         "key_findings": [
             (a.get("summary") or a.get("title") or "").strip()
             for a in focus
             if (a.get("summary") or a.get("title"))
         ][:5],
-        "recommended_actions": [
-            "Verifier les sources primaires avant diffusion cabinet.",
-            "Promouvoir les signaux confirmes vers la base Knowledge du workspace.",
-            "Relier les signaux haut risque aux vues Presse, Veille et Decisions de l'hyperviseur.",
-        ],
+        "recommended_actions": list(profile.recommended_actions),
         "entities": entities,
         "source_articles": [
             {
@@ -88,7 +72,7 @@ def _build_reference_synthesis(articles: list[dict], risk_counts: dict, top_enti
             for a in focus
         ],
         "knowledge_reference": {
-            "recommended_collection": "sentinel-ci-open-intelligence",
+            "recommended_collection": profile.collection_slug,
             "status": "candidate",
             "promotion_policy": "human_review_required",
         },
@@ -96,25 +80,28 @@ def _build_reference_synthesis(articles: list[dict], risk_counts: dict, top_enti
 
 
 def ensure_intelligence_defaults(db, workspace_id: str = None) -> bool:
-    """Insert default feed / target / filter if missing.
+    """Insert the family's starter feed / target / filter when the workspace has none.
 
-    When ``workspace_id`` is set, defaults are created only for that workspace.
-    This keeps demo workspaces self-contained even if global defaults already
-    exist from an earlier bootstrap.
+    A generic workspace has no starters: News Lab opens empty and guides the
+    user to add a feed and a target. A family adapter may declare starters
+    (``DEFAULT_FEEDS`` / ``DEFAULT_TARGET`` / ``DEFAULT_FILTER``). Nothing is
+    ever written without a workspace.
     """
     from app.models.intelligence import FeedSource, SemanticTarget, SafetyFilter
 
-    added = False
-    feeds_q = db.query(FeedSource)
-    targets_q = db.query(SemanticTarget)
-    filters_q = db.query(SafetyFilter)
-    if workspace_id:
-        feeds_q = feeds_q.filter(FeedSource.workspace_id == workspace_id)
-        targets_q = targets_q.filter(SemanticTarget.workspace_id == workspace_id)
-        filters_q = filters_q.filter(SafetyFilter.workspace_id == workspace_id)
+    if not workspace_id:
+        return False
+    profile = profile_for_workspace_id(db, workspace_id)
+    if not profile.has_starters:
+        return False
 
-    if feeds_q.count() == 0:
-        for feed in DEFAULT_FEEDS:
+    added = False
+    feeds_q = db.query(FeedSource).filter(FeedSource.workspace_id == workspace_id)
+    targets_q = db.query(SemanticTarget).filter(SemanticTarget.workspace_id == workspace_id)
+    filters_q = db.query(SafetyFilter).filter(SafetyFilter.workspace_id == workspace_id)
+
+    if profile.default_feeds and feeds_q.count() == 0:
+        for feed in profile.default_feeds:
             db.add(
                 FeedSource(
                     id=str(uuid.uuid4()),
@@ -125,42 +112,46 @@ def ensure_intelligence_defaults(db, workspace_id: str = None) -> bool:
                     refresh_interval=3600,
                     active=True,
                 )
-        )
+            )
         added = True
-        logger.info("Seeded default RSS feeds for intelligence batch", count=len(DEFAULT_FEEDS), workspace_id=workspace_id)
-    if targets_q.count() == 0:
+        logger.info("Seeded default RSS feeds for intelligence batch", count=len(profile.default_feeds), workspace_id=workspace_id)
+    default_target = profile.default_target
+    if default_target and targets_q.count() == 0:
         db.add(
             SemanticTarget(
                 id=str(uuid.uuid4()),
                 workspace_id=workspace_id,
-                name=DEFAULT_TARGET["name"],
-                description=DEFAULT_TARGET["description"],
-                keywords=DEFAULT_TARGET["keywords"],
-                relevance_threshold=DEFAULT_TARGET["relevance_threshold"],
+                name=default_target["name"],
+                description=default_target["description"],
+                keywords=list(default_target["keywords"]),
+                relevance_threshold=default_target["relevance_threshold"],
                 active=True,
             )
         )
         added = True
         logger.info("Seeded default semantic target for intelligence batch", workspace_id=workspace_id)
-    else:
-        default_q = db.query(SemanticTarget).filter(
-            SemanticTarget.name.contains("(default)")
+    elif default_target:
+        default_t = (
+            db.query(SemanticTarget)
+            .filter(
+                SemanticTarget.name.contains("(default)"),
+                SemanticTarget.workspace_id == workspace_id,
+            )
+            .first()
         )
-        if workspace_id:
-            default_q = default_q.filter(SemanticTarget.workspace_id == workspace_id)
-        default_t = default_q.first()
-        if default_t and default_t.relevance_threshold != DEFAULT_TARGET["relevance_threshold"]:
-            default_t.relevance_threshold = DEFAULT_TARGET["relevance_threshold"]
+        if default_t and default_t.relevance_threshold != default_target["relevance_threshold"]:
+            default_t.relevance_threshold = default_target["relevance_threshold"]
             added = True
-            logger.info("Updated default target relevance_threshold", new=DEFAULT_TARGET["relevance_threshold"], workspace_id=workspace_id)
-    if filters_q.count() == 0:
+            logger.info("Updated default target relevance_threshold", new=default_target["relevance_threshold"], workspace_id=workspace_id)
+    default_filter = profile.default_filter
+    if default_filter and filters_q.count() == 0:
         db.add(
             SafetyFilter(
                 id=str(uuid.uuid4()),
                 workspace_id=workspace_id,
-                name=DEFAULT_FILTER["name"],
-                prompt_template=DEFAULT_FILTER["prompt_template"],
-                severity=DEFAULT_FILTER["severity"],
+                name=default_filter["name"],
+                prompt_template=default_filter["prompt_template"],
+                severity=default_filter["severity"],
                 active=True,
             )
         )
@@ -172,39 +163,66 @@ def ensure_intelligence_defaults(db, workspace_id: str = None) -> bool:
 
 
 async def run_batch(target_id: str = None, workspace_id: str = None) -> AsyncGenerator[dict, None]:
-    """Run a full intelligence batch: fetch feeds -> analyze -> score -> store.
-    Yields SSE-compatible progress events. When workspace_id is set, only feeds
-    and targets for that workspace are processed."""
+    """Run one workspace's intelligence batch: fetch feeds -> analyze -> score -> store.
+
+    Yields SSE-compatible progress events. Only the workspace's own feeds,
+    targets, safety filters and articles take part; a batch without a
+    workspace is refused rather than run over every workspace at once.
+    """
     from app.models.intelligence import FeedSource, FeedArticle, SemanticTarget, SafetyFilter
     from app.services.intelligence.feed_manager import fetch_feed, save_articles
     from app.services.intelligence.analyzer import get_analyzer
 
+    batch_id = str(uuid.uuid4())[:8]
+    if not workspace_id:
+        yield {
+            "type": "batch_error",
+            "batch_id": batch_id,
+            "code": "workspace_required",
+            "message": "An intelligence batch runs for one workspace; none was given.",
+        }
+        return
+
     analyzer = get_analyzer()
     db = SessionLocal()
-    batch_id = str(uuid.uuid4())[:8]
 
     try:
+        profile = profile_for_workspace_id(db, workspace_id)
         ensure_intelligence_defaults(db, workspace_id=workspace_id)
-        sources_q = db.query(FeedSource).filter(FeedSource.active == True)
-        targets_q = db.query(SemanticTarget).filter(SemanticTarget.active == True)
-        filters_q = db.query(SafetyFilter).filter(SafetyFilter.active == True)
-        if workspace_id:
-            sources_q = sources_q.filter(FeedSource.workspace_id == workspace_id)
-            targets_q = targets_q.filter(SemanticTarget.workspace_id == workspace_id)
-            filters_q = filters_q.filter(SafetyFilter.workspace_id == workspace_id)
-        sources = sources_q.all()
-        targets = targets_q.all()
-        filters = filters_q.all()
+        sources = (
+            db.query(FeedSource)
+            .filter(FeedSource.active == True, FeedSource.workspace_id == workspace_id)  # noqa: E712
+            .all()
+        )
+        targets = (
+            db.query(SemanticTarget)
+            .filter(SemanticTarget.active == True, SemanticTarget.workspace_id == workspace_id)  # noqa: E712
+            .all()
+        )
+        filters = (
+            db.query(SafetyFilter)
+            .filter(SafetyFilter.active == True, SafetyFilter.workspace_id == workspace_id)  # noqa: E712
+            .all()
+        )
 
         if not sources:
             yield {
                 "type": "batch_error",
                 "batch_id": batch_id,
-                "message": "No active feed sources (defaults could not be created)",
+                "code": "no_feed",
+                "message": "No active feed in this workspace. Add a feed to start the watch.",
+            }
+            return
+        if not targets:
+            yield {
+                "type": "batch_error",
+                "batch_id": batch_id,
+                "code": "no_target",
+                "message": "No active target in this workspace. Add a target to tune the watch.",
             }
             return
 
-        target_desc = " | ".join(t.description for t in targets) if targets else "general intelligence"
+        target_desc = " | ".join(t.description for t in targets)
         filter_rules = " | ".join(f.prompt_template for f in filters) if filters else "standard safety"
 
         total_sources = len(sources)
@@ -232,8 +250,8 @@ async def run_batch(target_id: str = None, workspace_id: str = None) -> AsyncGen
                 "progress": int((si / total_sources) * 30),
             }
 
-            articles = await fetch_feed(source.url)
-            inserted = save_articles(source.id, articles)
+            articles = await fetch_feed(source.url, user_agent=profile.rss_user_agent)
+            inserted = save_articles(source.id, articles, workspace_id=workspace_id)
 
             source.last_fetched = datetime.utcnow()
             source.article_count = (source.article_count or 0) + inserted
@@ -253,10 +271,7 @@ async def run_batch(target_id: str = None, workspace_id: str = None) -> AsyncGen
                     cast(FeedArticle.analysis, SAString).contains('"skipped"'),
                 )
             )
-        if workspace_id:
-            unanalyzed_q = unanalyzed_q.join(
-                FeedSource, FeedSource.id == FeedArticle.source_id
-            ).filter(FeedSource.workspace_id == workspace_id)
+        unanalyzed_q = unanalyzed_q.filter(FeedArticle.workspace_id == workspace_id)
         unanalyzed = unanalyzed_q.order_by(FeedArticle.fetched_at.desc()).limit(max_articles).all()
 
         for ai, article in enumerate(unanalyzed):
@@ -267,7 +282,10 @@ async def run_batch(target_id: str = None, workspace_id: str = None) -> AsyncGen
 
             if relevance >= relevance_threshold:
                 analysis = await analyzer.analyze_article(
-                    article.title, article.content or "", target_desc
+                    article.title,
+                    article.content or "",
+                    target_desc,
+                    prompt_template=profile.analysis_prompt,
                 )
                 article.analysis = analysis
                 article.embedded = True
@@ -276,6 +294,7 @@ async def run_batch(target_id: str = None, workspace_id: str = None) -> AsyncGen
                     safety = await analyzer.check_safety(
                         f"{article.title}: {analysis.get('key_findings', [])}",
                         filter_rules,
+                        prompt_template=profile.safety_prompt,
                     )
                 else:
                     safety = {"flag": "clear", "reason": "safety LLM disabled for scheduled batch"}
@@ -314,43 +333,42 @@ async def run_batch(target_id: str = None, workspace_id: str = None) -> AsyncGen
 
 
 def get_dashboard_data(db, workspace_id: str = None) -> dict:
-    """Aggregate intelligence data for the BI dashboard."""
+    """Aggregate one workspace's intelligence data for the BI dashboard.
+
+    Only rows stamped with the workspace are read; without a workspace the
+    dashboard is empty rather than global.
+    """
     from app.models.intelligence import FeedSource, FeedArticle
-    from sqlalchemy import func
 
-    ensure_intelligence_defaults(db, workspace_id=workspace_id)
-    sources_q = db.query(FeedSource).filter(FeedSource.active == True)
+    profile = profile_for_workspace_id(db, workspace_id)
     if workspace_id:
-        sources_q = sources_q.filter(FeedSource.workspace_id == workspace_id)
-    sources = sources_q.all()
-
-    articles_q = db.query(FeedArticle)
-    if workspace_id:
-        articles_q = articles_q.join(FeedSource, FeedSource.id == FeedArticle.source_id).filter(
-            FeedSource.workspace_id == workspace_id
+        ensure_intelligence_defaults(db, workspace_id=workspace_id)
+        sources = (
+            db.query(FeedSource)
+            .filter(FeedSource.active == True, FeedSource.workspace_id == workspace_id)  # noqa: E712
+            .all()
         )
-    total_articles = articles_q.count() or 0
-
-    analyzed_q = db.query(FeedArticle).filter(FeedArticle.embedded == True)
-    if workspace_id:
-        analyzed_q = analyzed_q.join(FeedSource, FeedSource.id == FeedArticle.source_id).filter(
-            FeedSource.workspace_id == workspace_id
+        articles_q = db.query(FeedArticle).filter(FeedArticle.workspace_id == workspace_id)
+        total_articles = articles_q.count() or 0
+        analyzed_count = articles_q.filter(FeedArticle.embedded == True).count() or 0  # noqa: E712
+        recent = (
+            articles_q.filter(
+                FeedArticle.analysis.isnot(None),
+                FeedArticle.embedded == True,  # noqa: E712
+            )
+            .order_by(FeedArticle.fetched_at.desc())
+            .limit(30)
+            .all()
         )
-    analyzed_count = analyzed_q.count() or 0
-
-    recent_q = db.query(FeedArticle).filter(
-        FeedArticle.analysis.isnot(None),
-        FeedArticle.embedded == True,
-    )
-    if workspace_id:
-        recent_q = recent_q.join(FeedSource, FeedSource.id == FeedArticle.source_id).filter(
-            FeedSource.workspace_id == workspace_id
-        )
-    recent = recent_q.order_by(FeedArticle.fetched_at.desc()).limit(30).all()
+    else:
+        sources, total_articles, analyzed_count, recent = [], 0, 0, []
     source_ids = [article.source_id for article in recent if article.source_id]
     source_by_id = {
         source.id: source
-        for source in db.query(FeedSource).filter(FeedSource.id.in_(source_ids)).all()
+        for source in db.query(FeedSource).filter(
+            FeedSource.id.in_(source_ids),
+            FeedSource.workspace_id == workspace_id,
+        ).all()
     } if source_ids else {}
 
     sentiment_counts = {"positive": 0, "negative": 0, "neutral": 0, "mixed": 0}
@@ -395,5 +413,9 @@ def get_dashboard_data(db, workspace_id: str = None) -> dict:
         "risk": risk_counts,
         "top_entities": [{"name": e, "count": c} for e, c in top_entities],
         "articles": articles_data,
-        "synthesis": _build_reference_synthesis(articles_data, risk_counts, top_entities),
+        "synthesis": _build_reference_synthesis(articles_data, risk_counts, top_entities, profile),
+        "knowledge_collection": {
+            "slug": profile.collection_slug,
+            "name": profile.collection_name,
+        },
     }

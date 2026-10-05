@@ -15,6 +15,12 @@ from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
 from app.models.intelligence import FeedArticle, FeedSource
 from app.models.workspace import Workspace
+from app.services.intelligence.profile import (
+    COLLECTION_NAME,
+    COLLECTION_SLUG,
+    CONSOLIDATED_TITLE,
+    workspace_intelligence_profile,
+)
 from app.services.knowledge_collections import (
     create_or_get_collection,
     ingested_key,
@@ -29,8 +35,10 @@ from app.services.rag.vector_store_config import resolve_vector_db_type
 
 logger = get_logger(__name__)
 
-INTELLIGENCE_COLLECTION_SLUG = "sentinel-ci-open-intelligence"
-INTELLIGENCE_COLLECTION_NAME = "SENTINEL-CI Open Intelligence"
+# The neutral collection a generic workspace syncs into; a family profile may
+# name its own (``profile.collection_slug``).
+INTELLIGENCE_COLLECTION_SLUG = COLLECTION_SLUG
+INTELLIGENCE_COLLECTION_NAME = COLLECTION_NAME
 SYNC_INGEST_MAX_CONCURRENCY = 4
 
 
@@ -109,7 +117,10 @@ def _article_markdown(article: FeedArticle, source: FeedSource) -> str:
     )
 
 
-def _synthesis_markdown(dashboard_payload: dict[str, Any] | None) -> str:
+def _synthesis_markdown(
+    dashboard_payload: dict[str, Any] | None,
+    title: str = CONSOLIDATED_TITLE,
+) -> str:
     dashboard_payload = dashboard_payload or {}
     synthesis = dashboard_payload.get("synthesis") or {}
     kpis = dashboard_payload.get("kpis") or {}
@@ -130,7 +141,7 @@ def _synthesis_markdown(dashboard_payload: dict[str, Any] | None) -> str:
 
     return "\n".join(
         [
-            "# Synthese consolidee News Lab",
+            f"# {title}",
             "",
             "## Executive summary",
             synthesis.get("summary") or "No consolidated synthesis available yet.",
@@ -191,30 +202,37 @@ async def sync_intelligence_to_knowledge(
     dashboard_payload: dict[str, Any] | None = None,
     max_articles: int = 250,
 ) -> dict[str, Any]:
-    """Make News Lab analysis and raw RSS rows queryable through canonical RAG."""
+    """Make News Lab analysis and raw RSS rows queryable through canonical RAG.
+
+    Writes into the workspace's own collection (named by its profile) and
+    reads only the articles stamped with that workspace.
+    """
+    profile = workspace_intelligence_profile(workspace)
     collection = create_or_get_collection(
         db,
         workspace=workspace,
-        slug=INTELLIGENCE_COLLECTION_SLUG,
-        name=INTELLIGENCE_COLLECTION_NAME,
-        description=(
-            "Open intelligence RSS sources, raw scraped article content, and consolidated "
-            "News Lab analysis for AYA interactions."
-        ),
+        slug=profile.collection_slug,
+        name=profile.collection_name,
+        description=profile.collection_description,
     )
     db.flush()
 
     rows = (
         db.query(FeedArticle, FeedSource)
         .join(FeedSource, FeedSource.id == FeedArticle.source_id)
-        .filter(FeedSource.workspace_id == workspace.id)
+        .filter(
+            FeedArticle.workspace_id == workspace.id,
+            FeedSource.workspace_id == workspace.id,
+        )
         .order_by(FeedArticle.fetched_at.desc())
         .limit(max(1, max_articles))
         .all()
     )
 
     docs: dict[str, str] = {
-        "news-lab-consolidated-latest.md": _synthesis_markdown(dashboard_payload),
+        "news-lab-consolidated-latest.md": _synthesis_markdown(
+            dashboard_payload, profile.consolidated_title
+        ),
     }
     for article, source in rows:
         docs[f"rss-article-{_safe_filename(article.id)}.md"] = _article_markdown(article, source)
@@ -253,11 +271,8 @@ async def sync_intelligence_to_knowledge(
     )
     bm25 = await rebuild_bm25_artifact(collection=collection, vector_db=doc_service.vector_db, store=store)
 
-    collection.name = INTELLIGENCE_COLLECTION_NAME
-    collection.description = (
-        "Open intelligence RSS sources, raw scraped article content, and consolidated "
-        "News Lab analysis for AYA interactions."
-    )
+    collection.name = profile.collection_name
+    collection.description = profile.collection_description
     collection.embedding_model = settings.embedding_model
     collection.chunking_method = app_settings.get("ragChunkingMethod", "recursive_character")
     collection.chunking_params = {

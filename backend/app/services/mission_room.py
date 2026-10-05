@@ -47,6 +47,7 @@ from app.services.iam.app_entitlements import (
     replace_member_app_entitlements,
 )
 from app.services.intelligence.satellite_imagery import resolve_satellite_scenes
+from app.services.intelligence.systems import preferred_intelligence_system
 from app.services.scenario_engine import generate_scenarios
 from app.services.systems import flow_publication
 from app.services.visual_intelligence import (
@@ -3565,14 +3566,8 @@ def _system_for_navigation_item(
                     return bound
     variant = str(item.get("variant") or "")
     if variant == "intelligence":
-        preferred = next(
-            (
-                system
-                for system in all_systems
-                if (system.flow_definition or {}).get("template_id") == "sentinel-ci-intelligence"
-            ),
-            None,
-        )
+        # Legacy mission-room template first, then the neutral marker.
+        preferred = preferred_intelligence_system(all_systems)
         if preferred:
             return preferred
         named = next(
