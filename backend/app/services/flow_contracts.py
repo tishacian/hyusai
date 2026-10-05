@@ -298,11 +298,15 @@ def validate_execution_contract(value: Any) -> dict[str, Any]:
         valid = isinstance(origin, dict) and set(origin) == fields
         if valid:
             try:
-                valid = all(str(UUID(origin[key])) == origin[key]
-                            for key in ("document_id", "proposal_id"))
-                valid = valid and all(isinstance(origin[key], str) and len(origin[key]) == 64
+                valid = all(
+                    str(UUID(origin[key])) == origin[key] for key in ("document_id", "proposal_id")
+                )
+                valid = valid and all(
+                    isinstance(origin[key], str)
+                    and len(origin[key]) == 64
                     and all(c in "0123456789abcdef" for c in origin[key])
-                    for key in ("document_sha256", "proposal_sha256"))
+                    for key in ("document_sha256", "proposal_sha256")
+                )
             except (ValueError, TypeError, AttributeError):
                 valid = False
         if not valid:
@@ -447,7 +451,10 @@ def validate_execution_contract(value: Any) -> dict[str, Any]:
             if (
                 not isinstance(allowlist, list)
                 or not 1 <= len(allowlist) <= 8
-                or any(not isinstance(item, str) or not item.strip() or item != item.strip() for item in allowlist)
+                or any(
+                    not isinstance(item, str) or not item.strip() or item != item.strip()
+                    for item in allowlist
+                )
             ):
                 raise _execution_contract_error(
                     message="An AgentLoop tool allowlist must contain one to eight Skill slugs.",
@@ -460,10 +467,15 @@ def validate_execution_contract(value: Any) -> dict[str, Any]:
                 "skill_allowlist" not in node
                 or not isinstance(tool_nodes, Mapping)
                 or set(tool_nodes) != set(node.get("skill_allowlist", []))
-                or any(not isinstance(tool, Mapping) or "tool_contract" in tool
-                       or "skill_allowlist" in tool or tool.get("skill_slug") != slug
-                       for slug, tool in tool_nodes.items())
-                or tools.get("ingresses") != [] or tools.get("outputs") != []
+                or any(
+                    not isinstance(tool, Mapping)
+                    or "tool_contract" in tool
+                    or "skill_allowlist" in tool
+                    or tool.get("skill_slug") != slug
+                    for slug, tool in tool_nodes.items()
+                )
+                or tools.get("ingresses") != []
+                or tools.get("outputs") != []
             ):
                 raise _execution_contract_error(
                     message="Frozen tools must exactly match the AgentLoop allowlist.",
@@ -736,6 +748,14 @@ def compile_execution_contract(
     allowed_skill_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     """Compile immutable ingress/node/output schemas for one accepted Flow."""
+    from app.services.flow_data_sources import data_source_issues
+
+    source_issues = data_source_issues(flow)
+    if source_issues:
+        node_id, code = source_issues[0]
+        raise FlowContractError(
+            code="data_source_invalid", message=code, path=f"nodes/{node_id}/config"
+        )
     nodes = flow.get("nodes") if isinstance(flow.get("nodes"), list) else []
     raw_edges = flow.get("edges") if isinstance(flow.get("edges"), list) else []
     if flow.get("io_mode") == "strict":
@@ -803,7 +823,11 @@ def compile_execution_contract(
         config = node.get("config") if isinstance(node.get("config"), Mapping) else {}
         if "prompt_template_override" in config:
             if not (binding.skill_id or binding.skill_slug):
-                raise FlowContractError(code="node_override_unsupported", message="Template overrides require an authored Skill.", path=f"nodes/{node_id}/config/prompt_template_override")
+                raise FlowContractError(
+                    code="node_override_unsupported",
+                    message="Template overrides require an authored Skill.",
+                    path=f"nodes/{node_id}/config/prompt_template_override",
+                )
         kind = _ingress_kind(node)
         if kind:
             if node_id in inbound_node_ids:
@@ -919,13 +943,22 @@ def compile_execution_contract(
             if "prompt_template_override" in config and (
                 not isinstance(skill.executor, Mapping) or skill.workspace_id != workspace_id
             ):
-                raise FlowContractError(code="node_override_unsupported", message="Template overrides require a workspace-owned authored Skill.", path=f"nodes/{node_id}/config/prompt_template_override")
+                raise FlowContractError(
+                    code="node_override_unsupported",
+                    message="Template overrides require a workspace-owned authored Skill.",
+                    path=f"nodes/{node_id}/config/prompt_template_override",
+                )
             if isinstance(skill.executor, Mapping):
                 from app.services.flow_node_overrides import override_executor
+
                 try:
                     frozen_executor = override_executor(dict(skill.executor), config)
                 except ValueError as exc:
-                    raise FlowContractError(code="node_override_invalid", message=str(exc), path=f"nodes/{node_id}/config/prompt_template_override") from exc
+                    raise FlowContractError(
+                        code="node_override_invalid",
+                        message=str(exc),
+                        path=f"nodes/{node_id}/config/prompt_template_override",
+                    ) from exc
                 node_contracts[node_id].update(
                     {
                         "executor": frozen_executor,
@@ -952,12 +985,17 @@ def compile_execution_contract(
                     )
 
                 node_contracts[node_id]["tool_contract"] = compile_execution_contract(
-                    db, workspace_id=workspace_id, runtime_mode=runtime_mode,
+                    db,
+                    workspace_id=workspace_id,
+                    runtime_mode=runtime_mode,
                     allowed_skill_ids=allowed_skill_ids,
-                    flow={"nodes": [
-                        {"id": slug, "kind": "task", "config": {"skill_slug": slug}}
-                        for slug in allowlist
-                    ], "edges": []},
+                    flow={
+                        "nodes": [
+                            {"id": slug, "kind": "task", "config": {"skill_slug": slug}}
+                            for slug in allowlist
+                        ],
+                        "edges": [],
+                    },
                 )
 
         if str(node.get("kind") or "") == "sink":

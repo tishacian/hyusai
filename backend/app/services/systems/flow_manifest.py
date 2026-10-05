@@ -5,9 +5,10 @@ contracts. This module projects ``System.flow_definition`` into a compact
 operator-facing manifest: nodes, runtime references, bound skills, editable
 parameter groups and whether the graph currently drives a real surface.
 """
+
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 from sqlalchemy.orm import Session as DBSession
 
@@ -23,11 +24,11 @@ from app.services.skills_registry import runtime_status
 from app.services.systems.bootstrap import WORKSPACE_CHAT_VARIANT
 
 
-def _as_dict(value: Any) -> Dict[str, Any]:
+def _as_dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
 
-def _as_list(value: Any) -> List[Any]:
+def _as_list(value: Any) -> list[Any]:
     return list(value) if isinstance(value, list) else []
 
 
@@ -44,14 +45,14 @@ def _compact(value: Any, *, max_chars: int = 360) -> str:
     return text if len(text) <= max_chars else text[: max(0, max_chars - 1)].rstrip() + "…"
 
 
-def _reasoning_template_catalog() -> List[Dict[str, Any]]:
+def _reasoning_template_catalog() -> list[dict[str, Any]]:
     """Expose the reasoning template registry in manifest-friendly form."""
     try:
         from app.services.system_prompts import SYSTEM_PROMPT_TEMPLATES, SystemPromptType
     except Exception:  # noqa: BLE001 - manifest must remain available if registry import drifts.
         return []
 
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     for prompt_type in SystemPromptType:
         template = SYSTEM_PROMPT_TEMPLATES.get(prompt_type)
         if not template:
@@ -67,12 +68,17 @@ def _reasoning_template_catalog() -> List[Dict[str, Any]]:
     return rows
 
 
-def _selected_reasoning_template(prompt_type: Any, catalog: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _selected_reasoning_template(prompt_type: Any, catalog: list[dict[str, Any]]) -> dict[str, Any]:
     key = str(prompt_type or "factual")
     for row in catalog:
         if row.get("key") == key:
             return row
-    return {"key": key, "label": key.replace("_", " ").title(), "template": "", "source": "flow.prompt_contract"}
+    return {
+        "key": key,
+        "label": key.replace("_", " ").title(),
+        "template": "",
+        "source": "flow.prompt_contract",
+    }
 
 
 def _grounded_system_prompt_preview(
@@ -92,7 +98,7 @@ def _grounded_system_prompt_preview(
     return f"{base}\n\n{appendix_text}"
 
 
-def _skill_lookup(db: DBSession, slugs: Iterable[str]) -> Dict[str, Skill]:
+def _skill_lookup(db: DBSession, slugs: Iterable[str]) -> dict[str, Skill]:
     clean = sorted({slug for slug in slugs if slug})
     if not clean:
         return {}
@@ -113,13 +119,13 @@ def _node_type_label(node: Mapping[str, Any], cfg: Mapping[str, Any]) -> str:
     return str(node.get("type") or kind)
 
 
-def _editable_fields_from_schema(skill: Optional[Skill]) -> List[Dict[str, Any]]:
+def _editable_fields_from_schema(skill: Optional[Skill]) -> list[dict[str, Any]]:
     if not skill:
         return []
     schema = _as_dict(skill.input_schema)
     properties = _as_dict(schema.get("properties"))
     required = set(_as_list(schema.get("required")))
-    fields: List[Dict[str, Any]] = []
+    fields: list[dict[str, Any]] = []
     for key, raw_def in properties.items():
         definition = _as_dict(raw_def)
         fields.append(
@@ -129,16 +135,18 @@ def _editable_fields_from_schema(skill: Optional[Skill]) -> List[Dict[str, Any]]
                 "type": definition.get("type") or "string",
                 "required": key in required,
                 "description": definition.get("description"),
-                "enum": definition.get("enum") if isinstance(definition.get("enum"), list) else None,
+                "enum": definition.get("enum")
+                if isinstance(definition.get("enum"), list)
+                else None,
             }
         )
     return fields
 
 
-def _editable_fields_from_node(node: Mapping[str, Any]) -> List[Dict[str, Any]]:
+def _editable_fields_from_node(node: Mapping[str, Any]) -> list[dict[str, Any]]:
     data = _as_dict(node.get("data"))
     cfg = _as_dict(node.get("config"))
-    fields: List[Dict[str, Any]] = []
+    fields: list[dict[str, Any]] = []
 
     def add(key: str, source: str, field_type: str = "object", value: Any = None) -> None:
         fields.append(
@@ -157,7 +165,12 @@ def _editable_fields_from_node(node: Mapping[str, Any]) -> List[Dict[str, Any]]:
     if data.get("retrieval_defaults") is not None:
         retrieval = _as_dict(data.get("retrieval_defaults"))
         for key in ("latency_profile", "retrieval_profile", "mode", "top_k"):
-            add(f"retrieval_defaults.{key}", "node.data", "string" if key != "top_k" else "integer", retrieval.get(key))
+            add(
+                f"retrieval_defaults.{key}",
+                "node.data",
+                "string" if key != "top_k" else "integer",
+                retrieval.get(key),
+            )
     if data.get("grounding") is not None:
         add("grounding", "node.data", "object", data.get("grounding"))
     if data.get("source_policy") is not None:
@@ -181,7 +194,7 @@ def _editable_fields_from_node(node: Mapping[str, Any]) -> List[Dict[str, Any]]:
     return fields
 
 
-def _unit_for_node(node: Mapping[str, Any], skills: Mapping[str, Skill]) -> Dict[str, Any]:
+def _unit_for_node(node: Mapping[str, Any], skills: Mapping[str, Skill]) -> dict[str, Any]:
     data = _as_dict(node.get("data"))
     cfg = _as_dict(node.get("config"))
     skill_slug = str(cfg.get("skill_slug") or data.get("skill_slug") or "")
@@ -191,7 +204,9 @@ def _unit_for_node(node: Mapping[str, Any], skills: Mapping[str, Skill]) -> Dict
     label = str(node.get("label") or node.get("id") or "node")
     fields = _editable_fields_from_node(node)
     fields.extend(_editable_fields_from_schema(skill))
-    status = runtime_status(skill_slug) if skill_slug else ("bound" if runtime_ref else "manifest_only")
+    status = (
+        runtime_status(skill_slug) if skill_slug else ("bound" if runtime_ref else "manifest_only")
+    )
     operational = bool(skill_slug and status == "bound") or bool(runtime_ref)
     return {
         "id": node.get("id"),
@@ -199,7 +214,9 @@ def _unit_for_node(node: Mapping[str, Any], skills: Mapping[str, Skill]) -> Dict
         "kind": kind,
         "node_type": node.get("type"),
         "unit_type": _node_type_label(node, cfg),
-        "description": data.get("description") or (skill.description if skill else None) or _compact(runtime_ref),
+        "description": data.get("description")
+        or (skill.description if skill else None)
+        or _compact(runtime_ref),
         "runtime_ref": runtime_ref,
         "skill_slug": skill_slug or None,
         "skill_id": skill.id if skill else cfg.get("skill_id"),
@@ -210,7 +227,11 @@ def _unit_for_node(node: Mapping[str, Any], skills: Mapping[str, Skill]) -> Dict
         "parameter_count": len(fields),
         "position": node.get("position") or {},
         "implementation": {
-            "source": "skill_registry" if skill_slug else "runtime_ref" if runtime_ref else "flow_manifest",
+            "source": "skill_registry"
+            if skill_slug
+            else "runtime_ref"
+            if runtime_ref
+            else "flow_manifest",
             "execution": skill.execution if skill else {},
             "input_schema": skill.input_schema if skill else {},
             "output_schema": skill.output_schema if skill else {},
@@ -218,7 +239,7 @@ def _unit_for_node(node: Mapping[str, Any], skills: Mapping[str, Skill]) -> Dict
     }
 
 
-def _effective_chat_config(flow: Mapping[str, Any]) -> Dict[str, Any]:
+def _effective_chat_config(flow: Mapping[str, Any]) -> dict[str, Any]:
     chat = _as_dict(flow.get("chat"))
     prompt_contract = _as_dict(flow.get("prompt_contract"))
     nodes = _as_list(flow.get("nodes"))
@@ -235,10 +256,14 @@ def _effective_chat_config(flow: Mapping[str, Any]) -> Dict[str, Any]:
     answer_data = _as_dict(answer_node.get("data"))
     node_prompt_contract = _as_dict(answer_data.get("prompt_contract"))
     prompt_node_contract = _as_dict(prompt_data.get("prompt_contract"))
-    retrieval_defaults = budget_data.get("retrieval_defaults") or chat.get("retrieval_defaults") or {}
+    retrieval_defaults = (
+        budget_data.get("retrieval_defaults") or chat.get("retrieval_defaults") or {}
+    )
     grounding = grounding_data.get("grounding") or chat.get("grounding") or {}
     source_policy = grounding_data.get("source_policy") or chat.get("source_policy") or {}
-    system_prompt = node_prompt_contract.get("system_prompt") or prompt_contract.get("base_system_prompt")
+    system_prompt = node_prompt_contract.get("system_prompt") or prompt_contract.get(
+        "base_system_prompt"
+    )
     grounding_appendix = (
         node_prompt_contract.get("balanced_appendix")
         or prompt_node_contract.get("balanced_grounding_appendix")
@@ -294,7 +319,8 @@ def _effective_chat_config(flow: Mapping[str, Any]) -> Dict[str, Any]:
             "fallback_path": "flow.chat.retrieval_defaults",
             "node_id": "runtime.settings_budget",
             "runtime_effect": "chat request defaults: latency_profile, retrieval_profile, mode, top_k",
-            "retrieval_runtime_ref": retrieval_data.get("runtime_ref") or "app.services.rag.context.retrieve_rag_context",
+            "retrieval_runtime_ref": retrieval_data.get("runtime_ref")
+            or "app.services.rag.context.retrieve_rag_context",
         },
         "grounding_policy": {
             "value": grounding,
@@ -341,7 +367,11 @@ def _effective_chat_config(flow: Mapping[str, Any]) -> Dict[str, Any]:
             "answer_policy": answer_policy,
             "answer_profiles": answer_profiles,
             "default_answer_profile": prompt_contract.get("default_answer_profile")
-            or (answer_policy.get("default_answer_profile") if isinstance(answer_policy, Mapping) else None),
+            or (
+                answer_policy.get("default_answer_profile")
+                if isinstance(answer_policy, Mapping)
+                else None
+            ),
             "runtime_read_fields": [
                 "nodes.skill.fast_answer.data.prompt_contract.system_prompt",
                 "flow.prompt_contract.default_prompt_type",
@@ -364,14 +394,16 @@ def _effective_chat_config(flow: Mapping[str, Any]) -> Dict[str, Any]:
             "rag_user_prompt_builder": prompt_contract.get("rag_user_prompt_builder")
             or prompt_node_contract.get("rag_user_prompt_builder")
             or "app.agents.procurement_agent._build_rag_user_prompt",
-            "answer_agent": answer_data.get("runtime_ref") or "app.agents.procurement_agent.OmniRAGAgent.process",
-            "retrieval_context": retrieval_data.get("runtime_ref") or "app.services.rag.context.retrieve_rag_context",
+            "answer_agent": answer_data.get("runtime_ref")
+            or "app.agents.procurement_agent.OmniRAGAgent.process",
+            "retrieval_context": retrieval_data.get("runtime_ref")
+            or "app.services.rag.context.retrieve_rag_context",
             "reasoning_template_registry": "backend/app/services/system_prompts/prompts.py",
         },
     }
 
 
-def _effective_dag_config(flow: Mapping[str, Any]) -> Dict[str, Any]:
+def _effective_dag_config(flow: Mapping[str, Any]) -> dict[str, Any]:
     """Project the minimal effective config for a ``run_engine_dag`` system.
 
     Historically ``{}`` for non-chat DAGs — the traceability gap this closes:
@@ -380,7 +412,7 @@ def _effective_dag_config(flow: Mapping[str, Any]) -> Dict[str, Any]:
     workspace-scoped. Purely a projection of the graph; changes no runtime.
     """
     nodes = _as_list(flow.get("nodes"))
-    collections: List[str] = []
+    collections: list[str] = []
     workspace_scoped = False
     for node in nodes:
         if not isinstance(node, Mapping) or str(node.get("kind")) != "asset":
@@ -394,27 +426,47 @@ def _effective_dag_config(flow: Mapping[str, Any]) -> Dict[str, Any]:
     return {
         "collections": collections,
         "workspace_scoped": workspace_scoped,
+        "data_sources": _connector_sources(flow),
     }
 
 
-def _trace_from_payload(payload: Any) -> Dict[str, Any] | None:
+def _connector_sources(flow: Mapping[str, Any]) -> list[dict[str, Any]]:
+    from app.services.flow_data_sources import connector_reference
+
+    sources = []
+    for node in _as_list(flow.get("nodes")):
+        if not isinstance(node, Mapping) or node.get("type") != "source.connector":
+            continue
+        try:
+            source = connector_reference(node)
+        except ValueError:
+            continue
+        source["consumers"] = [
+            edge.get("to")
+            for edge in _as_list(flow.get("edges"))
+            if isinstance(edge, Mapping)
+            and edge.get("from") == node.get("id")
+            and edge.get("kind", "data") == "data"
+        ]
+        sources.append(source)
+    return sources
+
+
+def _trace_from_payload(payload: Any) -> dict[str, Any] | None:
     data = _as_dict(payload)
     trace = data.get("retrieval_decision_trace")
     if isinstance(trace, Mapping):
         return dict(trace)
     metrics = data.get("retrieval_metrics")
-    if isinstance(metrics, Mapping) and isinstance(metrics.get("retrieval_decision_trace"), Mapping):
+    if isinstance(metrics, Mapping) and isinstance(
+        metrics.get("retrieval_decision_trace"), Mapping
+    ):
         return dict(metrics["retrieval_decision_trace"])
     return None
 
 
-def _latest_retrieval_decision_trace(db: DBSession, system: System) -> Dict[str, Any] | None:
-    run = (
-        db.query(Run)
-        .filter(Run.system_id == system.id)
-        .order_by(Run.started_at.desc())
-        .first()
-    )
+def _latest_retrieval_decision_trace(db: DBSession, system: System) -> dict[str, Any] | None:
+    run = db.query(Run).filter(Run.system_id == system.id).order_by(Run.started_at.desc()).first()
     if not run:
         return None
     trace = _trace_from_payload(run.output_ref)
@@ -428,7 +480,7 @@ def _latest_retrieval_decision_trace(db: DBSession, system: System) -> Dict[str,
     return None
 
 
-def serialize_flow_manifest(db: DBSession, system: System) -> Dict[str, Any]:
+def serialize_flow_manifest(db: DBSession, system: System) -> dict[str, Any]:
     """Return the runtime manifest backing the Flow Builder UI."""
     flow = _as_dict(system.flow_definition)
     workspace = (
@@ -440,21 +492,23 @@ def serialize_flow_manifest(db: DBSession, system: System) -> Dict[str, Any]:
     nodes = [node for node in _as_list(flow.get("nodes")) if isinstance(node, Mapping)]
     edges = [edge for edge in _as_list(flow.get("edges")) if isinstance(edge, Mapping)]
     skill_slugs = [
-        str(_as_dict(node.get("config")).get("skill_slug") or _as_dict(node.get("data")).get("skill_slug") or "")
+        str(
+            _as_dict(node.get("config")).get("skill_slug")
+            or _as_dict(node.get("data")).get("skill_slug")
+            or ""
+        )
         for node in nodes
     ]
     skills = _skill_lookup(db, skill_slugs)
     units = [_unit_for_node(node, skills) for node in nodes]
     runtime_surface = (
-        "chat_runtime"
-        if flow.get("variant") == WORKSPACE_CHAT_VARIANT
-        else "run_engine"
+        "chat_runtime" if flow.get("variant") == WORKSPACE_CHAT_VARIANT else "run_engine"
     )
-    live_surface = flow.get("ui", {}).get("entry_route") if isinstance(flow.get("ui"), Mapping) else None
+    live_surface = (
+        flow.get("ui", {}).get("entry_route") if isinstance(flow.get("ui"), Mapping) else None
+    )
     latest_retrieval_decision = (
-        _latest_retrieval_decision_trace(db, system)
-        if runtime_surface == "chat_runtime"
-        else None
+        _latest_retrieval_decision_trace(db, system) if runtime_surface == "chat_runtime" else None
     )
     return {
         "system_id": system.id,

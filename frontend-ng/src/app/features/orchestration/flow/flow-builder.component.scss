@@ -124,6 +124,7 @@
 
 .flow-builder__publication-boundary {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   flex-shrink: 0;
   gap: 10px;
@@ -139,7 +140,11 @@
     color: var(--ck-signal-cool);
     font: 600 10px / 1 var(--ck-font-mono, monospace);
     text-transform: uppercase;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    line-height: 1.4;
   }
+  > span { flex: 1 1 240px; min-width: 0; }
 }
 
 .flow-builder__review-actions {
@@ -404,6 +409,7 @@
 }
 
 .flow-builder__inspector {
+  min-width: 0;
   min-height: 0;
   border-radius: var(--ck-radius-md, 6px);
   overflow: hidden;
@@ -578,7 +584,7 @@
     top: 0;
     right: 0;
     bottom: 0;
-    width: min(380px, 90vw);
+    width: min(380px, 100%);
     z-index: 45;
     box-shadow: var(--ck-shadow-panel);
     animation: flowInspectorIn 200ms var(--ck-ease-out, ease-out);

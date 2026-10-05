@@ -25,6 +25,7 @@ HITL pauses persist the walker state (``node_outputs``, ``done`` set,
 ``POST /runs/:id/resume`` endpoint can rehydrate and continue without
 re-executing completed nodes.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -32,7 +33,7 @@ import hashlib
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Optional
 
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
@@ -161,7 +162,7 @@ def resolve_hitl_decision_for_run(
         )
         .first()
     )
-    visited: Set[str] = set()
+    visited: set[str] = set()
     while current is not None and current.id not in visited:
         if current.id == run.id:
             return decision
@@ -181,11 +182,15 @@ def resolve_hitl_decision_for_run(
 
 def subflow_celery_enabled(system: System) -> bool:
     """True only when both the deployment and System explicitly opt in."""
-    features = ((system.settings or {}).get("features") or {}) if isinstance(system.settings, dict) else {}
+    features = (
+        ((system.settings or {}).get("features") or {}) if isinstance(system.settings, dict) else {}
+    )
     return bool(settings.enable_subflow_celery and features.get("subflow_celery") is True)
 
 
-def delegation_key(parent_id: str, node_id: str, iteration: Any = 0, branch: str = "default") -> str:
+def delegation_key(
+    parent_id: str, node_id: str, iteration: Any = 0, branch: str = "default"
+) -> str:
     raw = f"{parent_id}\0{node_id}\0{iteration}\0{branch}".encode()
     return hashlib.sha256(raw).hexdigest()
 
@@ -224,9 +229,9 @@ class DagNode:
     type: str
     kind: str
     label: Optional[str]
-    config: Dict[str, Any]
+    config: dict[str, Any]
     skill_slug: Optional[str]
-    data: Dict[str, Any]
+    data: dict[str, Any]
 
 
 @dataclass
@@ -241,19 +246,19 @@ class DagEdge:
 
 @dataclass
 class DagGraph:
-    nodes: Dict[str, DagNode]
-    edges: List[DagEdge]
+    nodes: dict[str, DagNode]
+    edges: list[DagEdge]
     io_mode: str = "overlay"
-    variable_namespaces: Set[str] = field(default_factory=set)
+    variable_namespaces: set[str] = field(default_factory=set)
     strict_authoritative: bool = False
-    out_edges: Dict[str, List[DagEdge]] = field(default_factory=dict)
-    in_edges: Dict[str, List[DagEdge]] = field(default_factory=dict)
+    out_edges: dict[str, list[DagEdge]] = field(default_factory=dict)
+    in_edges: dict[str, list[DagEdge]] = field(default_factory=dict)
 
     @classmethod
-    def from_flow_definition(cls, flow: Dict[str, Any]) -> "DagGraph":
+    def from_flow_definition(cls, flow: dict[str, Any]) -> "DagGraph":
         raw_nodes = flow.get("nodes") or []
         raw_edges = flow.get("edges") or []
-        nodes: Dict[str, DagNode] = {}
+        nodes: dict[str, DagNode] = {}
         for n in raw_nodes:
             if not isinstance(n, dict):
                 continue
@@ -274,7 +279,7 @@ class DagGraph:
                 data=dict(data) if isinstance(data, dict) else {},
             )
 
-        edges: List[DagEdge] = []
+        edges: list[DagEdge] = []
         for e in raw_edges:
             if not isinstance(e, dict):
                 continue
@@ -299,9 +304,7 @@ class DagGraph:
             edges=edges,
             io_mode="strict" if flow.get("io_mode") == "strict" else "overlay",
             variable_namespaces={
-                str(item)
-                for item in raw_namespaces
-                if isinstance(item, str) and item.strip()
+                str(item) for item in raw_namespaces if isinstance(item, str) and item.strip()
             }
             if isinstance(raw_namespaces, list)
             else set(),
@@ -314,7 +317,7 @@ class DagGraph:
             graph.in_edges[edge.target].append(edge)
         return graph
 
-    def roots(self) -> List[str]:
+    def roots(self) -> list[str]:
         return [nid for nid, ins in self.in_edges.items() if not ins]
 
 
@@ -338,7 +341,7 @@ def validate_graph_skill_bindings(
     already returned by ``resolve_run_system_catalog_bindings``.
     """
 
-    bound_by_slug: Dict[str, int] = {}
+    bound_by_slug: dict[str, int] = {}
     for skill in catalog_bindings.skills:
         slug = skill.slug
         if isinstance(slug, str):
@@ -405,14 +408,14 @@ class WalkerState:
     # Node outputs are arbitrary JSON, not necessarily objects.  In
     # particular, published JSON Schemas may accept ``false``, ``0`` or an
     # empty string as the complete result of a node.
-    node_outputs: Dict[str, Any] = field(default_factory=dict)
-    done: Set[str] = field(default_factory=set)
-    pending_counts: Dict[str, int] = field(default_factory=dict)
+    node_outputs: dict[str, Any] = field(default_factory=dict)
+    done: set[str] = field(default_factory=set)
+    pending_counts: dict[str, int] = field(default_factory=dict)
     # Edges that a decision / fork declared inactive — consumed by the
     # dependency-count ticker so downstream nodes can still schedule.
-    dead_edges: Set[Tuple[str, str, Optional[str]]] = field(default_factory=set)
-    ctx: Dict[str, Any] = field(default_factory=dict)
-    invocation_ids: List[str] = field(default_factory=list)
+    dead_edges: set[tuple[str, str, Optional[str]]] = field(default_factory=set)
+    ctx: dict[str, Any] = field(default_factory=dict)
+    invocation_ids: list[str] = field(default_factory=list)
     start_monotonic: float = 0.0
     accumulated_ms: float = 0.0
     total_cost: float = 0.0
@@ -432,7 +435,7 @@ class WalkerState:
     # breakpoints even when starting in ``step`` mode so Continue jumps
     # directly to the next flag.
     debug_mode: Optional[str] = None
-    breakpoints: Set[str] = field(default_factory=set)
+    breakpoints: set[str] = field(default_factory=set)
 
     # P4 follow-up — subflow resume bookkeeping. Maps a ``subflow`` node id to
     # the child ``Run.id`` it delegated to. Persisted in ``to_payload`` so that
@@ -440,13 +443,13 @@ class WalkerState:
     # find the *existing* child and resume / reuse it instead of spawning a
     # duplicate. Empty dict for flows without subflows; absent in pre-P4
     # checkpoints (``from_payload`` tolerates the omission).
-    subflow_children: Dict[str, str] = field(default_factory=dict)
+    subflow_children: dict[str, str] = field(default_factory=dict)
     # A synthetic terminal Membrane HOLD is not a graph node.  Persist its
     # approval bit so resume can publish the already-computed output without
     # re-running a task or asking for approval a second time.
     membrane_egress_approved: bool = False
 
-    def to_payload(self) -> Dict[str, Any]:
+    def to_payload(self) -> dict[str, Any]:
         return {
             "node_outputs": self.node_outputs,
             "done": sorted(self.done),
@@ -464,7 +467,7 @@ class WalkerState:
         }
 
     @classmethod
-    def from_payload(cls, payload: Dict[str, Any]) -> "WalkerState":
+    def from_payload(cls, payload: dict[str, Any]) -> "WalkerState":
         state = cls()
         state.node_outputs = dict(payload.get("node_outputs") or {})
         state.done = set(payload.get("done") or [])
@@ -511,9 +514,7 @@ def _contract_ingress_selection(
     execution_ingress_id = execution.get("ingress_id")
     selection_version = execution.get("ingress_selection_version")
     has_selection_evidence = (
-        raw_ingress is not None
-        or execution_ingress_id is not None
-        or selection_version is not None
+        raw_ingress is not None or execution_ingress_id is not None or selection_version is not None
     )
     if not has_selection_evidence:
         return None
@@ -523,7 +524,9 @@ def _contract_ingress_selection(
     ingress_id = ingress_evidence.get("ingress_id")
     source_node_id = ingress_evidence.get("source_node_id")
     kind = ingress_evidence.get("kind")
-    if not all(isinstance(value, str) and value.strip() for value in (ingress_id, source_node_id, kind)):
+    if not all(
+        isinstance(value, str) and value.strip() for value in (ingress_id, source_node_id, kind)
+    ):
         raise ContractIngressSelectionError("contract_ingress_evidence_invalid")
     if execution_ingress_id != ingress_id:
         raise ContractIngressSelectionError("contract_ingress_identity_mismatch")
@@ -545,9 +548,7 @@ def _contract_ingress_selection(
     raw_contract_ingresses = contract.get("ingresses") if contract is not None else None
     if not isinstance(raw_contract_ingresses, list):
         raise ContractIngressSelectionError("contract_ingress_contract_missing")
-    contract_ingresses = [
-        item for item in raw_contract_ingresses if isinstance(item, dict)
-    ]
+    contract_ingresses = [item for item in raw_contract_ingresses if isinstance(item, dict)]
     matches = [item for item in contract_ingresses if item.get("ingress_id") == ingress_id]
     if len(matches) != 1:
         raise ContractIngressSelectionError("contract_ingress_contract_mismatch")
@@ -578,7 +579,7 @@ def _contract_ingress_selection(
 # ---------------------------------------------------------------------------
 # Public entry points
 # ---------------------------------------------------------------------------
-async def execute_run_dag(run_id: str) -> Dict[str, Any]:
+async def execute_run_dag(run_id: str) -> dict[str, Any]:
     """Walk a v2 DAG flow, executing nodes as their dependencies settle."""
     db: DBSession = SessionLocal()
     run: Optional[Run] = None
@@ -593,7 +594,9 @@ async def execute_run_dag(run_id: str) -> Dict[str, Any]:
             return _fail(db, run, "system_not_found")
 
         workspace = (
-            db.query(Workspace).filter(Workspace.id == (system.workspace_id or run.workspace_id)).first()
+            db.query(Workspace)
+            .filter(Workspace.id == (system.workspace_id or run.workspace_id))
+            .first()
             if (system.workspace_id or run.workspace_id)
             else None
         )
@@ -772,7 +775,7 @@ async def resume_run_dag(
     run_id: str,
     *,
     decision_id: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Resume a run paused at a ``hitl`` node.
 
     The frontend is expected to have called
@@ -802,7 +805,9 @@ async def resume_run_dag(
             return _fail(db, run, "system_not_found")
 
         workspace = (
-            db.query(Workspace).filter(Workspace.id == (system.workspace_id or run.workspace_id)).first()
+            db.query(Workspace)
+            .filter(Workspace.id == (system.workspace_id or run.workspace_id))
+            .first()
             if (system.workspace_id or run.workspace_id)
             else None
         )
@@ -1067,14 +1072,20 @@ async def _show_unattended_write(
         for nid in ready:
             outcome = await _execute_node(db, run, graph.nodes[nid], graph, state, control=control)
             outcome = _apply_runtime_output_contract(db, run, graph.nodes[nid], outcome)
-            if outcome.get("membrane_blocked") or outcome.get("terminal_error") or outcome.get("pause"):
+            if (
+                outcome.get("membrane_blocked")
+                or outcome.get("terminal_error")
+                or outcome.get("pause")
+            ):
                 return
             _settle_node(graph, state, nid, outcome)
     for node_id in unattended_sap_writes(graph, state, paused_id):
         try:
             await _execute_node(db, run, graph.nodes[node_id], graph, state, control=control)
         except Exception:
-            logger.warning("unattended sap write could not be sealed", run_id=run.id, node_id=node_id)
+            logger.warning(
+                "unattended sap write could not be sealed", run_id=run.id, node_id=node_id
+            )
 
 
 async def _walk(
@@ -1087,7 +1098,7 @@ async def _walk(
     capability: Optional[Capability],
     control,
     adaptive,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Drive the ready queue until the DAG settles or a HITL pause fires."""
     # Seed ready queue with all nodes whose pending count is 0 and that
     # haven't been executed yet. On resume this naturally picks up the
@@ -1102,8 +1113,8 @@ async def _walk(
         # Fan out independent tasks in parallel; hitl / subflow are
         # inherently sequential so we isolate them to preserve ordering
         # guarantees.
-        parallel: List[str] = []
-        serial: List[str] = []
+        parallel: list[str] = []
+        serial: list[str] = []
         for nid in ready:
             kind = graph.nodes[nid].kind
             serial_kind = kind in ("hitl", "loop", "agent_loop") or (
@@ -1135,9 +1146,7 @@ async def _walk(
                 if outcome.get("pause"):
                     if outcome.get("wait_subflow"):
                         return _emit_subflow_pause(db, run, state, outcome)
-                    await _show_unattended_write(
-                        db, run, graph, state, nid, control=control
-                    )
+                    await _show_unattended_write(db, run, graph, state, nid, control=control)
                     return _emit_hitl_pause(db, run, state, outcome)
                 if _should_debug_pause(graph, state, nid):
                     return _emit_debug_pause(db, run, state, nid)
@@ -1159,9 +1168,7 @@ async def _walk(
             if outcome.get("pause"):
                 if outcome.get("wait_subflow"):
                     return _emit_subflow_pause(db, run, state, outcome)
-                await _show_unattended_write(
-                    db, run, graph, state, nid, control=control
-                )
+                await _show_unattended_write(db, run, graph, state, nid, control=control)
                 return _emit_hitl_pause(db, run, state, outcome)
             if _should_debug_pause(graph, state, nid):
                 return _emit_debug_pause(db, run, state, nid)
@@ -1253,10 +1260,10 @@ def _enforce_terminal_membrane(
     system: System,
     capability: Optional[Capability],
     control,
-    invocations: List[SkillInvocation],
+    invocations: list[SkillInvocation],
     duration_ms: float,
     last_output: Any,
-) -> Optional[Dict[str, Any]]:
+) -> Optional[dict[str, Any]]:
     """Apply the authoritative v2 egress/provenance contract before publish.
 
     The graph is already fully settled at this point, but ``Run.output_ref`` is
@@ -1329,10 +1336,7 @@ def _enforce_terminal_membrane(
         db.commit()
         return _fail(db, run, f"membrane_egress_block:{','.join(decision.reasons)}")
 
-    if (
-        decision.disposition is EgressDisposition.HOLD
-        and not state.membrane_egress_approved
-    ):
+    if decision.disposition is EgressDisposition.HOLD and not state.membrane_egress_approved:
         approval = _log_decision(
             db,
             workspace_id=run.workspace_id,
@@ -1355,15 +1359,13 @@ def _enforce_terminal_membrane(
 
             # Membrane HOLD reuses the same TTL machinery as explicit hitl nodes.
             # Optional override via ControlPolicy.extra["membrane_gate_ttl"].
-            ttl_cfg: Dict[str, Any] = {}
+            ttl_cfg: dict[str, Any] = {}
             if control is not None and isinstance(getattr(control, "extra", None), dict):
                 raw_ttl = control.extra.get("membrane_gate_ttl")
                 if isinstance(raw_ttl, dict):
                     ttl_cfg = raw_ttl
             stamp_decision_ttl(approval, ttl_cfg)
-            corr = extract_correlation_key(
-                run.input_ref if isinstance(run.input_ref, dict) else {}
-            )
+            corr = extract_correlation_key(run.input_ref if isinstance(run.input_ref, dict) else {})
             if corr:
                 rationale = dict(approval.rationale or {})
                 rationale["correlation_key"] = corr
@@ -1381,9 +1383,13 @@ def _enforce_terminal_membrane(
                 "node_id": "__membrane_egress__",
                 "decision_id": approval.id if approval else None,
                 "prompt": "Approval required before this result can be published",
-                "expires_at": approval.expires_at.isoformat() if approval and approval.expires_at else None,
+                "expires_at": approval.expires_at.isoformat()
+                if approval and approval.expires_at
+                else None,
                 "expiry_action": approval.expiry_action if approval else None,
-                "correlation_key": (approval.rationale or {}).get("correlation_key") if approval else None,
+                "correlation_key": (approval.rationale or {}).get("correlation_key")
+                if approval
+                else None,
             },
         )
 
@@ -1444,10 +1450,10 @@ def _enforce_terminal_membrane(
     return None
 
 
-def _collect_membrane_citations(value: Any) -> List[Any]:
+def _collect_membrane_citations(value: Any) -> list[Any]:
     """Find typed ``citations`` fields in terminal output and VariablePool."""
 
-    found: List[Any] = []
+    found: list[Any] = []
 
     def visit(item: Any) -> None:
         if isinstance(item, dict):
@@ -1461,8 +1467,8 @@ def _collect_membrane_citations(value: Any) -> List[Any]:
                 visit(nested)
 
     visit(value)
-    deduped: List[Any] = []
-    seen: Set[str] = set()
+    deduped: list[Any] = []
+    seen: set[str] = set()
     for citation in found:
         try:
             key = repr(sorted(citation.items())) if isinstance(citation, dict) else repr(citation)
@@ -1475,7 +1481,7 @@ def _collect_membrane_citations(value: Any) -> List[Any]:
 
 
 def _settle_node(
-    graph: DagGraph, state: WalkerState, node_id: str, outcome: Dict[str, Any]
+    graph: DagGraph, state: WalkerState, node_id: str, outcome: dict[str, Any]
 ) -> None:
     """Record the node output, mark as done, decrement successor pending
     counts (skipping edges declared dead by a decision / fork)."""
@@ -1508,10 +1514,7 @@ def _settle_node(
             propagate_dead
             or (
                 prunes_to_branch
-                and not (
-                    edge.kind == "branch"
-                    and edge.branch_label == active_branch
-                )
+                and not (edge.kind == "branch" and edge.branch_label == active_branch)
             )
             or (label and label in inactive)
         )
@@ -1532,8 +1535,8 @@ def _apply_runtime_output_contract(
     db: DBSession,
     run: Run,
     node: DagNode,
-    outcome: Dict[str, Any],
-) -> Dict[str, Any]:
+    outcome: dict[str, Any],
+) -> dict[str, Any]:
     """Observe or enforce the immutable schema pinned on the accepted Run."""
 
     if outcome.get("pause") or outcome.get("skipped_reason"):
@@ -1589,7 +1592,7 @@ def _should_debug_pause(graph: DagGraph, state: WalkerState, node_id: str) -> bo
     return False
 
 
-def _emit_debug_pause(db: DBSession, run: Run, state: WalkerState, node_id: str) -> Dict[str, Any]:
+def _emit_debug_pause(db: DBSession, run: Run, state: WalkerState, node_id: str) -> dict[str, Any]:
     """Freeze the walker for debugger inspection and flip Run status.
 
     The payload schema mirrors :func:`_emit_hitl_pause` so the SSE /
@@ -1613,9 +1616,7 @@ def _emit_debug_pause(db: DBSession, run: Run, state: WalkerState, node_id: str)
         "debug_mode": state.debug_mode,
         "breakpoints": sorted(state.breakpoints),
         "ctx_snapshot": _sanitize(state.ctx),
-        "last_output": (
-            state.node_outputs[node_id] if node_id in state.node_outputs else {}
-        ),
+        "last_output": (state.node_outputs[node_id] if node_id in state.node_outputs else {}),
         "state": state.to_payload(),
     }
     # Status and resume checkpoint are one authoritative transition.  A
@@ -1647,8 +1648,8 @@ def _emit_debug_pause(db: DBSession, run: Run, state: WalkerState, node_id: str)
 
 
 async def resume_run_dag_debug(
-    run_id: str, *, action: str, breakpoints: Optional[List[str]] = None
-) -> Dict[str, Any]:
+    run_id: str, *, action: str, breakpoints: Optional[list[str]] = None
+) -> dict[str, Any]:
     """Resume a Run paused by the step debugger.
 
     ``action`` controls what happens after resume:
@@ -1681,7 +1682,9 @@ async def resume_run_dag_debug(
             return _fail(db, run, "system_not_found")
 
         workspace = (
-            db.query(Workspace).filter(Workspace.id == (system.workspace_id or run.workspace_id)).first()
+            db.query(Workspace)
+            .filter(Workspace.id == (system.workspace_id or run.workspace_id))
+            .first()
             if (system.workspace_id or run.workspace_id)
             else None
         )
@@ -1706,9 +1709,7 @@ async def resume_run_dag_debug(
                 {
                     "mode": "step",
                     "breakpoints": (
-                        breakpoints
-                        if breakpoints is not None
-                        else list(state.breakpoints)
+                        breakpoints if breakpoints is not None else list(state.breakpoints)
                     ),
                 }
             )
@@ -1810,8 +1811,8 @@ async def resume_run_dag_debug(
 
 
 def _emit_hitl_pause(
-    db: DBSession, run: Run, state: WalkerState, outcome: Dict[str, Any]
-) -> Dict[str, Any]:
+    db: DBSession, run: Run, state: WalkerState, outcome: dict[str, Any]
+) -> dict[str, Any]:
     """Persist the walker state as a HITL checkpoint and flip Run status."""
     terminal = _terminal_run_before_pause(db, run)
     if terminal is not None:
@@ -1874,8 +1875,8 @@ def _emit_hitl_pause(
 
 
 def _emit_subflow_pause(
-    db: DBSession, run: Run, state: WalkerState, outcome: Dict[str, Any]
-) -> Dict[str, Any]:
+    db: DBSession, run: Run, state: WalkerState, outcome: dict[str, Any]
+) -> dict[str, Any]:
     """Persist a broker wait separately from a human approval pause."""
     terminal = _terminal_run_before_pause(db, run)
     if terminal is not None:
@@ -1924,7 +1925,7 @@ def _emit_subflow_pause(
     }
 
 
-def _terminal_run_before_pause(db: DBSession, run: Run) -> Optional[Dict[str, Any]]:
+def _terminal_run_before_pause(db: DBSession, run: Run) -> Optional[dict[str, Any]]:
     """Serialize durable pauses with coordinator-owned terminal states.
 
     A race/any coordinator can cancel a branch while that branch is still
@@ -1932,13 +1933,7 @@ def _terminal_run_before_pause(db: DBSession, run: Run) -> Optional[Dict[str, An
     under a row lock before publishing the pause so a late worker can never
     resurrect an authoritative terminal state.
     """
-    locked = (
-        db.query(Run)
-        .filter(Run.id == run.id)
-        .populate_existing()
-        .with_for_update()
-        .first()
-    )
+    locked = db.query(Run).filter(Run.id == run.id).populate_existing().with_for_update().first()
     if locked is None or locked.status not in {"completed", "failed", "cancelled"}:
         return None
     return {
@@ -1951,18 +1946,18 @@ def _terminal_run_before_pause(db: DBSession, run: Run) -> Optional[Dict[str, An
 # ---------------------------------------------------------------------------
 # Phase 2 — authoritative asset -> collection binding (flag-gated)
 # ---------------------------------------------------------------------------
-def _asset_node_ids(graph: DagGraph) -> Set[str]:
+def _asset_node_ids(graph: DagGraph) -> set[str]:
     """Node ids whose kind is ``asset`` (declarative collection sources)."""
     return {nid for nid, node in graph.nodes.items() if node.kind == "asset"}
 
 
-def _selector_targets_asset(selector: Any, asset_ids: Set[str]) -> bool:
+def _selector_targets_asset(selector: Any, asset_ids: set[str]) -> bool:
     """True when ``selector`` is a VariableRef/dot-path whose HEAD is an asset."""
     segs = selector_segments(selector)
     return bool(segs) and segs[0] in asset_ids
 
 
-def _effective_inputs_map(node: DagNode, graph: DagGraph) -> Optional[Dict[str, Any]]:
+def _effective_inputs_map(node: DagNode, graph: DagGraph) -> Optional[dict[str, Any]]:
     """Return the node's ``inputs_map`` with asset-sourced refs gated by the flag.
 
     GATE SEAM (Phase 2 ``p2-binding``): a ``VariableRef`` whose SOURCE node has
@@ -1992,7 +1987,7 @@ def _effective_inputs_map(node: DagNode, graph: DagGraph) -> Optional[Dict[str, 
     return filtered or None
 
 
-def _apply_retrieval_node_scope(node: DagNode, node_input: Dict[str, Any]) -> None:
+def _apply_retrieval_node_scope(node: DagNode, node_input: dict[str, Any]) -> None:
     """Project a Builder-authored Retrieval scope into canonical RAG input.
 
     Graph configuration is authoritative: caller input and upstream nodes cannot
@@ -2162,7 +2157,7 @@ _GRAPH_OWNED_BLOCKS: tuple[tuple[str, frozenset, tuple[str, ...]], ...] = (
 )
 
 
-def _passthrough_without_recipe(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def _passthrough_without_recipe(data: Optional[dict[str, Any]]) -> dict[str, Any]:
     """Task failure envelopes pass upstream data through; the graph-owned
     ``_recipe``, ``_transform``, ``_train`` and ``_predict`` blocks are
     configuration (the full script, statement text, training spec or model
@@ -2177,7 +2172,7 @@ def _passthrough_without_recipe(data: Optional[Dict[str, Any]]) -> Dict[str, Any
 
 def _apply_graph_owned_config(
     node: DagNode,
-    node_input: Dict[str, Any],
+    node_input: dict[str, Any],
     *,
     key: str,
     slugs: frozenset,
@@ -2208,7 +2203,7 @@ def _apply_graph_owned_config(
         node_input.pop(name, None)
 
 
-def _apply_recipe_node_config(node: DagNode, node_input: Dict[str, Any]) -> None:
+def _apply_recipe_node_config(node: DagNode, node_input: dict[str, Any]) -> None:
     _apply_graph_owned_config(
         node,
         node_input,
@@ -2218,7 +2213,7 @@ def _apply_recipe_node_config(node: DagNode, node_input: Dict[str, Any]) -> None
     )
 
 
-def _apply_transform_node_config(node: DagNode, node_input: Dict[str, Any]) -> None:
+def _apply_transform_node_config(node: DagNode, node_input: dict[str, Any]) -> None:
     _apply_graph_owned_config(
         node,
         node_input,
@@ -2228,7 +2223,7 @@ def _apply_transform_node_config(node: DagNode, node_input: Dict[str, Any]) -> N
     )
 
 
-def _apply_train_node_config(node: DagNode, node_input: Dict[str, Any]) -> None:
+def _apply_train_node_config(node: DagNode, node_input: dict[str, Any]) -> None:
     _apply_graph_owned_config(
         node,
         node_input,
@@ -2238,7 +2233,7 @@ def _apply_train_node_config(node: DagNode, node_input: Dict[str, Any]) -> None:
     )
 
 
-def _apply_predict_node_config(node: DagNode, node_input: Dict[str, Any]) -> None:
+def _apply_predict_node_config(node: DagNode, node_input: dict[str, Any]) -> None:
     _apply_graph_owned_config(
         node,
         node_input,
@@ -2259,7 +2254,7 @@ async def _execute_node(
     state: WalkerState,
     *,
     control,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Return ``{output, inactive_branches?, pause?, decision_id?, ...}``.
 
     Each handler returns a dict so the walker can uniformly settle the node
@@ -2391,13 +2386,9 @@ async def _execute_node(
     # params as defaults so an inspector edit reaches the skill; explicit
     # ``inputs_map`` selectors keep precedence (setdefault never clobbers).
     if node.kind == "task" and strict and node.skill_slug:
-        config_params = (
-            node.config.get("params") if isinstance(node.config, dict) else None
-        )
+        config_params = node.config.get("params") if isinstance(node.config, dict) else None
         if isinstance(config_params, dict):
-            for param_key, param_value in _without_secret_values(
-                config_params
-            ).items():
+            for param_key, param_value in _without_secret_values(config_params).items():
                 node_input.setdefault(param_key, param_value)
 
     try:
@@ -2424,7 +2415,7 @@ async def _execute_node(
         )
 
     invocations_before = len(state.invocation_ids)
-    result: Dict[str, Any] = {}
+    result: dict[str, Any] = {}
     try:
         if node.kind == "source":
             output = dict(state.ctx.get("input") or run.input_ref or {})
@@ -2546,6 +2537,20 @@ async def _execute_node(
             return result
 
         if node.kind == "asset":
+            if node.type == "source.connector":
+                from app.services.flow_data_sources import connector_reference
+
+                return {
+                    "output": {
+                        "source": connector_reference(
+                            {
+                                "id": node.id,
+                                "kind": node.kind,
+                                "config": node.config,
+                            }
+                        )
+                    }
+                }
             # Declarative source asset (Phase 1). A silent pass-through that
             # merely NAMES the collection it stands for — the walker does not
             # read it yet (retrieval keeps its implicit workspace resolution);
@@ -2598,9 +2603,9 @@ async def _run_task(
     state: WalkerState,
     *,
     control,
-    upstream: Optional[Dict[str, Any]] = None,
+    upstream: Optional[dict[str, Any]] = None,
     resolved: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     slug = node.skill_slug
     if not slug:
         # Task with no bound skill is a frontend authoring stub; pass through
@@ -2634,11 +2639,7 @@ async def _run_task(
     if _runtime_valves_blocked(db, run, control):
         return {"output": {}, "membrane_blocked": True}
     if invocation.status == "completed":
-        return {
-            "output": (
-                invocation.output_ref if invocation.output_ref is not None else {}
-            )
-        }
+        return {"output": (invocation.output_ref if invocation.output_ref is not None else {})}
     # On failure / skipped: pass through upstream data but preserve the error
     # in the ctx for downstream decision nodes.
     err_output = {
@@ -2651,10 +2652,10 @@ async def _run_task(
 
 def _decision_ctx(
     state: WalkerState,
-    merged_input: Optional[Dict[str, Any]],
+    merged_input: Optional[dict[str, Any]],
     *,
     strict: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Names a Decision predicate can read.
 
     Strict conditions are evaluated from the node's typed payload; built-in and
@@ -2669,12 +2670,12 @@ def _run_decision(
     node: DagNode,
     graph: DagGraph,
     state: WalkerState,
-    merged_input: Dict[str, Any],
+    merged_input: dict[str, Any],
     *,
     pool: Optional[VariablePool] = None,
     strict: bool = False,
-    unbound_inputs: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+    unbound_inputs: Optional[list[str]] = None,
+) -> dict[str, Any]:
     """Resolve one Decision route, failing closed on every ambiguous outcome.
 
     Every predicate is validated before the first one is evaluated, so an
@@ -2701,8 +2702,8 @@ def _run_decision(
         }
     ctx_with_input = _decision_ctx(state, merged_input, strict=strict)
 
-    branch_specs: List[Tuple[int, str, str]] = []
-    evaluations: List[Dict[str, Any]] = []
+    branch_specs: list[tuple[int, str, str]] = []
+    evaluations: list[dict[str, Any]] = []
     for index, branch in enumerate(branches):
         if not isinstance(branch, dict):
             continue
@@ -2826,7 +2827,7 @@ def _run_decision(
         }
 
     # All outgoing branch edge labels that are NOT chosen become inactive.
-    out_branch_labels: Set[str] = set()
+    out_branch_labels: set[str] = set()
     for edge in graph.out_edges.get(node.id, []):
         if edge.kind == "branch" and edge.branch_label:
             out_branch_labels.add(edge.branch_label)
@@ -2847,12 +2848,12 @@ def _run_decision(
 
 def _decision_resolution_checkpoint(
     node: DagNode,
-    result: Dict[str, Any],
-) -> Dict[str, Any]:
+    result: dict[str, Any],
+) -> dict[str, Any]:
     """Build the explicit, secret-free checkpoint for one Decision result."""
 
     output = result.get("output") if isinstance(result.get("output"), dict) else {}
-    entry: Dict[str, Any] = {
+    entry: dict[str, Any] = {
         "kind": "decision_resolution",
         "node_id": node.id,
         "resolution": result.get("decision_resolution") or "error",
@@ -2869,8 +2870,8 @@ def _decision_resolution_checkpoint(
 
 
 def _run_fork(
-    node: DagNode, graph: DagGraph, state: WalkerState, payload: Dict[str, Any]
-) -> Dict[str, Any]:
+    node: DagNode, graph: DagGraph, state: WalkerState, payload: dict[str, Any]
+) -> dict[str, Any]:
     """Fan the fork input out to each outgoing branch (P4).
 
     Beyond the legacy pass-through, we publish a *branch-scoped* pool namespace
@@ -2880,7 +2881,7 @@ def _run_fork(
     fork with no branch labels behaves exactly as before.
     """
     payload = payload or {}
-    branch_labels: List[str] = []
+    branch_labels: list[str] = []
     for edge in graph.out_edges.get(node.id, []):
         label = edge.branch_label or edge.target
         if label not in branch_labels:
@@ -2889,7 +2890,7 @@ def _run_fork(
     return {"output": {**payload, "_fork_branches": branch_labels}}
 
 
-def _run_join(node: DagNode, graph: DagGraph, state: WalkerState) -> Dict[str, Any]:
+def _run_join(node: DagNode, graph: DagGraph, state: WalkerState) -> dict[str, Any]:
     """Typed merge of the join's live predecessors, keyed by ``branch_label`` (P4).
 
     The dependency counter still gates *when* the join fires (once its pending
@@ -2904,8 +2905,8 @@ def _run_join(node: DagNode, graph: DagGraph, state: WalkerState) -> Dict[str, A
     """
     config = node.config or {}
     strategy = config.get("strategy") or "all"
-    branch_outputs: Dict[str, Any] = {}
-    merged: Dict[str, Any] = {}
+    branch_outputs: dict[str, Any] = {}
+    merged: dict[str, Any] = {}
     for edge in graph.in_edges.get(node.id, []):
         if (edge.source, edge.target, edge.branch_label) in state.dead_edges:
             continue
@@ -2959,11 +2960,7 @@ def _runtime_positive_int(value: Any, *, default: int, field: str) -> int:
     """Resolve a loop/retry budget without truncating floats or booleans."""
 
     resolved = default if value is None else value
-    if (
-        not isinstance(resolved, int)
-        or isinstance(resolved, bool)
-        or resolved <= 0
-    ):
+    if not isinstance(resolved, int) or isinstance(resolved, bool) or resolved <= 0:
         raise ValueError(f"{field}_must_be_a_positive_integer")
     return resolved
 
@@ -2975,9 +2972,9 @@ async def _run_retry(
     state: WalkerState,
     *,
     control,
-    upstream: Optional[Dict[str, Any]] = None,
+    upstream: Optional[dict[str, Any]] = None,
     resolved: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     config = node.config or {}
     max_attempts = _runtime_positive_int(
         config.get("max_attempts"),
@@ -3013,9 +3010,7 @@ async def _run_retry(
         if _runtime_valves_blocked(db, run, control):
             return {"output": {}, "membrane_blocked": True}
         if invocation.status == "completed":
-            raw_output = (
-                invocation.output_ref if invocation.output_ref is not None else {}
-            )
+            raw_output = invocation.output_ref if invocation.output_ref is not None else {}
             output = _retry_node_output(raw_output, attempt)
             violation = _control_invocation_contract_violation(
                 db,
@@ -3077,10 +3072,10 @@ async def _run_loop(
     state: WalkerState,
     *,
     control,
-    upstream: Optional[Dict[str, Any]] = None,
+    upstream: Optional[dict[str, Any]] = None,
     resolved: bool = False,
     pool: Optional[VariablePool] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     config = node.config or {}
     max_iterations = _runtime_positive_int(
         config.get("max_iterations"),
@@ -3092,7 +3087,7 @@ async def _run_loop(
     slug = node.skill_slug or config.get("skill_slug")
     merged = upstream or {}
     base_ctx = {**state.ctx, **merged}
-    items: List[Any] = []
+    items: list[Any] = []
     if iterator_key:
         src = base_ctx.get(iterator_key) if isinstance(iterator_key, str) else None
         if src is None:
@@ -3102,7 +3097,7 @@ async def _run_loop(
     if not items and max_iterations > 0 and not iterator_key:
         items = [None] * max_iterations
 
-    iterations: List[Dict[str, Any]] = []
+    iterations: list[dict[str, Any]] = []
     for idx, item in enumerate(items[:max_iterations]):
         iter_ctx = {**state.ctx, "_loop_index": idx, "_loop_item": item}
         iter_input = {**(merged or {}), "item": item}
@@ -3186,8 +3181,8 @@ async def _run_agent_loop(
     state: WalkerState,
     *,
     control,
-    upstream: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    upstream: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     """Bounded think → gate → act loop. Does not call ``_run_loop``."""
 
     from app.services.run_engine.agent_loop import (
@@ -3214,7 +3209,11 @@ async def _run_agent_loop(
     allowlist = list(config.get("skill_allowlist") or merged.get("skill_allowlist") or [])
     decide_slug = node.skill_slug or DECIDE_SKILL
     try:
-        floor = float(config.get("confidence_floor") if config.get("confidence_floor") is not None else DEFAULT_CONFIDENCE_FLOOR)
+        floor = float(
+            config.get("confidence_floor")
+            if config.get("confidence_floor") is not None
+            else DEFAULT_CONFIDENCE_FLOOR
+        )
     except (TypeError, ValueError):
         floor = DEFAULT_CONFIDENCE_FLOOR
     budget_cfg = config.get("budget") if isinstance(config.get("budget"), dict) else {}
@@ -3224,7 +3223,9 @@ async def _run_agent_loop(
     except (TypeError, ValueError):
         max_cost = None
     try:
-        deadline_ms = float(budget_cfg["deadline_ms"]) if budget_cfg.get("deadline_ms") is not None else None
+        deadline_ms = (
+            float(budget_cfg["deadline_ms"]) if budget_cfg.get("deadline_ms") is not None else None
+        )
     except (TypeError, ValueError):
         deadline_ms = None
     on_budget = str(config.get("on_budget") or "exit")
@@ -3250,7 +3251,7 @@ async def _run_agent_loop(
 
     loops = dict(state.ctx.get("_agent_loop") or {})
     resume = dict(loops.get(node.id) or {})
-    observations: List[Dict[str, Any]] = list(resume.get("observations") or [])
+    observations: list[dict[str, Any]] = list(resume.get("observations") or [])
     if steer_raw.get("note"):
         observations.append(
             {
@@ -3296,14 +3297,12 @@ async def _run_agent_loop(
         allowlist,
         control=control,
         privilege_tier=privilege,
-        purposes=workspace_skill_purposes(
-            db, workspace_id=run.workspace_id, slugs=allowlist
-        ),
+        purposes=workspace_skill_purposes(db, workspace_id=run.workspace_id, slugs=allowlist),
     )
     visible = [item.to_dict() for item in mandate.visible]
     start_ms = state.accumulated_ms
 
-    async def _invoke(slug: str, payload: Dict[str, Any], *, turn: int, kind: str):
+    async def _invoke(slug: str, payload: dict[str, Any], *, turn: int, kind: str):
         frozen_node = (run.execution_contract or {}).get("nodes", {}).get(node.id) or {}
         tool = (frozen_node.get("tool_contract") or {}).get("nodes", {}).get(slug)
         if tool is not None and kind == "agent_loop_act":
@@ -3342,12 +3341,19 @@ async def _run_agent_loop(
         )
         if output is not None and is_retrieval:
             from .agent_loop import retrieval_evidence_view
+
             output = retrieval_evidence_view(output)
         return {
-            "turn": turn, "skill": slug, "ok": ok,
-            "summary": summary or str((output or {}).get("summary")
-                                      or (output or {}).get("completion")
-                                      or (output or {}).get("status") or ""),
+            "turn": turn,
+            "skill": slug,
+            "ok": ok,
+            "summary": summary
+            or str(
+                (output or {}).get("summary")
+                or (output or {}).get("completion")
+                or (output or {}).get("status")
+                or ""
+            ),
             "invocation_id": str(invocation.id) if invocation is not None else None,
             # Retrieval observations retain all passages with an explicit evidence
             # view; the linked invocation preserves the complete raw tool output.
@@ -3355,7 +3361,7 @@ async def _run_agent_loop(
             "output": output,
         }
 
-    def _persist_resume(next_turn: int, extra: Optional[Dict[str, Any]] = None) -> None:
+    def _persist_resume(next_turn: int, extra: Optional[dict[str, Any]] = None) -> None:
         loops[node.id] = {
             "observations": observations,
             "next_turn": next_turn,
@@ -3365,7 +3371,7 @@ async def _run_agent_loop(
         }
         state.ctx["_agent_loop"] = loops
 
-    def _output(*, exit_value: Optional[str]) -> Dict[str, Any]:
+    def _output(*, exit_value: Optional[str]) -> dict[str, Any]:
         return {
             "goal": goal,
             "observations": observations,
@@ -3385,12 +3391,18 @@ async def _run_agent_loop(
             )
             ok = bool(invocation is not None and invocation.status == "completed")
             observations.append(
-                _observation(invocation, turn=max(start_turn - 1, 1), slug=pending_write,
-                             summary="human_approved_write" if ok else "write_failed")
+                _observation(
+                    invocation,
+                    turn=max(start_turn - 1, 1),
+                    slug=pending_write,
+                    summary="human_approved_write" if ok else "write_failed",
+                )
             )
             pending_write = None
             _persist_resume(start_turn)
-            if evaluate_done_when(goal.get("done_when") or [], observations=observations, claimed=True):
+            if evaluate_done_when(
+                goal.get("done_when") or [], observations=observations, claimed=True
+            ):
                 goal["status"] = "complete"
                 return {"output": _output(exit_value="complete")}
         else:
@@ -3408,15 +3420,20 @@ async def _run_agent_loop(
             return {"output": _output(exit_value="blocked")}
 
     for turn in range(start_turn, max_turns + 1):
-        elapsed = state.accumulated_ms - start_ms + (time.monotonic() - state.start_monotonic) * 1000
-        if budget_exhausted(
-            turn=turn,
-            max_turns=max_turns,
-            total_cost=state.total_cost,
-            max_cost=max_cost,
-            elapsed_ms=elapsed,
-            deadline_ms=deadline_ms,
-        ) or turn > max_turns:
+        elapsed = (
+            state.accumulated_ms - start_ms + (time.monotonic() - state.start_monotonic) * 1000
+        )
+        if (
+            budget_exhausted(
+                turn=turn,
+                max_turns=max_turns,
+                total_cost=state.total_cost,
+                max_cost=max_cost,
+                elapsed_ms=elapsed,
+                deadline_ms=deadline_ms,
+            )
+            or turn > max_turns
+        ):
             goal["status"] = "blocked" if on_budget != "ask_human" else "needs_approval"
             if on_budget == "ask_human":
                 _persist_resume(turn)
@@ -3561,9 +3578,9 @@ async def _pause_agent_loop_for_human(
     *,
     control,
     prompt: str,
-    upstream: Dict[str, Any],
+    upstream: dict[str, Any],
     prompt_kind: str = "choice",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """HITL pause owned by the agent_loop node so resume re-enters the loop."""
 
     hitl_node = DagNode(
@@ -3589,8 +3606,8 @@ def _run_hitl(
     state: WalkerState,
     *,
     control=None,
-    upstream: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    upstream: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     """Persist a ``proposed`` Decision, then ask the walker to pause.
 
     Membrane outbound facet (P3): the resolved outbound gate (read-through —
@@ -3602,7 +3619,7 @@ def _run_hitl(
     prompt = config.get("prompt") or f"Approval required for step {node.label or node.id}"
     approvers = config.get("approvers") or []
     merged = upstream or {}
-    membrane_gate: Dict[str, Any] = {}
+    membrane_gate: dict[str, Any] = {}
     try:
         from app.services.membrane.spec import resolve_membrane_spec
 
@@ -3662,8 +3679,8 @@ def _run_hitl(
 
 
 def _build_subflow_input(
-    config: Dict[str, Any], upstream: Dict[str, Any], pool: VariablePool
-) -> Dict[str, Any]:
+    config: dict[str, Any], upstream: dict[str, Any], pool: VariablePool
+) -> dict[str, Any]:
     """Map ``config.input_map`` selectors into the child run's ``input_ref``.
 
     ``input_map`` maps ``child_input_key → selector`` (dot-path / VariableRef /
@@ -3682,7 +3699,7 @@ def _build_subflow_input(
             for key, value in upstream.items()
             if key not in {"_debug", "_ingress", "execution"}
         }
-    resolved: Dict[str, Any] = {}
+    resolved: dict[str, Any] = {}
     for key, selector in input_map.items():
         value = resolve_selector(selector, pool, default=None)
         if value is None:
@@ -3691,7 +3708,7 @@ def _build_subflow_input(
     return resolved
 
 
-def _delegation_acl(control, target: System, branch: str, payload: Dict[str, Any]):
+def _delegation_acl(control, target: System, branch: str, payload: dict[str, Any]):
     """Resolve the authoritative typed delegation edge, fail-closed in v2 enforce."""
     from .subflow_orchestration import delegation_acl_result
 
@@ -3700,7 +3717,11 @@ def _delegation_acl(control, target: System, branch: str, payload: Dict[str, Any
     except Exception as exc:  # malformed enforce contracts are not an allow-all
         extra = getattr(control, "extra", None)
         raw = (extra.get("membrane_spec") or {}) if isinstance(extra, dict) else {}
-        enforce = isinstance(raw, dict) and raw.get("version") == 2 and raw.get("enforcement_mode") == "enforce"
+        enforce = (
+            isinstance(raw, dict)
+            and raw.get("version") == 2
+            and raw.get("enforcement_mode") == "enforce"
+        )
         return (not enforce, "invalid_membrane_spec", None, enforce, str(exc))
     allowed, reason, output_contract, enforced = delegation_acl_result(
         spec,
@@ -3718,8 +3739,8 @@ async def _run_subflow(
     state: WalkerState,
     *,
     control,
-    upstream: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    upstream: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     """Delegate to the target System as a real child ``Run`` (P4).
 
     Creates ``Run(parent_run_id=run.id)`` for the target System, maps
@@ -3751,7 +3772,11 @@ async def _run_subflow(
         # and fall through to recreate so the run can still make progress.
         state.subflow_children.pop(node.id, None)
 
-    target = db.query(System).filter(System.id == target_id, System.workspace_id == run.workspace_id).first()
+    target = (
+        db.query(System)
+        .filter(System.id == target_id, System.workspace_id == run.workspace_id)
+        .first()
+    )
     if not target:
         logger.warning(
             "dag_engine: subflow system missing",
@@ -3807,11 +3832,7 @@ async def _run_subflow(
         .filter(System.id == run.system_id, System.workspace_id == run.workspace_id)
         .first()
     )
-    target_nodes = (
-        (target_flow or {}).get("nodes")
-        if isinstance(target_flow, dict)
-        else []
-    )
+    target_nodes = (target_flow or {}).get("nodes") if isinstance(target_flow, dict) else []
     target_has_delegation = any(
         isinstance(candidate, dict) and candidate.get("kind") == "subflow"
         for candidate in (target_nodes or [])
@@ -3838,11 +3859,7 @@ async def _run_subflow(
         if timeout_seconds <= 0 or timeout_seconds > 86400:
             return {"output": {"_error": "invalid_subflow_timeout"}}
         deadline_at = (datetime.utcnow() + timedelta(seconds=timeout_seconds)).isoformat()
-    branch = str(
-        config.get("branch")
-        or (upstream or {}).get("_delegation_branch")
-        or "default"
-    )
+    branch = str(config.get("branch") or (upstream or {}).get("_delegation_branch") or "default")
     allowed, acl_reason, output_contract, contract_enforced, acl_error = _delegation_acl(
         control, target, branch, child_input
     )
@@ -3874,9 +3891,7 @@ async def _run_subflow(
     # Provenance: carry the delegating node id inside the child input_ref to
     # avoid a DDL migration (Run already has parent_run_id).
     target_contract = (
-        (target_flow or {}).get("output_contract")
-        if isinstance(target_flow, dict)
-        else None
+        (target_flow or {}).get("output_contract") if isinstance(target_flow, dict) else None
     )
     if not isinstance(target_contract, dict):
         target_contract = config.get("output_contract")
@@ -3932,9 +3947,7 @@ async def _run_subflow(
                             trigger="subflow",
                         )
                     except subflow_ingress.FlowIngressError as exc:
-                        raise RuntimeError(
-                            f"subflow_ingress_rejected:{exc.code}"
-                        ) from exc
+                        raise RuntimeError(f"subflow_ingress_rejected:{exc.code}") from exc
                     child.parent_run_id = run.id
                     accepted_child_input = dict(child.input_ref or {})
                     accepted_child_input["_delegation"] = delegation_evidence
@@ -4021,10 +4034,19 @@ async def _run_subflow(
         meta.update({"strategy": strategy, "state": "waiting", "execution_plane": "celery"})
         waiting["_meta"] = meta
         entry = dict(waiting.get(logical_key) or {})
-        entry.update({"child_run_id": child_id, "node_id": node.id, "branch": branch,
-                      "iteration": iteration, "strategy": strategy,
-                      "status": child.status, "dispatch_state": "outbox_pending",
-                      "deadline_at": deadline_at, "wave_id": meta["wave_id"]})
+        entry.update(
+            {
+                "child_run_id": child_id,
+                "node_id": node.id,
+                "branch": branch,
+                "iteration": iteration,
+                "strategy": strategy,
+                "status": child.status,
+                "dispatch_state": "outbox_pending",
+                "deadline_at": deadline_at,
+                "wave_id": meta["wave_id"],
+            }
+        )
         waiting[logical_key] = entry
         run.waiting_subflows = waiting
         enqueue_dispatch(
@@ -4038,8 +4060,13 @@ async def _run_subflow(
         # Do not commit here. Every parallel branch shares this Session, and
         # ``_emit_subflow_pause`` atomically commits all children, parent wait
         # state/checkpoint and outbox rows before any broker publication.
-        return {"pause": True, "wait_subflow": True, "node_id": node.id, "child_run_id": child_id,
-                "prompt": "Subflow dispatched; awaiting durable completion"}
+        return {
+            "pause": True,
+            "wait_subflow": True,
+            "node_id": node.id,
+            "child_run_id": child_id,
+            "prompt": "Subflow dispatched; awaiting durable completion",
+        }
 
     # Execute the child as its own graph (in-process). Celery fan-out is wired
     # through the durable outbox; this synchronous path still needs the child
@@ -4064,7 +4091,7 @@ async def _continue_subflow_child(
     state: WalkerState,
     child_id: str,
     target_id: str,
-) -> Optional[Dict[str, Any]]:
+) -> Optional[dict[str, Any]]:
     """Resume or reuse an already-spawned subflow child (idempotent replay).
 
     Returns the node outcome dict, or ``None`` when the recorded child run no
@@ -4087,8 +4114,13 @@ async def _continue_subflow_child(
 
     if status in ("running", "pending"):
         if child.celery_task_id or child.delegation_key:
-            return {"pause": True, "wait_subflow": True, "node_id": node.id, "child_run_id": child_id,
-                    "prompt": "Subflow execution is still pending"}
+            return {
+                "pause": True,
+                "wait_subflow": True,
+                "node_id": node.id,
+                "child_run_id": child_id,
+                "prompt": "Subflow execution is still pending",
+            }
         # Defensive: a synchronous in-process child should already be terminal
         # or paused. If we somehow re-enter while it is mid-flight, continue it
         # rather than creating a duplicate.
@@ -4125,7 +4157,7 @@ def _subflow_outcome(
     child_id: str,
     target_id: str,
     child_summary: Any,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Translate a child run summary into a subflow node outcome.
 
     A child still awaiting HITL surfaces as a parent pause (gating the join);
@@ -4147,7 +4179,7 @@ def _settle_subflow_output(
     state: WalkerState,
     child_id: str,
     target_id: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Read the committed child output (in its own session) and merge it back."""
     # The child ran in its OWN session; expire the stale identity-mapped row so
     # we read the committed output_ref / cost rather than the pending snapshot.
@@ -4172,7 +4204,9 @@ def _settle_subflow_output(
             )
             if isinstance(value, dict) and value
         ]
-        if contracts and not all(validate_contract(child_output, contract) for contract in contracts):
+        if contracts and not all(
+            validate_contract(child_output, contract) for contract in contracts
+        ):
             contract_warning = "delegation_output_contract_mismatch"
             if delegation.get("contract_enforced") and fresh is not None:
                 fresh.status = "failed"
@@ -4255,7 +4289,7 @@ def _seed_pool(
         )
     except ContextBindingError as exc:
         raise RuntimeError("system_context_binding_invalid") from exc
-    context_payload: Dict[str, Any] = {
+    context_payload: dict[str, Any] = {
         "id": getattr(context, "id", None),
         "name": getattr(context, "name", None),
         "version": getattr(context, "version", None),
@@ -4297,7 +4331,7 @@ _SECRET_SUFFIXES = tuple(f"_{key}" for key in _SECRET_KEYS)
 def _without_secret_values(value: Any) -> Any:
     """Copy JSON-like runtime config while dropping credential fields."""
     if isinstance(value, dict):
-        clean: Dict[str, Any] = {}
+        clean: dict[str, Any] = {}
         for key, item in value.items():
             name = str(key).strip().lower()
             if name in _SECRET_KEYS or name.endswith(_SECRET_SUFFIXES):
@@ -4313,8 +4347,8 @@ def _without_secret_values(value: Any) -> Any:
 
 def _merge_predecessor_outputs(
     graph: DagGraph, state: WalkerState, node_id: str, *, include_assets: bool = True
-) -> Dict[str, Any]:
-    merged: Dict[str, Any] = {}
+) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
     for edge in graph.in_edges.get(node_id, []):
         if (edge.source, edge.target, edge.branch_label) in state.dead_edges:
             continue
@@ -4347,7 +4381,7 @@ def _collect_terminal_output(graph: DagGraph, state: WalkerState) -> Any:
         settled_sinks = [sid for sid in sinks if sid in state.node_outputs]
         if len(settled_sinks) == 1:
             return state.node_outputs[settled_sinks[0]]
-        out: Dict[str, Any] = {}
+        out: dict[str, Any] = {}
         saw_output = False
         for sid in settled_sinks:
             payload = state.node_outputs[sid]
@@ -4398,7 +4432,7 @@ def _envelope_rows(payload: Any) -> Optional[int]:
     return None
 
 
-def _metric_block(payload: Any) -> Optional[Dict[str, Any]]:
+def _metric_block(payload: Any) -> Optional[dict[str, Any]]:
     """A ``{key, value}`` primary metric, as a model reference carries it."""
 
     if not isinstance(payload, dict):
@@ -4416,8 +4450,8 @@ def _metric_block(payload: Any) -> Optional[Dict[str, Any]]:
 
 
 def _node_data_badge(
-    node_input: Optional[Dict[str, Any]], result: Dict[str, Any]
-) -> Optional[Dict[str, Any]]:
+    node_input: Optional[dict[str, Any]], result: dict[str, Any]
+) -> Optional[dict[str, Any]]:
     """What the canvas badges a settled node with, read off its envelopes.
 
     The numbers are not computed here and they are not new: a transform node
@@ -4429,7 +4463,7 @@ def _node_data_badge(
     """
 
     output = result.get("output")
-    badge: Dict[str, Any] = {}
+    badge: dict[str, Any] = {}
     rows_in = _envelope_rows(node_input)
     if rows_in is not None:
         badge["rows_in"] = rows_in
@@ -4460,8 +4494,7 @@ def _node_data_badge(
                     "slug": slug,
                     **(
                         {"version": int(version)}
-                        if isinstance(version, (int, float))
-                        and not isinstance(version, bool)
+                        if isinstance(version, (int, float)) and not isinstance(version, bool)
                         else {}
                     ),
                 }
@@ -4475,11 +4508,11 @@ def _summarise_node_execution(
     db: DBSession,
     run: Run,
     node: DagNode,
-    result: Dict[str, Any],
+    result: dict[str, Any],
     state: WalkerState,
     invocations_before: int,
-    node_input: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    node_input: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     """Distil whatever the handler returned into a few SSE-friendly fields.
 
     Returned fields are merged into the ``node_end`` checkpoint and are
@@ -4492,7 +4525,7 @@ def _summarise_node_execution(
     * Data-plane nodes surface ``data``: rows read, rows written, the metric a
       fit produced, the model version that answered.
     """
-    summary: Dict[str, Any] = {}
+    summary: dict[str, Any] = {}
     if not isinstance(result, dict):
         return summary
     badge = _node_data_badge(node_input, result)
@@ -4529,7 +4562,7 @@ def _summarise_node_execution(
     return summary
 
 
-def _append_checkpoint(db: DBSession, run: Run, entry: Dict[str, Any]) -> None:
+def _append_checkpoint(db: DBSession, run: Run, entry: dict[str, Any]) -> None:
     cps = list(run.checkpoints or [])
     entry.setdefault("t", datetime.utcnow().isoformat())
     cps.append(entry)
@@ -4552,13 +4585,7 @@ def _terminate_interrupted_run(
 ) -> None:
     """Make cancellation/engine failure terminal and close live subscribers."""
 
-    locked = (
-        db.query(Run)
-        .filter(Run.id == run.id)
-        .populate_existing()
-        .with_for_update()
-        .first()
-    )
+    locked = db.query(Run).filter(Run.id == run.id).populate_existing().with_for_update().first()
     if locked is not None:
         run = locked
     if run.status in {"completed", "failed", "cancelled"}:

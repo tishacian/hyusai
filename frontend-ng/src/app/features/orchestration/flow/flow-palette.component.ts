@@ -36,6 +36,7 @@ import { agentiumSurfaceRoute } from '@app/core/navigation.catalog';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { I18nService } from '@app/core/i18n.service';
 import { FlowCatalogService } from './flow-catalog.service';
+import { FlowDataSourcesService } from './flow-data-sources.service';
 import { isPaletteItemConnectable } from './flow-preconnect';
 import {
   buildCapabilityGroups,
@@ -111,7 +112,7 @@ const MOST_USED_LIMIT = 5;
       </button>
     </ng-template>
 
-    <aside class="ck-flow-palette" role="group" [attr.aria-label]="i18n.t('flow.palette.aria')">
+    <div class="ck-flow-palette" role="group" [attr.aria-label]="i18n.t('flow.palette.aria')">
       <div class="ck-flow-palette__heading">
         <h3 class="ck-flow-palette__label">
           <app-icon name="boxes" set="phosphor" [size]="12" /> {{ headingLabel() }}
@@ -187,6 +188,25 @@ const MOST_USED_LIMIT = 5;
           }
         </div>
       } @else {
+      @if (!simpleMode() && !rankedMode() && !openGroup() && level() !== 'advanced') {
+        <section class="ck-flow-palette__body" data-testid="flow-sources-palette">
+          <h4 class="ck-flow-palette__section-heading"><button type="button" class="ck-flow-palette__section-toggle" [attr.aria-expanded]="sourcesExpanded()" aria-controls="flow-palette-sources-panel" (click)="sourcesExpanded.set(!sourcesExpanded())"><app-icon [name]="sourcesExpanded() ? 'chevron-down' : 'chevron-right'" [size]="11" /><span>{{ i18n.t('flow.sources.palette') }}</span><span class="ck-flow-palette__count">{{ sources.items().length }}</span></button></h4>
+          @if (sourcesExpanded()) {
+            <div id="flow-palette-sources-panel">
+              @for (item of sources.items(); track itemKey(item)) {
+                <ng-container *ngTemplateOutlet="row; context: { $implicit: item }" />
+              }
+            </div>
+          }
+          @if (sources.state() === 'loading' || sources.collectionState() === 'loading') {
+            <p class="ck-flow-palette__empty" role="status">{{ i18n.t('flow.sources.loading') }}</p>
+          } @else if (sources.state() === 'error' || sources.collectionState() === 'error') {
+            <div class="ck-flow-palette__catalog-error" role="alert"><span>{{ i18n.t('flow.sources.catalog_error') }}</span><button type="button" (click)="sources.retry()">{{ i18n.t('flow.sources.retry') }}</button></div>
+          } @else if (!sources.items().length) {
+            <p class="ck-flow-palette__empty">{{ i18n.t('flow.sources.empty') }}</p>
+          }
+        </section>
+      }
       @if (catalog.state() === 'loading') {
         <p class="ck-flow-palette__empty" role="status">
           {{ i18n.t('flow.palette.catalog.loading') }}
@@ -405,10 +425,12 @@ const MOST_USED_LIMIT = 5;
 
       <!-- P3 SEAM: extra groups may still project here. -->
       <ng-content select="[flowPaletteExtra]" />
-    </aside>
+    </div>
   `,
 })
 export class FlowPaletteComponent {
+  protected readonly sources = inject(FlowDataSourcesService);
+  protected readonly sourcesExpanded = signal(false);
   protected readonly catalog = inject(FlowCatalogService);
   readonly i18n = inject(I18nService);
 
@@ -443,6 +465,7 @@ export class FlowPaletteComponent {
    * summariser are both answers to "what goes here". */
   private readonly allItems = computed<PaletteItem[]>(() => [
     ...this.items(),
+    ...(this.simpleMode() ? [] : this.sources.items()),
     ...(this.simpleMode() ? [] : this.catalog.skillItems()),
   ]);
 
@@ -656,6 +679,9 @@ export class FlowPaletteComponent {
    * description — which is what every catalog Skill (type `skill`, no key
    * declared) keeps, because its copy is data, not chrome. */
   private describe(item: PaletteItem): string {
+    if (item.kind === 'asset' && (item.config?.['connector_id'] || item.config?.['collection_slug'])) {
+      return this.i18n.t(item.type === 'source.connector' ? 'flow.sources.configured_reference' : 'flow.sources.collection');
+    }
     const key = `flow.palette.desc.${item.type}`;
     const label = this.i18n.t(key);
     return label === key ? item.description : label;
@@ -664,6 +690,7 @@ export class FlowPaletteComponent {
   /** Structural labels are chrome (`flow.palette.label.<type>`); catalog
    *  skill names stay data and keep the raw `item.label`. */
   protected itemName(item: PaletteItem): string {
+    if (item.kind === 'asset' && (item.config?.['connector_id'] || item.config?.['collection_slug'])) return item.label;
     const key = `flow.palette.label.${item.type}`;
     const label = this.i18n.t(key);
     return label === key ? item.label : label;

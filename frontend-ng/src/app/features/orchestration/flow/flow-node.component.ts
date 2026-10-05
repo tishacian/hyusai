@@ -41,6 +41,7 @@ import {
 import { FlowPersistenceService } from './flow-persistence.service';
 import { FlowRunService } from './flow-run.service';
 import { FlowStore } from './flow.store';
+import { isConnectorSource, sourceConnectorId, sourceReadMode, sourceResources } from './flow-data-sources.vm';
 
 type NodeTone = 'brand' | 'cyan' | 'violet' | 'emerald' | 'amber' | 'rose';
 
@@ -123,6 +124,9 @@ interface RuntimeBadge {
       </div>
       @if (description(); as desc) {
         <div class="ck-flow-node__desc">{{ desc }}</div>
+      }
+      @if (sourceSummary(); as summary) {
+        <div class="ck-flow-node__source" data-testid="flow-source-summary"><span>{{ summary }}</span><span>{{ i18n.t(sourceModeKey()) }}</span></div>
       }
 
       @if (runBadge(); as run) {
@@ -227,6 +231,13 @@ export class FlowNodeComponent {
   }
 
   readonly kind = computed(() => this.node().kind ?? 'task');
+  readonly sourceSummary = computed(() => {
+    const node = this.node();
+    if (!isConnectorSource(node)) return null;
+    const resources = sourceResources(node), schemas = [...new Set(resources.map(r => r.schema))];
+    return resources.length ? `${schemas.join(', ')} · ${this.i18n.t('flow.sources.tables_count', { count: resources.length })}` : sourceConnectorId(node);
+  });
+  readonly sourceModeKey = computed(() => sourceReadMode(this.node()) === 'live' ? 'flow.sources.live' : 'flow.sources.reference');
 
   /**
    * Authored label, else the canonical type, else the bound skill slug, else
@@ -319,6 +330,7 @@ export class FlowNodeComponent {
    */
   readonly badge = computed<RuntimeBadge | null>(() => {
     const node = this.node();
+    if (isConnectorSource(node)) return null;
     const fromManifest = this.manifest.statusFor(node.id);
     if (fromManifest) {
       return {

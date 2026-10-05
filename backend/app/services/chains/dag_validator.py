@@ -39,11 +39,12 @@ Gating policy used by ``PATCH /systems/{id}``:
     - ``level = "warn"`` → save proceeds but issues are echoed back
       in the response so the UI can flag them.
 """
+
 from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Set
+from typing import Any, Mapping, Optional, Sequence
 
 from app.services.chains.variable_contract import (
     declared_namespaces,
@@ -63,7 +64,7 @@ from app.services.run_engine.variable_pool import (
     variable_ref_validation_error,
 )
 
-_CANONICAL_BUILDER_IDS: Set[str] = {
+_CANONICAL_BUILDER_IDS: set[str] = {
     "builder.objective",
     "builder.capability",
     "builder.skills",
@@ -71,8 +72,8 @@ _CANONICAL_BUILDER_IDS: Set[str] = {
     "builder.policy",
     "builder.launch",
 }
-_BUILTIN_RUNTIME_REFS: Set[str] = {"builtin:passthrough"}
-_INGRESS_KINDS: Set[str] = {"manual", "chat", "http", "schedule", "event"}
+_BUILTIN_RUNTIME_REFS: set[str] = {"builtin:passthrough"}
+_INGRESS_KINDS: set[str] = {"manual", "chat", "http", "schedule", "event"}
 
 
 @dataclass
@@ -87,22 +88,22 @@ class ValidationIssue:
     node_id: Optional[str] = None
     edge_index: Optional[int] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         return {k: v for k, v in data.items() if v is not None}
 
 
-def _iter_nodes(flow: Mapping[str, Any]) -> List[Dict[str, Any]]:
+def _iter_nodes(flow: Mapping[str, Any]) -> list[dict[str, Any]]:
     nodes = flow.get("nodes")
     return list(nodes) if isinstance(nodes, list) else []
 
 
-def _iter_edges(flow: Mapping[str, Any]) -> List[Dict[str, Any]]:
+def _iter_edges(flow: Mapping[str, Any]) -> list[dict[str, Any]]:
     edges = flow.get("edges")
     return list(edges) if isinstance(edges, list) else []
 
 
-def validate_flow_shape(flow: Any) -> List[ValidationIssue]:
+def validate_flow_shape(flow: Any) -> list[ValidationIssue]:
     """Validate the JSON container shape required by every graph consumer.
 
     Drafts may be topologically incomplete while they are being authored, but
@@ -120,7 +121,7 @@ def validate_flow_shape(flow: Any) -> List[ValidationIssue]:
             )
         ]
 
-    issues: List[ValidationIssue] = []
+    issues: list[ValidationIssue] = []
     raw_nodes = flow.get("nodes", [])
     if not isinstance(raw_nodes, list):
         issues.append(
@@ -142,12 +143,8 @@ def validate_flow_shape(flow: Any) -> List[ValidationIssue]:
                 )
                 continue
             node_id = node.get("id")
-            invalid_fields: List[str] = []
-            if (
-                not isinstance(node_id, str)
-                or not node_id.strip()
-                or node_id != node_id.strip()
-            ):
+            invalid_fields: list[str] = []
+            if not isinstance(node_id, str) or not node_id.strip() or node_id != node_id.strip():
                 invalid_fields.append("a non-empty, already-trimmed string id")
             for field in ("config", "data"):
                 value = node.get(field)
@@ -253,11 +250,11 @@ def _has_cycle(adj: Mapping[str, Sequence[str]]) -> bool:
     recursion limit.
     """
     WHITE, GRAY, BLACK = 0, 1, 2
-    color: Dict[str, int] = {node: WHITE for node in adj}
+    color: dict[str, int] = {node: WHITE for node in adj}
     for start in adj:
         if color[start] != WHITE:
             continue
-        stack: List[tuple] = [(start, iter(adj[start]))]
+        stack: list[tuple] = [(start, iter(adj[start]))]
         color[start] = GRAY
         while stack:
             node, it = stack[-1]
@@ -275,8 +272,8 @@ def _has_cycle(adj: Mapping[str, Sequence[str]]) -> bool:
     return False
 
 
-def _reachable_from(starts: Sequence[str], adj: Mapping[str, Sequence[str]]) -> Set[str]:
-    seen: Set[str] = set()
+def _reachable_from(starts: Sequence[str], adj: Mapping[str, Sequence[str]]) -> set[str]:
+    seen: set[str] = set()
     stack = list(starts)
     while stack:
         node = stack.pop()
@@ -290,7 +287,7 @@ def _reachable_from(starts: Sequence[str], adj: Mapping[str, Sequence[str]]) -> 
 # --- v3 variable-membrane helpers (kept in lockstep with the frontend
 # ``FlowSerializer.validateFlow``: same codes, same warn level, same
 # semantics). -------------------------------------------------------------
-_PRIMITIVE_SCHEMAS: Set[str] = {
+_PRIMITIVE_SCHEMAS: set[str] = {
     "string",
     "number",
     "integer",
@@ -301,12 +298,12 @@ _PRIMITIVE_SCHEMAS: Set[str] = {
 
 # Reserved variable namespaces that resolve outside the node graph
 # (mirror of ``RESERVED_VARIABLE_NAMESPACES`` on the frontend).
-_RESERVED_VARIABLE_NAMESPACES: Set[str] = set(RESERVED_NAMESPACES)
+_RESERVED_VARIABLE_NAMESPACES: set[str] = set(RESERVED_NAMESPACES)
 
 
-def _ports(node: Mapping[str, Any], key: str) -> Dict[str, Optional[str]]:
+def _ports(node: Mapping[str, Any], key: str) -> dict[str, Optional[str]]:
     """Map declared port name → primitive schema (or ``None``)."""
-    out: Dict[str, Optional[str]] = {}
+    out: dict[str, Optional[str]] = {}
     raw = node.get(key)
     if isinstance(raw, list):
         for port in raw:
@@ -333,9 +330,9 @@ def _primitives_incompatible(a: Optional[str], b: Optional[str]) -> bool:
     return True
 
 
-def _ancestors(node_id: str, rev: Mapping[str, Sequence[str]]) -> Set[str]:
+def _ancestors(node_id: str, rev: Mapping[str, Sequence[str]]) -> set[str]:
     """Backward-reachable set (ancestors) over the purified reverse edges."""
-    seen: Set[str] = set()
+    seen: set[str] = set()
     stack = list(rev.get(node_id, ()))
     while stack:
         cur = stack.pop()
@@ -359,14 +356,14 @@ def _edge_branch_label(edge: Mapping[str, Any]) -> Optional[str]:
     return raw.strip() if isinstance(raw, str) and raw.strip() else None
 
 
-def _strict_decision_bindings(config: Mapping[str, Any]) -> Set[str]:
+def _strict_decision_bindings(config: Mapping[str, Any]) -> set[str]:
     """Names a strict Decision's resolved input can carry.
 
     Strict resolution keeps only ``passthrough_inputs`` from the predecessor
     merge and then overlays ``inputs_map`` (see ``variable_pool.apply_inputs_map``),
     so this set is exact rather than heuristic.
     """
-    bindings: Set[str] = set()
+    bindings: set[str] = set()
     inputs_map = config.get("inputs_map")
     if isinstance(inputs_map, Mapping):
         bindings |= {str(port) for port in inputs_map}
@@ -383,9 +380,9 @@ def _decision_contract_issues(
     config: Mapping[str, Any],
     outgoing_edges: Sequence[tuple[int, Mapping[str, Any]]],
     strict: bool = False,
-) -> List[ValidationIssue]:
+) -> list[ValidationIssue]:
     """Validate Decision branches and their route edges as one contract."""
-    issues: List[ValidationIssue] = []
+    issues: list[ValidationIssue] = []
     raw_branches = config.get("branches")
     if not isinstance(raw_branches, list) or len(raw_branches) < 2:
         return [
@@ -397,7 +394,7 @@ def _decision_contract_issues(
             )
         ]
 
-    labels: List[str] = []
+    labels: list[str] = []
     for branch_index, branch in enumerate(raw_branches):
         if not isinstance(branch, Mapping):
             issues.append(
@@ -522,7 +519,7 @@ def _decision_contract_issues(
 def _distances_from(
     start: str,
     adj: Mapping[str, Sequence[str]],
-) -> Dict[str, int]:
+) -> dict[str, int]:
     distances = {start: 0}
     queue = [start]
     while queue:
@@ -541,7 +538,7 @@ def _lane_bypasses_join(
     adj: Mapping[str, Sequence[str]],
 ) -> bool:
     """Whether a lane can reach a real terminal without crossing ``join_id``."""
-    seen: Set[str] = set()
+    seen: set[str] = set()
     stack = [start]
     while stack:
         current = stack.pop()
@@ -562,14 +559,14 @@ def _fork_join_topology_issues(
     adj: Mapping[str, Sequence[str]],
     rev: Mapping[str, Sequence[str]],
     strict: bool,
-) -> List[ValidationIssue]:
+) -> list[ValidationIssue]:
     """Pair forks with real reconverging joins instead of balancing counts."""
-    issues: List[ValidationIssue] = []
+    issues: list[ValidationIssue] = []
     level = "error" if strict else "warn"
     nodes_by_id = {nid: node for node in nodes for nid in [_node_id(node)] if nid is not None}
     forks = sorted(nid for nid, node in nodes_by_id.items() if _node_kind(node) == "fork")
     joins = sorted(nid for nid, node in nodes_by_id.items() if _node_kind(node) == "join")
-    matched_joins: Set[str] = set()
+    matched_joins: set[str] = set()
 
     for join_id in joins:
         strategy = str(
@@ -632,8 +629,7 @@ def _fork_join_topology_issues(
                     level=level,
                     code="branch_label_invalid",
                     message=(
-                        f"Fork {fork_id!r} route labels must be unique and match "
-                        "config.branches."
+                        f"Fork {fork_id!r} route labels must be unique and match config.branches."
                     ),
                     node_id=fork_id,
                 )
@@ -664,8 +660,7 @@ def _fork_join_topology_issues(
                 level=level,
                 code="fork_unjoined",
                 message=(
-                    f"Fork {fork_id!r} has no join that reconverges and "
-                    "post-dominates every lane."
+                    f"Fork {fork_id!r} has no join that reconverges and post-dominates every lane."
                 ),
                 node_id=fork_id,
             )
@@ -684,7 +679,7 @@ def _fork_join_topology_issues(
     return issues
 
 
-def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
+def validate_flow(flow: Mapping[str, Any]) -> list[ValidationIssue]:
     """Run the full validator on ``flow_definition``. Return a list of
     issues (may be empty for a valid flow). Never raises.
     """
@@ -697,6 +692,14 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
         return issues
     nodes = _iter_nodes(flow)
     edges = _iter_edges(flow)
+    from app.services.flow_data_sources import data_source_issues
+
+    for node_id, code in data_source_issues(flow):
+        issues.append(
+            ValidationIssue(
+                level="error", code="data_source_invalid", message=code, node_id=node_id
+            )
+        )
 
     raw_io_mode = flow.get("io_mode")
     strict = raw_io_mode == "strict"
@@ -705,8 +708,7 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
     except (OverflowError, TypeError, ValueError):
         schema_version = 0
     if raw_io_mode is not None and (
-        not isinstance(raw_io_mode, str)
-        or raw_io_mode not in {"overlay", "strict"}
+        not isinstance(raw_io_mode, str) or raw_io_mode not in {"overlay", "strict"}
     ):
         issues.append(
             ValidationIssue(
@@ -826,12 +828,12 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
         return issues
 
     ids = {nid for nid in (_node_id(n) for n in nodes) if nid}
-    nodes_by_id: Dict[str, Mapping[str, Any]] = {
+    nodes_by_id: dict[str, Mapping[str, Any]] = {
         nid: node for node in nodes for nid in [_node_id(node)] if nid is not None
     }
 
-    adj: Dict[str, List[str]] = {nid: [] for nid in ids}
-    rev: Dict[str, List[str]] = {nid: [] for nid in ids}
+    adj: dict[str, list[str]] = {nid: [] for nid in ids}
+    rev: dict[str, list[str]] = {nid: [] for nid in ids}
 
     for idx, edge in enumerate(edges):
         src = edge.get("from")
@@ -955,9 +957,7 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
                     isinstance(collection_scope, list)
                     and len(collection_scope) <= 32
                     and all(
-                        isinstance(item, str)
-                        and bool(item.strip())
-                        and item == item.strip()
+                        isinstance(item, str) and bool(item.strip()) and item == item.strip()
                         for item in collection_scope
                     )
                     and len(set(collection_scope)) == len(collection_scope)
@@ -1076,7 +1076,7 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
                         node_id=nid,
                     )
                 )
-        elif kind == "asset":
+        elif kind == "asset" and node.get("type") != "source.connector":
             collection_slug = cfg.get("collection_slug")
             if not isinstance(collection_slug, str) or not collection_slug.strip():
                 issues.append(
@@ -1150,7 +1150,7 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
     # task-based chains that omit an explicit source). Unreachable
     # nodes can't fire at runtime and are almost always a wiring
     # mistake from a drag-and-drop left dangling.
-    entries: List[str] = []
+    entries: list[str] = []
     for node in nodes:
         nid = _node_id(node)
         if not nid:
@@ -1245,7 +1245,7 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
         inputs_map = cfg.get("inputs_map")
         if not isinstance(inputs_map, Mapping):
             inputs_map = {}
-        ancestors: Optional[Set[str]] = None
+        ancestors: Optional[set[str]] = None
         for port, raw in inputs_map.items():
             if isinstance(raw, str) and strict:
                 conversion = dot_path_to_variable_ref(
@@ -1381,7 +1381,7 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
     # the editor surfaces the drift without blocking a save.
     asset_ids = {nid for nid, node in nodes_by_id.items() if _node_kind(node) == "asset"}
     if asset_ids:
-        asset_sources_by_target: Dict[str, Set[str]] = {}
+        asset_sources_by_target: dict[str, set[str]] = {}
         for edge in edges:
             src = edge.get("from")
             dst = edge.get("to")
@@ -1425,5 +1425,5 @@ def has_errors(issues: Sequence[ValidationIssue]) -> bool:
     return any(i.level == "error" for i in issues)
 
 
-def issues_to_payload(issues: Sequence[ValidationIssue]) -> List[Dict[str, Any]]:
+def issues_to_payload(issues: Sequence[ValidationIssue]) -> list[dict[str, Any]]:
     return [i.to_dict() for i in issues]

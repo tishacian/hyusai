@@ -116,6 +116,8 @@ import {
 } from './flow-ml.vm';
 import { FlowRunService } from './flow-run.service';
 import { DatasetPreviewComponent } from '@app/features/data/dataset-preview.component';
+import { FlowDataSourceInspectorComponent } from './flow-data-source-inspector.component';
+import { isConnectorSource } from './flow-data-sources.vm';
 
 /** Engine kind of the node the lexicon calls an Output. */
 const OUTPUT_NODE_KIND = 'sink';
@@ -225,6 +227,7 @@ export function publishedNodeExecutor(
     FlowDecisionBindingsComponent,
     FlowSchemaEditorComponent,
     DatasetPreviewComponent,
+    FlowDataSourceInspectorComponent,
   ],
   styleUrl: './flow-inspector.component.scss',
   template: `
@@ -793,7 +796,10 @@ export function publishedNodeExecutor(
             </section>
           }
 
-          @if ((n.kind ?? 'task') === 'asset') {
+          @if (isConnectorSource(n)) {
+            <app-flow-data-source-inspector [node]="n" [locked]="editingLocked()" />
+          }
+          @if ((n.kind ?? 'task') === 'asset' && !isConnectorSource(n)) {
             <section class="ck-flow-section">
               <span class="ck-flow-section__label">{{
                 i18n.t('flow.inspector.section.asset')
@@ -1132,6 +1138,7 @@ export function publishedNodeExecutor(
   `,
 })
 export class FlowInspectorComponent {
+  readonly isConnectorSource = isConnectorSource;
   private readonly store = inject(FlowStore);
   private readonly collectionsSvc = inject(FlowCollectionsService);
   readonly i18n = inject(I18nService);
@@ -1264,7 +1271,7 @@ export class FlowInspectorComponent {
     effect(() => {
       const n = this.node();
       if (!n) return;
-      if ((n.kind ?? 'task') === 'asset' || this.isRetrievalNode(n)) {
+      if (((n.kind ?? 'task') === 'asset' && !isConnectorSource(n)) || this.isRetrievalNode(n)) {
         this.collectionsSvc.ensureLoaded();
       }
       if (this.isRetrievalNode(n)) {

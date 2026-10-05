@@ -5,6 +5,7 @@
   /* Foblex sizes the node host to its content; give a sensible min. */
   min-width: 196px;
 }
+.ck-flow-node__source { display: flex; flex-direction: column; gap: 3px; max-width: 270px; color: var(--ck-fg-3); font: 10px/1.4 var(--ck-font-mono); overflow-wrap: anywhere; }
 
 /* Foblex ships a default .f-node card frame on the host element. Our actual
    Agentium node chrome lives inside .ck-flow-node, so the host must stay
@@ -84,6 +85,8 @@
   /* Asset (declarative data source, e.g. a collection): dashed frame so it
      reads as a source-of-record distinct from executable task nodes. */
   &[data-kind='asset'] {
+    max-width: 280px;
+    overflow-wrap: anywhere;
     border-style: dashed;
     border-color: color-mix(in srgb, var(--tone) 55%, transparent);
   }
@@ -259,6 +262,10 @@
 }
 
 .ck-flow-node__desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
   font: 11px / 1.35 var(--ck-font-mono, monospace);
   color: var(--ck-fg-3, #8891a0);
   word-break: break-word;
