@@ -21,11 +21,6 @@
       "kind": "adapter",
       "why": "Andritz migration marker and provenance-bound retrieval, selected by family."
     },
-    "backend/app/api/v1/endpoints/intelligence.py": {
-      "count": 3,
-      "kind": "fixture",
-      "why": "Sentinel CI selector and collection in the generic Intelligence API (Intelligence lot)."
-    },
     "backend/app/api/v1/endpoints/maps.py": {
       "count": 6,
       "kind": "adapter",
@@ -177,7 +172,7 @@
       "why": "Experience keys of customer applications."
     },
     "backend/app/services/experience/dual_run_seeds.py": {
-      "count": 87,
+      "count": 86,
       "kind": "demo",
       "why": "Lot 8 dual-run seeds."
     },
@@ -196,25 +191,15 @@
       "kind": "adapter",
       "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
     },
-    "backend/app/services/intelligence/batch.py": {
-      "count": 1,
-      "kind": "fixture",
-      "why": "Sentinel CI defaults in the generic Intelligence engine (Intelligence lot)."
-    },
-    "backend/app/services/intelligence/feed_manager.py": {
-      "count": 1,
-      "kind": "fixture",
-      "why": "Sentinel CI User-Agent in the generic Intelligence engine (Intelligence lot)."
-    },
-    "backend/app/services/intelligence/knowledge_sync.py": {
-      "count": 4,
-      "kind": "fixture",
-      "why": "Sentinel CI collection in the generic Intelligence engine (Intelligence lot)."
-    },
     "backend/app/services/intelligence/rss_security.py": {
       "count": 1,
       "kind": "adapter",
       "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
+    },
+    "backend/app/services/intelligence/systems.py": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "The legacy Sentinel CI watch template, still accepted so existing Systems keep working."
     },
     "backend/app/services/maritime_tracking.py": {
       "count": 2,
@@ -222,7 +207,7 @@
       "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
     },
     "backend/app/services/mission_room.py": {
-      "count": 399,
+      "count": 398,
       "kind": "demo",
       "why": "Sentinel CI mission-room scenario content."
     },
@@ -356,6 +341,11 @@
       "kind": "adapter",
       "why": "Sentinel CI scripted demo skills, selected by family."
     },
+    "backend/app/tenants/sentinel_ci/intelligence.py": {
+      "count": 4,
+      "kind": "adapter",
+      "why": "A family adapter under app/tenants (ADR 0003, D6)."
+    },
     "backend/app/workers/celery_app.py": {
       "count": 1,
       "kind": "adapter",
@@ -460,11 +450,6 @@
       "count": 2,
       "kind": "adapter",
       "why": "Sentinel CI executive chat mode, selected by the assistant profile."
-    },
-    "frontend-ng/src/app/features/intelligence/intelligence-entry.component.ts": {
-      "count": 1,
-      "kind": "fixture",
-      "why": "Sentinel CI template selector in the generic Intelligence entry (Intelligence lot)."
     },
     "frontend-ng/src/app/features/knowledge/capture-fil/capture-fil-shell.component.ts": {
       "count": 2,
