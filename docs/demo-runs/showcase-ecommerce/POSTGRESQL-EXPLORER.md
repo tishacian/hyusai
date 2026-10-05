@@ -33,8 +33,19 @@ connexion active mesurée.
 - Les requêtes sont composées avec des identifiants cités et des paramètres ;
   cette page ne reçoit aucun SQL libre. Toutes les lectures utilisent une
   transaction en lecture seule, des délais et des limites de volume.
-  Une ligne trop volumineuse est refusée côté PostgreSQL avant son transfert ;
-  le lecteur vérifie ensuite le volume total de la réponse.
+  PostgreSQL calcule un cumul de taille dans l'ordre de lecture : dès qu'une
+  ligne franchit la limite, le serveur renvoie un indicateur et des valeurs
+  NULL, jamais les cellules volumineuses. Les lignes arrivent par lots de 500,
+  et le lecteur vérifie ensuite le volume total de la réponse. La requête ne
+  dépend d'aucune fonction récente : elle fonctionne aussi avant PostgreSQL 12.
+- Un import lit d'abord la source, puis verrouille brièvement le workspace en
+  `FOR NO KEY UPDATE` pour attribuer la version : les runs, messages et
+  journaux du workspace continuent de s'écrire pendant la lecture.
+- Un échec s'affiche dans l'étape concernée, à côté de l'action, avec un bouton
+  Réessayer. Une requête refusée après connexion (`PG_QUERY_FAILED`, 502) se
+  distingue d'un serveur injoignable (`PG_UNAVAILABLE`, 503). L'interface et
+  l'API affichent le code SQLSTATE standard ; les journaux du backend notent
+  l'étape, la classe d'erreur et ce code, jamais le message du pilote.
 - Seuls les administrateurs du workspace peuvent utiliser les identifiants
   enregistrés pour explorer, tester ou importer. Aucun mot de passe n'est
   retourné dans une réponse, un dataset ou sa provenance.

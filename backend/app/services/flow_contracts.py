@@ -748,13 +748,15 @@ def compile_execution_contract(
     allowed_skill_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     """Compile immutable ingress/node/output schemas for one accepted Flow."""
-    from app.services.flow_data_sources import data_source_issues
+    from app.services.flow_data_sources import data_source_issues, describe_issue
 
     source_issues = data_source_issues(flow)
     if source_issues:
-        node_id, code = source_issues[0]
+        node_id, reason = source_issues[0]
         raise FlowContractError(
-            code="data_source_invalid", message=code, path=f"nodes/{node_id}/config"
+            code="data_source_invalid",
+            message=describe_issue(reason),
+            path=f"nodes/{node_id}/config",
         )
     nodes = flow.get("nodes") if isinstance(flow.get("nodes"), list) else []
     raw_edges = flow.get("edges") if isinstance(flow.get("edges"), list) else []

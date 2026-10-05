@@ -114,17 +114,27 @@ restent disponibles pour un retour par les parcours natifs de restauration.
 
 ## Point live à résoudre : aperçu 503
 
-Le 5 octobre, le catalogue et les colonnes des sept tables répondent 200 depuis
-Agentium. Les aperçus de `claims` et `orders`, même limités à une ligne, répondent
-503 `PG_UNAVAILABLE`. Le nouveau Flow n'est pas encore activé sur le site.
-Le même lecteur passe les tests PostgreSQL 16.2 locaux ; cela ne prouve pas la
-réussite de la lecture sur la VM. Le cloud ne peut pas joindre directement la
-base métier et ne dispose pas de l'accès SSH retenu pour le déploiement.
+Le 5 octobre, le catalogue et les colonnes des sept tables répondaient 200
+depuis Agentium, mais les aperçus de `claims` et `orders` répondaient 503
+`PG_UNAVAILABLE`, même limités à une ligne. Le lecteur convertissait alors
+toute erreur en ce code, sans rien journaliser.
 
-Ce diagnostic en lecture seule, exécuté dans le backend déployé, utilise la
-configuration enregistrée et restitue uniquement l'étape, la version serveur,
-le code fermé et le SQLSTATE. Il n'affiche ni credentials, ni chaîne de connexion,
-ni données métier. Conserver ce résultat pour identifier la cause de la 503 :
+Seul l'aperçu utilisait une CTE `AS MATERIALIZED`, qui exige PostgreSQL 12 :
+une base plus ancienne produisait exactement ce symptôme. La requête utilise
+désormais une sous-requête bornée, valable sur toutes les versions prises en
+charge. Après déploiement, si l'aperçu échoue encore :
+
+- l'interface affiche le code SQLSTATE sous le message, et l'API le renvoie
+  dans `detail.sqlstate` ;
+- une requête refusée après connexion répond `PG_QUERY_FAILED` (502), un
+  serveur injoignable `PG_UNAVAILABLE` (503) ;
+- les journaux du backend contiennent `postgresql_explorer.query_failed` ou
+  `postgresql_explorer.connect_failed`, avec la classe d'erreur et le SQLSTATE.
+
+Ce diagnostic en lecture seule, exécuté dans le backend déployé, reste
+disponible. Il utilise la configuration enregistrée et restitue uniquement
+l'étape, la version serveur, le code fermé et le SQLSTATE, sans credentials,
+chaîne de connexion ni données métier :
 
 ```bash
 docker exec -i agentium-backend python - <<'PY'
@@ -148,12 +158,9 @@ with SessionLocal() as db:
         print(json.dumps({"status": "ok", "server_version": server_version,
                           "row_count": result["row_count"]}))
     except pg.PostgresBrowseError as error:
-        sqlstate = getattr(error.__context__, "pgcode", None)
-        if not isinstance(sqlstate, str) or len(sqlstate) != 5 or not sqlstate.isalnum():
-            sqlstate = None
         print(json.dumps({"status": "error", "stage": stage,
                           "server_version": server_version, "code": error.code,
-                          "sqlstate": sqlstate}))
+                          "sqlstate": error.sqlstate}))
 PY
 ```
 

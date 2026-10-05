@@ -22,7 +22,7 @@ export const FLOW_FR = {
   'flow.sources.collection': 'Collection documentaire',
   'flow.sources.live': 'Lecture en direct',
   'flow.sources.reference': 'Référence',
-  'flow.sources.live_help': 'Référence PostgreSQL en direct. Les étapes qui disposent d’un lecteur résolvent cette source dans le workspace. L’aperçu est un échantillon ; un import DataOps crée un dataset versionné distinct.',
+  'flow.sources.live_help': 'Les étapes liées reçoivent cette référence. Seules celles dont l’outil sait lire PostgreSQL l’interrogent, avec les droits du workspace ; pour les autres, la liaison documente la dépendance. L’aperçu est un échantillon ; un import DataOps crée un dataset versionné distinct.',
   'flow.sources.reference_help': 'Ce nœud fournit une référence au connecteur. L’étape consommatrice réalise la lecture ou l’action avec son propre contrat.',
   'flow.sources.setup': 'Ouvrir le connecteur',
   'flow.sources.browse': 'Parcourir les tables',
@@ -35,6 +35,7 @@ export const FLOW_FR = {
   'flow.sources.missing': 'Le connecteur référencé n’est plus configuré dans ce workspace.',
   'flow.sources.admin_required': 'Un administrateur du workspace peut parcourir et prévisualiser les tables.',
   'flow.sources.resources': 'Périmètre · {count} tables',
+  'flow.sources.resources_one': 'Périmètre · {count} table',
   'flow.sources.remove': 'Retirer la table {table} du périmètre',
   'flow.sources.no_resources': 'Sélectionnez les tables accessibles aux étapes liées.',
   'flow.sources.checked': 'Connexion vérifiée le {at}',
@@ -44,7 +45,7 @@ export const FLOW_FR = {
   'flow.sources.preview': 'Aperçu · 25 lignes',
   'flow.sources.bound': 'Dans le périmètre',
   'flow.sources.add_resource': 'Ajouter au périmètre',
-  'flow.sources.sample': 'Échantillon · {count} lignes · {at}',
+  'flow.sources.sample': 'Échantillon lu le {at}',
   'flow.sources.consumers': 'Étapes liées',
   'flow.sources.no_consumers': 'Aucune étape liée à cette source.',
   'flow.sources.connect': 'Relier une étape',
@@ -469,6 +470,8 @@ export const FLOW_FR = {
     'Les voies parallèles de « {name} » ne correspondent pas aux branches déclarées. Donnez à chaque voie un nom distinct, existant sur le nœud.',
   'flow.checklist.code.fork_fanout_invalid':
     'La Division « {name} » a moins de deux voies sortantes. Une division a besoin d’au moins deux chemins pour avoir un sens.',
+  'flow.checklist.code.data_source_invalid':
+    'La liaison de données de « {name} » est incomplète ou invalide. Vérifiez le connecteur, les tables du périmètre et les étapes reliées.',
   'flow.checklist.code.fork_unjoined':
     'La Division « {name} » ne se recompose jamais. Ajoutez un nœud Fusion que toutes les voies atteignent.',
   'flow.checklist.code.join_fanin_invalid':
@@ -1734,7 +1737,7 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.sources.collection': 'Document collection',
   'flow.sources.live': 'Live read',
   'flow.sources.reference': 'Reference',
-  'flow.sources.live_help': 'Live PostgreSQL reference. Steps with a reader resolve this source in the workspace. The preview is a sample; a DataOps import creates a separate versioned dataset.',
+  'flow.sources.live_help': 'Linked steps receive this reference. Only steps whose tool reads PostgreSQL query it, under the workspace’s rights; for other steps, the link documents the dependency. The preview is a sample; a DataOps import creates a separate versioned dataset.',
   'flow.sources.reference_help': 'This node supplies a connector reference. The consuming step reads or acts under its own contract.',
   'flow.sources.setup': 'Open connector',
   'flow.sources.browse': 'Browse tables',
@@ -1747,6 +1750,7 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.sources.missing': 'The referenced connector is no longer configured in this workspace.',
   'flow.sources.admin_required': 'A workspace administrator can browse and preview tables.',
   'flow.sources.resources': 'Scope · {count} tables',
+  'flow.sources.resources_one': 'Scope · {count} table',
   'flow.sources.remove': 'Remove table {table} from scope',
   'flow.sources.no_resources': 'Select the tables accessible to linked steps.',
   'flow.sources.checked': 'Connection checked at {at}',
@@ -1756,7 +1760,7 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.sources.preview': 'Preview · 25 rows',
   'flow.sources.bound': 'In scope',
   'flow.sources.add_resource': 'Add to scope',
-  'flow.sources.sample': 'Sample · {count} rows · {at}',
+  'flow.sources.sample': 'Sample read at {at}',
   'flow.sources.consumers': 'Linked steps',
   'flow.sources.no_consumers': 'No step linked to this source.',
   'flow.sources.connect': 'Link a step',
@@ -2176,6 +2180,8 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
     'The parallel lanes of “{name}” do not match its declared branches. Give every lane a distinct name that exists on the node.',
   'flow.checklist.code.fork_fanout_invalid':
     'Split “{name}” has fewer than two outgoing lanes. A split needs at least two paths to be worth splitting.',
+  'flow.checklist.code.data_source_invalid':
+    'The data link of “{name}” is incomplete or invalid. Check the connector, the tables in scope and the linked steps.',
   'flow.checklist.code.fork_unjoined':
     'Split “{name}” never comes back together. Add a Merge node that every lane reaches.',
   'flow.checklist.code.join_fanin_invalid':

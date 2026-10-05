@@ -2,7 +2,11 @@
 .source-section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 h3, summary { margin: 8px 0 0; color: var(--ck-fg-3); font: 600 10px/1.4 var(--ck-font-mono); letter-spacing: .08em; }
 .source-note { margin: 0; font-size: 11px; line-height: 1.5; color: var(--ck-fg-3); overflow-wrap: anywhere; }
-.source-location { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; color: var(--ck-fg-2); overflow-wrap: anywhere; }
+.source-identity { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-sm); background: var(--ck-bg-inset); color: var(--ck-fg-2); min-width: 0; }
+.source-identity-text { display: flex; flex-direction: column; flex: 1; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+.source-identity-text strong { color: var(--ck-fg-1); font-weight: 600; }
+.source-identity-text span { color: var(--ck-fg-3); font-size: 11px; }
+.source-identity .ck-pill { flex-shrink: 0; font-size: 11px; }
 .source-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .source-actions .ck-btn { max-width: 100%; white-space: normal; text-align: left; }
 .source-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; font-size: 11px; color: var(--ck-fg-2); }
@@ -17,5 +21,7 @@ small { display: block; color: var(--ck-fg-3); font-size: 10px; overflow-wrap: a
 .source-column { flex-wrap: wrap; font-size: 11px; }
 .source-columns .source-list { max-height: 190px; overflow-y: auto; margin-top: 6px; }
 .source-columns summary { cursor: pointer; }
-.source-error { margin: 0; color: var(--ck-signal-neg); font-size: 11px; }
+.source-error { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid var(--ck-status-neg-line); border-radius: var(--ck-radius-sm); background: var(--ck-status-neg-bg); color: var(--ck-status-neg-fg); font-size: 11px; line-height: 1.5; }
+.source-error p { margin: 0; overflow-wrap: anywhere; }
+.source-error .ck-mono { font-size: 10px; opacity: .85; }
 .source-preview { min-width: 0; display: flex; flex-direction: column; gap: 8px; }

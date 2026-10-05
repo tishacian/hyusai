@@ -13,9 +13,10 @@ const columns = [
 const fingerprint = 'a'.repeat(64);
 const description = { schema: 'showcase_ecommerce', table: 'claims', fingerprint, columns };
 
-async function setup(page: Page, theme = 'light', locale = 'fr', options: { admin?: boolean; importError?: string; retry?: boolean; schemaChanged?: boolean; secondWorkspace?: boolean } = {}) {
+async function setup(page: Page, theme = 'light', locale = 'fr', options: { admin?: boolean; importError?: string; retry?: boolean; schemaChanged?: boolean; secondWorkspace?: boolean; queryFailedOnce?: boolean } = {}) {
   const writes: Array<{ path: string; body: Record<string, unknown> }> = [];
   let importCount = 0;
+  let previewCount = 0;
   const second = { ...workspace, id: 'qa-postgresql-other', slug: 'qa-postgresql-other', name: 'Other QA' };
   const workspaces = options.secondWorkspace ? [workspace, second] : [workspace];
   await page.route('**/*', route => ['localhost', '127.0.0.1'].includes(new URL(route.request().url()).hostname) ? route.continue() : route.fulfill({ status: 204, body: '' }));
@@ -36,10 +37,11 @@ async function setup(page: Page, theme = 'light', locale = 'fr', options: { admi
     if (path === '/connectors') return json(route, { can_configure: options.admin !== false, connectors: [request.headers()['x-workspace-slug'] === second.slug ? { ...config, values: { ...config.values, database: 'other-workspace-database' } } : config] });
     if (path === '/connectors/postgresql' && request.method() === 'PUT') return json(route, { ...config, values: writes.at(-1)!.body['values'] });
     if (path === '/connectors/postgresql/test') return json(route, { status: 'connected', checked_at: '2026-10-02T12:00:00Z' });
-    if (path === '/connectors/postgresql/catalog') return json(route, { tables: [{ schema: 'showcase_ecommerce', name: 'claims', kind: 'table' }], checked_at: '2026-10-02T12:00:00Z', limits: { import_rows: 10000 }, datasets_enabled: true });
+    if (path === '/connectors/postgresql/catalog') return json(route, { tables: [{ schema: 'showcase_ecommerce', name: 'claims', kind: 'table' }, { schema: 'showcase_ecommerce', name: 'orders', kind: 'table' }, { schema: 'finance', name: 'ledger', kind: 'partitioned' }], checked_at: '2026-10-02T12:00:00Z', limits: { import_rows: 10000 }, datasets_enabled: true });
     if (path === '/connectors/postgresql/table') return json(route, description);
     if (path === '/connectors/postgresql/preview') {
       if (options.schemaChanged) return json(route, { detail: { code: 'PG_SOURCE_CHANGED' } }, 409);
+      if (options.queryFailedOnce && ++previewCount === 1) return json(route, { detail: { code: 'PG_QUERY_FAILED', sqlstate: '42601' } }, 502);
       const selected = writes.at(-1)!.body['columns'] as string[];
       return json(route, { schema: columns.filter(c => selected.includes(c.name)), rows: [{ id: 1, amount: '49.90' }], row_count: 1, has_more: true, captured_at: '2026-10-02T12:01:00Z', ordered_by: ['id'] });
     }
@@ -55,7 +57,8 @@ async function setup(page: Page, theme = 'light', locale = 'fr', options: { admi
 
 async function preview(page: Page, english = false) {
   await page.getByRole('button', { name: english ? 'Explore tables' : 'Explorer les tables', exact: true }).click();
-  await page.getByRole('combobox', { name: english ? 'Table' : 'Table', exact: true }).selectOption('claims');
+  await page.getByRole('button', { name: /^claims/ }).click();
+  await expect(page.getByTestId('pg-selected-table')).toHaveText('showcase_ecommerce.claims');
   await page.getByRole('button', { name: english ? 'Show preview' : 'Afficher l’aperçu', exact: true }).click();
   await expect(page.getByTestId('pg-preview')).toContainText('49.90');
 }
@@ -70,7 +73,7 @@ test.describe('PostgreSQL — isolated end-user QA', () => {
       await expect(page.getByTestId('pg-endpoint')).toContainText('showcase');
       await page.screenshot({ path: testInfo.outputPath('postgresql-setup.png'), fullPage: true });
       await page.getByRole('button', { name: english ? 'Test connection' : 'Tester la connexion', exact: true }).click();
-      await expect(page.getByTestId('pg-test-result')).toContainText(english ? 'Connection verified' : 'Connexion vérifiée');
+      await expect(page.getByTestId('pg-connection-state')).toContainText(english ? 'Connection verified' : 'Connexion vérifiée');
       await preview(page, english);
       await page.getByTestId('pg-preview').scrollIntoViewIfNeeded();
       await page.screenshot({ path: testInfo.outputPath('postgresql-preview.png'), fullPage: true });
@@ -136,7 +139,7 @@ test.describe('PostgreSQL — isolated end-user QA', () => {
   test('a changed source requires renewed discovery and blocks importing', async ({ page }) => {
     await setup(page, 'light', 'fr', { schemaChanged: true }); await page.goto('/connectors/postgresql');
     await page.getByRole('button', { name: 'Explorer les tables', exact: true }).click();
-    await page.getByRole('combobox', { name: 'Table', exact: true }).selectOption('claims');
+    await page.getByRole('button', { name: /^claims/ }).click();
     await page.getByRole('button', { name: 'Afficher l’aperçu', exact: true }).click();
     await expect(page.getByRole('alert')).toContainText('schéma a changé');
     await expect(page.getByRole('button', { name: 'Créer le dataset', exact: true })).toBeDisabled();
@@ -152,7 +155,7 @@ test.describe('PostgreSQL — isolated end-user QA', () => {
     });
     await page.goto('/connectors/postgresql?lens=build');
     await page.getByRole('button', { name: 'Explorer les tables', exact: true }).click();
-    await page.getByRole('combobox', { name: 'Table', exact: true }).selectOption('claims');
+    await page.getByRole('button', { name: /^claims/ }).click();
     await page.getByRole('button', { name: 'Afficher l’aperçu', exact: true }).click();
     await page.getByTestId('workspace-switcher-toggle').click();
     await page.getByTestId('workspace-switcher-popover').getByRole('button', { name: /Other QA/ }).click();
@@ -165,5 +168,31 @@ test.describe('PostgreSQL — isolated end-user QA', () => {
     await expect(page.getByTestId('pg-preview')).toHaveCount(0);
     await expect(page.getByText('PREVIOUS-WORKSPACE-DATA')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Créer le dataset', exact: true })).toBeDisabled();
+  });
+
+  test('the table list filters by name or schema', async ({ page }) => {
+    await setup(page); await page.goto('/connectors/postgresql');
+    await page.getByRole('button', { name: 'Explorer les tables', exact: true }).click();
+    await expect(page.getByText('Tables : 3 / 3')).toBeVisible();
+    await page.getByRole('searchbox', { name: 'Rechercher une table' }).fill('finance');
+    await expect(page.getByText('Tables : 1 / 3')).toBeVisible();
+    await expect(page.getByRole('button', { name: /^ledger/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^claims/ })).toHaveCount(0);
+    await page.getByRole('searchbox', { name: 'Rechercher une table' }).fill('zzz');
+    await expect(page.getByText('Aucune table ne correspond', { exact: false })).toBeVisible();
+  });
+
+  test('a refused read shows its PostgreSQL code next to the preview and retries in place', async ({ page }) => {
+    await setup(page, 'light', 'fr', { queryFailedOnce: true }); await page.goto('/connectors/postgresql');
+    await page.getByRole('button', { name: 'Explorer les tables', exact: true }).click();
+    await page.getByRole('button', { name: /^claims/ }).click();
+    await page.getByRole('button', { name: 'Afficher l’aperçu', exact: true }).click();
+    const alert = page.locator('section', { has: page.locator('#pg-explorer-title') }).getByRole('alert');
+    await expect(alert).toContainText('PostgreSQL a refusé la lecture');
+    await expect(alert).toContainText('Code PostgreSQL 42601');
+    await alert.getByRole('button', { name: 'Réessayer', exact: true }).click();
+    await expect(page.getByTestId('pg-preview')).toContainText('49.90');
+    await expect(page.getByTestId('pg-failure')).toHaveCount(0);
+    await expect(page.getByTestId('pg-dataset-state')).toContainText('Prêt à importer');
   });
 });
