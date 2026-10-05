@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, signal, untracked } from '@angular/core';
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -7,7 +7,8 @@ import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
 import { NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { DataTableComponent } from '@app/shared/ui/data-table.component';
-import type { PgCatalog, PgDescription, PgPreview } from '@app/features/connectors/postgresql/postgresql.types';
+import { pgFailure, pgTableKey, type PgCatalog, type PgDescription, type PgFailure, type PgPreview, type PgTable } from '@app/features/connectors/postgresql/postgresql.types';
+import { PgTablePickerComponent } from '@app/features/connectors/postgresql/pg-table-picker.component';
 import { CONNECTORS } from '@app/features/resources/resources.catalog';
 import { FlowStore } from './flow.store';
 import { FlowDataSourcesService } from './flow-data-sources.service';
@@ -16,7 +17,7 @@ import { sourceConnectorId, sourceResources, type SourceResource } from './flow-
 @Component({
   selector: 'app-flow-data-source-inspector', standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NavLinkDirective, IconComponent, DataTableComponent],
+  imports: [NavLinkDirective, IconComponent, DataTableComponent, PgTablePickerComponent],
   styleUrl: './flow-data-source-inspector.component.scss',
   templateUrl: './flow-data-source-inspector.component.html',
 })
@@ -42,9 +43,9 @@ export class FlowDataSourceInspectorComponent {
   protected readonly schema = signal('');
   protected readonly table = signal('');
   protected readonly busy = signal(false);
-  protected readonly error = signal('');
-  protected readonly schemas = computed(() => [...new Set(this.catalog()?.tables.map(t => t.schema) ?? [])]);
-  protected readonly tables = computed(() => this.catalog()?.tables.filter(t => t.schema === this.schema()) ?? []);
+  protected readonly failure = signal<PgFailure | null>(null);
+  protected readonly selectedKey = computed(() => this.table() ? `${this.schema()}.${this.table()}` : '');
+  protected readonly resourceKeys = computed(() => this.resources().map(r => pgTableKey(r)));
   protected readonly selectedIsBound = computed(() => this.resources().some(r => r.schema === this.schema() && r.table === this.table()));
   protected readonly readable = computed(() => !this.busy() && !!this.description()?.columns.some(c => c.supported));
   private readonly inspectionScope = computed(() => `${this.node().id}/${this.connectorId()}/${this.workspace.contextEpoch()}`);
@@ -62,7 +63,7 @@ export class FlowDataSourceInspectorComponent {
   protected connectorName(id: string): string { return CONNECTORS.find(def => def.id === id)?.name ?? id; }
 
   private reset(): void {
-    this.epoch++; this.catalog.set(null); this.schema.set(''); this.clearSelection(); this.error.set(''); this.busy.set(false);
+    this.epoch++; this.catalog.set(null); this.schema.set(''); this.clearSelection(); this.failure.set(null); this.busy.set(false);
   }
 
   private clearSelection(): void {
@@ -81,17 +82,18 @@ export class FlowDataSourceInspectorComponent {
       const catalog = await firstValueFrom(this.http.get<PgCatalog>('/api/v1/connectors/postgresql/catalog'));
       if (epoch !== this.epoch) return;
       this.catalog.set(catalog);
-      const preferred = this.resources()[0]?.schema;
-      this.schema.set(preferred && this.schemas().includes(preferred) ? preferred : this.schemas()[0] ?? '');
     } catch (error) { if (epoch === this.epoch) this.fail(error); }
     finally { if (epoch === this.epoch) this.busy.set(false); }
   }
 
-  protected chooseSchema(value: string): void { this.schema.set(value); this.clearSelection(); this.error.set(''); }
+  protected pick(table: PgTable): void {
+    if (this.busy() || pgTableKey(table) === this.selectedKey()) return;
+    this.schema.set(table.schema); void this.chooseTable(table.name);
+  }
 
   protected async chooseTable(value: string): Promise<void> {
     if (!this.sources.canInspect() || !this.catalog()) return;
-    this.clearSelection(); this.table.set(value); this.error.set('');
+    this.clearSelection(); this.table.set(value); this.failure.set(null);
     if (!value) return;
     const epoch = this.epoch, selection = this.selection; this.busy.set(true);
     try {
@@ -105,14 +107,14 @@ export class FlowDataSourceInspectorComponent {
     const scope = this.workspace.captureRequestScope(), nodeId = this.node().id;
     if (!this.catalog()) await this.discover();
     if (!this.workspace.isRequestScopeCurrent(scope) || this.node().id !== nodeId) return;
-    if (!this.catalog() || !this.schemas().includes(resource.schema)) return;
-    this.chooseSchema(resource.schema); await this.chooseTable(resource.table);
+    if (!this.catalog()?.tables.some(t => t.schema === resource.schema && t.name === resource.table)) return;
+    this.schema.set(resource.schema); await this.chooseTable(resource.table);
   }
 
   protected async read(): Promise<void> {
     if (!this.readable()) return;
     const epoch = this.epoch, selection = this.selection, description = this.description()!;
-    this.busy.set(true); this.error.set(''); this.preview.set(null);
+    this.busy.set(true); this.failure.set(null); this.preview.set(null);
     try {
       const preview = await firstValueFrom(this.http.post<PgPreview>('/api/v1/connectors/postgresql/preview', {
         schema: description.schema, table: description.table, fingerprint: description.fingerprint,
@@ -141,9 +143,5 @@ export class FlowDataSourceInspectorComponent {
   protected selectConsumer(id: string): void { this.store.setSelection(id); }
   protected time(value: string): string { return new Intl.DateTimeFormat(this.i18n.locale(), { dateStyle: 'short', timeStyle: 'medium', timeZone: 'Europe/Paris' }).format(new Date(value)); }
 
-  private fail(error: unknown): void {
-    const code = error instanceof HttpErrorResponse ? error.error?.detail?.code : undefined;
-    const known = ['PG_NOT_CONFIGURED', 'PG_PERMISSION_DENIED', 'PG_TIMEOUT', 'PG_SOURCE_CHANGED', 'PG_UNAVAILABLE', 'PG_TABLE_NOT_ACCESSIBLE', 'PG_CATALOG_TOO_LARGE', 'PG_TOO_MANY_COLUMNS', 'PG_SELECTION_INVALID', 'PG_RESULT_TOO_LARGE', 'PG_UNSUPPORTED_VALUE', 'WORKSPACE_PERMISSION_DENIED'];
-    this.error.set(this.i18n.t(`connectors.pg.error.${known.includes(code) ? code : 'PG_UNAVAILABLE'}`));
-  }
+  private fail(error: unknown): void { this.failure.set(pgFailure(error)); }
 }

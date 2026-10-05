@@ -15,6 +15,53 @@ from app.services.connectors.generic.service import CONNECTORS
 
 CONNECTOR_SOURCE_TYPE = "source.connector"
 
+# The analyser sentence behind each closed reason, for the Builder's technical
+# register. The Builder's own copy is keyed by the ``data_source_invalid`` code.
+ISSUE_MESSAGES = {
+    "DATA_SOURCE_INVALID": "A connector source must be an asset node.",
+    "DATA_SOURCE_CONFIG_INVALID": (
+        "A connector source holds only connector_id, read_mode and resources;"
+        " connection values, credentials and SQL stay out of the graph."
+    ),
+    "DATA_SOURCE_CONNECTOR_INVALID": "The connector is not one this workspace can configure.",
+    "DATA_SOURCE_MODE_INVALID": "Only PostgreSQL can be read live; other connectors are references.",
+    "DATA_SOURCE_RESOURCES_INVALID": "Resources are at most 64 {schema, table} pairs.",
+    "DATA_SOURCE_BINDING_INVALID": "The step lists data sources that are not source nodes.",
+    "DATA_SOURCE_BINDING_DISCONNECTED": (
+        "The step lists a data source it is not connected to by a data edge."
+    ),
+    "CLAIM_DATA_SOURCE_BINDING_REQUIRED": (
+        "This step must receive exactly one live PostgreSQL source through a data edge."
+    ),
+    "CLAIM_DATA_SOURCE_RESOURCE_MISSING": (
+        "The PostgreSQL source is missing tables this step reads."
+    ),
+}
+
+
+def describe_issue(reason: str) -> str:
+    """``REASON: sentence``, so support keeps the closed reason with its meaning."""
+    sentence = ISSUE_MESSAGES.get(reason)
+    return f"{reason}: {sentence}" if sentence else reason
+
+
+def edge_ends(edge: Any) -> tuple[str, str]:
+    """An edge's endpoints under either spelling the run engine accepts."""
+    if not isinstance(edge, Mapping):
+        return "", ""
+    return (
+        str(edge.get("from") or edge.get("source") or "").strip(),
+        str(edge.get("to") or edge.get("target") or "").strip(),
+    )
+
+
+def _is_data_edge(edge: Any, source: str, target: str) -> bool:
+    return (
+        isinstance(edge, Mapping)
+        and edge_ends(edge) == (source, target)
+        and edge.get("kind", "data") == "data"
+    )
+
 
 def connector_reference(node: Mapping[str, Any]) -> dict[str, Any]:
     config = node.get("config") or {}
@@ -64,23 +111,24 @@ def bound_data_sources(flow: Any, consumer_id: str | None) -> list[dict[str, Any
     consumer = nodes.get(consumer_id) or {}
     config = consumer.get("config") or {}
     refs = config.get("data_sources") if isinstance(config, Mapping) else None
-    edges = flow.get("edges", [])
+    edges = flow.get("edges") or []
     if refs is None:
-        refs = [
-            edge["from"]
-            for edge in edges
-            if isinstance(edge, Mapping)
-            and edge.get("to") == consumer_id
-            and edge.get("kind", "data") == "data"
-            and edge.get("from") in nodes
-            and (
-                nodes[edge["from"]].get("type") == CONNECTOR_SOURCE_TYPE
-                or (
-                    nodes[edge["from"]].get("kind") == "asset"
-                    and (nodes[edge["from"]].get("config") or {}).get("collection_slug")
+        refs = []
+        for edge in edges:
+            source_id, _ = edge_ends(edge)
+            source = nodes.get(source_id)
+            if (
+                source is not None
+                and _is_data_edge(edge, source_id, consumer_id)
+                and (
+                    source.get("type") == CONNECTOR_SOURCE_TYPE
+                    or (
+                        source.get("kind") == "asset"
+                        and (source.get("config") or {}).get("collection_slug")
+                    )
                 )
-            )
-        ]
+            ):
+                refs.append(source_id)
     if (
         not isinstance(refs, list)
         or len(refs) > 64
@@ -90,13 +138,7 @@ def bound_data_sources(flow: Any, consumer_id: str | None) -> list[dict[str, Any
     result = []
     for ref in refs:
         source = nodes.get(ref)
-        if source is None or not any(
-            isinstance(edge, Mapping)
-            and edge.get("from") == ref
-            and edge.get("to") == consumer_id
-            and edge.get("kind", "data") == "data"
-            for edge in edges
-        ):
+        if source is None or not any(_is_data_edge(edge, ref, consumer_id) for edge in edges):
             raise ValueError("DATA_SOURCE_BINDING_DISCONNECTED")
         if source.get("type") == CONNECTOR_SOURCE_TYPE:
             item = connector_reference(source)
@@ -115,7 +157,7 @@ def bound_data_sources(flow: Any, consumer_id: str | None) -> list[dict[str, Any
 
 def data_source_issues(flow: Mapping[str, Any]) -> list[tuple[str, str]]:
     issues = []
-    for node in flow.get("nodes", []):
+    for node in flow.get("nodes") or []:
         if not isinstance(node, Mapping):
             continue
         try:

@@ -116,9 +116,10 @@ test.describe('Flow data sources — isolated end-user QA', () => {
     const inspector = page.getByTestId('flow-data-source-inspector');
     await expect(inspector).toContainText('Périmètre · 0 tables');
     await inspector.getByRole('button', { name: 'Parcourir les tables', exact: true }).click();
-    await inspector.getByRole('combobox', { name: 'Table', exact: true }).selectOption('claims');
+    await inspector.getByRole('button', { name: /^claims/ }).click();
     await inspector.getByRole('button', { name: 'Ajouter au périmètre', exact: true }).click();
-    await expect(inspector).toContainText('Périmètre · 1 tables');
+    await expect(inspector).toContainText('Périmètre · 1 table');
+    await expect(inspector.getByRole('button', { name: /^claims.*Dans le périmètre/ })).toBeVisible();
     await expect(inspector.getByText('claim_id', { exact: true })).toBeVisible();
     await inspector.getByRole('combobox', { name: 'Relier une étape', exact: true }).selectOption('decision.ready');
     const sourceId = nodes.at(-1).id;

@@ -692,12 +692,17 @@ def validate_flow(flow: Mapping[str, Any]) -> list[ValidationIssue]:
         return issues
     nodes = _iter_nodes(flow)
     edges = _iter_edges(flow)
-    from app.services.flow_data_sources import data_source_issues
+    from app.services.flow_data_sources import data_source_issues, describe_issue
 
-    for node_id, code in data_source_issues(flow):
+    # Errors block publishing and test runs, not draft saves: a source that the
+    # Run would refuse is caught before it ships.
+    for node_id, reason in data_source_issues(flow):
         issues.append(
             ValidationIssue(
-                level="error", code="data_source_invalid", message=code, node_id=node_id
+                level="error",
+                code="data_source_invalid",
+                message=describe_issue(reason),
+                node_id=node_id,
             )
         )
 
