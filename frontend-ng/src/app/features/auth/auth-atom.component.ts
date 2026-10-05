@@ -12,19 +12,21 @@ import type { CkOrbState } from '@app/shared/cockpit';
 import { MODE_DRAWS } from '@app/shared/cockpit/thinking-orb/vendor/engine/registry';
 import { resolvePreset, type Resolved } from '@app/shared/cockpit/thinking-orb/vendor/presets';
 import {
-  angleAtLength,
   arcTable,
   ATOM_RINGS,
   bridgePoints,
   bridgeStrength,
-  DASH_LENGTH,
-  DASH_PERIOD,
   DRIFT_PERIOD_S,
   electronSpeed,
   nearness,
+  orbitBraid,
+  pruneByLength,
   ringPoint,
+  TRAIL_FRACTION,
+  type BraidOptions,
+  type BraidSample,
 } from './auth-atom';
-import { prune, pushPoint, strand, type StrandOptions, type WakePoint, type WakeSample } from './cursor-wake';
+import { pushPoint, strand, type StrandOptions, type WakePoint, type WakeSample } from './cursor-wake';
 import { Membrane, type Well } from './gravity';
 
 /** The canvas reaches past the atom so a bent point never meets its edge. */
@@ -34,29 +36,30 @@ const ORB_SIZE = 64;
 /** Where each electron starts on its ring, in radians. */
 const ELECTRON_START = [0.55, 2.6, 4.3];
 const ELECTRON_RADIUS = [3.5, 3, 2.5];
-const ELECTRON_ALPHA = [0.95, 0.8, 0.65];
+const ELECTRON_ALPHA = [0.95, 0.85, 0.75];
 /** How fast the well follows the pointer (per s), and gains or loses its mass. */
 const WELL_FOLLOW_PER_S = 18;
 const WELL_MASS_PER_S = 4;
-/**
- * The atom speaks the pointer wake's language: each electron leaves the same
- * braid behind it, and when the hand comes near, a braided thread stretches
- * from the nearest electron to it — wide where the agent is, tight in the hand.
- */
-const TAIL: StrandOptions = { lifetimeMs: 1100, amplitude: 3.2, wavelength: 26, width: 1.2 };
-const TAIL_ALPHA = 0.55;
+/** The braid each electron draws behind it: its orbit, as a trace. */
+const ORBIT_BRAID: BraidOptions = { amplitude: 2.4, wavelength: 30, width: 1.25, spread: 1.4 };
+/** Opacity levels a braid is drawn in: few strokes per frame, smooth enough to the eye. */
+const BRAID_LEVELS = 10;
+/** Between the nearest electron and the hand, when the hand comes close. */
 const BRIDGE: StrandOptions = { lifetimeMs: 1000, amplitude: 4, wavelength: 28, width: 1.3 };
 const BRIDGE_ALPHA = 0.6;
 /** The bridge's braid turns slowly on itself, in radians per second. */
 const BRIDGE_TWIST_PER_S = 2.4;
 
 /**
- * The atom of the sign-in panel: three dashed rings, an electron on each and
- * the thinking orb at the core, drawn in one canvas. The pointer is a gravity
- * well bending an elastic membrane (`gravity.ts`): every dash, electron and
- * orb dot is displaced by the membrane at its own position, so the atom
- * bends smoothly and coherently under the hand and springs back after it.
- * Under `prefers-reduced-motion` it draws one still frame.
+ * The atom of the sign-in panel, drawn in one canvas. No orbit is drawn as
+ * such: each electron braids its own trail behind it, the same double helix
+ * as the pointer wake, and that trail is its orbit. The pointer is a gravity
+ * well bending an elastic membrane (`gravity.ts`); every point of every braid,
+ * each electron and every dot of the thinking orb is displaced by the
+ * membrane at its own position, so the whole atom bends smoothly under the
+ * hand and springs back after it. When the hand comes near, a braided thread
+ * stretches from the nearest electron to it. Under `prefers-reduced-motion`
+ * it draws one still frame.
  */
 @Component({
   selector: 'app-auth-atom',
@@ -112,7 +115,8 @@ export class AuthAtomComponent {
 }
 
 interface Palette {
-  ring: string;
+  /** The neutral strand of every braid. */
+  neutral: string;
   electrons: [string, string, string];
   dark: boolean;
 }
@@ -127,11 +131,12 @@ function startAtom(
   if (!context) return () => undefined;
   const ctx: CanvasRenderingContext2D = context;
 
-  const tables = ATOM_RINGS.map((ring) => arcTable(ring));
+  const perimeters = ATOM_RINGS.map((ring) => arcTable(ring).total);
   const angles = [...ELECTRON_START];
-  const flow = ATOM_RINGS.map(() => 0);
-  const tails: WakePoint[][] = ATOM_RINGS.map(() => []);
+  /** Each electron's trail, at rest (before gravity), in canvas px. */
+  const trails: WakePoint[][] = ATOM_RINGS.map(() => []);
   const presets = new Map<CkOrbState, Resolved>();
+  const buckets: number[][] = Array.from({ length: BRAID_LEVELS }, () => []);
   let size = 0;
   let span = 0;
   let ratio = 1;
@@ -144,6 +149,36 @@ function startAtom(
   let last = performance.now();
   let frame = 0;
 
+  /** Frame units (0–400) to canvas px. */
+  const toCanvas = (x: number, y: number): [number, number] => {
+    const scale = size / 400;
+    return [BLEED_PX + x * scale, BLEED_PX + y * scale];
+  };
+  const trailLength = (i: number) => TRAIL_FRACTION * perimeters[i] * (size / 400);
+
+  /** Rebuilds each trail as if its electron had been turning at rest speed. */
+  const prefill = (now: number) => {
+    const driftRate = 360 / DRIFT_PERIOD_S;
+    ATOM_RINGS.forEach((ring, i) => {
+      const omega = electronSpeed(ring, 0);
+      const history: { x: number; y: number; t: number }[] = [];
+      let travelled = 0;
+      let previous: [number, number] | null = null;
+      for (let tau = 0; tau < Math.abs(ring.periodS) && travelled <= trailLength(i) + 4; tau += 0.1) {
+        const point = ringPoint(ring, angles[i] - omega * tau, 200, 200, drift - driftRate * tau);
+        const xy = toCanvas(point.x, point.y);
+        if (previous) travelled += Math.hypot(xy[0] - previous[0], xy[1] - previous[1]);
+        previous = xy;
+        history.push({ x: xy[0], y: xy[1], t: now - tau * 1000 });
+      }
+      trails[i].length = 0;
+      for (let k = history.length - 1; k >= 0; k--) {
+        pushPoint(trails[i], history[k].x, history[k].y, history[k].t, 0.5, 2000, 4);
+      }
+      pruneByLength(trails[i], trailLength(i));
+    });
+  };
+
   const resize = () => {
     size = host.clientWidth;
     span = size + BLEED_PX * 2;
@@ -151,6 +186,7 @@ function startAtom(
     canvas.width = Math.round(span * ratio);
     canvas.height = Math.round(span * ratio);
     membrane = new Membrane(span, span, MEMBRANE_SPACING_PX);
+    if (size >= 10) prefill(performance.now());
   };
 
   const preset = (state: CkOrbState): Resolved => {
@@ -162,10 +198,35 @@ function startAtom(
     return resolved;
   };
 
-  /** Frame units (0–400) to canvas px. */
-  const toCanvas = (x: number, y: number): [number, number] => {
-    const scale = size / 400;
-    return [BLEED_PX + x * scale, BLEED_PX + y * scale];
+  /** A braid strand bent by gravity, stroked in a few opacity levels. */
+  const drawBraid = (samples: BraidSample[], color: string, alpha: number) => {
+    for (const bucket of buckets) bucket.length = 0;
+    let px = 0;
+    let py = 0;
+    samples.forEach((sample, i) => {
+      const [dx, dy] = membrane.sample(sample.x, sample.y);
+      const x = sample.x + dx;
+      const y = sample.y + dy;
+      if (i > 0) {
+        const level = Math.min(BRAID_LEVELS - 1, Math.floor(sample.life * BRAID_LEVELS));
+        buckets[level].push(px, py, x, y);
+      }
+      px = x;
+      py = y;
+    });
+    ctx.strokeStyle = color;
+    buckets.forEach((segments, level) => {
+      if (!segments.length) return;
+      const life = (level + 0.5) / BRAID_LEVELS;
+      ctx.globalAlpha = alpha * Math.pow(life, 1.4);
+      ctx.lineWidth = ORBIT_BRAID.width * (0.35 + 0.65 * life);
+      ctx.beginPath();
+      for (let s = 0; s < segments.length; s += 4) {
+        ctx.moveTo(segments[s], segments[s + 1]);
+        ctx.lineTo(segments[s + 2], segments[s + 3]);
+      }
+      ctx.stroke();
+    });
   };
 
   const drawStrand = (samples: WakeSample[], color: string, alpha: number) => {
@@ -182,54 +243,31 @@ function startAtom(
     }
   };
 
-  /** `nowMs` is null for the still frame of reduced motion: no tails, no bridge. */
+  /** `nowMs` is null for the still frame of reduced motion: no bridge, no motion. */
   const draw = (dt: number, near: number, nowMs: number | null) => {
     const scale = size / 400;
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, span, span);
-
-    // Rings: short dashes evenly spaced along each ring, each end bent on its own.
     ctx.lineCap = 'round';
-    ctx.lineWidth = 1.5 * scale;
-    ctx.strokeStyle = palette.ring;
-    ATOM_RINGS.forEach((ring, i) => {
-      const table = tables[i];
-      flow[i] += ring.flow * dt;
-      const count = Math.floor(table.total / DASH_PERIOD);
-      const gap = table.total / count;
-      ctx.globalAlpha = Math.min(1, ring.alpha + 0.25 * near);
-      ctx.beginPath();
-      for (let k = 0; k < count; k++) {
-        const s = k * gap + flow[i];
-        const a = ringPoint(ring, angleAtLength(table, s), 200, 200, drift);
-        const b = ringPoint(ring, angleAtLength(table, s + DASH_LENGTH), 200, 200, drift);
-        const [ax, ay] = toCanvas(a.x, a.y);
-        const [bx, by] = toCanvas(b.x, b.y);
-        const [adx, ady] = membrane.sample(ax, ay);
-        const [bdx, bdy] = membrane.sample(bx, by);
-        ctx.moveTo(ax + adx, ay + ady);
-        ctx.lineTo(bx + bdx, by + bdy);
-      }
-      ctx.stroke();
-    });
 
-    // Electrons: each rides its ring, bends where it is, and braids a tail.
+    // Each electron moves on, extends its trail, and its braid is its orbit.
     const electrons = ATOM_RINGS.map((ring, i) => {
       angles[i] += electronSpeed(ring, near) * dt;
       const point = ringPoint(ring, angles[i], 200, 200, drift);
       const [x, y] = toCanvas(point.x, point.y);
+      if (nowMs !== null) {
+        pushPoint(trails[i], x, y, nowMs, 1.2, 2000, 4);
+        pruneByLength(trails[i], trailLength(i));
+      }
       const [dx, dy] = membrane.sample(x, y);
       return { x: x + dx, y: y + dy };
     });
-    if (nowMs !== null) {
-      electrons.forEach((electron, i) => {
-        pushPoint(tails[i], electron.x, electron.y, nowMs, 1.5, 160, 5);
-        prune(tails[i], nowMs, TAIL.lifetimeMs);
-        if (tails[i].length < 2) return;
-        drawStrand(strand(tails[i], nowMs, 0, TAIL), palette.electrons[i], TAIL_ALPHA);
-        drawStrand(strand(tails[i], nowMs, Math.PI, TAIL), palette.electrons[1], TAIL_ALPHA);
-      });
-    }
+    ATOM_RINGS.forEach((ring, i) => {
+      const length = trailLength(i);
+      const alpha = Math.min(1, ring.alpha + 0.25 * near);
+      drawBraid(orbitBraid(trails[i], 0, length, ORBIT_BRAID), palette.electrons[i], alpha);
+      drawBraid(orbitBraid(trails[i], Math.PI, length, ORBIT_BRAID), palette.neutral, alpha * 0.8);
+    });
     electrons.forEach((electron, i) => {
       ctx.globalAlpha = ELECTRON_ALPHA[i];
       ctx.fillStyle = palette.electrons[i];
@@ -257,7 +295,7 @@ function startAtom(
           return { ...point, x: point.x + dx, y: point.y + dy };
         });
         const twist = (nowMs / 1000) * BRIDGE_TWIST_PER_S;
-        const human = nearest === 0 ? palette.electrons[1] : palette.electrons[0];
+        const human = nearest === 0 ? palette.neutral : palette.electrons[0];
         drawStrand(strand(thread, nowMs, twist, BRIDGE), palette.electrons[nearest], BRIDGE_ALPHA * strength);
         drawStrand(strand(thread, nowMs, twist + Math.PI, BRIDGE), human, BRIDGE_ALPHA * strength);
       }
@@ -303,7 +341,7 @@ function startAtom(
     const near = nearness(Math.hypot(well.x - span / 2, well.y - span / 2)) * well.mass;
     host.style.setProperty('--near', near.toFixed(3));
     drift += (360 * dt) / DRIFT_PERIOD_S;
-    draw(dt, near, now);
+    draw(dt, near, last);
     frame = requestAnimationFrame(render);
   };
 
@@ -378,7 +416,7 @@ function readPalette(host: HTMLElement): Palette {
   const style = getComputedStyle(host);
   const token = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
   return {
-    ring: token('--ck-fg-5', '#5b6474'),
+    neutral: token('--ck-fg-5', '#5b6474'),
     electrons: [
       token('--ck-signal-cool', '#1f9db0'),
       token('--ck-fg-3', '#8a94a6'),
