@@ -13,11 +13,13 @@ from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
 from app.services.iam.app_entitlements import (
     app_entitlements_enabled,
+    app_offered_to_family,
     member_has_app_entitlement,
     normalize_app_entitlements,
 )
 from app.services.iam.config_service import is_iam_enforced_for_workspace
 from app.services.iam.engine import AuthorizationEngine, Decision
+from app.services.workspace_features import workspace_family
 from app.services.workspace_app_runtime import (
     WorkspaceAppRuntimeError,
     installed_entitlement_keys,
@@ -212,6 +214,12 @@ def require_any_app_entitlement(*app_keys: str):
         workspace: Workspace = Depends(get_current_workspace),
         db: DBSession = Depends(get_db),
     ) -> AppEntitlementContext:
+        # A customer application never opens in another family's workspace,
+        # whatever its flags: without them the legacy contract grants every
+        # member, which used to expose ANDRITZ's apps to every workspace.
+        family = workspace_family(workspace)
+        if not any(app_offered_to_family(key, family) for key in normalized):
+            raise workspace_app_not_installed_exception()
         if workspace_app_platform_enabled(workspace):
             try:
                 present_entitlements = installed_entitlement_keys(workspace, db=db)

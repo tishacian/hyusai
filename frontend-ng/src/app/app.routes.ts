@@ -1,7 +1,10 @@
 import { inject } from '@angular/core';
 import { Route, Router, Routes } from '@angular/router';
 import { authGuard } from './core/auth.guard';
-import { CLIENT_APPLICATION_ROUTES } from './core/client-application-routes';
+import {
+  CLIENT_APPLICATION_ROUTES,
+  CLIENT_APPLICATION_SHELL_ROUTES,
+} from './core/client-application-routes';
 import { loginGuard } from './core/login.guard';
 import { navigationProfileGuard } from './core/navigation-profile.guard';
 import { workspaceHydrationGuard } from './core/workspace-hydration.guard';
@@ -190,11 +193,7 @@ export const routes: Routes = [
         loadChildren: () =>
           import('./features/chat/conversations.routes').then((m) => m.conversationsRoutes),
       },
-      {
-        path: 'client360',
-        loadChildren: () =>
-          import('./features/client360/client360.routes').then((m) => m.client360Routes),
-      },
+      ...CLIENT_APPLICATION_SHELL_ROUTES,
       {
         path: 'workspace',
         loadChildren: () =>

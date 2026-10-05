@@ -81,6 +81,28 @@ def app_entitlements_enabled(workspace: Workspace | Any) -> bool:
     return bool(isinstance(features, Mapping) and features.get(APP_ENTITLEMENTS_FEATURE) is True)
 
 
+# Business apps every workspace is offered. The ANDRITZ manifests declare them
+# too, as that family installs its own versions; any other key is a customer
+# application, offered only to the families of the manifests that declare it.
+PRODUCT_APP_KEYS = frozenset({CHAT_APP, KNOWLEDGE_CAPTURE_APP})
+
+
+def app_offered_to_family(app_key: str, family: str) -> bool:
+    """Whether a workspace of ``family`` may enter ``app_key`` at all."""
+
+    if app_key in PRODUCT_APP_KEYS:
+        return True
+    from app.services.workspace_app_manifests import BUILTIN_WORKSPACE_APP_MANIFESTS
+
+    families = {
+        declared
+        for manifest in BUILTIN_WORKSPACE_APP_MANIFESTS.values()
+        if app_key in manifest.as_dict()["entitlement_keys"]
+        for declared in manifest.as_dict()["compatibility"]["workspace_families"]
+    }
+    return not families or family in families
+
+
 def registered_app_entitlement_keys() -> tuple[str, ...]:
     """Return keys declared by the immutable built-in manifest registry.
 

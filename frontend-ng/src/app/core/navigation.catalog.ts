@@ -48,6 +48,16 @@ export interface AgentiumSurfaceRoute {
   status: SurfaceStatus;
   audience: SurfaceAudience;
   description: string;
+  /**
+   * Workspace families (`settings.family`) a customer application's surface
+   * belongs to. Absent: a product surface, offered to every workspace.
+   */
+  families?: readonly string[];
+  /**
+   * A customer application mounted outside the Agentium shell, with its own
+   * chrome: Work opens it in a new tab rather than inside Work.
+   */
+  standalone?: boolean;
 }
 
 /**
@@ -193,18 +203,6 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     description: 'Entree workspace pour preparer une capture de connaissances.',
   },
   {
-    id: 'fse-reports',
-    label: "Rapports d'intervention FSE",
-    route: '/knowledge/interventions',
-    lens: 'build',
-    object: 'Workbench',
-    scope: 'workspace',
-    apiPrefix: '/api/v1/knowledge-capture',
-    status: 'canonical',
-    audience: 'workspace-user',
-    description: "Capture contrainte pour les rapports d'intervention FSE (template systeme).",
-  },
-  {
     id: 'create',
     label: 'Create',
     route: '/create',
@@ -263,18 +261,6 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     status: 'canonical',
     audience: 'workspace-user',
     description: 'Suivre history of chat conversations for the workspace.',
-  },
-  {
-    id: 'client360-pdr',
-    label: 'Client360 PDR',
-    route: '/client360',
-    lens: 'operate',
-    object: 'Workbench',
-    scope: 'workspace',
-    apiPrefix: '/api/v1/client360',
-    status: 'canonical',
-    audience: 'workspace-user',
-    description: 'Explainable spare-parts potential, mail drafts and impact tracking.',
   },
   // Surfaces of the customer applications this build carries, declared in
   // their own features/<customer>/<customer>.surfaces.ts.
@@ -878,6 +864,31 @@ function routeSegments(value: string): string[] {
 
 export function agentiumSurfaceById(surfaceId: string): AgentiumSurfaceRoute | null {
   return AGENTIUM_SURFACE_ROUTES.find((surface) => surface.id === surfaceId) ?? null;
+}
+
+/** Whether `path` belongs to a customer application mounted outside the shell. */
+export function isStandaloneApplicationPath(path: string): boolean {
+  const root = routeSegments(path)[0];
+  return Boolean(root) && CLIENT_APPLICATION_SURFACES.some(
+    (surface) => surface.standalone && routeSegments(surface.route)[0] === root,
+  );
+}
+
+/** The workspace family as the backend stamps it; an absent value reads as generic. */
+export function workspaceFamily(settings: unknown): string {
+  const value = settings && typeof settings === 'object' && !Array.isArray(settings)
+    ? (settings as Record<string, unknown>)['family']
+    : null;
+  return typeof value === 'string' && value.trim() ? value.trim() : 'generic';
+}
+
+/**
+ * Whether a workspace of `family` is offered `surfaceId`: a product surface
+ * always, a customer application's surface only in its own families.
+ */
+export function surfaceOfferedToFamily(surfaceId: string, family: string): boolean {
+  const families = agentiumSurfaceById(surfaceId)?.families;
+  return !families?.length || families.includes(family);
 }
 
 export function agentiumSurfaceRoute(surfaceId: string): string {

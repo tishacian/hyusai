@@ -206,7 +206,7 @@ const storeSpecs = [
   'src/app/core/help.service.spec.ts',
   'src/app/features/experience/work/work-bar.component.spec.ts',
   'src/app/features/knowledge/capture-published-chat.component.spec.ts',
-  'src/app/features/client360/client360-page.component.spec.ts',
+  'src/app/features/andritz/client360/client360-page.component.spec.ts',
   'src/app/features/capabilities/capabilities.component.spec.ts',
   'src/app/features/capabilities/capability-view.component.spec.ts',
   'src/app/features/capabilities/catalog-curation.component.spec.ts',

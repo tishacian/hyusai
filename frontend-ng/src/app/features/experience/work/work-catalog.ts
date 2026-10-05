@@ -11,6 +11,7 @@ import { onAccentColor } from '../runtime/style';
 import { CERTIFIED_RENDERER_VERSION as CURRENT_RENDERER_VERSION } from '../runtime/model';
 import { CERTIFIED_RENDERER_VERSION as LEGACY_RENDERER_VERSION } from '../runtime/v0_1/model';
 import { isCataloguedReturnTo } from './work-return';
+import { isStandaloneApplicationPath } from '@app/core/navigation.catalog';
 
 export type WorkChannel = 'live' | 'pilot';
 
@@ -119,13 +120,12 @@ export function liveHref(theme: Record<string, unknown> | null | undefined): str
   return trimmed;
 }
 
-/** Dedicated Nawa shell opened from Work (L18) — leaves Work for a new tab. */
-export function isNawaLiveHref(href: string): boolean {
-  return href === '/nawa' || href.startsWith('/nawa/');
-}
-
-export function isNawaLiveLaunch(item: WorkCatalogItem): boolean {
-  return isNawaLiveHref(catalogLaunchHref(item));
+/**
+ * A tile whose live link opens a customer application with its own chrome
+ * (L18): it leaves Work for a new tab.
+ */
+export function isStandaloneLaunch(item: WorkCatalogItem): boolean {
+  return isStandaloneApplicationPath(catalogLaunchHref(item));
 }
 
 export function launchHref(app: WorkExperience): string {

@@ -1,3 +1,4 @@
+import { ANDRITZ_SURFACES } from '@app/features/andritz/andritz.surfaces';
 import { NAWA_SURFACES } from '@app/features/nawa/nawa.surfaces';
 import type { AgentiumSurfaceRoute } from './navigation.catalog';
 
@@ -10,4 +11,7 @@ import type { AgentiumSurfaceRoute } from './navigation.catalog';
  * client-application-routes.ts (kind `composition` in the tenant-neutral
  * baseline).
  */
-export const CLIENT_APPLICATION_SURFACES: readonly AgentiumSurfaceRoute[] = [...NAWA_SURFACES];
+export const CLIENT_APPLICATION_SURFACES: readonly AgentiumSurfaceRoute[] = [
+  ...NAWA_SURFACES,
+  ...ANDRITZ_SURFACES,
+];

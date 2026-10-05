@@ -21,5 +21,6 @@ export const NAWA_SURFACES: readonly AgentiumSurfaceRoute[] = [
     status: 'canonical',
     audience: 'workspace-user',
     description: 'IT automation use-case catalogue and the Password Reset simulation bench.',
+    standalone: true,
   },
 ];
