@@ -525,6 +525,17 @@ export const FLOW_FR = {
   'flow.inspector.field.description.placeholder': 'Ce que fait ce nœud',
   'flow.inspector.section.ports': 'Entrées et sorties',
   'flow.inspector.section.decision': 'Branches de décision',
+  'flow.inspector.error_policy.title': 'En cas d’erreur',
+  'flow.inspector.error_policy.label': 'Comportement',
+  'flow.inspector.error_policy.continue': 'Continuer — l’erreur passe en aval',
+  'flow.inspector.error_policy.fail': 'Arrêter l’exécution',
+  'flow.inspector.error_policy.route': 'Router vers la porte d’erreur',
+  'flow.inspector.error_policy.route_hint':
+    'Reliez le port « error » à la porte d’erreur. Les autres sorties sont coupées.',
+  'flow.inspector.join.title': 'Quorum de sources',
+  'flow.inspector.join.min_success': 'Nombre minimum de branches réussies',
+  'flow.inspector.join.hint':
+    'Vide : comportement historique. Un nombre : le Join échoue sous ce quorum.',
   'flow.inspector.section.agent_loop': 'Enveloppe de la boucle agent',
   'flow.inspector.agent_loop.hint':
     'Le mou = quelle skill appeler ensuite. Les writes restent derrière une approbation. Le modèle ne voit que la liste autorisée.',
@@ -2232,6 +2243,17 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.inspector.field.description.placeholder': 'What this node does',
   'flow.inspector.section.ports': 'Inputs and outputs',
   'flow.inspector.section.decision': 'Decision branches',
+  'flow.inspector.error_policy.title': 'On error',
+  'flow.inspector.error_policy.label': 'Behaviour',
+  'flow.inspector.error_policy.continue': 'Continue — the error flows downstream',
+  'flow.inspector.error_policy.fail': 'Stop the run',
+  'flow.inspector.error_policy.route': 'Route to the error gate',
+  'flow.inspector.error_policy.route_hint':
+    'Connect the “error” port to the error gate. Other outputs are pruned.',
+  'flow.inspector.join.title': 'Source quorum',
+  'flow.inspector.join.min_success': 'Minimum successful branches',
+  'flow.inspector.join.hint':
+    'Empty keeps the historical behaviour. A number fails the Join below that quorum.',
   'flow.inspector.section.agent_loop': 'Agent loop envelope',
   'flow.inspector.agent_loop.hint':
     'Softness = which skill to call next. Writes still go through approval. The model only sees the allowed list.',

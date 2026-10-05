@@ -202,3 +202,32 @@ test('legacy branch edges without from_port bind to their labelled Decision hand
   assert.equal(views[1].source, 'd::out::no');
   assert.notEqual(views[0].id, views[1].id, 'branch label participates in edge identity');
 });
+
+test('a routed task error creates and renders a real error edge', () => {
+  const task: CanonicalFlowNode = {
+    id: 'task',
+    type: 'task',
+    kind: 'task',
+    config: { on_error: 'route' },
+  };
+  const handler: CanonicalFlowNode = { id: 'handler', type: 'task', kind: 'task' };
+
+  const [view] = toNodeViews([task]);
+  assert.equal(view.outputs.at(-1)?.name, 'error');
+
+  const edge = connectorsToEdge(
+    outputConnectorId('task', 'error'),
+    inputConnectorId('handler'),
+    [task, handler],
+  );
+  assert.deepEqual(edge, {
+    from: 'task',
+    to: 'handler',
+    kind: 'error',
+    from_port: 'error',
+  });
+
+  const [connection] = toConnectionViews([edge!], [task, handler]);
+  assert.equal(connection.kind, 'error');
+  assert.equal(connection.source, 'task::out::error');
+});

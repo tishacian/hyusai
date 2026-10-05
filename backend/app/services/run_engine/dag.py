@@ -1502,6 +1502,9 @@ def _settle_node(
         state.pool.set_namespace(node_id, pool_output)
         apply_outputs_map(node.config, node_output, state.pool)
     inactive = set(outcome.get("inactive_branches") or [])
+    # An error route is selected by target, not by branch label: error edges
+    # are ordinary graph edges and need not declare a label.
+    inactive_targets = set(outcome.get("inactive_targets") or [])
     propagate_dead = outcome.get("skipped_reason") in {
         "all_inputs_dead",
         "ingress_not_selected",
@@ -1526,6 +1529,10 @@ def _settle_node(
             # forever. Downstream nodes whose only inputs come from dead
             # edges therefore become "ready" but execute as no-ops (the
             # `_execute_node` dispatcher checks edge activity).
+            state.pending_counts[edge.target] = max(0, state.pending_counts.get(edge.target, 0) - 1)
+            continue
+        if edge.target in inactive_targets:
+            state.dead_edges.add((edge.source, edge.target, edge.branch_label))
             state.pending_counts[edge.target] = max(0, state.pending_counts.get(edge.target, 0) - 1)
             continue
         state.pending_counts[edge.target] = max(0, state.pending_counts.get(edge.target, 0) - 1)
@@ -2448,6 +2455,7 @@ async def _execute_node(
                 db,
                 run,
                 node,
+                graph,
                 state,
                 control=control,
                 upstream=node_input,
@@ -2497,6 +2505,7 @@ async def _execute_node(
                 db,
                 run,
                 node,
+                graph,
                 state,
                 control=control,
                 upstream=node_input,
@@ -2600,6 +2609,7 @@ async def _run_task(
     db: DBSession,
     run: Run,
     node: DagNode,
+    graph: DagGraph,
     state: WalkerState,
     *,
     control,
@@ -2640,14 +2650,13 @@ async def _run_task(
         return {"output": {}, "membrane_blocked": True}
     if invocation.status == "completed":
         return {"output": (invocation.output_ref if invocation.output_ref is not None else {})}
-    # On failure / skipped: pass through upstream data but preserve the error
-    # in the ctx for downstream decision nodes.
-    err_output = {
-        **_passthrough_without_recipe(last_output),
-        "_error": invocation.error,
-        "_status": invocation.status,
-    }
-    return {"output": err_output}
+    return _error_policy_output(
+        node,
+        graph,
+        output=_passthrough_without_recipe(last_output),
+        error=invocation.error,
+        status=invocation.status,
+    )
 
 
 def _decision_ctx(
@@ -2905,6 +2914,7 @@ def _run_join(node: DagNode, graph: DagGraph, state: WalkerState) -> dict[str, A
     """
     config = node.config or {}
     strategy = config.get("strategy") or "all"
+    min_success = config.get("min_success")
     branch_outputs: dict[str, Any] = {}
     merged: dict[str, Any] = {}
     for edge in graph.in_edges.get(node.id, []):
@@ -2913,13 +2923,52 @@ def _run_join(node: DagNode, graph: DagGraph, state: WalkerState) -> dict[str, A
         out = state.node_outputs.get(edge.source) or {}
         label = edge.branch_label or edge.source
         branch_outputs[str(label)] = out
-        if isinstance(out, dict):
-            merged.update(out)
+    failed_branches = [
+        label
+        for label, out in branch_outputs.items()
+        if isinstance(out, dict)
+        and (out.get("_status") not in (None, "completed") or out.get("_error") is not None)
+    ]
+    for label, out in branch_outputs.items():
+        if label in failed_branches or not isinstance(out, dict):
+            continue
+        merged.update(out)
+    if isinstance(min_success, int) and not isinstance(min_success, bool):
+        success_count = len(branch_outputs) - len(failed_branches)
+        if success_count < min_success:
+            return {
+                "output": {
+                    "_error": "join_min_success",
+                    "_status": "failed",
+                    "_branches": branch_outputs,
+                    "_failed_branches": failed_branches,
+                },
+                "terminal_error": (
+                    f"join_min_success:{node.id}:{success_count}/{min_success}"
+                ),
+            }
     if strategy in ("any", "race"):
-        primary = next((v for v in branch_outputs.values() if v), {})
+        primary = next(
+            (v for label, v in branch_outputs.items() if label not in failed_branches and v),
+            {},
+        )
         body = dict(primary) if isinstance(primary, dict) else {"value": primary}
-        return {"output": {**body, "_join_strategy": strategy, "_branches": branch_outputs}}
-    return {"output": {**merged, "_join_strategy": strategy, "_branches": branch_outputs}}
+        return {
+            "output": {
+                **body,
+                "_join_strategy": strategy,
+                "_branches": branch_outputs,
+                "_failed_branches": failed_branches,
+            }
+        }
+    return {
+        "output": {
+            **merged,
+            "_join_strategy": strategy,
+            "_branches": branch_outputs,
+            "_failed_branches": failed_branches,
+        }
+    }
 
 
 def _control_invocation_contract_violation(
@@ -2956,6 +3005,39 @@ def _retry_node_output(raw_output: Any, attempt: int) -> dict[str, Any]:
     return output
 
 
+def _error_policy_output(
+    node: DagNode,
+    graph: DagGraph,
+    *,
+    output: dict[str, Any],
+    error: str | None,
+    status: str,
+) -> dict[str, Any]:
+    policy = str((node.config or {}).get("on_error") or "continue")
+    if policy == "fail":
+        return {
+            "output": {},
+            "terminal_error": f"node_error_policy:{node.id}:{error or status}",
+        }
+    if policy == "route":
+        error_targets = [
+            edge.target
+            for edge in graph.out_edges.get(node.id, [])
+            if edge.kind == "error" or edge.from_port == "error" or edge.to_port == "error"
+        ]
+        if not error_targets:
+            return {"output": {}, "terminal_error": f"node_error_route_missing:{node.id}"}
+        return {
+            "output": {**output, "_error": error, "_status": status},
+            "inactive_targets": [
+                edge.target
+                for edge in graph.out_edges.get(node.id, [])
+                if edge.target not in error_targets
+            ],
+        }
+    return {"output": {**output, "_error": error, "_status": status}}
+
+
 def _runtime_positive_int(value: Any, *, default: int, field: str) -> int:
     """Resolve a loop/retry budget without truncating floats or booleans."""
 
@@ -2969,6 +3051,7 @@ async def _run_retry(
     db: DBSession,
     run: Run,
     node: DagNode,
+    graph: DagGraph,
     state: WalkerState,
     *,
     control,
@@ -3028,25 +3111,29 @@ async def _run_retry(
         if attempt < max_attempts and not _skill_is_retryable(db, slug):
             # The Skill says a second call is not safe (an external write). A
             # retry would repeat an effect the first call may already have had.
-            return {
-                "output": {
+            return _error_policy_output(
+                node,
+                graph,
+                output={
                     **_passthrough_without_recipe(last_output),
-                    "_error": last_error,
-                    "_status": "failed",
                     "_retry_attempts": attempt,
                     "_retry_refused": "skill_not_idempotent",
-                }
-            }
+                },
+                error=last_error,
+                status="failed",
+            )
         if attempt < max_attempts and backoff_ms > 0:
             await asyncio.sleep(backoff_ms / 1000.0)
-    return {
-        "output": {
+    return _error_policy_output(
+        node,
+        graph,
+        output={
             **_passthrough_without_recipe(last_output),
-            "_error": last_error,
-            "_status": "failed",
             "_retry_attempts": max_attempts,
-        }
-    }
+        },
+        error=last_error,
+        status="failed",
+    )
 
 
 def _skill_is_retryable(db: DBSession, slug: str) -> bool:

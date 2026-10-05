@@ -119,6 +119,63 @@ def test_seed_rag_skills_expose_retrieval_policy_contract():
 
 
 @pytest.mark.asyncio
+async def test_grounding_check_rejects_a_claim_without_present_evidence():
+    result = await wrappers._grounding_check_v1(
+        {
+            "draft": {
+                "claims": [
+                    {"text": "The contract expires in 2027", "source_id": "ev-1"},
+                    {"text": "The vendor is French", "source_id": "ev-missing"},
+                ]
+            },
+            "evidence": [{"id": "ev-1", "text": "expires in 2027"}],
+        }
+    )
+
+    assert result == {
+        "accepted": False,
+        "violations": [
+            {"claim_index": 1, "code": "missing_source", "source_id": "ev-missing"}
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_typed_evaluation_routes_judge_scores(monkeypatch):
+    class Judge:
+        async def evaluate(self, **kwargs):
+            return {
+                "id": "judge-1",
+                "status": "completed",
+                "composite_score": 82.0,
+                "hallucination_rate": 0.1,
+                "scores": {"relevance": 82, "factuality": 90, "coherence": 74},
+                "claim_audit": {"supported": 2, "unsupported": 0, "claims": []},
+                "metadata": {},
+            }
+
+    monkeypatch.setattr(wrappers, "get_judge_service", lambda: Judge())
+
+    result = await wrappers._evaluate_v1(
+        {
+            "query": "What does the contract say?",
+            "response": "It expires in 2027.",
+            "context_chunks": ["The contract expires in 2027."],
+            "questions": [
+                {"key": "publish", "type": "choice", "choices": ["yes", "no"], "threshold": 80},
+                {"key": "quality", "type": "score", "minimum": 0, "maximum": 20},
+                {"key": "trust", "type": "probability"},
+            ],
+        }
+    )
+
+    assert result["answers"]["publish"] == {"value": "yes", "score": 82.0}
+    assert result["answers"]["quality"] == {"value": 16.4, "score": 16.4}
+    assert result["answers"]["trust"] == {"value": 0.9, "score": 0.9}
+    assert result["composite_score"] == 82.0
+
+
+@pytest.mark.asyncio
 async def test_translation_suite_skills_are_cataloged_and_stubbed():
     translation_slugs = {
         "translation_archive_ingest_v1",

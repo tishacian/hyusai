@@ -29,6 +29,7 @@ from typing import Any, Mapping, Optional
 from app.core.logging import get_logger
 from app.services.evaluation.judge import (
     contractual_zero_token_usage,
+    get_judge_service,
     new_provider_usage_accumulator,
     normalize_provider_usage,
     provider_usage_evidence,
@@ -6501,6 +6502,162 @@ async def _response_eval_v1(
     }
 
 
+async def _grounding_check_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Refuse a claim whose source id is absent from the retrieved evidence.
+
+    This is deliberately lexical and deterministic: it does not guess semantic
+    support. The upstream retriever owns recall; this gate owns the contract
+    that every published claim is bound to one of the passages actually read.
+    """
+    draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
+    claims = draft.get("claims") if isinstance(draft.get("claims"), list) else []
+    evidence = payload.get("evidence") if isinstance(payload.get("evidence"), list) else []
+    source_ids = {
+        str(item.get("id") or item.get("source_id") or "")
+        for item in evidence
+        if isinstance(item, dict)
+    }
+    source_ids.discard("")
+
+    violations: list[dict[str, Any]] = []
+    for index, claim in enumerate(claims):
+        if not isinstance(claim, dict):
+            claim = {}
+        source_id = str(claim.get("source_id") or "")
+        if not source_id or source_id not in source_ids:
+            violations.append(
+                {"claim_index": index, "code": "missing_source", "source_id": source_id}
+            )
+    return {"accepted": not violations, "violations": violations}
+
+
+def _typed_evaluation_answers(
+    questions: list[dict[str, Any]], *, composite: float | None, hallucination: float | None
+) -> dict[str, dict[str, Any]]:
+    answers: dict[str, dict[str, Any]] = {}
+    for question in questions:
+        key = str(question.get("key") or "")
+        if not key or key in answers:
+            continue
+        kind = str(question.get("type") or "score")
+        score = composite if composite is not None else 0.0
+        if kind == "choice":
+            choices = question.get("choices") if isinstance(question.get("choices"), list) else []
+            choices = [str(value) for value in choices if str(value).strip()]
+            if len(choices) < 2:
+                continue
+            threshold = float(question.get("threshold") or 70.0)
+            value = choices[0] if score >= threshold else choices[1]
+            answers[key] = {"value": value, "score": round(score, 2)}
+        elif kind == "probability":
+            probability = 1.0 - (hallucination if hallucination is not None else 1.0)
+            answers[key] = {
+                "value": round(max(0.0, min(1.0, probability)), 4),
+                "score": round(max(0.0, min(1.0, probability)), 4),
+            }
+        else:
+            minimum = float(question.get("minimum") or 0.0)
+            maximum = float(question.get("maximum") or 100.0)
+            span = max(0.0, maximum - minimum)
+            bounded = minimum + (max(0.0, min(100.0, score)) / 100.0) * span
+            answers[key] = {"value": round(bounded, 2), "score": round(bounded, 2)}
+    return answers
+
+
+async def _evaluate_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Run the native judge mid-flow and expose typed, routable verdicts."""
+    ctx = ctx or {}
+    workspace = None
+    if ctx.get("workspace_id"):
+        from app.db.base import SessionLocal
+        from app.models.workspace import Workspace as WorkspaceModel
+
+        lookup_session = SessionLocal()
+        try:
+            workspace = lookup_session.get(WorkspaceModel, str(ctx["workspace_id"]))
+        finally:
+            lookup_session.close()
+
+    result = await get_judge_service().evaluate(
+        query=str(payload.get("query") or ""),
+        response=str(payload.get("response") or ""),
+        context_chunks=[
+            str(chunk) for chunk in (payload.get("context_chunks") or []) if str(chunk).strip()
+        ],
+        workspace=workspace,
+        model_context=ctx,
+    )
+    questions = payload.get("questions") if isinstance(payload.get("questions"), list) else []
+    answers = _typed_evaluation_answers(
+        [item for item in questions if isinstance(item, dict)],
+        composite=result.get("composite_score"),
+        hallucination=result.get("hallucination_rate"),
+    )
+    output = {
+        "answers": answers,
+        "composite_score": result.get("composite_score"),
+        "hallucination_rate": result.get("hallucination_rate"),
+        "status": str(result.get("status") or "partial"),
+        "claim_audit": result.get("claim_audit") or {},
+        "judge_evaluation_id": result.get("id"),
+    }
+
+    run_id = ctx.get("run_id")
+    if run_id:
+        from app.db.base import SessionLocal
+        from app.models.evaluation import EvaluationScore
+        from app.models.run import Run
+
+        session = SessionLocal()
+        try:
+            run = session.get(Run, str(run_id))
+            if run is not None:
+                row = EvaluationScore(
+                    id=str(uuid.uuid4()),
+                    workspace_id=run.workspace_id,
+                    run_id=run.id,
+                    session_id=run.id,
+                    agent_id=run.system_id,
+                    turn_number=1,
+                    query=str(payload.get("query") or "")[:2000] or None,
+                    scores=result.get("scores") or {},
+                    composite_score=float(result.get("composite_score") or 0.0),
+                    hallucination_rate=float(result.get("hallucination_rate") or 0.0),
+                    drift_rate=result.get("drift_rate"),
+                    question_type=result.get("question_type"),
+                    failed_components=result.get("failed_components") or [],
+                    topic=result.get("topic"),
+                    claim_audit=result.get("claim_audit") or {},
+                    metadata_={
+                        **(result.get("metadata") or {}),
+                        "source": "evaluate_v1",
+                        "typed_answers": answers,
+                    },
+                    created_at=datetime.utcnow(),
+                )
+                session.add(row)
+                session.flush()
+                run.evaluation_scores = {
+                    "evaluation_id": row.id,
+                    "source": "evaluate_v1",
+                    "status": output["status"],
+                    "scores": row.scores,
+                    "composite_score": row.composite_score,
+                    "hallucination_rate": row.hallucination_rate,
+                    "answers": answers,
+                    "evaluated_at": row.created_at.isoformat(),
+                }
+                session.commit()
+                output["evaluation_id"] = row.id
+        finally:
+            session.close()
+    return output
+
+
 # ---------------------------------------------------------------------------
 # Line-item reconciliation suite (spreadsheet/invoice extract, reconcile, report)
 # ---------------------------------------------------------------------------
@@ -6915,6 +7072,8 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "chat_agentic_plan_v1": (_chat_agentic_plan_v1, "app.services.model_router", "bound"),
     "chat_self_correct_v1": (_chat_self_correct_v1, "app.services.model_router", "bound"),
     "response_eval_v1": (_response_eval_v1, "app.services.metrics.evaluator", "bound"),
+    "grounding_check_v1": (_grounding_check_v1, None, "bound"),
+    "evaluate_v1": (_evaluate_v1, "app.services.evaluation.judge", "bound"),
     "spreadsheet_table_extract_v1": (
         _spreadsheet_table_extract_v1,
         "app.services.reconciliation",

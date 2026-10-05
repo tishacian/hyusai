@@ -44,7 +44,7 @@ export interface FlowConnectionView {
   source: string;
   target: string;
   edge: CanonicalFlowEdge;
-  kind: 'data' | 'control' | 'branch';
+  kind: 'data' | 'control' | 'branch' | 'error';
   /** Human-readable route carried by a Decision branch edge. */
   branchLabel?: string;
 }
@@ -103,12 +103,20 @@ export function toNodeView(node: CanonicalFlowNode): FlowNodeView {
   // `source` and `asset` are pure inputs: they emit but never consume, so
   // neither renders a default inbound connector.
   const inputless = kind === 'source' || kind === 'asset';
+  let outputs = connectorViews(node.id, node.outputs, 'out', kind !== 'sink');
+  if (
+    (kind === 'task' || kind === 'retry') &&
+    (node.config as Record<string, unknown> | undefined)?.['on_error'] === 'route' &&
+    !outputs.some((port) => port.name === 'error')
+  ) {
+    outputs = [...outputs, { id: outputConnectorId(node.id, 'error'), name: 'error', schema: 'object' }];
+  }
   return {
     id: node.id,
     node,
     position: node.position ?? { x: 120, y: 120 },
     inputs: connectorViews(node.id, node.inputs, 'in', !inputless),
-    outputs: connectorViews(node.id, node.outputs, 'out', kind !== 'sink'),
+    outputs,
   };
 }
 
@@ -124,6 +132,12 @@ export function toNodeViews(nodes: CanonicalFlowNode[]): FlowNodeView[] {
 function resolveOutputConnector(node: CanonicalFlowNode | undefined, edge: CanonicalFlowEdge): string {
   const ports = node?.outputs ?? [];
   const branchLabel = edge.branch_label ?? edge.label;
+  if (
+    edge.kind === 'error' &&
+    (node?.kind === 'task' || node?.kind === 'retry')
+  ) {
+    return outputConnectorId(edge.from, 'error');
+  }
   // Decision route edges historically carried only `branch_label`, while
   // Foblex needs a concrete output connector. Bind the route to the matching
   // labelled handle instead of falling back to the first output.
@@ -197,6 +211,8 @@ export function connectorsToEdge(
   const inp = source.direction === 'in' ? source : target;
   if (out.direction !== 'out' || inp.direction !== 'in') return null;
   const sourceNode = nodes.find((node) => node.id === out.nodeId);
+  const isErrorRoute =
+    (sourceNode?.kind === 'task' || sourceNode?.kind === 'retry') && out.port === 'error';
   const isDecisionRoute = (sourceNode?.kind ?? 'task') === 'decision' && !!out.port;
   if (isDecisionRoute) {
     return {
@@ -211,7 +227,8 @@ export function connectorsToEdge(
   return {
     from: out.nodeId,
     to: inp.nodeId,
-    kind: 'data',
+    kind: isErrorRoute ? 'error' : 'data',
+    ...(isErrorRoute ? { from_port: 'error' } : {}),
     ...(out.port ? { from_port: out.port } : {}),
     ...(inp.port ? { to_port: inp.port } : {}),
   };

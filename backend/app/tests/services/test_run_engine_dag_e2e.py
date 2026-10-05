@@ -132,6 +132,205 @@ def _checkpoint_kinds(run: Run) -> List[str]:
     return [cp.get("kind") for cp in (run.checkpoints or [])]
 
 
+async def _run_five_source_join(db_session, monkeypatch, *, min_success: int):
+    async def source_one(_inp, _ctx):
+        return {"source": "one", "value": 1}
+
+    async def source_two(_inp, _ctx):
+        return {"source": "two", "value": 2}
+
+    async def source_three(_inp, _ctx):
+        return {"source": "three", "value": 3}
+
+    async def failing(_inp, _ctx):
+        raise RuntimeError("source unavailable")
+
+    _install_fake_registry(
+        monkeypatch,
+        {
+            "source_one_v1": source_one,
+            "source_two_v1": source_two,
+            "source_three_v1": source_three,
+            "source_four_v1": failing,
+            "source_five_v1": failing,
+        },
+    )
+    for slug in (
+        "source_one_v1",
+        "source_two_v1",
+        "source_three_v1",
+        "source_four_v1",
+        "source_five_v1",
+    ):
+        if db_session.query(Skill).filter(Skill.slug == slug).first() is None:
+            _mk_skill(db_session, slug)
+
+    nodes = [{"id": "entry", "kind": "source"}]
+    edges = []
+    for index in range(1, 6):
+        nodes.append(
+            {
+                "id": f"source-{index}",
+                "kind": "task",
+                "config": {"skill_slug": f"source_{['one', 'two', 'three', 'four', 'five'][index - 1]}_v1"},
+            }
+        )
+        edges.extend(
+            [
+                {"from": "entry", "to": f"source-{index}"},
+                {"from": f"source-{index}", "to": "join", "label": f"source-{index}"},
+            ]
+        )
+    nodes.extend(
+        [
+            {"id": "join", "kind": "join", "config": {"strategy": "all", "min_success": min_success}},
+            {"id": "sink", "kind": "sink"},
+        ]
+    )
+    edges.append({"from": "join", "to": "sink"})
+    flow = {"schema_version": 2, "nodes": nodes, "edges": edges}
+    system = _mk_system(db_session, flow=flow)
+    run = _mk_run(db_session, system, input_ref={"query": "five sources"})
+    run.flow_snapshot = flow
+    db_session.commit()
+    return await execute_run_dag(run.id)
+
+
+@pytest.mark.asyncio
+async def test_join_quorum_accepts_three_of_five_and_fails_below_threshold(
+    db_session,
+    monkeypatch,
+):
+    above = await _run_five_source_join(db_session, monkeypatch, min_success=3)
+    assert above["status"] == "completed"
+
+    below = await _run_five_source_join(db_session, monkeypatch, min_success=4)
+    assert below["status"] == "failed"
+    assert below["error"] == "join_min_success:join:3/4"
+
+
+@pytest.mark.asyncio
+async def test_grounding_gate_routes_an_unsourced_claim_to_review(db_session):
+    _mk_skill(db_session, "grounding_check_v1")
+    flow = {
+        "schema_version": 2,
+        "nodes": [
+            {"id": "entry", "kind": "source"},
+            {"id": "grounding", "kind": "task", "config": {"skill_slug": "grounding_check_v1"}},
+            {
+                "id": "route",
+                "kind": "decision",
+                "config": {
+                    "branches": [
+                        {"label": "publish", "condition": "ctx.accepted == True"},
+                        {"label": "review", "condition": "ctx.accepted == False"},
+                    ],
+                    "default_branch": "review",
+                },
+            },
+            {"id": "published", "kind": "sink"},
+            {"id": "review", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "entry", "to": "grounding"},
+            {"from": "grounding", "to": "route"},
+            {"from": "route", "to": "published", "kind": "branch", "branch_label": "publish"},
+            {"from": "route", "to": "review", "kind": "branch", "branch_label": "review"},
+        ],
+    }
+    system = _mk_system(db_session, flow=flow)
+    run = _mk_run(
+        db_session,
+        system,
+        input_ref={
+            "draft": {
+                "claims": [
+                    {"text": "The contract expires in 2027", "source_id": "ev-1"},
+                    {"text": "The vendor is French", "source_id": "ev-missing"},
+                ]
+            },
+            "evidence": [{"id": "ev-1", "text": "The contract expires in 2027."}],
+        },
+    )
+    run.flow_snapshot = flow
+    db_session.commit()
+
+    summary = await execute_run_dag(run.id)
+
+    assert summary["status"] == "completed"
+    db_session.expire_all()
+    persisted = db_session.query(Run).filter(Run.id == run.id).one()
+    invocation = (
+        db_session.query(SkillInvocation)
+        .filter(SkillInvocation.run_id == run.id, SkillInvocation.skill_slug == "grounding_check_v1")
+        .one()
+    )
+    assert invocation.output_ref["accepted"] is False
+    assert invocation.output_ref["violations"] == [
+        {"claim_index": 1, "code": "missing_source", "source_id": "ev-missing"}
+    ]
+    decision_checkpoint = next(
+        cp
+        for cp in persisted.checkpoints
+        if cp.get("kind") == "decision_resolution" and cp.get("node_id") == "route"
+    )
+    assert decision_checkpoint["chosen_branch"] == "review"
+
+
+@pytest.mark.asyncio
+async def test_on_error_route_runs_only_the_error_handler(db_session, monkeypatch):
+    calls: list[str] = []
+
+    async def failing(_inp, _ctx):
+        calls.append("failing")
+        raise RuntimeError("provider unavailable")
+
+    async def normal(_inp, _ctx):
+        calls.append("normal")
+        return {"path": "normal"}
+
+    async def handler(_inp, _ctx):
+        calls.append("handler")
+        return {"path": "error", "handled": True}
+
+    _install_fake_registry(
+        monkeypatch,
+        {"failing_v1": failing, "normal_v1": normal, "handler_v1": handler},
+    )
+    for slug in ("failing_v1", "normal_v1", "handler_v1"):
+        _mk_skill(db_session, slug)
+    flow = {
+        "schema_version": 2,
+        "nodes": [
+            {"id": "entry", "kind": "source"},
+            {
+                "id": "task",
+                "kind": "task",
+                "config": {"skill_slug": "failing_v1", "on_error": "route"},
+            },
+            {"id": "normal", "kind": "task", "config": {"skill_slug": "normal_v1"}},
+            {"id": "handler", "kind": "task", "config": {"skill_slug": "handler_v1"}},
+            {"id": "sink", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "entry", "to": "task"},
+            {"from": "task", "to": "normal", "kind": "data"},
+            {"from": "task", "to": "handler", "kind": "error", "from_port": "error"},
+            {"from": "normal", "to": "sink"},
+            {"from": "handler", "to": "sink"},
+        ],
+    }
+    system = _mk_system(db_session, flow=flow)
+    run = _mk_run(db_session, system, input_ref={"query": "route error"})
+    run.flow_snapshot = flow
+    db_session.commit()
+
+    summary = await execute_run_dag(run.id)
+
+    assert summary["status"] == "completed"
+    assert calls == ["failing", "handler"]
+
+
 # ---------------------------------------------------------------------------
 # 1 — Sequential task → task → task
 # ---------------------------------------------------------------------------
