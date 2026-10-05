@@ -244,6 +244,7 @@ def test_mission_room_news_uses_live_workspace_intelligence_without_cross_tenant
     )
     article = FeedArticle(
         id="article-ci",
+        workspace_id=workspace.id,
         source_id=source.id,
         title="Cote d'Ivoire: signaux publics autour d'un projet prioritaire",
         summary="Plusieurs sources publiques convergent vers un besoin de communication preventive.",
@@ -258,6 +259,7 @@ def test_mission_room_news_uses_live_workspace_intelligence_without_cross_tenant
     )
     other_article = FeedArticle(
         id="article-andritz",
+        workspace_id=other.id,
         source_id=other_source.id,
         title="Andritz internal deposit",
         summary="This must not leak into SENTINEL-CI.",

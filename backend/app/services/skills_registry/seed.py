@@ -2692,10 +2692,12 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
         "roi_model": {"type": "time_saved"},
     },
     {
+        # Carrier of News Lab, a neutral watch every workspace may create: no
+        # industry tag (the explicit None clears the one earlier seeds wrote).
         "slug": "market_signal_brief",
         "name": "Market Signal Brief",
-        "tier": "industry",
-        "industry": "finance",
+        "tier": "universal",
+        "industry": None,
         "description": "Aggregates intelligence feeds into a periodic decision-grade brief with semantic targets.",
         "input_unit": "feed_batch",
         "output_unit": "brief",
@@ -3264,6 +3266,8 @@ def seed_skills_and_capabilities(db: DBSession) -> Dict[str, int]:
                         "pricing", "value_per_outcome", "confidence_threshold", "sla", "roi_model"):
                 if entry.get(key) is not None:
                     setattr(existing, key, entry[key])
+            if "industry" in entry and entry["industry"] is None:
+                existing.industry = None
             existing.skill_ids = skill_ids
             existing.is_seeded = "Y"
             existing.updated_at = now

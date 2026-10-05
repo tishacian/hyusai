@@ -3,8 +3,10 @@
 `/intelligence` is no longer a bespoke feature page: it is a real ``System``
 row bound to the ``market_signal_brief`` capability, so the frontend can
 use the same SystemViewComponent to render it with the intelligence-specific
-facets. This module provides the idempotent seeding hook called at startup
-for every existing workspace (Vague A — P0, commit 2/5).
+facets. That System is created on demand, when a user allowed to create
+Systems asks for the watch (``POST /intelligence/watch``); it is no longer
+seeded into every workspace at boot. The other hooks here are the idempotent
+seeds called at startup for every existing workspace (Vague A — P0).
 """
 
 from __future__ import annotations
@@ -36,9 +38,8 @@ logger = get_logger(__name__)
 
 INTELLIGENCE_SYSTEM_NAME = "News Lab"
 INTELLIGENCE_OBJECTIVE = (
-    "Continuous market intelligence tuned to your semantic targets. "
-    "The scheduler harvests RSS feeds every hour, scores articles against "
-    "your targets, and surfaces decision-grade briefs."
+    "Continuous watch tuned to this workspace's own targets: harvest its RSS "
+    "feeds, score each article against its targets, and surface sourced briefs."
 )
 INTELLIGENCE_CAPABILITY_SLUG = "market_signal_brief"
 INTELLIGENCE_SKILL_SLUG = "intelligence_batch_v1"
@@ -1535,9 +1536,13 @@ def ensure_intelligence_system_default(db: DBSession, workspace_id: str) -> Opti
     """Create the workspace's default Intelligence System if missing.
 
     Idempotent on ``(workspace_id, capability_id, name=INTELLIGENCE_SYSTEM_NAME)``.
+    A matching System seeded before the intelligence marker existed is adopted:
+    it gets the marker (and the variant) through a Flow reconciliation.
     Returns the (existing or newly created) System, or ``None`` if the
     required capability/skill haven't been seeded yet.
     """
+    from app.services.intelligence.systems import INTELLIGENCE_TEMPLATE_ID
+
     workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
     if workspace is None:
         return None
@@ -1569,8 +1574,12 @@ def ensure_intelligence_system_default(db: DBSession, workspace_id: str) -> Opti
         # Lightweight refresh so flow_definition.variant stays in sync even
         # if an older seed produced a bare row.
         flow = dict(existing.flow_definition or {})
-        if flow.get("variant") != "intelligence":
+        if (
+            flow.get("variant") != "intelligence"
+            or flow.get("template_id") != INTELLIGENCE_TEMPLATE_ID
+        ):
             flow["variant"] = "intelligence"
+            flow["template_id"] = INTELLIGENCE_TEMPLATE_ID
             flow.setdefault("nodes", [])
             flow.setdefault("edges", [])
             flow_publication.reconcile_system_flow(
@@ -1588,6 +1597,7 @@ def ensure_intelligence_system_default(db: DBSession, workspace_id: str) -> Opti
 
     flow_definition: dict[str, object] = {
         "variant": "intelligence",
+        "template_id": INTELLIGENCE_TEMPLATE_ID,
         "nodes": [
             {
                 "id": "source.feeds",
@@ -1642,40 +1652,6 @@ def ensure_intelligence_system_default(db: DBSession, workspace_id: str) -> Opti
         capability_id=capability.id,
     )
     return system
-
-
-def ensure_intelligence_system_for_all_workspaces(
-    db: DBSession,
-) -> dict[str, int]:
-    """Ensure every active workspace has its Intelligence System seeded.
-
-    Safe to call on every boot — the per-workspace helper is idempotent.
-    Returns a small report (``{"created": N, "skipped": M}``) so the startup
-    log stays readable.
-    """
-    report = {"created": 0, "skipped": 0, "already": 0}
-    workspaces = (
-        db.query(Workspace)
-        .filter(Workspace.is_active.is_(True), Workspace.deleted_at.is_(None))
-        .all()
-    )
-    for ws in workspaces:
-        before = (
-            db.query(System)
-            .filter(
-                System.workspace_id == ws.id,
-                System.name == INTELLIGENCE_SYSTEM_NAME,
-            )
-            .count()
-        )
-        system = ensure_intelligence_system_default(db, ws.id)
-        if system is None:
-            report["skipped"] += 1
-        elif before == 0:
-            report["created"] += 1
-        else:
-            report["already"] += 1
-    return report
 
 
 def _skill_lookup(db: DBSession, slugs: list[str]) -> dict[str, Skill]:
