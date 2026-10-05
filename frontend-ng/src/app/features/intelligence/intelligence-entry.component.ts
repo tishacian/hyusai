@@ -6,8 +6,8 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
-import { CanonicalApiService, type System } from '@app/core/canonical-api.service';
+import { Router, RouterLink } from '@angular/router';
+import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import {
@@ -16,19 +16,20 @@ import {
   type CkObjectKpi,
 } from '@app/shared/cockpit';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import {
+  watchRows,
+  type CreateWatchResponse,
+  type IntelligenceRow,
+  type WatchListResponse,
+} from './intelligence.vm';
 
-export type IntelligenceRow = {
-  id: string;
-  name: string;
-  status: string;
-  measure: string;
-  updatedAt: string | null;
-  systemId: string;
-};
+export type { IntelligenceRow } from './intelligence.vm';
 
 /**
- * Suivre › Intelligence (L21b): a real list (state, object, measure, date).
- * Detail opens the System intelligence facet. No infinite News Lab retry.
+ * Suivre › Intelligence (L21b): the workspace's watches (state, object,
+ * measure, date). Only Systems the server marks as watches are listed; with
+ * none, the empty state offers to create the watch to anyone allowed to
+ * create Systems. Detail opens the System intelligence facet (News Lab).
  */
 @Component({
   selector: 'app-intelligence-entry',
@@ -50,7 +51,24 @@ export type IntelligenceRow = {
           size="md"
           [title]="i18n.t('intelligence.empty.title')"
           [description]="i18n.t('intelligence.empty.body')"
-        />
+        >
+          @if (canCreate()) {
+            <button
+              type="button"
+              class="ck-btn ck-cta"
+              data-testid="intelligence-create-watch"
+              [disabled]="creating()"
+              (click)="createWatch()"
+            >
+              {{ i18n.t(creating() ? 'intelligence.create.creating' : 'intelligence.create.action') }}
+            </button>
+          } @else {
+            <p class="intel-note">{{ i18n.t('intelligence.create.denied') }}</p>
+          }
+          @if (createFailed()) {
+            <p class="intel-note intel-note--warn" role="alert">{{ i18n.t('intelligence.create.failed') }}</p>
+          }
+        </app-empty-state>
       } @else {
         <ul class="intel-list" role="list">
           @for (row of rows(); track row.id) {
@@ -94,18 +112,24 @@ export type IntelligenceRow = {
     .intel-status[data-tone='info'] { color: var(--ck-signal-cool); }
     .intel-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .intel-measure, .intel-date { color: var(--ck-fg-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .intel-note { max-width: 24rem; margin: 0; color: var(--ck-fg-3); font-size: 12px; }
+    .intel-note--warn { margin-top: 8px; color: var(--ck-signal-warn); }
     @media (max-width: 720px) {
       .intel-row { grid-template-columns: 1fr; gap: 4px; }
     }
   `,
 })
 export class IntelligenceEntryComponent implements OnInit {
-  private readonly canonical = inject(CanonicalApiService);
+  private readonly api = inject(ApiService);
+  private readonly router = inject(Router);
   private readonly navigation = inject(ZoomContextService);
   readonly i18n = inject(I18nService);
 
   readonly loading = signal(true);
   readonly rows = signal<IntelligenceRow[]>([]);
+  readonly canCreate = signal(false);
+  readonly creating = signal(false);
+  readonly createFailed = signal(false);
 
   readonly kpis = computed<CkObjectKpi[]>(() => {
     const rows = this.rows();
@@ -117,14 +141,43 @@ export class IntelligenceEntryComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.canonical.listSystems().subscribe({
-      next: (systems) => {
-        this.rows.set(this.toRows(systems ?? []));
+    this.load();
+  }
+
+  load(): void {
+    this.api.get<WatchListResponse>('/intelligence/watch').subscribe({
+      next: (response) => {
+        this.rows.set(watchRows(response, this.i18n.t('intelligence.measure.absent')));
+        this.canCreate.set(response?.can_create === true);
         this.loading.set(false);
       },
       error: () => {
         this.rows.set([]);
+        this.canCreate.set(false);
         this.loading.set(false);
+      },
+    });
+  }
+
+  createWatch(): void {
+    if (this.creating() || !this.canCreate()) return;
+    this.creating.set(true);
+    this.createFailed.set(false);
+    this.api.post<CreateWatchResponse>('/intelligence/watch', {}).subscribe({
+      next: (response) => {
+        this.creating.set(false);
+        const id = response?.system?.id;
+        if (!id) {
+          this.load();
+          return;
+        }
+        void this.router.navigateByUrl(
+          this.navigation.objectUrl('system', id, { facet: 'intelligence' }),
+        );
+      },
+      error: () => {
+        this.creating.set(false);
+        this.createFailed.set(true);
       },
     });
   }
@@ -150,26 +203,5 @@ export class IntelligenceEntryComponent implements OnInit {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return '—';
     return new Intl.DateTimeFormat(this.i18n.locale(), { dateStyle: 'medium' }).format(date);
-  }
-
-  private toRows(systems: System[]): IntelligenceRow[] {
-    const intel = systems.filter((s) => this.isIntelligenceSystem(s));
-    const source = intel.length > 0 ? intel : systems.slice(0, 12);
-    return source.map((s) => ({
-      id: s.id,
-      systemId: s.id,
-      name: s.name || s.id,
-      status: (s.status || 'draft').toLowerCase(),
-      measure: s.objective?.trim() || this.i18n.t('intelligence.measure.absent'),
-      updatedAt: s.updated_at ?? s.created_at ?? null,
-    }));
-  }
-
-  private isIntelligenceSystem(system: System): boolean {
-    const flow = (system.flow_definition ?? {}) as Record<string, unknown>;
-    if (flow['template_id'] === 'sentinel-ci-intelligence') return true;
-    if (flow['variant'] === 'intelligence') return true;
-    const name = (system.name || '').toLowerCase();
-    return name.includes('news lab') || name.includes('intelligence') || name.includes('veille');
   }
 }
