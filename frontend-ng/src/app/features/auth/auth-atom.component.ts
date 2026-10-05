@@ -6,137 +6,77 @@ import {
   ElementRef,
   inject,
   input,
-  signal,
   viewChild,
-  viewChildren,
 } from '@angular/core';
-import { ThinkingOrbComponent, type CkOrbState } from '@app/shared/cockpit';
+import type { CkOrbState } from '@app/shared/cockpit';
+import { MODE_DRAWS } from '@app/shared/cockpit/thinking-orb/vendor/engine/registry';
+import { resolvePreset, type Resolved } from '@app/shared/cockpit/thinking-orb/vendor/presets';
 import {
+  angleAtLength,
+  arcTable,
   ATOM_RINGS,
-  atomTransform,
+  DASH_LENGTH,
+  DASH_PERIOD,
+  DRIFT_PERIOD_S,
   electronSpeed,
-  REST_POSE,
+  nearness,
   ringPoint,
-  settle,
-  targetPose,
-  type AtomPose,
 } from './auth-atom';
+import { Membrane, type Well } from './gravity';
 
+/** The canvas reaches past the atom so a bent point never meets its edge. */
+const BLEED_PX = 120;
+const MEMBRANE_SPACING_PX = 20;
+const ORB_SIZE = 64;
 /** Where each electron starts on its ring, in radians. */
 const ELECTRON_START = [0.55, 2.6, 4.3];
-/** The orb thinks a little faster with the pointer on the atom (with hysteresis). */
-const ORB_FAST_ABOVE = 0.45;
-const ORB_CALM_BELOW = 0.3;
+const ELECTRON_RADIUS = [3.5, 3, 2.5];
+const ELECTRON_ALPHA = [0.95, 0.8, 0.65];
+/** How fast the well follows the pointer (per s), and gains or loses its mass. */
+const WELL_FOLLOW_PER_S = 18;
+const WELL_MASS_PER_S = 4;
 
 /**
- * The atom of the sign-in panel: three rings on planes of different depth,
- * an electron on each, the thinking orb at the core. It tilts toward the
- * pointer as one instrument, and its electrons speed up as the pointer comes
- * near. Under `prefers-reduced-motion` it stays still.
+ * The atom of the sign-in panel: three dashed rings, an electron on each and
+ * the thinking orb at the core, drawn in one canvas. The pointer is a gravity
+ * well bending an elastic membrane (`gravity.ts`): every dash, electron and
+ * orb dot is displaced by the membrane at its own position, so the atom
+ * bends smoothly and coherently under the hand and springs back after it.
+ * Under `prefers-reduced-motion` it draws one still frame.
  */
 @Component({
   selector: 'app-auth-atom',
   standalone: true,
-  imports: [ThinkingOrbComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div #instrument class="atom" aria-hidden="true">
-      @for (ring of rings; track $index) {
-        <div class="atom-layer" [style.transform]="'translateZ(' + ring.depth + 'px)'">
-          <svg class="atom-rings" viewBox="0 0 400 400" fill="none">
-            <ellipse
-              [attr.class]="'atom-ring atom-ring-' + ($index + 1)"
-              cx="200"
-              cy="200"
-              [attr.rx]="ring.rx"
-              [attr.ry]="ring.ry"
-              [attr.transform]="'rotate(' + ring.rotation + ' 200 200)'"
-            />
-            <circle
-              #electron
-              [attr.class]="'atom-electron atom-electron-' + ($index + 1)"
-              [attr.cx]="starts[$index].x"
-              [attr.cy]="starts[$index].y"
-              [attr.r]="radii[$index]"
-            />
-          </svg>
-        </div>
-      }
-      <div class="atom-layer atom-core">
-        <div class="atom-glow"></div>
-        <ck-thinking-orb class="atom-orb" [state]="orbState()" [size]="64" [speed]="orbSpeed()" />
-      </div>
-    </div>
+    <div class="atom-glow" aria-hidden="true"></div>
+    <canvas #canvas class="atom-canvas" aria-hidden="true"></canvas>
   `,
   styles: [
     `
       :host {
         --near: 0;
-        display: grid;
-        place-items: center;
+        display: block;
       }
-      .atom {
-        position: relative;
-        width: 100%;
-        height: 100%;
-        transform-style: preserve-3d;
-        will-change: transform;
-      }
-      .atom-layer {
+      .atom-canvas {
         position: absolute;
-        inset: 0;
-        transform-style: preserve-3d;
-      }
-      .atom-rings {
-        width: 100%;
-        height: 100%;
-        overflow: visible;
-        animation: atom-drift 240s linear infinite;
-      }
-      @keyframes atom-drift {
-        to { transform: rotate(360deg); }
-      }
-      .atom-ring {
-        stroke: var(--ck-fg-5);
-        stroke-width: 1.5;
-        stroke-dasharray: 2 6;
-        stroke-linecap: round;
-        transition: opacity 200ms var(--ck-ease-out, ease-out);
-      }
-      .atom-ring-1 { opacity: calc(0.8 + 0.2 * var(--near)); animation: atom-ring-flow 30s linear infinite; }
-      .atom-ring-2 { opacity: calc(0.55 + 0.3 * var(--near)); animation: atom-ring-flow 24s linear infinite reverse; }
-      .atom-ring-3 { opacity: calc(0.35 + 0.3 * var(--near)); animation: atom-ring-flow 38s linear infinite; }
-      @keyframes atom-ring-flow {
-        to { stroke-dashoffset: -128; }
-      }
-      .atom-electron {
-        transform-box: fill-box;
-        transform-origin: center;
-        transform: scale(calc(1 + 0.5 * var(--near)));
-      }
-      .atom-electron-1 { fill: var(--ck-signal-cool); opacity: 0.95; }
-      .atom-electron-2 { fill: var(--ck-fg-3); opacity: 0.8; }
-      .atom-electron-3 { fill: var(--ck-signal-ice); opacity: 0.65; }
-      .atom-core {
-        display: grid;
-        place-items: center;
-        transform: translateZ(18px);
+        left: -120px;
+        top: -120px;
+        width: calc(100% + 240px);
+        height: calc(100% + 240px);
+        pointer-events: none;
       }
       .atom-glow {
         position: absolute;
+        left: 50%;
+        top: 50%;
         width: 220px;
         height: 220px;
+        margin: -110px 0 0 -110px;
         background: radial-gradient(circle closest-side, rgba(125, 211, 252, 0.16), transparent 65%);
         filter: blur(6px);
         opacity: calc(0.75 + 0.25 * var(--near));
         transform: scale(calc(1 + 0.12 * var(--near)));
-      }
-      .atom-orb { position: relative; }
-      @media (prefers-reduced-motion: reduce) {
-        .atom-rings,
-        .atom-ring-1,
-        .atom-ring-2,
-        .atom-ring-3 { animation: none; }
       }
     `,
   ],
@@ -144,84 +84,248 @@ const ORB_CALM_BELOW = 0.3;
 export class AuthAtomComponent {
   readonly orbState = input.required<CkOrbState>();
 
-  protected readonly rings = ATOM_RINGS;
-  protected readonly starts = ATOM_RINGS.map((ring, i) => ringPoint(ring, ELECTRON_START[i]));
-  protected readonly radii = [3.5, 3, 2.5];
-  protected readonly orbSpeed = signal(1);
-
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
-  private readonly instrument = viewChild.required<ElementRef<HTMLElement>>('instrument');
-  private readonly electrons = viewChildren<ElementRef<SVGCircleElement>>('electron');
+  private readonly canvas = viewChild.required<ElementRef<HTMLCanvasElement>>('canvas');
 
   constructor() {
     const destroyRef = inject(DestroyRef);
     afterNextRender(() => {
-      if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-      const stop = this.animate();
+      const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const stop = startAtom(this.host.nativeElement, this.canvas().nativeElement, () => this.orbState(), reduced);
       destroyRef.onDestroy(stop);
     });
   }
+}
 
-  private animate(): () => void {
-    const host = this.host.nativeElement;
-    const instrument = this.instrument().nativeElement;
-    const electrons = this.electrons().map((ref) => ref.nativeElement);
-    const angles = [...ELECTRON_START];
-    let pose: AtomPose = REST_POSE;
-    let pointer: { x: number; y: number } | null = null;
-    let centre = { x: 0, y: 0 };
-    let last = performance.now();
-    let frame = 0;
+interface Palette {
+  ring: string;
+  electrons: [string, string, string];
+  dark: boolean;
+}
 
-    const measure = () => {
-      const box = host.getBoundingClientRect();
-      centre = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
-    };
-    const onMove = (event: PointerEvent) => {
-      if (event.pointerType === 'touch') return;
-      pointer = { x: event.clientX, y: event.clientY };
-    };
-    const onLeave = (event: MouseEvent) => {
-      if (!event.relatedTarget) pointer = null;
-    };
+function startAtom(
+  host: HTMLElement,
+  canvas: HTMLCanvasElement,
+  orbState: () => CkOrbState,
+  reduced: boolean,
+): () => void {
+  const context = canvas.getContext('2d');
+  if (!context) return () => undefined;
+  const ctx: CanvasRenderingContext2D = context;
 
-    const render = (now: number) => {
-      const dt = Math.min(64, now - last);
-      last = now;
-      const target = pointer
-        ? targetPose(pointer.x - centre.x, pointer.y - centre.y, window.innerWidth / 2, window.innerHeight / 2)
-        : REST_POSE;
-      pose = settle(pose, target, dt);
-      instrument.style.transform = atomTransform(pose);
-      host.style.setProperty('--near', pose.near.toFixed(3));
-      ATOM_RINGS.forEach((ring, i) => {
-        angles[i] += (electronSpeed(ring, pose.near) * dt) / 1000;
-        const point = ringPoint(ring, angles[i]);
-        electrons[i]?.setAttribute('cx', point.x.toFixed(2));
-        electrons[i]?.setAttribute('cy', point.y.toFixed(2));
-      });
-      const speed = this.orbSpeed();
-      if (speed === 1 && pose.near > ORB_FAST_ABOVE) this.orbSpeed.set(1.25);
-      else if (speed !== 1 && pose.near < ORB_CALM_BELOW) this.orbSpeed.set(1);
+  const tables = ATOM_RINGS.map((ring) => arcTable(ring));
+  const angles = [...ELECTRON_START];
+  const flow = ATOM_RINGS.map(() => 0);
+  const presets = new Map<CkOrbState, Resolved>();
+  let size = 0;
+  let span = 0;
+  let ratio = 1;
+  let membrane = new Membrane(1, 1, MEMBRANE_SPACING_PX);
+  let palette = readPalette(host);
+  let pointer: { x: number; y: number } | null = null;
+  const well: Well = { x: 0, y: 0, mass: 0 };
+  let drift = 0;
+  let orbClock = 0;
+  let last = performance.now();
+  let frame = 0;
+
+  const resize = () => {
+    size = host.clientWidth;
+    span = size + BLEED_PX * 2;
+    ratio = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(span * ratio);
+    canvas.height = Math.round(span * ratio);
+    membrane = new Membrane(span, span, MEMBRANE_SPACING_PX);
+  };
+
+  const preset = (state: CkOrbState): Resolved => {
+    let resolved = presets.get(state);
+    if (!resolved) {
+      resolved = resolvePreset(state, ORB_SIZE);
+      presets.set(state, resolved);
+    }
+    return resolved;
+  };
+
+  /** Frame units (0–400) to canvas px. */
+  const toCanvas = (x: number, y: number): [number, number] => {
+    const scale = size / 400;
+    return [BLEED_PX + x * scale, BLEED_PX + y * scale];
+  };
+
+  const draw = (dt: number, near: number) => {
+    const scale = size / 400;
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.clearRect(0, 0, span, span);
+
+    // Rings: short dashes evenly spaced along each ring, each end bent on its own.
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 1.5 * scale;
+    ctx.strokeStyle = palette.ring;
+    ATOM_RINGS.forEach((ring, i) => {
+      const table = tables[i];
+      flow[i] += ring.flow * dt;
+      const count = Math.floor(table.total / DASH_PERIOD);
+      const gap = table.total / count;
+      ctx.globalAlpha = Math.min(1, ring.alpha + 0.25 * near);
+      ctx.beginPath();
+      for (let k = 0; k < count; k++) {
+        const s = k * gap + flow[i];
+        const a = ringPoint(ring, angleAtLength(table, s), 200, 200, drift);
+        const b = ringPoint(ring, angleAtLength(table, s + DASH_LENGTH), 200, 200, drift);
+        const [ax, ay] = toCanvas(a.x, a.y);
+        const [bx, by] = toCanvas(b.x, b.y);
+        const [adx, ady] = membrane.sample(ax, ay);
+        const [bdx, bdy] = membrane.sample(bx, by);
+        ctx.moveTo(ax + adx, ay + ady);
+        ctx.lineTo(bx + bdx, by + bdy);
+      }
+      ctx.stroke();
+    });
+
+    // Electrons: each rides its ring and bends where it is.
+    ATOM_RINGS.forEach((ring, i) => {
+      angles[i] += electronSpeed(ring, near) * dt;
+      const point = ringPoint(ring, angles[i], 200, 200, drift);
+      const [x, y] = toCanvas(point.x, point.y);
+      const [dx, dy] = membrane.sample(x, y);
+      ctx.globalAlpha = ELECTRON_ALPHA[i];
+      ctx.fillStyle = palette.electrons[i];
+      ctx.beginPath();
+      ctx.arc(x + dx, y + dy, ELECTRON_RADIUS[i] * scale * (1 + 0.5 * near), 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+
+    // The thinking orb: its own painter, every dot bent at its own position.
+    const resolved = preset(orbState());
+    orbClock += dt * resolved.speed * (1 + 0.25 * near);
+    const ox = BLEED_PX + size / 2 - ORB_SIZE / 2;
+    const oy = BLEED_PX + size / 2 - ORB_SIZE / 2;
+    ctx.setTransform(ratio, 0, 0, ratio, ox * ratio, oy * ratio);
+    const bent = warpedContext(ctx, (x, y) => {
+      const [dx, dy] = membrane.sample(ox + x, oy + y);
+      return [x + dx, y + dy];
+    });
+    MODE_DRAWS[resolved.mode](bent, ORB_SIZE, orbClock, palette.dark, resolved.opts);
+  };
+
+  const render = (now: number) => {
+    // The first frame's timestamp can precede `last`: time never runs backwards here.
+    const dt = Math.max(0, Math.min(64, now - last)) / 1000;
+    last = Math.max(last, now);
+    if (size < 10) {
       frame = requestAnimationFrame(render);
-    };
+      return;
+    }
+    if (pointer) {
+      const box = canvas.getBoundingClientRect();
+      const tx = pointer.x - box.left;
+      const ty = pointer.y - box.top;
+      if (well.mass < 0.01) {
+        well.x = tx;
+        well.y = ty;
+      } else {
+        const follow = 1 - Math.exp(-dt * WELL_FOLLOW_PER_S);
+        well.x += (tx - well.x) * follow;
+        well.y += (ty - well.y) * follow;
+      }
+    }
+    well.mass += ((pointer ? 1 : 0) - well.mass) * (1 - Math.exp(-dt * WELL_MASS_PER_S));
+    membrane.step(well.mass > 0.002 ? well : null, dt * 1000);
+    const near = nearness(Math.hypot(well.x - span / 2, well.y - span / 2)) * well.mass;
+    host.style.setProperty('--near', near.toFixed(3));
+    drift += (360 * dt) / DRIFT_PERIOD_S;
+    draw(dt, near);
+    frame = requestAnimationFrame(render);
+  };
 
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(host);
-    window.addEventListener('resize', measure, { passive: true });
-    window.addEventListener('scroll', measure, { passive: true });
+  const onMove = (event: PointerEvent) => {
+    if (event.pointerType === 'touch') return;
+    pointer = { x: event.clientX, y: event.clientY };
+  };
+  const onLeave = (event: MouseEvent) => {
+    if (!event.relatedTarget) pointer = null;
+  };
+  const onTheme = () => {
+    palette = readPalette(host);
+    if (reduced) draw(0, 0);
+  };
+
+  resize();
+  const resizeObserver = new ResizeObserver(() => {
+    resize();
+    if (reduced) draw(0, 0);
+  });
+  resizeObserver.observe(host);
+  const themeObserver = new MutationObserver(onTheme);
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    subtree: true,
+    attributeFilter: ['data-theme', 'class'],
+  });
+  const scheme = matchMedia('(prefers-color-scheme: dark)');
+  scheme.addEventListener('change', onTheme);
+
+  if (reduced) {
+    draw(0, 0);
+  } else {
     window.addEventListener('pointermove', onMove, { passive: true });
     document.addEventListener('mouseout', onLeave);
     frame = requestAnimationFrame(render);
-
-    return () => {
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-      window.removeEventListener('resize', measure);
-      window.removeEventListener('scroll', measure);
-      window.removeEventListener('pointermove', onMove);
-      document.removeEventListener('mouseout', onLeave);
-    };
   }
+
+  return () => {
+    if (frame) cancelAnimationFrame(frame);
+    resizeObserver.disconnect();
+    themeObserver.disconnect();
+    scheme.removeEventListener('change', onTheme);
+    window.removeEventListener('pointermove', onMove);
+    document.removeEventListener('mouseout', onLeave);
+  };
+}
+
+/** A drawing context whose arcs are moved by `warp`: the orb's dots all go through `arc`. */
+function warpedContext(
+  ctx: CanvasRenderingContext2D,
+  warp: (x: number, y: number) => [number, number],
+): CanvasRenderingContext2D {
+  return new Proxy(ctx, {
+    get(target, property) {
+      if (property === 'arc') {
+        return (x: number, y: number, radius: number, start: number, end: number, ccw?: boolean) => {
+          const [wx, wy] = warp(x, y);
+          target.arc(wx, wy, radius, start, end, ccw);
+        };
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+    set(target, property, value) {
+      return Reflect.set(target, property, value, target);
+    },
+  });
+}
+
+function readPalette(host: HTMLElement): Palette {
+  const style = getComputedStyle(host);
+  const token = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
+  return {
+    ring: token('--ck-fg-5', '#5b6474'),
+    electrons: [
+      token('--ck-signal-cool', '#1f9db0'),
+      token('--ck-fg-3', '#8a94a6'),
+      token('--ck-signal-ice', '#9fd8e6'),
+    ],
+    dark: resolveDark(host),
+  };
+}
+
+/** Same rule as the thinking orb: the nearest stated theme, then the OS. */
+function resolveDark(element: HTMLElement): boolean {
+  const stated = element.closest('[data-theme]')?.getAttribute('data-theme');
+  if (stated === 'dark' || stated === 'light') return stated === 'dark';
+  const classed = element.closest('.dark, .light');
+  if (classed) return classed.classList.contains('dark');
+  return matchMedia('(prefers-color-scheme: dark)').matches;
 }
