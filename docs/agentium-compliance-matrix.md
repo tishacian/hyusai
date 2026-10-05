@@ -48,7 +48,7 @@ The workspace header survives retry, one resolver owns redirects, the expanded r
 - **implementation / PASS** — [Workspace-scoped authentication retry](../frontend-ng/src/app/core/auth.interceptor.ts)
 - **implementation / PASS** — [Single navigation redirect owner](../frontend-ng/src/app/core/navigation-resolver.service.ts)
 - **implementation / FAIL** — [Constant rail layout slot with overlay expansion](../frontend-ng/src/app/features/layout/side-rail.component.ts); 2 literal(s) missing
-- **implementation / PASS** — [Client360 Operate classification](../frontend-ng/src/app/core/navigation.catalog.ts)
+- **implementation / PASS** — [Client360 Operate classification](../frontend-ng/src/app/features/andritz/andritz.surfaces.ts)
 - **implementation / PASS** — [Atomic workspace context epoch](../frontend-ng/src/app/core/workspace.service.ts)
 - **frontend / PASS** — [Workspace request-scope public contract](../frontend-ng/src/app/core/workspace.service.ts)
 - **frontend / FAIL** — [Five-verb rail implementation](../frontend-ng/src/app/features/layout/side-rail.component.ts); 1 literal(s) missing
