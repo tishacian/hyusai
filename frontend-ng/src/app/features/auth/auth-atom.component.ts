@@ -15,6 +15,8 @@ import {
   angleAtLength,
   arcTable,
   ATOM_RINGS,
+  bridgePoints,
+  bridgeStrength,
   DASH_LENGTH,
   DASH_PERIOD,
   DRIFT_PERIOD_S,
@@ -22,6 +24,7 @@ import {
   nearness,
   ringPoint,
 } from './auth-atom';
+import { prune, pushPoint, strand, type StrandOptions, type WakePoint, type WakeSample } from './cursor-wake';
 import { Membrane, type Well } from './gravity';
 
 /** The canvas reaches past the atom so a bent point never meets its edge. */
@@ -35,6 +38,17 @@ const ELECTRON_ALPHA = [0.95, 0.8, 0.65];
 /** How fast the well follows the pointer (per s), and gains or loses its mass. */
 const WELL_FOLLOW_PER_S = 18;
 const WELL_MASS_PER_S = 4;
+/**
+ * The atom speaks the pointer wake's language: each electron leaves the same
+ * braid behind it, and when the hand comes near, a braided thread stretches
+ * from the nearest electron to it — wide where the agent is, tight in the hand.
+ */
+const TAIL: StrandOptions = { lifetimeMs: 1100, amplitude: 3.2, wavelength: 26, width: 1.2 };
+const TAIL_ALPHA = 0.55;
+const BRIDGE: StrandOptions = { lifetimeMs: 1000, amplitude: 4, wavelength: 28, width: 1.3 };
+const BRIDGE_ALPHA = 0.6;
+/** The bridge's braid turns slowly on itself, in radians per second. */
+const BRIDGE_TWIST_PER_S = 2.4;
 
 /**
  * The atom of the sign-in panel: three dashed rings, an electron on each and
@@ -116,6 +130,7 @@ function startAtom(
   const tables = ATOM_RINGS.map((ring) => arcTable(ring));
   const angles = [...ELECTRON_START];
   const flow = ATOM_RINGS.map(() => 0);
+  const tails: WakePoint[][] = ATOM_RINGS.map(() => []);
   const presets = new Map<CkOrbState, Resolved>();
   let size = 0;
   let span = 0;
@@ -153,7 +168,22 @@ function startAtom(
     return [BLEED_PX + x * scale, BLEED_PX + y * scale];
   };
 
-  const draw = (dt: number, near: number) => {
+  const drawStrand = (samples: WakeSample[], color: string, alpha: number) => {
+    ctx.strokeStyle = color;
+    for (let i = 1; i < samples.length; i++) {
+      const from = samples[i - 1];
+      const to = samples[i];
+      ctx.globalAlpha = to.alpha * alpha;
+      ctx.lineWidth = to.width;
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+    }
+  };
+
+  /** `nowMs` is null for the still frame of reduced motion: no tails, no bridge. */
+  const draw = (dt: number, near: number, nowMs: number | null) => {
     const scale = size / 400;
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, span, span);
@@ -183,18 +213,55 @@ function startAtom(
       ctx.stroke();
     });
 
-    // Electrons: each rides its ring and bends where it is.
-    ATOM_RINGS.forEach((ring, i) => {
+    // Electrons: each rides its ring, bends where it is, and braids a tail.
+    const electrons = ATOM_RINGS.map((ring, i) => {
       angles[i] += electronSpeed(ring, near) * dt;
       const point = ringPoint(ring, angles[i], 200, 200, drift);
       const [x, y] = toCanvas(point.x, point.y);
       const [dx, dy] = membrane.sample(x, y);
+      return { x: x + dx, y: y + dy };
+    });
+    if (nowMs !== null) {
+      electrons.forEach((electron, i) => {
+        pushPoint(tails[i], electron.x, electron.y, nowMs, 1.5, 160, 5);
+        prune(tails[i], nowMs, TAIL.lifetimeMs);
+        if (tails[i].length < 2) return;
+        drawStrand(strand(tails[i], nowMs, 0, TAIL), palette.electrons[i], TAIL_ALPHA);
+        drawStrand(strand(tails[i], nowMs, Math.PI, TAIL), palette.electrons[1], TAIL_ALPHA);
+      });
+    }
+    electrons.forEach((electron, i) => {
       ctx.globalAlpha = ELECTRON_ALPHA[i];
       ctx.fillStyle = palette.electrons[i];
       ctx.beginPath();
-      ctx.arc(x + dx, y + dy, ELECTRON_RADIUS[i] * scale * (1 + 0.5 * near), 0, Math.PI * 2);
+      ctx.arc(electron.x, electron.y, ELECTRON_RADIUS[i] * scale * (1 + 0.5 * near), 0, Math.PI * 2);
       ctx.fill();
     });
+
+    // The bridge: a braided thread from the nearest electron to the hand.
+    if (nowMs !== null && well.mass > 0.02) {
+      let nearest = 0;
+      let best = Infinity;
+      electrons.forEach((electron, i) => {
+        const distance = Math.hypot(electron.x - well.x, electron.y - well.y);
+        if (distance < best) {
+          best = distance;
+          nearest = i;
+        }
+      });
+      const strength = bridgeStrength(best, well.mass);
+      if (strength > 0.02) {
+        const from = electrons[nearest];
+        const thread = bridgePoints(from.x, from.y, well.x, well.y, nowMs, 0.18, 3).map((point) => {
+          const [dx, dy] = membrane.sample(point.x, point.y);
+          return { ...point, x: point.x + dx, y: point.y + dy };
+        });
+        const twist = (nowMs / 1000) * BRIDGE_TWIST_PER_S;
+        const human = nearest === 0 ? palette.electrons[1] : palette.electrons[0];
+        drawStrand(strand(thread, nowMs, twist, BRIDGE), palette.electrons[nearest], BRIDGE_ALPHA * strength);
+        drawStrand(strand(thread, nowMs, twist + Math.PI, BRIDGE), human, BRIDGE_ALPHA * strength);
+      }
+    }
     ctx.globalAlpha = 1;
 
     // The thinking orb: its own painter, every dot bent at its own position.
@@ -236,7 +303,7 @@ function startAtom(
     const near = nearness(Math.hypot(well.x - span / 2, well.y - span / 2)) * well.mass;
     host.style.setProperty('--near', near.toFixed(3));
     drift += (360 * dt) / DRIFT_PERIOD_S;
-    draw(dt, near);
+    draw(dt, near, now);
     frame = requestAnimationFrame(render);
   };
 
@@ -249,13 +316,13 @@ function startAtom(
   };
   const onTheme = () => {
     palette = readPalette(host);
-    if (reduced) draw(0, 0);
+    if (reduced) draw(0, 0, null);
   };
 
   resize();
   const resizeObserver = new ResizeObserver(() => {
     resize();
-    if (reduced) draw(0, 0);
+    if (reduced) draw(0, 0, null);
   });
   resizeObserver.observe(host);
   const themeObserver = new MutationObserver(onTheme);
@@ -268,7 +335,7 @@ function startAtom(
   scheme.addEventListener('change', onTheme);
 
   if (reduced) {
-    draw(0, 0);
+    draw(0, 0, null);
   } else {
     window.addEventListener('pointermove', onMove, { passive: true });
     document.addEventListener('mouseout', onLeave);
