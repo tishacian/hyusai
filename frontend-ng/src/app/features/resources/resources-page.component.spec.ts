@@ -25,6 +25,9 @@ class WorkspaceStub {
   readonly current = () => ({ id: this.currentSlug() });
   readonly contextEpoch = () => this.epoch;
   readonly modelPortalEnabled = () => this.enabled;
+  readonly sapHanaConnectorEnabled = () => false;
+  readonly rpaBridgeEnabled = () => false;
+  readonly mcpConnectorEnabled = () => false;
   readonly isDemoSafeMode = () => false;
   private resetters = new Set<(t: WorkspaceContextTransition) => void>();
   captureRequestScope(): WorkspaceRequestScope { return { workspaceSlug: this.currentSlug(), workspaceId: this.currentSlug(), epoch: this.epoch }; }

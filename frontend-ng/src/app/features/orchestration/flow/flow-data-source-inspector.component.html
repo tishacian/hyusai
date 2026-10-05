@@ -1,5 +1,13 @@
 <section class="source-section" data-testid="flow-data-source-inspector">
   <h3>{{ i18n.t('flow.sources.title') }}</h3>
+  <div class="source-identity" data-testid="flow-source-identity">
+    <app-icon name="database" [size]="14" />
+    <div class="source-identity-text">
+      <strong>{{ connectorName(connectorId()) }}</strong>
+      @if (database()) { <span class="ck-mono">{{ database() }}</span> }
+    </div>
+    <span class="ck-pill" [class.ck-tone-info]="connectorId() === 'postgresql'" [class.ck-tone-neutral]="connectorId() !== 'postgresql'">{{ i18n.t(connectorId() === 'postgresql' ? 'flow.sources.live' : 'flow.sources.reference') }}</span>
+  </div>
   <label class="source-field"><span>{{ i18n.t('flow.sources.connector') }}</span>
     <select [value]="connectorId()" (change)="changeConnector($any($event.target).value)" [disabled]="locked() || sources.state() !== 'loaded'">
       @if (!configured()) { <option [value]="connectorId()">{{ connectorName(connectorId()) }} · {{ i18n.t('flow.sources.unavailable') }}</option> }
@@ -9,7 +17,6 @@
     </select>
   </label>
   <p class="source-note">{{ i18n.t(connectorId() === 'postgresql' ? 'flow.sources.live_help' : 'flow.sources.reference_help') }}</p>
-  @if (database()) { <p class="source-location ck-mono"><app-icon name="database" [size]="12" />{{ database() }}</p> }
   <div class="source-actions">
     @if (connectorId() === 'postgresql') {
       <a class="ck-btn ck-btn--sm ck-btn-quiet" [navLink]="{ leaf: 'connector-postgresql' }"><app-icon name="settings" [size]="12" />{{ i18n.t('flow.sources.setup') }}</a>
@@ -26,7 +33,7 @@
   @if (connectorId() === 'postgresql' && !sources.canInspect() && sources.state() === 'loaded') { <p class="source-note">{{ i18n.t('flow.sources.admin_required') }}</p> }
 
   @if (connectorId() === 'postgresql') {
-  <h3>{{ i18n.t('flow.sources.resources', { count: resources().length }) }}</h3>
+  <h3>{{ i18n.t(resources().length === 1 ? 'flow.sources.resources_one' : 'flow.sources.resources', { count: resources().length }) }}</h3>
   <ul class="source-list">
     @for (resource of resources(); track resource.schema + '/' + resource.table) {
       <li>
@@ -36,17 +43,21 @@
     } @empty { <li class="source-note">{{ i18n.t('flow.sources.no_resources') }}</li> }
   </ul>
   }
-  @if (error()) { <p class="source-error" role="alert">{{ error() }}</p> }
+  @if (failure(); as failure) {
+    <div class="source-error" role="alert">
+      <p>{{ i18n.t('connectors.pg.error.' + failure.code) }}</p>
+      @if (failure.sqlstate) { <p class="ck-mono">{{ i18n.t('connectors.pg.sqlstate', { code: failure.sqlstate }) }}</p> }
+    </div>
+  }
   @if (busy()) { <p class="source-note" role="status">{{ i18n.t('flow.sources.loading') }}</p> }
   @if (catalog(); as catalog) {
     <p class="source-note">{{ i18n.t('flow.sources.checked', { at: time(catalog.checked_at) }) }}</p>
-    <div class="source-selectors">
-      <label class="source-field"><span>{{ i18n.t('connectors.pg.schema') }}</span><select [value]="schema()" (change)="chooseSchema($any($event.target).value)">@for (schema of schemas(); track schema) { <option [value]="schema">{{ schema }}</option> }</select></label>
-      <label class="source-field"><span>{{ i18n.t('connectors.pg.table') }}</span><select [value]="table()" (change)="chooseTable($any($event.target).value)"><option value="">{{ i18n.t('flow.sources.choose_table') }}</option>@for (table of tables(); track table.name) { <option [value]="table.name">{{ table.name }}</option> }</select></label>
-    </div>
     @if (!catalog.tables.length) { <p class="source-note">{{ i18n.t('flow.sources.no_tables') }}</p> }
+    @else {
+      <app-pg-table-picker [tables]="catalog.tables" [selected]="selectedKey()" [marked]="resourceKeys()" [markedLabel]="i18n.t('flow.sources.bound')" [disabled]="busy()" [compact]="true" (picked)="pick($event)" />
+    }
     @if (description(); as description) {
-      <details class="source-columns" open><summary>{{ i18n.t('flow.sources.columns', { count: description.columns.length }) }}</summary>
+      <details class="source-columns" open><summary><span class="ck-mono">{{ selectedKey() }}</span> · {{ i18n.t('flow.sources.columns', { count: description.columns.length }) }}</summary>
         <ul class="source-list">@for (column of description.columns; track column.name) { <li class="source-column"><span class="ck-mono">{{ column.name }}</span><small>{{ column.dtype }}{{ column.primary_key ? ' · PK' : '' }}{{ column.as_text ? ' · ' + i18n.t('connectors.pg.exact_text') : '' }}</small></li> }</ul>
       </details>
       <div class="source-actions">
@@ -56,7 +67,7 @@
     }
     @if (preview(); as preview) {
       <div class="source-preview" data-testid="flow-source-preview">
-        <p class="source-note">{{ i18n.t('flow.sources.sample', { count: preview.row_count, at: time(preview.captured_at) }) }}</p>
+        <p class="source-note">{{ i18n.t('flow.sources.sample', { at: time(preview.captured_at) }) }}</p>
         @if (preview.has_more) { <p class="source-note">{{ i18n.t('connectors.pg.more_rows') }}</p> }
         @if (!preview.ordered_by.length) { <p class="source-note">{{ i18n.t('connectors.pg.no_order') }}</p> }
         <ck-data-table [columns]="preview.schema" [rows]="preview.rows" [rowCount]="preview.row_count" [maxHeight]="'260px'" />

@@ -69,6 +69,7 @@ const pureSpecs = [
   'src/app/features/orchestration/flow/flow.types.spec.ts',
   'src/app/features/orchestration/flow/flow-palette.vm.spec.ts',
   'src/app/features/orchestration/flow/flow-data-sources.vm.spec.ts',
+  'src/app/features/connectors/postgresql/postgresql.types.spec.ts',
   'src/app/features/orchestration/flow/flow-ingress-prefill.spec.ts',
   'src/app/features/orchestration/flow/flow-manifest-strip.vm.spec.ts',
   'src/app/features/orchestration/flow/flow-variable.service.spec.ts',

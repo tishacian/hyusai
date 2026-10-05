@@ -1261,7 +1261,8 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
     CONNECTORS.filter((c) => this.isConnectorVisible(c)),
   );
   readonly connectorsActive = computed(
-    () => this.visibleConnectors().filter((c) => c.status === 'active' || this.isConfigured(c.id)).length,
+    // Same rule as the cards: a saved PostgreSQL setup is not an observed connection.
+    () => this.visibleConnectors().filter((c) => this.connectorStatus(c) === 'active').length,
   );
   readonly connectorsAvailable = computed(
     () => this.visibleConnectors().filter((c) => c.status !== 'coming-soon').length,

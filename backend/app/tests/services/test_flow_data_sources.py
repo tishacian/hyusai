@@ -365,3 +365,30 @@ def test_upgrade_refuses_unpublished_business_edits():
     ] = 99
     with pytest.raises(ValueError, match="UNPUBLISHED_DRAFT"):
         reviewed_source_base(published, draft)
+
+
+def test_source_bindings_read_both_edge_spellings_the_run_engine_accepts():
+    from app.services.run_engine.dag import DagGraph
+    from app.services.systems.flow_manifest import _connector_sources
+
+    graph = with_data_sources(flow(), ["luma-regles"])
+    expected = bound_data_sources(graph, "loop.investigate")
+    renamed = copy.deepcopy(graph)
+    renamed["edges"] = [
+        {"source": edge["from"], "target": edge["to"]}
+        | {key: value for key, value in edge.items() if key not in {"from", "to"}}
+        for edge in renamed["edges"]
+    ]
+    assert len(DagGraph.from_flow_definition(renamed).edges) == len(graph["edges"])
+    assert bound_data_sources(renamed, "loop.investigate") == expected
+    assert _connector_sources(renamed)[0]["consumers"] == ["loop.investigate", "task.simulate"]
+    assert not [issue for issue in validate_flow(renamed) if issue.code == "data_source_invalid"]
+
+
+def test_a_broken_binding_reads_as_a_sentence_and_keeps_its_reason():
+    graph = with_data_sources(flow(), ["luma-regles"])
+    graph["edges"] = [edge for edge in graph["edges"] if edge["from"] != "asset.postgresql"]
+    issue = next(issue for issue in validate_flow(graph) if issue.code == "data_source_invalid")
+    assert issue.level == "error" and issue.node_id == "loop.investigate"
+    assert issue.message.startswith("CLAIM_DATA_SOURCE_BINDING_REQUIRED: ")
+    assert "live PostgreSQL source" in issue.message
