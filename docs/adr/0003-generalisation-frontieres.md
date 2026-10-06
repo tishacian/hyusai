@@ -202,6 +202,7 @@ relit, se déploie et se retire seule. Chaque lot met à jour cet ADR.
 | **4b** | intention d'écriture par poste de DA (migration 112), lecture SAP avant écriture et référence `COLLECT_NO` derrière `sap_po_reconciliation`, run en échec sur issue inconnue, pas de retry d'une écriture | lot 4 déployé | fait : deux approbations d'un même poste ne créent qu'une PO ; drapeau à activer après un test en QA |
 | **Intelligence** | Intelligence / News Lab devient un produit neutre, isolé par workspace : articles rattachés au workspace (migration 120, dédoublonnage par workspace et URL, une ligne sans workspace n'est jamais servie), lot et planificateur workspace par workspace, skill refusé sans workspace, collection `workspace-intelligence` et libellés neutres, aucun flux ni cible inséré d'office, System créé à la demande (`POST /intelligence/watch`) et non plus au démarrage. Sentinel CI garde son comportement via `app/tenants/sentinel_ci/intelligence.py` | décision produit | fait : épinglé par `fixtures/sentinel_ci_intelligence_pin.json` |
 | **5** | porte de famille des applications client (D9), Client360 dans `features/andritz`, Work sans NAWA, Capture produit et FSE ANDRITZ, contrat élargi à Sentinel CI, AYA, Octocity et au vocabulaire du pilote ANDRITZ | constat de porosité dans Showcase | fait : Showcase ne voit plus Client360 ni FSE (test e2e `31-customer-apps-family-mocked`) ; contrat vert |
+| **5b** | dette `fixture` du lot 5 : entités du corpus ANDRITZ du planificateur RAG vers `app/tenants/andritz/corpus_anchors.py`, brouillons et réglages du chat neutres, collection de démo neutre dans l'ancienne page de capture ; scénarios Mission Room reclassés `demo` | lot 5 | fait : `fixture` 6 / 27 → 2 / 4 |
 | — | framework d'actions ; contrat BRD générique | deuxième action ; deuxième BRD | — |
 
 Porte 0 (un contributeur NAWA crée et lance un System) se ferme en parallèle : c'est
@@ -213,23 +214,22 @@ une validation, pas du développement.
 
 Mesurées sur la branche du lot 1, code exécutable seulement :
 
-| Indicateur | Avant | Après lot 1 | Après lot 1b | Après lot 2 | Après lot 5¹ |
-|---|---|---|---|---|---|
-| Listes de slugs dans la configuration ou en dur | 7 | **0** | 0 | 0 | 0 |
-| Workspaces nouveaux gouvernés par défaut | non | **oui** | oui | oui | oui |
-| Fichiers `fixture` / occurrences | — | 9 / 77 | **2 / 15** | 1 / 3 | 6 / 27 |
-| Fichiers `client-app` / occurrences | — | 25 / 753 | 25 / 753 | 22 / 572, tous dans `features/nawa` | 26 / 643, dans `features/nawa` et `features/andritz` |
-| Fichiers `client-app` hors `features/<client>` | — | 5 | 5 | **0** | 0 |
-| Fichiers `composition` / occurrences | — | — | — | 2 / 8 | 2 / 16 |
-| Fichiers `demo` / occurrences | — | 9 / 203 | 10 / 220 | 10 / 220 | 11 / 840 |
-| Fichiers `adapter` / occurrences | — | 37 / 254 | 40 / 283 | 40 / 263 | 81 / 1079 |
+| Indicateur | Avant | Après lot 1 | Après lot 1b | Après lot 2 | Après lot 5¹ | Après lot 5b |
+|---|---|---|---|---|---|---|
+| Listes de slugs dans la configuration ou en dur | 7 | **0** | 0 | 0 | 0 | 0 |
+| Workspaces nouveaux gouvernés par défaut | non | **oui** | oui | oui | oui | oui |
+| Fichiers `fixture` / occurrences | — | 9 / 77 | **2 / 15** | 1 / 3 | 6 / 27 | **2 / 4** |
+| Fichiers `client-app` / occurrences | — | 25 / 753 | 25 / 753 | 22 / 572, tous dans `features/nawa` | 26 / 643, dans `features/nawa` et `features/andritz` | 26 / 643 |
+| Fichiers `client-app` hors `features/<client>` | — | 5 | 5 | **0** | 0 | 0 |
+| Fichiers `composition` / occurrences | — | — | — | 2 / 8 | 2 / 16 | 2 / 16 |
+| Fichiers `demo` / occurrences | — | 9 / 203 | 10 / 220 | 10 / 220 | 11 / 840 | 13 / 852 |
+| Fichiers `adapter` / occurrences | — | 37 / 254 | 40 / 283 | 40 / 263 | 81 / 1079 | 82 / 1080 |
 
 ¹ Le lot 5 élargit les identifiants comptés : ses chiffres ne se comparent pas
-aux colonnes précédentes. Les six `fixture` restants sont la dette visible : le
-prompt BRD (D4), le vocabulaire produit ANDRITZ de la recherche lexicale et des
-wrappers de skills, le tiroir de brouillon (« Brouillon AYA »), un nom de
-collection Octocity dans l'ancienne page de capture et des exemples Sentinel CI
-dans les réglages du chat.
+aux colonnes précédentes. Après le lot 5b, deux `fixture` restent : le prompt
+BRD (D4) et les familles de produits ANDRITZ que la recherche lexicale déduit
+comme indices de métadonnées, inoffensives ailleurs, qui passeront par un
+crochet de famille quand cette recherche recevra la famille du workspace.
 
 Lot 2 : le shell produit ne porte plus ni application ni habillage client.
 

@@ -1294,7 +1294,7 @@ interface AssistantProfileDraft {
                   class="ag-field font-mono"
                   [(ngModel)]="actionSettingsDraft.hidden_packs_text"
                   [disabled]="!canEdit()"
-                  placeholder="sentinel_ci_aya_v1"
+                  placeholder="support_copilot_v1"
                 />
               </label>
               <label class="block">
@@ -1303,7 +1303,7 @@ interface AssistantProfileDraft {
                   class="ag-field font-mono"
                   [(ngModel)]="actionSettingsDraft.enabled_actions_text"
                   [disabled]="!canEdit()"
-                  placeholder="aya.action_plan_status"
+                  placeholder="action_plan.status"
                 />
               </label>
               <label class="block">
@@ -1312,7 +1312,7 @@ interface AssistantProfileDraft {
                   class="ag-field font-mono"
                   [(ngModel)]="actionSettingsDraft.hidden_actions_text"
                   [disabled]="!canEdit()"
-                  placeholder="aya.map_focus"
+                  placeholder="map.focus"
                 />
               </label>
             </div>
@@ -1463,7 +1463,7 @@ interface AssistantProfileDraft {
                 <div class="grid gap-3 md:grid-cols-2">
                   <label class="block">
                     <span class="field-label">{{ i18n.t('workspace.chat_sources.assistant.design_mode') }}</span>
-                    <input class="ag-field" [ngModel]="profile.design_mode || ''" [disabled]="!canEdit()" placeholder="agentium, sentinel_ci" (ngModelChange)="updateAssistantProfileField('design_mode', $event)" />
+                    <input class="ag-field" [ngModel]="profile.design_mode || ''" [disabled]="!canEdit()" placeholder="agentium" (ngModelChange)="updateAssistantProfileField('design_mode', $event)" />
                   </label>
                   <label class="block">
                     <span class="field-label">{{ i18n.t('workspace.chat_sources.assistant.tone') }}</span>
