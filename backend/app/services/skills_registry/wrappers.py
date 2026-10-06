@@ -4484,14 +4484,15 @@ _INVENTORY_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Named Andritz machines / systems / brands that GUARANTEE the query is in-corpus
-# — used to gate a false ``reject_oos``. QMS-12 etc. are NOT project codes
-# but ARE in-corpus, so the planner must never reject them (fix 2026-06-26).
-_KNOWN_ENTITY_RE = re.compile(
-    r"\b(qualiscan|qms[\s-]?\d+|uraca|etachrom|sinamics|simotics|jetlace|servo\s*x|"
-    r"pollrich|continental\s*gvjs|wilo|ksb|geotex|excelle|starter|kd724)\b",
-    re.IGNORECASE,
-)
+def _known_entity_re(family: str) -> re.Pattern[str] | None:
+    """A family's named machines, systems and brands that guarantee a question
+    is in its corpus, used to gate a false ``reject_oos``. They are not project
+    codes but are in-corpus, so the planner must never reject them (fix
+    2026-06-26). A family without such a list, and every generic workspace,
+    has none: another customer's brands must not override its planner.
+    """
+
+    return family_hook(family, "corpus_anchors", "KNOWN_ENTITY_RE", None)
 
 
 def _is_inventory_query(query: str) -> bool:
@@ -4617,13 +4618,15 @@ def _has_known_corpus_anchor(
     query: str,
     *,
     known_project_codes: set[str] | None = None,
+    family: str = "generic",
 ) -> bool:
     """True when the query names a known project/machine/system in the corpus."""
     q = query or ""
+    entities = _known_entity_re(family)
     return bool(
         extract_query_project_codes(q, known_codes=known_project_codes)
         or _SPECIAL_CORPUS_REFERENCE_RE.search(q)
-        or _KNOWN_ENTITY_RE.search(q)
+        or (entities is not None and entities.search(q))
     )
 
 
@@ -6082,6 +6085,7 @@ def _coerce_plan(
     if action == "reject_oos" and _has_known_corpus_anchor(
         query,
         known_project_codes=known_project_codes,
+        family=family,
     ):
         action = "answer"
 

@@ -262,9 +262,9 @@
       "why": "Seeded Mission Room skills (AYA voice and advisory) in the shared catalogue."
     },
     "backend/app/services/skills_registry/wrappers.py": {
-      "count": 2,
-      "kind": "fixture",
-      "why": "ANDRITZ product-line vocabulary and Sentinel demo participants in generic skill wrappers."
+      "count": 1,
+      "kind": "demo",
+      "why": "The Sentinel CI meeting scenario in the schedule-meeting skill; the ANDRITZ corpus anchors moved to app/tenants/andritz."
     },
     "backend/app/services/spl_wave_importer.py": {
       "count": 2,
@@ -335,6 +335,11 @@
       "count": 6,
       "kind": "adapter",
       "why": "Andritz wording of the grounded-answer and agentic-chat prompts, selected by family."
+    },
+    "backend/app/tenants/andritz/corpus_anchors.py": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "ANDRITZ machines and brands that anchor a question in its corpus (ADR 0003, D6)."
     },
     "backend/app/tenants/sentinel_ci/demo_skills.py": {
       "count": 21,
@@ -432,9 +437,9 @@
       "why": "Sovereign demo tenant branding, rewritten by the Octocity presentation adapter."
     },
     "frontend-ng/src/app/features/chat/assistant-draft-drawer.component.ts": {
-      "count": 14,
-      "kind": "fixture",
-      "why": "Mission Room advisory-draft wording (\"Brouillon AYA\", \"AYA, peux-tu…\") in the generic draft drawer."
+      "count": 11,
+      "kind": "demo",
+      "why": "Sentinel CI Mission Room scenarios (social pulse, Sahel, rumour) in the shared draft drawer; other drafts speak neutrally."
     },
     "frontend-ng/src/app/features/chat/chat-overlay.component.ts": {
       "count": 2,
@@ -465,11 +470,6 @@
       "count": 2,
       "kind": "adapter",
       "why": "Andritz FSE capture templates."
-    },
-    "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts": {
-      "count": 2,
-      "kind": "fixture",
-      "why": "An Octocity collection name hard-coded in the legacy capture page."
     },
     "frontend-ng/src/app/features/mission-room/mission-control-monitor.component.html": {
       "count": 3,
@@ -675,11 +675,6 @@
       "count": 5,
       "kind": "client-app",
       "why": "The NAWA application inside the product bundle (lot 2)."
-    },
-    "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts": {
-      "count": 5,
-      "kind": "fixture",
-      "why": "Sentinel CI placeholders in the generic chat settings form."
     }
   }
 }

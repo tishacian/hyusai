@@ -100,6 +100,10 @@ export const CHAT_FR = {
   'conversations.error.load': 'Impossible de charger cette conversation.',
   // --- Recommendation draft drawer ---------------------------------
   'chat.draft.badge': 'Brouillon de recommandation',
+  'chat.draft.untitled': 'Brouillon de l’assistant',
+  'chat.draft.ask': 'Demander à l’assistant',
+  'chat.draft.ask_prompt': 'Peux-tu approfondir ce dossier ?',
+  'chat.draft.ask_prompt_titled': 'Peux-tu approfondir le dossier « {title} » ?',
   'chat.draft.doc_preview': 'Aperçu document',
   'chat.draft.cited': 'Extraits cités par l’assistant',
   'chat.draft.cited_eyebrow': 'Aperçu document · extraits cités par l’assistant',
@@ -859,6 +863,10 @@ export const CHAT_EN: Record<keyof typeof CHAT_FR, string> = {
   'conversations.error.load': 'Could not load this conversation.',
   // --- Recommendation draft drawer ---------------------------------
   'chat.draft.badge': 'Recommendation draft',
+  'chat.draft.untitled': 'Assistant draft',
+  'chat.draft.ask': 'Ask the assistant',
+  'chat.draft.ask_prompt': 'Can you dig deeper into this file?',
+  'chat.draft.ask_prompt_titled': 'Can you dig deeper into the file “{title}”?',
   'chat.draft.doc_preview': 'Document preview',
   'chat.draft.cited': 'Passages cited by the assistant',
   'chat.draft.cited_eyebrow': 'Document preview · passages cited by the assistant',
