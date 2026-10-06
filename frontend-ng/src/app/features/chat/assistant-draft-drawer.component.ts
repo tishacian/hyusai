@@ -797,7 +797,7 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
 
   draftTitle(): string {
     const payload = this.payload();
-    return payload?.title || payload?.subject || 'Brouillon AYA';
+    return payload?.title || payload?.subject || this.i18n.t('chat.draft.untitled');
   }
 
   subject(): string | null {
@@ -887,7 +887,11 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
   askAyaAboutPayload(): void {
     const payload = this.payload();
     const mode = this.customDrawerMode();
-    let prompt = 'AYA, peux-tu approfondir ce dossier ?';
+    // The social pulse, Sahel and rumour drawers are Sentinel CI Mission Room
+    // scenarios and keep their assistant's voice; every other draft asks the
+    // workspace's assistant in neutral words.
+    const missionScenario = mode === 'social_pulse' || mode === 'troops_sahel' || mode === 'rumor_trace';
+    let prompt = this.i18n.t('chat.draft.ask_prompt');
     if (mode === 'social_pulse') {
       prompt = 'AYA, peux-tu resumer la pulsation sociale et les signaux a surveiller ?';
     } else if (mode === 'troops_sahel') {
@@ -895,11 +899,11 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
     } else if (mode === 'rumor_trace') {
       prompt = 'AYA, prepare un communique souverain sur la rumeur frontiere Nord.';
     } else if (payload?.title) {
-      prompt = `AYA, peux-tu approfondir le dossier "${payload.title}" ?`;
+      prompt = this.i18n.t('chat.draft.ask_prompt_titled', { title: payload.title });
     }
     this.assistantEffects.dispatchPropose({
       proposal_id: `aya-followup-${payload?.target_id || 's3'}`,
-      label: 'Demander a AYA',
+      label: missionScenario ? 'Demander a AYA' : this.i18n.t('chat.draft.ask'),
       prompt,
     });
     this.cancel();
