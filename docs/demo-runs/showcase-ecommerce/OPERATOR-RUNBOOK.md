@@ -4,6 +4,12 @@ L’activation a été effectuée par l’opérateur. Le
 [rapport de QA après activation](LIVE-QA-2026-10-02.md) décrit les parcours réels
 et les correctifs frontend ; il n’est pas nécessaire de rejouer l’installation.
 
+Le 6 octobre, les datasets DataOps, le modèle de priorisation SAV et deux Flows
+natifs supplémentaires ont été créés et exécutés dans Showcase. Pour raccorder
+ces artefacts au Flow principal et à Work après déploiement, suivre uniquement
+le [runbook DataOps/MLOps](DATAOPS-MLOPS.md), avec son plan et ses deux empreintes
+revues. L’installation historique ci-dessous ne doit pas être rejouée.
+
 Cette livraison ajoute le lecteur PostgreSQL borné, six outils, l’application
 Work Réclamations et le benchmark humain dans Impact. L’utilisateur a retenu un
 déploiement par un opérateur. La cible est `origin/demo/agentic` ; le code n’arrive

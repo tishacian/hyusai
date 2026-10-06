@@ -60,6 +60,18 @@ QUERIES = {
  JOIN showcase_ecommerce.customers u ON u.customer_id=o.customer_id
  WHERE c.claim_id=ANY(%(claim_ids)s)
  ORDER BY c.opened_at, c.claim_id LIMIT 101""",
+    "features": """SELECT c.claim_id, c.reason AS claim_reason, o.paid_amount,
+ s.status AS shipment_status, CASE WHEN EXISTS (SELECT 1 FROM showcase_ecommerce.refunds r
+ WHERE r.order_id=c.order_id AND r.status='executed') THEN 1 ELSE 0 END AS already_refunded,
+ (SELECT count(*) FROM showcase_ecommerce.document_refs d
+ WHERE d.order_id=c.order_id AND d.is_current) AS case_documents,
+ (SELECT sum(i.quantity) FROM showcase_ecommerce.order_items i
+ WHERE i.order_id=c.order_id) AS item_quantity
+ FROM showcase_ecommerce.claims c
+ JOIN showcase_ecommerce.orders o ON o.order_id=c.order_id
+ LEFT JOIN LATERAL (SELECT status FROM showcase_ecommerce.shipments
+ WHERE order_id=c.order_id ORDER BY status_at DESC, shipment_id LIMIT 1) s ON true
+ WHERE c.claim_id=ANY(%(claim_ids)s) ORDER BY c.claim_id LIMIT 101""",
 }
 
 
@@ -189,3 +201,17 @@ def queue(workspace, claim_ids: list[str]) -> dict[str, Any]:
     return _read(
         workspace, ("queue",), {"claim_ids": sorted({validate_claim_id(c) for c in claim_ids})}
     )
+
+
+def features(workspace, claim_ids: list[str]) -> dict[str, Any]:
+    """One coherent, bounded snapshot of intake features; no resolution outcomes."""
+    if not isinstance(claim_ids, list) or not 1 <= len(claim_ids) <= MAX_ROWS:
+        raise ClaimReadError("CLAIM_COHORT_INVALID", 422)
+    ids = sorted({validate_claim_id(c) for c in claim_ids})
+    result = _read(workspace, ("features",), {"claim_ids": ids})
+    if sorted(row["claim_id"] for row in result["data"]["features"]) != ids:
+        raise ClaimReadError("CLAIM_FEATURE_COHORT_INCOMPLETE", 409)
+    result["provenance"]["resources_read"] = [
+        dict(resource) for resource in CLAIM_RESOURCES if resource["table"] != "customers"
+    ]
+    return result
