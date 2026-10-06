@@ -169,12 +169,51 @@ def data_source_issues(flow: Mapping[str, Any]) -> list[tuple[str, str]]:
     if (flow.get("runtime_contract") or {}).get("requires_postgresql_source") is True:
         from app.services.connectors.generic.postgresql_claims import CLAIM_RESOURCES
 
+        nodes = {
+            node.get("id"): node for node in flow.get("nodes", []) if isinstance(node, Mapping)
+        }
+        declared = (flow.get("runtime_contract") or {}).get("postgresql_consumers")
+        consumers = {}
+        if declared is not None:
+            if not isinstance(declared, list) or not 1 <= len(declared) <= 64:
+                issues.append(("", "DATA_SOURCE_BINDING_INVALID"))
+                return issues
+            for requirement in declared:
+                try:
+                    if (
+                        not isinstance(requirement, Mapping)
+                        or set(requirement) != {"node_id", "resources"}
+                        or not isinstance(requirement["node_id"], str)
+                        or requirement["node_id"] not in nodes
+                        or requirement["node_id"] in consumers
+                        or not requirement["resources"]
+                    ):
+                        raise ValueError("DATA_SOURCE_BINDING_INVALID")
+                    # Reuse the source's closed identifier contract for read requirements.
+                    ref = connector_reference(
+                        {
+                            "id": "requirement",
+                            "kind": "asset",
+                            "config": {
+                                "connector_id": "postgresql",
+                                "read_mode": "live",
+                                "resources": requirement["resources"],
+                            },
+                        }
+                    )
+                    consumers[requirement["node_id"]] = ref["resources"]
+                except ValueError as exc:
+                    issues.append(("", str(exc)))
+        # Existing financial consumers retain their full mandatory resource scope.
         for consumer_id in ("loop.investigate", "task.simulate"):
+            if declared is None or consumer_id in nodes:
+                consumers[consumer_id] = CLAIM_RESOURCES
+        for consumer_id, resources in consumers.items():
             try:
                 require_postgresql_binding(
                     SimpleNamespace(flow_snapshot=flow),
                     bound_data_sources(flow, consumer_id),
-                    resources=CLAIM_RESOURCES,
+                    resources=resources,
                 )
             except ValueError as exc:
                 issues.append((consumer_id, str(exc)))

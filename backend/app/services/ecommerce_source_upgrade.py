@@ -25,6 +25,8 @@ def upgrade(
     channel="live",
     apply=False,
     expected_target_sha256=None,
+    flow_transform=None,
+    message="Luma: explicit live PostgreSQL and document source dependencies.",
 ):
     member = (
         db.query(WorkspaceMember)
@@ -80,6 +82,8 @@ def upgrade(
     if not collections:
         raise ValueError("CLAIMS_SOURCE_UPGRADE_COLLECTIONS_MISSING")
     flow = with_data_sources(base, collections)
+    if flow_transform is not None:
+        flow = flow_transform(flow)
     target_hash = canonical_flow_sha256(flow)
     result = {
         "workspace_id": workspace.id,
@@ -118,7 +122,7 @@ def upgrade(
         workspace=workspace,
         expected_draft_revision=draft.revision,
         expected_published_version_id=state["published"]["version_id"],
-        message="Luma: explicit live PostgreSQL and document source dependencies.",
+        message=message,
         breaking_change_intent="acknowledged",
         actor=actor.email,
     )
@@ -136,7 +140,7 @@ def upgrade(
         db,
         workspace=workspace,
         experience_id=experience.id,
-        notes="Luma: Flow with live SQL and scoped document sources.",
+        notes=message,
         expected_draft_revision=app_draft.revision,
         expected_content_sha256=app_draft.content_sha256,
         expected_experience_updated_at=experience.updated_at,

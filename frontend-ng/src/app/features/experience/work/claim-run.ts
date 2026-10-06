@@ -16,6 +16,8 @@ export interface ClaimProposal {
 }
 
 export const CLAIM_TOOL_LABELS: Record<string, string> = {
+  ecommerce_sla_features_v1: 'experience.claims.step.features',
+  ml_predict_v1: 'experience.claims.step.risk',
   postgresql_claim_snapshot_v1: 'experience.claims.step.order',
   ecommerce_policy_evidence_v1: 'experience.claims.step.policy',
   ecommerce_delivery_evidence_v1: 'experience.claims.step.delivery',

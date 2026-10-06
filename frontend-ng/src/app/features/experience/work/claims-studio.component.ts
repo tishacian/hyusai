@@ -16,6 +16,7 @@ import { WorkAppHeaderComponent } from './work-app-header.component';
 import { ClaimsBenchmarkComponent } from './claims-benchmark.component';
 import { WorkApiService } from './work-api.service';
 import { CLAIM_ACTION_LABELS, CLAIM_REASON_LABELS, CLAIM_TOOL_LABELS, claimRunProjection, type ClaimRow, type ClaimSnapshot } from './claim-run';
+import { freshTriage, queueByPriority, selectedAdvice, type ClaimTriage } from './claim-triage';
 
 @Component({
   selector: 'app-claims-studio', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
@@ -26,20 +27,44 @@ import { CLAIM_ACTION_LABELS, CLAIM_REASON_LABELS, CLAIM_TOOL_LABELS, claimRunPr
       <app-work-bar [appContext]="i18n.t('experience.claims.title')" />
       <app-work-app-header [title]="i18n.t('experience.claims.title')" [eyebrow]="i18n.t('experience.claims.brand')"
         [description]="i18n.t('experience.claims.promise')" [status]="i18n.t('experience.claims.demo')" emblem="◈">
-        @if (run(); as current) { <a class="xp-work-btn" [navLink]="{ type: 'run', lens: 'operate', ref: current.id }">{{ i18n.t('experience.claims.trace') }}</a> }
+        @if (machineAidsAllowed() && run(); as current) { <a class="xp-work-btn" [navLink]="{ type: 'run', lens: 'operate', ref: current.id }">{{ i18n.t('experience.claims.trace') }}</a> }
       </app-work-app-header>
-      @if (!loading() && !error()) { <app-claims-benchmark [sources]="detail()?.sources ?? []" (caseSelected)="select($event)" (manualActive)="manualMode.set($event)" /> }
+      @if (!loading() && !error()) { <app-claims-benchmark [sources]="detail()?.sources ?? []" (caseSelected)="select($event)" (manualActive)="manualMode.set($event)" (modeReady)="benchmarkReady.set($event)" /> }
       <main class="claims-main" aria-labelledby="work-app-title">
         @if (loading()) { <p role="status">{{ i18n.t('common.loading') }}</p> }
         @if (error()) { <div class="claims-error" role="alert"><p>{{ i18n.t('experience.claims.unavailable') }}</p><button class="xp-work-btn" (click)="load()">{{ i18n.t('experience.claims.retry') }}</button></div> }
         @if (!loading() && !error()) {
+          @if (!benchmarkReady()) { <p class="claims-mode-pending" role="status">{{ i18n.t('experience.claims.mode_pending') }} <button class="xp-work-btn claims-compact" (click)="load()">{{ i18n.t('experience.claims.retry') }}</button></p> }
+          @if (machineAidsAllowed()) {
+            <section class="claims-triage" aria-labelledby="claims-triage-title">
+              <div class="claims-section-title"><h2 id="claims-triage-title">{{ i18n.t('experience.claims.triage.title') }}</h2>
+                @if (triage()?.scoring) { <button class="xp-work-btn claims-compact" [disabled]="triageBusy() || busy()" (click)="recalculatePriority()">{{ i18n.t(triageBusy() ? 'experience.claims.triage.running' : 'experience.claims.triage.recalculate') }}</button> }
+              </div>
+              @if (triageLoading()) { <p role="status">{{ i18n.t('common.loading') }}</p> }
+              @else if (triage()?.model; as model) {
+                <div class="claims-triage-path">
+                  @if (triage()?.training_dataset; as dataset) { <a [navLink]="{ leaf: 'data-doc', ref: dataset.id }">{{ i18n.t('experience.claims.triage.history') }} <span>{{ dataset.rows }} {{ i18n.t('experience.claims.triage.cases') }}</span></a><span aria-hidden="true">→</span> }
+                  <a [navLink]="{ leaf: 'model-doc', ref: model.id }">{{ i18n.t('experience.claims.triage.model') }} <span>v{{ model.version }}</span></a>
+                  @if (triage()?.scored_dataset; as dataset) { <span aria-hidden="true">→</span><a [navLink]="{ leaf: 'data-doc', ref: dataset.id }">{{ i18n.t('experience.claims.triage.scored') }} <span>{{ dataset.rows }} {{ i18n.t('experience.claims.triage.cases') }}</span></a> }
+                  @if (triage()?.scoring; as scoring) { <a class="claims-triage-flow" [navLink]="{ leaf: 'system-flow', lens: 'build', ref: scoring.system_id }">{{ i18n.t('experience.claims.triage.flow') }} <app-icon name="arrow-right" [size]="12" /></a> }
+                </div>
+                <p class="claims-quiet">{{ i18n.t('experience.claims.triage.notice') }}</p>
+                <p class="claims-provenance" [attr.data-state]="triage()?.status" aria-live="polite">{{ i18n.t('experience.claims.triage.' + triage()!.status) }}
+                  @if (triage()?.captured_at; as captured) { · {{ captured | date:'dd/MM HH:mm:ss' }} }
+                  @if (triage()?.run_id; as runId) { · <a [navLink]="{ type: 'run', lens: 'operate', ref: runId }">{{ i18n.t('experience.claims.triage.trace') }}</a> }
+                </p>
+              } @else { <p class="claims-quiet">{{ i18n.t('experience.claims.triage.unavailable') }}</p> }
+              @if (triageError()) { <p class="claims-error" role="alert">{{ i18n.t('experience.claims.triage.error') }}</p> }
+            </section>
+          }
           <aside class="claims-queue" [attr.aria-label]="i18n.t('experience.claims.queue')">
             <div class="claims-section-title"><h2>{{ i18n.t('experience.claims.queue') }}</h2><span>{{ rows().length }}</span></div>
-            @for (row of rows(); track row.claim_id) {
+            @for (row of orderedRows(); track row.claim_id) {
               <button class="claims-case" [class.is-selected]="selected() === row.claim_id" [attr.aria-pressed]="selected() === row.claim_id"
                 [disabled]="busy() || manualMode()" (click)="select(row.claim_id)">
                 <span class="claims-case-top"><strong>{{ row.order_id }}</strong><b>{{ money(row.paid_amount, row.currency) }}</b></span>
                 <span>{{ row.display_name }}</span><span class="claims-case-reason">{{ i18n.t(reasonLabel(row.reason)) }}</span>
+                @if (machineAidsAllowed() && priorityFor(row.claim_id); as advice) { <span class="claims-priority" [attr.data-priority]="advice.priority">{{ i18n.t('experience.claims.triage.priority.' + advice.priority) }} · {{ percent(advice.risk) }}</span> }
                 <span class="claims-case-foot">{{ row.claim_id }} · {{ row.opened_at | date:'dd/MM' }}</span>
               </button>
             } @empty { <p>{{ i18n.t('experience.claims.empty') }}</p> }
@@ -76,6 +101,10 @@ import { CLAIM_ACTION_LABELS, CLAIM_REASON_LABELS, CLAIM_TOOL_LABELS, claimRunPr
             </section>
             <aside class="claims-decision" [attr.aria-label]="i18n.t('experience.claims.decision')">
               <h2>{{ i18n.t('experience.claims.decision') }}</h2>
+              @if (advice(); as advice) { <div class="claims-risk" [attr.data-priority]="advice.priority">
+                <span>{{ i18n.t('experience.claims.triage.risk') }}</span><strong>{{ percent(advice.risk) }}</strong>
+                <p>{{ i18n.t('experience.claims.triage.priority.' + advice.priority) }} · {{ i18n.t('experience.claims.triage.basis.' + advice.basis) }}</p>
+              </div> }
               @if (projection().proposal; as proposal) {
                 <div class="claims-recommendation" [class.is-warning]="proposal.action !== 'refund'"><span class="claims-eyebrow">{{ i18n.t('experience.claims.proposal') }}</span><h3>{{ i18n.t(actionLabel(proposal.action)) }}</h3><p>{{ i18n.t(reasonLabel(proposal.reason)) }}</p>
                   @if (proposal.action === 'refund') { <strong class="claims-amount">{{ money(proposal.amount, proposal.currency) }}</strong> }
@@ -83,13 +112,13 @@ import { CLAIM_ACTION_LABELS, CLAIM_REASON_LABELS, CLAIM_TOOL_LABELS, claimRunPr
                 </div>
                 @if (proposal.receipt_id) { <div class="claims-receipt" role="status"><h3>{{ i18n.t('experience.claims.receipt') }}</h3><p>{{ i18n.t('experience.claims.simulated') }}</p><code>{{ proposal.receipt_id }}</code></div> }
               } @else { <p class="claims-quiet">{{ i18n.t('experience.claims.start_hint') }}</p> }
-              @if (run()?.status === 'hitl_pending') {
+              @if (machineAidsAllowed() && run()?.status === 'hitl_pending') {
                 <div class="claims-approval"><p>{{ i18n.t('experience.claims.approval_hint') }}</p>
                   <button class="xp-work-btn xp-work-btn-primary" [disabled]="busy()" (click)="decide('accept')">{{ i18n.t('experience.claims.approve') }}</button>
                   <button class="xp-work-btn" [disabled]="busy()" (click)="decide('reject')">{{ i18n.t('experience.claims.reject') }}</button>
                 </div>
               } @else if (run()?.status === 'running' || run()?.status === 'pending') { <p role="status">{{ i18n.t('experience.claims.running') }}</p> }
-              @else { <button class="xp-work-btn xp-work-btn-primary claims-primary" [disabled]="busy() || manualMode()" (click)="investigate()">{{ i18n.t('experience.claims.investigate') }}</button> }
+              @else { <button class="xp-work-btn xp-work-btn-primary claims-primary" [disabled]="busy() || !machineAidsAllowed()" (click)="investigate()">{{ i18n.t('experience.claims.investigate') }}</button> }
               @if (actionError()) { <p class="claims-error" role="alert">{{ i18n.t('experience.claims.action_error') }}</p> }
               <p class="claims-quiet">{{ i18n.t('experience.claims.action_notice') }}</p>
               @if (dossier.receipts.length) { <h3>{{ i18n.t('experience.claims.history') }}</h3>@for (receipt of dossier.receipts; track receipt.receipt_id) { <p class="claims-history">{{ i18n.t(actionLabel(receipt.action)) }}<br><small>{{ i18n.t('experience.claims.simulated') }}</small></p> } }
@@ -111,8 +140,16 @@ export class ClaimsStudioComponent {
   readonly detail = signal<ClaimSnapshot | null>(null); readonly run = signal<Run | null>(null);
   readonly loading = signal(true); readonly detailLoading = signal(false); readonly error = signal(false);
   readonly manualMode = signal(false);
+  readonly benchmarkReady = signal(false);
+  readonly machineAidsAllowed = computed(() => this.benchmarkReady() && !this.manualMode());
+  readonly triageData = signal<ClaimTriage | null>(null);
+  readonly triageLoading = signal(false); readonly triageBusy = signal(false); readonly triageError = signal(false);
+  private readonly clock = signal(Date.now());
+  readonly triage = computed(() => freshTriage(this.triageData(), this.clock()));
+  readonly orderedRows = computed(() => queueByPriority(this.rows(), this.triage(), !this.machineAidsAllowed()));
+  readonly advice = computed(() => selectedAdvice(this.triage(), this.run(), this.selected(), !this.machineAidsAllowed(), this.clock()));
   readonly busy = signal(false); readonly actionError = signal(false); readonly sourceDocumentId = signal<string | null>(null);
-  readonly projection = computed(() => claimRunProjection(this.manualMode() ? null : this.run()));
+  readonly projection = computed(() => claimRunProjection(this.machineAidsAllowed() ? this.run() : null));
   readonly sources = computed(() => {
     const cited = this.projection().proposal?.citations ?? [];
     const originals: Record<string, unknown>[] = this.detail()?.sources ?? [];
@@ -127,14 +164,17 @@ export class ClaimsStudioComponent {
   selectSource(index: number): void {
     this.sourceDocumentId.set(this.sources().find(source => source.n === index)?.documentId ?? null);
   }
-  private poll?: Subscription; private detailRequest?: Subscription; private generation = 0;
+  private poll?: Subscription; private priorityPoll?: Subscription; private detailRequest?: Subscription; private generation = 0;
   constructor() {
     effect(() => { this.workspace.current()?.id; void this.load(); });
-    this.destroy.onDestroy(() => { this.generation++; this.poll?.unsubscribe(); this.detailRequest?.unsubscribe(); });
+    timer(0, 60000).pipe(takeUntilDestroyed(this.destroy)).subscribe(() => this.clock.set(Date.now()));
+    this.destroy.onDestroy(() => { this.generation++; this.poll?.unsubscribe(); this.priorityPoll?.unsubscribe(); this.detailRequest?.unsubscribe(); });
   }
   async load(): Promise<void> {
     const generation = ++this.generation;
-    this.poll?.unsubscribe(); this.detailRequest?.unsubscribe();
+    this.poll?.unsubscribe(); this.priorityPoll?.unsubscribe(); this.detailRequest?.unsubscribe();
+    this.triageData.set(null); this.triageBusy.set(false); this.triageError.set(false); this.triageLoading.set(false);
+    this.benchmarkReady.set(false);
     this.rows.set([]); this.detail.set(null); this.run.set(null); this.selected.set(null); this.sourceDocumentId.set(null);
     this.error.set(false); this.loading.set(true); this.busy.set(false);
     try {
@@ -145,7 +185,39 @@ export class ClaimsStudioComponent {
       if (generation !== this.generation) return;
       this.rows.set(response.data.queue); this.loading.set(false);
       if (response.data.queue[0]) this.select(response.data.queue[0].claim_id);
+      void this.loadTriage(generation);
     } catch { if (generation === this.generation) { this.error.set(true); this.loading.set(false); } }
+  }
+  private async loadTriage(generation = this.generation): Promise<void> {
+    this.triageLoading.set(true);
+    try {
+      const response = await firstValueFrom(this.api.get<ClaimTriage>('/ecommerce-claims/triage'));
+      if (generation === this.generation) { this.clock.set(Date.now()); this.triageData.set(response); }
+    } catch { if (generation === this.generation) this.triageData.set({ status: 'unavailable', rows: [] }); }
+    finally { if (generation === this.generation) this.triageLoading.set(false); }
+  }
+  priorityFor(claimId: string) { return this.triage()?.status === 'ready' ? this.triage()?.rows.find(row => row.claim_id === claimId) : null; }
+  percent(value: number): string { return new Intl.NumberFormat(this.i18n.locale(), { style: 'percent', maximumFractionDigits: 0 }).format(value); }
+  async recalculatePriority(): Promise<void> {
+    const scoring = this.triage()?.scoring;
+    if (!scoring || this.triageBusy() || this.busy() || !this.machineAidsAllowed()) return;
+    const generation = this.generation; this.triageBusy.set(true); this.triageError.set(false);
+    try {
+      const result = await firstValueFrom(this.api.post<{ id: string }>(`/systems/${scoring.system_id}/ingresses/${scoring.ingress_id}/runs`, {
+        kind: 'manual', payload: {}, expected_published_version_id: scoring.version_id, expected_flow_sha256: scoring.flow_sha256,
+      }));
+      if (generation !== this.generation) return;
+      this.priorityPoll?.unsubscribe();
+      this.priorityPoll = timer(0, 2000).pipe(switchMap(() => this.canonical.getRun(result.id)), takeUntilDestroyed(this.destroy)).subscribe({
+        next: run => {
+          if (generation !== this.generation) return;
+          if (!run || ['completed', 'failed', 'cancelled'].includes(run.status)) {
+            this.priorityPoll?.unsubscribe(); this.triageBusy.set(false);
+            if (run?.status === 'completed') void this.loadTriage(generation); else this.triageError.set(true);
+          }
+        }, error: () => { if (generation === this.generation) { this.priorityPoll?.unsubscribe(); this.triageBusy.set(false); this.triageError.set(true); } },
+      });
+    } catch { if (generation === this.generation) { this.triageBusy.set(false); this.triageError.set(true); } }
   }
   select(id: string): void {
     this.poll?.unsubscribe(); this.detailRequest?.unsubscribe(); this.run.set(null); this.detail.set(null);
@@ -159,7 +231,7 @@ export class ClaimsStudioComponent {
     });
   }
   async investigate(): Promise<void> {
-    const id = this.selected(); if (!id || this.busy() || this.manualMode()) return;
+    const id = this.selected(); if (!id || this.busy() || !this.machineAidsAllowed()) return;
     const generation = this.generation;
     this.busy.set(true); this.actionError.set(false);
     try {
@@ -184,7 +256,7 @@ export class ClaimsStudioComponent {
     });
   }
   async decide(action: 'accept' | 'reject'): Promise<void> {
-    const run = this.run(); if (!run || this.busy()) return;
+    const run = this.run(); if (!run || this.busy() || !this.machineAidsAllowed()) return;
     this.busy.set(true); this.actionError.set(false);
     const generation = this.generation;
     try { const updated = await firstValueFrom(this.work.decide(run, action, this.i18n.t('experience.claims.decision_note'))); if (updated && generation === this.generation && this.run()?.id === run.id) this.run.set({ ...run, ...updated, skill_invocations: updated.skill_invocations ?? run.skill_invocations }); }

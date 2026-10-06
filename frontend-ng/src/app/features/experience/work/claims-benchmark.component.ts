@@ -69,14 +69,15 @@ export class ClaimsBenchmarkComponent {
   readonly i18n = inject(I18nService); private readonly api = inject(ApiService); private readonly workspace = inject(WorkspaceService); private readonly auth = inject(AuthStore); private readonly destroy = inject(DestroyRef);
   readonly readOnly = input(false); readonly sources = input<Array<{ reference: string; filename: string }>>([]);
   readonly caseSelected = output<string>(); readonly manualActive = output<boolean>();
+  readonly modeReady = output<boolean>();
   readonly data = signal<Benchmark | null>(null); readonly active = signal<Trial | null>(null); readonly busy = signal(false); readonly problem = signal(false);
   readonly unreviewed = computed(() => this.data()?.trials.filter(t => t.state === 'finished' && !t.review && t.operator_id !== this.auth.userId()) ?? []);
   readonly corrections = computed(() => this.data()?.trials.filter(t => t.operator_id === this.auth.userId() && t.state === 'finished' && t.review?.passed === false) ?? []);
   readonly actionOptions = Object.keys(CLAIM_ACTION_LABELS);
   pairId = 'P01'; condition: 'manual' | 'assisted' = 'manual'; action = ''; amount = ''; note = ''; references: string[] = []; reviewId = ''; reviewNote = '';
   private generation = 0;
-  constructor() { effect(() => { this.workspace.current()?.id; this.auth.authEpoch(); this.active.set(null); this.manualActive.emit(false); void this.load(); }); this.destroy.onDestroy(() => this.generation++); }
-  async load(): Promise<void> { const g = ++this.generation; this.data.set(null); try { const data = await firstValueFrom(this.api.get<Benchmark>('/ecommerce-claims/benchmark')); if (g === this.generation) { this.data.set(data); const trial = data.trials.find(t => t.operator_id === this.auth.userId() && ['active', 'paused'].includes(t.state)); this.active.set(trial ?? null); this.manualActive.emit(trial?.condition === 'manual'); if (trial && !this.readOnly()) this.caseSelected.emit(trial.claim_id); } } catch { /* Unavailable outside released, configured workspaces. */ } }
+  constructor() { effect(() => { this.workspace.current()?.id; this.auth.authEpoch(); this.active.set(null); this.modeReady.emit(false); this.manualActive.emit(false); void this.load(); }); this.destroy.onDestroy(() => this.generation++); }
+  async load(): Promise<void> { const g = ++this.generation; this.data.set(null); this.modeReady.emit(false); try { const data = await firstValueFrom(this.api.get<Benchmark>('/ecommerce-claims/benchmark')); if (g === this.generation) { this.data.set(data); const trial = data.trials.find(t => t.operator_id === this.auth.userId() && ['active', 'paused'].includes(t.state)); this.active.set(trial ?? null); this.manualActive.emit(trial?.condition === 'manual'); if (trial && !this.readOnly()) this.caseSelected.emit(trial.claim_id); this.modeReady.emit(true); } } catch { /* Keep machine aids hidden until the session condition is known. */ } }
   private async mutate(path: string, body: unknown): Promise<void> {
     const g = this.generation; this.busy.set(true); this.problem.set(false);
     try { const trial = await firstValueFrom(this.api.post<Trial>(path, body)); if (g !== this.generation) return;

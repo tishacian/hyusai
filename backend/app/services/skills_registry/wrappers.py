@@ -152,8 +152,7 @@ def _record_provider_usage_contract(
                     continue
                 reported_payload = (
                     {"total_tokens": call.get("reported_total")}
-                    if call.get("reported") is True
-                    and call.get("reported_total") is not None
+                    if call.get("reported") is True and call.get("reported_total") is not None
                     else None
                 )
                 record_provider_usage(
@@ -1048,7 +1047,15 @@ async def _claim_audit_v1(
     claims = audit.get("claims", [])
     supported = audit.get("supported", 0)
     total = len(claims)
-    verdict = "indeterminate" if not total or evaluation.get("status") == "failed" else "supported" if supported / total >= 0.8 else "partial" if supported else "unsupported"
+    verdict = (
+        "indeterminate"
+        if not total or evaluation.get("status") == "failed"
+        else "supported"
+        if supported / total >= 0.8
+        else "partial"
+        if supported
+        else "unsupported"
+    )
     output = {
         "status": evaluation.get("status"),
         "claims": claims,
@@ -1309,9 +1316,7 @@ async def _calendar_read_v1(
             db.close()
 
 
-def _hana_rows_as_context(
-    columns: list[Any], rows: list[Any]
-) -> list[dict[str, Any]]:
+def _hana_rows_as_context(columns: list[Any], rows: list[Any]) -> list[dict[str, Any]]:
     """Format HANA result rows as llm_rag_answer_v1-compatible passages."""
     col_names = [str(c) for c in (columns or [])]
     passages: list[dict[str, Any]] = []
@@ -1387,9 +1392,7 @@ async def _rpa_dispatch_v1(
             config,
             job_key=str(payload.get("job_key") or ""),
             input_payload=input_payload,
-            callback_url=(
-                str(payload["callback_url"]) if payload.get("callback_url") else None
-            ),
+            callback_url=(str(payload["callback_url"]) if payload.get("callback_url") else None),
             timeout_s=float(timeout_s) if timeout_s is not None else 30.0,
             poll_interval_s=float(poll_interval_s) if poll_interval_s is not None else 0.5,
         )
@@ -1762,9 +1765,7 @@ async def _mcp_call_v1(
     )
 
 
-def _named_mcp_server(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]], server_id: str
-):
+def _named_mcp_server(payload: dict[str, Any], ctx: Optional[dict[str, Any]], server_id: str):
     from app.services.connectors.mcp import service as mcp_service
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -2033,16 +2034,23 @@ async def _sap_create_po_v1(
     pr = payload.get("pr") if isinstance(payload.get("pr"), dict) else {}
     proposed = payload.get("proposed_po") if isinstance(payload.get("proposed_po"), dict) else {}
     pr_id = str(payload.get("pr_id") or pr.get("pr_id") or pr.get("PurchaseRequisition") or "")
-    item = str(
-        payload.get("PurchaseRequisitionItem") or pr.get("PurchaseRequisitionItem") or ""
-    ).strip() or DEFAULT_PR_ITEM
-    pr_type = str(
-        payload.get("pr_type")
-        or pr.get("PurchaseRequisitionType")
-        or pr.get("pr_type")
-        or proposed.get("pr_type")
-        or ""
-    ).strip().upper()
+    item = (
+        str(
+            payload.get("PurchaseRequisitionItem") or pr.get("PurchaseRequisitionItem") or ""
+        ).strip()
+        or DEFAULT_PR_ITEM
+    )
+    pr_type = (
+        str(
+            payload.get("pr_type")
+            or pr.get("PurchaseRequisitionType")
+            or pr.get("pr_type")
+            or proposed.get("pr_type")
+            or ""
+        )
+        .strip()
+        .upper()
+    )
     if pr_type == "ZNPR":
         # ZNPR → ZLPO through the BAPI trio. Create then commit in one gate
         # call; a blocked or failed step rolls back and the envelope says so.
@@ -2073,13 +2081,13 @@ async def _sap_create_po_v1(
                     payment_terms=str(
                         payload.get("payment_terms") or proposed.get("payment_terms") or ""
                     ),
-                    incoterms=str(
-                        payload.get("incoterms") or proposed.get("incoterms") or "DDP"
-                    ),
+                    incoterms=str(payload.get("incoterms") or proposed.get("incoterms") or "DDP"),
                 ),
                 sealed_block=SAP_CREATE_BLOCK,
                 commit=True,
-                **_gated_write(payload, ctx, statuses=_ACCEPTED_DECISION, pr_id=pr_id, pr_item=item),
+                **_gated_write(
+                    payload, ctx, statuses=_ACCEPTED_DECISION, pr_id=pr_id, pr_item=item
+                ),
             )
         )
     body = create_po_request_body(
@@ -2156,11 +2164,7 @@ async def _await_managed_execution(
 
     def _cancel() -> None:
         with SessionLocal() as db:
-            row = (
-                db.query(RecipeExecution)
-                .filter(RecipeExecution.id == execution_id)
-                .first()
-            )
+            row = db.query(RecipeExecution).filter(RecipeExecution.id == execution_id).first()
             if row is not None:
                 recipe_exec.request_cancel(db, row)
 
@@ -2168,11 +2172,7 @@ async def _await_managed_execution(
         while True:
             await asyncio.sleep(1.0)
             with SessionLocal() as db:
-                row = (
-                    db.query(RecipeExecution)
-                    .filter(RecipeExecution.id == execution_id)
-                    .first()
-                )
+                row = db.query(RecipeExecution).filter(RecipeExecution.id == execution_id).first()
                 if row is None:
                     raise RuntimeError("recipe_execution_missing")
                 if row.status in RECIPE_EXECUTION_TERMINAL_STATUSES:
@@ -2192,9 +2192,7 @@ async def _await_managed_execution(
         raise
 
 
-def _recipe_source_envelopes(
-    workspace_id: str, declared: Any
-) -> dict[str, dict[str, Any]]:
+def _recipe_source_envelopes(workspace_id: str, declared: Any) -> dict[str, dict[str, Any]]:
     """Read the tables a recipe node pinned, keyed by the author's view name.
 
     The recipe plane is a sandbox with no database and no object store, so a
@@ -2306,9 +2304,7 @@ async def _python_recipe_v1(
     if isinstance(sources, list) and sources:
         try:
             inputs.update(
-                await asyncio.to_thread(
-                    _recipe_source_envelopes, str(workspace_id), sources
-                )
+                await asyncio.to_thread(_recipe_source_envelopes, str(workspace_id), sources)
             )
         except TabularError as exc:
             raise ValueError(f"{exc.code}: {exc.message}") from exc
@@ -2505,11 +2501,7 @@ async def _polars_transform_v1(
     if already_settled:
         # Eager mode (dev/tests) settled the row inside the dispatch call.
         with SessionLocal() as db:
-            row = (
-                db.query(RecipeExecution)
-                .filter(RecipeExecution.id == execution_id)
-                .first()
-            )
+            row = db.query(RecipeExecution).filter(RecipeExecution.id == execution_id).first()
             status, output, error, stderr_tail = (
                 row.status,
                 row.output_json if isinstance(row.output_json, dict) else None,
@@ -2521,10 +2513,7 @@ async def _polars_transform_v1(
         # queue buffer. The worker enforces its own hard limits; this outer
         # deadline only protects the walker from a stuck plane.
         deadline = (
-            time_mod.monotonic()
-            + timeout_s
-            + float(app_settings.recipe_env_build_timeout_s)
-            + 30.0
+            time_mod.monotonic() + timeout_s + float(app_settings.recipe_env_build_timeout_s) + 30.0
         )
         status, output, error, stderr_tail = await _await_managed_execution(
             execution_id, deadline=deadline
@@ -2599,11 +2588,7 @@ async def _dbt_transform_v1(
     if already_settled:
         # Eager mode (dev/tests) settled the row inside the dispatch call.
         with SessionLocal() as db:
-            row = (
-                db.query(RecipeExecution)
-                .filter(RecipeExecution.id == execution_id)
-                .first()
-            )
+            row = db.query(RecipeExecution).filter(RecipeExecution.id == execution_id).first()
             status, output, error, stderr_tail = (
                 row.status,
                 row.output_json if isinstance(row.output_json, dict) else None,
@@ -2614,10 +2599,7 @@ async def _dbt_transform_v1(
         # A dbt project pays a compile pass before its first model runs, so the
         # outer budget is the node timeout plus a first-run env build allowance.
         deadline = (
-            time_mod.monotonic()
-            + timeout_s
-            + float(app_settings.recipe_env_build_timeout_s)
-            + 30.0
+            time_mod.monotonic() + timeout_s + float(app_settings.recipe_env_build_timeout_s) + 30.0
         )
         status, output, error, stderr_tail = await _await_managed_execution(
             execution_id, deadline=deadline
@@ -2673,8 +2655,7 @@ async def _ml_train_sklearn_v1(
     dataset_ref = _pinned_dataset_ref(train) or _first_dataset_ref(inputs)
     if dataset_ref is None:
         raise ValueError(
-            "ML_NO_DATASET: connect a dataset upstream or pin one on the node "
-            "before training"
+            "ML_NO_DATASET: connect a dataset upstream or pin one on the node before training"
         )
 
     def _submit() -> str:
@@ -2740,9 +2721,7 @@ async def _ml_train_sklearn_v1(
     raise RuntimeError(f"ml_train_{status}: {(error or '').strip()}"[:480])
 
 
-def _predict_spec(
-    payload: dict[str, Any], ctx: dict[str, Any]
-) -> tuple[dict[str, Any], str]:
+def _predict_spec(payload: dict[str, Any], ctx: dict[str, Any]) -> tuple[dict[str, Any], str]:
     """The model reference and workspace both serving skills run under.
 
     The model, the version pin and the output name always come from
@@ -2873,9 +2852,7 @@ async def _ml_batch_score_v1(
     def _run() -> dict[str, Any]:
         with SessionLocal() as db:
             model = _resolve_model(db, spec, workspace_id)
-            dataset = resolve_dataset_ref(
-                db, workspace_id=workspace_id, ref=dataset_ref
-            )
+            dataset = resolve_dataset_ref(db, workspace_id=workspace_id, ref=dataset_ref)
             return score_dataset(
                 db,
                 model=model,
@@ -4251,16 +4228,12 @@ async def _audit_log_v1(
         raise ValueError("audit_log_v1 details must be an object")
     workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
     if not workspace_id:
-        raise ValueError(
-            "audit_log_v1 cannot record an event with no workspace to attribute it to"
-        )
+        raise ValueError("audit_log_v1 cannot record an event with no workspace to attribute it to")
 
     event_id = emit_audit_event(
         workspace_id=str(workspace_id),
         event_type=event_type,
-        actor=str(
-            payload.get("actor") or ctx.get("actor") or ctx.get("user_id") or "system"
-        ),
+        actor=str(payload.get("actor") or ctx.get("actor") or ctx.get("user_id") or "system"),
         details=details or {},
         trace_id=ctx.get("run_id"),
         agent_id=ctx.get("system_id"),
@@ -4297,13 +4270,18 @@ async def _azure_llm_v1(payload, ctx=None):
 
 
 async def _configured_llm_call(provider, payload, ctx=None):
-    from app.services.model_plane.execution import ModelExecution, complete_model, resolve_model_execution
+    from app.services.model_plane.execution import (
+        ModelExecution,
+        complete_model,
+        resolve_model_execution,
+    )
 
     ctx = ctx if ctx is not None else {}
     execution = ctx.get("_model_execution")
     if not isinstance(execution, ModelExecution):
         execution = resolve_model_execution(
-            ctx.get("_model_workspace"), provider=provider,
+            ctx.get("_model_workspace"),
+            provider=provider,
             model=_model_name(payload.get("model")),
             legacy_defaults=provider in {"azure", "ollama"},
             model_source="legacy_default" if provider == "ollama" else "input",
@@ -4315,7 +4293,11 @@ async def _configured_llm_call(provider, payload, ctx=None):
     if provider == "azure":
         if output.get("streamed"):
             return {"completion": output["completion"], "model": execution.model, "streamed": True}
-        return {"completion": output["completion"], "model": output["model"], "usage": ctx.get("_model_response_usage", {})}
+        return {
+            "completion": output["completion"],
+            "model": output["model"],
+            "usage": ctx.get("_model_response_usage", {}),
+        }
     return output
 
 
@@ -4329,7 +4311,9 @@ async def _azure_openai_llm_v1(payload, ctx=None):
 
 async def _workspace_llm_v1(payload, ctx=None):
     instruction = str(payload.get("instruction") or "").strip()
-    body = str(payload.get("prompt") or payload.get("transcript") or payload.get("query") or "").strip()
+    body = str(
+        payload.get("prompt") or payload.get("transcript") or payload.get("query") or ""
+    ).strip()
     if instruction and body:
         payload = {**payload, "prompt": f"{instruction}\n\n{body}"}
     elif body and not str(payload.get("prompt") or "").strip():
@@ -4485,6 +4469,7 @@ _INVENTORY_RE = re.compile(
     re.IGNORECASE,
 )
 
+
 def _known_entity_re(family: str) -> re.Pattern[str] | None:
     """A family's named machines, systems and brands that guarantee a question
     is in its corpus, used to gate a false ``reject_oos``. They are not project
@@ -4551,9 +4536,7 @@ def _authoritative_query_project_codes(
         return set()
     workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
     contract = (
-        ctx.get("retrieval_contract")
-        if isinstance(ctx.get("retrieval_contract"), dict)
-        else {}
+        ctx.get("retrieval_contract") if isinstance(ctx.get("retrieval_contract"), dict) else {}
     )
     collection_ref = (
         contract.get("collection")
@@ -4573,9 +4556,7 @@ def _authoritative_query_project_codes(
 
         db = SessionLocal()
         try:
-            project_value = KnowledgeCollectionSource.source_metadata[
-                "project_code"
-            ].as_string()
+            project_value = KnowledgeCollectionSource.source_metadata["project_code"].as_string()
             rows = (
                 db.query(project_value)
                 .join(
@@ -4589,9 +4570,7 @@ def _authoritative_query_project_codes(
                         | (KnowledgeCollection.id == str(collection_ref))
                     ),
                     KnowledgeCollection.status == "ready",
-                    KnowledgeCollectionSource.status.in_(
-                        ("ready", "indexed", "deduplicated")
-                    ),
+                    KnowledgeCollectionSource.status.in_(("ready", "indexed", "deduplicated")),
                     project_value.in_(sorted(candidates)),
                 )
                 .distinct()
@@ -4704,9 +4683,7 @@ def _resolve_model_preferences(model: Optional[str]) -> dict[str, Any]:
             head, tail = raw.split(sep, 1)
             head_l = head.lower()
             # serving_<node>_<id> keys from model_plane local registration
-            if (
-                head_l in _KNOWN_PROVIDERS or head_l.startswith("serving_")
-            ) and tail.strip():
+            if (head_l in _KNOWN_PROVIDERS or head_l.startswith("serving_")) and tail.strip():
                 provider = "openai" if head_l == "azure" else head_l
                 return {"provider": provider, "model": tail.strip()}
     low = raw.lower()
@@ -4732,18 +4709,27 @@ async def _route_llm_complete(
     chosen = model or (ctx or {}).get("default_model")
     prefs = _resolve_model_preferences(chosen)
     if (ctx or {}).get("_model_workspace") is not None:
-        from app.services.model_plane.execution import ModelExecutionError, complete_model, resolve_model_execution
+        from app.services.model_plane.execution import (
+            ModelExecutionError,
+            complete_model,
+            resolve_model_execution,
+        )
 
         if prefs["provider"] not in {"openai", "azure_openai", "ollama", "anthropic"}:
-            raise ModelExecutionError("This provider has no workspace-scoped text runtime. Choose a supported provider.")
+            raise ModelExecutionError(
+                "This provider has no workspace-scoped text runtime. Choose a supported provider."
+            )
 
         # Only the server supplies this workspace object and the policy guard.
         execution = resolve_model_execution(
-            ctx["_model_workspace"], provider=prefs["provider"] if chosen else "workspace",
+            ctx["_model_workspace"],
+            provider=prefs["provider"] if chosen else "workspace",
             model=prefs["model"] if chosen else None,
             model_source="input" if model else "system",
         )
-        output = await complete_model(execution, prompt, ctx, generation_options=generation_options, stream=False)
+        output = await complete_model(
+            execution, prompt, ctx, generation_options=generation_options, stream=False
+        )
         return str(output["completion"]).strip()
     cache_owner = ctx if isinstance(ctx, dict) else {}
     client_cache = cache_owner.get("_resolved_model_client_cache")
@@ -4984,9 +4970,7 @@ def _bounded_inventory_evidence_excerpt(content: str, limit: int) -> str:
     for position, char in enumerate(prefix):
         if char in "\n\r\f;|":
             boundary = position + 1
-        elif char in ".!?" and (
-            position + 1 == len(content) or content[position + 1].isspace()
-        ):
+        elif char in ".!?" and (position + 1 == len(content) or content[position + 1].isspace()):
             boundary = position + 1
     return prefix[:boundary].rstrip() if boundary > 0 else ""
 
@@ -5087,9 +5071,7 @@ def _normalized_inventory_span(value: Any) -> str:
 
 def _normalized_inventory_lines(value: Any) -> str:
     """Normalize intra-line spacing while preserving source record boundaries."""
-    return "\n".join(
-        " ".join(line.casefold().split()) for line in str(value or "").splitlines()
-    )
+    return "\n".join(" ".join(line.casefold().split()) for line in str(value or "").splitlines())
 
 
 def _inventory_term_stems(value: Any) -> set[str]:
@@ -5234,10 +5216,7 @@ def _validated_inventory_coverage_additions(
         if metadata.get("inventory_evidence") is not True:
             rejected.append("non_inventory_evidence")
             continue
-        if (
-            str(metadata.get("project_code") or "").strip().upper()
-            != expected_project_code
-        ):
+        if str(metadata.get("project_code") or "").strip().upper() != expected_project_code:
             rejected.append("project_mismatch")
             continue
         source_label = _inventory_exact_source_label(label, source_record)
@@ -5261,9 +5240,7 @@ def _validated_inventory_coverage_additions(
         # hard-coded equipment taxonomy. Semantic membership deliberately
         # remains the generic reviewer's task.
         category_contexts = [
-            context
-            for context in local_contexts
-            if category_stems & _inventory_term_stems(context)
+            context for context in local_contexts if category_stems & _inventory_term_stems(context)
         ]
         label_stems = _inventory_term_stems(source_label)
         if not category_contexts:
@@ -5557,8 +5534,7 @@ def _build_grounded_answer_prompt(
         )
         passage_limit = 8000 if is_authoritative_inventory else 4000
         blocks.append(
-            f"[{index}] ({source_header})\n"
-            f"{str(passage.get('content') or '')[:passage_limit]}"
+            f"[{index}] ({source_header})\n{str(passage.get('content') or '')[:passage_limit]}"
         )
     context_text = "\n\n".join(blocks)
     # The persona and corpus framing are the family's; the rules below are not.
@@ -5737,6 +5713,8 @@ _COMPLEX_PROJECT_QUERY_RE = re.compile(
     r"\ben\s+profondeur\b|\bdeep\s+(?:analysis|dive)\b|\b[ée]tape\s+par\s+[ée]tape\b",
     re.IGNORECASE,
 )
+
+
 def _grounded_profile_contract(query: str, answer_profile: str | None) -> str:
     """Return narrow synthesis rules for explicitly list-shaped equipment asks.
 
@@ -5865,9 +5843,7 @@ def _deterministic_single_project_plan(
         # perfectly valid requested category and must not veto it.
         project_code = inventory_intent.project_code
     else:
-        project_codes = set(
-            extract_query_project_codes(query, known_codes=known_project_codes)
-        )
+        project_codes = set(extract_query_project_codes(query, known_codes=known_project_codes))
         if (
             len(project_codes) != 1
             or _COMPLEX_PROJECT_QUERY_RE.search(query)
@@ -5886,9 +5862,7 @@ def _deterministic_single_project_plan(
         return None
 
     mode = "balanced"
-    retrieval = (
-        dict(_SINGLE_PROJECT_INVENTORY_RETRIEVAL) if equipment_inventory else None
-    )
+    retrieval = dict(_SINGLE_PROJECT_INVENTORY_RETRIEVAL) if equipment_inventory else None
     plan_payload: dict[str, Any] = {
         "action": "answer",
         "mode": mode,
@@ -6108,7 +6082,9 @@ def _coerce_plan(
     oos_reason = (
         _as_str(
             "oos_reason",
-            family_hook(family, "chat_prompts", "OUT_OF_SCOPE_REASON", _GENERIC_OUT_OF_SCOPE_REASON),
+            family_hook(
+                family, "chat_prompts", "OUT_OF_SCOPE_REASON", _GENERIC_OUT_OF_SCOPE_REASON
+            ),
         )
         if action == "reject_oos"
         else ""
@@ -6155,7 +6131,9 @@ async def _decide_next_v1(
 
     def normalize(raw, failure=None):
         evidence = {}
-        output = coerce_decide_output(raw, visible, confidence_floor=confidence_floor, evidence=evidence)
+        output = coerce_decide_output(
+            raw, visible, confidence_floor=confidence_floor, evidence=evidence
+        )
         if failure:
             evidence["normalization_reasons"].insert(0, failure)
         ctx["_agent_loop_decision_evidence"] = evidence
@@ -6265,7 +6243,9 @@ async def _chat_agentic_plan_v1_ungated(
     )
 
 
-_GENERIC_SELF_CORRECT_PERSONA = "Tu es le reacteur d'auto-correction (1 passe) d'un agent de chat documentaire.\n"
+_GENERIC_SELF_CORRECT_PERSONA = (
+    "Tu es le reacteur d'auto-correction (1 passe) d'un agent de chat documentaire.\n"
+)
 _GENERIC_SELF_CORRECT_ESCALATE_GUIDANCE = (
     "Approfondis et re-ancre la reponse sur les sources du workspace ; "
     "supprime toute affirmation non etayee."
@@ -6720,7 +6700,9 @@ async def _role_agent_v1(
     role = str(payload.get("role") or "").strip()
     instruction = str(payload.get("instruction") or "").strip()
     body = str(payload.get("body") or payload.get("prompt") or payload.get("transcript") or "")
-    contract = payload.get("output_contract") if isinstance(payload.get("output_contract"), dict) else {}
+    contract = (
+        payload.get("output_contract") if isinstance(payload.get("output_contract"), dict) else {}
+    )
     if not role or not instruction:
         raise ValueError("role_agent_v1: role and instruction are required")
 
@@ -6749,9 +6731,7 @@ async def _role_agent_v1(
 # ---------------------------------------------------------------------------
 # Line-item reconciliation suite (spreadsheet/invoice extract, reconcile, report)
 # ---------------------------------------------------------------------------
-def _file_reference_payload(
-    payload: dict[str, Any], ctx: dict[str, Any]
-) -> dict[str, Any]:
+def _file_reference_payload(payload: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     """Backfill file references from the run input when the node has no binding.
 
     The ingress payload (``deposit.promoted`` event, manual run, cron) carries
@@ -7150,7 +7130,11 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "ollama_llm_v1": (_ollama_llm_v1, "app.services.model_clients.ollama_client", "bound"),
     "azure_llm_v1": (_azure_llm_v1, "app.services.model_clients.openai_client", "bound"),
     "openai_llm_v1": (_openai_llm_v1, "app.services.model_clients.openai_client", "bound"),
-    "azure_openai_llm_v1": (_azure_openai_llm_v1, "app.services.model_clients.azure_openai_client", "bound"),
+    "azure_openai_llm_v1": (
+        _azure_openai_llm_v1,
+        "app.services.model_clients.azure_openai_client",
+        "bound",
+    ),
     "workspace_llm_v1": (_workspace_llm_v1, "app.services.model_plane.execution", "bound"),
     "chain_naive_v1": (_chain_naive_v1, "app.services.rag.chains.naive", "bound"),
     "chain_hybrid_v1": (_chain_hybrid_v1, "app.services.rag.chains.hybrid", "bound"),
@@ -7186,18 +7170,53 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     ),
 }
 
+
 def _claim_tool(mode: str):
     async def call(payload, ctx=None):
         from app.services.ecommerce_claims import invoke
+
         return await invoke(mode, payload, ctx)
+
     return call
 
 
-_REGISTRY.update({slug: (_claim_tool(mode), "app.services.ecommerce_claims", "bound") for mode, slug in {
-    "snapshot": "postgresql_claim_snapshot_v1", "policy": "ecommerce_policy_evidence_v1",
-    "delivery": "ecommerce_delivery_evidence_v1", "refund": "ecommerce_refund_evidence_v1",
-    "propose": "ecommerce_resolution_propose_v1", "simulate": "ecommerce_resolution_simulate_v1",
-}.items()})
+async def _ecommerce_sla_features_v1(payload, ctx=None):
+    from app.services.ecommerce_triage import invoke
+
+    return await invoke(payload, ctx)
+
+
+async def _ecommerce_sla_dataset_v1(payload, ctx=None):
+    from app.services.ecommerce_triage import invoke
+
+    return await invoke(payload, ctx, batch=True)
+
+
+_REGISTRY["ecommerce_sla_features_v1"] = (
+    _ecommerce_sla_features_v1,
+    "app.services.ecommerce_triage",
+    "bound",
+)
+_REGISTRY["ecommerce_sla_dataset_v1"] = (
+    _ecommerce_sla_dataset_v1,
+    "app.services.ecommerce_triage",
+    "bound",
+)
+
+
+_REGISTRY.update(
+    {
+        slug: (_claim_tool(mode), "app.services.ecommerce_claims", "bound")
+        for mode, slug in {
+            "snapshot": "postgresql_claim_snapshot_v1",
+            "policy": "ecommerce_policy_evidence_v1",
+            "delivery": "ecommerce_delivery_evidence_v1",
+            "refund": "ecommerce_refund_evidence_v1",
+            "propose": "ecommerce_resolution_propose_v1",
+            "simulate": "ecommerce_resolution_simulate_v1",
+        }.items()
+    }
+)
 
 _RESOLVED_STATUS: dict[str, str] = {}
 
