@@ -79,8 +79,8 @@ métier non publié ou un draft d'application différent de la release déployé
 Il retire uniquement les quatre valeurs de vue chat inactives que l'ancien
 Builder ajoutait par défaut au DAG Luma. La disposition existante est conservée.
 
-Identités observées le 5 octobre ; vérifier qu'elles sont toujours courantes
-dans `flow-state` et dans le canal live de l'Experience avant l'activation :
+Identités observées le 5 octobre, avant l'activation (historique : l'état
+courant est dans « Activation réalisée » ci-dessous) :
 
 | Objet | Identité observée |
 | --- | --- |
@@ -112,7 +112,28 @@ puis publie une nouvelle version, actualise le binding et crée la release Work
 sur le même canal et avec la même audience. Les anciennes versions et releases
 restent disponibles pour un retour par les parcours natifs de restauration.
 
-## Point live à résoudre : aperçu 503
+### Activation réalisée le 6 octobre
+
+Activée sur le canal live. La relecture a accepté le brouillon r8 : son écart
+avec la version publiée n'était que de présentation. Le graphe publié compte
+13 nœuds et 13 liaisons : le connecteur PostgreSQL, les sept tables
+`showcase_ecommerce` et les cinq collections.
+
+| Objet | Identité après activation |
+| --- | --- |
+| Flow publié | version 3, SHA `2cc25fce82a3ba58b51944580ea35d977d9b70519681f3e6c8c9cf481d961554` |
+| Binding Work `showcase.claims.investigate` | pointe sur la version 3 |
+| Release Work live | `3e4f2bb8-6c49-4dd4-a307-16f240212563` |
+| Release précédente, gardée pour un retour natif | `e400b454-771a-45c2-8b74-14ba92a5314f` |
+| Brouillon du Flow | r9 |
+
+Une nouvelle activation repartirait de ces identités : le script refuse toute
+autre valeur attendue.
+
+## Aperçu 503 : résolu le 6 octobre
+
+Depuis le déploiement du correctif, le parcours complet passe sur Agentium :
+test de connexion, catalogue des tables, aperçu et création d'un dataset.
 
 Le 5 octobre, le catalogue et les colonnes des sept tables répondaient 200
 depuis Agentium, mais les aperçus de `claims` et `orders` répondaient 503
@@ -122,7 +143,7 @@ toute erreur en ce code, sans rien journaliser.
 Seul l'aperçu utilisait une CTE `AS MATERIALIZED`, qui exige PostgreSQL 12 :
 une base plus ancienne produisait exactement ce symptôme. La requête utilise
 désormais une sous-requête bornée, valable sur toutes les versions prises en
-charge. Après déploiement, si l'aperçu échoue encore :
+charge. Si un aperçu échouait de nouveau :
 
 - l'interface affiche le code SQLSTATE sous le message, et l'API le renvoie
   dans `detail.sqlstate` ;
@@ -164,9 +185,8 @@ with SessionLocal() as db:
 PY
 ```
 
-Après déploiement et activation, reprendre le parcours ci-dessus sur Agentium,
-puis vérifier qu'un nouveau Run depuis Work référence la nouvelle version et
-conserve la provenance des sources. Les remboursements restent simulés et les
+Reste à vérifier, depuis l'activation : un nouveau Run lancé depuis Work
+référence la version 3 et conserve la provenance des sources. Les remboursements restent simulés et les
 mesures humaines du [protocole ROI](ROI-PROTOCOL.md) restent à réaliser.
 
 ## Vérifications de livraison
