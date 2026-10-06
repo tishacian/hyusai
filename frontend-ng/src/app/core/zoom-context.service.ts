@@ -820,6 +820,7 @@ export class ZoomContextService implements OnDestroy {
         : [this.portfolioNode(
           reset,
           this.axesV3Enabled() ? route.lens : null,
+          route,
         )],
       loading: !reset && Boolean(
         route.capabilityId
@@ -929,7 +930,9 @@ export class ZoomContextService implements OnDestroy {
       skillRef,
     };
     const projectedLens = this.axesV3Enabled() ? route.lens : null;
-    const nodes: ZoomGraphNode[] = [this.portfolioNode(false, projectedLens)];
+    const nodes: ZoomGraphNode[] = [
+      this.portfolioNode(false, projectedLens, route),
+    ];
 
     if (capability) {
       nodes.push({
@@ -1006,6 +1009,7 @@ export class ZoomContextService implements OnDestroy {
   private portfolioNode(
     neutral = false,
     lens: CockpitLens | null = null,
+    route?: CockpitRouteContext,
   ): ZoomGraphNode {
     const workspace = neutral ? null : this.workspace.current();
     return {
@@ -1013,7 +1017,9 @@ export class ZoomContextService implements OnDestroy {
       id: workspace?.id ?? null,
       label: this.i18n.t('nav.zoom.portfolio'),
       sub: workspace?.name || '',
-      href: this.navV5Enabled() && this.workspaceMode() === 'builder'
+      href: route?.selectedType === 'system'
+        ? navigationSurfaceUrl('systems', { lens })
+        : this.navV5Enabled() && this.workspaceMode() === 'builder'
         ? navigationSurfaceUrl('create')
         : navigationPortfolioUrl(lens, this.axesV4Enabled()),
     };
