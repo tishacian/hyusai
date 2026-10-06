@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from app.models.run import Run
 from app.models.system import System
@@ -184,6 +184,8 @@ def _extract(ctx, *, batch=None):
                 },
             },
         )
+        if owns_db:
+            db.commit()
         return {
             **dataset_reference(dataset),
             "provenance": provenance,
@@ -203,6 +205,10 @@ def read_triage(db, workspace):
     triage = config.get("triage") or {}
     if not triage:
         return {"status": "not_configured", "rows": []}
+    if triage.get("composition") == "composed_v1":
+        from app.services.ecommerce_composition import read_queue
+
+        return read_queue(db, workspace, triage)
     try:
         model, training = validate_model(
             db, workspace, triage.get("model_id"), triage.get("model_version")
@@ -288,8 +294,8 @@ def read_triage(db, workspace):
                     "priority": "high" if score >= 0.6 else "medium" if score >= 0.35 else "low",
                 }
             )
-        captured = scored.ingested_at.replace(tzinfo=timezone.utc)
-        stale = datetime.now(timezone.utc) - captured > MAX_AGE
+        captured = scored.ingested_at.replace(tzinfo=UTC)
+        stale = datetime.now(UTC) - captured > MAX_AGE
         return {
             **base,
             "status": "stale" if stale else "ready",

@@ -6,9 +6,10 @@ et les correctifs frontend ; il n’est pas nécessaire de rejouer l’installat
 
 Le 6 octobre, les datasets DataOps, le modèle de priorisation SAV et deux Flows
 natifs supplémentaires ont été créés et exécutés dans Showcase. Pour raccorder
-ces artefacts au Flow principal et à Work après déploiement, suivre uniquement
-le [runbook DataOps/MLOps](DATAOPS-MLOPS.md), avec son plan et ses deux empreintes
-revues. L’installation historique ci-dessous ne doit pas être rejouée.
+ces artefacts à une business app et un seul System opérationnel après
+déploiement, suivre uniquement le [runbook de composition](COMPOSITION.md),
+avec son plan et son empreinte d’ensemble. Il remplace l’activation antérieure
+à deux Flows. L’installation historique ci-dessous ne doit pas être rejouée.
 
 Cette livraison ajoute le lecteur PostgreSQL borné, six outils, l’application
 Work Réclamations et le benchmark humain dans Impact. L’utilisateur a retenu un

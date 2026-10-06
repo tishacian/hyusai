@@ -1,5 +1,9 @@
 # Luma — DataOps, modèle et priorisation SAV
 
+Le parcours opérationnel utilise maintenant un seul System composé, décrit dans
+[COMPOSITION.md](COMPOSITION.md). Sa procédure d’activation remplace les
+commandes antérieures à deux Flows.
+
 La file SAV utilise un modèle pour faire remonter les dossiers dont le profil
 ressemble aux résolutions longues de l’historique. L’agent enquête ensuite dans
 PostgreSQL et les documents pour proposer une action justifiée. Le score change
@@ -51,14 +55,15 @@ Les variables partagées par l’entraînement, le batch et l’enquête sont : 
 montant payé, statut de livraison, remboursement antérieur, nombre de documents
 du dossier et quantité d’articles. Les extractions sont limitées à la cohorte
 configurée, sans SQL fourni par un agent, dans une transaction PostgreSQL
-read-only. Les deux Skills ont des sorties distinctes : une liste de variables
-pour un dossier, une référence de dataset pour la file complète.
+read-only. Le Flow composé matérialise un dataset pour le dossier ou la file, puis utilise
+les mêmes étapes SQL et scoring. Les contrôles de données et la prédiction
+validée alimentent le contexte de l’agent.
 
 Après activation, les chemins opérationnels sont :
 
 ```text
-File : PostgreSQL → variables → SQL de contrôle → batch score v1 → dataset priorisé
-Cas  : requête → variables PostgreSQL → predict v1 → agent → proposition → humain
+File : entrée file → PostgreSQL → dataset préparé → modèle v1 → file priorisée
+Cas  : entrée dossier → même préparation et scoring → agent + documents → humain
 ```
 
 Le Flow principal conserve ses entrées Document Center et PostgreSQL. Le score
@@ -83,60 +88,12 @@ uniquement si elle provient de la même version du modèle.
 
 ## Activation par l’opérateur
 
-La démo Luma est déjà installée : ne pas rejouer les seeds PostgreSQL,
-l’installateur original, l’ingestion documentaire ou l’entraînement ci-dessus.
-Le code arrive par Git, depuis `origin/demo/agentic` et son miroir Bitbucket,
-selon le [runbook VM sûr](../../ops/agentium-safe-vm-deployment.md). Vérifier
-la révision du backend, du worker et du frontend avant l’activation. Aucun
-nouveau schéma SQL n’est requis par cette extension.
-
-Le [plan figé](fixtures/dataops/live_activation_plan.json) cible le Flow
-principal v3, la release Work 2 et le Flow de scoring v1 constatés sur le site.
-Depuis le checkout propre du code déployé, produire la revue sans mutation :
-
-```bash
-cat docs/demo-runs/showcase-ecommerce/fixtures/dataops/live_activation_plan.json |
-  docker exec -i agentium-backend python -m scripts.activate_ecommerce_triage \
-    --workspace agentium-showcase \
-    --actor-user-id 06a2e190-ae2d-4365-b4f3-9952401f531d \
-    > /tmp/luma-triage-review.json
-```
-
-Relire les graphes et leurs références. Les cibles revues le 6 octobre sont :
-
-- Flow principal : 15 nodes, 16 edges,
-  `68c103d15a97e342be6b5a6efd4a66f85952f5c41b408c03448fa70b9839443f`.
-- Flow de scoring : 6 nodes, 5 edges,
-  `445eec21706f85f5bb56926a8e98f19f710418f052a3025cf5cd2a02cd82dd56`.
-
-Si l’état a changé, la commande refuse l’activation. Faire une nouvelle revue
-du draft, des publications et de la release avant de modifier le plan ou les
-empreintes ; ne pas contourner les contrôles de concurrence.
-
-Appliquer ensuite exactement ces cibles :
-
-```bash
-cat docs/demo-runs/showcase-ecommerce/fixtures/dataops/live_activation_plan.json |
-  docker exec -i agentium-backend python -m scripts.activate_ecommerce_triage \
-    --workspace agentium-showcase \
-    --actor-user-id 06a2e190-ae2d-4365-b4f3-9952401f531d \
-    --apply \
-    --expected-target-sha256 68c103d15a97e342be6b5a6efd4a66f85952f5c41b408c03448fa70b9839443f \
-    --expected-scoring-target-sha256 445eec21706f85f5bb56926a8e98f19f710418f052a3025cf5cd2a02cd82dd56 \
-    > /tmp/luma-triage-activation.json
-```
-
-L’activation publie les deux Flows, ajoute les bindings des Skills nécessaires
-et crée la release Work reliée à la nouvelle publication du Flow principal,
-dans une transaction native. Elle conserve les versions et releases antérieures
-ainsi que les données. Conserver le reçu retourné et ses IDs de publication,
-release et déploiement.
-
-Ouvrir [Work Réclamations](https://agentium.papai.ai/work/reclamations/studio),
-puis **Recalculer la file**. Ce bouton lance un vrai Run du nouveau scoring,
-avec publication et empreinte attendues. Le premier dataset antérieur ne peut
-pas servir de résultat au nouveau Flow. Vérifier le Run terminé, les 23 scores,
-le nouveau dataset et son lignage avant la présentation.
+Suivre uniquement [COMPOSITION.md](COMPOSITION.md) et le
+[plan de composition](fixtures/dataops/live_composition_plan.json) de cette
+livraison. Cette procédure publie un Flow commun, raccorde les deux actions
+Work et archive les Systems techniques en conservant les artefacts historiques.
+Les anciens `live_activation_plan.json` et `activate_ecommerce_triage` sont
+conservés comme historique ; ils ne sont plus la procédure opérateur courante.
 
 ## QA après activation et démonstration
 
@@ -144,7 +101,7 @@ le nouveau dataset et son lignage avant la présentation.
    Montrer les anomalies retirées et les liens vers le Run de préparation.
 2. Dans Model Center, montrer la v1, ses métriques et son dataset d’entraînement.
    Le modèle est synthétique et la métrique n’est pas un ROI.
-3. Depuis Work, ouvrir le Flow de priorisation et le node PostgreSQL : vérifier
+3. Depuis Work, ouvrir le Flow Luma commun et le node PostgreSQL : vérifier
    le drill-down vers les tables Luma, puis les nodes de préparation et scoring.
 4. Recalculer la file et conserver le vrai Run. RC-1042 doit remonter avec son
    profil de traitement long ; les montants restent 420 €, 49,90 € et 89 €.
@@ -153,7 +110,7 @@ le nouveau dataset et son lignage avant la présentation.
    d’origine : litige de livraison, perte confirmée, remboursement déjà exécuté.
    Les paiements restent simulés et soumis à approbation humaine.
 6. Vérifier clair/sombre, FR/EN, clavier et largeur mobile, ainsi que les liens
-   Dataset → Model → Dataset scoré → Flow builder. Si les scores expirent,
+   PostgreSQL → Dataset préparé → Model → Dataset scoré → Flow builder. Si les scores expirent,
    ils disparaissent et le recalcul reste disponible.
 
 La QA locale passe : **140 tests backend**, **1 936 tests unitaires frontend**,

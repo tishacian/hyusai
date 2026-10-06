@@ -94,6 +94,68 @@ CLAIM_SKILLS.append(
     }
 )
 
+for slug, name, description, input_schema, properties in [
+    (
+        "ecommerce_sav_dataset_v1",
+        "Luma SAV PostgreSQL dataset",
+        "Materialize the claim or queue selected by the frozen Luma ingress into a versioned dataset. Caller arguments cannot choose the cohort.",
+        {"type": "object", "properties": {}},
+        {
+            "dataset_id": {"type": "string"},
+            "name": {"type": "string"},
+            "slug": {"type": "string"},
+            "version": {"type": "integer"},
+            "rows": {"type": "integer"},
+            "columns": {"type": "integer"},
+            "operation": {"type": "string", "enum": ["case", "queue"]},
+            "claim_id": {"type": ["string", "null"]},
+            "provenance": {"type": "object"},
+        },
+    ),
+    (
+        "ecommerce_sav_context_v1",
+        "Luma SAV model and data context",
+        "Combine this Run's prepared facts and pinned model scores for its claim into the agent context. No financial authority; dataset lineage is verified.",
+        {
+            "type": "object",
+            "required": ["dataset_id"],
+            "properties": {"dataset_id": {"type": "string"}},
+        },
+        {
+            "claim_id": {"type": "string"},
+            "facts": {"type": "object"},
+            "quality": {"type": "object"},
+            "predictions": {"type": "array"},
+            "served": {"type": "object"},
+            "score": {"type": "number"},
+            "positive_label": {"type": "string"},
+            "target": {"type": "string"},
+            "prepared_dataset": {"type": "object"},
+            "scored_dataset": {"type": "object"},
+        },
+    ),
+]:
+    CLAIM_SKILLS.append(
+        {
+            "slug": slug,
+            "version": "1",
+            "name": name,
+            "description": description,
+            "type": "data_query",
+            "provider": "internal",
+            "certification_level": "beta",
+            "execution": {
+                "mode": "async",
+                "timeout_ms": 120000,
+                "retryable": True,
+                "idempotent": True,
+            },
+            "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "EUR"},
+            "input_schema": input_schema,
+            "output_schema": {"type": "object", "properties": properties},
+        }
+    )
+
 CLAIM_SKILLS.append(
     {
         "slug": "ecommerce_sla_dataset_v1",

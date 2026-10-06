@@ -13,7 +13,7 @@ const columns = [
 ];
 const config = { id: 'postgresql', configured: true, values: { database: 'postgres' }, secrets_set: { password: true } };
 
-async function setup(page: Page, options: { theme?: string; locale?: string; admin?: boolean; missing?: boolean; changed?: boolean; catalogError?: boolean } = {}) {
+async function setup(page: Page, options: { theme?: string; locale?: string; admin?: boolean; missing?: boolean; changed?: boolean; catalogError?: boolean; model?: boolean } = {}) {
   let flow = JSON.parse(readFileSync(resolve(process.cwd(), '../backend/app/resources/flows/showcase_ecommerce_claims_v1.json'), 'utf8'));
   const positions: Record<string, [number, number]> = {
     'asset.postgresql': [40, 40], 'source.request': [40, 340], 'loop.investigate': [410, 200],
@@ -23,6 +23,9 @@ async function setup(page: Page, options: { theme?: string; locale?: string; adm
   for (const node of flow.nodes) { const [x, y] = positions[node.id]; node.position = { x, y }; }
   flow.nodes.push({ id: 'asset.documents', type: 'source.collection', kind: 'asset', label: 'luma-maison-regles', config: { collection_slug: 'luma-maison-regles', workspace_scoped: true }, outputs: [{ name: 'collection', schema: 'object' }], position: { x: 40, y: 210 } });
   flow.edges.push({ from: 'asset.documents', to: 'loop.investigate', kind: 'data', from_port: 'collection' });
+  if (options.model) {
+    flow.nodes.push({ id: 'sav.score', type: 'skill', kind: 'task', label: 'Prioriser avec le modèle SLA v1', config: { skill_slug: 'ml_batch_score_v1', params: { model_id: 'qa-luma-model', model_slug: 'luma-sla', pinned_version: 1 } }, position: { x: 410, y: 520 } });
+  }
   const writes: Array<{ path: string; body: any }> = [];
   let revision = 4;
   const system = () => ({ id: systemId, workspace_id: workspace.id, name: 'Luma Maison · Réclamations', status: 'active', flow_definition: flow, flow_sha256: hash, objective: 'SAV' });
@@ -48,6 +51,7 @@ async function setup(page: Page, options: { theme?: string; locale?: string; adm
     }
     if (path === `/systems/${systemId}/validate-flow`) return json(route, { valid: true, issues: [], runtime_mode: 'dag_overlay', flow_sha256: hash });
     if (path === '/skills') return json(route, { skills: [] });
+    if (path === '/ml-models') return json(route, { models: options.model ? [{ id: 'qa-luma-model', slug: 'luma-sla', name: 'Luma SLA', status: 'ready', version: 1 }] : [] });
     if (path === '/documents/collections') return json(route, { collections: ['luma-maison-regles', 'luma-maison-preuves'] });
     if (path === '/connectors') return options.catalogError ? json(route, {}, 503) : json(route, { can_configure: options.admin !== false, connectors: options.missing ? [] : [config] });
     if (path === '/connectors/postgresql/catalog') return json(route, { tables: [{ schema: 'showcase_ecommerce', name: 'claims', kind: 'table' }], checked_at: '2026-10-05T12:00:00Z', datasets_enabled: true });
@@ -148,6 +152,23 @@ test.describe('Flow data sources — isolated end-user QA', () => {
     await expect(page.getByTestId('flow-source-preview')).toHaveCount(0);
   });
 
+  test('a pinned model and version remain selected when the registry arrives after the inspector opens', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    const { writes } = await setup(page, { model: true });
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    await page.route('**/api/v1/ml-models', async route => { await gate; await route.fallback(); });
+    await page.goto(`/systems/${systemId}/flow?lens=build`);
+    await expect(page.locator('app-flow-node')).toHaveCount(10);
+    await page.locator('app-flow-node').filter({ hasText: 'Prioriser avec le modèle SLA v1' }).click();
+    await expect(page.getByTestId('serving-summary')).toBeVisible();
+    await expect(page.getByTestId('serving-model').locator('option')).toHaveCount(1);
+    release();
+    await expect(page.getByTestId('serving-model')).toHaveValue('luma-sla');
+    await expect(page.getByTestId('serving-version')).toHaveValue('1');
+    expect(writes.filter(w => w.path.endsWith('/flow-draft'))).toEqual([]);
+  });
+
   test('the objection strip stays out of the way until there is a run to object to', async ({ page }) => {
     await setup(page, { theme: 'dark', locale: 'fr' });
     await page.route('**/api/v1/systems/*/automation-review', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ runs: [], review: null }) }));
@@ -176,4 +197,3 @@ test.describe('Flow data sources — isolated end-user QA', () => {
     await page.screenshot({ path: info.outputPath('review-step3.png'), clip: { x: 0, y: 0, width: 1440, height: 420 } });
   });
 });
-

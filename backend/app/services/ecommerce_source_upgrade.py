@@ -26,6 +26,7 @@ def upgrade(
     apply=False,
     expected_target_sha256=None,
     flow_transform=None,
+    configure_experience=None,
     message="Luma: explicit live PostgreSQL and document source dependencies.",
 ):
     member = (
@@ -133,6 +134,8 @@ def upgrade(
         published_flow_version_id=version.id,
         actor=actor.email,
     )
+    if configure_experience is not None:
+        app_draft = configure_experience(db, workspace, experience, app_draft, version)
     check = lifecycle.ready_check(db, workspace=workspace, experience_id=experience.id)
     if check["blockers"]:
         raise ValueError("CLAIMS_SOURCE_UPGRADE_APP_NOT_READY")
