@@ -1,9 +1,10 @@
-import { ChangeDetectionStrategy, Component, inject, input, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, OnInit, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
-import { laterResults, reviewRefusalKey } from './review-loop.vm';
+import { IconComponent } from '@app/shared/ui/icon.component';
+import { laterResults, reviewRefusalKey, reviewStep } from './review-loop.vm';
 
 interface ReviewRow {
   id: string;
@@ -22,69 +23,119 @@ interface ReviewRow {
 @Component({
   selector: 'app-review-loop',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="review" [attr.aria-label]="i18n.t('flow.review.title')">
-      <h2>{{ i18n.t('flow.review.title') }}</h2>
-      @if (error()) {
-        <p role="alert">{{ error() }}</p>
-      }
-      @if (!runs().length) {
-        <p>{{ i18n.t('flow.review.empty') }}</p>
-      } @else {
-        <label>
-          {{ i18n.t('flow.review.note') }}
-          <textarea rows="3" maxlength="500" [ngModel]="note()" (ngModelChange)="note.set($event)"></textarea>
-        </label>
-        <button type="button" (click)="save()" [disabled]="busy() || !note().trim()">{{ i18n.t('flow.review.save') }}</button>
-      }
-      @if (review(); as row) {
-        <p>{{ row.note }}</p>
-        <button type="button" (click)="reread()" [disabled]="busy()">{{ i18n.t('flow.review.reread') }}</button>
-        @if (row.nodes?.length) {
-          <p>{{ i18n.t('flow.review.read', { blocks: blocks(row) }) }}</p>
-        }
-        @if (row.draft_hash) {
-          <button type="button" (click)="confirm()" [disabled]="busy()">{{ i18n.t('flow.review.confirm') }}</button>
-        }
-        @if (row.correction_hash) {
-          @if (laterRuns().length) {
-            <label>
-              <select [ngModel]="laterId()" (ngModelChange)="laterId.set($event)">
-                @for (run of laterRuns(); track run.id) {
-                  <option [value]="run.id">{{ run.status }}</option>
-                }
-              </select>
-            </label>
-            <button type="button" (click)="compare()" [disabled]="busy() || !laterId()">{{ i18n.t('flow.review.compare') }}</button>
+    @if (runs().length || review()) {
+      <section class="review" [class.is-open]="open()" [attr.aria-label]="i18n.t('flow.review.title')">
+        <div class="review__bar">
+          <h2 class="review__eyebrow"><app-icon name="flag" [size]="12" />{{ i18n.t('flow.review.title') }}</h2>
+          @if (review(); as row) {
+            <span class="review__status" data-testid="review-status">
+              {{ step() > 4 ? i18n.t('flow.review.done') : i18n.t('flow.review.step', { step: step(), label: stepLabel(step()) }) }}
+            </span>
+            <q class="review__quote">{{ row.note }}</q>
           } @else {
-            <p>{{ i18n.t('flow.review.need_later') }}</p>
+            <span class="review__status">{{ i18n.t('flow.review.intro') }}</span>
           }
+          <button type="button" class="ck-btn ck-btn--sm ck-btn-quiet review__toggle" [attr.aria-expanded]="open()" (click)="open.set(!open())">
+            {{ i18n.t(open() ? 'flow.review.close' : review() ? 'flow.review.continue' : 'flow.review.start') }}
+          </button>
+        </div>
+        @if (open()) {
+          <div class="review__body">
+            <ol class="review__steps">
+              @for (index of [1, 2, 3, 4]; track index) {
+                <li [class.is-done]="step() > index" [class.is-current]="step() === index">
+                  <span class="review__dot">{{ index }}</span>{{ stepLabel(index) }}
+                </li>
+              }
+            </ol>
+            @if (error()) {
+              <p class="review__error" role="alert">{{ error() }}</p>
+            }
+            @if (!review()) {
+              <label class="review__field">
+                <span>{{ i18n.t('flow.review.note') }}</span>
+                <textarea rows="2" maxlength="500" [placeholder]="i18n.t('flow.review.note_placeholder')" [ngModel]="note()" (ngModelChange)="note.set($event)"></textarea>
+              </label>
+              <div class="review__actions">
+                <button type="button" class="ck-btn ck-btn--sm ck-btn-accent" (click)="save()" [disabled]="busy() || !note().trim()">{{ i18n.t('flow.review.save') }}</button>
+                <span class="review__hint">{{ i18n.t('flow.review.save_hint') }}</span>
+              </div>
+            } @else if (review(); as row) {
+              <div class="review__actions">
+                @if (step() === 2) {
+                  <button type="button" class="ck-btn ck-btn--sm ck-btn-accent" (click)="reread()" [disabled]="busy()">{{ i18n.t('flow.review.reread') }}</button>
+                  <span class="review__hint">{{ i18n.t('flow.review.reread_hint') }}</span>
+                } @else if (step() === 3) {
+                  <button type="button" class="ck-btn ck-btn--sm ck-btn-accent" (click)="confirm()" [disabled]="busy()">{{ i18n.t('flow.review.confirm') }}</button>
+                  <button type="button" class="ck-btn ck-btn--sm ck-btn-quiet" (click)="reread()" [disabled]="busy()">{{ i18n.t('flow.review.reread') }}</button>
+                  @if (row.nodes?.length) {
+                    <span class="review__hint">{{ i18n.t('flow.review.read', { blocks: blocks(row) }) }}</span>
+                  }
+                } @else if (step() === 4) {
+                  @if (laterRuns().length) {
+                    <label class="review__field review__field--inline">
+                      <span>{{ i18n.t('flow.review.later_label') }}</span>
+                      <select [ngModel]="laterId()" (ngModelChange)="laterId.set($event)">
+                        @for (run of laterRuns(); track run.id) {
+                          <option [value]="run.id">{{ run.status }}</option>
+                        }
+                      </select>
+                    </label>
+                    <button type="button" class="ck-btn ck-btn--sm ck-btn-accent" (click)="compare()" [disabled]="busy() || !laterId()">{{ i18n.t('flow.review.compare') }}</button>
+                  } @else {
+                    <span class="review__hint">{{ i18n.t('flow.review.need_later') }}</span>
+                  }
+                }
+              </div>
+              @if (row.same_object) {
+                <p class="review__verdict" role="status" [class.is-ok]="row.ran_correction === true">
+                  {{ i18n.t('flow.review.same') }} {{ i18n.t('flow.review.later', { status: row.later_status || '' }) }}
+                  @if (row.ran_correction === true) {
+                    {{ i18n.t('flow.review.ran_correction') }}
+                  } @else if (row.ran_correction === false) {
+                    {{ i18n.t('flow.review.other_draft') }}
+                  }
+                </p>
+              }
+            }
+          </div>
         }
-        @if (row.same_object) {
-          <p role="status">{{ i18n.t('flow.review.same') }} {{ i18n.t('flow.review.later', { status: row.later_status || '' }) }}</p>
-          @if (row.ran_correction === true) {
-            <p>{{ i18n.t('flow.review.ran_correction') }}</p>
-          } @else if (row.ran_correction === false) {
-            <p>{{ i18n.t('flow.review.other_draft') }}</p>
-          }
-        }
-      }
-    </section>
+      </section>
+    }
   `,
   styles: `
+    :host { display: block; flex-shrink: 0; }
     .review {
-      display: grid;
-      gap: 8px;
-      margin: 0;
-      padding: 12px;
-      border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
-      border-radius: 12px;
-      h2, p, label { margin: 0; }
-      h2 { font-size: 1rem; }
-      textarea, select, button { font: inherit; }
+      border: 1px solid var(--ck-stroke-2);
+      border-radius: var(--ck-radius-md, 6px);
+      background: var(--ck-bg-raised);
+      color: var(--ck-fg-3);
+      font-size: 12px;
     }
+    .review__bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 6px 8px 6px 10px; min-width: 0; }
+    .review__eyebrow { margin: 0; display: inline-flex; align-items: center; gap: 6px; color: var(--ck-fg-2); font: 600 10px/1.4 var(--ck-font-mono); letter-spacing: .08em; text-transform: uppercase; }
+    .review__status { color: var(--ck-fg-2); }
+    .review__quote { flex: 1; min-width: 120px; overflow: hidden; color: var(--ck-fg-3); white-space: nowrap; text-overflow: ellipsis; font-style: italic; }
+    .review__toggle { margin-left: auto; }
+    .review__body { display: grid; gap: 10px; padding: 10px 10px 12px; border-top: 1px solid var(--ck-stroke-2); }
+    .review__steps { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; padding: 0; list-style: none; }
+    .review__steps li { display: inline-flex; align-items: center; gap: 6px; color: var(--ck-fg-3); }
+    .review__steps li.is-current { color: var(--ck-fg-1); font-weight: 600; }
+    .review__steps li.is-done { color: var(--ck-status-ok-fg); }
+    .review__dot { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: 1px solid currentColor; border-radius: var(--ck-radius-sm); font: 600 10px/1 var(--ck-font-mono); }
+    .review__field { display: grid; gap: 4px; max-width: 640px; color: var(--ck-fg-2); }
+    .review__field--inline { display: inline-grid; grid-auto-flow: column; align-items: center; gap: 8px; }
+    textarea, select { width: 100%; padding: 6px 8px; border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-sm); background: var(--ck-bg-inset); color: var(--ck-fg-1); font: inherit; resize: vertical; }
+    select { width: auto; min-width: 160px; height: 28px; padding: 0 8px; }
+    textarea:focus-visible, select:focus-visible { outline: 2px solid var(--ck-primary); outline-offset: 2px; }
+    .review__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .review__hint { color: var(--ck-fg-3); }
+    .review__error { margin: 0; padding: 6px 8px; border: 1px solid var(--ck-status-neg-line); border-radius: var(--ck-radius-sm); background: var(--ck-status-neg-bg); color: var(--ck-status-neg-fg); }
+    .review__verdict { margin: 0; padding: 6px 8px; border: 1px solid var(--ck-status-warn-line); border-radius: var(--ck-radius-sm); background: var(--ck-status-warn-bg); color: var(--ck-status-warn-fg); }
+    .review__verdict.is-ok { border-color: var(--ck-status-ok-line); background: var(--ck-status-ok-bg); color: var(--ck-status-ok-fg); }
   `,
 })
 export class ReviewLoopComponent implements OnInit {
@@ -97,6 +148,9 @@ export class ReviewLoopComponent implements OnInit {
   protected readonly laterId = signal('');
   protected readonly busy = signal(false);
   protected readonly error = signal('');
+  protected readonly open = signal(false);
+  /** 1 objection, 2 reread, 3 confirm, 4 compare, 5 closed. */
+  protected readonly step = computed(() => reviewStep(this.review()));
 
   ngOnInit(): void {
     this.load();
@@ -104,6 +158,10 @@ export class ReviewLoopComponent implements OnInit {
 
   protected laterRuns(): Array<{ id: string; status: string }> {
     return laterResults(this.runs(), this.review()?.run_id);
+  }
+
+  protected stepLabel(step: number): string {
+    return this.i18n.t(`flow.review.steps.${step}`);
   }
 
   protected blocks(row: ReviewRow): string {
