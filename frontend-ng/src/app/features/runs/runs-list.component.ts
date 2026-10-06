@@ -10,11 +10,11 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { Subscription, distinctUntilChanged, map } from 'rxjs';
+import { Observable, Subscription, distinctUntilChanged, map } from 'rxjs';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { HelpTooltipComponent, FilterChipComponent, NavLinkDirective, PageFrameComponent } from '@app/shared/cockpit';
-import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
+import { CanonicalApiService, type Run, type RunSystemSummary } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -23,6 +23,7 @@ import { formatSkillCost } from '@app/features/skills/skill-cost';
 import { experienceOrigin, experienceSlugFromOrigin, normalizedExperienceOrigin } from './runs-origin';
 
 type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
+type SummarySort = 'recent' | 'runs' | 'duration' | 'cost';
 
 @Component({
   selector: 'app-runs-list',
@@ -139,6 +140,52 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
           <option value="running">{{ i18n.t('runs.status.running') }}</option>
           <option value="pending">{{ i18n.t('runs.status.pending') }}</option>
         </select>
+        @if (grouped()) {
+          <select
+            [ngModel]="summarySort()"
+            (ngModelChange)="summarySort.set($event)"
+            [attr.aria-label]="i18n.t('runs.list.group.sort')"
+            [style.height.px]="28"
+            [style.padding]="'0 10px'"
+            [style.background]="'var(--ck-bg-inset)'"
+            [style.color]="'var(--ck-fg-1)'"
+            [style.border]="'1px solid var(--ck-stroke-2)'"
+            [style.borderRadius.px]="4"
+            [style.fontSize.px]="12"
+          >
+            <option value="recent">{{ i18n.t('runs.list.group.sort.recent') }}</option>
+            <option value="runs">{{ i18n.t('runs.list.group.sort.runs') }}</option>
+            <option value="duration">{{ i18n.t('runs.list.group.sort.duration') }}</option>
+            <option value="cost">{{ i18n.t('runs.list.group.sort.cost') }}</option>
+          </select>
+        }
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+          (click)="toggleGrouping()"
+          [disabled]="loading()"
+          [attr.aria-pressed]="grouped()"
+        >
+          <app-icon name="layers" [size]="12" />
+          {{ i18n.t(grouped() ? 'runs.list.group.hide' : 'runs.list.group.show') }}
+        </button>
+        @if (grouped()) {
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+            (click)="exportSummariesCsv()"
+            [disabled]="visibleSummaries().length === 0"
+          >
+            <app-icon name="download" [size]="12" />
+            {{ i18n.t('runs.list.group.export') }}
+          </button>
+        }
+        <a
+          [navLink]="{ surface: 'observability' }"
+          class="inline-flex items-center px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+        >
+          {{ i18n.t('runs.list.group.observability') }}
+        </a>
         <button
           type="button"
           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
@@ -162,7 +209,7 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
               {{ i18n.t('common.retry') }}
             </button>
           </div>
-        } @else if (loading() && visibleRuns().length === 0) {
+        } @else if (loading() && hasRows() === false) {
           <div class="divide-y divide-white/5">
             @for (_ of [0, 1, 2, 3, 4, 5]; track $index) {
               <div class="px-5 py-3 animate-pulse">
@@ -170,7 +217,7 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
               </div>
             }
           </div>
-        } @else if (visibleRuns().length === 0) {
+        } @else if (hasRows() === false) {
           <app-empty-state
             icon="activity"
             [title]="i18n.t('runs.list.empty.title')"
@@ -181,6 +228,44 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
             <button type="button" class="ck-btn-soft" (click)="statusFilter.set('all'); clearOrigin()">{{i18n.t('experience.adoption.clear')}}</button>
             <a class="ck-accent text-xs underline underline-offset-2" [navLink]="{leaf:'help-guide',params:{guideId:'runs'}}">{{i18n.t('experience.adoption.help')}}</a>
           </div></app-empty-state>
+        } @else if (grouped()) {
+          <div
+            class="px-5 py-2 text-[11px] font-medium grid grid-cols-12 gap-3 border-b border-white/5"
+            style="color:var(--ck-fg-3)"
+          >
+            <div class="col-span-4">{{ i18n.t('runs.list.column.system') }}</div>
+            <div class="col-span-2">{{ i18n.t('runs.list.column.last_status') }}</div>
+            <div class="col-span-2 text-right">{{ i18n.t('runs.list.column.runs') }}</div>
+            <div class="col-span-2 text-right">{{ i18n.t('runs.list.column.duration') }}</div>
+            <div class="col-span-2 text-right">{{ i18n.t('runs.list.column.provider_cost') }}</div>
+          </div>
+          <ul class="divide-y divide-white/5">
+            @for (summary of visibleSummaries(); track summary.system_id) {
+              <li>
+                <a
+                  [routerLink]="systemHref(summary)"
+                  class="w-full px-5 py-3 grid grid-cols-12 gap-3 items-center text-left text-sm bg-transparent border-0 hover:bg-white/[0.02] cursor-pointer transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-cyan-400"
+                >
+                  <div class="col-span-4 min-w-0">
+                    <div class="text-xs text-white truncate">{{ summary.system_name }}</div>
+                    <div class="font-mono text-[10px] text-gray-500 truncate">{{ summary.system_id }}</div>
+                  </div>
+                  <div class="col-span-2 text-xs">{{ statusLabel(summary.last_status ?? undefined) }}</div>
+                  <div class="col-span-2 text-right text-xs font-mono tabular-nums">{{ summary.run_count }}</div>
+                  <div class="col-span-2 text-right text-xs font-mono tabular-nums">
+                    {{ formatDuration(summary.last_duration_ms) }}
+                  </div>
+                  <div class="col-span-2 text-right text-xs font-mono tabular-nums">
+                    @if (summary.total_provider_cost_usd != null) {
+                      {{ formatRunCost(summary.total_provider_cost_usd ?? 0) }}
+                    } @else {
+                      <span class="text-gray-600">—</span>
+                    }
+                  </div>
+                </a>
+              </li>
+            }
+          </ul>
         } @else {
           <div
             class="px-5 py-2 text-[11px] font-medium grid grid-cols-12 gap-3 border-b border-white/5"
@@ -276,6 +361,7 @@ export class RunsListComponent implements OnInit, OnDestroy {
   );
 
   readonly runs = signal<Run[]>([]);
+  readonly summaries = signal<RunSystemSummary[]>([]);
   readonly loading = signal(false);
   readonly loadError = signal(false);
   readonly originActive = signal(false);
@@ -284,6 +370,8 @@ export class RunsListComponent implements OnInit, OnDestroy {
   readonly statusFilter = signal<StatusFilter>('all');
   readonly filterSystemId = signal<string | null>(null);
   readonly filterCapabilityId = signal<string | null>(null);
+  readonly grouped = signal(false);
+  readonly summarySort = signal<SummarySort>('recent');
 
   readonly visibleRuns = computed(() => {
     const list = this.runs();
@@ -291,6 +379,24 @@ export class RunsListComponent implements OnInit, OnDestroy {
     if (status === 'all') return list;
     return list.filter((r) => r.status === status);
   });
+
+  readonly visibleSummaries = computed(() => {
+    const status = this.statusFilter();
+    const rows = this.summaries().filter(
+      (summary) => status === 'all' || summary.last_status === status,
+    );
+    const sorters: Record<SummarySort, (a: RunSystemSummary, b: RunSystemSummary) => number> = {
+      recent: () => 0,
+      runs: (a, b) => b.run_count - a.run_count,
+      duration: (a, b) => (b.last_duration_ms ?? -1) - (a.last_duration_ms ?? -1),
+      cost: (a, b) => (b.total_provider_cost_usd ?? -1) - (a.total_provider_cost_usd ?? -1),
+    };
+    return [...rows].sort(sorters[this.summarySort()]);
+  });
+
+  readonly hasRows = computed(() => (
+    this.grouped() ? this.visibleSummaries().length > 0 : this.visibleRuns().length > 0
+  ));
 
   ngOnInit(): void {
     this.routeSubscription = this.route.queryParamMap.pipe(
@@ -351,15 +457,20 @@ export class RunsListComponent implements OnInit, OnDestroy {
     const request = this.workspaceView.beginRequest();
     this.loading.set(true);
     this.loadError.set(false);
-    const subscription = this.canonical.listRuns(this.scopeParams).subscribe({
+    const request$: Observable<Run[] | RunSystemSummary[]> = this.grouped()
+      ? this.canonical.listRunSummaries({ system_id: this.scopeParams?.system_id })
+      : this.canonical.listRuns(this.scopeParams);
+    const subscription = request$.subscribe({
       next: (list) => {
         if (!this.workspaceView.isCurrent(request)) return;
-        this.runs.set(list ?? []);
+        if (this.grouped()) this.summaries.set(list as RunSystemSummary[] ?? []);
+        else this.runs.set(list as Run[] ?? []);
         this.loading.set(false);
       },
       error: () => {
         if (!this.workspaceView.isCurrent(request)) return;
         this.runs.set([]);
+        this.summaries.set([]);
         this.loadError.set(true);
         this.loading.set(false);
       },
@@ -369,6 +480,54 @@ export class RunsListComponent implements OnInit, OnDestroy {
 
   runHref(r: Run): string {
     return this.navigation.objectUrl('run', r.id);
+  }
+
+  systemHref(summary: RunSystemSummary): string {
+    return this.navigation.objectUrl('system', summary.system_id);
+  }
+
+  toggleGrouping(): void {
+    this.grouped.set(!this.grouped());
+    this.refresh();
+  }
+
+  formatDuration(durationMs: number | null | undefined): string {
+    if (durationMs == null) return '—';
+    if (durationMs < 1_000) return `${Math.round(durationMs)}ms`;
+    const seconds = durationMs / 1_000;
+    if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+    const minutes = Math.floor(seconds / 60);
+    return `${minutes}m ${Math.round(seconds % 60)}s`;
+  }
+
+  exportSummariesCsv(): void {
+    const headers = [
+      this.i18n.t('runs.list.column.system'),
+      this.i18n.t('runs.list.column.last_status'),
+      this.i18n.t('runs.list.column.runs'),
+      this.i18n.t('runs.list.column.duration'),
+      this.i18n.t('runs.list.column.provider_cost'),
+    ];
+    const lines = [
+      headers.join(','),
+      ...this.visibleSummaries().map((summary) => [
+        this.csvCell(summary.system_name),
+        this.csvCell(summary.last_status ?? ''),
+        summary.run_count,
+        summary.last_duration_ms ?? '',
+        summary.total_provider_cost_usd ?? '',
+      ].join(',')),
+    ];
+    const url = URL.createObjectURL(new Blob(['\uFEFF', lines.join('\n')], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `runs-by-system-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  csvCell(value: string): string {
+    return `"${value.replaceAll('"', '""')}"`;
   }
 
   applyOrigin(event: Event): void {
@@ -478,6 +637,7 @@ export class RunsListComponent implements OnInit, OnDestroy {
     this.requestSubscription = null;
     this.workspaceView.invalidate();
     this.runs.set([]);
+    this.summaries.set([]);
     this.loadError.set(false);
     this.loading.set(false);
   }
@@ -486,6 +646,7 @@ export class RunsListComponent implements OnInit, OnDestroy {
     this.requestSubscription?.unsubscribe();
     this.requestSubscription = null;
     this.runs.set([]);
+    this.summaries.set([]);
     this.loadError.set(false);
     this.loading.set(false);
   }

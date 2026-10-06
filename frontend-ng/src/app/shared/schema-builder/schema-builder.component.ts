@@ -163,19 +163,34 @@ type SchemaObject = Record<string, unknown>;
               </div>
 
               @if (field.type === 'array') {
-                <label class="ck-sb__cell">
-                  <span class="ck-sb__cell-label">{{ i18n.t('skills.schema.field.items') }}</span>
-                  <select
-                    class="ck-sb__input ck-mono"
-                    [value]="field.itemType ?? ''"
-                    (change)="patch($index, { itemType: itemType($event) })"
-                  >
-                    <option value=""></option>
-                    @for (option of itemTypes; track option) {
-                      <option [value]="option">{{ typeLabel(option) }}</option>
-                    }
-                  </select>
-                </label>
+                <div class="ck-sb__grid">
+                  <label class="ck-sb__cell">
+                    <span class="ck-sb__cell-label">{{ i18n.t('skills.schema.field.items') }}</span>
+                    <select
+                      class="ck-sb__input ck-mono"
+                      [value]="field.itemType ?? ''"
+                      (change)="patch($index, { itemType: itemType($event) })"
+                    >
+                      <option value=""></option>
+                      @for (option of itemTypes; track option) {
+                        <option [value]="option">{{ typeLabel(option) }}</option>
+                      }
+                    </select>
+                  </label>
+                  <label class="ck-sb__cell">
+                    <span class="ck-sb__cell-label">
+                      {{ i18n.t('skills.schema.field.exact_count') }}
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      class="ck-sb__input ck-mono"
+                      [value]="field.exactCount ?? ''"
+                      (change)="patch($index, { exactCount: exactCount($event) })"
+                    />
+                  </label>
+                </div>
               }
 
               @if (field.type !== 'object') {
@@ -388,6 +403,11 @@ export class SchemaBuilderComponent {
   itemType(event: Event): SchemaField['itemType'] {
     const value = this.text(event);
     return value ? (value as SchemaField['itemType']) : null;
+  }
+
+  exactCount(event: Event): number | null {
+    const value = Number((event.target as HTMLInputElement).value);
+    return Number.isInteger(value) && value >= 0 ? value : null;
   }
 
   list(event: Event): string[] {

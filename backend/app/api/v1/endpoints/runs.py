@@ -85,6 +85,7 @@ from app.services.run_outcome_provenance import (
     record_operator_outcome_override,
     run_measurement_provenance,
 )
+from app.services.object_store import get_object_store
 from app.services.workspace_secrets import public_checkpoint
 
 logger = get_logger(__name__)
@@ -232,6 +233,7 @@ def _row(r: Run, *, db: DBSession) -> Dict[str, Any]:
             "confidence": r.confidence,
             "value_estimated": r.value_estimated,
             "cost_internal": r.cost_internal,
+            "provider_cost_usd": r.provider_cost_usd,
             "revenue_allocated": r.revenue_allocated,
             "efficiency": r.efficiency,
             "value_source": getattr(r, "value_source", None) or "unset",
@@ -322,6 +324,7 @@ def _invocation(
         "completed_at": i.completed_at.isoformat() if i.completed_at else None,
         "latency_ms": i.latency_ms,
         "cost": i.cost,
+        "provider_cost_usd": i.provider_cost_usd,
         "input_ref": {} if redact_io else i.input_ref or {},
         "output_ref": (
             {}
@@ -430,6 +433,93 @@ async def list_runs(
     return {"runs": [_row(r, db=db) for r in rows]}
 
 
+@router.get("/summary")
+async def get_runs_summary(
+    group_by: Literal["system"] = "system",
+    system_id: Optional[str] = None,
+    capability_id: Optional[str] = None,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    q = db.query(Run).filter(Run.workspace_id == workspace.id, Run.system_id.isnot(None))
+    if not _can_view_private_chat_runs(db, user=user, workspace=workspace):
+        q = q.filter(
+            or_(
+                Run.trigger.is_(None),
+                Run.trigger != _PRIVATE_CHAT_TRIGGER,
+                Run.initiated_by_user_id == user.id,
+            )
+        )
+    if system_id:
+        q = q.filter(Run.system_id == system_id)
+    if capability_id:
+        visible_capability = exists().where(
+            and_(
+                Capability.id == capability_id,
+                or_(
+                    Capability.workspace_id == workspace.id,
+                    Capability.workspace_id.is_(None),
+                ),
+            )
+        )
+        q = q.filter(
+            visible_capability,
+            exists().where(
+                and_(
+                    System.id == Run.system_id,
+                    System.workspace_id == workspace.id,
+                    System.capability_id == capability_id,
+                ),
+            ),
+        )
+
+    rows = readable_runs(
+        db,
+        runs=q.order_by(Run.started_at.desc()).all(),
+        user=user,
+        workspace=workspace,
+    )
+    system_names = {
+        row.id: row.name
+        for row in db.query(System.id, System.name).filter(
+            System.workspace_id == workspace.id,
+            System.id.in_({run.system_id for run in rows if run.system_id}),
+        )
+    }
+    summaries: dict[str, dict[str, Any]] = {}
+    for run in rows:
+        system_key = run.system_id
+        if not system_key:
+            continue
+        summary = summaries.setdefault(
+            system_key,
+            {
+                "system_id": system_key,
+                "system_name": system_names.get(system_key, system_key),
+                "last_run_id": None,
+                "last_status": None,
+                "last_duration_ms": None,
+                "last_provider_cost_usd": None,
+                "total_provider_cost_usd": None,
+                "run_count": 0,
+            },
+        )
+        summary["run_count"] += 1
+        if summary["last_run_id"] is None:
+            summary["last_run_id"] = run.id
+            summary["last_status"] = run.status
+            summary["last_duration_ms"] = run.duration_ms
+            summary["last_provider_cost_usd"] = run.provider_cost_usd
+        if run.provider_cost_usd is not None:
+            summary["total_provider_cost_usd"] = (
+                run.provider_cost_usd
+                if summary["total_provider_cost_usd"] is None
+                else summary["total_provider_cost_usd"] + run.provider_cost_usd
+            )
+    return {"summaries": list(summaries.values())}
+
+
 @router.get("/{run_id}")
 async def get_run(
     run_id: str,
@@ -443,6 +533,8 @@ async def get_run(
         user=user,
         workspace=workspace,
     )
+
+
     enforce_action(
         db,
         user=user,
@@ -566,6 +658,37 @@ async def get_run(
             "last_output": debug_cp.get("last_output") or {},
         }
     return payload
+
+
+@router.get("/{run_id}/files")
+async def get_run_files(
+    run_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    run = _visible_run_or_404(db, run_id=run_id, user=user, workspace=workspace)
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="run",
+        action="read",
+        legacy_allowed=True,
+        resource_attrs=_run_read_attrs(run),
+    )
+    store = get_object_store()
+    prefix = f"membrane/{workspace.id}/{run.id}"
+    files = [
+        {
+            "key": key,
+            "name": key.rsplit("/", 1)[-1],
+            "size_bytes": store.size(key),
+            "uri": f"object://{key}",
+        }
+        for key in store.list_keys(prefix)
+    ]
+    return {"files": files}
 
 
 @router.get("/{run_id}/perspective")

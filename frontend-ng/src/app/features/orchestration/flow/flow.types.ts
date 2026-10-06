@@ -159,6 +159,50 @@ export function paletteItemToNode(
  */
 export const DEFAULT_PALETTE: PaletteItem[] = [
   {
+    type: 'task.role_agent',
+    kind: 'task',
+    label: 'Role agent',
+    description: 'One role, one instruction, one strict JSON output contract',
+    icon: 'cpu',
+    tone: 'cyan',
+    inputs: [{ name: 'body', schema: 'string' }],
+    outputs: [
+      { name: 'summary', schema: 'string', required: true },
+      { name: 'recommendation', schema: 'string', required: true },
+      { name: 'confidence', schema: 'number' },
+    ],
+    config: {
+      skill_slug: 'role_agent_v1',
+      inputs_map: {},
+      outputs_map: {},
+      params: {
+        role: 'Analyst',
+        instruction: 'Produce a decision-ready judgement from the input.',
+        body: '',
+        output_contract: {
+          type: 'object',
+          required: ['summary', 'recommendation'],
+          properties: {
+            summary: { type: 'string' },
+            recommendation: { type: 'string' },
+            confidence: { type: 'number' },
+          },
+          additionalProperties: false,
+        },
+      },
+      output_schema: {
+        type: 'object',
+        required: ['summary', 'recommendation'],
+        properties: {
+          summary: { type: 'string' },
+          recommendation: { type: 'string' },
+          confidence: { type: 'number' },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
     type: 'source',
     kind: 'source',
     label: 'Trigger',

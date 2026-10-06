@@ -263,6 +263,7 @@ export const SKILLS_FR = {
   'skills.schema.field.description': 'Description',
   'skills.schema.field.default': 'Valeur par défaut',
   'skills.schema.field.items': 'Type des éléments',
+  'skills.schema.field.exact_count': 'Nombre exact',
   'skills.schema.field.enum': 'Valeurs autorisées',
   'skills.schema.field.enum.hint':
     'Séparées par des virgules ; laissez vide pour accepter toute valeur.',
@@ -589,6 +590,7 @@ export const SKILLS_EN: Record<keyof typeof SKILLS_FR, string> = {
   'skills.schema.field.description': 'Description',
   'skills.schema.field.default': 'Default',
   'skills.schema.field.items': 'Item type',
+  'skills.schema.field.exact_count': 'Exact count',
   'skills.schema.field.enum': 'Allowed values',
   'skills.schema.field.enum.hint': 'Comma-separated; leave empty to accept any value.',
   'skills.schema.add': 'Add a field',

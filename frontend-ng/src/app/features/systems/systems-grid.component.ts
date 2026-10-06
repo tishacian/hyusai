@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Subscription, distinctUntilChanged, forkJoin, map } from 'rxjs';
-import { CanonicalApiService, Run } from '@app/core/canonical-api.service';
+import { CanonicalApiService, RunSystemSummary } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
 import {
   GlyphComponent,
@@ -22,8 +22,8 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
 
 interface AgentStats {
   runs: number;
-  avgLatency: number;
-  lastRun: string | null;
+  lastStatus: string;
+  lastDurationMs: number | null;
 }
 
 interface Template {
@@ -158,6 +158,25 @@ interface Template {
         </div>
       </section>
 
+      @if (recentSystems().length > 0) {
+        <div
+          [style.display]="'flex'"
+          [style.flexWrap]="'wrap'"
+          [style.alignItems]="'center'"
+          [style.gap.px]="8"
+          [style.marginBottom.px]="12"
+        >
+          <span class="ck-label">{{ i18n.t('systems.grid.recent') }}</span>
+          @for (summary of recentSystems(); track summary.system_id) {
+            <a
+              [navLink]="{ type: 'system', ref: summary.system_id, lens: 'build' }"
+              class="sg-chip"
+              [attr.data-testid]="'recent-system-' + $index"
+            >{{ summary.system_name }} · {{ statusLabel(summary.last_status) }}</a>
+          }
+        </div>
+      }
+
       <!-- Grid header -->
       <div [style.display]="'flex'" [style.alignItems]="'center'" [style.justifyContent]="'space-between'" [style.marginBottom.px]="12">
         <span class="ck-label ck-tnum" data-testid="systems-count">{{ loadProblem() ? '' : i18n.t('systems.grid.count', { count: systems().length }) }}</span>
@@ -283,9 +302,9 @@ interface Template {
               </div>
 
               <div [style.display]="'grid'" [style.gridTemplateColumns]="'repeat(3, 1fr)'" [style.gap.px]="8" [style.paddingTop.px]="12" [style.borderTop]="'1px solid var(--ck-stroke-1)'">
-                <ck-stat-readout [label]="i18n.t('systems.grid.stat_runs')"   [value]="statsFor(system.id).runs > 0 ? statsFor(system.id).runs.toString() : '—'" tone="cool" [size]="14" />
-                <ck-stat-readout [label]="i18n.t('systems.grid.stat_avg_ms')" [value]="statsFor(system.id).avgLatency > 0 ? statsFor(system.id).avgLatency.toString() : '—'" tone="pos" [size]="14" />
-                <ck-stat-readout [label]="i18n.t('systems.grid.stat_last')"   [value]="statsFor(system.id).lastRun ?? '—'" tone="violet" [size]="14" />
+                <ck-stat-readout [label]="i18n.t('systems.grid.stat_runs')" [value]="statsFor(system.id).runs > 0 ? statsFor(system.id).runs.toString() : '—'" tone="cool" [size]="14" />
+                <ck-stat-readout [label]="i18n.t('systems.grid.stat_last_status')" [value]="statsFor(system.id).lastStatus" tone="pos" [size]="14" />
+                <ck-stat-readout [label]="i18n.t('systems.grid.stat_last_duration')" [value]="formatDuration(statsFor(system.id).lastDurationMs)" tone="violet" [size]="14" />
               </div>
 
               <div [style.display]="'flex'" [style.alignItems]="'center'" [style.justifyContent]="'space-between'">
@@ -337,45 +356,34 @@ export class SystemsGridComponent implements OnInit, OnDestroy {
   );
 
   prompt = '';
-  private readonly runs = signal<Run[]>([]);
+  private readonly summaries = signal<RunSystemSummary[]>([]);
 
-  readonly statsByAgent = computed<Record<string, AgentStats>>(() => {
-    const out: Record<string, AgentStats> = {};
-    for (const r of this.runs()) {
-      const id = r.system_id ?? '';
-      if (!id) continue;
-      const cur = out[id] ?? { runs: 0, avgLatency: 0, lastRun: null };
-      cur.runs += 1;
-      if (r.duration_ms) {
-        cur.avgLatency =
-          cur.runs === 1
-            ? Math.round(r.duration_ms)
-            : Math.round(((cur.avgLatency * (cur.runs - 1)) + r.duration_ms) / cur.runs);
-      }
-      const ts = r.ended_at ?? r.started_at ?? null;
-      if (ts && (!cur.lastRun || ts > cur.lastRun)) cur.lastRun = ts;
-      out[id] = cur;
-    }
-    return out;
-  });
+  readonly recentSystems = computed(() => this.summaries().slice(0, 3));
 
   statsFor(id: string): AgentStats {
-    const s = this.statsByAgent()[id];
-    if (!s) return { runs: 0, avgLatency: 0, lastRun: null };
-    return { ...s, lastRun: s.lastRun ? this.formatRelative(s.lastRun) : null };
+    const s = this.summaries().find((summary) => summary.system_id === id);
+    if (!s) return { runs: 0, lastStatus: '—', lastDurationMs: null };
+    return {
+      runs: s.run_count,
+      lastStatus: this.statusLabel(s.last_status),
+      lastDurationMs: s.last_duration_ms,
+    };
   }
 
-  private formatRelative(iso: string): string {
-    const t = Date.parse(iso);
-    if (Number.isNaN(t)) return '';
-    const diff = Date.now() - t;
-    const minute = 60_000;
-    const hour = 60 * minute;
-    const day = 24 * hour;
-    if (diff < minute) return 'now';
-    if (diff < hour) return Math.round(diff / minute) + 'm';
-    if (diff < day) return Math.round(diff / hour) + 'h';
-    return Math.round(diff / day) + 'd';
+  statusLabel(status: string | null): string {
+    if (!status) return '—';
+    const key = `runs.status.${status}`;
+    const label = this.i18n.t(key);
+    return label === key ? status : label;
+  }
+
+  formatDuration(durationMs: number | null): string {
+    if (durationMs == null) return '—';
+    if (durationMs < 1_000) return `${Math.round(durationMs)}ms`;
+    const seconds = durationMs / 1_000;
+    if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+    const minutes = Math.floor(seconds / 60);
+    return `${minutes}m ${Math.round(seconds % 60)}s`;
   }
 
   readonly systems = this.store.systems;
@@ -472,17 +480,18 @@ export class SystemsGridComponent implements OnInit, OnDestroy {
     const request = this.workspaceView.beginRequest();
     const subscription = forkJoin({
       systems: this.store.load({ capabilityId }),
-      // Canonical `/runs` — the legacy `/traces/traces` alias is deprecated.
-      runs: this.canonical.listRuns(capabilityId ? { capability_id: capabilityId } : undefined),
+      summaries: this.canonical.listRunSummaries(
+        capabilityId ? { capability_id: capabilityId } : undefined,
+      ),
     }).subscribe({
-      next: ({ runs }) => {
+      next: ({ summaries }) => {
         if (
           !this.workspaceView.isCurrent(request)
           || capabilityId !== this.currentCapabilityId
         ) {
           return;
         }
-        this.runs.set(runs ?? []);
+        this.summaries.set(summaries ?? []);
       },
       error: (error: { status?: number }) => {
         if (
@@ -491,7 +500,7 @@ export class SystemsGridComponent implements OnInit, OnDestroy {
         ) {
           return;
         }
-        this.runs.set([]);
+        this.summaries.set([]);
         this.loadProblem.set(error?.status === 403 ? 'experience.adoption.access_denied' : 'experience.adoption.load_failed');
       },
     });
@@ -513,12 +522,12 @@ export class SystemsGridComponent implements OnInit, OnDestroy {
     this.requestSubscription?.unsubscribe();
     this.requestSubscription = null;
     this.workspaceView.invalidate();
-    this.runs.set([]);
+    this.summaries.set([]);
   }
 
   private resetWorkspaceState(): void {
     this.requestSubscription?.unsubscribe();
     this.requestSubscription = null;
-    this.runs.set([]);
+    this.summaries.set([]);
   }
 }

@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { switchMap } from 'rxjs';
-import { CanonicalApiService } from '@app/core/canonical-api.service';
+import { CanonicalApiService, type RunSystemSummary } from '@app/core/canonical-api.service';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import {
   GlyphComponent,
@@ -41,6 +41,8 @@ export class CreateHubComponent {
   private readonly router = inject(Router);
   readonly recentApps = signal<StudioExperience[]>([]);
   readonly recentState = signal<'loading' | 'ready' | 'error'>('loading');
+  readonly recentSystems = signal<RunSystemSummary[]>([]);
+  readonly recentSystemsState = signal<'loading' | 'ready' | 'error'>('loading');
   readonly canEdit = computed(() => canEditExperienceStudio(
     this.workspace.current()?.role_template,
     this.workspace.current()?.role,
@@ -52,6 +54,7 @@ export class CreateHubComponent {
 
   constructor() {
     this.loadRecent();
+    this.loadRecentSystems();
   }
 
   loadRecent(): void {
@@ -67,6 +70,24 @@ export class CreateHubComponent {
 
   state(app: StudioExperience): string {
     return this.i18n.t(`experience.apps.state.${inventoryState(app.deployments)}`);
+  }
+
+  loadRecentSystems(): void {
+    this.recentSystemsState.set('loading');
+    this.canonical.listRunSummaries().subscribe({
+      next: (rows) => {
+        this.recentSystems.set(rows.slice(0, 3));
+        this.recentSystemsState.set('ready');
+      },
+      error: () => this.recentSystemsState.set('error'),
+    });
+  }
+
+  systemStatus(status: string | null): string {
+    if (!status) return '—';
+    const key = `runs.status.${status}`;
+    const label = this.i18n.t(key);
+    return label === key ? status : label;
   }
 
   createAutomation(): void {

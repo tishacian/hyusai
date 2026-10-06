@@ -22,7 +22,7 @@ import { CkObjectHeaderComponent, type CkObjectKpi } from '@app/shared/cockpit/o
 import { CkTabComponent, CkTabsComponent } from '@app/shared/cockpit/tabs.component';
 import { ObjectPerspectiveComponent } from '@app/shared/cockpit/object-perspective.component';
 import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-perspective.models';
-import { CanonicalApiService, type RetrievalDecisionTrace, type Run, type SkillInvocation } from '@app/core/canonical-api.service';
+import { CanonicalApiService, type RetrievalDecisionTrace, type Run, type RunFile, type SkillInvocation } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { LensService } from '@app/core/lens';
 import { isObjectLens, navigationLeafUrl, type ObjectLens } from '@app/core/navigation.catalog';
@@ -152,6 +152,22 @@ import { observabilityNumber } from '../observability/observability-labels';
         </ck-tab>
         <ck-tab id="payloads" [label]="i18n.t('runs.detail.tab.payloads')">
           <ck-object-perspective [objectLabel]="i18n.t('runs.detail.object_label')" [lens]="activeLens()" facet="payloads" [perspective]="activePerspective()" [loading]="perspectivesLoading()" [error]="perspectivesError()" />
+        </ck-tab>
+        <ck-tab id="files" [label]="i18n.t('runs.detail.tab.files')">
+          @if (filesLoading()) {
+            <p class="p-4 text-xs text-gray-500 font-mono">{{ i18n.t('common.loading') }}</p>
+          } @else if (files().length === 0) {
+            <p class="p-4 text-xs text-gray-500 font-mono">{{ i18n.t('runs.detail.files.empty') }}</p>
+          } @else {
+            <ul class="p-4 flex flex-col gap-2" data-testid="run-produced-files">
+              @for (file of files(); track file.key) {
+                <li class="flex items-center justify-between gap-3 rounded px-3 py-2 bg-white/[0.03] ring-1 ring-white/10 text-xs">
+                  <span class="font-mono text-cyan-200 break-all">{{ file.name }}</span>
+                  <span class="font-mono text-gray-400 tabular-nums">{{ formatFileSize(file.size_bytes) }}</span>
+                </li>
+              }
+            </ul>
+          }
         </ck-tab>
         <ck-tab id="checkpoints" [label]="i18n.t('runs.detail.checkpoints')">
           <ck-object-perspective [objectLabel]="i18n.t('runs.detail.object_label')" [lens]="activeLens()" facet="checkpoints" [perspective]="activePerspective()" [loading]="perspectivesLoading()" [error]="perspectivesError()" />
@@ -601,6 +617,7 @@ export class RunViewComponent implements OnInit, OnDestroy {
   private loadSubscription: Subscription | null = null;
   private overrideSubscription: Subscription | null = null;
   private perspectiveSubscription: Subscription | null = null;
+  private filesSubscription: Subscription | null = null;
   private featureRefreshSubscription: Subscription | null = null;
   private overrideGeneration = 0;
   private projectionFeatureEnabled = false;
@@ -659,6 +676,8 @@ export class RunViewComponent implements OnInit, OnDestroy {
   readonly skillInvocations = computed<SkillInvocation[]>(
     () => this.run()?.skill_invocations ?? [],
   );
+  readonly files = signal<RunFile[]>([]);
+  readonly filesLoading = signal(false);
   readonly modelExecution = recordedModelExecution;
   readonly checkpoints = computed<Array<Record<string, unknown>>>(
     () => this.run()?.checkpoints ?? [],
@@ -746,6 +765,8 @@ export class RunViewComponent implements OnInit, OnDestroy {
     this.facetRouteSubscription = null;
     this.perspectiveSubscription?.unsubscribe();
     this.perspectiveSubscription = null;
+    this.filesSubscription?.unsubscribe();
+    this.filesSubscription = null;
     this.featureRefreshSubscription?.unsubscribe();
     this.featureRefreshSubscription = null;
     this.workspaceView.destroy();
@@ -802,7 +823,27 @@ export class RunViewComponent implements OnInit, OnDestroy {
       },
     });
     this.loadSubscription = subscription.closed ? null : subscription;
+    this.loadFiles(id);
     this.loadPerspectives(id, request, forcePerspectiveRefresh);
+  }
+
+  private loadFiles(id: string): void {
+    this.filesSubscription?.unsubscribe();
+    this.filesSubscription = null;
+    this.filesLoading.set(true);
+    const subscription = this.canonical.getRunFiles(id).subscribe({
+      next: (rows) => {
+        if (id !== this.runId()) return;
+        this.files.set(rows ?? []);
+        this.filesLoading.set(false);
+      },
+      error: () => {
+        if (id !== this.runId()) return;
+        this.files.set([]);
+        this.filesLoading.set(false);
+      },
+    });
+    this.filesSubscription = subscription.closed ? null : subscription;
   }
 
   onPerspectiveTabChange(value: string): void {
@@ -894,6 +935,13 @@ export class RunViewComponent implements OnInit, OnDestroy {
     if (!Number.isFinite(ms)) return '—';
     if (ms < 1000) return `${ms.toFixed(0)}ms`;
     return `${(ms / 1000).toFixed(2)}s`;
+  }
+
+  formatFileSize(sizeBytes: number | null): string {
+    if (sizeBytes == null) return '—';
+    if (sizeBytes < 1024) return `${sizeBytes} B`;
+    if (sizeBytes < 1024 ** 2) return `${(sizeBytes / 1024).toFixed(1)} KB`;
+    return `${(sizeBytes / 1024 ** 2).toFixed(1)} MB`;
   }
 
   asJson(v: unknown): string {
@@ -1047,6 +1095,8 @@ export class RunViewComponent implements OnInit, OnDestroy {
     this.loadSubscription = null;
     this.perspectiveSubscription?.unsubscribe();
     this.perspectiveSubscription = null;
+    this.filesSubscription?.unsubscribe();
+    this.filesSubscription = null;
     this.overrideSubscription?.unsubscribe();
     this.overrideSubscription = null;
     this.overrideGeneration += 1;
@@ -1058,6 +1108,8 @@ export class RunViewComponent implements OnInit, OnDestroy {
     this.perspectives.set({});
     this.perspectivesLoading.set(false);
     this.perspectivesError.set(false);
+    this.files.set([]);
+    this.filesLoading.set(false);
     this.projectionActivationInFlight = false;
   }
 
@@ -1066,6 +1118,8 @@ export class RunViewComponent implements OnInit, OnDestroy {
     this.loadSubscription = null;
     this.perspectiveSubscription?.unsubscribe();
     this.perspectiveSubscription = null;
+    this.filesSubscription?.unsubscribe();
+    this.filesSubscription = null;
     this.overrideSubscription?.unsubscribe();
     this.overrideSubscription = null;
     this.overrideGeneration += 1;
@@ -1078,6 +1132,8 @@ export class RunViewComponent implements OnInit, OnDestroy {
     this.perspectives.set({});
     this.perspectivesLoading.set(false);
     this.perspectivesError.set(false);
+    this.files.set([]);
+    this.filesLoading.set(false);
     this.projectionActivationInFlight = false;
     this.applyRequestedFacet(this.requestedFacet);
   }
@@ -1137,12 +1193,13 @@ export class RunViewComponent implements OnInit, OnDestroy {
   }
 }
 
-type RunPerspectiveFacet = 'overview' | 'invocations' | 'payloads' | 'checkpoints';
+type RunPerspectiveFacet = 'overview' | 'invocations' | 'payloads' | 'files' | 'checkpoints';
 
 const RUN_PERSPECTIVE_FACETS: readonly RunPerspectiveFacet[] = [
   'overview',
   'invocations',
   'payloads',
+  'files',
   'checkpoints',
 ];
 

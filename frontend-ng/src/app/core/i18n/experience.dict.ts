@@ -256,6 +256,11 @@ export const EXPERIENCE_FR = {
   'experience.hub.resume.note':
     'Chaque Flow publié génère automatiquement une page d’usage — publiez-la telle quelle, personnalisez-la, ou insérez-la dans une application plus large.',
   'experience.hub.resume.all': 'Voir toutes les applications',
+  'experience.hub.systems.title': 'Systèmes récents',
+  'experience.hub.systems.empty': 'Aucun système exécuté',
+  'experience.hub.systems.empty.description': 'Lancez un système pour le retrouver ici avec son dernier statut.',
+  'experience.hub.systems.runs': 'exécutions',
+  'experience.hub.systems.open': 'Ouvrir',
   'experience.hub.review.title': 'Revoir les applications et leur cycle de vie',
   'experience.hub.review.body':
     'Votre rôle permet de vérifier, publier et déployer les releases sans modifier leur contenu.',
@@ -1611,6 +1616,11 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.hub.resume.note':
     'Every published Flow generates a usage page — publish it as-is, customise it, or fold it into a wider application.',
   'experience.hub.resume.all': 'View all applications',
+  'experience.hub.systems.title': 'Recent systems',
+  'experience.hub.systems.empty': 'No executed system yet',
+  'experience.hub.systems.empty.description': 'Run a system to find it here with its latest status.',
+  'experience.hub.systems.runs': 'runs',
+  'experience.hub.systems.open': 'Open',
   'experience.hub.review.title': 'Review applications and their lifecycle',
   'experience.hub.review.body':
     'Your role can verify, release and deploy versions without editing their content.',
