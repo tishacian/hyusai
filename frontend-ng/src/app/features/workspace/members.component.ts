@@ -7,6 +7,7 @@ import { map } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import { I18nService } from '@app/core/i18n.service';
 import {
+  AvailableWorkspaceUser,
   WorkspaceMemberDetail,
   WorkspaceService,
   toggleWorkspaceAppEntitlement,
@@ -84,9 +85,16 @@ const INVITE_TEMPLATES: Array<{ id: RoleTemplate; labelKey: string; inviteable: 
               name="email"
               type="email"
               placeholder="user@company.com"
+              list="workspace-existing-users"
               required
+              (input)="searchExistingUsers()"
               class="flex-1 min-w-[220px] px-3 py-2 rounded bg-black/20 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 transition"
             />
+            <datalist id="workspace-existing-users">
+              @for (candidate of availableUsers(); track candidate.id) {
+                <option [value]="candidate.email">{{ candidate.username }}</option>
+              }
+            </datalist>
             <select
               [(ngModel)]="inviteTemplate"
               name="role_template"
@@ -317,6 +325,7 @@ export class WorkspaceMembersComponent {
   );
 
   readonly members = signal<WorkspaceMemberDetail[]>([]);
+  readonly availableUsers = signal<AvailableWorkspaceUser[]>([]);
   readonly loading = signal(true);
   readonly inviting = signal(false);
   readonly savingMember = signal<string | null>(null);
@@ -382,7 +391,12 @@ export class WorkspaceMembersComponent {
       next: (res) => {
         this.inviting.set(false);
         const role = this.roleName(this.inviteTemplate).toLocaleLowerCase();
-        if (res?.invitation_email_sent) {
+        if (res?.action === 'unchanged') {
+          this.toastr.info(
+            this.i18n.t('workspace.members.toast.already', { email }),
+            this.i18n.t('workspace.members.toast.already_title'),
+          );
+        } else if (res?.invitation_email_sent) {
           this.toastr.success(
             this.i18n.t('workspace.members.toast.invited', { email, role }),
             this.i18n.t('workspace.members.toast.invited_title'),
@@ -394,12 +408,14 @@ export class WorkspaceMembersComponent {
           );
         }
         this.inviteEmail = '';
+        this.availableUsers.set([]);
         this.inviteTemplate = 'workspace_contributor';
         this.inviteAppEntitlements = this.inviteAppOptions().map((app) => app.key);
         this.load(slug);
       },
       error: (err) => {
         this.inviting.set(false);
+        this.availableUsers.set([]);
         if (err?.status === 409 && err?.error?.detail === 'User is already a member') {
           this.toastr.info(
             this.i18n.t('workspace.members.toast.already', { email }),
@@ -414,6 +430,19 @@ export class WorkspaceMembersComponent {
           this.i18n.t('workspace.toast.error_title'),
         );
       },
+    });
+  }
+
+  searchExistingUsers(): void {
+    const slug = this.routeSlug();
+    const query = this.inviteEmail.trim();
+    if (!slug || query.length < 2) {
+      this.availableUsers.set([]);
+      return;
+    }
+    this.workspaceService.availableMembers(slug, query).subscribe({
+      next: (users) => this.availableUsers.set(users),
+      error: () => this.availableUsers.set([]),
     });
   }
 

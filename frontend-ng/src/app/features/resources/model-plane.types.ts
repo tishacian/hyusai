@@ -30,12 +30,19 @@ export interface RoutingPrimary {
   model?: string | null;
 }
 
+export interface ModelRoute {
+  provider: string;
+  model: string;
+  fallback_chain?: string[];
+}
+
 export interface RoutingResponse {
   /** New contract: `{ provider, model }`. Legacy: plain string. */
   primary?: RoutingPrimary | string | null;
   /** Legacy single fallback string. */
   fallback?: string | null;
   fallback_chain?: string[];
+  named_routes?: Record<string, ModelRoute>;
   default_provider?: string | null;
   default_model?: string | null;
   source?: 'workspace' | 'global' | string | null;

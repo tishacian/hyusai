@@ -13,7 +13,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { NgClass } from '@angular/common';
+import { KeyValuePipe, NgClass } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink, type UrlTree } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
 import { Subscription, forkJoin, of, timer } from 'rxjs';
@@ -54,6 +54,7 @@ import {
   DistributionWindow,
   ModelProvider,
   NodesResponse,
+  ModelRoute,
   ProvidersResponse,
   PortalConfigResponse,
   RoutingResponse,
@@ -103,6 +104,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
     ModelExecutionComponent,
     RouterLink,
     NgClass,
+    KeyValuePipe,
     NavLinkDirective,
     IconComponent,
     SectionHeaderComponent,
@@ -433,6 +435,46 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
               </div>
             }
           </fieldset>
+          <section class="sm:col-span-2 rounded border border-white/10 bg-black/20 p-3">
+            <header class="mb-2 flex items-center justify-between gap-3">
+              <span class="text-xs" style="color:var(--ck-fg-3);">{{ i18n.t('resources.providers.routing.named') }}</span>
+              <span class="text-[10px] font-mono text-gray-500">{{ i18n.t('resources.providers.routing.named_hint') }}</span>
+            </header>
+            @if ((namedRoutes() | keyvalue).length === 0) {
+              <p class="text-xs text-gray-500">{{ i18n.t('resources.providers.routing.named_empty') }}</p>
+            } @else {
+              <ul class="flex flex-wrap gap-2">
+                @for (entry of namedRoutes() | keyvalue; track entry.key) {
+                  <li class="flex items-center gap-2 rounded border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-mono">
+                    <span class="text-cyan-200">{{ entry.key }}</span>
+                    <span class="text-gray-400">{{ entry.value.provider }}:{{ entry.value.model }}</span>
+                    <button
+                      type="button"
+                      class="text-gray-400 hover:text-red-300"
+                      [attr.aria-label]="i18n.t('resources.routing.remove_named', { name: entry.key })"
+                      (click)="removeNamedRoute(entry.key)"
+                    >×</button>
+                  </li>
+                }
+              </ul>
+            }
+            <div class="mt-2 flex gap-2">
+              <input
+                type="text"
+                [(ngModel)]="routeNameDraft"
+                name="routeName"
+                [disabled]="!canConfigure()"
+                [placeholder]="i18n.t('resources.providers.routing.name_placeholder')"
+                class="flex-1 rounded bg-black/30 border border-white/10 px-2 py-1 text-xs text-white font-mono"
+              />
+              <button
+                type="button"
+                class="ck-btn-quiet px-2 py-1 text-xs"
+                [disabled]="!canConfigure() || !canSaveRouting()"
+                (click)="addNamedRoute()"
+              >{{ i18n.t('resources.providers.routing.add_named') }}</button>
+            </div>
+          </section>
           <div class="sm:col-span-2">
             <button
               type="submit"
@@ -1204,6 +1246,8 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
   readonly portalError = signal<string | null>(null);
   readonly liveProviders = signal<ModelProvider[]>([]);
   readonly routing = signal<RoutingResponse | null>(null);
+  readonly namedRoutes = signal<Record<string, ModelRoute>>({});
+  routeNameDraft = '';
   readonly distribution = signal<DistributionResponse | null>(null);
   readonly distWindow = signal<DistributionWindow>('7d');
   readonly servingNodes = signal<ServingNode[]>([]);
@@ -1405,6 +1449,7 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
     this.models.set([]);
     this.liveProviders.set([]);
     this.routing.set(null);
+    this.namedRoutes.set({});
     this.portalConfig.set(null);
     this.distribution.set(null);
     this.servingNodes.set([]);
@@ -1428,6 +1473,7 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
     this.lifecycleBusy.set(null);
     this.credentialDrafts = {};
     this.routingDraft = { provider: '', model: '', fallback: [] };
+    this.routeNameDraft = '';
     this.nodeDraft = { name: '', base_url: '', token: '' };
     this.testInputs = '{}';
     this.testValues = {};
@@ -1514,6 +1560,30 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
     if (destination < 0 || destination >= values.length) return;
     [values[index], values[destination]] = [values[destination], values[index]];
     this.routingDraft = { ...this.routingDraft, fallback: values };
+  }
+
+  addNamedRoute(): void {
+    if (!this.canSaveRouting()) return;
+    const name = this.routeNameDraft.trim();
+    if (!name || this.routingProviderOptions().includes(name) || name === 'workspace') return;
+    this.namedRoutes.update((routes) => ({
+      ...routes,
+      [name]: {
+        provider: this.routingDraft.provider,
+        model: this.routingDraft.model,
+        fallback_chain: [...this.routingDraft.fallback],
+      },
+    }));
+    this.routeNameDraft = '';
+  }
+
+  removeNamedRoute(name: string): void {
+    if (!this.canConfigure()) return;
+    this.namedRoutes.update((routes) => {
+      const next = { ...routes };
+      delete next[name];
+      return next;
+    });
   }
 
   invocationUrl(runId: string, invocationId: string): UrlTree { return this.navigation.objectUrlTree('skill_invocation', invocationId, { runId }); }
@@ -1824,8 +1894,10 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
     this.configError.set(null);
     this.distributionError.set(null);
     this.routing.set(null);
+    this.namedRoutes.set({});
     this.portalConfig.set(null);
     this.routingDraft = { provider: '', model: '', fallback: [] };
+    this.routeNameDraft = '';
     forkJoin({
       providers: this.api.get<ProvidersResponse>('/models/providers').pipe(
         catchError((err) => {
@@ -1888,6 +1960,7 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
       model: (primary?.model || routing.default_model || '').toString(),
       fallback: [...(routing.fallback_chain ?? [])],
     };
+    this.namedRoutes.set({ ...(routing.named_routes ?? {}) });
   }
 
   isConfigurableCloud(key: string): boolean {
@@ -1926,6 +1999,7 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
         default_provider: provider,
         default_model: model,
         fallback_chain,
+        named_routes: this.namedRoutes(),
       })
       .subscribe({
         next: (res) => {
@@ -1937,6 +2011,7 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
             default_provider: res.default_provider || provider,
             default_model: res.default_model || model,
             fallback_chain: res.fallback_chain || fallback_chain,
+            named_routes: res.named_routes || this.namedRoutes(),
             primary: {
               provider: res.default_provider || provider,
               model: res.default_model || model,

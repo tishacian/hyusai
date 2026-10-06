@@ -11,7 +11,11 @@ from app.api.v1.endpoints import auth, iam
 from app.core.config import settings
 from app.core.iam import dependencies as iam_dependencies
 from app.core.iam.dependencies import require_app_entitlement
-from app.core.iam.roles import WORKSPACE_CONTRIBUTOR, WORKSPACE_OWNER
+from app.core.iam.roles import (
+    WORKSPACE_CONTRIBUTOR,
+    WORKSPACE_OWNER,
+    WORKSPACE_REVIEWER,
+)
 from app.models.audit import AuditLog
 from app.models.capability import Capability
 from app.models.system import System
@@ -601,6 +605,52 @@ def test_auth_invite_validates_and_persists_explicit_app_entitlements(db_session
         CHAT_APP,
         KNOWLEDGE_CAPTURE_APP,
     ]
+
+
+def test_invite_is_idempotent_and_audited(db_session) -> None:
+    workspace, owner, _, invitee, _, _ = _seed_workspace(db_session)
+    client = _auth_client(db_session, owner)
+    available = client.get(
+        f"/auth/workspaces/{workspace.slug}/members/available",
+        params={"q": invitee.email},
+    )
+    assert available.status_code == 200
+    assert available.json()["users"] == [
+        {"id": invitee.id, "email": invitee.email, "username": invitee.username}
+    ]
+
+    payload = {
+        "email": invitee.email,
+        "role": "member",
+        "role_template": WORKSPACE_CONTRIBUTOR,
+        "app_entitlements": [CHAT_APP],
+    }
+    first = client.post(f"/auth/workspaces/{workspace.slug}/members", json=payload)
+    second = client.post(f"/auth/workspaces/{workspace.slug}/members", json=payload)
+
+    assert first.json()["action"] == "added"
+    assert second.json()["action"] == "unchanged"
+    events = (
+        db_session.query(AuditLog)
+        .filter_by(workspace_id=workspace.id, event_type="workspace.member.added")
+        .all()
+    )
+    assert len(events) == 1
+    assert events[0].details["target_user_id"] == invitee.id
+
+    updated = client.patch(
+        f"/auth/workspaces/{workspace.slug}/members/{invitee.id}",
+        json={"role_template": WORKSPACE_REVIEWER},
+    )
+    removed = client.delete(
+        f"/auth/workspaces/{workspace.slug}/members/{invitee.id}",
+    )
+
+    assert updated.json()["action"] == "updated"
+    assert removed.status_code == 200
+    assert {
+        row.event_type for row in db_session.query(AuditLog).filter_by(workspace_id=workspace.id)
+    } >= {"workspace.member.added", "workspace.member.updated", "workspace.member.removed"}
 
 
 def test_auth_invite_rejects_unknown_app_before_membership_creation(db_session) -> None:

@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.core.config import settings
+from app.core.iam.roles import CANONICAL_WORKSPACE_ROLES, WORKSPACE_ADMIN
 from app.services.rag.knowledge_scopes import normalize_knowledge_scopes, select_scope
 
 SETTINGS_KEY = "assistant"
@@ -48,6 +49,13 @@ DEFAULT_HISTORY_TURNS = 12
 DEFAULT_TOP_K = 8
 DEFAULT_LATENCY_PROFILE = "balanced"
 _LATENCY_PROFILES = frozenset({"fast", "balanced", "deep"})
+
+
+@dataclass(frozen=True)
+class AssistantEditPolicy:
+    user_ids: frozenset[str]
+    minimum_role: str
+    configured: bool
 
 
 @dataclass(frozen=True)
@@ -160,4 +168,20 @@ def resolve_assistant_config(
         locale=_clean_text(raw.get("locale"), limit=12) or None,
         configured=bool(raw),
         extra=raw,
+    )
+
+
+def resolve_assistant_edit_policy(workspace: Any) -> AssistantEditPolicy:
+    """Resolve optional assistant-edit delegation without widening tools."""
+    raw = _as_mapping(_as_mapping(getattr(workspace, "settings", None)).get(SETTINGS_KEY))
+    editors = _as_mapping(raw.get("editors"))
+    configured = bool(editors)
+    ids = frozenset(
+        str(item or "").strip() for item in editors.get("user_ids", []) if str(item or "").strip()
+    ) if isinstance(editors.get("user_ids"), list | tuple) else frozenset()
+    minimum_role = str(editors.get("minimum_role") or WORKSPACE_ADMIN)
+    return AssistantEditPolicy(
+        user_ids=ids,
+        minimum_role=minimum_role if minimum_role in CANONICAL_WORKSPACE_ROLES else WORKSPACE_ADMIN,
+        configured=configured,
     )

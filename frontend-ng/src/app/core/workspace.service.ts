@@ -272,11 +272,18 @@ export interface WorkspaceMemberDetail {
  */
 export interface InviteMemberResponse {
   status: 'ok';
+  action?: 'added' | 'unchanged' | 'updated';
   user_id: string;
   role: 'admin' | 'member';
   role_template?: RoleTemplate;
   app_entitlements: WorkspaceAppEntitlement[];
   invitation_email_sent: boolean;
+}
+
+export interface AvailableWorkspaceUser {
+  id: string;
+  email: string;
+  username: string;
 }
 
 export type RoleTemplate =
@@ -697,6 +704,15 @@ export class WorkspaceService {
 
   listMembers(slug: string): Observable<WorkspaceMemberDetail[]> {
     return this.http.get<WorkspaceMemberDetail[]>(`/api/v1/auth/workspaces/${slug}/members`);
+  }
+
+  availableMembers(slug: string, query: string): Observable<AvailableWorkspaceUser[]> {
+    return this.http
+      .get<{ users: AvailableWorkspaceUser[] }>(
+        `/api/v1/auth/workspaces/${slug}/members/available`,
+        { params: { q: query } },
+      )
+      .pipe(map((response) => response.users));
   }
 
   inviteMember(

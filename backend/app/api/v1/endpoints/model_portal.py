@@ -104,6 +104,13 @@ class RoutingUpdateBody(BaseModel):
     default_provider: str = Field(..., min_length=1, max_length=80)
     default_model: str = Field(..., min_length=1, max_length=256)
     fallback_chain: Optional[List[str]] = Field(default=None, max_length=10)
+    named_routes: Dict[str, "RoutingRouteBody"] = Field(default_factory=dict)
+
+
+class RoutingRouteBody(BaseModel):
+    provider: str = Field(..., min_length=1, max_length=80)
+    model: str = Field(..., min_length=1, max_length=256)
+    fallback_chain: List[str] = Field(default_factory=list, max_length=10)
 
 
 class CredentialUpdateBody(BaseModel):
@@ -224,6 +231,14 @@ async def put_model_routing(
             default_provider=body.default_provider,
             default_model=body.default_model,
             fallback_chain=body.fallback_chain,
+            named_routes={
+                name: {
+                    "provider": route.provider,
+                    "model": route.model,
+                    "fallback_chain": route.fallback_chain,
+                }
+                for name, route in body.named_routes.items()
+            },
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail={"code": "MODEL_PORTAL_CONFIG_INVALID", "message": str(exc)}) from exc
