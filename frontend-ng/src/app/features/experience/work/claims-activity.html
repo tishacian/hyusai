@@ -1,0 +1,54 @@
+@if (data(); as activity) {
+  <section class="activity" data-testid="claims-activity" aria-labelledby="claims-activity-title">
+    <header>
+      <div><h2 id="claims-activity-title">{{ i18n.t('experience.claims.activity.title') }}</h2><p>{{ i18n.t('experience.claims.activity.observed') }}</p></div>
+      <button type="button" (click)="load()" [disabled]="busy()">{{ i18n.t('experience.claims.activity.refresh') }}</button>
+    </header>
+    <div class="metrics observed">
+      <div><span>{{ i18n.t('experience.claims.activity.attempts') }}</span><strong>{{ activity.counts.attempts }}</strong></div>
+      <div><span>{{ i18n.t('experience.claims.activity.cases') }}</span><strong>{{ activity.counts.unique_cases }}</strong></div>
+      <div><span>{{ i18n.t('experience.claims.activity.rules') }}</span><strong>{{ activity.counts.rule_matched_cases }}</strong></div>
+      <div><span>{{ i18n.t('experience.claims.activity.calls') }}</span><strong>{{ activity.counts.invocations }}</strong></div>
+    </div>
+    <p class="quiet">{{ activity.counts.completed }} {{ i18n.t('experience.claims.activity.completed') }} · {{ activity.counts.pending }} {{ i18n.t('experience.claims.activity.pending') }} · {{ activity.counts.failed }} {{ i18n.t('experience.claims.activity.failed') }}</p>
+    <p class="quiet">{{ activity.counts.simulated_receipts }} {{ i18n.t('experience.claims.activity.receipts') }} · {{ activity.counts.waiting_information_cases }} {{ i18n.t('experience.claims.activity.information_cases') }}</p>
+    @if (activity.counts.duplicate_blocked) { <p class="quiet">{{ activity.counts.duplicate_blocked }} {{ i18n.t('experience.claims.activity.duplicate_notice') }}</p> }
+    <p class="quiet">{{ i18n.t('experience.claims.activity.technical') }} : {{ number(activity.median_technical_seconds) }} s. {{ i18n.t('experience.claims.activity.technical_notice') }}</p>
+    <p class="cost-coverage">{{ i18n.t('experience.claims.activity.tariffs') }} :
+      {{ money(activity.catalog_costs.by_currency['EUR'] ?? null) }} / {{ money(activity.catalog_costs.by_currency['USD'] ?? null, 'USD') }} ·
+      {{ activity.catalog_costs.priced_invocations }}/{{ activity.counts.invocations }} {{ i18n.t('experience.claims.activity.priced') }}.
+      {{ i18n.t('experience.claims.activity.cost_notice') }}
+    </p>
+    @if (activity.period.limited) { <p class="quiet">{{ i18n.t('experience.claims.activity.limited') }}</p> }
+    <div class="scenario">
+      <h3>{{ i18n.t('experience.claims.activity.scenario') }}</h3>
+      <p>{{ i18n.t('experience.claims.activity.assumptions') }}</p>
+      <div class="controls">
+        <label>{{ i18n.t('experience.claims.activity.manual') }}<input type="number" min="0" max="1440" step="0.5" [ngModel]="assumptions().manualMinutes" (ngModelChange)="change('manualMinutes', $event)" /></label>
+        <label>{{ i18n.t('experience.claims.activity.assisted') }}<input type="number" min="0" max="1440" step="0.5" [ngModel]="assumptions().assistedMinutes" (ngModelChange)="change('assistedMinutes', $event)" /></label>
+        <label>{{ i18n.t('experience.claims.activity.budget') }}<input type="number" min="0" step="0.1" [ngModel]="assumptions().budgetEur" (ngModelChange)="change('budgetEur', $event)" /></label>
+        <label>{{ i18n.t('experience.claims.activity.volume') }}<input type="number" min="0" max="1000000" step="100" [ngModel]="assumptions().volume" (ngModelChange)="change('volume', $event)" /></label>
+      </div>
+      <p class="quiet">{{ i18n.t('experience.claims.activity.scope') }} · {{ number(assumptions().hourlyEur) }} €/h.</p>
+      @if (projection(); as value) {
+        <div class="metrics projected" aria-live="polite">
+          <div><span>{{ i18n.t('experience.claims.activity.net') }}</span><strong data-testid="claims-projected-net">{{ money(value.netEur) }}</strong></div>
+          <div><span>{{ i18n.t('experience.claims.activity.roi') }}</span><strong data-testid="claims-projected-roi">{{ percent(value.roi) }}</strong></div>
+          <div><span>{{ i18n.t('experience.claims.activity.threshold') }}</span><strong>{{ number(value.breakEvenSavedMinutes, 2) }} min</strong></div>
+          <div><span>{{ i18n.t('experience.claims.activity.monthly') }}</span><strong>{{ money(value.monthlyNetEur) }}</strong></div>
+        </div>
+      } @else { <p role="alert">{{ i18n.t('experience.claims.activity.invalid') }}</p> }
+      <p class="quiet">{{ i18n.t('experience.claims.activity.projection_notice') }}</p>
+    </div>
+    <details>
+      <summary>{{ i18n.t('experience.claims.activity.evidence') }}</summary>
+      <div class="table-wrap"><table>
+        <thead><tr><th>{{ i18n.t('experience.claims.dossier') }}</th><th>{{ i18n.t('experience.claims.activity.decision') }}</th><th>{{ i18n.t('experience.claims.activity.state') }}</th><th>{{ i18n.t('experience.claims.activity.rule') }}</th><th>{{ i18n.t('experience.claims.trace') }}</th></tr></thead>
+        <tbody>@for (run of activity.runs; track run.run_id) {
+          <tr><td>{{ run.claim_id }}</td><td>{{ action(run.action) }}</td><td>{{ status(run.status, run.reason) }}</td><td>{{ run.automatic_rule_match === null ? '—' : i18n.t(run.automatic_rule_match ? 'experience.claims.activity.match' : 'experience.claims.activity.mismatch') }}</td><td><a [navLink]="{ type: 'run', lens: 'operate', ref: run.run_id }">{{ i18n.t('experience.claims.trace') }}</a></td></tr>
+        }</tbody>
+      </table></div>
+    </details>
+    @if (problem()) { <p role="alert">{{ i18n.t('experience.claims.activity.refresh_error') }}</p> }
+  </section>
+}

@@ -2,6 +2,13 @@
 
 Le ROI sera un résultat de l’expérimentation, pas une constante du seed. Les données commerciales sont synthétiques ; le travail humain, les exécutions, les temps et les coûts observés doivent être réels. L’affichage attendu est **« ROI opérationnel observé sur le benchmark de démonstration »**, avec accès au protocole et aux preuves.
 
+La [campagne automatisée du 7 octobre](ACTIVITY-ROI-2026-10-07.md) fournit
+20 Runs natifs sur 10 dossiers et un scénario financier séparé, approuvé par
+l’utilisateur : 8 min manuelles, 2 min assistées et 0,50 €/dossier à 40 €/h,
+soit 3,50 € nets et 700 % de ROI **projetés**. Le benchmark ci-dessous reste
+à 0/10 et ses résultats observés restent inconnus. Les essais automatiques
+n’alimentent pas les temps humains, la revue indépendante ou les gains.
+
 ## Ce que nous cherchons à mesurer
 
 L’effet principal est le changement de **temps de travail humain nécessaire pour résoudre un dossier, à qualité comparable**. Un remboursement déjà bloqué par la procédure manuelle n’apporte aucun gain financier supplémentaire. Le montant de 420 € est une exposition du dossier, pas une valeur créée par l’agent.

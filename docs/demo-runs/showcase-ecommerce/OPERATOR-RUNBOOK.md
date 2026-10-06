@@ -11,6 +11,12 @@ déploiement, suivre uniquement le [runbook de composition](COMPOSITION.md),
 avec son plan et son empreinte d’ensemble. Il remplace l’activation antérieure
 à deux Flows. L’installation historique ci-dessous ne doit pas être rejouée.
 
+La [campagne du 7 octobre](ACTIVITY-ROI-2026-10-07.md) a créé 20 Runs réels et
+un ledger d’activité. Cette livraison ajoute la carte Impact avec projection
+explicite et la réutilisation sûre d’un reçu simulé identique. Ces ajouts
+attendent le déploiement opérateur, sans migration supplémentaire ; les
+résultats du benchmark humain restent inconnus.
+
 Cette livraison ajoute le lecteur PostgreSQL borné, six outils, l’application
 Work Réclamations et le benchmark humain dans Impact. L’utilisateur a retenu un
 déploiement par un opérateur. La cible est `origin/demo/agentic` ; le code n’arrive
@@ -102,7 +108,11 @@ les deux premiers, recherche du reçu antérieur pour le troisième. Le modèle
 choisit les recherches ; les contrôles serveur autorisent la proposition et le
 reçu. La validation automatique d’un TTL ne suffit pas. Le reçu porte
 `status=simulated` et `external_payment_called=false`. Une répétition du même
-Run est idempotente ; une action identique sur la même commande est bloquée.
+Run est idempotente. Après cette livraison, une enquête distincte retrouve le
+reçu simulé d’une action strictement identique après sa propre approbation et
+les contrôles de preuve ; une tentative de réutilisation avec un montant,
+une devise ou des preuves différents reste bloquée. Les identités
+du reçu d’origine et celles de sa réutilisation restent distinctes.
 
 Tester aussi une preuve manquante, une source devenue inaccessible, une politique
 modifiée, un montant invalide, une approbation insuffisante au-delà de 300 € et une
