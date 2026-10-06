@@ -609,7 +609,7 @@ export function publishedNodeExecutor(
                 >
                   <option value="">{{ i18n.t('flow.ml.serving.model.none') }}</option>
                   @for (lineage of servingLineages(); track lineage.slug) {
-                    <option [value]="lineage.slug">
+                    <option [value]="lineage.slug" [selected]="lineage.slug === servingParams(n).model_slug">
                       {{ lineage.name }}
                     </option>
                   }
@@ -629,7 +629,7 @@ export function publishedNodeExecutor(
                   >
                     <option value="">{{ i18n.t('flow.ml.serving.version.champion') }}</option>
                     @for (version of servingVersions(n); track version.id) {
-                      <option [value]="version.version">
+                      <option [value]="version.version" [selected]="version.version === servingParams(n).pinned_version">
                         {{
                           i18n.t('flow.ml.serving.version.pinned', {
                             version: version.version,

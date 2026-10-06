@@ -29,16 +29,18 @@ async function setup(page: Page, theme: string, locale: string, unavailable = fa
    if (path === '/ecommerce-claims/triage') return json(route, priority ? {
      status: priority === 'stale' ? 'stale' : 'ready', captured_at: new Date().toISOString(), max_age_minutes: 60,
      model: { id: 'qa-sla-model', name: 'Luma SLA', version: 1 },
+     composition: 'composed_v1', system: { id: 'qa-system', name: 'Luma — Résolution SAV hybride' },
      training_dataset: { id: 'qa-sla-history', name: 'Synthetic history', rows: 1200 },
+     prepared_dataset: { id: 'qa-sav-prepared', name: 'Prepared SAV data', version: 1, rows: 23 },
      scored_dataset: { id: 'qa-sla-scored', name: 'Scored queue', version: 1, rows: 23 },
-     scoring: { system_id: 'qa-sla-score', version_id: 'qa-score-v1', flow_sha256: 'b'.repeat(64), ingress_id: 'start' },
+     scoring: { system_id: 'qa-system', version_id: 'qa-composed-v4', flow_sha256: 'b'.repeat(64), ingress_id: 'source.queue' },
      rows: priority === 'stale' ? [] : [
        { claim_id: 'RC-1042', risk: 0.35, priority: 'medium' },
        { claim_id: 'RC-1043', risk: 0.82, priority: 'high' },
        { claim_id: 'RC-1044', risk: 0.01, priority: 'low' },
      ],
    } : { status: 'not_configured', rows: [] });
-   if (path === '/systems/qa-sla-score/ingresses/start/runs') { posts.push(request.postDataJSON()); return json(route, { id: 'qa-scoring-run', status: 'pending' }, 201); }
+   if (path === '/work/reclamations/bindings/showcase.claims.refresh_queue/runs') { posts.push({ ...request.postDataJSON(), idempotency_key: request.headers()['idempotency-key'] }); return json(route, { id: 'qa-scoring-run', status: 'pending' }, 201); }
    if (path === '/runs/qa-scoring-run') return json(route, { id: 'qa-scoring-run', status: 'completed' });
    if (path === '/ecommerce-claims/benchmark' && priority === 'manual') return json(route, {
      state: 'experiment_not_complete', hourly_eur: '40.00', planned_pairs: 10, completed_quality_pairs: 0,
@@ -53,7 +55,9 @@ async function setup(page: Page, theme: string, locale: string, unavailable = fa
      const action = id === 'RC-1043' ? 'refund' : id === 'RC-1044' ? 'close_duplicate' : 'carrier_investigation';
      const proposal = { claim_id: id, order_id: 'LM-' + id.slice(3), action, reason: id === 'RC-1043' ? 'carrier_loss_confirmed' : id === 'RC-1044' ? 'already_refunded' : 'delivery_address_mismatch', amount: action === 'refund' ? '49.90' : '0', currency: 'EUR', evidence_kind: 'synthetic_demo', missing_references: [], requires_human: true, citations: [claimSource, source].map(s => ({ ...s, content: 'Toute résolution exige une validation humaine.', page: 1, chunk_index: 0 })) };
      const tool = id === 'RC-1044' ? 'ecommerce_refund_evidence_v1' : 'ecommerce_delivery_evidence_v1';
-     run = { id: 'qa-native-run', system_id: 'qa-system', status: 'hitl_pending', hitl: { decision_id: 'qa-decision', node_id: 'hitl.review' }, skill_invocations: ['postgresql_claim_snapshot_v1', 'ecommerce_policy_evidence_v1', tool, 'ecommerce_resolution_propose_v1'].map((slug, i) => ({ id: 'qa-inv-' + i, skill_slug: slug, status: 'completed', output_ref: slug === 'ecommerce_resolution_propose_v1' ? proposal : {} })) };
+     const context = { claim_id: id, served: { model_id: 'qa-sla-model', version: 1 }, target: 'resolution_over_72h', positive_label: '1', score: id === 'RC-1043' ? 0.16 : 0.82,
+       prepared_dataset: { id: 'qa-case-prepared', name: 'Case data', version: 1, rows: 1 }, scored_dataset: { id: 'qa-case-scored', name: 'Case prediction', version: 1, rows: 1 } };
+     run = { id: 'qa-native-run', system_id: 'qa-system', input_ref: { claim_id: id }, status: 'hitl_pending', hitl: { decision_id: 'qa-decision', node_id: 'hitl.review' }, skill_invocations: ['ecommerce_sav_dataset_v1', 'sql_transform_v1', 'ml_batch_score_v1', 'ecommerce_sav_context_v1', 'postgresql_claim_snapshot_v1', 'ecommerce_policy_evidence_v1', tool, 'ecommerce_resolution_propose_v1'].map((slug, i) => ({ id: 'qa-inv-' + i, skill_slug: slug, status: 'completed', completed_at: new Date().toISOString(), output_ref: slug === 'ecommerce_resolution_propose_v1' ? proposal : slug === 'ecommerce_sav_context_v1' ? context : {} })) };
      return json(route, { id: 'qa-native-run', status: 'pending' }, 201);
    }
    if (path === '/runs/qa-native-run' && request.method() === 'GET') return json(route, run);
@@ -72,19 +76,26 @@ test.describe('Claims studio — isolated end-user QA', () => {
   test(`${theme}: model scores prioritize cases, expose lineage and rescore through the pinned Flow`, async ({ page }) => {
     const posts = await setup(page, theme, 'fr', false, 'ready');
     await page.setViewportSize({ width: 1440, height: 1000 }); await page.goto('/work/reclamations/studio');
-    await expect(page.getByRole('heading', { name: 'Priorisation SAV', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Parcours Luma', exact: true })).toBeVisible();
     await expect(page.locator('.claims-queue .claims-case').first()).toContainText('LM-1043');
     await page.locator('.claims-queue .claims-case').first().click();
     await expect(page.locator('.claims-risk')).toContainText('82');
     await expect(page.locator('.claims-risk')).toContainText('Priorité haute');
-    await expect(page.getByRole('link', { name: /Historique préparé/ })).toHaveAttribute('href', /^\/data\/qa-sla-history(?:\?|$)/);
+    await expect(page.getByRole('link', { name: 'PostgreSQL', exact: true })).toHaveAttribute('href', /^\/connectors\/postgresql(?:\?|$)/);
+    await expect(page.getByRole('link', { name: /Données SAV préparées/ })).toHaveAttribute('href', /^\/data\/qa-sav-prepared(?:\?|$)/);
     await expect(page.getByRole('link', { name: /Modèle SLA/ })).toHaveAttribute('href', /^\/models\/qa-sla-model(?:\?|$)/);
-    await expect(page.getByRole('link', { name: 'Flow de priorisation', exact: true })).toHaveAttribute('href', /^\/systems\/qa-sla-score\/flow(?:\?|$)/);
+    await expect(page.getByRole('link', { name: 'Flow Luma', exact: true })).toHaveAttribute('href', /^\/systems\/qa-system\/flow(?:\?|$)/);
     const button = page.getByRole('button', { name: 'Recalculer la file', exact: true });
     expect((await button.boundingBox())!.height).toBeLessThanOrEqual(32);
     await button.click();
     await expect(button).toBeEnabled();
-    expect(posts[0]).toEqual({ kind: 'manual', payload: {}, expected_published_version_id: 'qa-score-v1', expected_flow_sha256: 'b'.repeat(64) });
+    expect(posts[0]).toMatchObject({ payload: {}, page_id: 'dossier', component_id: 'queue_refresh', confirmed: true, idempotency_key: expect.stringMatching(/^[\da-f-]{36}$/) });
+    await page.getByRole('button', { name: 'Lancer l’enquête', exact: true }).click();
+    await expect(page.getByRole('link', { name: 'Données de ce dossier', exact: true })).toHaveAttribute('href', /^\/data\/qa-case-prepared(?:\?|$)/);
+    await expect(page.getByRole('link', { name: 'Prédiction de ce dossier', exact: true })).toHaveAttribute('href', /^\/data\/qa-case-scored(?:\?|$)/);
+    await expect(page.locator('.claims-risk')).toContainText('16');
+    await expect(page.getByText('Rapprochement des faits et du score', { exact: true })).toBeVisible();
+    expect(posts[1]).toMatchObject({ payload: { claim_id: 'RC-1043' }, page_id: 'dossier', component_id: 'investigation' });
     expect((await new AxeBuilder({ page }).include('.claims-app').analyze()).violations).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: `/workspace/scratch/luma-ml-2026-10-06/work-priority-${theme}.png`, fullPage: true });
@@ -108,7 +119,7 @@ test.describe('Claims studio — isolated end-user QA', () => {
  test('mobile priority stays readable in English', async ({ page }) => {
    await setup(page, 'light', 'en', false, 'ready'); await page.setViewportSize({ width: 390, height: 844 });
    await page.goto('/work/reclamations/studio');
-   await expect(page.getByRole('heading', { name: 'Support prioritization', exact: true })).toBeVisible();
+   await expect(page.getByRole('heading', { name: 'Luma journey', exact: true })).toBeVisible();
    await expect(page.getByRole('link', { name: /SLA model/ })).toBeVisible();
    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
    await page.screenshot({ path: '/workspace/scratch/luma-ml-2026-10-06/work-priority-mobile.png', fullPage: true });

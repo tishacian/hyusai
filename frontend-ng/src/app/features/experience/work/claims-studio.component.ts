@@ -16,7 +16,7 @@ import { WorkAppHeaderComponent } from './work-app-header.component';
 import { ClaimsBenchmarkComponent } from './claims-benchmark.component';
 import { WorkApiService } from './work-api.service';
 import { CLAIM_ACTION_LABELS, CLAIM_REASON_LABELS, CLAIM_TOOL_LABELS, claimRunProjection, type ClaimRow, type ClaimSnapshot } from './claim-run';
-import { freshTriage, queueByPriority, selectedAdvice, type ClaimTriage } from './claim-triage';
+import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimTriage } from './claim-triage';
 
 @Component({
   selector: 'app-claims-studio', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
@@ -37,17 +37,21 @@ import { freshTriage, queueByPriority, selectedAdvice, type ClaimTriage } from '
           @if (!benchmarkReady()) { <p class="claims-mode-pending" role="status">{{ i18n.t('experience.claims.mode_pending') }} <button class="xp-work-btn claims-compact" (click)="load()">{{ i18n.t('experience.claims.retry') }}</button></p> }
           @if (machineAidsAllowed()) {
             <section class="claims-triage" aria-labelledby="claims-triage-title">
-              <div class="claims-section-title"><h2 id="claims-triage-title">{{ i18n.t('experience.claims.triage.title') }}</h2>
+              <div class="claims-section-title"><h2 id="claims-triage-title">{{ i18n.t(triage()?.composition ? 'experience.claims.triage.composed_title' : 'experience.claims.triage.title') }}</h2>
                 @if (triage()?.scoring) { <button class="xp-work-btn claims-compact" [disabled]="triageBusy() || busy()" (click)="recalculatePriority()">{{ i18n.t(triageBusy() ? 'experience.claims.triage.running' : 'experience.claims.triage.recalculate') }}</button> }
               </div>
               @if (triageLoading()) { <p role="status">{{ i18n.t('common.loading') }}</p> }
               @else if (triage()?.model; as model) {
                 <div class="claims-triage-path">
-                  @if (triage()?.training_dataset; as dataset) { <a [navLink]="{ leaf: 'data-doc', ref: dataset.id }">{{ i18n.t('experience.claims.triage.history') }} <span>{{ dataset.rows }} {{ i18n.t('experience.claims.triage.cases') }}</span></a><span aria-hidden="true">→</span> }
+                  @if (triage()?.composition) {
+                    <a [navLink]="{ leaf: 'connector-postgresql' }">PostgreSQL</a><span aria-hidden="true">→</span>
+                    @if (triage()?.prepared_dataset; as dataset) { <a [navLink]="{ leaf: 'data-doc', ref: dataset.id }">{{ i18n.t('experience.claims.triage.prepared') }} <span>{{ dataset.rows }} {{ i18n.t('experience.claims.triage.cases') }}</span></a><span aria-hidden="true">→</span> }
+                  } @else if (triage()?.training_dataset; as dataset) { <a [navLink]="{ leaf: 'data-doc', ref: dataset.id }">{{ i18n.t('experience.claims.triage.history') }} <span>{{ dataset.rows }} {{ i18n.t('experience.claims.triage.cases') }}</span></a><span aria-hidden="true">→</span> }
                   <a [navLink]="{ leaf: 'model-doc', ref: model.id }">{{ i18n.t('experience.claims.triage.model') }} <span>v{{ model.version }}</span></a>
                   @if (triage()?.scored_dataset; as dataset) { <span aria-hidden="true">→</span><a [navLink]="{ leaf: 'data-doc', ref: dataset.id }">{{ i18n.t('experience.claims.triage.scored') }} <span>{{ dataset.rows }} {{ i18n.t('experience.claims.triage.cases') }}</span></a> }
-                  @if (triage()?.scoring; as scoring) { <a class="claims-triage-flow" [navLink]="{ leaf: 'system-flow', lens: 'build', ref: scoring.system_id }">{{ i18n.t('experience.claims.triage.flow') }} <app-icon name="arrow-right" [size]="12" /></a> }
+                  @if (triage()?.scoring; as scoring) { <a class="claims-triage-flow" [navLink]="{ leaf: 'system-flow', lens: 'build', ref: scoring.system_id }">{{ i18n.t(triage()?.composition ? 'experience.claims.triage.composed_flow' : 'experience.claims.triage.flow') }} <app-icon name="arrow-right" [size]="12" /></a> }
                 </div>
+                @if (triage()?.composition) { <p class="claims-quiet">{{ i18n.t('experience.claims.triage.composed_path') }}</p> }
                 <p class="claims-quiet">{{ i18n.t('experience.claims.triage.notice') }}</p>
                 <p class="claims-provenance" [attr.data-state]="triage()?.status" aria-live="polite">{{ i18n.t('experience.claims.triage.' + triage()!.status) }}
                   @if (triage()?.captured_at; as captured) { · {{ captured | date:'dd/MM HH:mm:ss' }} }
@@ -104,6 +108,10 @@ import { freshTriage, queueByPriority, selectedAdvice, type ClaimTriage } from '
               @if (advice(); as advice) { <div class="claims-risk" [attr.data-priority]="advice.priority">
                 <span>{{ i18n.t('experience.claims.triage.risk') }}</span><strong>{{ percent(advice.risk) }}</strong>
                 <p>{{ i18n.t('experience.claims.triage.priority.' + advice.priority) }} · {{ i18n.t('experience.claims.triage.basis.' + advice.basis) }}</p>
+                @if (caseData(); as data) { <div class="claims-case-data">
+                  <a [navLink]="{ leaf: 'data-doc', ref: data.prepared.id }">{{ i18n.t('experience.claims.triage.case_prepared') }}</a>
+                  <a [navLink]="{ leaf: 'data-doc', ref: data.scored.id }">{{ i18n.t('experience.claims.triage.case_scored') }}</a>
+                </div> }
               </div> }
               @if (projection().proposal; as proposal) {
                 <div class="claims-recommendation" [class.is-warning]="proposal.action !== 'refund'"><span class="claims-eyebrow">{{ i18n.t('experience.claims.proposal') }}</span><h3>{{ i18n.t(actionLabel(proposal.action)) }}</h3><p>{{ i18n.t(reasonLabel(proposal.reason)) }}</p>
@@ -148,6 +156,7 @@ export class ClaimsStudioComponent {
   readonly triage = computed(() => freshTriage(this.triageData(), this.clock()));
   readonly orderedRows = computed(() => queueByPriority(this.rows(), this.triage(), !this.machineAidsAllowed()));
   readonly advice = computed(() => selectedAdvice(this.triage(), this.run(), this.selected(), !this.machineAidsAllowed(), this.clock()));
+  readonly caseData = computed(() => caseDatasets(this.triage(), this.run(), this.selected(), !this.machineAidsAllowed(), this.clock()));
   readonly busy = signal(false); readonly actionError = signal(false); readonly sourceDocumentId = signal<string | null>(null);
   readonly projection = computed(() => claimRunProjection(this.machineAidsAllowed() ? this.run() : null));
   readonly sources = computed(() => {
@@ -203,9 +212,13 @@ export class ClaimsStudioComponent {
     if (!scoring || this.triageBusy() || this.busy() || !this.machineAidsAllowed()) return;
     const generation = this.generation; this.triageBusy.set(true); this.triageError.set(false);
     try {
-      const result = await firstValueFrom(this.api.post<{ id: string }>(`/systems/${scoring.system_id}/ingresses/${scoring.ingress_id}/runs`, {
-        kind: 'manual', payload: {}, expected_published_version_id: scoring.version_id, expected_flow_sha256: scoring.flow_sha256,
-      }));
+      const result = await firstValueFrom(this.triage()?.composition
+        ? this.api.post<{ id: string }>('/work/reclamations/bindings/showcase.claims.refresh_queue/runs', {
+            payload: {}, confirmed: true, page_id: 'dossier', component_id: 'queue_refresh',
+          }, { headers: { 'Idempotency-Key': crypto.randomUUID() } })
+        : this.api.post<{ id: string }>(`/systems/${scoring.system_id}/ingresses/${scoring.ingress_id}/runs`, {
+            kind: 'manual', payload: {}, expected_published_version_id: scoring.version_id, expected_flow_sha256: scoring.flow_sha256,
+          }));
       if (generation !== this.generation) return;
       this.priorityPoll?.unsubscribe();
       this.priorityPoll = timer(0, 2000).pipe(switchMap(() => this.canonical.getRun(result.id)), takeUntilDestroyed(this.destroy)).subscribe({

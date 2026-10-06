@@ -7204,6 +7204,30 @@ _REGISTRY["ecommerce_sla_dataset_v1"] = (
 )
 
 
+async def _ecommerce_sav_dataset_v1(payload, ctx=None):
+    from app.services.ecommerce_composition import invoke_dataset
+
+    return await invoke_dataset(payload, ctx)
+
+
+async def _ecommerce_sav_context_v1(payload, ctx=None):
+    from app.services.ecommerce_composition import invoke_context
+
+    return await invoke_context(payload, ctx)
+
+
+_REGISTRY["ecommerce_sav_dataset_v1"] = (
+    _ecommerce_sav_dataset_v1,
+    "app.services.ecommerce_composition",
+    "bound",
+)
+_REGISTRY["ecommerce_sav_context_v1"] = (
+    _ecommerce_sav_context_v1,
+    "app.services.ecommerce_composition",
+    "bound",
+)
+
+
 _REGISTRY.update(
     {
         slug: (_claim_tool(mode), "app.services.ecommerce_claims", "bound")

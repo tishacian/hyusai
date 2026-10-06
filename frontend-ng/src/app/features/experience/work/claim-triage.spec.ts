@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import type { Run } from '@app/core/canonical-api.service';
 import type { ClaimRow } from './claim-run';
-import { freshTriage, queueByPriority, selectedAdvice, type ClaimTriage } from './claim-triage';
+import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimTriage } from './claim-triage';
 
 const now = Date.parse('2026-10-06T20:00:00Z');
 const triage: ClaimTriage = {
@@ -32,4 +32,27 @@ test('confidence in the non-late class cannot become high SLA risk', () => {
   run.skill_invocations![0].output_ref!['served'] = { model_id: 'foreign-model', version: 1 };
   assert.equal(selectedAdvice(triage, run, 'RC-1043', false, now)?.risk, 0.16);
   assert.equal(selectedAdvice({ ...triage, status: 'stale' }, run, 'RC-1043', false, now), null);
+});
+
+test('a composed inquiry exposes only its own fresh, pinned-model dataset artifacts', () => {
+  const output = {
+    claim_id: 'RC-1042', served: { model_id: 'sla-model', version: 1 }, positive_label: '1',
+    target: 'resolution_over_72h', score: 0.7,
+    prepared_dataset: { id: 'case-prepared', name: 'Prepared', version: 2, rows: 1 },
+    scored_dataset: { id: 'case-score', name: 'Scored', version: 2, rows: 1 },
+  };
+  const run = { input_ref: { claim_id: 'RC-1042' }, skill_invocations: [{
+    skill_slug: 'ecommerce_sav_context_v1', status: 'completed', completed_at: new Date(now).toISOString(), output_ref: output,
+  }] } as unknown as Run;
+  assert.equal(selectedAdvice(triage, run, 'RC-1042', false, now)?.risk, 0.7);
+  assert.equal(caseDatasets(triage, run, 'RC-1042', false, now)?.prepared.id, 'case-prepared');
+  assert.equal(caseDatasets(triage, run, 'RC-1042', true, now), null);
+  assert.equal(caseDatasets(triage, run, 'RC-1043', false, now), null);
+  assert.equal(caseDatasets(triage, run, 'RC-1042', false, now + 3600001), null);
+  output.scored_dataset.rows = 23;
+  assert.equal(caseDatasets(triage, run, 'RC-1042', false, now), null);
+  output.scored_dataset.rows = 1;
+  output.served.version = 2;
+  assert.equal(caseDatasets(triage, run, 'RC-1042', false, now), null);
+  assert.equal(selectedAdvice(triage, run, 'RC-1042', false, now)?.risk, 0.82);
 });
