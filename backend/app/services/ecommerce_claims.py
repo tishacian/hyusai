@@ -425,7 +425,34 @@ def _simulate(db, workspace, run, config, claim_id, proposal, *, data_source=Non
         .first()
     )
     if duplicate:
-        raise ValueError("CLAIM_ACTION_ALREADY_RECORDED")
+        # A new investigation must obtain its own approval and pass the live
+        # evidence checks above. An identical business action then retrieves
+        # the original simulated receipt rather than performing another write.
+        receipt = duplicate.receipt or {}
+        try:
+            same_amount = Decimal(str(receipt.get("amount"))) == Decimal(proposal["amount"])
+        except (ValueError, ArithmeticError):
+            same_amount = False
+        if not (
+            duplicate.claim_id == claim_id
+            and receipt.get("receipt_id") == duplicate.id
+            and receipt.get("status") == "simulated"
+            and receipt.get("evidence_kind") == "synthetic_demo"
+            and receipt.get("external_payment_called") is False
+            and receipt.get("claim_id") == proposal.get("claim_id") == claim_id
+            and receipt.get("order_id") == proposal["order_id"]
+            and receipt.get("action") == proposal["action"]
+            and receipt.get("currency") == proposal["currency"]
+            and receipt.get("snapshot_sha256") == proposal["snapshot_sha256"]
+            and same_amount
+        ):
+            raise ValueError("CLAIM_ACTION_ALREADY_RECORDED")
+        return {
+            **receipt,
+            "idempotent_replay": True,
+            "reused_for_run_id": run.id,
+            "reused_for_decision_id": decision.id,
+        }
     receipt_id = str(uuid4())
     receipt = {
         **proposal,

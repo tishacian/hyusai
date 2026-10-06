@@ -180,3 +180,10 @@ Les aides automatiques restent masquées pendant une condition manuelle ou
 inconnue. Le serveur refuse aussi une nouvelle exécution composée lorsqu’une
 session manuelle de l’opérateur est active ou en pause. La QA automatique
 n’alimente pas les temps humains ni les gains du benchmark.
+
+La [campagne d’activité du 7 octobre](ACTIVITY-ROI-2026-10-07.md) a créé 20
+enquêtes natives sur le parcours déjà déployé. Une carte Impact séparée expose
+l’activité et le scénario financier approuvé (8 min manuelles, 2 min assistées,
+0,50 €/dossier à 40 €/h), soit 3,50 € nets et 700 % de ROI projetés. Elle ne
+modifie ni la composition, ni le protocole, ni les résultats humains. Son
+affichage et la correction des relances attendent également le déploiement.
