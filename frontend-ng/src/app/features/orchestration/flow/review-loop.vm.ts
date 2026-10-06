@@ -14,3 +14,17 @@ const REFUSAL_MESSAGES: Record<string, string> = {
 export function reviewRefusalKey(code: unknown): string {
   return (typeof code === 'string' && REFUSAL_MESSAGES[code]) || 'flow.review.error';
 }
+
+/**
+ * Where a reservation stands: 1 to raise, 2 to reread the corrected draft,
+ * 3 to confirm the reread correction, 4 to compare with a later result, 5 closed.
+ */
+export function reviewStep(
+  row: { draft_hash?: string | null; correction_hash?: string | null; same_object?: boolean } | null | undefined,
+): number {
+  if (!row) return 1;
+  if (row.same_object) return 5;
+  if (row.correction_hash) return 4;
+  if (row.draft_hash) return 3;
+  return 2;
+}
