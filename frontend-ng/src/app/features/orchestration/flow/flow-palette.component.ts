@@ -114,9 +114,9 @@ const MOST_USED_LIMIT = 5;
 
     <div class="ck-flow-palette" role="group" [attr.aria-label]="i18n.t('flow.palette.aria')">
       <div class="ck-flow-palette__heading">
-        <h3 class="ck-flow-palette__label">
+        <h2 class="ck-flow-palette__label">
           <app-icon name="boxes" set="phosphor" [size]="12" /> {{ headingLabel() }}
-        </h3>
+        </h2>
         <span
           class="ck-flow-palette__count"
           [attr.aria-label]="i18n.t('flow.palette.heading.count', { name: headingLabel() })"
@@ -190,7 +190,7 @@ const MOST_USED_LIMIT = 5;
       } @else {
       @if (!simpleMode() && !rankedMode() && !openGroup() && level() !== 'advanced') {
         <section class="ck-flow-palette__body" data-testid="flow-sources-palette">
-          <h4 class="ck-flow-palette__section-heading"><button type="button" class="ck-flow-palette__section-toggle" [attr.aria-expanded]="sourcesExpanded()" aria-controls="flow-palette-sources-panel" (click)="sourcesExpanded.set(!sourcesExpanded())"><app-icon [name]="sourcesExpanded() ? 'chevron-down' : 'chevron-right'" [size]="11" /><span>{{ i18n.t('flow.sources.palette') }}</span><span class="ck-flow-palette__count">{{ sources.items().length }}</span></button></h4>
+          <h3 class="ck-flow-palette__section-heading"><button type="button" class="ck-flow-palette__section-toggle" [attr.aria-expanded]="sourcesExpanded()" aria-controls="flow-palette-sources-panel" (click)="sourcesExpanded.set(!sourcesExpanded())"><app-icon [name]="sourcesExpanded() ? 'chevron-down' : 'chevron-right'" [size]="11" /><span>{{ i18n.t('flow.sources.palette') }}</span><span class="ck-flow-palette__count">{{ sources.items().length }}</span></button></h3>
           @if (sourcesExpanded()) {
             <div id="flow-palette-sources-panel">
               @for (item of sources.items(); track itemKey(item)) {
@@ -290,7 +290,7 @@ const MOST_USED_LIMIT = 5;
               <app-icon name="chevron-left" [size]="11" /> {{ i18n.t('flow.palette.back') }}
             </button>
             @for (section of categorySections(); track section.category) {
-              <h4 class="ck-flow-palette__section-heading" [id]="sectionHeadingId(section.category)">
+              <h3 class="ck-flow-palette__section-heading" [id]="sectionHeadingId(section.category)">
                 <button
                   type="button"
                   class="ck-flow-palette__section-toggle"
@@ -307,7 +307,7 @@ const MOST_USED_LIMIT = 5;
                   <span>{{ section.category }}</span>
                   <span class="ck-flow-palette__count">{{ section.items.length }}</span>
                 </button>
-              </h4>
+              </h3>
               @if (isSectionExpanded(section.category)) {
                 <div
                   class="ck-flow-palette__list"
@@ -356,17 +356,17 @@ const MOST_USED_LIMIT = 5;
             }
           } @else {
             @if (mostUsed().length > 0) {
-              <h4 class="ck-flow-palette__section-heading ck-flow-palette__section-heading--plain">
+              <h3 class="ck-flow-palette__section-heading ck-flow-palette__section-heading--plain">
                 {{ i18n.t('flow.palette.section.most_used') }}
-              </h4>
+              </h3>
               @for (item of mostUsed(); track itemKey(item)) {
                 <ng-container *ngTemplateOutlet="row; context: { $implicit: item }" />
               }
             }
 
-            <h4 class="ck-flow-palette__section-heading ck-flow-palette__section-heading--plain">
+            <h3 class="ck-flow-palette__section-heading ck-flow-palette__section-heading--plain">
               {{ i18n.t('flow.palette.section.capabilities') }}
-            </h4>
+            </h3>
             @for (group of capabilityGroups(); track group.slug) {
               <button
                 type="button"
@@ -386,7 +386,7 @@ const MOST_USED_LIMIT = 5;
               </p>
             }
 
-            <h4 class="ck-flow-palette__section-heading">
+            <h3 class="ck-flow-palette__section-heading">
               <button
                 type="button"
                 class="ck-flow-palette__section-toggle"
@@ -401,7 +401,7 @@ const MOST_USED_LIMIT = 5;
                 <span>{{ i18n.t('flow.palette.section.structure') }}</span>
                 <span class="ck-flow-palette__count">{{ items().length }}</span>
               </button>
-            </h4>
+            </h3>
             @if (structureExpanded()) {
               <div class="ck-flow-palette__list" id="flow-palette-structure-panel">
                 @for (item of items(); track item.type) {
