@@ -826,6 +826,13 @@ const HIERARCHY_SURFACE_IDS: Record<HierarchyObjectType, string> = {
   business_app: 'create-apps',
 };
 
+/** Catalogue reached by the breadcrumb's leftmost rung for a selected object. */
+const BREADCRUMB_ROOT_SURFACE_IDS: Record<HierarchyObjectType, string> = {
+  ...HIERARCHY_SURFACE_IDS,
+  // An invocation has no standalone catalogue; its parent list is Runs.
+  skill_invocation: 'runs',
+};
+
 const NAVIGATION_QUERY_KEYS = new Set([
   'lens',
   'scope',
@@ -1612,6 +1619,13 @@ export function navigationPortfolioUrl(
   return appendNavigationQuery(path, {
     lens: lensQueryForPath(path, lens),
   });
+}
+
+export function navigationBreadcrumbRootUrl(
+  selectedType: HierarchyObjectType,
+  lens?: CockpitLens | null,
+): string {
+  return navigationSurfaceUrl(BREADCRUMB_ROOT_SURFACE_IDS[selectedType], { lens });
 }
 
 export function navigationLensUrl(

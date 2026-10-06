@@ -11,6 +11,7 @@ import {
   type System,
 } from './canonical-api.service';
 import {
+  navigationBreadcrumbRootUrl,
   matchAgentiumSurface,
   navigationLeafUrl,
   navigationLensUrl,
@@ -1017,8 +1018,8 @@ export class ZoomContextService implements OnDestroy {
       id: workspace?.id ?? null,
       label: this.i18n.t('nav.zoom.portfolio'),
       sub: workspace?.name || '',
-      href: route?.selectedType === 'system'
-        ? navigationSurfaceUrl('systems', { lens })
+      href: route?.selectedType
+        ? navigationBreadcrumbRootUrl(route.selectedType, lens)
         : this.navV5Enabled() && this.workspaceMode() === 'builder'
         ? navigationSurfaceUrl('create')
         : navigationPortfolioUrl(lens, this.axesV4Enabled()),

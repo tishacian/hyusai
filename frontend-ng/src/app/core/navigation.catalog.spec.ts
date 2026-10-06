@@ -9,6 +9,7 @@ import {
   COCKPIT_VERBS,
   agentiumSurfaceById,
   cockpitVerbSections,
+  navigationBreadcrumbRootUrl,
   objectFacetsFor,
   systemFacetForChild,
   matchCockpitVerb,
@@ -23,6 +24,7 @@ import {
   pathAllowedBySurfaceIds,
   resolveNavLink,
   isObjectLens,
+  type HierarchyObjectType,
   HYPERVISOR_FACETS,
 } from './navigation.catalog';
 
@@ -252,6 +254,43 @@ test('object builders use canonical locators and business guards match registere
   assert.equal(pathAllowedBySurfaceIds('/knowledge/capture?systemId=sys-1', BUSINESS_NAVIGATION_SURFACE_IDS), true);
   assert.equal(pathAllowedBySurfaceIds('/knowledge/interventions', BUSINESS_NAVIGATION_SURFACE_IDS), true);
   assert.equal(pathAllowedBySurfaceIds('/systems/sys-1', BUSINESS_NAVIGATION_SURFACE_IDS), false);
+});
+
+test('every breadcrumb root returns to the catalogue owning that object type', () => {
+  const expected: Record<HierarchyObjectType, string> = {
+    capability: '/capabilities',
+    system: '/systems',
+    run: '/runs',
+    // An invocation is runtime evidence, not a standalone catalogue.
+    skill_invocation: '/runs',
+    skill: '/skills',
+    collection: '/knowledge',
+    dataset: '/data',
+    model: '/models',
+    context: '/steering/contexts',
+    conversation: '/conversations',
+    business_app: '/create/apps',
+  };
+
+  for (const [type, root] of Object.entries(expected)) {
+    assert.equal(
+      navigationBreadcrumbRootUrl(type as HierarchyObjectType, 'build').split('?')[0],
+      root,
+      `${type} breadcrumb root`,
+    );
+    const surfacePath = navigationRouteContext(root).path;
+    assert.notEqual(
+      surfacePath,
+      navigationRouteContext(navigationObjectUrl(
+        type as HierarchyObjectType,
+        'ref-1',
+        type === 'skill_invocation' ? { runId: 'run-1' } : {},
+      )).path,
+      `${type} breadcrumb root must not return to the current object`,
+    );
+    assert.match(surfacePath, /^\/[a-z/-]+$/);
+    assert.equal(navigationRouteContext(navigationBreadcrumbRootUrl(type as HierarchyObjectType, 'build')).lens, 'build');
+  }
 });
 
 test('axes v4 has four object lenses and a distinct Portfolio destination', () => {
