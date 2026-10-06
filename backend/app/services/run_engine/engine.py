@@ -87,6 +87,13 @@ from .streaming import flush_token_sink, make_token_sink
 logger = get_logger(__name__)
 
 
+def _provider_cost_usd(cost_evidence) -> float | None:
+    evidence = cost_evidence.evidence if hasattr(cost_evidence, "evidence") else {}
+    if not cost_evidence.cost_measured or evidence.get("currency") != "USD":
+        return None
+    return float(cost_evidence.cost)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -1070,6 +1077,7 @@ async def _execute_task_node(
         status="running",
         started_at=datetime.utcnow(),
         cost_measured=False,
+        provider_cost_usd=_provider_cost_usd(cost_evidence),
         metrics={"cost_evidence": cost_evidence.evidence},
         input_ref=skill_input,
         trace={
@@ -1120,6 +1128,7 @@ async def _execute_task_node(
             invocation.latency_ms = (time.monotonic() - t0) * 1000
             invocation.cost = cost_evidence.cost
             invocation.cost_measured = cost_evidence.cost_measured
+            invocation.provider_cost_usd = _provider_cost_usd(cost_evidence)
             db.commit()
             if _runtime_valves_blocked(db, run, control):
                 raise MembraneEnforcementError(run.error or "membrane_valve_breach")
@@ -1202,6 +1211,7 @@ async def _execute_task_node(
         invocation.completed_at = datetime.utcnow()
         invocation.cost = cost_evidence.cost
         invocation.cost_measured = cost_evidence.cost_measured
+        invocation.provider_cost_usd = _provider_cost_usd(cost_evidence)
         db.commit()
         raise
     except NotImplementedError as nie:
@@ -1222,6 +1232,7 @@ async def _execute_task_node(
     invocation.completed_at = datetime.utcnow()
     invocation.cost = cost_evidence.cost
     invocation.cost_measured = cost_evidence.cost_measured
+    invocation.provider_cost_usd = _provider_cost_usd(cost_evidence)
     metrics = dict(invocation.metrics or {})
     output_tokens, output_tokens_reported = token_measurement_from_payload(
         invocation.output_ref or {}
@@ -1382,6 +1393,12 @@ def _finalize_run(
     run.confidence = derived.confidence
     run.value_estimated = derived.value
     run.cost_internal = derived.cost
+    provider_costs = [
+        float(invocation.provider_cost_usd)
+        for invocation in invocations
+        if invocation.provider_cost_usd is not None
+    ]
+    run.provider_cost_usd = sum(provider_costs) if provider_costs else None
     run.efficiency = derived.efficiency
     run.value_source = derived.value_source.value
     # Preserve the exact JSON value accepted by the frozen execution

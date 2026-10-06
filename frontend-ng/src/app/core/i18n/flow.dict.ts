@@ -309,6 +309,8 @@ export const FLOW_FR = {
   // ---- node card ---------------------------------------------------------
   'flow.node.delete': 'Supprimer le nœud {name}',
   'flow.node.delete.hint': 'Supprimer le nœud {name} (Suppr/Retour arrière)',
+  'flow.node.run_step': 'Exécuter cette étape : {name}',
+  'flow.node.run_step.hint': 'Ouvrir l’aperçu isolé de {name}',
   'flow.node.breakpoint.set': 'Poser un point d’arrêt',
   'flow.node.breakpoint.remove': 'Retirer le point d’arrêt',
   'flow.node.breakpoint.aria': 'Basculer le point d’arrêt',
@@ -1712,6 +1714,8 @@ export const FLOW_FR = {
   'flow.palette.desc.source.schedule':
     'Déclencheur planifié par cron (géré dans le panneau Déclencheurs)',
   'flow.palette.desc.source.webhook': 'Déclencheur webhook entrant signé HMAC',
+  'flow.palette.desc.task.role_agent':
+    'Un rôle, une consigne et un contrat JSON strict en sortie',
   'flow.palette.desc.decision': 'Branche selon une condition',
   'flow.palette.desc.fork': 'Déploie des branches parallèles',
   'flow.palette.desc.join': 'Rassemble des branches parallèles',
@@ -1720,6 +1724,7 @@ export const FLOW_FR = {
     'Boucle bornée : choisit la prochaine skill autorisée jusqu’à l’objectif',
   'flow.palette.desc.hitl': 'Pause pour une décision humaine, puis reprise',
   'flow.palette.label.agent_loop': 'Boucle agent',
+  'flow.palette.label.task.role_agent': 'Agent à rôle',
   'flow.palette.label.hitl': 'Porte humaine',
   'flow.palette.desc.sink': 'Là où le Flow livre son résultat',
   // Groupe sentinelle de la palette : skills visibles sans Capability porteuse
@@ -2033,6 +2038,8 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   // ---- node card ---------------------------------------------------------
   'flow.node.delete': 'Delete node {name}',
   'flow.node.delete.hint': 'Delete node {name} (Delete/Backspace)',
+  'flow.node.run_step': 'Run this step: {name}',
+  'flow.node.run_step.hint': 'Open the isolated preview for {name}',
   'flow.node.breakpoint.set': 'Set breakpoint',
   'flow.node.breakpoint.remove': 'Remove breakpoint',
   'flow.node.breakpoint.aria': 'Toggle breakpoint',
@@ -3408,6 +3415,8 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
     'Trigger when an operator promotes deposit files to a collection',
   'flow.palette.desc.source.schedule': 'Cron-driven trigger (managed in Triggers panel)',
   'flow.palette.desc.source.webhook': 'HMAC inbound webhook trigger',
+  'flow.palette.desc.task.role_agent':
+    'One role, one instruction and a strict JSON output contract',
   'flow.palette.desc.decision': 'Branch on a condition',
   'flow.palette.desc.fork': 'Fan out parallel branches',
   'flow.palette.desc.join': 'Fan in parallel branches',
@@ -3416,6 +3425,7 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
     'Bounded loop: chooses the next allowed skill until the objective',
   'flow.palette.desc.hitl': 'Pause for a human decision, then resume',
   'flow.palette.label.agent_loop': 'Agent loop',
+  'flow.palette.label.task.role_agent': 'Role agent',
   'flow.palette.label.hitl': 'Human gate',
   'flow.palette.desc.sink': 'Where the Flow delivers its result',
   // Palette sentinel group: skills visible without a carrying Capability

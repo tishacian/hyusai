@@ -71,6 +71,20 @@ test('writing the rows back preserves the keys the rows never knew about', () =>
   assert.deepEqual(projectSchema(rewritten).fields, fields);
 });
 
+test('an exact array count writes and reads both JSON Schema bounds', () => {
+  const { fields } = projectSchema({
+    type: 'object',
+    properties: {
+      items: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 3 },
+    },
+  });
+
+  assert.equal(fields[0].exactCount, 3);
+  assert.deepEqual(applyFields({}, fields).properties, {
+    items: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 3 },
+  });
+});
+
 test('an edit through the rows changes only what it touched', () => {
   const { fields } = projectSchema(CONTRACT);
   const renamed = fields.map((field) =>

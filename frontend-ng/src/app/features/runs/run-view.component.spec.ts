@@ -89,7 +89,10 @@ test('Run facets track history, merge tab changes and refresh can force store in
       RunViewComponent,
       { provide: ActivatedRoute, useValue: route },
       { provide: Router, useValue: router },
-      { provide: CanonicalApiService, useValue: { getRun: () => of(null) } },
+      {
+        provide: CanonicalApiService,
+        useValue: { getRun: () => of(null), getRunFiles: () => of([]) },
+      },
       { provide: WorkspaceService, useValue: new WorkspaceStub() },
       { provide: ObjectPerspectiveStore, useValue: store },
       { provide: LensService, useValue: { lens: () => 'operate' } },
@@ -137,7 +140,10 @@ test('Run loads its projection when the effective gate activates in the same wor
         },
       },
       { provide: Router, useValue: { navigate: () => Promise.resolve(true) } },
-      { provide: CanonicalApiService, useValue: { getRun: () => of(null) } },
+      {
+        provide: CanonicalApiService,
+        useValue: { getRun: () => of(null), getRunFiles: () => of([]) },
+      },
       { provide: WorkspaceService, useValue: workspace },
       {
         provide: ObjectPerspectiveStore,
@@ -206,6 +212,7 @@ test('overview exposes Temps passé to open the trace facet and never embeds the
               },
             ],
           }),
+          getRunFiles: () => of([]),
         },
       },
       { provide: WorkspaceService, useValue: new WorkspaceStub(false) },

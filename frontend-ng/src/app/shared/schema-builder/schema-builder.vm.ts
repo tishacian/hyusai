@@ -46,6 +46,8 @@ export interface SchemaField {
   /** For `array`, the type of its items. Objects and nested arrays are not
    * expressible as a row, so they land in `unsupported` instead. */
   itemType: 'string' | 'number' | 'integer' | 'boolean' | null;
+  /** For `array`, write minItems = maxItems. Null leaves both unset. */
+  exactCount: number | null;
 }
 
 export interface SchemaProjection {
@@ -76,6 +78,8 @@ const KNOWN_FIELD_KEYS = new Set([
   'properties',
   'required',
   'items',
+  'minItems',
+  'maxItems',
 ]);
 
 type Dict = Record<string, unknown>;
@@ -99,6 +103,7 @@ export function blankField(name = ''): SchemaField {
     defaultValue: '',
     children: [],
     itemType: null,
+    exactCount: null,
   };
 }
 
@@ -167,7 +172,10 @@ function readFields(
     readEnum(field, raw['enum'], unsupported);
     if (raw['default'] !== undefined) field.defaultValue = writeScalar(raw['default']);
     if (field.type === 'object') readChildren(field, raw, unsupported, depth);
-    if (field.type === 'array') readItems(field, raw['items'], unsupported);
+    if (field.type === 'array') {
+      readItems(field, raw['items'], unsupported);
+      field.exactCount = readExactCount(raw);
+    }
     fields.push(field);
   }
   return fields;
@@ -225,6 +233,19 @@ function readItems(field: SchemaField, raw: unknown, unsupported: string[]): voi
   field.itemType = type as SchemaField['itemType'];
 }
 
+function readExactCount(raw: Dict): number | null {
+  const minimum = raw['minItems'];
+  const maximum = raw['maxItems'];
+  if (
+    typeof minimum !== 'number'
+    || typeof maximum !== 'number'
+    || !Number.isInteger(minimum)
+    || minimum !== maximum
+    || minimum < 0
+  ) return null;
+  return minimum;
+}
+
 /**
  * Write rows back into a schema, keeping every key the rows do not own.
  *
@@ -262,6 +283,10 @@ function buildField(field: SchemaField): Dict {
     Object.assign(spec, buildObject(field.children));
   }
   if (field.type === 'array' && field.itemType) spec['items'] = { type: field.itemType };
+  if (field.type === 'array' && field.exactCount !== null) {
+    spec['minItems'] = field.exactCount;
+    spec['maxItems'] = field.exactCount;
+  }
   const fallback = readScalar(field.defaultValue, field.type);
   if (fallback !== undefined) spec['default'] = fallback;
   return spec;

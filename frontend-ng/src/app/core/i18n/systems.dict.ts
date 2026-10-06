@@ -203,6 +203,9 @@ export const SYSTEMS_FR = {
   'systems.grid.stat_runs': 'Exécutions',
   'systems.grid.stat_avg_ms': 'Moy. ms',
   'systems.grid.stat_last': 'Dernière',
+  'systems.grid.stat_last_status': 'Dernier statut',
+  'systems.grid.stat_last_duration': 'Dernière durée',
+  'systems.grid.recent': 'Systèmes récents',
   'systems.grid.draft': 'Brouillon',
   'systems.grid.scratchpad': 'Issu d’un flow libre',
   // --- System view (knowledge-capture variant) ---------------------
@@ -670,6 +673,9 @@ export const SYSTEMS_EN: Record<keyof typeof SYSTEMS_FR, string> = {
   'systems.grid.stat_runs': 'Runs',
   'systems.grid.stat_avg_ms': 'Avg ms',
   'systems.grid.stat_last': 'Last',
+  'systems.grid.stat_last_status': 'Last status',
+  'systems.grid.stat_last_duration': 'Last duration',
+  'systems.grid.recent': 'Recent systems',
   'systems.grid.draft': 'Draft',
   'systems.grid.scratchpad': 'From a free flow',
   // --- System view (knowledge-capture variant) ---------------------

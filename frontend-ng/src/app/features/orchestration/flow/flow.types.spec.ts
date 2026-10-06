@@ -91,6 +91,10 @@ test('every trigger type the backend maps to an event is reachable from the pale
   const deposit = DEFAULT_PALETTE.find((item) => item.type === 'source.deposit_promoted');
   assert.equal(deposit?.kind, 'source');
   assert.deepEqual(deposit?.outputs?.map((port) => port.name), ['collection_slug', 'file_ids']);
+  const roleAgent = DEFAULT_PALETTE.find((item) => item.type === 'task.role_agent');
+  assert.equal(roleAgent?.label, 'Role agent');
+  assert.equal(roleAgent?.config?.['skill_slug'], 'role_agent_v1');
+  assert.ok(roleAgent?.config?.['output_schema']);
   const agentLoop = DEFAULT_PALETTE.find((item) => item.kind === 'agent_loop');
   assert.equal(agentLoop?.label, 'Agent loop');
   const allowlist = agentLoop?.config?.['skill_allowlist'];

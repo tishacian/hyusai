@@ -88,6 +88,46 @@
       }
     </section>
 
+    <section class="xp-resume" [attr.aria-label]="i18n.t('experience.hub.systems.title')">
+      <h2 class="xp-section-title">{{ i18n.t('experience.hub.systems.title') }}</h2>
+      @if (recentSystemsState() === 'loading') {
+        <app-empty-state icon="sparkles" size="sm" [title]="i18n.t('common.loading')" />
+      } @else if (recentSystemsState() === 'error') {
+        <app-empty-state
+          icon="alert-triangle"
+          size="sm"
+          [title]="i18n.t('experience.work.unavailable.title')"
+          [description]="i18n.t('experience.work.unavailable.body')"
+        >
+          <button type="button" class="xp-card-cta xp-link-button" (click)="loadRecentSystems()">
+            {{ i18n.t('common.retry') }}
+          </button>
+        </app-empty-state>
+      } @else if (recentSystems().length === 0) {
+        <app-empty-state
+          icon="cube"
+          size="sm"
+          [title]="i18n.t('experience.hub.systems.empty')"
+          [description]="i18n.t('experience.hub.systems.empty.description')"
+        />
+      } @else {
+        <ul class="xp-resume-apps">
+          @for (system of recentSystems(); track system.system_id) {
+            <li>
+              <span>
+                <strong>{{ system.system_name }}</strong>
+                <small>{{ systemStatus(system.last_status) }} · {{ system.run_count }} {{ i18n.t('experience.hub.systems.runs') }}</small>
+              </span>
+              <a [navLink]="{ type: 'system', ref: system.system_id, lens: 'build' }" class="xp-card-cta">
+                {{ i18n.t('experience.hub.systems.open') }}
+                <ck-glyph name="arrow-right" [size]="12" />
+              </a>
+            </li>
+          }
+        </ul>
+      }
+    </section>
+
     <section class="xp-articulation" [attr.aria-label]="i18n.t('experience.hub.articulation.title')">
       <header class="xp-articulation-head">
         <h2 class="xp-section-title">{{ i18n.t('experience.hub.articulation.title') }}</h2>

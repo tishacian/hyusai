@@ -26,6 +26,7 @@ import {
   computed,
   inject,
   input,
+  output,
 } from '@angular/core';
 import { FFlowModule } from '@foblex/flow';
 import { IconComponent } from '@app/shared/ui/icon.component';
@@ -101,6 +102,18 @@ interface RuntimeBadge {
           >
             {{ b.label }}
           </span>
+        }
+        @if (canRunStep()) {
+          <button
+            type="button"
+            class="ck-flow-node__run-step"
+            (click)="onRunStep($event)"
+            (mousedown)="$event.stopPropagation()"
+            [attr.aria-label]="i18n.t('flow.node.run_step', { name: label() })"
+            [title]="i18n.t('flow.node.run_step.hint', { name: label() })"
+          >
+            <app-icon name="play" [size]="14" />
+          </button>
         }
         <button
           type="button"
@@ -183,6 +196,7 @@ export class FlowNodeComponent {
 
   readonly view = input.required<FlowNodeView>();
   readonly selected = input(false);
+  readonly runStep = output<string>();
 
   private readonly node = computed<CanonicalFlowNode>(() => this.view().node);
 
@@ -192,6 +206,13 @@ export class FlowNodeComponent {
   /** Pulse overlay while this node is the one currently executing / paused. */
   readonly runActive = computed(() => this.run?.isActiveNode(this.node().id) ?? false);
   readonly editingLocked = computed(() => this.persistence?.actionsDisabled() ?? false);
+  readonly canRunStep = computed(() => {
+    const node = this.node();
+    if ((node.kind ?? 'task') !== 'task') return false;
+    const config = node.config ?? {};
+    const data = node.data ?? {};
+    return 'skill_slug' in config || 'skill_slug' in data || 'bound_skill_slug' in data;
+  });
 
   /**
    * What this node did on its last execution — the figure that makes a run
@@ -221,6 +242,12 @@ export class FlowNodeComponent {
     event.stopPropagation();
     event.preventDefault();
     this.run?.toggleBreakpoint(this.node().id);
+  }
+
+  onRunStep(event: MouseEvent): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this.runStep.emit(this.node().id);
   }
 
   onDeleteNode(nodeId: string, event: MouseEvent): void {

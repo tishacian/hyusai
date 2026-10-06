@@ -89,6 +89,7 @@ export interface ConnectFromHandleEvent {
             (fNodePositionChange)="onNodeMoved(view.id, $event)"
             [view]="view"
             [selected]="view.id === selectedId()"
+            (runStep)="runStep.emit($event)"
             (click)="onNodeClick(view.id)"
           />
         }
@@ -128,6 +129,7 @@ export class FlowCanvasComponent {
 
   /** On-handle insertion: a connection dropped on empty canvas. */
   readonly connectFromHandle = output<ConnectFromHandleEvent>();
+  readonly runStep = output<string>();
 
   readonly nodeViews = computed(() => toNodeViews(this.store.nodes()));
   readonly connectionViews = computed(() =>

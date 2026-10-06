@@ -411,7 +411,10 @@ const PUBLICATION_HYDRATION_CODES = new Set([
               [attr.aria-label]="focusMode() ? i18n.t('flow.builder.view.canvas') : null"
               [hidden]="surfaceMode() !== 'canvas'"
             >
-              <app-flow-canvas (connectFromHandle)="onConnectFromHandle($event)" />
+              <app-flow-canvas
+                (connectFromHandle)="onConnectFromHandle($event)"
+                (runStep)="onRunStep($event)"
+              />
               @if (store.nodeCount() === 0) {
                 <!-- First-Flow guide. The three steps are the shape of every Flow,
                      named in the words the palette uses, so the empty canvas
@@ -468,6 +471,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
           <app-flow-workbench-panel
             class="flow-builder__workbench"
             [open]="true"
+            [initialTab]="workbenchInitialTab()"
             (close)="closeWorkbench()"
           />
         }
@@ -659,6 +663,7 @@ export class FlowBuilderComponent {
   protected readonly focusMode = signal(false);
   protected readonly toolbarCompact = signal(false);
   protected readonly workbenchOpen = signal(false);
+  protected readonly workbenchInitialTab = signal<'chat' | 'node' | 'golden'>('chat');
   /** Full-screen authoring dialog for the SELECTED Python recipe node. */
   protected readonly recipeWorkshopOpen = signal(false);
   /** Same, for the SELECTED SQL transform node. */
@@ -1067,9 +1072,23 @@ export class FlowBuilderComponent {
   protected toggleWorkbench(): void {
     if (!this.systemId() || !this.persistence.hydrationReady()) return;
     const open = !this.workbenchOpen();
+    if (open) this.workbenchInitialTab.set('chat');
     this.workbenchOpen.set(open);
     this.persistence.setWorkbenchAutosaveHold(open);
     if (open) this.run.terminalOpen.set(false);
+    this.scheduleCanvasFit();
+  }
+
+  protected onRunStep(nodeId: string): void {
+    if (!this.systemId() || !this.persistence.hydrationReady()) return;
+    this.store.setSelection(nodeId);
+    this.inspectorOpen.set(false);
+    this.workbenchInitialTab.set('node');
+    if (!this.workbenchOpen()) {
+      this.workbenchOpen.set(true);
+      this.persistence.setWorkbenchAutosaveHold(true);
+    }
+    this.run.terminalOpen.set(false);
     this.scheduleCanvasFit();
   }
 

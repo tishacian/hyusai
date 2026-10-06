@@ -6658,6 +6658,94 @@ async def _evaluate_v1(
     return output
 
 
+async def _publish_email_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Send email only after a settled human gate and only to members."""
+    import html as html_lib
+
+    from app.models.user import User
+    from app.models.workspace import WorkspaceMember
+    from app.services.email import send_email
+
+    recipients = [
+        str(value).strip().lower()
+        for value in (payload.get("recipients") or [])
+        if str(value).strip()
+    ]
+    if not recipients:
+        raise ValueError("publish_email_v1: at least one recipient is required")
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        member_emails = {
+            str(email).strip().lower()
+            for (email,) in db.query(User.email)
+            .join(WorkspaceMember, WorkspaceMember.user_id == User.id)
+            .filter(
+                WorkspaceMember.workspace_id == workspace.id,
+                User.email.in_(recipients),
+            )
+            .all()
+        }
+    finally:
+        if owns_db:
+            db.close()
+    unknown = sorted(set(recipients) - member_emails)
+    if unknown:
+        raise ValueError("publish_email_v1: recipient is not a workspace member")
+
+    subject = str(payload.get("subject") or "").strip()
+    body = str(payload.get("body_text") or "")
+    if not subject or not body:
+        raise ValueError("publish_email_v1: subject and body_text are required")
+    if not (ctx or {}).get("hitl_approved"):
+        return {"status": "held", "sent": False, "recipients": recipients}
+
+    html = html_lib.escape(body).replace("\n", "<br>")
+    for recipient in recipients:
+        delivered = await send_email(recipient, subject, html, body)
+        if not delivered:
+            raise ValueError("publish_email_v1: email_delivery_failed")
+    return {"status": "sent", "sent": True, "recipients": recipients}
+
+
+async def _role_agent_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Run one role prompt and return only its JSON object."""
+    import json as json_lib
+
+    role = str(payload.get("role") or "").strip()
+    instruction = str(payload.get("instruction") or "").strip()
+    body = str(payload.get("body") or payload.get("prompt") or payload.get("transcript") or "")
+    contract = payload.get("output_contract") if isinstance(payload.get("output_contract"), dict) else {}
+    if not role or not instruction:
+        raise ValueError("role_agent_v1: role and instruction are required")
+
+    prompt = "\n\n".join(
+        [
+            f"Role: {role}",
+            f"Instruction: {instruction}",
+            f"Input:\n{body}" if body else "",
+            "Return one JSON object, no prose and no code fence, matching this contract:",
+            json_lib.dumps(contract, sort_keys=True, separators=(",", ":")),
+        ]
+    ).strip()
+    result = await _workspace_llm_v1({"prompt": prompt}, ctx)
+    completion = str(result.get("completion") or "").strip()
+    if completion.startswith("```"):
+        completion = completion[completion.find("{") : completion.rfind("}") + 1]
+    try:
+        parsed = json_lib.loads(completion)
+    except json_lib.JSONDecodeError as exc:
+        raise ValueError("role_agent_v1: model did not return JSON") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("role_agent_v1: model output must be a JSON object")
+    return parsed
+
+
 # ---------------------------------------------------------------------------
 # Line-item reconciliation suite (spreadsheet/invoice extract, reconcile, report)
 # ---------------------------------------------------------------------------
@@ -7074,6 +7162,8 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "response_eval_v1": (_response_eval_v1, "app.services.metrics.evaluator", "bound"),
     "grounding_check_v1": (_grounding_check_v1, None, "bound"),
     "evaluate_v1": (_evaluate_v1, "app.services.evaluation.judge", "bound"),
+    "publish_email_v1": (_publish_email_v1, "app.services.email", "bound"),
+    "role_agent_v1": (_role_agent_v1, "app.services.model_plane.execution", "bound"),
     "spreadsheet_table_extract_v1": (
         _spreadsheet_table_extract_v1,
         "app.services.reconciliation",

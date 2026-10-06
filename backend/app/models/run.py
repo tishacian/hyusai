@@ -52,6 +52,7 @@ class Run(Base):
     confidence = Column(Float, nullable=True)
     value_estimated = Column(Float, nullable=True)
     cost_internal = Column(Float, nullable=True)
+    provider_cost_usd = Column(Float, nullable=True)
     revenue_allocated = Column(Float, nullable=True)
     efficiency = Column(Float, nullable=True)
     # value_source: 'auto' (derived from Capability.roi_model), 'operator'
@@ -184,6 +185,9 @@ class SkillInvocation(Base):
     latency_ms = Column(Float, nullable=True)
 
     cost = Column(Float, default=0.0)
+    # Provider tariff in USD. NULL means unavailable; a genuine zero tariff is
+    # represented by 0.0 with cost_measured=True.
+    provider_cost_usd = Column(Float, nullable=True)
     # NULL means "unknown / historical".  New producers explicitly write
     # False while a cost is pending or synthetic.  True is reserved for a
     # provider measurement or a calculation backed by an identifiable,

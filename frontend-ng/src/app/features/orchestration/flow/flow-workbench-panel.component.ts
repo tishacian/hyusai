@@ -370,6 +370,7 @@ export class FlowWorkbenchPanelComponent {
   readonly i18n = inject(I18nService);
 
   readonly open = input(false);
+  readonly initialTab = input<'chat' | 'node' | 'golden'>('chat');
   readonly close = output<void>();
 
   protected readonly tab = signal<WorkbenchTab>('chat');
@@ -401,6 +402,9 @@ export class FlowWorkbenchPanelComponent {
   ));
 
   constructor() {
+    effect(() => {
+      if (this.open()) this.tab.set(this.initialTab());
+    });
     effect(() => {
       this.store.revision();
       this.realSideEffectsAcknowledged.set(false);

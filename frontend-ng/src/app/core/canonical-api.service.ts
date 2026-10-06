@@ -228,6 +228,7 @@ export interface Outcome {
   revenue_allocated?: number | null;
   efficiency?: number | null;
   currency?: string;
+  provider_cost_usd?: number | null;
   value_source?: 'auto' | 'operator' | 'unset';
   operator_value_note?: string | null;
   baseline_eligible?: boolean;
@@ -244,6 +245,7 @@ export interface SkillInvocation {
   status?: 'completed' | 'failed' | 'pending' | 'running' | 'cancelled';
   latency_ms?: number;
   cost?: number;
+  provider_cost_usd?: number | null;
   cost_measured?: boolean;
   input_ref?: Record<string, unknown>;
   output_ref?: Record<string, unknown>;
@@ -380,6 +382,24 @@ export interface Run {
   flow_sha256?: string | null;
   source_flow_sha256?: string | null;
   runtime_mode?: FlowExecutionRuntimeMode | string | null;
+}
+
+export interface RunSystemSummary {
+  system_id: string;
+  system_name: string;
+  last_run_id: string | null;
+  last_status: string | null;
+  last_duration_ms: number | null;
+  last_provider_cost_usd: number | null;
+  total_provider_cost_usd: number | null;
+  run_count: number;
+}
+
+export interface RunFile {
+  key: string;
+  name: string;
+  size_bytes: number | null;
+  uri: string;
 }
 
 export interface SystemHealthRow {
@@ -2511,6 +2531,15 @@ export class CanonicalApiService {
       );
   }
 
+  listRunSummaries(params?: { system_id?: string; capability_id?: string }): Observable<RunSystemSummary[]> {
+    const query: Record<string, string> = { group_by: 'system' };
+    if (params?.system_id) query['system_id'] = params.system_id;
+    if (params?.capability_id) query['capability_id'] = params.capability_id;
+    return this.api
+      .get<RunSystemSummary[] | { summaries: RunSystemSummary[] }>('/runs/summary', query)
+      .pipe(map((response) => this.unwrap(response, 'summaries')));
+  }
+
   getRun(id: string): Observable<Run | null> {
     return this.api.get<Run & { invocations?: SkillInvocation[] }>(`/runs/${id}`).pipe(
       map((r) => {
@@ -2523,6 +2552,15 @@ export class CanonicalApiService {
       }),
       catchError(() => of(null)),
     );
+  }
+
+  getRunFiles(id: string): Observable<RunFile[]> {
+    return this.api
+      .get<RunFile[] | { files: RunFile[] }>(`/runs/${encodeURIComponent(id)}/files`)
+      .pipe(
+        map((response) => this.unwrap(response, 'files')),
+        catchError(() => of([])),
+      );
   }
 
   getRunPerspective(
