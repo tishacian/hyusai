@@ -1,0 +1,9 @@
+# Errors fail the commit; warnings stay visible without blocking.
+failure-threshold: error
+ignored:
+  # apt package versions roll with Debian security updates and an exact pin
+  # stops resolving within weeks. Reproducibility of the OS layer comes from the
+  # release pinning the base image digest (PYTHON_BASE_IMAGE build arg).
+  - DL3008
+  # Flags any ARG whose name contains USER; USERNAME/USER_UID are not secrets.
+  - DL3064

@@ -1,5 +1,13 @@
-FROM python:3.12-slim
+# A release pins the digest it qualified (python:3.12-slim@sha256:…); the bare
+# tag moves under us, and the Python constraints do not freeze the OS layer.
+ARG PYTHON_BASE_IMAGE=python:3.12-slim
+FROM ${PYTHON_BASE_IMAGE}
 
+# Everything down to the "image-specific layers" marker is instruction-for-
+# instruction identical in Dockerfile.agentium-worker. BuildKit keys a layer on
+# its instruction and its parent, not on the file it came from, so the Python
+# stack — the multi-gigabyte part — is built once and stored once for both
+# images. test_demo_dependency_constraints pins the two prefixes together.
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
@@ -10,16 +18,18 @@ RUN : "${PIP_INDEX_URL:?PIP_INDEX_URL is required}"
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
         fonts-dejavu \
-        libreoffice-impress \
         libreoffice-writer \
         tesseract-ocr \
         tesseract-ocr-eng \
         tesseract-ocr-fra \
     && rm -rf /var/lib/apt/lists/*
 
-COPY backend/requirements.txt backend/constraints-demo-backend.txt /tmp/requirements/
+# One constraints file for the API and the worker: a model is fitted in the
+# worker and unpickled here, so both interpreters run the same numpy, scipy,
+# scikit-learn, skops and mlflow.
+COPY backend/requirements.txt backend/constraints-demo-app.txt /tmp/requirements/
 RUN pip install --no-cache-dir \
-    --constraint=/tmp/requirements/constraints-demo-backend.txt \
+    --constraint=/tmp/requirements/constraints-demo-app.txt \
     --index-url=${PIP_INDEX_URL} \
     -r /tmp/requirements/requirements.txt
 
@@ -38,13 +48,20 @@ RUN pip install --no-cache-dir \
 # does, and without torchvision that walk raised ModuleNotFoundError and no
 # model could be deserialised for /predict.
 RUN pip install --no-cache-dir torch torchvision \
-        --constraint=/tmp/requirements/constraints-demo-backend.txt \
+        --constraint=/tmp/requirements/constraints-demo-app.txt \
         --index-url=https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir \
-        --constraint=/tmp/requirements/constraints-demo-backend.txt \
+        --constraint=/tmp/requirements/constraints-demo-app.txt \
         --index-url=${PIP_INDEX_URL} \
         "transformers>=4.41.0" \
     && pip check
+
+# ---- image-specific layers ----
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y \
+        libreoffice-impress \
+    && rm -rf /var/lib/apt/lists/*
 
 ARG USERNAME=agentium
 ARG USER_UID=1000

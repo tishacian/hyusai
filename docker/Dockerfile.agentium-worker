@@ -1,25 +1,35 @@
-FROM python:3.12-slim
+# A release pins the digest it qualified (python:3.12-slim@sha256:…); the bare
+# tag moves under us, and the Python constraints do not freeze the OS layer.
+ARG PYTHON_BASE_IMAGE=python:3.12-slim
+FROM ${PYTHON_BASE_IMAGE}
 
+# Everything down to the "image-specific layers" marker is instruction-for-
+# instruction identical in Dockerfile.agentium-backend. BuildKit keys a layer on
+# its instruction and its parent, not on the file it came from, so the Python
+# stack — the multi-gigabyte part — is built once and stored once for both
+# images. test_demo_dependency_constraints pins the two prefixes together.
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
+ARG PIP_INDEX_URL
+RUN : "${PIP_INDEX_URL:?PIP_INDEX_URL is required}"
+
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
-        build-essential \
-        libreoffice-calc \
+        fonts-dejavu \
         libreoffice-writer \
         tesseract-ocr \
         tesseract-ocr-eng \
         tesseract-ocr-fra \
     && rm -rf /var/lib/apt/lists/*
 
-ARG PIP_INDEX_URL
-RUN : "${PIP_INDEX_URL:?PIP_INDEX_URL is required}"
-
-COPY backend/requirements.txt backend/constraints-demo-worker.txt /tmp/requirements/
+# One constraints file for the API and the worker: a model is fitted here and
+# unpickled by the API, so both interpreters run the same numpy, scipy,
+# scikit-learn, skops and mlflow.
+COPY backend/requirements.txt backend/constraints-demo-app.txt /tmp/requirements/
 RUN pip install --no-cache-dir \
-    --constraint=/tmp/requirements/constraints-demo-worker.txt \
+    --constraint=/tmp/requirements/constraints-demo-app.txt \
     --index-url=${PIP_INDEX_URL} \
     -r /tmp/requirements/requirements.txt
 
@@ -31,23 +41,44 @@ RUN pip install --no-cache-dir \
 # backend image for why its absence broke deserialising a model. Batch scoring
 # loads artifacts in this process too, so it needs the same environment.
 RUN pip install --no-cache-dir torch torchvision \
-        --constraint=/tmp/requirements/constraints-demo-worker.txt \
+        --constraint=/tmp/requirements/constraints-demo-app.txt \
         --index-url=https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir \
-        --constraint=/tmp/requirements/constraints-demo-worker.txt \
+        --constraint=/tmp/requirements/constraints-demo-app.txt \
         --index-url=${PIP_INDEX_URL} \
         "transformers>=4.41.0" \
     && pip check
 
-# Install after CPU torch: Giskard must reuse it, not pull CUDA from PyPI.
-# Offline RAGET only. Its disposable subprocesses do not share tenant globals.
-# Keep the API image and normal ingestion workers free of this optional SDK.
-COPY backend/requirements_giskard.txt /tmp/requirements/
+# ---- image-specific layers ----
+
+# build-essential: recipe venvs are built here at run time from author
+# requirements, some of which only ship sdists.
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y \
+        build-essential \
+        libreoffice-calc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Giskard RAGET pins an older numpy and scipy than the stack above. It gets its
+# own venv instead of the worker's interpreter: RAGET already runs in a
+# disposable subprocess (giskard_adapter.generate_isolated), which starts on
+# /opt/agentium-giskard/bin/python, so the interpreter that fits and loads
+# models never sees those versions.
+#
+# --system-site-packages lets the venv reuse every package already installed
+# above at the same version — torch included, which must not be re-pulled as a
+# CUDA build — and install only what Giskard pins differently, which shadows
+# the system copy inside the venv alone. The final check proves Giskard did not
+# leak into the main interpreter.
+COPY backend/requirements_giskard.txt backend/constraints-demo-giskard.txt /tmp/requirements/
 ARG INSTALL_GISKARD_RAGET=false
 RUN if [ "$INSTALL_GISKARD_RAGET" = "true" ]; then \
-      pip install --no-cache-dir --index-url=${PIP_INDEX_URL} \
-        --constraint=/tmp/requirements/constraints-demo-worker.txt \
-        -r /tmp/requirements/requirements_giskard.txt; \
+      python -m venv --system-site-packages /opt/agentium-giskard \
+      && /opt/agentium-giskard/bin/pip install --no-cache-dir --index-url=${PIP_INDEX_URL} \
+        --constraint=/tmp/requirements/constraints-demo-giskard.txt \
+        -r /tmp/requirements/requirements_giskard.txt \
+      && /opt/agentium-giskard/bin/pip check \
+      && ! python -c "import giskard" 2>/dev/null; \
     fi
 
 ARG USERNAME=agentium
@@ -60,9 +91,11 @@ WORKDIR /app
 
 COPY --chown=$USERNAME:$USERNAME . .
 
-# Qualify actual SDK objects offline; pip metadata alone misses Arrow API drift.
+# Qualify actual SDK objects offline, on the interpreter RAGET runs on; pip
+# metadata alone misses Arrow API drift.
 RUN if [ "$INSTALL_GISKARD_RAGET" = "true" ]; then \
-      pip check && PYTHONPATH=/app/backend python backend/scripts/qualify_giskard_raget.py; \
+      /opt/agentium-giskard/bin/pip check \
+      && PYTHONPATH=/app/backend /opt/agentium-giskard/bin/python backend/scripts/qualify_giskard_raget.py; \
     fi
 
 RUN chmod +x ./run_celery.sh \
