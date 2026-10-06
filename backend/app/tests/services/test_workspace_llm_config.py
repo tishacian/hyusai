@@ -9,6 +9,7 @@ import pytest
 
 from app.services.model_plane import serving_nodes as serving_nodes_mod
 from app.services.model_plane import workspace_config as ws_cfg
+from app.services.model_plane.execution import resolve_model_execution
 
 
 class _FakeDB:
@@ -91,3 +92,31 @@ def test_set_routing_requires_fields():
     ws = _workspace()
     with pytest.raises(ValueError):
         ws_cfg.set_routing(db, ws, default_provider="", default_model="x")
+
+
+def test_named_model_route_resolves_without_exposing_provider_keys():
+    db = _FakeDB()
+    ws = _workspace()
+    ws_cfg.set_routing(
+        db,
+        ws,
+        default_provider="openai",
+        default_model="gpt-4o-mini",
+        named_routes={
+            "fast": {
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+                "fallback_chain": ["ollama"],
+            }
+        },
+    )
+
+    execution = resolve_model_execution(ws, provider="fast")
+    public = execution.public()
+
+    assert execution.provider == "openai"
+    assert execution.model == "gpt-4o-mini"
+    assert public["requested_provider"] == "fast"
+    assert public["model_source"] == "route:fast"
+    assert [item["provider"] for item in public["fallback_plan"]] == ["ollama"]
+    assert "api_key" not in public

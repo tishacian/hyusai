@@ -156,10 +156,17 @@ def get_routing(workspace: "Workspace") -> Dict[str, Any]:
         chain = [provider]
         if "ollama" not in chain:
             chain.append("ollama")
+    named_routes_raw = routing.get("named_routes")
+    named_routes = (
+        dict(named_routes_raw)
+        if isinstance(named_routes_raw, Mapping)
+        else {}
+    )
     return {
         "default_provider": provider,
         "default_model": model,
         "fallback_chain": chain,
+        "named_routes": named_routes,
         "source": "workspace" if routing else "global",
     }
 
@@ -289,6 +296,7 @@ def set_routing(
     default_provider: str,
     default_model: str,
     fallback_chain: Optional[List[str]] = None,
+    named_routes: Optional[Mapping[str, Mapping[str, Any]]] = None,
 ) -> Dict[str, Any]:
     provider = (default_provider or "").strip()
     model = (default_model or "").strip()
@@ -310,11 +318,43 @@ def set_routing(
         raise ValueError("The fallback chain is too long")
     if provider not in chain:
         chain = [provider, *chain]
+    routes: Dict[str, Dict[str, Any]] = {}
+    for raw_name, raw_route in (named_routes or {}).items():
+        name = str(raw_name or "").strip()
+        route = raw_route if isinstance(raw_route, Mapping) else {}
+        route_provider = str(route.get("provider") or "").strip()
+        route_model = str(route.get("model") or "").strip()
+        if not name or name in RUNTIME_PROVIDERS or name == "workspace":
+            raise ValueError("A model route name must be non-empty and reserved")
+        if route_provider not in RUNTIME_PROVIDERS:
+            raise ValueError(f"Model route {name!r} uses an unsupported provider")
+        resolved_route = resolve_model_execution(
+            workspace,
+            provider=route_provider,
+            model=route_model,
+        )
+        if model_compatibility(route_provider, resolved_route.model) == "other":
+            raise ValueError(f"Model route {name!r} is not a text generation model")
+        route_chain = list(
+            dict.fromkeys(
+                str(item).strip()
+                for item in (route.get("fallback_chain") or [])
+                if str(item).strip()
+            )
+        )
+        if any(item not in RUNTIME_PROVIDERS for item in route_chain):
+            raise ValueError(f"Model route {name!r} has an unsupported fallback")
+        routes[name] = {
+            "provider": route_provider,
+            "model": resolved_route.model,
+            "fallback_chain": route_chain,
+        }
     portal = _portal_blob(workspace)
     portal["routing"] = {
         "default_provider": provider,
         "default_model": model,
         "fallback_chain": chain,
+        "named_routes": routes,
     }
     return _persist(db, workspace, portal)
 

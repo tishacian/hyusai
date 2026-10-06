@@ -9,8 +9,9 @@ from typing import Optional
 from uuid import uuid4
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, EmailStr, Field, field_validator
+from sqlalchemy import not_, or_
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import (
@@ -1958,6 +1959,45 @@ async def _send_signup_verification_email(kc_sub: str, admin_token: str) -> bool
     return False
 
 
+@router.get("/workspaces/{slug}/members/available")
+async def available_members(
+    slug: str,
+    q: str = Query(default="", max_length=120),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    workspace, membership = _resolve_workspace_and_role(db, user, slug)
+    _require_admin(membership)
+    needle = q.strip().lower()
+    if len(needle) < 2:
+        return {"users": []}
+    member_ids = (
+        db.query(WorkspaceMember.user_id)
+        .filter(WorkspaceMember.workspace_id == workspace.id)
+        .subquery()
+        .select()
+    )
+    pattern = f"%{needle}%"
+    rows = (
+        db.query(User.id, User.email, User.username)
+        .filter(
+            User.is_active.is_(True),
+            User.email.isnot(None),
+            not_(User.id.in_(member_ids)),
+            or_(User.email.ilike(pattern), User.username.ilike(pattern)),
+        )
+        .order_by(User.email.asc())
+        .limit(10)
+        .all()
+    )
+    return {
+        "users": [
+            {"id": row.id, "email": row.email, "username": row.username}
+            for row in rows
+        ]
+    }
+
+
 @router.post("/workspaces/{slug}/members")
 async def invite_member(
     slug: str,
@@ -2072,7 +2112,71 @@ async def invite_member(
         .first()
     )
     if existing:
-        raise HTTPException(status_code=409, detail="User is already a member")
+        current_template = normalize_role_template(
+            getattr(existing, "role_template", None),
+            existing.role,
+        )
+        current_entitlements = list_member_app_entitlements(db, existing)
+        same_role = current_template == role_template and existing.role != "owner"
+        same_labels = (body.custom_labels is None) or (
+            list(body.custom_labels) == list(existing.custom_labels or [])
+        )
+        same_entitlements = (
+            requested_app_entitlements is None
+            or requested_app_entitlements == current_entitlements
+        )
+        if same_role and same_labels and same_entitlements:
+            return {
+                "status": "ok",
+                "action": "unchanged",
+                "user_id": target_user.id,
+                "role": existing.role,
+                "role_template": current_template,
+                "app_entitlements": current_entitlements,
+                "invitation_email_sent": False,
+            }
+        if existing.role == "owner":
+            raise HTTPException(
+                status_code=400,
+                detail="Owner membership can only change through ownership transfer",
+            )
+        before_template = current_template
+        existing.role_template = role_template
+        existing.role = legacy_role_for_template(role_template)
+        if body.custom_labels is not None:
+            existing.custom_labels = body.custom_labels
+        if requested_app_entitlements is not None:
+            replace_member_app_entitlements(
+                db,
+                existing,
+                requested_app_entitlements,
+                granted_by_user_id=user.id,
+                grant_source="workspace_invitation",
+            )
+        from app.services.audit_logger import emit_audit_event
+
+        emit_audit_event(
+            event_type="workspace.member.updated",
+            workspace_id=workspace.id,
+            actor=user.id,
+            details={
+                "target_user_id": target_user.id,
+                "before_role_template": before_template,
+                "after_role_template": role_template,
+                "source": "workspace_invitation",
+            },
+            db=db,
+        )
+        db.commit()
+        return {
+            "status": "ok",
+            "action": "updated",
+            "user_id": target_user.id,
+            "role": existing.role,
+            "role_template": role_template,
+            "app_entitlements": list_member_app_entitlements(db, existing),
+            "invitation_email_sent": False,
+        }
 
     new_member = WorkspaceMember(
         user_id=target_user.id,
@@ -2090,6 +2194,19 @@ async def invite_member(
         granted_by_user_id=user.id,
         grant_source="workspace_invitation",
     )
+    from app.services.audit_logger import emit_audit_event
+
+    emit_audit_event(
+        event_type="workspace.member.added",
+        workspace_id=workspace.id,
+        actor=user.id,
+        details={
+            "target_user_id": target_user.id,
+            "role_template": role_template,
+            "provisioned_in_keycloak": created_in_kc,
+        },
+        db=db,
+    )
     db.commit()
     invitation_email_sent = False
     if created_in_kc and kc_sub and admin_token:
@@ -2105,6 +2222,7 @@ async def invite_member(
     )
     return {
         "status": "ok",
+        "action": "added",
         "user_id": target_user.id,
         "role": legacy_role_for_template(role_template),
         "role_template": role_template,
@@ -2159,6 +2277,28 @@ async def update_member_role(
         role=body.role,
         role_template=body.role_template,
     )
+    before_template = normalize_role_template(
+        getattr(target, "role_template", None),
+        target.role,
+    )
+    before_labels = list(target.custom_labels or [])
+    before_entitlements = list_member_app_entitlements(db, target)
+    next_labels = body.custom_labels if body.custom_labels is not None else before_labels
+    next_entitlements = (
+        requested_app_entitlements
+        if requested_app_entitlements is not None
+        else before_entitlements
+    )
+    if (
+        before_template == role_template
+        and before_labels == next_labels
+        and before_entitlements == next_entitlements
+    ):
+        return {
+            "status": "ok",
+            "action": "unchanged",
+            "app_entitlements": before_entitlements,
+        }
     target.role_template = role_template
     target.role = legacy_role_for_template(role_template)
     if body.custom_labels is not None:
@@ -2171,9 +2311,24 @@ async def update_member_role(
             granted_by_user_id=user.id,
             grant_source="workspace_member_update",
         )
+    from app.services.audit_logger import emit_audit_event
+
+    emit_audit_event(
+        event_type="workspace.member.updated",
+        workspace_id=workspace.id,
+        actor=user.id,
+        details={
+            "target_user_id": target.user_id,
+            "before_role_template": before_template,
+            "after_role_template": role_template,
+            "source": "workspace_member_update",
+        },
+        db=db,
+    )
     db.commit()
     return {
         "status": "ok",
+        "action": "updated",
         "app_entitlements": list_member_app_entitlements(db, target),
     }
 
@@ -2215,6 +2370,21 @@ async def remove_member(
             status_code=400, detail="Cannot remove the owner. Transfer ownership first."
         )
 
+    from app.services.audit_logger import emit_audit_event
+
+    emit_audit_event(
+        event_type="workspace.member.removed",
+        workspace_id=workspace.id,
+        actor=user.id,
+        details={
+            "target_user_id": target.user_id,
+            "role_template": normalize_role_template(
+                getattr(target, "role_template", None),
+                target.role,
+            ),
+        },
+        db=db,
+    )
     db.delete(target)
     db.commit()
     return {"status": "ok"}

@@ -17,6 +17,7 @@ from app.api.v1.endpoints.systems import (
     _enforce_system_run_authority,
 )
 from app.core.auth import get_current_user, get_current_workspace
+from app.core.iam.roles import WORKSPACE_OWNER, normalize_role_template
 from app.db.base import get_db
 from app.models.automation_review import AutomationReview
 from app.models.run import Run, SkillInvocation
@@ -27,6 +28,8 @@ from app.models.system_flow_draft import SystemFlowDraft
 from app.models.system_version import SystemVersion
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.models.workspace import WorkspaceMember
+from app.services.assistant.config import resolve_assistant_edit_policy
 from app.services import automation_chart, automation_dossiers, automation_edit, automation_portfolio, automation_proof, automation_review, value_contracts
 from app.services.model_plane.workspace_config import get_routing
 from app.services.systems.preparation_diagnostic import (
@@ -43,6 +46,13 @@ from app.services.run_engine import schedule_run
 from app.services.systems import flow_publication as publication
 
 router = APIRouter()
+_ROLE_RANK = {
+    "workspace_viewer": 0,
+    "workspace_contributor": 1,
+    "workspace_reviewer": 2,
+    "workspace_admin": 3,
+    WORKSPACE_OWNER: 4,
+}
 
 
 class AutomationTurnBody(BaseModel):
@@ -68,6 +78,54 @@ def _refuse(db: DBSession, refusal: automation_edit.AutomationEditRefusal) -> No
         status_code=422,
         detail={"code": refusal.code, "message": refusal.message},
     ) from refusal
+
+
+def _enforce_automation_edit_access(
+    db: DBSession,
+    *,
+    user: User,
+    workspace: Workspace,
+    system: System,
+) -> None:
+    policy = resolve_assistant_edit_policy(workspace)
+    if not policy.configured:
+        _enforce_system_admin(
+            db,
+            user=user,
+            workspace=workspace,
+            system=system,
+            mutation="automation_turn",
+        )
+        return
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == user.id,
+            WorkspaceMember.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    role = (
+        normalize_role_template(membership.role_template, membership.role)
+        if membership
+        else None
+    )
+    allowed = (
+        getattr(user, "role", None) == "admin"
+        or user.id in policy.user_ids
+        or (role is not None and _ROLE_RANK[role] >= _ROLE_RANK[policy.minimum_role])
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "AUTOMATION_EDIT_NOT_ALLOWED",
+                "message": (
+                    "You are not allowed to edit automations with the assistant. "
+                    "Ask a workspace administrator."
+                ),
+            },
+        )
 
 
 def _bind_skills(db: DBSession, system: System, flow: dict[str, Any]) -> None:
@@ -98,12 +156,11 @@ async def automation_turn(
     db: DBSession = Depends(get_db),
 ):
     system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
-    _enforce_system_admin(
+    _enforce_automation_edit_access(
         db,
         user=user,
         workspace=workspace,
         system=system,
-        mutation="automation_turn",
     )
     draft = (
         db.query(SystemFlowDraft)

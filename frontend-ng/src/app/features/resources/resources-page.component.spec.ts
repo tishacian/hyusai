@@ -104,7 +104,12 @@ test('catalog filters provider, task and runtime and preserves explicit empty fa
     assert.deepEqual(h.component.routingDraft.fallback, []); assert.equal(h.component.canSaveRouting(), true);
     h.component.setRoutingProvider('ollama'); assert.equal(h.component.routingDraft.model, ''); assert.equal(h.component.canSaveRouting(), false);
     h.component.routingDraft.model = 'llama'; h.component.toggleFallback('openai'); h.component.saveRouting();
-    assert.deepEqual(h.calls.find((c) => c.method === 'PUT')?.body, { default_provider: 'ollama', default_model: 'llama', fallback_chain: ['openai'] });
+    assert.deepEqual(h.calls.find((c) => c.method === 'PUT')?.body, {
+      default_provider: 'ollama',
+      default_model: 'llama',
+      fallback_chain: ['openai'],
+      named_routes: {},
+    });
   } finally { h.close(); }
 });
 test('saved Azure metadata pre-fills without exposing or inventing secrets', () => {

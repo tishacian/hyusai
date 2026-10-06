@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 from urllib.parse import urlparse
 
@@ -51,7 +51,7 @@ class ModelExecution:
             result["returned_model"] = returned_model
         if self.requested_provider:
             result["requested_provider"] = self.requested_provider
-        if self.requested_provider == "workspace":
+        if self.requested_provider == "workspace" or self.model_source.startswith("route:"):
             result["fallback_plan"] = [candidate.public() for candidate in self._fallbacks]
         return result
 
@@ -100,6 +100,24 @@ def resolve_model_execution(
         }
     )
     requested = _text(provider)
+    route = (routing.get("named_routes") or {}).get(requested) if requested else None
+    if isinstance(route, Mapping):
+        resolved = resolve_model_execution(
+            workspace,
+            provider=_text(route.get("provider")) or None,
+            model=_text(route.get("model")) or None,
+        )
+        fallbacks = tuple(
+            resolve_model_execution(workspace, provider=_text(item))
+            for item in (route.get("fallback_chain") or [])
+            if _text(item)
+        )
+        return replace(
+            resolved,
+            model_source=f"route:{requested}",
+            _fallbacks=fallbacks,
+            requested_provider=requested,
+        )
     inherited = not requested or requested == "workspace"
     selected = _text(routing["default_provider"]) if inherited else requested
     legacy = "azure" if selected == "azure" else None
