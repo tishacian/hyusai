@@ -1709,9 +1709,32 @@ def test_coerce_plan_demotes_reject_oos_on_known_entity_german():
     out = wrappers._coerce_plan(
         {"action": "reject_oos", "oos_reason": "hors perimetre"},
         "Wozu dient das Qualiscan QMS-12 System und wie funktioniert es?",
+        family="andritz",
     )
     assert out["action"] == "answer"          # known entity -> never OOS
     assert out["oos_reason"] == ""
+
+
+def test_another_customers_brands_never_override_a_generic_planner():
+    # KSB and Wilo are ANDRITZ corpus anchors; elsewhere the planner decides.
+    query = "Quel est le prix d'une pompe KSB chez Wilo ?"
+    generic = wrappers._coerce_plan({"action": "reject_oos", "oos_reason": "hors perimetre"}, query)
+    assert generic["action"] == "reject_oos"
+    andritz = wrappers._coerce_plan(
+        {"action": "reject_oos", "oos_reason": "hors perimetre"}, query, family="andritz"
+    )
+    assert andritz["action"] == "answer"
+
+
+def test_the_andritz_corpus_anchors_keep_their_exact_pattern():
+    from app.tenants.andritz.corpus_anchors import KNOWN_ENTITY_RE
+
+    # Captured from the generic module before the move (ADR 0003, D6).
+    assert KNOWN_ENTITY_RE.pattern == (
+        r"\b(qualiscan|qms[\s-]?\d+|uraca|etachrom|sinamics|simotics|jetlace|servo\s*x|"
+        r"pollrich|continental\s*gvjs|wilo|ksb|geotex|excelle|starter|kd724)\b"
+    )
+    assert KNOWN_ENTITY_RE.flags & __import__("re").IGNORECASE
 
 
 def test_coerce_plan_demotes_reject_oos_on_project_code():
