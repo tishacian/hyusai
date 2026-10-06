@@ -1966,6 +1966,12 @@ async def available_members(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    """Suggest people the admin already works with, never the platform directory.
+
+    Only users who share a live workspace with the admin are offered: a
+    substring search over every account let any workspace admin list other
+    customers' people. Anyone else is still invited by their exact email.
+    """
     workspace, membership = _resolve_workspace_and_role(db, user, slug)
     _require_admin(membership)
     needle = q.strip().lower()
@@ -1977,14 +1983,33 @@ async def available_members(
         .subquery()
         .select()
     )
-    pattern = f"%{needle}%"
+    admin_workspace_ids = (
+        db.query(WorkspaceMember.workspace_id)
+        .join(Workspace, Workspace.id == WorkspaceMember.workspace_id)
+        .filter(WorkspaceMember.user_id == user.id, Workspace.deleted_at.is_(None))
+        .subquery()
+        .select()
+    )
+    known_ids = (
+        db.query(WorkspaceMember.user_id)
+        .filter(WorkspaceMember.workspace_id.in_(admin_workspace_ids))
+        .subquery()
+        .select()
+    )
+    # The needle is matched literally: % and _ are not wildcards here.
+    escaped = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped}%"
     rows = (
         db.query(User.id, User.email, User.username)
         .filter(
             User.is_active.is_(True),
             User.email.isnot(None),
+            User.id.in_(known_ids),
             not_(User.id.in_(member_ids)),
-            or_(User.email.ilike(pattern), User.username.ilike(pattern)),
+            or_(
+                User.email.ilike(pattern, escape="\\"),
+                User.username.ilike(pattern, escape="\\"),
+            ),
         )
         .order_by(User.email.asc())
         .limit(10)

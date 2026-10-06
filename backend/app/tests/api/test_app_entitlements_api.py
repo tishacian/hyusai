@@ -607,8 +607,63 @@ def test_auth_invite_validates_and_persists_explicit_app_entitlements(db_session
     ]
 
 
+def _share_a_workspace(db_session, slug: str, *users: User, deleted: bool = False) -> Workspace:
+    from datetime import datetime
+
+    shared = Workspace(
+        id=f"workspace-{slug}",
+        name=slug,
+        slug=slug,
+        settings={},
+        deleted_at=datetime.utcnow() if deleted else None,
+    )
+    db_session.add(shared)
+    db_session.flush()
+    for person in users:
+        db_session.add(
+            WorkspaceMember(
+                workspace_id=shared.id, user_id=person.id, role="member",
+                role_template=WORKSPACE_CONTRIBUTOR,
+            )
+        )
+    db_session.commit()
+    return shared
+
+
+def test_member_suggestions_never_list_another_customers_people(db_session) -> None:
+    workspace, owner, _, invitee, _, _ = _seed_workspace(db_session)
+    stranger = User(
+        id="user-other-customer", username="other-customer-engineer",
+        email="engineer@other-customer.example", role="user",
+    )
+    former = User(
+        id="user-former-colleague", username="former-colleague",
+        email="former@example.com", role="user",
+    )
+    db_session.add_all([stranger, former])
+    db_session.commit()
+    _share_a_workspace(db_session, "stranger-only", stranger)
+    _share_a_workspace(db_session, "deleted-shared", owner, former, deleted=True)
+    _share_a_workspace(db_session, "shared-project", owner, invitee)
+    client = _auth_client(db_session, owner)
+
+    def suggest(q: str) -> list[str]:
+        response = client.get(
+            f"/auth/workspaces/{workspace.slug}/members/available", params={"q": q}
+        )
+        assert response.status_code == 200
+        return [row["id"] for row in response.json()["users"]]
+
+    # Before: any two letters listed every active account on the platform.
+    assert suggest("ex") == [invitee.id]
+    assert stranger.id not in suggest("engineer")
+    assert former.id not in suggest("former"), "a deleted workspace shares nobody"
+    assert suggest("%") == [] and suggest("__") == [], "the needle is matched literally"
+
+
 def test_invite_is_idempotent_and_audited(db_session) -> None:
     workspace, owner, _, invitee, _, _ = _seed_workspace(db_session)
+    _share_a_workspace(db_session, "shared-project", owner, invitee)
     client = _auth_client(db_session, owner)
     available = client.get(
         f"/auth/workspaces/{workspace.slug}/members/available",
