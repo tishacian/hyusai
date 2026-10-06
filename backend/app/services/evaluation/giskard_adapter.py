@@ -12,6 +12,28 @@ from typing import Any, Callable, Iterable, Mapping, Optional
 
 _ISOLATED_USAGE: dict[str, Any] = {}
 
+# The worker image installs Giskard into its own venv (Dockerfile.agentium-
+# worker): RAGET pins an older numpy and scipy than the interpreter that fits
+# and loads models, and the two must not share one site-packages.
+GISKARD_VENV_PYTHON = "/opt/agentium-giskard/bin/python"
+
+
+def raget_interpreter() -> str:
+    """The interpreter the disposable RAGET subprocess starts on.
+
+    ``AGENTIUM_GISKARD_PYTHON`` overrides; otherwise the image's Giskard venv
+    when present, and the current interpreter for a laptop that installed
+    ``requirements_giskard.txt`` alongside the app.
+    """
+    import os
+    import sys
+    configured = os.environ.get("AGENTIUM_GISKARD_PYTHON", "").strip()
+    if configured:
+        return configured
+    if os.path.exists(GISKARD_VENV_PYTHON):
+        return GISKARD_VENV_PYTHON
+    return sys.executable
+
 
 def installed_raget_version() -> str | None:
     from importlib.metadata import PackageNotFoundError, version
@@ -34,7 +56,6 @@ def generate_isolated(*, rows: list[dict], model: str, embedding_model: str, api
     import json
     import os
     import subprocess
-    import sys
     if not api_key or not model or not embedding_model:
         raise GiskardUnavailable("Explicit model, embedding model and credential required")
     if not 1 <= num_questions <= 20 or not 1 <= max_calls <= 100 or not 1 <= max_tokens <= 200_000:
@@ -45,7 +66,7 @@ def generate_isolated(*, rows: list[dict], model: str, embedding_model: str, api
     environment = {key: os.environ[key] for key in ("PATH", "HOME", "LANG", "PYTHONPATH", "VIRTUAL_ENV") if key in os.environ}
     environment["GISKARD_DISABLE_ANALYTICS"] = "true"
     try:
-        result = subprocess.run([sys.executable, "-m", "app.services.evaluation.giskard_adapter"],
+        result = subprocess.run([raget_interpreter(), "-m", "app.services.evaluation.giskard_adapter"],
             input=json.dumps(payload), text=True, capture_output=True, env=environment,
             timeout=timeout_seconds, check=False)
     except subprocess.TimeoutExpired as exc:
