@@ -336,7 +336,7 @@ test('axes v4 sends Hypervisor to Portfolio while object lenses keep the selecte
     navigation.urlForLens('steer', '/steering'),
     '/systems/sys-real?facet=runs&lens=steer&capabilityId=cap-real',
   );
-  assert.equal(navigation.nodes()[0].href, '/hypervisor');
+  assert.equal(navigation.nodes()[0].href, '/systems?lens=operate');
 });
 
 test('Impact from a System carries arrival provenance in history.state', () => {
