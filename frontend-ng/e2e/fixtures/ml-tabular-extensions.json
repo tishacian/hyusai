@@ -1,5 +1,5 @@
 {
-  "note": "Synthetic catalog fields test the 2a rendering mechanism only. The real tabular catalog remains empty until each option has a training implementation.",
+  "note": "Synthetic renderer fields and implemented classification options are tested separately.",
   "fields": [
     { "key": "probe_mode", "kind": "enum", "required": false, "default": "off", "choices": ["off", "on"], "when": { "task": ["regression"] } },
     { "key": "probe_count", "kind": "int", "required": false, "default": 3, "min": 1, "max": 8, "when": { "task": ["regression"], "probe_mode": ["on"] } },
@@ -11,5 +11,114 @@
     { "name": "region", "kind": "string", "distinct": 3, "nulls": 0, "suggested_task": "classification" },
     { "name": "segment", "kind": "string", "distinct": 4, "nulls": 0, "suggested_task": "classification" },
     { "name": "visits", "kind": "integer", "distinct": 20, "nulls": 0, "suggested_task": "regression" }
-  ]
+  ],
+  "classification_fields": [
+    {
+      "key": "calibration",
+      "kind": "enum",
+      "default": "off",
+      "choices": [
+        "off",
+        "auto",
+        "sigmoid",
+        "isotonic"
+      ],
+      "when": {
+        "task": [
+          "classification"
+        ]
+      }
+    },
+    {
+      "key": "threshold",
+      "kind": "enum",
+      "default": "default",
+      "choices": [
+        "default",
+        "f1",
+        "youden"
+      ],
+      "when": {
+        "task": [
+          "classification"
+        ]
+      }
+    }
+  ],
+  "classification_metrics": {
+    "primary": {
+      "key": "roc_auc",
+      "value": 0.91
+    },
+    "scores": [
+      {
+        "key": "roc_auc",
+        "value": 0.91
+      }
+    ],
+    "target": {
+      "name": "region",
+      "classes": [
+        "North",
+        "South"
+      ],
+      "positive": "South"
+    },
+    "calibration": {
+      "method": "sigmoid",
+      "fit_rows": 1200,
+      "calibration_rows": 300,
+      "before": {
+        "brier_score": 0.18,
+        "log_loss": 0.5,
+        "curve": [
+          {
+            "x": 0.1,
+            "y": 0.03
+          },
+          {
+            "x": 0.4,
+            "y": 0.3
+          },
+          {
+            "x": 0.8,
+            "y": 0.95
+          }
+        ]
+      },
+      "after": {
+        "brier_score": 0.12,
+        "log_loss": 0.38,
+        "curve": [
+          {
+            "x": 0.05,
+            "y": 0.04
+          },
+          {
+            "x": 0.3,
+            "y": 0.31
+          },
+          {
+            "x": 0.9,
+            "y": 0.9
+          }
+        ]
+      }
+    },
+    "decision": {
+      "threshold": 0.37,
+      "criterion": "f1",
+      "source": "calibration",
+      "default_metrics": {
+        "precision": 0.9,
+        "recall": 0.5,
+        "f1": 0.64
+      },
+      "tuned_metrics": {
+        "precision": 0.8,
+        "recall": 0.7,
+        "f1": 0.75
+      }
+    }
+  }
 }

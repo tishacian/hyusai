@@ -102,7 +102,8 @@ def test_cross_validation_refits_the_extensions_on_each_fold(monkeypatch):
     assert result["folds"] == 2 and result["mean"] is not None
 
 
-def test_harness_skops_and_mlflow_roundtrip_preserve_decision(tmp_path):
+@pytest.mark.parametrize("calibration", ["sigmoid", "isotonic"])
+def test_harness_skops_and_mlflow_roundtrip_preserve_decision(tmp_path, calibration):
     import mlflow.sklearn
     import skops.io as sio
     x, y = data(2000)
@@ -111,7 +112,7 @@ def test_harness_skops_and_mlflow_roundtrip_preserve_decision(tmp_path):
     manifest = {"data_path": str(parquet), "model_dir": str(tmp_path / "model"), "target": "target",
                 "features": list(x.columns), "task": "classification", "estimator": "sklearn.ensemble.RandomForestClassifier",
                 "params": {"n_estimators": 25, "max_depth": 5, "random_state": 42, "n_jobs": 1},
-                "spec": {"calibration": "sigmoid", "threshold": "f1"}, "random_state": 42,
+                "spec": {"calibration": calibration, "threshold": "f1"}, "random_state": 42,
                 "importance_rows": 50, "cv": 2, "progress_path": str(tmp_path / "progress")}
     source, result = tmp_path / "manifest.json", tmp_path / "result.json"
     source.write_text(json.dumps(manifest))
@@ -124,6 +125,9 @@ def test_harness_skops_and_mlflow_roundtrip_preserve_decision(tmp_path):
     np.testing.assert_array_equal(restored.predict(x.head(50)), model.predict(x.head(50)))
     np.testing.assert_allclose(restored.predict_proba(x.head(50)), model.predict_proba(x.head(50)))
     assert summary["metrics"]["cv"]["mean"] is not None
+    assert summary["metrics"]["importances"]
+    scores = {entry["key"]: entry["value"] for entry in summary["metrics"]["scores"]}
+    assert scores["precision"] == pytest.approx(summary["metrics"]["decision"]["tuned_metrics"]["precision"])
     assert "calibrating" in (tmp_path / "progress").read_text()
 
 
@@ -169,3 +173,12 @@ def test_portable_threshold_predicts_positive_below_half():
     model = FixedThresholdClassifier(FrozenEstimator(base), threshold=0.37, pos_label=1).fit(x, y)
     assert model.predict_proba(x)[0, 1] == 0.4
     assert model.predict(x)[0] == 1
+    from app.services.tabular_predict import _rows_from
+    answer = _rows_from(SimpleNamespace(task="classification"), ["0", "1"], "1", model.predict(x), model.predict_proba(x))[0]
+    assert answer["prediction"] == "1" and answer["score"] == 0.4 and answer["confidence"] == 0.4
+
+
+def test_auto_calibration_uses_isotonic_at_one_thousand_rows():
+    x, y = data(5000)
+    _, context = fit(x, y, calibration="auto")
+    assert context["calibration"] == {"method": "isotonic", "fit_rows": 4000, "calibration_rows": 1000}

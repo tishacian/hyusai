@@ -32,7 +32,6 @@ def _threshold(y, probability, criterion, positive):
 
 
 def fit(pipeline, x_train, y_train, *, spec, seed, folds, progress):
-    import numpy as np
     from sklearn.base import clone
     from sklearn.calibration import CalibratedClassifierCV
     from sklearn.frozen import FrozenEstimator
