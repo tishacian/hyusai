@@ -1,5 +1,5 @@
 /** Small explanations of held-out rows; failures are local to each section. */
-export interface ExplainRule { feature: string; op: string; value: number | null; }
+export interface ExplainRule { feature: string; op: string; value: number | null; missing?: boolean; }
 export interface ExplainLeaf { rule: ExplainRule[]; rows: number; error?: number | null; global_error?: number | null; lift?: number | null; prediction?: unknown; }
 export interface ExplainTree { error?: string; rules?: ExplainLeaf[]; global_error?: number | null; rows?: number; }
 export interface SurrogateEvidence extends ExplainTree { fidelity?: number | null; metric?: string; train_rows?: number; validation_rows?: number; }
@@ -16,9 +16,13 @@ export interface ExplanationEvidence {
   pdp?: PartialEffect[];
   fairness?: FairnessEvidence[] | { error: string };
 }
-export function readableRule(rule: readonly ExplainRule[], locale: string, all: string, and: string): string {
+export function readableRule(rule: readonly ExplainRule[], locale: string, all: string, and: string, missing = 'is missing', present = 'is present', or = 'or'): string {
   if (!rule.length) return all;
-  return rule.map((term) => `${term.feature} ${term.op === '<=' ? '≤' : term.op} ${term.value?.toLocaleString(locale, { maximumFractionDigits: 3 }) ?? '—'}`).join(` ${and} `);
+  return rule.map((term) => {
+    if (term.op === 'missing' || term.op === 'not_missing') return `${term.feature} ${term.op === 'missing' ? missing : present}`;
+    const comparison = `${term.feature} ${term.op === '<=' ? '≤' : term.op} ${term.value?.toLocaleString(locale, { maximumFractionDigits: 3 }) ?? '—'}`;
+    return term.missing ? `(${comparison} ${or} ${term.feature} ${missing})` : comparison;
+  }).join(` ${and} `);
 }
 export function surrogateRules(evidence: SurrogateEvidence | null | undefined): ExplainLeaf[] {
   return evidence && !evidence.error && typeof evidence.fidelity === 'number' && evidence.fidelity >= 0.7 ? evidence.rules ?? [] : [];

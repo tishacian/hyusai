@@ -150,7 +150,8 @@ def test_low_cardinality_numeric_columns_are_valid_groups(dataset, enabled):
     assert spec.features == ["arpu"] and spec.spec["fairness_columns"] == ["region", "support_tickets"]
 
 
-def test_harness_reads_fairness_columns_outside_features_and_persists_pack(tmp_path):
+@pytest.mark.parametrize("worker_failure", [False, True])
+def test_harness_reads_fairness_columns_outside_features_and_persists_pack(tmp_path, monkeypatch, worker_failure):
     model, x, y = classification(400)
     frame = x.assign(group=np.where(x.a > 0, "North", "South"), target=y)
     # The source's duplicate index labels must not duplicate protected rows.
@@ -164,12 +165,21 @@ def test_harness_reads_fairness_columns_outside_features_and_persists_pack(tmp_p
                 "progress_path": str(tmp_path / "progress")}
     source, output = tmp_path / "manifest.json", tmp_path / "result.json"
     source.write_text(json.dumps(manifest))
+    if worker_failure:
+        from types import SimpleNamespace
+        def unavailable(*args, **kwargs):
+            raise RuntimeError("worker unavailable")
+        monkeypatch.setattr(harness, "_explanation_extensions", lambda: SimpleNamespace(pack=unavailable))
     assert harness.main(["harness", str(source), str(output)]) == 0
     result = json.loads(output.read_text())
     pack = result["metrics"]["explain"]
-    assert pack["rows"] == 100 and "error" not in pack["error_tree"]
-    assert pack["fairness"][0]["column"] == "group"
-    assert sum(row["n"] for row in pack["fairness"][0]["groups"]) == 100
+    if worker_failure:
+        assert "worker unavailable" in pack["error"]
+        assert (tmp_path / "model" / "MLmodel").is_file()
+    else:
+        assert pack["rows"] == 100 and "error" not in pack["error_tree"]
+        assert pack["fairness"][0]["column"] == "group"
+        assert sum(row["n"] for row in pack["fairness"][0]["groups"]) == 100
     assert "group" not in [field["name"] for field in result["signature"]["inputs"]]
     assert "explaining" in (tmp_path / "progress").read_text()
 
@@ -186,3 +196,11 @@ def test_timeout_preserves_completed_sections(monkeypatch):
     assert result["error_tree"] == {"rules": [], "rows": len(x)}
     assert result["surrogate"] == {"error": "budget"}
     assert result["elapsed_s"] < 0.3
+
+
+def test_missing_value_splits_produce_readable_conditions():
+    from sklearn.tree import DecisionTreeClassifier
+    x = pd.DataFrame({"tenure": [1.0] * 30 + [np.nan] * 30})
+    tree = DecisionTreeClassifier(max_depth=1).fit(x, [0] * 30 + [1] * 30)
+    paths = explain._paths(tree, ["tenure"])
+    assert {path[0]["op"] for path in paths.values()} == {"missing", "not_missing"}

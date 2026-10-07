@@ -15,6 +15,9 @@
  */
 
 export const MODELS_FR = {
+  "models.explain.missing": "est manquant",
+  "models.explain.present": "est renseigné",
+  "models.explain.or": "ou",
   "models.spec.explain": "Explications du modèle",
   "models.spec.explain.hint": "Explore les erreurs, un arbre simplifié et l’effet des variables sur le test, dans un budget de 60 secondes.",
   "models.spec.explain.off": "Désactivées",
@@ -867,6 +870,9 @@ export const MODELS_FR = {
 } as const;
 
 export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
+  "models.explain.missing": "is missing",
+  "models.explain.present": "is present",
+  "models.explain.or": "or",
   "models.spec.explain": "Model explanations",
   "models.spec.explain.hint": "Explore errors, a simplified tree and feature effects on the test, within a 60-second budget.",
   "models.spec.explain.off": "Off",

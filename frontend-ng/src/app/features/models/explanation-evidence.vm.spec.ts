@@ -23,3 +23,8 @@ test('fairness tables show only the metrics measured for their task', () => {
   assert.deepEqual(fairnessMetrics({ column: 'region', groups: [{ group: 'A', n: 50, low_support: false, mae: 1.5, bias: -0.2 }] }), ['mae', 'bias']);
   assert.deepEqual(fairnessMetrics({ column: 'region', groups: [{ group: 'A', n: 50, low_support: false, accuracy: 0.8 }] }), ['accuracy']);
 });
+
+test('rules expose missing-value branches instead of an infinite threshold', () => {
+  assert.equal(readableRule([{ feature: 'age', op: 'missing', value: null }], 'en', 'All', 'and'), 'age is missing');
+  assert.equal(readableRule([{ feature: 'age', op: '<=', value: 3, missing: true }], 'en', 'All', 'and'), '(age ≤ 3 or age is missing)');
+});
