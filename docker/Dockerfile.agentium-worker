@@ -31,26 +31,31 @@ COPY backend/requirements.txt backend/constraints-demo-app.txt /tmp/requirements
 RUN pip install --no-cache-dir \
     --constraint=/tmp/requirements/constraints-demo-app.txt \
     --index-url=${PIP_INDEX_URL} \
-    -r /tmp/requirements/requirements.txt
+    -r /tmp/requirements/requirements.txt \
+    && pip check
 
 # Cross-encoder files for the RAG rerank stage (ONNX export + tokenizer), baked
 # from a manifest that pins each file by revision and sha256: no process
 # downloads a model at start-up, and an air-gapped host runs the bytes the
-# release qualified. Placed before torch so it stays in the shared prefix once
-# the API image no longer installs torch. RAG_MODELS_BASE_URL selects a mirror.
+# release qualified. ONNX Runtime scores them, so the API needs no torch.
+# RAG_MODELS_BASE_URL selects a mirror.
 ARG RAG_MODELS_BASE_URL=
 COPY backend/rag_models.lock.json backend/scripts/fetch_rag_models.py /tmp/rag-models/
 RUN python /tmp/rag-models/fetch_rag_models.py \
         --manifest /tmp/rag-models/rag_models.lock.json --dest /opt/agentium-models
 
-# Deep-retrieval jobs (run_deep_retrieval) execute the cross-encoder rerank
-# stage in this worker; torch + transformers back its fallback engine, as in
-# the backend, while the ONNX engine above is being qualified.
-# CPU-only torch index avoids the multi-GB CUDA build from PyPI.
+# ---- image-specific layers ----
+
+# torch stays in the worker only, for two reasons the API does not have: the
+# Giskard venv below inherits it (RAGET's bert-score needs it, and a venv
+# resolving it from PyPI would pull the CUDA build), and the torch rerank
+# engine remains the fallback behind RAG_RERANKER_BACKEND=torch. The CPU-only
+# index avoids the multi-GB CUDA build.
 #
-# torchvision is the +cpu peer transformers assumes alongside torch; see the
-# backend image for why its absence broke deserialising a model. Batch scoring
-# loads artifacts in this process too, so it needs the same environment.
+# torchvision is the +cpu peer transformers assumes alongside torch: once
+# transformers is resident, skops' trusted-type scan walks into its lazily
+# imported image processors, and without torchvision no model artifact could
+# be deserialised in this process (batch scoring loads them here).
 RUN pip install --no-cache-dir torch torchvision \
         --constraint=/tmp/requirements/constraints-demo-app.txt \
         --index-url=https://download.pytorch.org/whl/cpu \
@@ -59,8 +64,6 @@ RUN pip install --no-cache-dir torch torchvision \
         --index-url=${PIP_INDEX_URL} \
         "transformers>=4.41.0" \
     && pip check
-
-# ---- image-specific layers ----
 
 # build-essential: recipe venvs are built here at run time from author
 # requirements, some of which only ship sdists.

@@ -60,6 +60,10 @@ def test_fetch_downloads_verifies_and_is_idempotent(tmp_path, monkeypatch):
     assert fetch_rag_models.main([*args, "--verify-only"]) == 1
     assert fetch_rag_models.main(args) == 0
     assert (dest / "org/model/onnx/model.onnx").read_bytes() == b"weights"
+    # Fetched as root at build time, read by the non-root runtime user: a file
+    # left at mkstemp's 0600 made onnxruntime fail with EACCES on the VM.
+    for path in (dest / "org/model/onnx/model.onnx", dest / "org/model/tokenizer.json"):
+        assert path.stat().st_mode & 0o044 == 0o044, oct(path.stat().st_mode)
     assert fetch_rag_models.main([*args, "--verify-only"]) == 0
     assert not list(dest.rglob(".partial-*"))
     # A warm layer does no I/O: an unreachable mirror is never contacted.
