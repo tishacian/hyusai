@@ -63,7 +63,24 @@ function forecastAnswer(body: any) {
       return { series: name, timestamp: at.toISOString().replace('T', ' ').slice(0, 19), pred, lower_bound: pred - 6, upper_bound: pred + 6 };
     }),
   );
-  return { served: { model_id: modelId, version: 1, is_champion: true }, horizon, interval_level: level, frequency: 'h', series, forecast, rows: forecast.length, duration_ms: 84, load_ms: 0, cached: true, prediction_id: 'p-1' };
+  const first = forecast.filter((row: any) => row.series === series[0]);
+  const top = first.reduce((best: any, row: any) => (row.pred > best.pred ? row : best), first[0]);
+  const explanation = body.params?.explain
+    ? {
+        series: series[0],
+        method: 'shap',
+        steps: first.map((row: any, index: number) => ({ step: index + 1, timestamp: row.timestamp, pred: row.pred, base: 40, groups: { lags: row.pred - 42, calendar: 2 } })),
+        peak: {
+          step: first.indexOf(top) + 1, timestamp: top.timestamp, pred: top.pred, base: 40, groups: { lags: top.pred - 42, calendar: 2 },
+          features: [
+            { feature: 'lag_168', group: 'lags', contribution: top.pred - 45, value: top.pred },
+            { feature: 'lag_24', group: 'lags', contribution: 3, value: top.pred - 2 },
+            { feature: 'hour_sin', group: 'calendar', contribution: 2, value: 0.5 },
+          ],
+        },
+      }
+    : null;
+  return { served: { model_id: modelId, version: 1, is_champion: true }, horizon, interval_level: level, frequency: 'h', series, forecast, explanation, rows: forecast.length, duration_ms: 84, load_ms: 0, cached: true, prediction_id: 'p-1' };
 }
 
 async function setup(page: Page, options: { theme: string; locale: string }) {
@@ -151,6 +168,14 @@ test.describe('Models · forecasting — isolated end-user QA', () => {
       await expect(evidence).toContainText(locale === 'fr' ? 'répéter la dernière saison' : 'repeating the last season');
       await expect(evidence).toContainText(locale === 'fr' ? 'Couverture' : 'Coverage');
       await expect(page.getByText(locale === 'fr' ? 'Erreur par série' : 'Error per series')).toBeVisible();
+      // What it leans on, from the real fit: the series' own past, by far.
+      const explained = page.getByTestId('forecast-explanation');
+      await expect(explained).toContainText(locale === 'fr' ? 'Passé récent de la série' : 'The series’ recent past');
+      await expect(explained).toContainText(locale === 'fr' ? 't−168 (7 j)' : 't−168 (7 d)');
+      await expect(page.getByTestId('forecast-excursions').locator('li')).toHaveCount(5);
+      await explained.scrollIntoViewIfNeeded();
+      await explained.screenshot({ path: info.outputPath(`explain-${theme}-${locale}-${width}.png`) });
+      await page.getByTestId('forecast-excursions').screenshot({ path: info.outputPath(`excursions-${theme}-${locale}-${width}.png`) });
       await page.screenshot({ path: info.outputPath(`card-${theme}-${locale}-${width}.png`), fullPage: true });
 
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
@@ -168,6 +193,13 @@ test.describe('Models · forecasting — isolated end-user QA', () => {
       await expect(play.locator('canvas')).toBeVisible();
       expect(api.forecasts.at(-1)).toMatchObject({ params: { horizon: 12, interval_level: 0.8 } });
       expect(api.forecasts.at(-1).inputs).toHaveLength(1);
+      expect(api.forecasts.at(-1).params.explain).toBe(true);
+      const why = play.getByTestId('forecast-why');
+      await expect(why).toBeVisible();
+      await expect(why).toContainText(locale === 'fr' ? 'Partant d’une base de 40' : 'From a base of 40');
+      await expect(why).toContainText(locale === 'fr' ? 't−168 (7 j)' : 't−168 (7 d)');
+      await why.scrollIntoViewIfNeeded();
+      await why.screenshot({ path: info.outputPath(`why-${theme}-${locale}-${width}.png`) });
       // The cURL is this exact call.
       await expect(page.locator('pre.ck-code')).toContainText('/forecast');
       await expect(page.locator('pre.ck-code')).toContainText('"horizon":12');

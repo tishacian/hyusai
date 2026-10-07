@@ -59,12 +59,15 @@ import {
   type VizBar,
 } from '@app/features/data/viz/viz.vm';
 import { ForecastChartComponent } from '@app/features/data/viz/forecast-chart.component';
-import { forecastChartSeries } from '@app/features/data/viz/forecast-chart.vm';
+import { forecastChartSeries, formatForecastStamp } from '@app/features/data/viz/forecast-chart.vm';
 import {
   baselineGain,
   coverageTone,
+  excursionsOf,
   frequencyKey,
+  groupShareBars,
   horizonBars,
+  lagBars,
   isForecast,
   plottedSeries,
   seriesBars,
@@ -396,6 +399,78 @@ const CHART_ASPECT = 300 / 190;
                     </section>
                   }
                 </div>
+
+                <!-- What it leans on: families, then the past it repeats. A
+                     statistical model is its parameters; the naive, its season. -->
+                @if (fm.explanation; as ex) {
+                  <section data-testid="forecast-explanation">
+                    <div class="ck-section-label">{{ i18n.t('models.explain.title') }}</div>
+                    @if (ex.method === 'shap' || ex.method === 'permutation') {
+                      <div class="ck-charts">
+                        <section class="ck-chart">
+                          <div class="ck-section-label">{{ i18n.t('models.explain.groups') }}</div>
+                          <ck-bar-list [bars]="explainGroupBars()" />
+                          <div class="ck-hint">{{ i18n.t('models.explain.groups.hint') }}</div>
+                        </section>
+                        @if (explainLagBars().length) {
+                          <section class="ck-chart">
+                            <div class="ck-section-label">{{ i18n.t('models.explain.lags') }}</div>
+                            <ck-bar-list [bars]="explainLagBars()" />
+                            <div class="ck-hint">
+                              {{ i18n.t('models.explain.lags.hint') }}
+                              @if (ex.step) { {{ i18n.t('models.explain.step') }} }
+                            </div>
+                          </section>
+                        }
+                      </div>
+                    } @else if (ex.method === 'model') {
+                      <div class="flex items-center gap-1.5 flex-wrap">
+                        <span class="ck-fold ck-mono">{{ ex.name }}</span>
+                        @if (ex.aic !== null && ex.aic !== undefined) {
+                          <span class="ck-fold ck-mono">{{ i18n.t('models.explain.model.aic', { aic: valueFormat(ex.aic) }) }}</span>
+                        }
+                        @for (param of ex.parameters ?? []; track param.name) {
+                          <span class="ck-fold ck-mono">{{ param.name }} {{ param.value === null ? '—' : valueFormat(param.value) }}</span>
+                        }
+                      </div>
+                      <div class="ck-hint">{{ i18n.t('models.explain.model.hint') }}</div>
+                    } @else if (ex.method === 'naive') {
+                      <div class="ck-hint">{{ i18n.t('models.explain.naive', { season: ex.season ?? 0 }) }}</div>
+                    } @else {
+                      <div class="ck-hint">{{ i18n.t('models.explain.unavailable') }}</div>
+                    }
+                  </section>
+                }
+
+                @if (excursions().length) {
+                  <section data-testid="forecast-excursions">
+                    <div class="ck-section-label">{{ i18n.t('models.excursions.title') }}</div>
+                    <ul class="ck-excursions">
+                      @for (point of excursions(); track point.t + point.series) {
+                        <li>
+                          <span class="ck-mono">{{ point.series }}</span>
+                          <span class="ck-mono">{{ stampOf(point.t) }}</span>
+                          <span [attr.data-side]="point.side">
+                            {{
+                              i18n.t('models.excursions.' + point.side, {
+                                actual: valueFormat(point.actual ?? 0),
+                                bound: valueFormat((point.side === 'above' ? point.upper : point.lower) ?? 0)
+                              })
+                            }}
+                          </span>
+                        </li>
+                      }
+                    </ul>
+                    <div class="ck-hint">
+                      {{
+                        i18n.t('models.excursions.hint', {
+                          count: fm.excursions?.count ?? 0,
+                          share: percent(fm.excursions?.share ?? 0)
+                        })
+                      }}
+                    </div>
+                  </section>
+                }
               }
 
               <div class="ck-charts">
@@ -470,7 +545,7 @@ const CHART_ASPECT = 300 / 190;
                 }
               </div>
 
-              @if (importances().length) {
+              @if (importances().length && !forecast()) {
                 <section>
                   <div class="ck-section-label">{{ i18n.t('models.evidence.importances') }}</div>
                   <ck-bar-list [bars]="importanceBars()" />
@@ -1210,6 +1285,22 @@ const CHART_ASPECT = 300 / 190;
         grid-template-columns: 1fr;
         gap: 12px;
       }
+      .ck-excursions {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        margin: 4px 0 6px;
+        font-size: 11.5px;
+        color: var(--ck-fg-2, #c3c9d4);
+      }
+      .ck-excursions li {
+        display: grid;
+        grid-template-columns: minmax(0, 9rem) minmax(0, 8rem) minmax(0, 1fr);
+        gap: 10px;
+      }
+      .ck-excursions [data-side='above'] {
+        color: var(--ck-signal-warn, #fbbf24);
+      }
       .ck-series-pick {
         font-size: 11px;
         padding: 3px 6px;
@@ -1480,6 +1571,20 @@ export class ModelViewComponent implements OnInit {
   protected readonly forecastSeriesBars = computed<VizBar[]>(() =>
     seriesBars(this.forecast(), this.valueFormat),
   );
+  private readonly translate = (key: string, params?: Record<string, string | number>): string =>
+    this.i18n.t(key, params);
+  protected readonly explainGroupBars = computed<VizBar[]>(() =>
+    groupShareBars(this.forecast()?.explanation, this.translate, (share) => this.percent(share)),
+  );
+  protected readonly explainLagBars = computed<VizBar[]>(() =>
+    lagBars(this.forecast()?.explanation, this.forecast()?.forecast?.frequency, this.translate, this.valueFormat),
+  );
+  protected readonly excursions = computed(() => excursionsOf(this.forecast()));
+
+  /** A backtest date in the unit of the series' frequency. */
+  protected stampOf(iso: string): string {
+    return formatForecastStamp(iso, this.forecast()?.forecast?.frequency, this.i18n.locale());
+  }
   /** A value in the forecast column's own unit. A field, so the input is stable. */
   protected readonly valueFormat = (value: number): string =>
     value.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 2 });

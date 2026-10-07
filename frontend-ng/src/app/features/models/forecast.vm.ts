@@ -253,6 +253,8 @@ export interface ForecastBacktestRow extends ForecastBacktestPoint {
 
 export interface ForecastMetrics extends MetricsBlock {
   forecast?: ForecastSummary;
+  explanation?: ForecastExplanation;
+  excursions?: { count: number; share: number | null; points: ForecastExcursion[] };
   baseline?: { key: string; season?: number; mae: number | null };
   per_horizon?: { step: number; mae: number | null; coverage?: number | null }[];
   per_series?: { series: string; mae: number | null; mase: number | null; smape?: number | null }[];
@@ -391,6 +393,8 @@ export interface ForecastRow {
 
 export interface ForecastAnswer {
   served: { model_id: string; version: number; is_champion?: boolean };
+  /** Present when the call asked for it (`params.explain`). */
+  explanation?: AnswerExplanation | null;
   horizon: number;
   interval_level: number;
   frequency?: string | null;
@@ -404,7 +408,7 @@ export interface ForecastAnswer {
 }
 
 export interface ForecastRequestBody {
-  params: { horizon: number; interval_level: number };
+  params: { horizon: number; interval_level: number; explain?: boolean };
   inputs: Record<string, unknown>[];
 }
 
@@ -458,9 +462,15 @@ export function forecastRequest(options: {
   series?: string | null;
   covariates: Record<string, number>;
   stamps?: string[] | null;
+  /** Ask what lifted or lowered each step (a few milliseconds more). */
+  explain?: boolean;
 }): ForecastRequestBody {
   const names = Object.keys(options.covariates);
-  const params = { horizon: Math.round(options.horizon), interval_level: options.level };
+  const params = {
+    horizon: Math.round(options.horizon),
+    interval_level: options.level,
+    ...(options.explain ? { explain: true } : {}),
+  };
   if (names.length && options.stamps?.length) {
     return {
       params,
@@ -516,4 +526,204 @@ export function forecastPeak(
     if (!best || point.pred > (best.pred as number)) best = point;
   }
   return best ? { t: best.t, pred: best.pred as number, upper: typeof best.upper === 'number' ? best.upper : null } : null;
+}
+
+// ---------------------------------------------------------------------------
+// Explanations
+// ---------------------------------------------------------------------------
+
+/** The families a forecast's features fall into (see `feature_group` in the harness). */
+export type FeatureGroup = 'lags' | 'calendar' | 'future' | 'static' | 'series' | 'past' | 'other';
+
+export interface ForecastExplanation {
+  /** `shap`/`permutation` for a regressor, `model` for ETS/ARIMA, `naive` for the seasonal naive. */
+  method: 'shap' | 'permutation' | 'model' | 'naive' | 'unavailable';
+  step?: number | null;
+  groups?: { group: FeatureGroup; share: number | null }[];
+  features?: { feature: string; group: FeatureGroup; lag: number | null; value: number | null }[];
+  lags?: { lag: number; value: number | null }[];
+  name?: string;
+  aic?: number | null;
+  parameters?: { name: string; value: number | null }[];
+  season?: number;
+}
+
+export interface ForecastExcursion {
+  t: string;
+  series: string;
+  step: number;
+  actual: number | null;
+  lower: number | null;
+  upper: number | null;
+  side: 'above' | 'below';
+  gap: number | null;
+}
+
+/** One step of an answered forecast, as base + family contributions. */
+export interface StepExplanation {
+  step: number;
+  timestamp: string;
+  pred: number | null;
+  base: number;
+  groups: Partial<Record<FeatureGroup, number>>;
+}
+
+export interface AnswerExplanation {
+  series: string;
+  method: 'shap' | 'linear';
+  steps: StepExplanation[];
+  peak:
+    | (StepExplanation & {
+        features: { feature: string; group: FeatureGroup; contribution: number; value: number }[];
+      })
+    | null;
+}
+
+/** Families in reading order: the series' own past first, the rest after. */
+export const FEATURE_GROUPS: readonly FeatureGroup[] = ['lags', 'calendar', 'future', 'past', 'static', 'series', 'other'];
+
+/** Calendar features skforecast derives, by the prefix of their name. */
+const CALENDAR_LABELS: readonly [string, string][] = [
+  ['day_of_week', 'day_of_week'],
+  ['day_of_month', 'day_of_month'],
+  ['day_of_year', 'day_of_year'],
+  ['is_weekend', 'is_weekend'],
+  ['hour', 'hour'],
+  ['week', 'week'],
+  ['month', 'month'],
+  ['quarter', 'quarter'],
+  ['year', 'year'],
+];
+
+/**
+ * How long ago a lag reaches, in the unit a reader of that frequency thinks in.
+ * `t−168` on hourly data is "7 days": that is the sentence the card should say.
+ */
+export function lagSpan(
+  lag: number,
+  frequency: string | null | undefined,
+): { unit: 'hours' | 'days' | 'weeks' | 'months' | 'years' | 'steps'; n: number } {
+  const key = frequencyKey(frequency);
+  if (key === 'h') return lag % 24 === 0 ? { unit: 'days', n: lag / 24 } : { unit: 'hours', n: lag };
+  if (key === 'D') return lag % 7 === 0 ? { unit: 'weeks', n: lag / 7 } : { unit: 'days', n: lag };
+  if (key === 'W') return lag % 52 === 0 ? { unit: 'years', n: lag / 52 } : { unit: 'weeks', n: lag };
+  if (key === 'MS') return lag % 12 === 0 ? { unit: 'years', n: lag / 12 } : { unit: 'months', n: lag };
+  if (key === 'QS') return lag % 4 === 0 ? { unit: 'years', n: lag / 4 } : { unit: 'months', n: lag * 3 };
+  return { unit: 'steps', n: lag };
+}
+
+export type Translate = (key: string, params?: Record<string, string | number>) => string;
+
+/** A feature named for a reader: `t−168 · 7 j`, `Heure (cycle)`, a covariate as itself. */
+export function featureLabel(
+  feature: string,
+  group: FeatureGroup,
+  frequency: string | null | undefined,
+  t: Translate,
+): string {
+  const base = feature.replace(/_step_\d+$/, '');
+  const lag = /(?:^|_)lag_(\d+)$/.exec(base);
+  if (lag && (group === 'lags' || group === 'past')) {
+    const steps = Number(lag[1]);
+    const span = lagSpan(steps, frequency);
+    const ago = t(`models.explain.span.${span.unit}`, { n: span.n });
+    const source = group === 'past' ? base.slice(0, base.length - lag[0].length) : '';
+    return source ? `${source} · t−${steps} (${ago})` : `t−${steps} (${ago})`;
+  }
+  if (group === 'series') return t('models.explain.feature.series');
+  if (group === 'calendar') {
+    const match = CALENDAR_LABELS.find(([prefix]) => base.startsWith(prefix));
+    if (match) return t(`models.explain.calendar.${match[1]}`);
+  }
+  return base;
+}
+
+/** What share of the forecast each family carries, strongest first. */
+export function groupShareBars(
+  explanation: ForecastExplanation | null | undefined,
+  t: Translate,
+  percent: (share: number) => string,
+): VizBar[] {
+  const groups = (explanation?.groups ?? []).filter(
+    (entry): entry is { group: FeatureGroup; share: number } => typeof entry.share === 'number' && entry.share > 0.001,
+  );
+  const widest = Math.max(0, ...groups.map((entry) => entry.share));
+  // No emphasis: the bar-list's emphasis is the warn tone, and the family a
+  // forecast leans on is a reading, not an alert.
+  return groups.map((entry) => ({
+    label: t(`models.explain.group.${entry.group}`),
+    display: percent(entry.share),
+    width: widest > 0 ? Math.max(2, Math.round((entry.share / widest) * 100)) : 0,
+    negative: false,
+    emphasis: false,
+  }));
+}
+
+/** Which past the forecast repeats: the weight of each lag, in lag order. */
+export function lagBars(
+  explanation: ForecastExplanation | null | undefined,
+  frequency: string | null | undefined,
+  t: Translate,
+  format: (value: number) => string,
+): VizBar[] {
+  const lags = (explanation?.lags ?? []).filter(
+    (entry): entry is { lag: number; value: number } => typeof entry.value === 'number',
+  );
+  const widest = Math.max(0, ...lags.map((entry) => entry.value));
+  return lags.map((entry) => ({
+    label: featureLabel(`lag_${entry.lag}`, 'lags', frequency, t),
+    display: format(entry.value),
+    width: widest > 0 ? Math.max(2, Math.round((entry.value / widest) * 100)) : 0,
+    negative: false,
+    emphasis: false,
+  }));
+}
+
+/**
+ * The peak step as signed bars: what each family added to (or took from) the
+ * base. A family that lowered the forecast points the other way.
+ */
+export function contributionBars(
+  step: StepExplanation | null | undefined,
+  t: Translate,
+  format: (value: number) => string,
+): VizBar[] {
+  const entries = FEATURE_GROUPS.map((group) => [group, step?.groups?.[group]] as const).filter(
+    (entry): entry is readonly [FeatureGroup, number] => typeof entry[1] === 'number' && Math.abs(entry[1]) > 1e-9,
+  );
+  const widest = Math.max(0, ...entries.map(([, value]) => Math.abs(value)));
+  return entries
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+    .map(([group, value]) => ({
+      label: t(`models.explain.group.${group}`),
+      display: `${value >= 0 ? '+' : '−'}${format(Math.abs(value))}`,
+      width: widest > 0 ? Math.max(2, Math.round((Math.abs(value) / widest) * 100)) : 0,
+      negative: value < 0,
+      emphasis: false,
+    }));
+}
+
+/** The strongest features of the peak, named for a reader, signed. */
+export function peakFeatureBars(
+  explanation: AnswerExplanation | null | undefined,
+  frequency: string | null | undefined,
+  t: Translate,
+  format: (value: number) => string,
+): VizBar[] {
+  const features = explanation?.peak?.features ?? [];
+  const widest = Math.max(0, ...features.map((item) => Math.abs(item.contribution)));
+  return features
+    .filter((item) => Math.abs(item.contribution) > 1e-9)
+    .map((item) => ({
+      label: featureLabel(item.feature, item.group, frequency, t),
+      display: `${item.contribution >= 0 ? '+' : '−'}${format(Math.abs(item.contribution))}`,
+      width: widest > 0 ? Math.max(2, Math.round((Math.abs(item.contribution) / widest) * 100)) : 0,
+      negative: item.contribution < 0,
+      emphasis: false,
+    }));
+}
+
+/** The backtest's worst departures from the interval, for the card. */
+export function excursionsOf(metrics: ForecastMetrics | null | undefined, limit = 5): ForecastExcursion[] {
+  return (metrics?.excursions?.points ?? []).slice(0, limit);
 }
