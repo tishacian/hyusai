@@ -5,6 +5,10 @@ Cette configuration utilise exclusivement le
 Les noms et hypothèses Luma sont des données saisies dans la vue du workspace,
 sans insertion conditionnelle dans le code de l’interface.
 
+L’[activation native du 7 octobre 2026](IMPACT-NATIVE-QA-2026-10-07.md) a suivi ce
+parcours et ajouté les graphiques standard en exécutions. La vue SAV est
+enregistrée comme vue par défaut ; ne pas la recréer si elle est déjà présente.
+
 ## Prérequis de livraison
 
 Déployer le commit qui introduit les blocs configurables via le processus VM

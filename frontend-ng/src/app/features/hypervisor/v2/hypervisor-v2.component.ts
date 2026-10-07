@@ -259,9 +259,10 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                 role="tab"
                 [attr.data-testid]="'hypervisor-v2-view-' + view.id"
                 [attr.aria-selected]="view.id === switcherActiveId()"
+                [attr.title]="viewLabel(view)"
                 [class.hv2-switch-on]="view.id === switcherActiveId()"
                 (click)="selectSwitcherView(view.id)"
-              >{{ viewLabel(view) }}</button>
+              ><span>{{ viewLabel(view) }}</span></button>
             }
           </div>
           <button
@@ -1771,6 +1772,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     .hv2-proof-body .hv2-link { align-self: flex-start; margin-top: 2px; }
     .hv2-proof-body .hv2-sel-list { margin: 0; }
     .hv2-actions, .hv2-list-row, .hv2-block-row, .hv2-btn-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .hv2-actions { min-width: 0; max-width: 100%; }
     .hv2-customize-grid {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -1814,12 +1816,14 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     :host.hv2-theme-presentation .hv2-btn-primary { display: none; }
     :host.hv2-theme-presentation .hv2-agent-orb { display: none; }
     .hv2-stack { display: flex; flex-direction: column; gap: 20px; }
-    .hv2-switch { display: flex; gap: 4px; padding: 4px; background: var(--ck-bg-panel); border: 1px solid var(--ck-stroke-2); border-radius: 8px; }
+    .hv2-switch { display: flex; flex-wrap: wrap; min-width: 0; max-width: 100%; gap: 4px; padding: 4px; background: var(--ck-bg-panel); border: 1px solid var(--ck-stroke-2); border-radius: 8px; }
     .hv2-switch button, .hv2-text-btn {
       background: transparent; border: 0; color: var(--ck-fg-2); cursor: pointer; border-radius: 6px;
       font-size: 12px; line-height: 1.3; padding: 6px 10px;
       display: inline-flex; align-items: center; gap: 6px;
     }
+    .hv2-switch button { min-width: 0; max-width: 100%; }
+    .hv2-switch button span { min-width: 0; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .hv2-text-btn:hover, .hv2-switch button:hover { color: var(--ck-fg-1); }
     .hv2-text-btn:disabled { cursor: default; opacity: 0.5; }
     .hv2-switch-on { color: var(--ck-fg-1) !important; background: var(--ck-bg-inset); outline: 1px solid var(--ck-stroke-strong); }
@@ -2912,7 +2916,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     const capabilities = new Set(view.register.map((row) => row.capabilityId).filter(Boolean)).size;
     return this.i18n.t('hypervisor.v2.page.summary', {
       systems: view.register.length,
-      capabilities: capabilities || this.bases().length,
+      capabilities: this.activeView()?.system_id ? capabilities : capabilities || this.bases().length,
       days: view.dates.length,
       date: this.formatDate(view.to),
       view: this.viewLabel(this.activeView() ?? DEFAULT_HYPERVISOR_VIEWS[0]!),

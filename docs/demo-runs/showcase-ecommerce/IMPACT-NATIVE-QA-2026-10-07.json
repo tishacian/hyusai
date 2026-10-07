@@ -1,0 +1,186 @@
+{
+  "schema_version": 1,
+  "observed_at_utc": "2026-10-07T08:37:26.203943Z",
+  "site": "https://agentium.papai.ai",
+  "workspace_slug": "agentium-showcase",
+  "configuration_surface": "Impact / Personnaliser / Créer une vue / Enregistrer la vue",
+  "default_view_id": "view-64b80cfd-85ca-40f2-b566-9bbc5cc19128",
+  "configured_view": {
+    "id": "view-64b80cfd-85ca-40f2-b566-9bbc5cc19128",
+    "label": "SAV — activité et scénario",
+    "denominator": "runs",
+    "period": "7d",
+    "strata": {
+      "comprendre": [
+        {
+          "type": "activity",
+          "settings": {
+            "metrics": [
+              "statuses",
+              "calls",
+              "costs",
+              "duration"
+            ]
+          },
+          "title": "Luma — activité SAV"
+        },
+        {
+          "type": "financial_scenario",
+          "settings": {
+            "manual_minutes": 8,
+            "assisted_minutes": 2,
+            "hourly_cost": 40,
+            "unit_budget": 0.5,
+            "monthly_volume": null,
+            "currency": "EUR",
+            "unit_label": "Dossier SAV",
+            "note": "Conventions de démonstration validées par l’utilisateur ; aucun temps humain ni gain réalisé mesuré. Budget comprenant appels, infrastructure, licence et intégration amortie."
+          },
+          "title": "SAV — hypothèses de capacité"
+        },
+        {
+          "type": "monument",
+          "settings": {}
+        },
+        {
+          "type": "provenance",
+          "settings": {}
+        },
+        {
+          "type": "cadran",
+          "settings": {}
+        },
+        {
+          "type": "rivers",
+          "settings": {}
+        }
+      ],
+      "detailler": [],
+      "decider": []
+    },
+    "register_columns": [
+      "unit",
+      "spark"
+    ],
+    "sort": "name",
+    "schema_version": 2,
+    "system_id": "f3ea83de-df89-45ec-8a85-c00d676b2713"
+  },
+  "preserved_view_ids": [
+    "direction",
+    "operations",
+    "conformite"
+  ],
+  "activity": {
+    "window": "7d",
+    "from": "2026-10-01T00:00:00",
+    "to": "2026-10-07T08:37:26.203943",
+    "system_id": "f3ea83de-df89-45ec-8a85-c00d676b2713",
+    "limited": false,
+    "limit": 2000,
+    "counts": {
+      "attempts": 23,
+      "completed": 15,
+      "failed": 8,
+      "cancelled": 0,
+      "pending": 0,
+      "invocations": 231
+    },
+    "buckets": [
+      {
+        "date": "2026-10-02",
+        "attempts": 3,
+        "completed": 3,
+        "failed": 0,
+        "cancelled": 0,
+        "pending": 0
+      },
+      {
+        "date": "2026-10-06",
+        "attempts": 20,
+        "completed": 12,
+        "failed": 8,
+        "cancelled": 0,
+        "pending": 0
+      }
+    ],
+    "costs": {
+      "state": "partial",
+      "by_currency": {
+        "EUR": "0.0",
+        "USD": "0.330"
+      },
+      "priced_invocations": 181,
+      "unpriced_invocations": 50
+    },
+    "median_technical_seconds": 48.28309154231101,
+    "technical_sample_count": 23
+  },
+  "result_charts": {
+    "denominator": "runs",
+    "cohort": "completed",
+    "total": 15,
+    "buckets": [
+      {
+        "date": "2026-10-02",
+        "runs": 3
+      },
+      {
+        "date": "2026-10-06",
+        "runs": 12
+      }
+    ]
+  },
+  "declared_projection": {
+    "currency": "EUR",
+    "net_per_business_unit": 3.5,
+    "roi_percent": 700,
+    "break_even_minutes": 0.75,
+    "monthly_net": null,
+    "observed_human_roi": null
+  },
+  "evidence_navigation": {
+    "run_id": "52fd23dc-5660-4077-8e6a-5f22622a7bf8",
+    "path": "/runs/52fd23dc-5660-4077-8e6a-5f22622a7bf8?lens=hypervisor",
+    "status": "failed",
+    "error": "CLAIM_ACTION_ALREADY_RECORDED"
+  },
+  "native_qa": {
+    "view_restored_after_reload": true,
+    "original_views_preserved": true,
+    "oct6_chart_selection": {
+      "attempts": 20,
+      "completed": 12,
+      "failed": 8
+    },
+    "viewports": [
+      {
+        "width": 1440,
+        "height": 1000,
+        "themes": [
+          "light",
+          "dark"
+        ]
+      },
+      {
+        "width": 390,
+        "height": 950,
+        "themes": [
+          "dark"
+        ]
+      }
+    ],
+    "horizontal_document_overflow": false,
+    "product_action_height_px": 32,
+    "axe_violations": {
+      "product_blocks_desktop_light": 0,
+      "product_blocks_desktop_dark": 0,
+      "product_blocks_mobile_dark": 0,
+      "customize_desktop": 0,
+      "customize_mobile": 0,
+      "product_blocks_presentation": 0
+    },
+    "presentation_retains_activity_and_scenario": true,
+    "new_executions_created": 0
+  }
+}
