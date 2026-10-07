@@ -1,4 +1,5 @@
 import type { CalibrationEvidence, DecisionEvidence } from "./classification-evidence.vm";
+import type { ExplanationEvidence } from "./explanation-evidence.vm";
 /**
  * Model plane view-model — Angular-free, so it is unit-testable.
  *
@@ -133,6 +134,7 @@ export interface MetricsBlock {
   decision?: DecisionEvidence;
   warnings?: { code: string }[];
   tuning?: import('./tuning-evidence.vm').TuningResult;
+  explain?: ExplanationEvidence;
   task?: ModelTask;
   primary?: MetricScore;
   scores?: MetricScore[];

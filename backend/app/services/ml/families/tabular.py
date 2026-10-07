@@ -32,6 +32,8 @@ TABULAR = Family(
     spec_fields=(
         SpecField("calibration", "enum", default="off", choices=("off", "auto", "sigmoid", "isotonic"), when=(("task", (CLASSIFICATION,)),)),
         SpecField("threshold", "enum", default="default", choices=("default", "f1", "youden"), when=(("task", (CLASSIFICATION,)),)),
+        SpecField("explain", "enum", default="off", choices=("off", "pack")),
+        SpecField("fairness_columns", "columns", default=[], max_items=3, when=(("explain", ("pack",)),)),
     ),
     harness=Path(__file__).resolve().parents[3] / "resources" / "ml_train_harness.py",
     spec_fields=(
