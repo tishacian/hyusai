@@ -175,6 +175,16 @@ export function timeColumns(columns: readonly PlanColumn[]): string[] {
   return columns.filter((column) => column.kind === 'datetime').map((column) => column.name);
 }
 
+/**
+ * The draft with a date column the dataset actually has: the one picked, or
+ * the first date column when none was (or the picked one is gone).
+ */
+export function withTimeColumn(draft: ForecastDraft, columns: readonly PlanColumn[]): ForecastDraft {
+  const options = timeColumns(columns);
+  if (!options.length || options.includes(draft.timeColumn)) return draft;
+  return { ...draft, timeColumn: options[0] };
+}
+
 /** Columns that can tell the series of a panel apart: labels and ids, not measurements. */
 export function seriesColumnCandidates(
   columns: readonly PlanColumn[],

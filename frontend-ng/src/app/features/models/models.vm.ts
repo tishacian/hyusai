@@ -1709,6 +1709,15 @@ export const TRAIN_STEPS: readonly string[] = [
 ];
 
 /**
+ * A forecast's steps, as `ml_forecast_harness` writes them: it is judged by
+ * backtesting before its final fit, and a backtest counts its folds the way a
+ * cross-validation does (`backtesting:2/3`).
+ */
+export const FORECAST_TRAIN_STEPS: readonly string[] = ['queued', 'reading', 'backtesting', 'fitting', 'saving'];
+
+const KNOWN_TRAIN_STEPS: ReadonlySet<string> = new Set([...TRAIN_STEPS, ...FORECAST_TRAIN_STEPS]);
+
+/**
  * The step, and the count it brought, out of a `status_detail`.
  *
  * The backend writes `fitting:6903` and `validating:3/5` for the same reason the
@@ -1727,7 +1736,7 @@ export function parseTrainDetail(detail: string | null | undefined): {
   folds: number | null;
 } {
   const [head, tail] = (detail ?? '').trim().split(':', 2);
-  const step = TRAIN_STEPS.includes(head) ? head : TRAIN_STEPS[0];
+  const step = KNOWN_TRAIN_STEPS.has(head) ? head : TRAIN_STEPS[0];
   const empty = { step, rows: null, fold: null, folds: null };
   if (!tail) return empty;
   const [left, right] = tail.split('/', 2);
@@ -1787,9 +1796,20 @@ export function trainChecklist(
   detail: string | null | undefined,
   requestedFolds: number | null | undefined,
   locale = 'en',
+  task?: ModelTask | null,
 ): TrainStep[] {
-  const folds = Number(requestedFolds) >= 2 ? Math.round(Number(requestedFolds)) : 0;
-  const steps = TRAIN_STEPS.filter((step) => step !== 'validating' || folds >= 2);
+  const forecast = task === 'forecasting';
+  // The step that counts folds: a cross-validation, or a forecast's backtest
+  // (which always runs, one fold or several).
+  const foldStep = forecast ? 'backtesting' : 'validating';
+  const folds = forecast
+    ? Math.max(1, Math.round(Number(requestedFolds) || 1))
+    : Number(requestedFolds) >= 2
+      ? Math.round(Number(requestedFolds))
+      : 0;
+  const steps = forecast
+    ? [...FORECAST_TRAIN_STEPS]
+    : TRAIN_STEPS.filter((step) => step !== 'validating' || folds >= 2);
   const terminal = status === 'ready' || status === 'failed' || status === 'cancelled';
   const parsed = parseTrainDetail(detail);
   const claimed = (detail ?? '').trim() ? parsed.step : null;
@@ -1803,16 +1823,16 @@ export function trainChecklist(
     // settled row it would freeze on the last one and still read as one.
     const withRows = step === 'fitting' && parsed.rows !== null;
     const onFold =
-      step === 'validating' &&
+      step === foldStep &&
       !terminal &&
-      parsed.step === 'validating' &&
+      parsed.step === foldStep &&
       parsed.fold !== null;
     const params: Record<string, string | number> = {};
     if (withRows) params['rows'] = (parsed.rows as number).toLocaleString(locale);
     if (onFold) {
       params['fold'] = parsed.fold as number;
       params['folds'] = parsed.folds as number;
-    } else if (step === 'validating') {
+    } else if (step === foldStep) {
       params['folds'] = folds;
     }
     return {

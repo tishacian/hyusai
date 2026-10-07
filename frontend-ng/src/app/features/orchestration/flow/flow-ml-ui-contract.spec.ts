@@ -142,7 +142,8 @@ test('a serving node is configured in the panel, with no dialog in the way', () 
   // Which model answers is a list, never a typed slug: a name that does not
   // exist is a run-time refusal, and the picker makes it impossible.
   assert.match(inspector, /data-testid="serving-model"/);
-  assert.match(inspector, /@for \(lineage of servingLineages\(\); track lineage\.slug\)/);
+  // Each node offers only the models it can call: forecasts to a forecast node.
+  assert.match(inspector, /@for \(lineage of servingLineages\(n\); track lineage\.slug\)/);
   assert.match(inspector, /data-testid="serving-version"/);
   assert.match(inspector, /@for \(version of servingVersions\(n\); track version\.id\)/);
   // The role's own words and the role's own fields, read off the descriptor.
@@ -352,7 +353,7 @@ test('the split, the folds and the knobs are bounded by the view model', () => {
   assert.match(workshop, /data-testid="train-split"/);
   assert.match(workshop, /data-testid="train-cv"/);
   // The knobs belong to the estimator, so they do not survive a change of one.
-  assert.match(workshop, /this\.writeParams\(\{ algo, knobs: \{\} \}\)/);
+  assert.match(workshop, /this\.writeParams\(\{\s*algo,\s*knobs: \{\},/);
   assert.equal(TRAIN_CV_OPTIONS.length, 3, 'three fold counts is a choice, not a spinner');
   for (const key of [
     'flow.ml.train.knobs',
@@ -559,6 +560,31 @@ test('the rows a fit will read, and the rows a score wrote, use the one table', 
     'flow.ml.train.sample',
     'flow.ml.serving.output.produced',
     'flow.ml.serving.output.open',
+  ]) {
+    assertKey(key);
+  }
+});
+
+test('a forecast is authored with the studio’s own fields, and served by its own node', () => {
+  const workshop = source('flow-train-workshop.component.ts');
+  // One component for the studio and the canvas, so both ask the same question.
+  assert.match(workshop, /<ck-forecast-spec\s+part="data"/);
+  assert.match(workshop, /<ck-forecast-spec\s+part="fit"/);
+  assert.match(workshop, /trainableTasks\(this\.ml\.catalog\(\), \{ specFields: true \}\)/);
+  // The node carries the spec, and a forecast sends no random split.
+  assert.match(workshop, /spec: forecastSpec\(/);
+  const inspector = source('flow-inspector.component.ts');
+  assert.match(inspector, /@if \(copy\.forecasts\) \{/);
+  assert.match(inspector, /data-testid="forecast-node-horizon"/);
+  assert.match(inspector, /data-testid="forecast-node-level"/);
+  for (const key of [
+    'flow.inspector.section.forecast',
+    'flow.ml.forecast.inspector.hint',
+    'flow.ml.forecast.empty',
+    'flow.ml.forecast.horizon',
+    'flow.ml.forecast.horizon.hint',
+    'flow.ml.forecast.level',
+    'flow.ml.forecast.level.model',
   ]) {
     assertKey(key);
   }

@@ -187,6 +187,8 @@ test.describe('Models · forecasting — isolated end-user QA', () => {
       await studio.getByRole('button', { name: 'cell_id', exact: true }).click();
       await studio.getByRole('combobox', { name: 'technology' }).selectOption('static');
       await page.locator('#train-horizon').fill('48');
+      // Committed when the field is left: one plan per decision, not per keystroke.
+      await page.locator('#train-horizon').press('Tab');
       await expect(page.getByTestId('train-forecast-refusal')).toHaveCount(0);
       await expect(page.locator('.ck-submit')).toBeEnabled();
       await page.screenshot({ path: info.outputPath(`studio-${theme}-${locale}-${width}.png`), fullPage: true });

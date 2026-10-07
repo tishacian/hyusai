@@ -608,7 +608,7 @@ export function publishedNodeExecutor(
                   (change)="onServingModel($event)"
                 >
                   <option value="">{{ i18n.t('flow.ml.serving.model.none') }}</option>
-                  @for (lineage of servingLineages(); track lineage.slug) {
+                  @for (lineage of servingLineages(n); track lineage.slug) {
                     <option [value]="lineage.slug" [selected]="lineage.slug === servingParams(n).model_slug">
                       {{ lineage.name }}
                     </option>
@@ -640,10 +640,44 @@ export function publishedNodeExecutor(
                   </select>
                 </label>
                 <p class="ck-flow-hint">{{ i18n.t('flow.ml.serving.version.hint') }}</p>
-              } @else if (!servingLineages().length) {
+              } @else if (!servingLineages(n).length) {
                 <p class="ck-flow-hint" data-testid="serving-empty">
-                  {{ i18n.t('flow.ml.serving.empty') }}
+                  {{ i18n.t(copy.forecasts ? 'flow.ml.forecast.empty' : 'flow.ml.serving.empty') }}
                 </p>
+              }
+
+              @if (copy.forecasts) {
+                <!-- How far ahead, and how sure. Left empty, each keeps what the
+                     model was trained to answer. -->
+                <div class="ck-flow-field">
+                  <span class="ck-flow-field__label">{{ i18n.t('flow.ml.forecast.horizon') }}</span>
+                  <input
+                    class="ck-flow-input"
+                    type="number"
+                    min="1"
+                    data-testid="forecast-node-horizon"
+                    [value]="servingParams(n).horizon ?? ''"
+                    [attr.placeholder]="forecastDefaultHorizon(n)"
+                    (change)="onForecastHorizon($event)"
+                  />
+                </div>
+                <div class="ck-flow-field">
+                  <span class="ck-flow-field__label">{{ i18n.t('flow.ml.forecast.level') }}</span>
+                  <select
+                    class="ck-flow-input"
+                    data-testid="forecast-node-level"
+                    [value]="servingParams(n).interval_level ?? ''"
+                    (change)="onForecastLevel($event)"
+                  >
+                    <option value="">{{ i18n.t('flow.ml.forecast.level.model') }}</option>
+                    @for (level of forecastLevels; track level) {
+                      <option [value]="level" [selected]="level === servingParams(n).interval_level">
+                        {{ level * 100 }} %
+                      </option>
+                    }
+                  </select>
+                </div>
+                <p class="ck-flow-hint">{{ i18n.t('flow.ml.forecast.horizon.hint') }}</p>
               }
 
               @if (copy.writesDataset) {
@@ -1506,13 +1540,14 @@ export class FlowInspectorComponent {
   ): (ServingRoleDescriptor['copy'] & Pick<
     ServingRoleDescriptor,
     'writesDataset' | 'supportsExplain'
-  >) | null {
+  > & { forecasts: boolean }) | null {
     const descriptor = servingDescriptor(n);
     if (!descriptor) return null;
     return {
       ...descriptor.copy,
       writesDataset: descriptor.writesDataset,
       supportsExplain: descriptor.supportsExplain,
+      forecasts: descriptor.serves === 'forecast',
     };
   }
 
@@ -1522,10 +1557,11 @@ export class FlowInspectorComponent {
 
   /** One entry per lineage, newest version first: the picker chooses a lineage,
    *  and the version pin below it chooses whether to follow or to freeze. */
-  servingLineages(): { slug: string; name: string }[] {
+  servingLineages(n: CanonicalFlowNode): { slug: string; name: string }[] {
     const seen = new Set<string>();
     const lineages: { slug: string; name: string }[] = [];
-    for (const model of servableModels(this.mlSvc?.registry() ?? [])) {
+    const serves = servingDescriptor(n)?.serves ?? null;
+    for (const model of servableModels(this.mlSvc?.registry() ?? [], serves)) {
       if (seen.has(model.slug)) continue;
       seen.add(model.slug);
       lineages.push({ slug: model.slug, name: model.name });
@@ -1566,6 +1602,27 @@ export class FlowInspectorComponent {
     this.writeServing(
       model ? chooseModelPatch(model) : { model_slug: '', model_id: '', pinned_version: null },
     );
+  }
+
+  /** The levels a forecast node offers; the model's own is the empty choice. */
+  readonly forecastLevels = [0.5, 0.8, 0.9, 0.95];
+
+  /** The horizon the chosen model was trained for, shown as the default. */
+  forecastDefaultHorizon(n: CanonicalFlowNode): string {
+    const slug = this.servingParams(n).model_slug;
+    const model = (this.mlSvc?.registry() ?? []).find((row) => row.slug === slug && row.status === 'ready');
+    const horizon = model?.spec?.['horizon'];
+    return typeof horizon === 'number' ? String(horizon) : '';
+  }
+
+  onForecastHorizon(event: Event): void {
+    const raw = Number((event.target as HTMLInputElement).value);
+    this.writeServing({ horizon: Number.isFinite(raw) && raw >= 1 ? Math.round(raw) : null });
+  }
+
+  onForecastLevel(event: Event): void {
+    const raw = (event.target as HTMLSelectElement).value;
+    this.writeServing({ interval_level: raw ? Number(raw) : null });
   }
 
   onServingVersion(event: Event): void {

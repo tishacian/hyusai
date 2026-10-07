@@ -103,6 +103,15 @@ const PLAN_DEBOUNCE_MS = 240;
 /** Scores the evidence panel shows; the rest live on the model card. */
 const SCORE_LIMIT = 4;
 
+import { ForecastSpecComponent } from '@app/features/models/forecast-spec.component';
+import {
+  FORECASTING_TASK,
+  draftFromSpec,
+  forecastSpec,
+  withTimeColumn,
+  type ForecastDraft,
+} from '@app/features/models/forecast.vm';
+
 @Component({
   selector: 'app-flow-train-workshop',
   standalone: true,
@@ -113,6 +122,7 @@ const SCORE_LIMIT = 4;
     DatasetPreviewComponent,
     NavLinkDirective,
     IconComponent,
+    ForecastSpecComponent,
   ],
   styleUrl: './flow-train-workshop.component.scss',
   template: `
@@ -243,6 +253,17 @@ const SCORE_LIMIT = 4;
                       }
                     </div>
 
+                    @if (isForecasting()) {
+                      <ck-forecast-spec
+                        part="data"
+                        [draft]="forecastDraft()"
+                        [columns]="columns()"
+                        [target]="params().target"
+                        [algo]="effectiveAlgo()"
+                        [refusal]="refusalFor('spec')"
+                        (draftChange)="onForecastDraft($event)"
+                      />
+                    } @else {
                     <div class="ck-train-workshop__field">
                       <div class="ck-train-workshop__field-head">
                         <span class="ck-train-workshop__label">
@@ -286,6 +307,7 @@ const SCORE_LIMIT = 4;
                         </p>
                       }
                     </div>
+                    }
                   }
                 </section>
 
@@ -358,6 +380,17 @@ const SCORE_LIMIT = 4;
                       }
                     }
 
+                    @if (isForecasting()) {
+                      <ck-forecast-spec
+                        part="fit"
+                        [draft]="forecastDraft()"
+                        [columns]="columns()"
+                        [target]="params().target"
+                        [algo]="effectiveAlgo()"
+                        [horizonMax]="horizonMax()"
+                        (draftChange)="onForecastDraft($event)"
+                      />
+                    } @else {
                     <div class="ck-train-workshop__field">
                       <div class="ck-train-workshop__knob">
                         <div class="ck-train-workshop__knob-head">
@@ -396,6 +429,7 @@ const SCORE_LIMIT = 4;
                       </select>
                     </label>
                     <p class="ck-train-workshop__hint">{{ i18n.t('flow.ml.train.cv.hint') }}</p>
+                    }
                   }
                 </section>
               </div>
@@ -495,12 +529,21 @@ const SCORE_LIMIT = 4;
                         </span>
                         <code>{{ preview.estimator }}</code>
                         <span>
-                          {{
-                            i18n.t('flow.ml.train.plan.rows', {
-                              rows: preview.rows.toLocaleString(i18n.locale()),
-                              test: testRows().toLocaleString(i18n.locale())
-                            })
-                          }}
+                          @if (isForecasting()) {
+                            {{
+                              i18n.t('models.studio.plan.forecast', {
+                                horizon: forecastDraft().horizon,
+                                folds: forecastDraft().folds
+                              })
+                            }}
+                          } @else {
+                            {{
+                              i18n.t('flow.ml.train.plan.rows', {
+                                rows: preview.rows.toLocaleString(i18n.locale()),
+                                test: testRows().toLocaleString(i18n.locale())
+                              })
+                            }}
+                          }
                         </span>
                         <span>
                           {{
@@ -652,7 +695,10 @@ export class FlowTrainWorkshopComponent {
   readonly close = output<void>();
 
   // The tasks of the families a worker can train right now, from the catalog.
-  protected readonly tasks = computed<ModelTask[]>(() => trainableTasks(this.ml.catalog()));
+  // The workshop renders a family's spec fields, so it offers forecasting too.
+  protected readonly tasks = computed<ModelTask[]>(() =>
+    trainableTasks(this.ml.catalog(), { specFields: true }),
+  );
   // Only sliders render here; a knob of another kind keeps its server default.
   protected readonly numericKnobs = numericKnobs;
   protected readonly cvOptions = TRAIN_CV_OPTIONS;
@@ -760,6 +806,19 @@ export class FlowTrainWorkshopComponent {
     algoFor(this.ml.catalog(), this.effectiveAlgo()),
   );
 
+  protected readonly isForecasting = computed(() => this.effectiveTask() === FORECASTING_TASK);
+
+  /** The node's forecast spec as form fields; it lives on the node as `spec`. */
+  protected readonly forecastDraft = computed<ForecastDraft>(() =>
+    withTimeColumn(draftFromSpec(this.params().spec), this.columns()),
+  );
+
+  /** The ceiling the forecasting family declares for its horizon. */
+  protected readonly horizonMax = computed(() => {
+    const family = this.ml.catalog().families?.find((entry) => entry.key === FORECASTING_TASK);
+    return family?.spec_fields.find((field) => field.key === 'horizon')?.max ?? 720;
+  });
+
   protected readonly featureColumns = computed(() =>
     this.columns().filter((column) => column.name !== this.params().target),
   );
@@ -791,6 +850,7 @@ export class FlowTrainWorkshopComponent {
       // a step halfway through and the reader loses their place.
       this.ml.run()?.cross_validation ?? this.params().cross_validation,
       this.i18n.locale(),
+      this.ml.run()?.task ?? this.effectiveTask(),
     ),
   );
 
@@ -846,6 +906,7 @@ export class FlowTrainWorkshopComponent {
         params.task,
         params.features,
         params.algo,
+        params.spec,
       ]);
       if (signature === this.lastPlanned) return;
       this.lastPlanned = signature;
@@ -922,7 +983,7 @@ export class FlowTrainWorkshopComponent {
   }
 
   /** A plan refusal rendered against the field that caused it, or nothing. */
-  protected refusalFor(field: 'target' | 'features' | 'algo' | 'dataset'): string | null {
+  protected refusalFor(field: 'target' | 'features' | 'algo' | 'dataset' | 'spec'): string | null {
     const refusal = this.ml.refusal();
     if (!refusal || refusalField(refusal.code) !== field) return null;
     const key = refusalKey(refusal.code);
@@ -965,6 +1026,11 @@ export class FlowTrainWorkshopComponent {
 
   protected onTask(task: ModelTask): void {
     const patch: Record<string, unknown> = { task };
+    // A forecast is a question with more than a target: it starts from the
+    // form's defaults, so the node is runnable before any field is touched.
+    if (task === FORECASTING_TASK && !this.params().spec) {
+      patch['spec'] = forecastSpec(this.forecastDraft(), this.params().algo);
+    }
     // An estimator that cannot do the new task must not stay selected.
     if (!algosForTask(this.ml.catalog(), task).some((a) => a.key === this.params().algo)) {
       patch['algo'] = '';
@@ -974,8 +1040,18 @@ export class FlowTrainWorkshopComponent {
   }
 
   protected onAlgo(algo: string): void {
-    // The knobs belong to the estimator, so they do not survive it.
-    this.writeParams({ algo, knobs: {} });
+    // The knobs belong to the estimator, so they do not survive it — and a
+    // forecast's strategy only means something for a regressor.
+    this.writeParams({
+      algo,
+      knobs: {},
+      ...(this.isForecasting() ? { spec: forecastSpec(this.forecastDraft(), algo) } : {}),
+    });
+  }
+
+  /** One gesture in the forecast fields, as one store write of the node's spec. */
+  protected onForecastDraft(patch: Partial<ForecastDraft>): void {
+    this.writeParams({ spec: forecastSpec({ ...this.forecastDraft(), ...patch }, this.effectiveAlgo()) });
   }
 
   /** Back to the default: every column but the target, decided at run time. */
@@ -1042,11 +1118,16 @@ export class FlowTrainWorkshopComponent {
       ...(pin?.dataset_slug ? { dataset_slug: pin.dataset_slug } : {}),
       target: params.target,
       ...(params.task ? { task: params.task } : {}),
-      ...(params.features ? { features: this.selectedFeatures() } : {}),
       ...(params.algo ? { algo: params.algo } : {}),
       ...(Object.keys(params.knobs).length ? { knobs: params.knobs } : {}),
-      test_size: params.test_size,
-      cross_validation: params.cross_validation,
+      // A forecast is judged by its backtest, not by a random split.
+      ...(this.isForecasting()
+        ? { spec: forecastSpec(this.forecastDraft(), this.effectiveAlgo()) }
+        : {
+            ...(params.features ? { features: this.selectedFeatures() } : {}),
+            test_size: params.test_size,
+            cross_validation: params.cross_validation,
+          }),
       ...(params.model_name ? { name: params.model_name } : {}),
     });
   }
@@ -1083,8 +1164,12 @@ export class FlowTrainWorkshopComponent {
         ...(pin?.dataset_slug ? { dataset_slug: pin.dataset_slug } : {}),
         ...(params.target ? { target: params.target } : {}),
         ...(params.task ? { task: params.task } : {}),
-        ...(params.features ? { features: params.features } : {}),
         ...(params.algo ? { algo: params.algo } : {}),
+        ...(this.isForecasting()
+          ? { spec: forecastSpec(this.forecastDraft(), this.effectiveAlgo()) }
+          : params.features
+            ? { features: params.features }
+            : {}),
       });
     }, PLAN_DEBOUNCE_MS);
   }
