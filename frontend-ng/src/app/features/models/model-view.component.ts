@@ -17,6 +17,7 @@
  * exactly one version, and it is chosen here, by hand. Retraining never steals
  * that place.
  */
+import { TuningEvidenceComponent } from './tuning-evidence.component';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -130,6 +131,7 @@ const CHART_ASPECT = 300 / 190;
     BarListComponent,
     ConfusionMatrixComponent,
     CurveChartComponent,
+    TuningEvidenceComponent,
     ForecastChartComponent,
   ],
   template: `
@@ -337,6 +339,8 @@ const CHART_ASPECT = 300 / 190;
                   }
                 </div>
               </section>
+
+              <ck-tuning-evidence [result]="row.metrics?.tuning" />
 
               @if (forecast(); as fm) {
                 <section class="ck-chart" data-testid="forecast-evidence">

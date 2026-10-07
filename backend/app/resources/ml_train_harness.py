@@ -570,6 +570,72 @@ def _persist_report(report, path: str | None, *, limit_bytes: int) -> dict | Non
         return None
 
 
+def _make_pipeline(estimator_path, params, *, spec=None, seed=42):
+    from skrub import tabular_pipeline
+
+    pipeline = tabular_pipeline(_resolve_estimator(estimator_path, params))
+    imputer = pipeline.named_steps.get("simpleimputer")
+    if imputer is not None:
+        imputer.set_params(strategy="median")
+    return pipeline
+
+
+def _tune(manifest, x_train, y_train):
+    """Only training rows cross the boundary; a native fit cannot overrun it."""
+    import importlib.util
+    import subprocess
+    import tempfile
+
+    import joblib
+
+    tuning = manifest["tuning"]
+    started = time.monotonic()
+    budget = float(tuning["budget_s"])
+    _progress(manifest.get("progress_path"), f"tuning:0/{tuning['trials']}")
+    # Pass no path to the original parquet and no test values to the child.
+    config = {key: manifest[key] for key in ("algo", "task", "estimator", "random_state", "tuning")}
+    config["progress_path"] = manifest.get("progress_path")
+    config["spec"] = dict(manifest.get("spec") or {})
+    result = {}
+    stopped = False
+    with tempfile.TemporaryDirectory(prefix="ml-tuning-") as scratch:
+        source, destination = Path(scratch) / "train.joblib", Path(scratch) / "result.json"
+        joblib.dump((config, x_train, y_train), source)
+        remaining = budget - (time.monotonic() - started)
+        if remaining > 0:
+            env = {**os.environ, **{key: "1" for key in (
+                "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"
+            )}}
+            with subprocess.Popen([sys.executable, str(Path(__file__).with_name("ml_tuning_harness.py")),
+                                   str(source), str(destination)], env=env) as child:
+                try:
+                    child.wait(timeout=remaining)
+                except subprocess.TimeoutExpired:
+                    stopped = True
+                    child.kill()
+                    child.wait()
+            if destination.exists():
+                result = json.loads(destination.read_text())
+        else:
+            stopped = True
+    if not result:
+        baseline = {"knobs": tuning["start"], "score": None, "std": None}
+        result = {"metric": tuning["metric"], "direction": tuning["direction"],
+                  "trials_run": 0, "trials_pruned": 0, "trials_failed": 0,
+                  "folds": tuning["folds"], "budget_s": budget,
+                  "start": baseline, "best": {**baseline, "trial": None}, "trials": [],
+                  "warning": "ML_TUNING_BASELINE_UNAVAILABLE"}
+    result["elapsed_s"] = round(time.monotonic() - started, 3)
+    result["stopped_by"] = "budget" if stopped or result["elapsed_s"] >= budget else "trials"
+    path = Path(__file__).with_name("ml_knob_translation.py")
+    spec = importlib.util.spec_from_file_location("ml_knob_translation", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    params = module.translate(manifest["algo"], manifest["task"], result["best"]["knobs"],
+                              random_state=manifest["random_state"], forest_leaves=tuning["forest_leaves"])
+    return params, result
+
+
 def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top down
     if len(argv) != 3:
         return _fail(5, "usage: ml_train_harness.py MANIFEST_JSON RESULT_JSON")
@@ -695,29 +761,15 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     except Exception as exc:  # noqa: BLE001
         return _fail(2, f"ml_split_failed: {exc}")
 
+    tuning_result = None
+    params = manifest.get("params")
+    if manifest.get("tuning"):
+        params, tuning_result = _tune(manifest, x_train, y_train)
     try:
-        estimator = _resolve_estimator(
-            manifest.get("estimator"), manifest.get("params")
-        )
+        pipeline = _make_pipeline(manifest.get("estimator"), params, spec=manifest.get("spec"), seed=seed)
     except RuntimeError as exc:
         return _fail(5, str(exc))
-
-    # `tabular_pipeline` asks the estimator what it needs and assembles it:
-    # vectorize the frame, impute where the estimator refuses holes, scale where
-    # it reads magnitudes as importance. Letting skrub decide rather than listing
-    # the rules here is not laziness — the rules are a property of the estimator,
-    # and a hand-kept list of which ones tolerate NaN goes stale silently the
-    # first time sklearn changes its mind (it did: RandomForest accepts missing
-    # numerics from 1.4 on, and a list written before that would still be paying
-    # for an imputer it no longer needs).
-    pipeline = tabular_pipeline(estimator)
-    imputer = pipeline.named_steps.get("simpleimputer")
-    if imputer is not None:
-        # The one judgement skrub cannot make for us. Median rather than its
-        # default mean because a survey score or an ARPU is skewed often enough
-        # that the mean is not a plausible value — filling a hole with a number
-        # nobody could have had is worse than filling it with a typical one.
-        imputer.set_params(strategy="median")
+    estimator = pipeline.steps[-1][1]
     print(f"fitting {type(estimator).__name__} on {len(x_train)} rows", flush=True)
     _progress(progress_path, f"fitting:{len(x_train)}")
     try:
@@ -774,6 +826,8 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             "mean": _number(y.mean()),
         }
 
+    if tuning_result is not None:
+        metrics["tuning"] = tuning_result
     metrics["task"] = task
     metrics["rows"] = {
         "total": int(len(x)),
