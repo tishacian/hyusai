@@ -1,3 +1,4 @@
+import type { CalibrationEvidence, DecisionEvidence } from "./classification-evidence.vm";
 /**
  * Model plane view-model — Angular-free, so it is unit-testable.
  *
@@ -127,6 +128,9 @@ export interface CvBlock {
 }
 
 export interface MetricsBlock {
+  calibration?: CalibrationEvidence;
+  decision?: DecisionEvidence;
+  warnings?: { code: string }[];
   task?: ModelTask;
   primary?: MetricScore;
   scores?: MetricScore[];
@@ -1815,7 +1819,7 @@ export function trainChecklist(
   const optional: Record<string, boolean> = {
     tuning: spec?.['tuning'] === 'budget',
     calibrating: (task === 'regression' && spec?.['intervals'] === 'conformal') ||
-      (task === 'classification' && ['auto', 'sigmoid', 'isotonic'].includes(String(spec?.['calibration']))),
+      (task === 'classification' && (['auto', 'sigmoid', 'isotonic'].includes(String(spec?.['calibration'])) || ['f1', 'youden'].includes(String(spec?.['threshold'])))),
     explaining: spec?.['explain'] === 'pack',
   };
   const steps = forecast
