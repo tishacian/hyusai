@@ -63,6 +63,7 @@ import { forecastChartSeries } from '@app/features/data/viz/forecast-chart.vm';
 import {
   baselineGain,
   coverageTone,
+  frequencyKey,
   horizonBars,
   isForecast,
   plottedSeries,
@@ -291,7 +292,9 @@ const CHART_ASPECT = 300 / 190;
           } @else {
             <div class="space-y-4">
               <section>
-                <div class="ck-section-label">{{ i18n.t('models.evidence.scores') }}</div>
+                <div class="ck-section-label">
+                  {{ i18n.t(forecast() ? 'models.evidence.scores.forecast' : 'models.evidence.scores') }}
+                </div>
                 <div class="ck-scores">
                   @for (score of scores(); track score.key) {
                     <div class="ck-score-card" [title]="i18n.t('models.metric.' + score.key + '.hint')">
@@ -1467,8 +1470,9 @@ export class ModelViewComponent implements OnInit {
   protected readonly forecastSetup = computed(() => {
     const summary = this.forecast()?.forecast;
     if (!summary) return '';
+    const key = frequencyKey(summary.frequency);
     return this.i18n.t('models.evidence.forecast.setup', {
-      frequency: summary.frequency ?? '?',
+      frequency: key ? this.i18n.t('models.spec.frequency.' + key.toLowerCase()) : (summary.frequency ?? '?'),
       horizon: summary.horizon ?? 0,
       folds: summary.folds ?? 0,
       method: this.i18n.t('models.evidence.forecast.method.' + (summary.interval_method ?? 'conformal')),

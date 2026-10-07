@@ -45,6 +45,7 @@ export const MODELS_FR = {
   'models.list.filter.all': 'Tous',
   'models.list.filter.classification': 'Classifications',
   'models.list.filter.regression': 'Régressions',
+  'models.list.filter.forecasting': 'Prévisions',
   'models.list.filter.serving': 'En service',
   'models.list.col.model': 'Modèle',
   'models.list.col.target': 'Cible',
@@ -229,6 +230,7 @@ export const MODELS_FR = {
 
   // ---- résultats ----------------------------------------------------------
   'models.evidence.scores': 'Scores sur les lignes de test',
+  'models.evidence.scores.forecast': 'Scores du backtest',
   'models.evidence.rows': '{total} lignes · {train} en apprentissage · {test} en test',
   'models.evidence.forecast': 'Prévisions rejouées sur le passé',
   'models.evidence.forecast.hint':
@@ -741,6 +743,7 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.list.filter.all': 'All',
   'models.list.filter.classification': 'Classifications',
   'models.list.filter.regression': 'Regressions',
+  'models.list.filter.forecasting': 'Forecasts',
   'models.list.filter.serving': 'Serving',
   'models.list.col.model': 'Model',
   'models.list.col.target': 'Target',
@@ -917,6 +920,7 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.progress.failed': 'Training {name} v{version} failed',
 
   'models.evidence.scores': 'Scores on the test rows',
+  'models.evidence.scores.forecast': 'Backtest scores',
   'models.evidence.rows': '{total} rows · {train} for learning · {test} for testing',
   'models.evidence.forecast': 'Forecasts replayed on the past',
   'models.evidence.forecast.hint':

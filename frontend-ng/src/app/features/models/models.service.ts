@@ -176,8 +176,12 @@ export class ModelsService {
     return response.model;
   }
 
-  detail(modelId: string): Promise<ModelDetailDto> {
-    return firstValueFrom(this.http.get<ModelDetailDto>(`${this.base}/${modelId}`));
+  async detail(modelId: string): Promise<ModelDetailDto> {
+    const response = await firstValueFrom(this.http.get<ModelDetailDto>(`${this.base}/${modelId}`));
+    // A card opened from a link has not seen the list's catalog: without its
+    // registry, a forecast's sMAPE and coverage would print without their unit.
+    if (response.catalog) this.adopt(response.catalog);
+    return response;
   }
 
   /**

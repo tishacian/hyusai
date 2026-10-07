@@ -123,6 +123,20 @@ export function draftFromSpec(spec: Record<string, unknown> | null | undefined):
   return draft;
 }
 
+/**
+ * The spec's name for a pandas frequency ('W-SUN' → 'W'), or `null` when the
+ * series runs on a step the form does not offer (two-hourly, minutes).
+ */
+export function frequencyKey(frequency: string | null | undefined): (typeof FORECAST_FREQUENCIES)[number] | null {
+  const head = (frequency ?? '').replace(/^1(?=\D)/, '').split('-')[0];
+  if (!head || /^\d/.test(head)) return null;
+  if (head.toLowerCase() === 'h') return 'h';
+  const known: Record<string, (typeof FORECAST_FREQUENCIES)[number]> = {
+    D: 'D', B: 'D', W: 'W', MS: 'MS', ME: 'MS', M: 'MS', QS: 'QS', QE: 'QS', Q: 'QS',
+  };
+  return known[head.toUpperCase()] ?? null;
+}
+
 /** Whether a recursive/direct choice means anything for this shape and algorithm. */
 export function strategyApplies(shape: ForecastShape, algo: string | undefined): boolean {
   return shape === 'single' && !SINGLE_SERIES_ALGOS.has(algo ?? '');
