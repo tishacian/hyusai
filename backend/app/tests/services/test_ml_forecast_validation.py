@@ -354,3 +354,16 @@ def test_serving_availability_reads_the_serving_queue_not_the_training_one(db_se
             synchronize_session=False
         )
         db_session.commit()
+
+
+def test_a_forecast_node_pointed_at_a_tabular_model_is_sent_to_the_scoring_node(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import tabular_predict
+    from app.services.ml import forecast_serving
+
+    tabular = SimpleNamespace(id="t", family="tabular", status="ready", version=1)
+    monkeypatch.setattr(tabular_predict, "serving_version", lambda db, model, version=None: model)
+    with pytest.raises(TabularError) as caught:
+        forecast_serving.submit_forecast_dataset(None, model=tabular, workspace_id="w")
+    assert caught.value.code == "ML_USE_PREDICT_ROUTE"

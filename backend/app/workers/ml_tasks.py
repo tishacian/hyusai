@@ -47,3 +47,17 @@ def ml_forecast(model_id: str, *, horizon=None, level=None, inputs=None) -> dict
     from app.services.ml.forecast_serving import answer_for
 
     return answer_for(model_id, horizon=horizon, level=level, inputs=list(inputs or []))
+
+
+@shared_task(name="agentium.ml_forecast_batch", acks_late=True, reject_on_worker_lost=True)
+def ml_forecast_batch(output_id: str, served_id: str, **kwargs) -> dict:
+    """Write a whole forecast into the dataset row a Flow node reserved.
+
+    acks_late, unlike the interactive forecast: nobody is waiting on this
+    task's result, a node is polling the row, so a forecast lost with its
+    worker is redelivered — and settling is idempotent on the row's status.
+    """
+
+    from app.services.ml.forecast_serving import forecast_into
+
+    return forecast_into(output_id, served_id, **kwargs)
