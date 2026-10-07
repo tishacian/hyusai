@@ -149,6 +149,17 @@ def compare(db, *, left: MLModel, right: MLModel) -> dict[str, Any]:
         )
     _ready(left, side="left")
     _ready(right, side="right")
+    families = {str(getattr(side, "family", None) or "tabular") for side in (left, right)}
+    if families != {"tabular"}:
+        # Re-scoring on one random split is a tabular measurement; a forecast
+        # is ranked by its backtest, which the card's recorded scores already
+        # compare version to version.
+        raise TabularError(
+            code="ML_COMPARE_NOT_TABULAR",
+            message="Only tabular models are re-scored on a shared split; forecasts compare by their backtests.",
+            status_code=409,
+            details={"families": sorted(families)},
+        )
     if left.id == right.id:
         raise TabularError(
             code="ML_COMPARE_SAME_VERSION",

@@ -622,7 +622,10 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             )
         per_series.sort(key=lambda item: -(item["mase"] if item["mase"] is not None else -1))
     plotted = [name for name in levels if name in set(points["level"])][:_PLOTTED_SERIES]
-    sample = points[points["level"].isin(plotted)].tail(_POINTS)
+    # Each plotted series keeps its own most recent folds, so a long panel
+    # horizon cannot push the first series off the chart.
+    share = max(_POINTS // max(len(plotted), 1), horizon)
+    sample = points[points["level"].isin(plotted)].groupby("level", group_keys=False).tail(share)
     backtest = [
         {
             "t": str(stamp),
@@ -646,11 +649,14 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         {"step": int(step), "mae": _number(rows["error"].mean()), "coverage": _number(rows["inside"].dropna().mean())}
         for step, rows in per_step.groupby("step")
     ]
-    history_tail = [
-        {"t": str(stamp), "series": name, "value": _number(value)}
-        for name in plotted
-        for stamp, value in truth[name].dropna().tail(3 * horizon).items()
-    ]
+    # The context the backtest starts from: what the series did just before the
+    # first fold, so the chart shows where each forecast came from.
+    history_tail = []
+    for name in plotted:
+        first = sample.index[sample["level"] == name].min()
+        series = truth[name].dropna()
+        before = series[series.index < first].tail(min(2 * horizon, _POINTS // 3))
+        history_tail += [{"t": str(stamp), "series": name, "value": _number(value)} for stamp, value in before.items()]
     scored = {key: value for key, value in scores.items() if value is not None}
     primary_key = "mase" if scored.get("mase") is not None else "mae"
     metrics = {

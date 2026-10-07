@@ -146,7 +146,7 @@ worker 1714 MB, frontend 28 MB, 10 shared layers. The release that removed torch
 from the API image is the first measurement to bound the backend with.
 
 Each Python image also has its own build-context filter,
-`docker/Dockerfile.agentium-{backend,worker}.dockerignore`, which BuildKit reads
+`docker/Dockerfile.agentium-{backend,worker,ml-ts}.dockerignore`, which BuildKit reads
 instead of the root `.dockerignore`: documentation media, `frontend-ng/` and
 `outputs/` stay out of those images, and `test_python_image_context` keeps every
 file the runtime reads in.
@@ -181,6 +181,55 @@ freezes the OS layer. The historical Poetry lock is not used by these images.
 Do not set a runtime-wide `PIP_CONSTRAINT`: recipe environments retain their own
 contracts. The frontend revision is injected after `npm ci`, preserving the
 lockfile cache while still writing the candidate's exact public build identity.
+
+### 4b. The forecasting image — only where forecasting is switched on
+
+Forecasts are fitted by their own worker, `agentium-worker-ml-ts`, from
+`docker/Dockerfile.agentium-ml-ts`. That Dockerfile opens on the same Python
+prefix as the API and the worker, so BuildKit reuses those layers. It then
+adds only skforecast, statsmodels, numba and shap, pinned in
+`backend/constraints-demo-ml-ts.txt`. That file adds packages and never moves
+an app pin. The image has no torch, no Giskard and no build tools.
+
+The compose service sits behind the `ml-ts` profile, so a stack without it
+deploys as before. The catalog greys out the forecasting family until this
+worker's heartbeat reaches `ml_runtime_heartbeats`; a forecast request is
+refused with `ML_FAMILY_UNAVAILABLE` rather than queued.
+
+```bash
+cd /srv/agentium-data/worktrees/demo-agentic
+sudo docker build -f docker/Dockerfile.agentium-ml-ts \
+  --build-arg AGENTIUM_IMAGE_REVISION=<sha40> \
+  --build-arg PIP_INDEX_URL=https://pypi.org/simple \
+  --build-arg USER_UID=1000 --build-arg USER_GID=1000 \
+  --build-arg PYTHON_BASE_IMAGE=<base> \
+  -t agentium-ml-ts:<sha12> .
+scripts/agentium-image-budget.sh <sha12>   # reports ml-ts and its shared layers
+
+# Qualify on the host it will run on, under the worker's own limits.
+# It fits Nawa cells (gradient boosting, ETS and ARIMA through numba, then a
+# panel), loads each saved model as serving will, and times it.
+sudo docker run --rm agentium-ml-ts:<sha12> python -m scripts.qualify_ml_ts
+```
+
+Keep the table it prints in the release evidence. A `FAILED` row on ETS or
+ARIMA under `RLIMIT_AS` means numba could not compile within
+`ML_TRAIN_MEMORY_LIMIT_MB`; raise that limit for this worker only, in its
+compose `environment`.
+
+To switch it on, start the profiled service with the release's tag and env
+file:
+
+```bash
+cd /srv/agentium-data/worktrees/demo-agentic/docker
+AGENTIUM_IMAGE_TAG=<sha12> sudo -E docker compose -f compose.agentium.yml \
+  --env-file ./env/agentium.vm.env --profile ml-ts up -d --no-build agentium-worker-ml-ts
+sudo docker logs agentium-worker-ml-ts 2>&1 | grep "ml runtime heartbeat started"
+```
+
+`deploy-vm.sh` does not manage this service yet. A release that rebuilds the
+stack must rebuild and restart it with the same tag; its rollback is to stop
+it.
 
 Never run image/cache pruning concurrently with a build. The 16 September fresh
 build lost a Docker content digest during overlapping cleanup and stopped before

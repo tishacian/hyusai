@@ -274,3 +274,33 @@ def test_the_harness_and_its_model_import_nothing_from_the_application():
             for alias in node.names
         }
         assert not [module for module in imported if module and module.startswith("app")], name
+
+
+def test_the_api_never_loads_a_forecast_as_a_row_model(monkeypatch):
+    """/predict, scoring and the playground all load through one function, and
+    a forecasting artifact must not be unpickled by the API (no skforecast there)."""
+
+    from types import SimpleNamespace
+
+    from app.services import tabular_predict
+
+    monkeypatch.setattr(settings, "ml_predict_enabled", True)
+    row = SimpleNamespace(id="m1", status="ready", family="forecasting")
+    with pytest.raises(TabularError) as caught:
+        tabular_predict.load_pipeline_traced(row)
+    assert caught.value.code == "ML_USE_FORECAST_ROUTE"
+    assert caught.value.details == {"family": "forecasting"}
+
+
+def test_a_forecast_is_not_re_scored_on_a_random_split(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import ml_comparison
+
+    monkeypatch.setattr(settings, "ml_predict_enabled", True)
+    monkeypatch.setattr(ml_comparison, "_ready", lambda model, side: None)
+    left = SimpleNamespace(id="a", family="forecasting", workspace_id="w", task="forecasting", target="y")
+    right = SimpleNamespace(id="b", family="forecasting", workspace_id="w", task="forecasting", target="y")
+    with pytest.raises(TabularError) as caught:
+        ml_comparison.compare(None, left=left, right=right)
+    assert caught.value.code == "ML_COMPARE_NOT_TABULAR"

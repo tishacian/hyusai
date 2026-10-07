@@ -81,6 +81,8 @@ export interface TrainRequest {
   knobs?: Record<string, number>;
   test_size?: number;
   cross_validation?: number;
+  /** A family's problem definition (a forecast's date column, horizon, …). */
+  spec?: Record<string, unknown>;
 }
 
 export const EMPTY_CATALOG: ModelCatalog = {
@@ -156,6 +158,7 @@ export class ModelsService {
     task?: ModelTask;
     features?: string[];
     algo?: string;
+    spec?: Record<string, unknown>;
   }): Promise<PlanResponseDto> {
     const response = await firstValueFrom(
       this.http.post<PlanResponseDto>(`${this.base}/plan`, body),
