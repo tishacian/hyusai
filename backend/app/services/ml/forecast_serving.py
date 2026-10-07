@@ -25,6 +25,7 @@ Nothing heavy is imported at module scope: the API imports this module.
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 import tempfile
 import threading
@@ -197,7 +198,126 @@ def _model_input(inputs: list[dict[str, Any]], meta: dict[str, Any]):
     return frame[[column for column in known if column in frame]]
 
 
-def answer(model: Any, *, horizon: Any, level: Any, inputs: list[dict[str, Any]]) -> dict[str, Any]:
+_EXPLAIN_FEATURES = 8
+
+
+def _inverse_scale(forecaster: Any, series: str) -> tuple[float, float]:
+    """(scale, shift) undoing a linear series transformer, or (1, 0).
+
+    A multivariate forecaster standardizes its series by default, so its
+    estimator answers in standard units; a contribution is converted back
+    with the same affine map, which keeps base + contributions = forecast.
+    """
+
+    transformers = getattr(forecaster, "transformer_series_", None) or {}
+    transformer = transformers.get(series) if isinstance(transformers, dict) else None
+    if transformer is None:
+        return 1.0, 0.0
+    scale = getattr(transformer, "scale_", None)
+    mean = getattr(transformer, "mean_", None)
+    if scale is None or mean is None:
+        raise ValueError("non-linear series transformer")
+    return float(scale[0]), float(mean[0])
+
+
+def explain_forecast(entry: LoadedForecaster, model_input: Any, *, steps: int, answered: list[dict[str, Any]]):
+    """What lifted or lowered each step of one series' forecast.
+
+    The matrix the model predicted from (``create_predict_X``: lags — which,
+    past the first step of a recursive forecast, are its own predictions —,
+    calendar, covariates) is explained row by row, with the estimator that
+    produced that row (one per step for a direct model). Contributions are
+    summed per family, so each step reads as base + families = forecast, and
+    the peak step also names its strongest features.
+
+    One series: the one asked for, else the one whose forecast peaks highest.
+    """
+
+    import numpy as np
+
+    info = entry.meta.get("explain") or {}
+    kind = info.get("kind")
+    if kind not in ("tree", "linear") or not answered:
+        return None
+    python_model = entry.pyfunc.unwrap_python_model()
+    forecaster = python_model.forecaster
+    meta = entry.meta
+    peak_row = max(answered, key=lambda row: row.get("pred") if row.get("pred") is not None else float("-inf"))
+    series = str(peak_row["series"])
+    panel = meta.get("shape") == "panel"
+    exog = python_model._exog(model_input, steps, [series] if panel else list(meta.get("levels") or []))
+    if panel:
+        matrix = forecaster.create_predict_X(steps=steps, levels=[series], exog=exog, suppress_warnings=True)
+    else:
+        matrix = forecaster.create_predict_X(steps=steps, exog=exog, suppress_warnings=True)
+    if "level" in matrix.columns:
+        matrix = matrix.drop(columns=["level"])
+    columns = [str(column) for column in matrix.columns]
+    groups = info.get("groups") or {}
+    means = info.get("means") or {}
+    # One estimator per step ahead, keyed by the step.
+    direct = type(forecaster).__name__ in ("ForecasterDirect", "ForecasterDirectMultiVariate")
+    scale, shift = _inverse_scale(forecaster, meta.get("target") if meta.get("shape") == "multivariate" else series)
+    explainers: dict[int, Any] = {}
+    by_step = []
+    peak_features: list[dict[str, Any]] = []
+    rows = [row for row in answered if str(row["series"]) == series]
+    for index in range(min(len(matrix), len(rows))):
+        estimator = forecaster.estimators_[index + 1] if direct else forecaster.estimator
+        x = matrix.iloc[[index]].astype(float)
+        if kind == "linear":
+            coef = np.ravel(estimator.coef_)
+            centre = np.array([means.get(column, 0.0) for column in columns])
+            contributions = coef * (x.to_numpy()[0] - centre)
+            base = float(np.ravel([estimator.intercept_])[0] + coef @ centre)
+        else:
+            import shap
+
+            key = id(estimator)
+            if key not in explainers:
+                explainers[key] = shap.TreeExplainer(estimator)
+            explainer = explainers[key]
+            contributions = np.ravel(explainer.shap_values(x))
+            base = float(np.ravel([explainer.expected_value])[0])
+        contributions = contributions * scale
+        base = base * scale + shift
+        families: dict[str, float] = {}
+        for column, value in zip(columns, contributions):
+            family = groups.get(column) or groups.get(re.sub(r"_step_\d+$", "", column)) or "other"
+            families[family] = families.get(family, 0.0) + float(value)
+        row = rows[index]
+        by_step.append(
+            {
+                "step": index + 1,
+                "timestamp": row["timestamp"],
+                "pred": row["pred"],
+                "base": base,
+                "groups": {family: round(value, 6) for family, value in families.items()},
+            }
+        )
+        if row is peak_row:
+            ranked = sorted(zip(columns, contributions, x.to_numpy()[0]), key=lambda item: -abs(item[1]))
+            peak_features = [
+                {
+                    "feature": column,
+                    "group": groups.get(column) or "other",
+                    "contribution": float(value),
+                    "value": float(raw),
+                }
+                for column, value, raw in ranked[:_EXPLAIN_FEATURES]
+            ]
+    peak = next((step for step in by_step if step["timestamp"] == peak_row["timestamp"]), None)
+    return {
+        "series": series,
+        "method": "shap" if kind == "tree" else "linear",
+        "steps": by_step,
+        "peak": {**peak, "features": peak_features} if peak else None,
+    }
+
+
+def answer(
+    model: Any, *, horizon: Any, level: Any, inputs: list[dict[str, Any]], explain: bool = False
+) -> dict[str, Any]:
     """One forecast from a ready forecasting model, in long form."""
 
     entry, resident = load_forecaster(model)
@@ -226,10 +346,9 @@ def answer(model: Any, *, horizon: Any, level: Any, inputs: list[dict[str, Any]]
             status_code=422,
         )
     started = time.monotonic()
+    model_input = _model_input(inputs, meta)
     try:
-        frame = entry.pyfunc.predict(
-            _model_input(inputs, meta), params={"horizon": steps, "interval_level": interval}
-        )
+        frame = entry.pyfunc.predict(model_input, params={"horizon": steps, "interval_level": interval})
     except ValueError as exc:
         # The pyfunc says what is missing in a sentence: a future covariate,
         # an unknown series. That sentence is the answer.
@@ -248,8 +367,15 @@ def answer(model: Any, *, horizon: Any, level: Any, inputs: list[dict[str, Any]]
     rows = []
     for record in frame.to_dict(orient="records"):
         rows.append({key: record.get(key) for key in OUTPUT_COLUMNS})
+    explanation = None
+    if explain:
+        try:
+            explanation = explain_forecast(entry, model_input, steps=steps, answered=rows)
+        except Exception:  # noqa: BLE001 - an explanation is extra; the forecast stands
+            logger.exception("forecast_serving: explanation failed", model_id=model.id)
     return {
         "forecast": rows,
+        "explanation": explanation,
         "horizon": steps,
         "interval_level": interval,
         "series": sorted({str(row["series"]) for row in rows}),
@@ -260,7 +386,9 @@ def answer(model: Any, *, horizon: Any, level: Any, inputs: list[dict[str, Any]]
     }
 
 
-def answer_for(model_id: str, *, horizon: Any, level: Any, inputs: list[dict[str, Any]]) -> dict[str, Any]:
+def answer_for(
+    model_id: str, *, horizon: Any, level: Any, inputs: list[dict[str, Any]], explain: bool = False
+) -> dict[str, Any]:
     """The task body: load the row, answer, and turn a refusal into data."""
 
     from app.db.base import SessionLocal
@@ -274,7 +402,7 @@ def answer_for(model_id: str, *, horizon: Any, level: Any, inputs: list[dict[str
                     code="ML_MODEL_NOT_READY", message="The model is not trained.", status_code=409
                 )
             db.expunge(model)
-        return answer(model, horizon=horizon, level=level, inputs=inputs)
+        return answer(model, horizon=horizon, level=level, inputs=inputs, explain=explain)
     except TabularError as exc:
         return {"error": exc.payload(), "status": exc.status_code}
 
@@ -303,6 +431,7 @@ def request_forecast(
     inputs: list[dict[str, Any]] | None = None,
     version: Any = None,
     caller: str = "session",
+    explain: bool = False,
 ) -> dict[str, Any]:
     """Answer ``POST /forecast``: the version that serves, through its worker."""
 
@@ -335,7 +464,7 @@ def request_forecast(
         )
     started = time.monotonic()
     if settings.worker_eager_mode:
-        result = answer_for(served.id, horizon=horizon, level=level, inputs=rows)
+        result = answer_for(served.id, horizon=horizon, level=level, inputs=rows, explain=explain)
     else:
         from celery.exceptions import TimeoutError as CeleryTimeout
 
@@ -344,7 +473,7 @@ def request_forecast(
         pending = celery_app.send_task(
             FORECAST_TASK,
             args=[served.id],
-            kwargs={"horizon": horizon, "level": level, "inputs": rows},
+            kwargs={"horizon": horizon, "level": level, "inputs": rows, "explain": explain},
             queue=family.serve_queue(),
             # A forecast nobody collected in time is not worth computing later.
             expires=float(settings.ml_forecast_timeout_s),
@@ -391,6 +520,7 @@ def request_forecast(
         "frequency": result.get("frequency"),
         "series": result.get("series") or [],
         "forecast": forecast,
+        "explanation": result.get("explanation"),
         "rows": len(forecast),
         "duration_ms": duration_ms,
         "load_ms": result.get("load_ms"),

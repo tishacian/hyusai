@@ -427,8 +427,11 @@ def test_a_trained_forecast_answers_on_demand_and_refuses_a_swapped_artifact(
     assert row.status == "ready", row.error
     assert row.metrics_json["artifact"]["code_sha256"]
 
-    first = forecast_serving.request_forecast(db_session, row, horizon=12, level=0.9)
+    first = forecast_serving.request_forecast(db_session, row, horizon=12, level=0.9, explain=True)
     assert first["rows"] == 12 and first["horizon"] == 12 and first["interval_level"] == 0.9
+    steps = first["explanation"]["steps"]
+    assert len(steps) == 12
+    assert all(step["base"] + sum(step["groups"].values()) == pytest.approx(step["pred"], abs=1e-6) for step in steps)
     assert first["cached"] is False and first["served"]["version"] == 1
     point = first["forecast"][0]
     assert point["lower_bound"] < point["pred"] < point["upper_bound"]
@@ -545,3 +548,84 @@ def test_the_flow_node_refuses_an_unknown_model_before_reserving_anything(
     with pytest.raises(ValueError, match="forecast_config_missing"):
         asyncio.run(_ml_forecast_v1({}, {"workspace_id": workspace.id}))
     assert db_session.query(TabularDataset).filter_by(produced_by="ml_forecast_v1").count() == 0
+
+
+# ---------------------------------------------------------------------------
+# What a forecast leans on
+# ---------------------------------------------------------------------------
+
+
+def _explained(run: dict) -> dict:
+    return _ok(run)["metrics"]["explanation"]
+
+
+def test_a_fit_says_which_families_of_features_carry_the_forecast(recursive, panel, multivariate, direct):
+    hourly = _explained(recursive)
+    assert hourly["method"] == "shap"
+    shares = {entry["group"]: entry["share"] for entry in hourly["groups"]}
+    assert set(shares) >= {"lags", "calendar"}
+    assert sum(shares.values()) == pytest.approx(1.0, abs=1e-6)
+    # The lag profile is the reading an operator wants: which past it repeats.
+    assert [entry["lag"] for entry in hourly["lags"]] == [1, 2, 3, 24, 168]
+    assert all(item["group"] in {"lags", "calendar"} for item in hourly["features"])
+
+    # A panel's static attribute, another series moving with the target, a
+    # covariate known in advance: each is named as its own family.
+    assert "static" in {entry["group"] for entry in _explained(panel)["groups"]}
+    assert "past" in {entry["group"] for entry in _explained(multivariate)["groups"]}
+    with_covariate = _explained(direct)
+    assert with_covariate["step"] == 1  # a direct model explains its first step
+    assert "future" in {entry["group"] for entry in with_covariate["groups"]}
+
+
+def test_a_statistical_model_shows_its_own_parameters(ets):
+    explanation = _explained(ets)
+    assert explanation["method"] == "model"
+    assert explanation["parameters"] and all(param["name"] for param in explanation["parameters"])
+
+
+def test_the_backtest_lists_where_the_actuals_left_the_interval(recursive):
+    metrics = _ok(recursive)["metrics"]
+    excursions = metrics["excursions"]
+    outside = 1 - _scores(_ok(recursive))["coverage"]
+    assert excursions["share"] == pytest.approx(outside, abs=1e-9)
+    points = excursions["points"]
+    assert all(point["gap"] > 0 for point in points)
+    assert [point["gap"] for point in points] == sorted((point["gap"] for point in points), reverse=True)
+    for point in points:
+        assert (point["actual"] > point["upper"]) if point["side"] == "above" else (point["actual"] < point["lower"])
+
+
+@pytest.mark.parametrize("shape", ["recursive", "direct", "panel", "multivariate"])
+def test_each_forecast_step_is_base_plus_its_families_exactly(shape, request):
+    """The same explanation serving gives, run on the saved model: whatever the
+    shape (one estimator per step, standardized series, a panel), base plus the
+    families' contributions is the forecast."""
+
+    import mlflow.pyfunc
+
+    from app.services.ml.forecast_serving import LoadedForecaster, _model_input, explain_forecast
+
+    run = request.getfixturevalue(shape)
+    result = _ok(run)
+    model_dir = run["root"] / "model"
+    meta = json.loads((model_dir / "artifacts" / "meta.json").read_text())
+    entry = LoadedForecaster(
+        fingerprint="t", pyfunc=mlflow.pyfunc.load_model(str(model_dir)), meta=meta, load_ms=0.0, directory=model_dir
+    )
+    inputs = []
+    if meta["exog_future"]:
+        last = pd.Timestamp(result["metrics"]["forecast"]["last_timestamp"])
+        inputs = [
+            {"timestamp": str(last + pd.Timedelta(hours=step)), **{name: 0.0 for name in meta["exog_future"]}}
+            for step in range(1, 7)
+        ]
+    model_input = _model_input(inputs, meta)
+    answered = entry.pyfunc.predict(model_input, params={"horizon": 6}).to_dict(orient="records")
+    explanation = explain_forecast(entry, model_input, steps=6, answered=answered)
+    assert explanation is not None and len(explanation["steps"]) == 6
+    for step in explanation["steps"]:
+        assert step["base"] + sum(step["groups"].values()) == pytest.approx(step["pred"], abs=1e-6)
+    peak = explanation["peak"]
+    assert peak["pred"] == max(row["pred"] for row in answered if row["series"] == explanation["series"])
+    assert peak["features"] and abs(peak["features"][0]["contribution"]) >= abs(peak["features"][-1]["contribution"])

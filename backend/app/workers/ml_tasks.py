@@ -35,7 +35,7 @@ def ml_train(self, model_id: str) -> dict:
 
 
 @shared_task(name="agentium.ml_forecast", acks_late=False, ignore_result=False)
-def ml_forecast(model_id: str, *, horizon=None, level=None, inputs=None) -> dict:
+def ml_forecast(model_id: str, *, horizon=None, level=None, inputs=None, explain=False) -> dict:
     """Answer one forecast request the API is waiting for.
 
     Runs in the ml-ts serving worker, whose threads share one cache of loaded
@@ -46,7 +46,7 @@ def ml_forecast(model_id: str, *, horizon=None, level=None, inputs=None) -> dict
 
     from app.services.ml.forecast_serving import answer_for
 
-    return answer_for(model_id, horizon=horizon, level=level, inputs=list(inputs or []))
+    return answer_for(model_id, horizon=horizon, level=level, inputs=list(inputs or []), explain=bool(explain))
 
 
 @shared_task(name="agentium.ml_forecast_batch", acks_late=True, reject_on_worker_lost=True)
