@@ -1,3 +1,4 @@
+import type { ExplanationEvidence } from "./explanation-evidence.vm";
 /**
  * Model plane view-model — Angular-free, so it is unit-testable.
  *
@@ -127,6 +128,7 @@ export interface CvBlock {
 }
 
 export interface MetricsBlock {
+  explain?: ExplanationEvidence;
   task?: ModelTask;
   primary?: MetricScore;
   scores?: MetricScore[];
