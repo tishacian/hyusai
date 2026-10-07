@@ -72,6 +72,10 @@ def test_api_and_worker_build_one_shared_python_stack():
     shared = "\n".join(prefixes["backend"])
     assert "constraints-demo-app.txt" in shared
     assert "torch torchvision" in shared
+    # The baked cross-encoder files are shared too, and sit before torch so the
+    # API image can stop installing torch without leaving the shared prefix.
+    assert "fetch_rag_models.py" in shared
+    assert shared.index("fetch_rag_models.py") < shared.index("torch torchvision")
 
 
 def _run_instructions(dockerfile: str) -> list[str]:

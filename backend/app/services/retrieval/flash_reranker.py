@@ -1,33 +1,14 @@
 """Fast reranker using cross-encoder models"""
-import os
 import torch
 import numpy as np
 from typing import List, Dict, Optional, Tuple, Union, Any
-from dataclasses import dataclass
-from enum import Enum
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from app.core.logging import get_logger
+from app.services.retrieval.reranker_config import RerankerConfig, RerankerMode
+
+__all__ = ["FlashReranker", "RerankerConfig", "RerankerMode"]
 
 logger = get_logger(__name__)
-
-
-class RerankerMode(Enum):
-    """Reranking modes"""
-    PAIRWISE = "pairwise"
-    POINTWISE = "pointwise"
-    LISTWISE = "listwise"
-
-
-@dataclass
-class RerankerConfig:
-    """Configuration for flash reranker"""
-    batch_size: int = min(64, (os.cpu_count() or 4) * 4)
-    max_length: int = 512
-    mode: RerankerMode = RerankerMode.POINTWISE
-    num_threads: int = 8
-    threshold: float = 0.5
-    device: Optional[str] = None
-    model_name: str = "cross-encoder/ms-marco-MiniLM-L-12-v2"
 
 
 class FlashReranker:

@@ -1,0 +1,25 @@
+{
+  "comment": "Cross-encoder files baked into the API and worker images by scripts/fetch_rag_models.py. 'name' is the model name the settings use (and the folder under rag_models_dir); 'repo' is the current Hugging Face repository id; every file is pinned by revision and sha256.",
+  "models": [
+    {
+      "name": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+      "repo": "cross-encoder/ms-marco-MiniLM-L6-v2",
+      "revision": "233902d25c440f23af6f7d6e94d2946bac0bee0a",
+      "files": {
+        "onnx/model.onnx": "5d3e70fd0c9ff14b9b5169a51e957b7a9c74897afd0a35ce4bd318150c1d4d4a",
+        "tokenizer.json": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+        "config.json": "380e02c93f431831be65d99a4e7e5f67c133985bf2e77d9d4eba46847190bacc"
+      }
+    },
+    {
+      "name": "cross-encoder/ms-marco-MiniLM-L-12-v2",
+      "repo": "cross-encoder/ms-marco-MiniLM-L12-v2",
+      "revision": "7b0235231ca2674cb8ca8f022859a6eba2b1c968",
+      "files": {
+        "onnx/model.onnx": "2ac389ab6abe08dcbddf2c41a69b6a18853e0dca440adbc2abc1adfcee46483f",
+        "tokenizer.json": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+        "config.json": "69a745055b0307584d2903ea5cf4e1899254e511834f358be80d049918b144d8"
+      }
+    }
+  ]
+}

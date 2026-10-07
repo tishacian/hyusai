@@ -33,7 +33,19 @@ RUN pip install --no-cache-dir \
     --index-url=${PIP_INDEX_URL} \
     -r /tmp/requirements/requirements.txt
 
-# Cross-encoder rerank stage (FlashReranker) needs torch + transformers only.
+# Cross-encoder files for the RAG rerank stage (ONNX export + tokenizer), baked
+# from a manifest that pins each file by revision and sha256: no process
+# downloads a model at start-up, and an air-gapped host runs the bytes the
+# release qualified. Placed before torch so it stays in the shared prefix once
+# the API image no longer installs torch. RAG_MODELS_BASE_URL selects a mirror.
+ARG RAG_MODELS_BASE_URL=
+COPY backend/rag_models.lock.json backend/scripts/fetch_rag_models.py /tmp/rag-models/
+RUN python /tmp/rag-models/fetch_rag_models.py \
+        --manifest /tmp/rag-models/rag_models.lock.json --dest /opt/agentium-models
+
+# torch + transformers back the torch rerank engine (FlashReranker), kept as
+# the fallback behind rag_reranker_backend until the ONNX engine above is
+# qualified on the VM; the next step removes them from this image.
 # Install torch from the PyTorch CPU index (serves +cpu wheels exclusively),
 # avoiding the multi-GB CUDA build pulled by the default PyPI wheel.
 #

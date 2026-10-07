@@ -148,6 +148,24 @@ instead of the root `.dockerignore`: documentation media, `frontend-ng/` and
 `outputs/` stay out of those images, and `test_python_image_context` keeps every
 file the runtime reads in.
 
+Both Python images also bake the RAG cross-encoders, as ONNX exports with
+their tokenizers, into `/opt/agentium-models`. `backend/rag_models.lock.json`
+pins every file by revision and sha256, and the build fails on a mismatch. No
+container downloads a model when it starts. While the images still install
+torch, `RAG_RERANKER_BACKEND=auto` keeps reranking on torch. To move to ONNX,
+qualify it on the VM's own CPU once a release with it is running:
+
+```bash
+sudo docker exec agentium-backend python -m scripts.bench_rerank_engines
+```
+
+It compares both engines with the published model-card logits and with each
+other on reference passages, and measures p50/p95 at the balanced and deep
+candidate counts. When it recommends ONNX, set `RAG_RERANKER_BACKEND=onnx` in
+the runtime env and recreate the backend and the workers; `torch` switches
+back without a rebuild. Keep its output in the release evidence: the release
+that removes torch from the API image depends on it.
+
 The API and the worker install every Python package under one constraints
 file, `backend/constraints-demo-app.txt`: a model is fitted in the worker and
 unpickled by the API, so both must run the same numpy, scipy and scikit-learn.
