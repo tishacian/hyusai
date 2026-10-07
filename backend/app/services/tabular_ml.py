@@ -84,7 +84,6 @@ from app.services.tabular_datasets import (
     NUMERIC_KINDS,
     TabularError,
     materialize,
-    next_version,
     resolve_dataset_ref,
     slugify,
     system_of_run,
@@ -97,22 +96,25 @@ ML_TRAIN_TASK = "agentium.ml_train"
 
 # The steps a training row reports through ``status_detail``, in order. Codes
 # rather than sentences for the same reason as the ingest plane: two locales poll
-# the same row. The last three are claimed by the harness itself — only the child
+# the same row. Fit and evaluation steps are claimed by the harness — only the child
 # knows when a fit ends and its scoring begins — which is why it writes them to
 # ``progress.txt`` and the worker republishes what it reads there.
 #
 # A step may arrive with a count attached (``fitting:6903``, ``validating:3/5``),
 # which is how a wait says how much of it is left rather than only that it is
-# happening.
+# happening. Optional steps are claimed only when their option is enabled.
 TRAIN_STEPS: tuple[str, ...] = (
     "queued",
     "reading",
+    "tuning",
     "fitting",
+    "calibrating",
     "scoring",
     # Cross-validation refits the pipeline once per fold, so it is the longest
     # step of a run that asked for it and the one a silent spinner would hurt
     # most. Only emitted when folds were requested, and then once per fold.
     "validating",
+    "explaining",
     "saving",
 )
 _HARNESS_STEPS = frozenset(TRAIN_STEPS)
@@ -145,8 +147,8 @@ TASKS = TABULAR.tasks
 # A forecast reuses the tabular regressors on the series' own past; the
 # forecasting family (app.services.ml.families.forecasting) validates it.
 FORECASTING = "forecasting"
-# Leaves per tree of a forecasting forest whose depth the author left open.
-FORECAST_FOREST_LEAVES = 2048
+# Leaves per tree of a forest whose depth the author left open.
+FOREST_LEAVES = 2048
 
 
 def harness_path() -> Path:
@@ -320,12 +322,11 @@ def estimator_params(algo: Algo, task: str, knobs: dict[str, Any]) -> dict[str, 
         # One fit already owns the worker slot; a nested thread pool under
         # RLIMIT_AS buys nothing and costs address space.
         params.setdefault("n_jobs", 1)
-        if task == FORECASTING and params.get("max_depth") is None:
-            # A forecast's training matrix holds every step of every series: a
-            # forest grown to pure leaves on a 72-cell panel is gigabytes on disk
-            # and seconds of SHAP per row. "Unbounded" becomes a bounded number
-            # of leaves per tree, which keeps the depth where the data is dense.
-            params.setdefault("max_leaf_nodes", FORECAST_FOREST_LEAVES)
+        if params.get("max_depth") is None:
+            # A forest grown to pure leaves on a large dataset can occupy
+            # gigabytes on disk. Bound leaves instead of depth so the trees
+            # keep their depth where the data is dense, for every task.
+            params.setdefault("max_leaf_nodes", FOREST_LEAVES)
     return params
 
 
@@ -498,8 +499,11 @@ def validate_training(
             status_code=409,
             details={"family": family.key, "reason": reason},
         )
+    spec_warnings: list[dict[str, Any]] = []
     try:
-        problem = family.parse_spec(spec)
+        problem = family.parse_spec(
+            spec, task=chosen_task if family is TABULAR else None, warnings=spec_warnings
+        )
     except SpecInvalid as exc:
         raise TabularError(
             code="ML_SPEC_INVALID",
@@ -625,7 +629,7 @@ def validate_training(
 
     # Identifier-like columns train fine and generalize not at all, so they are
     # surfaced as a warning rather than silently dropped or refused.
-    warnings: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = spec_warnings
     for name_ in selected:
         if kinds.get(name_) == "string" and rows and _distinct(dataset, name_) >= rows:
             warnings.append({"code": "ML_FEATURE_IDENTIFIER", "feature": name_})
