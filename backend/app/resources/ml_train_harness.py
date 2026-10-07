@@ -570,6 +570,19 @@ def _persist_report(report, path: str | None, *, limit_bytes: int) -> dict | Non
         return None
 
 
+def _classification_extensions():
+    # Sibling loaded by path: the supervised harness never imports app.*.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "ml_classification_extensions", Path(__file__).with_name("ml_classification_extensions.py")
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+
 def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top down
     if len(argv) != 3:
         return _fail(5, "usage: ml_train_harness.py MANIFEST_JSON RESULT_JSON")
@@ -720,8 +733,19 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         imputer.set_params(strategy="median")
     print(f"fitting {type(estimator).__name__} on {len(x_train)} rows", flush=True)
     _progress(progress_path, f"fitting:{len(x_train)}")
+    extension = _classification_extensions()
+    extension_spec = manifest.get("spec") or {}
+    extended_classification = task == "classification" and extension.enabled(extension_spec)
+    classification_context = {}
+    base_pipeline = clone(pipeline)
     try:
-        pipeline.fit(x_train, y_train)
+        if extended_classification:
+            pipeline, classification_context = extension.fit(
+                pipeline, x_train, y_train, spec=extension_spec, seed=seed, folds=folds,
+                progress=lambda step: _progress(progress_path, step),
+            )
+        else:
+            pipeline.fit(x_train, y_train)
     except Exception as exc:  # noqa: BLE001 - the algorithm's refusal is the answer
         return _fail(1, f"ml_fit_failed: {type(exc).__name__}: {exc}")
 
@@ -774,6 +798,9 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             "mean": _number(y.mean()),
         }
 
+    if extended_classification:
+        metrics.update(extension.evaluate(pipeline, classification_context, x_test, y_test, number=_number))
+
     metrics["task"] = task
     metrics["rows"] = {
         "total": int(len(x)),
@@ -788,7 +815,16 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         report, rows=importance_rows, scoring=scoring, seed=seed
     )
 
-    if folds >= 2:
+    if folds >= 2 and extended_classification:
+        try:
+            metrics["cv"] = extension.cross_validation(
+                base_pipeline, x_train, y_train, spec=extension_spec, seed=seed, folds=folds,
+                progress=lambda step: _progress(progress_path, step), number=_number,
+                summarize=lambda report, labels: _classification_metrics(report, labels, curve_points=curve_points),
+            )
+        except Exception as exc:  # A failed fold is not a failed fit.
+            metrics["cv"] = {"folds": folds, "metric": scoring, "error": str(exc)[:200]}
+    elif folds >= 2:
         # A single split reports one number and hides its own variance. skore's
         # cross-validation report gives every metric a spread across folds, which
         # is the honest way to say "0.86" — and the only way to tell a real
