@@ -307,6 +307,12 @@ def profile_frame(frame: Any) -> dict[str, Any]:
             column_stats["max"] = _json_scalar(series.max())
         elif kind in (KIND_STRING, KIND_BOOLEAN):
             column_stats["top_values"] = _top_values(series)
+        if kind == KIND_STRING:
+            # Full-column character counts, not a truncated preview, distinguish
+            # prose from short identifiers without rereading data in the plan.
+            import polars as pl
+
+            column_stats["mean_length"] = _json_scalar(series.cast(pl.String).str.len_chars().mean())
         stats[name] = column_stats
 
     preview = [

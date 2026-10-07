@@ -297,5 +297,17 @@
         "duration_ms": 2000
       }
     ]
-  }
+  },
+  "text_fields": [
+    {
+      "key": "text_encoder",
+      "kind": "enum",
+      "default": "auto",
+      "choices": [
+        "auto",
+        "string",
+        "minhash"
+      ]
+    }
+  ]
 }

@@ -789,3 +789,38 @@ def test_tuning_plan_refuses_budget_above_the_training_reserve(client, dataset, 
     refusal = response.json()['refusal']
     assert refusal['code'] == 'ML_SPEC_INVALID'
     assert refusal['field'] == 'tuning_budget_s'
+
+
+def test_plan_identifies_long_high_cardinality_text_without_labeling_ids(client, dataset, db_session):
+    from app.services.tabular_datasets import profile_frame
+    rows = pl.DataFrame({
+        'message': [f'This is a detailed support ticket number {index}' for index in range(60)],
+        'short_id': [f'ID{index}' for index in range(60)],
+        'long_category': ['A long but repeated categorical value'] * 60,
+        'churn': [index % 2 for index in range(60)],
+    })
+    profile = profile_frame(rows)
+    dataset.schema_json = profile['schema']
+    dataset.stats_json = profile['stats']
+    db_session.commit()
+    response = client.post('/ml-models/plan', json={'dataset_id': dataset.id})
+    assert response.status_code == 200
+    columns = {item['name']: item for item in response.json()['columns']}
+    assert columns['message']['role'] == 'text'
+    assert all('role' not in columns[key] for key in ('short_id', 'long_category', 'churn'))
+    plan = client.post('/ml-models/plan', json={'dataset_id': dataset.id, 'target': 'churn'}).json()['plan']
+    identifiers = [item['feature'] for item in plan['warnings'] if item['code'] == 'ML_FEATURE_IDENTIFIER']
+    assert identifiers == ['short_id']
+
+
+def test_text_encoder_is_catalog_driven_and_validated_in_plan(client, dataset):
+    response = client.post('/ml-models/plan', json={
+        'dataset_id': dataset.id, 'target': 'churn', 'spec': {'text_encoder': 'minhash'},
+    })
+    assert response.status_code == 200
+    assert response.json()['plan']['spec'] == {'calibration': 'off', 'threshold': 'default', 'tuning': 'off', 'explain': 'off', 'text_encoder': 'minhash'}
+    invalid = client.post('/ml-models/plan', json={
+        'dataset_id': dataset.id, 'target': 'churn', 'spec': {'text_encoder': 'torch'},
+    }).json()['refusal']
+    assert invalid['code'] == 'ML_SPEC_INVALID'
+    assert invalid['field'] == 'text_encoder'

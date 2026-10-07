@@ -862,6 +862,7 @@ export interface ModelCatalog {
 
 /** One candidate column, carrying the task it suggests and its profile. */
 export interface PlanColumn {
+  role?: 'text';
   name: string;
   kind: string;
   distinct: number;
