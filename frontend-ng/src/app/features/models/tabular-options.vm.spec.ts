@@ -38,3 +38,11 @@ test('column choices exclude the target and honor catalog column kinds', () => {
   const field = fields.find((entry) => entry.key === 'probe_columns')!;
   assert.deepEqual(specColumns(field, columns, 'region').map((column) => column.name), ['segment']);
 });
+
+test('text encoder is available for both tabular tasks and keeps legacy auto behavior', () => {
+  const textFields = fixture.text_fields as SpecFieldDescriptor[];
+  for (const task of ['classification', 'regression'] as const) {
+    assert.deepEqual(tabularSpec(textFields, {}, task), { text_encoder: 'auto' });
+    assert.deepEqual(tabularSpec(textFields, { text_encoder: 'minhash' }, task), { text_encoder: 'minhash' });
+  }
+});

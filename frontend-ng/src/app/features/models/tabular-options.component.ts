@@ -15,6 +15,9 @@ import { shownSpecFields, specColumns, specValues } from './tabular-options.vm';
       <details class="ck-options" data-testid="tabular-options">
         <summary>{{ i18n.t('models.tabular.options') }}</summary>
         <div class="ck-options__fields">
+          @if (textColumns().length) {
+            <p class="ck-hint" data-testid="tabular-text-columns">{{ i18n.t('models.tabular.text_columns', { columns: textColumns().join(', ') }) }}</p>
+          }
           @for (field of visibleFields(); track field.key) {
             <div class="ck-field" [attr.data-spec-field]="field.key">
               <label class="ck-label" [for]="'tabular-' + field.key">{{ label(field.key) }}</label>
@@ -94,6 +97,8 @@ export class TabularOptionsComponent {
   readonly target = input('');
   readonly refusal = input<string | null>(null);
   readonly specChange = output<Record<string, unknown>>();
+  protected readonly textColumns = computed(() => this.columns()
+    .filter((column) => column.role === 'text' && column.name !== this.target()).map((column) => column.name));
   protected readonly values = computed(() => specValues(this.fields(), this.spec(), this.task()));
   protected readonly visibleFields = computed(() => shownSpecFields(this.fields(), this.spec(), this.task()));
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.services.ml.families.base import Family
+from app.services.ml.families.base import Family, SpecField
 
 CLASSIFICATION = "classification"
 REGRESSION = "regression"
@@ -21,6 +21,9 @@ TABULAR = Family(
     runtime="worker",
     queue_setting="celery_ml_tabular_queue",
     serving="in_process",
+    spec_fields=(
+        SpecField("text_encoder", "enum", default="auto", choices=("auto", "string", "minhash")),
+    ),
     required_modules=("sklearn", "skrub", "skore", "mlflow", "skops"),
     harness=Path(__file__).resolve().parents[3] / "resources" / "ml_train_harness.py",
 )

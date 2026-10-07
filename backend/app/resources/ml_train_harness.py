@@ -570,6 +570,21 @@ def _persist_report(report, path: str | None, *, limit_bytes: int) -> dict | Non
         return None
 
 
+def _configure_text_encoder(pipeline, spec, seed):
+    encoder = (spec or {}).get("text_encoder", "auto")
+    if encoder != "auto":
+        from skrub import MinHashEncoder, StringEncoder
+
+        # Encoding is fitted inside the pipeline, so held-out vocabulary never
+        # reaches the model. Explicit choices only replace high-cardinality text.
+        vectorizer = pipeline.named_steps.get("tablevectorizer")
+        if vectorizer is not None:
+            vectorizer.set_params(high_cardinality=(
+                StringEncoder(random_state=seed) if encoder == "string"
+                else MinHashEncoder(n_jobs=1)
+            ))
+
+
 def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top down
     if len(argv) != 3:
         return _fail(5, "usage: ml_train_harness.py MANIFEST_JSON RESULT_JSON")
@@ -711,6 +726,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     # numerics from 1.4 on, and a list written before that would still be paying
     # for an imputer it no longer needs).
     pipeline = tabular_pipeline(estimator)
+    _configure_text_encoder(pipeline, manifest.get("spec"), seed)
     imputer = pipeline.named_steps.get("simpleimputer")
     if imputer is not None:
         # The one judgement skrub cannot make for us. Median rather than its

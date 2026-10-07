@@ -11,5 +11,6 @@
     { "name": "region", "kind": "string", "distinct": 3, "nulls": 0, "suggested_task": "classification" },
     { "name": "segment", "kind": "string", "distinct": 4, "nulls": 0, "suggested_task": "classification" },
     { "name": "visits", "kind": "integer", "distinct": 20, "nulls": 0, "suggested_task": "regression" }
-  ]
+  ],
+  "text_fields": [{"key": "text_encoder", "kind": "enum", "default": "auto", "choices": ["auto", "string", "minhash"]}]
 }
