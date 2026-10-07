@@ -630,6 +630,7 @@ def _make_pipeline(estimator_path, params, *, spec=None, seed=42):
     from skrub import tabular_pipeline
 
     pipeline = tabular_pipeline(_resolve_estimator(estimator_path, params))
+    _configure_text_encoder(pipeline, spec, seed)
     imputer = pipeline.named_steps.get("simpleimputer")
     if imputer is not None:
         imputer.set_params(strategy="median")
@@ -703,6 +704,19 @@ def _explanation_extensions():
     spec.loader.exec_module(module)
     return module
 
+def _configure_text_encoder(pipeline, spec, seed):
+    encoder = (spec or {}).get("text_encoder", "auto")
+    if encoder != "auto":
+        from skrub import MinHashEncoder, StringEncoder
+
+        # Encoding is fitted inside the pipeline, so held-out vocabulary never
+        # reaches the model. Explicit choices only replace high-cardinality text.
+        vectorizer = pipeline.named_steps.get("tablevectorizer")
+        if vectorizer is not None:
+            vectorizer.set_params(high_cardinality=(
+                StringEncoder(random_state=seed) if encoder == "string"
+                else MinHashEncoder(n_jobs=1)
+            ))
 
 
 def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top down

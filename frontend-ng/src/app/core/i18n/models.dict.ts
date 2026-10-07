@@ -116,6 +116,14 @@ export const MODELS_FR = {
   "models.explain.metric.mae": "MAE",
   "models.explain.metric.bias": "Biais moyen",
 
+
+  "models.spec.text_encoder": "Encodage du texte",
+  "models.spec.text_encoder.auto": "Automatique",
+  "models.spec.text_encoder.string": "TF-IDF et SVD",
+  "models.spec.text_encoder.minhash": "MinHash",
+  "models.spec.text_encoder.hint": "Pour les colonnes contenant beaucoup de textes distincts. Automatique conserve le comportement habituel.",
+  "models.tabular.text_columns": "Colonnes de texte détectées : {columns}",
+
   // ---- chrome de page -----------------------------------------------------
   'models.eyebrow': 'Données & modèles · Modèles',
   'models.title': 'Modèles',
@@ -1029,6 +1037,14 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   "models.explain.metric.accuracy": "Accuracy",
   "models.explain.metric.mae": "MAE",
   "models.explain.metric.bias": "Mean bias",
+
+
+  "models.spec.text_encoder": "Text encoding",
+  "models.spec.text_encoder.auto": "Automatic",
+  "models.spec.text_encoder.string": "TF-IDF and SVD",
+  "models.spec.text_encoder.minhash": "MinHash",
+  "models.spec.text_encoder.hint": "For columns with many distinct texts. Automatic preserves the usual behavior.",
+  "models.tabular.text_columns": "Detected text columns: {columns}",
 
   'models.eyebrow': 'Data & Models · Models',
   'models.title': 'Models',

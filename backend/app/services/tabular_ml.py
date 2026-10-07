@@ -415,6 +415,12 @@ def _distinct(dataset: TabularDataset, column: str) -> int:
         return 0
 
 
+def is_text_column(kind: str, profile: dict[str, Any]) -> bool:
+    """Use the same text heuristic for the plan and identifier warnings."""
+    return (kind == "string" and int(profile.get("distinct") or 0) > 40
+            and float(profile.get("mean_length") or 0) >= 20)
+
+
 def infer_task(dataset: TabularDataset, target: str) -> str:
     """The task a target implies, so the form opens on the right one.
 
@@ -653,7 +659,8 @@ def validate_training(
     # surfaced as a warning rather than silently dropped or refused.
     warnings: list[dict[str, Any]] = spec_warnings
     for name_ in selected:
-        if kinds.get(name_) == "string" and rows and _distinct(dataset, name_) >= rows:
+        if (kinds.get(name_) == "string" and rows and _distinct(dataset, name_) >= rows
+                and not is_text_column(kinds[name_], (dataset.stats_json or {}).get(name_) or {})):
             warnings.append({"code": "ML_FEATURE_IDENTIFIER", "feature": name_})
 
     default_name = f"{dataset.name} · {label}"
