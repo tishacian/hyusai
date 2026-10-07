@@ -27,6 +27,14 @@ repos:
       - id: shfmt
         args:
           - -w
+  - repo: https://github.com/AleksaC/hadolint-py
+    rev: v2.15.1
+    hooks:
+      - id: hadolint
+        # Dockerfile.<name> is not detected as a Dockerfile by type; the
+        # *.dockerignore files next to them do not match this pattern.
+        types: [file]
+        files: ^docker/Dockerfile(\.[\w-]+)?$
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.10
     hooks:

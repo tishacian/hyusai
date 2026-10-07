@@ -39,6 +39,38 @@ def test_isolated_generation_does_not_inherit_credentials_or_change_parent(monke
     assert len(calls) == 1
 
 
+def test_isolated_generation_starts_on_the_giskard_venv_when_the_image_has_one(monkeypatch, tmp_path):
+    """RAGET's older numpy must stay out of the interpreter that loads models."""
+    from app.services.evaluation import giskard_adapter as adapter
+    venv_python = tmp_path / "bin" / "python"
+    venv_python.parent.mkdir()
+    venv_python.write_text("")
+    monkeypatch.delenv("AGENTIUM_GISKARD_PYTHON", raising=False)
+    monkeypatch.setattr(adapter, "GISKARD_VENV_PYTHON", str(venv_python))
+    commands = []
+    def run(command, **kwargs):
+        commands.append(command)
+        return SimpleNamespace(returncode=0, stdout='AGENTIUM_RAGET_V1: {"cases":[]}\n', stderr="")
+    monkeypatch.setattr("subprocess.run", run)
+    adapter.generate_isolated(rows=[], model="gpt-4o-mini", embedding_model="text-embedding-3-small",
+        api_key="workspace-key", num_questions=3, language="fr")
+    assert commands == [[str(venv_python), "-m", "app.services.evaluation.giskard_adapter"]]
+
+
+def test_raget_interpreter_prefers_override_then_venv_then_current(monkeypatch, tmp_path):
+    import sys
+    from app.services.evaluation import giskard_adapter as adapter
+    monkeypatch.setattr(adapter, "GISKARD_VENV_PYTHON", str(tmp_path / "absent" / "python"))
+    monkeypatch.delenv("AGENTIUM_GISKARD_PYTHON", raising=False)
+    assert adapter.raget_interpreter() == sys.executable
+    present = tmp_path / "python"
+    present.write_text("")
+    monkeypatch.setattr(adapter, "GISKARD_VENV_PYTHON", str(present))
+    assert adapter.raget_interpreter() == str(present)
+    monkeypatch.setenv("AGENTIUM_GISKARD_PYTHON", "/custom/python")
+    assert adapter.raget_interpreter() == "/custom/python"
+
+
 def test_vendor_error_does_not_expose_stderr(monkeypatch):
     from app.services.evaluation.giskard_adapter import generate_isolated
     monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout="", stderr="secret-token and private document"))

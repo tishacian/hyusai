@@ -50,9 +50,10 @@ def _semaphore() -> asyncio.Semaphore:
 
 def _score_passages(query: str, passages: list[str], *, model_name: str, max_length: int) -> list[float]:
     """Blocking scoring call — runs in an executor thread."""
-    from app.services.retrieval.flash_reranker import FlashReranker, RerankerConfig
+    from app.services.retrieval.reranker_config import RerankerConfig
+    from app.services.retrieval.rerankers import make_reranker
 
-    reranker = FlashReranker(RerankerConfig(model_name=model_name, max_length=max_length))
+    reranker = make_reranker(RerankerConfig(model_name=model_name, max_length=max_length))
     return reranker.score(query, passages)
 
 

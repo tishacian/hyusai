@@ -1,12 +1,11 @@
 """Contextual compression retriever"""
 import asyncio
 import os
-from typing import List, Tuple, Optional
+from typing import Any, List, Tuple, Optional
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 
 from app.services.retrieval.ensemble_retriever import EnsembleRetriever
-from app.services.retrieval.flash_reranker import FlashReranker, RerankerConfig
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -28,7 +27,7 @@ class ContextualCompressionRetriever:
     def __init__(
         self,
         base_retriever: EnsembleRetriever,
-        reranker: FlashReranker,
+        reranker: Any,
         config: Optional[ContextualConfig] = None,
     ):
         """

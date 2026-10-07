@@ -70,8 +70,11 @@ def test_an_image_with_transformers_carries_the_torchvision_it_assumes() -> None
         if "transformers" not in dockerfile:
             continue
 
+        # Constraint lines may sit between the packages and the index: they pin
+        # versions, the index decides which build (+cpu) those versions come from.
         cpu_install = re.search(
             r"(?m)^RUN pip install --no-cache-dir (?P<packages>[\w\s.=<>-]+?)\s*\\\s*\n"
+            r"(?:\s*--constraint=\S+\s*\\\s*\n)*"
             r"\s*--index-url=" + re.escape(TORCH_CPU_INDEX),
             dockerfile,
         )
