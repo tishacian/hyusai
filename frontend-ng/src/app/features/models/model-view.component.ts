@@ -61,9 +61,12 @@ import {
 import { ForecastChartComponent } from '@app/features/data/viz/forecast-chart.component';
 import { forecastChartSeries, formatForecastStamp } from '@app/features/data/viz/forecast-chart.vm';
 import {
+  acfBars,
+  anatomyFacts,
   baselineGain,
   coverageTone,
   excursionsOf,
+  seriesAnalysis,
   frequencyKey,
   groupShareBars,
   horizonBars,
@@ -405,7 +408,7 @@ const CHART_ASPECT = 300 / 190;
                 @if (fm.explanation; as ex) {
                   <section data-testid="forecast-explanation">
                     <div class="ck-section-label">{{ i18n.t('models.explain.title') }}</div>
-                    @if (ex.method === 'shap' || ex.method === 'permutation') {
+                    @if (ex.method === 'shap' || ex.method === 'shap-approximate' || ex.method === 'permutation') {
                       <div class="ck-charts">
                         <section class="ck-chart">
                           <div class="ck-section-label">{{ i18n.t('models.explain.groups') }}</div>
@@ -423,6 +426,9 @@ const CHART_ASPECT = 300 / 190;
                           </section>
                         }
                       </div>
+                      @if (ex.method === 'shap-approximate') {
+                        <div class="ck-hint">{{ i18n.t('models.explain.approximate') }}</div>
+                      }
                     } @else if (ex.method === 'model') {
                       <div class="flex items-center gap-1.5 flex-wrap">
                         <span class="ck-fold ck-mono">{{ ex.name }}</span>
@@ -439,6 +445,68 @@ const CHART_ASPECT = 300 / 190;
                     } @else {
                       <div class="ck-hint">{{ i18n.t('models.explain.unavailable') }}</div>
                     }
+                  </section>
+                }
+
+                @if (anatomy(); as an) {
+                  <section data-testid="forecast-analysis">
+                    <div class="ck-section-label">{{ i18n.t('models.analysis.title') }}</div>
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                      @for (fact of anatomyFacts(); track fact.key) {
+                        <span class="ck-fold ck-mono" [attr.data-tone]="fact.tone">{{ fact.text }}</span>
+                      }
+                    </div>
+                    @if (acfBars().length) {
+                      <section class="ck-chart mt-2">
+                        <div class="ck-section-label">{{ i18n.t('models.analysis.acf') }}</div>
+                        <ck-bar-list [bars]="acfBars()" />
+                        @if (an.suggested_lags?.length) {
+                          <div class="ck-hint ck-mono">
+                            {{ i18n.t('models.analysis.suggested', { lags: (an.suggested_lags ?? []).join(', ') }) }}
+                          </div>
+                        }
+                        <div class="ck-hint">{{ i18n.t('models.analysis.acf.hint') }}</div>
+                      </section>
+                    }
+                    <div class="ck-hint">{{ i18n.t('models.analysis.hint') }}</div>
+                  </section>
+                }
+
+                @if (fm.diagnostic; as diag) {
+                  <section data-testid="forecast-diagnostic">
+                    <div class="ck-section-label">{{ i18n.t('models.diagnostic.title') }}</div>
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                      @for (score of diag.scores; track score.key) {
+                        <span class="ck-fold ck-mono">
+                          {{ i18n.t('models.metric.' + score.key) }} {{ formatMetric(score.key, score.value) }}
+                        </span>
+                      }
+                    </div>
+                    @if (diag.curves.fit.length) {
+                      <div class="ck-charts mt-2">
+                      <section class="ck-chart">
+                        <div class="ck-section-label">{{ i18n.t('models.diagnostic.fit') }}</div>
+                        <ck-curve-chart
+                          [points]="diag.curves.fit"
+                          [aspect]="chart"
+                          [domain]="diagnosticDomain()"
+                          [reference]="diagnosticIdentity()"
+                          [label]="i18n.t('models.diagnostic.fit')"
+                          [xLabel]="i18n.t('models.evidence.fit.x')"
+                          [yLabel]="i18n.t('models.evidence.fit.y')"
+                          [pointLabel]="describeFit"
+                        />
+                      </section>
+                      </div>
+                    }
+                    <div class="ck-hint">
+                      {{
+                        i18n.t('models.diagnostic.hint', {
+                          train: diag.rows.train.toLocaleString(i18n.locale()),
+                          test: diag.rows.test.toLocaleString(i18n.locale())
+                        })
+                      }}
+                    </div>
                   </section>
                 }
 
@@ -1580,6 +1648,34 @@ export class ModelViewComponent implements OnInit {
     lagBars(this.forecast()?.explanation, this.forecast()?.forecast?.frequency, this.translate, this.valueFormat),
   );
   protected readonly excursions = computed(() => excursionsOf(this.forecast()));
+  /** The anatomy of the series the chart shows. */
+  protected readonly anatomy = computed(() => seriesAnalysis(this.forecast(), this.forecastSeries()));
+  protected readonly anatomyFacts = computed(() =>
+    anatomyFacts(this.anatomy()).map((fact) => ({
+      key: fact.key,
+      tone: fact.tone,
+      text: this.i18n.t(fact.key, {
+        ...fact.params,
+        ...(typeof fact.params['value'] === 'number' ? { value: this.rate(fact.params['value'] as number) } : {}),
+        ...(typeof fact.params['p'] === 'number' ? { p: this.pValue(fact.params['p'] as number) } : {}),
+      }),
+    })),
+  );
+  protected readonly acfBars = computed<VizBar[]>(() =>
+    acfBars(this.anatomy(), this.forecast()?.forecast?.frequency, this.translate, (value) => this.rate(value)),
+  );
+  protected readonly diagnosticDomain = computed(() =>
+    curveDomain([this.forecast()?.diagnostic?.curves.fit ?? [], this.forecast()?.diagnostic?.curves.ideal ?? []]),
+  );
+  protected readonly diagnosticIdentity = computed<CurveReference>(() => ({
+    kind: 'series',
+    points: this.forecast()?.diagnostic?.curves.ideal ?? [],
+  }));
+
+  /** A p-value as a reader reads one: below 0.001 there is nothing left to show. */
+  private pValue(value: number): string {
+    return value < 0.001 ? `< ${(0.001).toLocaleString(this.i18n.locale())}` : `= ${this.rate(value)}`;
+  }
 
   /** A backtest date in the unit of the series' frequency. */
   protected stampOf(iso: string): string {

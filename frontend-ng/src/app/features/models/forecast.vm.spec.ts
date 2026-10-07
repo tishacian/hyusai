@@ -16,7 +16,12 @@ import {
   baselineGain,
   covariateCandidates,
   coverageTone,
+  acfBars,
+  anatomyFacts,
   answerPoints,
+  diagnosticScore,
+  seriesAnalysis,
+  strengthLevel,
   contributionBars,
   excursionsOf,
   featureLabel,
@@ -365,4 +370,60 @@ test('the peak reads as signed contributions on top of the base', () => {
   assert.equal(features[0].label, 't−24 (models.explain.span.days(1))');
   assert.equal(features[0].display, '+9');
   assert.equal(excursionsOf({ task: 'forecasting', excursions: { count: 0, share: 0, points: [] } }).length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Anatomy and diagnostic
+// ---------------------------------------------------------------------------
+
+const ANATOMY = {
+  series: 'A',
+  confidence: 0.06,
+  acf: [
+    { lag: 1, value: 0.9 },
+    { lag: 24, value: 0.81 },
+    { lag: 36, value: -0.04 },
+  ],
+  suggested_lags: [1, 2, 24],
+  stl: { period: 24, trend_strength: 0.12, seasonal_strength: 0.93 },
+  adf: { statistic: -5.2, pvalue: 0.0001, stationary: true },
+};
+
+test('a series reads as how seasonal, how trending, and whether it wanders', () => {
+  assert.equal(strengthLevel(0.93), 'strong');
+  assert.equal(strengthLevel(0.4), 'moderate');
+  assert.equal(strengthLevel(0.1), 'weak');
+  assert.equal(strengthLevel(null), null);
+  const facts = anatomyFacts(ANATOMY);
+  assert.deepEqual(facts.map((fact) => fact.key), [
+    'models.analysis.season.strong',
+    'models.analysis.trend.weak',
+    'models.analysis.stationary',
+  ]);
+  assert.equal(facts[2].tone, 'pos');
+  assert.equal(anatomyFacts({ ...ANATOMY, adf: { statistic: -1, pvalue: 0.4, stationary: false } })[2].tone, 'warn');
+  assert.deepEqual(anatomyFacts(null), []);
+});
+
+test('autocorrelation is signed, and noise inside the band is called noise', () => {
+  const bars = acfBars(ANATOMY, 'h', t, (value) => value.toFixed(2));
+  assert.deepEqual(bars.map((bar) => bar.display), ['0.90', '0.81', '−0.04']);
+  assert.equal(bars[2].negative, true);
+  assert.equal(bars[2].share, 'models.analysis.acf.noise');
+  assert.equal(bars[0].share, undefined);
+});
+
+test('the card finds the anatomy of the series it is showing, and the diagnostic scores', () => {
+  const metrics = { task: 'forecasting', analysis: [ANATOMY, { ...ANATOMY, series: 'B' }] };
+  assert.equal(seriesAnalysis(metrics, 'B')?.series, 'B');
+  assert.equal(seriesAnalysis(metrics, 'missing')?.series, 'A');
+  assert.equal(seriesAnalysis({ task: 'forecasting' }, 'A'), null);
+  const diagnostic = {
+    step: null,
+    rows: { train: 800, test: 200 },
+    scores: [{ key: 'r2', value: 0.82 }],
+    curves: { fit: [], ideal: [] },
+  };
+  assert.equal(diagnosticScore(diagnostic, 'r2'), 0.82);
+  assert.equal(diagnosticScore(diagnostic, 'rmse'), null);
 });

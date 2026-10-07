@@ -166,6 +166,9 @@ import { servingErrorKey, type ModelDto, type ServingBlock } from './models.vm';
             <div class="ck-fplay__why" data-testid="forecast-why">
               <div class="ck-section-label">{{ i18n.t('models.explain.peak.title') }}</div>
               <p class="ck-fplay__sentence">{{ whySentence() }}</p>
+              @if (answer()?.explanation?.method === 'shap-approximate') {
+                <p class="ck-hint">{{ i18n.t('models.explain.approximate') }}</p>
+              }
               <div class="ck-fplay__why-grid">
                 <div>
                   <div class="ck-fplay__label">{{ i18n.t('models.explain.peak.groups') }}</div>

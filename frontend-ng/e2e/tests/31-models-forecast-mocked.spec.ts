@@ -176,6 +176,16 @@ test.describe('Models · forecasting — isolated end-user QA', () => {
       await explained.scrollIntoViewIfNeeded();
       await explained.screenshot({ path: info.outputPath(`explain-${theme}-${locale}-${width}.png`) });
       await page.getByTestId('forecast-excursions').screenshot({ path: info.outputPath(`excursions-${theme}-${locale}-${width}.png`) });
+      // The series' anatomy and the regressor's one-step diagnostic (skore).
+      const anatomy = page.getByTestId('forecast-analysis');
+      await expect(anatomy).toContainText(locale === 'fr' ? 'Saisonnalité forte' : 'Strong seasonality');
+      await expect(anatomy).toContainText(locale === 'fr' ? 'Revient à son niveau' : 'Returns to its level');
+      await anatomy.scrollIntoViewIfNeeded();
+      await anatomy.screenshot({ path: info.outputPath(`anatomy-${theme}-${locale}-${width}.png`) });
+      const diagnostic = page.getByTestId('forecast-diagnostic');
+      await expect(diagnostic).toContainText('skore');
+      await expect(diagnostic.locator('canvas')).toBeVisible();
+      await diagnostic.screenshot({ path: info.outputPath(`diagnostic-${theme}-${locale}-${width}.png`) });
       await page.screenshot({ path: info.outputPath(`card-${theme}-${locale}-${width}.png`), fullPage: true });
 
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
