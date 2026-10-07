@@ -49,7 +49,13 @@ from app.models.system_binding import SystemBinding
 from app.models.system_flow_draft import SystemFlowDraft
 from app.models.system_version import SystemVersion
 from app.models.recipe import PythonEnv, RecipeExecution
-from app.models.tabular import MLModel, MLModelApiKey, MLPrediction, TabularDataset
+from app.models.tabular import (
+    MLModel,
+    MLModelApiKey,
+    MLPrediction,
+    MLRuntimeHeartbeat,
+    TabularDataset,
+)
 from app.models.run import Run, SkillInvocation
 from app.models.run_schedule import RunSchedule
 from app.models.webhook_hook import WebhookHook
@@ -98,7 +104,7 @@ __all__ = [
     "ExperienceRelease", "ExperienceDeployment",
     "SystemFlowDraft", "SystemVersion", "Run", "SkillInvocation", "RunSchedule", "WebhookHook",
     "PythonEnv", "RecipeExecution",
-    "TabularDataset", "MLModel", "MLModelApiKey", "MLPrediction",
+    "TabularDataset", "MLModel", "MLModelApiKey", "MLPrediction", "MLRuntimeHeartbeat",
     "RunInbox", "SystemMemory", "RunDispatchOutbox", "TriggerEventClaim",
     "Impact", "Decision",
     "ValueLoopOperation", "ValueScenario", "ValueSimulation",

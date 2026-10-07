@@ -884,25 +884,9 @@ def dataset_ingest(dataset_id: str) -> dict:
     return ingest_dataset(dataset_id)
 
 
-@celery_app.task(
-    name="agentium.ml_train",
-    bind=True,
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def ml_train(self, model_id: str) -> dict:
-    """Fit one sklearn pipeline and publish it in the MLflow model format.
-
-    Unlike the transform tasks this one runs no author code, so it needs no
-    managed venv — but it still runs as a supervised subprocess, because a fit
-    cannot be cancelled from inside and a redelivery must not publish a second
-    artifact for one version.
-    """
-
-    from app.services.tabular_ml import run_training
-
-    result = run_training(model_id)
-    return {**result, "task_id": str(self.request.id)}
+# Defined as a shared task in ml_tasks so a model-family image can register it
+# without importing this module; re-exported here for the general worker.
+from app.workers.ml_tasks import ml_train  # noqa: E402,F401
 
 
 @celery_app.task(name="agentium.recipe_env_sweep")

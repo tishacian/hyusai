@@ -2671,6 +2671,7 @@ async def _ml_train_sklearn_v1(
                 knobs=train.get("knobs"),
                 test_size=train.get("test_size"),
                 cross_validation=train.get("cross_validation"),
+                spec=train.get("spec"),
                 name=train.get("model_name"),
                 run_id=ctx.get("run_id"),
                 node_id=str(train.get("node_id") or "") or None,

@@ -1981,9 +1981,10 @@ export class ModelViewComponent implements OnInit {
     if (values.length < 2) return false;
     const mine = row[modelId];
     if (typeof mine !== 'number') return false;
-    const best = higherIsBetter(row.key)
-      ? Math.max(...values)
-      : Math.min(...values);
+    const higher = higherIsBetter(row.key);
+    // A metric with no direction (an interval's coverage) has no winner.
+    if (higher === null) return false;
+    const best = higher ? Math.max(...values) : Math.min(...values);
     return mine === best && values[0] !== values[1];
   }
 

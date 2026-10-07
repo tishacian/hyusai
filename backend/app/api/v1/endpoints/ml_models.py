@@ -27,12 +27,12 @@ UI does.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Annotated, Any, Optional, Union
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from fastapi.security import HTTPAuthorizationCredentials
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace, security
@@ -109,6 +109,18 @@ def _lineage(db: DBSession, *, workspace: Workspace, model: MLModel) -> dict[str
     }
 
 
+# A knob's value as the form sends it: a number for a slider, a string for a
+# choice, a boolean for a toggle, a short list of integers for lags. The catalog
+# coerces each into its own domain; the request only bounds the shapes.
+KnobValue = Union[
+    StrictBool,
+    StrictInt,
+    StrictFloat,
+    Annotated[str, Field(max_length=64)],
+    Annotated[list[StrictInt], Field(max_length=64)],
+]
+
+
 class TrainBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -120,9 +132,13 @@ class TrainBody(BaseModel):
     target: str = Field(default="", max_length=200)
     features: list[str] = Field(default_factory=list, max_length=512)
     algo: Optional[str] = Field(default=None, max_length=80)
-    knobs: dict[str, float] = Field(default_factory=dict)
+    knobs: dict[str, KnobValue] = Field(default_factory=dict, max_length=32)
     test_size: Optional[float] = Field(default=None, ge=0.05, le=0.5)
     cross_validation: Optional[int] = Field(default=None, ge=0, le=10)
+    # The model family's problem definition (time column, horizon, …), read by
+    # the family itself so this endpoint stays family-agnostic; unknown keys are
+    # refused there with ML_SPEC_INVALID.
+    spec: Optional[dict[str, Any]] = None
 
     def dataset_ref(self) -> dict[str, Any]:
         if self.dataset_id:
@@ -156,7 +172,7 @@ async def list_models(
         "models": [
             serialize_model(row, monitor_status=badges.get(row.id)) for row in models
         ],
-        "catalog": catalog_payload(),
+        "catalog": catalog_payload(db),
     }
 
 
@@ -164,10 +180,11 @@ async def list_models(
 async def get_catalog(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
-    """Algorithms, their knobs and the platform's training limits."""
+    """Algorithms, their knobs, the model families and the training limits."""
 
-    return {"catalog": catalog_payload()}
+    return {"catalog": catalog_payload(db)}
 
 
 class PlanBody(BaseModel):
@@ -179,6 +196,7 @@ class PlanBody(BaseModel):
     task: Optional[str] = Field(default=None, max_length=20)
     features: list[str] = Field(default_factory=list, max_length=512)
     algo: Optional[str] = Field(default=None, max_length=80)
+    spec: Optional[dict[str, Any]] = None
 
     def dataset_ref(self) -> dict[str, Any]:
         if self.dataset_id:
@@ -234,7 +252,7 @@ async def plan_training(
     payload: dict[str, Any] = {
         "dataset": serialize_dataset(dataset),
         "columns": columns,
-        "catalog": catalog_payload(),
+        "catalog": catalog_payload(db),
         "plan": None,
         "refusal": None,
     }
@@ -248,6 +266,8 @@ async def plan_training(
             target=body.target,
             features=body.features,
             algo=body.algo,
+            spec=body.spec,
+            db=db,
         )
     except TabularError as exc:
         # A refusal is an answer here, not an error: the form renders it against
@@ -262,6 +282,8 @@ async def plan_training(
         "algo": spec.algo.key,
         "estimator": spec.algo.estimator_for(spec.task),
         "knobs": spec.knobs,
+        "family": spec.family,
+        "spec": spec.spec,
         "test_size": spec.test_size,
         "cross_validation": spec.cross_validation,
         "name": spec.name,
@@ -302,6 +324,7 @@ async def train_model(
             test_size=body.test_size,
             cross_validation=body.cross_validation,
             name=body.name,
+            spec=body.spec,
             description=body.description,
             created_by=getattr(user, "id", None),
         )
