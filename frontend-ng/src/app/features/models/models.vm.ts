@@ -183,6 +183,10 @@ export interface ModelDto {
   version: number;
   description?: string | null;
   task: ModelTask;
+  /** The model family (absent on rows from before families: tabular). */
+  family?: string;
+  /** The family's problem definition, as validated at training time. */
+  spec?: Record<string, unknown>;
   algo: string;
   target: string;
   features: string[];
@@ -848,6 +852,9 @@ export interface TrainingPlan {
   algo: string;
   estimator: string;
   knobs: Record<string, number | null>;
+  /** The model family, and its problem definition as the server resolved it. */
+  family?: string;
+  spec?: Record<string, unknown>;
   test_size: number;
   cross_validation: number;
   name: string;
@@ -875,6 +882,7 @@ export function isActiveStatus(status: ModelStatus | undefined | null): boolean 
 
 /** Lucide icon for a task — the list's at-a-glance "what does it predict" cue. */
 export function taskIcon(task: ModelTask | undefined): string {
+  if (task === 'forecasting') return 'history';
   return task === 'regression' ? 'trending-up' : 'target';
 }
 
@@ -895,6 +903,12 @@ export function algoIcon(algo: string | undefined): string {
       return 'line-chart';
     case 'knn':
       return 'circle-dot';
+    case 'ets':
+      return 'waves';
+    case 'arima':
+      return 'activity';
+    case 'seasonal_naive':
+      return 'repeat';
     default:
       return 'brain';
   }
@@ -1523,7 +1537,12 @@ export function refusalKey(code: string | undefined | null): string | null {
 /** Which form field a refusal belongs against, so it renders next to its cause. */
 export function refusalField(
   code: string | undefined | null,
-): 'target' | 'features' | 'algo' | 'dataset' | null {
+): 'target' | 'features' | 'algo' | 'dataset' | 'spec' | null {
+  // A forecast's refusals are about its problem definition (date column,
+  // horizon, covariate roles), which the form renders as one block.
+  if (code === 'ML_SPEC_INVALID' || (code ?? '').startsWith('ML_TS_')) {
+    return code === 'ML_TS_ALGO_SHAPE_MISMATCH' ? 'algo' : 'spec';
+  }
   switch (code) {
     case 'ML_TARGET_REQUIRED':
     case 'ML_TARGET_UNKNOWN':
@@ -1582,6 +1601,7 @@ export const SERVING_ERROR_CODES = [
   'ML_KEY_WRONG_MODEL',
   'ML_PUBLISH_NAME_TAKEN',
   'ML_PUBLISH_NAME_INVALID',
+  'ML_USE_FORECAST_ROUTE',
 ] as const;
 
 const SERVING_ERROR_SET: ReadonlySet<string> = new Set(SERVING_ERROR_CODES);
@@ -1602,6 +1622,7 @@ export const COMPARE_ERROR_CODES = [
   'ML_COMPARE_DATASET_TOO_LARGE',
   'ML_COMPARE_SPLIT_FAILED',
   'ML_COMPARE_FAILED',
+  'ML_COMPARE_NOT_TABULAR',
 ] as const;
 
 const COMPARE_ERROR_SET: ReadonlySet<string> = new Set(COMPARE_ERROR_CODES);

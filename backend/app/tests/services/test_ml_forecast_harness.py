@@ -188,7 +188,10 @@ def test_the_error_is_read_per_step_and_against_the_seasonal_naive(recursive):
     assert [entry["step"] for entry in metrics["per_horizon"]] == list(range(1, HORIZON + 1))
     assert all(entry["mae"] >= 0 for entry in metrics["per_horizon"])
     assert metrics["baseline"]["key"] == "seasonal_naive" and metrics["baseline"]["mae"] > 0
-    assert len(metrics["history_tail"]) == 3 * HORIZON
+    # The context the chart opens on ends where the first fold begins.
+    assert len(metrics["history_tail"]) == 2 * HORIZON
+    first_fold = min(pd.Timestamp(point["t"]) for point in metrics["backtest"])
+    assert max(pd.Timestamp(point["t"]) for point in metrics["history_tail"]) < first_fold
     assert {point["series"] for point in metrics["backtest"]} == {TARGET}
 
 

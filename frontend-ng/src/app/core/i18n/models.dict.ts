@@ -158,6 +158,13 @@ export const MODELS_FR = {
   'models.studio.plan.title': 'Ce qui va être entraîné',
   'models.studio.plan.estimator': 'Estimateur',
   'models.studio.plan.rows': '{rows} lignes, dont {test} en test',
+  'models.studio.plan.forecast': '{horizon} pas prévus · {folds} backtests',
+  'models.studio.forecast.no_time':
+    'Ce jeu n’a pas de colonne de date : une prévision a besoin de dates.',
+  'models.studio.forecast.unused': 'Non utilisée',
+  'models.studio.forecast.no_covariates': 'Aucune autre colonne utilisable.',
+  'models.studio.forecast.lags_auto': 'Selon la fréquence',
+  'models.studio.forecast.lags_invalid': 'Des nombres entiers positifs, séparés par des virgules.',
   'models.studio.plan.features': '{count} variables retenues',
   'models.studio.submit': 'Lancer l’entraînement',
   'models.studio.submitting': 'Lancement…',
@@ -223,6 +230,28 @@ export const MODELS_FR = {
   // ---- résultats ----------------------------------------------------------
   'models.evidence.scores': 'Scores sur les lignes de test',
   'models.evidence.rows': '{total} lignes · {train} en apprentissage · {test} en test',
+  'models.evidence.forecast': 'Prévisions rejouées sur le passé',
+  'models.evidence.forecast.hint':
+    'Chaque horizon est prévu avec les seules données d’avant lui. La bande est l’intervalle à {level}, calibré sur les erreurs des horizons précédents.',
+  'models.evidence.forecast.series': 'Série',
+  'models.evidence.forecast.actual': 'Réel',
+  'models.evidence.forecast.pred': 'Prévu',
+  'models.evidence.forecast.interval': 'Intervalle',
+  'models.evidence.forecast.rows': '{total} lignes · {history} pas d’historique · {series} série(s)',
+  'models.evidence.forecast.setup': '{frequency} · horizon {horizon} · {folds} backtests · {method}',
+  'models.evidence.forecast.method.conformal': 'intervalle conforme',
+  'models.evidence.forecast.method.model': 'intervalle du modèle',
+  'models.evidence.forecast.filled': '{count} pas comblés ({fill})',
+  'models.evidence.horizon': 'Erreur par pas d’horizon',
+  'models.evidence.horizon.hint':
+    'L’erreur absolue moyenne à chaque pas : la vitesse à laquelle la prévision se dégrade.',
+  'models.evidence.horizon.step': '+{step}',
+  'models.evidence.series': 'Erreur par série',
+  'models.evidence.series.hint':
+    'Les séries les moins bien prévues d’abord. Un MASE sous 1 fait mieux que répéter la valeur précédente.',
+  'models.evidence.baseline.better': '{share} d’erreur en moins que répéter la dernière saison',
+  'models.evidence.baseline.worse': '{share} d’erreur en plus que répéter la dernière saison',
+  'models.evidence.coverage': 'Couverture {coverage} pour {level} visés',
   'models.evidence.roc': 'Courbe ROC',
   'models.evidence.roc.hint':
     'Plus la courbe monte vite vers le coin haut-gauche, mieux le modèle sépare. La diagonale est le hasard. Survolez la courbe pour lire un point de fonctionnement.',
@@ -329,6 +358,8 @@ export const MODELS_FR = {
     'Ces deux modèles appartiennent à des espaces de travail différents.',
   'models.compare.error.ml_compare_different_question':
     'Ces versions ne répondent pas à la même question : un seul tableau ne peut pas les classer.',
+  'models.compare.error.ml_compare_not_tabular':
+    'Seuls les modèles tabulaires sont re-notés sur un même découpage ; une prévision se compare par son backtest.',
   'models.compare.error.ml_compare_no_common_dataset':
     'Aucun des deux jeux d’entraînement ne porte toutes les colonnes nécessaires aux deux modèles.',
   'models.compare.error.ml_compare_dataset_too_large':
@@ -447,6 +478,9 @@ export const MODELS_FR = {
 
   // ---- atelier de prédiction ---------------------------------------------
   'models.play.unavailable.title': 'Ce modèle ne répond pas encore',
+  'models.play.forecast.title': 'Prévision à la demande : prochaine étape',
+  'models.play.forecast.description':
+    'Ce modèle est entraîné, versionné et enregistré dans MLflow. Il répondra pour un horizon donné via le worker de prévision, depuis cet onglet et en Skill.',
   'models.play.unavailable.untrained':
     'Un modèle répond une fois entraîné : lancez l’entraînement, le formulaire se construira depuis son contrat.',
   'models.play.unavailable.disabled':
@@ -556,6 +590,8 @@ export const MODELS_FR = {
     'Une skill porte déjà ce nom dans cet espace de travail.',
   'models.serving.error.ml_publish_name_invalid':
     'Le nom du modèle ne donne pas un identifiant de skill valide.',
+  'models.serving.error.ml_use_forecast_route':
+    'Un modèle de prévision répond pour un horizon, pas pour des lignes : il est servi par le worker de prévision.',
 
   // ---- versions -----------------------------------------------------------
   'models.versions.label': 'v{version}',
@@ -815,6 +851,12 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.studio.plan.title': 'What is about to be trained',
   'models.studio.plan.estimator': 'Estimator',
   'models.studio.plan.rows': '{rows} rows, {test} of them held for testing',
+  'models.studio.plan.forecast': '{horizon} steps ahead · {folds} backtests',
+  'models.studio.forecast.no_time': 'This dataset has no date column: a forecast needs dates.',
+  'models.studio.forecast.unused': 'Not used',
+  'models.studio.forecast.no_covariates': 'No other usable column.',
+  'models.studio.forecast.lags_auto': 'From the frequency',
+  'models.studio.forecast.lags_invalid': 'Positive whole numbers, separated by commas.',
   'models.studio.plan.features': '{count} features kept',
   'models.studio.submit': 'Start training',
   'models.studio.submitting': 'Starting…',
@@ -876,6 +918,27 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
 
   'models.evidence.scores': 'Scores on the test rows',
   'models.evidence.rows': '{total} rows · {train} for learning · {test} for testing',
+  'models.evidence.forecast': 'Forecasts replayed on the past',
+  'models.evidence.forecast.hint':
+    'Each horizon is forecast from the data before it only. The band is the {level} interval, calibrated on the errors of the earlier horizons.',
+  'models.evidence.forecast.series': 'Series',
+  'models.evidence.forecast.actual': 'Actual',
+  'models.evidence.forecast.pred': 'Forecast',
+  'models.evidence.forecast.interval': 'Interval',
+  'models.evidence.forecast.rows': '{total} rows · {history} steps of history · {series} series',
+  'models.evidence.forecast.setup': '{frequency} · horizon {horizon} · {folds} backtests · {method}',
+  'models.evidence.forecast.method.conformal': 'conformal interval',
+  'models.evidence.forecast.method.model': 'model interval',
+  'models.evidence.forecast.filled': '{count} steps filled ({fill})',
+  'models.evidence.horizon': 'Error per step ahead',
+  'models.evidence.horizon.hint': 'Mean absolute error at each step: how fast the forecast degrades.',
+  'models.evidence.horizon.step': '+{step}',
+  'models.evidence.series': 'Error per series',
+  'models.evidence.series.hint':
+    'Worst-forecast series first. A MASE below 1 beats repeating the previous value.',
+  'models.evidence.baseline.better': '{share} less error than repeating the last season',
+  'models.evidence.baseline.worse': '{share} more error than repeating the last season',
+  'models.evidence.coverage': 'Coverage {coverage} for {level} asked',
   'models.evidence.roc': 'ROC curve',
   'models.evidence.roc.hint':
     'The faster the curve climbs to the top-left corner, the better the model separates. The diagonal is chance. Hover the curve to read an operating point.',
@@ -979,6 +1042,8 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
     'These two models belong to different workspaces.',
   'models.compare.error.ml_compare_different_question':
     'These versions do not answer the same question, so one table cannot rank them.',
+  'models.compare.error.ml_compare_not_tabular':
+    'Only tabular models are re-scored on a shared split; a forecast compares by its backtest.',
   'models.compare.error.ml_compare_no_common_dataset':
     'Neither training dataset carries every column the two models need.',
   'models.compare.error.ml_compare_dataset_too_large':
@@ -1094,6 +1159,9 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.contract.example': 'Example row',
 
   'models.play.unavailable.title': 'This model does not answer yet',
+  'models.play.forecast.title': 'On-demand forecasts: next step',
+  'models.play.forecast.description':
+    'This model is trained, versioned and registered in MLflow. It will answer for a given horizon through the forecasting worker, from this tab and as a Skill.',
   'models.play.unavailable.untrained':
     'A model answers once it is trained: start a training run and the form will be built from its contract.',
   'models.play.unavailable.disabled':
@@ -1199,6 +1267,8 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
     'A skill already carries that name in this workspace.',
   'models.serving.error.ml_publish_name_invalid':
     'The model’s name does not yield a valid skill identifier.',
+  'models.serving.error.ml_use_forecast_route':
+    'A forecasting model answers for a horizon, not for rows: the forecasting worker serves it.',
 
   'models.versions.label': 'v{version}',
   'models.versions.current': 'Shown version',

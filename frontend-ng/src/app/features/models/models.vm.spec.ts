@@ -454,6 +454,11 @@ test('a refusal renders next to the choice that caused it', () => {
   assert.equal(refusalField('ML_TOO_MANY_FEATURES'), 'features');
   assert.equal(refusalField('ML_ALGO_TASK_MISMATCH'), 'algo');
   assert.equal(refusalField('ML_ROWS_INSUFFICIENT'), 'dataset');
+  // A forecast's problem definition is one block; a shape the algorithm
+  // cannot fit is still the algorithm's to answer for.
+  assert.equal(refusalField('ML_TS_HISTORY_TOO_SHORT'), 'spec');
+  assert.equal(refusalField('ML_SPEC_INVALID'), 'spec');
+  assert.equal(refusalField('ML_TS_ALGO_SHAPE_MISMATCH'), 'algo');
   // A refusal no field owns still has to be read: the footer takes it.
   assert.equal(refusalField('ML_TRAIN_DISABLED'), null);
   assert.equal(refusalField('SOMETHING_NEW'), null);

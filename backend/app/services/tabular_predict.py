@@ -65,6 +65,7 @@ from app.services.skills_registry.binding import (
     SkillBindingError,
     workspace_skill_slug,
 )
+from app.services.ml.families import get_family
 from app.services.tabular_datasets import (
     TabularError,
     dataset_reference,
@@ -267,6 +268,16 @@ def load_pipeline_traced(model: MLModel) -> tuple[LoadedModel, bool]:
             message="The model is not trained yet.",
             status_code=409,
             details={"status": model.status},
+        )
+    family = get_family(getattr(model, "family", None))
+    if family.serving != "in_process":
+        # A forecast answers a horizon, not a row, and its artifact only loads
+        # in its own runtime: unpickling it here would need skforecast in the API.
+        raise TabularError(
+            code="ML_USE_FORECAST_ROUTE",
+            message="A forecasting model is served by its own runtime, with a horizon rather than rows.",
+            status_code=409,
+            details={"family": family.key},
         )
 
     fingerprint = _fingerprint(model)
