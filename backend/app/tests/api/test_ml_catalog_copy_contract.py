@@ -23,6 +23,8 @@ from pathlib import Path
 
 import pytest
 
+from app.services.ml import metrics as metric_registry
+from app.services.ml.families import FAMILIES, all_tasks
 from app.services.tabular_ml import ALGOS, TASKS, catalog_payload
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -60,6 +62,8 @@ _REFUSAL_CODES = (
     "ML_ROWS_TOO_MANY",
     "ML_ALGO_UNKNOWN",
     "ML_ALGO_TASK_MISMATCH",
+    "ML_SPEC_INVALID",
+    "ML_FAMILY_UNAVAILABLE",
     "ML_MODEL_NOT_READY",
     "ML_MODEL_NOT_FOUND",
 )
@@ -76,7 +80,10 @@ _TRAINING_ERROR_CODES = (
     "ML_DATASET_UNAVAILABLE",
     "ML_ARTIFACT_EMPTY",
     "ML_TRAIN_DISABLED",
+    "ML_RUNTIME_MISSING",
 )
+# Why a family can be offered but not trainable right now (ml.runtime).
+_FAMILY_REASONS = ("no_worker", "runtime_missing", "disabled")
 
 
 def _dictionary_keys() -> set[str]:
@@ -99,6 +106,9 @@ def test_every_algorithm_knob_and_tag_in_the_catalog_has_copy():
             expected.add(f"models.tag.{tag}")
         for knob in algo.knobs:
             expected.add(f"models.studio.knob.{knob.key}")
+            # A choice renders as its own option label.
+            for choice in knob.choices:
+                expected.add(f"models.studio.knob.{knob.key}.{choice}")
     missing = sorted(expected - keys)
     assert not missing, (
         "the training form builds these keys from the algorithm catalog, so each "
@@ -108,10 +118,23 @@ def test_every_algorithm_knob_and_tag_in_the_catalog_has_copy():
 
 def test_every_task_the_catalog_offers_has_a_name_and_a_hint():
     keys = _dictionary_keys()
-    expected = {f"models.task.{task}" for task in TASKS} | {
-        f"models.task.{task}.hint" for task in TASKS
+    expected = {f"models.task.{task}" for task in all_tasks()} | {
+        f"models.task.{task}.hint" for task in all_tasks()
     }
     assert not sorted(expected - keys)
+
+
+def test_every_family_metric_and_unavailability_reason_has_copy():
+    """The form names a family, explains why it is greyed out, and labels every
+    score the registry can rank — including the forecasting errors."""
+
+    keys = _dictionary_keys()
+    expected = {f"models.family.{family.key}" for family in FAMILIES}
+    expected |= {f"models.family.reason.{reason}" for reason in _FAMILY_REASONS}
+    for spec in metric_registry.METRICS:
+        expected |= {f"models.metric.{spec.key}", f"models.metric.{spec.key}.hint"}
+    missing = sorted(expected - keys)
+    assert not missing, f"rendered as raw identifiers: {missing}"
 
 
 def test_every_refusal_and_failure_code_has_copy():
@@ -129,8 +152,14 @@ def test_the_catalog_payload_is_shaped_the_way_the_form_reads_it():
     """A guard on the contract the studio's view-model is typed against."""
 
     payload = catalog_payload()
-    assert set(payload) >= {"enabled", "tasks", "algos", "limits", "defaults"}
-    assert payload["tasks"] == list(TASKS)
+    assert set(payload) >= {"enabled", "tasks", "algos", "limits", "defaults", "families", "metrics"}
+    assert payload["tasks"] == list(all_tasks())
+    assert set(TASKS) <= set(payload["tasks"])
+    for family in payload["families"]:
+        assert set(family) >= {"key", "tasks", "runtime", "serving", "available", "spec_fields"}
+        assert family["serving"] in {"in_process", "remote"}
+    assert {metric["key"] for metric in payload["metrics"]} >= {"roc_auc", "r2", "mae", "mase"}
+    assert all(metric["direction"] in {"max", "min", "none"} for metric in payload["metrics"])
     assert payload["defaults"]["algo"] in {algo.key for algo in ALGOS}
     assert payload["defaults"]["task"] in TASKS
     assert set(payload["limits"]) == {
@@ -144,8 +173,13 @@ def test_the_catalog_payload_is_shaped_the_way_the_form_reads_it():
         assert set(algo) == {"key", "tasks", "estimators", "scale", "tags", "knobs"}
         assert algo["tasks"], f"{algo['key']} claims no task"
         for knob in algo["knobs"]:
-            assert set(knob) >= {"key", "kind", "default", "min", "max", "step"}
-            assert knob["kind"] in {"int", "float"}
-            # The slider mirrors these bounds to stay honest mid-drag, so a
-            # default outside them would render a thumb the form then moves.
-            assert knob["min"] <= knob["default"] <= knob["max"]
+            assert knob["kind"] in {"int", "float", "enum", "bool", "int_list"}
+            if knob["kind"] in {"int", "float"}:
+                assert set(knob) >= {"key", "kind", "default", "min", "max", "step"}
+                # The slider mirrors these bounds to stay honest mid-drag, so a
+                # default outside them would render a thumb the form then moves.
+                assert knob["min"] <= knob["default"] <= knob["max"]
+            elif knob["kind"] == "enum":
+                assert knob["default"] in knob["choices"]
+            elif knob["kind"] == "int_list":
+                assert 0 < len(knob["default"]) <= knob["max_items"]
