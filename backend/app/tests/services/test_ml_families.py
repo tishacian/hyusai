@@ -203,11 +203,12 @@ TABULAR_TEST_FIELDS = (
 
 
 def test_tabular_catalog_does_not_offer_options_without_training_effects():
-    assert TABULAR.spec_fields == ()
-    assert TABULAR.parse_spec({}, task="regression") == {}
+    assert {field.key for field in TABULAR.spec_fields} == {"intervals"}
+    assert TABULAR.parse_spec({}, task="regression") == {"intervals": "off"}
+    assert TABULAR.parse_spec({"intervals": "conformal"}, task="classification") == {}
     with pytest.raises(SpecInvalid) as error:
-        TABULAR.parse_spec({"intervals": "conformal"}, task="regression")
-    assert error.value.field == "intervals"
+        TABULAR.parse_spec({"calibration": "auto"}, task="regression")
+    assert error.value.field == "calibration"
 
 
 def test_tabular_visibility_uses_resolved_task_and_defaults_without_storing_task():
