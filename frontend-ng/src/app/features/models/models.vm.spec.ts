@@ -1281,3 +1281,15 @@ test('only numeric knobs render as sliders; other kinds keep the server default'
   assert.deepEqual(Object.keys(defaultKnobs(algo)), [ITERS.key]);
 });
 
+
+test('a forecast walks through its backtest, counted per horizon', () => {
+  const steps = trainChecklist('training', 'backtesting:1/3', 3, 'en', 'forecasting');
+  assert.deepEqual(steps.map((step) => step.step), ['queued', 'reading', 'backtesting', 'fitting', 'saving']);
+  const backtest = steps.find((step) => step.step === 'backtesting')!;
+  assert.equal(backtest.state, 'active');
+  assert.equal(backtest.key, 'models.progress.step.backtesting.counted');
+  assert.deepEqual(backtest.params, { fold: 1, folds: 3 });
+  assert.equal(trainStepKey('backtesting:0/3'), 'models.progress.step.backtesting');
+  // A tabular fit keeps its own list.
+  assert.ok(!trainChecklist('training', 'fitting', 0, 'en').some((step) => step.step === 'backtesting'));
+});

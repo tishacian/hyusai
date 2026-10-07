@@ -564,6 +564,7 @@ export class ModelsListComponent implements OnInit {
       model.status_detail,
       model.cross_validation,
       this.i18n.locale(),
+      model.task,
     );
   }
 

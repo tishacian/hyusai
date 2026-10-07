@@ -1814,6 +1814,7 @@ export class ModelViewComponent implements OnInit {
       this.model()?.status_detail,
       this.model()?.cross_validation,
       this.i18n.locale(),
+      this.model()?.task,
     ),
   );
 

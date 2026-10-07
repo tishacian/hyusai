@@ -1444,6 +1444,16 @@ export const FLOW_FR = {
     'Ce node répond pour un enregistrement, pendant l’exécution. Le modèle appelé est porté par le graphe, jamais par la charge entrante.',
   'flow.ml.score.inspector.hint':
     'Ce node lit un jeu de données et en écrit une version scorée, colonnes de prédiction comprises.',
+  'flow.inspector.section.forecast': 'Prévision des séries',
+  'flow.ml.forecast.inspector.hint':
+    'Prévoit chaque série du modèle sur son horizon et écrit un jeu de données : une ligne par série et par pas, avec l’intervalle. Les nodes en aval reçoivent aussi le pic de chaque série.',
+  'flow.ml.forecast.empty':
+    'Aucun modèle de prévision entraîné dans cet espace de travail : entraînez-en un (nature « Prévision ») avant de brancher ce node.',
+  'flow.ml.forecast.horizon': 'Horizon',
+  'flow.ml.forecast.horizon.hint':
+    'Laissés vides, l’horizon et le niveau sont ceux du modèle. Un jeu branché en amont ne sert que pour les valeurs futures dont le modèle a besoin.',
+  'flow.ml.forecast.level': 'Niveau d’intervalle',
+  'flow.ml.forecast.level.model': 'Celui du modèle',
   'flow.ml.serving.model': 'Modèle',
   'flow.ml.serving.model.none': 'Aucun modèle choisi',
   'flow.ml.serving.version': 'Version',
@@ -3162,6 +3172,16 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
     'This node answers for one record, inside the run. Which model answers is graph-owned, never carried by the incoming payload.',
   'flow.ml.score.inspector.hint':
     'This node reads a dataset and writes a scored version of it, prediction columns included.',
+  'flow.inspector.section.forecast': 'Series forecast',
+  'flow.ml.forecast.inspector.hint':
+    'Forecasts every series of the model over its horizon and writes a dataset: one row per series and step, with the interval. Downstream nodes also receive each series’ peak.',
+  'flow.ml.forecast.empty':
+    'No trained forecasting model in this workspace: train one (task “Forecasting”) before wiring this node.',
+  'flow.ml.forecast.horizon': 'Horizon',
+  'flow.ml.forecast.horizon.hint':
+    'Left empty, the horizon and the level are the model’s. A dataset wired upstream is only read for the future values the model needs.',
+  'flow.ml.forecast.level': 'Interval level',
+  'flow.ml.forecast.level.model': 'The model’s',
   'flow.ml.serving.model': 'Model',
   'flow.ml.serving.model.none': 'No model chosen',
   'flow.ml.serving.version': 'Version',

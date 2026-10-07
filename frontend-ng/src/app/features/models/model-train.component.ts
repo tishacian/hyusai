@@ -64,19 +64,13 @@ import {
 import {
   DEFAULT_FORECAST_DRAFT,
   FORECASTING_TASK,
-  FORECAST_FILLS,
-  FORECAST_FREQUENCIES,
-  FORECAST_SHAPES,
-  covariateCandidates,
   draftFromSpec,
   forecastSpec,
   parseLags,
-  seriesColumnCandidates,
-  strategyApplies,
-  timeColumns,
+  withTimeColumn,
   type ForecastDraft,
-  type ForecastRole,
 } from './forecast.vm';
+import { ForecastSpecComponent } from './forecast-spec.component';
 
 /** How long the form waits before asking the server what a choice implies. */
 const PLAN_DEBOUNCE_MS = 220;
@@ -105,6 +99,7 @@ export interface TrainSeed {
     DatasetPreviewComponent,
     FormsModule,
     IconComponent,
+    ForecastSpecComponent,
   ],
   template: `
     <div class="fixed inset-0 z-50 flex items-start justify-center p-4 md:p-6 overflow-auto">
@@ -250,98 +245,15 @@ export interface TrainSeed {
               </div>
 
               @if (isForecasting()) {
-                <div class="ck-field" data-testid="train-forecast">
-                  <label class="ck-label" for="train-time">{{ i18n.t('models.spec.time_column') }}</label>
-                  @if (timeOptions().length) {
-                    <select
-                      id="train-time"
-                      class="ck-input"
-                      [ngModel]="draft().timeColumn"
-                      (ngModelChange)="patchDraft({ timeColumn: $event })"
-                    >
-                      @for (name of timeOptions(); track name) {
-                        <option [value]="name">{{ name }}</option>
-                      }
-                    </select>
-                    <div class="ck-hint">{{ i18n.t('models.spec.time_column.hint') }}</div>
-                  } @else {
-                    <div class="ck-refusal">
-                      <app-icon name="alert-triangle" [size]="12" />
-                      {{ i18n.t('models.studio.forecast.no_time') }}
-                    </div>
-                  }
-                </div>
-
-                <div class="ck-field">
-                  <label class="ck-label">{{ i18n.t('models.spec.shape') }}</label>
-                  <div class="ck-seg">
-                    @for (shape of shapes; track shape) {
-                      <button
-                        type="button"
-                        class="ck-seg__btn"
-                        [class.ck-seg__btn--on]="draft().shape === shape"
-                        [attr.aria-pressed]="draft().shape === shape"
-                        (click)="patchDraft({ shape: shape })"
-                      >
-                        {{ i18n.t('models.spec.shape.' + shape) }}
-                      </button>
-                    }
-                  </div>
-                  <div class="ck-hint">{{ i18n.t('models.spec.shape.hint') }}</div>
-                </div>
-
-                @if (draft().shape === 'panel') {
-                  <div class="ck-field">
-                    <label class="ck-label">{{ i18n.t('models.spec.series_columns') }}</label>
-                    <div class="ck-chips">
-                      @for (name of seriesOptions(); track name) {
-                        <button
-                          type="button"
-                          class="ck-chip ck-mono"
-                          [class.ck-chip--on]="draft().seriesColumns.includes(name)"
-                          [attr.aria-pressed]="draft().seriesColumns.includes(name)"
-                          (click)="toggleSeriesColumn(name)"
-                        >
-                          {{ name }}
-                        </button>
-                      }
-                    </div>
-                    <div class="ck-hint">{{ i18n.t('models.spec.series_columns.hint') }}</div>
-                  </div>
-                }
-
-                <div class="ck-field">
-                  <label class="ck-label">{{ i18n.t('models.spec.exog') }}</label>
-                  <div class="ck-hint">{{ i18n.t('models.spec.exog.hint') }}</div>
-                  @if (covariates().length) {
-                    <div class="ck-roles">
-                      @for (candidate of covariates(); track candidate.name) {
-                        <div class="ck-role">
-                          <span class="ck-role__name ck-mono" [title]="candidate.name">{{ candidate.name }}</span>
-                          <select
-                            class="ck-input ck-role__select"
-                            [attr.aria-label]="candidate.name"
-                            [ngModel]="roleOf(candidate.name)"
-                            (ngModelChange)="setRole(candidate.name, $event)"
-                          >
-                            <option value="">{{ i18n.t('models.studio.forecast.unused') }}</option>
-                            @for (role of candidate.roles; track role) {
-                              <option [value]="role">{{ i18n.t('models.spec.exog.' + role) }}</option>
-                            }
-                          </select>
-                        </div>
-                      }
-                    </div>
-                  } @else {
-                    <div class="ck-hint ck-mono">{{ i18n.t('models.studio.forecast.no_covariates') }}</div>
-                  }
-                </div>
-
-                @if (refusalFor('spec'); as message) {
-                  <div class="ck-refusal" data-testid="train-forecast-refusal">
-                    <app-icon name="alert-triangle" [size]="12" /> {{ message }}
-                  </div>
-                }
+                <ck-forecast-spec
+                  part="data"
+                  [draft]="draft()"
+                  [columns]="columns()"
+                  [target]="target()"
+                  [algo]="algoKey()"
+                  [refusal]="refusalFor('spec')"
+                  (draftChange)="patchDraft($event)"
+                />
               } @else {
               <div class="ck-field">
                 <div class="flex items-center justify-between gap-2">
@@ -455,140 +367,15 @@ export interface TrainSeed {
               }
 
               @if (isForecasting()) {
-                <div class="ck-field">
-                  <div class="ck-pair">
-                    <div class="ck-field">
-                      <label class="ck-label" for="train-horizon">{{ i18n.t('models.spec.horizon') }}</label>
-                      <input
-                        id="train-horizon"
-                        class="ck-input ck-mono"
-                        type="number"
-                        min="1"
-                        [max]="horizonMax()"
-                        [ngModel]="draft().horizon"
-                        (ngModelChange)="onHorizon($event)"
-                      />
-                    </div>
-                    <div class="ck-field">
-                      <label class="ck-label" for="train-frequency">{{ i18n.t('models.spec.frequency') }}</label>
-                      <select
-                        id="train-frequency"
-                        class="ck-input"
-                        [ngModel]="draft().frequency"
-                        (ngModelChange)="patchDraft({ frequency: $event })"
-                      >
-                        @for (frequency of frequencies; track frequency) {
-                          <option [value]="frequency">
-                            {{ i18n.t('models.spec.frequency.' + frequency.toLowerCase()) }}
-                          </option>
-                        }
-                      </select>
-                    </div>
-                  </div>
-                  <div class="ck-hint">{{ i18n.t('models.spec.horizon.hint') }}</div>
-                </div>
-
-                @if (showStrategy()) {
-                  <div class="ck-field">
-                    <label class="ck-label">{{ i18n.t('models.spec.strategy') }}</label>
-                    <div class="ck-seg">
-                      @for (strategy of strategies; track strategy) {
-                        <button
-                          type="button"
-                          class="ck-seg__btn"
-                          [class.ck-seg__btn--on]="draft().strategy === strategy"
-                          [attr.aria-pressed]="draft().strategy === strategy"
-                          (click)="patchDraft({ strategy: strategy })"
-                        >
-                          {{ i18n.t('models.spec.strategy.' + strategy) }}
-                        </button>
-                      }
-                    </div>
-                    <div class="ck-hint">{{ i18n.t('models.spec.strategy.hint') }}</div>
-                  </div>
-                }
-
-                <div class="ck-field">
-                  <label class="ck-label" for="train-lags">{{ i18n.t('models.spec.lags') }}</label>
-                  <input
-                    id="train-lags"
-                    class="ck-input ck-mono"
-                    type="text"
-                    [ngModel]="draft().lags"
-                    (ngModelChange)="patchDraft({ lags: $event })"
-                    [placeholder]="i18n.t('models.studio.forecast.lags_auto')"
-                  />
-                  @if (lagsInvalid()) {
-                    <div class="ck-refusal">
-                      <app-icon name="alert-triangle" [size]="12" />
-                      {{ i18n.t('models.studio.forecast.lags_invalid') }}
-                    </div>
-                  } @else {
-                    <div class="ck-hint">{{ i18n.t('models.spec.lags.hint') }}</div>
-                  }
-                </div>
-
-                <div class="ck-field">
-                  <div class="ck-knob">
-                    <div class="ck-knob__head">
-                      <span class="ck-knob__label">{{ i18n.t('models.spec.interval_level') }}</span>
-                      <span class="ck-knob__value ck-mono">{{ levelLabel() }}</span>
-                    </div>
-                    <input
-                      type="range"
-                      class="ck-range"
-                      min="0.5"
-                      max="0.95"
-                      step="0.05"
-                      [value]="draft().intervalLevel"
-                      [attr.aria-label]="i18n.t('models.spec.interval_level')"
-                      (input)="onLevelInput($event)"
-                    />
-                  </div>
-                  <div class="ck-hint">{{ i18n.t('models.spec.interval_level.hint') }}</div>
-                </div>
-
-                <div class="ck-field">
-                  <div class="ck-pair">
-                    <div class="ck-field">
-                      <label class="ck-label" for="train-folds">{{ i18n.t('models.spec.backtest_folds') }}</label>
-                      <select
-                        id="train-folds"
-                        class="ck-input"
-                        [ngModel]="draft().folds"
-                        (ngModelChange)="patchDraft({ folds: +$event })"
-                      >
-                        @for (folds of foldOptions; track folds) {
-                          <option [ngValue]="folds">{{ folds }}</option>
-                        }
-                      </select>
-                    </div>
-                    <div class="ck-field">
-                      <label class="ck-label" for="train-fill">{{ i18n.t('models.spec.fill') }}</label>
-                      <select
-                        id="train-fill"
-                        class="ck-input"
-                        [ngModel]="draft().fill"
-                        (ngModelChange)="patchDraft({ fill: $event })"
-                      >
-                        @for (fill of fills; track fill) {
-                          <option [value]="fill">{{ i18n.t('models.spec.fill.' + fill) }}</option>
-                        }
-                      </select>
-                    </div>
-                  </div>
-                  <div class="ck-hint">{{ i18n.t('models.spec.backtest_folds.hint') }}</div>
-                </div>
-
-                <label class="ck-check">
-                  <input
-                    type="checkbox"
-                    [ngModel]="draft().calendar"
-                    (ngModelChange)="patchDraft({ calendar: $event })"
-                  />
-                  <span>{{ i18n.t('models.spec.calendar') }}</span>
-                  <span class="ck-hint">{{ i18n.t('models.spec.calendar.hint') }}</span>
-                </label>
+                <ck-forecast-spec
+                  part="fit"
+                  [draft]="draft()"
+                  [columns]="columns()"
+                  [target]="target()"
+                  [algo]="algoKey()"
+                  [horizonMax]="horizonMax()"
+                  (draftChange)="patchDraft($event)"
+                />
               } @else {
               <div class="ck-field">
                 <div class="ck-knob">
@@ -916,60 +703,6 @@ export interface TrainSeed {
         background: var(--ck-signal-cool, #7dd3fc);
         cursor: pointer;
       }
-      .ck-pair {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-        gap: 10px;
-      }
-      .ck-chips {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 4px;
-      }
-      .ck-chip {
-        font-size: 11px;
-        padding: 3px 8px;
-        border-radius: 4px;
-        color: var(--ck-fg-3, #a6aebc);
-        box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
-      }
-      .ck-chip--on {
-        color: var(--ck-fg-1, #e6e9ef);
-        background: rgba(125, 211, 252, 0.1);
-        box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.4);
-      }
-      .ck-roles {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        max-height: 220px;
-        overflow-y: auto;
-      }
-      .ck-role {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(0, 170px);
-        align-items: center;
-        gap: 8px;
-      }
-      .ck-role__name {
-        font-size: 11.5px;
-        color: var(--ck-fg-2, #c3c9d4);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      .ck-role__select {
-        padding: 4px 6px;
-        font-size: 11.5px;
-      }
-      .ck-check {
-        display: flex;
-        align-items: baseline;
-        gap: 7px;
-        flex-wrap: wrap;
-        font-size: 11.5px;
-        color: var(--ck-fg-2, #c3c9d4);
-      }
       .ck-studio__foot {
         display: flex;
         align-items: center;
@@ -1048,11 +781,6 @@ export class ModelTrainComponent implements OnInit {
   // Only sliders render here; a knob of another kind keeps its server default.
   protected readonly numericKnobs = numericKnobs;
   protected readonly cvOptions = [3, 5, 10];
-  protected readonly shapes = FORECAST_SHAPES;
-  protected readonly frequencies = FORECAST_FREQUENCIES;
-  protected readonly fills = FORECAST_FILLS;
-  protected readonly strategies = ['recursive', 'direct'] as const;
-  protected readonly foldOptions = [1, 2, 3, 4, 5, 6, 8];
 
   protected readonly datasetId = signal('');
   protected readonly target = signal('');
@@ -1179,29 +907,12 @@ export class ModelTrainComponent implements OnInit {
 
   protected readonly isForecasting = computed(() => this.effectiveTask() === FORECASTING_TASK);
 
-  protected readonly timeOptions = computed(() => timeColumns(this.columns()));
-
   /**
    * The draft as the form shows it: a date column the dataset no longer has
    * (or none picked yet) falls back to its first date column.
    */
-  protected readonly draft = computed<ForecastDraft>(() => {
-    const draft = this.forecastDraft();
-    const options = this.timeOptions();
-    const timeColumn = options.includes(draft.timeColumn) ? draft.timeColumn : (options[0] ?? '');
-    return timeColumn === draft.timeColumn ? draft : { ...draft, timeColumn };
-  });
-
-  protected readonly seriesOptions = computed(() =>
-    seriesColumnCandidates(this.columns(), this.target(), this.draft().timeColumn),
-  );
-
-  protected readonly covariates = computed(() =>
-    covariateCandidates(this.columns(), this.draft(), this.target()),
-  );
-
-  protected readonly showStrategy = computed(() =>
-    strategyApplies(this.draft().shape, this.algoKey()),
+  protected readonly draft = computed<ForecastDraft>(() =>
+    withTimeColumn(this.forecastDraft(), this.columns()),
   );
 
   protected readonly lagsInvalid = computed(() => parseLags(this.draft().lags) === null);
@@ -1390,38 +1101,6 @@ export class ModelTrainComponent implements OnInit {
     // From the draft as shown, so the date column the form fell back to is kept.
     this.forecastDraft.set({ ...this.draft(), ...patch });
     this.schedulePlan();
-  }
-
-  protected toggleSeriesColumn(name: string): void {
-    const current = this.draft().seriesColumns;
-    const next = current.includes(name) ? current.filter((column) => column !== name) : [...current, name];
-    this.patchDraft({ seriesColumns: next.slice(0, 3) });
-  }
-
-  protected roleOf(column: string): ForecastRole | '' {
-    return this.draft().exog[column] || '';
-  }
-
-  protected setRole(column: string, role: ForecastRole | ''): void {
-    const exog = { ...this.draft().exog };
-    if (role) exog[column] = role;
-    else delete exog[column];
-    this.patchDraft({ exog });
-  }
-
-  protected onHorizon(value: unknown): void {
-    const steps = Math.round(Number(value));
-    if (!Number.isFinite(steps) || steps < 1) return;
-    this.patchDraft({ horizon: Math.min(steps, this.horizonMax()) });
-  }
-
-  protected onLevelInput(event: Event): void {
-    const raw = Number((event.target as HTMLInputElement).value);
-    if (Number.isFinite(raw)) this.patchDraft({ intervalLevel: Math.round(raw * 100) / 100 });
-  }
-
-  protected levelLabel(): string {
-    return `${Math.round(this.draft().intervalLevel * 100)} %`;
   }
 
   /** The spec a forecasting request carries; nothing for a tabular one. */
