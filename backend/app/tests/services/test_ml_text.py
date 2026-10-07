@@ -28,8 +28,8 @@ def test_text_profile_measures_characters_on_full_column():
     assert profile_frame(pl.DataFrame({'empty': pl.Series([None], dtype=pl.String)}))['stats']['empty']['mean_length'] is None
 
 
-@pytest.mark.parametrize('encoder', ['auto', 'string', 'minhash'])
-def test_ticket_classifier_saves_the_selected_encoder_and_serves_unseen_text(tmp_path, encoder):
+@pytest.mark.parametrize('encoder,seed', [('auto', 42), ('string', 42), ('minhash', 42), ('string', 0)])
+def test_ticket_classifier_saves_the_selected_encoder_and_serves_unseen_text(tmp_path, encoder, seed):
     data = tickets()
     data_path = tmp_path / 'tickets.parquet'
     data.to_parquet(data_path)
@@ -38,8 +38,8 @@ def test_ticket_classifier_saves_the_selected_encoder_and_serves_unseen_text(tmp
         'task': 'classification', 'algo': 'linear', 'target': 'category',
         'features': ['message'], 'spec': {'text_encoder': encoder},
         'estimator': 'sklearn.linear_model.LogisticRegression',
-        'params': {'C': 10, 'max_iter': 500, 'random_state': 42},
-        'random_state': 42, 'min_rows': 40, 'cv': 0, 'importance_rows': 60,
+        'params': {'C': 10, 'max_iter': 500, 'random_state': seed},
+        'random_state': seed, 'min_rows': 40, 'cv': 0, 'importance_rows': 60,
     }
     code, summary, stderr = _run_harness(tmp_path / 'run', manifest)
     assert code == 0, stderr
@@ -49,7 +49,7 @@ def test_ticket_classifier_saves_the_selected_encoder_and_serves_unseen_text(tmp
     chosen = model.named_steps['tablevectorizer'].high_cardinality
     assert type(chosen).__name__ == ('MinHashEncoder' if encoder == 'minhash' else 'StringEncoder')
     if encoder == 'string':
-        assert chosen.random_state == 42
+        assert chosen.random_state == seed
     if encoder == 'auto':
         assert chosen.random_state is None
     prediction = model.predict(pd.DataFrame({'message': ['Please refund my invoice, the payment was charged twice on ticket 99999 today.']}))
