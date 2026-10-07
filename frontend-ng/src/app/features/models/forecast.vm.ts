@@ -255,6 +255,10 @@ export interface ForecastMetrics extends MetricsBlock {
   forecast?: ForecastSummary;
   explanation?: ForecastExplanation;
   excursions?: { count: number; share: number | null; points: ForecastExcursion[] };
+  /** The anatomy of each plotted series (STL, ACF/PACF, ADF), from its history. */
+  analysis?: SeriesAnalysis[];
+  /** The regressor alone, one step ahead, judged by skore on the latest rows. */
+  diagnostic?: RegressorDiagnostic | null;
   baseline?: { key: string; season?: number; mae: number | null };
   per_horizon?: { step: number; mae: number | null; coverage?: number | null }[];
   per_series?: { series: string; mae: number | null; mase: number | null; smape?: number | null }[];
@@ -537,7 +541,7 @@ export type FeatureGroup = 'lags' | 'calendar' | 'future' | 'static' | 'series' 
 
 export interface ForecastExplanation {
   /** `shap`/`permutation` for a regressor, `model` for ETS/ARIMA, `naive` for the seasonal naive. */
-  method: 'shap' | 'permutation' | 'model' | 'naive' | 'unavailable';
+  method: 'shap' | 'shap-approximate' | 'permutation' | 'model' | 'naive' | 'unavailable';
   step?: number | null;
   groups?: { group: FeatureGroup; share: number | null }[];
   features?: { feature: string; group: FeatureGroup; lag: number | null; value: number | null }[];
@@ -570,7 +574,7 @@ export interface StepExplanation {
 
 export interface AnswerExplanation {
   series: string;
-  method: 'shap' | 'linear';
+  method: 'shap' | 'shap-approximate' | 'linear';
   steps: StepExplanation[];
   peak:
     | (StepExplanation & {
@@ -726,4 +730,105 @@ export function peakFeatureBars(
 /** The backtest's worst departures from the interval, for the card. */
 export function excursionsOf(metrics: ForecastMetrics | null | undefined, limit = 5): ForecastExcursion[] {
   return (metrics?.excursions?.points ?? []).slice(0, limit);
+}
+
+// ---------------------------------------------------------------------------
+// The series' anatomy, and the regressor's one-step diagnostic
+// ---------------------------------------------------------------------------
+
+export interface SeriesAnalysis {
+  series: string;
+  points?: number;
+  season?: number;
+  confidence?: number | null;
+  acf?: { lag: number; value: number | null }[];
+  suggested_lags?: number[];
+  stl?: { period: number; trend_strength: number | null; seasonal_strength: number | null };
+  adf?: { statistic: number | null; pvalue: number | null; stationary: boolean };
+}
+
+export interface RegressorDiagnostic {
+  step: number | null;
+  rows: { train: number; test: number };
+  scores: { key: string; value: number | null }[];
+  curves: { fit: { x: number; y: number }[]; ideal: { x: number; y: number }[] };
+}
+
+/** One series' anatomy: the one asked for, else the first analysed. */
+export function seriesAnalysis(
+  metrics: ForecastMetrics | null | undefined,
+  series: string | null | undefined,
+): SeriesAnalysis | null {
+  const all = metrics?.analysis ?? [];
+  return all.find((entry) => entry.series === series) ?? all[0] ?? null;
+}
+
+/** Hyndman's reading of an STL strength: below 0.3 there is little to speak of. */
+export function strengthLevel(value: number | null | undefined): 'strong' | 'moderate' | 'weak' | null {
+  if (typeof value !== 'number') return null;
+  if (value >= 0.6) return 'strong';
+  if (value >= 0.3) return 'moderate';
+  return 'weak';
+}
+
+/**
+ * The series in three facts: how seasonal, how trending, whether it wanders.
+ * Each fact is a key and its parameters, so the card phrases it in its locale.
+ */
+export function anatomyFacts(
+  analysis: SeriesAnalysis | null | undefined,
+): { key: string; params: Record<string, string | number>; tone: 'pos' | 'warn' | 'neutral' }[] {
+  if (!analysis) return [];
+  const facts: { key: string; params: Record<string, string | number>; tone: 'pos' | 'warn' | 'neutral' }[] = [];
+  const stl = analysis.stl;
+  const seasonal = strengthLevel(stl?.seasonal_strength);
+  if (stl && seasonal) {
+    facts.push({
+      key: `models.analysis.season.${seasonal}`,
+      params: { value: stl.seasonal_strength ?? 0, period: stl.period },
+      tone: 'neutral',
+    });
+  }
+  const trend = strengthLevel(stl?.trend_strength);
+  if (stl && trend) {
+    facts.push({ key: `models.analysis.trend.${trend}`, params: { value: stl.trend_strength ?? 0 }, tone: 'neutral' });
+  }
+  if (analysis.adf && typeof analysis.adf.pvalue === 'number') {
+    facts.push({
+      key: analysis.adf.stationary ? 'models.analysis.stationary' : 'models.analysis.unit_root',
+      params: { p: analysis.adf.pvalue },
+      tone: analysis.adf.stationary ? 'pos' : 'warn',
+    });
+  }
+  return facts;
+}
+
+/**
+ * Autocorrelation at the model's lags and the season's multiples, signed. A
+ * bar inside the confidence band is noise: it stays faint.
+ */
+export function acfBars(
+  analysis: SeriesAnalysis | null | undefined,
+  frequency: string | null | undefined,
+  t: Translate,
+  format: (value: number) => string,
+): VizBar[] {
+  const rows = (analysis?.acf ?? []).filter(
+    (entry): entry is { lag: number; value: number } => typeof entry.value === 'number',
+  );
+  const band = analysis?.confidence ?? 0;
+  return rows.map((entry) => ({
+    label: featureLabel(`lag_${entry.lag}`, 'lags', frequency, t),
+    display: `${entry.value < 0 ? '−' : ''}${format(Math.abs(entry.value))}`,
+    width: Math.max(2, Math.round(Math.abs(entry.value) * 100)),
+    negative: entry.value < 0,
+    emphasis: false,
+    ...(Math.abs(entry.value) <= band ? { share: t('models.analysis.acf.noise') } : {}),
+  }));
+}
+
+/** A diagnostic score by key, or `null`. */
+export function diagnosticScore(diagnostic: RegressorDiagnostic | null | undefined, key: string): number | null {
+  const value = diagnostic?.scores.find((score) => score.key === key)?.value;
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }

@@ -294,6 +294,28 @@ export const MODELS_FR = {
   'models.explain.naive':
     'Le naïf saisonnier répète la dernière saison ({season} pas) : il n’a rien d’autre à expliquer.',
   'models.explain.unavailable': 'L’explication n’a pas pu être calculée pour ce modèle.',
+  'models.explain.approximate':
+    'Forêt profonde : attributions approchées (Saabas), additives mais moins fines que la SHAP exacte.',
+  'models.analysis.title': 'Anatomie de la série',
+  'models.analysis.hint':
+    'Mesurée sur l’historique seul : saisonnalité et tendance (décomposition STL), autocorrélation, stationnarité (test ADF).',
+  'models.analysis.season.strong': 'Saisonnalité forte ({value}) · période {period}',
+  'models.analysis.season.moderate': 'Saisonnalité modérée ({value}) · période {period}',
+  'models.analysis.season.weak': 'Saisonnalité faible ({value})',
+  'models.analysis.trend.strong': 'Tendance forte ({value})',
+  'models.analysis.trend.moderate': 'Tendance modérée ({value})',
+  'models.analysis.trend.weak': 'Tendance faible ({value})',
+  'models.analysis.stationary': 'Revient à son niveau (ADF p {p})',
+  'models.analysis.unit_root': 'Dérive sans revenir (ADF p {p})',
+  'models.analysis.acf': 'Ressemblance avec son passé',
+  'models.analysis.acf.hint':
+    'Autocorrélation aux retards du modèle et aux multiples de la saison : ce qui justifie de regarder si loin en arrière.',
+  'models.analysis.acf.noise': 'bruit',
+  'models.analysis.suggested': 'Retards que suggère l’autocorrélation partielle : {lags}',
+  'models.diagnostic.title': 'Le régresseur seul, un pas en avant',
+  'models.diagnostic.hint':
+    'Réentraîné sur les {train} lignes les plus anciennes et jugé par skore sur les {test} suivantes. Bon ici et faible au backtest : l’erreur vient de la récursion qui s’accumule ; faible ici aussi : des variables.',
+  'models.diagnostic.fit': 'Prévu contre réel (un pas)',
   'models.explain.peak.title': 'Pourquoi ce pic',
   'models.explain.peak.sentence': 'Partant d’une base de {base}, {series} atteint {pred} le {when}.',
   'models.explain.peak.groups': 'Ce qui l’a monté ou baissé',
@@ -1064,6 +1086,28 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.explain.naive':
     'The seasonal naive repeats the last season ({season} steps): there is nothing else to explain.',
   'models.explain.unavailable': 'The explanation could not be computed for this model.',
+  'models.explain.approximate':
+    'Deep forest: approximate attributions (Saabas), additive but coarser than exact SHAP.',
+  'models.analysis.title': 'Anatomy of the series',
+  'models.analysis.hint':
+    'Measured on the history alone: seasonality and trend (STL decomposition), autocorrelation, stationarity (ADF test).',
+  'models.analysis.season.strong': 'Strong seasonality ({value}) · period {period}',
+  'models.analysis.season.moderate': 'Moderate seasonality ({value}) · period {period}',
+  'models.analysis.season.weak': 'Weak seasonality ({value})',
+  'models.analysis.trend.strong': 'Strong trend ({value})',
+  'models.analysis.trend.moderate': 'Moderate trend ({value})',
+  'models.analysis.trend.weak': 'Weak trend ({value})',
+  'models.analysis.stationary': 'Returns to its level (ADF p {p})',
+  'models.analysis.unit_root': 'Wanders without returning (ADF p {p})',
+  'models.analysis.acf': 'How it resembles its past',
+  'models.analysis.acf.hint':
+    'Autocorrelation at the model’s lags and the season’s multiples: why it is worth looking that far back.',
+  'models.analysis.acf.noise': 'noise',
+  'models.analysis.suggested': 'Lags the partial autocorrelation suggests: {lags}',
+  'models.diagnostic.title': 'The regressor alone, one step ahead',
+  'models.diagnostic.hint':
+    'Refitted on the {train} oldest rows and judged by skore on the next {test}. Good here and weak in the backtest: the error is the recursion compounding; weak here too: the features.',
+  'models.diagnostic.fit': 'Forecast against actual (one step)',
   'models.explain.peak.title': 'Why this peak',
   'models.explain.peak.sentence': 'From a base of {base}, {series} reaches {pred} at {when}.',
   'models.explain.peak.groups': 'What raised or lowered it',
