@@ -1021,11 +1021,14 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
 
     if explain_enabled:
         _progress(progress_path, "explaining")
-        metrics["explain"] = _explanation_extensions().pack(
-            pipeline, x_test, y_test, task=task, seed=seed,
-            importances=metrics.get("importances") or [],
-            groups=frame.loc[x_test.index, fairness_columns] if fairness_columns else None,
-        )
+        try:
+            metrics["explain"] = _explanation_extensions().pack(
+                pipeline, x_test, y_test, task=task, seed=seed,
+                importances=metrics.get("importances") or [],
+                groups=frame.loc[x_test.index, fairness_columns] if fairness_columns else None,
+            )
+        except Exception as exc:  # Even a worker setup failure must preserve the fit.
+            metrics["explain"] = {"error": f"{type(exc).__name__}: {exc}"[:180]}
 
     # After the metrics, so the state carries the predictions they were read
     # from rather than making the next reader recompute them.
