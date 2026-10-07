@@ -749,7 +749,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     progress_path = manifest.get("progress_path")
     report_path = manifest.get("report_path")
     report_limit_mb = float(manifest.get("report_state_limit_mb") or 0)
-    seed = int(manifest.get("random_state") or 42)
+    seed = int(manifest["random_state"]) if manifest.get("random_state") is not None else 42
     test_size = float(manifest.get("test_size") or 0.25)
     folds = int(manifest.get("cv") or 0)
     min_rows = int(manifest.get("min_rows") or 40)
