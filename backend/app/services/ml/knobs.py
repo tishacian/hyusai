@@ -38,6 +38,7 @@ class Knob:
     auto_at: float | None = None
     choices: tuple[str, ...] = ()
     max_items: int = 0
+    log: bool = False
 
     def __post_init__(self) -> None:
         if self.kind not in KNOB_KINDS:
@@ -96,6 +97,8 @@ class Knob:
         }
         if self.kind in _NUMERIC or self.kind == "int_list":
             body.update({"min": self.minimum, "max": self.maximum, "step": self.step})
+        if self.log:
+            body["log"] = True
         if self.auto_at is not None:
             body["auto_at"] = self.auto_at
         if self.kind == "enum":

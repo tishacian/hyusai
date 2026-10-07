@@ -154,6 +154,33 @@ export AGENTIUM_IMAGE_BUDGET_MB_BACKEND=1160 AGENTIUM_IMAGE_BUDGET_MB_WORKER=180
   AGENTIUM_IMAGE_BUDGET_MB_FRONTEND=40 AGENTIUM_IMAGE_BUDGET_MB_ML_TS=1240
 ```
 
+PR 2d (budgeted tabular tuning) adds `optuna==5.0.0` and
+`colorlog==6.12.0` to the common requirements/constraints, preserving the versions already
+qualified in ml-ts and removing their duplicate ml-ts pins. Rebuild the API and
+worker together; the optional ml-ts image inherits that same shared prefix.
+The API must never import Optuna: only the dedicated search subprocess does.
+No database migration or Skill catalogue schema change is needed.
+
+Qualification attempt, 2026-10-07: installing the initial candidate Python
+stack (Optuna 4.5.0, subsequently aligned to the existing ml-ts 5.0.0 pin)
+and `pip check` passed in the backend Dockerfile. The local Docker daemon
+uses `vfs`; copying its layers exhausted the 32 GB workspace during export,
+despite cancelling when only 3.4 GB remained. A provisional backend image was
+listed at **2.61 GB** (Docker's rounded decimal display), above the 1160 MiB
+budget. It used the moving `python:3.12-slim` base rather than the VM's pinned
+qualified digest, so it is not a new release reference. The worker image was
+not built. Task images and cache were removed, restoring 24 GB of free space.
+The budgets above remain unchanged and **unqualified for 2d**: rebuild on the
+VM with its pinned base, record exact sizes with `agentium-image-budget.sh`,
+and investigate any overrun before deployment.
+
+The tuning deadline is enforced by a killable subprocess, including imports
+and fits, rather than Optuna's cooperative timeout alone. Completed trials are
+checkpointed atomically. If even the form's baseline cannot finish, its knobs
+are retained and Evidence explicitly reports that no gain was measured. Search
+never receives the held-out test set. The final fit still uses all training
+rows and the standard training timeout.
+
 A budget that trips is a question to answer in the release notes — what
 grew, and why — not a number to raise silently.
 
