@@ -480,9 +480,21 @@ export const MODELS_FR = {
 
   // ---- atelier de prédiction ---------------------------------------------
   'models.play.unavailable.title': 'Ce modèle ne répond pas encore',
-  'models.play.forecast.title': 'Prévision à la demande : prochaine étape',
-  'models.play.forecast.description':
-    'Ce modèle est entraîné, versionné et enregistré dans MLflow. Il répondra pour un horizon donné via le worker de prévision, depuis cet onglet et en Skill.',
+  'models.play.unavailable.no_forecast_worker':
+    'Aucun worker de prévision ne répond pour le moment : démarrez le service ml-ts pour interroger ce modèle.',
+  'models.play.forecast.ask': 'Ce que vous demandez',
+  'models.play.forecast.run': 'Prévoir',
+  'models.play.forecast.covariates':
+    'Valeurs prévues de {names}, appliquées à chaque pas de l’horizon.',
+  'models.play.forecast.covariates_undated':
+    'Ce modèle a besoin de valeurs futures, mais son pas ne permet pas de les dater ici : passez-les par l’API.',
+  'models.play.forecast.answer': 'Ce que le modèle prévoit',
+  'models.play.forecast.empty': 'Choisissez un horizon et lancez la prévision.',
+  'models.play.forecast.timing.cached': 'répondu en {ms} ms',
+  'models.play.forecast.timing.cold': 'répondu en {ms} ms, dont {load} ms de chargement',
+  'models.play.forecast.peak': 'Pic prévu : {value} le {when}. À {level}, il peut monter jusqu’à {upper}.',
+  'models.play.forecast.peak_plain': 'Pic prévu : {value} le {when}.',
+  'models.play.forecast.failed': 'La prévision a échoué.',
   'models.play.unavailable.untrained':
     'Un modèle répond une fois entraîné : lancez l’entraînement, le formulaire se construira depuis son contrat.',
   'models.play.unavailable.disabled':
@@ -594,6 +606,26 @@ export const MODELS_FR = {
     'Le nom du modèle ne donne pas un identifiant de skill valide.',
   'models.serving.error.ml_use_forecast_route':
     'Un modèle de prévision répond pour un horizon, pas pour des lignes : il est servi par le worker de prévision.',
+  'models.serving.error.ml_forecast_timeout':
+    'Le worker de prévision n’a pas répondu à temps. Réessayez dans un instant.',
+  'models.serving.error.ml_forecast_input_invalid':
+    'Les valeurs futures envoyées ne couvrent pas l’horizon demandé.',
+  'models.serving.error.ml_forecast_params_invalid':
+    'L’horizon et le niveau d’intervalle doivent être des nombres valides.',
+  'models.serving.error.ml_forecast_horizon_invalid':
+    'Cet horizon dépasse ce que ce modèle sait prévoir.',
+  'models.serving.error.ml_forecast_failed':
+    'La prévision a échoué dans le worker.',
+  'models.serving.error.ml_forecast_too_many_rows':
+    'Trop de lignes de valeurs futures pour un seul appel.',
+  'models.serving.error.ml_artifact_tampered':
+    'L’artefact stocké n’est pas celui produit par l’entraînement : il est refusé.',
+  'models.serving.error.ml_artifact_unverified':
+    'Ce modèle a été enregistré sans les empreintes que le service vérifie.',
+  'models.serving.error.ml_use_predict_route':
+    'Ce modèle répond pour des lignes : utilisez /predict.',
+  'models.serving.error.ml_family_unavailable':
+    'Aucun worker capable de servir ce modèle n’est actif pour le moment.',
 
   // ---- versions -----------------------------------------------------------
   'models.versions.label': 'v{version}',
@@ -1163,9 +1195,20 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.contract.example': 'Example row',
 
   'models.play.unavailable.title': 'This model does not answer yet',
-  'models.play.forecast.title': 'On-demand forecasts: next step',
-  'models.play.forecast.description':
-    'This model is trained, versioned and registered in MLflow. It will answer for a given horizon through the forecasting worker, from this tab and as a Skill.',
+  'models.play.unavailable.no_forecast_worker':
+    'No forecasting worker is answering right now: start the ml-ts service to query this model.',
+  'models.play.forecast.ask': 'What you ask',
+  'models.play.forecast.run': 'Forecast',
+  'models.play.forecast.covariates': 'Planned values of {names}, applied to every step of the horizon.',
+  'models.play.forecast.covariates_undated':
+    'This model needs future values, but its step cannot be dated here: send them through the API.',
+  'models.play.forecast.answer': 'What the model forecasts',
+  'models.play.forecast.empty': 'Pick a horizon and run the forecast.',
+  'models.play.forecast.timing.cached': 'answered in {ms} ms',
+  'models.play.forecast.timing.cold': 'answered in {ms} ms, {load} ms of it loading',
+  'models.play.forecast.peak': 'Forecast peak: {value} at {when}. At {level}, it may reach {upper}.',
+  'models.play.forecast.peak_plain': 'Forecast peak: {value} at {when}.',
+  'models.play.forecast.failed': 'The forecast failed.',
   'models.play.unavailable.untrained':
     'A model answers once it is trained: start a training run and the form will be built from its contract.',
   'models.play.unavailable.disabled':
@@ -1273,6 +1316,26 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
     'The model’s name does not yield a valid skill identifier.',
   'models.serving.error.ml_use_forecast_route':
     'A forecasting model answers for a horizon, not for rows: the forecasting worker serves it.',
+  'models.serving.error.ml_forecast_timeout':
+    'The forecasting worker did not answer in time. Try again in a moment.',
+  'models.serving.error.ml_forecast_input_invalid':
+    'The future values sent do not cover the requested horizon.',
+  'models.serving.error.ml_forecast_params_invalid':
+    'The horizon and the interval level must be valid numbers.',
+  'models.serving.error.ml_forecast_horizon_invalid':
+    'This horizon is beyond what this model can forecast.',
+  'models.serving.error.ml_forecast_failed':
+    'The forecast failed in the worker.',
+  'models.serving.error.ml_forecast_too_many_rows':
+    'Too many rows of future values for one call.',
+  'models.serving.error.ml_artifact_tampered':
+    'The stored artifact is not the one training produced: it is refused.',
+  'models.serving.error.ml_artifact_unverified':
+    'This model was saved without the fingerprints serving checks.',
+  'models.serving.error.ml_use_predict_route':
+    'This model answers rows: use /predict.',
+  'models.serving.error.ml_family_unavailable':
+    'No worker that can serve this model is running right now.',
 
   'models.versions.label': 'v{version}',
   'models.versions.current': 'Shown version',

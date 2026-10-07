@@ -16,12 +16,18 @@ import {
   baselineGain,
   covariateCandidates,
   coverageTone,
+  answerPoints,
+  forecastCurlSnippet,
+  forecastPeak,
+  forecastRequest,
   forecastSpec,
   frequencyKey,
+  futureStamps,
   horizonBars,
   isForecast,
   parseLags,
   plottedSeries,
+  recentActuals,
   roleChoices,
   seriesBars,
   seriesColumnCandidates,
@@ -219,4 +225,68 @@ test('a fitted frequency is named the way the form offered it', () => {
   assert.equal(frequencyKey('MS'), 'MS');
   assert.equal(frequencyKey('2h'), null);
   assert.equal(frequencyKey(undefined), null);
+});
+
+// ---------------------------------------------------------------------------
+// Forecasts on demand
+// ---------------------------------------------------------------------------
+
+test('the future is dated on the model’s own step, or not at all', () => {
+  assert.deepEqual(futureStamps('2026-08-23 23:00:00', 'h', 2), ['2026-08-24 00:00:00', '2026-08-24 01:00:00']);
+  assert.deepEqual(futureStamps('2026-01-31 00:00:00', 'MS', 1), ['2026-02-01 00:00:00']);
+  assert.deepEqual(futureStamps('2026-08-23 00:00:00', 'W-SUN', 1), ['2026-08-30 00:00:00']);
+  assert.equal(futureStamps('2026-08-23 00:00:00', '2h', 3), null);
+  assert.equal(futureStamps(null, 'h', 3), null);
+});
+
+test('a forecast call carries a row per step only when a covariate needs one', () => {
+  const plain = forecastRequest({ horizon: 24, level: 0.8, series: null, covariates: {} });
+  assert.deepEqual(plain, { params: { horizon: 24, interval_level: 0.8 }, inputs: [] });
+  const one = forecastRequest({ horizon: 6, level: 0.9, series: 'CAS-400-L04', covariates: {} });
+  assert.deepEqual(one.inputs, [{ series: 'CAS-400-L04' }]);
+  const planned = forecastRequest({
+    horizon: 2,
+    level: 0.8,
+    series: 'A',
+    covariates: { maintenance: 1 },
+    stamps: ['2026-08-24 00:00:00', '2026-08-24 01:00:00'],
+  });
+  assert.deepEqual(planned.inputs[1], { series: 'A', timestamp: '2026-08-24 01:00:00', maintenance: 1 });
+  const curl = forecastCurlSnippet({
+    origin: 'https://x',
+    endpoint: '/api/v1/ml-models/m/forecast',
+    header: 'X-Agentium-Model-Key',
+    body: planned,
+    prefix: 'agm_ab',
+  });
+  assert.match(curl, /forecast/);
+  assert.match(curl, /agm_ab…/);
+  assert.match(curl, /"interval_level":0.8/);
+});
+
+test('an answer is drawn after its context and read at its peak', () => {
+  const answer = {
+    served: { model_id: 'm', version: 1 },
+    horizon: 2,
+    interval_level: 0.8,
+    series: ['A', 'B'],
+    rows: 4,
+    duration_ms: 12,
+    forecast: [
+      { series: 'A', timestamp: 't1', pred: 40, lower_bound: 35, upper_bound: 45 },
+      { series: 'A', timestamp: 't2', pred: 52, lower_bound: 44, upper_bound: 60 },
+      { series: 'B', timestamp: 't1', pred: 90, lower_bound: 80, upper_bound: 99 },
+    ],
+  };
+  const points = answerPoints(answer, 'A');
+  assert.equal(points.length, 2);
+  assert.equal(points[0].actual, null);
+  assert.deepEqual(forecastPeak(points), { t: 't2', pred: 52, upper: 60 });
+  assert.equal(forecastPeak([]), null);
+});
+
+test('an on-demand forecast leaves from the latest actuals, not from the backtest’s start', () => {
+  const recent = recentActuals(METRICS, 'A');
+  assert.deepEqual(recent.map((point) => point.value), [10, 11, 12, 13]);
+  assert.deepEqual(recentActuals(METRICS, 'A', 2).map((point) => point.t), ['2026-08-01 02:00:00', '2026-08-01 03:00:00']);
 });

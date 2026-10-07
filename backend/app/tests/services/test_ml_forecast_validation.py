@@ -304,3 +304,53 @@ def test_a_forecast_is_not_re_scored_on_a_random_split(monkeypatch):
     with pytest.raises(TabularError) as caught:
         ml_comparison.compare(None, left=left, right=right)
     assert caught.value.code == "ML_COMPARE_NOT_TABULAR"
+
+
+def test_a_tabular_model_is_sent_back_to_predict_and_a_silent_family_is_refused(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services.ml import forecast_serving
+    from app.services import tabular_predict
+
+    monkeypatch.setattr(settings, "ml_predict_enabled", True)
+    tabular = SimpleNamespace(id="t", family="tabular", status="ready", version=1)
+    monkeypatch.setattr(tabular_predict, "serving_version", lambda db, model, version=None: model)
+    with pytest.raises(TabularError) as caught:
+        forecast_serving.request_forecast(None, tabular)
+    assert caught.value.code == "ML_USE_PREDICT_ROUTE"
+
+    forecast = SimpleNamespace(id="f", family="forecasting", status="ready", version=1)
+    monkeypatch.setattr(settings, "worker_eager_mode", False)
+    with pytest.raises(TabularError) as caught:
+        forecast_serving.request_forecast(None, forecast, horizon=3)
+    # No db, no heartbeat: nobody on ml_ts_rpc, so the request is not queued.
+    assert caught.value.code == "ML_FAMILY_UNAVAILABLE"
+    assert caught.value.details == {"family": "forecasting", "reason": "no_worker"}
+
+
+def test_serving_availability_reads_the_serving_queue_not_the_training_one(db_session, monkeypatch):
+    from datetime import datetime
+
+    from app.models.tabular import MLRuntimeHeartbeat
+    from app.services.ml.runtime import family_availability, serving_availability
+
+    monkeypatch.setattr(settings, "ml_train_enabled", True)
+    monkeypatch.setattr(settings, "tabular_data_enabled", True)
+    monkeypatch.setattr(settings, "ml_predict_enabled", True)
+    monkeypatch.setattr(settings, "worker_eager_mode", False)
+    hosts = ("fit-qa-validation", "serve-qa-validation")
+    try:
+        db_session.add(MLRuntimeHeartbeat(runtime="ml-ts", hostname=hosts[0], queues=["ml_ts"], seen_at=datetime.utcnow()))
+        db_session.commit()
+        assert family_availability(FORECASTING_FAMILY, db_session) == (True, None)
+        assert serving_availability(FORECASTING_FAMILY, db_session) == (False, "no_worker")
+        db_session.add(MLRuntimeHeartbeat(runtime="ml-ts", hostname=hosts[1], queues=["ml_ts_rpc"], seen_at=datetime.utcnow()))
+        db_session.commit()
+        assert serving_availability(FORECASTING_FAMILY, db_session) == (True, None)
+        assert FORECASTING_FAMILY.serve_queue() == "ml_ts_rpc"
+    finally:
+        # Heartbeats are global rows: another test counting them must not see these.
+        db_session.query(MLRuntimeHeartbeat).filter(MLRuntimeHeartbeat.hostname.in_(hosts)).delete(
+            synchronize_session=False
+        )
+        db_session.commit()

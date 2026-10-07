@@ -217,19 +217,34 @@ ARIMA under `RLIMIT_AS` means numba could not compile within
 `ML_TRAIN_MEMORY_LIMIT_MB`; raise that limit for this worker only, in its
 compose `environment`.
 
-To switch it on, start the profiled service with the release's tag and env
+Two services run from that image. `agentium-worker-ml-ts` fits forecasts:
+queue `ml_ts`, one fit at a time. `agentium-worker-ml-ts-serve` answers
+`POST /ml-models/{id}/forecast`: queue `ml_ts_rpc`, with a threads pool so
+every thread shares one cache of loaded models. The API sends each forecast
+to `ml_ts_rpc` and waits for the answer through the `rpc://` result backend,
+for at most `ML_FORECAST_TIMEOUT_S` (30 s by default). A family is offered for
+training while the fitting worker beats, and its Play tab answers while the
+serving worker beats.
+
+To switch it on, start both profiled services with the release's tag and env
 file:
 
 ```bash
 cd /srv/agentium-data/worktrees/demo-agentic/docker
 AGENTIUM_IMAGE_TAG=<sha12> sudo -E docker compose -f compose.agentium.yml \
-  --env-file ./env/agentium.vm.env --profile ml-ts up -d --no-build agentium-worker-ml-ts
+  --env-file ./env/agentium.vm.env --profile ml-ts up -d --no-build \
+  agentium-worker-ml-ts agentium-worker-ml-ts-serve
 sudo docker logs agentium-worker-ml-ts 2>&1 | grep "ml runtime heartbeat started"
+sudo docker logs agentium-worker-ml-ts-serve 2>&1 | grep "ml runtime heartbeat started"
 ```
 
-`deploy-vm.sh` does not manage this service yet. A release that rebuilds the
-stack must rebuild and restart it with the same tag; its rollback is to stop
-it.
+Check it end to end: train a forecast from the studio, then ask it for 24
+steps from its Play tab. Record the first answer, which includes the load,
+and the second, which comes from the cache, in the release evidence.
+
+`deploy-vm.sh` does not manage these services yet. A release that rebuilds the
+stack must rebuild and restart both with the same tag; to roll back, stop
+them.
 
 Never run image/cache pruning concurrently with a build. The 16 September fresh
 build lost a Docker content digest during overlapping cleanup and stopped before

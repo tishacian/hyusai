@@ -160,10 +160,16 @@ class Family:
     # and target, the request's fields and the parsed ``spec``, it returns a
     # TrainingSpec or raises the coded refusal the form renders.
     validator: Callable[..., Any] | None = None
+    # Settings attribute naming the queue a remote family answers on; empty
+    # for a family served in the API process.
+    serve_queue_setting: str = ""
 
     def train_queue(self) -> str:
         queue = str(getattr(settings, self.queue_setting, "") or "").strip()
         return queue or settings.celery_task_default_queue
+
+    def serve_queue(self) -> str:
+        return str(getattr(settings, self.serve_queue_setting, "") or "").strip() if self.serve_queue_setting else ""
 
     def missing_modules(self) -> list[str]:
         """Modules a fit needs that this interpreter cannot import."""
@@ -211,7 +217,9 @@ class Family:
     def _shown(spec_field: SpecField, values: dict[str, Any]) -> bool:
         return all(values.get(key) in allowed for key, allowed in spec_field.when)
 
-    def payload(self, *, available: bool, reason: str | None) -> dict[str, Any]:
+    def payload(
+        self, *, available: bool, reason: str | None, serve_available: bool | None = None
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "key": self.key,
             "tasks": list(self.tasks),
@@ -222,4 +230,6 @@ class Family:
         }
         if reason:
             body["reason"] = reason
+        if serve_available is not None:
+            body["serve_available"] = serve_available
         return body

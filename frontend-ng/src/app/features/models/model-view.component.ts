@@ -526,13 +526,7 @@ const CHART_ASPECT = 300 / 190;
 
         <!-- ── Playground ──────────────────────────────────────────────────── -->
         <ck-tab id="play" [label]="i18n.t('models.detail.tab.play')">
-          @if (forecast()) {
-            <app-empty-state
-              icon="clock"
-              [title]="i18n.t('models.play.forecast.title')"
-              [description]="i18n.t('models.play.forecast.description')"
-            />
-          } @else if (serving(); as plane) {
+          @if (serving(); as plane) {
             <app-model-playground
               [model]="row"
               [serving]="plane"

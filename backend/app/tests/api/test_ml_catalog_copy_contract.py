@@ -240,3 +240,24 @@ def test_the_catalog_payload_is_shaped_the_way_the_form_reads_it():
                 assert knob["default"] in knob["choices"]
             elif knob["kind"] == "int_list":
                 assert 0 < len(knob["default"]) <= knob["max_items"]
+
+
+def test_every_code_a_forecast_call_can_answer_with_is_phrased_by_the_playground():
+    """A forecast's refusals come back from another process as data and are
+    rendered by the Play tab like any serving error: each needs copy, and the
+    view-model has to list it or the server's English sentence shows instead."""
+
+    from app.services.ml import forecast_serving
+
+    source = Path(forecast_serving.__file__).read_text(encoding="utf-8")
+    codes = set(_CODE.findall(source)) | {"ML_FAMILY_UNAVAILABLE"}
+    keys = _dictionary_keys()
+    missing = sorted(code for code in codes if f"models.serving.error.{code.lower()}" not in keys)
+    assert not missing, f"forecast refusals without copy: {missing}"
+    view_model = (REPO_ROOT / "frontend-ng" / "src" / "app" / "features" / "models" / "models.vm.ts").read_text(
+        encoding="utf-8"
+    )
+    serving = view_model[view_model.index("export const SERVING_ERROR_CODES") :]
+    serving = serving[: serving.index("] as const")]
+    unlisted = sorted(code for code in codes if f"'{code}'" not in serving)
+    assert not unlisted, f"forecast refusals the playground would not phrase: {unlisted}"

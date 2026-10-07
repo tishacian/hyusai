@@ -303,6 +303,19 @@ services:
       agentium-rabbitmq:
         condition: service_healthy
 
+  # Forecasts on demand: the API waits for this worker's answer, so it runs a
+  # threads pool whose threads share one cache of loaded models.
+  agentium-worker-ml-ts-serve:
+    extends:
+      service: agentium-worker-ml-ts
+    container_name: agentium-worker-ml-ts-serve
+    profiles: ["ml-ts"]
+    environment:
+      CELERY_QUEUES: ml_ts_rpc
+      CELERY_POOL: threads
+      CELERY_CONCURRENCY: ${AGENTIUM_ML_TS_SERVE_CONCURRENCY:-4}
+    mem_limit: ${AGENTIUM_ML_TS_SERVE_MEM_LIMIT:-3g}
+
   agentium-beat:
     image: agentium-worker:${AGENTIUM_IMAGE_TAG:-local}
     container_name: agentium-beat

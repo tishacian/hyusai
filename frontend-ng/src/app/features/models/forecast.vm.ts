@@ -275,6 +275,24 @@ export function seriesEvidence(
   };
 }
 
+/**
+ * The latest actuals of one series: the context before the backtest, then the
+ * backtest's own actuals, up to the last date the model saw. What an on-demand
+ * forecast is drawn after, so it leaves from "now" and not from weeks ago.
+ */
+export function recentActuals(
+  metrics: ForecastMetrics | null | undefined,
+  series: string | undefined,
+  limit = 96,
+): ForecastHistoryPoint[] {
+  const { history, backtest } = seriesEvidence(metrics, series);
+  const byStamp = new Map<string, number | null>();
+  for (const point of history) byStamp.set(point.t, point.value);
+  for (const point of backtest) byStamp.set(point.t, point.actual);
+  const stamps = [...byStamp.keys()].sort((a, b) => Date.parse(a.replace(' ', 'T')) - Date.parse(b.replace(' ', 'T')));
+  return stamps.slice(-limit).map((t) => ({ t, value: byStamp.get(t) ?? null }));
+}
+
 function score(metrics: MetricsBlock | null | undefined, key: string): number | null {
   const value = (metrics?.scores ?? []).find((entry) => entry.key === key)?.value;
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -347,4 +365,145 @@ export function seriesBars(
     // one to look at first, so it is drawn loud.
     emphasis: row.mase !== null && row.mase >= 1,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Forecasts on demand (the Play tab)
+// ---------------------------------------------------------------------------
+
+export interface ForecastRow {
+  series: string;
+  timestamp: string;
+  pred: number | null;
+  lower_bound: number | null;
+  upper_bound: number | null;
+}
+
+export interface ForecastAnswer {
+  served: { model_id: string; version: number; is_champion?: boolean };
+  horizon: number;
+  interval_level: number;
+  frequency?: string | null;
+  series: string[];
+  forecast: ForecastRow[];
+  rows: number;
+  duration_ms: number;
+  load_ms?: number | null;
+  cached?: boolean;
+  prediction_id?: string;
+}
+
+export interface ForecastRequestBody {
+  params: { horizon: number; interval_level: number };
+  inputs: Record<string, unknown>[];
+}
+
+function pad(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+/** A timestamp the way pandas prints it, which is how the model was given its dates. */
+function pandasStamp(date: Date): string {
+  return (
+    `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ` +
+    `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`
+  );
+}
+
+/**
+ * The dates a forecast will answer for: one step after the last date the model
+ * saw, on its frequency. `null` when the frequency is one the form does not
+ * know how to step through — the covariate rows then cannot be dated here.
+ */
+export function futureStamps(
+  last: string | null | undefined,
+  frequency: string | null | undefined,
+  horizon: number,
+): string[] | null {
+  const key = frequencyKey(frequency);
+  if (!last || !key) return null;
+  const start = new Date(`${last.replace(' ', 'T')}Z`);
+  if (Number.isNaN(start.getTime())) return null;
+  const stamps: string[] = [];
+  for (let step = 1; step <= horizon; step++) {
+    const date = new Date(start.getTime());
+    if (key === 'h') date.setUTCHours(date.getUTCHours() + step);
+    else if (key === 'D') date.setUTCDate(date.getUTCDate() + step);
+    else if (key === 'W') date.setUTCDate(date.getUTCDate() + 7 * step);
+    else if (key === 'MS') date.setUTCMonth(date.getUTCMonth() + step, 1);
+    else date.setUTCMonth(date.getUTCMonth() + 3 * step, 1);
+    stamps.push(pandasStamp(date));
+  }
+  return stamps;
+}
+
+/**
+ * The body of one forecast call: the horizon and level as parameters, and the
+ * rows that say what is known about the future — one per step carrying each
+ * covariate's planned value, or just the series to forecast, or nothing.
+ */
+export function forecastRequest(options: {
+  horizon: number;
+  level: number;
+  series?: string | null;
+  covariates: Record<string, number>;
+  stamps?: string[] | null;
+}): ForecastRequestBody {
+  const names = Object.keys(options.covariates);
+  const params = { horizon: Math.round(options.horizon), interval_level: options.level };
+  if (names.length && options.stamps?.length) {
+    return {
+      params,
+      inputs: options.stamps.map((timestamp) => ({
+        ...(options.series ? { series: options.series } : {}),
+        timestamp,
+        ...options.covariates,
+      })),
+    };
+  }
+  return { params, inputs: options.series ? [{ series: options.series }] : [] };
+}
+
+/** The same call for a terminal: MLflow's invocation shape, with a model key. */
+export function forecastCurlSnippet(options: {
+  origin: string;
+  endpoint: string;
+  header: string;
+  body: ForecastRequestBody;
+  secret?: string | null;
+  prefix?: string | null;
+}): string {
+  const key = options.secret ? options.secret : options.prefix ? `${options.prefix}…` : 'YOUR_API_KEY';
+  // Three rows are enough to show the shape; a 168-step body is not a snippet.
+  const inputs = options.body.inputs.length > 3 ? [...options.body.inputs.slice(0, 3)] : options.body.inputs;
+  return [
+    `curl -X POST ${options.origin}${options.endpoint} \\`,
+    `  -H '${options.header}: ${key}' \\`,
+    `  -H 'Content-Type: application/json' \\`,
+    `  -d '${JSON.stringify({ params: options.body.params, inputs })}'`,
+  ].join('\n');
+}
+
+/** One series of an answer, as points the forecast chart draws after its context. */
+export function answerPoints(answer: ForecastAnswer | null | undefined, series: string | null | undefined): ForecastBacktestPoint[] {
+  const rows = (answer?.forecast ?? []).filter((row) => !series || row.series === series);
+  return rows.map((row) => ({
+    t: row.timestamp,
+    actual: null,
+    pred: row.pred,
+    lower: row.lower_bound,
+    upper: row.upper_bound,
+  }));
+}
+
+/** Where the forecast peaks, and how high its interval says it could go. */
+export function forecastPeak(
+  points: readonly ForecastBacktestPoint[],
+): { t: string; pred: number; upper: number | null } | null {
+  let best: ForecastBacktestPoint | null = null;
+  for (const point of points) {
+    if (typeof point.pred !== 'number') continue;
+    if (!best || point.pred > (best.pred as number)) best = point;
+  }
+  return best ? { t: best.t, pred: best.pred as number, upper: typeof best.upper === 'number' ? best.upper : null } : null;
 }

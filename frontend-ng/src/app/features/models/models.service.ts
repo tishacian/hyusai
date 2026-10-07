@@ -38,6 +38,7 @@ import {
   type TrainingPlan,
   setMetricRegistry,
 } from './models.vm';
+import type { ForecastAnswer, ForecastRequestBody } from './forecast.vm';
 
 export interface ModelListDto {
   models: ModelDto[];
@@ -165,6 +166,11 @@ export class ModelsService {
     );
     if (response.catalog) this.adopt(response.catalog);
     return response;
+  }
+
+  /** A forecast now, answered by the ml-ts worker (MLflow's invocation shape). */
+  forecast(modelId: string, body: ForecastRequestBody & { version?: number }): Promise<ForecastAnswer> {
+    return firstValueFrom(this.http.post<ForecastAnswer>(`${this.base}/${modelId}/forecast`, body));
   }
 
   async train(body: TrainRequest): Promise<ModelDto> {

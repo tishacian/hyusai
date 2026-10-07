@@ -72,7 +72,12 @@ from app.services.ml.families import (
     get_family,
 )
 from app.services.ml.knobs import Knob
-from app.services.ml.runtime import GENERAL_RUNTIME, family_availability, runtime_fingerprint
+from app.services.ml.runtime import (
+    GENERAL_RUNTIME,
+    family_availability,
+    runtime_fingerprint,
+    serving_availability,
+)
 from app.services.object_store import get_object_store
 from app.services.recipe_executions import harness_error_line, supervise_harness
 from app.services.tabular_datasets import (
@@ -330,7 +335,8 @@ def catalog_payload(db: DBSession | None = None) -> dict[str, Any]:
     families = []
     for family in ml_families.FAMILIES:
         available, reason = family_availability(family, db)
-        families.append(family.payload(available=available, reason=reason))
+        serve = serving_availability(family, db)[0] if family.serving != "in_process" else None
+        families.append(family.payload(available=available, reason=reason, serve_available=serve))
     return {
         "enabled": bool(settings.ml_train_enabled and settings.tabular_data_enabled),
         "tasks": list(all_tasks()),
@@ -1782,6 +1788,10 @@ def _apply_summary(model: MLModel, summary: dict[str, Any]) -> None:
             "bytes": int(state.get("bytes") or 0),
             "skore": str(state.get("skore") or ""),
         }
+    if isinstance(summary.get("artifact"), dict):
+        # What the harness vouched for (serialization, sha256 of the artifact
+        # and of the model's code file): checked before a remote family loads it.
+        metrics["artifact"] = dict(summary["artifact"])
     model.metrics_json = metrics
     model.signature_json = dict(summary.get("signature") or {})
     model.input_example_json = summary.get("input_example") or []

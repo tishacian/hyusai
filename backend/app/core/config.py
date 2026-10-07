@@ -117,6 +117,9 @@ class Settings(BaseSettings):
     celery_ml_tabular_queue: str = ""
     # Training queue of the forecasting family, consumed by the ml-ts image.
     celery_ml_ts_queue: str = "ml_ts"
+    # Forecasts on demand: the API sends one task and waits for its answer, so
+    # this queue is consumed by a threads-pool worker that keeps models loaded.
+    celery_ml_ts_serve_queue: str = "ml_ts_rpc"
 
     # Object storage for original / ingested / derived RAG artifacts.
     # "local" is dependency-free for dev/tests; "s3" uses fsspec/s3fs when
@@ -676,6 +679,10 @@ class Settings(BaseSettings):
     ml_ts_max_horizon: int = Field(default=720, ge=1, le=10_000)
     ml_ts_max_series: int = Field(default=200, ge=1, le=5_000)
     ml_ts_max_lag: int = Field(default=744, ge=1, le=10_000)
+    # A forecast answered in the request: how long the API waits for the ml-ts
+    # worker, and how many rows of future covariates one call may carry.
+    ml_forecast_timeout_s: float = Field(default=30.0, ge=1.0, le=300.0)
+    ml_forecast_max_rows: int = Field(default=20_000, ge=1, le=500_000)
     # Serving. A loaded pyfunc is tens of megabytes of resident pipeline, so the
     # cache is small by design: it exists to make the second prediction of a
     # demo instant, not to hold a workspace's whole registry in memory.

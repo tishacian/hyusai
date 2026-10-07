@@ -387,3 +387,68 @@ def test_a_forecast_trains_through_the_worker_lifecycle_and_lands_ready(
     assert row.is_champion is True
     card = serialize_model(row)
     assert card["family"] == "forecasting"
+
+
+def test_a_trained_forecast_answers_on_demand_and_refuses_a_swapped_artifact(
+    db_session, workspace, store, enabled, monkeypatch  # noqa: F811
+):
+    """train → /forecast's service in eager mode → the journal; then tamper.
+
+    The same path the ml-ts serving worker takes (download, verify the code
+    file and the artifact against what training recorded, load, answer), with
+    the broker hop replaced by eager mode."""
+
+    import polars as pl
+
+    from app.core.config import settings
+    from app.models.tabular import MLModel, MLPrediction
+    from app.services.ml import forecast_serving
+    from app.services.object_store import get_object_store
+    from app.services.tabular_datasets import TabularError, register_frame
+    from app.services.tabular_ml import submit_training
+
+    monkeypatch.setattr(settings, "ml_predict_enabled", True)
+    forecast_serving.reset_cache()
+    dataset = register_frame(
+        db_session, workspace_id=workspace.id, name="Cell load", frame=pl.from_pandas(_one_cell(21)), source="upload"
+    )
+    db_session.commit()
+    model = submit_training(
+        db_session,
+        workspace_id=workspace.id,
+        dataset_ref={"dataset_id": dataset.id},
+        task="forecasting",
+        target=TARGET,
+        algo="linear",
+        spec={"time_column": "ts", "horizon": HORIZON, "backtest_folds": 2},
+    )
+    db_session.expire_all()
+    row = db_session.query(MLModel).filter_by(id=model.id).one()
+    assert row.status == "ready", row.error
+    assert row.metrics_json["artifact"]["code_sha256"]
+
+    first = forecast_serving.request_forecast(db_session, row, horizon=12, level=0.9)
+    assert first["rows"] == 12 and first["horizon"] == 12 and first["interval_level"] == 0.9
+    assert first["cached"] is False and first["served"]["version"] == 1
+    point = first["forecast"][0]
+    assert point["lower_bound"] < point["pred"] < point["upper_bound"]
+    second = forecast_serving.request_forecast(db_session, row)
+    assert second["cached"] is True and second["rows"] == HORIZON
+    journal = db_session.query(MLPrediction).filter_by(model_id=row.id).all()
+    assert len(journal) == 2
+    db_session.refresh(row)
+    assert row.predict_count == 12 + HORIZON
+
+    with pytest.raises(TabularError) as caught:
+        forecast_serving.request_forecast(db_session, row, horizon=10_000)
+    assert caught.value.code == "ML_FORECAST_HORIZON_INVALID"
+
+    # Someone rewrites the stored code file: it runs at load, so it is refused.
+    store_root = get_object_store()
+    code_key = next(key for key in store_root.list_keys(row.model_uri) if key.endswith("ml_forecast_pyfunc.py"))
+    local = store / code_key
+    local.write_text(local.read_text() + "\n# tampered\n")
+    forecast_serving.reset_cache()
+    with pytest.raises(TabularError) as caught:
+        forecast_serving.request_forecast(db_session, row, horizon=6)
+    assert caught.value.code == "ML_ARTIFACT_TAMPERED"

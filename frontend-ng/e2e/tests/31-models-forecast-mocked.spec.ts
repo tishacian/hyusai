@@ -43,14 +43,33 @@ const model = {
   spec: { time_column: 'ts', shape: 'panel', series_columns: ['cell_id'], horizon: 24, exog: { technology: 'static' }, backtest_folds: 3, interval_level: 0.8, fill: 'refuse', calendar: true, frequency: 'auto' },
 };
 const serving = {
-  enabled: true, callable: false, serving_version: 1, serving_model_id: modelId, is_serving: true, max_rows: 100,
+  enabled: true, callable: true, serving_version: 1, serving_model_id: modelId, is_serving: true, max_rows: 100,
   fields: [], classes: [], positive_label: null, predict_count: 0, last_predict_at: null, published_skill: null,
-  keys: [], endpoint: `/api/v1/ml-models/${modelId}/predict`, key_header: 'X-Agentium-Model-Key',
+  keys: [], endpoint: `/api/v1/ml-models/${modelId}/forecast`, key_header: 'X-Agentium-Model-Key', mode: 'forecast',
 };
+
+/** What the ml-ts worker would answer: a daily wave after the last date seen. */
+function forecastAnswer(body: any) {
+  const horizon = body.params?.horizon ?? 24;
+  const level = body.params?.interval_level ?? 0.8;
+  const levels: string[] = fixture.panel.signature.output.levels;
+  const asked = (body.inputs ?? []).map((row: any) => row.series).filter(Boolean);
+  const series = asked.length ? [...new Set(asked)] : levels;
+  const last = new Date(fixture.panel.metrics.forecast.last_timestamp.replace(' ', 'T') + 'Z');
+  const forecast = series.flatMap((name: any) =>
+    Array.from({ length: horizon }, (_, index) => {
+      const at = new Date(last.getTime() + (index + 1) * 3_600_000);
+      const pred = 45 + 20 * Math.sin(((at.getUTCHours() - 6) / 24) * 2 * Math.PI);
+      return { series: name, timestamp: at.toISOString().replace('T', ' ').slice(0, 19), pred, lower_bound: pred - 6, upper_bound: pred + 6 };
+    }),
+  );
+  return { served: { model_id: modelId, version: 1, is_champion: true }, horizon, interval_level: level, frequency: 'h', series, forecast, rows: forecast.length, duration_ms: 84, load_ms: 0, cached: true, prediction_id: 'p-1' };
+}
 
 async function setup(page: Page, options: { theme: string; locale: string }) {
   const plans: any[] = [];
   const trains: any[] = [];
+  const forecasts: any[] = [];
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   await page.route('**/*', (route) =>
@@ -94,11 +113,16 @@ async function setup(page: Page, options: { theme: string; locale: string }) {
       return json(route, { model, dataset, provenance: null, versions: [model], challenger_id: null, catalog: fixture.catalog, serving });
     }
     if (path === `/ml-models/${modelId}/monitoring`) return json(route, { monitoring: null });
+    if (path === `/ml-models/${modelId}/forecast`) {
+      const body = request.postDataJSON();
+      forecasts.push(body);
+      return json(route, forecastAnswer(body));
+    }
     if (path === '/datasets') return json(route, { datasets: [dataset], feature: { enabled: true, upload_max_bytes: 1 << 26 } });
     if (path === `/datasets/${datasetId}/preview`) return json(route, { dataset_id: datasetId, schema, rows: [{ cell_id: 'CAS-400-L04', technology: '4G', ts: '2026-08-01T00:00:00', prb_utilization_pct: 41.2, active_users: 120 }], offset: 0, limit: 50, total: 2688 });
     return json(route, {});
   });
-  return { plans, trains };
+  return { plans, trains, forecasts };
 }
 
 test.describe('Models · forecasting — isolated end-user QA', () => {
@@ -131,6 +155,23 @@ test.describe('Models · forecasting — isolated end-user QA', () => {
 
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       expect(overflow).toBeLessThanOrEqual(1);
+
+      // ── Asking it now ─────────────────────────────────────────────────────
+      await page.getByRole('tab', { name: locale === 'fr' ? /Prédire/i : /Predict/i }).click();
+      const play = page.getByTestId('forecast-playground');
+      await expect(play).toBeVisible();
+      await expect(play.getByTestId('forecast-horizon')).toHaveValue('24');
+      await play.getByTestId('forecast-horizon').fill('12');
+      await play.getByTestId('forecast-series').selectOption({ index: 2 });
+      await play.getByTestId('forecast-run').click();
+      await expect(play.getByTestId('forecast-peak')).toBeVisible();
+      await expect(play.locator('canvas')).toBeVisible();
+      expect(api.forecasts.at(-1)).toMatchObject({ params: { horizon: 12, interval_level: 0.8 } });
+      expect(api.forecasts.at(-1).inputs).toHaveLength(1);
+      // The cURL is this exact call.
+      await expect(page.locator('pre.ck-code')).toContainText('/forecast');
+      await expect(page.locator('pre.ck-code')).toContainText('"horizon":12');
+      await page.screenshot({ path: info.outputPath(`play-${theme}-${locale}-${width}.png`), fullPage: true });
 
       // ── The studio ────────────────────────────────────────────────────────
       await page.goto('/models');
