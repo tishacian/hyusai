@@ -1489,3 +1489,74 @@ def test_a_deployment_that_cannot_read_artifacts_still_boots(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", refuse)
 
     tabular_predict.preload_deserializer()  # must not raise
+
+
+@pytest.fixture()
+def interval_model(db_session, workspace, arpu_artifact):
+    model = _register(db_session, workspace, arpu_artifact, task="regression", target="arpu", slug="intervals")
+    model.metrics_json = {**model.metrics_json, "intervals": {
+        "default_level": .9, "levels": [{"level": .8, "q": 3.}, {"level": .9, "q": 5.}, {"level": .95, "q": 8.}],
+    }}
+    db_session.commit()
+    return model
+
+
+@pytest.mark.parametrize("level,radius", [(None, 5.), (.8, 3.), (.95, 8.)])
+def test_regression_intervals_are_served_and_journaled(db_session, interval_model, level, radius):
+    answer = tabular_predict.predict_rows(db_session, interval_model,
+        [{"plan": "postpaid", "tenure_months": 30, "support_tickets": 1}], interval_level=level)
+    value = answer["predictions"][0]
+    assert value["lower"] == pytest.approx(value["prediction"] - radius)
+    assert value["upper"] == pytest.approx(value["prediction"] + radius)
+    assert value["level"] == (level or .9)
+    assert db_session.get(MLPrediction, answer["prediction_id"]).output_json[0] == value
+
+
+def test_unknown_interval_level_is_a_coded_refusal_before_scoring(db_session, interval_model):
+    with pytest.raises(TabularError) as error:
+        tabular_predict.predict_rows(db_session, interval_model, [], interval_level=.85)
+    assert error.value.code == "ML_INTERVAL_LEVEL_UNKNOWN" and error.value.status_code == 422
+    assert error.value.details == {"levels": [.8, .9, .95]}
+    assert interval_model.predict_count == 0
+
+
+def test_old_regression_ignores_interval_level_and_has_no_new_fields(db_session, interval_model):
+    interval_model.metrics_json = {key: value for key, value in interval_model.metrics_json.items() if key != "intervals"}
+    db_session.commit()
+    answer = tabular_predict.predict_rows(db_session, interval_model,
+        [{"plan": "postpaid", "tenure_months": 30, "support_tickets": 1}], interval_level=.85)
+    assert not {"lower", "upper", "level"}.intersection(answer["predictions"][0])
+    assert "lower" not in tabular_predict.predict_output_schema(interval_model)["properties"]
+
+
+def test_batch_intervals_keep_colliding_input_columns_and_publish_schema(db_session, interval_model, scoring_dataset):
+    from app.services.tabular_datasets import get_dataset, read_frame
+    original = read_frame(scoring_dataset).with_columns(pl.lit(-1.).alias("arpu_lower"))
+    dataset = register_frame(db_session, workspace_id=interval_model.workspace_id, name="Existing bounds", frame=original, source="upload")
+    db_session.commit()
+    answer = tabular_predict.score_dataset(db_session, model=interval_model, dataset=dataset)
+    output = read_frame(get_dataset(db_session, dataset_id=answer["dataset_id"], workspace_id=interval_model.workspace_id))
+    assert output["arpu_lower"].to_list() == [-1.] * 30
+    assert output["arpu_lower_2"].to_list() == pytest.approx((output["prediction"] - 5.).to_list())
+    assert output["arpu_upper"].to_list() == pytest.approx((output["prediction"] + 5.).to_list())
+    assert db_session.get(MLPrediction, answer["prediction_id"]).output_json[0]["level"] == .9
+    published = tabular_predict.publish_as_skill(db_session, model=interval_model)
+    assert {"lower", "upper", "level"} <= set(published["output_schema"]["properties"])
+
+
+def test_intervals_and_published_contract_follow_the_served_version(
+    db_session, workspace, interval_model, arpu_artifact
+):
+    tabular_predict.publish_as_skill(db_session, model=interval_model)
+    interval_model.is_champion = False
+    second = _register(db_session, workspace, arpu_artifact, task="regression", target="arpu",
+        slug=interval_model.slug, version=2)
+    rows = [{"plan": "postpaid", "tenure_months": 30, "support_tickets": 1}]
+    current = tabular_predict.predict_rows(db_session, interval_model, rows, interval_level=.95)
+    pinned = tabular_predict.predict_rows(db_session, interval_model, rows, version=1, interval_level=.95)
+    assert current["served"]["version"] == 2 and "lower" not in current["predictions"][0]
+    assert pinned["served"]["version"] == 1 and pinned["predictions"][0]["level"] == .95
+    assert tabular_predict.refresh_published_skill(db_session, model=second)
+    assert "lower" not in tabular_predict.published_skill(db_session, interval_model)["output_schema"]["properties"]
+    assert tabular_predict.refresh_published_skill(db_session, model=interval_model)
+    assert "lower" in tabular_predict.published_skill(db_session, interval_model)["output_schema"]["properties"]

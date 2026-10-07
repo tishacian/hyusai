@@ -15,6 +15,17 @@
  */
 
 export const MODELS_FR = {
+  'models.spec.intervals': 'Intervalles de prédiction',
+  'models.spec.intervals.off': 'Désactivés',
+  'models.spec.intervals.conformal': 'Validation croisée',
+  'models.spec.intervals.hint': 'Estimer une plage de valeurs à partir des erreurs de validation croisée, sans retirer de données de l’entraînement.',
+  'models.intervals.title': 'Couverture des intervalles',
+  'models.intervals.level': 'Niveau demandé',
+  'models.intervals.coverage': 'Couverture sur le test',
+  'models.intervals.width': 'Largeur moyenne',
+  'models.intervals.hint': 'Calcul sur {rows} lignes d’entraînement, en {folds} partitions. La couverture est mesurée sur le test, face au niveau demandé.',
+  'models.intervals.band': 'Intervalle à {level}',
+  'models.serving.error.ml_interval_level_unknown': 'Ce niveau n’a pas été calculé. Choisissez un des niveaux proposés.',
   // ---- chrome de page -----------------------------------------------------
   'models.eyebrow': 'Données & modèles · Modèles',
   'models.title': 'Modèles',
@@ -828,6 +839,17 @@ export const MODELS_FR = {
 } as const;
 
 export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
+  'models.spec.intervals': 'Prediction intervals',
+  'models.spec.intervals.off': 'Off',
+  'models.spec.intervals.conformal': 'Cross-validation',
+  'models.spec.intervals.hint': 'Estimate a range from cross-validation errors, keeping all training rows in the final fit.',
+  'models.intervals.title': 'Interval coverage',
+  'models.intervals.level': 'Requested level',
+  'models.intervals.coverage': 'Test coverage',
+  'models.intervals.width': 'Mean width',
+  'models.intervals.hint': 'Computed from {rows} training rows across {folds} folds. Coverage is measured on the test against the requested level.',
+  'models.intervals.band': '{level} interval',
+  'models.serving.error.ml_interval_level_unknown': 'This level was not calibrated. Choose one of the available levels.',
   'models.eyebrow': 'Data & Models · Models',
   'models.title': 'Models',
   'models.list.go_data': 'Datasets',
