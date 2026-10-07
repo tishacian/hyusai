@@ -169,11 +169,14 @@ export interface SignatureField {
   max?: number | null;
   default?: unknown;
   choices?: string[];
+  /** A forecast's covariate: what is known about it (`future`: planned ahead). */
+  role?: string;
 }
 
 export interface ModelSignature {
   inputs?: SignatureField[];
-  output?: { task?: ModelTask; target?: string; classes?: string[] };
+  /** `levels` and `horizon`: a forecast's series and the horizon it was built for. */
+  output?: { task?: ModelTask; target?: string; classes?: string[]; levels?: string[]; horizon?: number };
 }
 
 export interface ModelDto {
@@ -275,6 +278,8 @@ export interface ServingBlock {
   keys: ApiKeyRow[];
   endpoint: string;
   key_header: string;
+  /** `forecast`: the model is asked for a horizon on /forecast, not for rows. */
+  mode?: 'rows' | 'forecast';
 }
 
 export interface ClassProbability {
@@ -787,6 +792,8 @@ export interface FamilyDescriptor {
   serving: 'in_process' | 'remote';
   /** Whether a worker that can train this family is listening. */
   available: boolean;
+  /** For a family served by its own worker: whether that worker answers now. */
+  serve_available?: boolean;
   reason?: 'no_worker' | 'runtime_missing' | 'disabled' | (string & {});
   spec_fields: SpecFieldDescriptor[];
 }
@@ -1602,6 +1609,16 @@ export const SERVING_ERROR_CODES = [
   'ML_PUBLISH_NAME_TAKEN',
   'ML_PUBLISH_NAME_INVALID',
   'ML_USE_FORECAST_ROUTE',
+  'ML_FORECAST_TIMEOUT',
+  'ML_FORECAST_INPUT_INVALID',
+  'ML_FORECAST_PARAMS_INVALID',
+  'ML_FORECAST_HORIZON_INVALID',
+  'ML_FORECAST_FAILED',
+  'ML_FORECAST_TOO_MANY_ROWS',
+  'ML_ARTIFACT_TAMPERED',
+  'ML_ARTIFACT_UNVERIFIED',
+  'ML_USE_PREDICT_ROUTE',
+  'ML_FAMILY_UNAVAILABLE',
 ] as const;
 
 const SERVING_ERROR_SET: ReadonlySet<string> = new Set(SERVING_ERROR_CODES);

@@ -221,4 +221,5 @@ FORECASTING_FAMILY = Family(
     steps=("queued", "reading", "fitting", "backtesting", "saving"),
     exit_codes={2: "ML_TS_SERIES_UNUSABLE", 3: "ML_TS_HISTORY_TOO_SHORT"},
     validator=validate_forecast,
+    serve_queue_setting="celery_ml_ts_serve_queue",
 )
