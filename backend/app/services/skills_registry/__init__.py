@@ -24,7 +24,7 @@ from .executors import (
     validate_executor_binding,
     verified_executor_catalog,
 )
-from .seed import SEED_SKILLS, SEED_CAPABILITIES, seed_skills_and_capabilities
+from .seed import SEED_SKILLS, SEED_CAPABILITIES, reconcile_catalog, seed_skills_and_capabilities
 from .workspace_skills import workspace_skill_callable
 from .wrappers import resolve, bound_slugs, registry_snapshot, runtime_status
 
@@ -40,6 +40,7 @@ __all__ = [
     "registry_snapshot",
     "resolve",
     "runtime_status",
+    "reconcile_catalog",
     "seed_skills_and_capabilities",
     "validate_executor_binding",
     "verified_executor_catalog",

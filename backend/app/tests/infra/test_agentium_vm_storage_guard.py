@@ -1006,7 +1006,7 @@ def test_launcher_enables_forecasting_workers_only_on_request(tmp_path: Path) ->
     script = LAUNCHER.read_text(encoding="utf-8")
     assert 'ML_TS="${AGENTIUM_ML_TS:-0}"' in script
     assert "ML_TS_ALL=(agentium-worker-ml-ts agentium-worker-ml-ts-serve)" in script
-    assert "agentium-p4-maintenance agentium-beat \"${ML_TS_SERVICES[@]}\" ;;" in script
+    assert 'agentium-p4-maintenance agentium-beat "${ML_TS_SERVICES[@]}"' in script
     assert 'ml-ts-stop)    compose --profile ml-ts rm --stop --force "${ML_TS_ALL[@]}" ;;' in script
     storage = _shell_function(script, "storage_check")
     assert '"${recipe_containers[@]}" "${ml_ts_containers[@]}"' in storage
@@ -1034,3 +1034,24 @@ def test_launcher_enables_forecasting_workers_only_on_request(tmp_path: Path) ->
         encoding="utf-8",
     )
     assert subprocess.run(["bash", str(bad)], capture_output=True, text=True).returncode == 1
+
+
+def test_launcher_reconciles_the_catalog_explicitly_and_reports_it_after_every_switch():
+    """Startup reconciliation is off on the VM, so a release that adds a Skill
+    brings the catalog in line through the launcher: a read-only check, an
+    apply behind the same storage gate as `migrate`, both in the one-off
+    migrate container — and `up` says where the catalog stands without ever
+    failing the switch over it."""
+
+    script = LAUNCHER.read_text(encoding="utf-8")
+    catalog = _shell_function(script, "catalog")
+    assert (
+        'compose run --rm --no-deps --pull never agentium-migrate python -m app.cli.reconcile_catalog "$@"'
+        in catalog
+    )
+    assert "  catalog-check) catalog ;;" in script
+    assert "  catalog-apply) storage_check; catalog --apply ;;" in script
+    up = script.split("  up)", 1)[1].split(";;", 1)[0]
+    assert "catalog >/dev/null || printf" in up
+    assert "catalog-apply" in up
+    assert "catalog-check|catalog-apply" in script
