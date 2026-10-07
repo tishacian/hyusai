@@ -36,6 +36,8 @@ from app.services.tabular_ml import (
     ALGO_BY_KEY,
     ALGOS,
     CLASSIFICATION,
+    FORECASTING,
+    FOREST_LEAVES,
     REGRESSION,
     TRAIN_STEPS,
     catalog_payload,
@@ -169,6 +171,23 @@ def test_the_shared_alpha_knob_is_inverted_for_a_logistic_regression():
 
     ridge = estimator_params(linear, REGRESSION, linear.resolve({"alpha": 10.0}))
     assert ridge["alpha"] == 10.0 and "C" not in ridge
+
+
+@pytest.mark.parametrize("task", [CLASSIFICATION, REGRESSION, FORECASTING])
+def test_an_auto_forest_bounds_leaves_for_every_task(task):
+    forest = ALGO_BY_KEY["random_forest"]
+    params = estimator_params(forest, task, forest.resolve({"max_depth": 0}))
+    assert params["max_depth"] is None
+    assert params["max_leaf_nodes"] == FOREST_LEAVES == 2048
+    assert params["n_jobs"] == 1
+
+
+@pytest.mark.parametrize("task", [CLASSIFICATION, REGRESSION, FORECASTING])
+def test_an_explicit_forest_depth_has_no_leaf_ceiling(task):
+    forest = ALGO_BY_KEY["random_forest"]
+    params = estimator_params(forest, task, forest.resolve({"max_depth": 12}))
+    assert params["max_depth"] == 12
+    assert "max_leaf_nodes" not in params
 
 
 def test_an_unseeded_estimator_is_not_handed_a_random_state():
@@ -787,6 +806,14 @@ def test_a_step_carries_the_count_that_says_how_much_is_left(tmp_path):
     assert read_progress(tmp_path) is None
 
 
+@pytest.mark.parametrize("step", ["tuning:1/30", "calibrating:2/5", "explaining"])
+def test_optional_tabular_steps_can_be_republished(tmp_path, step):
+    from app.services.tabular_ml import read_progress
+
+    (tmp_path / "progress.txt").write_text(f"reading\n{step}\n", encoding="utf-8")
+    assert read_progress(tmp_path) == step
+
+
 def test_republishing_the_same_step_does_not_write(
     db_session, workspace, dataset, enabled, monkeypatch, store
 ):
@@ -920,6 +947,36 @@ def _manifest_for(churn_parquet: Path, tmp_path: Path, **overrides) -> dict:
     }
     manifest.update(overrides)
     return manifest
+
+
+@pytest.mark.slow
+def test_a_large_auto_forest_stays_below_the_artifact_budget(tmp_path):
+    import tempfile
+
+    import pandas as pd
+    from sklearn.datasets import make_regression
+
+    # Clean up even on failure: this acceptance test deliberately trains the
+    # default 200 trees on enough rows to reproduce the old disk growth.
+    with tempfile.TemporaryDirectory(dir=tmp_path) as scratch:
+        root = Path(scratch)
+        x, y = make_regression(n_samples=50_000, n_features=6, noise=5.0, random_state=42)
+        features = [f"x{index}" for index in range(x.shape[1])]
+        frame = pd.DataFrame(x, columns=features)
+        frame["y"] = y
+        data_path = root / "regression.parquet"
+        frame.to_parquet(data_path)
+        forest = ALGO_BY_KEY["random_forest"]
+        manifest = _manifest_for(
+            data_path, root, task=REGRESSION, target="y", features=features,
+            estimator=forest.estimators[REGRESSION],
+            params=estimator_params(forest, REGRESSION, forest.resolve({})),
+        )
+        code, summary, stderr = _run_harness(root / "run", manifest)
+        assert code == 0, stderr
+        assert summary["metrics"]["rows"]["total"] == 50_000
+        artifact_bytes = sum(path.stat().st_size for path in (root / "model").rglob("*") if path.is_file())
+        assert 0 < artifact_bytes < 150_000_000
 
 
 @pytest.mark.slow
@@ -1337,10 +1394,10 @@ def test_the_preprocessing_is_the_estimator_s_own_requirements():
     installed sklearn actually supports.
     """
 
-    from skrub import tabular_pipeline
     from sklearn.ensemble import HistGradientBoostingClassifier
     from sklearn.linear_model import LogisticRegression
     from sklearn.neighbors import KNeighborsClassifier
+    from skrub import tabular_pipeline
 
     def shape(estimator):
         return [name for name, _step in tabular_pipeline(estimator).steps]
