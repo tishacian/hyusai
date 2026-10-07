@@ -7,8 +7,11 @@ const initialView = { id: 'direction', label: 'Direction', denominator: 'hours',
 const financial = { manual_minutes: 12, assisted_minutes: 3, hourly_cost: 30, unit_budget: 1, currency: 'GBP', unit_label: 'Ticket', note: 'Declared planning assumptions' };
 
 async function setup(page: Page, theme = 'dark', locale = 'fr', configured = false, canEdit = true, unavailable = false, seriesUnavailable = false) {
-  let views: any[] = configured ? [{ ...initialView, id: 'support', label: 'Support', system_id: 'inventory', period: '7d', denominator: 'runs', strata: { comprendre: [{ type: 'activity', title: 'Inventory activity', settings: {} }, { type: 'financial_scenario', settings: financial }], detailler: [], decider: [] } }] : [structuredClone(initialView)];
-  let defaultView = views[0].id;
+  let views: any[] = configured ? [
+    structuredClone(initialView), { ...initialView, id: 'operations', label: 'Operations', denominator: 'runs', period: '30d' }, { ...initialView, id: 'compliance', label: 'Compliance' },
+    { ...initialView, id: 'support', label: 'Customer service — activity and financial forecast', system_id: 'inventory', period: '7d', denominator: 'runs', strata: { comprendre: [{ type: 'activity', title: 'Inventory activity', settings: {} }, { type: 'financial_scenario', settings: financial }], detailler: [], decider: [] } },
+  ] : [structuredClone(initialView)];
+  let defaultView = configured ? 'support' : views[0].id;
   const writes: string[] = [], requests: string[] = [], saved: unknown[] = [];
   await page.route('**/*', route => ['localhost', '127.0.0.1'].includes(new URL(route.request().url()).hostname) ? route.fallback() : route.abort());
   await page.addInitScript(({ theme, locale, slug }) => {
@@ -29,6 +32,10 @@ async function setup(page: Page, theme = 'dark', locale = 'fr', configured = fal
       return json(route, { views, can_edit: canEdit, default_view_id: defaultView });
     }
     if (path === '/hypervisor/activity/systems') return json(route, { systems: [{ id: 'inventory', name: 'Inventory' }, { id: 'support', name: 'Customer support' }] });
+    if (path === '/hypervisor/value-bases') return json(route, { items: [
+      { capability_id: 'support-capability', name: 'Support', slug: 'support', systems: [{ system_id: 'support', name: 'Customer support' }], value_basis: { status: 'none' } },
+      { capability_id: 'other-capability', name: 'Other capability', slug: 'other', systems: [], value_basis: { status: 'none' } },
+    ] });
     if (path === '/hypervisor/activity') return json(route, {
       window: url.searchParams.get('window'), from: '2026-10-01T00:00:00', to: '2026-10-07T10:00:00', limited: false, limit: 2000,
       counts: { attempts: 20, completed: 12, failed: 8, cancelled: 0, pending: 0, invocations: 204 },
@@ -57,6 +64,7 @@ test.describe('Configured product Impact blocks — isolated end-user QA', () =>
     const { requests } = await setup(page);
     await page.goto('/hypervisor?facet=synthese');
     await expect(page.getByRole('button', { name: /Personnaliser/ })).toBeVisible();
+    await expect(page.locator('ck-page-frame header p').filter({ hasText: 'capabilities' })).toContainText('2 capabilities');
     await expect(page.getByTestId('impact-activity')).toHaveCount(0);
     await expect(page.getByTestId('impact-financial-scenario')).toHaveCount(0);
     expect(requests.some(path => path.startsWith('/ecommerce-claims'))).toBe(false);
@@ -93,6 +101,8 @@ test.describe('Configured product Impact blocks — isolated end-user QA', () =>
     await expect(page.getByTestId('impact-projected-roi')).toContainText('350');
     await expect(page.getByTestId('impact-view-scope')).toContainText('Inventory');
     await expect(page.getByTestId('hypervisor-v2-monument').locator('.hv2-monument')).toHaveText('12');
+    await expect(page.locator('ck-page-frame header p').filter({ hasText: 'capabilities' })).toContainText('0 capabilities');
+    await expect(page.getByTestId('hypervisor-v2-monument')).toContainText('terminées en 7 jours');
     expect(await page.locator('[data-testid=hypervisor-v2-stratum-comprendre]').evaluate(el => Array.from(el.querySelectorAll('app-impact-financial-scenario,app-impact-activity')).map(x => x.tagName.toLowerCase()))).toEqual(['app-impact-financial-scenario', 'app-impact-activity']);
     expect(requests.some(path => path.startsWith('/ecommerce-claims'))).toBe(false);
     expect(writes.filter(path => path !== '/hypervisor/views' && path !== '/audit' && !path.startsWith('/auth/'))).toEqual([]);
@@ -122,6 +132,11 @@ test.describe('Configured product Impact blocks — isolated end-user QA', () =>
     await page.setViewportSize({ width: 390, height: 900 });
     await setup(page, 'light', 'fr', true);
     await page.goto('/hypervisor');
+    const selectedView = page.getByTestId('hypervisor-v2-view-support');
+    await expect(selectedView).toHaveAttribute('title', 'Customer service — activity and financial forecast');
+    for (const tab of await page.getByRole('tablist').getByRole('tab').all()) {
+      expect(await tab.evaluate(el => el.getBoundingClientRect().height)).toBeLessThanOrEqual(32);
+    }
     await page.getByTestId('impact-financial-scenario').getByRole('button', { name: 'Configurer', exact: true }).click();
     await expect(page.getByTestId('impact-settings-financial_scenario')).toBeVisible();
     await page.getByTestId('impact-settings-financial_scenario').getByLabel('Coût horaire chargé', { exact: true }).fill('0');
