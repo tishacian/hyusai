@@ -76,8 +76,10 @@ import {
   taskIcon,
   trainChecklist,
   warningKey,
+  numericKnobs,
+  trainableTasks,
   type AlgoDescriptor,
-  type KnobDescriptor,
+  type NumericKnobDescriptor,
   type ModelTask,
 } from '@app/features/models/models.vm';
 import { FlowStore } from './flow.store';
@@ -222,7 +224,7 @@ const SCORE_LIMIT = 4;
                         {{ i18n.t('flow.ml.train.task') }}
                       </span>
                       <div class="ck-train-workshop__seg">
-                        @for (option of tasks; track option) {
+                        @for (option of tasks(); track option) {
                           <button
                             type="button"
                             class="ck-train-workshop__seg-btn"
@@ -321,7 +323,7 @@ const SCORE_LIMIT = 4;
                     </div>
 
                     @if (activeAlgo(); as algo) {
-                      @if (algo.knobs.length) {
+                      @if (numericKnobs(algo).length) {
                         <div class="ck-train-workshop__field">
                           <div class="ck-train-workshop__field-head">
                             <span class="ck-train-workshop__label">
@@ -335,7 +337,7 @@ const SCORE_LIMIT = 4;
                               {{ i18n.t('flow.ml.train.knobs.reset') }}
                             </button>
                           </div>
-                          @for (knob of algo.knobs; track knob.key) {
+                          @for (knob of numericKnobs(algo); track knob.key) {
                             <div class="ck-train-workshop__knob">
                               <div class="ck-train-workshop__knob-head">
                                 <span>{{ i18n.t('models.studio.knob.' + knob.key) }}</span>
@@ -649,7 +651,10 @@ export class FlowTrainWorkshopComponent {
 
   readonly close = output<void>();
 
-  protected readonly tasks: ModelTask[] = ['classification', 'regression'];
+  // The tasks of the families a worker can train right now, from the catalog.
+  protected readonly tasks = computed<ModelTask[]>(() => trainableTasks(this.ml.catalog()));
+  // Only sliders render here; a knob of another kind keeps its server default.
+  protected readonly numericKnobs = numericKnobs;
   protected readonly cvOptions = TRAIN_CV_OPTIONS;
 
   protected readonly node = this.store.selectedNode;
@@ -889,7 +894,7 @@ export class FlowTrainWorkshopComponent {
     return preview ? Math.round(preview.rows * this.params().test_size) : 0;
   }
 
-  protected knobValue(knob: KnobDescriptor): number {
+  protected knobValue(knob: NumericKnobDescriptor): number {
     const authored = this.params().knobs[knob.key];
     const planned = this.plan()?.knobs?.[knob.key];
     const raw =
@@ -901,7 +906,7 @@ export class FlowTrainWorkshopComponent {
     return clampKnob(knob, raw);
   }
 
-  protected knobLabel(knob: KnobDescriptor): string {
+  protected knobLabel(knob: NumericKnobDescriptor): string {
     const value = this.knobValue(knob);
     if (knobIsAuto(knob, value)) return this.i18n.t('models.studio.knobs.auto');
     return value.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 4 });
@@ -978,7 +983,7 @@ export class FlowTrainWorkshopComponent {
     this.writeParams({ features: null });
   }
 
-  protected onKnob(knob: KnobDescriptor, event: Event): void {
+  protected onKnob(knob: NumericKnobDescriptor, event: Event): void {
     const value = clampKnob(knob, (event.target as HTMLInputElement).value);
     this.writeParams({ knobs: { ...this.params().knobs, [knob.key]: value } });
   }

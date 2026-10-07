@@ -62,6 +62,17 @@ from app.models.tabular import (
     TabularDataset,
 )
 from app.services import ml_registry
+from app.services.ml import metrics as metrics_registry
+from app.services.ml.families import (
+    TABULAR,
+    Family,
+    SpecInvalid,
+    all_tasks,
+    family_of_task,
+    get_family,
+)
+from app.services.ml.knobs import Knob
+from app.services.ml.runtime import GENERAL_RUNTIME, family_availability, runtime_fingerprint
 from app.services.object_store import get_object_store
 from app.services.recipe_executions import harness_error_line, supervise_harness
 from app.services.tabular_datasets import (
@@ -125,57 +136,21 @@ _EXIT_CODES = {
 
 CLASSIFICATION = "classification"
 REGRESSION = "regression"
-TASKS = (CLASSIFICATION, REGRESSION)
+TASKS = TABULAR.tasks
 
 
 def harness_path() -> Path:
     return _HARNESS_PATH
 
 
+def _harness_for(family: Family) -> Path:
+    # The tabular path stays behind harness_path(), which tests replace.
+    return harness_path() if family is TABULAR else family.harness
+
+
 # ---------------------------------------------------------------------------
 # Algorithm catalog
 # ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class Knob:
-    """One tunable of an algorithm, with the bounds the UI renders as a field.
-
-    Bounds are part of the contract, not a UI convenience: they are what keeps
-    a no-code form from producing a fit that runs for an hour.
-    """
-
-    key: str
-    kind: str  # int | float
-    default: float
-    minimum: float
-    maximum: float
-    step: float = 1.0
-    # Sentinel meaning "let the estimator decide" (sklearn's ``None``).
-    auto_at: float | None = None
-
-    def coerce(self, value: Any) -> Any:
-        try:
-            number = float(value)
-        except (TypeError, ValueError):
-            number = float(self.default)
-        number = max(self.minimum, min(self.maximum, number))
-        if self.auto_at is not None and number == self.auto_at:
-            return None
-        return int(round(number)) if self.kind == "int" else round(number, 6)
-
-    def payload(self) -> dict[str, Any]:
-        body: dict[str, Any] = {
-            "key": self.key,
-            "kind": self.kind,
-            "default": self.default,
-            "min": self.minimum,
-            "max": self.maximum,
-            "step": self.step,
-        }
-        if self.auto_at is not None:
-            body["auto_at"] = self.auto_at
-        return body
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,12 +285,26 @@ def estimator_params(algo: Algo, task: str, knobs: dict[str, Any]) -> dict[str, 
     return params
 
 
-def catalog_payload() -> dict[str, Any]:
-    """What the training form renders: algorithms, knobs and platform limits."""
+def catalog_payload(db: DBSession | None = None) -> dict[str, Any]:
+    """What the training form renders: algorithms, knobs and platform limits.
 
+    ``families`` says which tasks each family trains and whether a worker that
+    can train it is listening; ``metrics`` says which way each score ranks, so
+    the UI reads directions from here instead of keeping its own list.
+    """
+
+    from app.services.ml import families as ml_families
+    from app.services.ml import metrics as ml_metrics
+
+    families = []
+    for family in ml_families.FAMILIES:
+        available, reason = family_availability(family, db)
+        families.append(family.payload(available=available, reason=reason))
     return {
         "enabled": bool(settings.ml_train_enabled and settings.tabular_data_enabled),
-        "tasks": list(TASKS),
+        "tasks": list(all_tasks()),
+        "families": families,
+        "metrics": ml_metrics.payload(),
         "algos": [algo.payload() for algo in sorted(ALGOS, key=lambda a: a.rank)],
         "limits": {
             "min_rows": int(settings.ml_train_min_rows),
@@ -352,6 +341,8 @@ class TrainingSpec:
     cross_validation: int
     name: str
     warnings: list[dict[str, Any]] = field(default_factory=list)
+    family: str = TABULAR.key
+    spec: dict[str, Any] = field(default_factory=dict)
 
 
 def _schema_kinds(dataset: TabularDataset) -> dict[str, str]:
@@ -399,6 +390,8 @@ def validate_training(
     test_size: Any = None,
     cross_validation: Any = None,
     name: Any = None,
+    spec: Any = None,
+    db: DBSession | None = None,
 ) -> TrainingSpec:
     """Refuse everything a fit could only discover the expensive way.
 
@@ -443,11 +436,43 @@ def validate_training(
         )
 
     chosen_task = str(task or "").strip() or infer_task(dataset, label)
-    if chosen_task not in TASKS:
+    family = family_of_task(chosen_task)
+    if family is None or (family is not TABULAR and family.validator is None):
         raise TabularError(
             code="ML_TASK_UNKNOWN",
             message="A model is either a classification or a regression.",
             details={"task": chosen_task[:40]},
+        )
+    # The general worker is always there; a family trained in its own image is
+    # refused up front when none is listening, rather than queued forever.
+    available, reason = family_availability(family, db)
+    if not available and family.runtime != GENERAL_RUNTIME:
+        raise TabularError(
+            code="ML_FAMILY_UNAVAILABLE",
+            message=f"No worker that can train {family.key} models is running.",
+            status_code=409,
+            details={"family": family.key, "reason": reason},
+        )
+    try:
+        problem = family.parse_spec(spec)
+    except SpecInvalid as exc:
+        raise TabularError(
+            code="ML_SPEC_INVALID",
+            message=str(exc),
+            details={"field": exc.field},
+        ) from exc
+    if family is not TABULAR:
+        return family.validator(
+            dataset,
+            task=chosen_task,
+            target=label,
+            features=features,
+            algo=algo,
+            knobs=knobs,
+            test_size=test_size,
+            cross_validation=cross_validation,
+            name=name,
+            spec=problem,
         )
     target_kind = kinds[label]
     if chosen_task == REGRESSION and target_kind not in NUMERIC_KINDS:
@@ -572,6 +597,8 @@ def validate_training(
         cross_validation=folds,
         name=(str(name or "").strip() or default_name)[:200],
         warnings=warnings,
+        family=family.key,
+        spec=problem,
     )
 
 
@@ -722,9 +749,11 @@ def create_model(
         version=_next_model_version(db, workspace_id=workspace_id, slug=slug),
         description=(description or None),
         task=spec.task,
+        family=spec.family,
         algo=spec.algo.key,
         target=spec.target,
         features=list(spec.features),
+        spec_json=dict(spec.spec),
         params_json={
             "knobs": dict(spec.knobs),
             "estimator": spec.algo.estimator_for(spec.task),
@@ -775,10 +804,11 @@ def dispatch_training(db: DBSession, model: MLModel) -> str:
         return str(model.celery_task_id)
     from app.workers.celery_app import celery_app
 
+    # One task name for every family: the queue picks the image that runs it.
     async_result = celery_app.send_task(
         ML_TRAIN_TASK,
         args=(model.id,),
-        queue=settings.celery_task_default_queue,
+        queue=get_family(model.family).train_queue(),
     )
     model.celery_task_id = async_result.id
     db.commit()
@@ -798,6 +828,7 @@ def submit_training(
     test_size: Any = None,
     cross_validation: Any = None,
     name: Any = None,
+    spec: Any = None,
     description: str | None = None,
     created_by: str | None = None,
     run_id: str | None = None,
@@ -816,6 +847,8 @@ def submit_training(
         test_size=test_size,
         cross_validation=cross_validation,
         name=name,
+        spec=spec,
+        db=db,
     )
     model = create_model(
         db,
@@ -852,24 +885,6 @@ def request_cancel(db: DBSession, model: MLModel) -> MLModel:
     return model
 
 
-# The primary score is the first entry of the harness's ordered list, which in
-# practice is ``roc_auc`` or ``r2`` — both higher-is-better. But the harness
-# falls further down that list when the head is unavailable, and ``rmse`` down
-# there is not, so the direction is checked rather than assumed. An unrecognised
-# key means "do not rank on this", never "assume up is good".
-_HIGHER_IS_BETTER = frozenset(
-    {
-        "accuracy",
-        "balanced_accuracy",
-        "f1",
-        "precision",
-        "r2",
-        "recall",
-        "roc_auc",
-    }
-)
-
-
 def runner_up(db: DBSession, model: MLModel) -> MLModel | None:
     """The best ready version of this lineage that is not the one serving.
 
@@ -893,14 +908,30 @@ def runner_up(db: DBSession, model: MLModel) -> MLModel | None:
         )
         .all()
     )
+    serving = (
+        db.query(MLModel)
+        .filter(
+            MLModel.workspace_id == model.workspace_id,
+            MLModel.slug == model.slug,
+            MLModel.status == "ready",
+            MLModel.is_champion.is_(True),
+        )
+        .first()
+    )
+    # Versions are only comparable on the metric the serving one is judged by:
+    # an RMSE against an AUC ranks nothing, however each is signed.
+    reference = ((serving.metrics_json or {}).get("primary") or {}).get("key") if serving else None
     ranked = []
     for row in rows:
         primary = (row.metrics_json or {}).get("primary") or {}
-        value = primary.get("value")
-        if primary.get("key") in _HIGHER_IS_BETTER and isinstance(
-            value, (int, float)
-        ):
-            ranked.append((float(value), int(row.version or 0), row))
+        if reference and primary.get("key") != reference:
+            continue
+        # The registry says which way the primary metric ranks — an AUC up, an
+        # RMSE or a MASE down. A key it does not know is not ranked at all: an
+        # assumed direction would promote the worst version as the contender.
+        score = metrics_registry.rank_value(primary.get("key"), primary.get("value"))
+        if score is not None:
+            ranked.append((score, int(row.version or 0), row))
     if not ranked:
         return None
     return max(ranked, key=lambda entry: (entry[0], entry[1]))[2]
@@ -1236,6 +1267,7 @@ def serialize_model(
         "version": int(model.version or 1),
         "description": model.description,
         "task": model.task,
+        "family": model.family or TABULAR.key,
         "algo": model.algo,
         "target": model.target,
         "features": list(model.features or []),
@@ -1274,6 +1306,8 @@ def serialize_model(
         payload["input_example"] = model.input_example_json or []
         payload["classes"] = list(model.classes_json or [])
         payload["params"] = dict(model.params_json or {})
+        payload["spec"] = dict(model.spec_json or {})
+        payload["runtime"] = dict(model.runtime_json or {})
         payload["model_uri"] = model.model_uri
     elif include_scores:
         # Every recorded score and nothing else from the metric block. The
@@ -1306,6 +1340,7 @@ def model_reference(model: MLModel) -> dict[str, Any]:
         "slug": model.slug,
         "version": int(model.version or 1),
         "task": model.task,
+        "family": model.family or TABULAR.key,
         "algo": model.algo,
         "target": model.target,
         "metric": _primary_metric(model),
@@ -1364,6 +1399,8 @@ def clamp_timeout(value: Any) -> float:
 def _write_manifest(scratch: Path, model: MLModel, data_path: Path) -> Path:
     params = dict(model.params_json or {})
     manifest = {
+        "family": model.family or TABULAR.key,
+        "spec": dict(model.spec_json or {}),
         "data_path": str(data_path),
         "model_dir": str(scratch / "model"),
         "task": model.task,
@@ -1388,7 +1425,7 @@ def _write_manifest(scratch: Path, model: MLModel, data_path: Path) -> Path:
     return path
 
 
-def read_progress(scratch: Path) -> str | None:
+def read_progress(scratch: Path, steps: frozenset[str] = _HARNESS_STEPS) -> str | None:
     """The last step the harness claimed, or ``None`` when it claimed nothing.
 
     Only a known code is returned: the file is written by a subprocess and a
@@ -1406,7 +1443,7 @@ def read_progress(scratch: Path) -> str | None:
         return None
     for step in reversed(lines):
         head, _, tail = step.partition(":")
-        if head not in _HARNESS_STEPS:
+        if head not in steps:
             continue
         if not tail:
             return head
@@ -1415,12 +1452,12 @@ def read_progress(scratch: Path) -> str | None:
     return None
 
 
-def _harness_failure(run: Any, timeout_s: float) -> str:
+def _harness_failure(run: Any, timeout_s: float, codes: dict[int, str] | None = None) -> str:
     """One error string carrying the code AND the harness's own last line."""
 
     if run.status == "timed_out":
         return f"ML_TIMEOUT: training exceeded {int(timeout_s)}s"
-    code = _EXIT_CODES.get(int(run.exit_code or 0), "ML_HARNESS_ERROR")
+    code = {**_EXIT_CODES, **(codes or {})}.get(int(run.exit_code or 0), "ML_HARNESS_ERROR")
     detail = harness_error_line(run.stderr_tail, "the training run failed")[:300]
     return f"{code}: {detail}"
 
@@ -1433,10 +1470,12 @@ def read_summary(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _publish_progress(db: DBSession, model: MLModel, scratch: Path) -> None:
+def _publish_progress(
+    db: DBSession, model: MLModel, scratch: Path, steps: frozenset[str] = _HARNESS_STEPS
+) -> None:
     """Republish the harness's own step onto the polled row."""
 
-    step = read_progress(scratch)
+    step = read_progress(scratch, steps)
     if step is not None:
         mark_step(db, model, step)
 
@@ -1470,6 +1509,22 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
             _finalize(model, status="cancelled", error="cancel_requested")
             db.commit()
             return {"id": model_id, "status": "cancelled"}
+        family = get_family(model.family)
+        missing = family.missing_modules()
+        if missing:
+            # The task reached an image that cannot fit this family: a queue
+            # consumed by the wrong worker, or an image built without its stack.
+            _finalize(
+                model,
+                status="failed",
+                error=(
+                    f"ML_RUNTIME_MISSING: {', '.join(missing)} not installed in "
+                    f"runtime '{settings.ml_runtime}'"
+                ),
+            )
+            db.commit()
+            return {"id": model_id, "status": "failed"}
+        steps = frozenset(family.steps) or _HARNESS_STEPS
 
         dataset = (
             db.query(TabularDataset)
@@ -1507,7 +1562,7 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
             run = supervise_harness(
                 [
                     str(interpreter),
-                    str(harness_path()),
+                    str(_harness_for(family)),
                     str(manifest_path),
                     str(result_path),
                 ],
@@ -1517,7 +1572,7 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                 should_cancel=lambda: cancel_requested(db, model_id),
                 # The three steps inside the fit are the child's to name, so the
                 # worker republishes them rather than guessing at the boundaries.
-                on_poll=lambda: _publish_progress(db, model, scratch),
+                on_poll=lambda: _publish_progress(db, model, scratch, steps),
                 timeout_error=f"ML_TIMEOUT: exceeded {int(timeout_s)}s",
                 memory_limit_mb=int(settings.ml_train_memory_limit_mb),
                 cpu_limit_s=int(settings.ml_train_cpu_limit_s),
@@ -1540,7 +1595,7 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
             if run.status == "cancelled":
                 status, error = "cancelled", "cancel_requested"
             elif run.status is not None or run.exit_code != 0:
-                status, error = "failed", _harness_failure(run, timeout_s)
+                status, error = "failed", _harness_failure(run, timeout_s, family.exit_codes)
             else:
                 summary = read_summary(result_path)
                 if not summary.get("metrics"):
@@ -1582,6 +1637,9 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
             model.error = None
             model.trained_at = datetime.utcnow()
             model.train_duration_ms = round((time.monotonic() - started) * 1000, 1)
+            # The interpreter that fitted it — compared, when it is loaded, with
+            # the one about to unpickle it.
+            model.runtime_json = runtime_fingerprint()
             # A lineage with nothing serving promotes its first trained version:
             # a model nobody promoted is still the only one that can answer. A
             # retrain does NOT take over from a promoted champion — deciding
@@ -1641,6 +1699,11 @@ def _register_version(model: MLModel) -> None:
         source_uri=get_object_store().uri(model.model_uri),
         metrics=model.metrics_json or {},
         params={
+            "family": model.family or TABULAR.key,
+            **{
+                f"spec.{key}": value if isinstance(value, (int, float, str, bool)) else str(value)
+                for key, value in (model.spec_json or {}).items()
+            },
             "algo": model.algo,
             "task": model.task,
             "target": model.target,
@@ -1658,6 +1721,10 @@ def _register_version(model: MLModel) -> None:
             # reader who has only the registry can still find the rows the
             # published metrics were measured on.
             "agentium.skore_report_state": _report_state_uri(model) or "",
+            "agentium.family": model.family or TABULAR.key,
+            "agentium.runtime": (model.runtime_json or {}).get("runtime") or "",
+            "agentium.runtime.image_revision": (model.runtime_json or {}).get("image_revision") or "",
+            "agentium.runtime.fingerprint": (model.runtime_json or {}).get("fingerprint") or "",
         },
     )
     if not published:

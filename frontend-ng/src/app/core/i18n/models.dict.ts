@@ -354,6 +354,23 @@ export const MODELS_FR = {
     'Pénalise les erreurs commises avec assurance. Plus bas est meilleur : il dit si la probabilité est honnête, pas seulement la réponse.',
   'models.metric.brier_score.hint':
     'Erreur quadratique moyenne de la probabilité annoncée. Plus bas est meilleur — le chiffre derrière une jauge qu’on veut croire.',
+  'models.metric.mase': 'MASE',
+  'models.metric.rmsse': 'RMSSE',
+  'models.metric.smape': 'sMAPE',
+  'models.metric.coverage': 'Couverture',
+  'models.metric.interval_width': 'Largeur d’intervalle',
+  'models.metric.mase.hint':
+    'Erreur rapportée à celle d’une prévision qui répète la dernière saison. Sous 1, le modèle fait mieux que cette référence.',
+  'models.metric.rmsse.hint':
+    'Comme la MASE, mais les grosses erreurs pèsent plus. Sous 1, mieux que répéter la dernière saison.',
+  'models.metric.smape.hint': 'Écart moyen en pourcentage, symétrique entre sur- et sous-prévision.',
+  'models.metric.coverage.hint':
+    'Part des valeurs réelles tombées dans l’intervalle annoncé. À comparer au niveau demandé, pas à maximiser.',
+  'models.metric.interval_width.hint': 'Largeur moyenne de l’intervalle, dans l’unité de la colonne prévue.',
+  'models.family.tabular': 'Tabulaire',
+  'models.family.reason.no_worker': 'Aucun worker capable d’entraîner ces modèles n’est actif.',
+  'models.family.reason.runtime_missing': 'L’environnement d’entraînement de cette famille n’est pas installé.',
+  'models.family.reason.disabled': 'L’entraînement est désactivé sur ce déploiement.',
 
   // ---- contrat d'entrée ---------------------------------------------------
   'models.contract.title': 'Ce que le modèle attend en entrée',
@@ -538,6 +555,10 @@ export const MODELS_FR = {
   'models.refusal.ml_algo_unknown': 'Cet algorithme n’est pas proposé.',
   'models.refusal.ml_algo_task_mismatch':
     'Cet algorithme ne sait pas traiter cette nature de modèle.',
+  'models.refusal.ml_spec_invalid':
+    'La définition du problème contient un champ invalide pour cette famille de modèles.',
+  'models.refusal.ml_family_unavailable':
+    'Aucun worker capable d’entraîner cette famille de modèles n’est actif pour le moment.',
   'models.refusal.ml_model_not_ready': 'Seul un modèle entraîné peut répondre.',
   'models.refusal.ml_model_not_found':
     'Ce modèle n’existe pas dans cet espace de travail.',
@@ -566,6 +587,8 @@ export const MODELS_FR = {
   'models.error.ml_artifact_empty': 'L’entraînement n’a produit aucun artefact.',
   'models.error.ml_train_disabled':
     'L’entraînement de modèles a été désactivé pendant l’exécution.',
+  'models.error.ml_runtime_missing':
+    'Le worker qui a reçu l’entraînement n’a pas les bibliothèques de cette famille de modèles.',
 
   // ---- plan désactivé -----------------------------------------------------
   'models.disabled.title': 'Plan modèles désactivé',
@@ -899,6 +922,23 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
     'Penalises confident mistakes. Lower is better: it reads whether the probability is honest, not just the answer.',
   'models.metric.brier_score.hint':
     'Mean squared error of the predicted probability. Lower is better — the number behind a gauge you intend to believe.',
+  'models.metric.mase': 'MASE',
+  'models.metric.rmsse': 'RMSSE',
+  'models.metric.smape': 'sMAPE',
+  'models.metric.coverage': 'Coverage',
+  'models.metric.interval_width': 'Interval width',
+  'models.metric.mase.hint':
+    'Error relative to a forecast that repeats the last season. Below 1, the model beats that baseline.',
+  'models.metric.rmsse.hint':
+    'Like MASE, but large errors weigh more. Below 1, better than repeating the last season.',
+  'models.metric.smape.hint': 'Mean error as a percentage, symmetric between over- and under-forecasting.',
+  'models.metric.coverage.hint':
+    'Share of actual values that fell inside the stated interval. Compare it with the requested level; do not maximise it.',
+  'models.metric.interval_width.hint': 'Mean width of the interval, in the unit of the forecast column.',
+  'models.family.tabular': 'Tabular',
+  'models.family.reason.no_worker': 'No worker that can train these models is running.',
+  'models.family.reason.runtime_missing': 'This family’s training environment is not installed.',
+  'models.family.reason.disabled': 'Training is disabled on this deployment.',
 
   'models.contract.title': 'What the model expects as input',
   'models.contract.hint':
@@ -1072,6 +1112,10 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.refusal.ml_algo_unknown': 'This algorithm is not offered.',
   'models.refusal.ml_algo_task_mismatch':
     'This algorithm does not handle that kind of model.',
+  'models.refusal.ml_spec_invalid':
+    'The problem definition holds a field this model family does not accept.',
+  'models.refusal.ml_family_unavailable':
+    'No worker that can train this model family is running right now.',
   'models.refusal.ml_model_not_ready': 'Only a trained model can answer.',
   'models.refusal.ml_model_not_found':
     'This model does not exist in this workspace.',
@@ -1095,6 +1139,8 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.error.ml_artifact_empty': 'Training produced no artifact.',
   'models.error.ml_train_disabled':
     'Model training was disabled while the run was in flight.',
+  'models.error.ml_runtime_missing':
+    'The worker that received the training lacks this model family’s libraries.',
 
   'models.disabled.title': 'Model plane disabled',
   'models.disabled.description':

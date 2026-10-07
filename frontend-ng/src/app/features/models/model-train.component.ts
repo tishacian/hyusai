@@ -51,11 +51,13 @@ import {
   targetCandidates,
   taskIcon,
   warningKey,
+  numericKnobs,
+  trainableTasks,
   type AlgoDescriptor,
   type CodedRefusal,
-  type KnobDescriptor,
   type ModelDto,
   type ModelTask,
+  type NumericKnobDescriptor,
   type PlanColumn,
   type TrainingPlan,
 } from './models.vm';
@@ -209,7 +211,7 @@ export interface TrainSeed {
               <div class="ck-field">
                 <label class="ck-label">{{ i18n.t('models.studio.task.label') }}</label>
                 <div class="ck-seg">
-                  @for (option of tasks; track option) {
+                  @for (option of tasks(); track option) {
                     <button
                       type="button"
                       class="ck-seg__btn"
@@ -307,7 +309,7 @@ export interface TrainSeed {
               </div>
 
               @if (activeAlgo(); as algo) {
-                @if (algo.knobs.length) {
+                @if (numericKnobs(algo).length) {
                   <div class="ck-field">
                     <div class="flex items-center justify-between gap-2">
                       <label class="ck-label">{{ i18n.t('models.studio.knobs.label') }}</label>
@@ -315,7 +317,7 @@ export interface TrainSeed {
                         {{ i18n.t('models.studio.knobs.reset') }}
                       </button>
                     </div>
-                    @for (knob of algo.knobs; track knob.key) {
+                    @for (knob of numericKnobs(algo); track knob.key) {
                       <div class="ck-knob">
                         <div class="ck-knob__head">
                           <span class="ck-knob__label">
@@ -723,7 +725,10 @@ export class ModelTrainComponent implements OnInit {
   readonly close = output<void>();
   readonly trained = output<ModelDto>();
 
-  protected readonly tasks: ModelTask[] = ['classification', 'regression'];
+  // The tasks of the families a worker can train right now, from the catalog.
+  protected readonly tasks = computed<ModelTask[]>(() => trainableTasks(this.catalog()));
+  // Only sliders render here; a knob of another kind keeps its server default.
+  protected readonly numericKnobs = numericKnobs;
   protected readonly cvOptions = [3, 5, 10];
 
   protected readonly datasetId = signal('');
@@ -952,7 +957,7 @@ export class ModelTrainComponent implements OnInit {
     this.schedulePlan();
   }
 
-  protected knobValue(knob: KnobDescriptor): number {
+  protected knobValue(knob: NumericKnobDescriptor): number {
     const override = this.knobOverrides()[knob.key];
     const fallback = this.plan()?.knobs?.[knob.key];
     const raw =
@@ -964,13 +969,13 @@ export class ModelTrainComponent implements OnInit {
     return clampKnob(knob, raw);
   }
 
-  protected knobLabel(knob: KnobDescriptor): string {
+  protected knobLabel(knob: NumericKnobDescriptor): string {
     const value = this.knobValue(knob);
     if (knobIsAuto(knob, value)) return this.i18n.t('models.studio.knobs.auto');
     return value.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 4 });
   }
 
-  protected onKnobInput(knob: KnobDescriptor, event: Event): void {
+  protected onKnobInput(knob: NumericKnobDescriptor, event: Event): void {
     const raw = (event.target as HTMLInputElement).value;
     this.knobOverrides.update((knobs) => ({
       ...knobs,
@@ -1051,7 +1056,7 @@ export class ModelTrainComponent implements OnInit {
     if (!algo) return {};
     const payload: Record<string, number> = {};
     const overrides = this.knobOverrides();
-    for (const knob of algo.knobs) {
+    for (const knob of numericKnobs(algo)) {
       const value = overrides[knob.key];
       if (value !== undefined) payload[knob.key] = clampKnob(knob, value);
     }

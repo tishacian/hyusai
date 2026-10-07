@@ -41,6 +41,9 @@ import {
   metricDelta,
   metricScale,
   metricTone,
+  numericKnobs,
+  setMetricRegistry,
+  trainableTasks,
   pinnedVersion,
   playgroundSeed,
   predictPayload,
@@ -63,7 +66,8 @@ import {
   trainStepKey,
   trainingErrorKey,
   warningKey,
-  type KnobDescriptor,
+  type ModelCatalog,
+  type NumericKnobDescriptor,
   type ModelDto,
   type ModelStatus,
   type PlanColumn,
@@ -147,7 +151,8 @@ test('higher-is-better is stated per metric, not assumed', () => {
   assert.ok(higherIsBetter('r2'));
   assert.ok(!higherIsBetter('mae'));
   assert.ok(!higherIsBetter('mape'));
-  assert.ok(higherIsBetter('unknown_metric'));
+  // Unknown means unranked: assuming “higher” would rank every error backwards.
+  assert.equal(higherIsBetter('unknown_metric'), null);
 });
 
 test('the row score prefers the list payload but falls back to the detail block', () => {
@@ -336,7 +341,7 @@ test('class balance carries the share, which is what makes accuracy readable', (
 // The training form
 // ---------------------------------------------------------------------------
 
-const ITERS: KnobDescriptor = {
+const ITERS: NumericKnobDescriptor = {
   key: 'max_iter',
   kind: 'int',
   default: 200,
@@ -345,7 +350,7 @@ const ITERS: KnobDescriptor = {
   step: 10,
 };
 
-const DEPTH: KnobDescriptor = {
+const DEPTH: NumericKnobDescriptor = {
   key: 'max_depth',
   kind: 'int',
   default: 0,
@@ -355,7 +360,7 @@ const DEPTH: KnobDescriptor = {
   auto_at: 0,
 };
 
-const RATE: KnobDescriptor = {
+const RATE: NumericKnobDescriptor = {
   key: 'learning_rate',
   kind: 'float',
   default: 0.1,
@@ -1188,3 +1193,71 @@ test('every sentence the check-list can render exists in both languages', () => 
     assert.ok(MODELS_EN[key as keyof typeof MODELS_EN], `${key} has EN copy`);
   }
 });
+
+test('the catalog’s metric registry ranks what the offline copy does not know', () => {
+  // Before the catalog arrives, an unknown metric has no direction: no tone,
+  // no delta arrow, never "higher is better" by default.
+  assert.equal(higherIsBetter('mase'), null);
+  assert.equal(metricDelta('mase', 0.7, 0.9), null);
+  assert.equal(metricTone('mase', 0.7), 'neutral');
+
+  setMetricRegistry([
+    { key: 'roc_auc', direction: 'max', scale: 'ratio', good: 0.8, poor: 0.65 },
+    { key: 'mase', direction: 'min', scale: 'value', good: 0.8, poor: 1.0 },
+    { key: 'coverage', direction: 'none', scale: 'ratio' },
+  ]);
+  assert.equal(higherIsBetter('mase'), false);
+  assert.equal(metricDelta('mase', 0.7, 0.9)?.better, true, 'a lower MASE is an improvement');
+  assert.equal(metricTone('mase', 0.7), 'pos');
+  assert.equal(metricTone('mase', 1.3), 'neg');
+  assert.equal(metricScale('coverage'), 'ratio');
+  // Coverage is judged against its nominal level, so it never wins or loses.
+  assert.equal(higherIsBetter('coverage'), null);
+  assert.equal(metricDelta('coverage', 0.9, 0.8), null);
+  assert.equal(metricTone('coverage', 0.9), 'neutral');
+  assert.equal(metricTone('roc_auc', 0.91), 'pos');
+  // An empty registry (a catalog from before families) leaves the copy in place.
+  setMetricRegistry([]);
+  assert.equal(higherIsBetter('mase'), false);
+});
+
+const EMPTY_CATALOG_FOR_TASKS: ModelCatalog = {
+  enabled: true,
+  tasks: [],
+  algos: [],
+  limits: { min_rows: 40, max_rows: 1000, max_features: 10, max_classes: 5, timeout_s: 60 },
+  defaults: { task: 'classification', algo: 'gb', test_size: 0.25, cross_validation: 0 },
+};
+
+test('a form offers the tasks of the families a worker can train now', () => {
+  const base = { ...EMPTY_CATALOG_FOR_TASKS, tasks: ['classification', 'regression', 'forecasting'] };
+  assert.deepEqual(trainableTasks(base), ['classification', 'regression', 'forecasting']);
+  const withFamilies = {
+    ...base,
+    families: [
+      { key: 'tabular', tasks: ['classification', 'regression'], runtime: 'worker', serving: 'in_process' as const, available: true, spec_fields: [] },
+      { key: 'forecasting', tasks: ['forecasting'], runtime: 'ml-ts', serving: 'remote' as const, available: false, reason: 'no_worker', spec_fields: [] },
+    ],
+  };
+  assert.deepEqual(trainableTasks(withFamilies), ['classification', 'regression']);
+  assert.deepEqual(trainableTasks(null), []);
+});
+
+test('only numeric knobs render as sliders; other kinds keep the server default', () => {
+  const algo = {
+    key: 'gb',
+    tasks: ['classification'],
+    estimators: {},
+    scale: false,
+    tags: [],
+    knobs: [
+      ITERS,
+      { key: 'text_encoder', kind: 'enum' as const, default: 'lsa', choices: ['lsa', 'minhash'] },
+      { key: 'calibrate', kind: 'bool' as const, default: false },
+      { key: 'lags', kind: 'int_list' as const, default: [1, 24], min: 1, max: 168, step: 1, max_items: 4 },
+    ],
+  };
+  assert.deepEqual(numericKnobs(algo).map((knob) => knob.key), [ITERS.key]);
+  assert.deepEqual(Object.keys(defaultKnobs(algo)), [ITERS.key]);
+});
+

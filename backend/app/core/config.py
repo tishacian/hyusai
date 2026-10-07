@@ -111,6 +111,10 @@ class Settings(BaseSettings):
     celery_task_default_queue: str = "cpu"
     # Recipes are awaited by Flow workers: they must have an independent consumer.
     celery_recipe_queue: str = "recipes"
+    # Training queue of the tabular model family. Empty => the default queue,
+    # where the general worker already trains it. Other families name their own
+    # queue setting (app.services.ml.families), consumed by their own image.
+    celery_ml_tabular_queue: str = ""
 
     # Object storage for original / ingested / derived RAG artifacts.
     # "local" is dependency-free for dev/tests; "s3" uses fsspec/s3fs when
@@ -658,6 +662,13 @@ class Settings(BaseSettings):
     # comparison and not a coin toss — the demo claim "v2 beats v1" has to mean
     # something.
     ml_train_random_state: int = Field(default=42, ge=0)
+    # Which runtime this process is: "worker" for the general image, or the
+    # name of a model family's image (ML_RUNTIME, set by that image). A worker
+    # whose runtime is not "worker" announces itself in ml_runtime_heartbeats,
+    # and a family trained there is only offered while one is fresh.
+    ml_runtime: str = "worker"
+    ml_runtime_heartbeat_s: float = Field(default=60.0, ge=5.0, le=3600.0)
+    ml_runtime_heartbeat_ttl_s: float = Field(default=180.0, ge=15.0, le=86_400.0)
     # Serving. A loaded pyfunc is tens of megabytes of resident pipeline, so the
     # cache is small by design: it exists to make the second prediction of a
     # demo instant, not to hold a workspace's whole registry in memory.
