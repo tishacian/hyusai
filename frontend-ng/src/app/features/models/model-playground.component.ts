@@ -267,6 +267,9 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
                   </div>
                 </div>
               </div>
+              @if (model().metrics?.decision; as decision) {
+                <p class="ck-hint" data-testid="play-decision-threshold">{{ i18n.t('models.play.threshold', { threshold: percent(decision.threshold) }) }}</p>
+              }
               <div class="ck-verdict">
                 <span
                   class="ck-badge ck-mono"
