@@ -203,12 +203,12 @@ TABULAR_TEST_FIELDS = (
 
 
 def test_tabular_catalog_does_not_offer_options_without_training_effects():
-    assert {field.key for field in TABULAR.spec_fields} == {"intervals"}
+    assert {field.key for field in TABULAR.spec_fields} == {"intervals", "calibration", "threshold"}
     assert TABULAR.parse_spec({}, task="regression") == {"intervals": "off"}
-    assert TABULAR.parse_spec({"intervals": "conformal"}, task="classification") == {}
+    assert TABULAR.parse_spec({"intervals": "conformal"}, task="classification") == {"calibration": "off", "threshold": "default"}
     with pytest.raises(SpecInvalid) as error:
-        TABULAR.parse_spec({"calibration": "auto"}, task="regression")
-    assert error.value.field == "calibration"
+        TABULAR.parse_spec({"unsupported_option": "auto"}, task="regression")
+    assert error.value.field == "unsupported_option"
 
 
 def test_tabular_visibility_uses_resolved_task_and_defaults_without_storing_task():
@@ -301,8 +301,8 @@ def test_a_spec_the_family_cannot_read_names_the_field(raw, field):
     assert error.value.field == field
 
 
-def test_the_tabular_family_takes_no_spec_yet(dataset, enabled):
-    assert tabular_ml.validate_training(dataset, task=None, target="churn", spec={}).spec == {}
+def test_the_tabular_family_accepts_only_implemented_spec_fields(dataset, enabled):
+    assert tabular_ml.validate_training(dataset, task=None, target="churn", spec={}).spec == {"calibration": "off", "threshold": "default"}
     with pytest.raises(TabularError) as error:
         tabular_ml.validate_training(dataset, task=None, target="churn", spec={"horizon": 3})
     assert error.value.code == "ML_SPEC_INVALID" and error.value.details == {"field": "horizon"}
@@ -423,9 +423,9 @@ def test_a_trained_row_records_its_family_and_the_interpreter_that_fitted_it(
     model = tabular_ml.submit_training(
         db_session, workspace_id=workspace.id, dataset_ref={"dataset_id": dataset.id}, target="churn"
     )
-    assert model.status == "ready" and model.family == "tabular" and model.spec_json == {}
+    assert model.status == "ready" and model.family == "tabular" and model.spec_json == {"calibration": "off", "threshold": "default"}
     assert model.runtime_json["fingerprint"] == ml_runtime.runtime_fingerprint()["fingerprint"]
-    assert captured["manifest"]["family"] == "tabular" and captured["manifest"]["spec"] == {}
+    assert captured["manifest"]["family"] == "tabular" and captured["manifest"]["spec"] == {"calibration": "off", "threshold": "default"}
     detail = tabular_ml.serialize_model(model, include_detail=True)
     assert detail["family"] == "tabular" and detail["runtime"]["runtime"] == settings.ml_runtime
 

@@ -695,7 +695,9 @@ def _rows_from(
                     for position, value in enumerate(proba[index])
                 ]
                 answer["probabilities"] = vector
-                confident = max(vector, key=lambda item: item["value"], default=None)
+                # A tuned binary threshold may select a class below 50%.
+                # Confidence belongs to the selected class, not the argmax.
+                confident = next((item for item in vector if item["label"] == label), None)
                 if confident is not None:
                     answer["confidence"] = confident["value"]
                 if positive is not None:

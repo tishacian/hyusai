@@ -22,6 +22,10 @@ TABULAR = Family(
     queue_setting="celery_ml_tabular_queue",
     serving="in_process",
     required_modules=("sklearn", "skrub", "skore", "mlflow", "skops"),
+    spec_fields=(
+        SpecField("calibration", "enum", default="off", choices=("off", "auto", "sigmoid", "isotonic"), when=(("task", (CLASSIFICATION,)),)),
+        SpecField("threshold", "enum", default="default", choices=("default", "f1", "youden"), when=(("task", (CLASSIFICATION,)),)),
+    ),
     harness=Path(__file__).resolve().parents[3] / "resources" / "ml_train_harness.py",
     spec_fields=(
         SpecField("intervals", "enum", default="off", choices=("off", "conformal"),
