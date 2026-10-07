@@ -1,0 +1,5 @@
+# The ml-ts image installs these on top of requirements.txt (Dockerfile.agentium-ml-ts).
+# Versions come from constraints-demo-ml-ts.txt; nothing here may move an app pin.
+skforecast[stats]
+# Per-forecast explanations (create_predict_X + TreeExplainer), ml-ts only.
+shap

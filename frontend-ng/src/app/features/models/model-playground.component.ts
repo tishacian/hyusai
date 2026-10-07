@@ -46,6 +46,8 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { I18nService } from '@app/core/i18n.service';
 import { ModelsService } from './models.service';
+import { ForecastPlaygroundComponent } from './forecast-playground.component';
+import { forecastCurlSnippet, type ForecastRequestBody } from './forecast.vm';
 import {
   GAUGE_ARC,
   GAUGE_HANDLE,
@@ -84,7 +86,7 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
   selector: 'app-model-playground',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent, EmptyStateComponent],
+  imports: [RouterLink, IconComponent, EmptyStateComponent, ForecastPlaygroundComponent],
   template: `
     @if (serving(); as block) {
       @if (!block.callable) {
@@ -92,12 +94,21 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
           icon="zap-off"
           [title]="i18n.t('models.play.unavailable.title')"
           [description]="
-            block.enabled
-              ? i18n.t('models.play.unavailable.untrained')
-              : i18n.t('models.play.unavailable.disabled')
+            !block.enabled
+              ? i18n.t('models.play.unavailable.disabled')
+              : block.mode === 'forecast' && model().status === 'ready'
+                ? i18n.t('models.play.unavailable.no_forecast_worker')
+                : i18n.t('models.play.unavailable.untrained')
           "
         />
       } @else {
+        @if (block.mode === 'forecast') {
+          <ck-forecast-playground
+            [model]="model()"
+            [serving]="block"
+            (requestChange)="forecastBody.set($event)"
+          />
+        } @else {
         <!-- The query container the split below measures. A wrapper rather than
              a media query on the viewport: what decides whether the form and the
              dial fit side by side is the width this tab actually has, and on a
@@ -317,6 +328,7 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
           </section>
         </div>
         </div>
+        }
 
         <!-- ── The same call, for a machine ─────────────────────────────────── -->
         <section class="ck-panel mt-3">
@@ -420,6 +432,9 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
         </section>
 
         <!-- ── Publish as a Skill ───────────────────────────────────────────── -->
+        <!-- A forecast is published with its own skills (a horizon, not rows),
+             which arrive with the Flow nodes that call them. -->
+        @if (block.mode !== 'forecast') {
         <section class="ck-panel mt-3">
           <div class="ck-section-label">{{ i18n.t('models.publish.title') }}</div>
           <div class="ck-hint" style="margin-top: 0">{{ i18n.t('models.publish.hint') }}</div>
@@ -462,6 +477,7 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
             </button>
           }
         </section>
+        }
       }
     }
   `,
@@ -1124,9 +1140,23 @@ export class ModelPlaygroundComponent {
     return this.i18n.t('models.play.served', { version });
   }
 
+  /** The forecast the Play tab is about to ask for, mirrored into the cURL. */
+  protected readonly forecastBody = signal<ForecastRequestBody | null>(null);
+
   protected readonly curl = computed(() => {
     const block = this.serving();
     const live = block.keys.find((key) => !key.revoked);
+    const forecast = this.forecastBody();
+    if (block.mode === 'forecast') {
+      return forecastCurlSnippet({
+        origin: this.origin(),
+        endpoint: block.endpoint,
+        header: block.key_header,
+        body: forecast ?? { params: { horizon: 24, interval_level: 0.8 }, inputs: [] },
+        secret: this.minted()?.secret ?? null,
+        prefix: live?.prefix ?? null,
+      });
+    }
     return curlSnippet({
       origin: this.origin(),
       endpoint: block.endpoint,

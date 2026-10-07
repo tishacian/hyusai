@@ -30,7 +30,7 @@ from typing import Any, Callable
 
 from app.core.config import settings
 
-SPEC_FIELD_KINDS = ("column", "columns", "int", "float", "enum", "bool", "column_roles")
+SPEC_FIELD_KINDS = ("column", "columns", "int", "float", "enum", "bool", "column_roles", "int_list")
 
 
 class SpecInvalid(ValueError):
@@ -88,6 +88,19 @@ class SpecField:
             if self.max_items and len(value) > self.max_items:
                 raise SpecInvalid(self.key, f"at most {self.max_items} columns")
             return {k.strip(): v for k, v in value.items()}
+        if kind == "int_list":
+            if not isinstance(value, list) or not value or any(
+                isinstance(item, bool) or not isinstance(item, int) for item in value
+            ):
+                raise SpecInvalid(self.key, "expected a list of whole numbers")
+            items = sorted(set(value))
+            if self.max_items and len(items) > self.max_items:
+                raise SpecInvalid(self.key, f"at most {self.max_items} values")
+            if (self.minimum is not None and items[0] < self.minimum) or (
+                self.maximum is not None and items[-1] > self.maximum
+            ):
+                raise SpecInvalid(self.key, f"expected values in [{self.minimum}, {self.maximum}]")
+            return items
         if kind == "enum":
             if value not in self.choices:
                 raise SpecInvalid(self.key, f"expected one of {list(self.choices)}")
@@ -147,10 +160,16 @@ class Family:
     # and target, the request's fields and the parsed ``spec``, it returns a
     # TrainingSpec or raises the coded refusal the form renders.
     validator: Callable[..., Any] | None = None
+    # Settings attribute naming the queue a remote family answers on; empty
+    # for a family served in the API process.
+    serve_queue_setting: str = ""
 
     def train_queue(self) -> str:
         queue = str(getattr(settings, self.queue_setting, "") or "").strip()
         return queue or settings.celery_task_default_queue
+
+    def serve_queue(self) -> str:
+        return str(getattr(settings, self.serve_queue_setting, "") or "").strip() if self.serve_queue_setting else ""
 
     def missing_modules(self) -> list[str]:
         """Modules a fit needs that this interpreter cannot import."""
@@ -198,7 +217,9 @@ class Family:
     def _shown(spec_field: SpecField, values: dict[str, Any]) -> bool:
         return all(values.get(key) in allowed for key, allowed in spec_field.when)
 
-    def payload(self, *, available: bool, reason: str | None) -> dict[str, Any]:
+    def payload(
+        self, *, available: bool, reason: str | None, serve_available: bool | None = None
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "key": self.key,
             "tasks": list(self.tasks),
@@ -209,4 +230,6 @@ class Family:
         }
         if reason:
             body["reason"] = reason
+        if serve_available is not None:
+            body["serve_available"] = serve_available
         return body

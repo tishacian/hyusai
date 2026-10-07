@@ -106,15 +106,39 @@ def family_availability(
         return (False, "runtime_missing") if missing else (True, None)
     if family.runtime == GENERAL_RUNTIME:
         return True, None
-    if db is None:
+    return _heard_on(family.runtime, family.train_queue(), db, now)
+
+
+def serving_availability(
+    family: Family, db: Any = None, *, now: datetime | None = None
+) -> tuple[bool, str | None]:
+    """Whether a model of this family can answer now, and why not.
+
+    A family served in the API process answers whenever serving is on. A
+    remote one needs a worker of its runtime heard on its serving queue: the
+    API waits for that worker's answer, and waiting on a queue nobody consumes
+    is a timeout dressed up as a request.
+    """
+
+    if family.serving == "in_process":
+        return True, None
+    if not settings.ml_predict_enabled:
+        return False, "disabled"
+    if settings.worker_eager_mode:
+        missing = family.missing_modules()
+        return (False, "runtime_missing") if missing else (True, None)
+    return _heard_on(family.runtime, family.serve_queue(), db, now)
+
+
+def _heard_on(runtime: str, queue: str, db: Any, now: datetime | None) -> tuple[bool, str | None]:
+    if db is None or not queue:
         return False, "no_worker"
     from app.models.tabular import MLRuntimeHeartbeat
 
     cutoff = (now or datetime.utcnow()) - timedelta(seconds=float(settings.ml_runtime_heartbeat_ttl_s))
-    queue = family.train_queue()
     rows = (
         db.query(MLRuntimeHeartbeat)
-        .filter(MLRuntimeHeartbeat.runtime == family.runtime, MLRuntimeHeartbeat.seen_at >= cutoff)
+        .filter(MLRuntimeHeartbeat.runtime == runtime, MLRuntimeHeartbeat.seen_at >= cutoff)
         .all()
     )
     if any(queue in (row.queues or []) for row in rows):

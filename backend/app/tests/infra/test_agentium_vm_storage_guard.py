@@ -824,8 +824,9 @@ def test_launcher_scrubs_shell_and_gates_only_closed_application_commands() -> N
         "DOCKER_HOST",
     ):
         assert f"{polluted}=" not in compose
+    # The opt-in forecasting profile is rendered into the same check when on.
     assert (
-        "compose --profile infra --profile tools --profile sftp config --format json"
+        'compose --profile infra --profile tools --profile sftp "${ML_TS_PROFILE[@]}" config --format json'
         in storage
     )
     assert 'assert_protected_data_path "$OBJECT_STORE_ROOT"' in storage
@@ -923,3 +924,113 @@ def test_dedicated_recipe_consumer_storage_is_checked_when_present():
     next(m for m in recipe["Mounts"] if m["Destination"] == "/data/recipe_envs")["Source"] = "/tmp/wrong"
     with pytest.raises(module.RuntimeEnvBundleError, match="mount identity differs"):
         module.assert_vm_active_storage_mounts(containers)
+
+
+def _ml_ts_compose_service(*, read_only: bool = False, extra: list | None = None) -> dict:
+    return {
+        "volumes": [
+            {
+                "type": "bind",
+                "source": EXPECTED_ENV["AGENTIUM_OBJECT_STORE_PATH"],
+                "target": "/data/object_store",
+                "read_only": read_only,
+            },
+            *(extra or []),
+        ]
+    }
+
+
+def test_forecasting_workers_are_checked_only_when_their_profile_renders_them():
+    """The ml-ts workers are opt-in (Compose profile): a rendering without the
+    profile has no such service and passes; with it, each must mount the object
+    store read-write and nothing else from the protected stores."""
+
+    module = _module()
+    without = _compose_model()
+    assert "agentium-worker-ml-ts" not in without["services"]
+    module.assert_vm_compose_storage(without)
+
+    with_profile = _compose_model()
+    for name in ("agentium-worker-ml-ts", "agentium-worker-ml-ts-serve"):
+        with_profile["services"][name] = _ml_ts_compose_service()
+    module.assert_vm_compose_storage(with_profile)
+
+    read_only = deepcopy(with_profile)
+    read_only["services"]["agentium-worker-ml-ts"] = _ml_ts_compose_service(read_only=True)
+    with pytest.raises(module.RuntimeEnvBundleError, match="source or access mode differs"):
+        module.assert_vm_compose_storage(read_only)
+
+    leaked = deepcopy(with_profile)
+    leaked["services"]["agentium-worker-ml-ts-serve"] = _ml_ts_compose_service(
+        extra=[
+            {
+                "type": "bind",
+                "source": EXPECTED_ENV["AGENTIUM_SECURE_DEPOSIT_PATH"],
+                "target": "/data/secure_deposit",
+                "read_only": True,
+            }
+        ]
+    )
+    with pytest.raises(module.RuntimeEnvBundleError, match="approved boundary"):
+        module.assert_vm_compose_storage(leaked)
+
+
+def test_running_forecasting_workers_must_use_the_protected_object_store():
+    module = _module()
+    containers = _active_containers()
+    module.assert_vm_active_storage_mounts(containers)  # never enabled: nothing to check
+
+    def worker(name: str, source: str) -> dict:
+        return {
+            "Name": f"/{name}",
+            "State": {"Running": True},
+            "Mounts": [{"Type": "bind", "Source": source, "Destination": "/data/object_store", "RW": True}],
+        }
+
+    enabled = containers + [
+        worker("agentium-worker-ml-ts", EXPECTED_ENV["AGENTIUM_OBJECT_STORE_PATH"]),
+        worker("agentium-worker-ml-ts-serve", EXPECTED_ENV["AGENTIUM_OBJECT_STORE_PATH"]),
+    ]
+    module.assert_vm_active_storage_mounts(enabled)
+
+    rooted = containers + [worker("agentium-worker-ml-ts", "/home/ubuntu/agentium-data/object_store")]
+    with pytest.raises(module.RuntimeEnvBundleError, match="mount identity differs"):
+        module.assert_vm_active_storage_mounts(rooted)
+
+
+def test_launcher_enables_forecasting_workers_only_on_request(tmp_path: Path) -> None:
+    """AGENTIUM_ML_TS=1 adds the ml-ts profile to the storage rendering and its
+    two workers to `up`; 0 (the default) changes nothing; anything else fails
+    before any Docker call. `ml-ts-stop` removes both, whatever the flag."""
+
+    script = LAUNCHER.read_text(encoding="utf-8")
+    assert 'ML_TS="${AGENTIUM_ML_TS:-0}"' in script
+    assert "ML_TS_ALL=(agentium-worker-ml-ts agentium-worker-ml-ts-serve)" in script
+    assert "agentium-p4-maintenance agentium-beat \"${ML_TS_SERVICES[@]}\" ;;" in script
+    assert 'ml-ts-stop)    compose --profile ml-ts rm --stop --force "${ML_TS_ALL[@]}" ;;' in script
+    storage = _shell_function(script, "storage_check")
+    assert '"${recipe_containers[@]}" "${ml_ts_containers[@]}"' in storage
+
+    flag_block = script.split('ML_TS="${AGENTIUM_ML_TS:-0}"', 1)[1].split("\nfi\n", 1)[0]
+    for value, expected_profile, expected_services in (
+        ("0", "", ""),
+        ("1", "--profile ml-ts", "agentium-worker-ml-ts agentium-worker-ml-ts-serve"),
+    ):
+        probe = tmp_path / f"flag-{value}.sh"
+        probe.write_text(
+            "#!/usr/bin/env bash\nset -euo pipefail\n"
+            "fail() { printf '%s\\n' \"$*\" >&2; exit 1; }\n"
+            f'ML_TS="{value}"' + flag_block + "\nfi\n"
+            'echo "${ML_TS_PROFILE[*]-}|${ML_TS_SERVICES[*]-}"\n',
+            encoding="utf-8",
+        )
+        out = subprocess.run(["bash", str(probe)], check=True, capture_output=True, text=True).stdout.strip()
+        assert out == f"{expected_profile}|{expected_services}"
+    bad = tmp_path / "flag-bad.sh"
+    bad.write_text(
+        "#!/usr/bin/env bash\nset -euo pipefail\n"
+        "fail() { printf '%s\\n' \"$*\" >&2; exit 1; }\n"
+        'ML_TS="yes"' + flag_block + "\nfi\n",
+        encoding="utf-8",
+    )
+    assert subprocess.run(["bash", str(bad)], capture_output=True, text=True).returncode == 1

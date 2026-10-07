@@ -32,3 +32,32 @@ def ml_train(self, model_id: str) -> dict:
 
     result = run_training(model_id)
     return {**result, "task_id": str(self.request.id)}
+
+
+@shared_task(name="agentium.ml_forecast", acks_late=False, ignore_result=False)
+def ml_forecast(model_id: str, *, horizon=None, level=None, inputs=None, explain=False) -> dict:
+    """Answer one forecast request the API is waiting for.
+
+    Runs in the ml-ts serving worker, whose threads share one cache of loaded
+    models. Not acks_late: a forecast lost with its worker is retried by the
+    caller, not redelivered to answer a request that already timed out. A
+    refusal comes back as data, so the API can render it as a code.
+    """
+
+    from app.services.ml.forecast_serving import answer_for
+
+    return answer_for(model_id, horizon=horizon, level=level, inputs=list(inputs or []), explain=bool(explain))
+
+
+@shared_task(name="agentium.ml_forecast_batch", acks_late=True, reject_on_worker_lost=True)
+def ml_forecast_batch(output_id: str, served_id: str, **kwargs) -> dict:
+    """Write a whole forecast into the dataset row a Flow node reserved.
+
+    acks_late, unlike the interactive forecast: nobody is waiting on this
+    task's result, a node is polling the row, so a forecast lost with its
+    worker is redelivered — and settling is idempotent on the row's status.
+    """
+
+    from app.services.ml.forecast_serving import forecast_into
+
+    return forecast_into(output_id, served_id, **kwargs)

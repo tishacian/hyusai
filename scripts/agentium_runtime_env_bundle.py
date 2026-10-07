@@ -102,6 +102,17 @@ VM_BIND_BACKED_VOLUMES = {
 VM_APPLICATION_STORAGE_MOUNTS["agentium-worker-recipes"] = dict(
     VM_APPLICATION_STORAGE_MOUNTS["agentium-worker-cpu"]
 )
+# The forecasting workers (profile ml-ts): they read training datasets and write
+# model directories, so they need the object store and nothing else — no
+# secure deposit, no FAISS index, no recipe venvs.
+for _ml_ts_service in ("agentium-worker-ml-ts", "agentium-worker-ml-ts-serve"):
+    VM_APPLICATION_STORAGE_MOUNTS[_ml_ts_service] = {
+        "/data/object_store": ("AGENTIUM_OBJECT_STORE_PATH", False),
+    }
+# Services that only exist when an opt-in Compose profile is active. Absent
+# from a rendering without the profile and from a host that never enabled it,
+# they are skipped; present, they are held to their contract like any other.
+VM_OPTIONAL_PROFILE_SERVICES = frozenset({"agentium-worker-ml-ts", "agentium-worker-ml-ts-serve"})
 
 # Targets added to the contract after their service already ran in
 # production. The pre-mutation gate inspects the PREVIOUS container
@@ -369,6 +380,8 @@ def assert_vm_compose_storage(compose: Any) -> None:
     observed: set[tuple[str, str]] = set()
     services = compose["services"]
     for service_name, required in VM_APPLICATION_STORAGE_MOUNTS.items():
+        if service_name in VM_OPTIONAL_PROFILE_SERVICES and service_name not in services:
+            continue
         mounts = _rendered_service_mounts(compose, service_name)
         for target, (environment_key, must_be_read_only) in required.items():
             mount = mounts.get(target)
@@ -438,6 +451,13 @@ def assert_vm_active_storage_mounts(payload: Any) -> None:
         for row in payload
     ):
         expected_container_names.discard("agentium-worker-recipes")
+    # An opt-in profile's containers are inspected only where they exist.
+    present = {
+        row.get("Name") for row in payload if isinstance(row, dict)
+    } if isinstance(payload, list) else set()
+    for optional in VM_OPTIONAL_PROFILE_SERVICES:
+        if f"/{optional}" not in present:
+            expected_container_names.discard(optional)
     if not isinstance(payload, list) or len(payload) != len(expected_container_names):
         raise RuntimeEnvBundleError("VM storage containers are missing or ambiguous")
     containers: dict[str, Mapping[str, Any]] = {}

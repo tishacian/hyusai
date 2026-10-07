@@ -264,6 +264,58 @@ services:
       CELERY_CONCURRENCY: ${AGENTIUM_RECIPE_CONCURRENCY:-2}
       CELERY_BEAT: "0"
 
+  # The forecasting runtime (skforecast), in its own image so neither the API
+  # nor the general worker carries numba and statsmodels. Opt-in: a deployment
+  # names the profile, and until its worker beats, the catalog greys the
+  # forecasting family out instead of queueing fits nobody consumes.
+  agentium-worker-ml-ts:
+    image: agentium-ml-ts:${AGENTIUM_IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: ./docker/Dockerfile.agentium-ml-ts
+      args:
+        AGENTIUM_IMAGE_REVISION: ${AGENTIUM_IMAGE_REVISION:-unknown}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+        PYTHON_BASE_IMAGE: ${AGENTIUM_PYTHON_BASE_IMAGE:-python:3.12-slim}
+        USER_UID: ${AGENTIUM_RUNTIME_UID:-1000}
+        USER_GID: ${AGENTIUM_RUNTIME_GID:-1000}
+    container_name: agentium-worker-ml-ts
+    restart: unless-stopped
+    profiles: ["ml-ts"]
+    networks:
+      - agentium-net
+    env_file:
+      - ${AGENTIUM_ENV_FILE:-./env/agentium.env.example}
+    environment:
+      AGENTIUM_DISABLE_DOTENV: "1"
+      ML_RUNTIME: ml-ts
+      CELERY_APP: app.workers.celery_ml:celery_ml
+      CELERY_QUEUES: ml_ts
+      CELERY_LOGLEVEL: ${AGENTIUM_CELERY_LOGLEVEL:-info}
+      # One fit at a time: a backtest already uses the cores it is given, and
+      # the memory ceiling below is for one harness, not several.
+      CELERY_CONCURRENCY: ${AGENTIUM_ML_TS_CONCURRENCY:-1}
+      CELERY_BEAT: "0"
+    mem_limit: ${AGENTIUM_ML_TS_MEM_LIMIT:-8g}
+    volumes:
+      - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
+    depends_on:
+      agentium-rabbitmq:
+        condition: service_healthy
+
+  # Forecasts on demand: the API waits for this worker's answer, so it runs a
+  # threads pool whose threads share one cache of loaded models.
+  agentium-worker-ml-ts-serve:
+    extends:
+      service: agentium-worker-ml-ts
+    container_name: agentium-worker-ml-ts-serve
+    profiles: ["ml-ts"]
+    environment:
+      CELERY_QUEUES: ml_ts_rpc
+      CELERY_POOL: threads
+      CELERY_CONCURRENCY: ${AGENTIUM_ML_TS_SERVE_CONCURRENCY:-4}
+    mem_limit: ${AGENTIUM_ML_TS_SERVE_MEM_LIMIT:-3g}
+
   agentium-beat:
     image: agentium-worker:${AGENTIUM_IMAGE_TAG:-local}
     container_name: agentium-beat

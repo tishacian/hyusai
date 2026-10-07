@@ -179,7 +179,8 @@ def test_rows_from_before_families_and_unknown_keys_are_tabular():
     assert get_family(None) is TABULAR and get_family("tabular") is TABULAR
     assert get_family("unheard-of") is TABULAR
     assert ml_families.family_of_task("regression") is TABULAR
-    assert ml_families.family_of_task("forecasting") is None
+    assert ml_families.family_of_task("forecasting") is ml_families.FORECASTING_FAMILY
+    assert ml_families.family_of_task("clustering") is None
 
 
 def test_a_spec_is_parsed_by_its_family_fields():
@@ -353,7 +354,8 @@ def test_a_task_delivered_to_an_image_without_the_family_stack_fails_closed(
 
 
 def test_the_family_image_app_registers_the_training_task_and_nothing_else():
-    """A family image runs celery_ml: the ML task, without the RAG or OCR planes."""
+    """A family image runs celery_ml: the ML tasks (fit, answer a forecast,
+    write one as a dataset), without the RAG or OCR planes."""
 
     import json
     import subprocess
@@ -371,5 +373,12 @@ def test_the_family_image_app_registers_the_training_task_and_nothing_else():
     lines = [line for line in result.stdout.splitlines() if line.startswith("PROBE ")]
     assert result.returncode == 0 and lines, result.stderr[-2000:]
     report = json.loads(lines[-1].removeprefix("PROBE "))
-    assert report["tasks"] == ["agentium.ml_train"]
+    assert report["tasks"] == ["agentium.ml_forecast", "agentium.ml_forecast_batch", "agentium.ml_train"]
     assert report["heavy"] == []
+
+
+def test_the_row_constants_name_every_family_and_task_the_plane_declares():
+    from app.models.tabular import MODEL_FAMILIES, MODEL_TASKS
+
+    assert set(MODEL_FAMILIES) == set(ml_families.FAMILY_BY_KEY)
+    assert set(MODEL_TASKS) == set(ml_families.all_tasks())

@@ -24,6 +24,7 @@ import {
 import {
   FLOW_ML_ERROR_CODES,
   ML_PREDICT_SKILL_SLUG,
+  ML_FORECAST_SKILL_SLUG,
   ML_SCORE_SKILL_SLUG,
   ML_TRAIN_SKILL_SLUG,
   SERVING_ROLES,
@@ -149,6 +150,7 @@ test('a dropped training node carries every key the _train block projects', () =
     'knobs',
     'model_name',
     'sources',
+    'spec',
     'target',
     'task',
     'test_size',
@@ -444,4 +446,48 @@ test('every step of a fit has copy in both languages', () => {
   for (const step of TRAIN_STEPS) key(`models.progress.step.${step}`);
   key('models.progress.step.fitting.counted');
   key('models.progress.step.validating.counted');
+});
+
+// ---------------------------------------------------------------------------
+// The forecast node
+// ---------------------------------------------------------------------------
+
+test('a forecast node serves forecasts only, writes a dataset and needs none', () => {
+  assert.equal(mlNodeRole(node(ML_FORECAST_SKILL_SLUG)), 'forecast');
+  assert.ok(isServingNode(node(ML_FORECAST_SKILL_SLUG)));
+  const forecast = SERVING_ROLES.forecast;
+  assert.equal(forecast.writesDataset, true);
+  assert.equal(forecast.readsDataset, false, 'future values are optional');
+  assert.equal(forecast.serves, 'forecast');
+  assert.deepEqual(Object.keys(predictDefaultParams('forecast')).sort(), [
+    'horizon',
+    'interval_level',
+    'model_id',
+    'model_slug',
+    'output_name',
+    'pinned_version',
+    'sources',
+  ]);
+  const blank = readPredictParams(node(ML_FORECAST_SKILL_SLUG));
+  assert.equal(blank.horizon, null);
+  assert.equal(preflightServing({ ...blank, model_slug: 'cells' }, forecast), null);
+});
+
+test('each serving node offers only the models it can call', () => {
+  const registry = [
+    { id: 'a', slug: 'churn', name: 'Churn', version: 1, status: 'ready', task: 'classification' },
+    { id: 'b', slug: 'cells', name: 'Cells', version: 2, status: 'ready', task: 'forecasting' },
+  ] as unknown as Parameters<typeof servableModels>[0];
+  assert.deepEqual(servableModels(registry, 'forecast').map((row) => row.slug), ['cells']);
+  assert.deepEqual(servableModels(registry, 'rows').map((row) => row.slug), ['churn']);
+  assert.equal(servableModels(registry).length, 2);
+});
+
+test('a forecast node reads its horizon and level, and drops nonsense', () => {
+  const params = readPredictParams(node(ML_FORECAST_SKILL_SLUG, { horizon: '48', interval_level: 0.9 }));
+  assert.equal(params.horizon, 48);
+  assert.equal(params.interval_level, 0.9);
+  const wild = readPredictParams(node(ML_FORECAST_SKILL_SLUG, { horizon: -3, interval_level: 3 }));
+  assert.equal(wild.horizon, null);
+  assert.equal(wild.interval_level, null);
 });

@@ -20,6 +20,7 @@ import {
   ML_TRAIN_SKILL_SLUG,
   SERVING_ROLES,
   predictDefaultParams,
+  type ServingRole,
   trainDefaultParams,
 } from './flow-ml.vm';
 import { RECIPE_SKILL_SLUG, recipeDefaultParams } from './flow-recipe.vm';
@@ -485,7 +486,7 @@ function transformEngineOfSlug(slug: string): TransformEngine | null {
 }
 
 /** Which serving shape a skill slug names, or `null` for anything else. */
-function servingRoleOfSlug(slug: string): 'predict' | 'score' | null {
+function servingRoleOfSlug(slug: string): ServingRole | null {
   for (const descriptor of Object.values(SERVING_ROLES)) {
     if (descriptor.skillSlug === slug) return descriptor.role;
   }

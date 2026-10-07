@@ -97,7 +97,7 @@ type ModelFilter = 'all' | ModelTask | 'serving';
       />
     } @else {
       <div class="flex items-center gap-1.5 mb-3 flex-wrap">
-        @for (option of filters; track option.key) {
+        @for (option of filters(); track option.key) {
           <button
             type="button"
             class="ck-chip"
@@ -492,12 +492,16 @@ export class ModelsListComponent implements OnInit {
    *  merely stop pulsing. */
   private readonly watched = new Set<string>();
 
-  protected readonly filters: { key: ModelFilter; label: string }[] = [
+  /** Forecasts get their own filter once the workspace has one to show. */
+  protected readonly filters = computed<{ key: ModelFilter; label: string }[]>(() => [
     { key: 'all', label: 'models.list.filter.all' },
     { key: 'classification', label: 'models.list.filter.classification' },
     { key: 'regression', label: 'models.list.filter.regression' },
+    ...(this.models.models().some((model) => model.task === 'forecasting')
+      ? [{ key: 'forecasting' as ModelFilter, label: 'models.list.filter.forecasting' }]
+      : []),
     { key: 'serving', label: 'models.list.filter.serving' },
-  ];
+  ]);
 
   private pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -560,6 +564,7 @@ export class ModelsListComponent implements OnInit {
       model.status_detail,
       model.cross_validation,
       this.i18n.locale(),
+      model.task,
     );
   }
 

@@ -454,6 +454,11 @@ test('a refusal renders next to the choice that caused it', () => {
   assert.equal(refusalField('ML_TOO_MANY_FEATURES'), 'features');
   assert.equal(refusalField('ML_ALGO_TASK_MISMATCH'), 'algo');
   assert.equal(refusalField('ML_ROWS_INSUFFICIENT'), 'dataset');
+  // A forecast's problem definition is one block; a shape the algorithm
+  // cannot fit is still the algorithm's to answer for.
+  assert.equal(refusalField('ML_TS_HISTORY_TOO_SHORT'), 'spec');
+  assert.equal(refusalField('ML_SPEC_INVALID'), 'spec');
+  assert.equal(refusalField('ML_TS_ALGO_SHAPE_MISMATCH'), 'algo');
   // A refusal no field owns still has to be read: the footer takes it.
   assert.equal(refusalField('ML_TRAIN_DISABLED'), null);
   assert.equal(refusalField('SOMETHING_NEW'), null);
@@ -1243,6 +1248,21 @@ test('a form offers the tasks of the families a worker can train now', () => {
   assert.deepEqual(trainableTasks(null), []);
 });
 
+test('a family that needs a problem definition waits for a form that renders it', () => {
+  const horizon = { key: 'horizon', kind: 'int' as const, required: true };
+  const catalog = {
+    ...EMPTY_CATALOG_FOR_TASKS,
+    tasks: ['classification', 'forecasting'],
+    families: [
+      { key: 'tabular', tasks: ['classification'], runtime: 'worker', serving: 'in_process' as const, available: true, spec_fields: [] },
+      { key: 'forecasting', tasks: ['forecasting'], runtime: 'ml-ts', serving: 'remote' as const, available: true, spec_fields: [horizon] },
+    ],
+  };
+  // A form without spec fields would send a forecast with no date column.
+  assert.deepEqual(trainableTasks(catalog), ['classification']);
+  assert.deepEqual(trainableTasks(catalog, { specFields: true }), ['classification', 'forecasting']);
+});
+
 test('only numeric knobs render as sliders; other kinds keep the server default', () => {
   const algo = {
     key: 'gb',
@@ -1261,3 +1281,15 @@ test('only numeric knobs render as sliders; other kinds keep the server default'
   assert.deepEqual(Object.keys(defaultKnobs(algo)), [ITERS.key]);
 });
 
+
+test('a forecast walks through its backtest, counted per horizon', () => {
+  const steps = trainChecklist('training', 'backtesting:1/3', 3, 'en', 'forecasting');
+  assert.deepEqual(steps.map((step) => step.step), ['queued', 'reading', 'backtesting', 'fitting', 'saving']);
+  const backtest = steps.find((step) => step.step === 'backtesting')!;
+  assert.equal(backtest.state, 'active');
+  assert.equal(backtest.key, 'models.progress.step.backtesting.counted');
+  assert.deepEqual(backtest.params, { fold: 1, folds: 3 });
+  assert.equal(trainStepKey('backtesting:0/3'), 'models.progress.step.backtesting');
+  // A tabular fit keeps its own list.
+  assert.ok(!trainChecklist('training', 'fitting', 0, 'en').some((step) => step.step === 'backtesting'));
+});

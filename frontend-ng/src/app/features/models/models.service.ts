@@ -38,6 +38,7 @@ import {
   type TrainingPlan,
   setMetricRegistry,
 } from './models.vm';
+import type { ForecastAnswer, ForecastRequestBody } from './forecast.vm';
 
 export interface ModelListDto {
   models: ModelDto[];
@@ -81,6 +82,8 @@ export interface TrainRequest {
   knobs?: Record<string, number>;
   test_size?: number;
   cross_validation?: number;
+  /** A family's problem definition (a forecast's date column, horizon, …). */
+  spec?: Record<string, unknown>;
 }
 
 export const EMPTY_CATALOG: ModelCatalog = {
@@ -156,12 +159,18 @@ export class ModelsService {
     task?: ModelTask;
     features?: string[];
     algo?: string;
+    spec?: Record<string, unknown>;
   }): Promise<PlanResponseDto> {
     const response = await firstValueFrom(
       this.http.post<PlanResponseDto>(`${this.base}/plan`, body),
     );
     if (response.catalog) this.adopt(response.catalog);
     return response;
+  }
+
+  /** A forecast now, answered by the ml-ts worker (MLflow's invocation shape). */
+  forecast(modelId: string, body: ForecastRequestBody & { version?: number }): Promise<ForecastAnswer> {
+    return firstValueFrom(this.http.post<ForecastAnswer>(`${this.base}/${modelId}/forecast`, body));
   }
 
   async train(body: TrainRequest): Promise<ModelDto> {
@@ -173,8 +182,12 @@ export class ModelsService {
     return response.model;
   }
 
-  detail(modelId: string): Promise<ModelDetailDto> {
-    return firstValueFrom(this.http.get<ModelDetailDto>(`${this.base}/${modelId}`));
+  async detail(modelId: string): Promise<ModelDetailDto> {
+    const response = await firstValueFrom(this.http.get<ModelDetailDto>(`${this.base}/${modelId}`));
+    // A card opened from a link has not seen the list's catalog: without its
+    // registry, a forecast's sMAPE and coverage would print without their unit.
+    if (response.catalog) this.adopt(response.catalog);
+    return response;
   }
 
   /**

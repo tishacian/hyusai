@@ -41,6 +41,7 @@ GRAPH_OWNED_CONFIG_SKILLS: frozenset[str] = frozenset(
         "ml_train_sklearn_v1",
         "ml_predict_v1",
         "ml_batch_score_v1",
+        "ml_forecast_v1",
     }
 )
 WORKBENCH_EXECUTION_SURFACES: frozenset[str] = frozenset(

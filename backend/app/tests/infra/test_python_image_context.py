@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[4]
 PYTHON_IGNORES = [
     ROOT / "docker" / "Dockerfile.agentium-backend.dockerignore",
     ROOT / "docker" / "Dockerfile.agentium-worker.dockerignore",
+    ROOT / "docker" / "Dockerfile.agentium-ml-ts.dockerignore",
 ]
 
 # Files the API or a worker reads at run time from outside backend/.
@@ -24,6 +25,10 @@ RUNTIME_READS = [
     "backend/constraints-demo-app.txt",
     "backend/constraints-demo-giskard.txt",
     "backend/requirements_giskard.txt",
+    "backend/requirements_ml_ts.txt",
+    "backend/constraints-demo-ml-ts.txt",
+    "backend/app/resources/ml_forecast_harness.py",
+    "backend/app/resources/ml_forecast_pyfunc.py",
     "backend/scripts/qualify_giskard_raget.py",
     "backend/rag_models.lock.json",
     "backend/scripts/fetch_rag_models.py",
@@ -96,8 +101,8 @@ def _excluded(path: str, patterns: list[str]) -> bool:
 
 def test_python_ignores_extend_the_root_file_verbatim():
     root = _patterns(ROOT / ".dockerignore")
-    first, second = (_patterns(path) for path in PYTHON_IGNORES)
-    assert first == second, "backend and worker images must see the same context"
+    first, *others = (_patterns(path) for path in PYTHON_IGNORES)
+    assert all(other == first for other in others), "the Python images must see the same context"
     assert first[: len(root)] == root, "the Python ignore file must start with the root file verbatim"
 
 

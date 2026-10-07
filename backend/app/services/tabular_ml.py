@@ -72,7 +72,12 @@ from app.services.ml.families import (
     get_family,
 )
 from app.services.ml.knobs import Knob
-from app.services.ml.runtime import GENERAL_RUNTIME, family_availability, runtime_fingerprint
+from app.services.ml.runtime import (
+    GENERAL_RUNTIME,
+    family_availability,
+    runtime_fingerprint,
+    serving_availability,
+)
 from app.services.object_store import get_object_store
 from app.services.recipe_executions import harness_error_line, supervise_harness
 from app.services.tabular_datasets import (
@@ -137,6 +142,11 @@ _EXIT_CODES = {
 CLASSIFICATION = "classification"
 REGRESSION = "regression"
 TASKS = TABULAR.tasks
+# A forecast reuses the tabular regressors on the series' own past; the
+# forecasting family (app.services.ml.families.forecasting) validates it.
+FORECASTING = "forecasting"
+# Leaves per tree of a forecasting forest whose depth the author left open.
+FORECAST_FOREST_LEAVES = 2048
 
 
 def harness_path() -> Path:
@@ -204,6 +214,7 @@ ALGOS: tuple[Algo, ...] = (
         estimators={
             CLASSIFICATION: "sklearn.ensemble.HistGradientBoostingClassifier",
             REGRESSION: "sklearn.ensemble.HistGradientBoostingRegressor",
+            FORECASTING: "sklearn.ensemble.HistGradientBoostingRegressor",
         },
         knobs=(
             Knob("max_iter", "int", 150, 20, 600, 10),
@@ -218,6 +229,7 @@ ALGOS: tuple[Algo, ...] = (
         estimators={
             CLASSIFICATION: "sklearn.ensemble.RandomForestClassifier",
             REGRESSION: "sklearn.ensemble.RandomForestRegressor",
+            FORECASTING: "sklearn.ensemble.RandomForestRegressor",
         },
         knobs=(
             Knob("n_estimators", "int", 200, 50, 600, 10),
@@ -233,6 +245,7 @@ ALGOS: tuple[Algo, ...] = (
         estimators={
             CLASSIFICATION: "sklearn.linear_model.LogisticRegression",
             REGRESSION: "sklearn.linear_model.Ridge",
+            FORECASTING: "sklearn.linear_model.Ridge",
         },
         knobs=(
             Knob("max_iter", "int", 500, 100, 3000, 50),
@@ -251,6 +264,31 @@ ALGOS: tuple[Algo, ...] = (
         knobs=(Knob("n_neighbors", "int", 15, 1, 100, 1),),
         scale=True,
         rank=3,
+        tags=("baseline",),
+        seeded=False,
+    ),
+    # Forecasting only. One statistical model per series, its season read from
+    # the series' frequency by the harness; no regressor, no lags.
+    Algo(
+        key="ets",
+        estimators={FORECASTING: "skforecast.stats.Ets"},
+        rank=4,
+        tags=("statistical", "seasonal"),
+        seeded=False,
+    ),
+    Algo(
+        key="arima",
+        estimators={FORECASTING: "skforecast.stats.Arima"},
+        rank=5,
+        tags=("statistical",),
+        seeded=False,
+    ),
+    # Repeats the last season: the reference every forecast's MASE is scaled
+    # by, offered so an author can see what "no model" scores.
+    Algo(
+        key="seasonal_naive",
+        estimators={FORECASTING: "skforecast.recursive.ForecasterEquivalentDate"},
+        rank=6,
         tags=("baseline",),
         seeded=False,
     ),
@@ -282,6 +320,12 @@ def estimator_params(algo: Algo, task: str, knobs: dict[str, Any]) -> dict[str, 
         # One fit already owns the worker slot; a nested thread pool under
         # RLIMIT_AS buys nothing and costs address space.
         params.setdefault("n_jobs", 1)
+        if task == FORECASTING and params.get("max_depth") is None:
+            # A forecast's training matrix holds every step of every series: a
+            # forest grown to pure leaves on a 72-cell panel is gigabytes on disk
+            # and seconds of SHAP per row. "Unbounded" becomes a bounded number
+            # of leaves per tree, which keeps the depth where the data is dense.
+            params.setdefault("max_leaf_nodes", FORECAST_FOREST_LEAVES)
     return params
 
 
@@ -299,7 +343,8 @@ def catalog_payload(db: DBSession | None = None) -> dict[str, Any]:
     families = []
     for family in ml_families.FAMILIES:
         available, reason = family_availability(family, db)
-        families.append(family.payload(available=available, reason=reason))
+        serve = serving_availability(family, db)[0] if family.serving != "in_process" else None
+        families.append(family.payload(available=available, reason=reason, serve_available=serve))
     return {
         "enabled": bool(settings.ml_train_enabled and settings.tabular_data_enabled),
         "tasks": list(all_tasks()),
@@ -440,7 +485,7 @@ def validate_training(
     if family is None or (family is not TABULAR and family.validator is None):
         raise TabularError(
             code="ML_TASK_UNKNOWN",
-            message="A model is either a classification or a regression.",
+            message="This is not a task the platform trains: classification, regression or forecasting.",
             details={"task": chosen_task[:40]},
         )
     # The general worker is always there; a family trained in its own image is
@@ -1404,6 +1449,7 @@ def _write_manifest(scratch: Path, model: MLModel, data_path: Path) -> Path:
         "data_path": str(data_path),
         "model_dir": str(scratch / "model"),
         "task": model.task,
+        "algo": model.algo,
         "target": model.target,
         "features": list(model.features or []),
         "estimator": params.get("estimator"),
@@ -1750,6 +1796,10 @@ def _apply_summary(model: MLModel, summary: dict[str, Any]) -> None:
             "bytes": int(state.get("bytes") or 0),
             "skore": str(state.get("skore") or ""),
         }
+    if isinstance(summary.get("artifact"), dict):
+        # What the harness vouched for (serialization, sha256 of the artifact
+        # and of the model's code file): checked before a remote family loads it.
+        metrics["artifact"] = dict(summary["artifact"])
     model.metrics_json = metrics
     model.signature_json = dict(summary.get("signature") or {})
     model.input_example_json = summary.get("input_example") or []
