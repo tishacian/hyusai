@@ -1,9 +1,11 @@
 export type HypervisorViewDenominator = 'hours' | 'runs' | 'value';
-export type HypervisorViewPeriod = '30d' | '90d';
+export type HypervisorViewPeriod = '7d' | '30d' | '90d';
 export type HypervisorStratumId = 'comprendre' | 'detailler' | 'decider';
 export type HypervisorBlockWidth = '1/2' | '2/3' | 'full';
 
 export const COMPRENDRE_BLOCKS = [
+  'activity',
+  'financial_scenario',
   'monument',
   'provenance',
   'cadran',
@@ -71,11 +73,13 @@ export interface HypervisorNamedView {
   register_columns: string[];
   sort: string;
   schema_version?: number;
+  system_id?: string | null;
 }
 
 export interface HypervisorViewsPayload {
   views: HypervisorNamedView[];
   can_edit: boolean;
+  default_view_id?: string | null;
 }
 
 function block(
@@ -271,7 +275,7 @@ export function replaceView(
 }
 
 export function viewPeriod(view: HypervisorNamedView | null | undefined): HypervisorViewPeriod {
-  return view?.period === '90d' ? '90d' : '30d';
+  return view?.period === '7d' ? '7d' : view?.period === '90d' ? '90d' : '30d';
 }
 
 export function viewDenominator(view: HypervisorNamedView | null | undefined): HypervisorViewDenominator {
@@ -353,12 +357,12 @@ export function serializeViewsForWrite(views: readonly HypervisorNamedView[]): H
 }
 
 export function parseViewsPayload(
-  raw: { views?: readonly RawNamedView[]; can_edit?: boolean } | null | undefined,
+  raw: { views?: readonly RawNamedView[]; can_edit?: boolean; default_view_id?: string | null } | null | undefined,
 ): HypervisorViewsPayload {
   const views = raw?.views?.length
     ? raw.views.map(normalizeView)
     : DEFAULT_HYPERVISOR_VIEWS.map(cloneView);
-  return { views, can_edit: raw?.can_edit === true };
+  return { views, can_edit: raw?.can_edit === true, default_view_id: raw?.default_view_id ?? views[0]?.id ?? null };
 }
 
 type RawBlock = string | Partial<HypervisorBlockRef> | null | undefined;
@@ -369,6 +373,7 @@ interface RawNamedView {
   denominator?: string;
   period?: string;
   schema_version?: number;
+  system_id?: string | null;
   strata?: Partial<Record<HypervisorStratumId, RawBlock[]>>;
   register_columns?: string[];
   sort?: string;
@@ -414,6 +419,7 @@ export function normalizeView(view: RawNamedView): HypervisorNamedView {
     denominator: viewDenominator(view as HypervisorNamedView),
     period: viewPeriod(view as HypervisorNamedView),
     schema_version: 2,
+    ...(view.system_id ? { system_id: view.system_id } : {}),
     strata: {
       comprendre: normalizeStratum(view.strata?.comprendre),
       detailler: normalizeStratum(view.strata?.detailler),

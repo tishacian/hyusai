@@ -1183,11 +1183,13 @@ export interface HypervisorNamedView {
   register_columns: string[];
   sort: string;
   schema_version?: number;
+  system_id?: string | null;
 }
 
 export interface HypervisorViewsPayload {
   views: HypervisorNamedView[];
   can_edit: boolean;
+  default_view_id?: string | null;
 }
 
 export type PortfolioEvidenceState =
@@ -2782,8 +2784,8 @@ export class CanonicalApiService {
       .pipe(catchError(() => of(null)));
   }
 
-  putHypervisorViews(views: HypervisorNamedView[]): Observable<HypervisorViewsPayload> {
-    return this.api.put<HypervisorViewsPayload>('/hypervisor/views', { views });
+  putHypervisorViews(views: HypervisorNamedView[], defaultViewId?: string | null): Observable<HypervisorViewsPayload> {
+    return this.api.put<HypervisorViewsPayload>('/hypervisor/views', { views, ...(defaultViewId ? { default_view_id: defaultViewId } : {}) });
   }
 
   hypervisorMapSettings(): Observable<{

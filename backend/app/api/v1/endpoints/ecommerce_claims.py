@@ -12,7 +12,6 @@ from app.models.claim_action import ClaimAction
 from app.models.run import Run
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services import ecommerce_activity
 from app.services import ecommerce_claims as claims
 from app.services.connectors.generic import postgresql_claims as pg
 from app.services.experience import lifecycle
@@ -56,29 +55,6 @@ def triage(
 
     _access(db, workspace, user)
     return read_triage(db, workspace)
-
-
-@router.get("/activity")
-def activity(
-    workspace: Workspace = Depends(get_current_workspace),
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    _access(db, workspace, user)
-    try:
-        experience, _, release = work._resolve_for_user(
-            db, workspace=workspace, user=user, slug="reclamations"
-        )
-        binding = lifecycle.work_binding_snapshot(release, binding_key=ecommerce_activity.BINDING)
-        return ecommerce_activity.activity(
-            db,
-            workspace,
-            user,
-            experience_id=experience.id,
-            system_id=binding["system_id"],
-        )
-    except lifecycle.ExperienceError as exc:
-        raise HTTPException(exc.status_code, detail=exc.payload()) from None
 
 
 @router.get("/{claim_id}")
