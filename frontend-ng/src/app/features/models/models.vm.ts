@@ -127,6 +127,7 @@ export interface CvBlock {
 }
 
 export interface MetricsBlock {
+  tuning?: import('./tuning-evidence.vm').TuningResult;
   task?: ModelTask;
   primary?: MetricScore;
   scores?: MetricScore[];
@@ -726,6 +727,7 @@ export interface NumericKnobDescriptor {
   step: number;
   /** Value at which the estimator decides for itself (sklearn's `None`). */
   auto_at?: number;
+  log?: boolean;
 }
 
 export interface EnumKnobDescriptor {
@@ -865,7 +867,7 @@ export interface TrainingPlan {
   test_size: number;
   cross_validation: number;
   name: string;
-  warnings: { code: string; feature?: string; field?: string; task?: ModelTask }[];
+  warnings: { code: string; feature?: string; field?: string; task?: ModelTask; estimated_s?: number; budget_s?: number }[];
   rows: number;
 }
 
@@ -1657,7 +1659,7 @@ export function servingErrorKey(code: string | undefined | null): string | null 
   return `models.serving.error.${code.toLowerCase()}`;
 }
 
-export const PLAN_WARNING_CODES = ['ML_FEATURE_IDENTIFIER', 'ML_SPEC_FIELD_IGNORED'] as const;
+export const PLAN_WARNING_CODES = ['ML_FEATURE_IDENTIFIER', 'ML_SPEC_FIELD_IGNORED', 'ML_TUNING_ESTIMATE', 'ML_TUNING_BUDGET_LIMITED'] as const;
 
 export function warningKey(code: string | undefined | null): string | null {
   if (!code || !PLAN_WARNING_CODES.includes(code as (typeof PLAN_WARNING_CODES)[number])) {

@@ -171,6 +171,11 @@ def _metric_pairs(metrics: dict | None) -> list[tuple[str, float]]:
         key, value = row.get("key"), row.get("mean")
         if isinstance(key, str) and isinstance(value, (int, float)):
             pairs.append((f"cv_{key}", float(value)))
+    tuning = (metrics or {}).get("tuning") or {}
+    for group in ("start", "best"):
+        value = (tuning.get(group) or {}).get("score")
+        if isinstance(value, (int, float)):
+            pairs.append((f"tuning.{group}.score", float(value)))
     return pairs
 
 
@@ -206,6 +211,22 @@ def publish(
             client.log_param(run_id, str(key), str(value))
         for key, value in _metric_pairs(metrics):
             client.log_metric(run_id, key, value)
+        # Client API equivalent of nested=True: keep the explicit tracking URI
+        # rather than changing MLflow's process-global fluent state in a worker.
+        for trial in ((metrics or {}).get("tuning") or {}).get("trials", [])[:100]:
+            child = client.create_run(
+                experiment_id=run.info.experiment_id,
+                tags={"mlflow.parentRunId": run_id, "agentium.tuning.state": trial["state"]},
+                run_name=f"trial-{trial['n']}",
+            )
+            child_id = child.info.run_id
+            client.log_param(child_id, "trial", trial["n"])
+            for key in ("score", "duration_ms"):
+                value = trial.get(key)
+                if isinstance(value, (int, float)):
+                    client.log_metric(child_id, key, value)
+            state = RunStatus.FAILED if trial["state"] == "failed" else RunStatus.FINISHED
+            client.set_terminated(child_id, status=RunStatus.to_string(state))
         client.set_terminated(run_id, status=RunStatus.to_string(RunStatus.FINISHED))
 
         try:
