@@ -6,6 +6,7 @@ endpoint. The actual `invoke()` callable is registered in
 the typed contracts so the registry is queryable from `/skills` without
 the runtime needing to be alive.
 """
+import json
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -3440,93 +3441,177 @@ def skill_category(slug: str) -> str | None:
     return SKILL_CATEGORIES.get(slug)
 
 
+# The fields the seed owns on a canonical row. Anything else (metrics, an
+# executor bound later) belongs to the platform and is never touched.
+_SEEDED_SKILL_FIELDS = (
+    "name", "description", "type", "provider", "certification_level",
+    "execution", "pricing", "input_schema", "output_schema", "version",
+)
+_SEEDED_CAPABILITY_FIELDS = (
+    "name", "description", "tier", "industry", "input_unit", "output_unit",
+    "pricing", "value_per_outcome", "confidence_threshold", "sla", "roi_model",
+)
+
+
+def _as_stored(value: Any) -> Any:
+    """A seed value as the database returns it (tuples become lists in JSON)."""
+
+    return json.loads(json.dumps(value)) if isinstance(value, (dict, list, tuple)) else value
+
+
+def _skill_changes(row: Skill, entry: Dict[str, Any]) -> Dict[str, Any]:
+    changes = {
+        key: _as_stored(entry[key])
+        for key in _SEEDED_SKILL_FIELDS
+        if entry.get(key) is not None and getattr(row, key) != _as_stored(entry[key])
+    }
+    category = skill_category(entry["slug"])
+    if row.category != category:
+        changes["category"] = category
+    if row.is_seeded != "Y":
+        changes["is_seeded"] = "Y"
+    return changes
+
+
+def _capability_changes(row: Capability, entry: Dict[str, Any], skill_ids: List[str]) -> Dict[str, Any]:
+    changes = {
+        key: _as_stored(entry[key])
+        for key in _SEEDED_CAPABILITY_FIELDS
+        if entry.get(key) is not None and getattr(row, key) != _as_stored(entry[key])
+    }
+    if "industry" in entry and entry["industry"] is None and row.industry is not None:
+        changes["industry"] = None
+    if list(row.skill_ids or []) != skill_ids:
+        changes["skill_ids"] = skill_ids
+    if row.is_seeded != "Y":
+        changes["is_seeded"] = "Y"
+    return changes
+
+
+def reconcile_catalog(db: DBSession, *, apply: bool) -> Dict[str, Any]:
+    """Compare the canonical catalog in code with the database, and optionally
+    write only what differs.
+
+    Reported per kind: rows the code has and the database lacks (``missing``),
+    rows whose seeded fields differ, with the fields named (``changed``), and
+    seeded rows the code no longer declares (``orphaned`` — reported, never
+    deleted: a Flow may still reference them). ``in_sync`` is the answer a
+    release checks. With ``apply``, missing rows are created and changed ones
+    updated; identical rows are not rewritten, so their ``updated_at`` does not
+    move and a field the seed does not own is never touched.
+    """
+
+    now = datetime.utcnow()
+    seed_slugs = [entry["slug"] for entry in SEED_SKILLS]
+    rows = {row.slug: row for row in db.query(Skill).filter(Skill.slug.in_(seed_slugs)).all()}
+    skill_ids: Dict[str, str] = {slug: row.id for slug, row in rows.items()}
+    skills: Dict[str, Any] = {"missing": [], "changed": {}, "orphaned": []}
+    for entry in SEED_SKILLS:
+        row = rows.get(entry["slug"])
+        if row is None:
+            skills["missing"].append(entry["slug"])
+            if apply:
+                row = Skill(
+                    slug=entry["slug"],
+                    version=entry["version"],
+                    name=entry["name"],
+                    description=entry["description"],
+                    type=entry["type"],
+                    category=skill_category(entry["slug"]),
+                    provider=entry["provider"],
+                    certification_level=entry["certification_level"],
+                    execution=entry["execution"],
+                    pricing=entry["pricing"],
+                    input_schema=entry["input_schema"],
+                    output_schema=entry["output_schema"],
+                    is_seeded="Y",
+                    workspace_id=None,
+                )
+                db.add(row)
+                db.flush()
+                skill_ids[row.slug] = row.id
+            continue
+        changes = _skill_changes(row, entry)
+        if changes:
+            skills["changed"][entry["slug"]] = sorted(changes)
+            if apply:
+                for key, value in changes.items():
+                    setattr(row, key, value)
+                row.updated_at = now
+    skills["orphaned"] = sorted(
+        slug
+        for (slug,) in db.query(Skill.slug).filter(Skill.is_seeded == "Y", ~Skill.slug.in_(seed_slugs)).all()
+    )
+
+    capability_slugs = [entry["slug"] for entry in SEED_CAPABILITIES]
+    capability_rows = {
+        row.slug: row for row in db.query(Capability).filter(Capability.slug.in_(capability_slugs)).all()
+    }
+    capabilities: Dict[str, Any] = {"missing": [], "changed": {}, "orphaned": []}
+    for entry in SEED_CAPABILITIES:
+        ids = [skill_ids[slug] for slug in entry["skill_slugs"] if slug in skill_ids]
+        row = capability_rows.get(entry["slug"])
+        if row is None:
+            capabilities["missing"].append(entry["slug"])
+            if apply:
+                db.add(
+                    Capability(
+                        slug=entry["slug"],
+                        name=entry["name"],
+                        description=entry["description"],
+                        tier=entry["tier"],
+                        industry=entry.get("industry"),
+                        input_unit=entry["input_unit"],
+                        output_unit=entry["output_unit"],
+                        skill_ids=ids,
+                        pricing=entry["pricing"],
+                        value_per_outcome=entry["value_per_outcome"],
+                        confidence_threshold=entry["confidence_threshold"],
+                        sla=entry["sla"],
+                        roi_model=entry["roi_model"],
+                        is_seeded="Y",
+                        workspace_id=None,
+                    )
+                )
+            continue
+        changes = _capability_changes(row, entry, ids)
+        if changes:
+            capabilities["changed"][entry["slug"]] = sorted(changes)
+            if apply:
+                for key, value in changes.items():
+                    setattr(row, key, value)
+                row.updated_at = now
+    capabilities["orphaned"] = sorted(
+        slug
+        for (slug,) in db.query(Capability.slug)
+        .filter(Capability.is_seeded == "Y", ~Capability.slug.in_(capability_slugs))
+        .all()
+    )
+
+    if apply:
+        db.commit()
+    behind = any(kind["missing"] or kind["changed"] for kind in (skills, capabilities))
+    return {
+        # After an apply the catalog is in sync by construction; the lists
+        # then say what the apply wrote.
+        "in_sync": True if apply else not behind,
+        "applied": bool(apply),
+        "skills": skills,
+        "capabilities": capabilities,
+    }
+
+
 def seed_skills_and_capabilities(db: DBSession) -> Dict[str, int]:
     """Idempotent upsert of the seed registry. Safe to call on every boot.
 
-    Returns a small report so the startup log can show what changed.
+    Only rows that differ are written, so the report counts real changes and an
+    identical row keeps its ``updated_at``.
     """
-    now = datetime.utcnow()
-    skills_added = 0
-    skills_updated = 0
-    skill_id_by_slug: Dict[str, str] = {}
 
-    # Skills first.
-    for entry in SEED_SKILLS:
-        existing = db.query(Skill).filter(Skill.slug == entry["slug"]).first()
-        if existing:
-            for key in ("name", "description", "type", "provider", "certification_level",
-                        "execution", "pricing", "input_schema", "output_schema", "version"):
-                if entry.get(key) is not None:
-                    setattr(existing, key, entry[key])
-            existing.category = skill_category(entry["slug"])
-            existing.is_seeded = "Y"
-            existing.updated_at = now
-            skill_id_by_slug[existing.slug] = existing.id
-            skills_updated += 1
-        else:
-            sk = Skill(
-                slug=entry["slug"],
-                version=entry["version"],
-                name=entry["name"],
-                description=entry["description"],
-                type=entry["type"],
-                category=skill_category(entry["slug"]),
-                provider=entry["provider"],
-                certification_level=entry["certification_level"],
-                execution=entry["execution"],
-                pricing=entry["pricing"],
-                input_schema=entry["input_schema"],
-                output_schema=entry["output_schema"],
-                is_seeded="Y",
-                workspace_id=None,
-            )
-            db.add(sk)
-            db.flush()
-            skill_id_by_slug[sk.slug] = sk.id
-            skills_added += 1
-
-    # Capabilities reference skill ids.
-    caps_added = 0
-    caps_updated = 0
-    for entry in SEED_CAPABILITIES:
-        skill_ids = [skill_id_by_slug[s] for s in entry["skill_slugs"] if s in skill_id_by_slug]
-        existing = db.query(Capability).filter(Capability.slug == entry["slug"]).first()
-        if existing:
-            for key in ("name", "description", "tier", "industry", "input_unit", "output_unit",
-                        "pricing", "value_per_outcome", "confidence_threshold", "sla", "roi_model"):
-                if entry.get(key) is not None:
-                    setattr(existing, key, entry[key])
-            if "industry" in entry and entry["industry"] is None:
-                existing.industry = None
-            existing.skill_ids = skill_ids
-            existing.is_seeded = "Y"
-            existing.updated_at = now
-            caps_updated += 1
-        else:
-            cap = Capability(
-                slug=entry["slug"],
-                name=entry["name"],
-                description=entry["description"],
-                tier=entry["tier"],
-                industry=entry.get("industry"),
-                input_unit=entry["input_unit"],
-                output_unit=entry["output_unit"],
-                skill_ids=skill_ids,
-                pricing=entry["pricing"],
-                value_per_outcome=entry["value_per_outcome"],
-                confidence_threshold=entry["confidence_threshold"],
-                sla=entry["sla"],
-                roi_model=entry["roi_model"],
-                is_seeded="Y",
-                workspace_id=None,
-            )
-            db.add(cap)
-            caps_added += 1
-
-    db.commit()
+    report = reconcile_catalog(db, apply=True)
     return {
-        "skills_added": skills_added,
-        "skills_updated": skills_updated,
-        "capabilities_added": caps_added,
-        "capabilities_updated": caps_updated,
+        "skills_added": len(report["skills"]["missing"]),
+        "skills_updated": len(report["skills"]["changed"]),
+        "capabilities_added": len(report["capabilities"]["missing"]),
+        "capabilities_updated": len(report["capabilities"]["changed"]),
     }
