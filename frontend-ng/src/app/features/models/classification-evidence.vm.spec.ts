@@ -16,3 +16,9 @@ test('threshold comparisons preserve missing measurements and both decisions', (
     { key: 'precision', before: 0.9, after: 0.8 }, { key: 'recall', before: 0.5, after: 0.7 }, { key: 'f1', before: null, after: null },
   ]);
 });
+
+import { trainChecklist } from './models.vm';
+test('threshold-only training announces its calibration folds', () => {
+  const steps = trainChecklist('training', 'calibrating:2/5', 0, 'en', 'classification', { threshold: 'f1', calibration: 'off' });
+  assert.ok(steps.some((step) => step.step === 'calibrating'));
+});
