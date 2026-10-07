@@ -56,19 +56,24 @@ def test_demo_constraints_cover_declared_requirements(kind):
         assert requirement.specifier.contains(constraints[name]), f"Incompatible {name}: {constraints[name]}"
 
 
+PYTHON_IMAGES = ("backend", "worker", "ml-ts")
+
+
 def test_api_and_worker_build_one_shared_python_stack():
     """The worker fits what the API unpickles, so they share one interpreter build.
 
     Identical instructions down to the marker give identical layers: BuildKit
-    builds the Python stack once, and the two images cannot drift apart on the
-    numpy, scipy or scikit-learn a model artifact depends on.
+    builds the Python stack once, and the images cannot drift apart on the
+    numpy, scipy or scikit-learn a model artifact depends on. The forecasting
+    image shares it too: its regressors are the tabular catalog's, and the API
+    reads the evidence it writes.
     """
     prefixes = {}
-    for name in ("backend", "worker"):
+    for name in PYTHON_IMAGES:
         dockerfile = (ROOT / "docker" / f"Dockerfile.agentium-{name}").read_text(encoding="utf-8")
         assert dockerfile.count(PREFIX_END) == 1, f"{name} lost its shared-prefix marker"
         prefixes[name] = _instructions(dockerfile.split(PREFIX_END, 1)[0])
-    assert prefixes["backend"] == prefixes["worker"]
+    assert prefixes["backend"] == prefixes["worker"] == prefixes["ml-ts"]
     shared = "\n".join(prefixes["backend"])
     assert "constraints-demo-app.txt" in shared
     # The baked cross-encoder files are shared; torch is not.
@@ -109,11 +114,13 @@ def _run_instructions(dockerfile: str) -> list[str]:
 
 def test_giskard_constraints_only_reach_the_giskard_venv():
     """Giskard's older numpy/scipy may exist only inside its own venv."""
-    for name in ("backend", "worker"):
+    for name in PYTHON_IMAGES:
         dockerfile = (ROOT / "docker" / f"Dockerfile.agentium-{name}").read_text(encoding="utf-8")
         for run in _run_instructions(dockerfile):
-            kinds = set(re.findall(r"--constraint=\S*constraints-demo-(\w+)\.txt", run))
-            assert kinds <= {"app", "giskard"}, f"{name} installs with unknown constraints {kinds}"
+            kinds = set(re.findall(r"--constraint=\S*constraints-demo-([\w-]+)\.txt", run))
+            assert kinds <= {"app", "giskard", "ml-ts"}, f"{name} installs with unknown constraints {kinds}"
+            if "ml-ts" in kinds:
+                assert name == "ml-ts" and kinds == {"app", "ml-ts"}, f"{name} applies forecasting pins"
             if "giskard" not in kinds:
                 continue
             assert kinds == {"giskard"}, f"{name} mixes Giskard and app pins in one install"
@@ -151,3 +158,35 @@ def test_giskard_venv_only_overrides_what_giskard_pins_differently():
     }, f"Giskard now overrides more of the app stack: {sorted(overridden)}"
     for name in ("torch", "torchvision", "transformers", "scikit-learn", "skops", "mlflow"):
         assert giskard[name] == app[name], f"Giskard venv must reuse the system {name}"
+
+
+def test_the_forecasting_image_only_adds_packages_and_never_moves_an_app_pin():
+    """ml-ts installs on top of the app stack with both constraint files.
+
+    A package in both files at different versions would make pip refuse the
+    install — or, worse, a later edit would quietly fit forecasts on another
+    numpy than the API reads them with. So the ml-ts file only adds.
+    """
+    app = _constraints("app")
+    ml_ts = _constraints("ml-ts")
+    assert not set(ml_ts) & set(app), f"ml-ts re-pins app packages: {sorted(set(ml_ts) & set(app))}"
+    for line in (ROOT / "backend" / "requirements_ml_ts.txt").read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        name = canonicalize_name(Requirement(line).name)
+        assert name in ml_ts, f"Unqualified forecasting dependency: {name}"
+    assert {"skforecast", "statsmodels", "numba"} <= set(ml_ts)
+
+
+def test_the_forecasting_image_has_no_torch_and_runs_the_ml_worker():
+    dockerfile = (ROOT / "docker" / "Dockerfile.agentium-ml-ts").read_text(encoding="utf-8")
+    specific = dockerfile.split(PREFIX_END, 1)[1]
+    runs = _run_instructions(specific)
+    installs = [run for run in runs if "pip install" in run]
+    assert len(installs) == 1
+    assert "torch" not in installs[0].replace('! python -c "import torch"', "")
+    assert '! python -c "import torch"' in installs[0], "the image must prove torch did not ride along"
+    assert "/opt/agentium-giskard" not in specific and "build-essential" not in specific
+    assert "CELERY_APP=app.workers.celery_ml:celery_ml" in specific
+    assert "ML_RUNTIME=ml-ts" in specific and "CELERY_QUEUES=ml_ts" in specific

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from app.services.ml.families.base import Family, SpecField, SpecInvalid
+from app.services.ml.families.forecasting import FORECASTING_FAMILY
 from app.services.ml.families.tabular import TABULAR
 
-FAMILIES: tuple[Family, ...] = (TABULAR,)
+FAMILIES: tuple[Family, ...] = (TABULAR, FORECASTING_FAMILY)
 FAMILY_BY_KEY = {family.key: family for family in FAMILIES}
 
 
@@ -28,6 +29,7 @@ def all_tasks() -> tuple[str, ...]:
 
 __all__ = [
     "FAMILIES",
+    "FORECASTING_FAMILY",
     "FAMILY_BY_KEY",
     "Family",
     "SpecField",

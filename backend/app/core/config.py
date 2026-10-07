@@ -115,6 +115,8 @@ class Settings(BaseSettings):
     # where the general worker already trains it. Other families name their own
     # queue setting (app.services.ml.families), consumed by their own image.
     celery_ml_tabular_queue: str = ""
+    # Training queue of the forecasting family, consumed by the ml-ts image.
+    celery_ml_ts_queue: str = "ml_ts"
 
     # Object storage for original / ingested / derived RAG artifacts.
     # "local" is dependency-free for dev/tests; "s3" uses fsspec/s3fs when
@@ -669,6 +671,11 @@ class Settings(BaseSettings):
     ml_runtime: str = "worker"
     ml_runtime_heartbeat_s: float = Field(default=60.0, ge=5.0, le=3600.0)
     ml_runtime_heartbeat_ttl_s: float = Field(default=180.0, ge=15.0, le=86_400.0)
+    # Forecasting bounds: what keeps a no-code forecast from asking for a year
+    # of hourly steps, a thousand series or a lag the history cannot supply.
+    ml_ts_max_horizon: int = Field(default=720, ge=1, le=10_000)
+    ml_ts_max_series: int = Field(default=200, ge=1, le=5_000)
+    ml_ts_max_lag: int = Field(default=744, ge=1, le=10_000)
     # Serving. A loaded pyfunc is tens of megabytes of resident pipeline, so the
     # cache is small by design: it exists to make the second prediction of a
     # demo instant, not to hold a workspace's whole registry in memory.
