@@ -67,9 +67,17 @@ def _paths(tree, names):
         if feature < 0:
             paths[node] = rules
             return
-        common = {"feature": names[feature], "value": _number(tree.tree_.threshold[node])}
-        visit(tree.tree_.children_left[node], rules + [{**common, "op": "<="}])
-        visit(tree.tree_.children_right[node], rules + [{**common, "op": ">"}])
+        threshold = float(tree.tree_.threshold[node])
+        common = {"feature": names[feature], "value": _number(threshold)}
+        missing_left = bool(tree.tree_.missing_go_to_left[node])
+        if math.isinf(threshold):
+            # sklearn uses infinity for a split that isolates missing values.
+            left, right = {**common, "op": "not_missing"}, {**common, "op": "missing"}
+        else:
+            left = {**common, "op": "<=", "missing": missing_left}
+            right = {**common, "op": ">", "missing": not missing_left}
+        visit(tree.tree_.children_left[node], rules + [left])
+        visit(tree.tree_.children_right[node], rules + [right])
     visit(0, [])
     return paths
 

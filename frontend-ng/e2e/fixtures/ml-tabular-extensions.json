@@ -11,5 +11,178 @@
     { "name": "region", "kind": "string", "distinct": 3, "nulls": 0, "suggested_task": "classification" },
     { "name": "segment", "kind": "string", "distinct": 4, "nulls": 0, "suggested_task": "classification" },
     { "name": "visits", "kind": "integer", "distinct": 20, "nulls": 0, "suggested_task": "regression" }
-  ]
+  ],
+  "explanation_fields": [
+    {
+      "key": "explain",
+      "kind": "enum",
+      "default": "off",
+      "choices": [
+        "off",
+        "pack"
+      ]
+    },
+    {
+      "key": "fairness_columns",
+      "kind": "columns",
+      "default": [],
+      "max_items": 3,
+      "when": {
+        "explain": [
+          "pack"
+        ]
+      }
+    }
+  ],
+  "explanation_metrics": {
+    "primary": {
+      "key": "roc_auc",
+      "value": 0.9
+    },
+    "scores": [
+      {
+        "key": "roc_auc",
+        "value": 0.9
+      }
+    ],
+    "target": {
+      "name": "region",
+      "classes": [
+        "North",
+        "South"
+      ],
+      "positive": "South"
+    },
+    "explain": {
+      "rows": 325,
+      "budget_s": 60,
+      "elapsed_s": 3.2,
+      "error_tree": {
+        "global_error": 0.15,
+        "rules": [
+          {
+            "rule": [
+              {
+                "feature": "visits",
+                "op": "<=",
+                "value": 2.5
+              }
+            ],
+            "rows": 80,
+            "error": 0.4,
+            "global_error": 0.15,
+            "lift": 2.67
+          }
+        ]
+      },
+      "surrogate": {
+        "fidelity": 0.85,
+        "metric": "accuracy",
+        "train_rows": 228,
+        "validation_rows": 97,
+        "rules": [
+          {
+            "rule": [
+              {
+                "feature": "visits",
+                "op": ">",
+                "value": 5
+              }
+            ],
+            "rows": 180,
+            "prediction": "South"
+          }
+        ]
+      },
+      "pdp": [
+        {
+          "feature": "visits",
+          "kind": "numeric",
+          "grid": [
+            0,
+            5,
+            10
+          ],
+          "average": [
+            0.2,
+            0.4,
+            0.8
+          ],
+          "ice": [
+            [
+              0.1,
+              0.4,
+              0.9
+            ],
+            [
+              0.3,
+              0.4,
+              0.7
+            ]
+          ],
+          "class": "South"
+        },
+        {
+          "feature": "segment",
+          "kind": "categorical",
+          "grid": [
+            "Retail",
+            "Business"
+          ],
+          "average": [
+            0.8,
+            0.4
+          ],
+          "ice": [
+            [
+              0.7,
+              0.3
+            ],
+            [
+              0.9,
+              0.5
+            ]
+          ],
+          "class": "South"
+        }
+      ],
+      "fairness": [
+        {
+          "column": "segment",
+          "selection_ratio": 0.5,
+          "equalized_odds_diff": 0.4,
+          "signal": true,
+          "groups": [
+            {
+              "group": "Retail",
+              "n": 160,
+              "low_support": false,
+              "selection_rate": 0.8,
+              "tpr": 0.8,
+              "fpr": 0.2,
+              "accuracy": 0.8
+            },
+            {
+              "group": "Business",
+              "n": 160,
+              "low_support": false,
+              "selection_rate": 0.4,
+              "tpr": 0.4,
+              "fpr": 0.1,
+              "accuracy": 0.7
+            },
+            {
+              "group": "Tiny",
+              "n": 5,
+              "low_support": true,
+              "selection_rate": 0,
+              "tpr": null,
+              "fpr": 0,
+              "accuracy": 1
+            }
+          ]
+        }
+      ]
+    }
+  }
 }

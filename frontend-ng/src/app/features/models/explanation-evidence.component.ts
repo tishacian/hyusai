@@ -108,7 +108,7 @@ export class ExplanationEvidenceComponent {
   protected readonly fairness = computed(() => { const value = this.evidence()?.fairness; return Array.isArray(value) ? value : []; });
   protected readonly fairnessError = computed(() => { const value = this.evidence()?.fairness; return value && !Array.isArray(value) ? value.error : null; });
   protected columns = fairnessMetrics;
-  protected rule(terms: ExplainRule[]): string { return readableRule(terms, this.i18n.locale(), this.i18n.t('models.explain.all'), this.i18n.t('models.explain.and')); }
+  protected rule(terms: ExplainRule[]): string { return readableRule(terms, this.i18n.locale(), this.i18n.t('models.explain.all'), this.i18n.t('models.explain.and'), this.i18n.t('models.explain.missing'), this.i18n.t('models.explain.present'), this.i18n.t('models.explain.or')); }
   protected failure(error: string): string { return this.i18n.t(error === 'budget' ? 'models.explain.budget' : 'models.explain.section_unavailable'); }
   protected measure(value: number | null | undefined, numeric = false): string {
     return typeof value !== 'number' || !Number.isFinite(value) ? '—' : value.toLocaleString(this.i18n.locale(), numeric ? { maximumFractionDigits: 3 } : { style: 'percent', maximumFractionDigits: 1 });
