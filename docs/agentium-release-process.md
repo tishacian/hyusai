@@ -89,9 +89,19 @@ sudo git -C /srv/agentium-data/worktrees/demo-agentic status --porcelain   # mus
 ## 4. Build the three images
 
 Built on the VM, from the worktree, tagged with the **immutable 12-hex** SHA
-prefix (the deploy script rejects anything else). All four build-args are
-mandatory. The moving tag `demo-agentic` is the rollback pointer — do **not**
-move it during the release.
+prefix (the deploy script rejects anything else). The four common build-args
+are mandatory, plus `PYTHON_BASE_IMAGE` for the two Python images. The moving
+tag `demo-agentic` is the rollback pointer — do **not** move it during the
+release.
+
+`<base>` is the Python base image pinned by digest. Read it once from the image
+the VM already qualified, and record it in the release notes. A compose build
+(`deploy-vm.sh`) reads the same value from `AGENTIUM_PYTHON_BASE_IMAGE`:
+
+```bash
+sudo docker image inspect python:3.12-slim --format '{{index .RepoDigests 0}}'
+# python@sha256:… → pass it as python:3.12-slim@sha256:…
+```
 
 ```bash
 cd /srv/agentium-data/worktrees/demo-agentic
@@ -100,28 +110,70 @@ for svc in backend worker frontend; do
   if [ "$svc" = worker ]; then
     extra_args+=(--build-arg INSTALL_GISKARD_RAGET=true)
   fi
+  if [ "$svc" != frontend ]; then
+    extra_args+=(--build-arg PYTHON_BASE_IMAGE=<base>)
+  fi
   sudo docker build -f docker/Dockerfile.agentium-$svc \
     --build-arg AGENTIUM_IMAGE_REVISION=<sha40> \
     --build-arg PIP_INDEX_URL=https://pypi.org/simple \
     --build-arg USER_UID=1000 --build-arg USER_GID=1000 \
     "${extra_args[@]}" -t agentium-$svc:<sha12> .
 done
+scripts/agentium-image-budget.sh <sha12>
 ```
 
 The demo worker currently includes the optional Giskard SDK. Preserve
 `--build-arg INSTALL_GISKARD_RAGET=true` on its build (the Dockerfile default
-is false). This also runs `pip check` and the offline SDK qualification; it
-does not establish a live provider campaign.
+is false). Giskard goes into its own venv, `/opt/agentium-giskard`, which the
+RAGET subprocess runs on; the build proves it did not leak into the worker's
+main interpreter, then runs `pip check` and the offline SDK qualification on
+the venv. It does not establish a live provider campaign.
 
 Build all three even for a frontend-only change: the single tag drives the
 whole stack at switch time.
 
-The API and worker Dockerfiles apply separate `backend/constraints-demo-*.txt`
-files to every Python install, including CPU PyTorch and optional Giskard.
+The API and worker Dockerfiles open on an identical prefix (base image, OS
+packages, `requirements.txt`, CPU PyTorch). BuildKit therefore builds that
+Python stack once and both images share its layers; `agentium-image-budget.sh`
+prints the shared layer count and fails when it drops, together with each
+image's size. Record those sizes in the release notes; to bound them, export
+`AGENTIUM_IMAGE_BUDGET_MB_{BACKEND,WORKER,FRONTEND}` a few percent above the
+recorded values before running it. The first build after this layout landed
+rebuilt the Python stack from scratch (the layer order changed): budget the
+cold-cache duration for it.
+
+Each Python image also has its own build-context filter,
+`docker/Dockerfile.agentium-{backend,worker}.dockerignore`, which BuildKit reads
+instead of the root `.dockerignore`: documentation media, `frontend-ng/` and
+`outputs/` stay out of those images, and `test_python_image_context` keeps every
+file the runtime reads in.
+
+Both Python images also bake the RAG cross-encoders, as ONNX exports with
+their tokenizers, into `/opt/agentium-models`. `backend/rag_models.lock.json`
+pins every file by revision and sha256, and the build fails on a mismatch. No
+container downloads a model when it starts. While the images still install
+torch, `RAG_RERANKER_BACKEND=auto` keeps reranking on torch. To move to ONNX,
+qualify it on the VM's own CPU once a release with it is running:
+
+```bash
+sudo docker exec agentium-backend python -m scripts.bench_rerank_engines
+```
+
+It compares both engines with the published model-card logits and with each
+other on reference passages, and measures p50/p95 at the balanced and deep
+candidate counts. When it recommends ONNX, set `RAG_RERANKER_BACKEND=onnx` in
+the runtime env and recreate the backend and the workers; `torch` switches
+back without a rebuild. Keep its output in the release evidence: the release
+that removes torch from the API image depends on it.
+
+The API and the worker install every Python package under one constraints
+file, `backend/constraints-demo-app.txt`: a model is fitted in the worker and
+unpickled by the API, so both must run the same numpy, scipy and scikit-learn.
+`backend/constraints-demo-giskard.txt` applies only inside the Giskard venv.
 These constraints were captured from the qualified `6f8f8169` runtime; changing
 requirements must include review of compatible constraints and actual image
-qualification. They freeze Python package versions, not OS packages or the
-mutable base-image tags. The historical Poetry lock is not used by these images.
+qualification. They freeze Python package versions; the base digest above
+freezes the OS layer. The historical Poetry lock is not used by these images.
 Do not set a runtime-wide `PIP_CONSTRAINT`: recipe environments retain their own
 contracts. The frontend revision is injected after `npm ci`, preserving the
 lockfile cache while still writing the candidate's exact public build identity.

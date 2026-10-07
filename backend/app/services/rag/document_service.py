@@ -10,11 +10,7 @@ from app.services.retrieval.bm25_retriever import BM25Retriever
 from app.services.retrieval.ensemble_retriever import EnsembleConfig, EnsembleRetriever
 from app.services.vector_db.factory import VectorDBFactory
 
-try:
-    from app.services.retrieval.flash_reranker import FlashReranker, RerankerConfig
-except ImportError:
-    FlashReranker = None  # type: ignore
-    RerankerConfig = None  # type: ignore
+from app.services.retrieval.reranker_config import RerankerConfig
 
 try:
     from app.services.retrieval.contextual_compression import (
@@ -214,14 +210,16 @@ class DocumentService:
         self.contextual_retriever: Optional[ContextualCompressionRetriever] = None
         
         # Initialize reranker if enabled
-        if use_reranker and FlashReranker is not None and RerankerConfig is not None:
+        if use_reranker:
             try:
+                from app.services.retrieval.rerankers import make_reranker
+
                 # Pin the legacy ensemble reranker to the balanced (L-6) model:
                 # the RerankerConfig default is L-12, which otherwise loads a
                 # second, heavier cross-encoder into the backend process even
                 # though the native sparse-hybrid path never uses it. The deep
                 # profile selects L-12 explicitly via cross_encoder_stage.
-                self.reranker = FlashReranker(
+                self.reranker = make_reranker(
                     RerankerConfig(model_name=settings.rag_cross_encoder_model_balanced)
                 )
             except Exception as e:
@@ -231,8 +229,6 @@ class DocumentService:
         else:
             self.reranker = None
             self.use_reranker = False
-            if use_reranker:
-                logger.info("Reranker dependencies unavailable; continuing without reranking.")
     
     async def ingest_document(self, file_path: str, **kwargs) -> Dict:
         """Ingest a single document"""

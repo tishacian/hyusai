@@ -78,3 +78,25 @@ data/
 
 # Secrets
 **/secrets/
+
+# ---- Python images only ----
+# A BuildKit build of docker/Dockerfile.agentium-{backend,worker} reads this
+# file instead of the root .dockerignore, so everything above is the root file
+# verbatim (test_python_image_context keeps it so). Below: what the Python
+# runtime never reads. docs/ itself stays — demo seeds and Sentinel read its
+# Markdown and JSON — only its media and office exports go.
+frontend-ng/
+livekit-agent/
+outputs/
+presentations/
+archive/
+docs/evidence/
+docs/**/*.png
+docs/**/*.jpg
+docs/**/*.jpeg
+docs/**/*.gif
+docs/**/*.pdf
+docs/**/*.pptx
+docs/**/*.docx
+docs/**/*.xlsx
+docs/**/*.mp4

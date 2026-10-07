@@ -161,6 +161,7 @@ services:
       args:
         AGENTIUM_IMAGE_REVISION: ${AGENTIUM_IMAGE_REVISION:-unknown}
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+        PYTHON_BASE_IMAGE: ${AGENTIUM_PYTHON_BASE_IMAGE:-python:3.12-slim}
         USER_UID: ${AGENTIUM_RUNTIME_UID:-1000}
         USER_GID: ${AGENTIUM_RUNTIME_GID:-1000}
     profiles: ["tools"]
@@ -187,6 +188,7 @@ services:
       args:
         AGENTIUM_IMAGE_REVISION: ${AGENTIUM_IMAGE_REVISION:-unknown}
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+        PYTHON_BASE_IMAGE: ${AGENTIUM_PYTHON_BASE_IMAGE:-python:3.12-slim}
         USER_UID: ${AGENTIUM_RUNTIME_UID:-1000}
         USER_GID: ${AGENTIUM_RUNTIME_GID:-1000}
     container_name: agentium-backend
@@ -224,6 +226,7 @@ services:
       args:
         AGENTIUM_IMAGE_REVISION: ${AGENTIUM_IMAGE_REVISION:-unknown}
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+        PYTHON_BASE_IMAGE: ${AGENTIUM_PYTHON_BASE_IMAGE:-python:3.12-slim}
         USER_UID: ${AGENTIUM_RUNTIME_UID:-1000}
         USER_GID: ${AGENTIUM_RUNTIME_GID:-1000}
     container_name: agentium-worker-cpu
