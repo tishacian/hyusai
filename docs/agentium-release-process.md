@@ -502,3 +502,22 @@ only postpones starvation. Before promotion, run two Operational Analysis
 requests concurrently, verify each child execution settles, and repeat through
 a worker restart. On rollback, drain recipe executions before stopping the
 consumer; switching producer images does not relocate queued tasks.
+
+### Optional tabular text encoding (Lot 2f)
+
+No migration, new package, or catalogue Skill schema change is required.
+`text_encoder=auto` preserves the existing skrub preprocessing. Explicit
+`string` uses TF-IDF/SVD with the training seed; `minhash` uses the installed
+MinHashEncoder with one worker. Both fit inside the pipeline, including each
+cross-validation fold. Neither imports torch or downloads a language model.
+
+Newly profiled string columns store their full-column mean character length in
+`stats_json`. The plan marks columns with more than 40 distinct values and an
+average length of at least 20 as `role=text`. Older profiles without that
+statistic keep their existing display until reprofiled; their text still trains.
+The shared advanced-options panel lists detected text columns in Studio and Flow.
+
+`backend/app/tests/services/test_ml_text.py` contains a reproducible support-ticket
+demonstration: 240 synthetic account-access/billing messages, evaluated on a
+held-out split for all three encoder choices, then saved and loaded to classify
+an unseen refund request. This is an offline fixture, not customer data.

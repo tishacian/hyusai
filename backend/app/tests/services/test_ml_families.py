@@ -203,8 +203,8 @@ TABULAR_TEST_FIELDS = (
 
 
 def test_tabular_catalog_does_not_offer_options_without_training_effects():
-    assert TABULAR.spec_fields == ()
-    assert TABULAR.parse_spec({}, task="regression") == {}
+    assert [field.key for field in TABULAR.spec_fields] == ["text_encoder"]
+    assert TABULAR.parse_spec({}, task="regression") == {"text_encoder": "auto"}
     with pytest.raises(SpecInvalid) as error:
         TABULAR.parse_spec({"intervals": "conformal"}, task="regression")
     assert error.value.field == "intervals"
@@ -301,7 +301,7 @@ def test_a_spec_the_family_cannot_read_names_the_field(raw, field):
 
 
 def test_the_tabular_family_takes_no_spec_yet(dataset, enabled):
-    assert tabular_ml.validate_training(dataset, task=None, target="churn", spec={}).spec == {}
+    assert tabular_ml.validate_training(dataset, task=None, target="churn", spec={}).spec == {"text_encoder": "auto"}
     with pytest.raises(TabularError) as error:
         tabular_ml.validate_training(dataset, task=None, target="churn", spec={"horizon": 3})
     assert error.value.code == "ML_SPEC_INVALID" and error.value.details == {"field": "horizon"}
@@ -422,9 +422,9 @@ def test_a_trained_row_records_its_family_and_the_interpreter_that_fitted_it(
     model = tabular_ml.submit_training(
         db_session, workspace_id=workspace.id, dataset_ref={"dataset_id": dataset.id}, target="churn"
     )
-    assert model.status == "ready" and model.family == "tabular" and model.spec_json == {}
+    assert model.status == "ready" and model.family == "tabular" and model.spec_json == {"text_encoder": "auto"}
     assert model.runtime_json["fingerprint"] == ml_runtime.runtime_fingerprint()["fingerprint"]
-    assert captured["manifest"]["family"] == "tabular" and captured["manifest"]["spec"] == {}
+    assert captured["manifest"]["family"] == "tabular" and captured["manifest"]["spec"] == {"text_encoder": "auto"}
     detail = tabular_ml.serialize_model(model, include_detail=True)
     assert detail["family"] == "tabular" and detail["runtime"]["runtime"] == settings.ml_runtime
 
