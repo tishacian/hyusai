@@ -1540,5 +1540,23 @@ def test_batch_intervals_keep_colliding_input_columns_and_publish_schema(db_sess
     assert output["arpu_lower_2"].to_list() == pytest.approx((output["prediction"] - 5.).to_list())
     assert output["arpu_upper"].to_list() == pytest.approx((output["prediction"] + 5.).to_list())
     assert db_session.get(MLPrediction, answer["prediction_id"]).output_json[0]["level"] == .9
+    published = tabular_predict.publish_as_skill(db_session, model=interval_model)
+    assert {"lower", "upper", "level"} <= set(published["output_schema"]["properties"])
+
+
+def test_intervals_and_published_contract_follow_the_served_version(
+    db_session, workspace, interval_model, arpu_artifact
+):
     tabular_predict.publish_as_skill(db_session, model=interval_model)
-    assert {"lower", "upper", "level"} <= set(tabular_predict.predict_output_schema(interval_model)["properties"])
+    interval_model.is_champion = False
+    second = _register(db_session, workspace, arpu_artifact, task="regression", target="arpu",
+        slug=interval_model.slug, version=2)
+    rows = [{"plan": "postpaid", "tenure_months": 30, "support_tickets": 1}]
+    current = tabular_predict.predict_rows(db_session, interval_model, rows, interval_level=.95)
+    pinned = tabular_predict.predict_rows(db_session, interval_model, rows, version=1, interval_level=.95)
+    assert current["served"]["version"] == 2 and "lower" not in current["predictions"][0]
+    assert pinned["served"]["version"] == 1 and pinned["predictions"][0]["level"] == .95
+    assert tabular_predict.refresh_published_skill(db_session, model=second)
+    assert "lower" not in tabular_predict.published_skill(db_session, interval_model)["output_schema"]["properties"]
+    assert tabular_predict.refresh_published_skill(db_session, model=interval_model)
+    assert "lower" in tabular_predict.published_skill(db_session, interval_model)["output_schema"]["properties"]
