@@ -6,6 +6,16 @@ Development branch: `codex/adoption-roadmap`. Local checks: 10 September 2026.
 The release SHA must be recorded after the reviewed changes are committed. The
 base SHA is not an identifier for the changed code.
 
+Executive briefing of the Hypervisor, the decision chain and the learning
+curve (C-level / métier):
+[`agentium-hypervisor-decision-strategy.md`](./agentium-hypervisor-decision-strategy.md)
+(FR) / [`agentium-hypervisor-decision-strategy.en.md`](./agentium-hypervisor-decision-strategy.en.md)
+(EN), decks
+[`deck-agentium-decision-adoption.md`](./deck-agentium-decision-adoption.md) /
+[`deck-agentium-decision-adoption.en.md`](./deck-agentium-decision-adoption.en.md),
+Office twins `.fr.docx` / `.en.docx` / `.fr.pptx` / `.en.pptx`.
+This file remains the implementation and acceptance contract.
+
 This implements the adoption roadmap using the existing navigation resolver,
 HelpService, ChatSession/Message, assistant engine, System publication, Run,
 Decision, Experience lifecycle and IAM boundaries. It does not introduce another

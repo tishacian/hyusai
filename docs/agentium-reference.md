@@ -354,3 +354,25 @@ the deployed SHA. Pilot/Live mutations stay a separate explicit canary mode.
 - `candidate_config_sha256` stays on the IAM decision plane. Runs `origin=` has no JSON index; very large workspaces may need one after measurement.
 - Chat / Client360 / capture stay id-resolved during dual-run; Mission Room rails prefer bindings when `experience_v1` is on. NAWA Lot 9 packages stay on their binding until an explicit cutover.
 - Offline what-if simulation on a replayed run (E6) is still open. For the state over time: [`vague-e-plan.md`](./vague-e-plan.md), [`production-demo-map.md`](./production-demo-map.md), [`showcase-demo-walkthrough.md`](./showcase-demo-walkthrough.md).
+
+## 9. Executive briefing — Hypervisor, decision, adoption
+
+C-level and business briefing (observe / consume / monitor / decide), plus
+the Marp deck used to present it:
+
+- User stories (papAI format → Agentium objects):
+  [`agentium-hypervisor-user-stories.md`](./agentium-hypervisor-user-stories.md) /
+  [`agentium-hypervisor-user-stories.en.md`](./agentium-hypervisor-user-stories.en.md)
+  and COMEX MVP [`agentium-hypervisor-mvp-comex.md`](./agentium-hypervisor-mvp-comex.md) /
+  [`agentium-hypervisor-mvp-comex.en.md`](./agentium-hypervisor-mvp-comex.en.md)
+- [`agentium-hypervisor-decision-strategy.md`](./agentium-hypervisor-decision-strategy.md)
+  (FR) / [`agentium-hypervisor-decision-strategy.en.md`](./agentium-hypervisor-decision-strategy.en.md) (EN)
+- Word: [`agentium-hypervisor-decision-strategy.fr.docx`](./agentium-hypervisor-decision-strategy.fr.docx),
+  [`agentium-hypervisor-decision-strategy.en.docx`](./agentium-hypervisor-decision-strategy.en.docx)
+- Deck: [`deck-agentium-decision-adoption.md`](./deck-agentium-decision-adoption.md) (FR),
+  [`deck-agentium-decision-adoption.en.md`](./deck-agentium-decision-adoption.en.md) (EN)
+- PowerPoint: [`deck-agentium-decision-adoption.fr.pptx`](./deck-agentium-decision-adoption.fr.pptx),
+  [`deck-agentium-decision-adoption.en.pptx`](./deck-agentium-decision-adoption.en.pptx)
+- Rebuild: `python3 docs/render/build_hypervisor_decision_pack.py`
+
+It does not replace this reference or the adoption acceptance contract.

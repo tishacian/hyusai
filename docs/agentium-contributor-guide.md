@@ -175,9 +175,11 @@ commit. A dirty `git status` is not a parking lot: finish or stash.
 
 1. [`mental-model.md`](./mental-model.md) — what the product is.
 2. [`agentium-reference.md`](./agentium-reference.md) — the lexicon, where things live in the UI, the Experience layer architecture.
-3. [`agentium-ui-chrome.md`](./agentium-ui-chrome.md) — the visual rules the guard enforces.
-4. [`agentium-realignment-plan.md`](./agentium-realignment-plan.md) — the drift matrix and target decisions the reference implements.
-5. [`dev-deploy-policy.md`](./dev-deploy-policy.md) — the git/deploy policy and its anti-patterns.
-6. [`agentium-release-process.md`](./agentium-release-process.md) — how a commit reaches the VM.
-7. [`ops/agentium-safe-vm-deployment.md`](./ops/agentium-safe-vm-deployment.md) — the full operator runbook (milestones, incidents, storage protections).
-8. [`agent-loop-openclaw-dev-plan.md`](./agent-loop-openclaw-dev-plan.md) — AgentLoop contract (deterministic envelope, non-deterministic interior). Lands on `demo/agentic`; deploy remains the release process.
+3. [`agentium-hypervisor-decision-strategy.md`](./agentium-hypervisor-decision-strategy.md) — Hypervisor, decision / strategy briefing, adoption curve (C-level / métier).
+4. [`agentium-hypervisor-user-stories.md`](./agentium-hypervisor-user-stories.md) — Hypervisor user stories (papAI format, Agentium objects) and [`agentium-hypervisor-mvp-comex.md`](./agentium-hypervisor-mvp-comex.md).
+5. [`agentium-ui-chrome.md`](./agentium-ui-chrome.md) — the visual rules the guard enforces.
+6. [`agentium-realignment-plan.md`](./agentium-realignment-plan.md) — the drift matrix and target decisions the reference implements.
+7. [`dev-deploy-policy.md`](./dev-deploy-policy.md) — the git/deploy policy and its anti-patterns.
+8. [`agentium-release-process.md`](./agentium-release-process.md) — how a commit reaches the VM.
+9. [`ops/agentium-safe-vm-deployment.md`](./ops/agentium-safe-vm-deployment.md) — the full operator runbook (milestones, incidents, storage protections).
+10. [`agent-loop-openclaw-dev-plan.md`](./agent-loop-openclaw-dev-plan.md) — AgentLoop contract (deterministic envelope, non-deterministic interior). Lands on `demo/agentic`; deploy remains the release process.
