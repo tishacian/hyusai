@@ -165,11 +165,12 @@ def test_the_catalog_carries_the_algorithms_their_knobs_and_the_platform_limits(
     assert response.status_code == 200
     catalog = response.json()["catalog"]
     assert catalog["enabled"] is True
-    assert catalog["tasks"] == ["classification", "regression"]
+    assert catalog["tasks"] == ["classification", "regression", "forecasting"]
     # Ranked, so the first entry is the default the form opens on.
     assert catalog["algos"][0]["key"] == catalog["defaults"]["algo"]
     boosting = next(row for row in catalog["algos"] if row["key"] == "gradient_boosting")
-    assert boosting["tasks"] == ["classification", "regression"]
+    # The same regressor forecasts a series on its own lags.
+    assert boosting["tasks"] == ["classification", "forecasting", "regression"]
     knob = next(row for row in boosting["knobs"] if row["key"] == "learning_rate")
     assert (knob["min"], knob["max"]) == (0.01, 0.5)
     # Bounds are the contract: a form field cannot be rendered without them.

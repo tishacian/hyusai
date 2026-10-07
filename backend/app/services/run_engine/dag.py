@@ -2156,6 +2156,22 @@ _PREDICT_PARAM_KEYS = (
 )
 _PREDICT_SKILL_SLUGS = frozenset({_ML_PREDICT_SKILL_SLUG, _ML_SCORE_SKILL_SLUG})
 
+_ML_FORECAST_SKILL_SLUG = "ml_forecast_v1"
+# A forecast node is a serving node with a horizon: which model answers, how far
+# ahead and at which interval level are the graph's, for the reason the model is
+# — a payload that could stretch a 24-hour forecast to a month would change what
+# the published Flow's dataset means.
+_FORECAST_PARAM_KEYS = (
+    "model_id",
+    "model_slug",
+    "pinned_version",
+    "horizon",
+    "interval_level",
+    "output_name",
+    "sources",
+)
+_FORECAST_SKILL_SLUGS = frozenset({_ML_FORECAST_SKILL_SLUG})
+
 # The reserved keys a node's graph configuration travels under. Written once as
 # data because the invariant is the same for all of them, and repeating it is how
 # one eventually stops being stripped on the other nodes.
@@ -2164,12 +2180,13 @@ _GRAPH_OWNED_BLOCKS: tuple[tuple[str, frozenset, tuple[str, ...]], ...] = (
     ("_transform", _TRANSFORM_SKILL_SLUGS, _TRANSFORM_PARAM_KEYS),
     ("_train", _TRAIN_SKILL_SLUGS, _TRAIN_PARAM_KEYS),
     ("_predict", _PREDICT_SKILL_SLUGS, _PREDICT_PARAM_KEYS),
+    ("_forecast", _FORECAST_SKILL_SLUGS, _FORECAST_PARAM_KEYS),
 )
 
 
 def _passthrough_without_recipe(data: Optional[dict[str, Any]]) -> dict[str, Any]:
     """Task failure envelopes pass upstream data through; the graph-owned
-    ``_recipe``, ``_transform``, ``_train`` and ``_predict`` blocks are
+    ``_recipe``, ``_transform``, ``_train``, ``_predict`` and ``_forecast`` blocks are
     configuration (the full script, statement text, training spec or model
     reference), not data, so they never ride a ``_error``/``_status`` envelope
     into run outputs."""

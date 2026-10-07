@@ -61,6 +61,16 @@ import {
   type PlanColumn,
   type TrainingPlan,
 } from './models.vm';
+import {
+  DEFAULT_FORECAST_DRAFT,
+  FORECASTING_TASK,
+  draftFromSpec,
+  forecastSpec,
+  parseLags,
+  withTimeColumn,
+  type ForecastDraft,
+} from './forecast.vm';
+import { ForecastSpecComponent } from './forecast-spec.component';
 
 /** How long the form waits before asking the server what a choice implies. */
 const PLAN_DEBOUNCE_MS = 220;
@@ -75,6 +85,8 @@ export interface TrainSeed {
   knobs?: Record<string, number | null>;
   testSize?: number | null;
   crossValidation?: number | null;
+  /** A family's problem definition: a retrained forecast keeps its question. */
+  spec?: Record<string, unknown> | null;
 }
 
 @Component({
@@ -87,6 +99,7 @@ export interface TrainSeed {
     DatasetPreviewComponent,
     FormsModule,
     IconComponent,
+    ForecastSpecComponent,
   ],
   template: `
     <div class="fixed inset-0 z-50 flex items-start justify-center p-4 md:p-6 overflow-auto">
@@ -231,6 +244,17 @@ export interface TrainSeed {
                 }
               </div>
 
+              @if (isForecasting()) {
+                <ck-forecast-spec
+                  part="data"
+                  [draft]="draft()"
+                  [columns]="columns()"
+                  [target]="target()"
+                  [algo]="algoKey()"
+                  [refusal]="refusalFor('spec')"
+                  (draftChange)="patchDraft($event)"
+                />
+              } @else {
               <div class="ck-field">
                 <div class="flex items-center justify-between gap-2">
                   <label class="ck-label">{{ i18n.t('models.studio.features.label') }}</label>
@@ -271,6 +295,7 @@ export interface TrainSeed {
                   </div>
                 }
               </div>
+              }
             }
           </section>
 
@@ -341,6 +366,17 @@ export interface TrainSeed {
                 }
               }
 
+              @if (isForecasting()) {
+                <ck-forecast-spec
+                  part="fit"
+                  [draft]="draft()"
+                  [columns]="columns()"
+                  [target]="target()"
+                  [algo]="algoKey()"
+                  [horizonMax]="horizonMax()"
+                  (draftChange)="patchDraft($event)"
+                />
+              } @else {
               <div class="ck-field">
                 <div class="ck-knob">
                   <div class="ck-knob__head">
@@ -378,6 +414,7 @@ export interface TrainSeed {
                 </select>
                 <div class="ck-hint">{{ i18n.t('models.studio.cv.hint') }}</div>
               </div>
+              }
 
               <div class="ck-field">
                 <label class="ck-label" for="train-name">{{ i18n.t('models.studio.name.label') }}</label>
@@ -408,14 +445,25 @@ export interface TrainSeed {
                   {{ i18n.t('models.task.' + preview.task) }}
                 </span>
                 <span class="ck-plan-pill ck-mono">{{ preview.estimator }}</span>
-                <span class="ck-plan-pill ck-mono">
-                  {{
-                    i18n.t('models.studio.plan.rows', {
-                      rows: preview.rows.toLocaleString(i18n.locale()),
-                      test: testRows(preview).toLocaleString(i18n.locale())
-                    })
-                  }}
-                </span>
+                @if (isForecasting()) {
+                  <span class="ck-plan-pill ck-mono">
+                    {{
+                      i18n.t('models.studio.plan.forecast', {
+                        horizon: draft().horizon,
+                        folds: draft().folds
+                      })
+                    }}
+                  </span>
+                } @else {
+                  <span class="ck-plan-pill ck-mono">
+                    {{
+                      i18n.t('models.studio.plan.rows', {
+                        rows: preview.rows.toLocaleString(i18n.locale()),
+                        test: testRows(preview).toLocaleString(i18n.locale())
+                      })
+                    }}
+                  </span>
+                }
                 <span class="ck-plan-pill ck-mono">
                   {{ i18n.t('models.studio.plan.features', { count: preview.features.length }) }}
                 </span>
@@ -726,7 +774,10 @@ export class ModelTrainComponent implements OnInit {
   readonly trained = output<ModelDto>();
 
   // The tasks of the families a worker can train right now, from the catalog.
-  protected readonly tasks = computed<ModelTask[]>(() => trainableTasks(this.catalog()));
+  // This form renders a family's spec fields, so it offers forecasting too.
+  protected readonly tasks = computed<ModelTask[]>(() =>
+    trainableTasks(this.catalog(), { specFields: true }),
+  );
   // Only sliders render here; a knob of another kind keeps its server default.
   protected readonly numericKnobs = numericKnobs;
   protected readonly cvOptions = [3, 5, 10];
@@ -746,6 +797,8 @@ export class ModelTrainComponent implements OnInit {
 
   /** `null` means "every column but the target", which is also the server's default. */
   private readonly featureOverride = signal<string[] | null>(null);
+  /** A forecast's problem definition as the author is choosing it. */
+  private readonly forecastDraft = signal<ForecastDraft>({ ...DEFAULT_FORECAST_DRAFT, exog: {} });
   private readonly knobOverrides = signal<Record<string, number>>({});
 
   private planTimer: ReturnType<typeof setTimeout> | null = null;
@@ -852,8 +905,30 @@ export class ModelTrainComponent implements OnInit {
       ),
   );
 
+  protected readonly isForecasting = computed(() => this.effectiveTask() === FORECASTING_TASK);
+
+  /**
+   * The draft as the form shows it: a date column the dataset no longer has
+   * (or none picked yet) falls back to its first date column.
+   */
+  protected readonly draft = computed<ForecastDraft>(() =>
+    withTimeColumn(this.forecastDraft(), this.columns()),
+  );
+
+  protected readonly lagsInvalid = computed(() => parseLags(this.draft().lags) === null);
+
+  /** The ceiling the forecasting family declares for its horizon. */
+  protected readonly horizonMax = computed(() => {
+    const family = this.catalog().families?.find((entry) => entry.key === FORECASTING_TASK);
+    return family?.spec_fields.find((field) => field.key === 'horizon')?.max ?? 720;
+  });
+
   protected readonly canSubmit = computed(
-    () => !!this.plan() && !this.submitting() && !this.refusal(),
+    () =>
+      !!this.plan() &&
+      !this.submitting() &&
+      !this.refusal() &&
+      !(this.isForecasting() && (this.lagsInvalid() || !this.draft().timeColumn)),
   );
 
   ngOnInit(): void {
@@ -866,6 +941,7 @@ export class ModelTrainComponent implements OnInit {
     if (seed?.algo) this.algoKey.set(seed.algo);
     if (seed?.testSize) this.testSize.set(seed.testSize);
     if (seed?.crossValidation) this.crossValidation.set(seed.crossValidation);
+    if (seed?.task === FORECASTING_TASK) this.forecastDraft.set(draftFromSpec(seed.spec));
     if (seed?.knobs) {
       const knobs: Record<string, number> = {};
       for (const [key, value] of Object.entries(seed.knobs)) {
@@ -901,6 +977,7 @@ export class ModelTrainComponent implements OnInit {
     this.target.set('');
     this.taskOverride.set(null);
     this.featureOverride.set(null);
+    this.forecastDraft.set({ ...DEFAULT_FORECAST_DRAFT, exog: {} });
     this.columns.set([]);
     this.plan.set(null);
     this.refusal.set(null);
@@ -1001,7 +1078,7 @@ export class ModelTrainComponent implements OnInit {
   }
 
   /** A refusal rendered against the field that caused it, or nothing. */
-  protected refusalFor(field: 'target' | 'features' | 'algo' | 'dataset'): string | null {
+  protected refusalFor(field: 'target' | 'features' | 'algo' | 'dataset' | 'spec'): string | null {
     const refusal = this.refusal();
     if (!refusal || refusalField(refusal.code) !== field) return null;
     return this.refusalMessage(refusal);
@@ -1020,6 +1097,17 @@ export class ModelTrainComponent implements OnInit {
     return this.i18n.t(key, { feature: warning.feature ?? '' });
   }
 
+  protected patchDraft(patch: Partial<ForecastDraft>): void {
+    // From the draft as shown, so the date column the form fell back to is kept.
+    this.forecastDraft.set({ ...this.draft(), ...patch });
+    this.schedulePlan();
+  }
+
+  /** The spec a forecasting request carries; nothing for a tabular one. */
+  private specPayload(): { spec?: Record<string, unknown> } {
+    return this.isForecasting() ? { spec: forecastSpec(this.draft(), this.algoKey()) } : {};
+  }
+
   protected async submit(): Promise<void> {
     const preview = this.plan();
     if (!preview || this.submitting()) return;
@@ -1032,8 +1120,10 @@ export class ModelTrainComponent implements OnInit {
         features: preview.features,
         algo: preview.algo,
         knobs: this.knobPayload(),
-        test_size: this.testSize(),
-        cross_validation: this.crossValidation(),
+        // A forecast is judged by its backtest, not by a random split.
+        ...(this.isForecasting()
+          ? this.specPayload()
+          : { test_size: this.testSize(), cross_validation: this.crossValidation() }),
         ...(this.name().trim() ? { name: this.name().trim() } : {}),
       });
       this.toast.info(this.i18n.t('models.studio.queued', { name: model.name }));
@@ -1088,8 +1178,9 @@ export class ModelTrainComponent implements OnInit {
         dataset_id: datasetId,
         ...(this.target() ? { target: this.target() } : {}),
         ...(this.taskOverride() ? { task: this.taskOverride()! } : {}),
-        ...(this.featureOverride() ? { features: this.selectedFeatures() } : {}),
+        ...(this.featureOverride() && !this.isForecasting() ? { features: this.selectedFeatures() } : {}),
         ...(this.algoKey() ? { algo: this.algoKey() } : {}),
+        ...(this.target() ? this.specPayload() : {}),
       });
       this.columns.set(response.columns ?? []);
       this.plan.set(response.plan);

@@ -45,6 +45,7 @@ export const MODELS_FR = {
   'models.list.filter.all': 'Tous',
   'models.list.filter.classification': 'Classifications',
   'models.list.filter.regression': 'Régressions',
+  'models.list.filter.forecasting': 'Prévisions',
   'models.list.filter.serving': 'En service',
   'models.list.col.model': 'Modèle',
   'models.list.col.target': 'Cible',
@@ -78,6 +79,9 @@ export const MODELS_FR = {
     'Prédit une catégorie : le client résilie ou non, la cellule sature ou non.',
   'models.task.regression.hint':
     'Prédit un nombre : le revenu du mois prochain, le trafic de la cellule.',
+  'models.task.forecasting': 'Prévision',
+  'models.task.forecasting.hint':
+    'Prédit la suite d’une série datée : la charge de la cellule demain, les ventes du mois prochain, avec un intervalle.',
   'models.algo.gradient_boosting': 'Gradient boosting',
   'models.algo.random_forest': 'Forêt aléatoire',
   'models.algo.linear': 'Modèle linéaire',
@@ -90,12 +94,23 @@ export const MODELS_FR = {
     'La référence à battre : si un modèle plus lourd ne fait pas mieux, il ne sert à rien.',
   'models.algo.knn.hint':
     'Décide par ressemblance avec les lignes connues. Utile comme repère.',
+  'models.algo.ets': 'Lissage exponentiel (ETS)',
+  'models.algo.arima': 'ARIMA saisonnier',
+  'models.algo.seasonal_naive': 'Naïf saisonnier',
+  'models.algo.ets.hint':
+    'Un modèle statistique par série : tendance et saisonnalité, avec ses propres intervalles. Solide sur peu d’historique.',
+  'models.algo.arima.hint':
+    'Le classique des séries temporelles : autocorrélation et saisonnalité, une série à la fois.',
+  'models.algo.seasonal_naive.hint':
+    'Répète la dernière saison. Le repère que toute prévision doit battre.',
   'models.tag.tabular': 'Tabulaire',
   'models.tag.fast': 'Rapide',
   'models.tag.robust': 'Robuste',
   'models.tag.explainable': 'Explicable',
   'models.tag.baseline': 'Référence',
   'models.tag.interpretable': 'Interprétable',
+  'models.tag.statistical': 'Statistique',
+  'models.tag.seasonal': 'Saisonnier',
 
   // ---- studio d'entraînement ---------------------------------------------
   'models.studio.title': 'Entraîner un modèle',
@@ -144,6 +159,13 @@ export const MODELS_FR = {
   'models.studio.plan.title': 'Ce qui va être entraîné',
   'models.studio.plan.estimator': 'Estimateur',
   'models.studio.plan.rows': '{rows} lignes, dont {test} en test',
+  'models.studio.plan.forecast': '{horizon} pas prévus · {folds} backtests',
+  'models.studio.forecast.no_time':
+    'Ce jeu n’a pas de colonne de date : une prévision a besoin de dates.',
+  'models.studio.forecast.unused': 'Non utilisée',
+  'models.studio.forecast.no_covariates': 'Aucune autre colonne utilisable.',
+  'models.studio.forecast.lags_auto': 'Selon la fréquence',
+  'models.studio.forecast.lags_invalid': 'Des nombres entiers positifs, séparés par des virgules.',
   'models.studio.plan.features': '{count} variables retenues',
   'models.studio.submit': 'Lancer l’entraînement',
   'models.studio.submitting': 'Lancement…',
@@ -200,6 +222,8 @@ export const MODELS_FR = {
   'models.progress.step.scoring': 'Évaluation sur les lignes de test',
   'models.progress.step.validating': 'Validation croisée sur {folds} plis',
   'models.progress.step.validating.counted': 'Validation croisée — pli {fold}/{folds}',
+  'models.progress.step.backtesting': 'Backtest sur {folds} horizons passés',
+  'models.progress.step.backtesting.counted': 'Backtest — horizon {fold}/{folds}',
   'models.progress.step.saving': 'Enregistrement de l’artefact',
   'models.progress.step.done': 'Terminé',
   'models.progress.settled': 'Modèle {name} v{version} prêt — {metric} {value}',
@@ -208,7 +232,99 @@ export const MODELS_FR = {
 
   // ---- résultats ----------------------------------------------------------
   'models.evidence.scores': 'Scores sur les lignes de test',
+  'models.evidence.scores.forecast': 'Scores du backtest',
   'models.evidence.rows': '{total} lignes · {train} en apprentissage · {test} en test',
+  'models.evidence.forecast': 'Prévisions rejouées sur le passé',
+  'models.evidence.forecast.hint':
+    'Chaque horizon est prévu avec les seules données d’avant lui. La bande est l’intervalle à {level}, calibré sur les erreurs des horizons précédents.',
+  'models.evidence.forecast.series': 'Série',
+  'models.evidence.forecast.actual': 'Réel',
+  'models.evidence.forecast.pred': 'Prévu',
+  'models.evidence.forecast.interval': 'Intervalle',
+  'models.evidence.forecast.rows': '{total} lignes · {history} pas d’historique · {series} série(s)',
+  'models.evidence.forecast.setup': '{frequency} · horizon {horizon} · {folds} backtests · {method}',
+  'models.evidence.forecast.method.conformal': 'intervalle conforme',
+  'models.evidence.forecast.method.model': 'intervalle du modèle',
+  'models.evidence.forecast.filled': '{count} pas comblés ({fill})',
+  'models.evidence.horizon': 'Erreur par pas d’horizon',
+  'models.evidence.horizon.hint':
+    'L’erreur absolue moyenne à chaque pas : la vitesse à laquelle la prévision se dégrade.',
+  'models.evidence.horizon.step': '+{step}',
+  'models.evidence.series': 'Erreur par série',
+  'models.evidence.series.hint':
+    'Les séries les moins bien prévues d’abord. Un MASE sous 1 fait mieux que répéter la valeur précédente.',
+  'models.evidence.baseline.better': '{share} d’erreur en moins que répéter la dernière saison',
+  'models.evidence.baseline.worse': '{share} d’erreur en plus que répéter la dernière saison',
+  'models.evidence.coverage': 'Couverture {coverage} pour {level} visés',
+  'models.explain.title': 'Ce qui fait la prévision',
+  'models.explain.groups': 'Par famille de variables',
+  'models.explain.groups.hint':
+    'Part de chaque famille dans les prévisions du modèle : SHAP moyen mesuré sur son historique d’entraînement.',
+  'models.explain.lags': 'Le passé qu’elle reprend',
+  'models.explain.lags.hint':
+    'Poids de chaque valeur passée de la série. Un pic à 7 j veut dire que la prévision suit surtout la même heure la semaine précédente.',
+  'models.explain.step': 'Modèle direct : explication du premier pas de l’horizon.',
+  'models.explain.group.lags': 'Passé récent de la série',
+  'models.explain.group.calendar': 'Calendrier',
+  'models.explain.group.future': 'Covariables connues à l’avance',
+  'models.explain.group.past': 'Autres séries',
+  'models.explain.group.static': 'Attributs de la série',
+  'models.explain.group.series': 'Identité de la série',
+  'models.explain.group.other': 'Autres',
+  'models.explain.span.hours': '{n} h',
+  'models.explain.span.days': '{n} j',
+  'models.explain.span.weeks': '{n} sem.',
+  'models.explain.span.months': '{n} mois',
+  'models.explain.span.years': '{n} an',
+  'models.explain.span.steps': '{n} pas',
+  'models.explain.calendar.hour': 'Heure du jour',
+  'models.explain.calendar.day_of_week': 'Jour de la semaine',
+  'models.explain.calendar.day_of_month': 'Jour du mois',
+  'models.explain.calendar.day_of_year': 'Jour de l’année',
+  'models.explain.calendar.is_weekend': 'Week-end',
+  'models.explain.calendar.week': 'Semaine de l’année',
+  'models.explain.calendar.month': 'Mois',
+  'models.explain.calendar.quarter': 'Trimestre',
+  'models.explain.calendar.year': 'Année',
+  'models.explain.feature.series': 'Série',
+  'models.explain.model': 'Paramètres du modèle',
+  'models.explain.model.hint':
+    'Un modèle statistique s’explique par ses paramètres ajustés : lissage du niveau et de la saison (ETS), coefficients (ARIMA).',
+  'models.explain.model.aic': 'AIC {aic}',
+  'models.explain.naive':
+    'Le naïf saisonnier répète la dernière saison ({season} pas) : il n’a rien d’autre à expliquer.',
+  'models.explain.unavailable': 'L’explication n’a pas pu être calculée pour ce modèle.',
+  'models.explain.approximate':
+    'Forêt profonde : attributions approchées (Saabas), additives mais moins fines que la SHAP exacte.',
+  'models.analysis.title': 'Anatomie de la série',
+  'models.analysis.hint':
+    'Mesurée sur l’historique seul : saisonnalité et tendance (décomposition STL), autocorrélation, stationnarité (test ADF).',
+  'models.analysis.season.strong': 'Saisonnalité forte ({value}) · période {period}',
+  'models.analysis.season.moderate': 'Saisonnalité modérée ({value}) · période {period}',
+  'models.analysis.season.weak': 'Saisonnalité faible ({value})',
+  'models.analysis.trend.strong': 'Tendance forte ({value})',
+  'models.analysis.trend.moderate': 'Tendance modérée ({value})',
+  'models.analysis.trend.weak': 'Tendance faible ({value})',
+  'models.analysis.stationary': 'Revient à son niveau (ADF p {p})',
+  'models.analysis.unit_root': 'Dérive sans revenir (ADF p {p})',
+  'models.analysis.acf': 'Ressemblance avec son passé',
+  'models.analysis.acf.hint':
+    'Autocorrélation aux retards du modèle et aux multiples de la saison : ce qui justifie de regarder si loin en arrière.',
+  'models.analysis.acf.noise': 'bruit',
+  'models.analysis.suggested': 'Retards que suggère l’autocorrélation partielle : {lags}',
+  'models.diagnostic.title': 'Le régresseur seul, un pas en avant',
+  'models.diagnostic.hint':
+    'Réentraîné sur les {train} lignes les plus anciennes et jugé par skore sur les {test} suivantes. Bon ici et faible au backtest : l’erreur vient de la récursion qui s’accumule ; faible ici aussi : des variables.',
+  'models.diagnostic.fit': 'Prévu contre réel (un pas)',
+  'models.explain.peak.title': 'Pourquoi ce pic',
+  'models.explain.peak.sentence': 'Partant d’une base de {base}, {series} atteint {pred} le {when}.',
+  'models.explain.peak.groups': 'Ce qui l’a monté ou baissé',
+  'models.explain.peak.features': 'Variables les plus fortes',
+  'models.excursions.title': 'Hors de l’intervalle',
+  'models.excursions.hint':
+    '{count} réels du backtest sont sortis de la bande ({share}) ; les plus loin d’abord.',
+  'models.excursions.above': '{actual} au-dessus de {bound}',
+  'models.excursions.below': '{actual} sous {bound}',
   'models.evidence.roc': 'Courbe ROC',
   'models.evidence.roc.hint':
     'Plus la courbe monte vite vers le coin haut-gauche, mieux le modèle sépare. La diagonale est le hasard. Survolez la courbe pour lire un point de fonctionnement.',
@@ -315,6 +431,8 @@ export const MODELS_FR = {
     'Ces deux modèles appartiennent à des espaces de travail différents.',
   'models.compare.error.ml_compare_different_question':
     'Ces versions ne répondent pas à la même question : un seul tableau ne peut pas les classer.',
+  'models.compare.error.ml_compare_not_tabular':
+    'Seuls les modèles tabulaires sont re-notés sur un même découpage ; une prévision se compare par son backtest.',
   'models.compare.error.ml_compare_no_common_dataset':
     'Aucun des deux jeux d’entraînement ne porte toutes les colonnes nécessaires aux deux modèles.',
   'models.compare.error.ml_compare_dataset_too_large':
@@ -368,6 +486,48 @@ export const MODELS_FR = {
     'Part des valeurs réelles tombées dans l’intervalle annoncé. À comparer au niveau demandé, pas à maximiser.',
   'models.metric.interval_width.hint': 'Largeur moyenne de l’intervalle, dans l’unité de la colonne prévue.',
   'models.family.tabular': 'Tabulaire',
+  'models.family.forecasting': 'Prévision',
+  'models.spec.time_column': 'Colonne de date',
+  'models.spec.time_column.hint': 'L’horodatage de chaque mesure. Il fixe l’ordre et le pas de la série.',
+  'models.spec.shape': 'Forme',
+  'models.spec.shape.hint': 'Une série, un panel de séries semblables, ou une série prévue à partir d’autres.',
+  'models.spec.shape.single': 'Une série',
+  'models.spec.shape.panel': 'Panel de séries',
+  'models.spec.shape.multivariate': 'Multivariée',
+  'models.spec.series_columns': 'Colonnes de série',
+  'models.spec.series_columns.hint': 'Ce qui distingue une série d’une autre dans le panel : la cellule, le magasin.',
+  'models.spec.horizon': 'Horizon',
+  'models.spec.horizon.hint': 'Combien de pas prévoir, dans l’unité de la fréquence.',
+  'models.spec.frequency': 'Fréquence',
+  'models.spec.frequency.hint': 'Le pas entre deux mesures. « Auto » le déduit des dates.',
+  'models.spec.frequency.auto': 'Auto',
+  'models.spec.frequency.h': 'Horaire',
+  'models.spec.frequency.d': 'Quotidienne',
+  'models.spec.frequency.w': 'Hebdomadaire',
+  'models.spec.frequency.ms': 'Mensuelle',
+  'models.spec.frequency.qs': 'Trimestrielle',
+  'models.spec.strategy': 'Stratégie',
+  'models.spec.strategy.hint': 'Récursive : un modèle qui réutilise ses prévisions. Directe : un modèle par pas d’horizon.',
+  'models.spec.strategy.recursive': 'Récursive',
+  'models.spec.strategy.direct': 'Directe',
+  'models.spec.lags': 'Retards',
+  'models.spec.lags.hint': 'Les valeurs passées que le modèle regarde : 1 = le pas précédent, 24 = la même heure hier.',
+  'models.spec.exog': 'Covariables',
+  'models.spec.exog.hint': 'Les autres colonnes qui aident à prévoir, avec ce que l’on en sait à l’avance.',
+  'models.spec.exog.future': 'Connue à l’avance',
+  'models.spec.exog.static': 'Propre à la série',
+  'models.spec.exog.past': 'Connue jusqu’à maintenant',
+  'models.spec.calendar': 'Calendrier',
+  'models.spec.calendar.hint': 'Ajoute l’heure, le jour de la semaine et le mois comme variables.',
+  'models.spec.interval_level': 'Niveau d’intervalle',
+  'models.spec.interval_level.hint': 'La part des valeurs réelles que l’intervalle doit contenir.',
+  'models.spec.backtest_folds': 'Backtests',
+  'models.spec.backtest_folds.hint': 'Combien d’horizons passés rejouer pour mesurer l’erreur, sans que le modèle les ait vus.',
+  'models.spec.fill': 'Trous dans la série',
+  'models.spec.fill.hint': 'Que faire d’un pas ou d’une valeur manquante.',
+  'models.spec.fill.refuse': 'Refuser',
+  'models.spec.fill.interpolate': 'Interpoler',
+  'models.spec.fill.zero': 'Mettre à zéro',
   'models.family.reason.no_worker': 'Aucun worker capable d’entraîner ces modèles n’est actif.',
   'models.family.reason.runtime_missing': 'L’environnement d’entraînement de cette famille n’est pas installé.',
   'models.family.reason.disabled': 'L’entraînement est désactivé sur ce déploiement.',
@@ -391,6 +551,21 @@ export const MODELS_FR = {
 
   // ---- atelier de prédiction ---------------------------------------------
   'models.play.unavailable.title': 'Ce modèle ne répond pas encore',
+  'models.play.unavailable.no_forecast_worker':
+    'Aucun worker de prévision ne répond pour le moment : démarrez le service ml-ts pour interroger ce modèle.',
+  'models.play.forecast.ask': 'Ce que vous demandez',
+  'models.play.forecast.run': 'Prévoir',
+  'models.play.forecast.covariates':
+    'Valeurs prévues de {names}, appliquées à chaque pas de l’horizon.',
+  'models.play.forecast.covariates_undated':
+    'Ce modèle a besoin de valeurs futures, mais son pas ne permet pas de les dater ici : passez-les par l’API.',
+  'models.play.forecast.answer': 'Ce que le modèle prévoit',
+  'models.play.forecast.empty': 'Choisissez un horizon et lancez la prévision.',
+  'models.play.forecast.timing.cached': 'répondu en {ms} ms',
+  'models.play.forecast.timing.cold': 'répondu en {ms} ms, dont {load} ms de chargement',
+  'models.play.forecast.peak': 'Pic prévu : {value} le {when}. À {level}, il peut monter jusqu’à {upper}.',
+  'models.play.forecast.peak_plain': 'Pic prévu : {value} le {when}.',
+  'models.play.forecast.failed': 'La prévision a échoué.',
   'models.play.unavailable.untrained':
     'Un modèle répond une fois entraîné : lancez l’entraînement, le formulaire se construira depuis son contrat.',
   'models.play.unavailable.disabled':
@@ -500,6 +675,28 @@ export const MODELS_FR = {
     'Une skill porte déjà ce nom dans cet espace de travail.',
   'models.serving.error.ml_publish_name_invalid':
     'Le nom du modèle ne donne pas un identifiant de skill valide.',
+  'models.serving.error.ml_use_forecast_route':
+    'Un modèle de prévision répond pour un horizon, pas pour des lignes : il est servi par le worker de prévision.',
+  'models.serving.error.ml_forecast_timeout':
+    'Le worker de prévision n’a pas répondu à temps. Réessayez dans un instant.',
+  'models.serving.error.ml_forecast_input_invalid':
+    'Les valeurs futures envoyées ne couvrent pas l’horizon demandé.',
+  'models.serving.error.ml_forecast_params_invalid':
+    'L’horizon et le niveau d’intervalle doivent être des nombres valides.',
+  'models.serving.error.ml_forecast_horizon_invalid':
+    'Cet horizon dépasse ce que ce modèle sait prévoir.',
+  'models.serving.error.ml_forecast_failed':
+    'La prévision a échoué dans le worker.',
+  'models.serving.error.ml_forecast_too_many_rows':
+    'Trop de lignes de valeurs futures pour un seul appel.',
+  'models.serving.error.ml_artifact_tampered':
+    'L’artefact stocké n’est pas celui produit par l’entraînement : il est refusé.',
+  'models.serving.error.ml_artifact_unverified':
+    'Ce modèle a été enregistré sans les empreintes que le service vérifie.',
+  'models.serving.error.ml_use_predict_route':
+    'Ce modèle répond pour des lignes : utilisez /predict.',
+  'models.serving.error.ml_family_unavailable':
+    'Aucun worker capable de servir ce modèle n’est actif pour le moment.',
 
   // ---- versions -----------------------------------------------------------
   'models.versions.label': 'v{version}',
@@ -562,6 +759,27 @@ export const MODELS_FR = {
   'models.refusal.ml_model_not_ready': 'Seul un modèle entraîné peut répondre.',
   'models.refusal.ml_model_not_found':
     'Ce modèle n’existe pas dans cet espace de travail.',
+  'models.refusal.ml_ts_time_column_required': 'Choisissez la colonne de date de la série.',
+  'models.refusal.ml_ts_time_column_not_datetime':
+    'Cette colonne n’est pas une date : la série ne peut pas être ordonnée.',
+  'models.refusal.ml_ts_column_reused':
+    'Cette colonne est déjà la cible ou la colonne de date.',
+  'models.refusal.ml_ts_exog_not_numeric':
+    'Une covariable doit être numérique, sauf si elle est propre à la série.',
+  'models.refusal.ml_ts_past_needs_multivariate':
+    'Une colonne connue seulement jusqu’à maintenant ne sert qu’en prévision multivariée.',
+  'models.refusal.ml_ts_static_needs_panel':
+    'Une colonne propre à la série n’a de sens que dans un panel.',
+  'models.refusal.ml_ts_multivariate_needs_series':
+    'Une prévision multivariée a besoin d’au moins une autre série connue jusqu’à maintenant.',
+  'models.refusal.ml_ts_duplicate_timestamps':
+    'Des dates se répètent : ce jeu contient plusieurs séries. Indiquez les colonnes qui les distinguent.',
+  'models.refusal.ml_ts_too_many_series':
+    'Trop de séries pour un seul modèle de panel sur ce déploiement.',
+  'models.refusal.ml_ts_algo_shape_mismatch':
+    'Cet algorithme traite une série à la fois : choisissez un régresseur pour un panel ou une prévision multivariée.',
+  'models.refusal.ml_ts_history_too_short':
+    'Trop peu d’historique pour cet horizon, ces retards et ces backtests.',
 
   // ---- avertissements -----------------------------------------------------
   'models.warning.ml_feature_identifier':
@@ -589,6 +807,10 @@ export const MODELS_FR = {
     'L’entraînement de modèles a été désactivé pendant l’exécution.',
   'models.error.ml_runtime_missing':
     'Le worker qui a reçu l’entraînement n’a pas les bibliothèques de cette famille de modèles.',
+  'models.error.ml_ts_series_unusable':
+    'La série a des trous, des dates en double ou aucun pas régulier. Choisissez une politique de remplissage ou corrigez les données.',
+  'models.error.ml_ts_history_too_short':
+    'Une fois la série mise au pas, il reste trop peu d’historique pour cet horizon.',
 
   // ---- plan désactivé -----------------------------------------------------
   'models.disabled.title': 'Plan modèles désactivé',
@@ -624,6 +846,7 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.list.filter.all': 'All',
   'models.list.filter.classification': 'Classifications',
   'models.list.filter.regression': 'Regressions',
+  'models.list.filter.forecasting': 'Forecasts',
   'models.list.filter.serving': 'Serving',
   'models.list.col.model': 'Model',
   'models.list.col.target': 'Target',
@@ -655,6 +878,9 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
     'Predicts a category: whether the customer churns, whether the cell saturates.',
   'models.task.regression.hint':
     'Predicts a number: next month’s revenue, the cell’s traffic.',
+  'models.task.forecasting': 'Forecasting',
+  'models.task.forecasting.hint':
+    'Predicts what comes next in a dated series: tomorrow’s cell load, next month’s sales, with an interval.',
   'models.algo.gradient_boosting': 'Gradient boosting',
   'models.algo.random_forest': 'Random forest',
   'models.algo.linear': 'Linear model',
@@ -667,12 +893,23 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
     'The baseline to beat: if a heavier model does not do better, it earns nothing.',
   'models.algo.knn.hint':
     'Decides by resemblance to the rows it knows. Useful as a yardstick.',
+  'models.algo.ets': 'Exponential smoothing (ETS)',
+  'models.algo.arima': 'Seasonal ARIMA',
+  'models.algo.seasonal_naive': 'Seasonal naive',
+  'models.algo.ets.hint':
+    'One statistical model per series: trend and seasonality, with its own intervals. Solid on short history.',
+  'models.algo.arima.hint':
+    'The time-series classic: autocorrelation and seasonality, one series at a time.',
+  'models.algo.seasonal_naive.hint':
+    'Repeats the last season. The yardstick every forecast has to beat.',
   'models.tag.tabular': 'Tabular',
   'models.tag.fast': 'Fast',
   'models.tag.robust': 'Robust',
   'models.tag.explainable': 'Explainable',
   'models.tag.baseline': 'Baseline',
   'models.tag.interpretable': 'Interpretable',
+  'models.tag.statistical': 'Statistical',
+  'models.tag.seasonal': 'Seasonal',
 
   'models.studio.title': 'Train a model',
   'models.studio.subtitle':
@@ -720,6 +957,12 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.studio.plan.title': 'What is about to be trained',
   'models.studio.plan.estimator': 'Estimator',
   'models.studio.plan.rows': '{rows} rows, {test} of them held for testing',
+  'models.studio.plan.forecast': '{horizon} steps ahead · {folds} backtests',
+  'models.studio.forecast.no_time': 'This dataset has no date column: a forecast needs dates.',
+  'models.studio.forecast.unused': 'Not used',
+  'models.studio.forecast.no_covariates': 'No other usable column.',
+  'models.studio.forecast.lags_auto': 'From the frequency',
+  'models.studio.forecast.lags_invalid': 'Positive whole numbers, separated by commas.',
   'models.studio.plan.features': '{count} features kept',
   'models.studio.submit': 'Start training',
   'models.studio.submitting': 'Starting…',
@@ -773,6 +1016,8 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.progress.step.scoring': 'Scoring the test rows',
   'models.progress.step.validating': 'Cross-validating over {folds} folds',
   'models.progress.step.validating.counted': 'Cross-validating — fold {fold}/{folds}',
+  'models.progress.step.backtesting': 'Backtesting over {folds} past horizons',
+  'models.progress.step.backtesting.counted': 'Backtesting — horizon {fold}/{folds}',
   'models.progress.step.saving': 'Saving the artifact',
   'models.progress.step.done': 'Done',
   'models.progress.settled': 'Model {name} v{version} ready — {metric} {value}',
@@ -780,7 +1025,97 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.progress.failed': 'Training {name} v{version} failed',
 
   'models.evidence.scores': 'Scores on the test rows',
+  'models.evidence.scores.forecast': 'Backtest scores',
   'models.evidence.rows': '{total} rows · {train} for learning · {test} for testing',
+  'models.evidence.forecast': 'Forecasts replayed on the past',
+  'models.evidence.forecast.hint':
+    'Each horizon is forecast from the data before it only. The band is the {level} interval, calibrated on the errors of the earlier horizons.',
+  'models.evidence.forecast.series': 'Series',
+  'models.evidence.forecast.actual': 'Actual',
+  'models.evidence.forecast.pred': 'Forecast',
+  'models.evidence.forecast.interval': 'Interval',
+  'models.evidence.forecast.rows': '{total} rows · {history} steps of history · {series} series',
+  'models.evidence.forecast.setup': '{frequency} · horizon {horizon} · {folds} backtests · {method}',
+  'models.evidence.forecast.method.conformal': 'conformal interval',
+  'models.evidence.forecast.method.model': 'model interval',
+  'models.evidence.forecast.filled': '{count} steps filled ({fill})',
+  'models.evidence.horizon': 'Error per step ahead',
+  'models.evidence.horizon.hint': 'Mean absolute error at each step: how fast the forecast degrades.',
+  'models.evidence.horizon.step': '+{step}',
+  'models.evidence.series': 'Error per series',
+  'models.evidence.series.hint':
+    'Worst-forecast series first. A MASE below 1 beats repeating the previous value.',
+  'models.evidence.baseline.better': '{share} less error than repeating the last season',
+  'models.evidence.baseline.worse': '{share} more error than repeating the last season',
+  'models.evidence.coverage': 'Coverage {coverage} for {level} asked',
+  'models.explain.title': 'What the forecast leans on',
+  'models.explain.groups': 'By family of features',
+  'models.explain.groups.hint':
+    'Each family’s share of the model’s forecasts: mean SHAP measured over its training history.',
+  'models.explain.lags': 'The past it repeats',
+  'models.explain.lags.hint':
+    'Weight of each past value of the series. A peak at 7 d means the forecast mostly follows the same hour the week before.',
+  'models.explain.step': 'Direct model: the first step of the horizon is explained.',
+  'models.explain.group.lags': 'The series’ recent past',
+  'models.explain.group.calendar': 'Calendar',
+  'models.explain.group.future': 'Covariates known in advance',
+  'models.explain.group.past': 'Other series',
+  'models.explain.group.static': 'Series attributes',
+  'models.explain.group.series': 'Which series',
+  'models.explain.group.other': 'Other',
+  'models.explain.span.hours': '{n} h',
+  'models.explain.span.days': '{n} d',
+  'models.explain.span.weeks': '{n} wk',
+  'models.explain.span.months': '{n} mo',
+  'models.explain.span.years': '{n} yr',
+  'models.explain.span.steps': '{n} steps',
+  'models.explain.calendar.hour': 'Hour of day',
+  'models.explain.calendar.day_of_week': 'Day of week',
+  'models.explain.calendar.day_of_month': 'Day of month',
+  'models.explain.calendar.day_of_year': 'Day of year',
+  'models.explain.calendar.is_weekend': 'Weekend',
+  'models.explain.calendar.week': 'Week of year',
+  'models.explain.calendar.month': 'Month',
+  'models.explain.calendar.quarter': 'Quarter',
+  'models.explain.calendar.year': 'Year',
+  'models.explain.feature.series': 'Series',
+  'models.explain.model': 'Model parameters',
+  'models.explain.model.hint':
+    'A statistical model is explained by its fitted parameters: level and season smoothing (ETS), coefficients (ARIMA).',
+  'models.explain.model.aic': 'AIC {aic}',
+  'models.explain.naive':
+    'The seasonal naive repeats the last season ({season} steps): there is nothing else to explain.',
+  'models.explain.unavailable': 'The explanation could not be computed for this model.',
+  'models.explain.approximate':
+    'Deep forest: approximate attributions (Saabas), additive but coarser than exact SHAP.',
+  'models.analysis.title': 'Anatomy of the series',
+  'models.analysis.hint':
+    'Measured on the history alone: seasonality and trend (STL decomposition), autocorrelation, stationarity (ADF test).',
+  'models.analysis.season.strong': 'Strong seasonality ({value}) · period {period}',
+  'models.analysis.season.moderate': 'Moderate seasonality ({value}) · period {period}',
+  'models.analysis.season.weak': 'Weak seasonality ({value})',
+  'models.analysis.trend.strong': 'Strong trend ({value})',
+  'models.analysis.trend.moderate': 'Moderate trend ({value})',
+  'models.analysis.trend.weak': 'Weak trend ({value})',
+  'models.analysis.stationary': 'Returns to its level (ADF p {p})',
+  'models.analysis.unit_root': 'Wanders without returning (ADF p {p})',
+  'models.analysis.acf': 'How it resembles its past',
+  'models.analysis.acf.hint':
+    'Autocorrelation at the model’s lags and the season’s multiples: why it is worth looking that far back.',
+  'models.analysis.acf.noise': 'noise',
+  'models.analysis.suggested': 'Lags the partial autocorrelation suggests: {lags}',
+  'models.diagnostic.title': 'The regressor alone, one step ahead',
+  'models.diagnostic.hint':
+    'Refitted on the {train} oldest rows and judged by skore on the next {test}. Good here and weak in the backtest: the error is the recursion compounding; weak here too: the features.',
+  'models.diagnostic.fit': 'Forecast against actual (one step)',
+  'models.explain.peak.title': 'Why this peak',
+  'models.explain.peak.sentence': 'From a base of {base}, {series} reaches {pred} at {when}.',
+  'models.explain.peak.groups': 'What raised or lowered it',
+  'models.explain.peak.features': 'Strongest features',
+  'models.excursions.title': 'Outside the interval',
+  'models.excursions.hint': '{count} backtest actuals left the band ({share}); the furthest first.',
+  'models.excursions.above': '{actual} above {bound}',
+  'models.excursions.below': '{actual} below {bound}',
   'models.evidence.roc': 'ROC curve',
   'models.evidence.roc.hint':
     'The faster the curve climbs to the top-left corner, the better the model separates. The diagonal is chance. Hover the curve to read an operating point.',
@@ -884,6 +1219,8 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
     'These two models belong to different workspaces.',
   'models.compare.error.ml_compare_different_question':
     'These versions do not answer the same question, so one table cannot rank them.',
+  'models.compare.error.ml_compare_not_tabular':
+    'Only tabular models are re-scored on a shared split; a forecast compares by its backtest.',
   'models.compare.error.ml_compare_no_common_dataset':
     'Neither training dataset carries every column the two models need.',
   'models.compare.error.ml_compare_dataset_too_large':
@@ -936,6 +1273,48 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
     'Share of actual values that fell inside the stated interval. Compare it with the requested level; do not maximise it.',
   'models.metric.interval_width.hint': 'Mean width of the interval, in the unit of the forecast column.',
   'models.family.tabular': 'Tabular',
+  'models.family.forecasting': 'Forecasting',
+  'models.spec.time_column': 'Date column',
+  'models.spec.time_column.hint': 'When each value was measured. It sets the order and the step of the series.',
+  'models.spec.shape': 'Shape',
+  'models.spec.shape.hint': 'One series, a panel of similar series, or one series forecast from others.',
+  'models.spec.shape.single': 'One series',
+  'models.spec.shape.panel': 'Panel of series',
+  'models.spec.shape.multivariate': 'Multivariate',
+  'models.spec.series_columns': 'Series columns',
+  'models.spec.series_columns.hint': 'What tells one series of the panel from another: the cell, the store.',
+  'models.spec.horizon': 'Horizon',
+  'models.spec.horizon.hint': 'How many steps to forecast, in the unit of the frequency.',
+  'models.spec.frequency': 'Frequency',
+  'models.spec.frequency.hint': 'The step between two values. “Auto” infers it from the dates.',
+  'models.spec.frequency.auto': 'Auto',
+  'models.spec.frequency.h': 'Hourly',
+  'models.spec.frequency.d': 'Daily',
+  'models.spec.frequency.w': 'Weekly',
+  'models.spec.frequency.ms': 'Monthly',
+  'models.spec.frequency.qs': 'Quarterly',
+  'models.spec.strategy': 'Strategy',
+  'models.spec.strategy.hint': 'Recursive: one model that feeds on its own forecasts. Direct: one model per step ahead.',
+  'models.spec.strategy.recursive': 'Recursive',
+  'models.spec.strategy.direct': 'Direct',
+  'models.spec.lags': 'Lags',
+  'models.spec.lags.hint': 'The past values the model looks at: 1 = the previous step, 24 = the same hour yesterday.',
+  'models.spec.exog': 'Covariates',
+  'models.spec.exog.hint': 'Other columns that help the forecast, with what is known about them in advance.',
+  'models.spec.exog.future': 'Known in advance',
+  'models.spec.exog.static': 'Attribute of the series',
+  'models.spec.exog.past': 'Known up to now',
+  'models.spec.calendar': 'Calendar',
+  'models.spec.calendar.hint': 'Adds the hour, the day of the week and the month as features.',
+  'models.spec.interval_level': 'Interval level',
+  'models.spec.interval_level.hint': 'The share of actual values the interval should contain.',
+  'models.spec.backtest_folds': 'Backtests',
+  'models.spec.backtest_folds.hint': 'How many past horizons to replay to measure the error, unseen by the model.',
+  'models.spec.fill': 'Gaps in the series',
+  'models.spec.fill.hint': 'What to do with a missing step or value.',
+  'models.spec.fill.refuse': 'Refuse',
+  'models.spec.fill.interpolate': 'Interpolate',
+  'models.spec.fill.zero': 'Fill with zero',
   'models.family.reason.no_worker': 'No worker that can train these models is running.',
   'models.family.reason.runtime_missing': 'This family’s training environment is not installed.',
   'models.family.reason.disabled': 'Training is disabled on this deployment.',
@@ -957,6 +1336,20 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.contract.example': 'Example row',
 
   'models.play.unavailable.title': 'This model does not answer yet',
+  'models.play.unavailable.no_forecast_worker':
+    'No forecasting worker is answering right now: start the ml-ts service to query this model.',
+  'models.play.forecast.ask': 'What you ask',
+  'models.play.forecast.run': 'Forecast',
+  'models.play.forecast.covariates': 'Planned values of {names}, applied to every step of the horizon.',
+  'models.play.forecast.covariates_undated':
+    'This model needs future values, but its step cannot be dated here: send them through the API.',
+  'models.play.forecast.answer': 'What the model forecasts',
+  'models.play.forecast.empty': 'Pick a horizon and run the forecast.',
+  'models.play.forecast.timing.cached': 'answered in {ms} ms',
+  'models.play.forecast.timing.cold': 'answered in {ms} ms, {load} ms of it loading',
+  'models.play.forecast.peak': 'Forecast peak: {value} at {when}. At {level}, it may reach {upper}.',
+  'models.play.forecast.peak_plain': 'Forecast peak: {value} at {when}.',
+  'models.play.forecast.failed': 'The forecast failed.',
   'models.play.unavailable.untrained':
     'A model answers once it is trained: start a training run and the form will be built from its contract.',
   'models.play.unavailable.disabled':
@@ -1062,6 +1455,28 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
     'A skill already carries that name in this workspace.',
   'models.serving.error.ml_publish_name_invalid':
     'The model’s name does not yield a valid skill identifier.',
+  'models.serving.error.ml_use_forecast_route':
+    'A forecasting model answers for a horizon, not for rows: the forecasting worker serves it.',
+  'models.serving.error.ml_forecast_timeout':
+    'The forecasting worker did not answer in time. Try again in a moment.',
+  'models.serving.error.ml_forecast_input_invalid':
+    'The future values sent do not cover the requested horizon.',
+  'models.serving.error.ml_forecast_params_invalid':
+    'The horizon and the interval level must be valid numbers.',
+  'models.serving.error.ml_forecast_horizon_invalid':
+    'This horizon is beyond what this model can forecast.',
+  'models.serving.error.ml_forecast_failed':
+    'The forecast failed in the worker.',
+  'models.serving.error.ml_forecast_too_many_rows':
+    'Too many rows of future values for one call.',
+  'models.serving.error.ml_artifact_tampered':
+    'The stored artifact is not the one training produced: it is refused.',
+  'models.serving.error.ml_artifact_unverified':
+    'This model was saved without the fingerprints serving checks.',
+  'models.serving.error.ml_use_predict_route':
+    'This model answers rows: use /predict.',
+  'models.serving.error.ml_family_unavailable':
+    'No worker that can serve this model is running right now.',
 
   'models.versions.label': 'v{version}',
   'models.versions.current': 'Shown version',
@@ -1119,6 +1534,27 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.refusal.ml_model_not_ready': 'Only a trained model can answer.',
   'models.refusal.ml_model_not_found':
     'This model does not exist in this workspace.',
+  'models.refusal.ml_ts_time_column_required': 'Pick the date column of the series.',
+  'models.refusal.ml_ts_time_column_not_datetime':
+    'This column is not a date, so the series cannot be ordered.',
+  'models.refusal.ml_ts_column_reused':
+    'This column is already the target or the date column.',
+  'models.refusal.ml_ts_exog_not_numeric':
+    'A covariate must be numeric, unless it is an attribute of the series.',
+  'models.refusal.ml_ts_past_needs_multivariate':
+    'A column only known up to now can only be used by a multivariate forecast.',
+  'models.refusal.ml_ts_static_needs_panel':
+    'An attribute of the series only makes sense in a panel.',
+  'models.refusal.ml_ts_multivariate_needs_series':
+    'A multivariate forecast needs at least one other series known up to now.',
+  'models.refusal.ml_ts_duplicate_timestamps':
+    'Dates repeat: this dataset holds several series. Name the columns that tell them apart.',
+  'models.refusal.ml_ts_too_many_series':
+    'Too many series for one panel model on this deployment.',
+  'models.refusal.ml_ts_algo_shape_mismatch':
+    'This algorithm handles one series at a time: pick a regressor for a panel or a multivariate forecast.',
+  'models.refusal.ml_ts_history_too_short':
+    'Not enough history for this horizon, these lags and these backtests.',
 
   'models.warning.ml_feature_identifier':
     '“{feature}” is unique per row: the model will memorise it and generalize nothing.',
@@ -1141,6 +1577,10 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
     'Model training was disabled while the run was in flight.',
   'models.error.ml_runtime_missing':
     'The worker that received the training lacks this model family’s libraries.',
+  'models.error.ml_ts_series_unusable':
+    'The series has gaps, repeated dates or no regular step. Pick a fill policy or fix the data.',
+  'models.error.ml_ts_history_too_short':
+    'Once the series is on its step, too little history is left for this horizon.',
 
   'models.disabled.title': 'Model plane disabled',
   'models.disabled.description':

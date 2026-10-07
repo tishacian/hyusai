@@ -65,6 +65,7 @@ from app.services.skills_registry.binding import (
     SkillBindingError,
     workspace_skill_slug,
 )
+from app.services.ml.families import get_family
 from app.services.tabular_datasets import (
     TabularError,
     dataset_reference,
@@ -267,6 +268,16 @@ def load_pipeline_traced(model: MLModel) -> tuple[LoadedModel, bool]:
             message="The model is not trained yet.",
             status_code=409,
             details={"status": model.status},
+        )
+    family = get_family(getattr(model, "family", None))
+    if family.serving != "in_process":
+        # A forecast answers a horizon, not a row, and its artifact only loads
+        # in its own runtime: unpickling it here would need skforecast in the API.
+        raise TabularError(
+            code="ML_USE_FORECAST_ROUTE",
+            message="A forecasting model is served by its own runtime, with a horizon rather than rows.",
+            status_code=409,
+            details={"family": family.key},
         )
 
     fingerprint = _fingerprint(model)
@@ -1731,15 +1742,25 @@ def serving_block(db: DBSession, model: MLModel) -> dict[str, Any]:
     """Everything the Playground and the key panel need in one read."""
 
     champion = champion_for(db, workspace_id=model.workspace_id, slug=model.slug)
+    family = get_family(getattr(model, "family", None))
+    remote = family.serving != "in_process"
     try:
         fields = contract_fields(model)
     except TabularError:
         fields = []
+    if remote:
+        from app.services.ml.forecast_serving import public_forecast_path
+        from app.services.ml.runtime import serving_availability
+
+        listening, _ = serving_availability(family, db)
+        callable_now = bool(settings.ml_predict_enabled and model.status == "ready" and listening)
+        endpoint = public_forecast_path(model)
+    else:
+        callable_now = bool(settings.ml_predict_enabled and model.status == "ready" and fields)
+        endpoint = public_predict_path(model)
     return {
         "enabled": bool(settings.ml_predict_enabled and settings.tabular_data_enabled),
-        "callable": bool(
-            settings.ml_predict_enabled and model.status == "ready" and fields
-        ),
+        "callable": callable_now,
         "serving_version": int(champion.version) if champion is not None else None,
         "serving_model_id": champion.id if champion is not None else None,
         "is_serving": bool(champion is not None and champion.id == model.id),
@@ -1755,8 +1776,10 @@ def serving_block(db: DBSession, model: MLModel) -> dict[str, Any]:
         ),
         "published_skill": published_skill(db, model),
         "keys": [serialize_api_key(row) for row in list_api_keys(db, model=model)],
-        "endpoint": public_predict_path(model),
+        "endpoint": endpoint,
         "key_header": API_KEY_HEADER,
+        # A forecast is asked for with a horizon, not rows (see forecast_serving).
+        "mode": "forecast" if remote else "rows",
     }
 
 

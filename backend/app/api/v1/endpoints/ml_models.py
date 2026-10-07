@@ -564,6 +564,66 @@ async def predict(
     return answer
 
 
+class ForecastParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    horizon: Optional[int] = Field(default=None, ge=1, le=100_000)
+    interval_level: Optional[float] = Field(default=None, ge=0.5, le=0.99)
+    # What lifted or lowered each step, per family, and the peak's strongest
+    # features. Off by default: an integration reading numbers does not pay it.
+    explain: bool = False
+
+
+class ForecastBody(BaseModel):
+    """MLflow's invocation shape: ``inputs`` are rows, ``params`` the knobs.
+
+    A forecast's rows are what is known about the future — one per step (and
+    per series) for each covariate known in advance — or a ``series`` alone to
+    pick which series of a panel to forecast, or nothing at all.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    inputs: list[dict[str, Any]] = Field(default_factory=list, max_length=500_000)
+    params: ForecastParams = Field(default_factory=ForecastParams)
+    version: Optional[int] = Field(default=None, ge=1)
+
+
+@router.post("/{model_id}/forecast")
+async def forecast(
+    model_id: str,
+    body: ForecastBody,
+    caller: PredictCaller = Depends(predict_caller),
+    db: DBSession = Depends(get_db),
+):
+    """Forecast now, through the ml-ts worker. The Playground's call and the cURL's.
+
+    The artifact only loads where skforecast is installed, so this endpoint
+    sends the request to that worker and waits for it in a thread — the event
+    loop keeps serving while the forecast is computed elsewhere.
+    """
+
+    from app.services.ml.forecast_serving import request_forecast
+
+    try:
+        model = get_model(db, model_id=model_id, workspace_id=caller.workspace_id)
+        caller.authorize(model)
+        answer = await run_in_threadpool(
+            request_forecast,
+            db,
+            model,
+            horizon=body.params.horizon,
+            level=body.params.interval_level,
+            inputs=body.inputs,
+            version=body.version,
+            caller=caller.kind,
+            explain=body.params.explain,
+        )
+    except TabularError as exc:
+        _raise_tabular(exc)
+    return answer
+
+
 class FeedbackBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

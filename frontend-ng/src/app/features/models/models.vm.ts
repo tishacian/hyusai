@@ -169,11 +169,14 @@ export interface SignatureField {
   max?: number | null;
   default?: unknown;
   choices?: string[];
+  /** A forecast's covariate: what is known about it (`future`: planned ahead). */
+  role?: string;
 }
 
 export interface ModelSignature {
   inputs?: SignatureField[];
-  output?: { task?: ModelTask; target?: string; classes?: string[] };
+  /** `levels` and `horizon`: a forecast's series and the horizon it was built for. */
+  output?: { task?: ModelTask; target?: string; classes?: string[]; levels?: string[]; horizon?: number };
 }
 
 export interface ModelDto {
@@ -183,6 +186,10 @@ export interface ModelDto {
   version: number;
   description?: string | null;
   task: ModelTask;
+  /** The model family (absent on rows from before families: tabular). */
+  family?: string;
+  /** The family's problem definition, as validated at training time. */
+  spec?: Record<string, unknown>;
   algo: string;
   target: string;
   features: string[];
@@ -271,6 +278,8 @@ export interface ServingBlock {
   keys: ApiKeyRow[];
   endpoint: string;
   key_header: string;
+  /** `forecast`: the model is asked for a horizon on /forecast, not for rows. */
+  mode?: 'rows' | 'forecast';
 }
 
 export interface ClassProbability {
@@ -764,7 +773,7 @@ export function numericKnobs(algo: AlgoDescriptor | undefined): NumericKnobDescr
 /** A field of a model family's problem definition (time column, horizon, …). */
 export interface SpecFieldDescriptor {
   key: string;
-  kind: 'column' | 'columns' | 'int' | 'float' | 'enum' | 'bool' | 'column_roles';
+  kind: 'column' | 'columns' | 'int' | 'float' | 'enum' | 'bool' | 'int_list' | 'column_roles';
   required: boolean;
   default?: unknown;
   min?: number;
@@ -783,6 +792,8 @@ export interface FamilyDescriptor {
   serving: 'in_process' | 'remote';
   /** Whether a worker that can train this family is listening. */
   available: boolean;
+  /** For a family served by its own worker: whether that worker answers now. */
+  serve_available?: boolean;
   reason?: 'no_worker' | 'runtime_missing' | 'disabled' | (string & {});
   spec_fields: SpecFieldDescriptor[];
 }
@@ -848,6 +859,9 @@ export interface TrainingPlan {
   algo: string;
   estimator: string;
   knobs: Record<string, number | null>;
+  /** The model family, and its problem definition as the server resolved it. */
+  family?: string;
+  spec?: Record<string, unknown>;
   test_size: number;
   cross_validation: number;
   name: string;
@@ -875,6 +889,7 @@ export function isActiveStatus(status: ModelStatus | undefined | null): boolean 
 
 /** Lucide icon for a task — the list's at-a-glance "what does it predict" cue. */
 export function taskIcon(task: ModelTask | undefined): string {
+  if (task === 'forecasting') return 'history';
   return task === 'regression' ? 'trending-up' : 'target';
 }
 
@@ -895,6 +910,12 @@ export function algoIcon(algo: string | undefined): string {
       return 'line-chart';
     case 'knn':
       return 'circle-dot';
+    case 'ets':
+      return 'waves';
+    case 'arima':
+      return 'activity';
+    case 'seasonal_naive':
+      return 'repeat';
     default:
       return 'brain';
   }
@@ -1381,12 +1402,22 @@ export function defaultKnobs(algo: AlgoDescriptor | undefined): Record<string, n
 /**
  * The tasks a form offers: those of the families a worker can train now.
  * A catalog served before families lists its tasks bare, all trainable.
+ *
+ * A family that needs a problem definition (a forecast's date column and
+ * horizon) is offered only by a form that renders spec fields; one that does
+ * not would submit a request the server can only refuse.
  */
-export function trainableTasks(catalog: ModelCatalog | null | undefined): ModelTask[] {
+export function trainableTasks(
+  catalog: ModelCatalog | null | undefined,
+  options: { specFields?: boolean } = {},
+): ModelTask[] {
   const tasks = catalog?.tasks ?? [];
   const families = catalog?.families;
   if (!families?.length) return [...tasks];
-  const available = new Set(families.filter((family) => family.available).flatMap((family) => family.tasks));
+  const offered = families.filter(
+    (family) => family.available && (options.specFields || !(family.spec_fields ?? []).some((field) => field.required)),
+  );
+  const available = new Set(offered.flatMap((family) => family.tasks));
   return tasks.filter((task) => available.has(task));
 }
 
@@ -1487,6 +1518,17 @@ export const REFUSAL_CODES = [
   'ML_FAMILY_UNAVAILABLE',
   'ML_MODEL_NOT_READY',
   'ML_MODEL_NOT_FOUND',
+  'ML_TS_TIME_COLUMN_REQUIRED',
+  'ML_TS_TIME_COLUMN_NOT_DATETIME',
+  'ML_TS_COLUMN_REUSED',
+  'ML_TS_EXOG_NOT_NUMERIC',
+  'ML_TS_PAST_NEEDS_MULTIVARIATE',
+  'ML_TS_STATIC_NEEDS_PANEL',
+  'ML_TS_MULTIVARIATE_NEEDS_SERIES',
+  'ML_TS_DUPLICATE_TIMESTAMPS',
+  'ML_TS_TOO_MANY_SERIES',
+  'ML_TS_ALGO_SHAPE_MISMATCH',
+  'ML_TS_HISTORY_TOO_SHORT',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];
@@ -1502,7 +1544,12 @@ export function refusalKey(code: string | undefined | null): string | null {
 /** Which form field a refusal belongs against, so it renders next to its cause. */
 export function refusalField(
   code: string | undefined | null,
-): 'target' | 'features' | 'algo' | 'dataset' | null {
+): 'target' | 'features' | 'algo' | 'dataset' | 'spec' | null {
+  // A forecast's refusals are about its problem definition (date column,
+  // horizon, covariate roles), which the form renders as one block.
+  if (code === 'ML_SPEC_INVALID' || (code ?? '').startsWith('ML_TS_')) {
+    return code === 'ML_TS_ALGO_SHAPE_MISMATCH' ? 'algo' : 'spec';
+  }
   switch (code) {
     case 'ML_TARGET_REQUIRED':
     case 'ML_TARGET_UNKNOWN':
@@ -1561,6 +1608,17 @@ export const SERVING_ERROR_CODES = [
   'ML_KEY_WRONG_MODEL',
   'ML_PUBLISH_NAME_TAKEN',
   'ML_PUBLISH_NAME_INVALID',
+  'ML_USE_FORECAST_ROUTE',
+  'ML_FORECAST_TIMEOUT',
+  'ML_FORECAST_INPUT_INVALID',
+  'ML_FORECAST_PARAMS_INVALID',
+  'ML_FORECAST_HORIZON_INVALID',
+  'ML_FORECAST_FAILED',
+  'ML_FORECAST_TOO_MANY_ROWS',
+  'ML_ARTIFACT_TAMPERED',
+  'ML_ARTIFACT_UNVERIFIED',
+  'ML_USE_PREDICT_ROUTE',
+  'ML_FAMILY_UNAVAILABLE',
 ] as const;
 
 const SERVING_ERROR_SET: ReadonlySet<string> = new Set(SERVING_ERROR_CODES);
@@ -1581,6 +1639,7 @@ export const COMPARE_ERROR_CODES = [
   'ML_COMPARE_DATASET_TOO_LARGE',
   'ML_COMPARE_SPLIT_FAILED',
   'ML_COMPARE_FAILED',
+  'ML_COMPARE_NOT_TABULAR',
 ] as const;
 
 const COMPARE_ERROR_SET: ReadonlySet<string> = new Set(COMPARE_ERROR_CODES);
@@ -1650,6 +1709,15 @@ export const TRAIN_STEPS: readonly string[] = [
 ];
 
 /**
+ * A forecast's steps, as `ml_forecast_harness` writes them: it is judged by
+ * backtesting before its final fit, and a backtest counts its folds the way a
+ * cross-validation does (`backtesting:2/3`).
+ */
+export const FORECAST_TRAIN_STEPS: readonly string[] = ['queued', 'reading', 'backtesting', 'fitting', 'saving'];
+
+const KNOWN_TRAIN_STEPS: ReadonlySet<string> = new Set([...TRAIN_STEPS, ...FORECAST_TRAIN_STEPS]);
+
+/**
  * The step, and the count it brought, out of a `status_detail`.
  *
  * The backend writes `fitting:6903` and `validating:3/5` for the same reason the
@@ -1668,7 +1736,7 @@ export function parseTrainDetail(detail: string | null | undefined): {
   folds: number | null;
 } {
   const [head, tail] = (detail ?? '').trim().split(':', 2);
-  const step = TRAIN_STEPS.includes(head) ? head : TRAIN_STEPS[0];
+  const step = KNOWN_TRAIN_STEPS.has(head) ? head : TRAIN_STEPS[0];
   const empty = { step, rows: null, fold: null, folds: null };
   if (!tail) return empty;
   const [left, right] = tail.split('/', 2);
@@ -1728,9 +1796,20 @@ export function trainChecklist(
   detail: string | null | undefined,
   requestedFolds: number | null | undefined,
   locale = 'en',
+  task?: ModelTask | null,
 ): TrainStep[] {
-  const folds = Number(requestedFolds) >= 2 ? Math.round(Number(requestedFolds)) : 0;
-  const steps = TRAIN_STEPS.filter((step) => step !== 'validating' || folds >= 2);
+  const forecast = task === 'forecasting';
+  // The step that counts folds: a cross-validation, or a forecast's backtest
+  // (which always runs, one fold or several).
+  const foldStep = forecast ? 'backtesting' : 'validating';
+  const folds = forecast
+    ? Math.max(1, Math.round(Number(requestedFolds) || 1))
+    : Number(requestedFolds) >= 2
+      ? Math.round(Number(requestedFolds))
+      : 0;
+  const steps = forecast
+    ? [...FORECAST_TRAIN_STEPS]
+    : TRAIN_STEPS.filter((step) => step !== 'validating' || folds >= 2);
   const terminal = status === 'ready' || status === 'failed' || status === 'cancelled';
   const parsed = parseTrainDetail(detail);
   const claimed = (detail ?? '').trim() ? parsed.step : null;
@@ -1744,16 +1823,16 @@ export function trainChecklist(
     // settled row it would freeze on the last one and still read as one.
     const withRows = step === 'fitting' && parsed.rows !== null;
     const onFold =
-      step === 'validating' &&
+      step === foldStep &&
       !terminal &&
-      parsed.step === 'validating' &&
+      parsed.step === foldStep &&
       parsed.fold !== null;
     const params: Record<string, string | number> = {};
     if (withRows) params['rows'] = (parsed.rows as number).toLocaleString(locale);
     if (onFold) {
       params['fold'] = parsed.fold as number;
       params['folds'] = parsed.folds as number;
-    } else if (step === 'validating') {
+    } else if (step === foldStep) {
       params['folds'] = folds;
     }
     return {
@@ -1777,6 +1856,8 @@ export const TRAINING_ERROR_CODES = [
   'ML_ARTIFACT_EMPTY',
   'ML_TRAIN_DISABLED',
   'ML_RUNTIME_MISSING',
+  'ML_TS_SERIES_UNUSABLE',
+  'ML_TS_HISTORY_TOO_SHORT',
 ] as const;
 
 const TRAINING_ERROR_SET: ReadonlySet<string> = new Set(TRAINING_ERROR_CODES);

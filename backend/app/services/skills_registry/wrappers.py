@@ -2870,6 +2870,123 @@ async def _ml_batch_score_v1(
         raise ValueError(f"{exc.code}: {exc.message}") from exc
 
 
+async def _ml_forecast_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Forecast every series of a trained model into a new versioned dataset.
+
+    The serving node of the forecasting family. Its model, horizon and interval
+    level come from ``_forecast`` (graph configuration), never from the wire.
+    The forecast itself is computed by the ml-ts worker — the only image that
+    can load it — into a dataset row this node reserves and then polls, the way
+    a training node polls its model: nothing waits on a task result.
+
+    A dataset on the wire is read only as *future values* (the covariates the
+    model needs over the horizon), and only when the model takes some or the
+    node pins one: an upstream training node's reference names its training
+    table, which is not the future.
+
+    It emits the dataset envelope plus the peaks per series — when each series
+    tops out and how high its interval goes — so an alert or a summary node
+    downstream reads the answer without opening the table.
+    """
+    import asyncio
+    import time as time_mod
+
+    from app.core.config import settings as app_settings
+    from app.db.base import SessionLocal
+    from app.models.tabular import TabularDataset
+    from app.services.ml.forecast_serving import submit_forecast_dataset
+    from app.services.tabular_datasets import TabularError, dataset_reference, fail_frame, resolve_dataset_ref
+
+    ctx = ctx or {}
+    spec = payload.get("_forecast")
+    if not isinstance(spec, dict):
+        raise ValueError(
+            "forecast_config_missing: this Skill only runs as a Flow node carrying "
+            "its model and horizon"
+        )
+    workspace_id = (
+        ctx.get("workspace_id") or spec.get("workspace_id") or payload.get("workspace_id")
+    )
+    if not workspace_id:
+        raise ValueError("forecast_workspace_required")
+    if not app_settings.ml_predict_enabled:
+        raise ValueError("ML_PREDICT_DISABLED: prediction is off on this instance")
+    inputs = {key: value for key, value in payload.items() if not key.startswith("_")}
+    pinned = _pinned_dataset_ref(spec)
+
+    def _submit() -> str:
+        with SessionLocal() as db:
+            model = _resolve_model(db, spec, str(workspace_id))
+            takes_future = any(
+                isinstance(field, dict) and field.get("role") == "future"
+                for field in (model.signature_json or {}).get("inputs") or []
+            )
+            wired = _first_dataset_ref(inputs)
+            if wired is not None and wired.get("model_id"):
+                wired = None
+            ref = pinned or (wired if takes_future else None)
+            future = resolve_dataset_ref(db, workspace_id=str(workspace_id), ref=ref) if ref else None
+            output = submit_forecast_dataset(
+                db,
+                model=model,
+                workspace_id=str(workspace_id),
+                horizon=spec.get("horizon"),
+                level=spec.get("interval_level"),
+                future=future,
+                output_name=str(spec.get("output_name") or "") or None,
+                version=spec.get("pinned_version"),
+                run_id=ctx.get("run_id"),
+                node_id=str(spec.get("node_id") or "") or None,
+            )
+            return output.id
+
+    try:
+        output_id = await asyncio.to_thread(_submit)
+    except TabularError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+    deadline = time_mod.monotonic() + float(app_settings.ml_forecast_batch_timeout_s)
+
+    def _read() -> tuple[str, str | None, dict[str, Any], dict[str, Any]]:
+        with SessionLocal() as db:
+            row = db.query(TabularDataset).filter(TabularDataset.id == output_id).first()
+            if row is None:
+                raise RuntimeError("ml_forecast_dataset_missing")
+            return row.status, row.error, dataset_reference(row), dict(row.lineage_json or {})
+
+    def _expire() -> None:
+        with SessionLocal() as db:
+            row = db.query(TabularDataset).filter(TabularDataset.id == output_id).first()
+            if row is not None and row.status == "ingesting":
+                fail_frame(db, row, "ML_FORECAST_TIMEOUT: no forecasting worker settled this dataset in time")
+
+    while True:
+        status, error, reference, lineage = await asyncio.to_thread(_read)
+        if status in ("ready", "failed", "deleted"):
+            break
+        if time_mod.monotonic() > deadline:
+            await asyncio.to_thread(_expire)
+            raise RuntimeError("ml_forecast_deadline_expired")
+        await asyncio.sleep(1.0)
+
+    if status != "ready":
+        raise RuntimeError(f"ml_forecast_{status}: {(error or '').strip()}"[:480])
+    return {
+        **reference,
+        "model": lineage.get("model") or {},
+        "forecast": {
+            "horizon": lineage.get("horizon"),
+            "interval_level": lineage.get("interval_level"),
+            "frequency": lineage.get("frequency"),
+            "series": lineage.get("series"),
+            "peaks": lineage.get("peaks") or [],
+        },
+        "duration_ms": lineage.get("duration_ms"),
+    }
+
+
 def _pinned_dataset_ref(block: dict[str, Any]) -> dict[str, Any] | None:
     """The dataset a model node pins in its graph-owned block, if it pins one.
 
@@ -6982,6 +7099,11 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "ml_batch_score_v1": (
         _ml_batch_score_v1,
         "app.services.tabular_predict",
+        "bound",
+    ),
+    "ml_forecast_v1": (
+        _ml_forecast_v1,
+        "app.services.ml.forecast_serving",
         "bound",
     ),
     "calendar_create_event_v1": (

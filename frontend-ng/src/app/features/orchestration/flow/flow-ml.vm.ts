@@ -11,6 +11,8 @@
  *  - `ml_batch_score_v1` — reads a dataset, writes a scored dataset. Nothing to
  *    author: pick which model answers, name the output.
  *  - `ml_predict_v1` — answers one record inline. Same: pick the model.
+ *  - `ml_forecast_v1` — forecasts every series of a forecasting model into a
+ *    dataset. Pick the model, and how far ahead.
  *
  * So the serving nodes get a compact inspector section rather than a dialog. A
  * workshop for two dropdowns would be ceremony, and ceremony is what makes a
@@ -36,6 +38,7 @@ import type { ModelDto, ModelTask } from '@app/features/models/models.vm';
 export const ML_TRAIN_SKILL_SLUG = 'ml_train_sklearn_v1';
 export const ML_PREDICT_SKILL_SLUG = 'ml_predict_v1';
 export const ML_SCORE_SKILL_SLUG = 'ml_batch_score_v1';
+export const ML_FORECAST_SKILL_SLUG = 'ml_forecast_v1';
 
 /** Mirror of `settings.ml_train_default_test_size`. */
 export const TRAIN_TEST_SIZE_DEFAULT = 0.25;
@@ -45,7 +48,10 @@ export const TRAIN_TEST_SIZE_MAX = 0.5;
 export const TRAIN_CV_OPTIONS: readonly number[] = [3, 5, 10];
 
 /** Which serving shape a node is, or `null` when it is not a model node. */
-export type MlNodeRole = 'train' | 'predict' | 'score';
+export type MlNodeRole = 'train' | 'predict' | 'score' | 'forecast';
+
+/** The serving shapes: everything but the fit. */
+export type ServingRole = Exclude<MlNodeRole, 'train'>;
 
 /** One dataset the node reads, pinned by slug (follows) or by id (frozen). */
 export interface MlSourcePin {
@@ -64,6 +70,8 @@ export interface TrainNodeParams {
   test_size: number;
   cross_validation: number;
   model_name: string;
+  /** A family's problem definition (a forecast's date column, horizon, …). */
+  spec: Record<string, unknown> | null;
   sources: MlSourcePin[];
 }
 
@@ -75,6 +83,9 @@ export interface PredictNodeParams {
   pinned_version: number | null;
   output_name: string;
   explain: boolean;
+  /** A forecast node's steps ahead and interval level; `null` keeps the model's. */
+  horizon: number | null;
+  interval_level: number | null;
   sources: MlSourcePin[];
 }
 
@@ -104,6 +115,8 @@ export function mlNodeRole(
       return 'predict';
     case ML_SCORE_SKILL_SLUG:
       return 'score';
+    case ML_FORECAST_SKILL_SLUG:
+      return 'forecast';
     default:
       return null;
   }
@@ -113,10 +126,10 @@ export function isTrainNode(node: CanonicalFlowNode | null | undefined): boolean
   return mlNodeRole(node) === 'train';
 }
 
-/** True for either serving shape: one record inline, or a whole dataset. */
+/** True for every serving shape: one record, a scored dataset, a forecast. */
 export function isServingNode(node: CanonicalFlowNode | null | undefined): boolean {
   const role = mlNodeRole(node);
-  return role === 'predict' || role === 'score';
+  return role === 'predict' || role === 'score' || role === 'forecast';
 }
 
 export function isBatchScoreNode(node: CanonicalFlowNode | null | undefined): boolean {
@@ -125,24 +138,33 @@ export function isBatchScoreNode(node: CanonicalFlowNode | null | undefined): bo
 
 /** Everything that differs between the two serving shapes, as data. */
 export interface ServingRoleDescriptor {
-  role: 'predict' | 'score';
+  role: ServingRole;
   skillSlug: string;
   icon: string;
   /** A dataset node names what it writes; a single-record node writes nothing. */
   writesDataset: boolean;
+  /**
+   * Whether it needs a dataset to read. A scored table is a copy of one; a
+   * forecast reads one only for the values its covariates take in the future.
+   */
+  readsDataset: boolean;
   /** Only the inline shape can afford per-row contributions. */
   supportsExplain: boolean;
+  /** Which models answer it: row models, or forecasts (asked for a horizon). */
+  serves: 'rows' | 'forecast';
   copy: { section: string; hint: string };
 }
 
-export const SERVING_ROLES: Readonly<Record<'predict' | 'score', ServingRoleDescriptor>> =
+export const SERVING_ROLES: Readonly<Record<ServingRole, ServingRoleDescriptor>> =
   {
     predict: {
       role: 'predict',
       skillSlug: ML_PREDICT_SKILL_SLUG,
       icon: 'zap',
       writesDataset: false,
+      readsDataset: false,
       supportsExplain: true,
+      serves: 'rows',
       copy: {
         section: 'flow.inspector.section.predict',
         hint: 'flow.ml.predict.inspector.hint',
@@ -153,10 +175,25 @@ export const SERVING_ROLES: Readonly<Record<'predict' | 'score', ServingRoleDesc
       skillSlug: ML_SCORE_SKILL_SLUG,
       icon: 'target',
       writesDataset: true,
+      readsDataset: true,
       supportsExplain: false,
+      serves: 'rows',
       copy: {
         section: 'flow.inspector.section.score',
         hint: 'flow.ml.score.inspector.hint',
+      },
+    },
+    forecast: {
+      role: 'forecast',
+      skillSlug: ML_FORECAST_SKILL_SLUG,
+      icon: 'history',
+      writesDataset: true,
+      readsDataset: false,
+      supportsExplain: false,
+      serves: 'forecast',
+      copy: {
+        section: 'flow.inspector.section.forecast',
+        hint: 'flow.ml.forecast.inspector.hint',
       },
     },
   };
@@ -165,7 +202,7 @@ export function servingDescriptor(
   node: CanonicalFlowNode | null | undefined,
 ): ServingRoleDescriptor | null {
   const role = mlNodeRole(node);
-  if (role !== 'predict' && role !== 'score') return null;
+  if (!role || role === 'train') return null;
   return SERVING_ROLES[role];
 }
 
@@ -209,12 +246,13 @@ export function trainDefaultParams(): Record<string, unknown> {
     test_size: TRAIN_TEST_SIZE_DEFAULT,
     cross_validation: 0,
     model_name: '',
+    spec: null,
     sources: [],
   };
 }
 
 /** The `config.params` bag a freshly dropped serving node carries. */
-export function predictDefaultParams(role: 'predict' | 'score'): Record<string, unknown> {
+export function predictDefaultParams(role: ServingRole): Record<string, unknown> {
   const params: Record<string, unknown> = {
     model_id: '',
     model_slug: '',
@@ -223,6 +261,11 @@ export function predictDefaultParams(role: 'predict' | 'score'): Record<string, 
   };
   if (SERVING_ROLES[role].writesDataset) params['output_name'] = '';
   if (SERVING_ROLES[role].supportsExplain) params['explain'] = false;
+  if (SERVING_ROLES[role].serves === 'forecast') {
+    // `null` asks for what the model was trained to answer.
+    params['horizon'] = null;
+    params['interval_level'] = null;
+  }
   return params;
 }
 
@@ -240,7 +283,7 @@ export function readTrainParams(
     }
   }
   return {
-    task: task === 'classification' || task === 'regression' ? task : null,
+    task: task === 'classification' || task === 'regression' || task === 'forecasting' ? task : null,
     target: typeof params['target'] === 'string' ? params['target'].trim() : '',
     features: Array.isArray(features)
       ? features.filter((name): name is string => typeof name === 'string' && !!name)
@@ -251,8 +294,17 @@ export function readTrainParams(
     cross_validation: clampFolds(params['cross_validation']),
     model_name:
       typeof params['model_name'] === 'string' ? params['model_name'].trim() : '',
+    spec: isRecord(params['spec']) ? params['spec'] : null,
     sources: readPins(params['sources']),
   };
+}
+
+function positiveOrNull(value: unknown, round: boolean): number | null {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (value === null || value === undefined || value === '' || !Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return round ? Math.round(parsed) : parsed;
 }
 
 export function readPredictParams(
@@ -272,6 +324,11 @@ export function readPredictParams(
     output_name:
       typeof params['output_name'] === 'string' ? params['output_name'].trim() : '',
     explain: params['explain'] === true,
+    horizon: positiveOrNull(params['horizon'], true),
+    interval_level: (() => {
+      const level = positiveOrNull(params['interval_level'], false);
+      return level !== null && level >= 0.5 && level <= 0.99 ? level : null;
+    })(),
     sources: readPins(params['sources']),
   };
 }
@@ -368,7 +425,7 @@ export function preflightServing(
   if (!params.model_id && !params.model_slug) {
     return mlFailure('ML_MODEL_REQUIRED');
   }
-  if (descriptor.writesDataset && params.sources.length === 0 && !options.wired) {
+  if (descriptor.readsDataset && params.sources.length === 0 && !options.wired) {
     return mlFailure('ML_SCORE_DATASET_REQUIRED');
   }
   return null;
@@ -418,9 +475,16 @@ export function servingSummary(
  * configuration mistake into a run-time refusal — the picker is the right place
  * to make that impossible.
  */
-export function servableModels(models: readonly ModelDto[]): ModelDto[] {
+export function servableModels(
+  models: readonly ModelDto[],
+  serves: 'rows' | 'forecast' | null = null,
+): ModelDto[] {
+  // A forecast answers a horizon and a row model answers rows: each node only
+  // offers the models it can call, rather than refusing one at run time.
+  const wanted = (model: ModelDto) =>
+    serves === null || (serves === 'forecast') === (model.task === 'forecasting');
   return models
-    .filter((model) => model.status === 'ready')
+    .filter((model) => model.status === 'ready' && wanted(model))
     .sort(
       (left, right) =>
         left.slug.localeCompare(right.slug) || right.version - left.version,

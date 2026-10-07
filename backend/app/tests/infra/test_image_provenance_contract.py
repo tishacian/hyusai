@@ -15,6 +15,7 @@ IMAGE_CONTRACTS = {
     "agentium-backend": "docker/Dockerfile.agentium-backend",
     "agentium-frontend": "docker/Dockerfile.agentium-frontend",
     "agentium-worker-cpu": "docker/Dockerfile.agentium-worker",
+    "agentium-worker-ml-ts": "docker/Dockerfile.agentium-ml-ts",
 }
 
 
@@ -36,7 +37,7 @@ def test_agentium_images_accept_the_revision_arg_and_emit_the_oci_label() -> Non
 
     frontend = (REPO_ROOT / IMAGE_CONTRACTS["agentium-frontend"]).read_text(encoding="utf-8")
     assert "RUN node scripts/write-build-info.mjs" in frontend
-    for service_name in ("agentium-backend", "agentium-worker-cpu"):
+    for service_name in ("agentium-backend", "agentium-worker-cpu", "agentium-worker-ml-ts"):
         dockerfile = (REPO_ROOT / IMAGE_CONTRACTS[service_name]).read_text(encoding="utf-8")
         assert "ENV AGENTIUM_IMAGE_REVISION=${AGENTIUM_IMAGE_REVISION}" in dockerfile
 
