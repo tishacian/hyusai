@@ -58,7 +58,7 @@ export function settleSource<T>(request: Observable<T>): Observable<SourceOutcom
  */
 export function impactSourceRequests(
   http: Pick<ApiService, 'get'>,
-  window: '30d' | '90d',
+  window: '7d' | '30d' | '90d',
 ): ImpactSourceRequests {
   return {
     series: () => http.get<HypervisorSeriesResponse | null>('/hypervisor/series', { window }),

@@ -30,7 +30,7 @@ const pureSpecs = [
   'src/app/features/auth/gravity.spec.ts',
   'src/app/features/experience/work/claim-run.spec.ts',
   'src/app/features/experience/work/claim-triage.spec.ts',
-  'src/app/features/experience/work/claims-financial.spec.ts',
+  'src/app/features/hypervisor/v2/impact-product-blocks.spec.ts',
   'src/app/features/governance/audit-trail.vm.spec.ts',
   'src/app/features/intelligence/intelligence.vm.spec.ts',
   'src/app/features/hypervisor/v2/demo-finishings.spec.ts',

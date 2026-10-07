@@ -3,14 +3,15 @@
 Composes data from `impact`, `runs`, `capabilities` and `decisions` to feed
 the executive cockpit. Designed to be a single roundtrip per surface.
 """
+
 from collections import defaultdict
 from collections.abc import Mapping
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Literal, Optional, Union
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -27,7 +28,7 @@ from app.models.system import System
 from app.models.user import User
 from app.models.value_loop import ValueMeasurement, ValueScenario
 from app.models.workspace import Workspace
-from app.services import automation_portfolio
+from app.services import automation_portfolio, impact_activity
 from app.services.audit_logger import emit_audit_event
 from app.services.catalog_visibility import visible_capabilities, workspace_catalog_policy
 from app.services.decision_access import readable_decisions
@@ -56,6 +57,7 @@ from app.services.value_scenario_access import readable_value_scenarios
 router = APIRouter()
 
 HYPERVISOR_VIEWS_KEY = "hypervisor_views"
+HYPERVISOR_DEFAULT_VIEW_KEY = "hypervisor_default_view_id"
 OUTCOME_DECISIONS = frozenset({"approved", "partial"})
 SERIES_RUN_SCOPE = {
     "resource": "run",
@@ -63,17 +65,19 @@ SERIES_RUN_SCOPE = {
     "aggregation": "post_authorization_filter",
     "counts_include_only_readable_runs": True,
 }
-def _block(type_: str, settings: Dict[str, Any] | None = None, **extras: Any) -> Dict[str, Any]:
-    payload: Dict[str, Any] = {"type": type_, "settings": dict(settings or {})}
+
+
+def _block(type_: str, settings: dict[str, Any] | None = None, **extras: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {"type": type_, "settings": dict(settings or {})}
     payload.update({key: value for key, value in extras.items() if value is not None})
     return payload
 
 
-def _blocks(*types: str) -> List[Dict[str, Any]]:
+def _blocks(*types: str) -> list[dict[str, Any]]:
     return [_block(type_) for type_ in types]
 
 
-DEFAULT_HYPERVISOR_VIEWS: List[Dict[str, Any]] = [
+DEFAULT_HYPERVISOR_VIEWS: list[dict[str, Any]] = [
     {
         "id": "direction",
         "label": "Direction",
@@ -132,7 +136,7 @@ def _visible_completed_runs(
     user: User,
     *,
     start: datetime | None = None,
-) -> List[Run]:
+) -> list[Run]:
     run_query = db.query(Run).filter(
         Run.workspace_id == workspace.id,
         Run.status == "completed",
@@ -150,8 +154,8 @@ def _visible_completed_runs(
 def _visible_workspace_capabilities(
     db: DBSession,
     workspace: Workspace,
-) -> List[Capability]:
-    caps: List[Capability] = (
+) -> list[Capability]:
+    caps: list[Capability] = (
         db.query(Capability)
         .filter((Capability.workspace_id == workspace.id) | (Capability.workspace_id.is_(None)))
         .order_by(Capability.tier, Capability.name)
@@ -173,19 +177,19 @@ async def balance_sheet(
     caps = _visible_workspace_capabilities(db, workspace)
     capability_rows = []
     for c in caps:
-        agg = _aggregate_visible_runs(
-            [run for run in completed_runs if run.capability_id == c.id]
-        )
+        agg = _aggregate_visible_runs([run for run in completed_runs if run.capability_id == c.id])
         if agg["runs_count"] == 0:
             continue
-        capability_rows.append({
-            "capability_id": c.id,
-            "slug": c.slug,
-            "name": c.name,
-            "tier": c.tier,
-            "trend": [],  # Phase 3 wires real sparkline values from Impact rows.
-            **agg,
-        })
+        capability_rows.append(
+            {
+                "capability_id": c.id,
+                "slug": c.slug,
+                "name": c.name,
+                "tier": c.tier,
+                "trend": [],  # Phase 3 wires real sparkline values from Impact rows.
+                **agg,
+            }
+        )
 
     return {
         "period": period,
@@ -209,37 +213,90 @@ async def balance_sheet(
     }
 
 
+class ActivityBlockSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    metrics: list[Literal["statuses", "calls", "costs", "duration"]] = Field(
+        default_factory=lambda: ["statuses", "calls", "costs", "duration"]
+    )
+
+
+class FinancialScenarioSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    manual_minutes: Optional[float] = Field(None, ge=0, le=1440, allow_inf_nan=False, strict=True)
+    assisted_minutes: Optional[float] = Field(None, ge=0, le=1440, allow_inf_nan=False, strict=True)
+    hourly_cost: Optional[float] = Field(None, ge=0, le=1000000, allow_inf_nan=False, strict=True)
+    unit_budget: Optional[float] = Field(None, ge=0, le=1000000, allow_inf_nan=False, strict=True)
+    monthly_volume: Optional[int] = Field(None, ge=0, le=1000000, strict=True)
+    currency: Optional[str] = Field(None, pattern=r"^[A-Z]{3}$")
+    unit_label: Optional[str] = Field(None, max_length=80)
+    note: Optional[str] = Field(None, max_length=1000)
+
+
 class HypervisorBlockRef(BaseModel):
     type: str
     source: Optional[str] = None
-    title: Optional[str] = None
+    title: Optional[str] = Field(None, max_length=200)
     width: Optional[str] = None
-    settings: Dict[str, Any] = Field(default_factory=dict)
+    settings: dict[str, Any] = Field(default_factory=dict)
     exit: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_product_settings(self):
+        if self.type == "activity":
+            self.settings = ActivityBlockSettings.model_validate(self.settings).model_dump()
+        elif self.type == "financial_scenario":
+            self.settings = FinancialScenarioSettings.model_validate(self.settings).model_dump()
+        return self
 
 
 BlockInput = Union[str, HypervisorBlockRef]
 
 
 class HypervisorViewStrata(BaseModel):
-    comprendre: List[BlockInput] = []
-    detailler: List[BlockInput] = []
-    decider: List[BlockInput] = []
+    comprendre: list[BlockInput] = []
+    detailler: list[BlockInput] = []
+    decider: list[BlockInput] = []
 
 
 class HypervisorView(BaseModel):
     id: str
-    label: str
+    label: str = Field(min_length=1, max_length=100, pattern=r"\S")
     denominator: Literal["hours", "runs", "value", "units"]
-    period: str
+    period: Literal["7d", "30d", "90d"]
     strata: HypervisorViewStrata
-    register_columns: List[str] = []
+    register_columns: list[str] = []
     sort: str = "name"
     schema_version: Optional[int] = None
+    system_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_product_blocks(self):
+        for name in ("comprendre", "detailler", "decider"):
+            products = [
+                item if isinstance(item, str) else item.type
+                for item in getattr(self.strata, name)
+                if (item if isinstance(item, str) else item.type)
+                in {"activity", "financial_scenario"}
+            ]
+            if products and name != "comprendre":
+                raise ValueError("Activity and scenario blocks belong in Comprendre")
+            if len(products) != len(set(products)):
+                raise ValueError("Use one activity and one scenario block per view")
+        return self
 
 
 class HypervisorViewsUpdate(BaseModel):
-    views: List[HypervisorView]
+    views: list[HypervisorView]
+    default_view_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_default(self):
+        ids = [view.id for view in self.views]
+        if len(ids) != len(set(ids)):
+            raise ValueError("View IDs must be unique")
+        if self.default_view_id is not None and self.default_view_id not in ids:
+            raise ValueError("Default view must be part of the saved views")
+        return self
 
 
 def _require_workspace_admin(db: DBSession, user: User, workspace: Workspace) -> None:
@@ -307,7 +364,7 @@ def _days_since(moment: datetime | None, *, now: datetime) -> dict[str, Any]:
 
 
 def _bucket_metrics(
-    runs: List[Run],
+    runs: list[Run],
     *,
     output_unit: str | None,
     hours_per_unit: float | None,
@@ -358,10 +415,10 @@ def _normalize_block_ref(raw: Any) -> dict[str, Any] | None:
     return None
 
 
-def _normalize_stratum(raw: Any) -> List[dict[str, Any]]:
+def _normalize_stratum(raw: Any) -> list[dict[str, Any]]:
     if not isinstance(raw, list):
         return []
-    out: List[dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for item in raw:
         normalized = _normalize_block_ref(item)
         if normalized is not None:
@@ -388,7 +445,10 @@ def _views_payload(workspace: Workspace, *, can_edit: bool) -> dict[str, Any]:
     stored = (workspace.settings or {}).get(HYPERVISOR_VIEWS_KEY)
     raw = stored if isinstance(stored, list) else DEFAULT_HYPERVISOR_VIEWS
     views = [_normalize_view(view) if isinstance(view, dict) else view for view in raw]
-    return {"views": views, "can_edit": can_edit}
+    default = (workspace.settings or {}).get(HYPERVISOR_DEFAULT_VIEW_KEY)
+    if default not in {view.get("id") for view in views if isinstance(view, dict)}:
+        default = views[0].get("id") if views and isinstance(views[0], dict) else None
+    return {"views": views, "can_edit": can_edit, "default_view_id": default}
 
 
 MAP_SETTINGS_KEY = "map"
@@ -404,10 +464,7 @@ def _map_settings(workspace: Workspace) -> dict[str, Any]:
     return {
         "external_tiles_enabled": bool(external),
         "tile_provider": str(payload.get("tile_provider") or "carto"),
-        "attribution": str(
-            payload.get("attribution")
-            or "OpenStreetMap contributors / CARTO"
-        ),
+        "attribution": str(payload.get("attribution") or "OpenStreetMap contributors / CARTO"),
         "tile_url_template": payload.get("tile_url_template"),
         "tile_url_template_dark": payload.get("tile_url_template_dark"),
     }
@@ -468,13 +525,17 @@ async def automation_explanations(
 
 @router.get("/series")
 async def hypervisor_series(
-    window: Literal["30d", "90d"] = Query("30d"),
+    window: Literal["7d", "30d", "90d"] = Query("30d"),
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     now = datetime.utcnow()
-    start = now - timedelta(days=WINDOW_DAYS[window])
+    start = (
+        (now - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
+        if window == "7d"
+        else now - timedelta(days=WINDOW_DAYS[window])
+    )
     completed_runs = _visible_completed_runs(db, workspace, user, start=start)
     runs_by_system: dict[str, list[Run]] = defaultdict(list)
     for run in completed_runs:
@@ -489,11 +550,7 @@ async def hypervisor_series(
         if system_ids
         else []
     )
-    cap_ids = {
-        system.capability_id
-        for system in systems
-        if system.capability_id
-    }
+    cap_ids = {system.capability_id for system in systems if system.capability_id}
     capabilities = (
         {
             capability.id: capability
@@ -512,9 +569,8 @@ async def hypervisor_series(
         )
         hours_per_unit = _hours_per_unit(basis)
         value_per_unit = _value_per_unit(basis)
-        output_unit = (
-            (basis or {}).get("unit")
-            or (capability.output_unit if capability is not None else None)
+        output_unit = (basis or {}).get("unit") or (
+            capability.output_unit if capability is not None else None
         )
         system_runs = runs_by_system[system.id]
         last_at = max(
@@ -570,6 +626,28 @@ async def get_hypervisor_views(
     )
 
 
+@router.get("/activity/systems")
+async def get_activity_systems(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    return {"systems": impact_activity.activity_systems(db, workspace, user)}
+
+
+@router.get("/activity")
+async def get_execution_activity(
+    window: Literal["7d", "30d", "90d"] = Query("7d"),
+    system_id: Optional[str] = Query(None),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    return impact_activity.execution_activity(
+        db, workspace, user, window=window, system_id=system_id
+    )
+
+
 @router.put("/views")
 async def put_hypervisor_views(
     body: HypervisorViewsUpdate,
@@ -578,10 +656,17 @@ async def put_hypervisor_views(
     db: DBSession = Depends(get_db),
 ):
     _require_workspace_admin(db, user, workspace)
+    requested_systems = {view.system_id for view in body.views if view.system_id}
+    if requested_systems:
+        readable_ids = {row["id"] for row in impact_activity.activity_systems(db, workspace, user)}
+        if not requested_systems <= readable_ids:
+            raise HTTPException(status_code=404, detail={"code": "SYSTEM_NOT_FOUND"})
     settings = dict(workspace.settings or {})
     settings[HYPERVISOR_VIEWS_KEY] = [
         _normalize_view(view.model_dump(exclude_none=True)) for view in body.views
     ]
+    if body.default_view_id is not None:
+        settings[HYPERVISOR_DEFAULT_VIEW_KEY] = body.default_view_id
     workspace.settings = settings
     flag_modified(workspace, "settings")
     db.add(workspace)
@@ -617,7 +702,11 @@ async def patch_map_settings(
 ):
     _require_workspace_admin(db, user, workspace)
     settings = dict(workspace.settings or {})
-    current = dict(settings.get(MAP_SETTINGS_KEY) or {}) if isinstance(settings.get(MAP_SETTINGS_KEY), Mapping) else {}
+    current = (
+        dict(settings.get(MAP_SETTINGS_KEY) or {})
+        if isinstance(settings.get(MAP_SETTINGS_KEY), Mapping)
+        else {}
+    )
     patch = body.model_dump(exclude_none=True)
     current.update(patch)
     settings[MAP_SETTINGS_KEY] = current
@@ -644,9 +733,7 @@ async def portfolio_value_loop(
         .all()
     )
     selected_systems = [
-        system
-        for system in systems
-        if value_loop_requested(db, workspace=workspace, system=system)
+        system for system in systems if value_loop_requested(db, workspace=workspace, system=system)
     ]
     for system in selected_systems:
         enforce_action(
@@ -681,11 +768,7 @@ async def portfolio_value_loop(
         workspace=workspace,
     )
     scenario_projection_state = (
-        "available"
-        if scenarios
-        else "restricted"
-        if raw_scenarios
-        else "not_measured"
+        "available" if scenarios else "restricted" if raw_scenarios else "not_measured"
     )
     raw_scenario_system_ids = {row.system_id for row in raw_scenarios}
     scenario_ids = [scenario.id for scenario in scenarios]
@@ -734,9 +817,7 @@ async def portfolio_value_loop(
     measurement_by_system: dict[str, list[ValueMeasurement]] = {}
     measurement_by_scenario: dict[str, ValueMeasurement] = {}
     decision_by_scenario: dict[str, Decision] = {}
-    raw_decision_scenario_ids = {
-        row.scenario_id for row in raw_decisions if row.scenario_id
-    }
+    raw_decision_scenario_ids = {row.scenario_id for row in raw_decisions if row.scenario_id}
     for row in scenarios:
         scenario_by_system.setdefault(row.system_id, []).append(row)
     for row in measurements:
@@ -747,9 +828,7 @@ async def portfolio_value_loop(
             decision_by_scenario[row.scenario_id] = row
 
     forecast_verdict_counts = {
-        verdict: len(
-            [row for row in measured if row.assumption_verdict == verdict]
-        )
+        verdict: len([row for row in measured if row.assumption_verdict == verdict])
         for verdict in ("confirmed", "partially_confirmed", "not_confirmed")
     }
     risk_items: list[dict[str, Any]] = []
@@ -807,9 +886,7 @@ async def portfolio_value_loop(
                 ),
                 "status": scenario.status,
                 "objective": scenario.objective,
-                "created_at": (
-                    scenario.created_at.isoformat() if scenario.created_at else None
-                ),
+                "created_at": (scenario.created_at.isoformat() if scenario.created_at else None),
                 "decision": (
                     {
                         "id": decision.id,
@@ -835,8 +912,7 @@ async def portfolio_value_loop(
                     "measurement_id": measurement.id if measurement is not None else None,
                     "delta": (
                         dict(measurement.delta)
-                        if measurement is not None
-                        and isinstance(measurement.delta, Mapping)
+                        if measurement is not None and isinstance(measurement.delta, Mapping)
                         else None
                     ),
                     "forecast_delta": (
@@ -962,8 +1038,7 @@ async def portfolio_value_loop(
             "count": len(risk_items) if scenarios else None,
             "items": risk_items,
             "source": (
-                "value_scenarios.status,value_measurements.status,reason,"
-                "assumption_verdict"
+                "value_scenarios.status,value_measurements.status,reason,assumption_verdict"
             ),
         },
         "arbitrations": {
@@ -996,8 +1071,8 @@ async def portfolio_value_loop(
     }
 
 
-def _signals(recent_runs: List[Run]) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+def _signals(recent_runs: list[Run]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     for r in recent_runs:
         tone = "neutral"
         roi = _signal_roi(r)
@@ -1007,22 +1082,24 @@ def _signals(recent_runs: List[Run]) -> List[Dict[str, Any]]:
             tone = "warn"
         elif roi is not None and roi > 1.0:
             tone = "pos"
-        out.append({
-            "id": r.id,
-            "tone": tone,
-            "kind": r.status,
-            "system_id": r.system_id,
-            "timestamp": r.started_at.isoformat() if r.started_at else None,
-            "label": _signal_label(r),
-        })
+        out.append(
+            {
+                "id": r.id,
+                "tone": tone,
+                "kind": r.status,
+                "system_id": r.system_id,
+                "timestamp": r.started_at.isoformat() if r.started_at else None,
+                "label": _signal_label(r),
+            }
+        )
     return out
 
 
-def _aggregate_visible_runs(runs: List[Run]) -> Dict[str, Any]:
-    def _sum(values: List[float]) -> float | None:
+def _aggregate_visible_runs(runs: list[Run]) -> dict[str, Any]:
+    def _sum(values: list[float]) -> float | None:
         return float(sum(values)) if values else None
 
-    def _average(values: List[float]) -> float | None:
+    def _average(values: list[float]) -> float | None:
         return float(sum(values) / len(values)) if values else None
 
     costs = [float(run.cost_internal) for run in runs if run.cost_internal is not None]
@@ -1032,11 +1109,7 @@ def _aggregate_visible_runs(runs: List[Run]) -> Dict[str, Any]:
         if run.value_estimated is not None
         and str(run.value_source or "unset") in {"auto", "operator"}
     ]
-    revenues = [
-        float(run.revenue_allocated)
-        for run in runs
-        if run.revenue_allocated is not None
-    ]
+    revenues = [float(run.revenue_allocated) for run in runs if run.revenue_allocated is not None]
     confidences = [float(run.confidence) for run in runs if run.confidence is not None]
     efficiencies = [float(run.efficiency) for run in runs if run.efficiency is not None]
     total_cost = _sum(costs)
@@ -1060,12 +1133,8 @@ def _aggregate_visible_runs(runs: List[Run]) -> Dict[str, Any]:
         "avg_efficiency": _average(efficiencies),
         "measurement_states": {
             "total_cost": "available" if total_cost is not None else "not_measured",
-            "estimated_value": (
-                "available" if estimated_value is not None else "not_measured"
-            ),
-            "total_revenue": (
-                "available" if total_revenue is not None else "not_measured"
-            ),
+            "estimated_value": ("available" if estimated_value is not None else "not_measured"),
+            "total_revenue": ("available" if total_revenue is not None else "not_measured"),
         },
     }
 
@@ -1118,7 +1187,7 @@ def _signal_label(r: Run) -> str:
 class WhatIfRequest(BaseModel):
     scope: Literal["portfolio", "capability", "system"] = "capability"
     target_id: Optional[str] = None
-    levers: Dict[str, Any] = {}
+    levers: dict[str, Any] = {}
 
     @model_validator(mode="after")
     def _require_system_target(self):
@@ -1153,16 +1222,21 @@ async def list_recommendations(
         user=user,
         workspace=workspace,
     )[:50]
-    return {"items": [{
-        "id": d.id,
-        "scope": d.scope,
-        "target_id": d.target_id,
-        "title": d.title,
-        "rationale": d.rationale or {},
-        "impact_estimate": d.impact_estimate or {},
-        "status": d.status,
-        "created_at": d.created_at.isoformat() if d.created_at else None,
-    } for d in rows]}
+    return {
+        "items": [
+            {
+                "id": d.id,
+                "scope": d.scope,
+                "target_id": d.target_id,
+                "title": d.title,
+                "rationale": d.rationale or {},
+                "impact_estimate": d.impact_estimate or {},
+                "status": d.status,
+                "created_at": d.created_at.isoformat() if d.created_at else None,
+            }
+            for d in rows
+        ]
+    }
 
 
 @router.post("/recommendations/generate")
@@ -1256,11 +1330,13 @@ def _serialize_decision(d: Decision, *, full: bool = False) -> dict:
         ),
     }
     if full:
-        base.update({
-            "approved_at": d.approved_at.isoformat() if d.approved_at else None,
-            "applied_by": getattr(d, "applied_by", None),
-            "applied_patch": getattr(d, "applied_patch", None) or {},
-        })
+        base.update(
+            {
+                "approved_at": d.approved_at.isoformat() if d.approved_at else None,
+                "applied_by": getattr(d, "applied_by", None),
+                "applied_patch": getattr(d, "applied_patch", None) or {},
+            }
+        )
     return base
 
 
@@ -1273,13 +1349,13 @@ class DecisionTransition(BaseModel):
     # are optional: the existing UI (which doesn't ship feedback yet)
     # keeps working unchanged.
     feedback_label: Optional[str] = None
-    feedback_corrected_output: Optional[Dict[str, Any]] = None
+    feedback_corrected_output: Optional[dict[str, Any]] = None
 
 
 class DecisionApplyRequest(BaseModel):
     actor: Optional[str] = None
     enact: bool = True
-    patch: Optional[Dict[str, Any]] = None
+    patch: Optional[dict[str, Any]] = None
 
 
 class ActiveSuggestionApplyRequest(BaseModel):
@@ -1292,8 +1368,8 @@ class DecisionCreate(BaseModel):
     kind: str = "recommendation"
     title: str
     status: Literal["proposed"] = "proposed"
-    rationale: Dict[str, Any] = {}
-    impact_estimate: Dict[str, Any] = {}
+    rationale: dict[str, Any] = {}
+    impact_estimate: dict[str, Any] = {}
     notes: Optional[str] = None
     origin: Optional[Literal["meeting"]] = None
     meeting_event_id: Optional[str] = None
@@ -1454,6 +1530,7 @@ async def get_decision(
 
 def _get_decision_or_404(db: DBSession, workspace_id: str, decision_id: str) -> Decision:
     from fastapi import HTTPException
+
     d = (
         db.query(Decision)
         .filter(Decision.id == decision_id, Decision.workspace_id == workspace_id)
@@ -1483,7 +1560,7 @@ def _maybe_record_eval_feedback(
     body: Optional[DecisionTransition],
     default_label: str,
     actor: str,
-) -> Optional[Dict[str, Any]]:
+) -> Optional[dict[str, Any]]:
     """Persist an `EvaluationFeedback` row when the Decision is a
     review-queue triage item.
 
@@ -1508,6 +1585,7 @@ def _maybe_record_eval_feedback(
     label = (body.feedback_label if body else None) or default_label
     if label not in FEEDBACK_LABELS:
         from fastapi import HTTPException
+
         raise HTTPException(
             400,
             f"unknown feedback_label {label!r}; expected one of {list(FEEDBACK_LABELS)}",
@@ -1537,6 +1615,7 @@ def _maybe_record_eval_feedback(
         )
     except InvalidFeedback as exc:
         from fastapi import HTTPException
+
         raise HTTPException(400, str(exc))
     return serialize_feedback(fb)
 
@@ -1550,6 +1629,7 @@ async def accept_decision(
     db: DBSession = Depends(get_db),
 ):
     from fastapi import HTTPException
+
     d = _lock_decision_or_404(db, workspace.id, decision_id)
     if getattr(d, "scenario_id", None):
         raise HTTPException(
@@ -1591,6 +1671,7 @@ async def reject_decision(
     db: DBSession = Depends(get_db),
 ):
     from fastapi import HTTPException
+
     d = _lock_decision_or_404(db, workspace.id, decision_id)
     if getattr(d, "scenario_id", None):
         raise HTTPException(
@@ -1632,6 +1713,7 @@ async def apply_decision_endpoint(
     db: DBSession = Depends(get_db),
 ):
     from fastapi import HTTPException
+
     d = _lock_decision_or_404(db, workspace.id, decision_id)
     enforce_action(
         db,

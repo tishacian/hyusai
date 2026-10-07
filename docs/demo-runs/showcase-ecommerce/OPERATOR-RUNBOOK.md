@@ -12,13 +12,14 @@ avec son plan et son empreinte d’ensemble. Il remplace l’activation antérie
 à deux Flows. L’installation historique ci-dessous ne doit pas être rejouée.
 
 La [campagne du 7 octobre](ACTIVITY-ROI-2026-10-07.md) a créé 20 Runs réels et
-un ledger d’activité. Cette livraison ajoute la carte Impact avec projection
-explicite et la réutilisation sûre d’un reçu simulé identique. Ces ajouts
-attendent le déploiement opérateur, sans migration supplémentaire ; les
-résultats du benchmark humain restent inconnus.
+un ledger d’activité. La carte globale de la livraison `0a4503e9` est remplacée
+par les blocs produit configurables d’Impact. Après déploiement de cette nouvelle
+livraison, suivre [l’assemblage UI de la vue SAV](IMPACT-PRODUCT-ACTIVATION.md).
+Aucune migration supplémentaire n’est nécessaire. Les résultats du benchmark
+humain restent inconnus.
 
 Cette livraison ajoute le lecteur PostgreSQL borné, six outils, l’application
-Work Réclamations et le benchmark humain dans Impact. L’utilisateur a retenu un
+Work Réclamations et son benchmark humain. L’utilisateur a retenu un
 déploiement par un opérateur. La cible est `origin/demo/agentic` ; le code n’arrive
 sur la VM que par Git et l’orchestrateur de
 [deploiement sûr](../../ops/agentium-safe-vm-deployment.md).

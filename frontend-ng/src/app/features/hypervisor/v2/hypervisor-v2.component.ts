@@ -113,8 +113,9 @@ import {
   type ImpactSourceValues,
   type SourceOutcome,
 } from './impact-sources';
-import { ClaimsBenchmarkComponent } from '../../experience/work/claims-benchmark.component';
-import { ClaimsActivityComponent } from '../../experience/work/claims-activity.component';
+import { ImpactActivityComponent } from './blocks/impact-activity.component';
+import { ImpactFinancialScenarioComponent } from './blocks/impact-financial-scenario.component';
+import { ACTIVITY_METRICS, SCENARIO_FIELDS, activityMetrics, scopedSeries, summarySections, type ScenarioField } from './impact-product-blocks';
 import { ImpactBlockAlertesComponent } from './blocks/impact-block-alertes.component';
 import { ImpactBlockCarteComponent } from './blocks/impact-block-carte.component';
 import { ImpactBlockEcheancierComponent } from './blocks/impact-block-echeancier.component';
@@ -215,8 +216,8 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     ImpactBlockFluxComponent,
     ImpactBlockCarteComponent,
     ImpactBlockAlertesComponent,
-    ClaimsBenchmarkComponent,
-    ClaimsActivityComponent,
+    ImpactActivityComponent,
+    ImpactFinancialScenarioComponent,
     ImpactBlockOrdreDuJourComponent,
     ImpactBlockIndicateursComponent,
   ],
@@ -278,7 +279,9 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
         }
       </div>
 
-      @if (activeFacet() === 'synthese') { <app-claims-activity /><app-claims-benchmark [readOnly]="true" /> }
+      @if (!activeImpactViewId() && activeView()) {
+        <p class="hv2-scope" data-testid="impact-view-scope">{{ systemScopeLabel() }} · {{ i18n.t('hypervisor.v2.period.' + viewPeriod(activeView())) }} · {{ i18n.t('hypervisor.v2.product.completed_charts') }}</p>
+      }
       @if (loading()) {
         <p class="hv2-muted">{{ i18n.t('hypervisor.v2.loading') }}</p>
       } @else if (loadProblem(); as problem) {
@@ -380,23 +383,11 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                 </article>
               }
             </section>
-          } @else if (presentationTheme()) {
+          } @else if (presentationTheme() && !hasProductBlocks()) {
             <ng-container [ngTemplateOutlet]="presentationTpl"></ng-container>
           } @else {
             <p class="sr-only" role="status" aria-live="polite" data-testid="hypervisor-v2-lock-announcer">{{ lockAnnouncement() }}</p>
-            @if (sourceStates().series !== 'ready') {
-              <div class="hv2-degraded-page" data-testid="hypervisor-v2-series-degraded">
-                <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'series' }"></ng-container>
-                @if (showBlock('comprendre', 'decisions') || showBlock('decider', 'decisions')) {
-                  <article class="hv2-card hv2-card-decision">
-                    <ng-container [ngTemplateOutlet]="decisionTpl"></ng-container>
-                  </article>
-                }
-              </div>
-            } @else if (!series()) {
-              <p class="hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p><a [navLink]="{leaf:'help-guide',params:{guideId:'value'}}">{{i18n.t('experience.adoption.help')}}</a>
-            } @else {
-              <div class="hv2-page">
+            <div class="hv2-page">
             <ck-chart-tip
               [open]="pageTipOpen()"
               [title]="pageTipTitle()"
@@ -404,176 +395,37 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
               [x]="pageTipX()"
               [y]="pageTipY()"
             />
+            @if (hasResultBlocks() && !series()) {
+              @if (sourceStates().series !== 'ready') { <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'series' }"></ng-container> }
+              @else { <p class="hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p> }
+            }
             @if (showStratum('comprendre')) {
               <section class="hv2-stratum hv2-stratum-bands" data-testid="hypervisor-v2-stratum-comprendre" aria-labelledby="hv2-leader-comprendre">
                 <ng-container [ngTemplateOutlet]="leaderTpl" [ngTemplateOutletContext]="{ id: 'comprendre', hidden: true }"></ng-container>
-                @if (showCommandBand()) {
-                  <section class="hv2-band hv2-command" data-testid="hypervisor-v2-hero">
-                    @if (showBlock('comprendre', 'monument')) {
-                      <div class="hv2-command-col hv2-command-monument">
-                        <p class="hv2-label">{{ i18n.t('hypervisor.v2.hero.kicker', { days: dayCount() }) }}</p>
-                        @if (monument(); as mon) {
-                          <p class="hv2-monument-group" data-testid="hypervisor-v2-monument">
-                            <span class="sr-only">{{ monumentLabel() }}</span>
-                            <span class="hv2-monument-row" aria-hidden="true">
-                              <span class="hv2-monument-figure">
-                                <span class="hv2-monument ck-tnum">{{ monumentValue() }}</span>
-                                <span class="hv2-monument-unit">{{ mon.unit }}</span>
-                              </span>
-                            </span>
-                            <span class="hv2-sentence" aria-hidden="true">{{ heroSentence() }}</span>
-                            @if (measuredPart(); as part) {
-                              <span class="hv2-measured-part" aria-hidden="true" data-testid="hypervisor-v2-measured-part">{{ measuredMark }} {{ part }}</span>
-                            }
-                          </p>
-                          @if (showBlock('comprendre', 'provenance')) {
-                            @if (provenance(); as prov) {
-                              <div class="hv2-provenance">
-                                <span
-                                  class="hv2-provenance-ink"
-                                  role="img"
-                                  tabindex="0"
-                                  [style.flexGrow]="prov.measured"
-                                  [attr.aria-label]="provenanceMeasuredTip()"
-                                  (pointerenter)="onProvenanceTip('measured', $event)"
-                                  (pointerleave)="clearPageTip()"
-                                  (focus)="onProvenanceTip('measured', $event)"
-                                  (blur)="clearPageTip()"
-                                ></span>
-                                <span
-                                  class="hv2-provenance-teal"
-                                  role="img"
-                                  tabindex="0"
-                                  [style.flexGrow]="prov.declared"
-                                  [attr.aria-label]="provenanceDeclaredTip()"
-                                  (pointerenter)="onProvenanceTip('declared', $event)"
-                                  (pointerleave)="clearPageTip()"
-                                  (focus)="onProvenanceTip('declared', $event)"
-                                  (blur)="clearPageTip()"
-                                ></span>
-                              </div>
-                            }
-                          }
-                        } @else {
-                          <div class="hv2-monument-row">
-                            <span class="hv2-monument hv2-monument-state">{{ factLabel(series()!.monument) }}</span>
-                          </div>
-                          <p class="hv2-sub">{{ i18n.t('hypervisor.v2.hero.not_configured') }}</p>
-                        }
-                      </div>
-                      @if (strip().marks.length) {
-                        <ng-container [ngTemplateOutlet]="stripTpl"></ng-container>
-                      }
+                @for (section of summarySections(); track section) {
+                  @switch (section) {
+                    @case ('activity') {
+                      @if (productBlock('activity'); as block) { <app-impact-activity [block]="block" [systemId]="activeView()?.system_id || null" [scopeLabel]="systemScopeLabel()" [period]="viewPeriod(activeView())" [canEdit]="canEdit() && !presentationTheme()" (configure)="openBlockSettings('activity')" /> }
                     }
-                    @if (showBlock('comprendre', 'unites')) {
-                      <div class="hv2-command-col">
-                        <ng-container [ngTemplateOutlet]="unitesTpl"></ng-container>
-                      </div>
+                    @case ('financial_scenario') {
+                      @if (productBlock('financial_scenario'); as block) { <app-impact-financial-scenario [block]="block" [scopeLabel]="systemScopeLabel()" [canEdit]="canEdit() && !presentationTheme()" (configure)="openBlockSettings('financial_scenario')" /> }
                     }
-                    @if (showBlock('comprendre', 'provenance')) {
-                      <dl class="hv2-command-col hv2-facts hv2-command-facts">
-                        <div class="hv2-fact">
-                          <dt>{{ i18n.t('hypervisor.v2.hero.cost') }}</dt>
-                          <dd class="ck-tnum" data-fact="cost">{{ costFact() }}</dd>
-                        </div>
-                        <div class="hv2-fact">
-                          <dt>{{ i18n.t('hypervisor.v2.hero.value') }}</dt>
-                          <dd class="ck-tnum" [class.hv2-teal]="series()!.valueTotal.state === 'available'" data-fact="value">{{ valueFact() }}</dd>
-                        </div>
-                        <div class="hv2-fact">
-                          <dt>{{ countedLabel() }}</dt>
-                          <dd class="ck-tnum" data-fact="counted">{{ countedFact() }}</dd>
-                        </div>
-                      </dl>
-                    }
-                    @if (showBlock('comprendre', 'couverture')) {
-                      <div class="hv2-command-col">
-                        <ng-container [ngTemplateOutlet]="couvertureTpl"></ng-container>
-                      </div>
-                    }
-                    @if (showBlock('comprendre', 'signal')) {
-                      <div class="hv2-command-col">
-                        <ng-container [ngTemplateOutlet]="signalTpl" [ngTemplateOutletContext]="{ hero: true }"></ng-container>
-                      </div>
-                    }
-                    @if (showBlock('comprendre', 'decisions')) {
-                      <div class="hv2-command-col hv2-hero-decision">
-                        <ng-container [ngTemplateOutlet]="decisionTpl"></ng-container>
-                      </div>
-                    }
-                  </section>
-                }
-                @if (showBlock('comprendre', 'cadran')) {
-                  <section class="hv2-band hv2-cadran-band" aria-labelledby="hv2-cadran-title">
-                    <div class="hv2-cadran-col">
-                      <h3 class="hv2-band-title" id="hv2-cadran-title">{{ cadranTitle() }}</h3>
-                      <div class="hv2-cadran-dial">
-                        <ck-chart-radial-days
-                          [days]="radialDays()"
-                          [ticks]="radialTicks()"
-                          [size]="580"
-                          [innerRadius]="104"
-                          [outerRadius]="246"
-                          [centerValue]="i18n.t('hypervisor.v2.cadran.center', { days: dayCount() })"
-                          [centerCaption]="i18n.t('hypervisor.v2.cadran.grammar')"
-                          [rangeLabel]="rangeLabel()"
-                          [peakLabel]="quantityLabel"
-                          [hoverDay]="selectedDayIndex()"
-                          [lockedDay]="lockedDay()"
-                          (dayHover)="onDayHover($event)"
-                          (dayLock)="onDayLock($event)"
-                        />
-                      </div>
-                      <p class="hv2-chart-caption">{{ cadranLegend() }}</p>
-                    </div>
-                    <ng-container [ngTemplateOutlet]="selectionTpl"></ng-container>
-                  </section>
-                }
-                @if (showBlock('comprendre', 'rivers')) {
-                  <ng-container [ngTemplateOutlet]="riversTpl" [ngTemplateOutletContext]="{ height: 280 }"></ng-container>
-                }
-                @if (showBlock('comprendre', 'rivers') || showBlock('comprendre', 'hors_denominateur')) {
-                  <ng-container
-                    [ngTemplateOutlet]="pairTpl"
-                    [ngTemplateOutletContext]="{ present: false, hors: showBlock('comprendre', 'hors_denominateur') }"
-                  ></ng-container>
-                }
-                @if (showBlock('comprendre', 'sankey')) {
-                  <section class="hv2-band hv2-flow-band" aria-labelledby="hv2-flow-title">
-                    <div class="hv2-flow-copy">
-                      <h3 class="hv2-band-title" id="hv2-flow-title">{{ i18n.t('hypervisor.v2.sankey.title') }}</h3>
-                      <p class="hv2-band-sub">{{ sankeyExplainer() }}</p>
-                    </div>
-                    @if (sankeySources().length) {
-                      <div class="hv2-flow-chart">
-                        <ck-chart-sankey-flow
-                          [width]="640"
-                          [height]="300"
-                          [sources]="sankeySources()"
-                          [middleLabel]="sankeyMiddleLabel()"
-                          [rightLabel]="sankeyRightLabel()"
-                          [leftCaption]="i18n.t('hypervisor.v2.sankey.left_caption') + ' ' + measuredMark"
-                          [middleCaption]="i18n.t('hypervisor.v2.sankey.middle_caption')"
-                          [rightCaption]="i18n.t('hypervisor.v2.sankey.right_caption') + ' ' + declaredMark"
-                          [hoverSystem]="hoverSystem()"
-                          [middleTip]="sankeyMiddleTip()"
-                          [rightTip]="sankeyRightTip()"
-                          (systemHover)="onSystemHover($event)"
-                          (systemClick)="onSystemClick($event)"
-                        />
-                      </div>
-                    }
-                  </section>
+                    @case ('command') { @if (series()) { <ng-container [ngTemplateOutlet]="commandBandTpl"></ng-container> } }
+                    @case ('cadran') { @if (series()) { <ng-container [ngTemplateOutlet]="cadranBandTpl"></ng-container> } }
+                    @case ('rivers') { @if (series()) { <ng-container [ngTemplateOutlet]="riversBandTpl"></ng-container> } }
+                    @case ('pair') { @if (series()) { <ng-container [ngTemplateOutlet]="pairBandTpl"></ng-container> } }
+                    @case ('sankey') { @if (series()) { <ng-container [ngTemplateOutlet]="sankeyBandTpl"></ng-container> } }
+                  }
                 }
               </section>
             }
-            @if (showStratum('detailler') && showBlock('detailler', 'registre')) {
+            @if (series() && showStratum('detailler') && showBlock('detailler', 'registre')) {
               <section class="hv2-stratum" data-testid="hypervisor-v2-stratum-detailler" aria-labelledby="hv2-leader-detailler">
                 <ng-container [ngTemplateOutlet]="leaderTpl" [ngTemplateOutletContext]="{ id: 'detailler' }"></ng-container>
                 <ng-container [ngTemplateOutlet]="registerTpl" [ngTemplateOutletContext]="{ testid: 'hypervisor-v2-register' }"></ng-container>
               </section>
             }
-            @if (showStratum('decider')) {
+            @if (series() && showStratum('decider')) {
               <section class="hv2-stratum" data-testid="hypervisor-v2-stratum-decider" aria-labelledby="hv2-leader-decider">
                 <ng-container [ngTemplateOutlet]="leaderTpl" [ngTemplateOutletContext]="{ id: 'decider' }"></ng-container>
                 <div class="hv2-cards3">
@@ -607,7 +459,6 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
               </section>
             }
           </div>
-        }
             <app-operational-objective />
             <app-hypervisor-automation />
         }
@@ -1314,6 +1165,179 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       </header>
     </ng-template>
 
+    <ng-template #commandBandTpl>
+                @if (showCommandBand()) {
+                  <section class="hv2-band hv2-command" data-testid="hypervisor-v2-hero">
+                    @if (showBlock('comprendre', 'monument')) {
+                      <div class="hv2-command-col hv2-command-monument">
+                        <p class="hv2-label">{{ i18n.t('hypervisor.v2.hero.kicker', { days: dayCount() }) }}</p>
+                        @if (monument(); as mon) {
+                          <p class="hv2-monument-group" data-testid="hypervisor-v2-monument">
+                            <span class="sr-only">{{ monumentLabel() }}</span>
+                            <span class="hv2-monument-row" aria-hidden="true">
+                              <span class="hv2-monument-figure">
+                                <span class="hv2-monument ck-tnum">{{ monumentValue() }}</span>
+                                <span class="hv2-monument-unit">{{ mon.unit }}</span>
+                              </span>
+                            </span>
+                            <span class="hv2-sentence" aria-hidden="true">{{ heroSentence() }}</span>
+                            @if (measuredPart(); as part) {
+                              <span class="hv2-measured-part" aria-hidden="true" data-testid="hypervisor-v2-measured-part">{{ measuredMark }} {{ part }}</span>
+                            }
+                          </p>
+                          @if (showBlock('comprendre', 'provenance')) {
+                            @if (provenance(); as prov) {
+                              <div class="hv2-provenance">
+                                <span
+                                  class="hv2-provenance-ink"
+                                  role="img"
+                                  tabindex="0"
+                                  [style.flexGrow]="prov.measured"
+                                  [attr.aria-label]="provenanceMeasuredTip()"
+                                  (pointerenter)="onProvenanceTip('measured', $event)"
+                                  (pointerleave)="clearPageTip()"
+                                  (focus)="onProvenanceTip('measured', $event)"
+                                  (blur)="clearPageTip()"
+                                ></span>
+                                <span
+                                  class="hv2-provenance-teal"
+                                  role="img"
+                                  tabindex="0"
+                                  [style.flexGrow]="prov.declared"
+                                  [attr.aria-label]="provenanceDeclaredTip()"
+                                  (pointerenter)="onProvenanceTip('declared', $event)"
+                                  (pointerleave)="clearPageTip()"
+                                  (focus)="onProvenanceTip('declared', $event)"
+                                  (blur)="clearPageTip()"
+                                ></span>
+                              </div>
+                            }
+                          }
+                        } @else {
+                          <div class="hv2-monument-row">
+                            <span class="hv2-monument hv2-monument-state">{{ factLabel(series()!.monument) }}</span>
+                          </div>
+                          <p class="hv2-sub">{{ i18n.t('hypervisor.v2.hero.not_configured') }}</p>
+                        }
+                      </div>
+                      @if (strip().marks.length) {
+                        <ng-container [ngTemplateOutlet]="stripTpl"></ng-container>
+                      }
+                    }
+                    @if (showBlock('comprendre', 'unites')) {
+                      <div class="hv2-command-col">
+                        <ng-container [ngTemplateOutlet]="unitesTpl"></ng-container>
+                      </div>
+                    }
+                    @if (showBlock('comprendre', 'provenance')) {
+                      <dl class="hv2-command-col hv2-facts hv2-command-facts">
+                        <div class="hv2-fact">
+                          <dt>{{ i18n.t('hypervisor.v2.hero.cost') }}</dt>
+                          <dd class="ck-tnum" data-fact="cost">{{ costFact() }}</dd>
+                        </div>
+                        <div class="hv2-fact">
+                          <dt>{{ i18n.t('hypervisor.v2.hero.value') }}</dt>
+                          <dd class="ck-tnum" [class.hv2-teal]="series()!.valueTotal.state === 'available'" data-fact="value">{{ valueFact() }}</dd>
+                        </div>
+                        <div class="hv2-fact">
+                          <dt>{{ countedLabel() }}</dt>
+                          <dd class="ck-tnum" data-fact="counted">{{ countedFact() }}</dd>
+                        </div>
+                      </dl>
+                    }
+                    @if (showBlock('comprendre', 'couverture')) {
+                      <div class="hv2-command-col">
+                        <ng-container [ngTemplateOutlet]="couvertureTpl"></ng-container>
+                      </div>
+                    }
+                    @if (showBlock('comprendre', 'signal')) {
+                      <div class="hv2-command-col">
+                        <ng-container [ngTemplateOutlet]="signalTpl" [ngTemplateOutletContext]="{ hero: true }"></ng-container>
+                      </div>
+                    }
+                    @if (showBlock('comprendre', 'decisions')) {
+                      <div class="hv2-command-col hv2-hero-decision">
+                        <ng-container [ngTemplateOutlet]="decisionTpl"></ng-container>
+                      </div>
+                    }
+                  </section>
+                }
+    </ng-template>
+
+    <ng-template #cadranBandTpl>
+                @if (showBlock('comprendre', 'cadran')) {
+                  <section class="hv2-band hv2-cadran-band" aria-labelledby="hv2-cadran-title">
+                    <div class="hv2-cadran-col">
+                      <h3 class="hv2-band-title" id="hv2-cadran-title">{{ cadranTitle() }}</h3>
+                      <div class="hv2-cadran-dial">
+                        <ck-chart-radial-days
+                          [days]="radialDays()"
+                          [ticks]="radialTicks()"
+                          [size]="580"
+                          [innerRadius]="104"
+                          [outerRadius]="246"
+                          [centerValue]="i18n.t('hypervisor.v2.cadran.center', { days: dayCount() })"
+                          [centerCaption]="i18n.t('hypervisor.v2.cadran.grammar')"
+                          [rangeLabel]="rangeLabel()"
+                          [peakLabel]="quantityLabel"
+                          [hoverDay]="selectedDayIndex()"
+                          [lockedDay]="lockedDay()"
+                          (dayHover)="onDayHover($event)"
+                          (dayLock)="onDayLock($event)"
+                        />
+                      </div>
+                      <p class="hv2-chart-caption">{{ cadranLegend() }}</p>
+                    </div>
+                    <ng-container [ngTemplateOutlet]="selectionTpl"></ng-container>
+                  </section>
+                }
+    </ng-template>
+
+    <ng-template #riversBandTpl>
+                @if (showBlock('comprendre', 'rivers')) {
+                  <ng-container [ngTemplateOutlet]="riversTpl" [ngTemplateOutletContext]="{ height: 280 }"></ng-container>
+                }
+    </ng-template>
+
+    <ng-template #pairBandTpl>
+                @if (showBlock('comprendre', 'rivers') || showBlock('comprendre', 'hors_denominateur')) {
+                  <ng-container
+                    [ngTemplateOutlet]="pairTpl"
+                    [ngTemplateOutletContext]="{ present: false, hors: showBlock('comprendre', 'hors_denominateur') }"
+                  ></ng-container>
+                }
+    </ng-template>
+
+    <ng-template #sankeyBandTpl>
+                @if (showBlock('comprendre', 'sankey')) {
+                  <section class="hv2-band hv2-flow-band" aria-labelledby="hv2-flow-title">
+                    <div class="hv2-flow-copy">
+                      <h3 class="hv2-band-title" id="hv2-flow-title">{{ i18n.t('hypervisor.v2.sankey.title') }}</h3>
+                      <p class="hv2-band-sub">{{ sankeyExplainer() }}</p>
+                    </div>
+                    @if (sankeySources().length) {
+                      <div class="hv2-flow-chart">
+                        <ck-chart-sankey-flow
+                          [width]="640"
+                          [height]="300"
+                          [sources]="sankeySources()"
+                          [middleLabel]="sankeyMiddleLabel()"
+                          [rightLabel]="sankeyRightLabel()"
+                          [leftCaption]="i18n.t('hypervisor.v2.sankey.left_caption') + ' ' + measuredMark"
+                          [middleCaption]="i18n.t('hypervisor.v2.sankey.middle_caption')"
+                          [rightCaption]="i18n.t('hypervisor.v2.sankey.right_caption') + ' ' + declaredMark"
+                          [hoverSystem]="hoverSystem()"
+                          [middleTip]="sankeyMiddleTip()"
+                          [rightTip]="sankeyRightTip()"
+                          (systemHover)="onSystemHover($event)"
+                          (systemClick)="onSystemClick($event)"
+                        />
+                      </div>
+                    }
+                  </section>
+                }
+    </ng-template>
+
     <ng-template #selectionTpl>
       <aside class="hv2-selection" data-testid="hypervisor-v2-selection" aria-labelledby="hv2-selection-title">
         <h3 class="hv2-band-title" id="hv2-selection-title">{{ i18n.t('hypervisor.v2.selection.title') }}</h3>
@@ -1585,6 +1609,20 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
         @if (!canEdit()) {
           <p class="hv2-muted">{{ i18n.t('hypervisor.v2.customize.preview_only') }}</p>
         }
+        <div class="hv2-product-editor">
+          <label>{{ i18n.t('hypervisor.v2.product.view_name') }}<input [value]="view.label" [disabled]="!canEdit()" maxlength="100" (input)="setViewLabel(eventValue($event))" /></label>
+          <label>{{ i18n.t('hypervisor.v2.product.scope') }}
+            <select data-testid="impact-system-scope" [value]="view.system_id || ''" [disabled]="!canEdit() || systemsProblem()" (change)="setSystemScope(eventValue($event))">
+              <option value="">{{ i18n.t('hypervisor.v2.product.all_systems') }}</option>
+              @for (system of activitySystems(); track system.id) { <option [value]="system.id">{{ system.name }}</option> }
+            </select>
+          </label>
+          @if (systemsProblem()) { <p role="status">{{ i18n.t('hypervisor.v2.product.unavailable') }}</p> }
+          <label class="hv2-inline"><input type="checkbox" [checked]="defaultViewId() === view.id" [disabled]="!canEdit()" (change)="setDefaultView($event)" />{{ i18n.t('hypervisor.v2.product.default_view') }}</label>
+          @if (canEdit()) {
+            <div class="hv2-new-view"><label>{{ i18n.t('hypervisor.v2.product.new_view') }}<input [value]="newViewName()" maxlength="100" (input)="newViewName.set(eventValue($event))" /></label><button type="button" class="hv2-text-btn" [disabled]="!newViewName().trim()" (click)="addView()">{{ i18n.t('hypervisor.v2.product.create_view') }}</button></div>
+          }
+        </div>
         <div class="hv2-customize-grid">
           <div class="hv2-customize-assembly" data-testid="hypervisor-customize-assembly">
             <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.customize.assembly') }}</p>
@@ -1639,6 +1677,22 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                     <button type="button" class="hv2-text-btn" (click)="moveBlock(stratum.id, block.type, 1)" [attr.aria-label]="i18n.t('hypervisor.v2.customize.move_down')">↓</button>
                     <button type="button" class="hv2-text-btn" (click)="removeBlock(stratum.id, block.type)" [attr.aria-label]="i18n.t('hypervisor.v2.customize.remove')">×</button>
                   </div>
+                  @if (block.type === 'activity' || block.type === 'financial_scenario') {
+                    <div class="hv2-product-editor hv2-block-settings" [attr.data-testid]="'impact-settings-' + block.type">
+                      <label>{{ i18n.t('hypervisor.v2.product.block_title') }}<input [value]="block.title || ''" maxlength="200" [disabled]="!canEdit()" (input)="setBlockTitle(block.type, eventValue($event))" /></label>
+                      @if (block.type === 'activity') {
+                        @for (metric of activityMetricOptions; track metric) { <label class="hv2-inline"><input type="checkbox" [checked]="activityMetrics(block).includes(metric)" [disabled]="!canEdit()" (change)="toggleActivityMetric(metric)" />{{ i18n.t('hypervisor.v2.product.metric.' + metric) }}</label> }
+                      } @else {
+                        <p>{{ i18n.t('hypervisor.v2.scenario.edit_note') }}</p>
+                        <label>{{ i18n.t('hypervisor.v2.scenario.currency') }}<input [value]="block.settings['currency'] || ''" maxlength="3" [disabled]="!canEdit()" (input)="setBlockSetting(block.type, 'currency', eventValue($event).toUpperCase())" /></label>
+                        @for (field of scenarioFields; track field) {
+                          <label>{{ i18n.t('hypervisor.v2.scenario.' + field) }}<input type="number" min="0" [max]="scenarioMax(field)" [step]="field === 'monthly_volume' ? '1' : 'any'" [value]="block.settings[field] ?? ''" [disabled]="!canEdit()" (input)="setScenarioNumber(field, eventValue($event))" /></label>
+                        }
+                        <label>{{ i18n.t('hypervisor.v2.scenario.unit_label') }}<input [value]="block.settings['unit_label'] || ''" maxlength="80" [disabled]="!canEdit()" (input)="setBlockSetting(block.type, 'unit_label', eventValue($event))" /></label>
+                        <label>{{ i18n.t('hypervisor.v2.scenario.source_note') }}<textarea [value]="block.settings['note'] || ''" maxlength="1000" [disabled]="!canEdit()" (input)="setBlockSetting(block.type, 'note', eventValue($event))"></textarea></label>
+                      }
+                    </div>
+                  }
                 }
               </fieldset>
             }
@@ -1658,6 +1712,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
             }
           </div>
         </div>
+        <p role="status" data-testid="impact-save-message">{{ saveMessage() ? i18n.t(saveMessage()) : '' }}</p>
         @if (canEdit()) {
           <button type="button" class="hv2-text-btn" (click)="saveViews()" [disabled]="savingViews()">
             {{ i18n.t('hypervisor.v2.customize.save') }}
@@ -1723,6 +1778,17 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       align-items: start;
     }
     .hv2-customize-assembly, .hv2-customize-catalog { min-width: 0; }
+    .hv2-scope { margin: 0 0 16px; font-size: 12px; color: var(--ck-fg-2); }
+    .hv2-product-editor { display: grid; gap: 12px; margin: 0 0 20px; }
+    .hv2-product-editor label { display: grid; gap: 6px; font-size: 12px; color: var(--ck-fg-2); }
+    .hv2-product-editor input:not([type=checkbox]), .hv2-product-editor select, .hv2-product-editor textarea { width: 100%; box-sizing: border-box; min-width: 0; padding: 7px 9px; border: 1px solid var(--ck-stroke-2); border-radius: 6px; color: var(--ck-fg-1); background: var(--ck-bg-panel); font: inherit; }
+    .hv2-product-editor .hv2-inline { display: flex; align-items: center; gap: 8px; }
+    .hv2-block-settings { padding: 12px 0; border-bottom: 1px solid var(--ck-stroke-2); }
+    .hv2-new-view { display: flex; align-items: end; gap: 12px; }
+    .hv2-new-view label { flex: 1; }
+    .hv2-block-row { gap: 4px; }
+    .hv2-block-row > span { flex: 1; min-width: 80px; }
+
     .hv2-agent-orb {
       display: inline-block;
       width: 8px;
@@ -2085,7 +2151,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   readonly measuredMark = MARK_MEASURED;
   readonly declaredMark = MARK_DECLARED;
   readonly denominators: readonly HypervisorViewDenominator[] = ['hours', 'runs', 'value'];
-  readonly periods = ['30d', '90d'] as const;
+  readonly periods = ['7d', '30d', '90d'] as const;
   readonly columns = REGISTER_COLUMNS;
   readonly sorts = VIEW_SORTS;
   readonly strata: ReadonlyArray<{ id: HypervisorStratumId; label: string; blocks: readonly string[] }> = [
@@ -2102,6 +2168,19 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   readonly sourceAnnouncement = signal('');
   readonly views = signal<HypervisorNamedView[]>([]);
   readonly canEdit = signal(false);
+  readonly defaultViewId = signal<string | null>(null);
+  readonly newViewName = signal('');
+  readonly saveMessage = signal('');
+  readonly activitySystems = signal<{ id: string; name: string }[]>([]);
+  readonly systemsProblem = signal(false);
+  readonly activityMetricOptions = ACTIVITY_METRICS;
+  readonly scenarioFields = SCENARIO_FIELDS;
+  readonly activityMetrics = activityMetrics;
+  readonly summarySections = computed(() => summarySections(this.activeView()));
+  readonly hasProductBlocks = computed(() => this.summarySections().some(type => ['activity', 'financial_scenario'].includes(type)));
+  readonly hasResultBlocks = computed(() => this.summarySections().some(type => !['activity', 'financial_scenario'].includes(type)));
+  private viewsLoaded = false;
+  private destroyed = false;
   readonly activeViewId = signal('direction');
   readonly activeImpactViewId = signal<ImpactViewId | null>(null);
   readonly meetingEventId = signal<string | null>(null);
@@ -2398,7 +2477,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       const value = outcome.ok ? outcome.value : null;
       const previous = this.series();
       this.lastSeries = value;
-      this.series.set(value ? projectSeries(value, viewDenominator(this.activeView())) : null);
+      this.series.set(value ? projectSeries(scopedSeries(value, this.activeView()), viewDenominator(this.activeView())) : null);
       const next = this.series();
       if (!next || !previous || next.from !== previous.from || next.to !== previous.to) {
         this.applyDayLock({ type: 'reset' });
@@ -2465,6 +2544,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.destroyed = true;
     const el = this.host.nativeElement as HTMLElement;
     el.removeEventListener('pointerdown', this.markPointer, true);
     el.removeEventListener('keydown', this.markKeyboard, true);
@@ -3384,8 +3464,9 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     });
     const next = this.views().find((view) => view.id === id);
     if (!current || !next) return;
-    if (viewPeriod(current) !== viewPeriod(next)) this.reload();
-    else if (viewDenominator(current) !== viewDenominator(next)) this.reproject();
+    if (viewPeriod(current) !== viewPeriod(next)) this.reload(false);
+    else this.reproject();
+    this.applyDayLock({ type: 'reset' });
   }
 
   selectImpactView(id: ImpactViewId): void {
@@ -3413,6 +3494,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   }
 
   onCustomizeKeydown(event: KeyboardEvent, stratum: HypervisorStratumId, block: string): void {
+    if ((event.target as HTMLElement).closest('input, select, textarea')) return;
     if (event.key === 'ArrowUp') {
       event.preventDefault();
       this.moveBlock(stratum, block, -1);
@@ -3503,14 +3585,76 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     }).subscribe(() => this.reload());
   }
 
+  eventValue(event: Event): string { return (event.target as HTMLInputElement).value; }
+
+  systemScopeLabel(): string {
+    const id = this.activeView()?.system_id;
+    return id ? this.activitySystems().find(system => system.id === id)?.name || this.i18n.t('hypervisor.v2.product.system_unavailable') : this.i18n.t('hypervisor.v2.product.all_systems');
+  }
+
+  setViewLabel(label: string): void { this.patchActive(view => ({ ...view, label })); }
+
+  setSystemScope(systemId: string): void {
+    this.patchActive(view => ({ ...view, system_id: systemId || null }));
+    this.applyDayLock({ type: 'reset' }); this.reproject();
+  }
+
+  setDefaultView(event: Event): void {
+    this.defaultViewId.set((event.target as HTMLInputElement).checked ? this.activeView()?.id ?? null : this.views()[0]?.id ?? null);
+    this.saveMessage.set('hypervisor.v2.product.unsaved');
+  }
+
+  addView(): void {
+    const label = this.newViewName().trim();
+    if (!this.canEdit() || !label) return;
+    const view: HypervisorNamedView = {
+      id: 'view-' + crypto.randomUUID(), label, denominator: 'runs', period: '7d',
+      system_id: this.activeView()?.system_id || null, schema_version: 2,
+      strata: { comprendre: [{ type: 'activity', settings: {} }], detailler: [], decider: [] },
+      register_columns: ['unit', 'spark'], sort: 'name',
+    };
+    this.views.update(views => [...views, view]); this.newViewName.set('');
+    this.selectView(view.id); this.saveMessage.set('hypervisor.v2.product.unsaved');
+  }
+
+  productBlock(type: string): HypervisorBlockRef | null {
+    return this.activeView()?.strata.comprendre.find(block => block.type === type) ?? null;
+  }
+
+  openBlockSettings(type: string): void {
+    this.customizeOpen.set(true);
+    setTimeout(() => (this.host.nativeElement as HTMLElement).querySelector<HTMLElement>('[data-testid="impact-settings-' + type + '"] input')?.focus(), 0);
+  }
+
+  setBlockTitle(type: string, title: string): void {
+    this.patchActive(view => ({ ...view, strata: { ...view.strata, comprendre: view.strata.comprendre.map(block => block.type === type ? { ...block, title } : block) } }));
+  }
+
+  setBlockSetting(type: string, key: string, value: unknown): void {
+    this.patchActive(view => ({ ...view, strata: { ...view.strata, comprendre: view.strata.comprendre.map(block => block.type === type ? { ...block, settings: { ...block.settings, [key]: value } } : block) } }));
+  }
+
+  toggleActivityMetric(metric: typeof ACTIVITY_METRICS[number]): void {
+    const block = this.productBlock('activity');
+    if (!block) return;
+    const current = activityMetrics(block);
+    this.setBlockSetting('activity', 'metrics', current.includes(metric) ? current.filter(item => item !== metric) : [...current, metric]);
+  }
+
+  scenarioMax(field: ScenarioField): number { return field.endsWith('minutes') ? 1440 : 1000000; }
+
+  setScenarioNumber(field: ScenarioField, raw: string): void {
+    this.setBlockSetting('financial_scenario', field, raw.trim() ? Number(raw) : null);
+  }
+
   setDenominator(value: HypervisorViewDenominator): void {
     this.patchActive((view) => ({ ...view, denominator: value }));
     this.reproject();
   }
 
-  setPeriod(value: '30d' | '90d'): void {
+  setPeriod(value: '7d' | '30d' | '90d'): void {
     this.patchActive((view) => ({ ...view, period: value }));
-    this.reload();
+    this.reload(false);
   }
 
   setSort(value: string): void {
@@ -3531,16 +3675,27 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
 
   saveViews(): void {
     if (!this.canEdit()) return;
-    this.savingViews.set(true);
-    this.api.putHypervisorViews(serializeViewsForWrite(this.views())).subscribe({
+    const scope = this.workspace.captureRequestScope();
+    const snapshot = serializeViewsForWrite(this.views());
+    const defaultId = this.defaultViewId();
+    const fingerprint = JSON.stringify([snapshot, defaultId]);
+    this.savingViews.set(true); this.saveMessage.set('');
+    this.api.putHypervisorViews(snapshot, defaultId).subscribe({
       next: (payload) => {
+        if (this.destroyed || !this.workspace.isRequestScopeCurrent(scope)) return;
         const parsed = parseViewsPayload(payload);
-        this.views.set(parsed.views);
+        const editedDuringSave = fingerprint !== JSON.stringify([serializeViewsForWrite(this.views()), this.defaultViewId()]);
+        if (!editedDuringSave) {
+          this.views.set(parsed.views);
+          this.defaultViewId.set(parsed.default_view_id ?? null);
+        }
         this.canEdit.set(parsed.can_edit);
         this.savingViews.set(false);
+        this.saveMessage.set(editedDuringSave ? 'hypervisor.v2.product.unsaved' : 'hypervisor.v2.product.saved');
       },
       error: (error: unknown) => {
-        this.savingViews.set(false);
+        if (this.destroyed || !this.workspace.isRequestScopeCurrent(scope)) return;
+        this.savingViews.set(false); this.saveMessage.set('hypervisor.v2.product.save_failed');
         if (error instanceof HttpErrorResponse && error.status === 403) this.canEdit.set(false);
       },
     });
@@ -3759,16 +3914,20 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     const current = this.activeView();
     if (!current) return;
     this.views.set(replaceView(this.views(), mutate(cloneView(current))));
+    this.saveMessage.set('hypervisor.v2.product.unsaved');
   }
 
   private reproject(): void {
     const raw = this.lastSeries;
     if (!raw) return;
-    this.series.set(projectSeries(raw, viewDenominator(this.activeView())));
+    this.series.set(projectSeries(scopedSeries(raw, this.activeView()), viewDenominator(this.activeView())));
     this.syncMonument(false);
   }
 
   private reset(): void {
+    this.views.set([]); this.defaultViewId.set(null); this.viewsLoaded = false;
+    this.activitySystems.set([]); this.canEdit.set(false); this.customizeOpen.set(false); this.saveMessage.set('');
+    this.lastSeries = null; this.savingViews.set(false); this.newViewName.set('');
     this.series.set(null);
     this.bases.set([]);
     this.decisions.set([]);
@@ -3792,7 +3951,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     this.stopMonument();
   }
 
-  reload(): void {
+  reload(loadViews = true): void {
     const request = this.workspaceView.beginRequest();
     const period = viewPeriod(this.activeView() ?? DEFAULT_HYPERVISOR_VIEWS[0]);
     const sources = impactSourceRequests(this.http, period);
@@ -3804,7 +3963,8 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       bases: settleSource(sources.bases()),
       decisions: settleSource(sources.decisions()),
       recos: settleSource(sources.recos()),
-      views: this.api.hypervisorViews().pipe(catchError(() => of(null))),
+      views: loadViews ? this.api.hypervisorViews().pipe(catchError(() => of(null))) : of({ views: this.views(), can_edit: this.canEdit(), default_view_id: this.defaultViewId() }),
+      activitySystems: this.http.get<{ systems: { id: string; name: string }[] }>('/hypervisor/activity/systems').pipe(catchError(() => of(null))),
       capabilities: this.api.listCapabilities().pipe(catchError(() => of([] as Capability[]))),
       balance: this.api.hypervisorBalanceSheet(period === '90d' ? 'rolling_90d' : 'rolling_30d').pipe(
         catchError(() => of(null)),
@@ -3818,9 +3978,16 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
         this.loading.set(false);
         return;
       }
-      const parsed = parseViewsPayload(bundle.views);
+      const parsed = parseViewsPayload(loadViews ? bundle.views : { views: this.views(), can_edit: this.canEdit(), default_view_id: this.defaultViewId() });
       this.views.set(parsed.views);
       this.canEdit.set(parsed.can_edit);
+      this.defaultViewId.set(parsed.default_view_id ?? null);
+      if (!this.viewsLoaded) {
+        this.activeViewId.set(parsed.default_view_id || parsed.views[0]?.id || 'direction');
+        this.viewsLoaded = true;
+      }
+      this.activitySystems.set(bundle.activitySystems?.systems ?? []);
+      this.systemsProblem.set(bundle.activitySystems == null);
       if (bundle.mapSettings?.attribution) {
         this.mapAttribution.set(bundle.mapSettings.attribution);
       }
@@ -3828,7 +3995,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
         this.activeViewId.set(parsed.views[0]?.id ?? 'direction');
       }
       if (viewPeriod(this.activeView()) !== period) {
-        this.reload();
+        this.reload(false);
         return;
       }
       this.applySourceOutcome.series(bundle.series);

@@ -8,7 +8,7 @@ export type SeriesFactState =
   | 'unavailable';
 
 export type HypervisorDenominator = 'hours' | 'runs' | 'value';
-export type HypervisorSeriesWindow = '30d' | '90d';
+export type HypervisorSeriesWindow = '7d' | '30d' | '90d';
 export type ValueBasisStatus = 'declared' | 'measured' | 'none';
 export type RegisterHealth = 'pos' | 'warn' | 'neg' | 'neutral';
 export type StreamTone = 'ink' | 'ink-soft' | 'declared' | 'declared-soft';
