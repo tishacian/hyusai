@@ -142,8 +142,20 @@ notes; to bound them, export `AGENTIUM_IMAGE_BUDGET_MB_{BACKEND,WORKER,FRONTEND}
 a few percent above the recorded values before running it.
 
 Reference, release `4a01ebd5` (torch still in both images): backend 1362 MB,
-worker 1714 MB, frontend 28 MB, 10 shared layers. The release that removed torch
-from the API image is the first measurement to bound the backend with.
+worker 1714 MB, frontend 28 MB, 10 shared layers.
+
+Reference, release `fd53b43d` (API without torch, forecasting on): backend
+1102 MB, worker 1714 MB, frontend 28 MB, ml-ts 1181 MB; 9 layers shared between
+the API and the worker, 9 between the API and ml-ts. Budgets to export before
+running the script:
+
+```bash
+export AGENTIUM_IMAGE_BUDGET_MB_BACKEND=1160 AGENTIUM_IMAGE_BUDGET_MB_WORKER=1800 \
+  AGENTIUM_IMAGE_BUDGET_MB_FRONTEND=40 AGENTIUM_IMAGE_BUDGET_MB_ML_TS=1240
+```
+
+A budget that trips is a question to answer in the release notes — what
+grew, and why — not a number to raise silently.
 
 Each Python image also has its own build-context filter,
 `docker/Dockerfile.agentium-{backend,worker,ml-ts}.dockerignore`, which BuildKit reads
@@ -348,6 +360,28 @@ sudo env AGENTIUM_IMAGE_TAG=<sha12> "$DEPLOY" up
 Infrastructure containers (pg, Keycloak, Qdrant, MinIO, RabbitMQ, SFTP,
 LiveKit) are never touched by this path.
 
+### 6b. Catalog — when the slice adds or changes a canonical Skill
+
+The VM boots with startup reconciliation disabled: nothing writes to the
+database while the API starts, so the canonical Skills/Capabilities catalog
+is **not** seeded by the switch. `up` ends by printing where it stands — a
+`catalog in sync` or `catalog BEHIND` verdict, never failing the switch over
+it. When it is behind, apply it, after `up` so the new code serves the new
+Skills from the first second they are listed:
+
+```bash
+sudo env AGENTIUM_IMAGE_TAG=<sha12> "$DEPLOY" catalog-check   # read-only, JSON report, exit 3 if behind
+sudo env AGENTIUM_IMAGE_TAG=<sha12> "$DEPLOY" catalog-apply   # writes only the rows that differ
+```
+
+Both run in the one-off migrate container (the release's image, application
+stores read-only). The report names the missing rows, the changed ones with
+their fields, and the seeded rows the code no longer declares — kept, never
+deleted, since a Flow may still use them. An apply also restores a seeded
+field edited in production (pricing, certification level, description): the
+check is where to see that before it happens. Fields the seed does not own
+(metrics, a bound executor) are never touched.
+
 ## 7. Verify — the release is not done until this passes
 
 ```bash
@@ -356,6 +390,7 @@ curl -sk https://localhost/api/v1/build-info -H "Host: agentium.papai.ai"
 #   -> "revision": "<sha40>", "revision_verified": true
 curl -sk -o /dev/null -w '%{http_code}\n' https://localhost/ -H "Host: agentium.papai.ai"   # 200
 sudo docker logs agentium-backend --since 5m 2>&1 | grep -icE 'traceback|exception'          # 0
+sudo env AGENTIUM_IMAGE_TAG=<sha12> "$DEPLOY" catalog-check >/dev/null; echo $?              # 0 (§6b)
 ```
 
 `build-info` only answers over HTTPS through nginx — plain `:8000` on the host
