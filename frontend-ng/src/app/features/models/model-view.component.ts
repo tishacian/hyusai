@@ -1,3 +1,4 @@
+import { ExplanationEvidenceComponent } from "./explanation-evidence.component";
 /**
  * Model card — the evidence, the contract, the lineage and the settings.
  *
@@ -118,6 +119,7 @@ const CHART_ASPECT = 300 / 190;
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    ExplanationEvidenceComponent,
     NavLinkDirective,
     CkBackLinkComponent,
     IconComponent,
@@ -542,6 +544,7 @@ const CHART_ASPECT = 300 / 190;
               }
 
               <div class="ck-charts">
+                <ck-explanation-evidence [evidence]="explanations()" [regression]="row.task === 'regression'" />
                 @if (roc().length) {
                   <section class="ck-chart">
                     <div class="ck-section-label">{{ i18n.t('models.evidence.roc') }}</div>
@@ -1765,6 +1768,7 @@ export class ModelViewComponent implements OnInit {
   /** A ROC is judged against a coin flip; the diagonal never changes. */
   protected readonly DIAGONAL: CurveReference = { kind: 'diagonal' };
 
+  protected readonly explanations = computed(() => this.metrics()?.explain);
   protected readonly roc = computed(() => this.metrics()?.curves?.roc ?? []);
   protected readonly pr = computed(() => this.metrics()?.curves?.pr ?? []);
   protected readonly fit = computed(() => this.metrics()?.curves?.fit ?? []);

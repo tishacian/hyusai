@@ -107,6 +107,7 @@ const pureSpecs = [
   'src/app/features/data/viz/viz.vm.spec.ts',
   'src/app/features/data/viz/viz-kit-ui-contract.spec.ts',
   'src/app/features/models/models.vm.spec.ts',
+  'src/app/features/models/explanation-evidence.vm.spec.ts',
   'src/app/features/models/forecast.vm.spec.ts',
   'src/app/features/models/tabular-options.vm.spec.ts',
   'src/app/features/models/model-serving-ui-contract.spec.ts',

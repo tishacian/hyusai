@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.services.ml.families.base import Family
+from app.services.ml.families.base import Family, SpecField
 
 CLASSIFICATION = "classification"
 REGRESSION = "regression"
@@ -22,5 +22,9 @@ TABULAR = Family(
     queue_setting="celery_ml_tabular_queue",
     serving="in_process",
     required_modules=("sklearn", "skrub", "skore", "mlflow", "skops"),
+    spec_fields=(
+        SpecField("explain", "enum", default="off", choices=("off", "pack")),
+        SpecField("fairness_columns", "columns", default=[], max_items=3, when=(("explain", ("pack",)),)),
+    ),
     harness=Path(__file__).resolve().parents[3] / "resources" / "ml_train_harness.py",
 )
