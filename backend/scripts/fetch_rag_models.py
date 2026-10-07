@@ -41,6 +41,8 @@ def _download(url: str, target: Path, expected: str) -> None:
         actual = _sha256(Path(temporary))
         if actual != expected:
             raise SystemExit(f"sha256 mismatch for {url}: expected {expected}, got {actual}")
+        # mkstemp creates 0600 files; the images run as a non-root user.
+        os.chmod(temporary, 0o644)
         os.replace(temporary, target)
     finally:
         if os.path.exists(temporary):
