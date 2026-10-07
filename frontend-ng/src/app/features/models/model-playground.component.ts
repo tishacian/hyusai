@@ -46,6 +46,7 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { I18nService } from '@app/core/i18n.service';
 import { ModelsService } from './models.service';
+import { intervalEvidence, predictionInterval } from './tabular-intervals.vm';
 import { ForecastPlaygroundComponent } from './forecast-playground.component';
 import { forecastCurlSnippet, type ForecastRequestBody } from './forecast.vm';
 import {
@@ -197,6 +198,13 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
                 {{ servedLine(block) }}
               </span>
             </div>
+            @if (intervals(); as evidence) {
+              <label class="ck-field" for="predict-interval-level">{{ i18n.t('models.intervals.level') }}
+                <select id="predict-interval-level" class="ck-input" [value]="intervalLevel()" (change)="chooseInterval($any($event.target).value)">
+                  @for (entry of evidence.levels; track entry.level) { <option [value]="entry.level">{{ percent(entry.level) }}</option> }
+                </select>
+              </label>
+            }
             @if (refusal(); as message) {
               <div class="ck-error rounded px-3 py-2 mt-3 text-[12px]">{{ message }}</div>
             }
@@ -271,6 +279,13 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
             } @else if (numeric() !== null) {
               <div class="ck-numeric">
                 <div class="ck-numeric__value">{{ numericDisplay() }}</div>
+                @if (interval(); as band) {
+                  <div class="ck-interval" data-testid="prediction-interval">
+                    <div>{{ i18n.t('models.intervals.band', { level: percent(band.level) }) }}</div>
+                    <div class="ck-interval__track"><span></span></div>
+                    <div class="ck-interval__ends"><span>{{ number(band.lower) }}</span><span>{{ number(band.upper) }}</span></div>
+                  </div>
+                }
                 <div class="ck-numeric__label ck-mono">
                   {{ i18n.t('models.play.estimate', { target: target() }) }}
                 </div>
@@ -701,6 +716,10 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
         flex-wrap: wrap;
         margin-top: 10px;
       }
+      .ck-interval { margin: 12px 0; color: var(--ck-fg-2); font-size: 12px; }
+      .ck-interval__track { height: 8px; background: var(--ck-stroke-2); margin: 10px 0; position: relative; border-radius: 4px; }
+      .ck-interval__track span { position: absolute; left: 50%; top: -3px; height: 14px; width: 2px; background: var(--ck-fg-2); }
+      .ck-interval__ends { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
       .ck-numeric {
         text-align: center;
         padding: 18px 0 6px;
@@ -877,6 +896,16 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
   ],
 })
 export class ModelPlaygroundComponent {
+  protected readonly intervals = computed(() => intervalEvidence(this.model().metrics?.intervals));
+  private readonly intervalPick = signal<number | null>(null);
+  protected readonly intervalLevel = computed(() => {
+    const evidence = this.intervals();
+    if (!evidence) return null;
+    const picked = this.intervalPick();
+    return evidence.levels.some(row => row.level === picked) ? picked : evidence.default_level;
+  });
+  protected readonly interval = computed(() => predictionInterval(this.answer()?.predictions[0]));
+  protected chooseInterval(value: string): void { this.intervalPick.set(Number(value)); this.answer.set(null); }
   readonly model = input.required<ModelDto>();
   /** The card's own read of the serving plane; this tab never fetches it. */
   readonly serving = input.required<ServingBlock>();
@@ -1004,6 +1033,7 @@ export class ModelPlaygroundComponent {
       this.answer.set(
         await this.models.predict(this.model().id, row, {
           explain: true,
+          intervalLevel: this.intervalLevel(),
           ...(pinned ? { version: pinned } : {}),
         }),
       );
@@ -1165,6 +1195,7 @@ export class ModelPlaygroundComponent {
       secret: this.minted()?.secret ?? null,
       prefix: live?.prefix ?? null,
       version: this.pinned(),
+      intervalLevel: this.intervalLevel(),
     });
   });
 

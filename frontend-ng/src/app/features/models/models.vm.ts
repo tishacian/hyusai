@@ -127,6 +127,7 @@ export interface CvBlock {
 }
 
 export interface MetricsBlock {
+  intervals?: IntervalEvidence;
   task?: ModelTask;
   primary?: MetricScore;
   scores?: MetricScore[];
@@ -301,6 +302,17 @@ export interface PredictionRow {
   score?: number | null;
   probabilities?: ClassProbability[];
   contributions?: Contribution[];
+  lower?: number;
+  upper?: number;
+  level?: number;
+}
+
+export interface IntervalEvidence {
+  method: string;
+  folds: number;
+  residual_rows: number;
+  default_level: number;
+  levels: { level: number; q: number; coverage: number; width: number }[];
 }
 
 export interface PredictAnswer {
@@ -543,6 +555,7 @@ export function curlSnippet(options: {
   secret?: string | null;
   prefix?: string | null;
   version?: number | null;
+  intervalLevel?: number | null;
 }): string {
   const key = options.secret
     ? options.secret
@@ -552,6 +565,7 @@ export function curlSnippet(options: {
   const body = JSON.stringify({
     inputs: [options.row],
     ...(options.version ? { version: options.version } : {}),
+    ...(options.intervalLevel != null ? { interval_level: options.intervalLevel } : {}),
   });
   return [
     `curl -X POST ${options.origin}${options.endpoint} \\`,
@@ -1583,6 +1597,7 @@ export function refusalField(
  * saw, a key that was revoked, an artifact that will not load.
  */
 export const SERVING_ERROR_CODES = [
+  'ML_INTERVAL_LEVEL_UNKNOWN',
   'ML_PREDICT_DISABLED',
   'ML_PREDICT_ROWS_REQUIRED',
   'ML_PREDICT_ROW_NOT_OBJECT',
