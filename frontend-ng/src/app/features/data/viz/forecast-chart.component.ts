@@ -62,9 +62,12 @@ export interface ForecastChartLabels {
       :host {
         display: block;
       }
+      /* Wide on a desk, never flat on a phone: the aspect sizes it, the floor
+         keeps a day's peak readable at 390px. */
       .ck-viz-forecast {
         position: relative;
         width: 100%;
+        min-height: 220px;
       }
       .ck-viz-forecast__legend {
         display: flex;
@@ -106,7 +109,7 @@ export class ForecastChartComponent {
   /** The pandas frequency the model was fitted on, to name the axis in its unit. */
   readonly frequency = input<string | undefined>(undefined);
   readonly locale = input('fr-FR');
-  readonly aspect = input(21 / 8);
+  readonly aspect = input(3);
   /** Screen-reader label. Required: a bare `role="img"` announces nothing. */
   readonly label = input.required<string>();
   readonly names = input<ForecastChartLabels>({ actual: 'Actual', pred: 'Forecast', interval: 'Interval' });

@@ -17,6 +17,7 @@ import {
   covariateCandidates,
   coverageTone,
   forecastSpec,
+  frequencyKey,
   horizonBars,
   isForecast,
   parseLags,
@@ -209,4 +210,13 @@ test('a timestamp is labelled in the unit of the series frequency', () => {
   const monthly = formatForecastStamp('2026-08-01 00:00:00', 'MS', 'en-GB');
   assert.match(monthly, /Aug/);
   assert.equal(formatForecastStamp('not a date', 'h', 'fr-FR'), 'not a date');
+});
+
+test('a fitted frequency is named the way the form offered it', () => {
+  assert.equal(frequencyKey('h'), 'h');
+  assert.equal(frequencyKey('W-SUN'), 'W');
+  assert.equal(frequencyKey('QS-OCT'), 'QS');
+  assert.equal(frequencyKey('MS'), 'MS');
+  assert.equal(frequencyKey('2h'), null);
+  assert.equal(frequencyKey(undefined), null);
 });

@@ -321,7 +321,7 @@ export interface TrainSeed {
                           <select
                             class="ck-input ck-role__select"
                             [attr.aria-label]="candidate.name"
-                            [ngModel]="draft().exog[candidate.name] ?? ''"
+                            [ngModel]="roleOf(candidate.name)"
                             (ngModelChange)="setRole(candidate.name, $event)"
                           >
                             <option value="">{{ i18n.t('models.studio.forecast.unused') }}</option>
@@ -1396,6 +1396,10 @@ export class ModelTrainComponent implements OnInit {
     const current = this.draft().seriesColumns;
     const next = current.includes(name) ? current.filter((column) => column !== name) : [...current, name];
     this.patchDraft({ seriesColumns: next.slice(0, 3) });
+  }
+
+  protected roleOf(column: string): ForecastRole | '' {
+    return this.draft().exog[column] || '';
   }
 
   protected setRole(column: string, role: ForecastRole | ''): void {
