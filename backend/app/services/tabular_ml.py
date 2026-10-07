@@ -137,6 +137,9 @@ _EXIT_CODES = {
 CLASSIFICATION = "classification"
 REGRESSION = "regression"
 TASKS = TABULAR.tasks
+# A forecast reuses the tabular regressors on the series' own past; the
+# forecasting family (app.services.ml.families.forecasting) validates it.
+FORECASTING = "forecasting"
 
 
 def harness_path() -> Path:
@@ -204,6 +207,7 @@ ALGOS: tuple[Algo, ...] = (
         estimators={
             CLASSIFICATION: "sklearn.ensemble.HistGradientBoostingClassifier",
             REGRESSION: "sklearn.ensemble.HistGradientBoostingRegressor",
+            FORECASTING: "sklearn.ensemble.HistGradientBoostingRegressor",
         },
         knobs=(
             Knob("max_iter", "int", 150, 20, 600, 10),
@@ -218,6 +222,7 @@ ALGOS: tuple[Algo, ...] = (
         estimators={
             CLASSIFICATION: "sklearn.ensemble.RandomForestClassifier",
             REGRESSION: "sklearn.ensemble.RandomForestRegressor",
+            FORECASTING: "sklearn.ensemble.RandomForestRegressor",
         },
         knobs=(
             Knob("n_estimators", "int", 200, 50, 600, 10),
@@ -233,6 +238,7 @@ ALGOS: tuple[Algo, ...] = (
         estimators={
             CLASSIFICATION: "sklearn.linear_model.LogisticRegression",
             REGRESSION: "sklearn.linear_model.Ridge",
+            FORECASTING: "sklearn.linear_model.Ridge",
         },
         knobs=(
             Knob("max_iter", "int", 500, 100, 3000, 50),
@@ -251,6 +257,31 @@ ALGOS: tuple[Algo, ...] = (
         knobs=(Knob("n_neighbors", "int", 15, 1, 100, 1),),
         scale=True,
         rank=3,
+        tags=("baseline",),
+        seeded=False,
+    ),
+    # Forecasting only. One statistical model per series, its season read from
+    # the series' frequency by the harness; no regressor, no lags.
+    Algo(
+        key="ets",
+        estimators={FORECASTING: "skforecast.stats.Ets"},
+        rank=4,
+        tags=("statistical", "seasonal"),
+        seeded=False,
+    ),
+    Algo(
+        key="arima",
+        estimators={FORECASTING: "skforecast.stats.Arima"},
+        rank=5,
+        tags=("statistical",),
+        seeded=False,
+    ),
+    # Repeats the last season: the reference every forecast's MASE is scaled
+    # by, offered so an author can see what "no model" scores.
+    Algo(
+        key="seasonal_naive",
+        estimators={FORECASTING: "skforecast.recursive.ForecasterEquivalentDate"},
+        rank=6,
         tags=("baseline",),
         seeded=False,
     ),
@@ -440,7 +471,7 @@ def validate_training(
     if family is None or (family is not TABULAR and family.validator is None):
         raise TabularError(
             code="ML_TASK_UNKNOWN",
-            message="A model is either a classification or a regression.",
+            message="This is not a task the platform trains: classification, regression or forecasting.",
             details={"task": chosen_task[:40]},
         )
     # The general worker is always there; a family trained in its own image is
@@ -1404,6 +1435,7 @@ def _write_manifest(scratch: Path, model: MLModel, data_path: Path) -> Path:
         "data_path": str(data_path),
         "model_dir": str(scratch / "model"),
         "task": model.task,
+        "algo": model.algo,
         "target": model.target,
         "features": list(model.features or []),
         "estimator": params.get("estimator"),

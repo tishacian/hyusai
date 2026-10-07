@@ -1243,6 +1243,21 @@ test('a form offers the tasks of the families a worker can train now', () => {
   assert.deepEqual(trainableTasks(null), []);
 });
 
+test('a family that needs a problem definition waits for a form that renders it', () => {
+  const horizon = { key: 'horizon', kind: 'int' as const, required: true };
+  const catalog = {
+    ...EMPTY_CATALOG_FOR_TASKS,
+    tasks: ['classification', 'forecasting'],
+    families: [
+      { key: 'tabular', tasks: ['classification'], runtime: 'worker', serving: 'in_process' as const, available: true, spec_fields: [] },
+      { key: 'forecasting', tasks: ['forecasting'], runtime: 'ml-ts', serving: 'remote' as const, available: true, spec_fields: [horizon] },
+    ],
+  };
+  // A form without spec fields would send a forecast with no date column.
+  assert.deepEqual(trainableTasks(catalog), ['classification']);
+  assert.deepEqual(trainableTasks(catalog, { specFields: true }), ['classification', 'forecasting']);
+});
+
 test('only numeric knobs render as sliders; other kinds keep the server default', () => {
   const algo = {
     key: 'gb',

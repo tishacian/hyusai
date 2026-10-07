@@ -30,7 +30,7 @@ from typing import Any, Callable
 
 from app.core.config import settings
 
-SPEC_FIELD_KINDS = ("column", "columns", "int", "float", "enum", "bool", "column_roles")
+SPEC_FIELD_KINDS = ("column", "columns", "int", "float", "enum", "bool", "column_roles", "int_list")
 
 
 class SpecInvalid(ValueError):
@@ -88,6 +88,19 @@ class SpecField:
             if self.max_items and len(value) > self.max_items:
                 raise SpecInvalid(self.key, f"at most {self.max_items} columns")
             return {k.strip(): v for k, v in value.items()}
+        if kind == "int_list":
+            if not isinstance(value, list) or not value or any(
+                isinstance(item, bool) or not isinstance(item, int) for item in value
+            ):
+                raise SpecInvalid(self.key, "expected a list of whole numbers")
+            items = sorted(set(value))
+            if self.max_items and len(items) > self.max_items:
+                raise SpecInvalid(self.key, f"at most {self.max_items} values")
+            if (self.minimum is not None and items[0] < self.minimum) or (
+                self.maximum is not None and items[-1] > self.maximum
+            ):
+                raise SpecInvalid(self.key, f"expected values in [{self.minimum}, {self.maximum}]")
+            return items
         if kind == "enum":
             if value not in self.choices:
                 raise SpecInvalid(self.key, f"expected one of {list(self.choices)}")

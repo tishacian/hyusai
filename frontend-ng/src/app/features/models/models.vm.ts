@@ -764,7 +764,7 @@ export function numericKnobs(algo: AlgoDescriptor | undefined): NumericKnobDescr
 /** A field of a model family's problem definition (time column, horizon, …). */
 export interface SpecFieldDescriptor {
   key: string;
-  kind: 'column' | 'columns' | 'int' | 'float' | 'enum' | 'bool' | 'column_roles';
+  kind: 'column' | 'columns' | 'int' | 'float' | 'enum' | 'bool' | 'int_list' | 'column_roles';
   required: boolean;
   default?: unknown;
   min?: number;
@@ -1381,12 +1381,22 @@ export function defaultKnobs(algo: AlgoDescriptor | undefined): Record<string, n
 /**
  * The tasks a form offers: those of the families a worker can train now.
  * A catalog served before families lists its tasks bare, all trainable.
+ *
+ * A family that needs a problem definition (a forecast's date column and
+ * horizon) is offered only by a form that renders spec fields; one that does
+ * not would submit a request the server can only refuse.
  */
-export function trainableTasks(catalog: ModelCatalog | null | undefined): ModelTask[] {
+export function trainableTasks(
+  catalog: ModelCatalog | null | undefined,
+  options: { specFields?: boolean } = {},
+): ModelTask[] {
   const tasks = catalog?.tasks ?? [];
   const families = catalog?.families;
   if (!families?.length) return [...tasks];
-  const available = new Set(families.filter((family) => family.available).flatMap((family) => family.tasks));
+  const offered = families.filter(
+    (family) => family.available && (options.specFields || !(family.spec_fields ?? []).some((field) => field.required)),
+  );
+  const available = new Set(offered.flatMap((family) => family.tasks));
   return tasks.filter((task) => available.has(task));
 }
 
@@ -1487,6 +1497,17 @@ export const REFUSAL_CODES = [
   'ML_FAMILY_UNAVAILABLE',
   'ML_MODEL_NOT_READY',
   'ML_MODEL_NOT_FOUND',
+  'ML_TS_TIME_COLUMN_REQUIRED',
+  'ML_TS_TIME_COLUMN_NOT_DATETIME',
+  'ML_TS_COLUMN_REUSED',
+  'ML_TS_EXOG_NOT_NUMERIC',
+  'ML_TS_PAST_NEEDS_MULTIVARIATE',
+  'ML_TS_STATIC_NEEDS_PANEL',
+  'ML_TS_MULTIVARIATE_NEEDS_SERIES',
+  'ML_TS_DUPLICATE_TIMESTAMPS',
+  'ML_TS_TOO_MANY_SERIES',
+  'ML_TS_ALGO_SHAPE_MISMATCH',
+  'ML_TS_HISTORY_TOO_SHORT',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];
@@ -1777,6 +1798,8 @@ export const TRAINING_ERROR_CODES = [
   'ML_ARTIFACT_EMPTY',
   'ML_TRAIN_DISABLED',
   'ML_RUNTIME_MISSING',
+  'ML_TS_SERIES_UNUSABLE',
+  'ML_TS_HISTORY_TOO_SHORT',
 ] as const;
 
 const TRAINING_ERROR_SET: ReadonlySet<string> = new Set(TRAINING_ERROR_CODES);

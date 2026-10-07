@@ -125,15 +125,23 @@ def test_the_catalog_is_task_neutral_and_every_estimator_it_offers_instantiates(
     import importlib
 
     payload = catalog_payload()
-    assert payload["tasks"] == [CLASSIFICATION, REGRESSION]
+    assert payload["tasks"][:2] == [CLASSIFICATION, REGRESSION]
     # Task neutrality is the property that lets a form switch churn → ARPU
-    # without resetting the algorithm the author picked.
+    # without resetting the algorithm the author picked: an algorithm that
+    # trains one tabular task trains both. Forecast-only ones (ETS, ARIMA, the
+    # seasonal naive) offer no tabular task at all.
+    tabular = {CLASSIFICATION, REGRESSION}
     for entry in payload["algos"]:
-        assert set(entry["tasks"]) == {CLASSIFICATION, REGRESSION}, entry["key"]
+        offered = set(entry["tasks"]) & tabular
+        assert offered in (tabular, set()), entry["key"]
 
     for algo in ALGOS:
         for task, dotted in algo.estimators.items():
             module_name, _, class_name = dotted.rpartition(".")
+            if not module_name.startswith("sklearn."):
+                # A forecasting runtime's own class, instantiated by its harness
+                # in the ml-ts image (test_ml_forecast_harness).
+                continue
             factory = getattr(importlib.import_module(module_name), class_name)
             # Every knob the catalog offers has to be an argument the estimator
             # actually takes, or the form would build an unfittable request.
