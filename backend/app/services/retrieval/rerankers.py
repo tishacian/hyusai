@@ -33,22 +33,30 @@ def _torch_installed() -> bool:
 def reranker_backend(model_name: str) -> str:
     """The engine ``make_reranker`` would use for this model: onnx or torch.
 
-    ``auto`` keeps the engine an image was qualified with: torch while the
-    image installs it, ONNX once it does not. Switching an image that has both
-    is an explicit ``onnx`` — after ``scripts/bench_rerank_engines.py`` has
-    shown, on that host's CPU, that ONNX scores the same within the budget.
+    ``auto`` runs ONNX wherever its files and runtime are present — every image
+    since they are baked in — and torch only where ONNX cannot run. ONNX was
+    qualified against torch on the serving host's CPU
+    (``scripts/bench_rerank_engines.py``: same order, scores within 6e-7), which
+    is what let the API image stop installing torch. ``torch`` forces the
+    fallback engine on an image that still has it (the worker).
     """
     requested = (settings.rag_reranker_backend or "auto").strip().lower()
     if requested not in BACKENDS:
         raise ValueError(f"rag_reranker_backend must be one of {BACKENDS}, got {requested!r}")
-    if requested == "torch" or (requested == "auto" and _torch_installed()):
+    if requested == "torch":
         return "torch"
     if _onnx_runnable(model_name):
         return "onnx"
+    if requested == "auto" and _torch_installed():
+        return "torch"
+    onnx_missing = (
+        f"ONNX needs onnxruntime, tokenizers and the model files under {settings.rag_models_dir}"
+    )
+    if requested == "onnx":
+        raise ImportError(f"No cross-encoder engine for {model_name}: {onnx_missing}")
     raise ImportError(
-        f"No cross-encoder engine for {model_name}: torch/transformers are not "
-        f"installed and onnxruntime/tokenizers or the model files under "
-        f"{settings.rag_models_dir} are missing"
+        f"No cross-encoder engine for {model_name}: {onnx_missing}, and torch/transformers "
+        "are not installed"
     )
 
 
