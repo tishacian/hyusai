@@ -199,6 +199,10 @@ def _model_input(inputs: list[dict[str, Any]], meta: dict[str, Any]):
 
 
 _EXPLAIN_FEATURES = 8
+# An explanation answers in the request: past this budget for the whole
+# horizon, a deep forest is explained with Saabas attributions (additive,
+# approximate) instead of exact tree SHAP, and the answer says which.
+_EXPLAIN_BUDGET_S = 2.0
 
 
 def _inverse_scale(forecaster: Any, series: str) -> tuple[float, float]:
@@ -259,6 +263,7 @@ def explain_forecast(entry: LoadedForecaster, model_input: Any, *, steps: int, a
     direct = type(forecaster).__name__ in ("ForecasterDirect", "ForecasterDirectMultiVariate")
     scale, shift = _inverse_scale(forecaster, meta.get("target") if meta.get("shape") == "multivariate" else series)
     explainers: dict[int, Any] = {}
+    approximate = False
     by_step = []
     peak_features: list[dict[str, Any]] = []
     rows = [row for row in answered if str(row["series"]) == series]
@@ -276,8 +281,12 @@ def explain_forecast(entry: LoadedForecaster, model_input: Any, *, steps: int, a
             key = id(estimator)
             if key not in explainers:
                 explainers[key] = shap.TreeExplainer(estimator)
+                if not approximate:
+                    started = time.monotonic()
+                    explainers[key].shap_values(x)
+                    approximate = (time.monotonic() - started) * len(matrix) > _EXPLAIN_BUDGET_S
             explainer = explainers[key]
-            contributions = np.ravel(explainer.shap_values(x))
+            contributions = np.ravel(explainer.shap_values(x, approximate=approximate))
             base = float(np.ravel([explainer.expected_value])[0])
         contributions = contributions * scale
         base = base * scale + shift
@@ -309,7 +318,7 @@ def explain_forecast(entry: LoadedForecaster, model_input: Any, *, steps: int, a
     peak = next((step for step in by_step if step["timestamp"] == peak_row["timestamp"]), None)
     return {
         "series": series,
-        "method": "shap" if kind == "tree" else "linear",
+        "method": ("shap-approximate" if approximate else "shap") if kind == "tree" else "linear",
         "steps": by_step,
         "peak": {**peak, "features": peak_features} if peak else None,
     }

@@ -354,8 +354,8 @@ def test_a_task_delivered_to_an_image_without_the_family_stack_fails_closed(
 
 
 def test_the_family_image_app_registers_the_training_task_and_nothing_else():
-    """A family image runs celery_ml: the ML tasks (fit, and answer a forecast),
-    without the RAG or OCR planes."""
+    """A family image runs celery_ml: the ML tasks (fit, answer a forecast,
+    write one as a dataset), without the RAG or OCR planes."""
 
     import json
     import subprocess
@@ -373,7 +373,7 @@ def test_the_family_image_app_registers_the_training_task_and_nothing_else():
     lines = [line for line in result.stdout.splitlines() if line.startswith("PROBE ")]
     assert result.returncode == 0 and lines, result.stderr[-2000:]
     report = json.loads(lines[-1].removeprefix("PROBE "))
-    assert report["tasks"] == ["agentium.ml_forecast", "agentium.ml_train"]
+    assert report["tasks"] == ["agentium.ml_forecast", "agentium.ml_forecast_batch", "agentium.ml_train"]
     assert report["heavy"] == []
 
 

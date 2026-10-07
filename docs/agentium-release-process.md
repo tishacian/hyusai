@@ -226,25 +226,35 @@ for at most `ML_FORECAST_TIMEOUT_S` (30 s by default). A family is offered for
 training while the fitting worker beats, and its Play tab answers while the
 serving worker beats.
 
-To switch it on, start both profiled services with the release's tag and env
-file:
+To switch it on, export `AGENTIUM_ML_TS=1` for the deploy commands in §6:
+`storage-check` then renders the `ml-ts` profile and holds both workers to
+the protected-storage contract (object store, read-write, nothing else),
+`images` lists their image, and `up` recreates them from the same tag as the
+rest of the stack. To take them down — the rollback, or a host that should not
+forecast — run `ml-ts-stop`. Left at `0` (the default), nothing about them
+changes; containers that already exist are still storage-checked.
 
 ```bash
-cd /srv/agentium-data/worktrees/demo-agentic/docker
-AGENTIUM_IMAGE_TAG=<sha12> sudo -E docker compose -f compose.agentium.yml \
-  --env-file ./env/agentium.vm.env --profile ml-ts up -d --no-build \
-  agentium-worker-ml-ts agentium-worker-ml-ts-serve
+DEPLOY=/srv/agentium-data/worktrees/demo-agentic/scripts/agentium-vm-deploy.sh
+sudo env AGENTIUM_IMAGE_TAG=<sha12> AGENTIUM_ML_TS=1 "$DEPLOY" up
 sudo docker logs agentium-worker-ml-ts 2>&1 | grep "ml runtime heartbeat started"
 sudo docker logs agentium-worker-ml-ts-serve 2>&1 | grep "ml runtime heartbeat started"
+# rollback / switch off:
+sudo env AGENTIUM_IMAGE_TAG=<sha12> "$DEPLOY" ml-ts-stop
 ```
 
 Check it end to end: train a forecast from the studio, then ask it for 24
 steps from its Play tab. Record the first answer, which includes the load,
 and the second, which comes from the cache, in the release evidence.
 
-`deploy-vm.sh` does not manage these services yet. A release that rebuilds the
-stack must rebuild and restart both with the same tag; to roll back, stop
-them.
+Measured at scale (72 Nawa cells × 56 days, hourly, horizon 48, 3
+backtests, explanation, series analysis and skore diagnostic included, on a
+laptop): gradient boosting 12 s and 0.49 GB peak RSS (11 MB model), Ridge 8 s
+and 0.40 GB (10 MB), random forest 196 s and 0.62 GB (72 MB); each card is
+about 120 kB. Grown to pure leaves on that matrix, the same forest peaked at
+5.5 GB and wrote gigabytes to disk, so a forecasting forest left at "auto"
+depth is bounded to 2 048 leaves per tree; its SHAP explanation switches to
+Saabas attributions past a 60 s budget.
 
 Never run image/cache pruning concurrently with a build. The 16 September fresh
 build lost a Docker content digest during overlapping cleanup and stopped before
@@ -332,7 +342,8 @@ sudo env AGENTIUM_IMAGE_TAG=<sha12> "$DEPLOY" up
 
 `up` recreates exactly `agentium-backend`, `agentium-worker-cpu`,
 `agentium-worker-recipes`, `agentium-frontend`, `agentium-p4-maintenance`,
-`agentium-beat` — with
+`agentium-beat` — plus `agentium-worker-ml-ts` and
+`agentium-worker-ml-ts-serve` when `AGENTIUM_ML_TS=1` (§4b) — with
 `--no-build --pull never`, so the images from §4 must exist at the tag.
 Infrastructure containers (pg, Keycloak, Qdrant, MinIO, RabbitMQ, SFTP,
 LiveKit) are never touched by this path.
