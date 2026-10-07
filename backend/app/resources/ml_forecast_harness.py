@@ -41,6 +41,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import shutil
 import sys
 import time
@@ -85,6 +86,57 @@ SUMMARY_LEVELS = ("average", "weighted_average", "pooling")
 _PLOTTED_SERIES = 3
 _POINTS = 1200
 _PER_SERIES = 200
+
+
+# Calendar features skforecast derives (cyclical: ``hour_sin``, ``hour_cos``).
+CALENDAR_PREFIXES = (
+    "hour",
+    "day_of_week",
+    "day_of_month",
+    "day_of_year",
+    "week",
+    "month",
+    "quarter",
+    "year",
+    "is_weekend",
+)
+# Rows of the training matrix an explanation is measured on: enough for a
+# stable mean |SHAP|, few enough that a large panel explains in seconds.
+EXPLAIN_ROWS = 1000
+_TOP_FEATURES = 20
+
+
+def feature_group(
+    name: str, *, target: str, future=(), static=(), past=()
+) -> tuple[str, int | None]:
+    """Which family a model feature belongs to, and its lag when it is one.
+
+    The families are what a reader can act on: the series' own recent past
+    (``lags``), the calendar, covariates known in advance (``future``), the
+    attributes of a series of a panel (``static``), which series it is
+    (``series``), and other series moving with it (``past``, multivariate).
+    A direct model suffixes per-step features (``hour_sin_step_3``); they
+    belong to the same family as the unsuffixed one.
+    """
+
+    base = re.sub(r"_step_\d+$", "", name)
+    if base == "_level_skforecast":
+        return "series", None
+    match = re.fullmatch(r"(?:(.+)_)?lag_(\d+)", base)
+    if match:
+        source = match.group(1)
+        if source and source != target:
+            return "past", int(match.group(2))
+        return "lags", int(match.group(2))
+    if base in static:
+        return "static", None
+    if base in future:
+        return "future", None
+    if base in past:
+        return "past", None
+    if base.startswith(CALENDAR_PREFIXES):
+        return "calendar", None
+    return "other", None
 
 
 def _fail(code: int, message: str) -> int:
@@ -211,6 +263,75 @@ def _conformal_quantile(errors, level: float):
         return None
     rank = min(1.0, math.ceil((errors.size + 1) * level) / errors.size)
     return float(np.quantile(errors, rank))
+
+
+def _explain_fit(forecaster, *, inputs: dict, direct: bool, groups_of) -> tuple[dict, dict]:
+    """Mean |SHAP| per feature on the final model, by family and by lag.
+
+    Measured on the training matrix skforecast builds (lags, calendar,
+    covariates), so the families are the ones the model actually saw. A
+    direct model has one estimator per step: the first step's is explained,
+    which is the forecast an operator reads first. Linear models are
+    explained exactly (coefficient × distance to the mean); trees with
+    TreeExplainer; anything else by permutation.
+    """
+
+    import numpy as np
+
+    X, y = forecaster.create_train_X_y(**inputs)
+    estimator = forecaster.estimator
+    if direct:
+        X, y = forecaster.filter_train_X_y_for_step(step=1, X_train=X, y_train=y, remove_suffix=True)
+        estimator = forecaster.estimators_[1]
+    sample = X.sample(min(EXPLAIN_ROWS, len(X)), random_state=0) if len(X) > EXPLAIN_ROWS else X
+    columns = [str(column) for column in X.columns]
+    means = {column: float(value) for column, value in X.mean().items()}
+    method = "shap"
+    if hasattr(estimator, "coef_"):
+        kind = "linear"
+        coef = np.ravel(estimator.coef_)
+        weights = np.abs(coef * (sample.to_numpy(dtype=float) - X.mean().to_numpy(dtype=float))).mean(axis=0)
+    else:
+        kind = "tree"
+        try:
+            import shap
+
+            values = shap.TreeExplainer(estimator).shap_values(sample)
+            weights = np.abs(np.asarray(values)).mean(axis=0)
+        except Exception:  # noqa: BLE001 - shap absent or the model is not a tree
+            from sklearn.inspection import permutation_importance
+
+            ys = y.loc[sample.index] if hasattr(y, "loc") else y
+            result = permutation_importance(estimator, sample, ys, n_repeats=3, random_state=0)
+            weights = np.clip(result.importances_mean, 0, None)
+            kind, method = "none", "permutation"
+    total = float(np.sum(weights)) or 1.0
+    features, shares, lags = [], {}, {}
+    for column, weight in zip(columns, weights):
+        group, lag = groups_of(column)
+        value = float(weight)
+        features.append({"feature": column, "group": group, "lag": lag, "value": _number(value)})
+        shares[group] = shares.get(group, 0.0) + value / total
+        if group == "lags" and lag is not None:
+            lags[lag] = lags.get(lag, 0.0) + value
+    features.sort(key=lambda item: -(item["value"] or 0))
+    explanation = {
+        "method": method,
+        "step": 1 if direct else None,
+        "groups": [
+            {"group": group, "share": _number(share)} for group, share in sorted(shares.items(), key=lambda kv: -kv[1])
+        ],
+        "features": features[:_TOP_FEATURES],
+        "lags": [{"lag": lag, "value": _number(value)} for lag, value in sorted(lags.items())],
+        "rows": int(len(sample)),
+    }
+    explain_meta = {
+        "kind": kind,
+        "columns": columns,
+        "groups": {column: groups_of(column)[0] for column in columns},
+        "means": means if kind == "linear" else {},
+    }
+    return explanation, explain_meta
 
 
 def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top down
@@ -504,20 +625,68 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     except Exception as exc:  # noqa: BLE001
         return _fail(1, f"ml_fit_failed: {type(exc).__name__}: {exc}")
 
-    importances = []
+    # ---- what the forecast leans on --------------------------------------
+    explanation: dict = {}
+    explain_meta: dict = {"kind": "none"}
+    importances: list = []
+    groups_of = lambda name: feature_group(  # noqa: E731
+        name, target=target, future=future_cols, static=static_cols, past=past_cols
+    )
     if kind == "regression":
         try:
-            if isinstance(forecaster, (ForecasterDirect, ForecasterDirectMultiVariate)):
-                ranked = forecaster.get_feature_importances(step=1)
-            else:
-                ranked = forecaster.get_feature_importances()
-            ranked = ranked.dropna(subset=["importance"])
-            ranked = ranked.reindex(ranked["importance"].abs().sort_values(ascending=False).index).head(20)
+            explanation, explain_meta = _explain_fit(
+                forecaster,
+                inputs=(
+                    {"series": series_map, "exog": exog_map or None}
+                    if shape == "panel"
+                    else {"series": series_frame, "exog": exog}
+                    if shape == "multivariate"
+                    else {"y": y, "exog": exog}
+                ),
+                direct=isinstance(forecaster, (ForecasterDirect, ForecasterDirectMultiVariate)),
+                groups_of=groups_of,
+            )
             importances = [
-                {"feature": str(row["feature"]), "value": _number(row["importance"])} for _, row in ranked.iterrows()
+                {"feature": item["feature"], "value": item["value"]} for item in explanation.get("features", [])
             ]
-        except Exception:  # noqa: BLE001 - not every regressor exposes importances
-            importances = []
+        except Exception as exc:  # noqa: BLE001 - an explanation is evidence, not the fit
+            explanation = {"method": "unavailable", "reason": f"{type(exc).__name__}: {exc}"[:200]}
+    elif kind == "stats":
+        try:
+            estimator = forecaster.estimators[0]
+            params = forecaster.get_feature_importances()
+            explanation = {
+                "method": "model",
+                "name": str(getattr(estimator, "estimator_name_", "") or algo.upper()),
+                "aic": _number(getattr(estimator, "aic_", None)),
+                "parameters": [
+                    {"name": str(row["feature"]), "value": _number(row["importance"])}
+                    for _, row in params.head(12).iterrows()
+                ],
+            }
+        except Exception:  # noqa: BLE001
+            explanation = {"method": "model", "name": algo.upper(), "parameters": []}
+    else:
+        explanation = {"method": "naive", "season": season}
+
+    # ---- where the actuals left the interval ---------------------------------
+    outside = bracketed[~inside] if len(bracketed) else bracketed
+    excursions = []
+    for stamp, row in outside.iterrows():
+        above = row["actual"] > row["upper"]
+        excursions.append(
+            {
+                "t": str(stamp),
+                "series": str(row["level"]),
+                "step": int(row["step"]),
+                "actual": _number(row["actual"]),
+                "lower": _number(row["lower"]),
+                "upper": _number(row["upper"]),
+                "side": "above" if above else "below",
+                "gap": _number(row["actual"] - row["upper"] if above else row["lower"] - row["actual"]),
+            }
+        )
+    excursions.sort(key=lambda item: -(item["gap"] or 0))
 
     # ---- persist ----------------------------------------------------------
     _progress(progress, "saving")
@@ -561,6 +730,9 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         "exog_future": future_cols,
         "exog_static": static_cols,
         "static_values": static_values,
+        # How serving explains one forecast: which explainer, which family each
+        # feature belongs to, and (linear) the means contributions are taken from.
+        "explain": explain_meta,
     }
     (work / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
@@ -689,6 +861,12 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         "backtest": backtest,
         "history_tail": history_tail,
         "importances": importances,
+        "explanation": explanation,
+        "excursions": {
+            "count": len(excursions),
+            "share": _number(len(excursions) / len(bracketed)) if len(bracketed) else None,
+            "points": excursions[:20],
+        },
         "static_codes": static_codes,
         "target": {"name": target},
     }

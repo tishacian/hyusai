@@ -569,6 +569,9 @@ class ForecastParams(BaseModel):
 
     horizon: Optional[int] = Field(default=None, ge=1, le=100_000)
     interval_level: Optional[float] = Field(default=None, ge=0.5, le=0.99)
+    # What lifted or lowered each step, per family, and the peak's strongest
+    # features. Off by default: an integration reading numbers does not pay it.
+    explain: bool = False
 
 
 class ForecastBody(BaseModel):
@@ -614,6 +617,7 @@ async def forecast(
             inputs=body.inputs,
             version=body.version,
             caller=caller.kind,
+            explain=body.params.explain,
         )
     except TabularError as exc:
         _raise_tabular(exc)
