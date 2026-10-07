@@ -122,6 +122,8 @@ pyarrow>=16.0.0
 pandas>=2.2
 skrub>=0.5
 skore>=0.25,<0.26
+# Search runs only in the isolated training harness; never imported by the API.
+optuna>=5,<6
 mlflow>=3.15,<4
 skops>=0.10
 boto3>=1.34

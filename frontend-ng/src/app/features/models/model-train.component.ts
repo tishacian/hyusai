@@ -1099,10 +1099,10 @@ export class ModelTrainComponent implements OnInit {
     return this.refusalMessage(refusal);
   }
 
-  protected warningMessage(warning: { code: string; feature?: string; field?: string }): string {
+  protected warningMessage(warning: { code: string; feature?: string; field?: string; estimated_s?: number; budget_s?: number }): string {
     const key = warningKey(warning.code);
     if (!key) return warning.code;
-    return this.i18n.t(key, { feature: warning.feature ?? '', field: warning.field ?? '' });
+    return this.i18n.t(key, { feature: warning.feature ?? '', field: warning.field ?? '', estimated_s: warning.estimated_s ?? 0, budget_s: warning.budget_s ?? 0 });
   }
 
   protected patchDraft(patch: Partial<ForecastDraft>): void {

@@ -217,3 +217,7 @@ xlsxwriter==3.2.9
 yarl==1.24.5
 zipp==4.1.0
 zopfli==0.4.3
+
+# Budgeted tabular search (shared application stack).
+optuna==5.0.0
+colorlog==6.12.0

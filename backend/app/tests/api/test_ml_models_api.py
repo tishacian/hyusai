@@ -760,3 +760,32 @@ def test_a_knob_outside_its_bounds_is_clamped_rather_than_refused(
 
     knobs = model["params"]["knobs"]
     assert knobs["max_iter"] == 600 and knobs["learning_rate"] == 0.01
+
+
+def test_tuning_plan_estimates_cost_from_an_earlier_version(client, dataset, db_session):
+    spec = tabular_ml.validate_training(dataset, task='classification', target='churn')
+    earlier = tabular_ml.create_model(db_session, workspace_id=dataset.workspace_id, spec=spec)
+    earlier.status = 'ready'
+    earlier.train_duration_ms = 4000
+    db_session.commit()
+    response = client.post('/ml-models/plan', json={
+        'dataset_id': dataset.id, 'target': 'churn',
+        'spec': {'tuning': 'budget', 'tuning_trials': 5, 'tuning_budget_s': 30},
+    })
+    assert response.status_code == 200
+    warnings = response.json()['plan']['warnings']
+    estimate = next(row for row in warnings if row['code'] == 'ML_TUNING_ESTIMATE')
+    assert estimate['estimated_s'] == 60 and estimate['budget_s'] == 30
+    assert any(row['code'] == 'ML_TUNING_BUDGET_LIMITED' for row in warnings)
+
+
+def test_tuning_plan_refuses_budget_above_the_training_reserve(client, dataset, monkeypatch):
+    monkeypatch.setattr(settings, 'ml_train_timeout_s', 100)
+    response = client.post('/ml-models/plan', json={
+        'dataset_id': dataset.id, 'target': 'churn',
+        'spec': {'tuning': 'budget', 'tuning_budget_s': 61},
+    })
+    assert response.status_code == 200
+    refusal = response.json()['refusal']
+    assert refusal['code'] == 'ML_SPEC_INVALID'
+    assert refusal['field'] == 'tuning_budget_s'

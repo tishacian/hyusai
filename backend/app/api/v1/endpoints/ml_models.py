@@ -277,6 +277,20 @@ async def plan_training(
         payload["refusal"] = exc.payload()
         return payload
 
+    if spec.spec.get("tuning") == "budget":
+        previous = (db.query(MLModel).filter(
+            MLModel.workspace_id == workspace.id, MLModel.dataset_id == dataset.id,
+            MLModel.target == spec.target, MLModel.algo == spec.algo.key,
+            MLModel.status == "ready", MLModel.train_duration_ms.isnot(None),
+        ).order_by(MLModel.trained_at.desc()).first())
+        if previous is not None:
+            estimate = (float(previous.train_duration_ms) / 1000
+                        * spec.spec["tuning_trials"] * 3)
+            spec.warnings.append({"code": "ML_TUNING_ESTIMATE", "estimated_s": round(estimate),
+                                  "budget_s": spec.spec["tuning_budget_s"]})
+            if estimate > spec.spec["tuning_budget_s"]:
+                spec.warnings.append({"code": "ML_TUNING_BUDGET_LIMITED"})
+
     payload["plan"] = {
         "task": spec.task,
         "target": spec.target,
