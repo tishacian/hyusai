@@ -26,6 +26,7 @@ import os
 import re
 import shutil
 import subprocess
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import pytest
@@ -40,14 +41,27 @@ CHAIN = (
     "097_ml_training_plane",
     "098_ml_predictions",
     "099_data_plane_attached",
+    "121_provider_run_costs",
+    "122_ml_families",
 )
+# Revisions between two of the slice's that belong to other planes: the scratch
+# database only holds this slice's tables and their neighbours, so they are
+# stamped rather than run. test_only_the_chain_touches_the_plane_tables proves
+# stamping them skips nothing of the slice.
+STAMP_ONLY = frozenset({"121_provider_run_costs"})
 HEAD = CHAIN[-1]
 PARENT = "095_python_recipes"
 SCRATCH_DB = "agentium_p4_migration_data_plane"
 
 # The tables the slice owns. Their DDL has one source of truth per environment,
 # and this module's whole job is to prove the two agree.
-PLANE_TABLES = ("tabular_datasets", "ml_models", "ml_model_api_keys", "ml_predictions")
+PLANE_TABLES = (
+    "tabular_datasets",
+    "ml_models",
+    "ml_model_api_keys",
+    "ml_predictions",
+    "ml_runtime_heartbeats",
+)
 
 # The pre-slice tables the slice points at or reads from, reduced to the
 # columns it touches: ``workspaces`` and ``systems`` for the tenant and System
@@ -140,6 +154,25 @@ def _alembic(*argv: str) -> None:
         )
 
 
+def _migrate_to(target: str) -> None:
+    """Walk the slice to ``target`` one revision at a time, in either direction.
+
+    A revision in ``STAMP_ONLY`` belongs to another plane: crossing it moves
+    the version stamp without running its DDL, up or down, since its tables are
+    not in the scratch database. Everything else is a real upgrade or downgrade.
+    """
+
+    path = (PARENT, *CHAIN)
+    current = _psql(SCRATCH_DB, "select version_num from alembic_version")
+    here, there = path.index(current), path.index(target)
+    for index in range(here + 1, there + 1):
+        revision = path[index]
+        _alembic("stamp" if revision in STAMP_ONLY else "upgrade", revision)
+    for index in range(here, there, -1):
+        revision, below = path[index], path[index - 1]
+        _alembic("stamp" if revision in STAMP_ONLY else "downgrade", below)
+
+
 @pytest.fixture()
 def migrated():
     """A database holding exactly what the slice's ``alembic upgrade`` produces.
@@ -168,8 +201,7 @@ def migrated():
         for ddl in NEIGHBOUR_DDL:
             _psql(SCRATCH_DB, ddl)
         _alembic("stamp", PARENT)
-        for revision in CHAIN:
-            _alembic("upgrade", revision)
+        _migrate_to(HEAD)
         engine = create_engine(_dsn())
         try:
             yield engine
@@ -177,6 +209,32 @@ def migrated():
             engine.dispose()
     finally:
         _psql("postgres", f'drop database if exists "{SCRATCH_DB}"')
+
+
+def test_only_the_chain_touches_the_plane_tables():
+    """What makes stamping a foreign revision safe: it never names our tables.
+
+    The upgrade walks the slice and stamps over everything between, so a
+    revision outside ``CHAIN`` that altered a plane table would be skipped here
+    and run on the VM — the exact disagreement this module exists to catch.
+    """
+
+    versions = Path(__file__).resolve().parents[3] / "alembic" / "versions"
+    names = re.compile(r"\b(" + "|".join(PLANE_TABLES) + r")\b")
+    first = int(CHAIN[0].split("_", 1)[0])
+    offenders = []
+    for path in sorted(versions.glob("[0-9]*.py")):
+        revision = path.stem
+        if revision in CHAIN or revision in STAMP_ONLY:
+            continue
+        if int(revision.split("_", 1)[0]) < first:
+            continue
+        if names.search(path.read_text(encoding="utf-8")):
+            offenders.append(revision)
+    assert not offenders, (
+        f"{offenders} touch a data-plane table but are not in CHAIN: admit them "
+        "so the step-by-step upgrade runs them"
+    )
 
 
 def _orm_table(name: str):
@@ -357,6 +415,9 @@ def test_a_row_the_application_would_write_actually_inserts(migrated):
         assert stored.dataset_id == "ds-1"
         assert stored.system_id == "sys-1"
         assert stored.published_skill_id == "sk-1"
+        # A row that names no family is tabular: the ORM default for new rows,
+        # the server default for the rows 122 migrates in place.
+        assert stored.family == "tabular"
 
     # 099's promise: withdrawing the Skill or the System unlinks, never deletes.
     with migrated.begin() as connection:
@@ -375,7 +436,7 @@ def test_099_backfills_the_links_the_rows_already_implied(migrated):
     slug they were published as. The upgrade turns both into the links, and
     leaves NULL where the run or the Skill is gone."""
 
-    _alembic("downgrade", "098_ml_predictions")
+    _migrate_to("098_ml_predictions")
     with migrated.begin() as connection:
         connection.exec_driver_sql("insert into workspaces (id) values ('ws-1')")
         connection.exec_driver_sql("insert into systems (id) values ('sys-1')")
@@ -408,7 +469,7 @@ def test_099_backfills_the_links_the_rows_already_implied(migrated):
             """
         )
 
-    _alembic("upgrade", HEAD)
+    _migrate_to(HEAD)
 
     with migrated.connect() as connection:
         datasets = dict(
@@ -470,10 +531,10 @@ def test_the_slice_reverts_cleanly_so_a_rollback_is_real(migrated):
     """The deployment runbook dumps before migrating; a downgrade that leaves
     half a schema behind makes that dump the only way back."""
 
-    _alembic("downgrade", PARENT)
+    _migrate_to(PARENT)
 
     remaining = set(inspect(migrated).get_table_names())
     assert remaining & set(PLANE_TABLES) == set()
     # And forward again, because a one-way downgrade is not a rollback.
-    _alembic("upgrade", HEAD)
+    _migrate_to(HEAD)
     assert set(PLANE_TABLES) <= set(inspect(migrated).get_table_names())

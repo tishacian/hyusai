@@ -24,7 +24,9 @@ import type { TabularColumn, TabularColumnStats } from '@app/shared/ui/data-tabl
 // Transport shapes
 // ---------------------------------------------------------------------------
 
-export type ModelTask = 'classification' | 'regression';
+// The tasks the catalog offers are open-ended (one per model family); the two
+// tabular ones are named for autocompletion and exhaustive copy.
+export type ModelTask = 'classification' | 'regression' | (string & {});
 export type ModelStatus = 'pending' | 'training' | 'ready' | 'failed' | 'cancelled';
 export type MonitorStatus = 'ok' | 'watch' | 'alert';
 
@@ -591,6 +593,9 @@ export function metricDelta(
   ) {
     return null;
   }
+  const higher = higherIsBetter(key);
+  // No direction, no verdict: a delta arrow would claim one.
+  if (higher === null) return null;
   const value = current - previous;
   const scale = metricScale(key);
   const digits = scale === 'ratio' ? 3 : scale === 'percent' ? 1 : 3;
@@ -603,7 +608,7 @@ export function metricDelta(
     display: flat
       ? '='
       : `${sign}${magnitude.toLocaleString(locale, { maximumFractionDigits: digits })}`,
-    better: higherIsBetter(key) ? value > 0 : value < 0,
+    better: higher ? value > 0 : value < 0,
     flat,
   };
 }
@@ -702,7 +707,8 @@ export function comparisonRows(
   return rows;
 }
 
-export interface KnobDescriptor {
+/** A slider between bounds — the only kind the forms render today. */
+export interface NumericKnobDescriptor {
   key: string;
   kind: 'int' | 'float';
   default: number;
@@ -711,6 +717,83 @@ export interface KnobDescriptor {
   step: number;
   /** Value at which the estimator decides for itself (sklearn's `None`). */
   auto_at?: number;
+}
+
+export interface EnumKnobDescriptor {
+  key: string;
+  kind: 'enum';
+  default: string;
+  choices: string[];
+}
+
+export interface BoolKnobDescriptor {
+  key: string;
+  kind: 'bool';
+  default: boolean;
+}
+
+export interface IntListKnobDescriptor {
+  key: string;
+  kind: 'int_list';
+  default: number[];
+  min: number;
+  max: number;
+  step: number;
+  max_items: number;
+}
+
+/**
+ * One tunable as the catalog serves it. A kind the form does not render yet
+ * keeps the server's default: the request simply omits it.
+ */
+export type KnobDescriptor =
+  | NumericKnobDescriptor
+  | EnumKnobDescriptor
+  | BoolKnobDescriptor
+  | IntListKnobDescriptor;
+
+export function isNumericKnob(knob: KnobDescriptor): knob is NumericKnobDescriptor {
+  return knob.kind === 'int' || knob.kind === 'float';
+}
+
+/** The knobs of an algorithm that render as sliders. */
+export function numericKnobs(algo: AlgoDescriptor | undefined): NumericKnobDescriptor[] {
+  return (algo?.knobs ?? []).filter(isNumericKnob);
+}
+
+/** A field of a model family's problem definition (time column, horizon, …). */
+export interface SpecFieldDescriptor {
+  key: string;
+  kind: 'column' | 'columns' | 'int' | 'float' | 'enum' | 'bool' | 'column_roles';
+  required: boolean;
+  default?: unknown;
+  min?: number;
+  max?: number;
+  max_items?: number;
+  choices?: string[];
+  column_kinds?: string[];
+  /** Shown only while another field holds one of these values. */
+  when?: Record<string, string[]>;
+}
+
+export interface FamilyDescriptor {
+  key: string;
+  tasks: ModelTask[];
+  runtime: string;
+  serving: 'in_process' | 'remote';
+  /** Whether a worker that can train this family is listening. */
+  available: boolean;
+  reason?: 'no_worker' | 'runtime_missing' | 'disabled' | (string & {});
+  spec_fields: SpecFieldDescriptor[];
+}
+
+/** How a metric ranks and reads, served by the catalog (app.services.ml.metrics). */
+export interface MetricDescriptor {
+  key: string;
+  direction: 'max' | 'min' | 'none';
+  scale: MetricScale;
+  good?: number;
+  poor?: number;
 }
 
 export interface AlgoDescriptor {
@@ -725,6 +808,9 @@ export interface AlgoDescriptor {
 export interface ModelCatalog {
   enabled: boolean;
   tasks: ModelTask[];
+  /** Absent from catalogs served before model families. */
+  families?: FamilyDescriptor[];
+  metrics?: MetricDescriptor[];
   algos: AlgoDescriptor[];
   limits: {
     min_rows: number;
@@ -826,7 +912,8 @@ interface MetricSpec {
   /** Thresholds for the tone, in the metric's own units. Omitted ⇒ no verdict. */
   good?: number;
   poor?: number;
-  higherIsBetter: boolean;
+  /** `null`: the metric has no "better" direction (an interval's coverage). */
+  higherIsBetter: boolean | null;
 }
 
 /**
@@ -855,8 +942,33 @@ const METRIC_SPECS: Record<string, MetricSpec> = {
   brier_score: { scale: 'value', higherIsBetter: false },
 };
 
+/**
+ * The registry the catalog serves, which wins over the offline copy above.
+ *
+ * The copy only covers the tabular metrics and keeps the card readable before
+ * the catalog arrives; a forecast's MASE or coverage is known from the server.
+ */
+const METRIC_REGISTRY = new Map<string, MetricSpec>();
+
+export function setMetricRegistry(metrics: readonly MetricDescriptor[] | null | undefined): void {
+  if (!metrics?.length) return;
+  METRIC_REGISTRY.clear();
+  for (const metric of metrics) {
+    METRIC_REGISTRY.set(metric.key, {
+      scale: metric.scale,
+      good: metric.good,
+      poor: metric.poor,
+      higherIsBetter: metric.direction === 'max' ? true : metric.direction === 'min' ? false : null,
+    });
+  }
+}
+
+function metricSpec(key: string): MetricSpec | undefined {
+  return METRIC_REGISTRY.get(key) ?? METRIC_SPECS[key];
+}
+
 export function metricScale(key: string): MetricScale {
-  return METRIC_SPECS[key]?.scale ?? 'value';
+  return metricSpec(key)?.scale ?? 'value';
 }
 
 /** Render one metric in its own units: a ratio as a percentage, MAE as itself. */
@@ -879,9 +991,10 @@ export function formatMetric(
 
 /** The colour a score earns, or `neutral` when its scale is not absolute. */
 export function metricTone(key: string, value: number | null | undefined): MetricTone {
-  const spec = METRIC_SPECS[key];
+  const spec = metricSpec(key);
   if (
     !spec ||
+    spec.higherIsBetter === null ||
     spec.good === undefined ||
     spec.poor === undefined ||
     value === null ||
@@ -899,8 +1012,12 @@ export function metricTone(key: string, value: number | null | undefined): Metri
 }
 
 /** Whether a bigger number is a better model, for this metric. */
-export function higherIsBetter(key: string): boolean {
-  return METRIC_SPECS[key]?.higherIsBetter ?? true;
+/**
+ * Which way a metric improves, or `null` when it does not rank (coverage) or is
+ * unknown. Unknown used to mean "higher", which ranks every error backwards.
+ */
+export function higherIsBetter(key: string): boolean | null {
+  return metricSpec(key)?.higherIsBetter ?? null;
 }
 
 /**
@@ -1242,7 +1359,7 @@ export function balanceBars(
  * honest while it is being dragged: a form that lets a value out of bounds and
  * finds out after the fit has taught the author nothing.
  */
-export function clampKnob(knob: KnobDescriptor, value: unknown): number {
+export function clampKnob(knob: NumericKnobDescriptor, value: unknown): number {
   const raw = Number(value);
   const number = Number.isFinite(raw) ? raw : knob.default;
   const bounded = Math.max(knob.min, Math.min(knob.max, number));
@@ -1251,14 +1368,26 @@ export function clampKnob(knob: KnobDescriptor, value: unknown): number {
 }
 
 /** Whether a knob value means "let the estimator decide". */
-export function knobIsAuto(knob: KnobDescriptor, value: unknown): boolean {
+export function knobIsAuto(knob: NumericKnobDescriptor, value: unknown): boolean {
   return knob.auto_at !== undefined && clampKnob(knob, value) === knob.auto_at;
 }
 
 export function defaultKnobs(algo: AlgoDescriptor | undefined): Record<string, number> {
   const knobs: Record<string, number> = {};
-  for (const knob of algo?.knobs ?? []) knobs[knob.key] = knob.default;
+  for (const knob of numericKnobs(algo)) knobs[knob.key] = knob.default;
   return knobs;
+}
+
+/**
+ * The tasks a form offers: those of the families a worker can train now.
+ * A catalog served before families lists its tasks bare, all trainable.
+ */
+export function trainableTasks(catalog: ModelCatalog | null | undefined): ModelTask[] {
+  const tasks = catalog?.tasks ?? [];
+  const families = catalog?.families;
+  if (!families?.length) return [...tasks];
+  const available = new Set(families.filter((family) => family.available).flatMap((family) => family.tasks));
+  return tasks.filter((task) => available.has(task));
 }
 
 export function algoFor(
@@ -1354,6 +1483,8 @@ export const REFUSAL_CODES = [
   'ML_ROWS_TOO_MANY',
   'ML_ALGO_UNKNOWN',
   'ML_ALGO_TASK_MISMATCH',
+  'ML_SPEC_INVALID',
+  'ML_FAMILY_UNAVAILABLE',
   'ML_MODEL_NOT_READY',
   'ML_MODEL_NOT_FOUND',
 ] as const;
@@ -1645,6 +1776,7 @@ export const TRAINING_ERROR_CODES = [
   'ML_DATASET_UNAVAILABLE',
   'ML_ARTIFACT_EMPTY',
   'ML_TRAIN_DISABLED',
+  'ML_RUNTIME_MISSING',
 ] as const;
 
 const TRAINING_ERROR_SET: ReadonlySet<string> = new Set(TRAINING_ERROR_CODES);

@@ -36,6 +36,7 @@ import {
   type PublishedSkillDto,
   type ServingBlock,
   type TrainingPlan,
+  setMetricRegistry,
 } from './models.vm';
 
 export interface ModelListDto {
@@ -85,6 +86,8 @@ export interface TrainRequest {
 export const EMPTY_CATALOG: ModelCatalog = {
   enabled: true,
   tasks: ['classification', 'regression'],
+  families: [],
+  metrics: [],
   algos: [],
   limits: {
     min_rows: 40,
@@ -124,18 +127,24 @@ export class ModelsService {
     try {
       const response = await firstValueFrom(this.http.get<ModelListDto>(this.base));
       this.models.set(response.models ?? []);
-      if (response.catalog) this.catalog.set(response.catalog);
+      if (response.catalog) this.adopt(response.catalog);
       return this.models();
     } finally {
       this.loading.set(false);
     }
   }
 
+  /** One catalog for every surface, and the metric directions it carries. */
+  private adopt(catalog: ModelCatalog): void {
+    setMetricRegistry(catalog.metrics);
+    this.catalog.set(catalog);
+  }
+
   async loadCatalog(): Promise<ModelCatalog> {
     const response = await firstValueFrom(
       this.http.get<{ catalog: ModelCatalog }>(`${this.base}/catalog`),
     );
-    if (response.catalog) this.catalog.set(response.catalog);
+    if (response.catalog) this.adopt(response.catalog);
     return this.catalog();
   }
 
@@ -151,7 +160,7 @@ export class ModelsService {
     const response = await firstValueFrom(
       this.http.post<PlanResponseDto>(`${this.base}/plan`, body),
     );
-    if (response.catalog) this.catalog.set(response.catalog);
+    if (response.catalog) this.adopt(response.catalog);
     return response;
   }
 

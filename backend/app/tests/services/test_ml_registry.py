@@ -654,11 +654,12 @@ def test_a_registry_outage_does_not_block_a_delete(
 def test_a_metric_whose_direction_is_unknown_is_not_ranked_on(
     db_session, workspace, dataset, enabled, registry, monkeypatch, store
 ):
-    """``rmse`` sorted as if bigger were better would nominate the worst model.
+    """A version scored on another metric than the serving one is not ranked.
 
-    The harness normally leads its ordered list with a higher-is-better score,
-    but it falls further down that list when one is unavailable — so an
-    unrecognised key means "do not rank", never "assume up is good".
+    The harness normally leads its ordered list with ``roc_auc``, but it falls
+    further down that list when one is unavailable. An ``rmse`` contender beside
+    an AUC champion is not comparable however each is signed, so it nominates
+    nothing rather than the worst model.
     """
 
     from app.models.tabular import MLModel

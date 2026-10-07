@@ -43,6 +43,8 @@ DATASET_TERMINAL_STATUSES = frozenset({"ready", "failed", "deleted"})
 DATASET_SOURCES = ("upload", "transform", "score", "generated", "postgresql")
 
 MODEL_TASKS = ("classification", "regression")
+# Which declaration in app.services.ml.families trains and serves the row.
+MODEL_FAMILIES = ("tabular",)
 MODEL_STATUSES = ("pending", "training", "ready", "failed", "cancelled")
 MODEL_TERMINAL_STATUSES = frozenset({"ready", "failed", "cancelled"})
 
@@ -156,10 +158,22 @@ class MLModel(Base):
 
     # classification | regression
     task = Column(String(20), nullable=False)
+    # The family whose harness trained the row and whose runtime serves it.
+    family = Column(
+        String(24), default="tabular", server_default="tabular", nullable=False, index=True
+    )
     algo = Column(String(80), nullable=False)
     target = Column(String(200), nullable=False)
     features = Column(JSON, default=list)
+    # How the estimator is built (knobs → class and constructor params), which
+    # the harness reads; the problem definition is spec_json.
     params_json = Column(JSON, default=dict)
+    # The family's problem definition beyond target and features — a time
+    # column, a horizon, series columns — as validated at submit time.
+    spec_json = Column(JSON, default=dict)
+    # The interpreter that fitted the row: runtime name, image revision,
+    # installed-package fingerprint and the versions a load depends on.
+    runtime_json = Column(JSON, default=dict)
 
     # pending | training | ready | failed | cancelled
     status = Column(String(16), default="pending", nullable=False, index=True)
@@ -234,6 +248,28 @@ class MLModel(Base):
             name="uq_ml_models_workspace_slug_version",
         ),
     )
+
+
+class MLRuntimeHeartbeat(Base):
+    """A worker image announcing it consumes an ML family's queues.
+
+    A family trained outside the general worker is only offered while an image
+    that can train it is listening. Celery's own presence channel is off
+    (workers run without gossip or mingle), and asking the broker per request
+    costs a broadcast round-trip, so each such worker upserts one row on a
+    timer and the catalog reads how fresh it is.
+    """
+
+    __tablename__ = "ml_runtime_heartbeats"
+
+    runtime = Column(String(40), primary_key=True)
+    hostname = Column(String(200), primary_key=True)
+    queues = Column(JSON, default=list)
+    image_revision = Column(String(80), nullable=True)
+    fingerprint = Column(String(64), nullable=True)
+    packages_json = Column(JSON, default=dict)
+    started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    seen_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 
 class MLModelApiKey(Base):

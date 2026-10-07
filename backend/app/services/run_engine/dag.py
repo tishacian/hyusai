@@ -2132,6 +2132,9 @@ _TRAIN_PARAM_KEYS = (
     "test_size",
     "cross_validation",
     "model_name",
+    # The model family's problem definition (time column, horizon, …): graph-
+    # owned like the target, for the same reason.
+    "spec",
     "sources",
 )
 _TRAIN_SKILL_SLUGS = frozenset({_ML_TRAIN_SKILL_SLUG})
