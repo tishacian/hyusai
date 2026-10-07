@@ -104,6 +104,8 @@ const PLAN_DEBOUNCE_MS = 240;
 const SCORE_LIMIT = 4;
 
 import { ForecastSpecComponent } from '@app/features/models/forecast-spec.component';
+import { TabularOptionsComponent } from '@app/features/models/tabular-options.component';
+import { tabularFields, tabularSpec } from '@app/features/models/tabular-options.vm';
 import {
   FORECASTING_TASK,
   draftFromSpec,
@@ -123,6 +125,7 @@ import {
     NavLinkDirective,
     IconComponent,
     ForecastSpecComponent,
+    TabularOptionsComponent,
   ],
   styleUrl: './flow-train-workshop.component.scss',
   template: `
@@ -429,6 +432,7 @@ import {
                       </select>
                     </label>
                     <p class="ck-train-workshop__hint">{{ i18n.t('flow.ml.train.cv.hint') }}</p>
+                    <ck-tabular-options [fields]="tabularFields()" [spec]="params().spec" [task]="effectiveTask()" [columns]="columns()" [target]="params().target" [refusal]="refusalFor('spec')" (specChange)="onTabularSpec($event)" />
                     }
                   }
                 </section>
@@ -807,6 +811,8 @@ export class FlowTrainWorkshopComponent {
   );
 
   protected readonly isForecasting = computed(() => this.effectiveTask() === FORECASTING_TASK);
+  protected readonly tabularFields = computed(() => tabularFields(this.ml.catalog(), this.effectiveTask()));
+  protected readonly tabularSpec = computed(() => tabularSpec(this.tabularFields(), this.params().spec, this.effectiveTask()));
 
   /** The node's forecast spec as form fields; it lives on the node as `spec`. */
   protected readonly forecastDraft = computed<ForecastDraft>(() =>
@@ -851,6 +857,7 @@ export class FlowTrainWorkshopComponent {
       this.ml.run()?.cross_validation ?? this.params().cross_validation,
       this.i18n.locale(),
       this.ml.run()?.task ?? this.effectiveTask(),
+      this.ml.run()?.spec ?? this.params().spec,
     ),
   );
 
@@ -977,9 +984,9 @@ export class FlowTrainWorkshopComponent {
     return `${Math.round(this.params().test_size * 100)}%`;
   }
 
-  protected warningMessage(warning: { code: string; feature?: string }): string {
+  protected warningMessage(warning: { code: string; feature?: string; field?: string }): string {
     const key = warningKey(warning.code);
-    return key ? this.i18n.t(key, { feature: warning.feature ?? '' }) : warning.code;
+    return key ? this.i18n.t(key, { feature: warning.feature ?? '', field: warning.field ?? '' }) : warning.code;
   }
 
   /** A plan refusal rendered against the field that caused it, or nothing. */
@@ -1052,6 +1059,10 @@ export class FlowTrainWorkshopComponent {
   /** One gesture in the forecast fields, as one store write of the node's spec. */
   protected onForecastDraft(patch: Partial<ForecastDraft>): void {
     this.writeParams({ spec: forecastSpec({ ...this.forecastDraft(), ...patch }, this.effectiveAlgo()) });
+  }
+
+  protected onTabularSpec(spec: Record<string, unknown>): void {
+    this.writeParams({ spec });
   }
 
   /** Back to the default: every column but the target, decided at run time. */
@@ -1127,6 +1138,7 @@ export class FlowTrainWorkshopComponent {
             ...(params.features ? { features: this.selectedFeatures() } : {}),
             test_size: params.test_size,
             cross_validation: params.cross_validation,
+            ...(Object.keys(this.tabularSpec()).length ? { spec: this.tabularSpec() } : {}),
           }),
       ...(params.model_name ? { name: params.model_name } : {}),
     });
@@ -1167,9 +1179,10 @@ export class FlowTrainWorkshopComponent {
         ...(params.algo ? { algo: params.algo } : {}),
         ...(this.isForecasting()
           ? { spec: forecastSpec(this.forecastDraft(), this.effectiveAlgo()) }
-          : params.features
-            ? { features: params.features }
-            : {}),
+          : {
+              ...(params.features ? { features: params.features } : {}),
+              ...(Object.keys(this.tabularSpec()).length ? { spec: this.tabularSpec() } : {}),
+            }),
       });
     }, PLAN_DEBOUNCE_MS);
   }

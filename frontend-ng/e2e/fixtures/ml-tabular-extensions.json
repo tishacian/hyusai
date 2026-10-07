@@ -1,0 +1,15 @@
+{
+  "note": "Synthetic catalog fields test the 2a rendering mechanism only. The real tabular catalog remains empty until each option has a training implementation.",
+  "fields": [
+    { "key": "probe_mode", "kind": "enum", "required": false, "default": "off", "choices": ["off", "on"], "when": { "task": ["regression"] } },
+    { "key": "probe_count", "kind": "int", "required": false, "default": 3, "min": 1, "max": 8, "when": { "task": ["regression"], "probe_mode": ["on"] } },
+    { "key": "probe_columns", "kind": "columns", "required": false, "default": [], "max_items": 1, "column_kinds": ["string"], "when": { "task": ["regression"], "probe_mode": ["on"] } },
+    { "key": "probe_enabled", "kind": "bool", "required": false, "default": false, "when": { "task": ["classification"] } }
+  ],
+  "columns": [
+    { "name": "amount", "kind": "float", "distinct": 800, "nulls": 0, "suggested_task": "regression" },
+    { "name": "region", "kind": "string", "distinct": 3, "nulls": 0, "suggested_task": "classification" },
+    { "name": "segment", "kind": "string", "distinct": 4, "nulls": 0, "suggested_task": "classification" },
+    { "name": "visits", "kind": "integer", "distinct": 20, "nulls": 0, "suggested_task": "regression" }
+  ]
+}

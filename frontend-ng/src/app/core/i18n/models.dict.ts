@@ -215,6 +215,15 @@ export const MODELS_FR = {
 
   // ---- progression d'entraînement ----------------------------------------
   // Les codes que l'ouvrier et le harnais publient dans `status_detail`.
+  'models.tabular.options': 'Options avancées',
+  'models.tabular.option.hint': 'Configurer {field} pour cet entraînement.',
+  'models.error.ml_feedback_not_numeric': 'L’issue réelle doit être un nombre fini pour un modèle de régression.',
+  'models.warning.ml_spec_field_ignored': 'L’option {field} est ignorée car elle ne s’applique pas à cette configuration.',
+  'models.progress.step.tuning': 'Réglage automatique',
+  'models.progress.step.tuning.counted': 'Réglage automatique — essai {fold}/{folds}',
+  'models.progress.step.calibrating': 'Calibration du modèle',
+  'models.progress.step.calibrating.counted': 'Calibration — pli {fold}/{folds}',
+  'models.progress.step.explaining': 'Analyse des explications',
   'models.progress.step.queued': 'En file d’attente',
   'models.progress.step.reading': 'Lecture du jeu de données',
   'models.progress.step.fitting': 'Ajustement du modèle',
@@ -1009,6 +1018,15 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.detail.provenance.model': '{name} v{version}',
   'models.detail.provenance.scored': '{name}',
 
+  'models.tabular.options': 'Advanced options',
+  'models.tabular.option.hint': 'Configure {field} for this training run.',
+  'models.error.ml_feedback_not_numeric': 'Ground truth must be a finite number for a regression model.',
+  'models.warning.ml_spec_field_ignored': 'The {field} option is ignored because it does not apply to this configuration.',
+  'models.progress.step.tuning': 'Tuning the model',
+  'models.progress.step.tuning.counted': 'Tuning — trial {fold}/{folds}',
+  'models.progress.step.calibrating': 'Calibrating the model',
+  'models.progress.step.calibrating.counted': 'Calibrating — fold {fold}/{folds}',
+  'models.progress.step.explaining': 'Explaining the model',
   'models.progress.step.queued': 'Queued',
   'models.progress.step.reading': 'Reading the dataset',
   'models.progress.step.fitting': 'Fitting the model',
