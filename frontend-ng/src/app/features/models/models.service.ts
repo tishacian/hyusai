@@ -249,13 +249,14 @@ export class ModelsService {
   async predict(
     modelId: string,
     row: Record<string, unknown>,
-    options: { explain?: boolean; version?: number } = {},
+    options: { explain?: boolean; version?: number; intervalLevel?: number | null } = {},
   ): Promise<PredictAnswer> {
     const answer = await firstValueFrom(
       this.http.post<PredictAnswer>(`${this.base}/${modelId}/predict`, {
         inputs: [row],
         ...(options.explain ? { explain: true } : {}),
         ...(options.version ? { version: options.version } : {}),
+        ...(options.intervalLevel != null ? { interval_level: options.intervalLevel } : {}),
       }),
     );
     if (answer.prediction_id) this.lastPredictionId.set(answer.prediction_id);

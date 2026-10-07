@@ -50,7 +50,7 @@ import tempfile
 import threading
 import time
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -61,11 +61,11 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.skill import Skill
 from app.models.tabular import MLModel, MLModelApiKey, MLPrediction, TabularDataset
+from app.services.ml.families import get_family
 from app.services.skills_registry.binding import (
     SkillBindingError,
     workspace_skill_slug,
 )
-from app.services.ml.families import get_family
 from app.services.tabular_datasets import (
     TabularError,
     dataset_reference,
@@ -804,6 +804,38 @@ def explain_row(
     return contributions
 
 
+def _interval_band(model: MLModel, level: Any = None) -> tuple[float, float] | None:
+    """Read the served version's calibrated radii; old models ignore the option."""
+    block = (model.metrics_json or {}).get("intervals")
+    if model.task != REGRESSION or not isinstance(block, dict):
+        return None
+    levels = {
+        entry["level"]: entry["q"]
+        for entry in block.get("levels", [])
+        if isinstance(entry, dict) and _finite(entry.get("level")) is not None
+        and _finite(entry.get("q")) is not None and entry["q"] >= 0
+    }
+    if not levels:
+        return None
+    chosen = block.get("default_level", 0.9) if level is None else level
+    if isinstance(chosen, bool) or not isinstance(chosen, (int, float)) or chosen not in levels:
+        raise TabularError(
+            code="ML_INTERVAL_LEVEL_UNKNOWN", message="This interval level was not calibrated.",
+            status_code=422, details={"levels": sorted(levels)},
+        )
+    return float(chosen), float(levels[chosen])
+
+
+def _add_intervals(answers: list[dict[str, Any]], band: tuple[float, float] | None) -> None:
+    if band is None:
+        return
+    level, radius = band
+    for answer in answers:
+        prediction = _finite(answer.get("prediction"))
+        if prediction is not None:
+            answer.update(lower=_finite(prediction - radius), upper=_finite(prediction + radius), level=level)
+
+
 def predict_rows(
     db: DBSession,
     model: MLModel,
@@ -812,10 +844,12 @@ def predict_rows(
     version: Any = None,
     caller: str = "session",
     explain: bool = False,
+    interval_level: float | None = None,
 ) -> dict[str, Any]:
     """Answer an inline batch, and say which version answered."""
 
     served = serving_version(db, model, version=version)
+    band = _interval_band(served, interval_level)
     coerced = coerce_rows(served, rows)
     entry, resident = load_pipeline_traced(served)
     started = time.monotonic()
@@ -825,6 +859,7 @@ def predict_rows(
     classes = entry.classes
     positive = _positive_label(served, classes)
     answers = _rows_from(served, classes, positive, predicted, proba)
+    _add_intervals(answers, band)
     if explain and len(answers) == 1:
         answers[0]["contributions"] = explain_row(
             entry,
@@ -1078,6 +1113,9 @@ def _score_into(
     predictions: list[Any] = []
     confidences: list[float | None] = []
     scores: list[float | None] = []
+    lower: list[float | None] = []
+    upper: list[float | None] = []
+    band = _interval_band(served)
     total = len(features)
     for offset in range(0, max(total, 1), _SCORE_CHUNK_ROWS):
         chunk = features.iloc[offset : offset + _SCORE_CHUNK_ROWS]
@@ -1090,10 +1128,13 @@ def _score_into(
         typed = build_frame(fields, chunk.to_dict(orient="records"))
         predicted, proba = _predict_frame(entry, served, typed)
         answers = _rows_from(served, classes, positive, predicted, proba)
+        _add_intervals(answers, band)
         for answer in answers:
             predictions.append(answer.get("prediction"))
             confidences.append(answer.get("confidence"))
             scores.append(answer.get("score"))
+            lower.append(answer.get("lower"))
+            upper.append(answer.get("upper"))
 
     columns = {
         _unique_name("prediction", frame.columns): pl.Series(
@@ -1111,6 +1152,11 @@ def _score_into(
             columns[
                 _unique_name(f"score_{positive}", [*frame.columns, *columns])
             ] = pl.Series(scores, dtype=pl.Float64)
+    if band is not None:
+        for suffix, values in (("lower", lower), ("upper", upper)):
+            columns[_unique_name(f"{served.target}_{suffix}", [*frame.columns, *columns])] = pl.Series(
+                values, dtype=pl.Float64
+            )
     scored = frame.with_columns(
         [series.alias(name) for name, series in columns.items()]
     )
@@ -1150,6 +1196,7 @@ def _score_into(
         }
         for predicted, confidence, score in zip(predictions, confidences, scores)
     ]
+    _add_intervals(answers, band)
     prediction_id = journal_call(
         db,
         requested=requested,
@@ -1403,6 +1450,9 @@ def predict_output_schema(model: MLModel) -> dict[str, Any]:
     if model.task == CLASSIFICATION:
         body["properties"]["confidence"] = {"type": "number"}
         body["properties"]["probabilities"] = {"type": "array"}
+    elif _interval_band(model) is not None:
+        for key in ("lower", "upper", "level"):
+            body["properties"][key] = {"type": "number"}
     return body
 
 

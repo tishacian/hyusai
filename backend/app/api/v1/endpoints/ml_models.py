@@ -64,8 +64,10 @@ from app.services.tabular_monitoring import (
     attach_feedback,
     badges_for,
     materialize_labeled,
-    report as monitoring_report,
     serialize_prediction,
+)
+from app.services.tabular_monitoring import (
+    report as monitoring_report,
 )
 from app.services.tabular_predict import (
     API_KEY_HEADER,
@@ -472,6 +474,7 @@ class PredictBody(BaseModel):
     # Off by default: a counterfactual explanation costs a second predict, and a
     # batch integration scoring a thousand rows never wants it.
     explain: bool = False
+    interval_level: Optional[float] = Field(default=None, allow_inf_nan=False)
 
     def records(self) -> list[dict[str, Any]]:
         for candidate in (self.inputs, self.dataframe_records, self.rows):
@@ -558,6 +561,7 @@ async def predict(
             version=body.version,
             caller=caller.kind,
             explain=body.explain,
+            interval_level=body.interval_level,
         )
     except TabularError as exc:
         _raise_tabular(exc)

@@ -649,3 +649,35 @@ def test_a_predict_call_shows_up_on_the_monitoring_window(session_client, model)
     body = session_client.get(f"/ml-models/{model.id}/monitoring").json()["monitoring"]
     assert body["window"]["predictions"] == 1
     assert body["badge"] == "ok"
+
+
+@pytest.fixture(scope="module")
+def regression_artifact(tmp_path_factory):
+    return fit_churn_artifact(tmp_path_factory.mktemp("interval-api-fit"), task="regression", target="arpu")
+
+
+@pytest.mark.parametrize("authentication", ["session", "key"])
+def test_interval_level_reaches_regression_for_both_authentication_paths(request, db_session, model, regression_artifact, authentication):
+    directory, summary = regression_artifact
+    model.task = "regression"
+    model.target = "arpu"
+    model.features = [name for name in CHURN_FEATURES if name != "arpu"]
+    model.signature_json = summary["signature"]
+    model.classes_json = []
+    model.metrics_json = {**summary["metrics"], "intervals": {"default_level": .9, "levels": [{"level": .8, "q": 3.}, {"level": .9, "q": 5.}]}}
+    model.model_uri, model.artifact_bytes = upload_model_dir(directory, workspace_id=model.workspace_id, model_id=model.id)
+    db_session.commit()
+    client = request.getfixturevalue("session_client" if authentication == "session" else "key_client")
+    headers = {}
+    if authentication == "key":
+        _, secret = tabular_predict.mint_api_key(db_session, model=model)
+        headers = {"X-API-Key": secret}
+    body = {"inputs": [{"plan": "postpaid", "tenure_months": 30, "support_tickets": 1}], "interval_level": .8}
+    result = client.post(f"/ml-models/{model.id}/predict", json=body, headers=headers)
+    assert result.status_code == 200, result.text
+    prediction = result.json()["predictions"][0]
+    assert prediction["level"] == .8
+    assert prediction["upper"] - prediction["lower"] == pytest.approx(6.)
+    result = client.post(f"/ml-models/{model.id}/predict", json={**body, "interval_level": .85}, headers=headers)
+    assert result.status_code == 422
+    assert result.json()["detail"]["code"] == "ML_INTERVAL_LEVEL_UNKNOWN"
