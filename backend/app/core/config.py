@@ -212,10 +212,10 @@ class Settings(BaseSettings):
     rag_cross_encoder_max_length_deep: int = 512
     rag_cross_encoder_max_concurrency: int = 2
     rag_cross_encoder_preload: bool = False
-    # Which engine scores: "auto" keeps torch while the image installs it and
-    # runs ONNX Runtime once it does not (model files baked into rag_models_dir
-    # from backend/rag_models.lock.json); "onnx" or "torch" forces one. Flip to
-    # "onnx" after scripts/bench_rerank_engines.py qualifies it on the host.
+    # Which engine scores: "auto" runs ONNX Runtime on the model files baked
+    # into rag_models_dir (backend/rag_models.lock.json) and falls back to torch
+    # only where ONNX cannot run; "onnx" or "torch" forces one. The API image no
+    # longer installs torch; the worker keeps it as the fallback engine.
     rag_reranker_backend: str = "auto"
     rag_models_dir: str = "/opt/agentium-models"
     # RAGGER/HAH-RAG paper refinements. Fusion/compression/generation are

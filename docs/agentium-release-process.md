@@ -133,14 +133,17 @@ Build all three even for a frontend-only change: the single tag drives the
 whole stack at switch time.
 
 The API and worker Dockerfiles open on an identical prefix (base image, OS
-packages, `requirements.txt`, CPU PyTorch). BuildKit therefore builds that
-Python stack once and both images share its layers; `agentium-image-budget.sh`
-prints the shared layer count and fails when it drops, together with each
-image's size. Record those sizes in the release notes; to bound them, export
-`AGENTIUM_IMAGE_BUDGET_MB_{BACKEND,WORKER,FRONTEND}` a few percent above the
-recorded values before running it. The first build after this layout landed
-rebuilt the Python stack from scratch (the layer order changed): budget the
-cold-cache duration for it.
+packages, `requirements.txt`, the baked RAG models). BuildKit therefore builds
+that Python stack once and both images share its layers; only the worker then
+adds CPU PyTorch and transformers (for the Giskard venv and the fallback rerank
+engine). `agentium-image-budget.sh` prints the shared layer count and fails when
+it drops, together with each image's size. Record those sizes in the release
+notes; to bound them, export `AGENTIUM_IMAGE_BUDGET_MB_{BACKEND,WORKER,FRONTEND}`
+a few percent above the recorded values before running it.
+
+Reference, release `4a01ebd5` (torch still in both images): backend 1362 MB,
+worker 1714 MB, frontend 28 MB, 10 shared layers. The release that removed torch
+from the API image is the first measurement to bound the backend with.
 
 Each Python image also has its own build-context filter,
 `docker/Dockerfile.agentium-{backend,worker}.dockerignore`, which BuildKit reads
@@ -151,20 +154,21 @@ file the runtime reads in.
 Both Python images also bake the RAG cross-encoders, as ONNX exports with
 their tokenizers, into `/opt/agentium-models`. `backend/rag_models.lock.json`
 pins every file by revision and sha256, and the build fails on a mismatch. No
-container downloads a model when it starts. While the images still install
-torch, `RAG_RERANKER_BACKEND=auto` keeps reranking on torch. To move to ONNX,
-qualify it on the VM's own CPU once a release with it is running:
+container downloads a model when it starts. Reranking runs on ONNX Runtime
+(`RAG_RERANKER_BACKEND=auto`): it was qualified against torch on the VM's CPU at
+`4a01ebd5` (same order, scores within 5.9e-07), which is what let the API image
+stop installing torch. Re-qualify after changing a model or the runtime, from
+the worker, which still has both engines:
 
 ```bash
-sudo docker exec agentium-backend python -m scripts.bench_rerank_engines
+sudo docker exec agentium-worker-cpu python -m scripts.bench_rerank_engines
 ```
 
 It compares both engines with the published model-card logits and with each
 other on reference passages, and measures p50/p95 at the balanced and deep
-candidate counts. When it recommends ONNX, set `RAG_RERANKER_BACKEND=onnx` in
-the runtime env and recreate the backend and the workers; `torch` switches
-back without a rebuild. Keep its output in the release evidence: the release
-that removes torch from the API image depends on it.
+candidate counts. If ONNX stops qualifying, `RAG_RERANKER_BACKEND=torch` moves
+the worker back to torch without a rebuild; the API needs an image with torch
+again. Keep its output in the release evidence.
 
 The API and the worker install every Python package under one constraints
 file, `backend/constraints-demo-app.txt`: a model is fitted in the worker and

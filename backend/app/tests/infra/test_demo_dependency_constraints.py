@@ -71,11 +71,26 @@ def test_api_and_worker_build_one_shared_python_stack():
     assert prefixes["backend"] == prefixes["worker"]
     shared = "\n".join(prefixes["backend"])
     assert "constraints-demo-app.txt" in shared
-    assert "torch torchvision" in shared
-    # The baked cross-encoder files are shared too, and sit before torch so the
-    # API image can stop installing torch without leaving the shared prefix.
+    # The baked cross-encoder files are shared; torch is not.
     assert "fetch_rag_models.py" in shared
-    assert shared.index("fetch_rag_models.py") < shared.index("torch torchvision")
+    assert "torch" not in shared and "transformers" not in shared
+
+
+def test_only_the_worker_installs_torch():
+    """The API reranks on ONNX Runtime; torch is the worker's, for Giskard's venv
+    and the fallback rerank engine, and comes from the CPU-only index."""
+
+    backend = (ROOT / "docker" / "Dockerfile.agentium-backend").read_text(encoding="utf-8")
+    worker = (ROOT / "docker" / "Dockerfile.agentium-worker").read_text(encoding="utf-8")
+    installs = "\n".join(_run_instructions(backend))
+    assert "torch" not in installs and "transformers" not in installs
+    worker_runs = _run_instructions(worker.split(PREFIX_END, 1)[1])
+    torch_runs = [run for run in worker_runs if "pip install --no-cache-dir torch torchvision" in run]
+    assert len(torch_runs) == 1
+    assert "--index-url=https://download.pytorch.org/whl/cpu" in torch_runs[0]
+    # The Giskard venv inherits it rather than resolving a CUDA build from PyPI.
+    giskard = next(run for run in worker_runs if "/opt/agentium-giskard" in run)
+    assert worker_runs.index(torch_runs[0]) < worker_runs.index(giskard)
 
 
 def _run_instructions(dockerfile: str) -> list[str]:
