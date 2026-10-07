@@ -1325,7 +1325,7 @@ export class ModelPlaygroundComponent {
     return message || this.i18n.t('models.play.failed');
   }
 
-  private number(value: unknown): string {
+  protected number(value: unknown): string {
     const raw = Number(value);
     if (!Number.isFinite(raw)) return '—';
     return raw.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 3 });
