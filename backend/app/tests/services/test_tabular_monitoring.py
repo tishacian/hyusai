@@ -13,9 +13,10 @@ from uuid import uuid4
 
 import pytest
 
+from app.core.config import settings
 from app.models.tabular import MLModel, MLPrediction, TabularDataset
 from app.models.workspace import Workspace
-from app.services.tabular_datasets import TabularError
+from app.services.tabular_datasets import TabularError, read_frame
 from app.services.tabular_monitoring import (
     attach_feedback,
     badges_for,
@@ -118,6 +119,21 @@ def model(db_session, workspace) -> MLModel:
     return row
 
 
+@pytest.fixture()
+def regression_model(db_session, model) -> MLModel:
+    model.task = "regression"
+    model.target = "revenue"
+    db_session.commit()
+    return model
+
+
+@pytest.fixture()
+def object_store_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))
+    return tmp_path / "store"
+
+
 def _journal(
     db_session,
     model,
@@ -156,6 +172,65 @@ def test_feedback_writes_the_label_onto_the_prediction_id(db_session, model):
     assert attached.labeled_at is not None
 
 
+@pytest.mark.parametrize("label", ["positive", "NaN", "True"])
+def test_classification_feedback_keeps_text_labels(db_session, model, label):
+    row = _journal(db_session, model, payload={"arpu": 40}, score=0.7)
+    attached = attach_feedback(
+        db_session, model=model, prediction_id=row.id, label=label
+    )
+    assert attached.label == label
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        (0, 0.0),
+        (-3.5, -3.5),
+        ("  +1.25e2  ", 125.0),
+        ("1e308", 1e308),
+        ("1" + "0" * 205 + "e-205", 1.0),
+    ],
+)
+def test_regression_feedback_accepts_finite_numbers(
+    db_session, regression_model, label, expected
+):
+    row = _journal(db_session, regression_model, payload={"arpu": 40}, score=0.7)
+    attached = attach_feedback(
+        db_session, model=regression_model, prediction_id=row.id, label=label
+    )
+    db_session.refresh(attached)
+    assert isinstance(attached.label, str)
+    assert len(attached.label) <= 200
+    assert float(attached.label) == expected
+    assert attached.labeled_at is not None
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "invalid", "", " ", "NaN", "inf", "-Infinity", "1e309",
+        float("nan"), float("inf"), True, False, None, [1],
+    ],
+)
+def test_regression_feedback_rejects_invalid_numbers_without_mutating_the_label(
+    db_session, regression_model, label
+):
+    row = _journal(
+        db_session, regression_model, payload={"arpu": 40}, score=0.7, label="12.5"
+    )
+    previous = (row.label, row.labeled_at, row.labeled_by)
+    with pytest.raises(TabularError) as caught:
+        attach_feedback(
+            db_session, model=regression_model, prediction_id=row.id, label=label,
+            labeled_by=str(uuid4()),
+        )
+    assert caught.value.code == "ML_FEEDBACK_NOT_NUMERIC"
+    assert caught.value.status_code == 422
+    assert (row.label, row.labeled_at, row.labeled_by) == previous
+    db_session.refresh(row)
+    assert (row.label, row.labeled_at, row.labeled_by) == previous
+
+
 def test_feedback_refuses_a_prediction_from_another_lineage(db_session, model, workspace):
     other = MLModel(
         id=str(uuid4()),
@@ -187,8 +262,10 @@ def test_a_thin_feedback_set_cannot_become_a_dataset(db_session, model):
     assert caught.value.code == "ML_FEEDBACK_TOO_FEW"
 
 
-def test_labeled_rows_materialize_as_a_dataset_the_studio_can_open(db_session, model):
-    pytest.importorskip("polars")
+def test_labeled_rows_materialize_as_a_dataset_the_studio_can_open(
+    db_session, model, object_store_root
+):
+    pl = pytest.importorskip("polars")
     for index in range(3):
         _journal(
             db_session,
@@ -202,7 +279,51 @@ def test_labeled_rows_materialize_as_a_dataset_the_studio_can_open(db_session, m
     assert dataset.source == "generated"
     assert dataset.produced_by == "ml_feedback"
     assert dataset.lineage_json["kind"] == "feedback"
+    assert dataset.lineage_json["skipped"] == 0
     assert "churn" in {col["name"] for col in dataset.schema_json}
+    assert read_frame(dataset)["churn"].dtype == pl.String
+
+
+def test_regression_materialization_keeps_numeric_targets_and_counts_invalid_legacy_rows(
+    db_session, regression_model, object_store_root
+):
+    pl = pytest.importorskip("polars")
+    for index, label in enumerate(["0", "  -1.25e2  "]):
+        _journal(
+            db_session,
+            regression_model,
+            payload={"arpu": index, "revenue": "old target"},
+            score=0.7,
+            label=label,
+        )
+    invalid = ["invalid", "", " ", "NaN", "inf", "-Infinity", "1e309", "True"]
+    for label in invalid:
+        _journal(
+            db_session, regression_model, payload={"arpu": 40}, score=0.7, label=label
+        )
+    _journal(db_session, regression_model, payload=None, score=0.7, label="42")
+    _journal(db_session, regression_model, payload={"arpu": 40}, score=0.7)
+
+    dataset = materialize_labeled(db_session, model=regression_model)
+    frame = read_frame(dataset).sort("arpu")
+    assert frame["revenue"].dtype == pl.Float64
+    assert frame["revenue"].to_list() == [0.0, -125.0]
+    assert dataset.lineage_json["labeled"] == 2
+    assert dataset.lineage_json["skipped"] == len(invalid) + 1
+
+
+def test_invalid_legacy_labels_do_not_count_toward_regression_dataset_minimum(
+    db_session, regression_model
+):
+    for label in ["12.5", "invalid", "NaN"]:
+        _journal(
+            db_session, regression_model, payload={"arpu": 40}, score=0.7, label=label
+        )
+    with pytest.raises(TabularError) as caught:
+        materialize_labeled(db_session, model=regression_model)
+    assert caught.value.code == "ML_FEEDBACK_TOO_FEW"
+    assert caught.value.details == {"labeled": 1, "need": 2}
+    assert db_session.query(TabularDataset).count() == 0
 
 
 def test_the_report_stays_unknown_until_something_has_been_served(db_session, model):

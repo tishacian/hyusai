@@ -527,7 +527,19 @@ def attach_feedback(
             status_code=409,
             details={"prediction_id": prediction_id, "slug": row.slug},
         )
-    text = str(label).strip()
+    if model.task == "regression":
+        number = _feedback_number(label)
+        if number is None:
+            raise TabularError(
+                code="ML_FEEDBACK_NOT_NUMERIC",
+                message="Regression ground truth must be a finite number.",
+                status_code=422,
+            )
+        # Keep the existing text column without truncating a long numeric
+        # literal (which can change its value or discard its exponent).
+        text = str(number)
+    else:
+        text = str(label).strip()
     if not text:
         raise TabularError(
             code="ML_FEEDBACK_LABEL_MISSING",
@@ -539,6 +551,16 @@ def attach_feedback(
     row.labeled_by = labeled_by
     db.commit()
     return row
+
+
+def _feedback_number(label: Any) -> float | None:
+    """Share validation with legacy feedback materialization, including NaN/inf."""
+
+    try:
+        number = float(str(label).strip())
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 def serialize_prediction(row: MLPrediction) -> dict[str, Any]:
@@ -568,17 +590,24 @@ def materialize_labeled(
     rows = [
         row
         for row in _recent(db, model, limit=WINDOW_LIMIT)
-        if row.label
+        if row.label is not None
     ]
     records: list[dict[str, Any]] = []
     target = str(model.target)
     for row in rows:
+        label: Any = row.label
+        if model.task == "regression":
+            label = _feedback_number(label)
+            if label is None:
+                continue
+        elif not label:
+            continue
         payload = row.payload_json if isinstance(row.payload_json, list) else []
         first = next((item for item in payload if isinstance(item, dict)), None)
         if first is None:
             continue
         record = dict(first)
-        record[target] = row.label
+        record[target] = label
         records.append(record)
     if len(records) < MIN_MATERIALIZE:
         raise TabularError(
@@ -610,6 +639,7 @@ def materialize_labeled(
                 "version": int(model.version or 1),
             },
             "labeled": len(records),
+            "skipped": len(rows) - len(records),
         },
     )
     db.commit()

@@ -23,6 +23,7 @@ Harness contract, the same for every family:
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from importlib.util import find_spec
 from pathlib import Path
@@ -111,6 +112,12 @@ class SpecField:
             return value
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise SpecInvalid(self.key, "expected a number")
+        try:
+            finite = math.isfinite(value)
+        except OverflowError:
+            finite = False
+        if not finite:
+            raise SpecInvalid(self.key, "expected a finite number")
         if kind == "int" and float(value) != int(value):
             raise SpecInvalid(self.key, "expected a whole number")
         number = int(value) if kind == "int" else float(value)
@@ -183,7 +190,9 @@ class Family:
                 missing.append(module)
         return missing
 
-    def parse_spec(self, raw: Any) -> dict[str, Any]:
+    def parse_spec(
+        self, raw: Any, *, task: str | None = None, warnings: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any]:
         """The request's ``spec``, checked against this family's fields.
 
         Unknown keys are refused rather than dropped: a field the form believes
@@ -191,6 +200,11 @@ class Family:
         trained model come to disagree. Fields are checked here for shape only;
         whether a named column exists is the family's validation, which has the
         dataset.
+
+        A resolved ``task`` supplies visibility context without becoming a spec
+        field. In that mode hidden options are removed before parsing: changing
+        a Flow target must not leave an incompatible option blocking training.
+        Callers without that context keep the existing family parsing contract.
         """
 
         if raw in (None, {}):
@@ -203,13 +217,23 @@ class Family:
         unknown = sorted(set(raw) - set(fields))
         if unknown:
             raise SpecInvalid(unknown[0], f"{self.key} models take no '{unknown[0]}'")
+        values = {key: spec_field.default for key, spec_field in fields.items()}
+        values.update({key: value for key, value in raw.items() if value is not None})
+        if task is not None:
+            values["task"] = task
         parsed: dict[str, Any] = {}
         for key, spec_field in fields.items():
+            if task is not None and not self._shown(spec_field, values):
+                if key in raw and raw[key] is not None and warnings is not None:
+                    warnings.append({"code": "ML_SPEC_FIELD_IGNORED", "field": key, "task": task})
+                continue
             if key in raw and raw[key] is not None:
                 parsed[key] = spec_field.parse(raw[key])
             elif spec_field.default is not None:
                 parsed[key] = spec_field.default
-            elif spec_field.required and self._shown(spec_field, {**raw, **parsed}):
+            elif spec_field.required and self._shown(
+                spec_field, values if task is not None else {**raw, **parsed}
+            ):
                 raise SpecInvalid(key, f"'{key}' is required")
         return parsed
 

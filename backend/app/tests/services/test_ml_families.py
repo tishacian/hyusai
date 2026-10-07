@@ -192,6 +192,94 @@ def test_a_spec_is_parsed_by_its_family_fields():
     assert panel["series_columns"] == ["cell"] and panel["exog"] == {"promo": "future"}
 
 
+# Synthetic fields exercise the extension mechanism without offering options
+# before their training effects exist.
+TABULAR_TEST_FIELDS = (
+    SpecField("regression_only", "bool", default=False, when=(("task", ("regression",)),)),
+    SpecField("classification_only", "bool", default=False, when=(("task", ("classification",)),)),
+    SpecField("budget", "int", required=True, minimum=1, maximum=10, when=(("mode", ("on",)),)),
+    SpecField("mode", "enum", default="off", choices=("off", "on")),
+)
+
+
+def test_tabular_catalog_does_not_offer_options_without_training_effects():
+    assert TABULAR.spec_fields == ()
+    assert TABULAR.parse_spec({}, task="regression") == {}
+    with pytest.raises(SpecInvalid) as error:
+        TABULAR.parse_spec({"intervals": "conformal"}, task="regression")
+    assert error.value.field == "intervals"
+
+
+def test_tabular_visibility_uses_resolved_task_and_defaults_without_storing_task():
+    family = replace(TABULAR, spec_fields=TABULAR_TEST_FIELDS)
+    assert family.parse_spec({}, task="regression") == {"regression_only": False, "mode": "off"}
+    assert family.parse_spec({}, task="classification") == {"classification_only": False, "mode": "off"}
+    with pytest.raises(SpecInvalid) as error:
+        family.parse_spec({"task": "classification"}, task="regression")
+    assert error.value.field == "task"
+
+
+def test_incompatible_tabular_options_are_removed_before_validation_with_a_warning():
+    warnings = []
+    family = replace(TABULAR, spec_fields=TABULAR_TEST_FIELDS)
+    parsed = family.parse_spec(
+        {"classification_only": "stale-invalid-value", "budget": "stale-invalid-value"},
+        task="regression", warnings=warnings,
+    )
+    assert parsed == {"regression_only": False, "mode": "off"}
+    assert warnings == [
+        {"code": "ML_SPEC_FIELD_IGNORED", "field": "classification_only", "task": "regression"},
+        {"code": "ML_SPEC_FIELD_IGNORED", "field": "budget", "task": "regression"},
+    ]
+
+
+def test_shown_tabular_options_are_required_and_validated_even_before_their_controller():
+    family = replace(TABULAR, spec_fields=TABULAR_TEST_FIELDS)
+    for raw in ({"mode": "on"}, {"mode": "on", "budget": 11}):
+        with pytest.raises(SpecInvalid) as error:
+            family.parse_spec(raw, task="regression")
+        assert error.value.field == "budget"
+    assert family.parse_spec({"mode": "on", "budget": 3}, task="regression")["budget"] == 3
+
+
+def test_task_dependent_required_fields_use_the_same_visibility_context():
+    family = replace(TABULAR, spec_fields=(
+        SpecField("required_number", "int", required=True, when=(("task", ("regression",)),)),
+    ))
+    assert family.parse_spec({}, task="classification") == {}
+    with pytest.raises(SpecInvalid) as error:
+        family.parse_spec({}, task="regression")
+    assert error.value.field == "required_number"
+
+
+@pytest.mark.parametrize("kind", ["int", "float"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf"), 10**400])
+def test_spec_numbers_that_cannot_be_stored_as_finite_json_are_coded_refusals(kind, value):
+    with pytest.raises(SpecInvalid) as error:
+        SpecField("number", kind).parse(value)
+    assert error.value.field == "number"
+
+
+def test_training_plan_resolves_task_before_spec_and_persists_only_visible_options(
+    db_session, workspace, dataset, enabled, monkeypatch
+):
+    monkeypatch.setattr(tabular_ml, "TABULAR", replace(TABULAR, spec_fields=TABULAR_TEST_FIELDS))
+    monkeypatch.setattr(tabular_ml, "family_of_task", lambda task: tabular_ml.TABULAR)
+    spec = tabular_ml.validate_training(
+        dataset, task=None, target="churn", spec={"regression_only": True}, features=["arpu"]
+    )
+    assert spec.task == "classification"
+    assert spec.spec == {"classification_only": False, "mode": "off"}
+    assert spec.warnings == [{"code": "ML_SPEC_FIELD_IGNORED", "field": "regression_only", "task": "classification"}]
+    model = tabular_ml.create_model(db_session, workspace_id=workspace.id, spec=spec)
+    assert model.spec_json == spec.spec
+    assert model.params_json["warnings"] == spec.warnings
+    with pytest.raises(TabularError) as error:
+        tabular_ml.validate_training(dataset, task=None, target="churn", spec={"mode": "on", "budget": 11})
+    assert error.value.code == "ML_SPEC_INVALID"
+    assert error.value.details == {"field": "budget"}
+
+
 @pytest.mark.parametrize(
     ("raw", "field"),
     [
