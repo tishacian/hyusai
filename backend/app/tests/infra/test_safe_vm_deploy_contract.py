@@ -10,6 +10,7 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[4]
 SAFE_DEPLOY = ROOT / "scripts" / "deploy-agentium-safe.sh"
@@ -2899,8 +2900,13 @@ def test_python_runtime_cannot_fall_back_to_a_live_dotenv_after_capture() -> Non
     assert 'os.environ.get("AGENTIUM_DISABLE_DOTENV", "0")' in config
     assert "Settings(_env_file=_settings_env_file())" in config
     assert 'return None if mode == "1" else ".env"' in config
-    # migrate, backend, worker, beat, P4 and SFTP are the six Python services.
-    assert compose.count('AGENTIUM_DISABLE_DOTENV: "1"') == 6
+    # migrate, backend, worker, beat, P4, SFTP and the forecasting worker are
+    # the seven Python services that declare it; the forecasting server
+    # extends that worker and inherits it.
+    assert compose.count('AGENTIUM_DISABLE_DOTENV: "1"') == 7
+    services = yaml.safe_load(compose)["services"]
+    assert services["agentium-worker-ml-ts-serve"]["extends"]["service"] == "agentium-worker-ml-ts"
+    assert services["agentium-worker-ml-ts"]["environment"]["AGENTIUM_DISABLE_DOTENV"] == "1"
     assert "Environment=AGENTIUM_DISABLE_DOTENV=1" in unit
 
 

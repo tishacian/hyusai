@@ -212,12 +212,26 @@ storage_check() {
   printf 'storage-check passed: block stores and application binds remain on their protected devices\n'
 }
 
+# The canonical Skills/Capabilities catalog. The API seeds it at boot only when
+# startup reconciliation is enabled, which a transactional deployment keeps
+# off; a release that adds a Skill reconciles it here, in the one-off migrate
+# container (the release's image, stores read-only). `check` is read-only and
+# exits 3 when the catalog is behind the code.
+catalog() {
+  compose run --rm --no-deps --pull never agentium-migrate python -m app.cli.reconcile_catalog "$@"
+}
+
 case "${1:-}" in
   images)        compose "${ML_TS_PROFILE[@]}" config --images ;;
   storage-check) storage_check ;;
   migrate)       storage_check; compose run --rm --no-deps --pull never agentium-migrate ;;
-  up)            storage_check; compose up -d --no-build --no-deps --pull never agentium-worker-recipes agentium-backend agentium-worker-cpu agentium-frontend agentium-p4-maintenance agentium-beat "${ML_TS_SERVICES[@]}" ;;
+  up)            storage_check; compose up -d --no-build --no-deps --pull never agentium-worker-recipes agentium-backend agentium-worker-cpu agentium-frontend agentium-p4-maintenance agentium-beat "${ML_TS_SERVICES[@]}"
+                 # Said at the end of every switch, never blocking it: new code
+                 # whose Skills the database lacks is a feature nobody can see.
+                 catalog >/dev/null || printf '%s\n' "WARNING: catalog-check did not pass (verdict above); to bring the Skills catalog to this release: $0 catalog-apply" >&2 ;;
+  catalog-check) catalog ;;
+  catalog-apply) storage_check; catalog --apply ;;
   ml-ts-stop)    compose --profile ml-ts rm --stop --force "${ML_TS_ALL[@]}" ;;
   ps)            compose "${ML_TS_PROFILE[@]}" ps ;;
-  *)             echo "usage: $0 {images|storage-check|migrate|up|ml-ts-stop|ps}" >&2; exit 2 ;;
+  *)             echo "usage: $0 {images|storage-check|migrate|up|catalog-check|catalog-apply|ml-ts-stop|ps}" >&2; exit 2 ;;
 esac
