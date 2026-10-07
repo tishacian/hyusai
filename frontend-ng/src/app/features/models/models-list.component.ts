@@ -565,6 +565,7 @@ export class ModelsListComponent implements OnInit {
       model.cross_validation,
       this.i18n.locale(),
       model.task,
+      model.spec,
     );
   }
 

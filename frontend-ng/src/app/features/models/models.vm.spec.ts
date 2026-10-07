@@ -1120,7 +1120,7 @@ test('a line that will never tick is not drawn', () => {
   );
   assert.deepEqual(
     trainChecklist('training', 'scoring', 5).map((line) => line.step),
-    TRAIN_STEPS,
+    TRAIN_STEPS.filter((step) => !['tuning', 'calibrating', 'explaining'].includes(step)),
   );
   // One fold is not cross-validation, and neither is nonsense.
   for (const folds of [1, 0, null, undefined, Number.NaN]) {
@@ -1292,4 +1292,30 @@ test('a forecast walks through its backtest, counted per horizon', () => {
   assert.equal(trainStepKey('backtesting:0/3'), 'models.progress.step.backtesting');
   // A tabular fit keeps its own list.
   assert.ok(!trainChecklist('training', 'fitting', 0, 'en').some((step) => step.step === 'backtesting'));
+});
+
+
+test('optional training steps follow the saved spec and keep their live counters', () => {
+  const spec = { tuning: 'budget', calibration: 'sigmoid', explain: 'pack' };
+  const steps = trainChecklist('training', 'tuning:2/30', 5, 'en', 'classification', spec);
+  assert.deepEqual(steps.map((line) => line.step), TRAIN_STEPS);
+  assert.deepEqual(steps.find((line) => line.step === 'tuning'), {
+    step: 'tuning', key: 'models.progress.step.tuning.counted', params: { fold: 2, folds: 30 }, state: 'active',
+  });
+  const calibration = trainChecklist('training', 'calibrating:3/5', 0, 'fr', 'regression', { intervals: 'conformal' });
+  assert.equal(calibration.find((line) => line.step === 'calibrating')?.key, 'models.progress.step.calibrating.counted');
+  assert.ok(!calibration.some((line) => line.step === 'tuning'));
+  assert.ok(!trainChecklist('training', 'fitting', 0, 'en', 'classification', { intervals: 'conformal' }).some((line) => line.step === 'calibrating'));
+  assert.ok(!trainChecklist('training', 'fitting', 0, 'en', 'regression', { calibration: 'sigmoid' }).some((line) => line.step === 'calibrating'));
+  // A step emitted by the worker is still readable if its spec was not projected.
+  assert.equal(trainChecklist('training', 'explaining', 0).find((line) => line.state === 'active')?.step, 'explaining');
+  for (const detail of ['tuning:2/30', 'calibrating:3/5', 'explaining']) {
+    for (const status of ['training', 'ready']) {
+      for (const line of trainChecklist(status, detail, 5, 'en', 'classification', spec)) {
+        assert.ok(MODELS_FR[line.key as keyof typeof MODELS_FR]);
+        assert.ok(MODELS_EN[line.key as keyof typeof MODELS_EN]);
+        if (status === 'ready') assert.equal(line.state, 'done');
+      }
+    }
+  }
 });

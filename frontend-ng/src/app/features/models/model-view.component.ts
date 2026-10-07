@@ -2016,6 +2016,7 @@ export class ModelViewComponent implements OnInit {
       this.model()?.cross_validation,
       this.i18n.locale(),
       this.model()?.task,
+      this.model()?.spec,
     ),
   );
 
@@ -2396,8 +2397,10 @@ export class ModelViewComponent implements OnInit {
       });
       this.monitoring.set(result.monitoring);
       this.toast.success(this.i18n.t('models.monitor.feedback.done'));
-    } catch {
-      this.toast.error(this.i18n.t('models.monitor.feedback.failed'));
+    } catch (error) {
+      const code = error instanceof HttpErrorResponse ? error.error?.detail?.code ?? error.error?.code : null;
+      this.toast.error(this.i18n.t(code === 'ML_FEEDBACK_NOT_NUMERIC'
+        ? 'models.error.ml_feedback_not_numeric' : 'models.monitor.feedback.failed'));
     } finally {
       this.feedbackBusy.set(false);
     }
