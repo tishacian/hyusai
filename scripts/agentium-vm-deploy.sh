@@ -54,6 +54,23 @@ esac
 [ "$WORKERS" -ge 1 ] && [ "$WORKERS" -le 64 ] ||
   fail "AGENTIUM_BACKEND_WORKERS must be an integer between 1 and 64"
 
+# Forecasting workers (Compose profile ml-ts) are opt-in per deployment.
+# AGENTIUM_ML_TS=1 renders and storage-checks them, and `up` recreates them
+# from the same tag as the rest of the stack; `ml-ts-stop` takes them down,
+# which is their rollback. Left at 0, nothing about them changes.
+ML_TS="${AGENTIUM_ML_TS:-0}"
+case "$ML_TS" in
+  0|1) ;;
+  *) fail "AGENTIUM_ML_TS must be 0 or 1" ;;
+esac
+ML_TS_ALL=(agentium-worker-ml-ts agentium-worker-ml-ts-serve)
+ML_TS_PROFILE=()
+ML_TS_SERVICES=()
+if [ "$ML_TS" = 1 ]; then
+  ML_TS_PROFILE=(--profile ml-ts)
+  ML_TS_SERVICES=("${ML_TS_ALL[@]}")
+fi
+
 clean_exec() {
   /usr/bin/env -i \
     HOME="$COMPOSE_CLEAN_HOME" \
@@ -166,7 +183,7 @@ storage_check() {
   assert_exact_backing_path \
     "$SECURE_DEPOSIT_ROOT" "$EXPECTED_SECURE_SOURCE" "$SECURE_DEPOSIT_ROOT"
   assert_exact_backing_path "$FAISS_ROOT" "$EXPECTED_ROOT_SOURCE" /
-  compose --profile infra --profile tools --profile sftp config --format json |
+  compose --profile infra --profile tools --profile sftp "${ML_TS_PROFILE[@]}" config --format json |
     clean_exec python3 "$ENV_HELPER" vm-storage-compose-check
   readonly_docker volume inspect agentium_minio_block |
     clean_exec python3 "$ENV_HELPER" vm-storage-volume-check \
@@ -180,7 +197,15 @@ storage_check() {
   if readonly_docker inspect --type container agentium-worker-recipes >/dev/null 2>&1; then
     recipe_containers=(agentium-worker-recipes)
   fi
-  readonly_docker inspect --type container "${recipe_containers[@]}" \
+  # Forecasting workers mount the object store: checked wherever they exist,
+  # including a host that has since switched AGENTIUM_ML_TS back to 0.
+  local ml_ts_containers=() container
+  for container in "${ML_TS_ALL[@]}"; do
+    if readonly_docker inspect --type container "$container" >/dev/null 2>&1; then
+      ml_ts_containers+=("$container")
+    fi
+  done
+  readonly_docker inspect --type container "${recipe_containers[@]}" "${ml_ts_containers[@]}" \
     agentium-minio qdrant agentium-backend agentium-worker-cpu \
     agentium-p4-maintenance agentium-sftp |
     clean_exec python3 "$ENV_HELPER" vm-storage-runtime-check
@@ -188,10 +213,11 @@ storage_check() {
 }
 
 case "${1:-}" in
-  images)        compose config --images ;;
+  images)        compose "${ML_TS_PROFILE[@]}" config --images ;;
   storage-check) storage_check ;;
   migrate)       storage_check; compose run --rm --no-deps --pull never agentium-migrate ;;
-  up)            storage_check; compose up -d --no-build --no-deps --pull never agentium-worker-recipes agentium-backend agentium-worker-cpu agentium-frontend agentium-p4-maintenance agentium-beat ;;
-  ps)            compose ps ;;
-  *)             echo "usage: $0 {images|storage-check|migrate|up|ps}" >&2; exit 2 ;;
+  up)            storage_check; compose up -d --no-build --no-deps --pull never agentium-worker-recipes agentium-backend agentium-worker-cpu agentium-frontend agentium-p4-maintenance agentium-beat "${ML_TS_SERVICES[@]}" ;;
+  ml-ts-stop)    compose --profile ml-ts rm --stop --force "${ML_TS_ALL[@]}" ;;
+  ps)            compose "${ML_TS_PROFILE[@]}" ps ;;
+  *)             echo "usage: $0 {images|storage-check|migrate|up|ml-ts-stop|ps}" >&2; exit 2 ;;
 esac

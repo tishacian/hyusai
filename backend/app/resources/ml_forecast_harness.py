@@ -41,6 +41,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import shutil
 import sys
@@ -103,7 +104,18 @@ CALENDAR_PREFIXES = (
 # Rows of the training matrix an explanation is measured on: enough for a
 # stable mean |SHAP|, few enough that a large panel explains in seconds.
 EXPLAIN_ROWS = 1000
+# Exact tree SHAP is linear in the rows but grows with the trees' depth: a
+# 200-tree forest grown to full depth on a large panel costs seconds per row.
+# Past this budget the explanation switches to Saabas attributions (additive,
+# approximate) and says so, rather than turning a fit into an hour.
+EXPLAIN_BUDGET_S = 60.0
+_EXPLAIN_PROBE_ROWS = 5
 _TOP_FEATURES = 20
+# The one-step diagnostic refits the regressor once more: on a large panel it
+# keeps the most recent rows, so a slow forest does not pay a full third fit.
+DIAGNOSTIC_ROWS = 50_000
+_DIAGNOSTIC_HOLDOUT = 0.2
+_CURVE_POINTS = 200
 
 
 def feature_group(
@@ -265,6 +277,127 @@ def _conformal_quantile(errors, level: float):
     return float(np.quantile(errors, rank))
 
 
+def analyse_series(values, *, season: int, lags: list[int]) -> dict:
+    """The anatomy of one series, as a forecaster reads it before fitting.
+
+    * STL (robust) — how much of the series is trend and how much is season,
+      as strengths in [0, 1] (Hyndman: 1 − Var(R) / Var(component + R));
+    * ACF at the lags the model uses and at multiples of the season, and the
+      lags the PACF finds significant — the evidence a lag choice rests on;
+    * ADF — whether the series wanders (a unit root) or returns to a level.
+
+    Statistics computed from the history alone; nothing here sees the backtest.
+    """
+
+    import numpy as np
+    from statsmodels.tsa.seasonal import STL
+    from statsmodels.tsa.stattools import acf, adfuller, pacf
+
+    series = values.dropna().astype(float)
+    count = int(len(series))
+    analysis: dict = {"points": count, "season": season}
+    if count < 12 or float(series.std() or 0) == 0.0:
+        return analysis
+    wanted = sorted({lag for lag in lags if lag >= 1} | {season * k for k in (1, 2, 7) if season > 1})
+    nlags = int(min(count // 3, max([*wanted, 2 * season, 24])))
+    correlations = acf(series, nlags=nlags, fft=True)
+    analysis["confidence"] = _number(1.96 / math.sqrt(count))
+    analysis["acf"] = [
+        {"lag": lag, "value": _number(correlations[lag])} for lag in wanted if lag <= nlags
+    ]
+    partial_lags = int(min(nlags, count // 2 - 1, 4 * max(season, 7)))
+    if partial_lags >= 2:
+        partial = pacf(series, nlags=partial_lags, method="ywm")
+        confidence = 1.96 / math.sqrt(count)
+        significant = [
+            (lag, float(partial[lag])) for lag in range(1, partial_lags + 1) if abs(partial[lag]) > confidence
+        ]
+        significant.sort(key=lambda item: -abs(item[1]))
+        analysis["suggested_lags"] = sorted(lag for lag, _ in significant[:6])
+    if season >= 2 and count >= 2 * season + 1:
+        decomposition = STL(series, period=season, robust=True).fit()
+        residual = np.var(decomposition.resid)
+
+        def strength(component) -> float:
+            total = np.var(component + decomposition.resid)
+            return float(max(0.0, 1.0 - residual / total)) if total > 0 else 0.0
+
+        analysis["stl"] = {
+            "period": season,
+            "trend_strength": _number(strength(decomposition.trend)),
+            "seasonal_strength": _number(strength(decomposition.seasonal)),
+        }
+    try:
+        statistic, pvalue, *_ = adfuller(series, autolag="AIC")
+        analysis["adf"] = {
+            "statistic": _number(statistic),
+            "pvalue": _number(pvalue),
+            "stationary": bool(pvalue < 0.05),
+        }
+    except Exception:  # noqa: BLE001 - a degenerate series has no ADF to report
+        pass
+    return analysis
+
+
+def _tabular_reader():
+    """The tabular harness's skore readers, loaded by path (it is a sibling
+    script that imports nothing at module scope), so one reading of a skore
+    regression report — and one way of persisting it — serves both families."""
+
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "agentium_ml_train_harness", Path(__file__).resolve().with_name("ml_train_harness.py")
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def diagnose_regressor(
+    forecaster, *, inputs: dict, direct: bool, report_path=None, limit_bytes: int = 0
+) -> tuple[dict, dict | None]:
+    """The regressor alone, one step ahead, judged by skore on later rows.
+
+    The backtest judges the whole forecast, recursion included. This judges
+    the piece underneath: the regressor refitted on the oldest rows of the lag
+    matrix and scored on the most recent ones, in time order — R², error, and
+    predicted against actual. When the backtest is poor and this is good, the
+    errors come from the recursion compounding; when both are poor, from the
+    features. The report's own state is kept beside the model, as for a
+    tabular fit, so the evaluation can be reopened.
+    """
+
+    import numpy as np
+    from sklearn.base import clone
+    from skore import EstimatorReport
+
+    X, y = forecaster.create_train_X_y(**inputs)
+    estimator = forecaster.estimator
+    if direct:
+        X, y = forecaster.filter_train_X_y_for_step(step=1, X_train=X, y_train=y, remove_suffix=True)
+        estimator = forecaster.estimators_[1]
+    order = np.argsort(np.asarray(X.index), kind="stable")
+    X, y = X.iloc[order], y.iloc[order]
+    if len(X) > DIAGNOSTIC_ROWS:
+        X, y = X.iloc[-DIAGNOSTIC_ROWS:], y.iloc[-DIAGNOSTIC_ROWS:]
+    cut = int(len(X) * (1 - _DIAGNOSTIC_HOLDOUT))
+    model = clone(estimator).fit(X.iloc[:cut], y.iloc[:cut])
+    report = EstimatorReport(model, X_test=X.iloc[cut:], y_test=y.iloc[cut:])
+    reader = _tabular_reader()
+    read = reader._regression_metrics(report, curve_points=_CURVE_POINTS)
+    state = reader._persist_report(report, report_path, limit_bytes=limit_bytes) if report_path else None
+    return (
+        {
+            "step": 1 if direct else None,
+            "rows": {"train": int(cut), "test": int(len(X) - cut)},
+            "scores": read["scores"],
+            "curves": read["curves"],
+        },
+        state,
+    )
+
+
 def _explain_fit(forecaster, *, inputs: dict, direct: bool, groups_of) -> tuple[dict, dict]:
     """Mean |SHAP| per feature on the final model, by family and by lag.
 
@@ -296,7 +429,16 @@ def _explain_fit(forecaster, *, inputs: dict, direct: bool, groups_of) -> tuple[
         try:
             import shap
 
-            values = shap.TreeExplainer(estimator).shap_values(sample)
+            explainer = shap.TreeExplainer(estimator)
+            probe = sample.iloc[:_EXPLAIN_PROBE_ROWS]
+            started = time.monotonic()
+            explainer.shap_values(probe)
+            per_row = (time.monotonic() - started) / max(len(probe), 1)
+            if per_row * len(sample) > EXPLAIN_BUDGET_S:
+                values = explainer.shap_values(sample, approximate=True)
+                method = "shap-approximate"
+            else:
+                values = explainer.shap_values(sample)
             weights = np.abs(np.asarray(values)).mean(axis=0)
         except Exception:  # noqa: BLE001 - shap absent or the model is not a tree
             from sklearn.inspection import permutation_importance
@@ -513,7 +655,11 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     lower = upper = None
     try:
         cv = TimeSeriesFold(steps=horizon, initial_train_size=span - folds * horizon, refit=kind == "stats")
-        common = {"cv": cv, "metric": METRICS, "show_progress": False}
+        # skforecast parallelizes a backtest with joblib workers by default; each
+        # one copies the data, and the worker grants a fit a fixed thread budget
+        # (OMP_NUM_THREADS) under a memory ceiling. One budget for both.
+        jobs = max(1, int(os.environ.get("OMP_NUM_THREADS") or 1))
+        common = {"cv": cv, "metric": METRICS, "show_progress": False, "n_jobs": jobs}
         if shape == "panel":
             table, predictions = backtesting_forecaster_multiseries(
                 forecaster, series=series_map, exog=exog_map or None, **common
@@ -668,6 +814,36 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             explanation = {"method": "model", "name": algo.upper(), "parameters": []}
     else:
         explanation = {"method": "naive", "season": season}
+
+    # ---- the regressor alone, one step ahead (skore) --------------------------
+    diagnostic, report_state = None, None
+    if kind == "regression":
+        try:
+            diagnostic, report_state = diagnose_regressor(
+                forecaster,
+                inputs=(
+                    {"series": series_map, "exog": exog_map or None}
+                    if shape == "panel"
+                    else {"series": series_frame, "exog": exog}
+                    if shape == "multivariate"
+                    else {"y": y, "exog": exog}
+                ),
+                direct=isinstance(forecaster, (ForecasterDirect, ForecasterDirectMultiVariate)),
+                report_path=manifest.get("report_path"),
+                limit_bytes=int(float(manifest.get("report_state_limit_mb") or 0) * 1024 * 1024),
+            )
+        except Exception as exc:  # noqa: BLE001 - a diagnostic is evidence, not the fit
+            print(f"ml_forecast_diagnostic_skipped: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+
+    # ---- the anatomy of the series it was fitted on -------------------------
+    plotted_names = [name for name in (sorted(series_map) if shape == "panel" else [target])][:_PLOTTED_SERIES]
+    analyses = []
+    for name in plotted_names:
+        try:
+            analysis = analyse_series(truth[name], season=season, lags=lags)
+        except Exception as exc:  # noqa: BLE001 - analysis is evidence, not the fit
+            analysis = {"error": f"{type(exc).__name__}"}
+        analyses.append({"series": str(name), **analysis})
 
     # ---- where the actuals left the interval ---------------------------------
     outside = bracketed[~inside] if len(bracketed) else bracketed
@@ -862,6 +1038,8 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         "history_tail": history_tail,
         "importances": importances,
         "explanation": explanation,
+        "diagnostic": diagnostic,
+        "analysis": analyses,
         "excursions": {
             "count": len(excursions),
             "share": _number(len(excursions) / len(bracketed)) if len(bracketed) else None,
@@ -879,6 +1057,8 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         "input_example": [],
         "classes": [],
         "artifact": {"serialization": serialization, "sha256": artifact_sha, "code_sha256": _sha256(PYFUNC)},
+        # The skore report's own state, uploaded by the worker like a tabular one.
+        "report_state": report_state,
         "duration_ms": round((time.monotonic() - started) * 1000, 1),
     }
     result_path.write_text(json.dumps(summary, default=str), encoding="utf-8")

@@ -367,3 +367,18 @@ def test_a_forecast_node_pointed_at_a_tabular_model_is_sent_to_the_scoring_node(
     with pytest.raises(TabularError) as caught:
         forecast_serving.submit_forecast_dataset(None, model=tabular, workspace_id="w")
     assert caught.value.code == "ML_USE_PREDICT_ROUTE"
+
+
+def test_a_forecasting_forest_left_unbounded_is_bounded_in_leaves():
+    """Grown to pure leaves on a panel's lag matrix, a forest is gigabytes on
+    disk (measured: 72 cells × 56 days ran a laptop out of space). Left at
+    "auto" depth for a forecast, it gets a leaf budget; a tabular forest and an
+    author's explicit depth are untouched."""
+
+    from app.services.tabular_ml import ALGO_BY_KEY, FORECAST_FOREST_LEAVES, estimator_params
+
+    forest = ALGO_BY_KEY["random_forest"]
+    auto = estimator_params(forest, "forecasting", forest.resolve({}))
+    assert auto["max_depth"] is None and auto["max_leaf_nodes"] == FORECAST_FOREST_LEAVES
+    assert "max_leaf_nodes" not in estimator_params(forest, "regression", forest.resolve({}))
+    assert "max_leaf_nodes" not in estimator_params(forest, "forecasting", forest.resolve({"max_depth": 12}))

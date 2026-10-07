@@ -145,6 +145,8 @@ TASKS = TABULAR.tasks
 # A forecast reuses the tabular regressors on the series' own past; the
 # forecasting family (app.services.ml.families.forecasting) validates it.
 FORECASTING = "forecasting"
+# Leaves per tree of a forecasting forest whose depth the author left open.
+FORECAST_FOREST_LEAVES = 2048
 
 
 def harness_path() -> Path:
@@ -318,6 +320,12 @@ def estimator_params(algo: Algo, task: str, knobs: dict[str, Any]) -> dict[str, 
         # One fit already owns the worker slot; a nested thread pool under
         # RLIMIT_AS buys nothing and costs address space.
         params.setdefault("n_jobs", 1)
+        if task == FORECASTING and params.get("max_depth") is None:
+            # A forecast's training matrix holds every step of every series: a
+            # forest grown to pure leaves on a 72-cell panel is gigabytes on disk
+            # and seconds of SHAP per row. "Unbounded" becomes a bounded number
+            # of leaves per tree, which keeps the depth where the data is dense.
+            params.setdefault("max_leaf_nodes", FORECAST_FOREST_LEAVES)
     return params
 
 

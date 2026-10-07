@@ -69,6 +69,8 @@ def _fit(root: Path, frame: pd.DataFrame, *, algo: str, estimator: str | None, p
         "estimator": estimator,
         "params": params or {},
         "progress_path": str(root / "progress.txt"),
+        "report_path": str(root / "report" / "state.joblib"),
+        "report_state_limit_mb": 64,
     }
     (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     completed = subprocess.run(  # noqa: S603 - our interpreter, our harness
@@ -629,3 +631,85 @@ def test_each_forecast_step_is_base_plus_its_families_exactly(shape, request):
     peak = explanation["peak"]
     assert peak["pred"] == max(row["pred"] for row in answered if row["series"] == explanation["series"])
     assert peak["features"] and abs(peak["features"][0]["contribution"]) >= abs(peak["features"][-1]["contribution"])
+
+
+def test_a_deep_forest_is_explained_approximately_rather_than_for_an_hour(monkeypatch):
+    """Exact tree SHAP costs seconds per row on a deep forest over a large
+    panel. Past the budget the fit explains with Saabas attributions, which
+    still share out the whole forecast, and says it did."""
+
+    from sklearn.ensemble import RandomForestRegressor
+    from skforecast.recursive import ForecasterRecursive
+
+    frame = _one_cell(14).set_index("ts")[TARGET].asfreq("h")
+    forecaster = ForecasterRecursive(estimator=RandomForestRegressor(n_estimators=20, random_state=0), lags=[1, 24])
+    forecaster.fit(y=frame)
+    groups_of = lambda name: harness.feature_group(name, target=TARGET)  # noqa: E731
+    monkeypatch.setattr(harness, "EXPLAIN_BUDGET_S", 0.0)
+    explanation, meta = harness._explain_fit(forecaster, inputs={"y": frame}, direct=False, groups_of=groups_of)
+    assert explanation["method"] == "shap-approximate"
+    assert sum(entry["share"] for entry in explanation["groups"]) == pytest.approx(1.0, abs=1e-6)
+    assert meta["kind"] == "tree"
+
+
+def test_a_served_explanation_stays_additive_when_it_has_to_be_approximate(recursive, monkeypatch):
+    import mlflow.pyfunc
+
+    from app.services.ml import forecast_serving
+    from app.services.ml.forecast_serving import LoadedForecaster, _model_input, explain_forecast
+
+    _ok(recursive)
+    model_dir = recursive["root"] / "model"
+    meta = json.loads((model_dir / "artifacts" / "meta.json").read_text())
+    entry = LoadedForecaster(
+        fingerprint="t", pyfunc=mlflow.pyfunc.load_model(str(model_dir)), meta=meta, load_ms=0.0, directory=model_dir
+    )
+    monkeypatch.setattr(forecast_serving, "_EXPLAIN_BUDGET_S", 0.0)
+    model_input = _model_input([], meta)
+    answered = entry.pyfunc.predict(model_input, params={"horizon": 6}).to_dict(orient="records")
+    explanation = explain_forecast(entry, model_input, steps=6, answered=answered)
+    assert explanation["method"] == "shap-approximate"
+    for step in explanation["steps"]:
+        assert step["base"] + sum(step["groups"].values()) == pytest.approx(step["pred"], abs=1e-6)
+
+
+def test_the_card_reads_the_anatomy_of_the_series_it_was_fitted_on(recursive, panel):
+    """Seasonality and trend strength (STL), autocorrelation at the model's
+    lags and the season's multiples, the lags the PACF would pick, and whether
+    the series is stationary: the evidence a lag choice rests on."""
+
+    analysis = _ok(recursive)["metrics"]["analysis"]
+    assert len(analysis) == 1 and analysis[0]["series"] == TARGET
+    hourly = analysis[0]
+    # Nawa's cells breathe with the day: a strong daily season.
+    assert hourly["stl"]["period"] == 24 and hourly["stl"]["seasonal_strength"] > 0.5
+    lags = {entry["lag"]: entry["value"] for entry in hourly["acf"]}
+    assert {1, 24, 168} <= set(lags) and lags[24] > hourly["confidence"]
+    assert hourly["suggested_lags"] and all(lag >= 1 for lag in hourly["suggested_lags"])
+    assert hourly["adf"]["pvalue"] is not None and isinstance(hourly["adf"]["stationary"], bool)
+    assert [entry["series"] for entry in _ok(panel)["metrics"]["analysis"]] == sorted(
+        {point["series"] for point in _ok(panel)["metrics"]["backtest"]}
+    )
+
+
+
+def test_the_regressor_is_diagnosed_one_step_ahead_by_skore(recursive, direct, ets):
+    """The backtest judges the forecast; skore judges the regressor under it,
+    one step ahead on the most recent rows, and its state can be reopened."""
+
+    import joblib
+    from skore import EstimatorReport
+
+    result = _ok(recursive)
+    diagnostic = result["metrics"]["diagnostic"]
+    scores = {score["key"]: score["value"] for score in diagnostic["scores"]}
+    assert {"r2", "mae", "rmse"} <= set(scores) and scores["r2"] > 0.5
+    assert diagnostic["rows"]["train"] > diagnostic["rows"]["test"] > 0
+    assert len(diagnostic["curves"]["fit"]) > 10 and len(diagnostic["curves"]["ideal"]) == 2
+    assert result["report_state"]["bytes"] > 0 and result["report_state"]["skore"]
+    reopened = EstimatorReport.from_dict(joblib.load(recursive["root"] / "report" / "state.joblib"))
+    assert len(reopened.X_test) == diagnostic["rows"]["test"]
+
+    assert _ok(direct)["metrics"]["diagnostic"]["step"] == 1
+    # A statistical model has no regressor to diagnose.
+    assert _ok(ets)["metrics"]["diagnostic"] is None
