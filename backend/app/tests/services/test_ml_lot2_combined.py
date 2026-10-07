@@ -15,8 +15,8 @@ from app.services.ml.model_structure import inner_pipeline
 from app.tests.services.test_ml_training import _manifest_for, _run_harness
 
 
-@pytest.mark.parametrize("task", ["regression", "classification"])
-def test_search_text_postprocessing_and_explanations_use_the_same_model(tmp_path, task):
+@pytest.mark.parametrize("task,encoder,seed", [("regression", "minhash", 42), ("classification", "minhash", 42), ("regression", "string", 0)])
+def test_search_text_postprocessing_and_explanations_use_the_same_model(tmp_path, task, encoder, seed):
     rng = np.random.default_rng(42)
     size = 2000 if task == "classification" else 1000
     x = pd.DataFrame({"usage": rng.normal(size=size), "balance": rng.normal(size=size)})
@@ -26,13 +26,13 @@ def test_search_text_postprocessing_and_explanations_use_the_same_model(tmp_path
     y = (continuous > 3).astype(int) if task == "classification" else continuous
     path = tmp_path / "dataset.parquet"
     x.assign(target=y, protected_group=groups).to_parquet(path)
-    options = {"tuning": "budget", "text_encoder": "minhash", "explain": "pack", "fairness_columns": ["protected_group"]}
+    options = {"tuning": "budget", "text_encoder": encoder, "explain": "pack", "fairness_columns": ["protected_group"]}
     options.update({"calibration": "sigmoid", "threshold": "f1"} if task == "classification" else {"intervals": "conformal"})
     estimator = "sklearn.linear_model." + ("LogisticRegression" if task == "classification" else "Ridge")
     baseline = {"alpha": 1.0, "max_iter": 500}
     manifest = _manifest_for(path, tmp_path, task=task, target="target", features=list(x.columns),
-        algo="linear", estimator=estimator, params=translate("linear", task, baseline, random_state=42, forest_leaves=2048),
-        spec=options, cv=2, importance_rows=40, tuning={"trials": 5, "budget_s": 30,
+        algo="linear", estimator=estimator, params=translate("linear", task, baseline, random_state=seed, forest_leaves=2048),
+        spec=options, random_state=seed, cv=2, importance_rows=40, tuning={"trials": 5, "budget_s": 30,
             "metric": "roc_auc" if task == "classification" else "r2", "direction": "max", "folds": 3,
             "start": baseline, "space": [{"key": "alpha", "kind": "float", "low": .01, "high": 10, "log": True}],
             "forest_leaves": 2048})
@@ -44,7 +44,9 @@ def test_search_text_postprocessing_and_explanations_use_the_same_model(tmp_path
     assert tuning["elapsed_s"] <= 33
     fitted = mlflow.sklearn.load_model(manifest["model_dir"])
     pipeline = inner_pipeline(fitted)
-    assert type(pipeline.named_steps["tablevectorizer"].high_cardinality).__name__ == "MinHashEncoder"
+    assert type(pipeline.named_steps["tablevectorizer"].high_cardinality).__name__ == ("StringEncoder" if encoder == "string" else "MinHashEncoder")
+    if encoder == "string":
+        assert pipeline.named_steps["tablevectorizer"].high_cardinality.random_state == seed
     assert "protected_group" not in result["metrics"]["columns"]["used"]
     explanation = metrics["explain"]
     assert explanation["error_tree"]["rules"] and explanation["surrogate"]["rules"]
@@ -60,8 +62,8 @@ def test_search_text_postprocessing_and_explanations_use_the_same_model(tmp_path
         assert len(metrics["intervals"]["levels"]) == 3
         # Recompute the baseline with the explicitly selected encoder: tuning
         # must not silently compare StringEncoder and fit MinHash afterwards.
-        x_train, _, y_train, _ = train_test_split(x, y, test_size=.25, random_state=42)
-        base = _make_pipeline(estimator, manifest["params"], spec=options, seed=42)
+        x_train, _, y_train, _ = train_test_split(x, y, test_size=.25, random_state=seed)
+        base = _make_pipeline(estimator, manifest["params"], spec=options, seed=seed)
         expected = cross_val_score(base, x_train, y_train, scoring="r2", cv=_fold_splitter(3, task, y_train), n_jobs=1).mean()
         assert tuning["start"]["score"] == pytest.approx(expected, abs=1e-8)
     json.dumps(result, allow_nan=False)
