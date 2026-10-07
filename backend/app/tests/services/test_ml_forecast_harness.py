@@ -452,3 +452,96 @@ def test_a_trained_forecast_answers_on_demand_and_refuses_a_swapped_artifact(
     with pytest.raises(TabularError) as caught:
         forecast_serving.request_forecast(db_session, row, horizon=6)
     assert caught.value.code == "ML_ARTIFACT_TAMPERED"
+
+
+def test_the_flow_node_writes_every_series_forecast_as_a_dataset(
+    db_session, workspace, store, enabled, monkeypatch  # noqa: F811
+):
+    """train (panel) → the ml_forecast_v1 node → a dataset of series × steps.
+
+    The node runs in the general worker and cannot load a forecast, so it
+    reserves a dataset row, hands the work to the ml-ts worker (eager here) and
+    polls the row. The training node's reference on the wire names the
+    training table: it must not be read as future values."""
+
+    import asyncio
+
+    import polars as pl
+
+    from app.core.config import settings
+    from app.models.tabular import MLModel, TabularDataset
+    from app.services.ml import forecast_serving
+    from app.services.skills_registry.wrappers import _ml_forecast_v1
+    from app.services.tabular_datasets import read_frame, register_frame
+    from app.services.tabular_ml import model_reference, submit_training
+
+    monkeypatch.setattr(settings, "ml_predict_enabled", True)
+    forecast_serving.reset_cache()
+    cells = _cells(3, 21).drop(columns=["site_code", "region"])
+    dataset = register_frame(
+        db_session, workspace_id=workspace.id, name="Cells", frame=pl.from_pandas(cells), source="upload"
+    )
+    db_session.commit()
+    model = submit_training(
+        db_session,
+        workspace_id=workspace.id,
+        dataset_ref={"dataset_id": dataset.id},
+        task="forecasting",
+        target=TARGET,
+        algo="linear",
+        spec={
+            "time_column": "ts",
+            "horizon": 12,
+            "backtest_folds": 2,
+            "shape": "panel",
+            "series_columns": ["cell_id"],
+            "exog": {"technology": "static"},
+        },
+    )
+    db_session.expire_all()
+    row = db_session.query(MLModel).filter_by(id=model.id).one()
+    assert row.status == "ready", row.error
+
+    upstream = {**model_reference(row), "dataset_id": dataset.id}
+    answer = asyncio.run(
+        _ml_forecast_v1(
+            {
+                "model": upstream,
+                "_forecast": {"model_slug": row.slug, "horizon": 6, "interval_level": 0.9, "node_id": "fc"},
+            },
+            {"workspace_id": workspace.id, "run_id": None},
+        )
+    )
+    assert answer["rows"] == 3 * 6
+    assert answer["forecast"]["horizon"] == 6 and answer["forecast"]["series"] == 3
+    peaks = answer["forecast"]["peaks"]
+    assert len(peaks) == 3 and all(peak["upper_bound"] >= peak["pred"] for peak in peaks)
+    # The series most likely to cross a line first comes first.
+    assert peaks[0]["upper_bound"] == max(peak["upper_bound"] for peak in peaks)
+
+    db_session.expire_all()
+    written = db_session.query(TabularDataset).filter_by(id=answer["dataset_id"]).one()
+    assert written.status == "ready" and written.produced_by == "ml_forecast_v1"
+    assert written.lineage_json["kind"] == "forecast"
+    assert written.lineage_json["sources"] == []  # the training table was not taken for the future
+    frame = read_frame(written)
+    assert frame.columns == ["series", "timestamp", "step", "pred", "lower_bound", "upper_bound"]
+    assert sorted(frame["step"].unique().to_list()) == [1, 2, 3, 4, 5, 6]
+    assert (frame["lower_bound"] < frame["upper_bound"]).all()
+
+
+def test_the_flow_node_refuses_an_unknown_model_before_reserving_anything(
+    db_session, workspace, store, enabled, monkeypatch  # noqa: F811
+):
+    import asyncio
+
+    from app.core.config import settings
+    from app.models.tabular import TabularDataset
+    from app.services.skills_registry.wrappers import _ml_forecast_v1
+
+    monkeypatch.setattr(settings, "ml_predict_enabled", True)
+    with pytest.raises(ValueError, match="ML_MODEL_NOT_FOUND"):
+        asyncio.run(_ml_forecast_v1({"_forecast": {"model_slug": "nope"}}, {"workspace_id": workspace.id}))
+    with pytest.raises(ValueError, match="forecast_config_missing"):
+        asyncio.run(_ml_forecast_v1({}, {"workspace_id": workspace.id}))
+    assert db_session.query(TabularDataset).filter_by(produced_by="ml_forecast_v1").count() == 0

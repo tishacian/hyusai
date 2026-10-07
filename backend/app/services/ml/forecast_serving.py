@@ -403,9 +403,243 @@ def public_forecast_path(model: Any) -> str:
     return f"{settings.api_v1_prefix}/ml-models/{model.id}/forecast"
 
 
+# ---------------------------------------------------------------------------
+# A forecast written as a dataset (the Flow node)
+# ---------------------------------------------------------------------------
+
+FORECAST_BATCH_TASK = "agentium.ml_forecast_batch"
+FORECAST_SKILL_SLUG = "ml_forecast_v1"
+# The batch-score step codes, which the Data page already renders: a forecast
+# written as a dataset is read the same way as a scored one.
+FORECAST_STEPS = ("queued", "reading", "scoring", "writing")
+# What the node hands downstream inline: the series most likely to cross a
+# line first, which is what an alert or a summary node reads.
+_PEAKS = 12
+
+
+def submit_forecast_dataset(
+    db: Any,
+    *,
+    model: Any,
+    workspace_id: str,
+    horizon: Any = None,
+    level: Any = None,
+    future: Any = None,
+    output_name: str | None = None,
+    version: Any = None,
+    run_id: str | None = None,
+    node_id: str | None = None,
+) -> Any:
+    """Reserve the dataset a forecast will be written into, and dispatch it.
+
+    The node that calls this runs in the general worker, which cannot load the
+    forecast; the ml-ts serving worker can. So the work crosses the broker, and
+    the reserved row is how the node learns it is done — it polls the row, the
+    way a training node polls its model. Nothing waits on a task result.
+    """
+
+    from app.services.ml.families import get_family
+    from app.services.ml.runtime import serving_availability
+    from app.services.tabular_datasets import reserve_frame
+    from app.services.tabular_predict import serving_version
+
+    served = serving_version(db, model, version=version)
+    family = get_family(served.family)
+    if family.serving == "in_process":
+        raise TabularError(
+            code="ML_USE_PREDICT_ROUTE",
+            message="This model answers rows: use the scoring node.",
+            status_code=409,
+        )
+    available, reason = serving_availability(family, db)
+    if not available:
+        raise TabularError(
+            code="ML_FAMILY_UNAVAILABLE",
+            message="No forecasting worker is listening right now.",
+            status_code=409,
+            details={"family": family.key, "reason": reason},
+        )
+    if future is not None and future.status != "ready":
+        raise TabularError(
+            code="DATASET_NOT_READY",
+            message="The dataset of future values is still being prepared.",
+            status_code=409,
+        )
+    steps = int(horizon or (served.spec_json or {}).get("horizon") or 1)
+    output = reserve_frame(
+        db,
+        workspace_id=workspace_id,
+        name=(output_name or f"{served.name} · forecast +{steps}")[:200],
+        source="score",
+        produced_by=FORECAST_SKILL_SLUG,
+        parent_ids=[future.id] if future is not None else [served.dataset_id] if served.dataset_id else [],
+        run_id=run_id,
+        node_id=node_id,
+        step=FORECAST_STEPS[0],
+        lineage={"kind": "forecast"},
+    )
+    kwargs = {
+        "requested_id": model.id,
+        "horizon": horizon,
+        "level": level,
+        "future_id": future.id if future is not None else None,
+    }
+    if settings.worker_eager_mode:
+        forecast_into(output.id, served.id, **kwargs)
+    else:
+        from app.workers.celery_app import celery_app
+
+        celery_app.send_task(
+            FORECAST_BATCH_TASK, args=[output.id, served.id], kwargs=kwargs, queue=family.serve_queue()
+        )
+    return output
+
+
+def _peaks(frame: Any) -> list[dict[str, Any]]:
+    """Per series, where the forecast peaks and how high its interval goes."""
+
+    peaks = []
+    for name, rows in frame.groupby("series"):
+        top = rows.loc[rows["pred"].idxmax()]
+        peaks.append(
+            {
+                "series": str(name),
+                "timestamp": str(top["timestamp"]),
+                "pred": float(top["pred"]),
+                "upper_bound": float(top["upper_bound"]) if top["upper_bound"] == top["upper_bound"] else None,
+            }
+        )
+    peaks.sort(key=lambda peak: -(peak["upper_bound"] if peak["upper_bound"] is not None else peak["pred"]))
+    return peaks[:_PEAKS]
+
+
+def forecast_into(
+    output_id: str,
+    served_id: str,
+    *,
+    requested_id: str | None = None,
+    horizon: Any = None,
+    level: Any = None,
+    future_id: str | None = None,
+) -> dict[str, Any]:
+    """The task body: forecast every series and settle the reserved row.
+
+    Idempotent on redelivery: a row that is no longer ``ingesting`` was already
+    settled (or retired), so it is left alone rather than written twice.
+    """
+
+    import pandas as pd
+    import polars as pl
+
+    from app.db.base import SessionLocal
+    from app.models.tabular import MLModel, TabularDataset
+    from app.services.tabular_datasets import fail_frame, mark_step, read_frame, register_frame
+    from app.services.tabular_predict import _served_block, journal_call, record_usage
+
+    with SessionLocal() as db:
+        output = db.query(TabularDataset).filter(TabularDataset.id == output_id).first()
+        if output is None or output.status != "ingesting":
+            return {"dataset_id": output_id, "status": getattr(output, "status", "missing")}
+        started = time.monotonic()
+        try:
+            served = db.query(MLModel).filter(MLModel.id == served_id).first()
+            if served is None or served.status != "ready":
+                raise TabularError(code="ML_MODEL_NOT_READY", message="The model is not trained.", status_code=409)
+            requested = db.query(MLModel).filter(MLModel.id == (requested_id or served_id)).first() or served
+            inputs: list[dict[str, Any]] = []
+            future = None
+            if future_id:
+                future = db.query(TabularDataset).filter(TabularDataset.id == future_id).first()
+                if future is None or future.status != "ready":
+                    raise TabularError(
+                        code="DATASET_NOT_READY", message="The dataset of future values is gone.", status_code=409
+                    )
+                if int(future.row_count or 0) > int(settings.ml_forecast_max_rows):
+                    raise TabularError(
+                        code="ML_FORECAST_TOO_MANY_ROWS",
+                        message=f"At most {int(settings.ml_forecast_max_rows):,} rows of future values.",
+                        status_code=413,
+                    )
+                frame_in = read_frame(future).to_pandas()
+                for column in frame_in.columns:
+                    if pd.api.types.is_datetime64_any_dtype(frame_in[column]):
+                        frame_in[column] = frame_in[column].dt.strftime("%Y-%m-%d %H:%M:%S")
+                time_column = (served.spec_json or {}).get("time_column")
+                if time_column and time_column in frame_in.columns and "timestamp" not in frame_in.columns:
+                    frame_in = frame_in.rename(columns={time_column: "timestamp"})
+                series_columns = list((served.spec_json or {}).get("series_columns") or [])
+                if series_columns and "series" not in frame_in.columns and set(series_columns) <= set(frame_in.columns):
+                    frame_in["series"] = frame_in[series_columns].astype(str).agg(" · ".join, axis=1)
+                inputs = frame_in.to_dict(orient="records")
+            db.expunge(served)
+            mark_step(db, output, FORECAST_STEPS[1])
+            result = answer(served, horizon=horizon, level=level, inputs=inputs)
+            mark_step(db, output, FORECAST_STEPS[2])
+            rows = result["forecast"]
+            frame = pd.DataFrame(rows, columns=list(OUTPUT_COLUMNS))
+            frame["timestamp"] = pd.to_datetime(frame["timestamp"], errors="coerce")
+            frame["step"] = frame.groupby("series").cumcount() + 1
+            frame = frame[["series", "timestamp", "step", "pred", "lower_bound", "upper_bound"]]
+            peaks = _peaks(frame)
+            mark_step(db, output, FORECAST_STEPS[3])
+            elapsed_ms = round((time.monotonic() - started) * 1000, 1)
+            output = register_frame(
+                db,
+                workspace_id=output.workspace_id,
+                name=output.name,
+                frame=pl.from_pandas(frame),
+                source="score",
+                produced_by=FORECAST_SKILL_SLUG,
+                parent_ids=list(output.parent_ids or []),
+                into=output,
+                lineage={
+                    "kind": "forecast",
+                    "engine": "skforecast",
+                    "model": {
+                        "model_id": served.id,
+                        "slug": served.slug,
+                        "version": int(served.version or 1),
+                        "task": served.task,
+                        "algo": served.algo,
+                        "target": served.target,
+                    },
+                    "horizon": result["horizon"],
+                    "interval_level": result["interval_level"],
+                    "frequency": result.get("frequency"),
+                    "series": len(result["series"]),
+                    "peaks": peaks,
+                    "sources": [{"dataset_id": future.id, "slug": future.slug}] if future is not None else [],
+                    "duration_ms": elapsed_ms,
+                },
+            )
+            record_usage(db, served, rows=len(rows))
+            journal_call(
+                db,
+                requested=requested,
+                served=served,
+                caller="forecast",
+                rows=inputs or [{"horizon": result["horizon"], "interval_level": result["interval_level"]}],
+                answers=rows,
+                duration_ms=elapsed_ms,
+                dataset_id=output.id,
+            )
+            return {"dataset_id": output.id, "status": "ready", "block": _served_block(served)}
+        except TabularError as exc:
+            fail_frame(db, output, f"{exc.code}: {exc.message}"[:2000])
+            return {"dataset_id": output_id, "status": "failed", "error": exc.payload()}
+        except Exception as exc:  # noqa: BLE001 - the row must not outlive the work
+            logger.exception("forecast_serving: forecast dataset failed", dataset_id=output_id)
+            fail_frame(db, output, f"ML_FORECAST_FAILED: {type(exc).__name__}: {exc}"[:2000])
+            return {"dataset_id": output_id, "status": "failed"}
+
+
 __all__ = [
+    "FORECAST_BATCH_TASK",
+    "FORECAST_SKILL_SLUG",
     "FORECAST_TASK",
     "answer",
+    "forecast_into",
+    "submit_forecast_dataset",
     "answer_for",
     "load_forecaster",
     "public_forecast_path",

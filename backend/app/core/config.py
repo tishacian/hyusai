@@ -683,6 +683,9 @@ class Settings(BaseSettings):
     # worker, and how many rows of future covariates one call may carry.
     ml_forecast_timeout_s: float = Field(default=30.0, ge=1.0, le=300.0)
     ml_forecast_max_rows: int = Field(default=20_000, ge=1, le=500_000)
+    # A Flow node's forecast: the whole panel written as a dataset, by the ml-ts
+    # worker, while the node waits on the dataset row it reserved.
+    ml_forecast_batch_timeout_s: float = Field(default=600.0, ge=10.0, le=7_200.0)
     # Serving. A loaded pyfunc is tens of megabytes of resident pipeline, so the
     # cache is small by design: it exists to make the second prediction of a
     # demo instant, not to hold a workspace's whole registry in memory.

@@ -1366,6 +1366,49 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         },
     },
     {
+        "slug": "ml_forecast_v1",
+        "version": "1",
+        "name": "Forecast Series",
+        # Plain text only: catalog descriptions render verbatim in the UI.
+        "description": (
+            "Forecasts every series of a trained forecasting model over its "
+            "horizon and writes a new versioned dataset: one row per series and "
+            "step, with the forecast and its interval. It also returns, per series, "
+            "when the forecast peaks and how high its interval goes, so an alert "
+            "or a summary node can act on it directly. Values known in advance "
+            "come from a dataset on the wire when the model needs them. The "
+            "version that answers is whichever one currently serves the lineage."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 600_000,
+            "retryable": True,
+            "idempotent": True,
+        },
+        "pricing": {"unit": "per_forecast_dataset", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"dataset_id": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "dataset_id": {"type": "string"},
+                "name": {"type": "string"},
+                "slug": {"type": "string"},
+                "version": {"type": "integer"},
+                "rows": {"type": "integer"},
+                "columns": {"type": "integer"},
+                "model": {"type": "object"},
+                "forecast": {"type": "object"},
+                "duration_ms": {"type": "number"},
+            },
+        },
+    },
+    {
         "slug": "action_plan_create_v1",
         "version": "1",
         "name": "Action Plan Create",
@@ -2858,6 +2901,22 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
         "roi_model": {"type": "time_saved"},
     },
     {
+        # The forecasting family: trained by the same node as a tabular model
+        # (its spec says forecasting), served by its own node.
+        "slug": "time_series_models",
+        "name": "Time Series Forecasting",
+        "tier": "universal",
+        "description": "No-code forecasting over dated workspace datasets: one series, a panel of similar series or one series from others, with lags, calendar features and covariates known in advance. Every model is judged by backtesting against repeating the last season, carries a calibrated interval, and is versioned in the same MLflow lineage as a tabular model; its champion forecasts every series into a dataset a Flow can alert on.",
+        "input_unit": "dataset",
+        "output_unit": "forecast",
+        "skill_slugs": ["ml_forecast_v1"],
+        "pricing": {"unit": "per_forecast", "unit_price": 0.02, "currency": "USD"},
+        "value_per_outcome": 4.00,
+        "confidence_threshold": 0.60,
+        "sla": {"max_latency_ms": 600_000},
+        "roi_model": {"type": "time_saved"},
+    },
+    {
         # Carrier of News Lab, a neutral watch every workspace may create: no
         # industry tag (the explicit None clears the one earlier seeds wrote).
         "slug": "market_signal_brief",
@@ -3303,6 +3362,7 @@ SKILL_CATEGORIES: Dict[str, str] = {
     "maritime_snapshot_read_v1": "Connections",
     "ministerial_briefing_v1": "LLM",
     "ml_batch_score_v1": "Models",
+    "ml_forecast_v1": "Models",
     "ml_predict_v1": "Models",
     "ml_train_sklearn_v1": "Models",
     "multi_hop_retrieve_v1": "Retrieval",
