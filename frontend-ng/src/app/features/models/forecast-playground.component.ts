@@ -25,6 +25,7 @@ import { FormsModule } from '@angular/forms';
 import { I18nService } from '@app/core/i18n.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { ForecastChartComponent } from '@app/features/data/viz/forecast-chart.component';
+import { BarListComponent } from '@app/features/data/viz/bar-list.component';
 import {
   forecastChartSeries,
   formatForecastStamp,
@@ -32,7 +33,9 @@ import {
 import { ModelsService } from './models.service';
 import {
   answerPoints,
+  contributionBars,
   forecastPeak,
+  peakFeatureBars,
   forecastRequest,
   futureStamps,
   isForecast,
@@ -46,7 +49,7 @@ import { servingErrorKey, type ModelDto, type ServingBlock } from './models.vm';
   selector: 'ck-forecast-playground',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, ForecastChartComponent],
+  imports: [FormsModule, IconComponent, ForecastChartComponent, BarListComponent],
   template: `
     <div class="ck-fplay" data-testid="forecast-playground">
       <section class="ck-panel">
@@ -157,6 +160,24 @@ import { servingErrorKey, type ModelDto, type ServingBlock } from './models.vm';
           @if (peakLine(); as line) {
             <div class="ck-fplay__peak" data-testid="forecast-peak">{{ line }}</div>
           }
+          <!-- Why it peaks: the base the model starts from, what each family
+               added or took away, and the strongest features themselves. -->
+          @if (answer()?.explanation?.peak; as peak) {
+            <div class="ck-fplay__why" data-testid="forecast-why">
+              <div class="ck-section-label">{{ i18n.t('models.explain.peak.title') }}</div>
+              <p class="ck-fplay__sentence">{{ whySentence() }}</p>
+              <div class="ck-fplay__why-grid">
+                <div>
+                  <div class="ck-fplay__label">{{ i18n.t('models.explain.peak.groups') }}</div>
+                  <ck-bar-list [bars]="whyGroups()" />
+                </div>
+                <div>
+                  <div class="ck-fplay__label">{{ i18n.t('models.explain.peak.features') }}</div>
+                  <ck-bar-list [bars]="whyFeatures()" />
+                </div>
+              </div>
+            </div>
+          }
         } @else {
           <div class="ck-hint">{{ i18n.t('models.play.forecast.empty') }}</div>
         }
@@ -166,6 +187,7 @@ import { servingErrorKey, type ModelDto, type ServingBlock } from './models.vm';
   styles: [
     `
       .ck-fplay {
+        container-type: inline-size;
         display: grid;
         grid-template-columns: minmax(0, 1fr);
         gap: 12px;
@@ -228,6 +250,26 @@ import { servingErrorKey, type ModelDto, type ServingBlock } from './models.vm';
         margin-top: 8px;
         font-size: 11px;
         color: var(--ck-signal-neg, #ef5a6f);
+      }
+      .ck-fplay__why {
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.06));
+      }
+      .ck-fplay__sentence {
+        font-size: 12px;
+        color: var(--ck-fg-2, #c3c9d4);
+        margin: 0 0 10px;
+      }
+      .ck-fplay__why-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 14px;
+      }
+      @container (min-width: 720px) {
+        .ck-fplay__why-grid {
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        }
       }
       .ck-fplay__peak {
         margin-top: 8px;
@@ -294,6 +336,7 @@ export class ForecastPlaygroundComponent {
       series: this.levels().length > 1 ? this.series() || this.levels()[0] : null,
       covariates,
       stamps: this.stamps(),
+      explain: true,
     });
   });
 
@@ -321,6 +364,29 @@ export class ForecastPlaygroundComponent {
       upper: peak.upper !== null ? this.valueFormat(peak.upper) : '',
       when: formatForecastStamp(peak.t, this.frequency(), this.i18n.locale()),
       level: this.percent(this.answer()?.interval_level ?? this.level()),
+    });
+  });
+
+  private readonly translate = (key: string, params?: Record<string, string | number>): string =>
+    this.i18n.t(key, params);
+
+  protected readonly whyGroups = computed(() =>
+    contributionBars(this.answer()?.explanation?.peak, this.translate, this.valueFormat),
+  );
+
+  protected readonly whyFeatures = computed(() =>
+    peakFeatureBars(this.answer()?.explanation, this.frequency(), this.translate, this.valueFormat),
+  );
+
+  protected readonly whySentence = computed(() => {
+    const explanation = this.answer()?.explanation;
+    const peak = explanation?.peak;
+    if (!explanation || !peak) return '';
+    return this.i18n.t('models.explain.peak.sentence', {
+      base: this.valueFormat(peak.base),
+      series: explanation.series,
+      pred: this.valueFormat(peak.pred ?? 0),
+      when: formatForecastStamp(peak.timestamp, this.frequency(), this.i18n.locale()),
     });
   });
 

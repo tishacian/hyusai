@@ -17,6 +17,13 @@ import {
   covariateCandidates,
   coverageTone,
   answerPoints,
+  contributionBars,
+  excursionsOf,
+  featureLabel,
+  groupShareBars,
+  lagBars,
+  lagSpan,
+  peakFeatureBars,
   forecastCurlSnippet,
   forecastPeak,
   forecastRequest,
@@ -289,4 +296,73 @@ test('an on-demand forecast leaves from the latest actuals, not from the backtes
   const recent = recentActuals(METRICS, 'A');
   assert.deepEqual(recent.map((point) => point.value), [10, 11, 12, 13]);
   assert.deepEqual(recentActuals(METRICS, 'A', 2).map((point) => point.t), ['2026-08-01 02:00:00', '2026-08-01 03:00:00']);
+});
+
+// ---------------------------------------------------------------------------
+// Explanations
+// ---------------------------------------------------------------------------
+
+const t = (key: string, params?: Record<string, string | number>) =>
+  params ? `${key}(${Object.values(params).join(',')})` : key;
+
+test('a lag is read in the unit its frequency is thought in', () => {
+  assert.deepEqual(lagSpan(168, 'h'), { unit: 'days', n: 7 });
+  assert.deepEqual(lagSpan(3, 'h'), { unit: 'hours', n: 3 });
+  assert.deepEqual(lagSpan(28, 'D'), { unit: 'weeks', n: 4 });
+  assert.deepEqual(lagSpan(12, 'MS'), { unit: 'years', n: 1 });
+  assert.deepEqual(lagSpan(5, null), { unit: 'steps', n: 5 });
+});
+
+test('features are named for a reader, not for the matrix', () => {
+  assert.equal(featureLabel('lag_168', 'lags', 'h', t), 't−168 (models.explain.span.days(7))');
+  assert.equal(featureLabel('active_users_lag_1', 'past', 'h', t), 'active_users · t−1 (models.explain.span.hours(1))');
+  assert.equal(featureLabel('hour_sin', 'calendar', 'h', t), 'models.explain.calendar.hour');
+  assert.equal(featureLabel('day_of_week_cos_step_3', 'calendar', 'h', t), 'models.explain.calendar.day_of_week');
+  assert.equal(featureLabel('_level_skforecast', 'series', 'h', t), 'models.explain.feature.series');
+  assert.equal(featureLabel('maintenance', 'future', 'h', t), 'maintenance');
+});
+
+test('a fit reads as families, strongest first, and as the past it repeats', () => {
+  const explanation = {
+    method: 'shap' as const,
+    groups: [
+      { group: 'lags' as const, share: 0.88 },
+      { group: 'calendar' as const, share: 0.09 },
+      { group: 'static' as const, share: 0 },
+    ],
+    lags: [
+      { lag: 1, value: 1 },
+      { lag: 24, value: 5 },
+      { lag: 168, value: 8 },
+    ],
+  };
+  const groups = groupShareBars(explanation, t, (share) => `${Math.round(share * 100)}%`);
+  assert.deepEqual(groups.map((bar) => bar.label), ['models.explain.group.lags', 'models.explain.group.calendar']);
+  // A reading, not an alert: no warn-toned emphasis on the dominant family.
+  assert.ok(groups.every((bar) => !bar.emphasis));
+  const lags = lagBars(explanation, 'h', t, String);
+  assert.deepEqual(lags.map((bar) => bar.width), [13, 63, 100]);
+});
+
+test('the peak reads as signed contributions on top of the base', () => {
+  const step = { step: 3, timestamp: 't', pred: 52, base: 40, groups: { lags: 14, calendar: -2 } };
+  const bars = contributionBars(step, t, String);
+  assert.deepEqual(bars.map((bar) => [bar.label, bar.display, bar.negative]), [
+    ['models.explain.group.lags', '+14', false],
+    ['models.explain.group.calendar', '−2', true],
+  ]);
+  const features = peakFeatureBars(
+    {
+      series: 'A',
+      method: 'shap',
+      steps: [step],
+      peak: { ...step, features: [{ feature: 'lag_24', group: 'lags', contribution: 9, value: 61 }] },
+    },
+    'h',
+    t,
+    String,
+  );
+  assert.equal(features[0].label, 't−24 (models.explain.span.days(1))');
+  assert.equal(features[0].display, '+9');
+  assert.equal(excursionsOf({ task: 'forecasting', excursions: { count: 0, share: 0, points: [] } }).length, 0);
 });
