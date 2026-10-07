@@ -13,6 +13,20 @@ from app.resources.ml_knob_translation import translate
 from app.resources.ml_train_harness import _fold_splitter, _make_pipeline
 from app.services.ml.model_structure import inner_pipeline
 from app.tests.services.test_ml_training import _manifest_for, _run_harness
+from app.tests.services.test_ml_training import dataset, enabled, store, workspace  # noqa: F401
+
+
+@pytest.mark.parametrize("task,target", [("regression", "arpu"), ("classification", "churn")])
+def test_joint_spec_keeps_shared_options_when_switching_target(dataset, enabled, task, target):
+    from app.services.tabular_ml import validate_training
+    shared = {"tuning": "budget", "tuning_trials": 5, "tuning_budget_s": 30,
+              "text_encoder": "minhash", "explain": "pack", "fairness_columns": ["region"]}
+    spec = validate_training(dataset, task=task, target=target, spec={
+        **shared, "intervals": "conformal", "calibration": "sigmoid", "threshold": "f1",
+    })
+    specific = {"intervals": "conformal"} if task == "regression" else {"calibration": "sigmoid", "threshold": "f1"}
+    assert spec.spec == {**shared, **specific}
+    assert "task" not in spec.spec
 
 
 @pytest.mark.parametrize("task,encoder,seed", [("regression", "minhash", 42), ("classification", "minhash", 42), ("regression", "string", 0)])
