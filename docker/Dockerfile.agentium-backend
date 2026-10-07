@@ -31,42 +31,18 @@ COPY backend/requirements.txt backend/constraints-demo-app.txt /tmp/requirements
 RUN pip install --no-cache-dir \
     --constraint=/tmp/requirements/constraints-demo-app.txt \
     --index-url=${PIP_INDEX_URL} \
-    -r /tmp/requirements/requirements.txt
+    -r /tmp/requirements/requirements.txt \
+    && pip check
 
 # Cross-encoder files for the RAG rerank stage (ONNX export + tokenizer), baked
 # from a manifest that pins each file by revision and sha256: no process
 # downloads a model at start-up, and an air-gapped host runs the bytes the
-# release qualified. Placed before torch so it stays in the shared prefix once
-# the API image no longer installs torch. RAG_MODELS_BASE_URL selects a mirror.
+# release qualified. ONNX Runtime scores them, so the API needs no torch.
+# RAG_MODELS_BASE_URL selects a mirror.
 ARG RAG_MODELS_BASE_URL=
 COPY backend/rag_models.lock.json backend/scripts/fetch_rag_models.py /tmp/rag-models/
 RUN python /tmp/rag-models/fetch_rag_models.py \
         --manifest /tmp/rag-models/rag_models.lock.json --dest /opt/agentium-models
-
-# torch + transformers back the torch rerank engine (FlashReranker), kept as
-# the fallback behind rag_reranker_backend until the ONNX engine above is
-# qualified on the VM; the next step removes them from this image.
-# Install torch from the PyTorch CPU index (serves +cpu wheels exclusively),
-# avoiding the multi-GB CUDA build pulled by the default PyPI wheel.
-#
-# torchvision comes from the same index, and for the same reason it has to: it
-# must be the +cpu build matching this torch, or its compiled ops are absent
-# and importing it raises "operator torchvision::nms does not exist". It is
-# here because transformers treats it as a peer of torch — several of its image
-# processors import it at module scope — and its lazy __getattr__ imports those
-# modules on demand. Any module scan in this process therefore walks into them:
-# skops builds its trusted-type tables at import by asking every resident
-# module whether it owns a name, which is the same walk pickle.whichmodule
-# does, and without torchvision that walk raised ModuleNotFoundError and no
-# model could be deserialised for /predict.
-RUN pip install --no-cache-dir torch torchvision \
-        --constraint=/tmp/requirements/constraints-demo-app.txt \
-        --index-url=https://download.pytorch.org/whl/cpu \
-    && pip install --no-cache-dir \
-        --constraint=/tmp/requirements/constraints-demo-app.txt \
-        --index-url=${PIP_INDEX_URL} \
-        "transformers>=4.41.0" \
-    && pip check
 
 # ---- image-specific layers ----
 

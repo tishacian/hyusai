@@ -22,10 +22,11 @@ def host(monkeypatch):
 @pytest.mark.parametrize(
     ("setting", "torch", "onnx", "expected"),
     [
-        ("auto", True, True, "torch"),  # an image keeps the engine it was qualified with
-        ("auto", False, True, "onnx"),  # an image without torch reranks on ONNX
+        ("auto", True, True, "onnx"),  # ONNX was qualified on the host: it wins
+        ("auto", False, True, "onnx"),  # the API image, which has no torch
+        ("auto", True, False, "torch"),  # files or runtime missing: the fallback
         ("onnx", True, True, "onnx"),
-        ("torch", True, False, "torch"),
+        ("torch", True, True, "torch"),  # forced back to the fallback engine
         ("torch", False, False, "torch"),  # forced: FlashReranker's ImportError reports it
         ("AUTO ", False, True, "onnx"),
     ],
@@ -36,12 +37,14 @@ def test_backend_selection(host, monkeypatch, setting, torch, onnx, expected):
     assert rerankers.reranker_backend(MODEL) == expected
 
 
-@pytest.mark.parametrize("setting", ["auto", "onnx"])
-def test_no_engine_is_an_import_error_callers_already_degrade_on(host, monkeypatch, setting):
-    host.update(torch=False, onnx=False)
+@pytest.mark.parametrize(("setting", "torch"), [("auto", False), ("onnx", False), ("onnx", True)])
+def test_no_engine_is_an_import_error_callers_already_degrade_on(host, monkeypatch, setting, torch):
+    host.update(torch=torch, onnx=False)
     monkeypatch.setattr(rerankers.settings, "rag_reranker_backend", setting)
-    with pytest.raises(ImportError, match="No cross-encoder engine"):
+    with pytest.raises(ImportError, match="No cross-encoder engine") as error:
         rerankers.reranker_backend(MODEL)
+    # The message names what is missing, not what is not.
+    assert ("torch/transformers are not installed" in str(error.value)) is (setting == "auto")
 
 
 def test_unknown_setting_is_refused(host, monkeypatch):

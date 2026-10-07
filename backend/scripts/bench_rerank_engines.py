@@ -7,8 +7,11 @@ For the balanced and deep profiles it measures, each engine in its own process
 so their thread pools do not contend: agreement with the model card's published
 logits, agreement between the two engines on reference passages (scores and
 order), and p50/p95 latency at the profile's candidate count and max length.
-It prints a verdict: switch with RAG_RERANKER_BACKEND=onnx only when ONNX
-matches and fits the balanced budget at least as well as torch does.
+
+ONNX is the default engine (RAG_RERANKER_BACKEND=auto) and the API image has
+no torch, so run this in the worker, which still has both. If ONNX stops
+qualifying on a host, RAG_RERANKER_BACKEND=torch moves the worker back while
+the API image is rebuilt with torch.
 """
 from __future__ import annotations
 
@@ -124,7 +127,12 @@ def main() -> int:
             ok = ok and onnx["p95"] <= budget_ms
         qualified = qualified and ok
         print(f"  verdict: {'ONNX qualified' if ok else 'ONNX NOT qualified'}")
-    print("\nRecommendation:", "set RAG_RERANKER_BACKEND=onnx" if qualified else "keep torch")
+    print(
+        "\nVerdict:",
+        "ONNX qualified — keep RAG_RERANKER_BACKEND=auto"
+        if qualified
+        else "ONNX NOT qualified — set RAG_RERANKER_BACKEND=torch on the worker and rebuild the API with torch",
+    )
     return 0 if qualified else 1
 
 
