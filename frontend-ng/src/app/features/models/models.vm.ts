@@ -865,7 +865,7 @@ export interface TrainingPlan {
   test_size: number;
   cross_validation: number;
   name: string;
-  warnings: { code: string; feature?: string }[];
+  warnings: { code: string; feature?: string; field?: string; task?: ModelTask }[];
   rows: number;
 }
 
@@ -1657,7 +1657,7 @@ export function servingErrorKey(code: string | undefined | null): string | null 
   return `models.serving.error.${code.toLowerCase()}`;
 }
 
-export const PLAN_WARNING_CODES = ['ML_FEATURE_IDENTIFIER'] as const;
+export const PLAN_WARNING_CODES = ['ML_FEATURE_IDENTIFIER', 'ML_SPEC_FIELD_IGNORED'] as const;
 
 export function warningKey(code: string | undefined | null): string | null {
   if (!code || !PLAN_WARNING_CODES.includes(code as (typeof PLAN_WARNING_CODES)[number])) {
@@ -1702,9 +1702,12 @@ export function splitError(error: string | undefined | null): {
 export const TRAIN_STEPS: readonly string[] = [
   'queued',
   'reading',
+  'tuning',
   'fitting',
+  'calibrating',
   'scoring',
   'validating',
+  'explaining',
   'saving',
 ];
 
@@ -1797,6 +1800,7 @@ export function trainChecklist(
   requestedFolds: number | null | undefined,
   locale = 'en',
   task?: ModelTask | null,
+  spec?: Record<string, unknown> | null,
 ): TrainStep[] {
   const forecast = task === 'forecasting';
   // The step that counts folds: a cross-validation, or a forecast's backtest
@@ -1807,11 +1811,18 @@ export function trainChecklist(
     : Number(requestedFolds) >= 2
       ? Math.round(Number(requestedFolds))
       : 0;
+  const parsed = parseTrainDetail(detail);
+  const optional: Record<string, boolean> = {
+    tuning: spec?.['tuning'] === 'budget',
+    calibrating: (task === 'regression' && spec?.['intervals'] === 'conformal') ||
+      (task === 'classification' && ['auto', 'sigmoid', 'isotonic'].includes(String(spec?.['calibration']))),
+    explaining: spec?.['explain'] === 'pack',
+  };
   const steps = forecast
     ? [...FORECAST_TRAIN_STEPS]
-    : TRAIN_STEPS.filter((step) => step !== 'validating' || folds >= 2);
+    : TRAIN_STEPS.filter((step) => (step !== 'validating' || folds >= 2) &&
+      (!(step in optional) || optional[step] || parsed.step === step));
   const terminal = status === 'ready' || status === 'failed' || status === 'cancelled';
-  const parsed = parseTrainDetail(detail);
   const claimed = (detail ?? '').trim() ? parsed.step : null;
   const at = terminal
     ? steps.length
@@ -1823,9 +1834,9 @@ export function trainChecklist(
     // settled row it would freeze on the last one and still read as one.
     const withRows = step === 'fitting' && parsed.rows !== null;
     const onFold =
-      step === foldStep &&
+      (step === foldStep || step === 'tuning' || step === 'calibrating') &&
       !terminal &&
-      parsed.step === foldStep &&
+      parsed.step === step &&
       parsed.fold !== null;
     const params: Record<string, string | number> = {};
     if (withRows) params['rows'] = (parsed.rows as number).toLocaleString(locale);

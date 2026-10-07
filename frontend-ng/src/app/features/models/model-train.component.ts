@@ -71,6 +71,8 @@ import {
   type ForecastDraft,
 } from './forecast.vm';
 import { ForecastSpecComponent } from './forecast-spec.component';
+import { TabularOptionsComponent } from './tabular-options.component';
+import { tabularFields, tabularSpec } from './tabular-options.vm';
 
 /** How long the form waits before asking the server what a choice implies. */
 const PLAN_DEBOUNCE_MS = 220;
@@ -100,6 +102,7 @@ export interface TrainSeed {
     FormsModule,
     IconComponent,
     ForecastSpecComponent,
+    TabularOptionsComponent,
   ],
   template: `
     <div class="fixed inset-0 z-50 flex items-start justify-center p-4 md:p-6 overflow-auto">
@@ -414,6 +417,7 @@ export interface TrainSeed {
                 </select>
                 <div class="ck-hint">{{ i18n.t('models.studio.cv.hint') }}</div>
               </div>
+              <ck-tabular-options [fields]="tabularFields()" [spec]="tabularDraft()" [task]="effectiveTask()" [columns]="columns()" [target]="target()" [refusal]="refusalFor('spec')" (specChange)="onTabularSpec($event)" />
               }
 
               <div class="ck-field">
@@ -800,6 +804,8 @@ export class ModelTrainComponent implements OnInit {
   /** A forecast's problem definition as the author is choosing it. */
   private readonly forecastDraft = signal<ForecastDraft>({ ...DEFAULT_FORECAST_DRAFT, exog: {} });
   private readonly knobOverrides = signal<Record<string, number>>({});
+  protected readonly tabularDraft = signal<Record<string, unknown>>({});
+  protected readonly tabularFields = computed(() => tabularFields(this.catalog(), this.effectiveTask()));
 
   private planTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -942,6 +948,7 @@ export class ModelTrainComponent implements OnInit {
     if (seed?.testSize) this.testSize.set(seed.testSize);
     if (seed?.crossValidation) this.crossValidation.set(seed.crossValidation);
     if (seed?.task === FORECASTING_TASK) this.forecastDraft.set(draftFromSpec(seed.spec));
+    else this.tabularDraft.set({ ...seed?.spec });
     if (seed?.knobs) {
       const knobs: Record<string, number> = {};
       for (const [key, value] of Object.entries(seed.knobs)) {
@@ -978,6 +985,7 @@ export class ModelTrainComponent implements OnInit {
     this.taskOverride.set(null);
     this.featureOverride.set(null);
     this.forecastDraft.set({ ...DEFAULT_FORECAST_DRAFT, exog: {} });
+    this.tabularDraft.set({});
     this.columns.set([]);
     this.plan.set(null);
     this.refusal.set(null);
@@ -1091,10 +1099,10 @@ export class ModelTrainComponent implements OnInit {
     return this.refusalMessage(refusal);
   }
 
-  protected warningMessage(warning: { code: string; feature?: string }): string {
+  protected warningMessage(warning: { code: string; feature?: string; field?: string }): string {
     const key = warningKey(warning.code);
     if (!key) return warning.code;
-    return this.i18n.t(key, { feature: warning.feature ?? '' });
+    return this.i18n.t(key, { feature: warning.feature ?? '', field: warning.field ?? '' });
   }
 
   protected patchDraft(patch: Partial<ForecastDraft>): void {
@@ -1103,9 +1111,16 @@ export class ModelTrainComponent implements OnInit {
     this.schedulePlan();
   }
 
-  /** The spec a forecasting request carries; nothing for a tabular one. */
+  protected onTabularSpec(spec: Record<string, unknown>): void {
+    this.tabularDraft.set(spec);
+    this.schedulePlan();
+  }
+
+  /** Catalog fields only: old servers and the empty tabular catalog keep an empty spec. */
   private specPayload(): { spec?: Record<string, unknown> } {
-    return this.isForecasting() ? { spec: forecastSpec(this.draft(), this.algoKey()) } : {};
+    if (this.isForecasting()) return { spec: forecastSpec(this.draft(), this.algoKey()) };
+    const spec = tabularSpec(this.tabularFields(), this.tabularDraft(), this.effectiveTask());
+    return Object.keys(spec).length ? { spec } : {};
   }
 
   protected async submit(): Promise<void> {
@@ -1121,9 +1136,9 @@ export class ModelTrainComponent implements OnInit {
         algo: preview.algo,
         knobs: this.knobPayload(),
         // A forecast is judged by its backtest, not by a random split.
-        ...(this.isForecasting()
-          ? this.specPayload()
-          : { test_size: this.testSize(), cross_validation: this.crossValidation() }),
+        ...this.specPayload(),
+        ...(!this.isForecasting()
+          ? { test_size: this.testSize(), cross_validation: this.crossValidation() } : {}),
         ...(this.name().trim() ? { name: this.name().trim() } : {}),
       });
       this.toast.info(this.i18n.t('models.studio.queued', { name: model.name }));
