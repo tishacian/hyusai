@@ -546,7 +546,8 @@ def monitoring_view(db, model):
             binding = job.input_ref
             proposals.append({"id": job.id, "status": job.status, "stage": job.stage, "error": job.error,
                 "created_at": job.created_at.isoformat(), "run_id": job.run_id, "decision_id": job.result.get("decision_id"),
-                "model_id": job.result.get("model_id"), "source_model_id": model.id, "source_version": binding["model_version"],
+                "model_id": job.result.get("model_id"), "source_model_id": model.id, "source_model_name": binding["model_name"],
+                "source_version": binding["model_version"],
                 "dataset_id": binding["dataset_id"], "dataset_version": binding["dataset_version"],
                 "dataset_sha256": binding["dataset_sha256"], "labeled_rows": binding["labeled_rows"], "training": binding["training"], "evidence": binding.get("evidence")})
     return {"supported": (model.family or "tabular") == "tabular" and model.task in {"classification", "regression"},
