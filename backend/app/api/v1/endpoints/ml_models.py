@@ -42,6 +42,7 @@ from app.models.tabular import MLModel, TabularDataset
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services import ml_comparison
+from app.services.ml_shadow import ShadowConfig
 from app.services.tabular_datasets import (
     TabularError,
     resolve_dataset_ref,
@@ -656,6 +657,7 @@ def _monitoring_for(db, *, model, workspace, user):
     from app.services.mlops_jobs import can_configure_mlops
     result = monitoring_report(db, model=model)
     result["scheduled"]["can_configure"] = can_configure_mlops(db, workspace=workspace, user=user, admin_only=True)
+    result["shadow"]["can_configure"] = can_configure_mlops(db, workspace=workspace, user=user)
     return result
 
 
@@ -690,6 +692,30 @@ async def get_monitoring(
     except TabularError as exc:
         _raise_tabular(exc)
     return {"monitoring": _monitoring_for(db, model=model, workspace=workspace, user=user)}
+
+
+
+@router.post("/{model_id}/shadow")
+async def configure_shadow(
+    model_id: str,
+    body: ShadowConfig,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    from app.services.mlops_jobs import can_configure_mlops
+    from app.services.ml_shadow import configure, summary
+
+    try:
+        model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        if not can_configure_mlops(db, workspace=workspace, user=user):
+            raise TabularError(code="ML_SHADOW_FORBIDDEN", message="A workspace contributor or administrator must configure shadow scoring.", status_code=403)
+        configure(db, model=model, config=body)
+    except TabularError as exc:
+        _raise_tabular(exc)
+    result = summary(db, model=model)
+    result["can_configure"] = True
+    return {"shadow": result}
 
 
 @router.post("/{model_id}/feedback")

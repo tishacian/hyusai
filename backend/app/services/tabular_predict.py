@@ -975,6 +975,17 @@ def journal_call(
         dataset_id=dataset_id,
     )
     db.add(row)
+    db.flush()
+    # The primary journal remains authoritative if shadow staging fails. No
+    # broker call or challenger inference runs on the serving request path.
+    try:
+        from app.services.ml_shadow import stage
+
+        with db.begin_nested():
+            stage(db, row=row, served=served)
+    except Exception:  # shadow availability must never fail a served answer
+        logger.warning("tabular_predict: shadow intention skipped", prediction_id=row.id)
+        row.scores_json = {**(row.scores_json or {}), "shadow": {"status": "skipped", "error": "ML_SHADOW_STAGE_FAILED"}}
     db.commit()
     return row.id
 

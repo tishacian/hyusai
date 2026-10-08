@@ -411,6 +411,8 @@ def report(db: DBSession, *, model: MLModel) -> dict[str, Any]:
 
     from app.services.ml_retraining import monitoring_view
 
+    from app.services.ml_shadow import summary as shadow_summary
+
     rows = _recent(db, model)
     dataset = (
         db.query(TabularDataset).filter(TabularDataset.id == model.dataset_id,
@@ -444,6 +446,8 @@ def report(db: DBSession, *, model: MLModel) -> dict[str, Any]:
         "score_drift": scores,
         "concept_drift": concept,
         "scheduled": monitoring_view(db, model),
+
+        "shadow": shadow_summary(db, model=model),
     }
 
 
