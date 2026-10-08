@@ -499,6 +499,15 @@ def validate_training(
         )
 
     chosen_task = str(task or "").strip() or infer_task(dataset, label)
+    lineage = dataset.lineage_json if isinstance(dataset.lineage_json, dict) else {}
+    labeling = lineage.get("labeling") if isinstance(lineage.get("labeling"), dict) else {}
+    if (chosen_task == CLASSIFICATION and dataset.produced_by == "llm_label_dataset_v1"
+            and labeling.get("label_column") == label):
+        raise TabularError(
+            code="ML_LABEL_REVIEW_REQUIRED",
+            message="Confirm the generated labels through human review before training this target.",
+            status_code=409,
+        )
     family = family_of_task(chosen_task)
     if family is None or (family is not TABULAR and family.validator is None):
         raise TabularError(
@@ -527,6 +536,14 @@ def validate_training(
             message=str(exc),
             details={"field": exc.field},
         ) from exc
+    review = lineage.get("label_review") if isinstance(lineage.get("label_review"), dict) else {}
+    if (problem.get("distillation_inference_cost_per_1000") is not None
+            and (dataset.produced_by != "llm_label_review_v1" or review.get("label_column") != label)):
+        raise TabularError(
+            code="ML_DISTILLATION_SOURCE_REQUIRED",
+            message="Declare inference cost only when training the confirmed target of a reviewed LLM dataset.",
+            details={"field": "distillation_inference_cost_per_1000"},
+        )
     if family is not TABULAR:
         return family.validator(
             dataset,
@@ -815,6 +832,11 @@ def create_model(
 ) -> MLModel:
     """Stage one training run as a ``pending`` model row (not yet dispatched)."""
 
+    distillation = _distillation_provenance(db, spec.dataset, spec.task, spec.target)
+    if distillation is not None:
+        from app.resources.ml_distillation import snapshot
+
+        distillation = snapshot(distillation)
     slug = slugify(spec.name, fallback="model")
     # Publication is a lineage fact stored per row, so a version born after
     # it must inherit it or its card would deny what its siblings report —
@@ -841,6 +863,7 @@ def create_model(
             "estimator_params": estimator_params(spec.algo, spec.task, spec.knobs),
             "scale": bool(spec.algo.scale),
             "warnings": list(spec.warnings),
+            **({"distillation": distillation} if distillation is not None else {}),
             **({"tuning": tuning_configuration(spec)} if spec.spec.get("tuning") == "budget" else {}),
         },
         status="pending",
@@ -865,6 +888,28 @@ def create_model(
     db.add(model)
     db.flush()
     return model
+
+
+def _distillation_provenance(db, dataset, task, target):
+    if task != CLASSIFICATION or dataset.produced_by not in {
+        "llm_label_dataset_v1", "llm_label_review_v1"
+    }:
+        return None
+    from app.services.llm_label_review import training_provenance
+
+    provenance = training_provenance(db, dataset, target)
+    if provenance is not None:
+        from app.resources.ml_distillation import validate
+
+        try:
+            validate(provenance, rows=dataset.row_count, target=target, task=task)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise TabularError(
+                code="ML_LABEL_REVIEW_INVALID",
+                message="The confirmed labels do not match the training dataset.",
+                status_code=409,
+            ) from exc
+    return provenance
 
 
 def _next_model_version(db: DBSession, *, workspace_id: str, slug: str) -> int:
@@ -1478,7 +1523,9 @@ def clamp_timeout(value: Any) -> float:
     return min(timeout, float(settings.ml_train_timeout_s))
 
 
-def _write_manifest(scratch: Path, model: MLModel, data_path: Path) -> Path:
+def _write_manifest(
+    scratch: Path, model: MLModel, data_path: Path, *, distillation: dict | None = None
+) -> Path:
     params = dict(model.params_json or {})
     manifest = {
         "family": model.family or TABULAR.key,
@@ -1505,6 +1552,8 @@ def _write_manifest(scratch: Path, model: MLModel, data_path: Path) -> Path:
     }
     if manifest["spec"].get("tuning") == "budget" and params.get("tuning"):
         manifest["tuning"] = dict(params["tuning"])
+    if distillation is not None:
+        manifest["distillation"] = distillation
     path = scratch / "manifest.json"
     path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
     return path
@@ -1639,8 +1688,18 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
         summary: dict[str, Any] = {}
         run = None
         try:
+            distillation = _distillation_provenance(db, dataset, model.task, model.target)
+            from app.resources.ml_distillation import snapshot
+
+            current = snapshot(distillation) if distillation is not None else None
+            if current != (model.params_json or {}).get("distillation"):
+                raise TabularError(
+                    code="ML_LABEL_REVIEW_CHANGED",
+                    message="The confirmed label provenance changed after training was submitted.",
+                    status_code=409,
+                )
             data_path = materialize(dataset, scratch / "data.parquet")
-            manifest_path = _write_manifest(scratch, model, data_path)
+            manifest_path = _write_manifest(scratch, model, data_path, distillation=distillation)
             result_path = scratch / "result.json"
             interpreter = Path(sys.executable)
             threads = str(int(settings.ml_train_threads))
@@ -1779,6 +1838,7 @@ def _register_version(model: MLModel) -> None:
 
     if not model.model_uri or not model.mlflow_model_name:
         return
+    distillation = (model.metrics_json or {}).get("distillation") or {}
     published = ml_registry.publish(
         model_name=model.mlflow_model_name,
         source_uri=get_object_store().uri(model.model_uri),
@@ -1811,6 +1871,13 @@ def _register_version(model: MLModel) -> None:
             "agentium.runtime": (model.runtime_json or {}).get("runtime") or "",
             "agentium.runtime.image_revision": (model.runtime_json or {}).get("image_revision") or "",
             "agentium.runtime.fingerprint": (model.runtime_json or {}).get("fingerprint") or "",
+            **{
+                f"agentium.distillation.{key}": str(distillation[key])
+                for key in (
+                    "source_dataset_id", "reviewed_dataset_id", "decision_id", "evaluation",
+                    "llm_cost_basis", "inference_cost_basis",
+                ) if key in distillation
+            },
         },
     )
     if not published:

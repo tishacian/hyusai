@@ -20,6 +20,7 @@ import { ExplanationEvidenceComponent } from "./explanation-evidence.component";
  * that place.
  */
 import { TuningEvidenceComponent } from './tuning-evidence.component';
+import { DistillationEvidenceComponent } from './distillation-evidence.component';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -138,6 +139,7 @@ const CHART_ASPECT = 300 / 190;
     ConfusionMatrixComponent,
     CurveChartComponent,
     TuningEvidenceComponent,
+    DistillationEvidenceComponent,
     ForecastChartComponent,
   ],
   template: `
@@ -347,6 +349,7 @@ const CHART_ASPECT = 300 / 190;
               </section>
 
               <ck-tuning-evidence [result]="row.metrics?.tuning" />
+              <ck-distillation-evidence [evidence]="row.metrics?.distillation" />
 
               @if (forecast(); as fm) {
                 <section class="ck-chart" data-testid="forecast-evidence">

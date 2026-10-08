@@ -22,6 +22,7 @@
  *                      `redo()`, `dirty`, `canUndo`, `canRedo`
  */
 import { computed, inject } from '@angular/core';
+import { normalizeHitlPorts } from '@app/core/flow-hitl-ports';
 import {
   patchState,
   signalStore,
@@ -352,7 +353,7 @@ export const FlowStore = signalStore(
           position: node.position ?? { x: 120, y: 120 },
         };
         patchState(store, {
-          nodes: [...store.nodes(), created],
+          nodes: [...store.nodes(), normalizeHitlPorts(created)],
           selectedNodeId: id,
           dirty: true,
           revision: store.revision() + 1,
@@ -389,7 +390,7 @@ export const FlowStore = signalStore(
         patchState(store, {
           nodes: store
             .nodes()
-            .map((n) => (n.id === nodeId ? { ...n, ...patch } : n)),
+            .map((n) => (n.id === nodeId ? normalizeHitlPorts({ ...n, ...patch }) : n)),
           dirty: true,
           revision: store.revision() + 1,
         });
@@ -423,7 +424,7 @@ export const FlowStore = signalStore(
         patchState(store, {
           nodes: store.nodes().map((n) =>
             n.id === nodeId
-              ? { ...n, config: setPath(n.config as Record<string, unknown>, path, value) }
+              ? normalizeHitlPorts({ ...n, config: setPath(n.config as Record<string, unknown>, path, value) })
               : n,
           ),
           dirty: true,

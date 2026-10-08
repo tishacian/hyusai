@@ -16,6 +16,7 @@ from app.models.run import Run
 from app.models.skill import Skill
 from app.models.system import System
 from app.models.workspace import Workspace
+from app.services.chains.hitl_ports import hitl_schema
 from app.services.run_engine.execution_contract import (
     canonical_flow_sha256,
     resolve_flow_execution,
@@ -233,8 +234,8 @@ def _unit_for_node(node: Mapping[str, Any], skills: Mapping[str, Skill]) -> dict
             if runtime_ref
             else "flow_manifest",
             "execution": skill.execution if skill else {},
-            "input_schema": skill.input_schema if skill else {},
-            "output_schema": skill.output_schema if skill else {},
+            "input_schema": hitl_schema(node, "inputs") or (skill.input_schema if skill else {}),
+            "output_schema": hitl_schema(node, "outputs") or (skill.output_schema if skill else {}),
         },
     }
 

@@ -48,6 +48,25 @@ function budgetFlow(topK: number): CanonicalFlow {
   };
 }
 
+test('strict label review ports are derived on normalization and cannot be forged by a draft', () => {
+  const s = svc();
+  const flow: CanonicalFlow = { source: 'flow', schema_version: 3, io_mode: 'strict', nodes: [
+    { id: 'source', type: 'source', kind: 'source', outputs: [{ name: 'dataset_id', schema: 'string' }] },
+    { id: 'review', type: 'hitl', kind: 'hitl', outputs: [{ name: 'approved', schema: 'boolean' }],
+      config: { prompt: 'Review labels', prompt_kind: 'review_dataset_labels',
+        inputs_map: { dataset_id: { node_id: 'source', path: ['dataset_id'], required: true } } } },
+    { id: 'sink', type: 'sink', kind: 'sink', inputs: [{ name: 'dataset_id', schema: 'string' }],
+      config: { inputs_map: { dataset_id: { node_id: 'review', path: ['dataset_id'], required: true } } } },
+  ], edges: [{ from: 'source', to: 'review' }, { from: 'review', to: 'sink' }] };
+  assert.deepEqual(s.validateFlow(flow).filter(issue => issue.level === 'error'), []);
+  const normalized = s.normalize(flow);
+  assert.ok(normalized.nodes[1].outputs?.some(port => port.name === 'dataset_id'));
+  assert.deepEqual(s.normalize(normalized), normalized);
+  flow.nodes[1].config = { ...flow.nodes[1].config, prompt_kind: 'approve_write' };
+  flow.nodes[1].outputs = [{ name: 'dataset_id', schema: 'string' }];
+  assert.ok(s.validateFlow(flow).some(issue => issue.code === 'variable_unresolved' && issue.level === 'error'));
+});
+
 test('round-trip: nodes.<id>.data.retrieval_defaults.top_k survives normalize (load)', () => {
   const s = svc();
   const loaded = s.normalize(budgetFlow(8));

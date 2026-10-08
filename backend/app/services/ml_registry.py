@@ -38,6 +38,7 @@ logging, never by raising into the training path.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import tempfile
 from collections.abc import Iterator
@@ -176,6 +177,14 @@ def _metric_pairs(metrics: dict | None) -> list[tuple[str, float]]:
         value = (tuning.get(group) or {}).get("score")
         if isinstance(value, (int, float)):
             pairs.append((f"tuning.{group}.score", float(value)))
+    distillation = (metrics or {}).get("distillation") or {}
+    for key in (
+        "agreement", "reviewed_accuracy", "teacher_accuracy_on_reviewed", "test_rows",
+        "llm_estimated_cost_per_1000", "inference_cost_per_1000",
+    ):
+        value = distillation.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+            pairs.append((f"distillation.{key}", float(value)))
     return pairs
 
 

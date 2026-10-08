@@ -717,6 +717,16 @@ def _explanation_extensions():
     return module
 
 
+def _distillation_extensions():
+    import importlib.util
+
+    path = Path(__file__).with_name("ml_distillation.py")
+    spec = importlib.util.spec_from_file_location("ml_distillation", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _configure_text_encoder(pipeline, spec, seed):
     encoder = (spec or {}).get("text_encoder", "auto")
     if encoder != "auto":
@@ -777,6 +787,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
 
     explain_spec = manifest.get("spec") or {}
     explain_enabled = explain_spec.get("explain") == "pack"
+    distillation = manifest.get("distillation")
     fairness_columns = list(explain_spec.get("fairness_columns") or []) if explain_enabled else []
     _progress(progress_path, "reading")
     try:
@@ -784,8 +795,17 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     except Exception as exc:  # noqa: BLE001
         return _fail(5, f"ml_dataset_unreadable: {exc}")
 
+    if distillation is not None:
+        try:
+            _distillation_extensions().validate(distillation, rows=len(frame), target=target, task=task)
+        except (KeyError, TypeError, ValueError) as exc:
+            return _fail(5, f"ml_distillation_invalid: {exc}")
+        # Original teacher labels are a side vector, indexed by physical row.
+        # Reset before dropping missing targets so even duplicate source indices
+        # and non-contiguous surviving rows keep their original correspondence.
+        frame = frame.reset_index(drop=True)
     frame = frame.dropna(subset=[target])
-    if explain_enabled:
+    if explain_enabled and distillation is None:
         # Protected columns follow the exact held-out rows, even if the source
         # parquet carried duplicate index labels or numeric targets are dropped.
         frame = frame.reset_index(drop=True)
@@ -952,6 +972,12 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
 
     if extended_classification:
         metrics.update(extension.evaluate(pipeline, classification_context, x_test, y_test, number=_number))
+
+    if distillation is not None:
+        metrics["distillation"] = _distillation_extensions().evaluate(
+            distillation, indices=x_test.index, predicted=pipeline.predict(x_test), reviewed=y_test,
+            inference_cost=extension_spec.get("distillation_inference_cost_per_1000"),
+        )
 
     if tuning_result is not None:
         metrics["tuning"] = tuning_result
