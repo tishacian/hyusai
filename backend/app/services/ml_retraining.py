@@ -89,7 +89,7 @@ def configure(db, *, model, workspace, user, body: MonitoringPolicy):
 
     if not can_configure_mlops(db, workspace=workspace, user=user, admin_only=True):
         refuse("ML_MONITORING_FORBIDDEN", "Workspace administration is required to schedule retraining proposals.", 403)
-    if model.status != "ready" or model.task not in {"classification", "regression"}:
+    if body.enabled and (model.status != "ready" or model.task not in {"classification", "regression"}):
         refuse("ML_MONITORING_UNSUPPORTED", "Select a ready tabular classification or regression model.")
     if body.interval_minutes not in {60, 360, 1440}:
         refuse("ML_MONITORING_INTERVAL_INVALID", "Choose an hourly, six-hourly or daily schedule.", 422)
@@ -160,17 +160,22 @@ def _file_hash(dataset):
     if dataset.status != "ready" or (dataset.size_bytes or 0) > 32 * 1024 * 1024:
         refuse("ML_RETRAIN_SOURCE_UNAVAILABLE", "The reviewed feedback dataset is unavailable or too large.")
     with tempfile.TemporaryDirectory(prefix="retrain-source-") as folder:
-        path = materialize(dataset, Path(folder) / "data.parquet")
+        try:
+            path = materialize(dataset, Path(folder) / "data.parquet")
+        except FileNotFoundError:
+            refuse("ML_RETRAIN_SOURCE_UNAVAILABLE", "The reviewed feedback dataset is unavailable.")
         if path.stat().st_size > 32 * 1024 * 1024:
             refuse("ML_RETRAIN_SOURCE_UNAVAILABLE", "The reviewed feedback dataset exceeds 32 MiB.")
         return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _training_options(model):
+    from app.services.tabular_predict import contract_fields
+
     params = model.params_json or {}
-    spec = {key: value for key, value in (params.get("spec") or {}).items()
+    spec = {key: value for key, value in (model.spec_json or {}).items()
             if key != "distillation_inference_cost_per_1000"}
-    return {"task": model.task, "target": model.target, "features": model.features, "algo": model.algo,
+    return {"task": model.task, "target": model.target, "features": [field["name"] for field in contract_fields(model)], "algo": model.algo,
             "knobs": params.get("knobs") or {}, "spec": spec, "test_size": model.test_size,
             "cross_validation": model.cross_validation, "name": model.slug}
 
@@ -179,17 +184,18 @@ def _feedback_dataset(db, model, rows):
     import polars as pl
     from app.services.tabular_monitoring import _feedback_number
 
+    features = _training_options(model)["features"]
     records, ids = [], []
     for row in rows:
         if row.label is None or not isinstance(row.payload_json, list) or not row.payload_json:
             continue
         payload = row.payload_json[0]
-        if not isinstance(payload, dict) or not all(name in payload for name in model.features or []):
+        if not isinstance(payload, dict) or not all(name in payload for name in features):
             continue
         label = _feedback_number(row.label) if model.task == "regression" else row.label
         if label is None or label == "":
             continue
-        records.append({**payload, model.target: label})
+        records.append({**{name: payload[name] for name in features}, model.target: label})
         ids.append(row.id)
     required = max(40, settings.ml_train_min_rows)
     if len(records) < required:
@@ -227,7 +233,7 @@ def monitor_cycle(db, *, model_id, run_id):
     result = {"proposed": False, "proposal_id": "", "snapshot_id": snapshot.id, "badge": measured["badge"]}
     proposal_id = operational_job_id(PROPOSAL_KIND, model.id, window_hash)
     existing = db.get(WorkspaceJob, proposal_id)
-    pending = db.query(WorkspaceJob).filter_by(workspace_id=model.workspace_id, kind=PROPOSAL_KIND).filter(
+    pending = db.query(WorkspaceJob).filter_by(workspace_id=model.workspace_id, system_id=run.system_id, kind=PROPOSAL_KIND).filter(
         WorkspaceJob.status.in_(["created", "queued", "running"])).all()
     active = next((job for job in pending if (job.input_ref or {}).get("model_id") == model.id), None)
     if (policy.get("propose_retraining") and measured["badge"] == "alert" and model.is_champion
@@ -240,7 +246,7 @@ def monitor_cycle(db, *, model_id, run_id):
                 binding = {"model_id": model.id, "model_version": model.version, "model_name": model.name,
                            "dataset_id": dataset.id, "dataset_version": dataset.version, "dataset_sha256": _file_hash(dataset),
                            "labeled_rows": len(ids), "prediction_ids": ids, "training": options,
-                           "snapshot_id": snapshot.id, "window_sha256": window_hash}
+                           "snapshot_id": snapshot.id, "window_sha256": window_hash, "evidence": measured}
                 job = WorkspaceJob(id=proposal_id, workspace_id=model.workspace_id, system_id=run.system_id,
                     run_id=run.id, kind=PROPOSAL_KIND, title=f"Retrain {model.name[:200]}", status="created", stage="proposed",
                     input_ref=binding, result={"binding_sha256": digest(binding)}, created_by_user_id=policy["configured_by"])
@@ -354,34 +360,175 @@ def verify_training(db, model):
     if not proposal_id:
         return
     job = db.get(WorkspaceJob, proposal_id)
-    if job is None or job.result.get("model_id") != model.id:
+    if (job is None or job.kind != PROPOSAL_KIND or job.workspace_id != model.workspace_id
+            or job.result.get("model_id") != model.id or model.dataset_id != job.input_ref.get("dataset_id")):
         refuse("ML_RETRAIN_PROPOSAL_INVALID", "The staged model does not belong to its proposal.")
+    if retraining_cancel_requested(db, model):
+        refuse("ML_RETRAIN_CANCELLED", "The approving run or proposal was cancelled.")
     approved_proposal(db, proposal_id=job.id, decision_id=job.result.get("decision_id"), run=db.get(Run, job.run_id))
+
+
+def retraining_cancel_requested(db, model):
+    """Cheap polling guard; never reread a Parquet file on the supervisor tick."""
+    proposal_id = (model.params_json or {}).get("retraining_proposal")
+    if not proposal_id:
+        return False
+    job = db.query(WorkspaceJob).filter_by(id=proposal_id, kind=PROPOSAL_KIND,
+        workspace_id=model.workspace_id).populate_existing().first()
+    if job is None or job.status in {"cancelled", "failed"}:
+        return True
+    run = db.query(Run).filter_by(id=job.run_id, workspace_id=job.workspace_id).populate_existing().first()
+    decision = db.query(Decision).filter_by(id=job.result.get("decision_id"),
+        workspace_id=job.workspace_id, target_id=job.run_id).populate_existing().first()
+    return (run is None or run.status in {"cancelled", "failed"}
+            or decision is None or decision.status not in {"accepted", "applied"}
+            or not decision.human_confirmed_by or decision.human_confirmed_at is None)
+
+
+def claim_training(db, model):
+    """One worker may ever enter the fit for an approved retraining intent.
+
+    Called before the ordinary training redelivery guard. Ambiguous broker ACKs
+    may duplicate messages; an active duplicate must never fail the first fit.
+    """
+    proposal_id = (model.params_json or {}).get("retraining_proposal")
+    if not proposal_id:
+        return True
+    job = db.query(WorkspaceJob).filter_by(id=proposal_id, kind=PROPOSAL_KIND,
+        workspace_id=model.workspace_id).populate_existing().first()
+    if job is None or job.result.get("model_id") != model.id:
+        refuse("ML_RETRAIN_PROPOSAL_INVALID", "The model has no matching retraining intent.")
+    if job.status != "running" or job.stage not in {"training_pending", "dispatching", "dispatched"}:
+        return False
+    verify_training(db, model)
+    # Approval validation refreshes/locks the proposal. Another worker may
+    # have acquired it while this one was waiting for that lock.
+    if job.status != "running" or job.stage not in {"training_pending", "dispatching", "dispatched"}:
+        db.rollback()
+        return False
+    stamp, stage = job.updated_at, job.stage
+    now = datetime.utcnow()
+    result = {**job.result, "worker_claimed_at": now.isoformat()}
+    changed = db.query(WorkspaceJob).filter_by(id=job.id, status="running", stage=stage,
+        updated_at=stamp).update({"stage": "training", "result": result, "updated_at": now}, synchronize_session=False)
+    db.commit()
+    return bool(changed)
+
+
+def _publish_retraining(model_id, family, task_id):
+    from app.services.ml.families import get_family
+    from app.services.tabular_ml import run_training
+    if settings.worker_eager_mode:
+        return run_training(model_id)
+    from app.workers.celery_app import celery_app
+    return celery_app.send_task("agentium.ml_train", args=[model_id], task_id=task_id,
+        queue=get_family(family).train_queue(), retry=False)
+
+
+def _close_proposal(db, job, *, status, error=None, model=None):
+    job.status, job.stage, job.error = status, status, error
+    job.completed_at = job.updated_at = datetime.utcnow()
+    if model is not None and model.status in {"pending", "training"}:
+        model.cancel_requested = True
+        # An active supervisor will see the flag. A lost one must not leave a
+        # permanently pending/training version or permit another fit.
+        model.status = "cancelled" if status == "cancelled" else "failed"
+        model.status_detail, model.error = None, error
+    db.commit()
 
 
 def recover_retraining(*, limit=25):
     from app.db.base import SessionLocal
-    from app.services.tabular_ml import dispatch_training
+    from app.services.tabular_ml import clamp_timeout
 
     count = 0
     with SessionLocal() as db:
-        jobs = db.query(WorkspaceJob).filter_by(kind=PROPOSAL_KIND, status="running").order_by(
-            WorkspaceJob.updated_at.asc()).limit(limit).all()
+        jobs = db.query(WorkspaceJob).filter(WorkspaceJob.kind == PROPOSAL_KIND,
+            WorkspaceJob.status.in_(["created", "queued", "running"])).order_by(
+            WorkspaceJob.updated_at.asc()).limit(max(1, min(limit, 100))).all()
         for job in jobs:
-            model = db.get(MLModel, job.result.get("model_id"))
+            # A previous dispatch may have committed through another Session.
+            db.refresh(job)
+            if job.status not in {"created", "queued", "running"}:
+                continue
+            run = db.get(Run, job.run_id, populate_existing=True)
+            decision = db.get(Decision, job.result.get("decision_id"), populate_existing=True) if job.result.get("decision_id") else None
+            model = db.get(MLModel, job.result.get("model_id"), populate_existing=True) if job.result.get("model_id") else None
+            if job.status in {"created", "queued"}:
+                if (run is None or run.status in {"completed", "cancelled", "failed"}
+                        or (decision is not None and decision.status == "rejected")):
+                    _close_proposal(db, job, status="cancelled", error="ML_RETRAIN_RUN_TERMINAL")
+                else:
+                    # Rotate waiting gates so they cannot starve pending fits.
+                    job.updated_at = datetime.utcnow()
+                    db.commit()
+                continue
             if model is None:
-                job.status, job.error = "failed", "ML_MODEL_NOT_FOUND"
-            elif model.status in {"ready", "failed", "cancelled"}:
+                _close_proposal(db, job, status="failed", error="ML_MODEL_NOT_FOUND")
+                continue
+            if model.status in {"ready", "failed", "cancelled"}:
                 job.status = "completed" if model.status == "ready" else model.status
                 job.stage, job.error, job.completed_at = model.status, model.error, datetime.utcnow()
-            elif model.status == "pending" and not model.celery_task_id:
+                db.commit()
+                continue
+            if retraining_cancel_requested(db, model):
+                _close_proposal(db, job, status="cancelled", error="ML_RETRAIN_CANCELLED", model=model)
+                continue
+            if job.stage == "training":
+                claimed_at = job.result.get("worker_claimed_at")
                 try:
-                    verify_training(db, model)
-                    dispatch_training(db, model)
-                    count += 1
-                except Exception:
-                    db.rollback()  # Keep the durable model intent for a later tick.
-            db.commit()
+                    claimed_at = datetime.fromisoformat(claimed_at)
+                except (TypeError, ValueError):
+                    claimed_at = job.updated_at
+                if datetime.utcnow() >= claimed_at + timedelta(seconds=clamp_timeout(settings.ml_train_timeout_s) + 120):
+                    _close_proposal(db, job, status="failed", error="ML_RETRAIN_WORKER_LOST", model=model)
+                else:
+                    # The immutable claim timestamp owns the deadline; this
+                    # sweep timestamp rotates active fits behind pending work.
+                    job.updated_at = datetime.utcnow()
+                    db.commit()
+                continue
+            if job.stage not in {"training_pending", "dispatching", "dispatched"} or model.status != "pending":
+                continue
+            now = datetime.utcnow()
+            if job.stage != "training_pending" and job.updated_at > now - timedelta(seconds=60):
+                continue
+            try:
+                verify_training(db, model)
+            except TabularError as exc:
+                db.rollback()
+                db.refresh(job)
+                _close_proposal(db, job, status="failed", error=exc.code, model=model)
+                continue
+            except Exception:
+                db.rollback()
+                continue  # a transient artifact-store outage is not approval
+            if (job.status != "running" or job.stage not in {"training_pending", "dispatching", "dispatched"}
+                    or (job.stage != "training_pending" and job.updated_at > now - timedelta(seconds=60))):
+                db.rollback()
+                continue
+            stamp, stage = job.updated_at, job.stage
+            task_id = operational_job_id("ml_train", model.workspace_id, model.id)
+            result = {**job.result, "dispatch_attempts": int(job.result.get("dispatch_attempts", 0)) + 1,
+                      "task_id": task_id}
+            changed = db.query(WorkspaceJob).filter_by(id=job.id, status="running", stage=stage,
+                updated_at=stamp).update({"stage": "dispatching", "result": result, "updated_at": now}, synchronize_session=False)
+            if not changed:
+                db.rollback()
+                continue
+            model.celery_task_id = task_id
+            model_id, family = model.id, model.family
+            db.commit()  # Broker ACK may be lost; worker CAS remains authority.
+            try:
+                _publish_retraining(model_id, family, task_id)
+                count += 1
+                db.query(WorkspaceJob).filter_by(id=job.id, status="running", stage="dispatching",
+                    updated_at=now).update({"stage": "dispatched", "updated_at": now}, synchronize_session=False)
+                db.commit()
+            except Exception:
+                # Do not clear the task id or worker claim after an ambiguous
+                # ACK. An expired dispatch lease republishes the same identity.
+                db.rollback()
     return {"dispatched": count}
 
 
@@ -401,7 +548,7 @@ def monitoring_view(db, model):
                 "created_at": job.created_at.isoformat(), "run_id": job.run_id, "decision_id": job.result.get("decision_id"),
                 "model_id": job.result.get("model_id"), "source_model_id": model.id, "source_version": binding["model_version"],
                 "dataset_id": binding["dataset_id"], "dataset_version": binding["dataset_version"],
-                "dataset_sha256": binding["dataset_sha256"], "labeled_rows": binding["labeled_rows"], "training": binding["training"]})
-    return {"supported": model.status == "ready" and model.task in {"classification", "regression"},
+                "dataset_sha256": binding["dataset_sha256"], "labeled_rows": binding["labeled_rows"], "training": binding["training"], "evidence": binding.get("evidence")})
+    return {"supported": (model.family or "tabular") == "tabular" and model.task in {"classification", "regression"},
             "policy": {"enabled": False, "propose_retraining": False, "interval_minutes": 60, **policy},
             "history": history[:20], "proposals": proposals[:20]}

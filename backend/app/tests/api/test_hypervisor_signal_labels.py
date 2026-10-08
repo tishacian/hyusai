@@ -85,3 +85,12 @@ def test_low_confidence_still_outranks_a_yield_claim_in_the_tone():
 
     assert _signals([run])[0]["tone"] == "warn"
     assert _signal_label(run) == "High-yield outcome · ROI 200.0%"
+
+
+def test_monitoring_alert_names_the_model_without_manufacturing_a_cost_claim():
+    run = _run(checkpoints=[{"kind": "ml_monitoring_snapshot", "model_name": "Churn",
+                            "version": 2, "badge": "alert"}])
+    signal = _signals([run])[0]
+    assert signal["tone"] == "neg"
+    assert signal["label"] == "Model drift · Churn v2 · alert"
+    assert "ROI" not in signal["label"]

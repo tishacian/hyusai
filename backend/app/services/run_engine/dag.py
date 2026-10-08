@@ -937,14 +937,6 @@ async def resume_run_dag(
         elif is_agent_loop_pause:
             # Intra-loop HumanGate: the agent_loop node is still unfinished.
             # Re-entry continues turns from ``ctx._agent_loop`` + this verdict.
-            if dec and (dec.rationale or {}).get("model_retraining"):
-                from app.services.ml_retraining import settle_gate
-                from app.services.tabular_datasets import TabularError
-
-                try:
-                    hitl_output.update(settle_gate(db, dec))
-                except TabularError as exc:
-                    return _fail(db, run, exc.code)
             state.ctx["hitl_approved"] = approved
             state.ctx["hitl_decision"] = dec.status if dec else None
             loops = dict(state.ctx.get("_agent_loop") or {})
@@ -976,6 +968,14 @@ async def resume_run_dag(
                     return _fail(db, run, "LABEL_REVIEW_REJECTED")
                 try:
                     hitl_output.update(dataset_reference(reviewed_output(db, dec)))
+                except TabularError as exc:
+                    return _fail(db, run, exc.code)
+            if dec and (dec.rationale or {}).get("model_retraining"):
+                from app.services.ml_retraining import settle_gate
+                from app.services.tabular_datasets import TabularError
+
+                try:
+                    hitl_output.update(settle_gate(db, dec))
                 except TabularError as exc:
                     return _fail(db, run, exc.code)
             state.ctx["hitl_approved"] = approved
