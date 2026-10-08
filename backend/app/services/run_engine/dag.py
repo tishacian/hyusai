@@ -937,6 +937,14 @@ async def resume_run_dag(
         elif is_agent_loop_pause:
             # Intra-loop HumanGate: the agent_loop node is still unfinished.
             # Re-entry continues turns from ``ctx._agent_loop`` + this verdict.
+            if dec and (dec.rationale or {}).get("model_retraining"):
+                from app.services.ml_retraining import settle_gate
+                from app.services.tabular_datasets import TabularError
+
+                try:
+                    hitl_output.update(settle_gate(db, dec))
+                except TabularError as exc:
+                    return _fail(db, run, exc.code)
             state.ctx["hitl_approved"] = approved
             state.ctx["hitl_decision"] = dec.status if dec else None
             loops = dict(state.ctx.get("_agent_loop") or {})
@@ -1843,6 +1851,7 @@ def _emit_hitl_pause(
         "prompt": outcome.get("prompt"),
         "prompt_kind": outcome.get("prompt_kind"),
         "label_review": outcome.get("label_review"),
+        "model_retraining": outcome.get("model_retraining"),
         "state": state.to_payload(),
         "membrane_egress": bool(outcome.get("membrane_egress")),
         "expires_at": outcome.get("expires_at"),
@@ -2213,6 +2222,7 @@ _GRAPH_OWNED_BLOCKS: tuple[tuple[str, frozenset, tuple[str, ...]], ...] = (
     ("_predict", _PREDICT_SKILL_SLUGS, _PREDICT_PARAM_KEYS),
     ("_forecast", _FORECAST_SKILL_SLUGS, _FORECAST_PARAM_KEYS),
     ("_label", _LABEL_SKILL_SLUGS, _LABEL_PARAM_KEYS),
+    ("_ml_monitor", frozenset({"ml_monitor_model_v1"}), ("model_id",)),
 )
 
 
@@ -3789,6 +3799,16 @@ def _run_hitl(
         rationale["label_review"] = make_binding(db, workspace_id=run.workspace_id, dataset_id=source.id)
         # A timeout cannot substitute for a person reading and confirming labels.
         config = {**config, "expiry_action": "reject"}
+    if config.get("prompt_kind") == "approve_model_retraining":
+        from app.services.ml_retraining import make_binding
+
+        binding = make_binding(db, proposal_id=merged.get("proposal_id"), run=run)
+        rationale["model_retraining"] = binding
+        rationale["prompt"] = (f"Retrain {binding['model_name']} v{binding['model_version']} using "
+            f"{binding['labeled_rows']} labeled feedback rows? Algorithm: {binding['training']['algo']}; "
+            f"target: {binding['training']['target']}. The new model remains a challenger until separately promoted.")
+        prompt = rationale["prompt"]
+        config = {**config, "expiry_action": "reject"}
     decision = _log_decision(
         db,
         workspace_id=run.workspace_id,
@@ -3800,6 +3820,10 @@ def _run_hitl(
         title=f"HITL approval — {node.label or node.id}",
     )
     if decision is not None:
+        if rationale.get("model_retraining"):
+            from app.services.ml_retraining import bind_decision
+
+            bind_decision(db, decision, rationale["model_retraining"])
         from app.services.run_engine.gate_ttl import stamp_decision_ttl  # noqa: WPS433
         from app.services.run_engine.inbox import extract_correlation_key  # noqa: WPS433
 
@@ -3822,6 +3846,7 @@ def _run_hitl(
         "prompt": prompt,
         "prompt_kind": rationale["prompt_kind"],
         "label_review": rationale.get("label_review"),
+        "model_retraining": rationale.get("model_retraining"),
         "expires_at": decision.expires_at.isoformat() if decision and decision.expires_at else None,
         "expiry_action": decision.expiry_action if decision else None,
         "correlation_key": (decision.rationale or {}).get("correlation_key") if decision else None,

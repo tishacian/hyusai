@@ -70,6 +70,7 @@ from app.services.tabular_monitoring import (
 from app.services.tabular_monitoring import (
     report as monitoring_report,
 )
+from app.services.ml_retraining import MonitoringPolicy
 from app.services.tabular_predict import (
     API_KEY_HEADER,
     authenticate_key,
@@ -651,6 +652,30 @@ class FeedbackBody(BaseModel):
     label: str = Field(min_length=1, max_length=200)
 
 
+def _monitoring_for(db, *, model, workspace, user):
+    from app.services.mlops_jobs import can_configure_mlops
+    result = monitoring_report(db, model=model)
+    result["scheduled"]["can_configure"] = can_configure_mlops(db, workspace=workspace, user=user, admin_only=True)
+    return result
+
+
+@router.post("/{model_id}/monitoring/policy")
+async def configure_monitoring(
+    model_id: str,
+    body: MonitoringPolicy,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    from app.services.ml_retraining import configure
+    try:
+        model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        configure(db, model=model, workspace=workspace, user=user, body=body)
+    except TabularError as exc:
+        _raise_tabular(exc)
+    return {"monitoring": _monitoring_for(db, model=model, workspace=workspace, user=user)}
+
+
 @router.get("/{model_id}/monitoring")
 async def get_monitoring(
     model_id: str,
@@ -664,7 +689,7 @@ async def get_monitoring(
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
     except TabularError as exc:
         _raise_tabular(exc)
-    return {"monitoring": monitoring_report(db, model=model)}
+    return {"monitoring": _monitoring_for(db, model=model, workspace=workspace, user=user)}
 
 
 @router.post("/{model_id}/feedback")
@@ -690,7 +715,7 @@ async def post_feedback(
         _raise_tabular(exc)
     return {
         "prediction": serialize_prediction(row),
-        "monitoring": monitoring_report(db, model=model),
+        "monitoring": _monitoring_for(db, model=model, workspace=workspace, user=user),
     }
 
 

@@ -61,3 +61,9 @@ def ml_forecast_batch(output_id: str, served_id: str, **kwargs) -> dict:
     from app.services.ml.forecast_serving import forecast_into
 
     return forecast_into(output_id, served_id, **kwargs)
+
+
+@shared_task(name="agentium.ml_retraining_recovery", ignore_result=True)
+def ml_retraining_recovery() -> dict:
+    from app.services.ml_retraining import recover_retraining
+    return recover_retraining()

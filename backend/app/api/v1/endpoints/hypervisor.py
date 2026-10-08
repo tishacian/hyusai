@@ -1082,6 +1082,9 @@ def _signals(recent_runs: list[Run]) -> list[dict[str, Any]]:
             tone = "warn"
         elif roi is not None and roi > 1.0:
             tone = "pos"
+        monitor = _model_monitor_signal(r)
+        if monitor and monitor.get("badge") in {"alert", "watch"}:
+            tone = "neg" if monitor["badge"] == "alert" else "warn"
         out.append(
             {
                 "id": r.id,
@@ -1172,7 +1175,15 @@ def _format_roi(ratio: float) -> str:
     return f"{ratio * 100:.1f}%"
 
 
+def _model_monitor_signal(r: Run):
+    return next((item for item in reversed(r.checkpoints or [])
+                 if isinstance(item, dict) and item.get("kind") == "ml_monitoring_snapshot"), None)
+
+
 def _signal_label(r: Run) -> str:
+    monitor = _model_monitor_signal(r)
+    if monitor and monitor.get("badge") in {"alert", "watch"}:
+        return f"Model drift · {monitor.get('model_name', 'Model')} v{monitor.get('version', '?')} · {monitor['badge']}"
     if r.status == "failed":
         return f"Run failed · {r.error or 'unknown error'}"
     if r.status == "completed":

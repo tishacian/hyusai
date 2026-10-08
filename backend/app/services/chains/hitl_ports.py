@@ -24,6 +24,8 @@ def hitl_ports(node: Mapping[str, Any], direction: str) -> dict[str, str | None]
     if review:
         ports.update({"dataset_id": "string", "name": "string", "slug": "string",
                       "version": "integer", "rows": "integer", "columns": "integer", "schema": "array"})
+    if isinstance(config, Mapping) and config.get("prompt_kind") == "approve_model_retraining":
+        ports["proposal_id"] = "string"
     return ports
 
 

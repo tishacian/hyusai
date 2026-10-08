@@ -1260,7 +1260,12 @@ def champion_for(db: DBSession, *, workspace_id: str, slug: str) -> MLModel | No
         MLModel.status == "ready",
     )
     champion = query.filter(MLModel.is_champion.is_(True)).first()
-    return champion or query.order_by(MLModel.version.desc()).first()
+    if champion is not None:
+        return champion
+    # Human-approved retrains still require an independent promotion; deleting
+    # the previous champion must not make one a fallback serving version.
+    return next((row for row in query.order_by(MLModel.version.desc()).all()
+                 if not (row.params_json or {}).get("retraining_proposal")), None)
 
 
 # ---------------------------------------------------------------------------
@@ -1688,6 +1693,9 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
         summary: dict[str, Any] = {}
         run = None
         try:
+            from app.services.ml_retraining import verify_training
+
+            verify_training(db, model)
             distillation = _distillation_provenance(db, dataset, model.task, model.target)
             from app.resources.ml_distillation import snapshot
 
@@ -1799,7 +1807,7 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                 )
                 .first()
             )
-            model.is_champion = serving is None
+            model.is_champion = serving is None and not (model.params_json or {}).get("retraining_proposal")
             _register_version(model)
         else:
             _finalize(model, status=status, error=error)

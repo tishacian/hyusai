@@ -886,7 +886,7 @@ def dataset_ingest(dataset_id: str) -> dict:
 
 # Defined as a shared task in ml_tasks so a model-family image can register it
 # without importing this module; re-exported here for the general worker.
-from app.workers.ml_tasks import ml_train  # noqa: E402,F401
+from app.workers.ml_tasks import ml_train, ml_retraining_recovery  # noqa: E402,F401
 
 
 @celery_app.task(name="agentium.recipe_env_sweep")

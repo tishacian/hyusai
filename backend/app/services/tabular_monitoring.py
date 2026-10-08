@@ -409,6 +409,8 @@ def concept_drift(model: MLModel, rows: list[MLPrediction]) -> dict[str, Any]:
 def report(db: DBSession, *, model: MLModel) -> dict[str, Any]:
     """The Monitoring tab's read model, computed on the request."""
 
+    from app.services.ml_retraining import monitoring_view
+
     rows = _recent(db, model)
     dataset = (
         db.query(TabularDataset).filter(TabularDataset.id == model.dataset_id,
@@ -441,6 +443,7 @@ def report(db: DBSession, *, model: MLModel) -> dict[str, Any]:
         "data_drift": data,
         "score_drift": scores,
         "concept_drift": concept,
+        "scheduled": monitoring_view(db, model),
     }
 
 
