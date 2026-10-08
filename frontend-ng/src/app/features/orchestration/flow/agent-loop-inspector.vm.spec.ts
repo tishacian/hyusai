@@ -15,6 +15,7 @@ import {
   parseSlugList,
   readAgentLoopConfig,
   readHitlConfig,
+  availableHitlPromptKinds,
 } from './agent-loop-inspector.vm';
 
 function loop(config: Record<string, unknown>): CanonicalFlowNode {
@@ -107,4 +108,12 @@ describe('agent-loop inspector projection', () => {
     assert.equal(parseOptionalCost('0'), 0);
     assert.equal(parseOptionalCost(''), undefined);
   });
+});
+
+test('generated retraining gate survives read/write while ordinary gates cannot select its mode', () => {
+  const generated = {id:'review',kind:'hitl' as const,config:{prompt_kind:'approve_model_retraining',prompt:'Review proposed model'}};
+  const reread = readHitlConfig({...generated,config:readHitlConfig(generated)});
+  assert.equal(reread.prompt_kind,'approve_model_retraining');
+  assert.ok(availableHitlPromptKinds(generated).includes('approve_model_retraining'));
+  assert.ok(!availableHitlPromptKinds({...generated,config:{prompt_kind:'approve_write'}}).includes('approve_model_retraining'));
 });

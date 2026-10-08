@@ -58,7 +58,7 @@ import { FlowDecisionBindingsComponent } from './flow-decision-bindings.componen
 import { FlowSchemaEditorComponent } from './flow-schema-editor.component';
 import {
   PRIVILEGE_TIERS,
-  PROMPT_KINDS,
+  availableHitlPromptKinds,
   agentLoopEnvelopeParts,
   clampConfidence,
   clampTurns,
@@ -759,7 +759,7 @@ export function publishedNodeExecutor(
                   [value]="hitlConfig(n).prompt_kind"
                   (change)="onHitlPromptKind($event)"
                 >
-                  @for (kind of promptKinds; track kind) {
+                  @for (kind of promptKinds(n); track kind) {
                     <option [value]="kind">{{ i18n.t('flow.inspector.human_gate.kind.' + kind) }}</option>
                   }
                 </select>
@@ -1724,7 +1724,7 @@ export class FlowInspectorComponent {
   }
 
   readonly privilegeTiers = PRIVILEGE_TIERS;
-  readonly promptKinds = PROMPT_KINDS;
+  readonly promptKinds = availableHitlPromptKinds;
   readonly formatSlugList = formatSlugList;
   readonly formatDoneWhen = formatDoneWhen;
   readonly deadlineMinutes = deadlineMinutes;

@@ -1,3 +1,4 @@
+import { ScheduledMonitoringComponent } from './scheduled-monitoring.component';
 import { ClassificationEvidenceComponent } from "./classification-evidence.component";
 import { ExplanationEvidenceComponent } from "./explanation-evidence.component";
 /**
@@ -146,6 +147,7 @@ const CHART_ASPECT = 300 / 190;
     DistillationEvidenceComponent,
     DriftEvidenceComponent,
     ShadowEvidenceComponent,
+    ScheduledMonitoringComponent,
     ForecastChartComponent,
   ],
   template: `
@@ -860,6 +862,7 @@ const CHART_ASPECT = 300 / 190;
 
         <!-- ── Monitoring ──────────────────────────────────────────────────── -->
         <ck-tab id="monitor" [label]="i18n.t('models.detail.tab.monitor')">
+          <ck-scheduled-monitoring [evidence]="monitoring()?.scheduled" [modelId]="row.id" [version]="row.version" (changed)="onScheduledChanged($event)" (refresh)="reload()" />
           <ck-shadow-evidence [evidence]="monitoring()?.shadow" [modelId]="row.id" [version]="row.version" [task]="row.task"
             (changed)="onShadowChanged($event)" (refresh)="reload()" />
           @if (!monitoring() || !monitoring()!.window.predictions) {
@@ -2426,6 +2429,10 @@ export class ModelViewComponent implements OnInit {
       ),
   );
 
+  protected onScheduledChanged(report: MonitoringReport): void {
+    this.monitoring.set(report); this.syncPolling();
+  }
+
   protected onShadowChanged(shadow: ShadowReport): void {
     this.monitoring.update(report => report ? { ...report, shadow } : report);
     this.syncPolling();
@@ -2558,7 +2565,7 @@ export class ModelViewComponent implements OnInit {
 
   private syncPolling(): void {
     const row = this.model();
-    if (row && (isModelActive(row) || (this.monitoring()?.shadow?.window.pending ?? 0) > 0)) {
+    if (row && (isModelActive(row) || (this.monitoring()?.shadow?.window.pending ?? 0) > 0 || this.monitoring()?.scheduled?.proposals.some(p => p.status === 'running'))) {
       if (this.pollTimer) return;
       this.pollTimer = setInterval(() => { if (!this.loading()) void this.load(); }, POLL_INTERVAL_MS);
     } else {
