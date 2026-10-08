@@ -984,9 +984,9 @@ export class FlowTrainWorkshopComponent {
     return `${Math.round(this.params().test_size * 100)}%`;
   }
 
-  protected warningMessage(warning: { code: string; feature?: string; field?: string }): string {
+  protected warningMessage(warning: { code: string; feature?: string; field?: string; estimated_s?: number; budget_s?: number }): string {
     const key = warningKey(warning.code);
-    return key ? this.i18n.t(key, { feature: warning.feature ?? '', field: warning.field ?? '' }) : warning.code;
+    return key ? this.i18n.t(key, { feature: warning.feature ?? '', field: warning.field ?? '', estimated_s: warning.estimated_s ?? 0, budget_s: warning.budget_s ?? 0 }) : warning.code;
   }
 
   /** A plan refusal rendered against the field that caused it, or nothing. */

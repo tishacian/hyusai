@@ -260,3 +260,7 @@ yarl==1.24.5
 zipp==4.1.0
 zopfli==0.4.3
 zstandard==0.25.0
+
+# Budgeted tabular search (shared application stack).
+optuna==5.0.0
+colorlog==6.12.0

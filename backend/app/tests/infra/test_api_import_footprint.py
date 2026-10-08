@@ -59,3 +59,11 @@ def test_flash_reranker_stays_reachable_from_the_package():
     assert "FlashReranker" in retrieval.__all__
     engine = retrieval.FlashReranker  # None where torch is not installed
     assert engine is None or engine.__name__ == "FlashReranker"
+
+
+def test_application_import_never_attempts_optuna():
+    probe = PROBE.replace(repr(FORBIDDEN), repr(("optuna",))).replace(repr(MODULES), repr(("app.main",)))
+    result = subprocess.run([sys.executable, "-c", probe], cwd=BACKEND, capture_output=True, text=True, timeout=120)
+    lines = [line for line in result.stdout.splitlines() if line.startswith("FOOTPRINT ")]
+    assert result.returncode == 0 and lines, result.stderr[-2000:]
+    assert json.loads(lines[-1].removeprefix("FOOTPRINT ")) == []

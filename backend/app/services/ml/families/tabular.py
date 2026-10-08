@@ -30,5 +30,10 @@ TABULAR = Family(
                   when=(("task", (CLASSIFICATION,)),)),
         SpecField("threshold", "enum", default="default", choices=("default", "f1", "youden"),
                   when=(("task", (CLASSIFICATION,)),)),
+        SpecField("tuning", "enum", default="off", choices=("off", "budget")),
+        SpecField("tuning_trials", "int", default=30, minimum=5, maximum=100,
+                  when=(("tuning", ("budget",)),)),
+        SpecField("tuning_budget_s", "int", default=300, minimum=30, maximum=1500,
+                  when=(("tuning", ("budget",)),)),
     ),
 )
