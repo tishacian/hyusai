@@ -19,6 +19,30 @@ function skill(overrides: Partial<Skill> = {}): Skill {
   };
 }
 
+test('a labeling node keeps graph defaults while requiring the author to supply token prices', () => {
+  const item = skillToPaletteItem(skill({
+    slug: 'llm_label_dataset_v1', category: 'Data', runtime_status: 'bound',
+    input_schema: { type: 'object', properties: {
+      sources: { type: 'array', default: [] },
+      label_column: { type: 'string', default: 'label' },
+      batch_size: { type: 'integer', default: 10 },
+      max_cost_usd: { type: 'number', default: 1 },
+      input_cost_per_million: { type: 'number' },
+      output_cost_per_million: { type: 'number' },
+      labels: { type: 'array' },
+    } },
+    output_schema: { type: 'object', properties: {
+      dataset_id: { type: 'string' }, job_id: { type: 'string' }, labeling: { type: 'object' },
+    } },
+  }));
+  assert.equal(item.skillCategory, 'Data');
+  assert.equal(item.config?.['runtime_ref'], 'skill:llm_label_dataset_v1');
+  assert.deepEqual(item.config?.['params'], {
+    sources: [], label_column: 'label', batch_size: 10, max_cost_usd: 1,
+  });
+  assert.deepEqual(item.outputs?.map(port => port.name), ['dataset_id', 'job_id', 'labeling']);
+});
+
 test('the canonical Skill taxonomy has the exact product order', () => {
   assert.deepEqual(SKILL_PALETTE_CATEGORIES, [
     'LLM',
