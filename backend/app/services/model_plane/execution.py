@@ -7,6 +7,7 @@ workspace edit cannot change the provider between policy and dispatch.
 from __future__ import annotations
 
 import asyncio
+import copy
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
@@ -22,6 +23,13 @@ _MODEL_PREFIXES = (*TEXT_PROVIDERS, "azure", "anthropic")
 
 class ModelExecutionError(ValueError):
     """Actionable configuration refusal containing no credential or prompt."""
+
+
+class _DispatchRefused(Exception):
+    """A local refusal must neither trigger fallback nor count as provider work."""
+
+    def __init__(self, cause: Exception):
+        self.cause = cause
 
 
 @dataclass(frozen=True)
@@ -223,7 +231,7 @@ def resolve_model_execution(
     )
 
 
-def build_model_client(execution: ModelExecution):
+def build_model_client(execution: ModelExecution, *, no_retries: bool = False):
     if execution.provider == "ollama":
         from app.services.model_clients.ollama_client import OllamaClient
 
@@ -232,6 +240,7 @@ def build_model_client(execution: ModelExecution):
         raise ModelExecutionError(
             f"{execution.provider}: connection is not configured. Open Models & Providers."
         )
+    retry_options = {"max_retries": 0} if no_retries else {}
     if execution.provider == "azure_openai":
         from app.services.model_clients.azure_openai_client import AzureOpenAIClient
 
@@ -239,14 +248,15 @@ def build_model_client(execution: ModelExecution):
             api_key=execution._api_key,
             endpoint=execution._endpoint,
             api_version=execution._api_version,
+            **retry_options,
         )
     if execution.provider == "anthropic":
         from app.services.model_clients.anthropic_client import AnthropicClient
 
-        return AnthropicClient(api_key=execution._api_key)
+        return AnthropicClient(api_key=execution._api_key, **retry_options)
     from app.services.model_clients.openai_client import OpenAIClient
 
-    return OpenAIClient(api_key=execution._api_key)
+    return OpenAIClient(api_key=execution._api_key, **retry_options)
 
 
 def skill_model_request(
@@ -270,6 +280,7 @@ def skill_model_request(
         "openai_llm_v1": "openai",
         "azure_openai_llm_v1": "azure_openai",
         "workspace_llm_v1": "workspace",
+        "llm_label_dataset_v1": "workspace",
     }
     provider = _text(params.get("provider")) if kind == "prompt_template" else providers.get(slug)
     if not provider:
@@ -351,6 +362,9 @@ async def complete_model(
                 raise
         try:
             output = await _complete_once(candidate, prompt, ctx, usage, generation_options, stream)
+        except _DispatchRefused as exc:
+            attempt["status"] = "blocked"
+            raise exc.cause from None
         except asyncio.CancelledError:
             attempt["status"] = "cancelled"
             raise
@@ -373,11 +387,25 @@ async def complete_model(
     raise ModelExecutionError("No configured model could answer this request.")
 
 
-async def _complete_once(execution, prompt, ctx, usage_accumulator, generation_options, stream):
-    from app.services.evaluation.judge import normalize_provider_usage, record_provider_usage
+def _provider_generation_options(execution, generation_options):
+    options = copy.deepcopy(dict(generation_options or {}))
+    if "json_schema" in options:
+        from app.services.flow_contracts import validate_schema_definition
 
-    client = build_model_client(execution)
-    options = dict(generation_options or {})
+        schema = validate_schema_definition(options.pop("json_schema"), field="json_schema")
+        if "response_format" in options or "format" in options:
+            raise ModelExecutionError("json_schema cannot be combined with a provider-specific format.")
+        if execution.provider in {"openai", "azure_openai"}:
+            options["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "structured_response", "strict": True, "schema": schema},
+            }
+        elif execution.provider == "ollama":
+            options["format"] = schema
+        else:
+            raise ModelExecutionError(
+                f"{execution.provider}: structured JSON schema generation is not supported."
+            )
     if execution.provider == "ollama" and options:
         ollama_options = dict(options.pop("options", {}) or {})
         if options.get("max_tokens") is not None:
@@ -386,10 +414,30 @@ async def _complete_once(execution, prompt, ctx, usage_accumulator, generation_o
             ollama_options["temperature"] = options.pop("temperature")
         if ollama_options:
             options["options"] = ollama_options
+    return options
+
+
+async def _complete_once(execution, prompt, ctx, usage_accumulator, generation_options, stream):
+    from app.services.evaluation.judge import normalize_provider_usage, record_provider_usage
+
+    try:
+        options = _provider_generation_options(execution, generation_options)
+    except Exception as exc:
+        raise _DispatchRefused(exc) from exc
+    client = (build_model_client(execution, no_retries=True)
+              if ctx.get("_model_no_retries") is True else build_model_client(execution))
     sink = ctx.get("token_sink") if stream else None
     returned_model = execution.model
     result = None
     evidence = ctx["_model_resolution_evidence"]
+    before_dispatch = ctx.get("_model_before_dispatch")
+    if callable(before_dispatch):
+        try:
+            # Keep neutral options (notably max_tokens) available to the budget
+            # reservation. A callback cannot change the prepared provider call.
+            before_dispatch(execution, prompt, copy.deepcopy(dict(generation_options or {})))
+        except Exception as exc:
+            raise _DispatchRefused(exc) from exc
     evidence["dispatch_started"] = True
     evidence["attempts"][-1]["dispatch_started"] = True
     ctx["_model_execution_evidence"] = evidence

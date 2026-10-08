@@ -1238,6 +1238,80 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         },
     },
     {
+        "slug": "llm_label_dataset_v1",
+        "version": "1",
+        "name": "Label Dataset with LLM",
+        "description": (
+            "Labels text columns with the workspace language model and publishes a generated "
+            "dataset carrying its source lineage. Structured class labels, explicit estimated "
+            "token prices and row, token, cost and time budgets control each resumable job."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "async",
+            "timeout_ms": 900_000,
+            "retryable": False,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_1k_tokens", "unit_price": 0.0, "currency": "USD"},
+        # These are editor parameters. The DAG moves them into its protected
+        # _label block before execution; the service validates that block.
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sources": {
+                    "type": "array", "items": {"type": "object"}, "default": [],
+                    "description": "Optional dataset pin; otherwise use the upstream dataset.",
+                },
+                "text_columns": {
+                    "type": "array", "items": {"type": "string", "maxLength": 100}, "minItems": 1, "maxItems": 8,
+                    "description": "Required: names of the text columns sent to the model.",
+                },
+                "labels": {
+                    "type": "array", "items": {"type": "string", "maxLength": 100}, "minItems": 2, "maxItems": 100,
+                    "description": "Required: allowed class labels.",
+                },
+                "label_column": {"type": "string", "default": "label", "maxLength": 100},
+                "instruction": {
+                    "type": "string",
+                    "maxLength": 4000,
+                    "description": "Required: explain how to choose among the allowed labels.",
+                },
+                "output_name": {"type": "string", "maxLength": 200},
+                "batch_size": {"type": "integer", "default": 10, "minimum": 1, "maximum": 50},
+                "max_rows": {"type": "integer", "default": 500, "minimum": 1, "maximum": 5000},
+                "max_tokens": {"type": "integer", "default": 100000, "minimum": 1, "maximum": 2000000},
+                "max_output_tokens": {"type": "integer", "default": 2048, "minimum": 64, "maximum": 8192},
+                "max_cost_usd": {"type": "number", "default": 1, "exclusiveMinimum": 0, "maximum": 100},
+                "input_cost_per_million": {
+                    "type": "number", "minimum": 0, "maximum": 1000,
+                    "description": "Required: estimated USD per million input tokens for the workspace model. No assumed provider price.",
+                },
+                "output_cost_per_million": {
+                    "type": "number", "minimum": 0, "maximum": 1000,
+                    "description": "Required: estimated USD per million output tokens for the workspace model. No assumed provider price.",
+                },
+                "timeout_s": {"type": "integer", "default": 300, "minimum": 1, "maximum": 900},
+                "resume_job_id": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "dataset_id": {"type": "string"},
+                "name": {"type": "string"},
+                "slug": {"type": "string"},
+                "version": {"type": "integer"},
+                "rows": {"type": "integer"},
+                "columns": {"type": "integer"},
+                "job_id": {"type": "string"},
+                "labeling": {"type": "object"},
+            },
+        },
+    },
+    {
         "slug": "ml_train_sklearn_v1",
         "version": "1",
         "name": "Train sklearn Model",
@@ -2873,6 +2947,7 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
             "sql_transform_v1",
             "polars_transform_v1",
             "dbt_transform_v1",
+            "llm_label_dataset_v1",
         ],
         "pricing": {"unit": "per_transform", "unit_price": 0.01, "currency": "USD"},
         "value_per_outcome": 1.00,
@@ -3355,6 +3430,7 @@ SKILL_CATEGORIES: Dict[str, str] = {
     "line_items_reconcile_v1": "Decision Support",
     "knowledge_gap_analysis_v1": "Analysis",
     "llm_rag_answer_v1": "Retrieval",
+    "llm_label_dataset_v1": "Data",
     "map_command_apply_v1": "Automation",
     "map_layer_read_v1": "Connections",
     "map_recommendation_generate_v1": "Decision Support",

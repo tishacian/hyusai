@@ -2172,6 +2172,25 @@ _FORECAST_PARAM_KEYS = (
 )
 _FORECAST_SKILL_SLUGS = frozenset({_ML_FORECAST_SKILL_SLUG})
 
+_LABEL_PARAM_KEYS = (
+    "sources",
+    "text_columns",
+    "labels",
+    "label_column",
+    "instruction",
+    "output_name",
+    "batch_size",
+    "max_rows",
+    "max_tokens",
+    "max_output_tokens",
+    "max_cost_usd",
+    "input_cost_per_million",
+    "output_cost_per_million",
+    "timeout_s",
+    "resume_job_id",
+)
+_LABEL_SKILL_SLUGS = frozenset({"llm_label_dataset_v1"})
+
 # The reserved keys a node's graph configuration travels under. Written once as
 # data because the invariant is the same for all of them, and repeating it is how
 # one eventually stops being stripped on the other nodes.
@@ -2181,12 +2200,13 @@ _GRAPH_OWNED_BLOCKS: tuple[tuple[str, frozenset, tuple[str, ...]], ...] = (
     ("_train", _TRAIN_SKILL_SLUGS, _TRAIN_PARAM_KEYS),
     ("_predict", _PREDICT_SKILL_SLUGS, _PREDICT_PARAM_KEYS),
     ("_forecast", _FORECAST_SKILL_SLUGS, _FORECAST_PARAM_KEYS),
+    ("_label", _LABEL_SKILL_SLUGS, _LABEL_PARAM_KEYS),
 )
 
 
 def _passthrough_without_recipe(data: Optional[dict[str, Any]]) -> dict[str, Any]:
     """Task failure envelopes pass upstream data through; the graph-owned
-    ``_recipe``, ``_transform``, ``_train``, ``_predict`` and ``_forecast`` blocks are
+    ``_recipe``, ``_transform``, ``_train``, ``_predict``, ``_forecast`` and ``_label`` blocks are
     configuration (the full script, statement text, training spec or model
     reference), not data, so they never ride a ``_error``/``_status`` envelope
     into run outputs."""

@@ -10,8 +10,9 @@ logger = get_logger(__name__)
 class AnthropicClient(ModelClient):
     """Client for interacting with Anthropic API"""
     
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, *, max_retries: Optional[int] = None):
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+        self.max_retries = max_retries
         self.logger = get_logger(__name__)
         
         if not self.api_key:
@@ -29,7 +30,8 @@ class AnthropicClient(ModelClient):
         
         try:
             from anthropic import AsyncAnthropic
-            client = AsyncAnthropic(api_key=self.api_key)
+            client = AsyncAnthropic(api_key=self.api_key,
+                                    **({"max_retries": self.max_retries} if self.max_retries is not None else {}))
             
             response = await client.messages.create(
                 model=model,
@@ -65,7 +67,8 @@ class AnthropicClient(ModelClient):
         
         try:
             from anthropic import AsyncAnthropic
-            client = AsyncAnthropic(api_key=self.api_key)
+            client = AsyncAnthropic(api_key=self.api_key,
+                                    **({"max_retries": self.max_retries} if self.max_retries is not None else {}))
             
             stream = await client.messages.create(
                 model=model,
