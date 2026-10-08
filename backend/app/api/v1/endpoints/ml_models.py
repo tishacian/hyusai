@@ -52,6 +52,7 @@ from app.services.tabular_ml import (
     delete_model,
     get_model,
     infer_task,
+    is_text_column,
     pipeline_provenance,
     request_cancel,
     runner_up,
@@ -249,6 +250,7 @@ async def plan_training(
                 # to ride along on a form that is re-planned on every keystroke.
                 "profile": profile,
                 "suggested_task": infer_task(dataset, name),
+                **({"role": "text"} if is_text_column(str(column.get("kind")), profile) else {}),
             }
         )
     payload: dict[str, Any] = {

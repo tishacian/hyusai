@@ -15,9 +15,6 @@
  */
 
 export const MODELS_FR = {
-  "models.explain.missing": "est manquant",
-  "models.explain.present": "est renseigné",
-  "models.explain.or": "ou",
   'models.spec.intervals': 'Intervalles de prédiction',
   'models.spec.intervals.off': 'Désactivés',
   'models.spec.intervals.conformal': 'Validation croisée',
@@ -80,6 +77,9 @@ export const MODELS_FR = {
   "models.tuning.hint": "Le meilleur score est choisi sur le train. Les scores de la carte sont mesurés sur le test, resté à l’écart du réglage.",
   "models.warning.ml_tuning_estimate": "Durée indicative des essais : {estimated_s} s (budget : {budget_s} s), estimée depuis la version précédente.",
   "models.warning.ml_tuning_budget_limited": "Le budget peut arrêter la recherche avant tous les essais.",
+  "models.explain.missing": "est manquant",
+  "models.explain.present": "est renseigné",
+  "models.explain.or": "ou",
   "models.spec.explain": "Explications du modèle",
   "models.spec.explain.hint": "Explore les erreurs, un arbre simplifié et l’effet des variables sur le test, dans un budget de 60 secondes.",
   "models.spec.explain.off": "Désactivées",
@@ -118,6 +118,14 @@ export const MODELS_FR = {
   "models.explain.metric.accuracy": "Exactitude",
   "models.explain.metric.mae": "MAE",
   "models.explain.metric.bias": "Biais moyen",
+
+
+  "models.spec.text_encoder": "Encodage du texte",
+  "models.spec.text_encoder.auto": "Automatique",
+  "models.spec.text_encoder.string": "TF-IDF et SVD",
+  "models.spec.text_encoder.minhash": "MinHash",
+  "models.spec.text_encoder.hint": "Pour les colonnes contenant beaucoup de textes distincts. Automatique conserve le comportement habituel.",
+  "models.tabular.text_columns": "Colonnes de texte détectées : {columns}",
 
   // ---- chrome de page -----------------------------------------------------
   'models.eyebrow': 'Données & modèles · Modèles',
@@ -932,9 +940,6 @@ export const MODELS_FR = {
 } as const;
 
 export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
-  "models.explain.missing": "is missing",
-  "models.explain.present": "is present",
-  "models.explain.or": "or",
   'models.spec.intervals': 'Prediction intervals',
   'models.spec.intervals.off': 'Off',
   'models.spec.intervals.conformal': 'Cross-validation',
@@ -997,6 +1002,9 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   "models.tuning.hint": "The best score is selected on training data. Card scores are measured on the test set, kept separate from tuning.",
   "models.warning.ml_tuning_estimate": "Indicative trial duration: {estimated_s} s (budget: {budget_s} s), estimated from the previous version.",
   "models.warning.ml_tuning_budget_limited": "The budget may stop the search before all trials complete.",
+  "models.explain.missing": "is missing",
+  "models.explain.present": "is present",
+  "models.explain.or": "or",
   "models.spec.explain": "Model explanations",
   "models.spec.explain.hint": "Explore errors, a simplified tree and feature effects on the test, within a 60-second budget.",
   "models.spec.explain.off": "Off",
@@ -1035,6 +1043,14 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   "models.explain.metric.accuracy": "Accuracy",
   "models.explain.metric.mae": "MAE",
   "models.explain.metric.bias": "Mean bias",
+
+
+  "models.spec.text_encoder": "Text encoding",
+  "models.spec.text_encoder.auto": "Automatic",
+  "models.spec.text_encoder.string": "TF-IDF and SVD",
+  "models.spec.text_encoder.minhash": "MinHash",
+  "models.spec.text_encoder.hint": "For columns with many distinct texts. Automatic preserves the usual behavior.",
+  "models.tabular.text_columns": "Detected text columns: {columns}",
 
   'models.eyebrow': 'Data & Models · Models',
   'models.title': 'Models',
