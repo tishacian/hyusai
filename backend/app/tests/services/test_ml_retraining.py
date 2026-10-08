@@ -276,3 +276,28 @@ async def test_scheduled_run_without_alert_completes_without_a_gate(db_session, 
     assert db_session.query(Decision).filter_by(target_id=run.id).count() == 0
     assert db_session.query(WorkspaceJob).filter_by(kind=service.SNAPSHOT_KIND).count() == 1
     assert db_session.query(MLModel).count() == 1
+
+
+@pytest.mark.asyncio
+async def test_retraining_run_link_projects_canonical_approval_rights(db_session, case, monkeypatch):
+    from datetime import timedelta
+    from app.services.run_engine.dag import execute_run_dag
+    run=fire(db_session,case,monkeypatch)
+    paused=await execute_run_dag(run.id)
+    assert paused["status"] == "hitl_pending", paused
+    db_session.expire_all()
+    admin=_client(db_session,case.workspace,case.owner)
+    reader=_client(db_session,case.workspace,case.other)
+    detail=admin.get(f"/runs/{run.id}")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["hitl"]["can_decide"] is True
+    assert detail.json()["hitl"]["model_retraining"]["labeled_rows"] == 80
+    readonly=reader.get(f"/runs/{run.id}")
+    assert readonly.status_code == 200, readonly.text
+    assert readonly.json()["hitl"]["can_decide"] is False
+    rejected=reader.post(f"/runs/{run.id}/hitl",json={"action":"accept","expected_decision_id":paused["awaiting_decision"]})
+    assert rejected.status_code == 403
+    decision=db_session.get(Decision,paused["awaiting_decision"])
+    decision.expires_at=datetime.utcnow()-timedelta(seconds=1)
+    db_session.commit()
+    assert admin.get(f"/runs/{run.id}").json()["hitl"]["can_decide"] is False
