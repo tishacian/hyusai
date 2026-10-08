@@ -13,7 +13,7 @@ from sklearn.datasets import make_regression
 from app.core.config import settings
 from app.models.tabular import MLModel
 from app.resources.ml_knob_translation import translate
-from app.resources.ml_train_harness import _tune
+from app.resources.ml_train_harness import _make_pipeline, _tune
 from app.services import tabular_ml
 from app.services.tabular_datasets import TabularError
 from app.tests.services.test_ml_training import (  # noqa: F401
@@ -182,3 +182,100 @@ def test_pruning_reports_folds_and_failed_trials_do_not_discard_baseline(tmp_pat
     assert summary['trials_failed'] > 0
     assert summary['best']['knobs'] == {'n_neighbors': 1}
     assert summary['best']['score'] == summary['start']['score']
+
+
+@pytest.mark.parametrize('labels,metric', [
+    ([0, 1, None], 'roc_auc'),
+    ([0, 1, 2, None], 'balanced_accuracy'),
+    ([0, 1], 'roc_auc'),
+])
+def test_tuning_metric_ignores_null_label_in_profile(dataset, enabled, labels, metric):
+    import polars as pl
+    from app.services.tabular_datasets import profile_frame
+
+    spec = tabular_ml.validate_training(dataset, task='classification', target='churn',
+                                       spec={'tuning': 'budget', 'tuning_budget_s': 30})
+    dataset.stats_json = profile_frame(pl.DataFrame({'churn': labels * 40}))['stats']
+    config = tabular_ml.tuning_configuration(spec)
+    assert config['metric'] == metric
+    assert config['direction'] == 'max'
+
+
+@pytest.mark.parametrize('classes,metric', [(2, 'roc_auc'), (3, 'balanced_accuracy')])
+def test_tuning_metric_uses_effective_training_labels(classes, metric):
+    # Even a stale profile/manifest must not choose the objective from rows
+    # discarded before the split. This also covers numeric NaN missing labels.
+    config = _config(task='classification', estimator='sklearn.linear_model.LogisticRegression')
+    config['tuning'].update(budget_s=0, metric='r2', direction='min')
+    x, _ = _data(90)
+    y = pd.Series([index % classes for index in range(len(x))])
+    _, summary = _tune(config, x, y)
+    assert summary['metric'] == metric
+    assert summary['direction'] == 'max'
+    assert config['tuning']['metric'] == 'r2'
+
+
+def _text_data():
+    import numpy as np
+
+    rng = np.random.default_rng(11)
+    vocabulary = [''.join(rng.choice(list('abcdefghijklmnopqrstuvwxyz'), 10)) for _ in range(120)]
+    labels = pd.Series(rng.integers(0, 2, 180), name='label')
+    features = pd.DataFrame({'ticket': [
+        ' '.join(rng.choice(vocabulary, 8)) + (' urgent' if label else ' normal')
+        for label in labels
+    ]})
+    return features, labels
+
+
+def _text_config():
+    config = _config(algo='linear', task='classification', random_state=0,
+                     estimator='sklearn.linear_model.LogisticRegression')
+    config['tuning'].update(trials=5, budget_s=30, metric='roc_auc')
+    return config
+
+
+def test_automatic_text_encoding_is_unchanged_without_tuning():
+    for tuning, expected_seed in ((False, None), (True, 0)):
+        pipeline = _make_pipeline('sklearn.linear_model.LogisticRegression', {},
+                                  seed=0, tuning=tuning)
+        assert pipeline.named_steps['tablevectorizer'].high_cardinality.random_state == expected_seed
+
+
+def test_text_tuning_repeats_the_same_scores_and_best_trial_without_a_spec():
+    config = _text_config()
+    _, first = _tune(config, *_text_data())
+    _, second = _tune(config, *_text_data())
+    assert first['trials_run'] == second['trials_run'] == 5
+    assert first['trials_failed'] == second['trials_failed'] == 0
+    assert first['best']['score'] >= first['start']['score']
+    assert first['best'] == second['best']
+    assert [trial['score'] for trial in first['trials']] == [trial['score'] for trial in second['trials']]
+
+
+def test_final_text_artifact_is_seeded_and_nan_labels_do_not_change_objective(tmp_path):
+    import mlflow.sklearn
+    import polars as pl
+    from app.services.tabular_datasets import profile_frame
+
+    x, y = _text_data()
+    frame = pl.from_pandas(x.assign(label=y.astype(float)))
+    # Write an IEEE NaN (not a Parquet null), as accepted numeric uploads can.
+    frame = frame.with_columns(pl.when(pl.int_range(pl.len()) < 2)
+                               .then(float('nan')).otherwise(pl.col('label')).alias('label'))
+    profile = profile_frame(frame)['stats']['label']
+    assert profile['nulls'] == 0 and profile['distinct'] == 3
+    source = tmp_path / 'text.parquet'
+    frame.write_parquet(source)
+    config = _text_config()
+    config['tuning']['metric'] = 'balanced_accuracy'  # inferred from the profile
+    manifest = _manifest_for(source, tmp_path, features=['ticket'], target='label', **config)
+    assert 'spec' not in manifest
+    code, summary, stderr = _run_harness(tmp_path / 'run', manifest)
+    assert code == 0, stderr
+    assert summary['metrics']['tuning']['metric'] == 'roc_auc'
+    assert summary['metrics']['tuning']['start']['score'] is not None
+    assert summary['metrics']['rows']['total'] == len(frame) - 2
+    model = mlflow.sklearn.load_model(manifest['model_dir'])
+    assert model.named_steps['tablevectorizer'].high_cardinality.random_state == 0
+    assert len(model.predict(x.iloc[:2])) == 2
