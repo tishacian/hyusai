@@ -144,9 +144,9 @@ def test_harness_skops_and_mlflow_roundtrip_preserve_decision(tmp_path, calibrat
 def test_classification_fields_are_removed_when_target_becomes_regression():
     from app.services.ml.families.tabular import TABULAR
     warnings = []
-    assert TABULAR.parse_spec({"calibration": "sigmoid", "threshold": "f1"}, task="regression", warnings=warnings) == {"intervals": "off", "tuning": "off"}
+    assert TABULAR.parse_spec({"calibration": "sigmoid", "threshold": "f1"}, task="regression", warnings=warnings) == {"intervals": "off", "tuning": "off", "explain": "off"}
     assert len(warnings) == 2
-    assert TABULAR.parse_spec({}, task="classification") == {"calibration": "off", "threshold": "default", "tuning": "off"}
+    assert TABULAR.parse_spec({}, task="classification") == {"calibration": "off", "threshold": "default", "tuning": "off", "explain": "off"}
 
 
 def test_wrapped_serving_explanation_and_comparison_use_outer_model(monkeypatch):

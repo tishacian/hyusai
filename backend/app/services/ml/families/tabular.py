@@ -35,5 +35,7 @@ TABULAR = Family(
                   when=(("tuning", ("budget",)),)),
         SpecField("tuning_budget_s", "int", default=300, minimum=30, maximum=1500,
                   when=(("tuning", ("budget",)),)),
+        SpecField("explain", "enum", default="off", choices=("off", "pack")),
+        SpecField("fairness_columns", "columns", default=[], max_items=3, when=(("explain", ("pack",)),)),
     ),
 )

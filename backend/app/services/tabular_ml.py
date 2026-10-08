@@ -541,6 +541,13 @@ def validate_training(
                 code="ML_SPEC_INVALID", message=f"Tuning budget must not exceed {maximum:g} seconds.",
                 details={"field": "tuning_budget_s", "max": maximum},
             )
+    for column in problem.get("fairness_columns", []):
+        if column not in kinds or column == label or not 1 <= _distinct(dataset, column) <= 12:
+            raise TabularError(
+                code="ML_SPEC_INVALID",
+                message="Fairness columns must exist, differ from the target and have at most 12 distinct groups.",
+                details={"field": "fairness_columns", "column": column},
+            )
     target_kind = kinds[label]
     if chosen_task == REGRESSION and target_kind not in NUMERIC_KINDS:
         raise TabularError(

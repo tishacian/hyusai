@@ -1,4 +1,5 @@
 import { ClassificationEvidenceComponent } from "./classification-evidence.component";
+import { ExplanationEvidenceComponent } from "./explanation-evidence.component";
 /**
  * Model card — the evidence, the contract, the lineage and the settings.
  *
@@ -122,6 +123,7 @@ const CHART_ASPECT = 300 / 190;
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     ClassificationEvidenceComponent,
+    ExplanationEvidenceComponent,
     NavLinkDirective,
     CkBackLinkComponent,
     IconComponent,
@@ -552,6 +554,7 @@ const CHART_ASPECT = 300 / 190;
               <ck-tabular-intervals [intervals]="model()?.metrics?.intervals" />
               <div class="ck-charts">
                 <ck-classification-evidence [calibration]="calibration()" [decision]="decision()" [warnings]="classificationWarnings()" />
+                <ck-explanation-evidence [evidence]="explanations()" [regression]="row.task === 'regression'" />
                 @if (roc().length) {
                   <section class="ck-chart">
                     <div class="ck-section-label">{{ i18n.t('models.evidence.roc') }}</div>
@@ -1778,6 +1781,7 @@ export class ModelViewComponent implements OnInit {
   protected readonly calibration = computed(() => this.metrics()?.calibration);
   protected readonly decision = computed(() => this.metrics()?.decision);
   protected readonly classificationWarnings = computed(() => (this.metrics()?.warnings ?? []).filter((warning) => ['ML_CALIBRATION_TOO_FEW', 'ML_THRESHOLD_TOO_FEW', 'ML_THRESHOLD_BINARY_ONLY'].includes(warning.code)));
+  protected readonly explanations = computed(() => this.metrics()?.explain);
   protected readonly roc = computed(() => this.metrics()?.curves?.roc ?? []);
   protected readonly pr = computed(() => this.metrics()?.curves?.pr ?? []);
   protected readonly fit = computed(() => this.metrics()?.curves?.fit ?? []);
