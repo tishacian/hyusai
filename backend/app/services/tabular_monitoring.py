@@ -21,10 +21,12 @@ from collections import Counter
 from datetime import datetime
 from typing import Any, Iterable
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.logging import get_logger
 from app.models.tabular import MLModel, MLPrediction, TabularDataset
+from app.resources.ml_drift import adjust_tests, feature_test, finite_number
 from app.services.tabular_datasets import (
     NUMERIC_KINDS,
     TabularError,
@@ -170,14 +172,14 @@ def rolling_auc(labels: list[str], scores: list[float], *, positive: str | None)
 # ---------------------------------------------------------------------------
 
 
-def _recent(db: DBSession, model: MLModel, *, limit: int = WINDOW_LIMIT) -> list[MLPrediction]:
+def _recent(db: DBSession, model: MLModel, *, limit: int = WINDOW_LIMIT, lineage: bool = False) -> list[MLPrediction]:
     return (
         db.query(MLPrediction)
         .filter(
             MLPrediction.workspace_id == model.workspace_id,
-            MLPrediction.slug == model.slug,
+            MLPrediction.slug == model.slug if lineage else MLPrediction.served_id == model.id,
         )
-        .order_by(MLPrediction.created_at.desc())
+        .order_by(MLPrediction.created_at.desc(), MLPrediction.id.desc())
         .limit(limit)
         .all()
     )
@@ -314,6 +316,8 @@ def data_drift(model: MLModel, rows: list[MLPrediction], dataset: TabularDataset
         if isinstance(field, dict) and field.get("name")
     }
     features: list[dict[str, Any]] = []
+    reference = (model.metrics_json or {}).get("monitoring_reference") or {}
+    reference_features = reference.get("features", {}) if reference.get("version") == 1 else {}
     for name in list(model.features or [])[:32]:
         column_stats = stats.get(name) if isinstance(stats.get(name), dict) else {}
         contract = contract_fields.get(name) or {}
@@ -323,9 +327,9 @@ def data_drift(model: MLModel, rows: list[MLPrediction], dataset: TabularDataset
         if kind == "number":
             expected = _expected_numeric(column_stats)
             actual = [
-                float(item)
+                number
                 for item in actual_values
-                if isinstance(item, (int, float)) and not isinstance(item, bool)
+                if (number := finite_number(item)) is not None
             ]
             value = population_stability(expected or [], actual) if expected else None
         else:
@@ -342,8 +346,13 @@ def data_drift(model: MLModel, rows: list[MLPrediction], dataset: TabularDataset
                 "kind": kind or "category",
                 "value": None if value is None else round(value, 4),
                 "status": drift_status(value),
+                "psi_status": drift_status(value),
+                "test": feature_test(reference_features.get(name), actual_values),
             }
         )
+    adjust_tests([feature["test"] for feature in features])
+    for feature in features:
+        feature["status"] = worst_status([feature["psi_status"], feature["test"]["status"]])
     measured = [row["status"] for row in features if row["status"] != "unknown"]
     return {
         "status": worst_status(measured) if measured else "unknown",
@@ -402,7 +411,8 @@ def report(db: DBSession, *, model: MLModel) -> dict[str, Any]:
 
     rows = _recent(db, model)
     dataset = (
-        db.query(TabularDataset).filter(TabularDataset.id == model.dataset_id).first()
+        db.query(TabularDataset).filter(TabularDataset.id == model.dataset_id,
+                                       TabularDataset.workspace_id == model.workspace_id).first()
         if model.dataset_id
         else None
     )
@@ -425,6 +435,8 @@ def report(db: DBSession, *, model: MLModel) -> dict[str, Any]:
             "predictions": len(rows),
             "labeled": labeled,
             "limit": WINDOW_LIMIT,
+            "model_id": model.id,
+            "served_version": model.version,
         },
         "data_drift": data,
         "score_drift": scores,
@@ -433,25 +445,27 @@ def report(db: DBSession, *, model: MLModel) -> dict[str, Any]:
 
 
 def badges_for(db: DBSession, models: list[MLModel]) -> dict[str, str | None]:
-    """One badge per lineage, cheap enough to ship on the Models list."""
+    """One badge per served version, using a bounded window for each model."""
 
     if not models:
         return {}
-    workspace_id = models[0].workspace_id
-    slugs = {row.slug for row in models}
+    model_ids = {row.id for row in models}
+    ranked = db.query(
+        MLPrediction.id,
+        func.row_number().over(partition_by=MLPrediction.served_id,
+                               order_by=(MLPrediction.created_at.desc(), MLPrediction.id.desc())).label("position"),
+    ).filter(MLPrediction.served_id.in_(list(model_ids)),
+             MLPrediction.workspace_id.in_({model.workspace_id for model in models})).subquery()
     rows = (
         db.query(MLPrediction)
-        .filter(
-            MLPrediction.workspace_id == workspace_id,
-            MLPrediction.slug.in_(list(slugs)),
-        )
-        .order_by(MLPrediction.created_at.desc())
-        .limit(WINDOW_LIMIT * max(1, len(slugs)))
+        .join(ranked, ranked.c.id == MLPrediction.id)
+        .filter(ranked.c.position <= WINDOW_LIMIT)
+        .order_by(MLPrediction.created_at.desc(), MLPrediction.id.desc())
         .all()
     )
-    by_slug: dict[str, list[MLPrediction]] = {}
+    by_model: dict[str, list[MLPrediction]] = {}
     for row in rows:
-        bucket = by_slug.setdefault(row.slug, [])
+        bucket = by_model.setdefault(row.served_id, [])
         if len(bucket) < WINDOW_LIMIT:
             bucket.append(row)
     dataset_ids = {model.dataset_id for model in models if model.dataset_id}
@@ -467,11 +481,12 @@ def badges_for(db: DBSession, models: list[MLModel]) -> dict[str, str | None]:
     }
     badges: dict[str, str | None] = {}
     for model in models:
-        window = by_slug.get(model.slug) or []
+        window = [row for row in by_model.get(model.id, []) if row.workspace_id == model.workspace_id]
         if not window:
             badges[model.id] = None
             continue
-        data = data_drift(model, window, datasets.get(model.dataset_id))
+        dataset = datasets.get(model.dataset_id)
+        data = data_drift(model, window, dataset if dataset is not None and dataset.workspace_id == model.workspace_id else None)
         scores = score_drift(window)
         concept = concept_drift(model, window)
         badge = worst_status(
@@ -589,7 +604,7 @@ def materialize_labeled(
 
     rows = [
         row
-        for row in _recent(db, model, limit=WINDOW_LIMIT)
+        for row in _recent(db, model, limit=WINDOW_LIMIT, lineage=True)
         if row.label is not None
     ]
     records: list[dict[str, Any]] = []
