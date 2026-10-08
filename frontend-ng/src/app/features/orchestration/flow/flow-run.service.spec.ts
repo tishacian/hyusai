@@ -537,6 +537,21 @@ test('HITL: pause → accept resolves and restarts the stream', () => {
   assert.equal(svc.hitlResolving(), false);
 });
 
+test('HITL labels require acknowledgment and use the existing decision endpoint once', () => {
+  const { svc, store, api, stream } = makeHarness();
+  store.load(validFlow()); svc.bindSystem('sys-1');
+  api.getRunResult = mkRun('hitl_pending', { hitl: { node_id: 'gate', decision_id: 'labels-gate', prompt_kind: 'review_dataset_labels' } });
+  svc.executeOnBackend(); stream.emit({ event: 'hitl_pause', data: { node_id: 'gate' } });
+  svc.resolveHitl('accept');
+  assert.equal(api.resolveHitlCalls.length, 0);
+  const label_review = { dataset_id: 'labels', sha256: 'hash', acknowledged: true as const, corrections: [{ row_id: 50, label: 'no' }] };
+  api.resolveResult = mkRun('running');
+  svc.resolveHitl('accept', label_review);
+  assert.deepEqual(api.resolveHitlCalls, [{ action: 'accept', expected_decision_id: 'labels-gate', label_review }]);
+  svc.resolveHitl('accept', label_review);
+  assert.equal(api.resolveHitlCalls.length, 1);
+});
+
 test('HITL: a refused decision does not log an approval or resume', () => {
   const { svc, store, api, stream } = makeHarness();
   store.load(validFlow());

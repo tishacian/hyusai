@@ -6,6 +6,22 @@
  */
 
 export const DATA_FR = {
+  'data.labelReview.title': 'Revoir les étiquettes',
+  'data.labelReview.total': '{count} lignes à confirmer',
+  'data.labelReview.instructions': 'Lisez les textes et corrigez les classes si nécessaire. Les modifications restent conservées lorsque vous changez de page.',
+  'data.labelReview.loading': 'Chargement des étiquettes…',
+  'data.labelReview.unavailable': 'Cette revue est indisponible ou a changé. Rechargez-la avant de confirmer.',
+  'data.labelReview.row': 'Ligne',
+  'data.labelReview.original': 'Classe du LLM',
+  'data.labelReview.corrected': 'Classe retenue',
+  'data.labelReview.label_for': 'Classe de la ligne {row}',
+  'data.labelReview.changed': '{count} corrections sur l’ensemble des pages',
+  'data.labelReview.ack': 'Je confirme les étiquettes des {count} lignes du dataset entier, y compris les lignes inchangées ou situées sur les autres pages.',
+  'data.labelReview.provenance': 'Étiquetage par un modèle de langage',
+  'data.labelReview.reviewed': 'Étiquettes confirmées par une personne. Le dataset d’origine est conservé.',
+  'data.labelReview.unreviewed': 'Étiquettes non revues. Une porte humaine du Flow doit les confirmer avant leur utilisation comme cible d’entraînement.',
+  'data.labelReview.summary': '{total} lignes confirmées, {corrected} classes corrigées.',
+  'data.labelReview.open_run': 'Ouvrir l’exécution et sa décision',
   // ---- navigation & page chrome ------------------------------------------
   'data.eyebrow': 'Données & modèles · Jeux de données',
   'data.title': 'Données',
@@ -171,6 +187,22 @@ export const DATA_FR = {
 } as const;
 
 export const DATA_EN: Record<keyof typeof DATA_FR, string> = {
+  'data.labelReview.title': 'Review labels',
+  'data.labelReview.total': '{count} rows to confirm',
+  'data.labelReview.instructions': 'Read the texts and correct classes where needed. Your changes are retained when you change pages.',
+  'data.labelReview.loading': 'Loading labels…',
+  'data.labelReview.unavailable': 'This review is unavailable or has changed. Reload it before confirming.',
+  'data.labelReview.row': 'Row',
+  'data.labelReview.original': 'LLM class',
+  'data.labelReview.corrected': 'Selected class',
+  'data.labelReview.label_for': 'Class for row {row}',
+  'data.labelReview.changed': '{count} corrections across all pages',
+  'data.labelReview.ack': 'I confirm the labels of all {count} rows in the entire dataset, including unchanged rows and rows on other pages.',
+  'data.labelReview.provenance': 'Language model labeling',
+  'data.labelReview.reviewed': 'Labels confirmed by a person. The original dataset is preserved.',
+  'data.labelReview.unreviewed': 'Labels have not been reviewed. A human gate in the Flow must confirm them before they can be used as a training target.',
+  'data.labelReview.summary': '{total} rows confirmed, {corrected} classes corrected.',
+  'data.labelReview.open_run': 'Open the run and its decision',
   'data.eyebrow': 'Data & Models · Datasets',
   'data.title': 'Data',
   'data.list.go_models': 'Models',

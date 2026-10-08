@@ -129,6 +129,7 @@ export interface CvBlock {
 }
 
 export interface MetricsBlock {
+  distillation?: import('./distillation-evidence.vm').DistillationEvidence;
   intervals?: IntervalEvidence;
   calibration?: CalibrationEvidence;
   decision?: DecisionEvidence;
@@ -1521,6 +1522,10 @@ export function defaultFeatures(
  * still a refusal the author has to read.
  */
 export const REFUSAL_CODES = [
+  'ML_LABEL_REVIEW_REQUIRED',
+  'ML_LABEL_REVIEW_CHANGED',
+  'ML_LABEL_REVIEW_INVALID',
+  'ML_DISTILLATION_SOURCE_REQUIRED',
   'ML_TRAIN_DISABLED',
   'DATASET_NOT_READY',
   'ML_DATASET_UNPROFILED',
@@ -1574,6 +1579,12 @@ export function refusalField(
     return code === 'ML_TS_ALGO_SHAPE_MISMATCH' ? 'algo' : 'spec';
   }
   switch (code) {
+    case 'ML_DISTILLATION_SOURCE_REQUIRED':
+      return 'spec';
+    case 'ML_LABEL_REVIEW_REQUIRED':
+    case 'ML_LABEL_REVIEW_CHANGED':
+    case 'ML_LABEL_REVIEW_INVALID':
+      return 'dataset';
     case 'ML_TARGET_REQUIRED':
     case 'ML_TARGET_UNKNOWN':
     case 'ML_TARGET_NOT_NUMERIC':
@@ -1899,6 +1910,7 @@ const TRAINING_ERROR_SET: ReadonlySet<string> = new Set(TRAINING_ERROR_CODES);
 
 /** The dictionary key for a settled run's failure, or `null` if it is unnamed. */
 export function trainingErrorKey(code: string | undefined | null): string | null {
+  if (code?.startsWith('ML_LABEL_REVIEW_') || code === 'ML_DISTILLATION_SOURCE_REQUIRED') return refusalKey(code);
   if (!code || !TRAINING_ERROR_SET.has(code)) return null;
   return `models.error.${code.toLowerCase()}`;
 }

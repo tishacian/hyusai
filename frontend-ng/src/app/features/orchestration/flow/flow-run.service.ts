@@ -29,6 +29,7 @@ import {
   type Run,
   type RunDebugPayload,
   type RunHitlPayload,
+  type LabelReviewSubmission,
   type RunTriggerRequest,
 } from '@app/core/canonical-api.service';
 import {
@@ -613,13 +614,16 @@ export class FlowRunService {
   }
 
   // ---- HITL ---------------------------------------------------------------
-  resolveHitl(action: 'accept' | 'reject'): void {
+  resolveHitl(action: 'accept' | 'reject', labelReview?: LabelReviewSubmission): void {
     const run = this.currentRun();
     if (!run || run.status !== 'hitl_pending') return;
+    if (action === 'accept' && run.hitl?.prompt_kind === 'review_dataset_labels' && !labelReview?.acknowledged) return;
     if (this.hitlResolving()) return;
     this.hitlResolving.set(true);
     const scope = this.captureWorkspaceScope();
-    this.canonical.resolveRunHitl(run.id, { action, expected_decision_id: run.hitl?.decision_id }).subscribe({
+    this.canonical.resolveRunHitl(run.id, { action, expected_decision_id: run.hitl?.decision_id,
+      ...(action === 'accept' && labelReview ? { label_review: labelReview } : {}),
+    }).subscribe({
       next: (updated) => {
         if (!this.isWorkspaceScopeCurrent(scope)) return;
         this.hitlResolving.set(false);

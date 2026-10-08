@@ -116,6 +116,19 @@ const PAGE_SIZE = 50;
         </div>
       }
 
+      @if (ds.lineage?.labeling; as labeling) {
+        <section class="ck-progress rounded-md px-4 py-3 mb-3" data-testid="dataset-labeling-provenance">
+          <h3>{{ i18n.t('data.labelReview.provenance') }}</h3>
+          <p>{{ i18n.t(labeling.review_status === 'reviewed' ? 'data.labelReview.reviewed' : 'data.labelReview.unreviewed') }}</p>
+          @if (ds.lineage?.label_review; as review) {
+            <p>{{ i18n.t('data.labelReview.summary', { total: review.rows_reviewed, corrected: review.corrected_rows }) }}</p>
+          }
+          @if (ds.run_id) {
+            <a [navLink]="{type:'run',ref:ds.run_id}">{{ i18n.t('data.labelReview.open_run') }}</a>
+          }
+        </section>
+      }
+
       <ck-tabs [active]="tab()" (activeChange)="onTabChange($event)">
         <ck-tab id="preview" [label]="i18n.t('data.detail.tab.preview')">
           <ck-data-table

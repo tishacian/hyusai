@@ -25,6 +25,7 @@ import {
   type VariableRef,
 } from '@app/core/flow-serializer.service';
 import { portsFromSchema } from './flow.types';
+import { hitlPorts } from '@app/core/flow-hitl-ports';
 
 /** One pickable upstream output port. */
 export interface VariableCandidate {
@@ -100,7 +101,7 @@ export function upstreamOutputs(
   for (const id of upstreamIds) {
     const node = byId.get(id);
     if (!node) continue;
-    let ports = node.outputs ?? [];
+    let ports = hitlPorts(node, 'outputs') ?? node.outputs ?? [];
     if (ports.length === 0 && options?.outputSchemaFor) {
       ports = portsFromSchema(options.outputSchemaFor(id));
     }

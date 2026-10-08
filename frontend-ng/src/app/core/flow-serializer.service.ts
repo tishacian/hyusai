@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { hitlPorts, normalizeHitlPorts } from './flow-hitl-ports';
 
 /**
  * Flow serialization — the contract between `/systems/new` (Form) and
@@ -238,7 +239,7 @@ export interface HitlNodeConfig {
   timeout_ms?: number;
   /** Roles allowed to approve/reject. */
   approvers?: string[];
-  prompt_kind?: 'choice' | 'validate_draft' | 'missing_file' | 'approve_write';
+  prompt_kind?: 'choice' | 'validate_draft' | 'missing_file' | 'approve_write' | 'review_dataset_labels';
 }
 
 export interface SubflowNodeConfig {
@@ -896,13 +897,13 @@ export class FlowSerializerService {
   }
 
   normalizeNode(node: CanonicalFlowNode): CanonicalFlowNode {
-    return {
+    return normalizeHitlPorts({
       ...node,
       kind: node.kind ?? 'task',
       inputs: node.inputs ?? [],
       outputs: node.outputs ?? [],
       config: node.config ?? {},
-    };
+    });
   }
 
   /**
@@ -1436,8 +1437,8 @@ export class FlowSerializerService {
       const src = byId.get(e.from);
       const dst = byId.get(e.to);
       if (!src || !dst) return; // already reported as dangling_edge
-      const outPort = (src.outputs ?? []).find((p) => p.name === e.from_port);
-      const inPort = (dst.inputs ?? []).find((p) => p.name === e.to_port);
+      const outPort = (hitlPorts(src, 'outputs') ?? src.outputs ?? []).find((p) => p.name === e.from_port);
+      const inPort = (hitlPorts(dst, 'inputs') ?? dst.inputs ?? []).find((p) => p.name === e.to_port);
       if (!outPort || !inPort) return; // can't compare undeclared ports
       if (primitivesIncompatible(outPort.schema, inPort.schema)) {
         issues.push({
@@ -1524,7 +1525,8 @@ export class FlowSerializerService {
             });
             continue;
           }
-          const srcOutputs = byId.get(ref.node_id)?.outputs ?? [];
+          const sourceNode = byId.get(ref.node_id)!;
+          const srcOutputs = hitlPorts(sourceNode, 'outputs') ?? sourceNode.outputs ?? [];
           const head = ref.path[0];
           if (srcOutputs.length > 0 && head && !srcOutputs.some((p) => p.name === head)) {
             issues.push({
