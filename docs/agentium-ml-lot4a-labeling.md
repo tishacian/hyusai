@@ -106,3 +106,35 @@ ni migration. Après déploiement depuis le dépôt de référence, exécuter
 La validation fournisseur réelle relève de la recette avec les credentials du
 workspace ; les tests de développement simulent le transport et n’engagent
 aucun appel facturé.
+
+## Vérification de la branche
+
+- Backend : 204 tests de non-régression passent sur les datasets, le DAG, les
+  wrappers, le routage modèle et la télémétrie. Après les corrections de revue,
+  les 52 tests ciblant l’étiquetage et la réconciliation du catalogue passent.
+- Le test d’intégration utilise le moteur d’invocation et l’ObjectStore réels,
+  avec le transport fournisseur simulé : trois lots produisent 360 tokens
+  comptabilisés une seule fois ; rejouer le même nœud renvoie la même sortie
+  avec zéro appel et zéro token supplémentaires. Un modèle interdit est refusé
+  avant création du traitement ou appel au fournisseur.
+- Les scénarios d’interruption couvrent notamment une réponse perdue, un lot
+  invalide, un checkpoint corrompu, un budget épuisé puis augmenté, la révocation
+  d’accès et la suppression d’un dataset pendant un appel.
+- Infrastructure : 920 tests passent, 36 sont ignorés par leurs conditions
+  d’environnement. L’empreinte d’import de l’API reste inchangée. Une qualification
+  PostgreSQL locale confirme le refus du second producteur dans le même
+  workspace, l’indépendance entre workspaces et la libération du verrou.
+- Frontend : 1 999 tests unitaires passent ; les contrôles i18n, UI chrome et
+  liens de navigation passent.
+- Navigateur : les deux scénarios Playwright locaux passent en français/thème
+  sombre et anglais/thème clair. Ils vérifient les 15 champs, les tarifs laissés
+  vides avant saisie, la valeur zéro explicite, la sauvegarde exacte dans le
+  graphe et la restauration des paramètres après rechargement.
+- `build:prod` réussit sous Node 22, exécuté une seule fois pour ce lot. Angular
+  conserve ses avertissements de taille de bundles, de templates et de dépendance
+  CommonJS ; ils n’empêchent pas la génération.
+
+Le test global `test_every_seeded_slug_has_a_wrapper_and_a_category` conserve
+son échec préexistant : `openai_llm_v1` et `azure_openai_llm_v1` ont des wrappers
+sans ligne dans le catalogue. Les six autres tests de ce fichier passent.
+Cette vérification locale ne constitue pas une recette fournisseur ou VM.

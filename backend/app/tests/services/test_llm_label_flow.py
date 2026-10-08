@@ -18,6 +18,9 @@ SLUG = "llm_label_dataset_v1"
 
 def test_label_catalog_is_bound_claimed_and_all_settings_are_editable():
     skill = next(row for row in SEED_SKILLS if row["slug"] == SLUG)
+    # Zero token pricing leaves provider cost unmeasured; a fixed-price unit
+    # would incorrectly report this workspace-model execution as measured free.
+    assert skill["pricing"] == {"unit": "per_1k_tokens", "unit_price": 0.0, "currency": "USD"}
     assert wrappers._REGISTRY[SLUG][0] is wrappers._llm_label_dataset_v1
     assert wrappers._REGISTRY[SLUG][2] == "bound"
     assert any(SLUG in row["skill_slugs"] for row in SEED_CAPABILITIES)
