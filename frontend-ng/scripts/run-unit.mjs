@@ -25,6 +25,7 @@ const stub = join(here, 'ng-core.stub.mjs');
 // Pure specs: engine-agnostic logic. `@angular/core` is aliased to a
 // metadata-only stub (the serializer uses it only for `@Injectable`).
 const pureSpecs = [
+  'src/app/features/models/drift-evidence.vm.spec.ts',
   'src/app/features/data/label-review.vm.spec.ts',
   'src/app/features/models/distillation-evidence.vm.spec.ts',
   'src/app/features/models/tuning-evidence.vm.spec.ts',
