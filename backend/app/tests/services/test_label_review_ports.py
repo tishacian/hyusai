@@ -4,6 +4,7 @@ import pytest
 
 from app.services.chains.dag_validator import validate_flow
 from app.services.systems.flow_manifest import _unit_for_node
+from app.services.chains.hitl_ports import hitl_ports
 
 
 def strict_flow():
@@ -47,3 +48,42 @@ def test_manifest_exposes_the_same_runtime_owned_review_contract():
     assert "forged" not in properties
     node["config"]["prompt_kind"] = "approve_write"
     assert "dataset_id" not in _unit_for_node(node, {})["implementation"]["output_schema"]["properties"]
+
+
+def test_real_automation_approval_preserves_its_string_context():
+    from app.services.automation_edit import apply_patch, read_draft
+
+    empty = {"nodes": [], "edges": []}
+    gate = apply_patch(empty, {"add": [{"id": "review", "type": "approval"}]},
+                       expected_hash=read_draft(empty)["hash"])["nodes"][0]
+    assert gate["inputs"] == [{"name": "in", "schema": "string"}]
+    assert hitl_ports(gate, "inputs") == {"in": "string"}
+    assert _unit_for_node(gate, {})["implementation"]["input_schema"]["properties"]["in"] == {"type": "string"}
+    graph = {"schema_version": 3, "io_mode": "strict", "nodes": [
+        {"id": "source", "kind": "source", "outputs": [{"name": "text", "schema": "string"}]}, gate,
+        {"id": "sink", "kind": "sink", "inputs": [{"name": "approved", "schema": "boolean"}],
+         "config": {"inputs_map": {"approved": {"node_id": "review", "path": ["approved"]}}}},
+    ], "edges": [{"from": "source", "to": "review", "from_port": "text", "to_port": "in"},
+                  {"from": "review", "to": "sink", "from_port": "approved", "to_port": "approved"}]}
+    gate["config"]["inputs_map"] = {"in": {"node_id": "source", "path": ["text"]}}
+    assert not validate_flow(graph)
+
+
+@pytest.mark.parametrize("prompt_kind", ["approve_write", "review_dataset_labels"])
+def test_human_gates_keep_custom_context_and_review_enforces_only_its_dataset_type(prompt_kind):
+    node = {"kind": "hitl", "config": {"prompt_kind": prompt_kind}, "inputs": [
+        {"name": "request", "schema": "object"}, {"name": "opaque", "schema": "ref:Request"},
+        {"name": "dataset_id", "schema": "integer"},
+    ]}
+    ports = hitl_ports(node, "inputs")
+    assert ports["request"] == "object"
+    assert ports["opaque"] == "ref:Request"
+    assert ports["dataset_id"] == ("string" if prompt_kind == "review_dataset_labels" else "integer")
+    properties = _unit_for_node(node, {})["implementation"]["input_schema"]["properties"]
+    assert properties["request"] == {"type": "object"}
+    assert properties["opaque"] == {}
+
+
+@pytest.mark.parametrize("inputs", [42, {"name": "in"}])
+def test_malformed_input_declarations_do_not_crash_port_validation(inputs):
+    assert hitl_ports({"kind": "hitl", "inputs": inputs}, "inputs") == {}

@@ -6,9 +6,13 @@ export function hitlPorts(node: CanonicalFlowNode, direction: 'inputs' | 'output
   if (node.kind !== 'hitl') return null;
   const review = (node.config as Record<string, unknown> | undefined)?.['prompt_kind'] === 'review_dataset_labels';
   if (direction === 'inputs') {
-    return review
-      ? [{ name: 'dataset_id', schema: 'string' }, { name: 'in', schema: 'object' }]
-      : [{ name: 'in', schema: 'object' }];
+    // The gate accepts authored context; only its verdict is runtime-owned.
+    // In particular automation approvals consume in:string, not an object.
+    const declared = node.inputs ?? [];
+    if (!review) return declared;
+    const dataset = declared.find(port => port.name === 'dataset_id');
+    if (dataset) return declared.map(port => port.name === 'dataset_id' ? { ...port, schema: 'string' } : port);
+    return [{ name: 'dataset_id', schema: 'string' }, ...declared];
   }
   const ports: NodePort[] = [
     { name: 'approved', schema: 'boolean' },
