@@ -109,6 +109,7 @@ const pureSpecs = [
   'src/app/features/models/models.vm.spec.ts',
   'src/app/features/models/forecast.vm.spec.ts',
   'src/app/features/models/tabular-options.vm.spec.ts',
+  'src/app/features/models/tabular-intervals.vm.spec.ts',
   'src/app/features/models/model-serving-ui-contract.spec.ts',
   'src/app/shared/ui/modal-contract.spec.ts',
   'src/app/core/workspace-experience.spec.ts',

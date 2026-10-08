@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.services.ml.families.base import Family
+from app.services.ml.families.base import Family, SpecField
 
 CLASSIFICATION = "classification"
 REGRESSION = "regression"
@@ -23,4 +23,8 @@ TABULAR = Family(
     serving="in_process",
     required_modules=("sklearn", "skrub", "skore", "mlflow", "skops"),
     harness=Path(__file__).resolve().parents[3] / "resources" / "ml_train_harness.py",
+    spec_fields=(
+        SpecField("intervals", "enum", default="off", choices=("off", "conformal"),
+                  when=(("task", (REGRESSION,)),)),
+    ),
 )
