@@ -47,7 +47,8 @@ def fit(pipeline, x_train, y_train, *, spec, seed, folds, progress):
             fit_x, cal_x, fit_y, cal_y = train_test_split(
                 x_train, y_train, test_size=0.2, stratify=y_train, random_state=seed,
             )
-            if len(cal_y) >= 200 and cal_y.value_counts().min() >= 20:
+            counts = cal_y.value_counts().reindex(y_train.unique(), fill_value=0)
+            if len(cal_y) >= 200 and counts.min() >= 20:
                 x_fit, y_fit, x_cal, y_cal = fit_x, fit_y, cal_x, cal_y
         except ValueError:
             pass  # A tiny rare class cannot be split; the full train remains usable.
