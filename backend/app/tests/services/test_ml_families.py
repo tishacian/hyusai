@@ -203,9 +203,9 @@ TABULAR_TEST_FIELDS = (
 
 
 def test_tabular_catalog_does_not_offer_options_without_training_effects():
-    assert {field.key for field in TABULAR.spec_fields} == {"calibration", "explain", "fairness_columns", "intervals", "threshold", "tuning", "tuning_budget_s", "tuning_trials"}
-    assert TABULAR.parse_spec({}, task="regression") == {"intervals": "off", "tuning": "off", "explain": "off"}
-    assert TABULAR.parse_spec({"intervals": "conformal"}, task="classification") == {"calibration": "off", "threshold": "default", "tuning": "off", "explain": "off"}
+    assert {field.key for field in TABULAR.spec_fields} == {"calibration", "explain", "fairness_columns", "intervals", "text_encoder", "threshold", "tuning", "tuning_budget_s", "tuning_trials"}
+    assert TABULAR.parse_spec({}, task="regression") == {"intervals": "off", "tuning": "off", "explain": "off", "text_encoder": "auto"}
+    assert TABULAR.parse_spec({"intervals": "conformal"}, task="classification") == {"calibration": "off", "threshold": "default", "tuning": "off", "explain": "off", "text_encoder": "auto"}
     with pytest.raises(SpecInvalid) as error:
         TABULAR.parse_spec({"unsupported_option": "auto"}, task="regression")
     assert error.value.field == "unsupported_option"
@@ -302,7 +302,7 @@ def test_a_spec_the_family_cannot_read_names_the_field(raw, field):
 
 
 def test_the_tabular_family_accepts_only_implemented_spec_fields(dataset, enabled):
-    assert tabular_ml.validate_training(dataset, task=None, target="churn", spec={}).spec == {"calibration": "off", "threshold": "default", "tuning": "off", "explain": "off"}
+    assert tabular_ml.validate_training(dataset, task=None, target="churn", spec={}).spec == {"calibration": "off", "threshold": "default", "tuning": "off", "explain": "off", "text_encoder": "auto"}
     with pytest.raises(TabularError) as error:
         tabular_ml.validate_training(dataset, task=None, target="churn", spec={"horizon": 3})
     assert error.value.code == "ML_SPEC_INVALID" and error.value.details == {"field": "horizon"}
@@ -423,9 +423,9 @@ def test_a_trained_row_records_its_family_and_the_interpreter_that_fitted_it(
     model = tabular_ml.submit_training(
         db_session, workspace_id=workspace.id, dataset_ref={"dataset_id": dataset.id}, target="churn"
     )
-    assert model.status == "ready" and model.family == "tabular" and model.spec_json == {"calibration": "off", "threshold": "default", "tuning": "off", "explain": "off"}
+    assert model.status == "ready" and model.family == "tabular" and model.spec_json == {"calibration": "off", "threshold": "default", "tuning": "off", "explain": "off", "text_encoder": "auto"}
     assert model.runtime_json["fingerprint"] == ml_runtime.runtime_fingerprint()["fingerprint"]
-    assert captured["manifest"]["family"] == "tabular" and captured["manifest"]["spec"] == {"calibration": "off", "threshold": "default", "tuning": "off", "explain": "off"}
+    assert captured["manifest"]["family"] == "tabular" and captured["manifest"]["spec"] == {"calibration": "off", "threshold": "default", "tuning": "off", "explain": "off", "text_encoder": "auto"}
     detail = tabular_ml.serialize_model(model, include_detail=True)
     assert detail["family"] == "tabular" and detail["runtime"]["runtime"] == settings.ml_runtime
 

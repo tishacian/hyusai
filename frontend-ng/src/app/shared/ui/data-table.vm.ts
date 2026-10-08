@@ -36,6 +36,7 @@ export interface TabularTopValue {
 }
 
 export interface TabularColumnStats {
+  mean_length?: number | null;
   kind?: TabularColumnKind;
   nulls?: number;
   null_ratio?: number;
