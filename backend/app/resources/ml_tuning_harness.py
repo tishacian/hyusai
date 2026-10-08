@@ -62,7 +62,8 @@ def search(config, x_train, y_train, snapshot_path, progress_path=None):
                            random_state=seed, forest_leaves=tuning["forest_leaves"])
         scores = []
         for step, (fit, validation) in enumerate(splits):
-            pipeline = harness._make_pipeline(config["estimator"], params, spec=config.get("spec"), seed=seed)
+            pipeline = harness._make_pipeline(config["estimator"], params, spec=config.get("spec"),
+                                              seed=seed, tuning=True)
             pipeline.fit(x_train.iloc[fit], y_train.iloc[fit])
             value = float(scorer(pipeline, x_train.iloc[validation], y_train.iloc[validation]))
             if not math.isfinite(value):

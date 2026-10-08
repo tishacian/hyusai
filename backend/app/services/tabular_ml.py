@@ -312,8 +312,11 @@ def estimator_params(algo: Algo, task: str, knobs: dict[str, Any]) -> dict[str, 
 def tuning_configuration(spec: TrainingSpec) -> dict[str, Any] | None:
     if spec.spec.get("tuning") != "budget":
         return None
+    # Polars counts null as a distinct value; the harness drops missing labels.
+    target_profile = (spec.dataset.stats_json or {}).get(spec.target) or {}
+    classes = _distinct(spec.dataset, spec.target) - int(bool(target_profile.get("nulls")))
     metric = "r2" if spec.task == REGRESSION else (
-        "roc_auc" if _distinct(spec.dataset, spec.target) == 2 else "balanced_accuracy"
+        "roc_auc" if classes == 2 else "balanced_accuracy"
     )
     space = []
     for knob in spec.algo.knobs:

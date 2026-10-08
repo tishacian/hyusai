@@ -570,10 +570,16 @@ def _persist_report(report, path: str | None, *, limit_bytes: int) -> dict | Non
         return None
 
 
-def _make_pipeline(estimator_path, params, *, spec=None, seed=42):
-    from skrub import tabular_pipeline
+def _make_pipeline(estimator_path, params, *, spec=None, seed=42, tuning=False):
+    from skrub import StringEncoder, tabular_pipeline
 
     pipeline = tabular_pipeline(_resolve_estimator(estimator_path, params))
+    if tuning:
+        # TPE's seed alone cannot reproduce folds whose text SVD is unseeded.
+        # Keep the existing automatic encoder behaviour when tuning is off.
+        vectorizer = pipeline.named_steps.get("tablevectorizer")
+        if vectorizer is not None and isinstance(vectorizer.high_cardinality, StringEncoder):
+            vectorizer.high_cardinality.set_params(random_state=seed)
     imputer = pipeline.named_steps.get("simpleimputer")
     if imputer is not None:
         imputer.set_params(strategy="median")
@@ -588,12 +594,18 @@ def _tune(manifest, x_train, y_train):
 
     import joblib
 
-    tuning = manifest["tuning"]
+    tuning = dict(manifest["tuning"])
+    if manifest["task"] == "classification":
+        # Profiles may count numeric NaN separately from null or be stale.
+        # Only the effective training labels determine the search objective.
+        tuning["metric"] = "roc_auc" if y_train.nunique(dropna=True) == 2 else "balanced_accuracy"
+        tuning["direction"] = "max"
     started = time.monotonic()
     budget = float(tuning["budget_s"])
     _progress(manifest.get("progress_path"), f"tuning:0/{tuning['trials']}")
     # Pass no path to the original parquet and no test values to the child.
-    config = {key: manifest[key] for key in ("algo", "task", "estimator", "random_state", "tuning")}
+    config = {key: manifest[key] for key in ("algo", "task", "estimator", "random_state")}
+    config["tuning"] = tuning
     config["progress_path"] = manifest.get("progress_path")
     config["spec"] = dict(manifest.get("spec") or {})
     result = {}
@@ -666,7 +678,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     progress_path = manifest.get("progress_path")
     report_path = manifest.get("report_path")
     report_limit_mb = float(manifest.get("report_state_limit_mb") or 0)
-    seed = int(manifest.get("random_state") or 42)
+    seed = int(manifest["random_state"] if manifest.get("random_state") is not None else 42)
     test_size = float(manifest.get("test_size") or 0.25)
     folds = int(manifest.get("cv") or 0)
     min_rows = int(manifest.get("min_rows") or 40)
@@ -766,7 +778,8 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     if manifest.get("tuning"):
         params, tuning_result = _tune(manifest, x_train, y_train)
     try:
-        pipeline = _make_pipeline(manifest.get("estimator"), params, spec=manifest.get("spec"), seed=seed)
+        pipeline = _make_pipeline(manifest.get("estimator"), params, spec=manifest.get("spec"),
+                                  seed=seed, tuning=bool(manifest.get("tuning")))
     except RuntimeError as exc:
         return _fail(5, str(exc))
     estimator = pipeline.steps[-1][1]
