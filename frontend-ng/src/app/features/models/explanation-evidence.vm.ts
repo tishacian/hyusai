@@ -36,3 +36,22 @@ export function partialSeries(effect: PartialEffect): { grid: (number | string |
   if (!grid.length || grid.length !== average.length || effect.error) return { grid: [], average: [], ice: [] };
   return { grid, average, ice: (effect.ice ?? []).filter((row) => row.length === grid.length).slice(0, 30) };
 }
+
+type PartialPlotValue = number | { x: number; y: number } | null;
+export function partialPlot(effect: PartialEffect, locale: string): {
+  scale: 'linear' | 'category'; labels: string[]; average: PartialPlotValue[]; ice: PartialPlotValue[][];
+} {
+  const series = partialSeries(effect);
+  if (effect.kind !== 'numeric') {
+    return { scale: 'category', labels: series.grid.map((value) => typeof value === 'number'
+      ? value.toLocaleString(locale, { maximumFractionDigits: 3 }) : String(value ?? '—')),
+      average: series.average, ice: series.ice };
+  }
+  // Numeric grids may contain only a few unevenly spaced values. Preserve
+  // their coordinates; categorical labels would assign them equal spacing.
+  const points = (values: (number | null)[]): PartialPlotValue[] => values.map((y, index) => {
+    const x = series.grid[index];
+    return typeof x === 'number' && Number.isFinite(x) && y !== null && Number.isFinite(y) ? { x, y } : null;
+  });
+  return { scale: 'linear', labels: [], average: points(series.average), ice: series.ice.map(points) };
+}

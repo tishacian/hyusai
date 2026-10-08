@@ -4,7 +4,7 @@ import type { ChartConfiguration, ChartData } from 'chart.js';
 import { ThemeService } from '@app/core/theme.service';
 import { I18nService } from '@app/core/i18n.service';
 import { tokenAlpha } from '@app/features/data/viz/viz.vm';
-import { partialSeries, type PartialEffect } from './explanation-evidence.vm';
+import { partialPlot, type PartialEffect } from './explanation-evidence.vm';
 
 @Component({
   selector: 'ck-partial-effect-chart', standalone: true, imports: [BaseChartDirective],
@@ -17,6 +17,7 @@ export class PartialEffectChartComponent {
   readonly i18n = inject(I18nService);
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly theme = inject(ThemeService);
+  private readonly plot = computed(() => partialPlot(this.effect(), this.i18n.locale()));
   private readonly palette = computed(() => {
     this.theme.resolved();
     const styles = typeof getComputedStyle === 'function' ? getComputedStyle(this.host.nativeElement) : null;
@@ -24,9 +25,9 @@ export class PartialEffectChartComponent {
     return { line: read('--ck-fg-2', '#a1a1aa'), faint: tokenAlpha(read('--ck-fg-4', '#71717a'), 0.22), text: read('--ck-fg-3', '#a1a1aa'), grid: read('--ck-stroke-2', '#27272a') };
   });
   protected readonly data = computed<ChartData<'line'>>(() => {
-    const series = partialSeries(this.effect()), palette = this.palette();
+    const series = this.plot(), palette = this.palette();
     return {
-      labels: series.grid.map((value) => typeof value === 'number' ? value.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 3 }) : String(value ?? '—')),
+      labels: series.labels,
       datasets: [
         { label: this.i18n.t('models.explain.pdp.average'), data: series.average, borderColor: palette.line, borderWidth: 2.5, pointRadius: 1, pointHoverRadius: 4, order: 0 },
         ...series.ice.map((row) => ({ data: row, borderColor: palette.faint, borderWidth: 1, pointRadius: 0, order: 1 })),
@@ -35,8 +36,9 @@ export class PartialEffectChartComponent {
   });
   protected readonly options = computed<ChartConfiguration<'line'>['options']>(() => ({
     responsive: true, maintainAspectRatio: false, animation: false,
+    locale: this.i18n.locale(),
     interaction: { mode: 'index', intersect: false },
     plugins: { legend: { display: false }, tooltip: { filter: (item) => item.datasetIndex === 0 } },
-    scales: { x: { ticks: { color: this.palette().text, maxTicksLimit: 6 }, grid: { display: false } }, y: { ticks: { color: this.palette().text }, grid: { color: this.palette().grid } } },
+    scales: { x: { type: this.plot().scale, ticks: { color: this.palette().text, maxTicksLimit: 6 }, grid: { display: false } }, y: { ticks: { color: this.palette().text }, grid: { color: this.palette().grid } } },
   }));
 }

@@ -106,6 +106,23 @@ def test_regression_fairness_measures_bias_and_mae_disparity():
     assert [row["bias"] for row in result["groups"]] == [1.0, 4.0]
 
 
+@pytest.mark.parametrize("dtype,values", [("string", ["A", "B", None]), ("Int64", [1, 2, None])])
+def test_nullable_fairness_groups_keep_missing_rows_separate(tmp_path, dtype, values):
+    # Existing parquet files may retain pandas extension dtypes, whose equality
+    # comparison returns pd.NA for missing groups instead of a boolean mask.
+    groups = pd.DataFrame({"protected": pd.Series(np.repeat(values, 40), dtype=dtype)})
+    parquet = tmp_path / "groups.parquet"
+    groups.to_parquet(parquet)
+    groups = pd.read_parquet(parquet)
+    x = pd.DataFrame({"prediction": [1] * 40 + [0] * 80})
+    result = explain.fairness(_BiasedClassifier(), x, pd.Series([1] * 120), groups, task="classification")[0]
+    rows = result["groups"]
+    assert [row["group"] for row in rows] == values
+    assert [row["n"] for row in rows] == [40, 40, 40]
+    assert [row["selection_rate"] for row in rows] == [1.0, 0.0, 0.0]
+    assert result["selection_ratio"] == 0.0 and result["signal"] is True
+
+
 def test_tiny_budget_interrupts_work_and_marks_remaining_sections(monkeypatch):
     model, x, y = classification(100)
     def slow(*args, **kwargs):
