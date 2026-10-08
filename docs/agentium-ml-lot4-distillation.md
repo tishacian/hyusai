@@ -32,7 +32,10 @@ du lot 2 fournit déjà les encodeurs. Le NER spaCy reste une capacité conditio
 En mode strict, choisir `label.dataset_id` comme entrée `dataset_id` de la porte,
 puis `review.dataset_id` comme entrée `dataset_id` de l’entraînement. L’éditeur
 et le serveur dérivent ces ports du mode de revue, y compris au chargement d’un
-Flow déjà sauvegardé. Un nœud de validation ordinaire n’expose pas ce dataset.
+Flow déjà sauvegardé. Un nœud de validation ordinaire n’expose pas ce dataset en sortie.
+Ses entrées déclarées restent inchangées, notamment les contextes de type texte.
+Le mode revue conserve aussi les entrées de contexte et ajoute l’entrée typée
+`dataset_id` ; seules les sorties de la porte sont imposées par le runtime.
 
 Le formulaire d’entraînement propose un coût d’inférence estimatif du modèle
 pour 1 000 lignes, facultatif, en USD. Il est réservé à la cible d’un dataset
@@ -147,6 +150,13 @@ des ports de la porte en mode strict. Cette correction est ensuite vérifiée pa
 `ngc`, les tests des validateurs et le parcours réel
 étiquetage → revue → entraînement → sortie en mode strict. Angular émet des
 avertissements de templates, budgets de bundles et dépendance CommonJS.
+
+Lors de la revue d’intégration, les entrées des portes humaines ordinaires ont été
+préservées pour éviter de remplacer leur contexte texte par un objet. La recette
+des deux sous-lots fusionnés compte 197 tests ciblés réussis. Après ce correctif,
+107 tests backend, 70 tests frontend, les quatre parcours réels du moteur,
+`ngc` et le parcours navigateur strict passent. Aucun nouveau build production
+n’est exécuté.
 
 L’échec préexistant du contrôle global de catalogue concernant les wrappers
 OpenAI/Azure reste documenté dans le 4a. Aucun déploiement ou appel fournisseur

@@ -67,6 +67,21 @@ test('strict label review ports are derived on normalization and cannot be forge
   assert.ok(s.validateFlow(flow).some(issue => issue.code === 'variable_unresolved' && issue.level === 'error'));
 });
 
+test('normalizing HITL preserves authored context and only fixes the reviewed dataset type', () => {
+  const s = svc();
+  const inputs = [
+    { name: 'in', schema: 'string', required: true, description: 'Automation approval text' },
+    { name: 'custom', schema: 'object', description: 'Authored context' },
+    { name: 'dataset_id', schema: 'integer', required: true },
+  ];
+  const gate = { id: 'gate', type: 'hitl', kind: 'hitl' as const, inputs, config: { prompt_kind: 'approve_write' } };
+  assert.deepEqual(s.normalizeNode(gate).inputs, inputs);
+  const review = s.normalizeNode({ ...gate, config: { prompt_kind: 'review_dataset_labels' } });
+  assert.deepEqual(review.inputs, [inputs[0], inputs[1], { ...inputs[2], schema: 'string' }]);
+  assert.equal(inputs[2].schema, 'integer', 'normalization does not mutate the imported graph');
+  assert.deepEqual(s.normalizeNode(review), review);
+});
+
 test('round-trip: nodes.<id>.data.retrieval_defaults.top_k survives normalize (load)', () => {
   const s = svc();
   const loaded = s.normalize(budgetFlow(8));

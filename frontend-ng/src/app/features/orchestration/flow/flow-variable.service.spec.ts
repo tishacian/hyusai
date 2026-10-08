@@ -14,6 +14,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { FlowSerializerService } from '@app/core/flow-serializer.service';
 import type {
   CanonicalFlowEdge,
   CanonicalFlowNode,
@@ -72,6 +73,19 @@ test('review dataset can be selected from a legacy HITL declaration without trus
   assert.ok(!candidates.some(candidate => candidate.port === 'forged'));
   nodes[0].config = { prompt_kind: 'approve_write' };
   assert.ok(!upstreamOutputs('train', nodes, [{ from: 'review', to: 'train' }]).some(candidate => candidate.port === 'dataset_id'));
+});
+
+test('automation approval still offers upstream text after loading in the Flow editor', () => {
+  const serializer = new FlowSerializerService();
+  const nodes: CanonicalFlowNode[] = [
+    { id: 'agent', type: 'task', kind: 'task', outputs: [{ name: 'completion', schema: 'string' }] },
+    serializer.normalizeNode({ id: 'gate', type: 'hitl', kind: 'hitl',
+      config: { prompt_kind: 'approve_write' }, inputs: [{ name: 'in', schema: 'string' }] }),
+  ];
+  const candidates = upstreamOutputs('gate', nodes, [{ from: 'agent', to: 'gate' }]);
+  const compatible = filterCompatibleCandidates(candidates, nodes[1].inputs![0].schema);
+  assert.equal(compatible.length, 1);
+  assert.equal(compatible[0].port, 'completion');
 });
 
 test('upstreamOutputs excludes self, downstream and parallel non-ancestors', () => {

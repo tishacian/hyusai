@@ -167,7 +167,8 @@ test.describe('Distillation · one human gate', () => {
     await fields.locator('#mf-dataset_id').selectOption({ label: 'Label tickets · dataset_id · string' });
     const kind = page.locator('app-flow-inspector select').filter({ has: page.locator('option[value="review_dataset_labels"]') });
     await kind.selectOption('approve_write');
-    await expect(fields.locator('#mf-dataset_id')).toHaveCount(0);
+    // Changing the verdict kind must preserve the context already wired in.
+    await expect(fields.locator('#mf-dataset_id')).toHaveValue('label\u0001dataset_id');
     await kind.selectOption('review_dataset_labels');
     await expect(fields.locator('#mf-dataset_id')).toHaveValue('label\u0001dataset_id');
     await page.locator('app-flow-node').filter({ hasText: 'Train classifier' }).click();
