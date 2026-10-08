@@ -82,7 +82,11 @@ configuration, historique et propositions avec leurs liens Run, dataset et
 modèle. Les 100 dernières fenêtres distinctes sont conservées ; l'interface
 reçoit au plus 20 snapshots et 20 propositions parmi les 40 derniers jobs.
 Chaque proposition garde sa propre preuve de dérive après purge du snapshot.
-Les checkpoints de surveillance alimentent les signaux de l'Hypervisor avec
+Le lien de proposition ouvre la fiche d’exécution, qui présente le contexte
+figé et les boutons HITL canoniques. Le champ `hitl.can_decide` est calculé
+par le plan d’autorisation du serveur ; un lecteur voit le contexte sans
+bouton de décision. Le POST revalide toujours les droits et la décision visée.
+Les checkpoints de surveillance alimentent les signaux de l’Hypervisor avec
 le nom du modèle, sa version et le niveau d'alerte.
 
 Les métriques et rapports MLflow/skore existants du nouveau modèle restent
@@ -114,4 +118,6 @@ preuves et des droits, la séparation du champion et la protection des jobs.
 - 33 tests catalogue/scheduler passent. La régression API passe 68 tests et
   retrouve uniquement le rouge préexistant des wrappers `openai_llm_v1` et
   `azure_openai_llm_v1`, sans entrée de catalogue.
+- 25 tests supplémentaires du parcours de lecture et de décision HITL passent,
+  dont lecture seule et expiration du gate.
 - Qualification frontend à consigner après validation finale.

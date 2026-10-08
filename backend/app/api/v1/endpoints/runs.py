@@ -652,6 +652,9 @@ async def get_run(
             "correlation_key": pending_cp.get("correlation_key")
             or rationale.get("correlation_key"),
         }
+    if pending_cp and decision and rationale.get("prompt_kind") == "approve_model_retraining":
+        payload["hitl"]["can_decide"] = _retraining_gate_decidable(
+            db, run=r, decision=decision, workspace=workspace, user=user)
     debug_cp = _pending_debug_checkpoint(r)
     if debug_cp:
         payload["debug"] = {
@@ -1021,6 +1024,29 @@ def _legacy_hitl_authorized(
         workspace=workspace,
         runs=affected_runs.values(),
     )
+
+
+def _retraining_gate_decidable(db, *, run, decision, workspace, user):
+    """Read-only approval hint; POST /hitl rechecks the canonical authority."""
+    from datetime import datetime
+    from app.services.iam.decision_plane import resolve_action
+
+    if decision.status != "proposed" or (decision.expires_at and decision.expires_at <= datetime.utcnow()):
+        return False
+    target = _decision_target_run(db, decision=decision, paused_run=run, workspace_id=workspace.id)
+    if target is None:
+        return False
+    if any(_managed_agentic_run_requires_admin(db, run=item, workspace=workspace)
+           for item in (run, target)) and not _has_private_chat_admin_access(db, user=user, workspace=workspace):
+        return False
+    try:
+        legacy = _legacy_hitl_authorized(db, user=user, workspace=workspace, paused_run=run, decision_target=target)
+    except HTTPException:
+        return False
+    return resolve_action(db, user=user, workspace=workspace, resource_kind="run", action="approve",
+        legacy_allowed=legacy, resource_attrs={"run_id": run.id, "system_id": run.system_id,
+            "capability_id": run.capability_id, "decision_id": decision.id, "owner_user_id": target.initiated_by_user_id},
+        audit_shadow_diff=False, audit_shadow_evidence=False).effective_allowed
 
 
 @router.get("/{run_id}/label-review")
