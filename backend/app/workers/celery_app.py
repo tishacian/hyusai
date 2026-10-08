@@ -32,6 +32,7 @@ celery_app = configure(
 
 
 celery_app.conf.beat_schedule = {
+    "ml-retraining-recovery-60s": {"task": "agentium.ml_retraining_recovery", "schedule": 60.0},
     "refresh-macro-indicators-24h": {
         "task": "agentium.refresh_macro_indicators",
         "schedule": 24 * 60 * 60,

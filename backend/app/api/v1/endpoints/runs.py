@@ -648,6 +648,7 @@ async def get_run(
             "memory": memory_hint,
             "upstream": rationale.get("upstream"),
             "label_review": rationale.get("label_review"),
+            "model_retraining": rationale.get("model_retraining"),
             "correlation_key": pending_cp.get("correlation_key")
             or rationale.get("correlation_key"),
         }
