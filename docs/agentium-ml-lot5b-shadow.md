@@ -80,6 +80,8 @@ donc pas un benchmark à volume égal. Aucune durée n'est convertie en coût US
 - Deux tests réels passent : chargement MLflow et scoring du challenger dans
   un subprocess sans modification de la réponse primaire ; interruption d'un
   appel C natif au délai maximal.
+- 117 tests frontend ciblés, 7 parcours navigateur FR/EN, compilation Angular
+  et contrôles i18n passent. Le build production unique de cette branche passe.
 - Aucun changement de dépendance ni migration. Backend et worker doivent être
   reconstruits ensemble ; le beat doit enregistrer `agentium.ml_shadow_recover`
   et le worker tabulaire `agentium.ml_shadow`.
