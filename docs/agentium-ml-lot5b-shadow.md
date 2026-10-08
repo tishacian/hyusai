@@ -73,7 +73,10 @@ donc pas un benchmark à volume égal. Aucune durée n'est convertie en coût US
 
 ## Qualification
 
-- 74 tests ciblés service/API/monitoring/protection des jobs/imports passent.
+- 76 tests ciblés service/API/monitoring/protection des jobs/imports passent,
+  dont une concurrence réelle entre deux livraisons et le refus d’écriture
+  par un producteur dont le bail a été repris.
+- 117 tests de non-régression du service de prédiction et de l’API Models passent.
 - Deux tests réels passent : chargement MLflow et scoring du challenger dans
   un subprocess sans modification de la réponse primaire ; interruption d'un
   appel C natif au délai maximal.

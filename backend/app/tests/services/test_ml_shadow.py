@@ -231,3 +231,41 @@ def test_cross_workspace_reference_is_refused_even_if_job_points_to_it(db_sessio
     monkeypatch.setattr(shadow, "_score_isolated", lambda *a, **k: pytest.fail("cross-workspace model"))
     assert shadow.run_shadow(job.id)["error"] == "ML_SHADOW_SOURCE_UNAVAILABLE"
 
+def test_live_worker_lease_excludes_a_concurrent_delivery(db_session, pair, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    row, job = enqueue(db_session, pair)
+    entered, release = Event(), Event()
+    calls = []
+    def score(*args, **kwargs):
+        calls.append(args[0].id)
+        entered.set()
+        assert release.wait(5)
+        return fake_score(*args, **kwargs)
+    monkeypatch.setattr(shadow, "_score_isolated", score)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        first = executor.submit(shadow.run_shadow, job.id)
+        assert entered.wait(5)
+        try:
+            assert shadow.run_shadow(job.id)["status"] == "not_claimed"
+        finally:
+            release.set()
+        assert first.result(timeout=5)["status"] == "completed"
+    assert calls == [pair[2].id]
+
+
+def test_reclaimed_worker_cannot_overwrite_new_owner_result(db_session, pair, monkeypatch):
+    row, job = enqueue(db_session, pair)
+    def score(*args, **kwargs):
+        with SessionLocal() as other:
+            claimed = other.get(WorkspaceJob, job.id)
+            claimed.updated_at = datetime.utcnow() + timedelta(seconds=1)
+            claimed.result = {"attempts": 2, "lease_token": "new-owner", "predictions": [{"prediction": "new"}]}
+            other.commit()
+        return fake_score(*args, **kwargs)
+    monkeypatch.setattr(shadow, "_score_isolated", score)
+    assert shadow.run_shadow(job.id)["status"] == "lease_lost"
+    db_session.refresh(job)
+    assert job.result["lease_token"] == "new-owner"
+    assert job.result["predictions"] == [{"prediction": "new"}]
