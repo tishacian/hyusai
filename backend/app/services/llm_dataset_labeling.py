@@ -100,7 +100,9 @@ def _workspace_lock(bind, workspace_id: str):
     PostgreSQL session locks disappear when a worker dies. SQLite deployments
     use an OS lock beside their database, shared by its local worker processes.
     """
-    digest = hashlib.sha256((str(bind.url) + ":label:" + workspace_id).encode()).digest()
+    # PostgreSQL locks are already database-scoped; credentials or driver
+    # spelling must not let two workers pick different locks for one workspace.
+    digest = hashlib.sha256(("agentium:label:" + workspace_id).encode()).digest()
     if bind.dialect.name == "postgresql":
         key = int.from_bytes(digest[:8], "big", signed=True)
         with bind.connect() as connection:
@@ -118,7 +120,8 @@ def _workspace_lock(bind, workspace_id: str):
 
         database = bind.url.database
         directory = Path(database).resolve().parent if database and database != ":memory:" else Path(tempfile.gettempdir())
-        with (directory / (".label-" + digest.hex()[:24] + ".lock")).open("a") as handle:
+        local_key = _sha((str(bind.url) + digest.hex()).encode())[:24]
+        with (directory / (".label-" + local_key + ".lock")).open("a") as handle:
             try:
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as exc:

@@ -101,6 +101,7 @@ async def test_labels_publish_once_with_order_lineage_and_cumulative_usage(db_se
     assert len(evidence["source_sha256"]) == 64
     repeated = await invoke(None, config, ctx, resume_job_id=result["job_id"])
     assert repeated["dataset_id"] == output.id and len(provider.calls) == 3
+    assert repeated["usage"]["total_tokens"] == 0 and repeated["usage"]["provider_calls"] == 0
     assert db_session.query(TabularDataset).filter_by(produced_by=labeling.SKILL).count() == 1
 
 
@@ -286,3 +287,127 @@ async def test_policy_rechecked_before_every_paid_batch(db_session, source, conf
     job = saved_job(db_session)
     assert job.result["charged_tokens"] == 120 and job.result["cursor"] == 2
     assert job.result["provider_calls"] == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_publication_resumes_from_all_fragments_without_another_call(db_session, source, config, ctx, provider, monkeypatch):
+    from app.services import tabular_datasets
+    real = tabular_datasets.register_frame
+    def fail(*args, **kwargs):
+        raise OSError("simulated publication failure")
+    monkeypatch.setattr(tabular_datasets, "register_frame", fail)
+    with pytest.raises(labeling.LabelingError) as error:
+        await invoke(source, config, ctx)
+    job = saved_job(db_session)
+    assert job.result["cursor"] == 5 and len(provider.calls) == 3
+    monkeypatch.setattr(tabular_datasets, "register_frame", real)
+    result = await invoke(None, config, ctx, resume_job_id=error.value.job_id)
+    assert len(provider.calls) == 3
+    assert result["labeling"]["rows_labeled"] == 5
+    assert result["usage"]["provider_calls"] == result["usage"]["total_tokens"] == 0
+
+
+@pytest.mark.asyncio
+async def test_corrupt_fragment_stops_resume_before_new_spending(db_session, source, config, ctx, provider):
+    from app.services.object_store import get_object_store
+    def fail(records, call):
+        if call == 2:
+            raise RuntimeError("temporary failure")
+    provider.effect = fail
+    with pytest.raises(labeling.LabelingError):
+        await invoke(source, config, ctx)
+    job = saved_job(db_session)
+    get_object_store().write_bytes(job.result["fragments"][0]["key"], b'{}')
+    provider.effect = None
+    with pytest.raises(labeling.LabelingError) as error:
+        await invoke(None, config, ctx, resume_job_id=job.id)
+    assert error.value.code == "LABELING_CHECKPOINT_INVALID" and len(provider.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_crash_after_reservation_keeps_charge_when_next_producer_resumes(db_session, source, config, ctx, provider):
+    with pytest.raises(labeling.LabelingError):
+        await invoke(source, config, ctx, max_tokens=1)
+    job = saved_job(db_session)
+    # State left on disk by a killed process after dispatch, before settlement.
+    job.status = "running"
+    job.result = {**job.result, "pending": {"start": 0, "rows": 2, "tokens": 500, "cost": .002},
+                  "charged_tokens": 500, "estimated_cost_usd": .002, "provider_calls": 1}
+    db_session.commit()
+    result = await invoke(None, config, ctx, resume_job_id=job.id, max_tokens=100_000)
+    assert result["labeling"]["charged_tokens"] == 500 + 360
+    assert result["labeling"]["estimated_cost_usd"] == pytest.approx(.00242)
+    assert result["labeling"]["provider_calls"] == 4 and result["labeling"]["unknown_attempts"] == 1
+
+
+@pytest.mark.asyncio
+async def test_source_changed_under_same_id_is_refused_at_resume(db_session, source, config, ctx, provider):
+    from app.services.object_store import get_object_store
+    from io import BytesIO
+    result = await invoke(source, config, ctx)
+    frame = read_frame(source).with_columns(pl.lit("changed content").alias("ticket"))
+    content = BytesIO()
+    frame.write_parquet(content)
+    get_object_store().write_bytes(source.storage_key, content.getvalue())
+    with pytest.raises(labeling.LabelingError) as error:
+        await invoke(source, config, ctx, resume_job_id=result["job_id"])
+    assert error.value.code == "LABELING_RESUME_MISMATCH" and len(provider.calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_missing_usage_keeps_conservative_reservations(db_session, source, config, ctx, provider):
+    provider.effect = lambda rows, _: {"content": json.dumps({"labels": [
+        {"row_id": row["row_id"], "label": "normal"} for row in rows]})}
+    result = await invoke(source, config, ctx)
+    assert result["labeling"]["unknown_attempts"] == 3
+    assert result["labeling"]["charged_tokens"] > 3 * config.get("max_output_tokens", 2048)
+    assert all(not call["reported"] for call in ctx["_provider_usage_v1"]["calls"])
+
+
+@pytest.mark.asyncio
+async def test_membership_revocation_stops_before_the_next_batch(db_session, source, config, ctx, provider):
+    from app.models.user import User
+    from app.models.workspace import WorkspaceMember
+    user = User(id=str(uuid4()), username="labeler", email="labeler@example.test", role="user", is_active=True)
+    db_session.add(user)
+    db_session.flush()
+    membership = WorkspaceMember(user_id=user.id, workspace_id=ctx["workspace_id"], role="member")
+    db_session.add(membership)
+    db_session.commit()
+    ctx["user_id"] = user.id
+    def revoke(*_):
+        with SessionLocal() as other:
+            other.query(WorkspaceMember).filter_by(user_id=user.id, workspace_id=ctx["workspace_id"]).delete()
+            other.commit()
+    provider.effect = revoke
+    with pytest.raises(labeling.LabelingError) as error:
+        await invoke(source, config, ctx)
+    assert error.value.code == "LABELING_ACCESS_REVOKED" and len(provider.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_job_cancellation_is_not_overwritten_after_an_inflight_call(db_session, source, config, ctx, provider):
+    def cancel(*_):
+        with SessionLocal() as other:
+            other.query(WorkspaceJob).filter_by(kind=labeling.KIND).one().status = "cancelled"
+            other.commit()
+    provider.effect = cancel
+    with pytest.raises(labeling.LabelingError) as error:
+        await invoke(source, config, ctx)
+    assert error.value.code == "LABELING_CANCELLED"
+    job = saved_job(db_session)
+    assert job.status == "cancelled" and len(provider.calls) == 1
+    assert f"job_id={job.id}" in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_workspace_fallback_is_never_used_for_labeling(db_session, source, config, ctx, provider):
+    from dataclasses import replace
+    ctx["_model_execution"] = replace(ctx["_model_execution"], _fallbacks=(ModelExecution("ollama", "other", "none", "workspace"),))
+    def fail(*_):
+        raise RuntimeError("provider failed")
+    provider.effect = fail
+    with pytest.raises(labeling.LabelingError):
+        await invoke(source, config, ctx)
+    assert len(provider.calls) == 1 and provider.calls[0]["model"] == "gpt-4o-mini"
+    assert len(ctx["_model_execution"]._fallbacks) == 1

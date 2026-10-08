@@ -1255,7 +1255,7 @@ SEED_SKILLS: List[Dict[str, Any]] = [
             "retryable": False,
             "idempotent": False,
         },
-        "pricing": {"unit": "per_labeling", "unit_price": 0.0, "currency": "USD"},
+        "pricing": {"unit": "per_1k_tokens", "unit_price": 0.0, "currency": "USD"},
         # These are editor parameters. The DAG moves them into its protected
         # _label block before execution; the service validates that block.
         "input_schema": {
