@@ -141,6 +141,8 @@ async def jobs_create(
 ):
     if body.kind == "brd_generation":
         raise HTTPException(403, "Use the BRD generation endpoint")
+    if body.kind == "llm_label_dataset":
+        raise HTTPException(403, "Use the dataset labeling Skill")
     job = create_workspace_job(
         db,
         workspace,
@@ -186,6 +188,8 @@ async def jobs_transition(
             raise LookupError("workspace_job_not_found")
         if job.kind == "brd_generation":
             raise HTTPException(403, "BRD generation state is managed by its worker")
+        if job.kind == "llm_label_dataset":
+            raise HTTPException(403, "Dataset labeling state is managed by its Skill")
         transition_job(
             db,
             workspace,

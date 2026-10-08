@@ -12,6 +12,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { FlowManifestField } from '@app/core/canonical-api.service';
 import { isBoundInput, requiredParamUnsatisfied } from './manifest-fields.component';
+import { labelDatasetField, labelDatasetValueMissing } from './llm-label-form';
+import { FLOW_EN, FLOW_FR } from '@app/core/i18n/flow.dict';
 
 function skillParam(key: string, required = true): FlowManifestField {
   return {
@@ -83,4 +85,32 @@ test('binding recognition accepts a typed ref or a legacy path, nothing else', (
   assert.equal(isBoundInput(undefined), false);
   assert.equal(isBoundInput({}), false);
   assert.equal(isBoundInput(42), false);
+});
+
+test('dataset labeling presents every graph-owned setting in both languages', () => {
+  const keys = ['sources', 'text_columns', 'labels', 'label_column', 'instruction', 'output_name',
+    'batch_size', 'max_rows', 'max_tokens', 'max_output_tokens', 'max_cost_usd',
+    'input_cost_per_million', 'output_cost_per_million', 'timeout_s', 'resume_job_id'];
+  for (const key of keys) {
+    const field = labelDatasetField('llm_label_dataset_v1', key);
+    assert.ok(field, key);
+    for (const dictionary of [FLOW_FR, FLOW_EN] as Record<string, string>[]) {
+      assert.ok(dictionary[field.labelKey], `${key} has a label`);
+      assert.ok(dictionary[field.helpKey], `${key} has instructions`);
+    }
+  }
+  assert.equal(labelDatasetField('ml_predict_v1', 'sources'), null);
+  assert.equal(labelDatasetField('llm_label_dataset_v1', 'unknown'), null);
+  assert.equal(labelDatasetField('llm_label_dataset_v1', 'instruction')?.multiline, true);
+});
+
+test('labeling requires explicit prices but accepts an explicit zero price', () => {
+  assert.equal(labelDatasetField('llm_label_dataset_v1', 'input_cost_per_million')?.required, true);
+  assert.equal(labelDatasetField('llm_label_dataset_v1', 'output_cost_per_million')?.required, true);
+  assert.equal(labelDatasetValueMissing(undefined), true);
+  assert.equal(labelDatasetValueMissing(null), true);
+  assert.equal(labelDatasetValueMissing(0), false);
+  assert.equal(labelDatasetValueMissing([]), true);
+  assert.equal(labelDatasetValueMissing('   '), true);
+  assert.equal(labelDatasetValueMissing(['positive', 'negative']), false);
 });

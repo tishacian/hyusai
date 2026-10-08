@@ -37,6 +37,7 @@ import {
 } from '@app/core/flow-serializer.service';
 import { FlowStore } from './flow.store';
 import { FlowManifestService } from './flow-manifest.service';
+import { labelDatasetField, labelDatasetValueMissing } from './llm-label-form';
 import {
   LEGACY_VARIABLE_VALUE,
   decodeCandidateValue,
@@ -564,21 +565,27 @@ export class ManifestFieldsComponent {
     error: string | null,
   ): FieldVM {
     const options = Array.isArray(field.enum) ? field.enum.map(String) : [];
-    const control = this.controlFor(field, options);
+    const labeling = field.source === 'skill.input_schema'
+      ? labelDatasetField(configBag['skill_slug'], field.key) : null;
+    const control = labeling?.multiline ? 'textarea' : this.controlFor(field, options);
     const value = this.liveValue(field, dataBag, configBag);
-    const required = Boolean(field.required);
-    const unsatisfied = requiredParamUnsatisfied(field, value, inputsMap);
+    const required = labeling?.required ?? Boolean(field.required);
+    // Graph-owned labeling settings cannot be supplied by upstream bindings.
+    const unsatisfied = labeling
+      ? required && labelDatasetValueMissing(value)
+      : requiredParamUnsatisfied(field, value, inputsMap);
     const empty = value === undefined || value === null || value === '';
     const boundNote = required && empty && !unsatisfied
       ? this.i18n.t('flow.params.variable.supplied', { name: field.key })
       : null;
     return {
       key: field.key,
-      label: humanize(field.key),
+      label: labeling ? this.i18n.t(labeling.labelKey) : humanize(field.key),
       control,
       type: String(field.type ?? 'string'),
       required,
-      description: [boundNote, field.description].filter(Boolean).join(' ') || null,
+      description: [boundNote, labeling ? this.i18n.t(labeling.helpKey) : field.description]
+        .filter(Boolean).join(' ') || null,
       options,
       source: field.source,
       runtimeReadPath: this.runtimeReadPath(field),

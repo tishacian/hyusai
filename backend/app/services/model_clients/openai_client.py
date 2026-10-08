@@ -11,8 +11,9 @@ logger = get_logger(__name__)
 class OpenAIClient(ModelClient):
     """Client for interacting with OpenAI API"""
     
-    def __init__(self, api_key: Optional[str] = None, base_url: str = "https://api.openai.com/v1"):
+    def __init__(self, api_key: Optional[str] = None, base_url: str = "https://api.openai.com/v1", *, max_retries: Optional[int] = None):
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        self.max_retries = max_retries
         self.base_url = base_url.rstrip("/")
         self.logger = get_logger(__name__)
         
@@ -22,7 +23,8 @@ class OpenAIClient(ModelClient):
     def _sdk_client(self):
         from openai import AsyncOpenAI
 
-        return AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+        return AsyncOpenAI(api_key=self.api_key, base_url=self.base_url,
+                           **({"max_retries": self.max_retries} if self.max_retries is not None else {}))
     
     @staticmethod
     def _chat_options(model: str, options: dict[str, Any]) -> dict[str, Any]:

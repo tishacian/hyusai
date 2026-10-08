@@ -2613,6 +2613,26 @@ async def _dbt_transform_v1(
     raise RuntimeError(f"dbt_transform_{status}: {detail}{suffix}"[:480])
 
 
+async def _llm_label_dataset_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Label a workspace dataset using only the node's graph-owned settings."""
+    if not ctx or not ctx.get("workspace_id"):
+        raise ValueError("label_workspace_required")
+    block = payload.get("_label")
+    if not isinstance(block, dict):
+        raise ValueError(
+            "label_config_missing: this Skill requires its graph-owned Flow configuration"
+        )
+
+    from app.services.llm_dataset_labeling import label_dataset
+
+    inputs = {key: value for key, value in payload.items() if not key.startswith("_")}
+    # An explicit author pin takes precedence over a wired dataset envelope.
+    dataset_ref = _pinned_dataset_ref(block) or _first_dataset_ref(inputs)
+    return await label_dataset({"config": block, "dataset_ref": dataset_ref}, ctx)
+
+
 async def _ml_train_sklearn_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
@@ -4404,7 +4424,16 @@ async def _configured_llm_call(provider, payload, ctx=None):
             legacy_defaults=provider in {"azure", "ollama"},
             model_source="legacy_default" if provider == "ollama" else "input",
         )
-    output = await complete_model(execution, payload["prompt"], ctx, stream=provider != "ollama")
+    options = {}
+    if provider == "workspace":
+        # Only the calling service supplies these private controls, never the
+        # business payload. Keep ctx itself so the engine sees every attempt.
+        if "_model_generation_options" in ctx:
+            options["generation_options"] = ctx["_model_generation_options"]
+        if "_model_stream" in ctx:
+            options["stream"] = ctx["_model_stream"]
+    options.setdefault("stream", provider != "ollama")
+    output = await complete_model(execution, payload["prompt"], ctx, **options)
     output.pop("model_execution", None)  # Canonical trace, never a new business-output property.
     if provider == "ollama":
         return {"completion": output["completion"], "model": execution.model}
@@ -7084,6 +7113,11 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "dbt_transform_v1": (
         _dbt_transform_v1,
         "app.services.tabular_dbt",
+        "bound",
+    ),
+    "llm_label_dataset_v1": (
+        _llm_label_dataset_v1,
+        "app.services.llm_dataset_labeling",
         "bound",
     ),
     "ml_train_sklearn_v1": (
