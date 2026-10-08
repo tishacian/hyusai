@@ -120,4 +120,9 @@ preuves et des droits, la séparation du champion et la protection des jobs.
   `azure_openai_llm_v1`, sans entrée de catalogue.
 - 25 tests supplémentaires du parcours de lecture et de décision HITL passent,
   dont lecture seule et expiration du gate.
-- Qualification frontend à consigner après validation finale.
+- 181 tests frontend ciblés et 12 parcours navigateur FR/EN passent, dont
+  proposition → fiche d’exécution → approbation, lecture seule, expiration,
+  contexte figé et réponse POST d’accusé distincte du Run complet.
+- Compilation Angular, i18n, contrôles UI et navigation passent.
+- Le build production unique de cette branche passe. Les avertissements
+  Angular, CSS, budget initial et dagre déjà présents restent sans changement.
