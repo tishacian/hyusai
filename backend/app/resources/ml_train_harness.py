@@ -704,6 +704,18 @@ def _tune(manifest, x_train, y_train):
     return params, result
 
 
+def _explanation_extensions():
+    # The harness is executed by path, without application imports.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "ml_explanation_extensions", Path(__file__).with_name("ml_explanation_extensions.py")
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top down
     if len(argv) != 3:
         return _fail(5, "usage: ml_train_harness.py MANIFEST_JSON RESULT_JSON")
@@ -747,13 +759,20 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     except ImportError as exc:  # pragma: no cover - the app venv has pandas
         return _fail(5, f"pandas_missing: {exc}")
 
+    explain_spec = manifest.get("spec") or {}
+    explain_enabled = explain_spec.get("explain") == "pack"
+    fairness_columns = list(explain_spec.get("fairness_columns") or []) if explain_enabled else []
     _progress(progress_path, "reading")
     try:
-        frame = pd.read_parquet(data_path, columns=list({*features, target}))
+        frame = pd.read_parquet(data_path, columns=list({*features, target, *fairness_columns}))
     except Exception as exc:  # noqa: BLE001
         return _fail(5, f"ml_dataset_unreadable: {exc}")
 
     frame = frame.dropna(subset=[target])
+    if explain_enabled:
+        # Protected columns follow the exact held-out rows, even if the source
+        # parquet carried duplicate index labels or numeric targets are dropped.
+        frame = frame.reset_index(drop=True)
     if len(frame) < min_rows:
         return _fail(
             3,
@@ -997,6 +1016,17 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             }
         except Exception as exc:  # noqa: BLE001 - a fold that fails is not a fit that fails
             metrics["cv"] = {"folds": folds, "metric": scoring, "error": str(exc)[:200]}
+
+    if explain_enabled:
+        _progress(progress_path, "explaining")
+        try:
+            metrics["explain"] = _explanation_extensions().pack(
+                pipeline, x_test, y_test, task=task, seed=seed,
+                importances=metrics.get("importances") or [],
+                groups=frame.loc[x_test.index, fairness_columns] if fairness_columns else None,
+            )
+        except Exception as exc:  # Even a worker setup failure must preserve the fit.
+            metrics["explain"] = {"error": f"{type(exc).__name__}: {exc}"[:180]}
 
     # After the metrics, so the state carries the predictions they were read
     # from rather than making the next reader recompute them.
