@@ -754,6 +754,7 @@ def reserve_frame(
     created_by: str | None = None,
     lineage: dict[str, Any] | None = None,
     step: str = "queued",
+    commit: bool = True,
 ) -> TabularDataset:
     """Claim the row a long producer will fill, so its progress has somewhere to go.
 
@@ -793,7 +794,11 @@ def reserve_frame(
         lineage_json=dict(lineage or {}),
     )
     db.add(dataset)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        # A producer may need to reserve its job and output in one transaction.
+        db.flush()
     return dataset
 
 
@@ -932,6 +937,7 @@ def serialize_dataset(dataset: TabularDataset, *, include_preview: bool = False)
 # A curated list rather than the whole bag: the block also holds the authored
 # statement, and a dataset page is not where a Flow's program is published.
 _PUBLIC_LINEAGE_KEYS = (
+    "labeling",
     "postgresql",
     "engine",
     "model",
