@@ -195,7 +195,8 @@ def fairness(model, x, y, groups, *, task):
             continue
         rows = []
         for value in sorted(values, key=str):
-            mask = np.asarray(column.isna() if value is None else column == value)
+            selected_group = column.isna() if value is None else (column == value).fillna(False)
+            mask = selected_group.to_numpy(dtype=bool)
             actual, guess = truth[mask], predicted[mask]
             row = {"group": _scalar(value), "n": int(mask.sum()), "low_support": int(mask.sum()) < 30}
             if task == "regression":
