@@ -25,6 +25,8 @@ TABULAR = Family(
     harness=Path(__file__).resolve().parents[3] / "resources" / "ml_train_harness.py",
     spec_fields=(
         SpecField("text_encoder", "enum", default="auto", choices=("auto", "string", "minhash")),
+        SpecField("distillation_inference_cost_per_1000", "float", minimum=0, maximum=1000,
+                  when=(("task", (CLASSIFICATION,)),)),
         SpecField("intervals", "enum", default="off", choices=("off", "conformal"),
                   when=(("task", (REGRESSION,)),)),
         SpecField("calibration", "enum", default="off", choices=("off", "auto", "sigmoid", "isotonic"),

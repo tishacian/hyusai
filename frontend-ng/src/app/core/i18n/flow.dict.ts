@@ -605,6 +605,7 @@ export const FLOW_FR = {
   'flow.inspector.human_gate.kind.validate_draft': 'Valider un brouillon',
   'flow.inspector.human_gate.kind.missing_file': 'Fournir un fichier manquant',
   'flow.inspector.human_gate.kind.approve_write': 'Approuver une écriture',
+  'flow.inspector.human_gate.kind.review_dataset_labels': 'Revoir les étiquettes d’un dataset',
   'flow.inspector.decision.add': '+ Branche',
   'flow.inspector.decision.hint':
     'Les conditions sont évaluées de haut en bas. La première qui correspond gagne ; la branche par défaut ne sert que si aucune ne correspond.',
@@ -2382,6 +2383,7 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.inspector.human_gate.kind.validate_draft': 'Validate a draft',
   'flow.inspector.human_gate.kind.missing_file': 'Provide a missing file',
   'flow.inspector.human_gate.kind.approve_write': 'Approve a write',
+  'flow.inspector.human_gate.kind.review_dataset_labels': 'Review dataset labels',
   'flow.inspector.decision.add': '+ Branch',
   'flow.inspector.decision.hint':
     'Conditions run top to bottom. The first match wins; the default branch is used only when nothing matches.',

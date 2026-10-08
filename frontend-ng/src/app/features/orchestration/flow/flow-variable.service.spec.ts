@@ -61,6 +61,19 @@ test('upstreamOutputs returns only ancestors of the selected node', () => {
   assert.deepEqual(labels, ['a.goal', 'b.context', 'b.score', 'd.note']);
 });
 
+test('review dataset can be selected from a legacy HITL declaration without trusting forged ports', () => {
+  const nodes: CanonicalFlowNode[] = [
+    { id: 'review', type: 'hitl', kind: 'hitl', config: { prompt_kind: 'review_dataset_labels' },
+      outputs: [{ name: 'approved', schema: 'boolean' }, { name: 'forged', schema: 'string' }] },
+    { id: 'train', type: 'task', kind: 'task' },
+  ];
+  const candidates = upstreamOutputs('train', nodes, [{ from: 'review', to: 'train' }]);
+  assert.ok(candidates.some(candidate => candidate.port === 'dataset_id' && candidate.schema === 'string'));
+  assert.ok(!candidates.some(candidate => candidate.port === 'forged'));
+  nodes[0].config = { prompt_kind: 'approve_write' };
+  assert.ok(!upstreamOutputs('train', nodes, [{ from: 'review', to: 'train' }]).some(candidate => candidate.port === 'dataset_id'));
+});
+
 test('upstreamOutputs excludes self, downstream and parallel non-ancestors', () => {
   const { nodes, edges } = graph();
   // For b, the only ancestor is a; c is downstream and d is a parallel branch.

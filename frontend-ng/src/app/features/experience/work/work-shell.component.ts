@@ -23,7 +23,8 @@ import { focusAfterRoute, navigationFocusFromState } from '@app/core/route-focus
 import { canEditExperienceStudio } from '../experience-access';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
-import { type Run } from '@app/core/canonical-api.service';
+import { type Run, type LabelReviewSubmission } from '@app/core/canonical-api.service';
+import { DatasetLabelReviewComponent } from '@app/features/data/dataset-label-review.component';
 import { ExperienceRuntimeService } from '../runtime/experience-runtime.service';
 import {
   textFallback,
@@ -68,6 +69,7 @@ const POLL_MS = 8000;
     EmptyStateComponent,
     NavLinkDirective,
     WorkDecisionContextComponent,
+    DatasetLabelReviewComponent,
     RunMandateComponent,
     WorkBarComponent,
     WorkAppHeaderComponent,
@@ -205,6 +207,9 @@ const POLL_MS = 8000;
                     }
                     @if (isReviewed(run)) {
                       <app-work-decision-context [run]="run" [showRunLink]="canInspectRuns()" />
+                    @if (run.hitl?.prompt_kind === 'review_dataset_labels') {
+                      <app-dataset-label-review [runId]="run.id" [decisionId]="run.hitl?.decision_id ?? ''" [disabled]="decisionBusy().has(run.id)" (submissionChange)="setLabelReview(run, $event)" />
+                    }
                     <label>
                       {{ i18n.t('experience.work.validations.reason') }}
                       <textarea
@@ -216,7 +221,7 @@ const POLL_MS = 8000;
                       <button
                         type="button"
                         class="xp-work-btn xp-work-btn-primary"
-                        [disabled]="decisionBusy().has(run.id) || !decisionAvailable(run)"
+                        [disabled]="decisionBusy().has(run.id) || !decisionAvailable(run) || (run.hitl?.prompt_kind === 'review_dataset_labels' && !labelReviewFor(run))"
                         (click)="decide(run, 'accept')"
                       >
                         {{ i18n.t('experience.work.validations.approve') }}
@@ -312,6 +317,7 @@ export class WorkShellComponent {
   readonly decisionBusy = signal<ReadonlySet<string>>(new Set());
   readonly decisionError = signal(false);
   readonly reviewedDecisions = signal<Record<string, string>>({});
+  readonly labelReviews = signal<Record<string, LabelReviewSubmission | null>>({});
   readonly decidedRun = signal<Run | null>(null);
   readonly decisionAvailable = workDecisionAvailable;
   private readonly navigationProfile = inject(NavigationProfileService);
@@ -409,8 +415,15 @@ export class WorkShellComponent {
     if (this.reasonError() === runId) this.reasonError.set(null);
   }
 
+  labelReviewFor(run: Run): LabelReviewSubmission | null { return this.labelReviews()[workDecisionKey(run)] ?? null; }
+  setLabelReview(run: Run, value: LabelReviewSubmission | null): void {
+    this.labelReviews.update(current => ({ ...current, [workDecisionKey(run)]: value }));
+  }
+
   decide(run: Run, action: 'accept' | 'reject'): void {
     if (this.decisionBusy().has(run.id)) return;
+    const labelReview = this.labelReviewFor(run);
+    if (action === 'accept' && run.hitl?.prompt_kind === 'review_dataset_labels' && !labelReview) return;
     if (!this.isReviewed(run) || !workDecisionAvailable(run)) {
       this.decisionError.set(true);
       this.announcement.set(this.i18n.t('workMandate.review_changed'));
@@ -426,7 +439,9 @@ export class WorkShellComponent {
     this.decisionError.set(false);
     const scope = this.workspace.captureRequestScope();
     const experienceId = this.experienceId();
-    this.api.decide(run, action, note).pipe(takeUntilDestroyed(this.destroy)).subscribe((updated) => {
+    const request = action === 'accept' && labelReview
+      ? this.api.decide(run, action, note, labelReview) : this.api.decide(run, action, note);
+    request.pipe(takeUntilDestroyed(this.destroy)).subscribe((updated) => {
       if (!this.workspace.isRequestScopeCurrent(scope) || this.experienceId() !== experienceId) return;
       this.decisionBusy.update((current) => {
         const next = new Set(current);
@@ -573,6 +588,7 @@ export class WorkShellComponent {
 
   private resetExperienceState(): void {
     this.reviewedDecisions.set({});
+    this.labelReviews.set({});
     this.decidedRun.set(null);
     this.boundSystemIds.set([]);
     this.validationWatch?.unsubscribe();

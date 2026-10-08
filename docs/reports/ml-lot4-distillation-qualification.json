@@ -1,0 +1,187 @@
+{
+  "test": "backend/app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence",
+  "teacher_label_source": "Synthetic completed labeling job fixtures; no billable provider call.",
+  "cases": [
+    {
+      "fixture": "48 synthetic invoice/network tickets, one human label correction",
+      "metrics": {
+        "distillation": {
+          "version": 1,
+          "evaluation": "held_out",
+          "test_rows": 12,
+          "rows_reviewed": 48,
+          "corrected_rows": 1,
+          "agreement": 0.5,
+          "reviewed_accuracy": 0.5,
+          "teacher_accuracy_on_reviewed": 1.0,
+          "source_dataset_id": "49b4c77f-8258-449d-a1b4-e490ddd1e808",
+          "source_version": 1,
+          "reviewed_dataset_id": "9bde56ea-c4e1-43f0-b112-fd36c57d229e",
+          "decision_id": "045e2650-4776-4093-9bee-5a000199ce45",
+          "teacher_model": {
+            "provider": "openai",
+            "model": "teacher"
+          },
+          "llm_estimated_cost_per_1000": 0.5,
+          "llm_cost_basis": "declared_tariff",
+          "llm_labeled_rows": 48,
+          "unknown_attempts": 0,
+          "inference_cost_per_1000": 0.0,
+          "inference_cost_basis": "declared"
+        }
+      },
+      "signature": {
+        "inputs": [
+          {
+            "name": "ticket",
+            "type": "string",
+            "required": true,
+            "kind": "category",
+            "default": "invoice ticket 15"
+          }
+        ],
+        "output": {
+          "task": "classification",
+          "target": "topic",
+          "classes": [
+            "billing",
+            "technical"
+          ]
+        }
+      },
+      "inputs": [
+        {
+          "ticket": "invoice ticket 100"
+        }
+      ],
+      "predictions": [
+        {
+          "prediction": "billing",
+          "probabilities": [
+            {
+              "label": "billing",
+              "value": 0.532363
+            },
+            {
+              "label": "technical",
+              "value": 0.467637
+            }
+          ],
+          "confidence": 0.532363,
+          "score": 0.467637
+        }
+      ],
+      "portable_predictions": [
+        "billing"
+      ],
+      "portable_equality": true,
+      "mlflow_metrics": {
+        "roc_auc": 0.5,
+        "accuracy": 0.5,
+        "balanced_accuracy": 0.5,
+        "precision": 0.0,
+        "recall": 0.0,
+        "log_loss": 0.695246,
+        "brier_score": 0.251047,
+        "distillation.agreement": 0.5,
+        "distillation.reviewed_accuracy": 0.5,
+        "distillation.teacher_accuracy_on_reviewed": 1.0,
+        "distillation.test_rows": 12.0,
+        "distillation.llm_estimated_cost_per_1000": 0.5,
+        "distillation.inference_cost_per_1000": 0.0
+      },
+      "cost_note": "LLM cost is the declared tariff estimate; zero student cost is an explicit test declaration, not a measured saving."
+    },
+    {
+      "fixture": "240 synthetic invoice/network tickets, one human label correction",
+      "metrics": {
+        "distillation": {
+          "version": 1,
+          "evaluation": "held_out",
+          "test_rows": 60,
+          "rows_reviewed": 240,
+          "corrected_rows": 1,
+          "agreement": 1.0,
+          "reviewed_accuracy": 1.0,
+          "teacher_accuracy_on_reviewed": 1.0,
+          "source_dataset_id": "3e33699c-0f5f-4962-bc8c-df265eae9a8f",
+          "source_version": 1,
+          "reviewed_dataset_id": "2acb7cd5-3e09-4ef1-bb47-78616c7a06f4",
+          "decision_id": "e5ec526a-d88a-4ce9-ab33-d259595783e5",
+          "teacher_model": {
+            "provider": "openai",
+            "model": "teacher"
+          },
+          "llm_estimated_cost_per_1000": 0.5,
+          "llm_cost_basis": "declared_tariff",
+          "llm_labeled_rows": 240,
+          "unknown_attempts": 0,
+          "inference_cost_per_1000": 0.01,
+          "inference_cost_basis": "declared"
+        }
+      },
+      "signature": {
+        "inputs": [
+          {
+            "name": "ticket",
+            "type": "string",
+            "required": true,
+            "kind": "category",
+            "default": "network ticket 104"
+          }
+        ],
+        "output": {
+          "task": "classification",
+          "target": "topic",
+          "classes": [
+            "billing",
+            "technical"
+          ]
+        }
+      },
+      "inputs": [
+        {
+          "ticket": "invoice ticket 100"
+        }
+      ],
+      "predictions": [
+        {
+          "prediction": "billing",
+          "probabilities": [
+            {
+              "label": "billing",
+              "value": 0.993024
+            },
+            {
+              "label": "technical",
+              "value": 0.006976
+            }
+          ],
+          "confidence": 0.993024,
+          "score": 0.006976
+        }
+      ],
+      "portable_predictions": [
+        "billing"
+      ],
+      "portable_equality": true,
+      "mlflow_metrics": {
+        "roc_auc": 1.0,
+        "accuracy": 1.0,
+        "balanced_accuracy": 1.0,
+        "f1": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "log_loss": 0.016153,
+        "brier_score": 0.000671,
+        "distillation.agreement": 1.0,
+        "distillation.reviewed_accuracy": 1.0,
+        "distillation.teacher_accuracy_on_reviewed": 1.0,
+        "distillation.test_rows": 60.0,
+        "distillation.llm_estimated_cost_per_1000": 0.5,
+        "distillation.inference_cost_per_1000": 0.01
+      },
+      "cost_note": "LLM cost is the declared tariff estimate; student cost is an explicit test declaration, not a measured saving."
+    }
+  ]
+}

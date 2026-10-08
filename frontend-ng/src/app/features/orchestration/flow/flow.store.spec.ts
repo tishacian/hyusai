@@ -33,6 +33,25 @@ function makeStore(): Store {
   return injector.get(FlowStore) as Store;
 }
 
+test('label review ports survive load/import and change atomically with the prompt kind', () => {
+  const store = makeStore();
+  const flow: CanonicalFlow = { source: 'flow', nodes: [{ id: 'review', type: 'hitl', kind: 'hitl',
+    config: { prompt_kind: 'review_dataset_labels' }, outputs: [{ name: 'approved', schema: 'boolean' }],
+  }], edges: [] };
+  store.load(flow);
+  assert.ok(store.nodes()[0].outputs?.some(port => port.name === 'dataset_id'));
+  assert.ok(store.nodes()[0].inputs?.some(port => port.name === 'dataset_id'));
+  store.updateNodeConfig('review', 'prompt_kind', 'approve_write');
+  assert.ok(!store.nodes()[0].outputs?.some(port => port.name === 'dataset_id'));
+  store.undo();
+  assert.ok(store.nodes()[0].outputs?.some(port => port.name === 'dataset_id'));
+  store.patchNode('review', { outputs: [{ name: 'forged', schema: 'string' }] });
+  assert.ok(!store.nodes()[0].outputs?.some(port => port.name === 'forged'));
+  const restored = makeStore();
+  restored.load(store.snapshot());
+  assert.deepEqual(restored.nodes()[0].outputs, store.nodes()[0].outputs);
+});
+
 function budgetFlow(topK = 5): CanonicalFlow {
   return {
     source: 'flow',

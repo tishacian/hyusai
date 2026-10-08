@@ -203,7 +203,7 @@ TABULAR_TEST_FIELDS = (
 
 
 def test_tabular_catalog_does_not_offer_options_without_training_effects():
-    assert {field.key for field in TABULAR.spec_fields} == {"calibration", "explain", "fairness_columns", "intervals", "text_encoder", "threshold", "tuning", "tuning_budget_s", "tuning_trials"}
+    assert {field.key for field in TABULAR.spec_fields} == {"calibration", "explain", "fairness_columns", "intervals", "text_encoder", "threshold", "tuning", "tuning_budget_s", "tuning_trials", "distillation_inference_cost_per_1000"}
     assert TABULAR.parse_spec({}, task="regression") == {"intervals": "off", "tuning": "off", "explain": "off", "text_encoder": "auto"}
     assert TABULAR.parse_spec({"intervals": "conformal"}, task="classification") == {"calibration": "off", "threshold": "default", "tuning": "off", "explain": "off", "text_encoder": "auto"}
     with pytest.raises(SpecInvalid) as error:
