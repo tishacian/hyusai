@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import and_, exists, or_
 from sqlalchemy.orm import Session as DBSession
@@ -38,6 +39,7 @@ from app.services.decisions import (
     reject as reject_decision,
 )
 from app.services.iam.decision_plane import enforce_action
+from app.services.llm_label_review import LabelReviewInput
 from app.services.iam.legacy_authority import (
     legacy_object_action_allowed,
     legacy_run_approval_allowed,
@@ -645,6 +647,7 @@ async def get_run(
             "inbox_count": inbox_count,
             "memory": memory_hint,
             "upstream": rationale.get("upstream"),
+            "label_review": rationale.get("label_review"),
             "correlation_key": pending_cp.get("correlation_key")
             or rationale.get("correlation_key"),
         }
@@ -849,6 +852,7 @@ async def get_skill_invocation_perspective(
 
 
 class HitlResolve(BaseModel):
+    label_review: Optional[LabelReviewInput] = None
     expected_decision_id: Optional[str] = Field(
         default=None, min_length=1,
         description="Decision observed by the caller; mismatches are refused. Optional for legacy clients.",
@@ -1016,6 +1020,34 @@ def _legacy_hitl_authorized(
         workspace=workspace,
         runs=affected_runs.values(),
     )
+
+
+@router.get("/{run_id}/label-review")
+async def get_run_label_review(
+    run_id: str,
+    expected_decision_id: str = Query(min_length=1, max_length=36),
+    offset: int = Query(default=0, ge=0, le=5000),
+    limit: int = Query(default=50, ge=1, le=100),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Read exact, bounded rows of the dataset frozen at a visible HITL gate."""
+    from app.services.llm_label_review import review_page
+    from app.services.tabular_datasets import TabularError
+
+    run = _visible_run_or_404(db, run_id=run_id, user=user, workspace=workspace,
+                             allow_managed_hitl_for_resolution=True)
+    checkpoint = _pending_hitl_checkpoint(run)
+    if not checkpoint or checkpoint.get("decision_id") != expected_decision_id:
+        raise HTTPException(409, "Run is no longer awaiting the observed label review")
+    decision = db.query(Decision).filter_by(id=expected_decision_id, workspace_id=workspace.id).first()
+    if decision is None or _decision_target_run(db, decision=decision, paused_run=run, workspace_id=workspace.id) is None:
+        raise HTTPException(404, "HITL decision not found")
+    try:
+        return await run_in_threadpool(review_page, db, decision, offset=offset, limit=limit)
+    except TabularError as exc:
+        raise HTTPException(exc.status_code, detail=exc.payload()) from exc
 
 
 @router.post("/{run_id}/hitl")
@@ -1258,6 +1290,19 @@ async def resolve_run_hitl(
     already_resolved = decision.status == expected_final
     dispatch_event = None
     if not already_resolved:
+        from app.services.llm_label_review import apply_review
+        from app.services.tabular_datasets import TabularError
+
+        is_label_review = bool((decision.rationale or {}).get("label_review"))
+        if body.label_review is not None and not is_label_review:
+            db.rollback()
+            raise HTTPException(409, "This HITL decision is not a dataset label review")
+        if body.action == "accept" and is_label_review:
+            try:
+                await run_in_threadpool(apply_review, db, decision, reviewer_id=user.id, body=body.label_review)
+            except TabularError as exc:
+                db.rollback()
+                raise HTTPException(exc.status_code, detail=exc.payload()) from exc
         try:
             if body.action == "accept":
                 accept_decision(db, decision, actor=actor, note=body.note, commit=False)

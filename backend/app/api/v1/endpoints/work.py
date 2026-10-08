@@ -338,6 +338,8 @@ def _project_decidable_hitl(
                 "hitl": {
                     "node_id": checkpoint.get("node_id"),
                     "prompt": checkpoint.get("prompt"),
+                    "prompt_kind": checkpoint.get("prompt_kind"),
+                    "label_review": checkpoint.get("label_review"),
                     "decision_id": checkpoint.get("decision_id"),
                     "decision_title": checkpoint.get("decision_title"),
                     "decision_status": decision_status.get(checkpoint.get("decision_id")),

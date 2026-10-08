@@ -960,6 +960,16 @@ async def resume_run_dag(
                 # decision from an automatic one.
                 "decided_by": dec.approved_by if dec else None,
             }
+            if dec and (dec.rationale or {}).get("label_review"):
+                from app.services.llm_label_review import reviewed_output
+                from app.services.tabular_datasets import TabularError, dataset_reference
+
+                if rejected:
+                    return _fail(db, run, "LABEL_REVIEW_REJECTED")
+                try:
+                    hitl_output.update(dataset_reference(reviewed_output(db, dec)))
+                except TabularError as exc:
+                    return _fail(db, run, exc.code)
             state.ctx["hitl_approved"] = approved
             state.ctx["hitl_decision"] = dec.status if dec else None
             # Reuse the single settlement path: HITL resume must publish the
@@ -1831,6 +1841,8 @@ def _emit_hitl_pause(
         "node_id": outcome.get("node_id"),
         "decision_id": outcome.get("decision_id"),
         "prompt": outcome.get("prompt"),
+        "prompt_kind": outcome.get("prompt_kind"),
+        "label_review": outcome.get("label_review"),
         "state": state.to_payload(),
         "membrane_egress": bool(outcome.get("membrane_egress")),
         "expires_at": outcome.get("expires_at"),
@@ -3768,6 +3780,15 @@ def _run_hitl(
         "ctx_snapshot": _sanitize(state.ctx),
         "upstream": _sanitize(merged),
     }
+    if config.get("prompt_kind") == "review_dataset_labels":
+        from app.services.llm_label_review import make_binding
+        from app.services.skills_registry.wrappers import _first_dataset_ref
+        from app.services.tabular_datasets import resolve_dataset_ref
+
+        source = resolve_dataset_ref(db, workspace_id=run.workspace_id, ref=_first_dataset_ref(merged))
+        rationale["label_review"] = make_binding(db, workspace_id=run.workspace_id, dataset_id=source.id)
+        # A timeout cannot substitute for a person reading and confirming labels.
+        config = {**config, "expiry_action": "reject"}
     decision = _log_decision(
         db,
         workspace_id=run.workspace_id,
@@ -3799,6 +3820,8 @@ def _run_hitl(
         "node_id": node.id,
         "decision_id": decision.id if decision else None,
         "prompt": prompt,
+        "prompt_kind": rationale["prompt_kind"],
+        "label_review": rationale.get("label_review"),
         "expires_at": decision.expires_at.isoformat() if decision and decision.expires_at else None,
         "expiry_action": decision.expiry_action if decision else None,
         "correlation_key": (decision.rationale or {}).get("correlation_key") if decision else None,

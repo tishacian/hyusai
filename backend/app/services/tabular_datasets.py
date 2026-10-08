@@ -938,6 +938,7 @@ def serialize_dataset(dataset: TabularDataset, *, include_preview: bool = False)
 # statement, and a dataset page is not where a Flow's program is published.
 _PUBLIC_LINEAGE_KEYS = (
     "labeling",
+    "label_review",
     "postgresql",
     "engine",
     "model",
