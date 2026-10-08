@@ -43,6 +43,7 @@ import { formatBytes } from '@app/shared/ui/data-table.vm';
 import { I18nService } from '@app/core/i18n.service';
 import { DataService, type DatasetDto } from '@app/features/data/data.service';
 import { ModelPlaygroundComponent } from './model-playground.component';
+import { TabularIntervalsComponent } from './tabular-intervals.component';
 import { ModelTrainComponent, type TrainSeed } from './model-train.component';
 import { ModelsService, isModelActive, type ModelDetailDto } from './models.service';
 import { BarListComponent } from '@app/features/data/viz/bar-list.component';
@@ -126,6 +127,7 @@ const CHART_ASPECT = 300 / 190;
     CkTabsComponent,
     CkTabComponent,
     ModelPlaygroundComponent,
+    TabularIntervalsComponent,
     ModelTrainComponent,
     BarListComponent,
     ConfusionMatrixComponent,
@@ -541,6 +543,7 @@ const CHART_ASPECT = 300 / 190;
                 }
               }
 
+              <ck-tabular-intervals [intervals]="model()?.metrics?.intervals" />
               <div class="ck-charts">
                 @if (roc().length) {
                   <section class="ck-chart">

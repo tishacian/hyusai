@@ -167,17 +167,18 @@ class _NarratedSplitter:
     given, and ``n_splits`` is the only other thing anyone asks a splitter for.
     """
 
-    def __init__(self, inner, folds: int, progress_path) -> None:
+    def __init__(self, inner, folds: int, progress_path, *, step: str = "validating") -> None:
         self._inner = inner
         self._folds = folds
         self._progress_path = progress_path
+        self._step = step
 
     def get_n_splits(self, X=None, y=None, groups=None) -> int:  # noqa: N803
         return self._inner.get_n_splits(X, y, groups)
 
     def split(self, X=None, y=None, groups=None):  # noqa: N803
         for index, fold in enumerate(self._inner.split(X, y, groups), start=1):
-            _progress(self._progress_path, f"validating:{index}/{self._folds}")
+            _progress(self._progress_path, f"{self._step}:{index}/{self._folds}")
             yield fold
 
 
@@ -194,6 +195,50 @@ def _fold_splitter(folds: int, task: str, y):
     from sklearn.model_selection import check_cv
 
     return check_cv(folds, y, classifier=task == "classification")
+
+
+def _conformal_quantiles(pipeline, x_train, y_train, *, folds: int, progress_path=None) -> dict:
+    """Out-of-fold residuals keep every training row in the final fit.
+
+    This function accepts no test data: those rows judge coverage afterwards,
+    and must never choose the radius of an interval.
+    """
+    import math
+
+    import numpy as np
+    from sklearn.base import clone
+    from sklearn.model_selection import cross_val_predict
+
+    folds = folds if folds >= 2 else 5
+    splitter = _NarratedSplitter(
+        _fold_splitter(folds, "regression", y_train), folds, progress_path, step="calibrating"
+    )
+    oof = cross_val_predict(clone(pipeline), x_train, y_train, cv=splitter, n_jobs=1)
+    residuals = np.abs(np.asarray(y_train, dtype=float) - oof)
+    if not np.isfinite(residuals).all():
+        raise ValueError("non-finite conformal residuals")
+    n = len(residuals)
+    return {
+        "method": "cv_conformal_abs", "folds": folds, "residual_rows": n,
+        "default_level": 0.9,
+        "levels": [
+            {"level": level, "q": float(np.quantile(
+                residuals, min(1.0, math.ceil((n + 1) * level) / n), method="higher"
+            ))}
+            for level in (0.8, 0.9, 0.95)
+        ],
+    }
+
+
+def _interval_evidence(calibration: dict, predicted, y_test) -> dict:
+    import numpy as np
+
+    residuals = np.abs(np.asarray(y_test, dtype=float) - np.asarray(predicted, dtype=float))
+    return {**calibration, "levels": [
+        {**entry, "coverage": _number(np.mean(residuals <= entry["q"])),
+         "width": _number(2 * entry["q"])}
+        for entry in calibration["levels"]
+    ]}
 
 
 def _number(value) -> float | None:
@@ -725,6 +770,15 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     except Exception as exc:  # noqa: BLE001 - the algorithm's refusal is the answer
         return _fail(1, f"ml_fit_failed: {type(exc).__name__}: {exc}")
 
+    intervals = None
+    if task == "regression" and (manifest.get("spec") or {}).get("intervals") == "conformal":
+        try:
+            intervals = _conformal_quantiles(
+                pipeline, x_train, y_train, folds=folds, progress_path=progress_path
+            )
+        except Exception as exc:  # noqa: BLE001 - an explicitly requested option must not vanish
+            return _fail(1, f"ml_intervals_failed: {type(exc).__name__}: {exc}")
+
     _progress(progress_path, "scoring")
     if task == "classification" and hasattr(pipeline, "classes_"):
         classes = list(pipeline.classes_)
@@ -775,6 +829,8 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         }
 
     metrics["task"] = task
+    if intervals is not None:
+        metrics["intervals"] = _interval_evidence(intervals, pipeline.predict(x_test), y_test)
     metrics["rows"] = {
         "total": int(len(x)),
         "train": int(len(x_train)),
