@@ -43,3 +43,9 @@ test('legacy UTC gate deadlines are not shifted by the viewer timezone', () => {
   assert.equal(workDecisionDate('2026-09-17T12:00:00+02:00').getTime(), Date.parse('2026-09-17T10:00:00Z'));
   assert.equal(workDecisionAvailable({...pending, hitl: {...pending.hitl, expires_at:'2026-09-17T10:00:00'}}, Date.parse('2026-09-17T09:59:00Z')), true);
 });
+
+
+test('changing the frozen retraining binding invalidates a previously opened review', () => {
+  const gate = {...pending,hitl:{...pending.hitl,prompt_kind:'approve_model_retraining',model_retraining:{proposal_id:'p1',dataset_sha256:'one'} as any}};
+  assert.notEqual(workDecisionKey(gate),workDecisionKey({...gate,hitl:{...gate.hitl,model_retraining:{...gate.hitl.model_retraining,dataset_sha256:'two'}}}));
+});

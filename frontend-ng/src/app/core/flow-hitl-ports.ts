@@ -21,6 +21,7 @@ export function hitlPorts(node: CanonicalFlowNode, direction: 'inputs' | 'output
     { name: 'decision_status', schema: 'string' },
     { name: 'decided_by', schema: 'string' },
   ];
+  if ((node.config as Record<string, unknown> | undefined)?.['prompt_kind'] === 'approve_model_retraining') ports.push({ name: 'proposal_id', schema: 'string' });
   if (review) ports.push(
     { name: 'dataset_id', schema: 'string' },
     { name: 'name', schema: 'string' },

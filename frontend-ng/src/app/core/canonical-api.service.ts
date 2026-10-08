@@ -1,3 +1,4 @@
+import type { RetrainingBinding } from '@app/features/models/retraining-evidence.vm';
 import { Injectable, inject } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Observable, catchError, map, of, throwError } from 'rxjs';
@@ -283,6 +284,8 @@ export interface RetrievalDecisionTrace {
 export type { LabelReviewPage, LabelReviewSubmission } from '@app/features/data/label-review.vm';
 
 export interface RunHitlPayload {
+  can_decide?: boolean;
+  model_retraining?: RetrainingBinding | null;
   label_review?: { dataset_id?: string; sha256?: string } | null;
   node_id?: string;
   prompt?: string;

@@ -1,3 +1,5 @@
+import { RetrainingContextComponent } from '@app/features/models/retraining-context.component';
+import { retrainingReviewReady } from '@app/features/models/retraining-evidence.vm';
 import { appearanceLogo, appearanceStyles, brandAppearance, type BrandAppearance } from '@app/core/brand-appearance';
 import { AdoptionService } from '@app/core/adoption.service';
 import { NgComponentOutlet, NgStyle } from '@angular/common';
@@ -69,7 +71,7 @@ const POLL_MS = 8000;
     EmptyStateComponent,
     NavLinkDirective,
     WorkDecisionContextComponent,
-    DatasetLabelReviewComponent,
+    DatasetLabelReviewComponent, RetrainingContextComponent,
     RunMandateComponent,
     WorkBarComponent,
     WorkAppHeaderComponent,
@@ -207,6 +209,7 @@ const POLL_MS = 8000;
                     }
                     @if (isReviewed(run)) {
                       <app-work-decision-context [run]="run" [showRunLink]="canInspectRuns()" />
+                    @if (run.hitl?.prompt_kind === 'approve_model_retraining') { <ck-retraining-context [binding]="run.hitl?.model_retraining" /> }
                     @if (run.hitl?.prompt_kind === 'review_dataset_labels') {
                       <app-dataset-label-review [runId]="run.id" [decisionId]="run.hitl?.decision_id ?? ''" [disabled]="decisionBusy().has(run.id)" (submissionChange)="setLabelReview(run, $event)" />
                     }
@@ -221,7 +224,7 @@ const POLL_MS = 8000;
                       <button
                         type="button"
                         class="xp-work-btn xp-work-btn-primary"
-                        [disabled]="decisionBusy().has(run.id) || !decisionAvailable(run) || (run.hitl?.prompt_kind === 'review_dataset_labels' && !labelReviewFor(run))"
+                        [disabled]="decisionBusy().has(run.id) || !decisionAvailable(run) || (run.hitl?.prompt_kind === 'review_dataset_labels' && !labelReviewFor(run)) || (run.hitl?.prompt_kind === 'approve_model_retraining' && !retrainingReviewReady(run.hitl?.model_retraining))"
                         (click)="decide(run, 'accept')"
                       >
                         {{ i18n.t('experience.work.validations.approve') }}
@@ -257,6 +260,7 @@ const POLL_MS = 8000;
   `,
 })
 export class WorkShellComponent {
+  readonly retrainingReviewReady = retrainingReviewReady;
   readonly adoption = inject(AdoptionService);
   @ViewChild('workMain') private workMain?: ElementRef<HTMLElement>;
   private readonly host = inject(ElementRef<HTMLElement>);
@@ -422,6 +426,7 @@ export class WorkShellComponent {
 
   decide(run: Run, action: 'accept' | 'reject'): void {
     if (this.decisionBusy().has(run.id)) return;
+    if (action === 'accept' && run.hitl?.prompt_kind === 'approve_model_retraining' && !retrainingReviewReady(run.hitl?.model_retraining)) return;
     const labelReview = this.labelReviewFor(run);
     if (action === 'accept' && run.hitl?.prompt_kind === 'review_dataset_labels' && !labelReview) return;
     if (!this.isReviewed(run) || !workDecisionAvailable(run)) {
