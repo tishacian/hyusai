@@ -26,5 +26,9 @@ TABULAR = Family(
     spec_fields=(
         SpecField("intervals", "enum", default="off", choices=("off", "conformal"),
                   when=(("task", (REGRESSION,)),)),
+        SpecField("calibration", "enum", default="off", choices=("off", "auto", "sigmoid", "isotonic"),
+                  when=(("task", (CLASSIFICATION,)),)),
+        SpecField("threshold", "enum", default="default", choices=("default", "f1", "youden"),
+                  when=(("task", (CLASSIFICATION,)),)),
     ),
 )
