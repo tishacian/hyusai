@@ -25,6 +25,7 @@ export const PROMPT_KINDS: readonly PromptKind[] = [
   'validate_draft',
   'missing_file',
   'approve_write',
+  'review_dataset_labels',
 ];
 
 export const ITSD_OVERLAY_ALLOWLIST = [

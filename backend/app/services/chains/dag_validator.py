@@ -303,6 +303,11 @@ _RESERVED_VARIABLE_NAMESPACES: set[str] = set(RESERVED_NAMESPACES)
 
 def _ports(node: Mapping[str, Any], key: str) -> dict[str, Optional[str]]:
     """Map declared port name → primitive schema (or ``None``)."""
+    from app.services.chains.hitl_ports import hitl_ports
+
+    owned = hitl_ports(node, key)
+    if owned is not None:
+        return owned
     out: dict[str, Optional[str]] = {}
     raw = node.get(key)
     if isinstance(raw, list):

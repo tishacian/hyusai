@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Observable, catchError, map, of, throwError } from 'rxjs';
 import { ApiService } from './api.service';
+import type { LabelReviewPage, LabelReviewSubmission } from '@app/features/data/label-review.vm';
 import type { ObjectLens } from './navigation.catalog';
 import type { ModelCatalogEntry, ModelResolution } from './model-catalog';
 import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-perspective.models';
@@ -279,7 +280,10 @@ export interface RetrievalDecisionTrace {
   trace_source?: string;
 }
 
+export type { LabelReviewPage, LabelReviewSubmission } from '@app/features/data/label-review.vm';
+
 export interface RunHitlPayload {
+  label_review?: { dataset_id?: string; sha256?: string } | null;
   node_id?: string;
   prompt?: string;
   prompt_kind?: string;
@@ -2673,12 +2677,18 @@ export class CanonicalApiService {
    */
   resolveRunHitl(
     runId: string,
-    body: { action: 'accept' | 'reject'; expected_decision_id: string | undefined; actor?: string; note?: string },
+    body: { action: 'accept' | 'reject'; expected_decision_id: string | undefined; actor?: string; note?: string; label_review?: LabelReviewSubmission },
   ): Observable<Run | null> {
     if (!body.expected_decision_id) return of(null);
     return this.api
       .post<Run>(`/runs/${runId}/hitl`, body)
       .pipe(catchError(() => of(null)));
+  }
+
+  getLabelReview(runId: string, decisionId: string, offset = 0): Observable<LabelReviewPage> {
+    return this.api.get<LabelReviewPage>(`/runs/${encodeURIComponent(runId)}/label-review`, {
+      expected_decision_id: decisionId, offset: String(offset), limit: '50',
+    });
   }
 
   /**

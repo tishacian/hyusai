@@ -17,6 +17,8 @@ import {
   input,
   output,
   viewChild,
+  signal,
+  computed,
 } from '@angular/core';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { I18nService } from '@app/core/i18n.service';
@@ -24,14 +26,16 @@ import { inject } from '@angular/core';
 import type {
   RunDebugPayload,
   RunHitlPayload,
+  LabelReviewSubmission,
 } from '@app/core/canonical-api.service';
+import { DatasetLabelReviewComponent } from '@app/features/data/dataset-label-review.component';
 import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
 
 @Component({
   selector: 'app-flow-terminal',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [IconComponent, DatasetLabelReviewComponent],
   styleUrl: './flow-terminal.component.scss',
   template: `
     <section class="ck-term" [attr.aria-label]="i18n.t('flow.terminal.aria')">
@@ -111,20 +115,23 @@ import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
                 }
               </div>
             }
+            @if (h.prompt_kind === 'review_dataset_labels') {
+              <app-dataset-label-review [runId]="runId()" [decisionId]="h.decision_id ?? ''" [disabled]="hitlResolving()" (submissionChange)="labelReview.set($event)" />
+            }
             <div class="ck-term__actions">
               <button
                 type="button"
                 class="ck-term__btn ck-term__btn--reject"
                 [disabled]="hitlResolving()"
-                (click)="resolveHitl.emit('reject')"
+                (click)="resolve('reject')"
               >
                 <app-icon name="x" [size]="12" /> {{ i18n.t('flow.terminal.approval.reject') }}
               </button>
               <button
                 type="button"
                 class="ck-term__btn ck-term__btn--accept"
-                [disabled]="hitlResolving()"
-                (click)="resolveHitl.emit('accept')"
+                [disabled]="hitlResolving() || (h.prompt_kind === 'review_dataset_labels' && !labelReview())"
+                (click)="resolve('accept')"
               >
                 <app-icon name="check" [size]="12" /> {{ i18n.t('flow.terminal.approval.accept') }}
               </button>
@@ -212,12 +219,15 @@ export class FlowTerminalComponent {
   readonly entries = input<RunLogEntry[]>([]);
   readonly status = input<RunUiStatus>('idle');
   readonly hitl = input<RunHitlPayload | null>(null);
+  readonly runId = input('');
+  readonly labelReview = signal<LabelReviewSubmission | null>(null);
+  private readonly gateKey = computed(() => JSON.stringify([this.runId(), this.hitl()?.decision_id]));
   readonly debug = input<RunDebugPayload | null>(null);
   readonly hitlResolving = input(false);
   readonly debugStepping = input(false);
   readonly debugModeLabel = input<DebugMode>('off');
 
-  readonly resolveHitl = output<'accept' | 'reject'>();
+  readonly resolveHitl = output<{ action: 'accept' | 'reject'; label_review?: LabelReviewSubmission }>();
   readonly debugAction = output<'step' | 'continue' | 'stop'>();
   readonly clear = output<void>();
   readonly close = output<void>();
@@ -225,12 +235,22 @@ export class FlowTerminalComponent {
   private readonly body = viewChild<ElementRef<HTMLDivElement>>('body');
 
   constructor() {
+    effect(() => { this.gateKey(); this.labelReview.set(null); });
     // Keep the newest line in view as the log grows.
     effect(() => {
       this.entries();
       const el = this.body()?.nativeElement;
       if (el) queueMicrotask(() => (el.scrollTop = el.scrollHeight));
     });
+  }
+
+  protected resolve(action: 'accept' | 'reject'): void {
+    if (this.hitlResolving()) return;
+    const label_review = this.labelReview();
+    if (action === 'accept' && this.hitl()?.prompt_kind === 'review_dataset_labels') {
+      if (!label_review) return;
+      this.resolveHitl.emit({ action, label_review });
+    } else this.resolveHitl.emit({ action });
   }
 
   protected statusLabel(): string {

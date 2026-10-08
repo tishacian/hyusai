@@ -20,7 +20,7 @@ function decisionHarness() {
   let currentScope = true;
   const destruction = new Set<() => void>();
   const shell = Object.assign(Object.create(WorkShellComponent.prototype), {
-    reviewedDecisions: signal({}), decisionBusy: signal(new Set<string>()),
+    reviewedDecisions: signal({}), labelReviews: signal({}), decisionBusy: signal(new Set<string>()),
     decisionError: signal(false), announcement: signal(''), reasonError: signal<string | null>(null),
     reasons: signal({}), decidedRun: signal<Run | null>(null), pending: signal([run]),
     experienceId: signal('app-a'),
@@ -49,6 +49,20 @@ test('Work requires review of the exact request before a decision and submits it
   assert.equal(shell.decidedRun()?.id, run.id);
   assert.deepEqual(shell.pending(), []);
   assert.deepEqual(decisions, [run.id], 'L34 — a saved decision ends the getting-started journey');
+});
+
+test('label review remains part of the existing Work approval and rejects without corrections', () => {
+  const { shell, run, calls } = decisionHarness();
+  run.hitl!.prompt_kind = 'review_dataset_labels';
+  shell.reviewDecision(run);
+  shell.decide(run, 'accept');
+  assert.equal(calls.length, 0, 'opening the review never confirms the dataset');
+  const review = { dataset_id: 'labels', sha256: 'hash', acknowledged: true as const, corrections: [{ row_id: 0, label: 'no' }] };
+  shell.setLabelReview(run, review);
+  shell.decide({ ...run, hitl: { ...run.hitl, decision_id: 'new' } }, 'accept');
+  assert.equal(calls.length, 0, 'a different decision cannot reuse the previous confirmation');
+  shell.decide(run, 'accept');
+  assert.deepEqual(calls[0], [run, 'accept', '', review]);
 });
 
 test('Work invalidates a review when the decision or submitted payload changes', () => {

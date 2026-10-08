@@ -161,6 +161,17 @@ export interface DatasetLineageModel {
 
 /** How a produced dataset came to exist, as the detail page tells it. */
 export interface DatasetLineage {
+  labeling?: {
+    label_column: string; labels: string[]; text_columns: string[];
+    review_status: 'unreviewed' | 'reviewed';
+    model?: { provider?: string; model?: string };
+    estimated_cost_usd?: number; cost_basis?: string;
+  };
+  label_review?: {
+    decision_id: string; reviewed_by: string; reviewed_at: string;
+    source_dataset_id: string; source_version: number; source_sha256: string;
+    rows_reviewed: number; corrected_rows: number; label_column: string; labels: string[];
+  };
   postgresql?: {
     database: string; schema: string; table: string; columns: string[];
     captured_at: string; mode: 'snapshot'; row_count: number; truncated: false;

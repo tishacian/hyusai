@@ -3,7 +3,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Observable, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
-import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
+import { CanonicalApiService, type Run, type LabelReviewSubmission } from '@app/core/canonical-api.service';
 import type { WorkCatalogItem, WorkResolve, SystemLinkedWorkApp, PendingDecisions } from './work-catalog';
 import type { WorkHome } from './work-home.vm';
 
@@ -110,8 +110,10 @@ export class WorkApiService {
       );
   }
 
-  decide(run: Run, action: 'accept' | 'reject', note: string): Observable<Run | null> {
-    return this.canonical.resolveRunHitl(run.id, { action, note, expected_decision_id: run.hitl?.decision_id });
+  decide(run: Run, action: 'accept' | 'reject', note: string, labelReview?: LabelReviewSubmission): Observable<Run | null> {
+    return this.canonical.resolveRunHitl(run.id, { action, note, expected_decision_id: run.hitl?.decision_id,
+      ...(action === 'accept' && labelReview ? { label_review: labelReview } : {}),
+    });
   }
 }
 

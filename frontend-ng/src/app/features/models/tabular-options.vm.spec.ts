@@ -39,6 +39,14 @@ test('column choices exclude the target and honor catalog column kinds', () => {
   assert.deepEqual(specColumns(field, columns, 'region').map((column) => column.name), ['segment']);
 });
 
+test('distillation inference cost is optional and an explicit zero survives serialization', () => {
+  const cost: SpecFieldDescriptor[] = [{ key: 'distillation_inference_cost_per_1000', kind: 'float', required: false, min: 0, max: 1000, when: { task: ['classification'] } }];
+  assert.deepEqual(tabularSpec(cost, {}, 'classification'), {});
+  assert.deepEqual(tabularSpec(cost, { distillation_inference_cost_per_1000: null }, 'classification'), {});
+  assert.deepEqual(tabularSpec(cost, { distillation_inference_cost_per_1000: 0 }, 'classification'), { distillation_inference_cost_per_1000: 0 });
+  assert.deepEqual(tabularSpec(cost, { distillation_inference_cost_per_1000: 0 }, 'regression'), {});
+});
+
 test('text encoder is available for both tabular tasks and keeps legacy auto behavior', () => {
   const textFields = fixture.text_fields as SpecFieldDescriptor[];
   for (const task of ['classification', 'regression'] as const) {
