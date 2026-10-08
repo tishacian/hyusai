@@ -220,7 +220,7 @@ ALGOS: tuple[Algo, ...] = (
         },
         knobs=(
             Knob("max_iter", "int", 150, 20, 600, 10),
-            Knob("learning_rate", "float", 0.1, 0.01, 0.5, 0.01),
+            Knob("learning_rate", "float", 0.1, 0.01, 0.5, 0.01, log=True),
             Knob("max_leaf_nodes", "int", 31, 4, 127, 1),
         ),
         rank=0,
@@ -251,7 +251,7 @@ ALGOS: tuple[Algo, ...] = (
         },
         knobs=(
             Knob("max_iter", "int", 500, 100, 3000, 50),
-            Knob("alpha", "float", 1.0, 0.001, 20.0, 0.01),
+            Knob("alpha", "float", 1.0, 0.001, 20.0, 0.01, log=True),
         ),
         scale=True,
         rank=2,
@@ -298,36 +298,47 @@ ALGOS: tuple[Algo, ...] = (
 
 ALGO_BY_KEY = {algo.key: algo for algo in ALGOS}
 
-# The one place the catalog's vocabulary and sklearn's disagree: a logistic
-# regression's ``C`` is the INVERSE of a regularization strength, so the shared
-# "alpha" knob has to be inverted, not merely renamed.
-_INVERTED_ALPHA = frozenset({("linear", CLASSIFICATION)})
-
 
 def estimator_params(algo: Algo, task: str, knobs: dict[str, Any]) -> dict[str, Any]:
-    """Translate catalog knobs into the estimator's own keyword arguments.
+    """The API and search harness share the same catalog-to-estimator contract."""
+    from app.resources.ml_knob_translation import translate
 
-    The catalog is the vocabulary the form speaks, and it is task-neutral by
-    design; sklearn's is neither. Translating here keeps that mismatch out of
-    both the UI and the harness.
-    """
+    return translate(
+        algo.key, task, knobs,
+        random_state=int(settings.ml_train_random_state), forest_leaves=FOREST_LEAVES,
+    )
 
-    params: dict[str, Any] = dict(knobs)
-    if (algo.key, task) in _INVERTED_ALPHA and "alpha" in params:
-        strength = float(params.pop("alpha")) or 1.0
-        params["C"] = round(1.0 / strength, 6)
-    if algo.seeded:
-        params.setdefault("random_state", int(settings.ml_train_random_state))
-    if algo.key == "random_forest":
-        # One fit already owns the worker slot; a nested thread pool under
-        # RLIMIT_AS buys nothing and costs address space.
-        params.setdefault("n_jobs", 1)
-        if params.get("max_depth") is None:
-            # A forest grown to pure leaves on a large dataset can occupy
-            # gigabytes on disk. Bound leaves instead of depth so the trees
-            # keep their depth where the data is dense, for every task.
-            params.setdefault("max_leaf_nodes", FOREST_LEAVES)
-    return params
+
+def tuning_configuration(spec: TrainingSpec) -> dict[str, Any] | None:
+    if spec.spec.get("tuning") != "budget":
+        return None
+    # Polars counts null as a distinct value; the harness drops missing labels.
+    target_profile = (spec.dataset.stats_json or {}).get(spec.target) or {}
+    classes = _distinct(spec.dataset, spec.target) - int(bool(target_profile.get("nulls")))
+    metric = "r2" if spec.task == REGRESSION else (
+        "roc_auc" if classes == 2 else "balanced_accuracy"
+    )
+    space = []
+    for knob in spec.algo.knobs:
+        if knob.kind == "int_list":
+            continue
+        entry = {"key": knob.key, "kind": knob.kind}
+        if knob.kind in {"int", "float"}:
+            low, high = knob.minimum, knob.maximum
+            if knob.auto_at == low:
+                low += knob.step
+            if knob.auto_at == high:
+                high -= knob.step
+            entry.update(low=low, high=high, log=knob.log)
+        else:
+            entry["choices"] = list(knob.choices) if knob.kind == "enum" else [False, True]
+        space.append(entry)
+    return {
+        "trials": spec.spec["tuning_trials"], "budget_s": spec.spec["tuning_budget_s"],
+        "metric": metric, "direction": metrics_registry.METRIC_BY_KEY[metric].direction,
+        "folds": spec.cross_validation if spec.cross_validation >= 2 else 3,
+        "start": dict(spec.knobs), "space": space, "forest_leaves": FOREST_LEAVES,
+    }
 
 
 def catalog_payload(db: DBSession | None = None) -> dict[str, Any]:
@@ -523,6 +534,13 @@ def validate_training(
             name=name,
             spec=problem,
         )
+    if problem.get("tuning") == "budget":
+        maximum = 0.6 * min(float(settings.ml_train_timeout_s), float(settings.ml_train_cpu_limit_s))
+        if problem["tuning_budget_s"] > maximum:
+            raise TabularError(
+                code="ML_SPEC_INVALID", message=f"Tuning budget must not exceed {maximum:g} seconds.",
+                details={"field": "tuning_budget_s", "max": maximum},
+            )
     target_kind = kinds[label]
     if chosen_task == REGRESSION and target_kind not in NUMERIC_KINDS:
         raise TabularError(
@@ -809,6 +827,7 @@ def create_model(
             "estimator_params": estimator_params(spec.algo, spec.task, spec.knobs),
             "scale": bool(spec.algo.scale),
             "warnings": list(spec.warnings),
+            **({"tuning": tuning_configuration(spec)} if spec.spec.get("tuning") == "budget" else {}),
         },
         status="pending",
         status_detail=TRAIN_STEPS[0],
@@ -1470,6 +1489,8 @@ def _write_manifest(scratch: Path, model: MLModel, data_path: Path) -> Path:
         "report_path": str(scratch / "report" / _REPORT_STATE_FILE),
         "report_state_limit_mb": int(settings.ml_train_report_state_limit_mb),
     }
+    if manifest["spec"].get("tuning") == "budget" and params.get("tuning"):
+        manifest["tuning"] = dict(params["tuning"])
     path = scratch / "manifest.json"
     path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
     return path
@@ -1761,6 +1782,7 @@ def _register_version(model: MLModel) -> None:
             "test_size": model.test_size,
             "cross_validation": model.cross_validation or 0,
             "agentium_version": model.version,
+            **({"tuned": True} if (model.metrics_json or {}).get("tuning") else {}),
         },
         tags={
             "agentium.model_id": model.id,
@@ -1804,6 +1826,15 @@ def _apply_summary(model: MLModel, summary: dict[str, Any]) -> None:
         # What the harness vouched for (serialization, sha256 of the artifact
         # and of the model's code file): checked before a remote family loads it.
         metrics["artifact"] = dict(summary["artifact"])
+    tuning = metrics.get("tuning") or {}
+    best = tuning.get("best") or {}
+    if isinstance(best.get("knobs"), dict) and model.algo in ALGO_BY_KEY:
+        algo = ALGO_BY_KEY[model.algo]
+        knobs = algo.resolve(best["knobs"])
+        model.params_json = {
+            **(model.params_json or {}), "knobs": knobs,
+            "estimator_params": estimator_params(algo, model.task, knobs), "tuned": True,
+        }
     model.metrics_json = metrics
     model.signature_json = dict(summary.get("signature") or {})
     model.input_example_json = summary.get("input_example") or []

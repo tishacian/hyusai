@@ -709,3 +709,21 @@ def test_a_registry_outage_does_not_fail_a_training_run(
     assert row.status == "ready", row.error
     assert row.model_uri, "the artifact is the product, and it landed"
     assert row.mlflow_run_id is None
+
+
+def test_tuning_trials_are_nested_under_the_registered_run(registry):
+    result = ml_registry.publish(
+        model_name='budgeted-tuning', source_uri='file:///tmp/model',
+        metrics={'tuning': {'start': {'score': .7}, 'best': {'score': .8}, 'trials': [
+            {'n': 0, 'score': .7, 'state': 'complete', 'duration_ms': 20},
+            {'n': 1, 'score': .8, 'state': 'complete', 'duration_ms': 25},
+            {'n': 2, 'score': None, 'state': 'failed', 'duration_ms': 10},
+        ]}}, params={'tuned': True},
+    )
+    assert result is not None
+    client = ml_registry._client()
+    parent = client.get_run(result['run_id'])
+    assert parent.data.metrics['tuning.best.score'] == .8
+    children = client.search_runs([parent.info.experiment_id], f"tags.`mlflow.parentRunId` = '{result['run_id']}'")
+    assert len(children) == 3
+    assert {child.info.status for child in children} == {'FINISHED', 'FAILED'}
