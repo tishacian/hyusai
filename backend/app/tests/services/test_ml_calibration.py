@@ -58,6 +58,16 @@ def test_small_calibration_split_keeps_every_train_row_and_warns(method):
     assert model is context["base"]
 
 
+def test_calibration_missing_a_rare_class_keeps_the_full_training_fit():
+    x, _ = data(1000)
+    y = pd.Series([0] * 998 + [1] * 2)
+    model, context = fit(x, y, calibration="sigmoid")
+    assert "calibration" not in context
+    assert context["warnings"] == [{"code": "ML_CALIBRATION_TOO_FEW"}]
+    assert model is context["base"]
+    assert list(model.classes_) == [0, 1]
+
+
 @pytest.mark.parametrize("criterion", ["f1", "youden"])
 @pytest.mark.parametrize("calibration", ["off", "sigmoid"])
 def test_threshold_selection_cannot_read_the_holdout(monkeypatch, criterion, calibration):
