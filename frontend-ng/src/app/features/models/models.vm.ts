@@ -32,16 +32,31 @@ export type ModelTask = 'classification' | 'regression' | (string & {});
 export type ModelStatus = 'pending' | 'training' | 'ready' | 'failed' | 'cancelled';
 export type MonitorStatus = 'ok' | 'watch' | 'alert';
 
+export type DriftTestReason = 'reference_unavailable' | 'insufficient_samples' | 'sparse_categories' | 'high_cardinality' | 'unsupported_type';
+export interface DriftTest {
+  method: 'ks' | 'chi2' | null;
+  status: MonitorStatus | 'unknown';
+  statistic: number | null;
+  p_value: number | null;
+  p_value_adjusted: number | null;
+  n_reference: number;
+  n_current: number;
+  reason: DriftTestReason | null;
+}
+
 export interface DriftFeature {
   name: string;
   kind: string;
   value: number | null;
   status: string;
+  /** PSI and the distribution test have independent thresholds. */
+  psi_status?: string;
+  test?: DriftTest | null;
 }
 
 export interface MonitoringReport {
   badge: MonitorStatus | null;
-  window: { predictions: number; labeled: number; limit: number };
+  window: { predictions: number; labeled: number; limit: number; model_id?: string; served_version?: number };
   data_drift: { status: string; features: DriftFeature[] };
   score_drift: {
     status: string;
@@ -1326,12 +1341,13 @@ export function driftBars(
   const widest = Math.max(...rows.map((row) => Number(row.value) || 0), 0.25);
   return rows.map((row) => {
     const value = Number(row.value) || 0;
+    const status = row.psi_status ?? row.status;
     return {
       label: row.name,
       display: value.toFixed(2),
       width: widest ? Math.round((value / widest) * 100) : 0,
-      negative: row.status === 'alert',
-      emphasis: row.status === 'alert' || row.status === 'watch',
+      negative: status === 'alert',
+      emphasis: status === 'alert' || status === 'watch',
     };
   });
 }
