@@ -66,3 +66,23 @@ Le lot 6c suit 6a puis 6b. Aucune migration ni nouvelle dépendance au-delà du 
 6a. Reconstruire backend, worker, frontend et l’image optionnelle `ml-deep`.
 L’activation du profil et le provisionnement des poids sont explicites ; le
 chemin de livraison reste Bitbucket puis la VM habituelle.
+
+## Qualification
+
+- 236 tests backend de régression passent : entraînement, prédiction, familles,
+  nouveau contrat embeddings et empreinte d’import de l’API.
+- Les trois scénarios nécessitant les poids sont exécutés dans le runtime deep :
+  exports réels classification/régression rechargés après disparition du chemin
+  source, puis cycle complet du worker avec publication MLflow et prédiction.
+  Le fit supervisé passe avec les plafonds de 6 144 MiB de mémoire et 512 MiB
+  par fichier. L’artefact d’une colonne occupe environ 458 MiB.
+- 47 tests intégrés deep passent, dont les vrais modèles de prévision et leurs
+  exports, les refus d’options, la copie figée des poids et le routage distant.
+- Les importances par permutation sont limitées à 32 lignes pour cette famille.
+- Les revues indépendantes backend et frontend n’identifient plus de blocage.
+  Les choix de colonnes devenus obsolètes restent explicitement retirables et
+  un worker arrêté affiche une indisponibilité du service de prédiction.
+
+Le build complet et la taille de l’image Docker optionnelle restent à qualifier
+avant activation du profil, comme indiqué dans le lot 6a. Aucun téléchargement
+de poids n’est effectué par les tests ; le provisionnement précède leur lancement.
