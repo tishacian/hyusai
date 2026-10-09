@@ -316,6 +316,57 @@ services:
       CELERY_CONCURRENCY: ${AGENTIUM_ML_TS_SERVE_CONCURRENCY:-4}
     mem_limit: ${AGENTIUM_ML_TS_SERVE_MEM_LIMIT:-3g}
 
+  # Optional local foundation models; no weights are baked into this image.
+  # Training and interactive requests use independent pools and heartbeats.
+  agentium-worker-ml-deep:
+    image: agentium-ml-deep:${AGENTIUM_IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: ./docker/Dockerfile.agentium-ml-deep
+      args:
+        AGENTIUM_IMAGE_REVISION: ${AGENTIUM_IMAGE_REVISION:-unknown}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+        PYTHON_BASE_IMAGE: ${AGENTIUM_PYTHON_BASE_IMAGE:-python:3.12-slim}
+        USER_UID: ${AGENTIUM_RUNTIME_UID:-1000}
+        USER_GID: ${AGENTIUM_RUNTIME_GID:-1000}
+    container_name: agentium-worker-ml-deep
+    restart: unless-stopped
+    profiles: ["ml-deep"]
+    networks:
+      - agentium-net
+    env_file:
+      - ${AGENTIUM_ENV_FILE:-./env/agentium.env.example}
+    environment:
+      AGENTIUM_DISABLE_DOTENV: "1"
+      ML_RUNTIME: ml-deep
+      ML_DEEP_MODELS_DIR: /data/models
+      CELERY_APP: app.workers.celery_ml:celery_ml
+      CELERY_QUEUES: ml_deep
+      CELERY_LOGLEVEL: ${AGENTIUM_CELERY_LOGLEVEL:-info}
+      CELERY_CONCURRENCY: ${AGENTIUM_ML_DEEP_CONCURRENCY:-1}
+      CELERY_BEAT: "0"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+    mem_limit: ${AGENTIUM_ML_DEEP_MEM_LIMIT:-8g}
+    volumes:
+      - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
+      - ${AGENTIUM_ML_DEEP_MODELS_PATH:-/home/ubuntu/agentium-data/models}:/data/models:ro
+    depends_on:
+      agentium-rabbitmq:
+        condition: service_healthy
+
+  agentium-worker-ml-deep-serve:
+    extends:
+      service: agentium-worker-ml-deep
+    container_name: agentium-worker-ml-deep-serve
+    profiles: ["ml-deep"]
+    environment:
+      CELERY_QUEUES: ml_deep_rpc
+      CELERY_POOL: threads
+      CELERY_CONCURRENCY: ${AGENTIUM_ML_DEEP_SERVE_CONCURRENCY:-1}
+    mem_limit: ${AGENTIUM_ML_DEEP_SERVE_MEM_LIMIT:-4g}
+
   agentium-beat:
     image: agentium-worker:${AGENTIUM_IMAGE_TAG:-local}
     container_name: agentium-beat
