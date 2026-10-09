@@ -431,6 +431,17 @@ def _raise_from(result: dict[str, Any]) -> None:
     )
 
 
+def _journal_forecast(rows, interval_level):
+    """Persist the native step and requested interval level before journal capping."""
+    steps = {}
+    enriched = []
+    for row in rows:
+        series = str(row.get("series", ""))
+        steps[series] = steps.get(series, 0) + 1
+        enriched.append({**row, "step": steps[series], "interval_level": interval_level})
+    return enriched
+
+
 def request_forecast(
     db: Any,
     model: Any,
@@ -509,7 +520,7 @@ def request_forecast(
         served=served,
         caller=caller,
         rows=rows or [{"horizon": result.get("horizon"), "interval_level": result.get("interval_level")}],
-        answers=forecast,
+        answers=_journal_forecast(forecast, result.get("interval_level")),
         duration_ms=duration_ms,
     )
     record_usage(db, served, rows=len(forecast))
@@ -758,7 +769,7 @@ def forecast_into(
                 served=served,
                 caller="forecast",
                 rows=inputs or [{"horizon": result["horizon"], "interval_level": result["interval_level"]}],
-                answers=rows,
+                answers=_journal_forecast(rows, result.get("interval_level")),
                 duration_ms=elapsed_ms,
                 dataset_id=output.id,
             )
