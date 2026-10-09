@@ -727,6 +727,16 @@ def _distillation_extensions():
     return module
 
 
+def _monitoring_reference(frame, seed):
+    import importlib.util
+
+    path = Path(__file__).with_name("ml_drift.py")
+    spec = importlib.util.spec_from_file_location("ml_drift", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.build_reference(frame, seed=seed)
+
+
 def _configure_text_encoder(pipeline, spec, seed):
     encoder = (spec or {}).get("text_encoder", "auto")
     if encoder != "auto":
@@ -982,6 +992,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     if tuning_result is not None:
         metrics["tuning"] = tuning_result
     metrics["task"] = task
+    metrics["monitoring_reference"] = _monitoring_reference(x_train, seed)
     if intervals is not None:
         metrics["intervals"] = _interval_evidence(intervals, pipeline.predict(x_test), y_test)
     metrics["rows"] = {
