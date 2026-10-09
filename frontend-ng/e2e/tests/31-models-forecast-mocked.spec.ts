@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { addFoundationCatalog } from '../fixtures/ml-foundation';
 import { resolve } from 'node:path';
 import { expect, test, type Page, type Route } from '@playwright/test';
 
@@ -27,6 +28,7 @@ fixture.panel.metrics.tuning = {
   baseline:{key:'seasonal_naive',mae:5},
   validation:{method:'expanding_window',metric:'mae',aggregation:'mean_per_series',train_start:'2026-08-01',train_end:'2026-08-21',holdout_start:'2026-08-22',holdout_rows:72,initial_train_size:432,rows:504,horizon:24,folds:3},
 };
+addFoundationCatalog(fixture.catalog);
 const workspace = { id: 'forecast-qa', slug: 'forecast-qa', name: 'Nawa QA', role: 'owner', role_template: 'workspace_owner', settings: {}, mode: 'builder' };
 const datasetId = 'ds-cells';
 const modelId = 'fc-cells-1';
@@ -96,7 +98,7 @@ function forecastAnswer(body: any) {
   return { served: { model_id: modelId, version: 1, is_champion: true }, horizon, interval_level: level, frequency: 'h', series, forecast, explanation, rows: forecast.length, duration_ms: 84, load_ms: 0, cached: true, prediction_id: 'p-1' };
 }
 
-async function setup(page: Page, options: { theme: string; locale: string }) {
+async function setup(page: Page, options: { theme: string; locale: string; foundationCard?: boolean }) {
   const plans: any[] = [];
   const trains: any[] = [];
   const forecasts: any[] = [];
@@ -140,7 +142,9 @@ async function setup(page: Page, options: { theme: string; locale: string }) {
       return json(route, { ...base, plan: { task: 'forecasting', family: 'forecasting', spec, target: body.target, features: Object.keys(spec.exog ?? {}), algo: body.algo ?? 'gradient_boosting', estimator: 'sklearn.ensemble.HistGradientBoostingRegressor', knobs: {}, test_size: 0.11, cross_validation: 3, name: 'Cellules Nawa · prb_utilization_pct +48', warnings: [], rows: 2688 } });
     }
     if (path === `/ml-models/${modelId}`) {
-      return json(route, { model, dataset, provenance: null, versions: [model], challenger_id: null, catalog: fixture.catalog, serving });
+      const shownModel = options.foundationCard ? {...model, family:'forecasting_deep', algo:'chronos_zero_shot',
+        signature:{...model.signature,output:{...model.signature.output,max_steps:64}}} : model;
+      return json(route, { model:shownModel, dataset, provenance: null, versions: [shownModel], challenger_id: null, catalog: fixture.catalog, serving });
     }
     if (path === `/ml-models/${modelId}/monitoring`) return json(route, { monitoring: null });
     if (path === `/ml-models/${modelId}/forecast`) {
@@ -277,4 +281,50 @@ test.describe('Models · forecasting — isolated end-user QA', () => {
       expect(api.trains[0].test_size).toBeUndefined();
     });
   }
+});
+
+
+test.describe('Models · zero-shot forecast — mocked QA', () => {
+  test.beforeEach(async ({}, info) => {
+    test.skip(process.env['E2E_CHROME_V2_MOCKED'] !== '1' || !['localhost','127.0.0.1'].includes(new URL(String(info.project.use.baseURL)).hostname), 'Local mocked QA only.');
+  });
+  for (const locale of ['fr','en']) test(`zero-shot ${locale}: only supported fields reach training`, async ({page}) => {
+    const api = await setup(page,{theme:'dark',locale});
+    await page.goto('/models');
+    await page.getByRole('button',{name:locale==='fr'?/Entraîner/:/Train/}).first().click();
+    const studio = page.getByRole('dialog');
+    await studio.getByTestId('train-target').locator('[data-testid="column-select"][data-name="prb_utilization_pct"]').click();
+    await studio.getByRole('button',{name:locale==='fr'?'Prévision':'Forecasting',exact:true}).click();
+    await studio.getByRole('button',{name:locale==='fr'?'Panel de séries':'Panel of series',exact:true}).click();
+    await studio.getByRole('button',{name:'cell_id',exact:true}).click();
+    await studio.getByRole('combobox',{name:'technology',exact:true}).selectOption('static');
+    await studio.getByRole('button',{name:locale==='fr'?/Prévision zéro-shot/:/Zero-shot forecast/}).click();
+    await expect(studio.locator('#train-horizon')).toHaveAttribute('max','64');
+    await expect(studio.locator('#train-lags')).toHaveCount(0);
+    await expect(studio.getByRole('combobox',{name:'technology',exact:true})).toHaveCount(0);
+    await expect(studio.locator('#forecast-tuning-mode')).toHaveCount(0);
+    await expect(studio.locator('#train-fill option')).toHaveCount(2);
+    await expect(studio.locator('#train-folds option')).toHaveCount(5);
+    await expect(studio.locator('.ck-submit')).toBeEnabled();
+    await studio.locator('.ck-submit').click();
+    await expect.poll(() => api.trains.length).toBe(1);
+    expect(api.trains[0].algo).toBe('chronos_zero_shot');
+    expect(api.trains[0].spec).toEqual({time_column:'ts',shape:'panel',series_columns:['cell_id'],horizon:24,
+      frequency:'auto',interval_level:.8,backtest_folds:3,fill:'refuse'});
+  });
+});
+
+
+test('zero-shot Play clamps requests to the artifact horizon', async ({page}, info) => {
+  test.skip(process.env['E2E_CHROME_V2_MOCKED'] !== '1' || !['localhost','127.0.0.1'].includes(new URL(String(info.project.use.baseURL)).hostname), 'Local mocked QA only.');
+  const api = await setup(page,{theme:'dark',locale:'en',foundationCard:true});
+  await page.goto(`/models/${modelId}`);
+  await page.getByRole('tab',{name:'Predict',exact:true}).click();
+  const play = page.getByTestId('forecast-playground');
+  await expect(play.getByTestId('forecast-horizon')).toHaveAttribute('max','64');
+  await play.getByTestId('forecast-horizon').fill('100');
+  await play.getByTestId('forecast-horizon').press('Tab');
+  await expect(play.getByTestId('forecast-horizon')).toHaveValue('64');
+  await play.getByTestId('forecast-run').click();
+  await expect.poll(() => api.forecasts.at(-1)?.params?.horizon).toBe(64);
 });

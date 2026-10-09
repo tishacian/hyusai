@@ -205,7 +205,7 @@ export interface SignatureField {
 export interface ModelSignature {
   inputs?: SignatureField[];
   /** `levels` and `horizon`: a forecast's series and the horizon it was built for. */
-  output?: { task?: ModelTask; target?: string; classes?: string[]; levels?: string[]; horizon?: number };
+  output?: { task?: ModelTask; target?: string; classes?: string[]; levels?: string[]; horizon?: number; max_steps?: number };
 }
 
 export interface ModelDto {
@@ -852,6 +852,9 @@ export interface MetricDescriptor {
 
 export interface AlgoDescriptor {
   key: string;
+  family?: string;
+  available?: boolean;
+  reason?: string;
   tasks: ModelTask[];
   estimators: Record<string, string>;
   scale: boolean;
@@ -1478,7 +1481,7 @@ export function algosForTask(
   catalog: ModelCatalog | null | undefined,
   task: ModelTask,
 ): AlgoDescriptor[] {
-  return (catalog?.algos ?? []).filter((algo) => algo.tasks.includes(task));
+  return (catalog?.algos ?? []).filter((algo) => algo.tasks.includes(task) && algo.available !== false);
 }
 
 /**

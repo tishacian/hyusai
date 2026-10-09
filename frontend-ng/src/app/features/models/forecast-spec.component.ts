@@ -77,7 +77,7 @@ import type { PlanColumn, SpecFieldDescriptor } from './models.vm';
       <div class="ck-field">
         <label class="ck-label">{{ i18n.t('models.spec.shape') }}</label>
         <div class="ck-seg">
-          @for (shape of shapes; track shape) {
+          @for (shape of shapes(); track shape) {
             <button
               type="button"
               class="ck-seg__btn"
@@ -112,6 +112,7 @@ import type { PlanColumn, SpecFieldDescriptor } from './models.vm';
         </div>
       }
 
+      @if (hasField('exog')) {
       <div class="ck-field">
         <label class="ck-label">{{ i18n.t('models.spec.exog') }}</label>
         <div class="ck-hint">{{ i18n.t('models.spec.exog.hint') }}</div>
@@ -138,6 +139,8 @@ import type { PlanColumn, SpecFieldDescriptor } from './models.vm';
           <div class="ck-hint ck-mono">{{ i18n.t('models.studio.forecast.no_covariates') }}</div>
         }
       </div>
+
+      }
 
       @if (refusal(); as message) {
         <div class="ck-refusal" data-testid="train-forecast-refusal" role="alert">
@@ -198,6 +201,7 @@ import type { PlanColumn, SpecFieldDescriptor } from './models.vm';
         </div>
       }
 
+      @if (hasField('lags')) {
       <div class="ck-field">
         <label class="ck-label" for="train-lags">{{ i18n.t('models.spec.lags') }}</label>
         <input
@@ -218,6 +222,8 @@ import type { PlanColumn, SpecFieldDescriptor } from './models.vm';
           <div class="ck-hint">{{ i18n.t('models.spec.lags.hint') }}</div>
         }
       </div>
+
+      }
 
       <div class="ck-field">
         <div class="ck-knob">
@@ -249,7 +255,7 @@ import type { PlanColumn, SpecFieldDescriptor } from './models.vm';
               [ngModel]="draft().folds"
               (ngModelChange)="patch({ folds: +$event })"
             >
-              @for (folds of foldOptions; track folds) {
+              @for (folds of foldOptions(); track folds) {
                 <option [ngValue]="folds">{{ folds }}</option>
               }
             </select>
@@ -262,7 +268,7 @@ import type { PlanColumn, SpecFieldDescriptor } from './models.vm';
               [ngModel]="draft().fill"
               (ngModelChange)="patch({ fill: $event })"
             >
-              @for (fill of fills; track fill) {
+              @for (fill of fills(); track fill) {
                 <option [value]="fill">{{ i18n.t('models.spec.fill.' + fill) }}</option>
               }
             </select>
@@ -296,6 +302,7 @@ import type { PlanColumn, SpecFieldDescriptor } from './models.vm';
         </div>
       }
 
+      @if (hasField('calendar')) {
       <label class="ck-check">
         <input
           type="checkbox"
@@ -305,6 +312,7 @@ import type { PlanColumn, SpecFieldDescriptor } from './models.vm';
         <span>{{ i18n.t('models.spec.calendar') }}</span>
         <span class="ck-hint">{{ i18n.t('models.spec.calendar.hint') }}</span>
       </label>
+      }
     }
   `,
   styles: [
@@ -482,11 +490,14 @@ export class ForecastSpecComponent {
     { key: 'tuning_folds', draftKey: 'tuningFolds', value: this.draft().tuningFolds, bounds: tuningBounds(this.fields(), 'tuning_folds') },
   ] as const);
 
-  protected readonly shapes = FORECAST_SHAPES;
+  protected readonly shapes = computed(() => FORECAST_SHAPES.filter((shape) => this.choiceAllowed('shape', shape)));
   protected readonly frequencies = FORECAST_FREQUENCIES;
-  protected readonly fills = FORECAST_FILLS;
+  protected readonly fills = computed(() => FORECAST_FILLS.filter((fill) => this.choiceAllowed('fill', fill)));
   protected readonly strategies = ['recursive', 'direct'] as const;
-  protected readonly foldOptions = [1, 2, 3, 4, 5, 6, 8];
+  protected readonly foldOptions = computed(() => {
+    const field = this.fields().find((entry) => entry.key === 'backtest_folds');
+    return [1, 2, 3, 4, 5, 6, 8].filter((value) => value >= (field?.min ?? 1) && value <= (field?.max ?? 8));
+  });
 
   protected readonly timeOptions = computed(() => timeColumns(this.columns()));
   /** The draft as shown: a date column it lacks falls back to the first one. */
@@ -497,10 +508,19 @@ export class ForecastSpecComponent {
   protected readonly covariates = computed(() =>
     covariateCandidates(this.columns(), this.draft(), this.target()),
   );
-  protected readonly showStrategy = computed(() => strategyApplies(this.draft().shape, this.algo()));
+  protected readonly showStrategy = computed(() => this.hasField('strategy') && strategyApplies(this.draft().shape, this.algo()));
   /** The lags as typed: committed when the field is left, if they parse. */
   protected readonly lagsText = linkedSignal(() => this.draft().lags);
   protected readonly lagsInvalid = computed(() => parseLags(this.lagsText()) === null);
+
+  protected hasField(key: string): boolean {
+    return !this.fields().length || this.fields().some((field) => field.key === key);
+  }
+
+  private choiceAllowed(key: string, value: string): boolean {
+    const choices = this.fields().find((field) => field.key === key)?.choices;
+    return !choices?.length || choices.includes(value);
+  }
 
   protected patch(patch: Partial<ForecastDraft>): void {
     this.draftChange.emit(patch);
