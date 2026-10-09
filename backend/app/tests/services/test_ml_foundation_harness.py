@@ -70,6 +70,7 @@ def test_backtest_supplies_only_prefix_and_naive_never_reads_current_horizon():
     assert initial == 70 and [len(item["value"]) for item in model.contexts] == [70, 80, 90]
     first = points[points.fold == 0]
     assert first.pred.eq(69).all()
+    assert first.scale.eq(1).all()  # Catalogue MASE uses one-step changes of the prefix.
     assert first.naive.tolist() == [63., 64., 65., 66., 67., 68., 69., 63., 64., 65.]
     mutated = {"value": series["value"].copy()}
     mutated["value"].iloc[70:] = 1e9
