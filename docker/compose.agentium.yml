@@ -340,6 +340,7 @@ services:
     environment:
       AGENTIUM_DISABLE_DOTENV: "1"
       ML_RUNTIME: ml-deep
+      ML_PREDICT_CACHE_SIZE: "1"
       ML_DEEP_MODELS_DIR: /data/models
       CELERY_APP: app.workers.celery_ml:celery_ml
       CELERY_QUEUES: ml_deep
