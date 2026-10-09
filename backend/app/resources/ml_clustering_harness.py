@@ -109,7 +109,7 @@ def stability(frame, labels, *, clusters: int, max_iter: int, seed: int, sample,
         "values": values, "mean": float(np.mean(values)) if complete else None,
         "std": float(np.std(values)) if complete else None,
         "min": min(values) if complete else None,
-        **({"reason": reasons[0]} if reasons else {}),
+        **({"reason": "insufficient_distinct_subsample" if not complete else reasons[0]} if reasons else {}),
     }
 
 
@@ -167,9 +167,9 @@ def train(frame, *, clusters: int, max_iter: int, seed: int, progress=None):
     empty_rows = int(frame.isna().all(axis=1).sum())
     if empty_rows:
         warnings.append({"code": "ML_CLUSTER_IMPUTED_ROWS", "rows": empty_rows})
-    if model.named_steps["kmeans"].n_iter_ >= max_iter:
+    if model.named_steps["kmeans"].n_iter_ >= max_iter or stability_result.get("reason") == "iteration_limit":
         warnings.append({"code": "ML_CLUSTER_ITERATION_LIMIT"})
-    if stability_result.get("reason"):
+    if stability_result["valid_runs"] != STABILITY_RUNS:
         warnings.append({"code": "ML_CLUSTER_STABILITY_PARTIAL", "reason": stability_result["reason"]})
     metrics = {
         "task": "clustering", "primary": {"key": "silhouette", "value": silhouette["value"]},

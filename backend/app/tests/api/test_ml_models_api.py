@@ -154,6 +154,81 @@ def _train(client, dataset, **overrides):
     return client.post("/ml-models", json=body)
 
 
+def test_segmentation_plan_does_not_require_a_target(client, dataset):
+    response = client.post("/ml-models/plan", json={
+        "dataset_id": dataset.id, "task": "clustering", "features": ["arpu", "tenure_months"],
+    })
+    assert response.status_code == 200
+    body = response.json()
+    assert body["refusal"] is None
+    assert body["plan"]["task"] == "clustering" and body["plan"]["target"] == ""
+    assert body["plan"]["algo"] == "kmeans"
+    refused = client.post("/ml-models/plan", json={
+        "dataset_id": dataset.id, "task": "clustering", "features": ["plan"],
+    }).json()
+    assert refused["refusal"]["code"] == "ML_CLUSTER_FEATURE_NOT_NUMERIC"
+
+
+def test_segmentation_plan_checks_the_selected_group_count(client, dataset, db_session):
+    dataset.row_count = 30
+    db_session.commit()
+    request = {"dataset_id": dataset.id, "task": "clustering", "features": ["arpu"]}
+    accepted = client.post("/ml-models/plan", json={**request, "knobs": {"n_clusters": 2}}).json()
+    assert accepted["plan"]["knobs"]["n_clusters"] == 2
+    refused = client.post("/ml-models/plan", json={**request, "knobs": {"n_clusters": 20}}).json()
+    assert refused["plan"] is None and refused["refusal"]["code"] == "ML_ROWS_INSUFFICIENT"
+
+
+def test_segmentation_api_trains_serves_batches_and_publishes_real_artifact(
+    client, dataset, db_session, workspace, user, monkeypatch,
+):
+    from app.models.tabular import MLPrediction
+    from app.services import tabular_predict
+    from app.services.tabular_datasets import read_frame, resolve_dataset_ref
+
+    monkeypatch.setattr(settings, "ml_predict_enabled", True)
+    client.app.dependency_overrides[ml_models_api.predict_caller] = lambda: ml_models_api.PredictCaller(
+        workspace_id=workspace.id, kind="session", user_id=user.id,
+    )
+    response = client.post("/ml-models", json={
+        "dataset_id": dataset.id, "name": "Customer segments", "task": "clustering",
+        "features": ["arpu", "tenure_months"], "algo": "kmeans", "knobs": {"n_clusters": 3},
+        "test_size": 0, "cross_validation": 0,
+    })
+    assert response.status_code == 200, response.text
+    body = response.json()["model"]
+    assert body["status"] == "ready", body.get("error")
+    assert body["target"] == "" and body["test_size"] == 0 and body["family"] == "clustering"
+    assert body["primary_metric"]["key"] == "silhouette"
+    model = db_session.get(MLModel, body["id"])
+    assert model.metrics_json["rows"] == {"total": 60, "train": 60, "test": 0}
+    assert model.runtime_json and model.metrics_json["artifact"]["files"]
+    path = f"/ml-models/{model.id}"
+    try:
+        probes = [{"arpu": 40.0, "tenure_months": 20.0}, {"arpu": None, "tenure_months": 70.0}]
+        answer = client.post(path + "/predict", json={"rows": probes}).json()
+        assert answer["task"] == "clustering" and answer["classes"] == []
+        assert all(set(item) == {"prediction"} and type(item["prediction"]) is int for item in answer["predictions"])
+        journal = db_session.get(MLPrediction, answer["prediction_id"])
+        assert "scores" not in journal.scores_json and "mean" not in journal.scores_json
+        tabular_predict.reset_cache()
+        reloaded = client.post(path + "/predict", json={"rows": probes}).json()
+        assert reloaded["predictions"] == answer["predictions"]
+        scored = tabular_predict.score_dataset(db_session, model=model, dataset=dataset)
+        output = resolve_dataset_ref(db_session, workspace_id=workspace.id, ref={"dataset_id": scored["dataset_id"]})
+        scored_frame = read_frame(output)
+        assert scored_frame["prediction"].dtype == pl.Int64 and len(scored_frame) == 60
+        assert output.lineage_json["model"]["task"] == "clustering"
+        published = client.post(path + "/publish")
+        assert published.status_code == 200, published.text
+        assert published.json()["serving"]["mode"] == "rows"
+        feedback = client.post(path + "/feedback", json={"prediction_id": answer["prediction_id"], "label": "0"})
+        assert feedback.status_code == 409
+        assert feedback.json()["detail"]["code"] == "ML_CLUSTER_FEEDBACK_UNSUPPORTED"
+    finally:
+        tabular_predict.reset_cache()
+
+
 # ---------------------------------------------------------------------------
 # Catalog and plan
 # ---------------------------------------------------------------------------
@@ -165,7 +240,7 @@ def test_the_catalog_carries_the_algorithms_their_knobs_and_the_platform_limits(
     assert response.status_code == 200
     catalog = response.json()["catalog"]
     assert catalog["enabled"] is True
-    assert catalog["tasks"] == ["classification", "regression", "forecasting"]
+    assert catalog["tasks"] == ["classification", "regression", "forecasting", "clustering"]
     # Ranked, so the first entry is the default the form opens on.
     assert catalog["algos"][0]["key"] == catalog["defaults"]["algo"]
     boosting = next(row for row in catalog["algos"] if row["key"] == "gradient_boosting")

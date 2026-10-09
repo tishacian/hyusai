@@ -557,6 +557,7 @@ def attach_feedback(
 ) -> MLPrediction:
     """Write the ground truth onto the journal row the API handed back."""
 
+    _require_feedback_task(model)
     row = get_prediction(db, prediction_id=prediction_id, workspace_id=model.workspace_id)
     if row.slug != model.slug:
         raise TabularError(
@@ -589,6 +590,12 @@ def attach_feedback(
     row.labeled_by = labeled_by
     db.commit()
     return row
+
+
+def _require_feedback_task(model: MLModel) -> None:
+    if model.task == "clustering":
+        raise TabularError(code="ML_CLUSTER_FEEDBACK_UNSUPPORTED",
+                           message="Cluster identifiers are not ground-truth labels.", status_code=409)
 
 
 def _feedback_number(label: Any) -> float | None:
@@ -625,6 +632,7 @@ def materialize_labeled(
     and promote stay the same buttons they already are.
     """
 
+    _require_feedback_task(model)
     rows = [
         row
         for row in _recent(db, model, limit=WINDOW_LIMIT, lineage=True)

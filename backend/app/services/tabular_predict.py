@@ -296,7 +296,7 @@ def load_pipeline_traced(model: MLModel) -> tuple[LoadedModel, bool]:
         directory = Path(tempfile.mkdtemp(prefix="ml-serve-"))
         try:
             download_model_dir(model, directory)
-            if family.key == "tabular_deep":
+            if family.key in {"tabular_deep", "clustering"}:
                 from app.services.ml.artifacts import verify_bundle
                 verify_bundle(directory, (model.metrics_json or {}).get("artifact") or {})
             pipeline = _load_mlflow_model(directory)
@@ -714,6 +714,8 @@ def _rows_from(
                         ),
                         None,
                     )
+        elif model.task == "clustering":
+            answer = {"prediction": int(raw)}
         else:
             answer = {"prediction": _finite(raw)}
         answers.append(answer)
@@ -740,6 +742,8 @@ def _ranked_names(model: MLModel, fields: list[dict[str, Any]]) -> list[str]:
 def _measure_of(answer: dict[str, Any], task: str) -> float | None:
     """The one number an explanation moves: the positive score, or the value."""
 
+    if task == "clustering":
+        return None
     if task == CLASSIFICATION:
         value = answer.get("score")
         return _finite(value) if value is not None else _finite(answer.get("confidence"))
@@ -926,7 +930,7 @@ def predict_rows(
     }
 
 
-def _score_summary(answers: Sequence[dict[str, Any]]) -> dict[str, Any]:
+def _score_summary(answers: Sequence[dict[str, Any]], *, task: str | None = None) -> dict[str, Any]:
     """What drift can read even when the payload itself was capped."""
 
     scores: list[float] = []
@@ -949,7 +953,7 @@ def _score_summary(answers: Sequence[dict[str, Any]]) -> dict[str, Any]:
             key = str(label)
             counts[key] = counts.get(key, 0) + 1
     summary: dict[str, Any] = {"n": len(answers)}
-    if scores:
+    if scores and task != "clustering":
         summary["scores"] = scores[:_JOURNAL_SCORE_CAP]
         summary["mean"] = round(sum(scores) / len(scores), 6)
         summary["min"] = round(min(scores), 6)
@@ -988,7 +992,7 @@ def journal_call(
         row_count=len(answers),
         payload_json=list(rows[:_JOURNAL_ROW_CAP]),
         output_json=list(answers[:_JOURNAL_ROW_CAP]),
-        scores_json=_score_summary(answers),
+        scores_json=_score_summary(answers, task=served.task),
         duration_ms=duration_ms,
         dataset_id=dataset_id,
     )
@@ -1176,7 +1180,7 @@ def _score_into(
     columns = {
         _unique_name("prediction", frame.columns): pl.Series(
             predictions,
-            dtype=pl.Utf8 if served.task == CLASSIFICATION else pl.Float64,
+            dtype=pl.Utf8 if served.task == CLASSIFICATION else pl.Int64 if served.task == "clustering" else pl.Float64,
         )
     }
     if served.task == CLASSIFICATION and any(
@@ -1479,7 +1483,7 @@ def predict_output_schema(model: MLModel) -> dict[str, Any]:
         "type": "object",
         "properties": {
             "prediction": {
-                "type": "string" if model.task == CLASSIFICATION else "number"
+                "type": "string" if model.task == CLASSIFICATION else "integer" if model.task == "clustering" else "number"
             },
             "served": {"type": "object"},
         },
@@ -1499,6 +1503,14 @@ def _skill_description(model: MLModel) -> str:
     metric = (model.metrics_json or {}).get("primary") or {}
     key = str(metric.get("key") or "")
     value = _finite(metric.get("value"))
+    if model.task == "clustering":
+        evidence = f" Training {key} {value:.3f}." if key and value is not None else ""
+        return (
+            f"Assigns one record to a segment using {model.name} (version {int(model.version or 1)}, KMeans). "
+            "The numeric cluster identifier is specific to the served model version and is not an ordered score. "
+            "The version that answers is whichever one currently serves this lineage."
+            f"{evidence}"
+        )
     evidence = f" Test {key} {value:.3f}." if key and value is not None else ""
     verb = "Classifies" if model.task == CLASSIFICATION else "Estimates"
     return (
