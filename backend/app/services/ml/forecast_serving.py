@@ -89,6 +89,12 @@ def _verify(model: Any, directory: Path) -> None:
     """
 
     artifact = (model.metrics_json or {}).get("artifact") or {}
+    if model.family == "forecasting_deep":
+        from app.services.ml.artifacts import verify_bundle
+        if artifact.get("code_file") != "ml_foundation_pyfunc.py":
+            raise TabularError(code="ML_ARTIFACT_UNVERIFIED", message="The foundation model code is not recognized.", status_code=409)
+        verify_bundle(directory, artifact)
+        return
     expected_code = artifact.get("code_sha256")
     expected_artifact = artifact.get("sha256")
     serialization = artifact.get("serialization") or "skops"
@@ -121,6 +127,8 @@ def _evict(entry: LoadedForecaster) -> None:
 def load_forecaster(model: Any) -> tuple[LoadedForecaster, bool]:
     """The loaded model, and whether it was already resident."""
 
+    if model.family == "forecasting_deep" and settings.ml_runtime != "ml-deep" and not settings.worker_eager_mode:
+        raise TabularError(code="ML_RUNTIME_MISSING", message="Foundation forecasts must load in the deep runtime.", status_code=409)
     fingerprint = _fingerprint(model)
     with _cache_lock:
         cached = _cache.get(model.id)
@@ -461,7 +469,7 @@ def request_forecast(
 
     served = serving_version(db, model, version=version)
     family = get_family(served.family)
-    if family.serving == "in_process":
+    if served.task != "forecasting":
         raise TabularError(
             code="ML_USE_PREDICT_ROUTE",
             message="This model answers rows: call /predict.",
@@ -595,7 +603,7 @@ def submit_forecast_dataset(
 
     served = serving_version(db, model, version=version)
     family = get_family(served.family)
-    if family.serving == "in_process":
+    if served.task != "forecasting":
         raise TabularError(
             code="ML_USE_PREDICT_ROUTE",
             message="This model answers rows: use the scoring node.",

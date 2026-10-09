@@ -5,8 +5,9 @@ from __future__ import annotations
 from app.services.ml.families.base import Family, SpecField, SpecInvalid
 from app.services.ml.families.forecasting import FORECASTING_FAMILY
 from app.services.ml.families.tabular import TABULAR
+from app.services.ml.families.forecasting_deep import FORECASTING_DEEP
 
-FAMILIES: tuple[Family, ...] = (TABULAR, FORECASTING_FAMILY)
+FAMILIES: tuple[Family, ...] = (TABULAR, FORECASTING_FAMILY, FORECASTING_DEEP)
 FAMILY_BY_KEY = {family.key: family for family in FAMILIES}
 
 
@@ -24,7 +25,7 @@ def family_of_task(task: str) -> Family | None:
 
 
 def all_tasks() -> tuple[str, ...]:
-    return tuple(task for family in FAMILIES for task in family.tasks)
+    return tuple(dict.fromkeys(task for family in FAMILIES for task in family.tasks))
 
 
 __all__ = [
