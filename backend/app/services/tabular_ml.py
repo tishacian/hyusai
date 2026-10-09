@@ -315,9 +315,14 @@ def tuning_configuration(spec: TrainingSpec) -> dict[str, Any] | None:
     # Polars counts null as a distinct value; the harness drops missing labels.
     target_profile = (spec.dataset.stats_json or {}).get(spec.target) or {}
     classes = _distinct(spec.dataset, spec.target) - int(bool(target_profile.get("nulls")))
-    metric = "mae" if spec.task == FORECASTING else "r2" if spec.task == REGRESSION else (
-        "roc_auc" if classes == 2 else "balanced_accuracy"
-    )
+    if spec.task == FORECASTING:
+        metric = "mae"
+    elif spec.task == REGRESSION:
+        metric = "r2"
+    else:
+        metric = "roc_auc" if classes == 2 else "balanced_accuracy"
+    folds = (spec.spec.get("tuning_folds", 3) if spec.task == FORECASTING
+             else spec.cross_validation if spec.cross_validation >= 2 else 3)
     space = []
     for knob in spec.algo.knobs:
         if knob.kind == "int_list":
@@ -336,7 +341,7 @@ def tuning_configuration(spec: TrainingSpec) -> dict[str, Any] | None:
     return {
         "trials": spec.spec["tuning_trials"], "budget_s": spec.spec["tuning_budget_s"],
         "metric": metric, "direction": metrics_registry.METRIC_BY_KEY[metric].direction,
-        "folds": spec.spec.get("tuning_folds", 3) if spec.task == FORECASTING else (spec.cross_validation if spec.cross_validation >= 2 else 3),
+        "folds": folds,
         "start": dict(spec.knobs), "space": space, "forest_leaves": FOREST_LEAVES,
     }
 
@@ -1569,6 +1574,11 @@ def _write_manifest(
     }
     if manifest["spec"].get("tuning") == "budget" and params.get("tuning"):
         manifest["tuning"] = dict(params["tuning"])
+        if manifest["family"] == FORECASTING:
+            # A queued model may outlive a change to the worker's deadline.
+            manifest["tuning"]["budget_s"] = min(
+                float(manifest["tuning"]["budget_s"]), 0.6 * float(settings.ml_train_timeout_s)
+            )
     if distillation is not None:
         manifest["distillation"] = distillation
     path = scratch / "manifest.json"
@@ -1717,7 +1727,7 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
         summary: dict[str, Any] = {}
         run = None
         try:
-            from app.services.ml_retraining import verify_training, retraining_cancel_requested
+            from app.services.ml_retraining import retraining_cancel_requested, verify_training
 
             verify_training(db, model)
             distillation = _distillation_provenance(db, dataset, model.task, model.target)
