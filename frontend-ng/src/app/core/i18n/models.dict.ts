@@ -443,6 +443,11 @@ export const MODELS_FR = {
     'La référence à battre : si un modèle plus lourd ne fait pas mieux, il ne sert à rien.',
   'models.algo.knn.hint':
     'Décide par ressemblance avec les lignes connues. Utile comme repère.',
+  'models.algo.chronos_zero_shot': 'Prévision zéro-shot',
+  'models.algo.chronos_zero_shot.hint': 'Chronos utilise un modèle préentraîné local. Le backtest compare ses prévisions au naïf saisonnier ; aucun ajustement des poids.',
+  'models.family.forecasting_deep': 'Prévision zéro-shot',
+  'models.refusal.ml_deep_model_missing': 'Le modèle local requis n’est pas disponible. Réessayez après son provisionnement.',
+  'models.error.ml_deep_model_invalid': 'Les fichiers du modèle local ne correspondent plus à leur version vérifiée.',
   'models.algo.ets': 'Lissage exponentiel (ETS)',
   'models.algo.arima': 'ARIMA saisonnier',
   'models.algo.seasonal_naive': 'Naïf saisonnier',
@@ -1622,6 +1627,11 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
     'The baseline to beat: if a heavier model does not do better, it earns nothing.',
   'models.algo.knn.hint':
     'Decides by resemblance to the rows it knows. Useful as a yardstick.',
+  'models.algo.chronos_zero_shot': 'Zero-shot forecast',
+  'models.algo.chronos_zero_shot.hint': 'Chronos uses a local pretrained model. The backtest compares its forecasts against seasonal naive predictions; weights are not fitted.',
+  'models.family.forecasting_deep': 'Zero-shot forecast',
+  'models.refusal.ml_deep_model_missing': 'The required local model is unavailable. Try again after it has been provisioned.',
+  'models.error.ml_deep_model_invalid': 'The local model files no longer match their verified version.',
   'models.algo.ets': 'Exponential smoothing (ETS)',
   'models.algo.arima': 'Seasonal ARIMA',
   'models.algo.seasonal_naive': 'Seasonal naive',

@@ -19,7 +19,7 @@ import type {
   ForecastHistoryPoint,
 } from '@app/features/data/viz/forecast-chart.vm';
 
-import type { MetricsBlock, PlanColumn, SpecFieldDescriptor } from './models.vm';
+import type { MetricsBlock, ModelCatalog, PlanColumn, SpecFieldDescriptor } from './models.vm';
 
 export const FORECASTING_TASK = 'forecasting';
 
@@ -196,6 +196,29 @@ export function strategyApplies(shape: ForecastShape, algo: string | undefined):
   return shape === 'single' && !SINGLE_SERIES_ALGOS.has(algo ?? '');
 }
 
+/** Each algorithm owns its family's fields; old catalogs use forecasting. */
+export function forecastFieldsFor(catalog: ModelCatalog, algo?: string): SpecFieldDescriptor[] {
+  const family = catalog.algos.find((entry) => entry.key === algo)?.family ?? FORECASTING_TASK;
+  return catalog.families?.find((entry) => entry.key === family)?.spec_fields ?? [];
+}
+
+/** Changing algorithms adapts bounds and enum choices to the new family. */
+export function forecastDraftForFields(draft: ForecastDraft, fields: readonly SpecFieldDescriptor[]): ForecastDraft {
+  if (!fields.length) return draft;
+  const next = { ...draft };
+  for (const [key, prop] of [['shape', 'shape'], ['fill', 'fill']] as const) {
+    const field = fields.find((entry) => entry.key === key);
+    if (field?.choices?.length && !field.choices.includes(next[prop])) {
+      (next as unknown as Record<string, unknown>)[prop] = field.default ?? field.choices[0];
+    }
+  }
+  for (const [key, prop] of [['horizon', 'horizon'], ['backtest_folds', 'folds']] as const) {
+    const field = fields.find((entry) => entry.key === key);
+    if (field) next[prop] = Math.max(field.min ?? 1, Math.min(field.max ?? Infinity, next[prop]));
+  }
+  return next;
+}
+
 /** The draft as the `spec` the plan and train endpoints read. */
 export function forecastSpec(
   draft: ForecastDraft, algo?: string, fields?: readonly SpecFieldDescriptor[],
@@ -233,6 +256,13 @@ export function forecastSpec(
     ),
   );
   if (Object.keys(exog).length) spec['exog'] = exog;
+  if (fields?.length) {
+    const allowedFields = new Set(fields.map((field) => field.key));
+    // A saved budget remains editable and visibly refused until disabled.
+    for (const key of Object.keys(spec)) {
+      if (!allowedFields.has(key) && !(draft.tuning === 'budget' && key.startsWith('tuning'))) delete spec[key];
+    }
+  }
   return spec;
 }
 
