@@ -83,4 +83,3 @@ def test_shadow_job_is_not_forgeable_or_mutable_via_generic_api(api, pair, db_se
     db_session.add(job)
     db_session.commit()
     assert client.post(f"/jobs/{job.id}/transition", json={"status": "completed", "result": {"predictions": []}}).status_code == 403
-

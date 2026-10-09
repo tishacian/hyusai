@@ -85,4 +85,3 @@ donc pas un benchmark à volume égal. Aucune durée n'est convertie en coût US
 - Aucun changement de dépendance ni migration. Backend et worker doivent être
   reconstruits ensemble ; le beat doit enregistrer `agentium.ml_shadow_recover`
   et le worker tabulaire `agentium.ml_shadow`.
-
