@@ -242,3 +242,11 @@ test('overview exposes Temps passé to open the trace facet and never embeds the
   assert.equal(view.showingTrace(), true);
   view.ngOnDestroy();
 });
+
+test('a retraining acknowledgment refreshes without replacing the complete Run with a partial POST result', () => {
+  const original = {id:'run',system_id:'monitoring-system',status:'hitl_pending',input_ref:{kept:true}};
+  let refreshed = false;
+  const view = Object.assign(Object.create(RunViewComponent.prototype), {run:signal(original),refresh:(force:boolean) => {refreshed=force;}}) as RunViewComponent;
+  view.onRetrainingDecision();
+  assert.equal(view.run(),original); assert.equal(refreshed,true);
+});

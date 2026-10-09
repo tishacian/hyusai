@@ -157,3 +157,14 @@ test('Work chrome exposes the shared bar and hides the creator hand-off from rea
   assert.match(studioSource, /@if \(busy\(\) && !gateOpen\(\)\) \{\s*<ck-thinking-orb/);
   assert.match(studioSource, /@if \(gateOpen\(\) && !busy\(\)\) \{\s*<ck-thinking-orb/);
 });
+
+test('retraining review requires a frozen context and cannot reuse a review after a dataset change', () => {
+  const { shell, run, calls } = decisionHarness();
+  run.hitl!.prompt_kind = 'approve_model_retraining';
+  shell.reviewDecision(run); shell.decide(run, 'accept'); assert.equal(calls.length, 0);
+  run.hitl!.model_retraining = {proposal_id:'p',model_id:'m',dataset_id:'d',dataset_sha256:'one',training:{target:'y'},evidence:{}} as any;
+  shell.reviewDecision(run);
+  shell.decide({...run,hitl:{...run.hitl,model_retraining:{...run.hitl!.model_retraining!,dataset_sha256:'two'}}}, 'accept');
+  assert.equal(calls.length, 0);
+  shell.decide(run, 'accept'); assert.equal(calls.length, 1);
+});

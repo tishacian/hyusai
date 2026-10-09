@@ -1,3 +1,4 @@
+import { RetrainingRunApprovalComponent } from '@app/features/models/retraining-run-approval.component';
 /**
  * Canonical `/runs/:runId` detail view.
  *
@@ -68,10 +69,15 @@ import { observabilityNumber } from '../observability/observability-labels';
     RunInvestigationComponent,
     RunMandateComponent,
     RunTraceComponent,
+    RetrainingRunApprovalComponent,
   ],
   template: `
     @if (run(); as auditRun) {
       <a [routerLink]="auditUrl" [queryParams]="{ trace_id: auditRun.id }" class="inline-flex items-center px-3 py-2 text-sm underline">{{ i18n.t('governance.audit.run_audit') }}</a>
+    }
+
+    @if (run(); as currentRun) {
+      <ck-retraining-run-approval [run]="currentRun" (changed)="onRetrainingDecision()" (refresh)="refresh(true)" />
     }
 
     @if (projectionEnabled()) {
@@ -800,6 +806,11 @@ export class RunViewComponent implements OnInit, OnDestroy {
       },
       error: () => this.rerunning.set(false),
     });
+  }
+
+  onRetrainingDecision(): void {
+    // POST HITL acknowledges a transition, it does not return a complete Run.
+    this.refresh(true);
   }
 
   refresh(forcePerspectiveRefresh = false): void {

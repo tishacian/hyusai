@@ -2633,6 +2633,65 @@ async def _llm_label_dataset_v1(
     return await label_dataset({"config": block, "dataset_ref": dataset_ref}, ctx)
 
 
+async def _ml_monitor_model_v1(payload, ctx=None):
+    import asyncio
+    from app.db.base import SessionLocal
+    from app.services.ml_retraining import monitor_cycle
+    from app.services.tabular_datasets import TabularError
+
+    block = payload.get("_ml_monitor")
+    if not isinstance(block, dict) or not ctx or not ctx.get("run_id"):
+        raise ValueError("ML_MONITORING_BINDING_INVALID: use the scheduled monitoring Flow")
+
+    def execute():
+        with SessionLocal() as db:
+            try:
+                return monitor_cycle(db, model_id=block.get("model_id"), run_id=ctx["run_id"])
+            except TabularError as exc:
+                raise ValueError(f"{exc.code}: {exc.message}") from exc
+    return await asyncio.to_thread(execute)
+
+
+async def _ml_retrain_model_v1(payload, ctx=None):
+    import asyncio
+    import time
+    from app.core.config import settings
+    from app.db.base import SessionLocal
+    from app.models.tabular import MLModel
+    from app.services.ml_retraining import stage_retraining, recover_retraining
+    from app.services.tabular_datasets import TabularError
+    from app.services.tabular_ml import training_summary
+
+    if not ctx or not ctx.get("run_id"):
+        raise ValueError("ML_RETRAIN_HUMAN_REQUIRED: use the confirmed monitoring Flow")
+
+    def stage():
+        with SessionLocal() as db:
+            try:
+                return stage_retraining(db, proposal_id=payload.get("proposal_id"),
+                    decision_id=payload.get("decision_id"), run_id=ctx["run_id"])
+            except TabularError as exc:
+                raise ValueError(f"{exc.code}: {exc.message}") from exc
+    model_id = await asyncio.to_thread(stage)
+    await asyncio.to_thread(recover_retraining)
+    deadline = time.monotonic() + settings.ml_train_timeout_s + 60
+
+    def read():
+        with SessionLocal() as db:
+            row = db.get(MLModel, model_id)
+            return (row.status, training_summary(row), row.error) if row else ("missing", {}, None)
+    while time.monotonic() < deadline:
+        status, summary, error = await asyncio.to_thread(read)
+        if status == "ready":
+            await asyncio.to_thread(recover_retraining)
+            return summary
+        if status in {"failed", "cancelled", "missing"}:
+            await asyncio.to_thread(recover_retraining)
+            raise ValueError(f"ML_RETRAIN_{status.upper()}: {error or status}")
+        await asyncio.sleep(.5)
+    raise ValueError("ML_RETRAIN_PENDING: training continues in the worker; inspect the staged model")
+
+
 async def _ml_train_sklearn_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
@@ -7125,6 +7184,8 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
         "app.services.tabular_ml",
         "bound",
     ),
+    "ml_monitor_model_v1": (_ml_monitor_model_v1, "app.services.ml_retraining", "bound"),
+    "ml_retrain_model_v1": (_ml_retrain_model_v1, "app.services.ml_retraining", "bound"),
     "ml_predict_v1": (
         _ml_predict_v1,
         "app.services.tabular_predict",

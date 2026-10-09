@@ -1260,7 +1260,12 @@ def champion_for(db: DBSession, *, workspace_id: str, slug: str) -> MLModel | No
         MLModel.status == "ready",
     )
     champion = query.filter(MLModel.is_champion.is_(True)).first()
-    return champion or query.order_by(MLModel.version.desc()).first()
+    if champion is not None:
+        return champion
+    # Human-approved retrains still require an independent promotion; deleting
+    # the previous champion must not make one a fallback serving version.
+    return next((row for row in query.order_by(MLModel.version.desc()).all()
+                 if not (row.params_json or {}).get("retraining_proposal")), None)
 
 
 # ---------------------------------------------------------------------------
@@ -1631,6 +1636,18 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
             return {"id": model_id, "status": "missing"}
         if model.status in MODEL_TERMINAL_STATUSES:
             return {"id": model_id, "status": model.status}
+        if (model.params_json or {}).get("retraining_proposal"):
+            from app.services.ml_retraining import claim_training
+
+            try:
+                if not claim_training(db, model):
+                    db.refresh(model)
+                    return {"id": model_id, "status": model.status}
+            except TabularError as exc:
+                _finalize(model, status="cancelled" if exc.code == "ML_RETRAIN_CANCELLED" else "failed",
+                          error=f"{exc.code}: {exc.message}")
+                db.commit()
+                return {"id": model_id, "status": model.status}
         if model.status == "training":
             _finalize(model, status="failed", error="ml_worker_lost_after_claim")
             db.commit()
@@ -1688,6 +1705,9 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
         summary: dict[str, Any] = {}
         run = None
         try:
+            from app.services.ml_retraining import verify_training, retraining_cancel_requested
+
+            verify_training(db, model)
             distillation = _distillation_provenance(db, dataset, model.task, model.target)
             from app.resources.ml_distillation import snapshot
 
@@ -1713,7 +1733,7 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                 venv_python=interpreter,
                 scratch=scratch,
                 timeout_s=timeout_s,
-                should_cancel=lambda: cancel_requested(db, model_id),
+                should_cancel=lambda: cancel_requested(db, model_id) or retraining_cancel_requested(db, model),
                 # The three steps inside the fit are the child's to name, so the
                 # worker republishes them rather than guessing at the boundaries.
                 on_poll=lambda: _publish_progress(db, model, scratch, steps),
@@ -1774,6 +1794,13 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
         model = db.query(MLModel).filter(MLModel.id == model_id).first()
         if model is None:  # pragma: no cover - deleted mid-run
             return {"id": model_id, "status": "missing"}
+        if (model.params_json or {}).get("retraining_proposal"):
+            from app.services.ml_retraining import retraining_cancel_requested
+
+            if model.status in {"failed", "cancelled"}:
+                return {"id": model_id, "status": model.status}
+            if model.cancel_requested or retraining_cancel_requested(db, model):
+                status, error = "cancelled", "ML_RETRAIN_CANCELLED"
         if status == "ready":
             _apply_summary(model, summary)
             model.status = "ready"
@@ -1799,7 +1826,7 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                 )
                 .first()
             )
-            model.is_champion = serving is None
+            model.is_champion = serving is None and not (model.params_json or {}).get("retraining_proposal")
             _register_version(model)
         else:
             _finalize(model, status=status, error=error)

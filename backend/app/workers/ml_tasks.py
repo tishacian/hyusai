@@ -63,6 +63,11 @@ def ml_forecast_batch(output_id: str, served_id: str, **kwargs) -> dict:
     return forecast_into(output_id, served_id, **kwargs)
 
 
+@shared_task(name="agentium.ml_retraining_recovery", ignore_result=True)
+def ml_retraining_recovery() -> dict:
+    from app.services.ml_retraining import recover_retraining
+    return recover_retraining()
+
 @shared_task(name="agentium.ml_shadow", acks_late=True, reject_on_worker_lost=True)
 def ml_shadow(job_id: str) -> dict:
     from app.services.ml_shadow import run_shadow
