@@ -9,6 +9,9 @@ Aucune migration : Alembic reste au head `122_ml_families`.
 | `agentium-worker-ml-deep` | `ml_deep` | 1 | 8 Gio |
 | `agentium-worker-ml-deep-serve` | `ml_deep_rpc` | 1, pool threads | 4 Gio |
 
+Le cache de modèles servis est limité à une entrée (`ML_PREDICT_CACHE_SIZE=1`)
+pour éviter de multiplier les copies des poids dans le pool interactif.
+
 Les deux services utilisent `app.workers.celery_ml`, n'exécutent pas beat et
 annoncent `ML_RUNTIME=ml-deep`. Le TTL du heartbeat existant reste 180 secondes.
 Le pool interactif ne reste donc pas derrière un entraînement dans sa queue.
