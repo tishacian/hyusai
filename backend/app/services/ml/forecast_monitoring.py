@@ -88,7 +88,7 @@ def _instant(value):
 
 
 def _require_model(model):
-    if model.family != "forecasting" or model.task != "forecasting":
+    if model.task != "forecasting":
         _refuse("ML_FORECAST_ACTUALS_UNSUPPORTED", "Observed forecasts require a forecasting model.", 409)
     if model.status != "ready":
         _refuse("ML_MODEL_NOT_READY", "The forecast model must be ready.", 409)
@@ -328,7 +328,7 @@ def snapshot(db, *, model, now=None):
 
 
 def report(db, *, model):
-    if model.family != "forecasting":
+    if model.task != "forecasting":
         return None
     try:
         return snapshot(db, model=model).report
