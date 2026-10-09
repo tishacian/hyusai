@@ -97,8 +97,8 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
           [description]="
             !block.enabled
               ? i18n.t('models.play.unavailable.disabled')
-              : block.mode === 'forecast' && model().status === 'ready'
-                ? i18n.t('models.play.unavailable.no_forecast_worker')
+              : (block.mode === 'forecast' || model().family === 'tabular_deep') && model().status === 'ready'
+                ? i18n.t('models.play.unavailable.no_worker')
                 : i18n.t('models.play.unavailable.untrained')
           "
         />

@@ -1546,6 +1546,10 @@ export function defaultFeatures(
  * still a refusal the author has to read.
  */
 export const REFUSAL_CODES = [
+  'ML_DEEP_MODEL_MISSING',
+  'ML_DEEP_MODEL_INVALID',
+  'ML_DEEP_MODEL_CHANGED',
+  'ML_DEEP_OPTION_UNSUPPORTED',
   'ML_LABEL_REVIEW_REQUIRED',
   'ML_LABEL_REVIEW_CHANGED',
   'ML_LABEL_REVIEW_INVALID',
@@ -1601,7 +1605,7 @@ export function refusalField(
 ): 'target' | 'features' | 'algo' | 'dataset' | 'spec' | null {
   // A forecast's refusals are about its problem definition (date column,
   // horizon, covariate roles), which the form renders as one block.
-  if (code === 'ML_SPEC_INVALID' || (code ?? '').startsWith('ML_TS_')) {
+  if (code === 'ML_SPEC_INVALID' || (code ?? '').startsWith('ML_TS_') || (code ?? '').startsWith('ML_DEEP_')) {
     return code === 'ML_TS_ALGO_SHAPE_MISMATCH' ? 'algo' : 'spec';
   }
   switch (code) {
@@ -1936,7 +1940,7 @@ const TRAINING_ERROR_SET: ReadonlySet<string> = new Set(TRAINING_ERROR_CODES);
 
 /** The dictionary key for a settled run's failure, or `null` if it is unnamed. */
 export function trainingErrorKey(code: string | undefined | null): string | null {
-  if (code?.startsWith('ML_LABEL_REVIEW_') || code === 'ML_DISTILLATION_SOURCE_REQUIRED') return refusalKey(code);
+  if (code?.startsWith('ML_LABEL_REVIEW_') || code?.startsWith('ML_DEEP_') || code === 'ML_DISTILLATION_SOURCE_REQUIRED') return refusalKey(code);
   if (!code || !TRAINING_ERROR_SET.has(code)) return null;
   return `models.error.${code.toLowerCase()}`;
 }

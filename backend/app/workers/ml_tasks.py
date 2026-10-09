@@ -80,3 +80,9 @@ def ml_shadow_recover() -> dict:
     from app.services.ml_shadow import recover
 
     return recover()
+
+
+@shared_task(name="agentium.ml_deep_predict", acks_late=False, ignore_result=False)
+def ml_deep_predict(model_id: str, rows: list[dict], *, explain=False, interval_level=None) -> dict:
+    from app.services.ml.deep_serving import answer_for
+    return answer_for(model_id, rows, explain=explain, interval_level=interval_level)

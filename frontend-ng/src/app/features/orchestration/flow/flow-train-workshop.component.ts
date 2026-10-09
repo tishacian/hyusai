@@ -105,7 +105,7 @@ const SCORE_LIMIT = 4;
 
 import { ForecastSpecComponent } from '@app/features/models/forecast-spec.component';
 import { TabularOptionsComponent } from '@app/features/models/tabular-options.component';
-import { tabularFields, tabularSpec } from '@app/features/models/tabular-options.vm';
+import { tabularFields, tabularSpec, embeddingIssue } from '@app/features/models/tabular-options.vm';
 import {
   FORECASTING_TASK,
   draftFromSpec,
@@ -175,7 +175,7 @@ import {
               type="button"
               class="ck-train-workshop__action ck-train-workshop__action--primary"
               data-testid="run-train-test"
-              [disabled]="ml.busy() || !!tuningIssue()"
+              [disabled]="ml.busy() || !!tuningIssue() || !!embeddingIssue()"
               (click)="runTest()"
             >
               <app-icon [name]="ml.busy() ? 'loader-2' : 'play'" [size]="13" />
@@ -430,14 +430,14 @@ import {
                       >
                         <option [value]="0">{{ i18n.t('flow.ml.train.cv.off') }}</option>
                         @for (folds of cvOptions; track folds) {
-                          <option [value]="folds">
+                          <option [value]="folds" [disabled]="embeddingSelected()">
                             {{ i18n.t('flow.ml.train.cv.folds', { folds: folds }) }}
                           </option>
                         }
                       </select>
                     </label>
                     <p class="ck-train-workshop__hint">{{ i18n.t('flow.ml.train.cv.hint') }}</p>
-                    <ck-tabular-options [fields]="tabularFields()" [spec]="params().spec" [task]="effectiveTask()" [columns]="columns()" [target]="params().target" [refusal]="refusalFor('spec')" (specChange)="onTabularSpec($event)" />
+                    <ck-tabular-options [fields]="tabularFields()" [spec]="params().spec" [task]="effectiveTask()" [columns]="columns()" [target]="params().target" [refusal]="embeddingIssue() ? i18n.t(embeddingIssue()!) : refusalFor('spec')" (specChange)="onTabularSpec($event)" />
                     }
                   }
                 </section>
@@ -816,8 +816,12 @@ export class FlowTrainWorkshopComponent {
   );
 
   protected readonly isForecasting = computed(() => this.effectiveTask() === FORECASTING_TASK);
-  protected readonly tabularFields = computed(() => tabularFields(this.ml.catalog(), this.effectiveTask()));
+  protected readonly tabularFields = computed(() => tabularFields(this.ml.catalog(), this.effectiveTask(), this.params().spec));
   protected readonly tabularSpec = computed(() => tabularSpec(this.tabularFields(), this.params().spec, this.effectiveTask()));
+
+  protected readonly embeddingSelected = computed(() => !this.isForecasting() && this.params().spec?.['text_encoder'] === 'embedding');
+  protected readonly embeddingIssue = computed(() => this.isForecasting() ? null :
+    embeddingIssue(this.ml.catalog(), this.tabularSpec(), this.params().cross_validation, this.selectedFeatures()));
 
   /** The node's forecast spec as form fields; it lives on the node as `spec`. */
   protected readonly forecastFields = computed(() =>
@@ -1130,7 +1134,7 @@ export class FlowTrainWorkshopComponent {
   }
 
   protected async runTest(): Promise<void> {
-    if (this.tuningIssue()) return;
+    if (this.tuningIssue() || this.embeddingIssue()) return;
     this.tab.set('test');
     const params = this.params();
     const refusal = preflightTrain(params, { wired: false });
