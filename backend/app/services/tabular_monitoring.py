@@ -413,6 +413,19 @@ def report(db: DBSession, *, model: MLModel) -> dict[str, Any]:
 
     from app.services.ml_shadow import summary as shadow_summary
 
+    if model.family == "forecasting":
+        from app.services.ml.forecast_monitoring import report as forecast_report
+        actuals = forecast_report(db, model=model)
+        status = actuals["status"]
+        return {"badge": status if status in {"ok", "watch", "alert"} else None,
+                "window": {"predictions": actuals["window"].get("calls", 0),
+                           "labeled": actuals["overall"]["count"], "limit": WINDOW_LIMIT,
+                           "model_id": model.id, "served_version": model.version},
+                "data_drift": {"status": "unknown", "features": []},
+                "score_drift": score_drift([]), "concept_drift": concept_drift(model, []),
+                "scheduled": monitoring_view(db, model), "shadow": shadow_summary(db, model=model),
+                "forecast_actuals": actuals}
+
     rows = _recent(db, model)
     dataset = (
         db.query(TabularDataset).filter(TabularDataset.id == model.dataset_id,
@@ -488,6 +501,9 @@ def badges_for(db: DBSession, models: list[MLModel]) -> dict[str, str | None]:
     }
     badges: dict[str, str | None] = {}
     for model in models:
+        if model.family == "forecasting":
+            badges[model.id] = None
+            continue
         window = [row for row in by_model.get(model.id, []) if row.workspace_id == model.workspace_id]
         if not window:
             badges[model.id] = None
