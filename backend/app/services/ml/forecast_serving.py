@@ -31,6 +31,7 @@ import tempfile
 import threading
 import time
 from collections import OrderedDict
+from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -515,7 +516,10 @@ def request_forecast(
                 status_code=504,
             ) from exc
         finally:
-            pending.forget() if hasattr(pending, "forget") else None
+            if hasattr(pending, "forget"):
+                # The rpc:// result backend stores nothing and cannot forget.
+                with suppress(NotImplementedError):
+                    pending.forget()
     if not isinstance(result, dict):
         raise TabularError(code="ML_FORECAST_FAILED", message="The forecasting worker failed.", status_code=500)
     if result.get("error"):

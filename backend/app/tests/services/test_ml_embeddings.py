@@ -141,6 +141,19 @@ def test_rpc_timeout_uses_deep_queue_and_forgets_result(enabled, db_session, mod
     assert sent['queue'] == settings.celery_ml_deep_serve_queue and sent['args'][0] == model.id and sent['forgotten']
 
 
+def test_rpc_answer_survives_a_result_backend_that_cannot_forget(enabled, db_session, model, monkeypatch):
+    from app.workers.celery_app import celery_app
+    monkeypatch.setattr(runtime, 'serving_availability', lambda *a: (True, None))
+    answer = {'predictions': [{'prediction': 'network'}], 'classes': ['billing', 'network']}
+    class Pending:
+        def get(self, **kw):
+            return answer
+        def forget(self):
+            raise NotImplementedError('backend does not implement forget.')
+    monkeypatch.setattr(celery_app, 'send_task', lambda name, **kwargs: Pending())
+    assert deep_serving.request_rows(db_session, model, [{'text': 'hi'}]) == answer
+
+
 def test_worker_rejects_wrong_runtime(enabled):
     assert deep_serving.answer_for('missing', [{'text': 'hi'}])['error']['code'] == 'ML_RUNTIME_MISSING'
 

@@ -1,6 +1,8 @@
 """Row inference in ml-deep; API-side journaling stays in tabular_predict."""
 from __future__ import annotations
 
+from contextlib import suppress
+
 from app.core.config import settings
 from app.services.tabular_datasets import TabularError
 
@@ -47,7 +49,9 @@ def request_rows(db, model, rows, *, explain=False, interval_level=None):
             raise TabularError(code="ML_PREDICT_TIMEOUT", message="The embedding runtime did not answer in time.", status_code=504) from exc
         finally:
             if hasattr(pending, "forget"):
-                pending.forget()
+                # The rpc:// result backend stores nothing and cannot forget.
+                with suppress(NotImplementedError):
+                    pending.forget()
     if not isinstance(result, dict):
         raise TabularError(code="ML_PREDICT_FAILED", message="The embedding runtime failed.", status_code=500)
     if result.get("error"):
