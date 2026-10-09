@@ -35,6 +35,7 @@ import {
   answerPoints,
   contributionBars,
   forecastPeak,
+  forecastMaxSteps,
   peakFeatureBars,
   forecastRequest,
   futureStamps,
@@ -317,12 +318,8 @@ export class ForecastPlaygroundComponent {
       .map((field) => field.name),
   );
 
-  /** One step past the horizon the model was built for is not on offer for a direct model. */
-  protected readonly maxSteps = computed(() => {
-    const spec = this.model().spec ?? {};
-    const direct = spec['strategy'] === 'direct' || spec['shape'] === 'multivariate';
-    return direct ? Number(spec['horizon'] ?? 24) : 720;
-  });
+  /** Bound the request to the limit published by the serving artifact. */
+  protected readonly maxSteps = computed(() => forecastMaxSteps(this.model()));
 
   protected readonly stamps = computed(() =>
     futureStamps(this.metrics()?.forecast?.last_timestamp, this.frequency(), this.horizon()),
@@ -400,7 +397,7 @@ export class ForecastPlaygroundComponent {
     // Open on the question the model was trained to answer.
     effect(() => {
       const spec = this.model().spec ?? {};
-      if (typeof spec['horizon'] === 'number') this.horizon.set(spec['horizon'] as number);
+      if (typeof spec['horizon'] === 'number') this.horizon.set(Math.min(spec['horizon'] as number, this.maxSteps()));
       if (typeof spec['interval_level'] === 'number') this.level.set(spec['interval_level'] as number);
     });
     effect(() => this.requestChange.emit(this.request()));

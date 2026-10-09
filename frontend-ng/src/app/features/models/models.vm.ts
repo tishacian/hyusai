@@ -205,7 +205,7 @@ export interface SignatureField {
 export interface ModelSignature {
   inputs?: SignatureField[];
   /** `levels` and `horizon`: a forecast's series and the horizon it was built for. */
-  output?: { task?: ModelTask; target?: string; classes?: string[]; levels?: string[]; horizon?: number };
+  output?: { task?: ModelTask; target?: string; classes?: string[]; levels?: string[]; horizon?: number; max_steps?: number };
 }
 
 export interface ModelDto {
