@@ -38,6 +38,11 @@ KEY_PACKAGES = (
     "mlflow",
     "joblib",
     "pyarrow",
+    "skforecast",
+    "torch",
+    "transformers",
+    "chronos-forecasting",
+    "sentence-transformers",
 )
 
 
