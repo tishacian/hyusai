@@ -22,6 +22,8 @@ import { ExplanationEvidenceComponent } from "./explanation-evidence.component";
 import { TuningEvidenceComponent } from './tuning-evidence.component';
 import { DistillationEvidenceComponent } from './distillation-evidence.component';
 import { DriftEvidenceComponent } from './drift-evidence.component';
+import { ShadowEvidenceComponent } from './shadow-evidence.component';
+import type { ShadowReport } from './shadow-evidence.vm';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -143,6 +145,7 @@ const CHART_ASPECT = 300 / 190;
     TuningEvidenceComponent,
     DistillationEvidenceComponent,
     DriftEvidenceComponent,
+    ShadowEvidenceComponent,
     ForecastChartComponent,
   ],
   template: `
@@ -857,6 +860,8 @@ const CHART_ASPECT = 300 / 190;
 
         <!-- ── Monitoring ──────────────────────────────────────────────────── -->
         <ck-tab id="monitor" [label]="i18n.t('models.detail.tab.monitor')">
+          <ck-shadow-evidence [evidence]="monitoring()?.shadow" [modelId]="row.id" [version]="row.version" [task]="row.task"
+            (changed)="onShadowChanged($event)" (refresh)="reload()" />
           @if (!monitoring() || !monitoring()!.window.predictions) {
             <app-empty-state
               icon="pulse"
@@ -2026,6 +2031,7 @@ export class ModelViewComponent implements OnInit {
 
   protected onTabChange(id: string): void {
     this.tab.set(id);
+    if (id === 'monitor') void this.load();
     void this.router.navigate([], {
       relativeTo: this.route,
       queryParams: { facet: id },
@@ -2420,6 +2426,11 @@ export class ModelViewComponent implements OnInit {
       ),
   );
 
+  protected onShadowChanged(shadow: ShadowReport): void {
+    this.monitoring.update(report => report ? { ...report, shadow } : report);
+    this.syncPolling();
+  }
+
   protected async sendFeedback(): Promise<void> {
     const row = this.model();
     const predictionId = this.feedbackId().trim() || this.models.lastPredictionId();
@@ -2547,7 +2558,7 @@ export class ModelViewComponent implements OnInit {
 
   private syncPolling(): void {
     const row = this.model();
-    if (row && isModelActive(row)) {
+    if (row && (isModelActive(row) || (this.monitoring()?.shadow?.window.pending ?? 0) > 0)) {
       if (this.pollTimer) return;
       this.pollTimer = setInterval(() => { if (!this.loading()) void this.load(); }, POLL_INTERVAL_MS);
     } else {

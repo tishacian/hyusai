@@ -39,6 +39,7 @@ import {
   setMetricRegistry,
 } from './models.vm';
 import type { ForecastAnswer, ForecastRequestBody } from './forecast.vm';
+import type { ShadowConfig, ShadowReport } from './shadow-evidence.vm';
 
 export interface ModelListDto {
   models: ModelDto[];
@@ -267,6 +268,13 @@ export class ModelsService {
     return firstValueFrom(
       this.http.get<{ monitoring: MonitoringReport }>(`${this.base}/${modelId}/monitoring`),
     ).then((body) => body.monitoring);
+  }
+
+  configureShadow(modelId: string, config: ShadowConfig): Promise<ShadowReport> {
+    return firstValueFrom(this.http.post<{ shadow: ShadowReport }>(
+      `${this.base}/${modelId}/shadow`,
+      { enabled: config.enabled, sample_percent: config.sample_percent, timeout_s: config.timeout_s },
+    )).then(body => body.shadow);
   }
 
   async feedback(

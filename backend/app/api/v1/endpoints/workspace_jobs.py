@@ -139,10 +139,10 @@ async def jobs_create(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    if body.kind == "brd_generation":
-        raise HTTPException(403, "Use the BRD generation endpoint")
-    if body.kind == "llm_label_dataset":
-        raise HTTPException(403, "Use the dataset labeling Skill")
+    from app.services.mlops_jobs import SERVER_MANAGED_JOB_KINDS
+
+    if body.kind in SERVER_MANAGED_JOB_KINDS:
+        raise HTTPException(403, "This job kind is managed by its service")
     job = create_workspace_job(
         db,
         workspace,
@@ -186,10 +186,10 @@ async def jobs_transition(
         job = get_workspace_job(db, workspace, job_id)
         if not _can_access_job(db, job, user, workspace):
             raise LookupError("workspace_job_not_found")
-        if job.kind == "brd_generation":
-            raise HTTPException(403, "BRD generation state is managed by its worker")
-        if job.kind == "llm_label_dataset":
-            raise HTTPException(403, "Dataset labeling state is managed by its Skill")
+        from app.services.mlops_jobs import SERVER_MANAGED_JOB_KINDS
+
+        if job.kind in SERVER_MANAGED_JOB_KINDS:
+            raise HTTPException(403, "This job state is managed by its service")
         transition_job(
             db,
             workspace,
