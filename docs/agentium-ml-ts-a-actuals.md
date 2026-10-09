@@ -60,5 +60,8 @@ associer ensuite les réels et vérifier ses erreurs, sa couverture et sa série
 - Quatre parcours navigateur FR/EN passent : association, suivi des versions,
   erreurs/intervalle/anomalies, lecture seule et refus serveur.
 - Compilation Angular sans émission, i18n, contrôles UI et navigation passent.
-- Le build production unique et la qualification backend sont consignés à la
-  clôture du sous-lot.
+- Le build production unique passe ; les avertissements Angular, CSS, budget
+  initial et dagre préexistants restent présents.
+- 110 tests backend de régression passent, puis 34 tests spécifiques finaux
+  (24 service, 10 API) : droits, isolation, dates, empreintes, fichiers corrompus,
+  journal API et historiques single/panel/multivariés.
