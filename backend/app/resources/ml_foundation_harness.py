@@ -7,7 +7,6 @@ with every file fingerprinted before the serving process can execute code.
 from __future__ import annotations
 
 import json
-import math
 import shutil
 import sys
 import time
@@ -16,8 +15,12 @@ from pathlib import Path
 
 # These helpers contain no application imports and use the same frequency and
 # gap policy as the ordinary forecasting runtime.
-from ml_forecast_harness import _fail, _frequency, _number, _progress, _regularize, _season, _sha256
-from ml_foundation_pyfunc import build_forecaster
+if __package__:
+    from .ml_forecast_harness import _fail, _frequency, _number, _progress, _regularize, _season, _sha256
+    from .ml_foundation_pyfunc import build_forecaster
+else:
+    from ml_forecast_harness import _fail, _frequency, _number, _progress, _regularize, _season, _sha256
+    from ml_foundation_pyfunc import build_forecaster
 
 PYFUNC = Path(__file__).with_name("ml_foundation_pyfunc.py")
 CONTEXT_LENGTH = 512
@@ -35,7 +38,7 @@ def read_series(frame, spec, target):
     stamps = pd.to_datetime(frame[time_column], errors="coerce", utc=True)
     if stamps.isna().any():
         raise ValueError("ml_ts_dates: the history contains invalid dates")
-    frame[time_column] = stamps.dt.tz_localize(None)
+    frame[time_column] = stamps.dt.tz_localize(None).astype("datetime64[ns]")
     series_columns = list(spec.get("series_columns") or []) if spec.get("shape") == "panel" else []
     if series_columns:
         if frame[series_columns].isna().any().any():
@@ -104,7 +107,9 @@ def evaluate(forecaster, series, *, horizon, folds, level, season, progress=None
             # Seasonal-naive reference repeats the last season visible at this
             # origin, even when the horizon is longer than that season.
             naive = np.resize(prefix[name].iloc[-season:].to_numpy(), horizon)
-            scaling = values.iloc[:initial].diff(season).abs().dropna().mean()
+            # Match the catalogue MASE definition (one-step naive scale),
+            # estimated only from the initial training prefix.
+            scaling = values.iloc[:initial].diff().abs().dropna().mean()
             for step, (stamp, row) in enumerate(block.iterrows(), start=1):
                 actual = float(values.loc[stamp])
                 points.append({
@@ -202,7 +207,7 @@ def main(argv):
         snapshot = Path(manifest["foundation"]["path"])
         hashes = {name: _sha256(snapshot / name) for name in WEIGHT_FILES}
         expected = manifest["foundation"].get("files")
-        if expected and any(expected.get(name) != digest for name, digest in hashes.items()):
+        if not isinstance(expected, dict) or any(expected.get(name) != digest for name, digest in hashes.items()):
             raise ValueError("foundation snapshot changed after submission")
     except Exception as exc:
         return _fail(5, f"manifest_unusable: {exc}")
