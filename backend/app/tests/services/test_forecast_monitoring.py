@@ -193,3 +193,63 @@ def test_extreme_finite_metrics_are_json_safe():
                                {"pred": 0., "actual": 0., "lower_bound": None, "upper_bound": None}])
     assert result["smape"] == 100
     json.dumps(result, allow_nan=False)
+
+@pytest.mark.parametrize("shape", ["single", "panel", "multivariate"])
+def test_training_union_keeps_covariates_and_panel_keys(db_session, observed, shape):
+    original = read_frame(observed.data).with_columns((pl.col("value") * 2).alias("covariate"))
+    new = pl.DataFrame({"date": [START + timedelta(days=40)], "value": [40.], "covariate": [80.]})
+    spec = {**observed.model.spec_json, "shape": shape, "exog": {"covariate": "past" if shape == "multivariate" else "future"}}
+    if shape == "panel":
+        spec["series_columns"] = ["shop"]
+        original = original.with_columns(pl.lit("A").alias("shop"))
+        new = new.with_columns(pl.lit("A").alias("shop"))
+    observed.model.spec_json = spec
+    register_frame(db_session, workspace_id=observed.workspace.id, name=observed.data.name, frame=original, into=observed.data)
+    associate(db_session, observed, actuals(db_session, observed, records=new.to_dicts()))
+    history, provenance = service.materialize_training_history(db_session, model=observed.model,
+        snapshot=service.snapshot(db_session, model=observed.model, now=NOW))
+    frame = read_frame(history)
+    assert frame.height == 41 and provenance["new_rows"] == 1
+    assert frame["covariate"].to_list() == [2*i for i in range(41)]
+    if shape == "panel":
+        assert frame["shop"].unique().to_list() == ["A"]
+
+
+def test_request_journals_step_and_interval_without_changing_response(db_session, observed, monkeypatch):
+    from app.core.config import settings
+    from app.services.ml import forecast_serving, runtime
+    monkeypatch.setattr(settings, "worker_eager_mode", True)
+    monkeypatch.setattr(runtime, "serving_availability", lambda *a, **k: (True, None))
+    rows = [{"series": "value", "timestamp": "2025-02-10", "pred": 10., "lower_bound": 9., "upper_bound": 11.},
+            {"series": "value", "timestamp": "2025-02-11", "pred": 20., "lower_bound": 19., "upper_bound": 21.}]
+    monkeypatch.setattr(forecast_serving, "answer_for", lambda *a, **k: {"forecast": rows, "horizon": 2, "interval_level": .9})
+    response = forecast_serving.request_forecast(db_session, observed.model, level=.9, horizon=2)
+    assert response["forecast"] == rows
+    saved = db_session.get(MLPrediction, response["prediction_id"])
+    assert [row["step"] for row in saved.output_json] == [1, 2]
+    assert all(row["interval_level"] == .9 for row in saved.output_json)
+
+
+def test_corrupt_parquet_is_a_coded_refusal(db_session, observed, monkeypatch):
+    dataset = actuals(db_session, observed)
+    def corrupt(dataset, destination):
+        destination.write_bytes(b"not parquet")
+        return destination
+    monkeypatch.setattr(service, "materialize", corrupt)
+    with pytest.raises(TabularError, match="ML_FORECAST_ACTUALS_UNAVAILABLE"):
+        associate(db_session, observed, dataset)
+
+
+def test_service_import_never_attempts_scientific_packages():
+    import subprocess
+    import sys
+    probe = '''import importlib.abc, sys
+class DenyScientific(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] in {'pandas', 'polars', 'pyarrow', 'numpy', 'sklearn', 'skforecast', 'optuna'}:
+            raise RuntimeError('unexpected import: '+fullname)
+sys.meta_path.insert(0, DenyScientific())
+import app.services.ml.forecast_monitoring
+'''
+    result = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr

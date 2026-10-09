@@ -22,6 +22,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.config import settings
 from app.models.tabular import MLModel, MLPrediction, TabularDataset
 from app.services.tabular_datasets import TabularError, materialize, register_frame
 
@@ -122,7 +123,9 @@ def _read(dataset):
                 _refuse("ML_FORECAST_ACTUALS_TOO_LARGE", "Observed history exceeds its decoded byte budget.", 413)
             fingerprint = hashlib.sha256(path.read_bytes()).hexdigest()
             return pl.read_parquet(path), fingerprint
-        except (FileNotFoundError, OSError, ValueError) as exc:
+        except TabularError:
+            raise
+        except Exception as exc:  # ObjectStore and Parquet backends vary; expose one coded refusal.
             _refuse("ML_FORECAST_ACTUALS_UNAVAILABLE", f"The observed dataset cannot be read ({type(exc).__name__}).", 409)
 
 
@@ -139,7 +142,7 @@ def _normalized(model, frame, *, training=False):
         _refuse("ML_FORECAST_ACTUALS_COLUMNS", "Observed history must contain the model's time, target, series and required covariate columns.")
     if frame.height == 0:
         _refuse("ML_FORECAST_ACTUALS_EMPTY", "The observed dataset is empty.")
-    keys, names, instants, records = {}, {}, [], []
+    keys, names, records = {}, {}, []
     for record in frame.to_dicts():
         instant = _instant(record[time_column])
         number = _number(record[model.target])
@@ -148,25 +151,26 @@ def _normalized(model, frame, *, training=False):
         if number is None:
             _refuse("ML_FORECAST_ACTUALS_NUMERIC", "Every observed target must be a finite number.")
         parts = tuple(str(record[column]) for column in series_columns)
-        if any(record[column] is None for column in series_columns):
+        if any(record[column] is None or (isinstance(record[column], float) and not math.isfinite(record[column])) for column in series_columns):
             _refuse("ML_FORECAST_ACTUALS_SERIES", "Every panel row needs its series identifiers.")
         series = " · ".join(parts) if parts else str(model.target)
         if series in names and names[series] != parts:
             _refuse("ML_FORECAST_ACTUALS_SERIES_COLLISION", "Two panel identifiers produce the same forecast series name.")
+        if len(parts) > 1 and any(" · " in part for part in parts):
+            _refuse("ML_FORECAST_ACTUALS_SERIES_COLLISION", "Composite panel identifiers cannot contain the forecast series separator.")
         names[series] = parts
         key = (series, instant)
         if key in keys:
             _refuse("ML_FORECAST_ACTUALS_DUPLICATE", "Observed history repeats a series and timestamp.")
         keys[key] = len(records)
         for column, role in covariates.items():
-            if record[column] is None or (role != "static" and _number(record[column]) is None):
+            if record[column] is None or (role != "static" and not isinstance(record[column], bool) and _number(record[column]) is None) or (isinstance(record[column], float) and not math.isfinite(record[column])):
                 _refuse("ML_FORECAST_HISTORY_COVARIATE", "Retraining history needs every finite numeric covariate and non-null static attribute.")
         record[time_column] = instant.replace(tzinfo=None)
         record[model.target] = number
         records.append(record)
-        instants.append(instant)
-    if len(names) > MAX_GROUPS:
-        _refuse("ML_FORECAST_ACTUALS_TOO_MANY_SERIES", f"Observed monitoring supports at most {MAX_GROUPS} series.", 413)
+    if len(names) > int(settings.ml_ts_max_series):
+        _refuse("ML_FORECAST_ACTUALS_TOO_MANY_SERIES", f"Observed monitoring supports at most {int(settings.ml_ts_max_series)} series.", 413)
     return pl.DataFrame(records, infer_schema_length=None), keys
 
 
@@ -222,9 +226,13 @@ def _metrics(points):
         percentages.append(200 * abs(pred - actual) / (abs(pred) + abs(actual)) if scale else 0)
     smape = math.fsum(value / count for value in percentages) if count else None
     missed = sum(not p["lower_bound"] <= p["actual"] <= p["upper_bound"] for p in intervals)
+    try:
+        width = math.fsum((p["upper_bound"] / len(intervals) - p["lower_bound"] / len(intervals)) for p in intervals) if intervals else None
+    except OverflowError:
+        width = None
     numbers = {"mae": mae, "rmse": rmse, "smape": smape,
                "coverage": 1 - missed / len(intervals) if intervals else None,
-               "mean_interval_width": math.fsum((p["upper_bound"] / len(intervals) - p["lower_bound"] / len(intervals)) for p in intervals) if intervals else None,
+               "mean_interval_width": width,
                "nominal_coverage": math.fsum(p["interval_level"] / len(intervals) for p in intervals) if intervals else None}
     return {"count": count, "interval_count": len(intervals), "anomalies": missed,
             **{key: round(value, 6) if value is not None and math.isfinite(value) else None for key, value in numbers.items()}}
@@ -234,7 +242,8 @@ def _empty(status, reason=None):
     return {"status": status, "reason": reason, "dataset": None, "overall": _metrics([]),
             "by_series": [], "by_horizon": [], "anomalies": [], "window": {},
             "policy": {"selection": "earliest_issued_per_series_timestamp_horizon", "timestamp_semantics": "UTC; forecast issued strictly before target timestamp",
-                       "min_intervals": MIN_INTERVALS, "coverage_watch_gap": .1, "coverage_alert_gap": .2}}
+                       "legacy_intervals": "excluded when requested interval level was not journaled",
+                       "group_limit": MAX_GROUPS, "min_intervals": MIN_INTERVALS, "coverage_watch_gap": .1, "coverage_alert_gap": .2}}
 
 
 def snapshot(db, *, model, now=None):
@@ -312,6 +321,7 @@ def snapshot(db, *, model, now=None):
             result["window"]["truncated"] = True
     fingerprint = _digest({"model_id": model.id, "version": model.version, "dataset_id": dataset.id,
                            "dataset_version": dataset.version, "sha256": sha256, "journal": journal,
+                           "completed_actuals": [(series, instant) for series, instant in actual_keys if instant <= now],
                            "eligible": [(p["prediction_id"], p["series"], p["timestamp"], p["horizon"]) for p in points]})
     result["window"]["sha256"] = fingerprint
     return ForecastSnapshot(result, fingerprint, dataset, sha256, frame, now)
