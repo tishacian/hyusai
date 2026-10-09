@@ -1643,9 +1643,12 @@ def _write_manifest(
         "report_state_limit_mb": int(settings.ml_train_report_state_limit_mb),
     }
     if manifest["family"] in {"forecasting_deep", "tabular_deep"}:
-        from app.services.ml.local_models import resolve_model
+        from app.services.ml.local_models import LocalModelError, resolve_model
         deep_tabular = manifest["family"] == "tabular_deep"
-        local = resolve_model("multilingual-minilm" if deep_tabular else "chronos-2-small", kind="embedding" if deep_tabular else "forecasting")
+        try:
+            local = resolve_model("multilingual-minilm" if deep_tabular else "chronos-2-small", kind="embedding" if deep_tabular else "forecasting")
+        except LocalModelError as exc:
+            raise TabularError(code=exc.code, message=str(exc), status_code=409) from exc
         expected = params.get("foundation") or {}
         if expected.get("fingerprint") != local.fingerprint or expected.get("revision") != local.revision:
             raise TabularError(code="ML_DEEP_MODEL_CHANGED", message="The foundation model changed since submission.", status_code=409)
