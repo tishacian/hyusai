@@ -111,7 +111,7 @@ class ArtifactInferenceClient(HFInferenceClient):
         from app.db.base import SessionLocal
         from app.models.workspace import Workspace
         from app.services.huggingface.registry import require_artifact
-        from app.services.model_plane.registration import _openai_base_url, get_routable_provider
+        from app.services.model_plane.registration import get_routable_provider, route_base_url
         from app.services.model_plane.serving_nodes import get_node
 
         with SessionLocal() as db:
@@ -131,11 +131,11 @@ class ArtifactInferenceClient(HFInferenceClient):
                     403,
                 )
             node = get_node(metadata["node"], workspace=workspace)
-            if node is None or not 1 <= int(metadata.get("port") or 0) <= 65535:
+            if node is None or not node.token:
                 raise HFError(
                     "HF_NODE_UNAVAILABLE", "The serving node is no longer configured.", 403
                 )
-            expected = _openai_base_url(node.base_url, int(metadata["port"]))
+            expected = route_base_url(node.base_url, metadata)
             if expected != metadata.get("openai_base_url"):
                 raise HFError("HF_NODE_UNAVAILABLE", "The serving node endpoint has changed.", 403)
             try:
@@ -154,4 +154,5 @@ class ArtifactInferenceClient(HFInferenceClient):
                     403,
                 )
             self.base_url = expected
-            return str(metadata.get("api_key") or "local"), dict(self.provenance)
+            # The node relay authenticates with its control token, read fresh per call.
+            return node.token, dict(self.provenance)

@@ -7,6 +7,7 @@ without exposing portal credentials to the browser.
 
 from __future__ import annotations
 
+import re
 import threading
 from typing import Any, Optional
 from urllib.parse import urlparse
@@ -20,6 +21,8 @@ _OPENAI_COMPAT_PROVIDERS = frozenset(
     {"vllm", "ollama", "llamacpp", "lmstudio", "lmdeploy", "sglang"}
 )
 
+_DEPLOYMENT_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
+
 _lock = threading.Lock()
 # key -> descriptor used by ModelRouter / providers listing
 _routable: dict[str, dict[str, Any]] = {}
@@ -30,6 +33,19 @@ def _openai_base_url(node_base_url: str, port: int) -> str:
     scheme = parsed.scheme or "http"
     host = parsed.hostname or "localhost"
     return f"{scheme}://{host}:{int(port)}/v1"
+
+
+def artifact_openai_base_url(node_base_url: str, deployment_id: str) -> str:
+    """Artifact runtimes have no network; the node relays them on its authenticated API."""
+    if not _DEPLOYMENT_ID.fullmatch(deployment_id):
+        raise ValueError("Invalid artifact deployment identifier")
+    return f"{node_base_url.rstrip('/')}/api/v1/artifacts/deployments/{deployment_id}/v1"
+
+
+def route_base_url(node_base_url: str, metadata: dict[str, Any]) -> str:
+    if metadata.get("artifact_id"):
+        return artifact_openai_base_url(node_base_url, str(metadata.get("deployment_id") or ""))
+    return _openai_base_url(node_base_url, int(metadata["port"]))
 
 
 def provider_key(node_name: str, instance_id: str) -> str:
@@ -99,7 +115,13 @@ def sync_from_node_snapshots(nodes: list[dict[str, Any]]) -> list[dict[str, Any]
                 revision = inst.get("revision") or provenance.get("revision")
                 runtime_version = inst.get("runtime_version") or provenance.get("runtime_version")
                 workspace_id = inst.get("workspace_id")
-                if not revision or not runtime_version or not workspace_id:
+                deployment_id = str(inst.get("deployment_id") or "")
+                if (
+                    not revision
+                    or not runtime_version
+                    or not workspace_id
+                    or not _DEPLOYMENT_ID.fullmatch(deployment_id)
+                ):
                     next_map.pop(key)
                     continue
                 next_map[key].update(
@@ -110,7 +132,8 @@ def sync_from_node_snapshots(nodes: list[dict[str, Any]]) -> list[dict[str, Any]
                         "variant": inst.get("variant") or provenance.get("variant"),
                         "runtime_version": str(runtime_version),
                         "workspace_id": str(workspace_id),
-                        "deployment_id": inst.get("deployment_id"),
+                        "deployment_id": deployment_id,
+                        "openai_base_url": artifact_openai_base_url(node_base, deployment_id),
                     }
                 )
 

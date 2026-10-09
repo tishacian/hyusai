@@ -550,7 +550,7 @@ def routable_runtime_providers(workspace) -> set[str]:
 
 
 def _resolve_serving_execution(workspace, provider, model, source, requested, routing):
-    from app.services.model_plane.registration import _openai_base_url, get_routable_provider
+    from app.services.model_plane.registration import get_routable_provider, route_base_url
     from app.services.model_plane.serving_nodes import get_node
 
     metadata = get_routable_provider(provider)
@@ -564,11 +564,10 @@ def _resolve_serving_execution(workspace, provider, model, source, requested, ro
     ):
         raise ModelExecutionError("This artifact provider is not available to the workspace.")
     node = get_node(metadata["node"], workspace=workspace)
-    port = int(metadata.get("port") or 0)
     if (
         not node
-        or not 1 <= port <= 65535
-        or _openai_base_url(node.base_url, port) != metadata.get("openai_base_url")
+        or not node.token
+        or route_base_url(node.base_url, metadata) != metadata.get("openai_base_url")
     ):
         raise ModelExecutionError(
             "The artifact serving endpoint is not configured for this workspace."

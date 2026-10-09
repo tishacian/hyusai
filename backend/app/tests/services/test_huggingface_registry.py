@@ -355,7 +355,7 @@ async def test_artifact_node_calls_recheck_grants_and_keep_provenance(hub, monke
     monkeypatch.setattr(
         serving_nodes.settings,
         "llm_serving_nodes_json",
-        json.dumps([{"name": "gpu", "base_url": "http://node.example:9000"}]),
+        json.dumps([{"name": "gpu", "base_url": "http://node.example:9000", "token": "node-token"}]),
     )
     registered = registration.sync_from_node_snapshots(
         [
@@ -375,6 +375,7 @@ async def test_artifact_node_calls_recheck_grants_and_keep_provenance(hub, monke
                         "variant": artifact.variant,
                         "runtime_version": "llamacpp-1",
                         "workspace_id": first.id,
+                        "deployment_id": "deployment-one",
                     }
                 ],
             }
@@ -384,7 +385,7 @@ async def test_artifact_node_calls_recheck_grants_and_keep_provenance(hub, monke
     calls = []
 
     async def generate(self, model, prompt, **kwargs):
-        calls.append((self.base_url, model))
+        calls.append((self.base_url, model, self.api_key))
         return {"content": "answer", "model": model}
 
     monkeypatch.setattr(OpenAIClient, "generate", generate)
@@ -400,6 +401,12 @@ async def test_artifact_node_calls_recheck_grants_and_keep_provenance(hub, monke
         with pytest.raises(HFError) as error:
             await client.generate("served-model", "Again")
         assert error.value.code == "HF_ACCESS_REVOKED"
-        assert calls == [("http://node.example:8080/v1", "served-model")]
+        assert calls == [
+            (
+                "http://node.example:9000/api/v1/artifacts/deployments/deployment-one/v1",
+                "served-model",
+                "node-token",
+            )
+        ]
     finally:
         registration.clear_routable_providers()
