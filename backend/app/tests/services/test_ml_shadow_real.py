@@ -50,4 +50,3 @@ def test_timeout_terminates_native_call_in_real_subprocess(db_session, workspace
         shadow._score_isolated(model, [_row()], timeout_s=1)
     assert exc.value.code == "ML_SHADOW_TIMEOUT"
     assert time.monotonic() - started < 5
-
