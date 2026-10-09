@@ -882,6 +882,7 @@ def predict_rows(
     """Answer an inline batch, and say which version answered."""
 
     served = serving_version(db, model, version=version)
+    _interval_band(served, interval_level)
     coerced = coerce_rows(served, rows)
     if served.family == "tabular_deep" and settings.ml_runtime != "ml-deep":
         from app.services.ml.deep_serving import request_rows

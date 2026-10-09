@@ -1119,6 +1119,12 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     try:
         embedding = (manifest.get("spec") or {}).get("text_encoder") == "embedding"
         trusted = [] if embedding else _trusted_types(pipeline)
+        requirements = None
+        if embedding:
+            from importlib.metadata import version
+            requirements = ["--extra-index-url https://download.pytorch.org/whl/cpu"] + [
+                f"{name}=={version(name)}" for name in ("mlflow", "scikit-learn", "skrub", "numpy", "scipy", "pandas",
+                                                       "torch", "transformers", "sentence-transformers", "cloudpickle")]
         mlflow.sklearn.save_model(
             pipeline,
             path=model_dir,
@@ -1126,6 +1132,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             input_example=example,
             skops_trusted_types=trusted if not embedding else None,
             serialization_format="cloudpickle" if embedding else "skops",
+            pip_requirements=requirements,
         )
     except Exception as exc:  # noqa: BLE001
         return _fail(4, f"ml_artifact_unwritable: {type(exc).__name__}: {exc}")
