@@ -115,6 +115,16 @@ def test_insufficient_distinct_profiles_fail_instead_of_claiming_empty_groups():
         harness.train(frame, clusters=3, max_iter=100, seed=42)
 
 
+def test_missing_rare_group_in_a_subsample_makes_overall_stability_unavailable():
+    frame = pd.DataFrame({"x": [10.] + [0.] * 39})
+    _, metrics = harness.train(frame, clusters=2, max_iter=100, seed=42)
+    result = metrics["clustering"]["stability"]
+    assert result["valid_runs"] < result["runs"]
+    assert result["mean"] is None and result["std"] is None and result["min"] is None
+    assert result["reason"] == "insufficient_distinct_subsample"
+    assert metrics["warnings"] == [{"code": "ML_CLUSTER_STABILITY_PARTIAL", "reason": result["reason"]}]
+
+
 def test_silhouette_and_stability_are_bounded_on_larger_data(monkeypatch):
     import sklearn.metrics
 

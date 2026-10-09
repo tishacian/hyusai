@@ -9,6 +9,8 @@ def translate(algo_key: str, task: str, knobs: dict, *, random_state: int, fores
         params["C"] = round(1.0 / strength, 6)
     if algo_key in {"gradient_boosting", "random_forest", "linear"}:
         params.setdefault("random_state", random_state)
+    if algo_key == "kmeans":
+        params.update(n_init=10, random_state=random_state)
     if algo_key == "random_forest":
         params["n_jobs"] = 1
         if params.get("max_depth") is None:

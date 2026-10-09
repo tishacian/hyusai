@@ -32,7 +32,7 @@ from typing import Annotated, Any, Optional, Union
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from fastapi.security import HTTPAuthorizationCredentials
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, model_validator
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace, security
@@ -140,12 +140,18 @@ class TrainBody(BaseModel):
     features: list[str] = Field(default_factory=list, max_length=512)
     algo: Optional[str] = Field(default=None, max_length=80)
     knobs: dict[str, KnobValue] = Field(default_factory=dict, max_length=32)
-    test_size: Optional[float] = Field(default=None, ge=0.05, le=0.5)
+    test_size: Optional[float] = Field(default=None, ge=0, le=0.5)
     cross_validation: Optional[int] = Field(default=None, ge=0, le=10)
     # The model family's problem definition (time column, horizon, …), read by
     # the family itself so this endpoint stays family-agnostic; unknown keys are
     # refused there with ML_SPEC_INVALID.
     spec: Optional[dict[str, Any]] = None
+
+    @model_validator(mode="after")
+    def validate_test_split(self):
+        if self.task != "clustering" and self.test_size is not None and self.test_size < 0.05:
+            raise ValueError("test_size must be at least 0.05 for supervised models")
+        return self
 
     def dataset_ref(self) -> dict[str, Any]:
         if self.dataset_id:
@@ -203,6 +209,7 @@ class PlanBody(BaseModel):
     task: Optional[str] = Field(default=None, max_length=20)
     features: list[str] = Field(default_factory=list, max_length=512)
     algo: Optional[str] = Field(default=None, max_length=80)
+    knobs: dict[str, KnobValue] = Field(default_factory=dict, max_length=32)
     spec: Optional[dict[str, Any]] = None
 
     def dataset_ref(self) -> dict[str, Any]:
@@ -220,9 +227,10 @@ async def plan_training(
 ):
     """What a training request would be, without running it.
 
-    With a target: the resolved plan (task, features, knob defaults, warnings) or
-    the coded refusal the form should render inline. Without one: the dataset's
-    candidate targets, each carrying the task it suggests, so the first choice
+    With a target or an explicit clustering task: the resolved plan (task,
+    features, knobs, warnings) or the coded refusal the form renders inline.
+    Otherwise: the dataset's candidate targets, each carrying its suggested task,
+    so the first choice
     the author makes is already informed.
     """
 
@@ -264,7 +272,7 @@ async def plan_training(
         "plan": None,
         "refusal": None,
     }
-    if not (body.target or "").strip():
+    if not (body.target or "").strip() and body.task != "clustering":
         return payload
 
     try:
@@ -274,6 +282,7 @@ async def plan_training(
             target=body.target,
             features=body.features,
             algo=body.algo,
+            knobs=body.knobs,
             spec=body.spec,
             db=db,
         )
