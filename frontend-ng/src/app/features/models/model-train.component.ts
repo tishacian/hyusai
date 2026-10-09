@@ -75,7 +75,7 @@ import {
 } from './forecast.vm';
 import { ForecastSpecComponent } from './forecast-spec.component';
 import { TabularOptionsComponent } from './tabular-options.component';
-import { tabularFields, tabularSpec } from './tabular-options.vm';
+import { tabularFields, tabularSpec, embeddingIssue } from './tabular-options.vm';
 
 /** How long the form waits before asking the server what a choice implies. */
 const PLAN_DEBOUNCE_MS = 220;
@@ -415,14 +415,14 @@ export interface TrainSeed {
                 >
                   <option [ngValue]="0">{{ i18n.t('models.studio.cv.off') }}</option>
                   @for (folds of cvOptions; track folds) {
-                    <option [ngValue]="folds">
+                    <option [ngValue]="folds" [disabled]="embeddingSelected()">
                       {{ i18n.t('models.studio.cv.folds', { folds: folds }) }}
                     </option>
                   }
                 </select>
                 <div class="ck-hint">{{ i18n.t('models.studio.cv.hint') }}</div>
               </div>
-              <ck-tabular-options [fields]="tabularFields()" [spec]="tabularDraft()" [task]="effectiveTask()" [columns]="columns()" [target]="target()" [refusal]="refusalFor('spec')" (specChange)="onTabularSpec($event)" />
+              <ck-tabular-options [fields]="tabularFields()" [spec]="tabularDraft()" [task]="effectiveTask()" [columns]="columns()" [target]="target()" [refusal]="embeddingIssue() ? i18n.t(embeddingIssue()!) : refusalFor('spec')" (specChange)="onTabularSpec($event)" />
               }
 
               <div class="ck-field">
@@ -810,7 +810,11 @@ export class ModelTrainComponent implements OnInit {
   private readonly forecastDraft = signal<ForecastDraft>({ ...DEFAULT_FORECAST_DRAFT, exog: {} });
   private readonly knobOverrides = signal<Record<string, number>>({});
   protected readonly tabularDraft = signal<Record<string, unknown>>({});
-  protected readonly tabularFields = computed(() => tabularFields(this.catalog(), this.effectiveTask()));
+  protected readonly tabularFields = computed(() => tabularFields(this.catalog(), this.effectiveTask(), this.tabularDraft()));
+
+  protected readonly embeddingSelected = computed(() => !this.isForecasting() && this.tabularDraft()['text_encoder'] === 'embedding');
+  protected readonly embeddingIssue = computed(() => this.isForecasting() ? null :
+    embeddingIssue(this.catalog(), tabularSpec(this.tabularFields(), this.tabularDraft(), this.effectiveTask()), this.crossValidation(), this.selectedFeatures()));
 
   private planTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -943,6 +947,7 @@ export class ModelTrainComponent implements OnInit {
       !!this.plan() &&
       !this.submitting() &&
       !this.refusal() &&
+      !this.embeddingIssue() &&
       !(this.isForecasting() && (this.lagsInvalid() || !this.draft().timeColumn || !!this.tuningIssue())),
   );
 

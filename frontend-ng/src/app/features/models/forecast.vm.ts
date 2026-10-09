@@ -19,7 +19,7 @@ import type {
   ForecastHistoryPoint,
 } from '@app/features/data/viz/forecast-chart.vm';
 
-import type { MetricsBlock, ModelCatalog, PlanColumn, SpecFieldDescriptor } from './models.vm';
+import type { MetricsBlock, ModelCatalog, ModelDto, PlanColumn, SpecFieldDescriptor } from './models.vm';
 
 export const FORECASTING_TASK = 'forecasting';
 
@@ -330,6 +330,7 @@ export interface ForecastSummary {
   frequency?: string;
   season?: number;
   horizon?: number;
+  max_steps?: number;
   folds?: number;
   interval_level?: number;
   interval_method?: 'conformal' | 'model';
@@ -927,4 +928,16 @@ export function acfBars(
 export function diagnosticScore(diagnostic: RegressorDiagnostic | null | undefined, key: string): number | null {
   const value = diagnostic?.scores.find((score) => score.key === key)?.value;
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+
+/** The serving artifact owns the limit; old models retain their existing horizon rules. */
+export function forecastMaxSteps(model: Pick<ModelDto, 'spec' | 'signature' | 'metrics'>): number {
+  const spec = model.spec ?? {};
+  const direct = spec['strategy'] === 'direct' || spec['shape'] === 'multivariate';
+  const legacy = direct ? Number(spec['horizon'] ?? 24) : 720;
+  const forecast = isForecast(model.metrics) ? model.metrics.forecast : undefined;
+  const limits = [legacy, model.signature?.output?.max_steps, forecast?.max_steps]
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 1);
+  return Math.floor(Math.min(...limits, 720));
 }

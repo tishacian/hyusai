@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { shownSpecFields, specColumns, specValues, tabularFields, tabularSpec } from './tabular-options.vm';
+import { shownSpecFields, specColumns, specValues, tabularFields, tabularSpec, embeddingIssue } from './tabular-options.vm';
 import type { ModelCatalog, PlanColumn, SpecFieldDescriptor } from './models.vm';
 
 const fixture = JSON.parse(readFileSync(resolve(process.cwd(), 'e2e/fixtures/ml-tabular-extensions.json'), 'utf8'));
@@ -53,4 +53,48 @@ test('text encoder is available for both tabular tasks and keeps legacy auto beh
     assert.deepEqual(tabularSpec(textFields, {}, task), { text_encoder: 'auto' });
     assert.deepEqual(tabularSpec(textFields, { text_encoder: 'minhash' }, task), { text_encoder: 'minhash' });
   }
+});
+
+
+const deepFields: SpecFieldDescriptor[] = [
+  {key:'text_encoder',kind:'enum',default:'embedding',choices:['embedding']},
+  {key:'embedding_columns',kind:'columns',required:true,max_items:1,column_kinds:['text','categorical','string']},
+  {key:'embedding_components',kind:'int',default:30,min:2,max:128},
+  {key:'tuning',kind:'enum',default:'off',choices:['off','budget']},
+  {key:'calibration',kind:'enum',default:'off',choices:['off','auto'],when:{task:['classification']}},
+];
+const deepCatalog = (available=true) => ({families:[
+  {key:'tabular',tasks:['classification','regression'],available:true,spec_fields:fixture.text_fields},
+  {key:'tabular_deep',tasks:['classification','regression'],available,spec_fields:deepFields},
+]}) as ModelCatalog;
+
+test('embeddings are opt-in only when the worker advertises a verified local model', () => {
+  const offered = tabularFields(deepCatalog(),'regression');
+  assert.ok(offered.find((field) => field.key === 'text_encoder')?.choices?.includes('embedding'));
+  assert.equal(offered.some((field) => field.key === 'embedding_columns'),false);
+  assert.equal(tabularFields(deepCatalog(false),'regression').find((field) => field.key === 'text_encoder')?.choices?.includes('embedding'),false);
+  assert.equal(embeddingIssue(deepCatalog(false),{text_encoder:'embedding'},0),'models.embedding.unavailable');
+  assert.ok(tabularFields(deepCatalog(false),'regression',{text_encoder:'embedding'}).find((field) => field.key==='text_encoder')?.choices?.includes('embedding'));
+});
+
+test('embedding fields round-trip without affecting classic text encoder specs', () => {
+  const spec = {text_encoder:'embedding',embedding_columns:['region'],embedding_components:12};
+  const fields = tabularFields(deepCatalog(),'regression',spec);
+  assert.deepEqual(tabularSpec(fields,spec,'regression'),{...spec,tuning:'off'});
+  assert.deepEqual(fields.find((field) => field.key==='tuning')?.choices,['off']);
+  assert.equal(embeddingIssue(deepCatalog(),spec,0,['region']),null);
+  assert.deepEqual(tabularSpec(tabularFields(deepCatalog(),'regression',{...spec,text_encoder:'minhash'}),{...spec,text_encoder:'minhash'},'regression'),{text_encoder:'minhash'});
+});
+
+test('saved embedding options are visibly refused instead of silently changing their fit', () => {
+  const spec = {text_encoder:'embedding',embedding_columns:['region'],embedding_components:12,tuning:'budget'};
+  assert.deepEqual(tabularFields(deepCatalog(),'regression',spec).find((field) => field.key==='tuning')?.choices,['off','budget']);
+  assert.equal(embeddingIssue(deepCatalog(),spec,0),'models.embedding.unsupported');
+  assert.equal(embeddingIssue(deepCatalog(),{...spec,tuning:'off'},3),'models.embedding.unsupported');
+  assert.equal(embeddingIssue(deepCatalog(),{...spec,tuning:'off',embedding_columns:[]},0),'models.embedding.columns_required');
+  assert.equal(embeddingIssue(deepCatalog(),{...spec,tuning:'off'},0,['segment']),'models.embedding.feature_required');
+  assert.equal(embeddingIssue(deepCatalog(),{...spec,tuning:'off',embedding_components:129},0),'models.embedding.components_invalid');
+  const hidden = {...spec,tuning:'off',calibration:'auto'};
+  const wire = tabularSpec(tabularFields(deepCatalog(),'regression',hidden),hidden,'regression');
+  assert.equal(embeddingIssue(deepCatalog(),wire,0,['region']),null,'hidden classification options cannot block a regression');
 });

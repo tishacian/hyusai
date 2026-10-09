@@ -98,7 +98,7 @@ function forecastAnswer(body: any) {
   return { served: { model_id: modelId, version: 1, is_champion: true }, horizon, interval_level: level, frequency: 'h', series, forecast, explanation, rows: forecast.length, duration_ms: 84, load_ms: 0, cached: true, prediction_id: 'p-1' };
 }
 
-async function setup(page: Page, options: { theme: string; locale: string }) {
+async function setup(page: Page, options: { theme: string; locale: string; foundationCard?: boolean }) {
   const plans: any[] = [];
   const trains: any[] = [];
   const forecasts: any[] = [];
@@ -142,7 +142,9 @@ async function setup(page: Page, options: { theme: string; locale: string }) {
       return json(route, { ...base, plan: { task: 'forecasting', family: 'forecasting', spec, target: body.target, features: Object.keys(spec.exog ?? {}), algo: body.algo ?? 'gradient_boosting', estimator: 'sklearn.ensemble.HistGradientBoostingRegressor', knobs: {}, test_size: 0.11, cross_validation: 3, name: 'Cellules Nawa · prb_utilization_pct +48', warnings: [], rows: 2688 } });
     }
     if (path === `/ml-models/${modelId}`) {
-      return json(route, { model, dataset, provenance: null, versions: [model], challenger_id: null, catalog: fixture.catalog, serving });
+      const shownModel = options.foundationCard ? {...model, family:'forecasting_deep', algo:'chronos_zero_shot',
+        signature:{...model.signature,output:{...model.signature.output,max_steps:64}}} : model;
+      return json(route, { model:shownModel, dataset, provenance: null, versions: [shownModel], challenger_id: null, catalog: fixture.catalog, serving });
     }
     if (path === `/ml-models/${modelId}/monitoring`) return json(route, { monitoring: null });
     if (path === `/ml-models/${modelId}/forecast`) {
@@ -310,4 +312,19 @@ test.describe('Models · zero-shot forecast — mocked QA', () => {
     expect(api.trains[0].spec).toEqual({time_column:'ts',shape:'panel',series_columns:['cell_id'],horizon:24,
       frequency:'auto',interval_level:.8,backtest_folds:3,fill:'refuse'});
   });
+});
+
+
+test('zero-shot Play clamps requests to the artifact horizon', async ({page}, info) => {
+  test.skip(process.env['E2E_CHROME_V2_MOCKED'] !== '1' || !['localhost','127.0.0.1'].includes(new URL(String(info.project.use.baseURL)).hostname), 'Local mocked QA only.');
+  const api = await setup(page,{theme:'dark',locale:'en',foundationCard:true});
+  await page.goto(`/models/${modelId}`);
+  await page.getByRole('tab',{name:'Predict',exact:true}).click();
+  const play = page.getByTestId('forecast-playground');
+  await expect(play.getByTestId('forecast-horizon')).toHaveAttribute('max','64');
+  await play.getByTestId('forecast-horizon').fill('100');
+  await play.getByTestId('forecast-horizon').press('Tab');
+  await expect(play.getByTestId('forecast-horizon')).toHaveValue('64');
+  await play.getByTestId('forecast-run').click();
+  await expect.poll(() => api.forecasts.at(-1)?.params?.horizon).toBe(64);
 });
