@@ -14,6 +14,18 @@ from app.models.tabular import MLRuntimeHeartbeat
 from app.services.ml import local_models, runtime
 
 
+@pytest.fixture(autouse=True)
+def clean_deep_heartbeats(db_session):
+    runtime.runtime_fingerprint.cache_clear()
+    # The shared conftest deliberately clears only its named runtime tables.
+    db_session.query(MLRuntimeHeartbeat).filter(MLRuntimeHeartbeat.runtime == "ml-deep").delete(synchronize_session=False)
+    db_session.commit()
+    yield
+    runtime.runtime_fingerprint.cache_clear()
+    db_session.query(MLRuntimeHeartbeat).filter(MLRuntimeHeartbeat.runtime == "ml-deep").delete(synchronize_session=False)
+    db_session.commit()
+
+
 @pytest.fixture
 def bundle(tmp_path, monkeypatch):
     directory = tmp_path / "chronos-2-small"
