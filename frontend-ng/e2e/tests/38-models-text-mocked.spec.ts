@@ -33,11 +33,19 @@ function flow() {
   return graph;
 }
 
-async function setup(page: Page, options: { theme: string; locale: string; fields?: boolean }) {
+async function setup(page: Page, options: { theme: string; locale: string; fields?: boolean; deep?: boolean; available?: boolean; workerDown?: boolean; savedSpec?: Record<string,unknown> }) {
   const catalog = structuredClone(baseline);
   catalog.families.find((family: any) => family.key === 'tabular').spec_fields = options.fields === false ? [] : fixture.text_fields;
+  if (options.deep) catalog.families.push({key:'tabular_deep',tasks:['classification','regression'],runtime:'ml-deep',serving:'remote',available:options.available!==false,spec_fields:[
+    {key:'text_encoder',kind:'enum',default:'embedding',choices:['embedding']},
+    {key:'embedding_columns',kind:'columns',required:true,max_items:1,column_kinds:['string','text','categorical']},
+    {key:'embedding_components',kind:'int',default:30,min:2,max:128},
+    {key:'tuning',kind:'enum',default:'off',choices:['off','budget']},
+  ]});
   const plans: any[] = [], trains: any[] = [], drafts: any[] = [], feedback: any[] = [];
   let graph = flow(), revision = 1;
+  if (options.savedSpec) Object.assign(graph.nodes.find((node:any) => node.id === 'train.sales').config.params,
+    {target:'amount',task:'regression',algo:'gradient_boosting',spec:options.savedSpec});
   const hash = '3'.repeat(64);
   const system = () => ({ id: systemId, workspace_id: workspace.id, name: 'Sales', status: 'active', flow_definition: graph, flow_sha256: hash, objective: 'Sales' });
   const state = () => ({ system_id: systemId, status: 'active', draft: { revision, base_published_version_id: 'published-v1', flow_sha256: hash, flow_definition: graph }, published: { version_id: 'published-v1', version_number: 1, flow_sha256: hash, flow_definition: graph, execution_contract_ready: true } });
@@ -67,7 +75,7 @@ async function setup(page: Page, options: { theme: string; locale: string; field
       if (!body.target) return json(route, base);
       return json(route, { ...base, plan: { task: body.task ?? fixture.columns.find((column: any) => column.name === body.target)?.suggested_task, family: 'tabular', spec: body.spec ?? {}, target: body.target, features: ['message'], algo: body.algo || 'gradient_boosting', estimator: 'sklearn.ensemble.HistGradientBoostingRegressor', knobs: {}, test_size: 0.25, cross_validation: 0, name: 'Sales amount', warnings: [], rows: 800 } });
     }
-    if (path === `/ml-models/${model.id}`) return json(route, { model, dataset, provenance: null, versions: [model], challenger_id: null, catalog, serving: { enabled: true, callable: true, serving_version: 1, serving_model_id: model.id, is_serving: true, max_rows: 100, fields: [{ name: 'visits', kind: 'integer', required: true }], classes: [], positive_label: null, predict_count: 1, last_predict_at: null, published_skill: null, keys: [], endpoint: `/api/v1/ml-models/${model.id}/predict`, key_header: 'X-Agentium-Model-Key' } });
+    if (path === `/ml-models/${model.id}`) return json(route, { model: {...model, family: options.deep ? 'tabular_deep' : model.family}, dataset, provenance: null, versions: [model], challenger_id: null, catalog, serving: { enabled: true, callable: !options.workerDown, mode: 'rows', serving_version: 1, serving_model_id: model.id, is_serving: true, max_rows: 100, fields: [{ name: 'visits', kind: 'integer', required: true }], classes: [], positive_label: null, predict_count: 1, last_predict_at: null, published_skill: null, keys: [], endpoint: `/api/v1/ml-models/${model.id}/predict`, key_header: 'X-Agentium-Model-Key' } });
     if (path === `/ml-models/${model.id}/monitoring`) return json(route, { monitoring });
     if (path === `/ml-models/${model.id}/feedback`) {
       const body = request.postDataJSON(); feedback.push(body);
@@ -132,4 +140,97 @@ test.describe('Models · text encoder — mocked QA', () => {
       expect(api.trains[0].spec).toEqual({ text_encoder: 'string' });
     });
   }
+});
+
+
+test.describe('Models · local embeddings — mocked QA', () => {
+  test.beforeEach(async ({}, info) => {
+    test.skip(process.env['E2E_CHROME_V2_MOCKED'] !== '1' || !['localhost','127.0.0.1'].includes(new URL(String(info.project.use.baseURL)).hostname), 'Local mocked QA only.');
+  });
+  for (const locale of ['fr','en']) {
+    test(`embeddings ${locale}: explicit column, frozen encoder and one train/test split`, async ({page}) => {
+      const api = await setup(page,{theme:'dark',locale,deep:true});
+      await page.goto('/models');
+      await page.getByRole('button',{name:locale==='fr'?/Entraîner/:/Train/}).first().click();
+      const studio = page.getByRole('dialog');
+      await studio.getByTestId('train-target').locator('[data-testid="column-select"][data-name="amount"]').click();
+      await studio.locator('#train-cv').selectOption({index:1});
+      await studio.getByTestId('tabular-options').locator('summary').click();
+      await studio.locator('#tabular-text_encoder').selectOption('embedding');
+      await expect(studio.getByTestId('embedding-scope')).toBeVisible();
+      await expect(studio.locator('.ck-submit')).toBeDisabled();
+      await studio.locator('#train-cv').selectOption({index:0});
+      await expect(studio.locator('.ck-submit')).toBeDisabled();
+      await studio.locator('[data-spec-field="embedding_columns"]').getByRole('checkbox',{name:'message',exact:true}).check();
+      await studio.locator('#tabular-embedding_components').fill('12');
+      await studio.locator('#tabular-embedding_components').press('Tab');
+      await expect(studio.locator('#tabular-tuning option')).toHaveCount(1);
+      await expect(studio.locator('.ck-submit')).toBeEnabled();
+      await studio.locator('.ck-submit').click();
+      await expect.poll(() => api.trains.length).toBe(1);
+      expect(api.trains[0]).toMatchObject({cross_validation:0,spec:{text_encoder:'embedding',embedding_columns:['message'],embedding_components:12,tuning:'off'}});
+    });
+    test(`embeddings ${locale}: Flow round-trip retains the selected text feature`, async ({page}) => {
+      const api = await setup(page,{theme:'light',locale,deep:true});
+      await page.goto(`/systems/${systemId}/flow?lens=build`);
+      await page.locator('app-flow-node').filter({hasText:'Train sales'}).click();
+      await page.getByTestId('open-train-workshop').click();
+      const workshop = page.locator('app-flow-train-workshop');
+      await workshop.getByTestId('train-target').locator('[data-testid="column-select"][data-name="amount"]').click();
+      await workshop.getByTestId('tabular-options').locator('summary').click();
+      await workshop.locator('#tabular-text_encoder').selectOption('embedding');
+      await expect(workshop.getByTestId('run-train-test')).toBeDisabled();
+      await workshop.locator('[data-spec-field="embedding_columns"]').getByRole('checkbox',{name:'message',exact:true}).check();
+      await workshop.locator('#tabular-embedding_components').fill('12');
+      await workshop.locator('#tabular-embedding_components').press('Tab');
+      await expect.poll(() => api.params().spec).toMatchObject({text_encoder:'embedding',embedding_columns:['message'],embedding_components:12});
+      await workshop.getByRole('button',{name:locale==='fr'?'Fermer l’atelier d’entraînement':'Close the training studio',exact:true}).click();
+      await page.getByTestId('open-train-workshop').click();
+      await workshop.getByTestId('tabular-options').locator('summary').click();
+      await expect(workshop.locator('#tabular-text_encoder')).toHaveValue('embedding');
+      await expect(workshop.locator('#tabular-embedding_components')).toHaveValue('12');
+      await workshop.getByTestId('run-train-test').click();
+      await expect.poll(() => api.trains.length).toBe(1);
+      expect(api.trains[0]).toMatchObject({cross_validation:0,spec:{text_encoder:'embedding',embedding_columns:['message'],embedding_components:12,tuning:'off'}});
+    });
+  }
+  test('unavailable local encoder leaves classic text encoders usable', async ({page}) => {
+    await setup(page,{theme:'dark',locale:'fr',deep:true,available:false});
+    await page.goto('/models');
+    await page.getByRole('button',{name:/Entraîner/}).first().click();
+    const studio = page.getByRole('dialog');
+    await studio.getByTestId('train-target').locator('[data-testid="column-select"][data-name="amount"]').click();
+    await studio.getByTestId('tabular-options').locator('summary').click();
+    await expect(studio.locator('#tabular-text_encoder option[value="embedding"]')).toHaveCount(0);
+    await studio.locator('#tabular-text_encoder').selectOption('minhash');
+    await expect(studio.locator('.ck-submit')).toBeEnabled();
+  });
+});
+
+
+test('embeddings: a removed saved text column can be explicitly replaced in Flow', async ({page}, info) => {
+  test.skip(process.env['E2E_CHROME_V2_MOCKED'] !== '1' || !['localhost','127.0.0.1'].includes(new URL(String(info.project.use.baseURL)).hostname), 'Local mocked QA only.');
+  const api = await setup(page,{theme:'dark',locale:'en',deep:true,savedSpec:{text_encoder:'embedding',embedding_columns:['deleted_message'],embedding_components:12}});
+  await page.goto(`/systems/${systemId}/flow?lens=build`);
+  await page.locator('app-flow-node').filter({hasText:'Train sales'}).click();
+  await page.getByTestId('open-train-workshop').click();
+  const workshop = page.locator('app-flow-train-workshop');
+  await workshop.getByTestId('tabular-options').locator('summary').click();
+  const message = workshop.locator('[data-spec-field="embedding_columns"]').getByRole('checkbox',{name:'message',exact:true});
+  await expect(message).toBeDisabled();
+  await expect(workshop.getByTestId('run-train-test')).toBeDisabled();
+  await workshop.getByRole('button',{name:'Remove “deleted_message”',exact:true}).click();
+  await expect(message).toBeEnabled();
+  await message.check();
+  await expect.poll(() => api.params().spec?.embedding_columns).toEqual(['message']);
+  await expect(workshop.getByTestId('run-train-test')).toBeEnabled();
+});
+
+
+test('embeddings: a ready model with an absent worker keeps its trained status in Play', async ({page}, info) => {
+  test.skip(process.env['E2E_CHROME_V2_MOCKED'] !== '1' || !['localhost','127.0.0.1'].includes(new URL(String(info.project.use.baseURL)).hostname), 'Local mocked QA only.');
+  await setup(page,{theme:'light',locale:'en',deep:true,workerDown:true});
+  await page.goto(`/models/${model.id}`);
+  await page.getByRole('tab',{name:'Predict',exact:true}).click();
+  await expect(page.locator('app-model-playground')).toContainText('The model is ready, but its prediction service is temporarily unavailable.');
 });

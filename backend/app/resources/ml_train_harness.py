@@ -739,6 +739,20 @@ def _monitoring_reference(frame, seed):
 
 def _configure_text_encoder(pipeline, spec, seed):
     encoder = (spec or {}).get("text_encoder", "auto")
+    if encoder == "embedding":
+        import os
+
+        from skrub import TextEncoder
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+        path = (spec or {}).get("_embedding_path")
+        if not path or not Path(path).is_dir():
+            raise ValueError("ML_DEEP_MODEL_MISSING: a verified local encoder is required")
+        columns = (spec or {}).get("embedding_columns") or []
+        encoder = TextEncoder(model_name=path, n_components=int(spec.get("embedding_components", 30)),
+                              device="cpu", batch_size=16, store_weights_in_pickle=True, random_state=seed)
+        pipeline.named_steps["tablevectorizer"].set_params(specific_transformers=[(encoder, columns)], n_jobs=1)
+        return
     if encoder != "auto":
         from skrub import MinHashEncoder, StringEncoder
 
@@ -1104,17 +1118,36 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
 
     _progress(progress_path, "saving")
     try:
-        trusted = _trusted_types(pipeline)
+        embedding = (manifest.get("spec") or {}).get("text_encoder") == "embedding"
+        trusted = [] if embedding else _trusted_types(pipeline)
+        requirements = None
+        if embedding:
+            from importlib.metadata import version
+            requirements = ["--extra-index-url https://download.pytorch.org/whl/cpu"] + [
+                f"{name}=={version(name)}" for name in ("mlflow", "scikit-learn", "skrub", "numpy", "scipy", "pandas",
+                                                       "torch", "transformers", "sentence-transformers", "cloudpickle")]
         mlflow.sklearn.save_model(
             pipeline,
             path=model_dir,
             signature=signature,
             input_example=example,
-            skops_trusted_types=trusted,
+            skops_trusted_types=trusted if not embedding else None,
+            serialization_format="cloudpickle" if embedding else "skops",
+            pip_requirements=requirements,
         )
     except Exception as exc:  # noqa: BLE001
         return _fail(4, f"ml_artifact_unwritable: {type(exc).__name__}: {exc}")
 
+    artifact = None
+    if embedding:
+        import hashlib
+        bundle = Path(model_dir)
+        files = {str(path.relative_to(bundle)): hashlib.sha256(path.read_bytes()).hexdigest()
+                 for path in bundle.rglob("*") if path.is_file()}
+        artifact = {"serialization": "cloudpickle", "sha256": files["model.pkl"], "files": files}
+        metrics["embedding"] = {key: value for key, value in (manifest.get("foundation") or {}).items() if key not in {"path", "files"}}
+        metrics["embedding"].update(columns=manifest["spec"]["embedding_columns"], components=manifest["spec"]["embedding_components"],
+                                    frozen=True, train_only_reduction=True)
     summary = {
         "metrics": metrics,
         "signature": {
@@ -1131,6 +1164,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             for _, row in example.iterrows()
         ],
         "trusted_types": trusted,
+        **({"artifact": artifact} if artifact is not None else {}),
         "report_state": report_state,
         "duration_ms": round((time.monotonic() - started) * 1000, 1),
     }

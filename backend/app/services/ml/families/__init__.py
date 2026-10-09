@@ -5,9 +5,10 @@ from __future__ import annotations
 from app.services.ml.families.base import Family, SpecField, SpecInvalid
 from app.services.ml.families.forecasting import FORECASTING_FAMILY
 from app.services.ml.families.tabular import TABULAR
+from app.services.ml.families.tabular_deep import TABULAR_DEEP
 from app.services.ml.families.forecasting_deep import FORECASTING_DEEP
 
-FAMILIES: tuple[Family, ...] = (TABULAR, FORECASTING_FAMILY, FORECASTING_DEEP)
+FAMILIES: tuple[Family, ...] = (TABULAR, FORECASTING_FAMILY, FORECASTING_DEEP, TABULAR_DEEP)
 FAMILY_BY_KEY = {family.key: family for family in FAMILIES}
 
 

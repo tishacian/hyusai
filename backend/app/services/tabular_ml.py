@@ -392,6 +392,12 @@ def catalog_payload(db: DBSession | None = None) -> dict[str, Any]:
                 if field["key"] == "tuning_budget_s":
                     field["max"] = min(1500, int(0.6 * float(settings.ml_train_timeout_s)))
                     field["default"] = min(300, field["max"])
+        if family.key == "tabular_deep":
+            from app.services.ml.runtime import model_availability
+            asset_ready, asset_reason = model_availability("multilingual-minilm", db)
+            family_payload["available"] = available and asset_ready
+            if not asset_ready:
+                family_payload["reason"] = asset_reason
         families.append(family_payload)
     return {
         "enabled": bool(settings.ml_train_enabled and settings.tabular_data_enabled),
@@ -547,7 +553,9 @@ def validate_training(
     family = family_of_task(chosen_task)
     if str(algo or "") == "chronos_zero_shot" and chosen_task == FORECASTING:
         family = get_family("forecasting_deep")
-    if family is None or (family is not TABULAR and family.validator is None):
+    if isinstance(spec, dict) and spec.get("text_encoder") == "embedding" and chosen_task in {CLASSIFICATION, REGRESSION}:
+        family = get_family("tabular_deep")
+    if family is None or (family.key not in {"tabular", "tabular_deep"} and family.validator is None):
         raise TabularError(
             code="ML_TASK_UNKNOWN",
             message="This is not a task the platform trains: classification, regression or forecasting.",
@@ -576,7 +584,7 @@ def validate_training(
     spec_warnings: list[dict[str, Any]] = []
     try:
         problem = family.parse_spec(
-            spec, task=chosen_task if family is TABULAR else None, warnings=spec_warnings
+            spec, task=chosen_task if family.key in {"tabular", "tabular_deep"} else None, warnings=spec_warnings
         )
     except SpecInvalid as exc:
         raise TabularError(
@@ -592,7 +600,7 @@ def validate_training(
             message="Declare inference cost only when training the confirmed target of a reviewed LLM dataset.",
             details={"field": "distillation_inference_cost_per_1000"},
         )
-    if family is not TABULAR:
+    if family.key not in {"tabular", "tabular_deep"}:
         return family.validator(
             dataset,
             task=chosen_task,
@@ -605,6 +613,23 @@ def validate_training(
             name=name,
             spec=problem,
         )
+    if family.key == "tabular_deep":
+        from app.services.ml.runtime import model_availability
+        ready, reason = model_availability("multilingual-minilm", db)
+        if not ready:
+            raise TabularError(code="ML_DEEP_MODEL_MISSING", message="The local embedding model is unavailable.",
+                               status_code=409, details={"reason": reason, "model_id": "multilingual-minilm"})
+        columns = problem.get("embedding_columns") or []
+        if not columns or any(kinds.get(col) not in {"text", "categorical", "string"} or col == label for col in columns):
+            raise TabularError(code="ML_SPEC_INVALID", message="Select one text feature column for embeddings.",
+                               details={"field": "embedding_columns"})
+        # The first release bounds repeated transformer fits explicitly.
+        unsupported = [key for key, default in (("tuning", "off"), ("explain", "off"), ("calibration", "off"),
+                                                 ("threshold", "default"), ("intervals", "off"))
+                       if problem.get(key, default) != default]
+        if unsupported or (cross_validation is not None and int(cross_validation or 0) >= 2):
+            raise TabularError(code="ML_DEEP_OPTION_UNSUPPORTED", message="Embedding models currently use one train/test split without automatic tuning or additional fits.",
+                               details={"field": unsupported[0] if unsupported else "cross_validation"})
     if problem.get("tuning") == "budget":
         maximum = 0.6 * min(float(settings.ml_train_timeout_s), float(settings.ml_train_cpu_limit_s))
         if problem["tuning_budget_s"] > maximum:
@@ -669,6 +694,8 @@ def validate_training(
             code="ML_FEATURES_REQUIRED",
             message="A model needs at least one feature besides its target.",
         )
+    if family.key == "tabular_deep" and not set(problem["embedding_columns"]).issubset(selected):
+        raise TabularError(code="ML_SPEC_INVALID", message="Embedding columns must also be selected as features.", details={"field": "embedding_columns"})
     max_features = int(settings.ml_train_max_features)
     if len(selected) > max_features:
         raise TabularError(
@@ -893,12 +920,13 @@ def create_model(
         db, workspace_id=workspace_id, slug=slug
     )
     foundation = None
-    if spec.family == "forecasting_deep":
+    if spec.family in {"forecasting_deep", "tabular_deep"}:
         from app.services.ml.runtime import model_descriptors
-        foundation = model_descriptors(db).get("chronos-2-small")
+        asset_id = "chronos-2-small" if spec.family == "forecasting_deep" else "multilingual-minilm"
+        foundation = model_descriptors(db).get(asset_id)
         if not foundation:
             raise TabularError(code="ML_DEEP_MODEL_MISSING", message="The foundation model is unavailable.", status_code=409)
-        foundation = {**foundation, "model_id": "chronos-2-small"}
+        foundation = {**foundation, "model_id": asset_id}
     model = MLModel(
         id=str(uuid4()),
         workspace_id=workspace_id,
@@ -1614,16 +1642,30 @@ def _write_manifest(
         "report_path": str(scratch / "report" / _REPORT_STATE_FILE),
         "report_state_limit_mb": int(settings.ml_train_report_state_limit_mb),
     }
-    if manifest["family"] == "forecasting_deep":
+    if manifest["family"] in {"forecasting_deep", "tabular_deep"}:
         from app.services.ml.local_models import LocalModelError, resolve_model
+        deep_tabular = manifest["family"] == "tabular_deep"
         try:
-            local = resolve_model("chronos-2-small", kind="forecasting")
+            local = resolve_model("multilingual-minilm" if deep_tabular else "chronos-2-small", kind="embedding" if deep_tabular else "forecasting")
         except LocalModelError as exc:
             raise TabularError(code=exc.code, message=str(exc), status_code=409) from exc
         expected = params.get("foundation") or {}
         if expected.get("fingerprint") != local.fingerprint or expected.get("revision") != local.revision:
             raise TabularError(code="ML_DEEP_MODEL_CHANGED", message="The foundation model changed since submission.", status_code=409)
         manifest["foundation"] = {**expected, "path": str(local.path), "files": local.files}
+        if deep_tabular:
+            # Fit reads an immutable copy of the exact bytes accepted at submission.
+            from app.services.ml.local_models import file_hash
+            asset_copy = scratch / "embedding-source"
+            for name, expected_hash in local.files.items():
+                destination = asset_copy / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(local.path / name, destination)
+                if file_hash(destination) != expected_hash:
+                    raise TabularError(code="ML_DEEP_MODEL_CHANGED", message="The embedding source changed while preparing the fit.", status_code=409)
+            manifest["spec"]["_embedding_path"] = str(asset_copy)
+            manifest["report_state_limit_mb"] = 0
+            manifest["importance_rows"] = min(32, manifest["importance_rows"])
     if manifest["spec"].get("tuning") == "budget" and params.get("tuning"):
         manifest["tuning"] = dict(params["tuning"])
         if manifest["family"] == FORECASTING:
