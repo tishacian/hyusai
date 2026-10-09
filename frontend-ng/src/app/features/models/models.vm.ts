@@ -1578,6 +1578,8 @@ export const REFUSAL_CODES = [
   'ML_TS_TOO_MANY_SERIES',
   'ML_TS_ALGO_SHAPE_MISMATCH',
   'ML_TS_HISTORY_TOO_SHORT',
+  'ML_TS_TUNING_UNSUPPORTED',
+  'ML_TS_TUNING_FILL_UNSAFE',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];
@@ -1772,7 +1774,7 @@ export const TRAIN_STEPS: readonly string[] = [
  * backtesting before its final fit, and a backtest counts its folds the way a
  * cross-validation does (`backtesting:2/3`).
  */
-export const FORECAST_TRAIN_STEPS: readonly string[] = ['queued', 'reading', 'backtesting', 'fitting', 'saving'];
+export const FORECAST_TRAIN_STEPS: readonly string[] = ['queued', 'reading', 'tuning', 'backtesting', 'fitting', 'saving'];
 
 const KNOWN_TRAIN_STEPS: ReadonlySet<string> = new Set([...TRAIN_STEPS, ...FORECAST_TRAIN_STEPS]);
 
@@ -1875,7 +1877,7 @@ export function trainChecklist(
     explaining: spec?.['explain'] === 'pack',
   };
   const steps = forecast
-    ? [...FORECAST_TRAIN_STEPS]
+    ? FORECAST_TRAIN_STEPS.filter((step) => step !== 'tuning' || optional['tuning'] || parsed.step === 'tuning')
     : TRAIN_STEPS.filter((step) => (step !== 'validating' || folds >= 2) &&
       (!(step in optional) || optional[step] || parsed.step === step));
   const terminal = status === 'ready' || status === 'failed' || status === 'cancelled';

@@ -14,6 +14,19 @@ import { expect, test, type Page, type Route } from '@playwright/test';
 test.use({ serviceWorkers: 'block', video: 'off' });
 
 const fixture = JSON.parse(readFileSync(resolve(process.cwd(), 'e2e/fixtures/ml-forecast.json'), 'utf8'));
+fixture.catalog.families.find((family: any) => family.key === 'forecasting').spec_fields.push(
+  {key:'tuning',kind:'enum',required:false,default:'off',choices:['off','budget']},
+  {key:'tuning_trials',kind:'int',required:false,default:30,min:5,max:100},
+  {key:'tuning_budget_s',kind:'int',required:false,default:60,min:30,max:60},
+  {key:'tuning_folds',kind:'int',required:false,default:3,min:2,max:5},
+);
+fixture.panel.metrics.tuning = {
+  metric:'mae',direction:'min',trials_run:5,trials_pruned:0,trials_failed:0,stopped_by:'trials',budget_s:60,elapsed_s:9,folds:3,
+  start:{knobs:{alpha:1},score:4,std:.3},best:{knobs:{alpha:.1},score:3,std:.2,trial:1},
+  trials:[{n:0,score:4,state:'complete',duration_ms:500},{n:1,score:3,state:'complete',duration_ms:600}],
+  baseline:{key:'seasonal_naive',mae:5},
+  validation:{method:'expanding_window',metric:'mae',aggregation:'mean_per_series',train_start:'2026-08-01',train_end:'2026-08-21',holdout_start:'2026-08-22',holdout_rows:72,initial_train_size:432,rows:504,horizon:24,folds:3},
+};
 const workspace = { id: 'forecast-qa', slug: 'forecast-qa', name: 'Nawa QA', role: 'owner', role_template: 'workspace_owner', settings: {}, mode: 'builder' };
 const datasetId = 'ds-cells';
 const modelId = 'fc-cells-1';
@@ -161,6 +174,10 @@ test.describe('Models · forecasting — isolated end-user QA', () => {
       const evidence = page.getByTestId('forecast-evidence');
       await expect(evidence).toBeVisible();
       await expect(evidence.locator('canvas')).toBeVisible();
+      const tuningEvidence = page.getByTestId('tuning-temporal-validation');
+      await expect(tuningEvidence).toContainText(locale === 'fr' ? 'plis temporels croissants' : 'expanding temporal folds');
+      await expect(tuningEvidence).toContainText('2026-08-22');
+      await expect(tuningEvidence).toContainText(locale === 'fr' ? 'MAE du naïf saisonnier' : 'Seasonal naive MAE');
       // Three of the four cells are plotted, one at a time.
       const pick = evidence.locator('select');
       await expect(pick.locator('option')).toHaveCount(3);
@@ -232,6 +249,19 @@ test.describe('Models · forecasting — isolated end-user QA', () => {
       // Committed when the field is left: one plan per decision, not per keystroke.
       await page.locator('#train-horizon').press('Tab');
       await expect(page.getByTestId('train-forecast-refusal')).toHaveCount(0);
+      await page.locator('#forecast-tuning-mode').selectOption('budget');
+      await expect(page.locator('#forecast-tuning_budget_s')).toHaveValue('60');
+      await expect(page.locator('#forecast-tuning_budget_s')).toHaveAttribute('max','60');
+      await page.locator('#forecast-tuning_trials').fill('8');
+      await page.locator('#forecast-tuning_trials').press('Tab');
+      await page.locator('#forecast-tuning_folds').fill('2');
+      await page.locator('#forecast-tuning_folds').press('Tab');
+      await page.locator('#forecast-tuning_budget_s').fill('40');
+      await page.locator('#forecast-tuning_budget_s').press('Tab');
+      await page.locator('#train-fill').selectOption('interpolate');
+      await expect(page.getByTestId('forecast-tuning-refusal')).toContainText(locale === 'fr' ? 'lire le futur' : 'read future values');
+      await expect(page.locator('.ck-submit')).toBeDisabled();
+      await page.locator('#train-fill').selectOption('refuse');
       await expect(page.locator('.ck-submit')).toBeEnabled();
       await page.screenshot({ path: info.outputPath(`studio-${theme}-${locale}-${width}.png`), fullPage: true });
 
@@ -242,7 +272,7 @@ test.describe('Models · forecasting — isolated end-user QA', () => {
 
       await page.locator('.ck-submit').click();
       await expect.poll(() => api.trains.length).toBe(1);
-      expect(api.trains[0].spec).toMatchObject({ shape: 'panel', horizon: 48 });
+      expect(api.trains[0].spec).toMatchObject({ shape: 'panel', horizon: 48, tuning:'budget', tuning_trials:8, tuning_folds:2, tuning_budget_s:40 });
       // A forecast is judged by its backtest: no random split is sent.
       expect(api.trains[0].test_size).toBeUndefined();
     });

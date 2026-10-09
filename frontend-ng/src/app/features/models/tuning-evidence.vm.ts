@@ -5,11 +5,17 @@ export interface TuningResult {
   trials_run: number;
   trials_pruned: number;
   trials_failed: number;
-  stopped_by: 'trials' | 'budget';
+  stopped_by: 'trials' | 'budget' | 'failed';
   budget_s: number;
   elapsed_s: number;
   folds: number;
   warning?: string;
+  baseline?: { key: string; mae: number | null };
+  validation?: {
+    method: 'expanding_window'; metric: string; aggregation: string;
+    train_start: string; train_end: string; holdout_start: string; holdout_rows: number;
+    initial_train_size: number; rows: number; horizon: number; folds: number;
+  };
   start: { knobs: Record<string, unknown>; score: number | null; std?: number | null };
   best: { knobs: Record<string, unknown>; score: number | null; std?: number | null; trial: number | null };
   trials: { n: number; score: number | null; state: string; duration_ms: number }[];
@@ -28,4 +34,14 @@ export function tuningPoints(tuning: TuningResult | undefined) {
 export function tuningKnobs(tuning: TuningResult | undefined) {
   if (!tuning) return [];
   return Object.keys(tuning.start.knobs).map((key) => ({ key, before: tuning.start.knobs[key], after: tuning.best.knobs[key] }));
+}
+
+/** Temporal evidence is additive: old tabular cards retain their existing contract. */
+export function temporalTuning(tuning: TuningResult | undefined) {
+  return tuning?.validation?.method === 'expanding_window' ? tuning.validation : null;
+}
+
+export function tuningWarningKey(tuning: TuningResult | undefined): string | null {
+  if (!tuning?.warning) return null;
+  return tuning.warning === 'ML_TS_TUNING_FAILED' ? 'models.tuning.failed_warning' : 'models.tuning.baseline_unavailable';
 }

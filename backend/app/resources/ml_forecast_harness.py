@@ -479,6 +479,43 @@ def _explain_fit(forecaster, *, inputs: dict, direct: bool, groups_of) -> tuple[
     return explanation, explain_meta
 
 
+def build_forecaster(manifest, *, frequency, lags):
+    from skforecast.direct import ForecasterDirect, ForecasterDirectMultiVariate
+    from skforecast.preprocessing import CalendarFeatures
+    from skforecast.recursive import (
+        ForecasterEquivalentDate,
+        ForecasterRecursive,
+        ForecasterRecursiveMultiSeries,
+        ForecasterStats,
+    )
+    spec = manifest["spec"]
+    algo, target = manifest["algo"], manifest["target"]
+    shape, horizon = spec.get("shape", "single"), int(spec["horizon"])
+    season = _season(frequency)
+    calendar = CalendarFeatures(features=_calendar_features(frequency)) if spec.get("calendar", True) else None
+    if algo == "seasonal_naive":
+        return ForecasterEquivalentDate(offset=season, n_offsets=1), "naive"
+    if algo in ("ets", "arima"):
+        from skforecast.stats import Arima, Ets
+
+        estimator = Ets(m=season) if algo == "ets" else Arima(order=(1, 1, 1), seasonal_order=(0, 1, 1), m=season)
+        return ForecasterStats(estimator=estimator), "stats"
+    regressor = _resolve_regressor(manifest.get("estimator"), dict(manifest.get("params") or {}))
+    if shape == "panel":
+        built = ForecasterRecursiveMultiSeries(
+            estimator=regressor, lags=lags, calendar_features=calendar, encoding="ordinal"
+        )
+    elif shape == "multivariate":
+        built = ForecasterDirectMultiVariate(
+            estimator=regressor, level=target, steps=horizon, lags=lags, calendar_features=calendar, n_jobs=1
+        )
+    elif spec.get("strategy") == "direct":
+        built = ForecasterDirect(estimator=regressor, steps=horizon, lags=lags, calendar_features=calendar, n_jobs=1)
+    else:
+        built = ForecasterRecursive(estimator=regressor, lags=lags, calendar_features=calendar)
+    return built, "regression"
+
+
 def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top down
     if len(argv) != 3:
         return _fail(5, "usage: ml_forecast_harness.py MANIFEST RESULT")
@@ -596,13 +633,46 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         return _fail(2, str(exc))
 
     season = _season(frequency)
-    reserved = max(2, folds + 1) * horizon
+    reserved = (folds + int(manifest["tuning"]["folds"]) + 2) * horizon if manifest.get("tuning") else max(2, folds + 1) * horizon
     # Lags the author did not choose follow the frequency the data turned out
     # to have, trimmed to what the history can feed.
     lags = asked_lags or default_lags(frequency, history=history, reserved=reserved)
     needed = reserved + max(lags)
     if history < needed:
         return _fail(3, f"ml_ts_history: {history} steps, {needed} needed for this horizon, lags and folds")
+
+    tuning_result = None
+    if manifest.get("tuning"):
+        if algo in ("ets", "arima", "seasonal_naive") or fill == "interpolate":
+            return _fail(5, "ml_ts_tuning_unsupported: regressor and non-interpolated history required")
+        # The search child receives the prefix only: even the path to the
+        # original dataset is absent. The last outer folds remain untouched.
+        import importlib.util
+
+        module_spec = importlib.util.spec_from_file_location(
+            "ml_forecast_tuning", Path(__file__).with_name("ml_forecast_tuning.py")
+        )
+        tuner = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(tuner)
+        cutoff = truth.index[-folds * horizon]
+        train = {
+            "truth": truth.loc[truth.index < cutoff],
+            "y": y.loc[y.index < cutoff] if shape != "panel" else None,
+            "series": ({name: values.loc[values.index < cutoff] for name, values in series_map.items()}
+                       if shape == "panel" else series_frame.loc[series_frame.index < cutoff]
+                       if shape == "multivariate" else None),
+            "exog": ({name: values.loc[values.index < cutoff] for name, values in exog_map.items()}
+                     if shape == "panel" else exog.loc[exog.index < cutoff] if exog is not None else None),
+        }
+        try:
+            params, tuning_result = tuner.tune(manifest, train, frequency=frequency, lags=lags)
+        except ValueError as exc:
+            return _fail(3, str(exc))
+        except Exception as exc:  # noqa: BLE001
+            return _fail(1, f"ml_ts_tuning_failed: {type(exc).__name__}: {exc}")
+        manifest = {**manifest, "params": params}
+        tuning_result["validation"]["holdout_start"] = str(cutoff)
+        tuning_result["validation"]["holdout_rows"] = int(len(truth) - len(train["truth"]))
 
     # ---- the forecaster -------------------------------------------------
     from skforecast.direct import ForecasterDirect, ForecasterDirectMultiVariate
@@ -613,40 +683,11 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         backtesting_stats,
     )
     from skforecast.preprocessing import CalendarFeatures
-    from skforecast.recursive import (
-        ForecasterEquivalentDate,
-        ForecasterRecursive,
-        ForecasterRecursiveMultiSeries,
-        ForecasterStats,
-    )
 
     calendar = CalendarFeatures(features=_calendar_features(frequency)) if spec.get("calendar", True) else None
 
-    def build():
-        if algo == "seasonal_naive":
-            return ForecasterEquivalentDate(offset=season, n_offsets=1), "naive"
-        if algo in ("ets", "arima"):
-            from skforecast.stats import Arima, Ets
-
-            estimator = Ets(m=season) if algo == "ets" else Arima(order=(1, 1, 1), seasonal_order=(0, 1, 1), m=season)
-            return ForecasterStats(estimator=estimator), "stats"
-        regressor = _resolve_regressor(manifest.get("estimator"), dict(manifest.get("params") or {}))
-        if shape == "panel":
-            built = ForecasterRecursiveMultiSeries(
-                estimator=regressor, lags=lags, calendar_features=calendar, encoding="ordinal"
-            )
-        elif shape == "multivariate":
-            built = ForecasterDirectMultiVariate(
-                estimator=regressor, level=target, steps=horizon, lags=lags, calendar_features=calendar
-            )
-        elif spec.get("strategy") == "direct":
-            built = ForecasterDirect(estimator=regressor, steps=horizon, lags=lags, calendar_features=calendar)
-        else:
-            built = ForecasterRecursive(estimator=regressor, lags=lags, calendar_features=calendar)
-        return built, "regression"
-
     try:
-        forecaster, kind = build()
+        forecaster, kind = build_forecaster(manifest, frequency=frequency, lags=lags)
     except RuntimeError as exc:
         return _fail(5, str(exc))
     except Exception as exc:  # noqa: BLE001
@@ -1051,6 +1092,8 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         "static_codes": static_codes,
         "target": {"name": target},
     }
+    if tuning_result is not None:
+        metrics["tuning"] = tuning_result
     summary = {
         "metrics": metrics,
         "signature": {

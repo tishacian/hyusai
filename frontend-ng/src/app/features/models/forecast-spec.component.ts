@@ -33,6 +33,8 @@ import {
   FORECAST_FREQUENCIES,
   FORECAST_SHAPES,
   covariateCandidates,
+  forecastTuningIssue,
+  tuningBounds,
   parseLags,
   seriesColumnCandidates,
   strategyApplies,
@@ -41,7 +43,7 @@ import {
   type ForecastDraft,
   type ForecastRole,
 } from './forecast.vm';
-import type { PlanColumn } from './models.vm';
+import type { PlanColumn, SpecFieldDescriptor } from './models.vm';
 
 @Component({
   selector: 'ck-forecast-spec',
@@ -269,6 +271,31 @@ import type { PlanColumn } from './models.vm';
         <div class="ck-hint">{{ i18n.t('models.spec.backtest_folds.hint') }}</div>
       </div>
 
+      @if (hasTuning() || draft().tuning === 'budget') {
+        <div class="ck-field" data-testid="forecast-tuning">
+          <label class="ck-label" for="forecast-tuning-mode">{{ i18n.t('models.spec.tuning') }}</label>
+          <select id="forecast-tuning-mode" class="ck-input" [ngModel]="draft().tuning"
+            (ngModelChange)="patch({ tuning: $event })">
+            <option value="off">{{ i18n.t('models.spec.tuning.off') }}</option>
+            <option value="budget">{{ i18n.t('models.spec.tuning.budget') }}</option>
+          </select>
+          <div class="ck-hint">{{ i18n.t('models.forecast.tuning.hint') }}</div>
+          @if (draft().tuning === 'budget') {
+            @for (setting of tuningSettings(); track setting.key) {
+              <label class="ck-label" [for]="'forecast-' + setting.key">{{ i18n.t('models.spec.' + setting.key) }}</label>
+              <input [id]="'forecast-' + setting.key" class="ck-input ck-mono" type="number" step="1"
+                [min]="setting.bounds.min" [max]="setting.bounds.max" [value]="setting.value"
+                (change)="onTuningNumber(setting.draftKey, $event)" />
+              <div class="ck-hint">{{ i18n.t('models.spec.' + setting.key + '.hint') }}
+                {{ i18n.t('models.forecast.tuning.range', { min: setting.bounds.min, max: setting.bounds.max }) }}</div>
+            }
+            @if (tuningIssue(); as key) {
+              <p class="ck-refusal" role="alert" data-testid="forecast-tuning-refusal">{{ i18n.t(key) }}</p>
+            }
+          }
+        </div>
+      }
+
       <label class="ck-check">
         <input
           type="checkbox"
@@ -441,10 +468,19 @@ export class ForecastSpecComponent {
   readonly target = input('');
   readonly algo = input('');
   readonly horizonMax = input(720);
+  readonly fields = input<readonly SpecFieldDescriptor[]>([]);
   /** The plan's refusal about the problem definition, already phrased. */
   readonly refusal = input<string | null>(null);
   /** One patch per gesture; the host merges it into its draft. */
   readonly draftChange = output<Partial<ForecastDraft>>();
+
+  protected readonly hasTuning = computed(() => this.fields().some((field) => field.key === 'tuning'));
+  protected readonly tuningIssue = computed(() => forecastTuningIssue(this.draft(), this.algo(), this.fields()));
+  protected readonly tuningSettings = computed(() => [
+    { key: 'tuning_trials', draftKey: 'tuningTrials', value: this.draft().tuningTrials, bounds: tuningBounds(this.fields(), 'tuning_trials') },
+    { key: 'tuning_budget_s', draftKey: 'tuningBudget', value: this.draft().tuningBudget, bounds: tuningBounds(this.fields(), 'tuning_budget_s') },
+    { key: 'tuning_folds', draftKey: 'tuningFolds', value: this.draft().tuningFolds, bounds: tuningBounds(this.fields(), 'tuning_folds') },
+  ] as const);
 
   protected readonly shapes = FORECAST_SHAPES;
   protected readonly frequencies = FORECAST_FREQUENCIES;
@@ -485,6 +521,11 @@ export class ForecastSpecComponent {
     if (role) exog[column] = role;
     else delete exog[column];
     this.patch({ exog });
+  }
+
+  protected onTuningNumber(key: 'tuningTrials' | 'tuningBudget' | 'tuningFolds', event: Event): void {
+    const raw = (event.target as HTMLInputElement).value;
+    this.patch({ [key]: raw.trim() ? Number(raw) : 0 });
   }
 
   protected onHorizon(event: Event): void {

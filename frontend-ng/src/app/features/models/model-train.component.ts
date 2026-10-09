@@ -66,6 +66,7 @@ import {
   FORECASTING_TASK,
   draftFromSpec,
   forecastSpec,
+  forecastTuningIssue,
   parseLags,
   withTimeColumn,
   type ForecastDraft,
@@ -377,6 +378,7 @@ export interface TrainSeed {
                   [target]="target()"
                   [algo]="algoKey()"
                   [horizonMax]="horizonMax()"
+                  [fields]="forecastFields()"
                   (draftChange)="patchDraft($event)"
                 />
               } @else {
@@ -921,6 +923,10 @@ export class ModelTrainComponent implements OnInit {
     withTimeColumn(this.forecastDraft(), this.columns()),
   );
 
+  protected readonly forecastFields = computed(() =>
+    this.catalog().families?.find((family) => family.key === FORECASTING_TASK)?.spec_fields ?? [],
+  );
+  protected readonly tuningIssue = computed(() => forecastTuningIssue(this.draft(), this.algoKey(), this.forecastFields()));
   protected readonly lagsInvalid = computed(() => parseLags(this.draft().lags) === null);
 
   /** The ceiling the forecasting family declares for its horizon. */
@@ -934,7 +940,7 @@ export class ModelTrainComponent implements OnInit {
       !!this.plan() &&
       !this.submitting() &&
       !this.refusal() &&
-      !(this.isForecasting() && (this.lagsInvalid() || !this.draft().timeColumn)),
+      !(this.isForecasting() && (this.lagsInvalid() || !this.draft().timeColumn || !!this.tuningIssue())),
   );
 
   ngOnInit(): void {
@@ -947,8 +953,11 @@ export class ModelTrainComponent implements OnInit {
     if (seed?.algo) this.algoKey.set(seed.algo);
     if (seed?.testSize) this.testSize.set(seed.testSize);
     if (seed?.crossValidation) this.crossValidation.set(seed.crossValidation);
-    if (seed?.task === FORECASTING_TASK) this.forecastDraft.set(draftFromSpec(seed.spec));
-    else this.tabularDraft.set({ ...seed?.spec });
+    if (seed?.task === FORECASTING_TASK) this.forecastDraft.set(draftFromSpec(seed.spec, this.forecastFields()));
+    else {
+      this.tabularDraft.set({ ...seed?.spec });
+      this.forecastDraft.set(draftFromSpec(undefined, this.forecastFields()));
+    }
     if (seed?.knobs) {
       const knobs: Record<string, number> = {};
       for (const [key, value] of Object.entries(seed.knobs)) {
@@ -984,7 +993,7 @@ export class ModelTrainComponent implements OnInit {
     this.target.set('');
     this.taskOverride.set(null);
     this.featureOverride.set(null);
-    this.forecastDraft.set({ ...DEFAULT_FORECAST_DRAFT, exog: {} });
+    this.forecastDraft.set(draftFromSpec(undefined, this.forecastFields()));
     this.tabularDraft.set({});
     this.columns.set([]);
     this.plan.set(null);
@@ -1118,14 +1127,14 @@ export class ModelTrainComponent implements OnInit {
 
   /** Catalog fields only: old servers and the empty tabular catalog keep an empty spec. */
   private specPayload(): { spec?: Record<string, unknown> } {
-    if (this.isForecasting()) return { spec: forecastSpec(this.draft(), this.algoKey()) };
+    if (this.isForecasting()) return { spec: forecastSpec(this.draft(), this.algoKey(), this.forecastFields()) };
     const spec = tabularSpec(this.tabularFields(), this.tabularDraft(), this.effectiveTask());
     return Object.keys(spec).length ? { spec } : {};
   }
 
   protected async submit(): Promise<void> {
     const preview = this.plan();
-    if (!preview || this.submitting()) return;
+    if (!preview || !this.canSubmit()) return;
     this.submitting.set(true);
     try {
       const model = await this.models.train({

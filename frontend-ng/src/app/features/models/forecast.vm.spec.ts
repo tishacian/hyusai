@@ -13,6 +13,9 @@ import {
 
 import {
   DEFAULT_FORECAST_DRAFT,
+  draftFromSpec,
+  forecastTuningIssue,
+  tuningBounds,
   baselineGain,
   covariateCandidates,
   coverageTone,
@@ -426,4 +429,48 @@ test('the card finds the anatomy of the series it is showing, and the diagnostic
   };
   assert.equal(diagnosticScore(diagnostic, 'r2'), 0.82);
   assert.equal(diagnosticScore(diagnostic, 'rmse'), null);
+});
+
+const tuningFields = [
+  { key: 'tuning', kind: 'enum' as const, required: false, choices: ['off', 'budget'] },
+  { key: 'tuning_budget_s', kind: 'int' as const, required: false, min: 30, max: 60, default: 60 },
+];
+test('forecast tuning follows catalog defaults and round-trips saved settings for Studio and Flow', () => {
+  const draft = draftFromSpec({time_column: 'ts', tuning: 'budget', tuning_trials: 9, tuning_folds: 2}, tuningFields);
+  assert.equal(draft.tuningBudget, 60);
+  assert.deepEqual(tuningBounds(tuningFields, 'tuning_budget_s'), {min:30,max:60,default:60});
+  const spec = forecastSpec(draft, 'linear');
+  assert.equal(spec['tuning_budget_s'], 60);
+  assert.equal(spec['tuning_trials'], 9);
+  assert.equal(spec['tuning_folds'], 2);
+  assert.deepEqual(draftFromSpec(spec, tuningFields), draft);
+  const off = forecastSpec({...draft, tuning: 'off'}, 'linear');
+  assert.equal(off['tuning'], 'off');
+  assert.equal(off['tuning_budget_s'], undefined);
+});
+test('saved settings remain visible when a new server budget makes them invalid', () => {
+  const draft = draftFromSpec({tuning: 'budget', tuning_budget_s: 300}, tuningFields);
+  assert.equal(draft.tuningBudget, 300);
+  assert.equal(forecastTuningIssue(draft, 'linear', tuningFields), 'models.forecast.tuning.bounds');
+  assert.equal(forecastTuningIssue({...draft, tuningBudget:60}, 'linear', tuningFields), null);
+});
+test('unsupported forecast tuning is refused explicitly rather than silently removed', () => {
+  const draft = {...DEFAULT_FORECAST_DRAFT, tuning: 'budget' as const};
+  for (const algo of ['ets','arima','seasonal_naive']) {
+    assert.equal(forecastSpec(draft, algo)['tuning'], 'budget');
+    assert.equal(forecastTuningIssue(draft, algo), 'models.refusal.ml_ts_tuning_unsupported');
+  }
+  assert.equal(forecastTuningIssue({...draft, fill:'interpolate'}, 'linear'), 'models.refusal.ml_ts_tuning_fill_unsafe');
+  assert.equal(forecastTuningIssue({...draft, tuning:'off', fill:'interpolate'}, 'ets'), null);
+  for (const patch of [{tuningBudget:NaN}, {tuningFolds:1}, {tuningTrials:101}, {tuningTrials:5.2}])
+    assert.equal(forecastTuningIssue({...draft,...patch}, 'linear'), 'models.forecast.tuning.bounds');
+});
+
+test('older catalogs receive no unsupported tuning keys and saved tuning is visibly refused', () => {
+  const ordinary = forecastSpec(DEFAULT_FORECAST_DRAFT, 'linear', []);
+  assert.equal(ordinary['tuning'], undefined);
+  assert.ok(!Object.keys(ordinary).some((key) => key.startsWith('tuning')));
+  const saved = {...DEFAULT_FORECAST_DRAFT, tuning:'budget' as const};
+  assert.equal(forecastTuningIssue(saved,'linear',[]), 'models.forecast.tuning.unavailable');
+  assert.equal(forecastSpec(saved,'linear',[])['tuning'],'budget');
 });
