@@ -462,7 +462,10 @@ def test_the_family_image_app_registers_the_training_task_and_nothing_else():
     lines = [line for line in result.stdout.splitlines() if line.startswith("PROBE ")]
     assert result.returncode == 0 and lines, result.stderr[-2000:]
     report = json.loads(lines[-1].removeprefix("PROBE "))
-    assert report["tasks"] == ["agentium.ml_forecast", "agentium.ml_forecast_batch", "agentium.ml_train"]
+    assert set(report["tasks"]) == {
+        "agentium.ml_forecast", "agentium.ml_forecast_batch", "agentium.ml_train",
+        "agentium.ml_retraining_recovery", "agentium.ml_shadow", "agentium.ml_shadow_recover",
+    }
     assert report["heavy"] == []
 
 

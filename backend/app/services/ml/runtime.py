@@ -38,6 +38,11 @@ KEY_PACKAGES = (
     "mlflow",
     "joblib",
     "pyarrow",
+    "skforecast",
+    "torch",
+    "transformers",
+    "chronos-forecasting",
+    "sentence-transformers",
 )
 
 
@@ -84,7 +89,10 @@ def beat(db: Any, *, queues: list[str], hostname: str | None = None, now: dateti
     row.queues = sorted(set(queues))
     row.image_revision = (identity["image_revision"] or "")[:80] or None
     row.fingerprint = identity["fingerprint"]
-    row.packages_json = identity["packages"]
+    row.packages_json = dict(identity["packages"])
+    if settings.ml_runtime == "ml-deep":
+        from app.services.ml.local_models import local_model_descriptors
+        row.packages_json = {**row.packages_json, "agentium_models": local_model_descriptors()}
     row.seen_at = now
 
 
@@ -144,3 +152,60 @@ def _heard_on(runtime: str, queue: str, db: Any, now: datetime | None) -> tuple[
     if any(queue in (row.queues or []) for row in rows):
         return True, None
     return False, "no_worker"
+
+
+def model_descriptors(db: Any = None, *, now: datetime | None = None) -> dict[str, dict[str, Any]]:
+    """Allowlisted model provenance from live deep training workers, no paths.
+
+    Conflicting revisions on one queue are unavailable: Celery can deliver a
+    fit to any consumer, so the catalogue cannot promise either revision.
+    """
+    from app.services.ml.local_models import MODEL_SPECS, local_model_descriptors
+
+    if settings.worker_eager_mode:
+        return local_model_descriptors()
+    if db is None:
+        return {}
+    from app.models.tabular import MLRuntimeHeartbeat
+
+    cutoff = (now or datetime.utcnow()) - timedelta(seconds=float(settings.ml_runtime_heartbeat_ttl_s))
+    rows = db.query(MLRuntimeHeartbeat).filter(
+        MLRuntimeHeartbeat.runtime == "ml-deep", MLRuntimeHeartbeat.seen_at >= cutoff,
+    ).all()
+    candidates: dict[str, list[dict[str, str]]] = {}
+    workers = [row for row in rows if settings.celery_ml_deep_queue in (row.queues or [])]
+    for row in workers:
+        descriptors = (row.packages_json or {}).get("agentium_models", {})
+        if not isinstance(descriptors, dict):
+            continue
+        for model_id, descriptor in descriptors.items():
+            spec = MODEL_SPECS.get(model_id)
+            if not spec or not isinstance(descriptor, dict):
+                continue
+            if descriptor.get("kind") != spec["kind"] or descriptor.get("upstream_id") != spec["upstream_id"]:
+                continue
+            public = {key: descriptor[key] for key in ("model_id", "kind", "revision", "upstream_id", "fingerprint") if isinstance(descriptor.get(key), str)}
+            if len(public) == 5 and public["model_id"] == model_id:
+                candidates.setdefault(model_id, []).append(public)
+    result = {}
+    for model_id, descriptors in candidates.items():
+        if len(descriptors) == len(workers) and all(item == descriptors[0] for item in descriptors):
+            result[model_id] = descriptors[0]
+    return result
+
+
+def model_availability(model_id: str, db: Any = None, *, now: datetime | None = None) -> tuple[bool, str | None]:
+    """Only a live training queue with consistent verified local weights offers a model."""
+    from app.services.ml.local_models import MODEL_SPECS
+
+    if model_id not in MODEL_SPECS:
+        return False, "model_unknown"
+    if not (settings.ml_train_enabled and settings.tabular_data_enabled):
+        return False, "disabled"
+    if not settings.worker_eager_mode:
+        available, reason = _heard_on("ml-deep", settings.celery_ml_deep_queue, db, now)
+        if not available:
+            return False, reason
+    if model_id not in model_descriptors(db, now=now):
+        return False, "model_missing"
+    return True, None

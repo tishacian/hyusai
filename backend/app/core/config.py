@@ -120,6 +120,11 @@ class Settings(BaseSettings):
     # Forecasts on demand: the API sends one task and waits for its answer, so
     # this queue is consumed by a threads-pool worker that keeps models loaded.
     celery_ml_ts_serve_queue: str = "ml_ts_rpc"
+    # Optional torch runtime; neither queue is consumed by the CPU worker.
+    celery_ml_deep_queue: str = "ml_deep"
+    celery_ml_deep_serve_queue: str = "ml_deep_rpc"
+    # Operator-provisioned, checksummed weights. Never a user-provided path.
+    ml_deep_models_dir: str = "/data/models"
 
     # Object storage for original / ingested / derived RAG artifacts.
     # "local" is dependency-free for dev/tests; "s3" uses fsspec/s3fs when
