@@ -16,6 +16,7 @@ PYTHON_IGNORES = [
     ROOT / "docker" / "Dockerfile.agentium-backend.dockerignore",
     ROOT / "docker" / "Dockerfile.agentium-worker.dockerignore",
     ROOT / "docker" / "Dockerfile.agentium-ml-ts.dockerignore",
+    ROOT / "docker" / "Dockerfile.agentium-ml-deep.dockerignore",
 ]
 
 # Files the API or a worker reads at run time from outside backend/.
@@ -27,6 +28,9 @@ RUNTIME_READS = [
     "backend/requirements_giskard.txt",
     "backend/requirements_ml_ts.txt",
     "backend/constraints-demo-ml-ts.txt",
+    "backend/requirements_ml_deep.txt",
+    "backend/constraints-demo-ml-deep.txt",
+    "backend/scripts/provision_ml_deep_manifest.py",
     "backend/app/resources/ml_forecast_harness.py",
     "backend/app/resources/ml_forecast_pyfunc.py",
     "backend/scripts/qualify_giskard_raget.py",
