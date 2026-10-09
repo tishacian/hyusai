@@ -301,3 +301,67 @@ async def test_retraining_run_link_projects_canonical_approval_rights(db_session
     decision.expires_at=datetime.utcnow()-timedelta(seconds=1)
     db_session.commit()
     assert admin.get(f"/runs/{run.id}").json()["hitl"]["can_decide"] is False
+
+
+def test_deleting_monitored_model_stops_future_ticks_and_preserves_history(db_session, case, monkeypatch):
+    from datetime import timedelta
+    from app.models.system import System
+    from app.services.run_engine import scheduler
+    from app.services.tabular_ml import delete_model
+
+    run, job = propose(db_session, case, monkeypatch)
+    case.schedule.next_fire_at = datetime.utcnow() - timedelta(minutes=1)
+    db_session.commit()
+    model_id, system_id, job_id, run_id = case.model.id, case.schedule.system_id, job.id, run.id
+    delete_model(db_session, case.model)
+    db_session.expire_all()
+    assert db_session.get(MLModel, model_id) is None
+    assert not case.schedule.enabled and case.schedule.next_fire_at is None
+    assert db_session.get(System, system_id) is not None
+    assert db_session.get(WorkspaceJob, job_id) is not None
+    assert db_session.get(Run, run_id) is not None
+    monkeypatch.setattr(scheduler, "_dispatch_run", lambda *_: pytest.fail("deleted model schedule fired"))
+    assert scheduler.scheduler_tick()["fired"] == 0
+
+
+@pytest.mark.parametrize("scope", ["another_model", "another_workspace"])
+def test_model_deletion_cannot_stop_an_unrelated_monitoring_system(db_session, case, scope):
+    from app.models.system import System
+    from app.models.workspace import Workspace
+    from app.services.tabular_ml import delete_model
+
+    system = db_session.get(System, case.schedule.system_id)
+    if scope == "another_model":
+        system.settings = {"ml_monitoring_model_id": str(uuid4())}
+    else:
+        other = Workspace(id=str(uuid4()), name="Other", slug=uuid4().hex)
+        db_session.add(other)
+        db_session.flush()
+        system.workspace_id = other.id
+        case.schedule.workspace_id = other.id
+    db_session.commit()
+    delete_model(db_session, case.model)
+    db_session.refresh(case.schedule)
+    assert case.schedule.enabled and case.schedule.next_fire_at is not None
+
+
+def test_model_deletion_reloads_a_policy_enabled_after_the_model_was_read(db_session, case):
+    from app.db.base import SessionLocal
+    from app.services.tabular_ml import delete_model
+
+    model = MLModel(id=str(uuid4()), workspace_id=case.workspace.id, name="Concurrent",
+        slug="concurrent-model", task="classification", target="label", features=["x"],
+        algo="linear", status="ready", dataset_id=case.data.id, params_json={"knobs": {}})
+    db_session.add(model)
+    db_session.commit()
+    with SessionLocal() as deleting:
+        stale = deleting.get(MLModel, model.id)
+        assert not service.policy_for(stale).get("system_id")
+        service.configure(db_session, model=model, workspace=case.workspace, user=case.owner,
+            body=service.MonitoringPolicy(enabled=True))
+        schedule_id = service.policy_for(model)["schedule_id"]
+        assert not service.policy_for(stale).get("system_id")
+        delete_model(deleting, stale)
+    db_session.expire_all()
+    schedule = db_session.get(RunSchedule, schedule_id)
+    assert not schedule.enabled and schedule.next_fire_at is None

@@ -71,6 +71,11 @@ abandonnées sont clôturées, et l’annulation d’un Run interrompt son fit.
 Les limites ordinaires de temps, mémoire et annulation du
 worker ML s'appliquent.
 
+La suppression d’un modèle désactive les planifications de son Flow de
+surveillance dans la même transaction, avec verrouillage et rechargement
+du modèle pour couvrir une activation concurrente. Le Flow, les exécutions
+et les propositions restent disponibles pour l’historique.
+
 Le modèle entraîné reste challenger, même si l'ancien champion disparaît.
 Une promotion explicite et indépendante est nécessaire pour qu'il devienne
 le modèle servi par défaut.
@@ -126,3 +131,7 @@ preuves et des droits, la séparation du champion et la protection des jobs.
 - Compilation Angular, i18n, contrôles UI et navigation passent.
 - Le build production unique de cette branche passe. Les avertissements
   Angular, CSS, budget initial et dagre déjà présents restent sans changement.
+- La revue d’intégration valide 64 tests ciblés backend : suppression et arrêt
+  du cron, conservation de l’historique, isolation entre modèles et espaces,
+  activation après lecture du modèle, parcours de réentraînement, récupération,
+  API, scheduler et imports. Le frontend reste identique au build déjà qualifié.
