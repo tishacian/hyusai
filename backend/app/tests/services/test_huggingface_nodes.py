@@ -220,6 +220,7 @@ def test_registration_keeps_immutable_artifact_provenance(manifest):
         "status": "running",
         "artifact_id": "artifact-a",
         "workspace_id": "workspace-a",
+        "deployment_id": "dep-a",
         "provenance": {**manifest, "runtime_version": "b1"},
     }
     snapshot = {
@@ -232,6 +233,9 @@ def test_registration_keeps_immutable_artifact_provenance(manifest):
     assert rows[0]["artifact_id"] == "artifact-a"
     assert rows[0]["revision"] == "a" * 40
     assert rows[0]["runtime_version"] == "b1"
-    bad = copy.deepcopy(snapshot)
-    del bad["instances"][0]["workspace_id"]
-    assert registration.sync_from_node_snapshots([bad]) == []
+    assert rows[0]["openai_base_url"] == "https://gpu/api/v1/artifacts/deployments/dep-a/v1"
+    assert rows[0]["api_key"] == "local"
+    for field, value in (("workspace_id", None), ("deployment_id", None), ("deployment_id", "../x")):
+        bad = copy.deepcopy(snapshot)
+        bad["instances"][0][field] = value
+        assert registration.sync_from_node_snapshots([bad]) == []
