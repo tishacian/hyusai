@@ -45,6 +45,7 @@ export interface MlPlanQuery {
   task?: ModelTask;
   features?: string[];
   algo?: string;
+  knobs?: Record<string, number>;
   /** A family's problem definition (a forecast's date column, horizon, …). */
   spec?: Record<string, unknown>;
 }

@@ -149,6 +149,7 @@ export interface CvBlock {
 }
 
 export interface MetricsBlock {
+  clustering?: import('./clustering.vm').ClusteringEvidence;
   distillation?: import('./distillation-evidence.vm').DistillationEvidence;
   intervals?: IntervalEvidence;
   calibration?: CalibrationEvidence;
@@ -937,6 +938,7 @@ export function isActiveStatus(status: ModelStatus | undefined | null): boolean 
 /** Lucide icon for a task — the list's at-a-glance "what does it predict" cue. */
 export function taskIcon(task: ModelTask | undefined): string {
   if (task === 'forecasting') return 'history';
+  if (task === 'clustering') return 'circle-dot';
   return task === 'regression' ? 'trending-up' : 'target';
 }
 
@@ -955,6 +957,7 @@ export function algoIcon(algo: string | undefined): string {
       return 'git-branch';
     case 'linear':
       return 'line-chart';
+    case 'kmeans':
     case 'knn':
       return 'circle-dot';
     case 'ets':
@@ -1546,6 +1549,12 @@ export function defaultFeatures(
  * still a refusal the author has to read.
  */
 export const REFUSAL_CODES = [
+  'ML_CLUSTER_TARGET_UNSUPPORTED',
+  'ML_CLUSTER_OPTION_UNSUPPORTED',
+  'ML_CLUSTER_KNOB_INVALID',
+  'ML_CLUSTER_FEATURE_NOT_NUMERIC',
+  'ML_CLUSTER_DATA_UNUSABLE',
+  'ML_CLUSTER_FEEDBACK_UNSUPPORTED',
   'ML_DEEP_MODEL_MISSING',
   'ML_DEEP_MODEL_INVALID',
   'ML_DEEP_MODEL_CHANGED',
@@ -1621,13 +1630,16 @@ export function refusalField(
     case 'ML_TARGET_TOO_MANY_CLASSES':
     case 'ML_TARGET_SINGLE_CLASS':
       return 'target';
+    case 'ML_CLUSTER_FEATURE_NOT_NUMERIC':
     case 'ML_FEATURE_UNKNOWN':
     case 'ML_FEATURES_REQUIRED':
     case 'ML_TOO_MANY_FEATURES':
       return 'features';
+    case 'ML_CLUSTER_KNOB_INVALID':
     case 'ML_ALGO_UNKNOWN':
     case 'ML_ALGO_TASK_MISMATCH':
       return 'algo';
+    case 'ML_CLUSTER_DATA_UNUSABLE':
     case 'DATASET_NOT_READY':
     case 'ML_DATASET_UNPROFILED':
     case 'ML_ROWS_INSUFFICIENT':
@@ -1647,6 +1659,7 @@ export function refusalField(
  * saw, a key that was revoked, an artifact that will not load.
  */
 export const SERVING_ERROR_CODES = [
+  'ML_RUNTIME_MISSING',
   'ML_INTERVAL_LEVEL_UNKNOWN',
   'ML_PREDICT_DISABLED',
   'ML_PREDICT_ROWS_REQUIRED',
@@ -1868,10 +1881,11 @@ export function trainChecklist(
   spec?: Record<string, unknown> | null,
 ): TrainStep[] {
   const forecast = task === 'forecasting';
+  const clustering = task === 'clustering';
   // The step that counts folds: a cross-validation, or a forecast's backtest
   // (which always runs, one fold or several).
   const foldStep = forecast ? 'backtesting' : 'validating';
-  const folds = forecast
+  const folds = clustering ? 3 : forecast
     ? Math.max(1, Math.round(Number(requestedFolds) || 1))
     : Number(requestedFolds) >= 2
       ? Math.round(Number(requestedFolds))
@@ -1883,7 +1897,7 @@ export function trainChecklist(
       (task === 'classification' && (['auto', 'sigmoid', 'isotonic'].includes(String(spec?.['calibration'])) || ['f1', 'youden'].includes(String(spec?.['threshold'])))),
     explaining: spec?.['explain'] === 'pack',
   };
-  const steps = forecast
+  const steps = clustering ? ['queued', 'reading', 'fitting', 'scoring', 'validating', 'saving'] : forecast
     ? FORECAST_TRAIN_STEPS.filter((step) => step !== 'tuning' || optional['tuning'] || parsed.step === 'tuning')
     : TRAIN_STEPS.filter((step) => (step !== 'validating' || folds >= 2) &&
       (!(step in optional) || optional[step] || parsed.step === step));
@@ -1913,7 +1927,7 @@ export function trainChecklist(
     }
     return {
       step,
-      key: `models.progress.step.${step}${withRows || onFold ? '.counted' : ''}`,
+      key: `models.progress.${clustering && ['scoring', 'validating'].includes(step) ? 'clustering' : 'step'}.${step}${withRows || onFold ? '.counted' : ''}`,
       params,
       state: index < at ? 'done' : index === at ? 'active' : 'todo',
     };
@@ -1921,6 +1935,7 @@ export function trainChecklist(
 }
 
 export const TRAINING_ERROR_CODES = [
+  'ML_CLUSTER_DATA_UNUSABLE',
   'ML_TIMEOUT',
   'ML_FIT_FAILED',
   'ML_TARGET_UNUSABLE',

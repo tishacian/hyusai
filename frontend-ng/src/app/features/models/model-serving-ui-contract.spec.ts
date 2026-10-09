@@ -207,7 +207,7 @@ test('each dial owns the gradient it paints itself with', () => {
 });
 
 test('the explanation is asked for explicitly, and only for the one row on screen', () => {
-  assert.match(PLAYGROUND, /explain: true/);
+  assert.match(PLAYGROUND, /explain: this\.model\(\)\.task !== 'clustering'/);
   assert.match(CLIENT, /options\.explain \? \{ explain: true \} : \{\}/);
 });
 
