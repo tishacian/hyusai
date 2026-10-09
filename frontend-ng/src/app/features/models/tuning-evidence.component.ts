@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { I18nService } from '@app/core/i18n.service';
-import { tuningKnobs, tuningPoints, type TuningResult } from './tuning-evidence.vm';
+import { tuningKnobs, tuningPoints, temporalTuning, tuningWarningKey, type TuningResult } from './tuning-evidence.vm';
 
 @Component({
   selector: 'ck-tuning-evidence', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
@@ -9,7 +9,16 @@ import { tuningKnobs, tuningPoints, type TuningResult } from './tuning-evidence.
       <div class="charts ck-charts" data-testid="tuning-evidence">
         <section>
           <h3>{{ i18n.t('models.tuning.title') }}</h3>
-          <p>{{ i18n.t('models.tuning.validation', { metric: tuning.metric, folds: tuning.folds }) }}</p>
+          @if (temporal(); as validation) {
+            <div data-testid="tuning-temporal-validation">
+              <p>{{ i18n.t('models.tuning.temporal_validation', { metric: tuning.metric, folds: tuning.folds }) }}</p>
+              <p>{{ i18n.t('models.tuning.temporal_range', { start: validation.train_start, end: validation.train_end }) }}</p>
+              <p>{{ i18n.t('models.tuning.temporal_holdout', { start: validation.holdout_start, rows: validation.holdout_rows }) }}</p>
+              <p>{{ i18n.t('models.tuning.temporal_naive') }}: <strong>{{ number(tuning.baseline?.mae) }}</strong></p>
+            </div>
+          } @else {
+            <p>{{ i18n.t('models.tuning.validation', { metric: tuning.metric, folds: tuning.folds }) }}</p>
+          }
           @if (points().length) {
             <svg viewBox="0 0 400 180" role="img" [attr.aria-label]="i18n.t('models.tuning.chart')">
               <path d="M24 15 V150 H385" fill="none" stroke="var(--ck-stroke-2)" />
@@ -25,7 +34,7 @@ import { tuningKnobs, tuningPoints, type TuningResult } from './tuning-evidence.
              · {{ i18n.t('models.tuning.best') }}: <strong>{{ number(tuning.best.score) }}</strong> ± {{ number(tuning.best.std) }}</p>
           <p>@if (!tuning.warning) { {{ i18n.t('models.tuning.' + tuning.stopped_by) }} · }{{ number(tuning.elapsed_s) }} / {{ tuning.budget_s }} s</p>
           <p>{{ i18n.t('models.tuning.counts', { run: tuning.trials_run, pruned: tuning.trials_pruned, failed: tuning.trials_failed }) }}</p>
-          @if (tuning.warning) { <p role="status">{{ i18n.t('models.tuning.baseline_unavailable') }}</p> }
+          @if (warningKey(); as key) { <p role="status">{{ i18n.t(key) }}</p> }
         </section>
         <section>
           <h3>{{ i18n.t('models.tuning.knobs') }}</h3>
@@ -34,7 +43,7 @@ import { tuningKnobs, tuningPoints, type TuningResult } from './tuning-evidence.
               <tr><th>{{ label(row.key) }}</th><td>{{ value(row.before) }}</td><td>{{ value(row.after) }}</td></tr>
             }</tbody>
           </table>
-          <p>{{ i18n.t('models.tuning.hint') }}</p>
+          <p>{{ i18n.t(temporal() ? 'models.tuning.temporal_hint' : 'models.tuning.hint') }}</p>
         </section>
       </div>
     }
@@ -51,6 +60,8 @@ import { tuningKnobs, tuningPoints, type TuningResult } from './tuning-evidence.
 export class TuningEvidenceComponent {
   readonly i18n = inject(I18nService);
   readonly result = input<TuningResult>();
+  protected readonly temporal = computed(() => temporalTuning(this.result()));
+  protected readonly warningKey = computed(() => tuningWarningKey(this.result()));
   protected readonly points = computed(() => tuningPoints(this.result()));
   protected readonly knobs = computed(() => tuningKnobs(this.result()));
   protected number(value: number | null | undefined): string { return value == null ? '—' : value.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 3 }); }
