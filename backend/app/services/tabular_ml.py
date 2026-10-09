@@ -1662,6 +1662,7 @@ def _write_manifest(
                     raise TabularError(code="ML_DEEP_MODEL_CHANGED", message="The embedding source changed while preparing the fit.", status_code=409)
             manifest["spec"]["_embedding_path"] = str(asset_copy)
             manifest["report_state_limit_mb"] = 0
+            manifest["importance_rows"] = min(32, manifest["importance_rows"])
     if manifest["spec"].get("tuning") == "budget" and params.get("tuning"):
         manifest["tuning"] = dict(params["tuning"])
         if manifest["family"] == FORECASTING:
