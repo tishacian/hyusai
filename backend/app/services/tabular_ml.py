@@ -360,6 +360,10 @@ def _catalog_algo(algo: Algo, db: DBSession | None) -> dict:
         asset_ready, asset_reason = model_availability("chronos-2-small", db)
         payload.update(available=ready and asset_ready, reason=reason or asset_reason,
                        family="forecasting_deep", model_id="chronos-2-small")
+    elif FORECASTING in payload["tasks"] and not family_availability(get_family(FORECASTING), db)[0]:
+        # A deep worker makes the forecasting task available, but cannot fit
+        # the regressors/statistical models routed to the separate TS image.
+        payload["tasks"] = [task for task in payload["tasks"] if task != FORECASTING]
     return payload
 
 
@@ -377,6 +381,10 @@ def catalog_payload(db: DBSession | None = None) -> dict[str, Any]:
     families = []
     for family in ml_families.FAMILIES:
         available, reason = family_availability(family, db)
+        if family.key == "forecasting_deep":
+            from app.services.ml.runtime import model_availability
+            asset_ready, asset_reason = model_availability("chronos-2-small", db)
+            available, reason = available and asset_ready, reason or asset_reason
         serve = serving_availability(family, db)[0] if family.serving != "in_process" else None
         family_payload = family.payload(available=available, reason=reason, serve_available=serve)
         if family.key == FORECASTING:
@@ -1612,7 +1620,7 @@ def _write_manifest(
         expected = params.get("foundation") or {}
         if expected.get("fingerprint") != local.fingerprint or expected.get("revision") != local.revision:
             raise TabularError(code="ML_DEEP_MODEL_CHANGED", message="The foundation model changed since submission.", status_code=409)
-        manifest["foundation"] = {**expected, "path": str(local.path)}
+        manifest["foundation"] = {**expected, "path": str(local.path), "files": local.files}
     if manifest["spec"].get("tuning") == "budget" and params.get("tuning"):
         manifest["tuning"] = dict(params["tuning"])
         if manifest["family"] == FORECASTING:
