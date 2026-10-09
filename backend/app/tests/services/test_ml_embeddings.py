@@ -219,3 +219,24 @@ def test_embedding_worker_lifecycle_uses_frozen_asset_and_serves_predictions(tmp
     answer = tabular_predict.predict_rows(db_session, row, [{'text': 'réseau perdu', 'amount': 1.0}], version=row.version)
     assert answer['rows'] == 1 and answer['predictions'][0]['prediction'] in {'0', '1'}
     tabular_predict.reset_cache()
+
+
+def test_queued_fit_rejects_asset_changes_and_reads_verified_copy(tmp_path, model, monkeypatch):
+    from app.services.ml import local_models
+    from pathlib import Path
+    source = tmp_path/'original'
+    source.mkdir()
+    (source/'model.safetensors').write_bytes(b'frozen')
+    files = {'model.safetensors': hashlib.sha256(b'frozen').hexdigest()}
+    local = local_models.LocalModel(source, 'multilingual-minilm', 'a'*40, 'embedding', 'b'*64, 'encoder', files)
+    monkeypatch.setattr(local_models, 'resolve_model', lambda *a, **kw: local)
+    model.params_json = {'foundation': {**local.public(), 'fingerprint': 'c'*64}}
+    with pytest.raises(TabularError) as error:
+        tabular_ml._write_manifest(tmp_path, model, tmp_path/'data.parquet')
+    assert error.value.code == 'ML_DEEP_MODEL_CHANGED'
+    model.params_json = {'foundation': local.public()}
+    model.spec_json = {'text_encoder': 'embedding', 'embedding_columns': ['text'], 'embedding_components': 5}
+    manifest = json.loads(tabular_ml._write_manifest(tmp_path, model, tmp_path/'data.parquet').read_text())
+    (source/'model.safetensors').write_bytes(b'changed')
+    assert (Path(manifest['spec']['_embedding_path'])/'model.safetensors').read_bytes() == b'frozen'
+    assert manifest['importance_rows'] <= 32 and manifest['report_state_limit_mb'] == 0

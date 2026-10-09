@@ -1144,7 +1144,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         files = {str(path.relative_to(bundle)): hashlib.sha256(path.read_bytes()).hexdigest()
                  for path in bundle.rglob("*") if path.is_file()}
         artifact = {"serialization": "cloudpickle", "sha256": files["model.pkl"], "files": files}
-        metrics["embedding"] = {key: value for key, value in (manifest.get("foundation") or {}).items() if key != "path"}
+        metrics["embedding"] = {key: value for key, value in (manifest.get("foundation") or {}).items() if key not in {"path", "files"}}
         metrics["embedding"].update(columns=manifest["spec"]["embedding_columns"], components=manifest["spec"]["embedding_components"],
                                     frozen=True, train_only_reduction=True)
     summary = {
