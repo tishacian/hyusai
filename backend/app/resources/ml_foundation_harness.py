@@ -157,7 +157,7 @@ def save_export(manifest, series, frequency, weights, weight_hashes, model_dir):
         "target": manifest["target"], "levels": list(series), "frequency": frequency,
         "last_timestamp": str(next(iter(series.values())).index[-1]),
         "horizon": spec["horizon"], "max_steps": MAX_HORIZON, "interval_level": spec.get("interval_level", 0.8),
-        "context_length": CONTEXT_LENGTH, "foundation": foundation,
+        "context_length": CONTEXT_LENGTH, "max_steps": MAX_HORIZON, "foundation": foundation,
         "exog_future": [], "exog_static": [], "explain": {"kind": "none"},
     }
     (work / "meta.json").write_text(json.dumps(meta, allow_nan=False))
@@ -259,7 +259,7 @@ def main(argv):
         "interval_level": level, "interval_method": "model", "lags": [], "calendar": [],
         "series_count": len(series), "filled_steps": holes, "fill": spec.get("fill", "refuse"),
         "last_timestamp": str(next(iter(series.values())).index[-1]), "serialization": "json",
-        "context_length": CONTEXT_LENGTH,
+        "context_length": CONTEXT_LENGTH, "max_steps": MAX_HORIZON,
     }
     provenance = {key: value for key, value in manifest["foundation"].items() if key not in ("path", "files")}
     metrics = {
@@ -276,7 +276,7 @@ def main(argv):
     result = {
         "metrics": metrics,
         "signature": {"inputs": [], "output": {"task": "forecasting", "target": manifest["target"],
-                                                     "levels": list(series), "horizon": horizon}},
+                                                     "levels": list(series), "horizon": horizon, "max_steps": MAX_HORIZON}},
         "input_example": [], "classes": [], "artifact": artifact,
         "duration_ms": round(1000 * (time.monotonic() - started), 1),
     }
