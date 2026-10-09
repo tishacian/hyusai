@@ -482,8 +482,12 @@ def _explain_fit(forecaster, *, inputs: dict, direct: bool, groups_of) -> tuple[
 def build_forecaster(manifest, *, frequency, lags):
     from skforecast.direct import ForecasterDirect, ForecasterDirectMultiVariate
     from skforecast.preprocessing import CalendarFeatures
-    from skforecast.recursive import (ForecasterEquivalentDate, ForecasterRecursive,
-                                     ForecasterRecursiveMultiSeries, ForecasterStats)
+    from skforecast.recursive import (
+        ForecasterEquivalentDate,
+        ForecasterRecursive,
+        ForecasterRecursiveMultiSeries,
+        ForecasterStats,
+    )
     spec = manifest["spec"]
     algo, target = manifest["algo"], manifest["target"]
     shape, horizon = spec.get("shape", "single"), int(spec["horizon"])
@@ -679,12 +683,6 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         backtesting_stats,
     )
     from skforecast.preprocessing import CalendarFeatures
-    from skforecast.recursive import (
-        ForecasterEquivalentDate,
-        ForecasterRecursive,
-        ForecasterRecursiveMultiSeries,
-        ForecasterStats,
-    )
 
     calendar = CalendarFeatures(features=_calendar_features(frequency)) if spec.get("calendar", True) else None
 
