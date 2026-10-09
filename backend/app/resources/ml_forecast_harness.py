@@ -262,8 +262,11 @@ def _regularize(frame, *, frequency: str, columns: list[str], fill: str):
 def _long(frame):
     """A wide frame (one column per series) as a (timestamp, series) lookup."""
 
-    melted = frame.melt(ignore_index=False, var_name="level", value_name="value")
-    return melted.set_index("level", append=True)["value"]
+    value_column = "__forecast_value"
+    while value_column in frame.columns:
+        value_column += "_"
+    melted = frame.melt(ignore_index=False, var_name="level", value_name=value_column)
+    return melted.set_index("level", append=True)[value_column].rename("value")
 
 
 def _conformal_quantile(errors, level: float):

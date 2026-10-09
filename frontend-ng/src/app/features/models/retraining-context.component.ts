@@ -1,3 +1,4 @@
+import { ForecastActualsComponent } from './forecast-actuals.component';
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { I18nService } from '@app/core/i18n.service';
 import { NavLinkDirective } from '@app/shared/cockpit';
@@ -6,7 +7,7 @@ import { retrainingReviewReady, type RetrainingBinding } from './retraining-evid
 
 @Component({
   selector: 'ck-retraining-context', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NavLinkDirective, DriftEvidenceComponent],
+  imports: [NavLinkDirective, DriftEvidenceComponent, ForecastActualsComponent],
   template: `
     <section data-testid="retraining-context">
       <h4>{{ t('review_title') }}</h4><p>{{ t('review_hint') }}</p>
@@ -15,24 +16,32 @@ import { retrainingReviewReady, type RetrainingBinding } from './retraining-evid
           <dt>{{ t('source') }}</dt><dd><a [navLink]="{leaf:'model-doc',ref:b.model_id}">{{ b.model_name || b.model_id }} · v{{ b.model_version }}</a></dd>
           <dt>{{ t('dataset') }}</dt><dd><a [navLink]="{leaf:'data-doc',ref:b.dataset_id}">{{ b.dataset_id }} · v{{ b.dataset_version }}</a></dd>
           <dt>{{ t('fingerprint') }}</dt><dd><code>{{ b.dataset_sha256 }}</code></dd>
-          <dt>{{ t('labeled_rows') }}</dt><dd>{{ b.labeled_rows }}</dd>
+          <dt>{{ t(b.training.task === 'forecasting' ? 'history_rows' : 'labeled_rows') }}</dt><dd>{{ b.labeled_rows }}</dd>
           <dt>{{ t('algorithm') }}</dt><dd>{{ b.training.algo }}</dd>
           <dt>{{ t('target') }}</dt><dd>{{ b.training.target }}</dd>
           <dt>{{ t('features') }}</dt><dd>{{ b.training.features.join(', ') }}</dd>
-          <dt>{{ t('test_size') }}</dt><dd>{{ b.training.test_size * 100 }} %</dd>
-          <dt>{{ t('cross_validation') }}</dt><dd>{{ b.training.cross_validation }}</dd>
+          @if (b.training.task !== 'forecasting') { <dt>{{ t('test_size') }}</dt><dd>{{ b.training.test_size * 100 }} %</dd> }
+          <dt>{{ t(b.training.task === 'forecasting' ? 'temporal_folds' : 'cross_validation') }}</dt><dd>{{ b.training.cross_validation }}</dd>
           <dt>{{ t('knobs') }}</dt><dd><code>{{ json(b.training.knobs) }}</code></dd>
           <dt>{{ t('spec') }}</dt><dd><code>{{ json(b.training.spec) }}</code></dd>
           <dt>{{ t('proposal') }}</dt><dd><code>{{ b.proposal_id }}</code></dd>
         </dl>
         <h4>{{ t('frozen_evidence') }}</h4>
-        <p>{{ t('badge') }}: {{ badge(b.evidence.badge) }} · {{ t('prediction_count') }}: {{ b.evidence.window.predictions }} · {{ t('labeled_count') }}: {{ b.evidence.window.labeled }}</p>
+        <p>{{ t('badge') }}: {{ badge(b.evidence.badge) }} · {{ t('prediction_count') }}: {{ b.evidence.window.predictions }} · {{ t(b.training.task === 'forecasting' ? 'observed_count' : 'labeled_count') }}: {{ b.evidence.window.labeled }}</p>
+        @if (b.forecast_sources; as sources) {
+          <p data-testid="forecast-history-source">{{ t('new_observations') }}: {{ sources.new_rows }} · {{ t('history_rows') }}: {{ sources.history_rows }}</p>
+          <p><a [navLink]="{leaf:'data-doc',ref:sources.training_dataset.id}">{{ t('original_history') }} · v{{ sources.training_dataset.version }}</a></p>
+        }
+        @if (b.evidence.forecast_actuals; as actuals) {
+          <ck-forecast-actuals [evidence]="actuals" [readOnly]="true" />
+        } @else {
         <dl>
           <dt>{{ t('data_drift') }}</dt><dd>{{ badge(b.evidence.data_drift.status) }}</dd>
           <dt>{{ t('score_drift') }}</dt><dd>{{ badge(b.evidence.score_drift.status) }} · {{ b.evidence.score_drift.value ?? '—' }}</dd>
           <dt>{{ t('concept_drift') }}</dt><dd>{{ badge(b.evidence.concept_drift.status) }} · {{ b.evidence.concept_drift.delta ?? '—' }}</dd>
         </dl>
         <ck-drift-evidence [features]="b.evidence.data_drift.features" />
+        }
       } @else { <p role="alert">{{ t('context_missing') }}</p> }
     </section>
   `,

@@ -15,6 +15,12 @@
  */
 
 export const MODELS_FR = {
+  "models.retraining.history_rows": "Observations dans l’historique",
+  "models.retraining.new_observations": "Nouvelles observations passées",
+  "models.retraining.original_history": "Historique initial",
+  "models.retraining.temporal_folds": "Fenêtres du backtest temporel",
+  "models.retraining.observed_count": "Réels appariés",
+  "models.retraining.forecast_hint": "Les mesures suivent le dataset de réels associé. Une alerte peut proposer un nouvel entraînement sur l’historique complété, soumis à votre approbation. Le modèle servi ne change qu’après une promotion explicite.",
   "models.actuals.metric.nominal_coverage": "Couverture demandée moyenne",
   "models.actuals.thresholds": "À partir de 20 intervalles évalués : surveillance si la couverture perd 10 points, alerte à 20 points. Les anciens appels sans niveau d’intervalle connu contribuent aux erreurs uniquement.",
   "models.actuals.reason.changed": "Le dataset associé a changé. Vérifiez sa nouvelle version puis associez-le à nouveau.",
@@ -1178,6 +1184,12 @@ export const MODELS_FR = {
 } as const;
 
 export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
+  "models.retraining.history_rows": "Observations in history",
+  "models.retraining.new_observations": "New completed observations",
+  "models.retraining.original_history": "Original history",
+  "models.retraining.temporal_folds": "Temporal backtest windows",
+  "models.retraining.observed_count": "Matched actuals",
+  "models.retraining.forecast_hint": "Measurements follow the associated actuals dataset. An alert may propose training on the extended history, subject to your approval. The serving model changes only after an explicit promotion.",
   "models.actuals.metric.nominal_coverage": "Mean requested coverage",
   "models.actuals.thresholds": "From 20 evaluated intervals: watch if coverage drops by 10 percentage points, alert at 20 points. Older calls without a known interval level contribute to errors only.",
   "models.actuals.reason.changed": "The associated dataset changed. Check its new version and associate it again.",

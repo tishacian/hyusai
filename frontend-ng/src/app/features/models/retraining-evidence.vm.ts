@@ -1,20 +1,23 @@
 import type { MonitoringReport } from './models.vm';
 
 export interface MonitoringPolicy { enabled: boolean; propose_retraining: boolean; interval_minutes: 60 | 360 | 1440; }
+export interface ForecastSources { kind: string; new_rows: number; history_rows: number; training_dataset: {id: string; version: number; sha256: string}; actuals_dataset: {id: string; version: number; sha256: string}; }
 export interface RetrainingBinding {
+  forecast_sources?: ForecastSources | null;
   proposal_id: string; model_id: string; model_version: number; model_name?: string;
   dataset_id: string; dataset_version: number; dataset_sha256: string; labeled_rows: number;
   training: { algo: string; target: string; features: string[]; knobs: Record<string, unknown>; spec: Record<string, unknown>; test_size: number; cross_validation: number; task?: string; };
-  evidence: Pick<MonitoringReport, 'badge' | 'window' | 'data_drift' | 'score_drift' | 'concept_drift'>;
+  evidence: Pick<MonitoringReport, 'badge' | 'window' | 'data_drift' | 'score_drift' | 'concept_drift'> & {forecast_actuals?: MonitoringReport['forecast_actuals']};
 }
 export interface RetrainingProposal {
+  forecast_sources?: ForecastSources | null;
   id: string; status: string; stage: string; error: string | null; created_at: string;
   run_id: string; decision_id: string | null; model_id?: string | null;
   source_model_id: string; source_version: number; source_model_name?: string; dataset_id: string; dataset_version: number;
   dataset_sha256: string; labeled_rows: number; training: RetrainingBinding['training']; evidence: RetrainingBinding['evidence'];
 }
 export interface ScheduledMonitoringReport {
-  supported: boolean; can_configure: boolean;
+  supported: boolean; can_configure: boolean; family?: string;
   policy: MonitoringPolicy & { system_id?: string; schedule_id?: string };
   history: Array<{ id: string; created_at: string; badge: string | null; window: MonitoringReport['window']; reason: string | null }>;
   proposals: RetrainingProposal[];
@@ -26,7 +29,7 @@ export function monitoringPolicy(enabled: boolean, propose: boolean, interval: s
 export function proposalBinding(proposal: RetrainingProposal): RetrainingBinding {
   return { proposal_id: proposal.id, model_id: proposal.source_model_id, model_version: proposal.source_version, model_name: proposal.source_model_name,
     dataset_id: proposal.dataset_id, dataset_version: proposal.dataset_version, dataset_sha256: proposal.dataset_sha256,
-    labeled_rows: proposal.labeled_rows, training: proposal.training, evidence: proposal.evidence };
+    labeled_rows: proposal.labeled_rows, training: proposal.training, evidence: proposal.evidence, ...(proposal.forecast_sources ? {forecast_sources:proposal.forecast_sources} : {}) };
 }
 export function retrainingReviewReady(binding: RetrainingBinding | null | undefined): boolean {
   return !!(binding?.proposal_id && binding.model_id && binding.dataset_id && binding.dataset_sha256 && binding.training?.target && binding.evidence);
