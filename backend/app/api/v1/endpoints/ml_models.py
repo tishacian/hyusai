@@ -62,6 +62,8 @@ from app.services.tabular_ml import (
     submit_training,
     validate_training,
 )
+from app.services.ml.forecast_monitoring import ActualsBinding
+
 from app.services.tabular_monitoring import (
     attach_feedback,
     badges_for,
@@ -658,7 +660,26 @@ def _monitoring_for(db, *, model, workspace, user):
     result = monitoring_report(db, model=model)
     result["scheduled"]["can_configure"] = can_configure_mlops(db, workspace=workspace, user=user, admin_only=True)
     result["shadow"]["can_configure"] = can_configure_mlops(db, workspace=workspace, user=user)
+    if result.get("forecast_actuals") is not None:
+        result["forecast_actuals"]["can_configure"] = result["scheduled"]["can_configure"]
     return result
+
+
+@router.post("/{model_id}/monitoring/actuals")
+async def associate_forecast_actuals(
+    model_id: str,
+    body: ActualsBinding,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    from app.services.ml.forecast_monitoring import associate
+    try:
+        model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        await run_in_threadpool(associate, db, model=model, workspace=workspace, user=user, body=body)
+    except TabularError as exc:
+        _raise_tabular(exc)
+    return {"monitoring": await run_in_threadpool(_monitoring_for, db, model=model, workspace=workspace, user=user)}
 
 
 @router.post("/{model_id}/monitoring/policy")
@@ -691,7 +712,7 @@ async def get_monitoring(
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
     except TabularError as exc:
         _raise_tabular(exc)
-    return {"monitoring": _monitoring_for(db, model=model, workspace=workspace, user=user)}
+    return {"monitoring": await run_in_threadpool(_monitoring_for, db, model=model, workspace=workspace, user=user)}
 
 
 

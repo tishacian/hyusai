@@ -1,3 +1,4 @@
+import { ForecastActualsComponent } from './forecast-actuals.component';
 import { ScheduledMonitoringComponent } from './scheduled-monitoring.component';
 import { ClassificationEvidenceComponent } from "./classification-evidence.component";
 import { ExplanationEvidenceComponent } from "./explanation-evidence.component";
@@ -147,6 +148,7 @@ const CHART_ASPECT = 300 / 190;
     DistillationEvidenceComponent,
     DriftEvidenceComponent,
     ShadowEvidenceComponent,
+    ForecastActualsComponent,
     ScheduledMonitoringComponent,
     ForecastChartComponent,
   ],
@@ -863,6 +865,9 @@ const CHART_ASPECT = 300 / 190;
         <!-- ── Monitoring ──────────────────────────────────────────────────── -->
         <ck-tab id="monitor" [label]="i18n.t('models.detail.tab.monitor')">
           <ck-scheduled-monitoring [evidence]="monitoring()?.scheduled" [modelId]="row.id" [version]="row.version" (changed)="onScheduledChanged($event)" (refresh)="reload()" />
+          @if (row.task === 'forecasting') {
+            <ck-forecast-actuals [evidence]="monitoring()?.forecast_actuals" [modelId]="row.id" (changed)="onScheduledChanged($event)" (refresh)="reload()" />
+          } @else {
           <ck-shadow-evidence [evidence]="monitoring()?.shadow" [modelId]="row.id" [version]="row.version" [task]="row.task"
             (changed)="onShadowChanged($event)" (refresh)="reload()" />
           @if (!monitoring() || !monitoring()!.window.predictions) {
@@ -979,6 +984,7 @@ const CHART_ASPECT = 300 / 190;
                 </div>
               </section>
             </div>
+          }
           }
         </ck-tab>
 
