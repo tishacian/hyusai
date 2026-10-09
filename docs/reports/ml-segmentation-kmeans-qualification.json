@@ -1,0 +1,57 @@
+{
+  "source": "network_cell_frame(seed=20260825,cells=72,days=14)",
+  "aggregation": "one row per cell, arithmetic mean over 14 days",
+  "rows": 72,
+  "features": [
+    "active_users",
+    "prb_utilization_pct",
+    "throughput_mbps",
+    "latency_ms",
+    "drop_call_rate_pct",
+    "energy_kwh"
+  ],
+  "knobs": {
+    "n_clusters": 3,
+    "max_iter": 300
+  },
+  "random_state": 42,
+  "silhouette": {
+    "value": 0.7310311640935917,
+    "sample_rows": 72,
+    "sample_clusters": 3
+  },
+  "stability": {
+    "metric": "adjusted_rand_index",
+    "runs": 3,
+    "valid_runs": 3,
+    "sample_rows": 72,
+    "subsample_rows": 57,
+    "subsample_fraction": 0.8,
+    "values": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "mean": 1.0,
+    "std": 0.0,
+    "min": 1.0
+  },
+  "clusters": [
+    {
+      "cluster": 0,
+      "count": 46,
+      "share": 0.6388888888888888
+    },
+    {
+      "cluster": 1,
+      "count": 20,
+      "share": 0.2777777777777778
+    },
+    {
+      "cluster": 2,
+      "count": 6,
+      "share": 0.08333333333333333
+    }
+  ],
+  "scope": "synthetic qualification of grouping and export contracts; no assertion of business ground truth"
+}

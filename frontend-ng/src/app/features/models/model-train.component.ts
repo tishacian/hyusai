@@ -73,6 +73,7 @@ import {
   withTimeColumn,
   type ForecastDraft,
 } from './forecast.vm';
+import { clusteringColumns } from './clustering.vm';
 import { ForecastSpecComponent } from './forecast-spec.component';
 import { TabularOptionsComponent } from './tabular-options.component';
 import { tabularFields, tabularSpec, embeddingIssue } from './tabular-options.vm';
@@ -200,6 +201,30 @@ export interface TrainSeed {
               }
             </div>
 
+              <div class="ck-field">
+                <label class="ck-label">{{ i18n.t('models.studio.task.label') }}</label>
+                <div class="ck-seg">
+                  @for (option of tasks(); track option) {
+                    <button
+                      type="button"
+                      class="ck-seg__btn"
+                      [class.ck-seg__btn--on]="effectiveTask() === option"
+                      (click)="onTaskChange(option)"
+                    >
+                      <app-icon [name]="taskIcon(option)" [size]="13" />
+                      {{ i18n.t('models.task.' + option) }}
+                    </button>
+                  }
+                </div>
+                <div class="ck-hint">{{ i18n.t('models.task.' + effectiveTask() + '.hint') }}</div>
+                @if (!taskOverride() && suggestedTask()) {
+                  <div class="ck-hint ck-mono" style="color: var(--ck-signal-cool)">
+                    {{ i18n.t('models.studio.task.suggested') }}
+                  </div>
+                }
+              </div>
+
+            @if (!isClustering()) {
             <div class="ck-field">
               <label class="ck-label">{{ i18n.t('models.studio.target.label') }}</label>
               <div class="ck-hint">{{ i18n.t('models.studio.target.hint') }}</div>
@@ -226,30 +251,9 @@ export interface TrainSeed {
               }
             </div>
 
-            @if (target()) {
-              <div class="ck-field">
-                <label class="ck-label">{{ i18n.t('models.studio.task.label') }}</label>
-                <div class="ck-seg">
-                  @for (option of tasks(); track option) {
-                    <button
-                      type="button"
-                      class="ck-seg__btn"
-                      [class.ck-seg__btn--on]="effectiveTask() === option"
-                      (click)="onTaskChange(option)"
-                    >
-                      <app-icon [name]="taskIcon(option)" [size]="13" />
-                      {{ i18n.t('models.task.' + option) }}
-                    </button>
-                  }
-                </div>
-                <div class="ck-hint">{{ i18n.t('models.task.' + effectiveTask() + '.hint') }}</div>
-                @if (!taskOverride() && suggestedTask()) {
-                  <div class="ck-hint ck-mono" style="color: var(--ck-signal-cool)">
-                    {{ i18n.t('models.studio.task.suggested') }}
-                  </div>
-                }
-              </div>
+            }
 
+            @if (target() || isClustering()) {
               @if (isForecasting()) {
                 <ck-forecast-spec
                   part="data"
@@ -282,7 +286,7 @@ export interface TrainSeed {
                     </button>
                   </div>
                 </div>
-                <div class="ck-hint">{{ i18n.t('models.studio.features.hint') }}</div>
+                <div class="ck-hint">{{ i18n.t(isClustering() ? 'models.clustering.features_hint' : 'models.studio.features.hint') }}</div>
                 <ck-data-table
                   data-testid="train-features"
                   [columns]="featureTableColumns()"
@@ -308,7 +312,7 @@ export interface TrainSeed {
 
           <!-- ── Column 2: how to train it ─────────────────────────────────── -->
           <section class="ck-studio__col">
-            @if (target()) {
+            @if (target() || isClustering()) {
               <div class="ck-field">
                 <label class="ck-label">{{ i18n.t('models.studio.algo.label') }}</label>
                 <div class="ck-algos">
@@ -384,7 +388,7 @@ export interface TrainSeed {
                   [fields]="forecastFields()"
                   (draftChange)="patchDraft($event)"
                 />
-              } @else {
+              } @else if (!isClustering()) {
               <div class="ck-field">
                 <div class="ck-knob">
                   <div class="ck-knob__head">
@@ -466,7 +470,7 @@ export interface TrainSeed {
                 } @else {
                   <span class="ck-plan-pill ck-mono">
                     {{
-                      i18n.t('models.studio.plan.rows', {
+                      i18n.t(isClustering() ? 'models.clustering.rows' : 'models.studio.plan.rows', {
                         rows: preview.rows.toLocaleString(i18n.locale()),
                         test: testRows(preview).toLocaleString(i18n.locale())
                       })
@@ -816,6 +820,7 @@ export class ModelTrainComponent implements OnInit {
   protected readonly embeddingIssue = computed(() => this.isForecasting() ? null :
     embeddingIssue(this.catalog(), tabularSpec(this.tabularFields(), this.tabularDraft(), this.effectiveTask()), this.crossValidation(), this.selectedFeatures()));
 
+  private planGeneration = 0;
   private planTimer: ReturnType<typeof setTimeout> | null = null;
 
   protected readonly catalog = this.models.catalog;
@@ -899,13 +904,13 @@ export class ModelTrainComponent implements OnInit {
 
   /** Every column but the target: what the feature chips are drawn from. */
   protected readonly featureColumns = computed(() =>
-    this.columns().filter((column) => column.name !== this.target()),
+    this.isClustering() ? clusteringColumns(this.columns()) : this.columns().filter((column) => column.name !== this.target()),
   );
 
   protected readonly selectedFeatures = computed<string[]>(() => {
     const override = this.featureOverride();
     const available = this.featureColumns().map((column) => column.name);
-    if (!override) return available;
+    if (!override) return this.isClustering() ? [] : available;
     const allowed = new Set(available);
     return override.filter((feature) => allowed.has(feature));
   });
@@ -920,6 +925,7 @@ export class ModelTrainComponent implements OnInit {
       ),
   );
 
+  protected readonly isClustering = computed(() => this.effectiveTask() === 'clustering');
   protected readonly isForecasting = computed(() => this.effectiveTask() === FORECASTING_TASK);
 
   /**
@@ -957,13 +963,14 @@ export class ModelTrainComponent implements OnInit {
     this.datasetId.set(seed?.datasetId || first?.id || '');
     if (seed?.target) this.target.set(seed.target);
     if (seed?.task) this.taskOverride.set(seed.task);
+    if (seed?.task === 'clustering') { this.target.set(''); this.featureOverride.set(seed.features ?? []); }
     if (seed?.features?.length) this.featureOverride.set([...seed.features]);
     if (seed?.algo) this.algoKey.set(seed.algo);
     if (seed?.testSize) this.testSize.set(seed.testSize);
     if (seed?.crossValidation) this.crossValidation.set(seed.crossValidation);
     if (seed?.task === FORECASTING_TASK) this.forecastDraft.set(draftFromSpec(seed.spec, this.forecastFields()));
     else {
-      this.tabularDraft.set({ ...seed?.spec });
+      this.tabularDraft.set(seed?.task === 'clustering' ? {} : { ...seed?.spec });
       this.forecastDraft.set(draftFromSpec(undefined, this.forecastFields()));
     }
     if (seed?.knobs) {
@@ -1000,6 +1007,9 @@ export class ModelTrainComponent implements OnInit {
     // A new table invalidates every choice made against the old one.
     this.target.set('');
     this.taskOverride.set(null);
+    this.algoKey.set('');
+    this.knobOverrides.set({});
+    this.crossValidation.set(0);
     this.featureOverride.set(null);
     this.forecastDraft.set(draftFromSpec(undefined, this.forecastFields()));
     this.tabularDraft.set({});
@@ -1011,13 +1021,19 @@ export class ModelTrainComponent implements OnInit {
 
   protected onTargetChange(target: string): void {
     this.target.set(target);
-    this.taskOverride.set(null);
     this.featureOverride.set(null);
     this.schedulePlan();
   }
 
   protected onTaskChange(task: ModelTask): void {
+    const wasClustering = this.isClustering();
     this.taskOverride.set(task);
+    if (task === 'clustering' || wasClustering) {
+      this.target.set('');
+      this.featureOverride.set(task === 'clustering' ? [] : null);
+      this.tabularDraft.set({});
+      this.crossValidation.set(0);
+    }
     // An algorithm that cannot do the new task must not stay selected.
     if (!algosForTask(this.catalog(), task).some((algo) => algo.key === this.algoKey())) {
       this.algoKey.set('');
@@ -1051,7 +1067,7 @@ export class ModelTrainComponent implements OnInit {
   }
 
   protected selectAllFeatures(): void {
-    this.featureOverride.set(null);
+    this.featureOverride.set(this.isClustering() ? this.featureColumns().map(column => column.name) : null);
     this.schedulePlan();
   }
 
@@ -1084,10 +1100,12 @@ export class ModelTrainComponent implements OnInit {
       ...knobs,
       [knob.key]: clampKnob(knob, raw),
     }));
+    if (this.isClustering()) this.schedulePlan();
   }
 
   protected resetKnobs(): void {
     this.knobOverrides.set(defaultKnobs(this.activeAlgo()));
+    if (this.isClustering()) this.schedulePlan();
   }
 
   protected onSplitInput(event: Event): void {
@@ -1136,6 +1154,7 @@ export class ModelTrainComponent implements OnInit {
 
   /** Catalog fields only: old servers and the empty tabular catalog keep an empty spec. */
   private specPayload(): { spec?: Record<string, unknown> } {
+    if (this.isClustering()) return {};
     if (this.isForecasting()) return { spec: forecastSpec(this.draft(), this.algoKey(), this.forecastFields()) };
     const spec = tabularSpec(this.tabularFields(), this.tabularDraft(), this.effectiveTask());
     return Object.keys(spec).length ? { spec } : {};
@@ -1155,7 +1174,7 @@ export class ModelTrainComponent implements OnInit {
         knobs: this.knobPayload(),
         // A forecast is judged by its backtest, not by a random split.
         ...this.specPayload(),
-        ...(!this.isForecasting()
+        ...(!this.isForecasting() && !this.isClustering()
           ? { test_size: this.testSize(), cross_validation: this.crossValidation() } : {}),
         ...(this.name().trim() ? { name: this.name().trim() } : {}),
       });
@@ -1187,6 +1206,8 @@ export class ModelTrainComponent implements OnInit {
   }
 
   private schedulePlan(): void {
+    this.planGeneration++;
+    this.plan.set(null);
     this.cancelPlan();
     this.planTimer = setTimeout(() => void this.refreshPlan(), PLAN_DEBOUNCE_MS);
   }
@@ -1199,6 +1220,7 @@ export class ModelTrainComponent implements OnInit {
   }
 
   private async refreshPlan(): Promise<void> {
+    const generation = ++this.planGeneration;
     const datasetId = this.datasetId();
     if (!datasetId) {
       this.columns.set([]);
@@ -1211,15 +1233,21 @@ export class ModelTrainComponent implements OnInit {
         dataset_id: datasetId,
         ...(this.target() ? { target: this.target() } : {}),
         ...(this.taskOverride() ? { task: this.taskOverride()! } : {}),
-        ...(this.featureOverride() && !this.isForecasting() ? { features: this.selectedFeatures() } : {}),
+        // A saved segmentation already names its features before this first
+        // response supplies the schema. Let the server validate that choice.
+        ...(!this.isForecasting() && (this.isClustering() || this.featureOverride())
+          ? { features: this.isClustering() ? this.featureOverride() ?? [] : this.selectedFeatures() } : {}),
         ...(this.algoKey() ? { algo: this.algoKey() } : {}),
+        ...(this.isClustering() ? { knobs: this.knobPayload() } : {}),
         ...(this.target() ? this.specPayload() : {}),
       });
+      if (generation !== this.planGeneration) return;
       this.columns.set(response.columns ?? []);
       this.plan.set(response.plan);
       this.refusal.set(response.refusal);
       this.adoptPlan(response.plan);
     } catch {
+      if (generation !== this.planGeneration) return;
       this.plan.set(null);
     }
   }

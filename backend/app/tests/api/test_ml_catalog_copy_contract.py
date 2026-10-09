@@ -38,10 +38,10 @@ DICT = (
     / "models.dict.ts"
 )
 
-# Both dictionaries are flat object literals of `'key': 'copy',` lines, and
+# Both dictionaries use flat object literals with single- or double-quoted keys;
 # FR/EN parity inside the file is already enforced at compile time by
 # `Record<keyof typeof MODELS_FR, string>`. Collecting the keys is enough.
-_KEY = re.compile(r"^  '([a-z0-9_.]+)':", re.MULTILINE)
+_KEY = re.compile(r'^[ \t]{2}(?P<quote>[\'"])(?P<key>[a-z0-9_.]+)(?P=quote):', re.MULTILINE)
 
 # Codes `validate_training` and `submit_training` can raise, which the studio
 # renders inline against the field that caused them.
@@ -87,6 +87,17 @@ _FAMILY_REASONS = ("no_worker", "runtime_missing", "disabled")
 _CODE = re.compile(r"\"(ML_[A-Z_]+)\"")
 
 
+def test_dictionary_parser_accepts_both_quote_styles_without_mismatched_quotes():
+    source = """
+  'models.task.first': 'First',
+  "models.task.second": "Second",
+  'models.task.invalid": 'Mismatched',
+"""
+    assert {match.group("key") for match in _KEY.finditer(source)} == {
+        "models.task.first", "models.task.second",
+    }
+
+
 def _family_refusal_codes() -> set[str]:
     """Every code a family validator can refuse with, read from its source.
 
@@ -109,7 +120,7 @@ def _family_refusal_codes() -> set[str]:
 def _dictionary_keys() -> set[str]:
     if not DICT.exists():  # pragma: no cover - only outside a full checkout
         pytest.skip(f"models dictionary not found at {DICT}")
-    keys = set(_KEY.findall(DICT.read_text(encoding="utf-8")))
+    keys = {match.group("key") for match in _KEY.finditer(DICT.read_text(encoding="utf-8"))}
     assert len(keys) > 100, "the dictionary parser stopped matching entries"
     return keys
 
@@ -223,12 +234,23 @@ def test_the_catalog_payload_is_shaped_the_way_the_form_reads_it():
         "min_rows",
         "max_rows",
         "max_features",
+        "clustering_max_rows",
+        "clustering_max_features",
         "max_classes",
         "timeout_s",
     }
+    forecast_available = next(family["available"] for family in payload["families"] if family["key"] == "forecasting")
     for algo in payload["algos"]:
-        assert set(algo) == {"key", "tasks", "estimators", "scale", "tags", "knobs"}
-        assert algo["tasks"], f"{algo['key']} claims no task"
+        expected_fields = {"key", "tasks", "estimators", "scale", "tags", "knobs"}
+        expected_tasks = set(algo["estimators"])
+        if algo["key"] == "chronos_zero_shot":
+            expected_fields |= {"available", "reason", "family", "model_id"}
+            assert algo["family"] == "forecasting_deep" and algo["model_id"] == "chronos-2-small"
+            assert isinstance(algo["available"], bool)
+        elif not forecast_available:
+            expected_tasks.discard("forecasting")
+        assert set(algo) == expected_fields
+        assert set(algo["tasks"]) == expected_tasks
         for knob in algo["knobs"]:
             assert knob["kind"] in {"int", "float", "enum", "bool", "int_list"}
             if knob["kind"] in {"int", "float"}:

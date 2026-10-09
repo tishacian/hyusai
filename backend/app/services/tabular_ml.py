@@ -147,6 +147,7 @@ TASKS = TABULAR.tasks
 # A forecast reuses the tabular regressors on the series' own past; the
 # forecasting family (app.services.ml.families.forecasting) validates it.
 FORECASTING = "forecasting"
+CLUSTERING = "clustering"
 # Leaves per tree of a forest whose depth the author left open.
 FOREST_LEAVES = 2048
 
@@ -302,6 +303,12 @@ ALGOS += (Algo(
     rank=7, tags=("foundation", "zero_shot"), seeded=False,
 ),)
 
+ALGOS += (Algo(
+    key="kmeans", estimators={CLUSTERING: "sklearn.cluster.KMeans"},
+    knobs=(Knob("n_clusters", "int", 5, 2, 20, 1), Knob("max_iter", "int", 300, 50, 500, 10)),
+    scale=True, rank=8, tags=("baseline", "interpretable"),
+),)
+
 ALGO_BY_KEY = {algo.key: algo for algo in ALGOS}
 
 
@@ -409,6 +416,8 @@ def catalog_payload(db: DBSession | None = None) -> dict[str, Any]:
             "min_rows": int(settings.ml_train_min_rows),
             "max_rows": int(settings.ml_train_max_rows),
             "max_features": int(settings.ml_train_max_features),
+            "clustering_max_rows": min(int(settings.ml_train_max_rows), 50_000),
+            "clustering_max_features": min(int(settings.ml_train_max_features), 50),
             "max_classes": int(settings.ml_train_max_classes),
             "timeout_s": float(settings.ml_train_timeout_s),
         },
@@ -528,12 +537,12 @@ def validate_training(
         )
 
     label = str(target or "").strip()
-    if not label:
+    if not label and str(task or "").strip() != CLUSTERING:
         raise TabularError(
             code="ML_TARGET_REQUIRED",
             message="Choose the column the model has to predict.",
         )
-    if label not in kinds:
+    if label not in kinds and str(task or "").strip() != CLUSTERING:
         raise TabularError(
             code="ML_TARGET_UNKNOWN",
             message=f"'{label}' is not a column of this dataset.",
@@ -558,7 +567,7 @@ def validate_training(
     if family is None or (family.key not in {"tabular", "tabular_deep"} and family.validator is None):
         raise TabularError(
             code="ML_TASK_UNKNOWN",
-            message="This is not a task the platform trains: classification, regression or forecasting.",
+            message="This is not a task the platform trains: classification, regression, forecasting or clustering.",
             details={"task": chosen_task[:40]},
         )
     # The general worker is always there; a family trained in its own image is
@@ -1631,7 +1640,7 @@ def _write_manifest(
         "estimator": params.get("estimator"),
         "params": dict(params.get("estimator_params") or {}),
         "scale": bool(params.get("scale")),
-        "test_size": float(model.test_size or 0.25),
+        "test_size": 0.0 if model.family == CLUSTERING else float(model.test_size or 0.25),
         "cv": int(model.cross_validation or 0),
         "random_state": int(settings.ml_train_random_state),
         "min_rows": int(settings.ml_train_min_rows),

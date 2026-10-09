@@ -184,7 +184,7 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
                 } @else {
                   <app-icon name="zap" [size]="14" />
                 }
-                {{ i18n.t('models.play.run') }}
+                {{ i18n.t(model().task === 'clustering' ? 'models.clustering.assign' : 'models.play.run') }}
               </button>
               <button
                 type="button"
@@ -217,6 +217,11 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
               <div class="ck-idle">
                 <app-icon name="activity" [size]="20" />
                 <span>{{ i18n.t('models.play.idle') }}</span>
+              </div>
+            } @else if (model().task === 'clustering') {
+              <div class="ck-numeric" data-testid="cluster-assignment">
+                <div class="ck-numeric__value">{{ i18n.t('models.clustering.group', { cluster: answer()?.predictions?.[0]?.prediction ?? '—' }) }}</div>
+                <p class="ck-hint">{{ i18n.t('models.clustering.assignment_hint') }}</p>
               </div>
             } @else if (gauge(); as dial) {
               <div class="ck-gauge" [class.ck-gauge--flag]="dial.flagged">
@@ -1035,7 +1040,7 @@ export class ModelPlaygroundComponent {
       const pinned = this.pinned();
       this.answer.set(
         await this.models.predict(this.model().id, row, {
-          explain: true,
+          explain: this.model().task !== 'clustering',
           intervalLevel: this.intervalLevel(),
           ...(pinned ? { version: pinned } : {}),
         }),

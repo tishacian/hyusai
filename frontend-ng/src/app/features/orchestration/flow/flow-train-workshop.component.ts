@@ -103,6 +103,7 @@ const PLAN_DEBOUNCE_MS = 240;
 /** Scores the evidence panel shows; the rest live on the model card. */
 const SCORE_LIMIT = 4;
 
+import { clusteringColumns } from '@app/features/models/clustering.vm';
 import { ForecastSpecComponent } from '@app/features/models/forecast-spec.component';
 import { TabularOptionsComponent } from '@app/features/models/tabular-options.component';
 import { tabularFields, tabularSpec, embeddingIssue } from '@app/features/models/tabular-options.vm';
@@ -198,6 +199,31 @@ import {
               <div class="ck-train-workshop__spec">
                 <!-- ── What to predict ─────────────────────────────────── -->
                 <section class="ck-train-workshop__col">
+                    <div class="ck-train-workshop__field">
+                      <span class="ck-train-workshop__label">
+                        {{ i18n.t('flow.ml.train.task') }}
+                      </span>
+                      <div class="ck-train-workshop__seg">
+                        @for (option of tasks(); track option) {
+                          <button
+                            type="button"
+                            class="ck-train-workshop__seg-btn"
+                            [class.ck-train-workshop__seg-btn--on]="effectiveTask() === option"
+                            (click)="onTask(option)"
+                          >
+                            <app-icon [name]="taskIcon(option)" [size]="13" />
+                            {{ i18n.t('models.task.' + option) }}
+                          </button>
+                        }
+                      </div>
+                      @if (!params().task && suggestedTask()) {
+                        <p class="ck-train-workshop__inferred">
+                          {{ i18n.t('flow.ml.train.task.suggested') }}
+                        </p>
+                      }
+                    </div>
+
+                  @if (!isClustering()) {
                   <div class="ck-train-workshop__field">
                     <span class="ck-train-workshop__label">
                       {{ i18n.t('flow.ml.train.target') }}
@@ -234,31 +260,9 @@ import {
                     }
                   </div>
 
-                  @if (params().target) {
-                    <div class="ck-train-workshop__field">
-                      <span class="ck-train-workshop__label">
-                        {{ i18n.t('flow.ml.train.task') }}
-                      </span>
-                      <div class="ck-train-workshop__seg">
-                        @for (option of tasks(); track option) {
-                          <button
-                            type="button"
-                            class="ck-train-workshop__seg-btn"
-                            [class.ck-train-workshop__seg-btn--on]="effectiveTask() === option"
-                            (click)="onTask(option)"
-                          >
-                            <app-icon [name]="taskIcon(option)" [size]="13" />
-                            {{ i18n.t('models.task.' + option) }}
-                          </button>
-                        }
-                      </div>
-                      @if (!params().task && suggestedTask()) {
-                        <p class="ck-train-workshop__inferred">
-                          {{ i18n.t('flow.ml.train.task.suggested') }}
-                        </p>
-                      }
-                    </div>
+                  }
 
+                  @if (params().target || isClustering()) {
                     @if (isForecasting()) {
                       <ck-forecast-spec
                         part="data"
@@ -293,7 +297,7 @@ import {
                         </button>
                       </div>
                       <p class="ck-train-workshop__hint">
-                        {{ i18n.t('flow.ml.train.features.hint') }}
+                        {{ i18n.t(isClustering() ? 'models.clustering.features_hint' : 'flow.ml.train.features.hint') }}
                       </p>
                       <ck-data-table
                         data-testid="train-features"
@@ -320,7 +324,7 @@ import {
 
                 <!-- ── How to fit it ───────────────────────────────────── -->
                 <section class="ck-train-workshop__col">
-                  @if (params().target) {
+                  @if (params().target || isClustering()) {
                     <div class="ck-train-workshop__field">
                       <span class="ck-train-workshop__label">
                         {{ i18n.t('flow.ml.train.algo') }}
@@ -398,7 +402,7 @@ import {
                         [fields]="forecastFields()"
                         (draftChange)="onForecastDraft($event)"
                       />
-                    } @else {
+                    } @else if (!isClustering()) {
                     <div class="ck-train-workshop__field">
                       <div class="ck-train-workshop__knob">
                         <div class="ck-train-workshop__knob-head">
@@ -547,7 +551,7 @@ import {
                             }}
                           } @else {
                             {{
-                              i18n.t('flow.ml.train.plan.rows', {
+                              i18n.t(isClustering() ? 'models.clustering.rows' : 'flow.ml.train.plan.rows', {
                                 rows: preview.rows.toLocaleString(i18n.locale()),
                                 test: testRows().toLocaleString(i18n.locale())
                               })
@@ -815,6 +819,7 @@ export class FlowTrainWorkshopComponent {
     algoFor(this.ml.catalog(), this.effectiveAlgo()),
   );
 
+  protected readonly isClustering = computed(() => this.effectiveTask() === 'clustering');
   protected readonly isForecasting = computed(() => this.effectiveTask() === FORECASTING_TASK);
   protected readonly tabularFields = computed(() => tabularFields(this.ml.catalog(), this.effectiveTask(), this.params().spec));
   protected readonly tabularSpec = computed(() => tabularSpec(this.tabularFields(), this.params().spec, this.effectiveTask()));
@@ -839,14 +844,14 @@ export class FlowTrainWorkshopComponent {
   });
 
   protected readonly featureColumns = computed(() =>
-    this.columns().filter((column) => column.name !== this.params().target),
+    this.isClustering() ? clusteringColumns(this.columns()) : this.columns().filter((column) => column.name !== this.params().target),
   );
 
   /** `null` on the node means "every column but the target" — the server default. */
   protected readonly selectedFeatures = computed<string[]>(() => {
     const override = this.params().features;
     const available = this.featureColumns().map((column) => column.name);
-    if (!override) return available;
+    if (!override) return this.isClustering() ? [] : available;
     const allowed = new Set(available);
     return override.filter((feature) => allowed.has(feature));
   });
@@ -927,6 +932,7 @@ export class FlowTrainWorkshopComponent {
         params.features,
         params.algo,
         params.spec,
+        params.task === 'clustering' ? params.knobs : null,
       ]);
       if (signature === this.lastPlanned) return;
       this.lastPlanned = signature;
@@ -1039,13 +1045,16 @@ export class FlowTrainWorkshopComponent {
   }
 
   protected onTarget(target: string): void {
-    // A new target invalidates the choices made against the old one: the task it
-    // suggests and the feature set that excluded it are both stale.
-    this.writeParams({ target, task: null, features: null });
+    // A new target invalidates the feature set. An explicit task chosen first
+    // remains selected; without one, the suggested task follows the target.
+    this.writeParams({ target, features: null });
   }
 
   protected onTask(task: ModelTask): void {
     const patch: Record<string, unknown> = { task };
+    if (task === 'clustering' || this.isClustering()) {
+      Object.assign(patch, { target: '', features: task === 'clustering' ? [] : null, spec: null, cross_validation: 0, test_size: task === 'clustering' ? 0 : 0.25 });
+    }
     // A forecast is a question with more than a target: it starts from the
     // form's defaults, so the node is runnable before any field is touched.
     if (task === FORECASTING_TASK && !this.params().spec) {
@@ -1083,7 +1092,7 @@ export class FlowTrainWorkshopComponent {
 
   /** Back to the default: every column but the target, decided at run time. */
   protected allFeatures(): void {
-    this.writeParams({ features: null });
+    this.writeParams({ features: this.isClustering() ? this.featureColumns().map(column => column.name) : null });
   }
 
   protected onKnob(knob: NumericKnobDescriptor, event: Event): void {
@@ -1129,6 +1138,10 @@ export class FlowTrainWorkshopComponent {
       target: '',
       task: null,
       features: null,
+      spec: null,
+      algo: '',
+      knobs: {},
+      cross_validation: 0,
     });
     this.ml.clearRun();
   }
@@ -1151,7 +1164,7 @@ export class FlowTrainWorkshopComponent {
       // A forecast is judged by its backtest, not by a random split.
       ...(this.isForecasting()
         ? { spec: forecastSpec(this.forecastDraft(), this.effectiveAlgo(), this.forecastFields()) }
-        : {
+        : this.isClustering() ? { features: this.selectedFeatures() } : {
             ...(params.features ? { features: this.selectedFeatures() } : {}),
             test_size: params.test_size,
             cross_validation: params.cross_validation,
@@ -1194,9 +1207,10 @@ export class FlowTrainWorkshopComponent {
         ...(params.target ? { target: params.target } : {}),
         ...(params.task ? { task: params.task } : {}),
         ...(params.algo ? { algo: params.algo } : {}),
+        ...(this.isClustering() ? { knobs: params.knobs } : {}),
         ...(this.isForecasting()
           ? { spec: forecastSpec(this.forecastDraft(), this.effectiveAlgo(), this.forecastFields()) }
-          : {
+          : this.isClustering() ? { features: params.features ?? [] } : {
               ...(params.features ? { features: params.features } : {}),
               ...(Object.keys(this.tabularSpec()).length ? { spec: this.tabularSpec() } : {}),
             }),
