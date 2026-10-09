@@ -225,8 +225,8 @@ test('the training workshop is a modal dialog that edits the graph', () => {
   );
   assert.match(
     workshop,
-    /protected onTarget\(target: string\): void \{[\s\S]*?this\.writeParams\(\{ target, task: null, features: null \}\)/,
-    'a new target invalidates the task it suggested and the features it excluded',
+    /protected onTarget\(target: string\): void \{[\s\S]*?this\.writeParams\(\{ target, features: null \}\)/,
+    'a new target invalidates its feature selection while keeping the explicit task',
   );
   // The dialog exists FOR the selected training node: if selection moves, or
   // the node is deleted or undone away, it closes itself rather than editing a

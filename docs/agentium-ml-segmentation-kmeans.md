@@ -98,6 +98,29 @@ Les mesures observées sont consignées dans
 `docs/reports/ml-segmentation-kmeans-qualification.json`. Elles qualifient un
 générateur de démonstration et ne constituent pas une validation métier.
 
+Résultat Nawa : trois groupes de **46, 20 et 6 cellules**, silhouette **0,731**
+et ARI **1,0** pour les trois sous-échantillons. Les identifiants numériques ne
+nomment pas automatiquement ces groupes et ne remplacent pas leur interprétation.
+
+La recette locale valide :
+
+- 13 tests réels du harness et de l’export ;
+- 66 contrôles plateforme/API, dont le cycle réel d’entraînement, le rechargement
+  après vidage du cache, le scoring de dataset et la publication ;
+- 253 contrôles de régression ML, complétés par le rejeu réussi des trois attentes
+  historiques actualisées pour reconnaître la nouvelle tâche ;
+- 9 contrôles croisés du catalogue et des traductions ;
+- 158 tests unitaires frontend et 29 parcours Playwright sur le bundle de
+  production, dont 8 scénarios de segmentation FR/EN et les régressions texte,
+  embeddings et prévision ;
+- compilation Angular, i18n, contrôles UI/navigation et revue backend/frontend.
+
+`build:prod` a été exécuté une seule fois, avec succès. Les derniers ajouts de
+libellés du catalogue et la reconnaissance de l’erreur de service
+`ML_RUNTIME_MISSING` ont ensuite été vérifiés par la compilation Angular, les
+tests unitaires et le contrat croisé du catalogue, sans nouveau build production.
+Les avertissements Angular/CSS/budgets et CommonJS préexistants restent présents.
+
 La livraison reconstruit les images applicatives et le frontend sur une même
 révision, en conservant les profils déjà actifs. Pour la VM actuelle, garder
 `AGENTIUM_ML_TS=1 AGENTIUM_ML_DEEP=1`. Alembic reste à `122_ml_families`.

@@ -199,7 +199,7 @@ type ModelFilter = 'all' | ModelTask | 'serving';
                       <div class="ck-models-error ck-mono">{{ entry.row.error }}</div>
                     }
                   </td>
-                  <td class="ck-mono ck-models-target">{{ entry.target }}</td>
+                  <td class="ck-mono ck-models-target">{{ entry.task === 'clustering' ? i18n.t('models.clustering.no_target') : entry.target }}</td>
                   <td class="ck-models-dataset">
                     @if (entry.row.dataset_slug) {
                       <span [class.is-neg]="entry.row.status === 'failed'">{{
@@ -500,6 +500,8 @@ export class ModelsListComponent implements OnInit {
     ...(this.models.models().some((model) => model.task === 'forecasting')
       ? [{ key: 'forecasting' as ModelFilter, label: 'models.list.filter.forecasting' }]
       : []),
+    ...(this.models.models().some((model) => model.task === 'clustering')
+      ? [{ key: 'clustering' as ModelFilter, label: 'models.task.clustering' }] : []),
     { key: 'serving', label: 'models.list.filter.serving' },
   ]);
 

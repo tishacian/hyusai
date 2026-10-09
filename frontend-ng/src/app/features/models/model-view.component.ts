@@ -23,6 +23,7 @@ import { ExplanationEvidenceComponent } from "./explanation-evidence.component";
  */
 import { TuningEvidenceComponent } from './tuning-evidence.component';
 import { DistillationEvidenceComponent } from './distillation-evidence.component';
+import { ClusteringEvidenceComponent } from './clustering-evidence.component';
 import { DriftEvidenceComponent } from './drift-evidence.component';
 import { ShadowEvidenceComponent } from './shadow-evidence.component';
 import type { ShadowReport } from './shadow-evidence.vm';
@@ -146,6 +147,7 @@ const CHART_ASPECT = 300 / 190;
     CurveChartComponent,
     TuningEvidenceComponent,
     DistillationEvidenceComponent,
+    ClusteringEvidenceComponent,
     DriftEvidenceComponent,
     ShadowEvidenceComponent,
     ForecastActualsComponent,
@@ -313,7 +315,9 @@ const CHART_ASPECT = 300 / 190;
       <ck-tabs [active]="tab()" (activeChange)="onTabChange($event)">
         <!-- ── Results ──────────────────────────────────────────────────── -->
         <ck-tab id="evidence" [label]="i18n.t('models.detail.tab.evidence')">
-          @if (!scores().length) {
+          @if (row.task === 'clustering') {
+            <ck-clustering-evidence [evidence]="row.metrics?.clustering" />
+          } @else if (!scores().length) {
             <app-empty-state icon="brain" [title]="i18n.t('models.evidence.none')" />
           } @else {
             <div class="space-y-4">
@@ -706,6 +710,7 @@ const CHART_ASPECT = 300 / 190;
         </ck-tab>
 
         <!-- ── Comparison ──────────────────────────────────────────────────── -->
+        @if (row.task !== 'clustering') {
         <ck-tab id="compare" [label]="i18n.t('models.detail.tab.compare')">
           @if (!comparison().length) {
             <app-empty-state
@@ -863,6 +868,8 @@ const CHART_ASPECT = 300 / 190;
         </ck-tab>
 
         <!-- ── Monitoring ──────────────────────────────────────────────────── -->
+        }
+        @if (row.task !== 'clustering') {
         <ck-tab id="monitor" [label]="i18n.t('models.detail.tab.monitor')">
           <ck-scheduled-monitoring [evidence]="monitoring()?.scheduled" [modelId]="row.id" [version]="row.version" (changed)="onScheduledChanged($event)" (refresh)="reload()" />
           @if (row.task === 'forecasting') {
@@ -987,6 +994,7 @@ const CHART_ASPECT = 300 / 190;
           }
           }
         </ck-tab>
+        }
 
         <!-- ── Input contract ──────────────────────────────────────────────── -->
         <ck-tab id="contract" [label]="i18n.t('models.detail.tab.contract')">
@@ -1987,6 +1995,12 @@ export class ModelViewComponent implements OnInit {
         value: this.i18n.t('models.setup.preprocessing.value'),
       },
     ];
+    if (row.task === 'clustering') {
+      const hidden = new Set(['models.setup.target', 'models.setup.split', 'models.setup.cv'].map(key => this.i18n.t(key)));
+      entries.splice(0, entries.length, ...entries.filter(entry => !hidden.has(entry.label)));
+      const preprocessing = entries.find(entry => entry.label === this.i18n.t('models.setup.preprocessing'));
+      if (preprocessing) preprocessing.value = this.i18n.t('models.clustering.preprocessing');
+    }
     if (knobLine) {
       entries.splice(1, 0, { label: this.i18n.t('models.setup.knobs'), value: knobLine });
     }
@@ -2104,7 +2118,7 @@ export class ModelViewComponent implements OnInit {
   }
 
   protected subtitle(model: ModelDto): string {
-    const predicts = this.i18n.t('models.list.target', { target: model.target });
+    const predicts = model.task === 'clustering' ? this.i18n.t('models.clustering.no_target') : this.i18n.t('models.list.target', { target: model.target });
     const from = model.dataset_slug
       ? this.i18n.t('models.list.dataset', { dataset: model.dataset_slug })
       : '';
@@ -2119,6 +2133,7 @@ export class ModelViewComponent implements OnInit {
   protected rowsLine(): string {
     const rows = this.metrics()?.rows;
     if (!rows?.total) return '';
+    if (this.model()?.task === 'clustering') return this.i18n.t('models.clustering.rows', { rows: rows.total.toLocaleString(this.i18n.locale()) });
     const forecast = this.forecast();
     if (forecast) {
       const history = (forecast.rows as { history?: number } | undefined)?.history ?? 0;
@@ -2190,6 +2205,7 @@ export class ModelViewComponent implements OnInit {
   protected outputLine(): string {
     const output = this.model()?.signature?.output;
     if (!output?.task) return '—';
+    if (output.task === 'clustering') return this.i18n.t('models.clustering.assignment_hint');
     if (output.task === 'classification') {
       return this.i18n.t('models.contract.output.classification', {
         classes: (output.classes ?? []).join(', ') || '—',
@@ -2539,11 +2555,17 @@ export class ModelViewComponent implements OnInit {
       const detail = await this.models.detail(modelId);
       if (!current()) return;
       this.detail.set(detail);
+      if (detail.model.task === 'clustering' && ['monitor', 'compare'].includes(this.tab())) this.tab.set('evidence');
       this.serving.set(detail.serving ?? null);
       if (!this.feedbackId() && this.models.lastPredictionId()) {
         this.feedbackId.set(this.models.lastPredictionId() ?? '');
       }
       try {
+        if (detail.model.task === 'clustering') {
+          this.monitoring.set(null);
+          this.syncPolling();
+          return;
+        }
         const report = await this.models.monitoring(modelId);
         if (!current()) return;
         this.monitoring.set(report.window.model_id && report.window.model_id !== modelId ? null : report);
