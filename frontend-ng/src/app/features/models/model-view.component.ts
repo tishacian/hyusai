@@ -21,6 +21,7 @@ import { ExplanationEvidenceComponent } from "./explanation-evidence.component";
  */
 import { TuningEvidenceComponent } from './tuning-evidence.component';
 import { DistillationEvidenceComponent } from './distillation-evidence.component';
+import { DriftEvidenceComponent } from './drift-evidence.component';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -45,6 +46,7 @@ import {
 import { CkTabComponent, CkTabsComponent } from '@app/shared/cockpit/tabs.component';
 import { formatBytes } from '@app/shared/ui/data-table.vm';
 import { I18nService } from '@app/core/i18n.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { DataService, type DatasetDto } from '@app/features/data/data.service';
 import { ModelPlaygroundComponent } from './model-playground.component';
 import { TabularIntervalsComponent } from './tabular-intervals.component';
@@ -140,6 +142,7 @@ const CHART_ASPECT = 300 / 190;
     CurveChartComponent,
     TuningEvidenceComponent,
     DistillationEvidenceComponent,
+    DriftEvidenceComponent,
     ForecastChartComponent,
   ],
   template: `
@@ -869,6 +872,9 @@ const CHART_ASPECT = 300 / 190;
                     labeled: report.window.labeled,
                   })
                 }}
+                @if (report.window.served_version != null) {
+                  · {{ i18n.t('models.monitor.tests.version', { version: report.window.served_version }) }}
+                }
               </div>
               <div class="ck-scores">
                 @for (card of monitorCards(); track card.key) {
@@ -882,10 +888,11 @@ const CHART_ASPECT = 300 / 190;
               </div>
               @if (monitorBars().length) {
                 <section>
-                  <div class="ck-section-label">{{ i18n.t('models.monitor.features') }}</div>
+                  <div class="ck-section-label">{{ i18n.t('models.monitor.tests.psi') }}</div>
                   <ck-bar-list [bars]="monitorBars()" />
                 </section>
               }
+              <ck-drift-evidence [features]="report.data_drift.features" />
               @if (monitorAuc().length) {
                 <section class="ck-chart">
                   <div class="ck-section-label">{{ i18n.t('models.monitor.auc') }}</div>
@@ -1544,6 +1551,7 @@ export class ModelViewComponent implements OnInit {
   private readonly navigation = inject(ZoomContextService);
   private readonly toast = inject(ToastrService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly workspace = inject(WorkspaceService);
 
   protected readonly chart = CHART_ASPECT;
 
@@ -1576,6 +1584,7 @@ export class ModelViewComponent implements OnInit {
   protected readonly scoring = signal(false);
 
   private modelId = '';
+  private loadGeneration = 0;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   protected readonly model = computed(() => this.detail()?.model ?? null);
@@ -1992,6 +2001,12 @@ export class ModelViewComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    const unregister = this.workspace.registerContextReset(() => {
+      this.loadGeneration++;
+      this.stopPolling();
+      this.clearModelContext();
+      this.loading.set(false);
+    });
     // Subscribed rather than snapshotted: the Versions tab links to a sibling
     // version, which Angular serves by reusing this component instance.
     this.route.paramMap
@@ -2000,12 +2015,13 @@ export class ModelViewComponent implements OnInit {
         const next = params.get('modelId') ?? '';
         if (next === this.modelId) return;
         this.modelId = next;
+        this.clearModelContext();
         void this.load();
       });
     const facet = this.route.snapshot.queryParamMap.get('facet');
     if (facet) this.tab.set(facet);
     void this.data.refresh();
-    this.destroyRef.onDestroy(() => this.stopPolling());
+    this.destroyRef.onDestroy(() => { this.loadGeneration++; unregister(); this.stopPolling(); });
   }
 
   protected onTabChange(id: string): void {
@@ -2409,38 +2425,46 @@ export class ModelViewComponent implements OnInit {
     const predictionId = this.feedbackId().trim() || this.models.lastPredictionId();
     const label = this.feedbackLabel().trim();
     if (!row || !predictionId || !label) return;
+    const scope = this.workspace.captureRequestScope();
+    const current = () => this.model()?.id === row.id && this.workspace.isRequestScopeCurrent(scope);
     this.feedbackBusy.set(true);
     try {
       const result = await this.models.feedback(row.id, {
         prediction_id: predictionId,
         label,
       });
+      if (!current()) return;
       this.monitoring.set(result.monitoring);
       this.toast.success(this.i18n.t('models.monitor.feedback.done'));
     } catch (error) {
+      if (!current()) return;
       const code = error instanceof HttpErrorResponse ? error.error?.detail?.code ?? error.error?.code : null;
       this.toast.error(this.i18n.t(code === 'ML_FEEDBACK_NOT_NUMERIC'
         ? 'models.error.ml_feedback_not_numeric' : 'models.monitor.feedback.failed'));
     } finally {
-      this.feedbackBusy.set(false);
+      if (current()) this.feedbackBusy.set(false);
     }
   }
 
   protected async exportFeedback(): Promise<void> {
     const row = this.model();
     if (!row) return;
+    const scope = this.workspace.captureRequestScope();
+    const current = () => this.model()?.id === row.id && this.workspace.isRequestScopeCurrent(scope);
     this.feedbackBusy.set(true);
     try {
       const dataset = await this.models.materializeFeedback(row.id);
+      if (!current()) return;
       this.feedbackDataset.set(dataset);
       this.feedbackDatasetId.set(dataset.id);
       this.toast.success(
         this.i18n.t('models.monitor.dataset.done', { name: dataset.name }),
       );
     } catch {
+      if (!current()) return;
       this.toast.error(this.i18n.t('models.monitor.dataset.failed'));
     } finally {
-      this.feedbackBusy.set(false);
+      if (current()) this.feedbackBusy.set(false);
     }
   }
 
@@ -2483,34 +2507,49 @@ export class ModelViewComponent implements OnInit {
 
   private async load(): Promise<void> {
     if (!this.modelId) return;
+    const modelId = this.modelId, generation = ++this.loadGeneration;
+    const scope = this.workspace.captureRequestScope();
+    const current = () => generation === this.loadGeneration && modelId === this.modelId && this.workspace.isRequestScopeCurrent(scope);
     this.loading.set(true);
     try {
-      const detail = await this.models.detail(this.modelId);
+      const detail = await this.models.detail(modelId);
+      if (!current()) return;
       this.detail.set(detail);
       this.serving.set(detail.serving ?? null);
       if (!this.feedbackId() && this.models.lastPredictionId()) {
         this.feedbackId.set(this.models.lastPredictionId() ?? '');
       }
       try {
-        this.monitoring.set(await this.models.monitoring(this.modelId));
+        const report = await this.models.monitoring(modelId);
+        if (!current()) return;
+        this.monitoring.set(report.window.model_id && report.window.model_id !== modelId ? null : report);
       } catch {
+        if (!current()) return;
         this.monitoring.set(null);
       }
       this.syncPolling();
     } catch {
+      if (!current()) return;
       this.detail.set(null);
       this.serving.set(null);
       this.monitoring.set(null);
     } finally {
-      this.loading.set(false);
+      if (current()) this.loading.set(false);
     }
+  }
+
+  private clearModelContext(): void {
+    this.stopPolling();
+    this.detail.set(null); this.serving.set(null); this.monitoring.set(null); this.sameRows.set(null);
+    this.feedbackId.set(''); this.feedbackLabel.set(''); this.feedbackDataset.set(null);
+    this.feedbackDatasetId.set(null); this.feedbackBusy.set(false); this.studioOpen.set(false);
   }
 
   private syncPolling(): void {
     const row = this.model();
     if (row && isModelActive(row)) {
       if (this.pollTimer) return;
-      this.pollTimer = setInterval(() => void this.load(), POLL_INTERVAL_MS);
+      this.pollTimer = setInterval(() => { if (!this.loading()) void this.load(); }, POLL_INTERVAL_MS);
     } else {
       this.stopPolling();
     }
