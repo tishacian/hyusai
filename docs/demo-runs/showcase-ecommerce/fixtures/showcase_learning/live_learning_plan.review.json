@@ -1,0 +1,121 @@
+{
+  "kind": "local_configuration_validation",
+  "applied": false,
+  "workspace_slug": "agentium-showcase",
+  "system_id": "f3ea83de-df89-45ec-8a85-c00d676b2713",
+  "observed_published_version_id": "af9c97e6-3060-4f6f-ad1a-c062f781d867",
+  "observed_published_flow_sha256": "2cc25fce82a3ba58b51944580ea35d977d9b70519681f3e6c8c9cf481d961554",
+  "observed_draft_revision": 12,
+  "observed_draft_sha256": "dd91c17260e93406ff5a56a79aad837b420caf109987078c2bbf813400a56111",
+  "observed_work_release_id": "3e4f2bb8-6c49-4dd4-a307-16f240212563",
+  "target_flow_sha256": "fad0507f94c836d392a5822c81aed47e482329b5f240398661c72c12b7944556",
+  "nodes": 24,
+  "edges": 25,
+  "pages": [
+    "dossier",
+    "charge",
+    "amelioration"
+  ],
+  "bindings": [
+    "showcase.claims.investigate",
+    "showcase.claims.refresh_queue",
+    "showcase.claims.forecast"
+  ],
+  "flow_validation_errors": 0,
+  "flow_validation_warning_codes": [],
+  "retirement_snapshots": {
+    "04aaadef-e8d7-4614-aea0-454d08652e15": {
+      "published_version_id": "681aa30e-542e-481b-afa0-54dcbda3ed97",
+      "draft_revision": 2,
+      "expected_flow_sha256": "1164a298df684c795410d134af6352d8a9576257a3bbb40ce62158fbedf585fd",
+      "expected_draft_sha256": "4be8759d874c069158d82c491cb91f675b3eb93087e91d198dd769f55b2a32ec"
+    },
+    "7477fafa-574b-479f-aea3-b8a5ac1fb540": {
+      "published_version_id": "a4776b31-7796-49a0-9363-d8149c16d717",
+      "draft_revision": 4,
+      "expected_flow_sha256": "38cf1c371a8f511681a8d41f08699d43ee262e786c6505b60d3f1086e2d20d9d",
+      "expected_draft_sha256": "4bd796c09f698cb951abcdda280bdd05986a94e23260655c66e5d2a46090d0c1"
+    }
+  },
+  "models": {
+    "sla_calibrated": {
+      "id": "17331ddf-7811-42e1-8e0f-c8dc75dd3541",
+      "name": "Luma — Risque de résolution >72h",
+      "slug": "luma-risque-de-resolution-72h",
+      "version": 1,
+      "status": "ready",
+      "task": "classification",
+      "family": "tabular",
+      "dataset_id": "e1141f15-820e-46e5-87f8-9c6f3dc9a430",
+      "system_id": null
+    },
+    "sla_challenger_tuned": {
+      "id": "0c93ef17-3241-43bd-93dc-cc0d9c5524e1",
+      "name": "Luma — Risque de résolution >72h",
+      "slug": "luma-risque-de-resolution-72h",
+      "version": 2,
+      "status": "ready",
+      "task": "classification",
+      "family": "tabular",
+      "dataset_id": "e1141f15-820e-46e5-87f8-9c6f3dc9a430",
+      "system_id": null
+    },
+    "resolution_duration": {
+      "id": "e7429b0c-98cd-4fe0-85d8-f57ca661fb1b",
+      "name": "Luma — Durée calendaire de résolution",
+      "slug": "luma-duree-calendaire-de-resolution",
+      "version": 1,
+      "status": "ready",
+      "task": "regression",
+      "family": "tabular",
+      "dataset_id": "4b75d695-63d0-448b-8ec2-663aa2567681",
+      "system_id": null
+    },
+    "numeric_segments": {
+      "id": "513f0c17-baef-4a67-95da-7453d9593f14",
+      "name": "Luma — Profils numériques SAV",
+      "slug": "luma-profils-numeriques-sav",
+      "version": 1,
+      "status": "ready",
+      "task": "clustering",
+      "family": "clustering",
+      "dataset_id": "b2280d68-9fb2-43e9-abbf-7e51b2126cca",
+      "system_id": null
+    },
+    "volume_seasonal_naive": {
+      "id": "afa061f3-a36d-4e75-901f-85df6a7a22f0",
+      "name": "Luma — Charge SAV · naïf saisonnier",
+      "slug": "luma-charge-sav-naif-saisonnier",
+      "version": 1,
+      "status": "ready",
+      "task": "forecasting",
+      "family": "forecasting",
+      "dataset_id": "1268f620-0608-4a56-b095-0143e6e213e4",
+      "system_id": null
+    },
+    "volume_classical": {
+      "id": "b79ed3b2-3f2e-411a-a2e4-14aeaa78699b",
+      "name": "Luma — Charge SAV · classique",
+      "slug": "luma-charge-sav-classique",
+      "version": 1,
+      "status": "ready",
+      "task": "forecasting",
+      "family": "forecasting",
+      "dataset_id": "1268f620-0608-4a56-b095-0143e6e213e4",
+      "system_id": null
+    },
+    "volume_chronos": {
+      "id": "ec5436b1-8233-4e06-9912-5bc9956c96f3",
+      "name": "Luma — Charge SAV · Chronos",
+      "slug": "luma-charge-sav-chronos",
+      "version": 1,
+      "status": "ready",
+      "task": "forecasting",
+      "family": "forecasting_deep",
+      "dataset_id": "1268f620-0608-4a56-b095-0143e6e213e4",
+      "system_id": null
+    }
+  },
+  "composition_sha256": null,
+  "composition_review": "Run the read-only activation CLI against the deployed database; no composition hash is invented offline."
+}

@@ -44,12 +44,14 @@ import {
   runtimeResultRows,
   runtimeSummary,
   seedFromSchema,
-  selectRuntimeData,
+  selectRuntimeRunData,
   textFallback,
   unavailablePolicy,
   validateValues,
   valuesToPayload,
 } from './model';
+import { TimeseriesBlockComponent } from './timeseries-block.component';
+import { PredictionCardComponent } from '../work/prediction-card.component';
 import { a11yOf, appearanceOf } from './style';
 
 function str(node: ExperienceNode, key: string, fallback = ''): string {
@@ -110,7 +112,7 @@ function dynamicValue(
 ): unknown {
   const binding = runtimeDataBinding(node);
   if (!binding) return undefined;
-  return selectRuntimeData(runtime.run(context.sourceStateKey)?.output_ref, binding.selector);
+  return selectRuntimeRunData(runtime.run(context.sourceStateKey), binding);
 }
 
 function dynamicSlot(
@@ -539,7 +541,7 @@ export class TableBlock {
   selector: 'xp-rt-chart',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RuntimeSlotComponent, RuntimeQueryControlComponent, BaseChartDirective],
+  imports: [RuntimeSlotComponent, RuntimeQueryControlComponent, BaseChartDirective, TimeseriesBlockComponent],
   styleUrl: './runtime.scss',
   template: `
     <div class="xp-rt-block" [attr.aria-label]="ariaName() || null">
@@ -550,6 +552,9 @@ export class TableBlock {
         <p class="xp-rt-sub">{{ caption() }}</p>
       }
       <xp-rt-query-control [node]="node()" [context]="context()" />
+      @if (kind() === 'timeseries') {
+        <xp-timeseries [node]="node()" [context]="context()" [value]="chartValue()" />
+      } @else {
       <xp-rt-slot [state]="slot()" [empty]="emptyText()" [detail]="errorText()">
         @if (kind() === 'donut') {
           <div class="xp-rt-chart-arc">
@@ -602,6 +607,7 @@ export class TableBlock {
           <p class="xp-rt-hint">{{ i18n.t('experience.runtime.chart.capped', { n: hidden() }) }}</p>
         }
       </xp-rt-slot>
+      }
     </div>
   `,
 })
@@ -617,6 +623,7 @@ export class ChartBlock {
   readonly ariaName = computed(() => a11yOf(this.node()).ariaLabel);
   readonly emptyText = computed(() => a11yOf(this.node()).emptyText);
   readonly kind = computed(() => chartKind(this.node().props?.['kind']));
+  readonly chartValue = computed(() => runtimeDataBinding(this.node()) ? dynamicValue(this.runtime, this.node(), this.context()) : this.node().props?.['series']);
   readonly series = computed(() => {
     const node = this.node();
     // A binding owns the block from the moment it exists, exactly as it does on
@@ -1879,6 +1886,21 @@ interface ChartBar {
   color: string;
 }
 
+@Component({
+  selector: 'xp-rt-prediction', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [RuntimeSlotComponent, RuntimeQueryControlComponent, PredictionCardComponent], styleUrl: './runtime.scss',
+  template: `<div class="xp-rt-block"><h3>{{ title() }}</h3><xp-rt-query-control [node]="node()" [context]="context()" />
+    <xp-rt-slot [state]="slot()" [detail]="errorText()"><xp-prediction-card [value]="value()" [contract]="node().props?.['predictionContract']" /></xp-rt-slot></div>`,
+})
+export class PredictionBlock {
+  private readonly runtime = inject(ExperienceRuntimeService);
+  readonly node = input.required<ExperienceNode>(); readonly context = input.required<RuntimeNodeContext>();
+  readonly title = computed(() => copyText(this.node(), 'title'));
+  readonly value = computed(() => dynamicValue(this.runtime, this.node(), this.context()));
+  readonly slot = computed(() => dynamicSlot(this.runtime, this.node(), this.context(), this.value() == null));
+  readonly errorText = computed(() => this.runtime.lastError(this.context().sourceStateKey) ?? '');
+}
+
 export const CATALOG: Record<CertifiedType, Type<unknown>> = {
   section: SectionBlock,
   header: HeaderBlock,
@@ -1893,6 +1915,7 @@ export const CATALOG: Record<CertifiedType, Type<unknown>> = {
   history: HistoryBlock,
   kpi: KpiBlock,
   chart: ChartBlock,
+  prediction: PredictionBlock,
   callout: CalloutBlock,
   map_panel: FeedBlock,
   agenda_panel: FeedBlock,

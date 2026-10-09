@@ -24,6 +24,7 @@ export const CERTIFIED_TYPES = [
   'history',
   'kpi',
   'chart',
+  'prediction',
   'callout',
   'map_panel',
   'agenda_panel',
@@ -74,6 +75,8 @@ export interface RuntimeNodeContext {
 export interface RuntimeDataBinding {
   source: 'run-output' | 'system-binding';
   componentId?: string;
+  /** Exact completed node output inside this authorized Run. */
+  nodeId?: string;
   bindingKey?: string;
   selector: string;
   input: Record<string, unknown>;
@@ -230,6 +233,7 @@ export function runtimeDataBinding(node: ExperienceNode): RuntimeDataBinding | n
     source,
     bindingKey: bindingKey || undefined,
     componentId: componentId || undefined,
+    ...(typeof raw['nodeId'] === 'string' && raw['nodeId'].trim() ? { nodeId: raw['nodeId'].trim() } : {}),
     selector: typeof raw['selector'] === 'string' ? raw['selector'].trim() : '',
     input: isRecord(raw['input']) ? raw['input'] : {},
   };
@@ -250,6 +254,17 @@ export function selectRuntimeData(value: unknown, selector: string): unknown {
     current = current[part];
   }
   return current;
+}
+
+/** An authored node selects only its latest attempt; failed retries never fall back. */
+export function selectRuntimeRunData(run: {
+  id?: string; output_ref?: Record<string, unknown>;
+  skill_invocations?: Array<{ run_id?: string; status?: string; trace?: Record<string, unknown>; output_ref?: Record<string, unknown> }>;
+} | null | undefined, binding: Pick<RuntimeDataBinding, 'selector' | 'nodeId'>): unknown {
+  if (!binding.nodeId) return selectRuntimeData(run?.output_ref, binding.selector);
+  const invocation = [...(run?.skill_invocations ?? [])].reverse().find(item => item.trace?.['node_id'] === binding.nodeId);
+  if (!invocation || invocation.status !== 'completed' || (invocation.run_id && invocation.run_id !== run?.id)) return undefined;
+  return selectRuntimeData(invocation.output_ref, binding.selector);
 }
 
 export function runtimeStateKey(slug: string, pageId: string, componentId: string): string {
@@ -513,7 +528,7 @@ export function runtimeSummary(value: unknown): unknown {
 // ---------------------------------------------------------------------------
 
 /** The shapes a certified chart draws. Anything else is read as bars. */
-export const CHART_KINDS = ['bar', 'donut'] as const;
+export const CHART_KINDS = ['bar', 'donut', 'timeseries'] as const;
 
 export type ChartKind = (typeof CHART_KINDS)[number];
 

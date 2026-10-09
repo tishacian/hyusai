@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "generator_version": 1,
+  "seed": 20261009,
+  "anchor_exclusive_utc": "2026-10-09T00:00:00Z",
+  "data_kind": "synthetic_demo",
+  "human_review": "not_performed",
+  "live_import": "not_performed",
+  "presentation_ids_reserved": [
+    "RC-1042",
+    "RC-1043",
+    "RC-1044"
+  ],
+  "history_days": 420,
+  "train_label_cutoff_exclusive_utc": "2026-06-11T00:00:00Z",
+  "model_features": {
+    "sla": [
+      "claim_reason",
+      "paid_amount",
+      "shipment_status",
+      "already_refunded",
+      "case_documents",
+      "item_quantity"
+    ],
+    "text": [
+      "initial_message"
+    ],
+    "clustering": [
+      "paid_amount",
+      "already_refunded",
+      "case_documents",
+      "item_quantity"
+    ]
+  },
+  "files": {
+    "cases.csv": {
+      "rows": 6782,
+      "columns": [
+        "claim_id",
+        "order_id",
+        "shipment_id",
+        "opened_at",
+        "snapshot_at",
+        "cohort",
+        "claim_reason",
+        "paid_amount",
+        "shipment_status",
+        "already_refunded",
+        "case_documents",
+        "item_quantity",
+        "language",
+        "initial_message",
+        "campaign_active",
+        "data_kind"
+      ],
+      "bytes": 1952832,
+      "sha256": "4237b2b438114c1428ce4534830191da1d8686538085bff35a8e4951055ab318"
+    },
+    "outcomes.csv": {
+      "rows": 6708,
+      "columns": [
+        "claim_id",
+        "resolved_at",
+        "label_available_at",
+        "resolution_hours",
+        "resolution_over_72h",
+        "synthetic_intent_reference",
+        "data_kind",
+        "review_status"
+      ],
+      "bytes": 899971,
+      "sha256": "e658a15cd2cafdcb637377f7842ddc3bb67b640a6a9b034158b3b5c6e5d53f36"
+    },
+    "daily_volume.csv": {
+      "rows": 420,
+      "columns": [
+        "observed_at",
+        "series_id",
+        "claim_count",
+        "campaign_active",
+        "data_kind"
+      ],
+      "bytes": 21002,
+      "sha256": "aa2e3aa146b2ae582b5834dc0cac3a307fbf4ef474b15185364cbd913d05a2e6"
+    },
+    "sla_train.csv": {
+      "rows": 4573,
+      "columns": [
+        "claim_id",
+        "claim_reason",
+        "paid_amount",
+        "shipment_status",
+        "already_refunded",
+        "case_documents",
+        "item_quantity",
+        "language",
+        "resolution_over_72h"
+      ],
+      "bytes": 292581,
+      "sha256": "f322ed23c7f935208ff881a5c3a858e8f3320419dcc3f83057e6885b18d8ea83"
+    },
+    "sla_heldout.csv": {
+      "rows": 1433,
+      "columns": [
+        "claim_id",
+        "claim_reason",
+        "paid_amount",
+        "shipment_status",
+        "already_refunded",
+        "case_documents",
+        "item_quantity",
+        "language",
+        "resolution_over_72h",
+        "resolution_hours"
+      ],
+      "bytes": 102338,
+      "sha256": "bf11a2f51b0ac9716803cf27ebc9583bc08529c70443353968f17520f40640a7"
+    },
+    "regression_train.csv": {
+      "rows": 4573,
+      "columns": [
+        "claim_id",
+        "claim_reason",
+        "paid_amount",
+        "shipment_status",
+        "already_refunded",
+        "case_documents",
+        "item_quantity",
+        "language",
+        "resolution_hours"
+      ],
+      "bytes": 316162,
+      "sha256": "44e47c88e2f5102a4be518aa85851a07267a88c755f48623b7a11689f51544d9"
+    },
+    "segmentation_numeric.csv": {
+      "rows": 4573,
+      "columns": [
+        "claim_id",
+        "paid_amount",
+        "already_refunded",
+        "case_documents",
+        "item_quantity"
+      ],
+      "bytes": 157223,
+      "sha256": "33c6c8138f87116026c43c5b8e659b6231172c8bc7d25ccec6b9da575ecbd42b"
+    },
+    "text_for_review.csv": {
+      "rows": 480,
+      "columns": [
+        "claim_id",
+        "language",
+        "initial_message"
+      ],
+      "bytes": 65502,
+      "sha256": "1157d4e99303a9d6402f2c0583546d939a7b43543c084cbe230e40a926f386a3"
+    },
+    "campaign-plan.md": {
+      "kind": "document",
+      "bytes": 1615,
+      "sha256": "189400548468605ffa8f76b92f0fc5bb32d708dfb5d07274ba3262ef70fee472"
+    },
+    "capacity-policy.md": {
+      "kind": "document",
+      "bytes": 1609,
+      "sha256": "915caa4aa3f91a83862636470497dadfb802bf8416d8b130a44be8b879a26455"
+    }
+  },
+  "validation": {
+    "checks": [
+      "source_keys_unique",
+      "presentation_excluded",
+      "outcomes_separate",
+      "no_future_outcomes",
+      "chronological_embargo",
+      "train_labels_known_at_cutoff",
+      "heldout_text_distinct",
+      "review_input_unlabeled",
+      "daily_counts_match_cases",
+      "regular_daily_grid",
+      "calibration_eligible"
+    ],
+    "rows_by_cohort": {
+      "train": 4624,
+      "embargo": 194,
+      "heldout": 1433,
+      "feedback": 327,
+      "recent": 204
+    },
+    "train_class_counts": {
+      "0": 2546,
+      "1": 2027
+    },
+    "calibration_conservative_minimum_by_class": {
+      "0": 379,
+      "1": 302
+    },
+    "unresolved_at_anchor": 74
+  }
+}

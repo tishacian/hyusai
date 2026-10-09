@@ -20,12 +20,13 @@ from app.db.base import get_db
 from app.models.decision import Decision
 from app.models.run import Run, SkillInvocation
 from app.models.system import System
-from app.services import automation_portfolio
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.services import automation_portfolio
 from app.services.chat_execution_policy import migration_059_system_id
 from app.services.experience import bindings as binding_service
 from app.services.experience import lifecycle as experience_service
+from app.services.experience.work_receipt import run_receipt
 from app.services.iam.config_service import load_iam_config
 from app.services.iam.decision_plane import (
     ModeResolutionCache,
@@ -33,7 +34,6 @@ from app.services.iam.decision_plane import (
     enforce_action,
     resolve_action,
 )
-from app.services.experience.work_receipt import run_receipt
 from app.services.run_access import readable_run_page, readable_runs, run_read_attrs
 from app.services.run_engine.dispatch_outbox import (
     TRIGGER_RUN,
@@ -89,10 +89,7 @@ def _viewer_claims(
     groups = (
         tuple(item for item in raw_groups)
         if isinstance(raw_groups, list)
-        and all(
-            isinstance(item, str) and item and item == item.strip()
-            for item in raw_groups
-        )
+        and all(isinstance(item, str) and item and item == item.strip() for item in raw_groups)
         else ()
     )
     return role, groups
@@ -181,9 +178,7 @@ def _ensure_work_dispatch(db: DBSession, run: Run) -> None:
     )
 
 
-def _resolve_for_user(
-    db: DBSession, *, workspace: Workspace, user: User, slug: str
-):
+def _resolve_for_user(db: DBSession, *, workspace: Workspace, user: User, slug: str):
     role, groups = _viewer_claims(db, user=user, workspace=workspace)
     return experience_service.resolve_work(
         db,
@@ -249,12 +244,16 @@ def _project_decidable_hitl(
 
     def project_batch(batch: list[Run]) -> None:
         system_ids = {str(run.system_id) for run in batch if run.system_id}
-        known_system_ids = {
-            row[0]
-            for row in db.query(System.id)
-            .filter(System.workspace_id == workspace.id, System.id.in_(system_ids))
-            .all()
-        } if system_ids else set()
+        known_system_ids = (
+            {
+                row[0]
+                for row in db.query(System.id)
+                .filter(System.workspace_id == workspace.id, System.id.in_(system_ids))
+                .all()
+            }
+            if system_ids
+            else set()
+        )
         decision_ids = {
             checkpoint.get("decision_id")
             for run in batch
@@ -263,34 +262,42 @@ def _project_decidable_hitl(
             and checkpoint.get("kind") == "hitl_pause"
             and checkpoint.get("decision_id")
         }
-        decision_status = {
-            row.id: row.status
-            for row in db.query(Decision.id, Decision.status)
-            .filter(
-                Decision.id.in_(decision_ids),
-                or_(
-                    Decision.workspace_id == workspace.id,
-                    Decision.workspace_id.is_(None),
-                ),
-            )
-            .all()
-        } if decision_ids else {}
-        managed_decision_ids = {
-            row[0]
-            for row in db.query(Decision.id)
-            .join(Run, Decision.target_id == Run.id)
-            .filter(
-                Decision.id.in_(decision_ids),
-                Decision.scope == "run",
-                or_(
-                    Decision.workspace_id == workspace.id,
-                    Decision.workspace_id.is_(None),
-                ),
-                Run.workspace_id == workspace.id,
-                Run.system_id == managed_system_id,
-            )
-            .all()
-        } if managed_system_id and decision_ids else set()
+        decision_status = (
+            {
+                row.id: row.status
+                for row in db.query(Decision.id, Decision.status)
+                .filter(
+                    Decision.id.in_(decision_ids),
+                    or_(
+                        Decision.workspace_id == workspace.id,
+                        Decision.workspace_id.is_(None),
+                    ),
+                )
+                .all()
+            }
+            if decision_ids
+            else {}
+        )
+        managed_decision_ids = (
+            {
+                row[0]
+                for row in db.query(Decision.id)
+                .join(Run, Decision.target_id == Run.id)
+                .filter(
+                    Decision.id.in_(decision_ids),
+                    Decision.scope == "run",
+                    or_(
+                        Decision.workspace_id == workspace.id,
+                        Decision.workspace_id.is_(None),
+                    ),
+                    Run.workspace_id == workspace.id,
+                    Run.system_id == managed_system_id,
+                )
+                .all()
+            }
+            if managed_system_id and decision_ids
+            else set()
+        )
 
         for run in batch:
             managed = run.system_id == managed_system_id or any(
@@ -301,9 +308,7 @@ def _project_decidable_hitl(
             if managed and not admin:
                 continue
             lineage_valid = not run.system_id or str(run.system_id) in known_system_ids
-            legacy_allowed = lineage_valid and (
-                admin or run.initiated_by_user_id == user.id
-            )
+            legacy_allowed = lineage_valid and (admin or run.initiated_by_user_id == user.id)
             resolution = resolve_action(
                 db,
                 user=user,
@@ -417,14 +422,10 @@ async def list_work_apps(
     _require_enabled(workspace)
     _enforce_consume(db, user=user, workspace=workspace)
     role, groups = _viewer_claims(db, user=user, workspace=workspace)
-    rows = experience_service.list_work(
-        db, workspace_id=workspace.id, role=role, groups=groups
-    )
+    rows = experience_service.list_work(db, workspace_id=workspace.id, role=role, groups=groups)
     experiences: list[dict[str, Any]] = []
     for experience, deployment, release in rows:
-        item = experience_service.serialize_work_catalog_item(
-            experience, deployment, release
-        )
+        item = experience_service.serialize_work_catalog_item(experience, deployment, release)
         try:
             identity = experience_service.release_identity(release)
             slug = identity["slug"]
@@ -542,9 +543,7 @@ async def work_home(
     _require_enabled(workspace)
     _enforce_consume(db, user=user, workspace=workspace)
     role, groups = _viewer_claims(db, user=user, workspace=workspace)
-    rows = experience_service.list_work(
-        db, workspace_id=workspace.id, role=role, groups=groups
-    )
+    rows = experience_service.list_work(db, workspace_id=workspace.id, role=role, groups=groups)
     by_origin: dict[str, dict[str, Any]] = {}
     by_system: dict[str, dict[str, Any]] = {}
     for experience, _deployment, release in rows:
@@ -731,9 +730,7 @@ async def list_work_apps_for_system(
             detail={"code": "SYSTEM_NOT_FOUND", "message": "System not found."},
         )
     role, groups = _viewer_claims(db, user=user, workspace=workspace)
-    rows = experience_service.list_work(
-        db, workspace_id=workspace.id, role=role, groups=groups
-    )
+    rows = experience_service.list_work(db, workspace_id=workspace.id, role=role, groups=groups)
     jobs = automation_portfolio.list_job_explanations(db, workspace, user)
     apps = experience_service.list_system_work_apps(
         rows,
@@ -755,7 +752,11 @@ async def export_automation_package(
     _require_enabled(workspace)
     _enforce_consume(db, user=user, workspace=workspace)
     card = next(
-        (item for item in automation_portfolio.list_job_explanations(db, workspace, user) if item["job"].get("system_id") == system_id),
+        (
+            item
+            for item in automation_portfolio.list_job_explanations(db, workspace, user)
+            if item["job"].get("system_id") == system_id
+        ),
         None,
     )
     if card is None:
@@ -850,6 +851,39 @@ async def list_work_validations(
     }
 
 
+@router.get("/{slug}/datasets/{page_id}/{component_id}")
+def get_work_dataset(
+    slug: str,
+    page_id: str,
+    component_id: str,
+    run_id: str = Query(min_length=1, max_length=36),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """A released chart's bounded projection of its own authorised Run dataset."""
+    from app.services.work_datasets import work_dataset
+
+    _require_enabled(workspace)
+    _enforce_consume(db, user=user, workspace=workspace)
+    try:
+        experience, _deployment, release = _resolve_for_user(
+            db, workspace=workspace, user=user, slug=slug
+        )
+        return work_dataset(
+            db,
+            workspace=workspace,
+            user=user,
+            experience=experience,
+            release=release,
+            page_id=page_id,
+            component_id=component_id,
+            run_id=run_id,
+        )
+    except experience_service.ExperienceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.payload()) from exc
+
+
 @router.get("/{slug}/bindings/{key}/resolve")
 async def resolve_work_binding(
     slug: str,
@@ -889,9 +923,7 @@ async def invoke_work_binding(
     key: str,
     body: WorkRunBody,
     background_tasks: BackgroundTasks,
-    idempotency_key: str = Header(
-        ..., alias="Idempotency-Key", min_length=16, max_length=160
-    ),
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=16, max_length=160),
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),

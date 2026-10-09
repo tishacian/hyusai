@@ -47,9 +47,7 @@ def churn_artifact(tmp_path_factory) -> tuple[Path, dict]:
 
 @pytest.fixture(scope="module")
 def arpu_artifact(tmp_path_factory) -> tuple[Path, dict]:
-    return fit_churn_artifact(
-        tmp_path_factory.mktemp("arpu-fit"), task="regression", target="arpu"
-    )
+    return fit_churn_artifact(tmp_path_factory.mktemp("arpu-fit"), task="regression", target="arpu")
 
 
 # ---------------------------------------------------------------------------
@@ -121,9 +119,7 @@ def _register(
     db_session.add(model)
     db_session.flush()
     if status == "ready":
-        uri, size = upload_model_dir(
-            directory, workspace_id=workspace.id, model_id=model.id
-        )
+        uri, size = upload_model_dir(directory, workspace_id=workspace.id, model_id=model.id)
         model.model_uri = uri
         model.artifact_bytes = size
         model.trained_at = datetime(2026, 8, 1, 9, 30) + timedelta(days=version)
@@ -152,9 +148,7 @@ def _row(**overrides) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_a_classification_answers_with_a_label_a_confidence_and_a_named_vector(
-    db_session, model
-):
+def test_a_classification_answers_with_a_label_a_confidence_and_a_named_vector(db_session, model):
     answer = tabular_predict.predict_rows(db_session, model, [_row()])
 
     assert answer["task"] == "classification"
@@ -235,9 +229,7 @@ def test_a_batch_answers_one_prediction_per_row_in_order(db_session, model):
     assert answer["rows"] == 3 and len(answer["predictions"]) == 3
 
 
-def test_numbers_arriving_as_strings_are_accepted_because_forms_send_strings(
-    db_session, model
-):
+def test_numbers_arriving_as_strings_are_accepted_because_forms_send_strings(db_session, model):
     answer = tabular_predict.predict_rows(
         db_session, model, [_row(arpu="41.5", tenure_months="6", support_tickets="3")]
     )
@@ -245,9 +237,7 @@ def test_numbers_arriving_as_strings_are_accepted_because_forms_send_strings(
     assert answer["predictions"][0]["prediction"] in {"0", "1"}
 
 
-def test_predictions_are_counted_on_the_row_so_a_model_is_visibly_in_use(
-    db_session, model
-):
+def test_predictions_are_counted_on_the_row_so_a_model_is_visibly_in_use(db_session, model):
     tabular_predict.predict_rows(db_session, model, [_row(), _row()])
     tabular_predict.predict_rows(db_session, model, [_row()])
 
@@ -273,9 +263,7 @@ def test_predictions_are_counted_on_the_row_so_a_model_is_visibly_in_use(
         ([_row(arpu="quarante")], "ML_PREDICT_FIELD_NOT_NUMERIC"),
     ],
 )
-def test_every_shape_the_caller_can_fix_is_refused_by_name(
-    db_session, model, rows, code
-):
+def test_every_shape_the_caller_can_fix_is_refused_by_name(db_session, model, rows, code):
     with pytest.raises(TabularError) as raised:
         tabular_predict.predict_rows(db_session, model, rows)
 
@@ -284,9 +272,7 @@ def test_every_shape_the_caller_can_fix_is_refused_by_name(
 
 def test_a_field_refusal_names_the_field_and_the_row_it_came_from(db_session, model):
     with pytest.raises(TabularError) as raised:
-        tabular_predict.predict_rows(
-            db_session, model, [_row(), _row(support_tickets="beaucoup")]
-        )
+        tabular_predict.predict_rows(db_session, model, [_row(), _row(support_tickets="beaucoup")])
 
     details = raised.value.details or {}
     assert details["field"] == "support_tickets" and details["row"] == 1
@@ -305,9 +291,7 @@ def test_a_batch_above_the_inline_ceiling_says_to_score_a_dataset_instead(
 
 
 def test_an_untrained_version_cannot_answer(db_session, workspace, churn_artifact):
-    pending = _register(
-        db_session, workspace, churn_artifact, status="pending", champion=False
-    )
+    pending = _register(db_session, workspace, churn_artifact, status="pending", champion=False)
 
     with pytest.raises(TabularError) as raised:
         tabular_predict.predict_rows(db_session, pending, [_row()], version=1)
@@ -324,9 +308,7 @@ def test_serving_refuses_while_the_plane_is_disabled(db_session, model, monkeypa
     assert raised.value.code == "ML_PREDICT_DISABLED"
 
 
-def test_a_model_without_an_input_contract_says_so_instead_of_failing_a_fit(
-    db_session, model
-):
+def test_a_model_without_an_input_contract_says_so_instead_of_failing_a_fit(db_session, model):
     model.signature_json = {}
     db_session.commit()
 
@@ -375,12 +357,8 @@ def test_pinning_a_version_that_does_not_exist_is_a_coded_404(db_session, model)
     assert raised.value.status_code == 404
 
 
-def test_a_lineage_with_nothing_trained_says_nothing_serves(
-    db_session, workspace, churn_artifact
-):
-    pending = _register(
-        db_session, workspace, churn_artifact, status="pending", champion=False
-    )
+def test_a_lineage_with_nothing_trained_says_nothing_serves(db_session, workspace, churn_artifact):
+    pending = _register(db_session, workspace, churn_artifact, status="pending", champion=False)
 
     with pytest.raises(TabularError) as raised:
         tabular_predict.predict_rows(db_session, pending, [_row()])
@@ -401,9 +379,7 @@ def test_the_second_prediction_reuses_the_resident_pipeline(db_session, model):
     assert tabular_predict.cache_state()["size"] == 1
 
 
-def test_the_artifact_is_read_through_the_door_any_mlflow_stack_has(
-    db_session, model, monkeypatch
-):
+def test_the_artifact_is_read_through_the_door_any_mlflow_stack_has(db_session, model, monkeypatch):
     """The MLmodel is loaded as an MLmodel, not by reaching past the format.
 
     ``mlflow.pyfunc.load_model`` is the portable door: it reads the ``MLmodel``
@@ -550,9 +526,7 @@ def test_scoring_a_dataset_writes_a_new_one_that_keeps_every_input_column(
 ):
     from app.services.tabular_datasets import get_dataset, read_frame
 
-    result = tabular_predict.score_dataset(
-        db_session, model=model, dataset=scoring_dataset
-    )
+    result = tabular_predict.score_dataset(db_session, model=model, dataset=scoring_dataset)
 
     assert result["scored_rows"] == 30
     assert result["model"]["model_id"] == model.id
@@ -574,9 +548,7 @@ def test_scoring_a_dataset_writes_a_new_one_that_keeps_every_input_column(
     # The lineage says which model wrote those columns.
     assert output.lineage_json["model"]["model_id"] == model.id
     journal = (
-        db_session.query(MLPrediction)
-        .filter(MLPrediction.id == result["prediction_id"])
-        .one()
+        db_session.query(MLPrediction).filter(MLPrediction.id == result["prediction_id"]).one()
     )
     assert journal.payload_json, "feature PSI is blind if a batch score journals no rows"
     assert "plan" in journal.payload_json[0]
@@ -605,9 +577,7 @@ def test_a_regression_scores_a_dataset_with_one_added_column(
     assert result["added_columns"] == ["prediction"]
     assert result["name"] == "ARPU forecast"
     frame = read_frame(
-        __import__(
-            "app.services.tabular_datasets", fromlist=["get_dataset"]
-        ).get_dataset(
+        __import__("app.services.tabular_datasets", fromlist=["get_dataset"]).get_dataset(
             db_session,
             dataset_id=result["dataset_id"],
             workspace_id=workspace.id,
@@ -616,9 +586,7 @@ def test_a_regression_scores_a_dataset_with_one_added_column(
     assert frame["prediction"].dtype == pl.Float64
 
 
-def test_a_dataset_missing_a_required_column_is_refused_by_name(
-    db_session, model, workspace
-):
+def test_a_dataset_missing_a_required_column_is_refused_by_name(db_session, model, workspace):
     thin = register_frame(
         db_session,
         workspace_id=workspace.id,
@@ -640,9 +608,7 @@ def test_a_prediction_column_that_would_collide_is_renamed_not_overwritten(
 ):
     from app.services.tabular_datasets import read_frame
 
-    frame = read_frame(scoring_dataset).with_columns(
-        pl.lit("kept").alias("prediction")
-    )
+    frame = read_frame(scoring_dataset).with_columns(pl.lit("kept").alias("prediction"))
     collided = register_frame(
         db_session,
         workspace_id=workspace.id,
@@ -652,9 +618,7 @@ def test_a_prediction_column_that_would_collide_is_renamed_not_overwritten(
     )
     db_session.commit()
 
-    result = tabular_predict.score_dataset(
-        db_session, model=model, dataset=collided
-    )
+    result = tabular_predict.score_dataset(db_session, model=model, dataset=collided)
 
     assert result["added_columns"][0] == "prediction_2"
 
@@ -668,9 +632,7 @@ def test_a_dataset_above_the_scoring_ceiling_is_refused(
     before = db_session.query(TabularDataset).count()
 
     with pytest.raises(TabularError) as raised:
-        tabular_predict.score_dataset(
-            db_session, model=model, dataset=scoring_dataset
-        )
+        tabular_predict.score_dataset(db_session, model=model, dataset=scoring_dataset)
 
     assert raised.value.code == "ML_SCORE_TOO_MANY_ROWS"
     # A refusal leaves nothing behind. The output row is reserved *after* every
@@ -701,9 +663,7 @@ def test_a_score_says_where_it_has_got_to_while_it_is_getting_there(
 
     tabular_predict.mark_step = record
     try:
-        result = tabular_predict.score_dataset(
-            db_session, model=model, dataset=scoring_dataset
-        )
+        result = tabular_predict.score_dataset(db_session, model=model, dataset=scoring_dataset)
     finally:
         tabular_predict.mark_step = original
 
@@ -747,9 +707,7 @@ def test_a_score_that_breaks_does_not_leave_a_table_claiming_to_be_working(
     monkeypatch.setattr(tabular_predict, "_predict_frame", explode)
 
     with pytest.raises(RuntimeError):
-        tabular_predict.score_dataset(
-            db_session, model=model, dataset=scoring_dataset
-        )
+        tabular_predict.score_dataset(db_session, model=model, dataset=scoring_dataset)
 
     row = (
         db_session.query(TabularDataset)
@@ -774,9 +732,7 @@ def test_a_minted_key_is_returned_once_and_stored_only_as_a_digest(db_session, m
     assert secret.startswith(tabular_predict.KEY_PREFIX)
     assert row.name == "CRM" and row.key_prefix == secret[:12]
     # The secret is not in the row, in any form a lookup could reverse.
-    assert secret not in json.dumps(
-        {"prefix": row.key_prefix, "digest": row.key_sha256}
-    )
+    assert secret not in json.dumps({"prefix": row.key_prefix, "digest": row.key_sha256})
     assert tabular_predict.serialize_api_key(row).get("secret") is None
     assert tabular_predict.serialize_api_key(row, secret=secret)["secret"] == secret
 
@@ -789,10 +745,7 @@ def test_a_key_authenticates_to_its_model_and_counts_its_uses(db_session, model)
     assert resolved.id == model.id
     assert key.use_count == 1 and key.last_used_at is not None
     tabular_predict.authenticate_key(db_session, secret)
-    assert (
-        db_session.query(MLModelApiKey).filter(MLModelApiKey.id == key.id).one().use_count
-        == 2
-    )
+    assert db_session.query(MLModelApiKey).filter(MLModelApiKey.id == key.id).one().use_count == 2
 
 
 @pytest.mark.parametrize("presented", ["", None, "agpk_nope", "not-even-a-key"])
@@ -842,9 +795,7 @@ def test_the_key_ceiling_counts_only_live_keys(db_session, model, monkeypatch):
 
 
 def test_an_untrained_model_cannot_hold_keys(db_session, workspace, churn_artifact):
-    pending = _register(
-        db_session, workspace, churn_artifact, status="pending", champion=False
-    )
+    pending = _register(db_session, workspace, churn_artifact, status="pending", champion=False)
 
     with pytest.raises(TabularError) as raised:
         tabular_predict.mint_api_key(db_session, model=pending)
@@ -936,9 +887,10 @@ def test_a_version_born_after_publication_inherits_the_skill_link(
     tabular_predict.publish_as_skill(db_session, model=first)
     skill = db_session.query(Skill).one()
 
-    assert _lineage_publication(
-        db_session, workspace_id=workspace.id, slug=first.slug
-    ) == (skill.id, skill.slug)
+    assert _lineage_publication(db_session, workspace_id=workspace.id, slug=first.slug) == (
+        skill.id,
+        skill.slug,
+    )
 
 
 def test_withdrawing_removes_the_skill_and_clears_the_lineage(db_session, model):
@@ -953,9 +905,7 @@ def test_withdrawing_removes_the_skill_and_clears_the_lineage(db_session, model)
     assert tabular_predict.unpublish_skill(db_session, model=model) is None
 
 
-def test_deleting_the_last_version_withdraws_the_skill_it_was_published_as(
-    db_session, model
-):
+def test_deleting_the_last_version_withdraws_the_skill_it_was_published_as(db_session, model):
     from app.services.tabular_ml import delete_model
 
     tabular_predict.publish_as_skill(db_session, model=model)
@@ -980,9 +930,7 @@ def test_deleting_one_version_keeps_the_lineage_skill_the_others_serve(
     assert db_session.query(Skill).count() == 1
 
 
-def test_the_catalog_can_name_the_model_a_published_skill_answers_from(
-    db_session, model
-):
+def test_the_catalog_can_name_the_model_a_published_skill_answers_from(db_session, model):
     """The provenance chip's data, read off the executor the run dispatches.
 
     A published Skill in a catalog of forty is indistinguishable from a hand
@@ -1090,9 +1038,7 @@ def test_a_promotion_moves_the_published_contract_with_the_answer(
     assert "version 2" in row.description
     # And a lineage that published nothing promotes in silence, refreshing
     # nothing — the guard the promotion path relies on.
-    other = _register(
-        db_session, workspace, churn_artifact, slug="other", version=1, champion=True
-    )
+    other = _register(db_session, workspace, churn_artifact, slug="other", version=1, champion=True)
     assert tabular_predict.refresh_published_skill(db_session, model=other) is False
 
 
@@ -1121,9 +1067,7 @@ def test_a_skill_that_answers_from_no_model_claims_no_provenance(db_session, mod
 
 
 def test_an_untrained_model_cannot_be_published(db_session, workspace, churn_artifact):
-    pending = _register(
-        db_session, workspace, churn_artifact, status="pending", champion=False
-    )
+    pending = _register(db_session, workspace, churn_artifact, status="pending", champion=False)
 
     with pytest.raises(TabularError) as raised:
         tabular_predict.publish_as_skill(db_session, model=pending)
@@ -1131,9 +1075,7 @@ def test_an_untrained_model_cannot_be_published(db_session, workspace, churn_art
     assert raised.value.code == "ML_MODEL_NOT_READY"
 
 
-def test_the_published_skill_answers_a_record_through_the_registry_executor(
-    db_session, model
-):
+def test_the_published_skill_answers_a_record_through_the_registry_executor(db_session, model):
     import asyncio
 
     from app.services.skills_registry.executors import bind_executor
@@ -1178,9 +1120,7 @@ def test_a_payload_cannot_redirect_a_published_skill_to_another_model(
 # ---------------------------------------------------------------------------
 
 
-def test_the_score_node_scores_the_dataset_on_its_wire(
-    db_session, model, scoring_dataset
-):
+def test_the_score_node_scores_the_dataset_on_its_wire(db_session, model, scoring_dataset):
     import asyncio
 
     from app.services.skills_registry.wrappers import resolve
@@ -1246,9 +1186,7 @@ def test_the_score_node_scores_the_dataset_it_pins_when_nothing_is_wired(
     assert answer["model"]["model_id"] == model.id
 
 
-def test_the_score_node_says_a_dataset_is_missing_rather_than_scoring_nothing(
-    db_session, model
-):
+def test_the_score_node_says_a_dataset_is_missing_rather_than_scoring_nothing(db_session, model):
     import asyncio
 
     from app.services.skills_registry.wrappers import resolve
@@ -1339,9 +1277,9 @@ def test_the_reserved_predict_key_is_stripped_on_every_other_node():
 
     assert "_predict" not in node_input and node_input["question"] == "?"
     # Nor does a model reference ride a failure envelope into run outputs.
-    assert _passthrough_without_recipe(
-        {"dataset_id": "d", "_predict": {"model_id": "x"}}
-    ) == {"dataset_id": "d"}
+    assert _passthrough_without_recipe({"dataset_id": "d", "_predict": {"model_id": "x"}}) == {
+        "dataset_id": "d"
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1372,9 +1310,7 @@ def test_the_serving_block_gives_the_card_everything_it_renders(db_session, mode
 def test_the_serving_block_of_an_untrained_version_is_not_callable(
     db_session, workspace, churn_artifact
 ):
-    pending = _register(
-        db_session, workspace, churn_artifact, status="pending", champion=False
-    )
+    pending = _register(db_session, workspace, churn_artifact, status="pending", champion=False)
 
     block = tabular_predict.serving_block(db_session, pending)
 
@@ -1396,9 +1332,7 @@ def test_both_serving_skills_are_registered_bound_and_claimed(slug):
     assert "`" not in entry["description"]
     assert _REGISTRY[slug][2] == "bound"
     assert skill_category(slug) == "Models"
-    carrier = next(
-        row for row in SEED_CAPABILITIES if slug in (row.get("skill_slugs") or [])
-    )
+    carrier = next(row for row in SEED_CAPABILITIES if slug in (row.get("skill_slugs") or []))
     # Without a claiming capability the catalog files a skill under `unclaimed`,
     # which greys its palette row in every workspace.
     assert carrier["tier"] == "universal"
@@ -1428,9 +1362,7 @@ def test_an_explained_row_says_what_its_own_values_did_to_the_score(db_session, 
         # can say "vs. a typical customer" rather than asserting causality.
         assert "typical" in entry and "value" in entry
     # A support-ticket count of six is not typical, so it must have an effect.
-    tickets = next(
-        entry for entry in contributions if entry["field"] == "support_tickets"
-    )
+    tickets = next(entry for entry in contributions if entry["field"] == "support_tickets")
     assert tickets["effect"] != 0.0
     json.dumps(answer, allow_nan=False)
 
@@ -1446,9 +1378,7 @@ def test_a_batch_is_never_explained_because_the_cost_is_per_row(db_session, mode
         db_session, model, [_row(), _row(plan="hybrid")], explain=True
     )
 
-    assert all(
-        "contributions" not in prediction for prediction in answer["predictions"]
-    )
+    assert all("contributions" not in prediction for prediction in answer["predictions"])
 
 
 # ---------------------------------------------------------------------------
@@ -1493,53 +1423,86 @@ def test_a_deployment_that_cannot_read_artifacts_still_boots(monkeypatch):
 
 @pytest.fixture()
 def interval_model(db_session, workspace, arpu_artifact):
-    model = _register(db_session, workspace, arpu_artifact, task="regression", target="arpu", slug="intervals")
-    model.metrics_json = {**model.metrics_json, "intervals": {
-        "default_level": .9, "levels": [{"level": .8, "q": 3.}, {"level": .9, "q": 5.}, {"level": .95, "q": 8.}],
-    }}
+    model = _register(
+        db_session, workspace, arpu_artifact, task="regression", target="arpu", slug="intervals"
+    )
+    model.metrics_json = {
+        **model.metrics_json,
+        "intervals": {
+            "default_level": 0.9,
+            "levels": [
+                {"level": 0.8, "q": 3.0},
+                {"level": 0.9, "q": 5.0},
+                {"level": 0.95, "q": 8.0},
+            ],
+        },
+    }
     db_session.commit()
     return model
 
 
-@pytest.mark.parametrize("level,radius", [(None, 5.), (.8, 3.), (.95, 8.)])
+@pytest.mark.parametrize("level,radius", [(None, 5.0), (0.8, 3.0), (0.95, 8.0)])
 def test_regression_intervals_are_served_and_journaled(db_session, interval_model, level, radius):
-    answer = tabular_predict.predict_rows(db_session, interval_model,
-        [{"plan": "postpaid", "tenure_months": 30, "support_tickets": 1}], interval_level=level)
+    answer = tabular_predict.predict_rows(
+        db_session,
+        interval_model,
+        [{"plan": "postpaid", "tenure_months": 30, "support_tickets": 1}],
+        interval_level=level,
+    )
     value = answer["predictions"][0]
     assert value["lower"] == pytest.approx(value["prediction"] - radius)
     assert value["upper"] == pytest.approx(value["prediction"] + radius)
-    assert value["level"] == (level or .9)
+    assert value["level"] == (level or 0.9)
     assert db_session.get(MLPrediction, answer["prediction_id"]).output_json[0] == value
 
 
 def test_unknown_interval_level_is_a_coded_refusal_before_scoring(db_session, interval_model):
     with pytest.raises(TabularError) as error:
-        tabular_predict.predict_rows(db_session, interval_model, [], interval_level=.85)
+        tabular_predict.predict_rows(db_session, interval_model, [], interval_level=0.85)
     assert error.value.code == "ML_INTERVAL_LEVEL_UNKNOWN" and error.value.status_code == 422
-    assert error.value.details == {"levels": [.8, .9, .95]}
+    assert error.value.details == {"levels": [0.8, 0.9, 0.95]}
     assert interval_model.predict_count == 0
 
 
 def test_old_regression_ignores_interval_level_and_has_no_new_fields(db_session, interval_model):
-    interval_model.metrics_json = {key: value for key, value in interval_model.metrics_json.items() if key != "intervals"}
+    interval_model.metrics_json = {
+        key: value for key, value in interval_model.metrics_json.items() if key != "intervals"
+    }
     db_session.commit()
-    answer = tabular_predict.predict_rows(db_session, interval_model,
-        [{"plan": "postpaid", "tenure_months": 30, "support_tickets": 1}], interval_level=.85)
+    answer = tabular_predict.predict_rows(
+        db_session,
+        interval_model,
+        [{"plan": "postpaid", "tenure_months": 30, "support_tickets": 1}],
+        interval_level=0.85,
+    )
     assert not {"lower", "upper", "level"}.intersection(answer["predictions"][0])
     assert "lower" not in tabular_predict.predict_output_schema(interval_model)["properties"]
 
 
-def test_batch_intervals_keep_colliding_input_columns_and_publish_schema(db_session, interval_model, scoring_dataset):
+def test_batch_intervals_keep_colliding_input_columns_and_publish_schema(
+    db_session, interval_model, scoring_dataset
+):
     from app.services.tabular_datasets import get_dataset, read_frame
-    original = read_frame(scoring_dataset).with_columns(pl.lit(-1.).alias("arpu_lower"))
-    dataset = register_frame(db_session, workspace_id=interval_model.workspace_id, name="Existing bounds", frame=original, source="upload")
+
+    original = read_frame(scoring_dataset).with_columns(pl.lit(-1.0).alias("arpu_lower"))
+    dataset = register_frame(
+        db_session,
+        workspace_id=interval_model.workspace_id,
+        name="Existing bounds",
+        frame=original,
+        source="upload",
+    )
     db_session.commit()
     answer = tabular_predict.score_dataset(db_session, model=interval_model, dataset=dataset)
-    output = read_frame(get_dataset(db_session, dataset_id=answer["dataset_id"], workspace_id=interval_model.workspace_id))
-    assert output["arpu_lower"].to_list() == [-1.] * 30
-    assert output["arpu_lower_2"].to_list() == pytest.approx((output["prediction"] - 5.).to_list())
-    assert output["arpu_upper"].to_list() == pytest.approx((output["prediction"] + 5.).to_list())
-    assert db_session.get(MLPrediction, answer["prediction_id"]).output_json[0]["level"] == .9
+    output = read_frame(
+        get_dataset(
+            db_session, dataset_id=answer["dataset_id"], workspace_id=interval_model.workspace_id
+        )
+    )
+    assert output["arpu_lower"].to_list() == [-1.0] * 30
+    assert output["arpu_lower_2"].to_list() == pytest.approx((output["prediction"] - 5.0).to_list())
+    assert output["arpu_upper"].to_list() == pytest.approx((output["prediction"] + 5.0).to_list())
+    assert db_session.get(MLPrediction, answer["prediction_id"]).output_json[0]["level"] == 0.9
     published = tabular_predict.publish_as_skill(db_session, model=interval_model)
     assert {"lower", "upper", "level"} <= set(published["output_schema"]["properties"])
 
@@ -1549,14 +1512,86 @@ def test_intervals_and_published_contract_follow_the_served_version(
 ):
     tabular_predict.publish_as_skill(db_session, model=interval_model)
     interval_model.is_champion = False
-    second = _register(db_session, workspace, arpu_artifact, task="regression", target="arpu",
-        slug=interval_model.slug, version=2)
+    second = _register(
+        db_session,
+        workspace,
+        arpu_artifact,
+        task="regression",
+        target="arpu",
+        slug=interval_model.slug,
+        version=2,
+    )
     rows = [{"plan": "postpaid", "tenure_months": 30, "support_tickets": 1}]
-    current = tabular_predict.predict_rows(db_session, interval_model, rows, interval_level=.95)
-    pinned = tabular_predict.predict_rows(db_session, interval_model, rows, version=1, interval_level=.95)
+    current = tabular_predict.predict_rows(db_session, interval_model, rows, interval_level=0.95)
+    pinned = tabular_predict.predict_rows(
+        db_session, interval_model, rows, version=1, interval_level=0.95
+    )
     assert current["served"]["version"] == 2 and "lower" not in current["predictions"][0]
-    assert pinned["served"]["version"] == 1 and pinned["predictions"][0]["level"] == .95
+    assert pinned["served"]["version"] == 1 and pinned["predictions"][0]["level"] == 0.95
     assert tabular_predict.refresh_published_skill(db_session, model=second)
-    assert "lower" not in tabular_predict.published_skill(db_session, interval_model)["output_schema"]["properties"]
+    assert (
+        "lower"
+        not in tabular_predict.published_skill(db_session, interval_model)["output_schema"][
+            "properties"
+        ]
+    )
     assert tabular_predict.refresh_published_skill(db_session, model=interval_model)
-    assert "lower" in tabular_predict.published_skill(db_session, interval_model)["output_schema"]["properties"]
+    assert (
+        "lower"
+        in tabular_predict.published_skill(db_session, interval_model)["output_schema"][
+            "properties"
+        ]
+    )
+
+
+def test_batch_prediction_metadata_proves_generated_columns_despite_input_collisions(
+    db_session, model, scoring_dataset
+):
+    from app.services.tabular_datasets import get_dataset, read_frame
+    from app.services.work_predictions import validate_dataset_contract
+
+    positive = tabular_predict._positive_label(model, [str(v) for v in model.classes_json])
+    original = read_frame(scoring_dataset).with_columns(
+        pl.lit("input-value").alias("prediction"),
+        pl.lit(0.99).alias(f"score_{positive}"),
+    )
+    source = register_frame(
+        db_session,
+        workspace_id=model.workspace_id,
+        name="Colliding input",
+        frame=original,
+        source="upload",
+    )
+    db_session.commit()
+    result = tabular_predict.score_dataset(db_session, model=model, dataset=source)
+    scored = get_dataset(
+        db_session, dataset_id=result["dataset_id"], workspace_id=model.workspace_id
+    )
+    output = scored.lineage_json["prediction_output"]
+    assert output["value_column"] == "prediction_2"
+    assert output["score_column"] == f"score_{positive}_2"
+    assert read_frame(scored)[f"score_{positive}"].to_list() == [0.99] * 30
+    contract = {
+        "schema_version": 1,
+        "model_id": model.id,
+        "model_version": model.version,
+        "task": "classification",
+        "target": model.target,
+        "positive_label": positive,
+        "label": "Churn likelihood",
+        "unit": "probability",
+        "max_age_seconds": 600,
+        "value_column": "prediction",
+        "score_column": f"score_{positive}",
+    }
+    with pytest.raises(ValueError, match="COLUMN_PROVENANCE"):
+        validate_dataset_contract(scored, model, contract)
+    validate_dataset_contract(
+        scored,
+        model,
+        {
+            **contract,
+            "value_column": output["value_column"],
+            "score_column": output["score_column"],
+        },
+    )

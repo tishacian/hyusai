@@ -18,7 +18,7 @@ from app.services.ecommerce_composition import (
     compose,
 )
 from app.services.ecommerce_flow_sources import reviewed_source_base
-from app.services.ecommerce_triage import SCORE_ROLE, validate_model
+from app.services.ecommerce_triage import SCORE_ROLE, get_prediction_contract, validate_model
 from app.services.experience import bindings, lifecycle
 from app.services.flow_contracts import canonical_sha256
 from app.services.skills_registry.seed import SEED_SKILLS
@@ -53,15 +53,49 @@ def work_pages(pages):
 
 def upgrade(db, workspace, actor, *, plan, apply=False, expected_composition_sha256=None):
     model, training = validate_model(db, workspace, plan["model_id"], plan["model_version"])
-    if model.system_id != plan["training_system_id"]:
+    training_history_id = plan["training_system_id"]
+    # A Model Center fit has no training System. The reviewed plan names the
+    # previous fitted model whose historical System is being retired; this
+    # does not pretend that the new fit ran in that old System.
+    history_model = None
+    if model.system_id is None and plan.get("training_history_model_id"):
+        history_model, _ = validate_model(
+            db, workspace, plan["training_history_model_id"], plan["training_history_model_version"]
+        )
+    if model.system_id != training_history_id and (
+        model.system_id is not None
+        or history_model is None
+        or history_model.system_id != training_history_id
+    ):
         raise ValueError("CLAIM_TRIAGE_TRAINING_SYSTEM_MISMATCH")
+    authored = plan.get("configuration") or {}
+    if not isinstance(authored, dict) or set(authored) - {"flow_definition", "pages", "bindings"}:
+        raise ValueError("CLAIMS_COMPOSITION_CONFIGURATION_INVALID")
+    extra_bindings = copy.deepcopy(authored.get("bindings") or [])
+    seen_bindings = {QUEUE_BINDING, "showcase.claims.investigate"}
+    for item in extra_bindings:
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"binding_key", "ingress_id"}
+            or not isinstance(item["binding_key"], str)
+            or not item["binding_key"]
+            or not isinstance(item["ingress_id"], str)
+            or not item["ingress_id"]
+            or item["binding_key"] in seen_bindings
+        ):
+            raise ValueError("CLAIMS_COMPOSITION_CONFIGURATION_INVALID")
+        seen_bindings.add(item["binding_key"])
+
+    def configured_flow(flow):
+        if "flow_definition" in authored:
+            return copy.deepcopy(authored["flow_definition"])
+        return compose(flow, model.id, model.version, model_slug=model.slug)
+
     kwargs = {
         "system_id": plan["system_id"],
         "expected_flow_sha256": plan["expected_flow_sha256"],
         "expected_release_id": plan["expected_release_id"],
-        "flow_transform": lambda flow: compose(
-            flow, model.id, model.version, model_slug=model.slug
-        ),
+        "flow_transform": configured_flow,
         "message": "Luma: one hybrid SAV System, shared PostgreSQL preparation and model scoring, scoped document inquiry and human decisions.",
     }
     reviewed = ecommerce_source_upgrade.upgrade(db, workspace, actor, **kwargs)
@@ -73,12 +107,23 @@ def upgrade(db, workspace, actor, *, plan, apply=False, expected_composition_sha
     _, draft, _ = lifecycle.get_experience(
         db, workspace_id=workspace.id, experience_id=experience.id
     )
-    pages = work_pages(draft.pages)
-    keys = list(dict.fromkeys([*(draft.binding_keys or []), QUEUE_BINDING]))
+    pages = copy.deepcopy(authored["pages"]) if "pages" in authored else work_pages(draft.pages)
+    keys = list(
+        dict.fromkeys(
+            [
+                *(draft.binding_keys or []),
+                QUEUE_BINDING,
+                *(item["binding_key"] for item in extra_bindings),
+            ]
+        )
+    )
     if (
         db.query(SystemBinding)
         .filter(
-            SystemBinding.workspace_id == workspace.id, SystemBinding.binding_key == QUEUE_BINDING
+            SystemBinding.workspace_id == workspace.id,
+            SystemBinding.binding_key.in_(
+                [QUEUE_BINDING, *(item["binding_key"] for item in extra_bindings)]
+            ),
         )
         .first()
     ):
@@ -86,7 +131,7 @@ def upgrade(db, workspace, actor, *, plan, apply=False, expected_composition_sha
     legacy = []
     retirement = []
     expected_roles = {
-        model.system_id: "luma-sla-training-v1",
+        training_history_id: "luma-sla-training-v1",
         plan["scoring_system_id"]: SCORE_ROLE,
     }
     if (
@@ -138,12 +183,14 @@ def upgrade(db, workspace, actor, *, plan, apply=False, expected_composition_sha
         "retire": retirement,
         "model_id": model.id,
         "model_version": model.version,
+        "training_history_model_id": history_model.id if history_model else model.id,
         "queue_binding": {
             "binding_key": QUEUE_BINDING,
             "system_id": plan["system_id"],
             "ingress_id": QUEUE_INGRESS,
             "confirmation_policy": "confirm",
         },
+        "additional_bindings": extra_bindings,
     }
     result = {
         **reviewed,
@@ -155,7 +202,17 @@ def upgrade(db, workspace, actor, *, plan, apply=False, expected_composition_sha
         return result
     if expected_composition_sha256 != result["composition_sha256"]:
         raise ValueError("CLAIMS_COMPOSITION_TARGET_NOT_REVIEWED")
+    # The source upgrade only publishes/configures an app when the Flow changes.
+    # Refuse an app-only/no-op plan before touching Skills, names or history;
+    # otherwise the CLI could commit those partial changes with applied=False.
+    if not result["changed"]:
+        raise ValueError("CLAIMS_COMPOSITION_FLOW_UNCHANGED")
     slugs = {DATASET_SKILL, CONTEXT_SKILL, "sql_transform_v1", "ml_batch_score_v1"}
+    slugs.update(
+        node["config"]["skill_slug"]
+        for node in reviewed["flow_definition"].get("nodes", [])
+        if isinstance(node.get("config"), dict) and node["config"].get("skill_slug")
+    )
     for definition in SEED_SKILLS:
         if (
             definition["slug"] in slugs
@@ -189,9 +246,24 @@ def upgrade(db, workspace, actor, *, plan, apply=False, expected_composition_sha
             confirmation_policy="confirm",
             on_unavailable="unavailable",
         )
+        for item in extra_bindings:
+            bindings.create_binding(
+                db,
+                workspace=workspace,
+                actor=actor.email,
+                binding_key=item["binding_key"],
+                system_id=main.id,
+                published_flow_version_id=version.id,
+                ingress_id=item["ingress_id"],
+                confirmation_policy="confirm",
+                on_unavailable="unavailable",
+            )
         settings = copy.deepcopy(workspace.settings or {})
         settings["ecommerce_claims"]["triage"] = {
             "composition": MODE,
+            "prediction_contract": get_prediction_contract(
+                {"model_id": model.id, "model_version": model.version}
+            ),
             "model_id": model.id,
             "model_version": model.version,
             "training_system_id": model.system_id,
@@ -206,11 +278,11 @@ def upgrade(db, workspace, actor, *, plan, apply=False, expected_composition_sha
                 **(system.settings or {}),
                 "composition_parent_system_id": main.id,
                 "composition_role": "training_history"
-                if system.id == model.system_id
+                if system.id == training_history_id
                 else "bootstrap_history",
             }
         model.description = (
-            "Luma : modèle de démonstration entraîné sur 1 200 dossiers synthétiques."
+            f"Luma : modèle de démonstration entraîné sur {training.row_count} dossiers synthétiques."
             " Conseil de priorité dans le Flow SAV composé ; aucune autorité financière ni ROI mesuré."
         )
         emit_audit_event(

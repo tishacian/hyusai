@@ -40,10 +40,13 @@ from app.models.policy import ControlPolicy
 from app.models.run import Run
 from app.models.run_schedule import RunSchedule
 from app.models.system import System
+from app.models.tabular import MLModel
 from app.models.user import User
 from app.models.webhook_hook import WebhookHook
 from app.models.workspace import Workspace, WorkspaceMember
 from app.schemas.canonical import ExecutionMode, SystemStatus
+from app.schemas.operational_objective import OperationalObjective, validate_objective_settings
+from app.services import system_model_operations
 from app.services.actions.contracts import normalize_system_action_pack_settings
 from app.services.audit_logger import emit_audit_event
 from app.services.chains import dag_validator, export_service, version_service
@@ -82,6 +85,8 @@ from app.services.systems.flow_manifest import serialize_flow_manifest
 router = APIRouter()
 
 _MANAGED_SYSTEM_SETTING_FIELDS = {
+    "ml_monitoring_model_id": "MODEL_OPERATION_BINDING_MANAGED",
+    "model_operation": "MODEL_OPERATION_BINDING_MANAGED",
     "_lot6_system360_rollout_v1": "LOT6_SYSTEM360_ROLLOUT_STATE_MANAGED",
     "_lot7_projection_rollout_v1": "LOT7_PROJECTION_ROLLOUT_STATE_MANAGED",
     "_lot8_value_loop_rollout_v1": "LOT8_VALUE_LOOP_ROLLOUT_STATE_MANAGED",
@@ -114,17 +119,14 @@ def _settings_with_managed_system_fields_preserved(
     a generic replacement therefore preserves the current server-owned value.
     """
 
-    current_settings = (
-        copy.deepcopy(dict(current)) if isinstance(current, Mapping) else {}
-    )
+    current_settings = copy.deepcopy(dict(current)) if isinstance(current, Mapping) else {}
     next_settings = copy.deepcopy(dict(requested))
 
     for field, code in _MANAGED_SYSTEM_SETTING_FIELDS.items():
         current_has_field = field in current_settings
         requested_has_field = field in next_settings
         if requested_has_field and (
-            not current_has_field
-            or next_settings[field] != current_settings[field]
+            not current_has_field or next_settings[field] != current_settings[field]
         ):
             raise _managed_system_settings_error(
                 code=code,
@@ -135,9 +137,7 @@ def _settings_with_managed_system_fields_preserved(
 
     current_experience_raw = current_settings.get("experience")
     current_experience = (
-        dict(current_experience_raw)
-        if isinstance(current_experience_raw, Mapping)
-        else {}
+        dict(current_experience_raw) if isinstance(current_experience_raw, Mapping) else {}
     )
     requested_has_experience = "experience" in next_settings
     requested_experience_raw = next_settings.get("experience")
@@ -162,8 +162,7 @@ def _settings_with_managed_system_fields_preserved(
         current_has_field = field in current_experience
         requested_has_field = field in requested_experience
         if requested_has_field and (
-            not current_has_field
-            or requested_experience[field] != current_experience[field]
+            not current_has_field or requested_experience[field] != current_experience[field]
         ):
             raise _managed_system_settings_error(
                 code=code,
@@ -473,9 +472,7 @@ def _enforce_system_run_authority(
         resource_kind="system",
         action="engine.run",
         legacy_allowed=(
-            legacy_decision.allowed
-            if is_iam_enforced_for_workspace(workspace)
-            else True
+            legacy_decision.allowed if is_iam_enforced_for_workspace(workspace) else True
         ),
         resource_attrs={
             "system_id": system.id,
@@ -501,7 +498,9 @@ def _enforce_system_run_authority(
         system = locked
         try:
             _, _, _, execution_contract = flow_publication.published_run_evidence(
-                db, system=system, workspace=workspace,
+                db,
+                system=system,
+                workspace=workspace,
             )
         except flow_publication.FlowPublicationError as exc:
             raise HTTPException(exc.status_code, detail=exc.payload()) from exc
@@ -514,13 +513,17 @@ def _enforce_system_run_authority(
             validate_execution_contract(execution_contract)
             control = thaw_control_policy(
                 execution_contract["control_policy_snapshot"],
-                workspace_id=workspace.id, system_id=system.id,
+                workspace_id=workspace.id,
+                system_id=system.id,
             )
         except (ValueError, FlowContractError) as exc:
-            raise HTTPException(409, detail={
-                "code": "CONTROL_POLICY_SNAPSHOT_INVALID",
-                "message": "The frozen execution policy is invalid; execution was not started.",
-            }) from exc
+            raise HTTPException(
+                409,
+                detail={
+                    "code": "CONTROL_POLICY_SNAPSHOT_INVALID",
+                    "message": "The frozen execution policy is invalid; execution was not started.",
+                },
+            ) from exc
     else:
         control = None
         if system.control_policy_id:
@@ -565,7 +568,6 @@ def _enforce_system_run_authority(
 
 
 # ---------------- Pydantic ----------------
-from app.schemas.operational_objective import OperationalObjective, validate_objective_settings
 
 
 class SystemCreate(BaseModel):
@@ -738,9 +740,7 @@ class ActiveFlowWriteOptions(BaseModel):
     )
     flow_write_intent: Literal["replace_active_flow"] | None = Field(
         default=None,
-        description=(
-            "One-shot explicit intent required for destructive active-flow replacements."
-        ),
+        description=("One-shot explicit intent required for destructive active-flow replacements."),
     )
 
 
@@ -759,7 +759,9 @@ class SystemUpdateOptions(ActiveFlowWriteOptions):
     """
 
     expected_published_version_id: str | None = Field(
-        default=None, min_length=1, max_length=36,
+        default=None,
+        min_length=1,
+        max_length=36,
         description="Published Flow reviewed before activating this System.",
     )
     version_message: Optional[str] = Field(
@@ -915,15 +917,13 @@ def _serialize(s: System) -> dict[str, Any]:
         "flow_definition": flow,
         "flow_sha256": _flow_sha256(flow),
         "settings": getattr(s, "settings", None) or {},
+        "category": system_model_operations.category(s),
+        "model_operation": system_model_operations.model_operation(s),
         # Publication authority pointer. Optional and additive: rows created
         # before migration 077, and workspaces without flow publication, keep
         # answering ``None`` here rather than changing shape.
         "published_flow_version_id": getattr(s, "published_flow_version_id", None),
-        "published_at": (
-            s.published_at.isoformat()
-            if getattr(s, "published_at", None)
-            else None
-        ),
+        "published_at": (s.published_at.isoformat() if getattr(s, "published_at", None) else None),
         "published_by": getattr(s, "published_by", None),
         "execution_mode": s.execution_mode,
         "execution_profile": getattr(s, "execution_profile", None) or {},
@@ -971,6 +971,8 @@ async def list_systems(
     capability_id: Optional[str] = None,
     status: Optional[SystemStatus] = None,
     include_retired: bool = False,
+    category: Optional[Literal["business", "model_operations"]] = None,
+    uses_model_id: Optional[str] = None,
     limit: int = 100,
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
@@ -1002,7 +1004,49 @@ async def list_systems(
         # so de-duplicating seeded systems stays reversible (status flip, no
         # row/run deletion).
         q = q.filter(System.status != "retired")
-    rows = q.order_by(System.updated_at.desc()).limit(limit).all()
+    q = q.order_by(System.updated_at.desc())
+    model = None
+    workspace_models = {}
+    if uses_model_id:
+        model = db.query(MLModel).filter_by(id=uses_model_id, workspace_id=workspace.id).first()
+        if model is None:
+            raise HTTPException(status_code=404, detail="Model not found")
+        workspace_models = {
+            row.id: row for row in db.query(MLModel).filter_by(workspace_id=workspace.id).all()
+        }
+    if category or model is not None:
+        result = []
+        page_limit = min(500, max(1, limit))
+        # Filter before the limit: unrelated recent Systems must not displace
+        # a real consumer. The relation does not change Run or Impact scopes.
+        # Use the same classification as serialization, including malformed
+        # legacy JSON values; SQL string casts would classify numbers as ids.
+        for row in q.yield_per(100):
+            if category and system_model_operations.category(row) != category:
+                continue
+            references = (
+                system_model_operations.published_references(
+                    db, system=row, model=model, workspace_models=workspace_models
+                )
+                if model is not None
+                else []
+            )
+            if model is not None and not references:
+                continue
+            result.append(
+                {
+                    **_serialize(row),
+                    **({"model_references": references} if model is not None else {}),
+                }
+            )
+            if len(result) > page_limit:
+                break
+        return {
+            "systems": result[:page_limit],
+            "has_more": len(result) > page_limit,
+            **({"reference_scope": "published_model_lineage"} if model is not None else {}),
+        }
+    rows = q.limit(limit).all()
     return {"systems": [_serialize(s) for s in rows]}
 
 
@@ -1148,13 +1192,11 @@ def _create_system_record(body: SystemCreate, *, workspace, user, db, options=No
     # UI's "Versions" panel always has at least the starting point to
     # compare against or roll back to.
     try:
-        publication_state = (
-            flow_publication.initialize_new_system_publication_if_enabled(
-                db,
-                system=s,
-                workspace=workspace,
-                actor=actor,
-            )
+        publication_state = flow_publication.initialize_new_system_publication_if_enabled(
+            db,
+            system=s,
+            workspace=workspace,
+            actor=actor,
         )
     except flow_publication.FlowPublicationError as exc:
         db.rollback()
@@ -1223,9 +1265,7 @@ async def get_system_perspective(
     """
 
     system = (
-        db.query(System)
-        .filter(System.id == system_id, System.workspace_id == workspace.id)
-        .first()
+        db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     )
     if system is None or not _system_360_enabled(workspace, system):
         raise HTTPException(404, "System perspective not found")
@@ -1240,10 +1280,13 @@ async def get_system_perspective(
             window=window,
         )
     except PublishedMandateUnavailable as exc:
-        raise HTTPException(409, detail={
-            "code": "published_mandate_unavailable",
-            "message": "The published mandate could not be verified. Review the System publication before relying on its access preview.",
-        }) from exc
+        raise HTTPException(
+            409,
+            detail={
+                "code": "published_mandate_unavailable",
+                "message": "The published mandate could not be verified. Review the System publication before relying on its access preview.",
+            },
+        ) from exc
 
 
 @router.get("/{system_id}/flow-manifest")
@@ -1282,9 +1325,7 @@ async def validate_system_flow(
     """
 
     system = (
-        db.query(System)
-        .filter(System.id == system_id, System.workspace_id == workspace.id)
-        .first()
+        db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     )
     if system is None:
         raise HTTPException(404, "System not found")
@@ -1417,13 +1458,16 @@ async def update_system(
         options.expected_published_version_id is not None
         and options.expected_published_version_id != s.published_flow_version_id
     ):
-        raise HTTPException(409, detail={
-            "code": "SYSTEM_PUBLISHED_VERSION_MISMATCH",
-            "message": "The published Flow changed. Reload and review it before activating the System.",
-            "system_id": s.id,
-            "expected_published_version_id": options.expected_published_version_id,
-            "current_published_version_id": s.published_flow_version_id,
-        })
+        raise HTTPException(
+            409,
+            detail={
+                "code": "SYSTEM_PUBLISHED_VERSION_MISMATCH",
+                "message": "The published Flow changed. Reload and review it before activating the System.",
+                "system_id": s.id,
+                "expected_published_version_id": options.expected_published_version_id,
+                "current_published_version_id": s.published_flow_version_id,
+            },
+        )
     if "settings" in updates:
         incoming = updates["settings"] or {}
         current_objective = (s.settings or {}).get("operational_objective")
@@ -1494,10 +1538,7 @@ async def update_system(
                 prospective_flow=prospective_flow,
                 workspace=workspace,
             )
-            if (
-                flow_write_reasons
-                and options.flow_write_intent != "replace_active_flow"
-            ):
+            if flow_write_reasons and options.flow_write_intent != "replace_active_flow":
                 raise HTTPException(
                     status_code=409,
                     detail={
@@ -1524,9 +1565,7 @@ async def update_system(
             "reasons": flow_write_reasons,
             "active_boundary": active_flow_boundary,
         }
-    changed_fields = sorted(
-        key for key, value in updates.items() if getattr(s, key, None) != value
-    )
+    changed_fields = sorted(key for key, value in updates.items() if getattr(s, key, None) != value)
     prospective_settings = updates.get("settings", s.settings)
     if migration_059_system_id(workspace) is not None and _is_reserved_agentic_identity(
         prospective_settings, prospective_flow
@@ -1717,9 +1756,7 @@ async def delete_system(
     if not s:
         raise HTTPException(404, "System not found")
     _enforce_system_admin(db, user=user, workspace=workspace, system=s)
-    references = version_service.experience_release_references(
-        db, system_id=s.id
-    )
+    references = version_service.experience_release_references(db, system_id=s.id)
     if references:
         raise HTTPException(
             status_code=409,
@@ -2231,13 +2268,11 @@ async def import_system(
     db.add(s)
     db.flush()
     try:
-        publication_state = (
-            flow_publication.initialize_new_system_publication_if_enabled(
-                db,
-                system=s,
-                workspace=workspace,
-                actor=actor,
-            )
+        publication_state = flow_publication.initialize_new_system_publication_if_enabled(
+            db,
+            system=s,
+            workspace=workspace,
+            actor=actor,
         )
     except flow_publication.FlowPublicationError as exc:
         db.rollback()
@@ -2280,9 +2315,7 @@ async def list_system_runs(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    system = _get_system_or_404(
-        db, system_id=system_id, workspace_id=workspace.id
-    )
+    system = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
     _enforce_system_read(db, user=user, workspace=workspace, system=system)
     rows = readable_run_page(
         db,
@@ -2332,9 +2365,7 @@ async def list_system_schedules(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    system = _get_system_or_404(
-        db, system_id=system_id, workspace_id=workspace.id
-    )
+    system = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
     _enforce_system_read(db, user=user, workspace=workspace, system=system)
     rows = (
         db.query(RunSchedule)
@@ -2354,9 +2385,7 @@ async def create_system_schedule(
     db: DBSession = Depends(get_db),
 ):
     s = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
-    _enforce_system_admin(
-        db, user=user, workspace=workspace, system=s, mutation="schedule_create"
-    )
+    _enforce_system_admin(db, user=user, workspace=workspace, system=s, mutation="schedule_create")
     try:
         next_fire = run_scheduler.validate_cron_expr(body.cron_expr, body.timezone)
     except ValueError as exc:
@@ -2396,9 +2425,7 @@ async def update_system_schedule(
     db: DBSession = Depends(get_db),
 ):
     s = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
-    _enforce_system_admin(
-        db, user=user, workspace=workspace, system=s, mutation="schedule_update"
-    )
+    _enforce_system_admin(db, user=user, workspace=workspace, system=s, mutation="schedule_update")
     row = (
         db.query(RunSchedule)
         .filter(
@@ -2441,9 +2468,7 @@ async def delete_system_schedule(
     db: DBSession = Depends(get_db),
 ):
     s = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
-    _enforce_system_admin(
-        db, user=user, workspace=workspace, system=s, mutation="schedule_delete"
-    )
+    _enforce_system_admin(db, user=user, workspace=workspace, system=s, mutation="schedule_delete")
     row = (
         db.query(RunSchedule)
         .filter(
@@ -2467,9 +2492,7 @@ async def list_system_hooks(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    system = _get_system_or_404(
-        db, system_id=system_id, workspace_id=workspace.id
-    )
+    system = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
     _enforce_system_read(db, user=user, workspace=workspace, system=system)
     rows = (
         db.query(WebhookHook)
@@ -2489,14 +2512,11 @@ async def create_system_hook(
     db: DBSession = Depends(get_db),
 ):
     s = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
-    _enforce_system_admin(
-        db, user=user, workspace=workspace, system=s, mutation="hook_create"
-    )
+    _enforce_system_admin(db, user=user, workspace=workspace, system=s, mutation="hook_create")
     secret = (body.secret or "").strip() or generate_hook_secret()
     event_type = (
-        (body.event_type or triggers.EVENT_WEBHOOK_RECEIVED).strip()
-        or triggers.EVENT_WEBHOOK_RECEIVED
-    )
+        body.event_type or triggers.EVENT_WEBHOOK_RECEIVED
+    ).strip() or triggers.EVENT_WEBHOOK_RECEIVED
     row = WebhookHook(
         id=str(uuid4()),
         workspace_id=workspace.id,
@@ -2530,9 +2550,7 @@ async def update_system_hook(
     db: DBSession = Depends(get_db),
 ):
     s = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
-    _enforce_system_admin(
-        db, user=user, workspace=workspace, system=s, mutation="hook_update"
-    )
+    _enforce_system_admin(db, user=user, workspace=workspace, system=s, mutation="hook_update")
     row = (
         db.query(WebhookHook)
         .filter(
@@ -2569,9 +2587,7 @@ async def delete_system_hook(
     db: DBSession = Depends(get_db),
 ):
     s = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
-    _enforce_system_admin(
-        db, user=user, workspace=workspace, system=s, mutation="hook_delete"
-    )
+    _enforce_system_admin(db, user=user, workspace=workspace, system=s, mutation="hook_delete")
     row = (
         db.query(WebhookHook)
         .filter(
@@ -2589,13 +2605,18 @@ async def delete_system_hook(
 
 
 @router.get("/{system_id}/operational-metrics")
-async def get_operational_metrics(system_id: str, workspace: Workspace = Depends(get_current_workspace),
-    user: User = Depends(get_current_user), db: DBSession = Depends(get_db)):
+async def get_operational_metrics(
+    system_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
     system = db.query(System).filter_by(id=system_id, workspace_id=workspace.id).first()
     if not system:
         raise HTTPException(404, "System not found")
     _enforce_system_read(db, user=user, workspace=workspace, system=system)
     from app.services.operational_metrics import operational_metrics
+
     try:
         _enforce_operational_objective_admin(db, user=user, workspace=workspace, system=system)
         can_edit = True
@@ -2603,30 +2624,61 @@ async def get_operational_metrics(system_id: str, workspace: Workspace = Depends
         if exc.status_code != 403:
             raise
         can_edit = False
-    return {**operational_metrics(db, user=user, workspace=workspace, system=system), "can_edit": can_edit}
+    return {
+        **operational_metrics(db, user=user, workspace=workspace, system=system),
+        "can_edit": can_edit,
+    }
 
 
 @router.put("/{system_id}/operational-objective")
-async def put_operational_objective(system_id: str, body: OperationalObjective,
-    workspace: Workspace = Depends(get_current_workspace), user: User = Depends(get_current_user), db: DBSession = Depends(get_db)):
-    system = db.query(System).filter_by(id=system_id, workspace_id=workspace.id).populate_existing().with_for_update().first()
+async def put_operational_objective(
+    system_id: str,
+    body: OperationalObjective,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    system = (
+        db.query(System)
+        .filter_by(id=system_id, workspace_id=workspace.id)
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
     if not system:
         raise HTTPException(404, "System not found")
     _enforce_operational_objective_admin(db, user=user, workspace=workspace, system=system)
-    system.settings = {**(system.settings or {}), "operational_objective": body.model_dump(mode="json")}
+    system.settings = {
+        **(system.settings or {}),
+        "operational_objective": body.model_dump(mode="json"),
+    }
     from app.services.audit_logger import emit_audit_event
-    emit_audit_event(db=db, workspace_id=workspace.id, event_type="system.objective.updated", actor=user.id,
-        details={"system_id": system.id, "metric": body.metric})
+
+    emit_audit_event(
+        db=db,
+        workspace_id=workspace.id,
+        event_type="system.objective.updated",
+        actor=user.id,
+        details={"system_id": system.id, "metric": body.metric},
+    )
     db.commit()
     return body.model_dump(mode="json")
 
 
 def _enforce_operational_objective_admin(db, *, user, workspace, system):
     from app.services.iam.legacy_authority import legacy_workspace_admin
+
     _require_managed_system_admin(db, user=user, workspace=workspace, system=system)
     enforce_action(
-        db, user=user, workspace=workspace, resource_kind="system", action="admin",
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="system",
+        action="admin",
         legacy_allowed=legacy_workspace_admin(db, user=user, workspace=workspace),
-        resource_attrs={"system_id": system.id, "capability_id": system.capability_id,
-                        "mutation": "operational_objective"},
+        resource_attrs={
+            "system_id": system.id,
+            "capability_id": system.capability_id,
+            "mutation": "operational_objective",
+        },
     )

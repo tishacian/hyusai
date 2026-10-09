@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import math
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, timedelta
 
 from app.models.run import Run
 from app.models.system import System
 from app.models.tabular import MLModel, TabularDataset
 from app.models.workspace import Workspace
 from app.services import ecommerce_claims as claims
+from app.services import work_predictions
 from app.services.connectors.generic import postgresql_claims as pg
 from app.services.ecommerce_install import BLUEPRINT
 
@@ -26,6 +27,45 @@ FEATURES = [
 TARGET = "resolution_over_72h"
 SCORE_ROLE = "luma-sla-scoring-v1"
 MAX_AGE = timedelta(hours=1)
+
+
+def get_prediction_contract(triage):
+    """Read authored semantics; migrate the original installed configuration only."""
+    if "prediction_contract" in triage:
+        contract = triage["prediction_contract"]
+    else:
+        contract = {
+            "schema_version": 1,
+            "model_id": triage.get("model_id"),
+            "model_version": triage.get("model_version"),
+            "task": "classification",
+            "target": TARGET,
+            "positive_label": "1",
+            "value_column": "prediction",
+            "score_column": "score_1",
+            "label": "Risque de résolution au-delà de 72 h",
+            "unit": "probability",
+            "order": "descending",
+            "max_age_seconds": 3600,
+            "bands": [
+                {"key": "low", "label": "Standard", "min": 0},
+                {"key": "medium", "label": "À surveiller", "min": 0.35},
+                {"key": "high", "label": "Prioritaire", "min": 0.6},
+            ],
+        }
+    return work_predictions.validate_contract(contract)
+
+
+def contract_advice(row, contract, captured, *, provenance):
+    prediction = work_predictions.project_row(
+        row, contract, captured_at=captured, provenance=provenance
+    )
+    return {
+        "claim_id": row["claim_id"],
+        "risk": prediction["score"],
+        "priority": (prediction.get("band") or {}).get("key"),
+        "prediction": prediction,
+    }
 
 
 def feature_row(row):
@@ -55,7 +95,8 @@ def feature_row(row):
         raise ValueError("CLAIM_TRIAGE_FEATURES_INVALID") from None
 
 
-def validate_model(db, workspace, model_id, version):
+def validate_model(db, workspace, model_id, version, *, contract=None):
+    contract = contract or get_prediction_contract({"model_id": model_id, "model_version": version})
     model = (
         db.query(MLModel)
         .filter(
@@ -68,12 +109,10 @@ def validate_model(db, workspace, model_id, version):
         model is None
         or model.status != "ready"
         or model.version != version
-        or model.task != "classification"
-        or model.target != TARGET
         or list(model.features or []) != FEATURES
-        or list(model.classes_json or []) != ["0", "1"]
     ):
         raise ValueError("CLAIM_TRIAGE_MODEL_MISMATCH")
+    work_predictions.validate_model(model, contract)
     dataset = (
         db.query(TabularDataset)
         .filter(
@@ -210,8 +249,9 @@ def read_triage(db, workspace):
 
         return read_queue(db, workspace, triage)
     try:
+        contract = get_prediction_contract(triage)
         model, training = validate_model(
-            db, workspace, triage.get("model_id"), triage.get("model_version")
+            db, workspace, triage.get("model_id"), triage.get("model_version"), contract=contract
         )
         system = (
             db.query(System)
@@ -248,8 +288,7 @@ def read_triage(db, workspace):
                 "flow_sha256": published["flow_sha256"],
                 "ingress_id": "start",
             },
-            "thresholds": {"high": 0.6, "medium": 0.35},
-            "sla_hours": 72,
+            "prediction_contract": contract,
             "evidence_kind": "synthetic_demo",
             "use": "queue_ordering_only",
         }
@@ -274,28 +313,22 @@ def read_triage(db, workspace):
         pinned = (scored.lineage_json or {}).get("model") or {}
         if pinned.get("model_id") != model.id or pinned.get("version") != model.version:
             raise ValueError("CLAIM_TRIAGE_MODEL_MISMATCH")
-        records = read_rows(scored, columns=["claim_id", "score_1"], limit=pg.MAX_ROWS + 1)
+        work_predictions.validate_dataset_contract(scored, model, contract)
+        records = read_rows(scored, limit=pg.MAX_ROWS + 1)
         ids = [row["claim_id"] for row in records]
         if len(ids) != len(set(ids)) or set(ids) != set(config["allowed_claim_ids"]):
             raise ValueError("CLAIM_TRIAGE_COHORT_MISMATCH")
-        advice = []
-        for row in records:
-            score = row["score_1"]
-            if (
-                not isinstance(score, (float, int))
-                or not math.isfinite(score)
-                or not 0 <= score <= 1
-            ):
-                raise ValueError("CLAIM_TRIAGE_SCORE_INVALID")
-            advice.append(
-                {
-                    "claim_id": row["claim_id"],
-                    "risk": score,
-                    "priority": "high" if score >= 0.6 else "medium" if score >= 0.35 else "low",
-                }
-            )
         captured = scored.ingested_at.replace(tzinfo=UTC)
-        stale = datetime.now(UTC) - captured > MAX_AGE
+        advice = [
+            contract_advice(
+                row,
+                contract,
+                captured,
+                provenance={"dataset_id": scored.id, "run_id": scored.run_id},
+            )
+            for row in records
+        ]
+        stale = not advice or advice[0]["prediction"]["status"] != "ready"
         return {
             **base,
             "status": "stale" if stale else "ready",
@@ -308,7 +341,7 @@ def read_triage(db, workspace):
                 "version": scored.version,
                 "rows": scored.row_count,
             },
-            "max_age_minutes": 60,
+            "max_age_minutes": contract["max_age_seconds"] / 60,
         }
     except (ValueError, TabularError, flow_publication.FlowPublicationError):
         return {"status": "unavailable", "rows": []}

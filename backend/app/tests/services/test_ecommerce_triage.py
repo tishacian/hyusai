@@ -410,10 +410,15 @@ def scored(db_session, tmp_path, monkeypatch):
         workspace_id=ws.id,
         name="Scored queue",
         source="score",
-        frame=pl.DataFrame({"claim_id": ["RC-1042", "RC-1043"], "score_1": [0.82, 0.16]}),
+        frame=pl.DataFrame(
+            {"claim_id": ["RC-1042", "RC-1043"], "prediction": ["1", "0"], "score_1": [0.82, 0.16]}
+        ),
         run_id=run.id,
         node_id="score",
-        lineage={"model": {"model_id": model.id, "version": 1}},
+        lineage={
+            "model": {"model_id": model.id, "version": 1},
+            "added_columns": ["prediction", "score_1"],
+        },
     )
     from app.services.systems import flow_publication
 
@@ -437,7 +442,12 @@ def test_persisted_positive_class_scores_are_read_with_versioned_lineage(db_sess
     result = triage.read_triage(db_session, ws)
     assert result["status"] == "ready" and result["run_id"] == run.id
     assert result["scored_dataset"]["id"] == dataset.id
-    assert result["rows"][0] == {"claim_id": "RC-1042", "risk": 0.82, "priority": "high"}
+    assert {key: result["rows"][0][key] for key in ("claim_id", "risk", "priority")} == {
+        "claim_id": "RC-1042",
+        "risk": 0.82,
+        "priority": "high",
+    }
+    assert result["rows"][0]["prediction"]["model"] == {"id": model.id, "version": model.version}
     model.workspace_id = "another-workspace"
     db_session.flush()
     assert triage.read_triage(db_session, ws) == {"status": "unavailable", "rows": []}

@@ -13,6 +13,7 @@ import { WorkSourcePanelComponent } from '@app/shared/work-sources/work-source-p
 import { workSourceRef } from '@app/shared/work-sources/work-source';
 import { WorkBarComponent } from './work-bar.component';
 import { WorkAppHeaderComponent } from './work-app-header.component';
+import { WorkReleasePagesNavComponent } from './work-release-pages-nav.component';
 import { ClaimsBenchmarkComponent } from './claims-benchmark.component';
 import { WorkApiService } from './work-api.service';
 import { CLAIM_ACTION_LABELS, CLAIM_REASON_LABELS, CLAIM_TOOL_LABELS, claimRunProjection, type ClaimRow, type ClaimSnapshot } from './claim-run';
@@ -20,13 +21,15 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
 
 @Component({
   selector: 'app-claims-studio', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, WorkBarComponent, WorkAppHeaderComponent, WorkSourcePanelComponent, NavLinkDirective, ClaimsBenchmarkComponent, IconComponent],
+  imports: [DatePipe, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, NavLinkDirective, ClaimsBenchmarkComponent, IconComponent],
   styleUrls: ['./work.scss', './claims-studio.scss'],
   template: `
     <div class="xp-work claims-app">
       <app-work-bar [appContext]="i18n.t('experience.claims.title')" />
       <app-work-app-header [title]="i18n.t('experience.claims.title')" [eyebrow]="i18n.t('experience.claims.brand')"
         [description]="i18n.t('experience.claims.promise')" [status]="i18n.t('experience.claims.demo')" emblem="◈">
+        <app-work-release-pages-nav [document]="releasePages()" slug="reclamations" activePage="dossier"
+          [hostedPage]="{ pageId: 'dossier', routeSegment: 'studio' }" />
         @if (machineAidsAllowed() && run(); as current) { <a class="xp-work-btn" [navLink]="{ type: 'run', lens: 'operate', ref: current.id }">{{ i18n.t('experience.claims.trace') }}</a> }
       </app-work-app-header>
       @if (!loading() && !error()) { <app-claims-benchmark [sources]="detail()?.sources ?? []" (caseSelected)="select($event)" (manualActive)="manualMode.set($event)" (modeReady)="benchmarkReady.set($event)" /> }
@@ -68,7 +71,7 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
                 [disabled]="busy() || manualMode()" (click)="select(row.claim_id)">
                 <span class="claims-case-top"><strong>{{ row.order_id }}</strong><b>{{ money(row.paid_amount, row.currency) }}</b></span>
                 <span>{{ row.display_name }}</span><span class="claims-case-reason">{{ i18n.t(reasonLabel(row.reason)) }}</span>
-                @if (machineAidsAllowed() && priorityFor(row.claim_id); as advice) { <span class="claims-priority" [attr.data-priority]="advice.priority">{{ i18n.t('experience.claims.triage.priority.' + advice.priority) }} · {{ percent(advice.risk) }}</span> }
+                @if (machineAidsAllowed() && priorityFor(row.claim_id); as advice) { <span class="claims-priority" [attr.data-priority]="advice.priority">{{ priorityLabel(advice.priority) }} · {{ percent(advice.risk) }}</span> }
                 <span class="claims-case-foot">{{ row.claim_id }} · {{ row.opened_at | date:'dd/MM' }}</span>
               </button>
             } @empty { <p>{{ i18n.t('experience.claims.empty') }}</p> }
@@ -106,8 +109,8 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
             <aside class="claims-decision" [attr.aria-label]="i18n.t('experience.claims.decision')">
               <h2>{{ i18n.t('experience.claims.decision') }}</h2>
               @if (advice(); as advice) { <div class="claims-risk" [attr.data-priority]="advice.priority">
-                <span>{{ i18n.t('experience.claims.triage.risk') }}</span><strong>{{ percent(advice.risk) }}</strong>
-                <p>{{ i18n.t('experience.claims.triage.priority.' + advice.priority) }} · {{ i18n.t('experience.claims.triage.basis.' + advice.basis) }}</p>
+                <span>{{ triage()?.prediction_contract?.label || i18n.t('experience.claims.triage.risk') }}</span><strong>{{ percent(advice.risk) }}</strong>
+                <p>{{ priorityLabel(advice.priority) }} · {{ i18n.t('experience.claims.triage.basis.' + advice.basis) }}</p>
                 @if (caseData(); as data) { <div class="claims-case-data">
                   <a [navLink]="{ leaf: 'data-doc', ref: data.prepared.id }">{{ i18n.t('experience.claims.triage.case_prepared') }}</a>
                   <a [navLink]="{ leaf: 'data-doc', ref: data.scored.id }">{{ i18n.t('experience.claims.triage.case_scored') }}</a>
@@ -144,6 +147,7 @@ export class ClaimsStudioComponent {
   private readonly canonical = inject(CanonicalApiService);
   private readonly workspace = inject(WorkspaceService);
   private readonly destroy = inject(DestroyRef);
+  readonly releasePages = signal<unknown>(null);
   readonly rows = signal<ClaimRow[]>([]); readonly selected = signal<string | null>(null);
   readonly detail = signal<ClaimSnapshot | null>(null); readonly run = signal<Run | null>(null);
   readonly loading = signal(true); readonly detailLoading = signal(false); readonly error = signal(false);
@@ -182,6 +186,7 @@ export class ClaimsStudioComponent {
   async load(): Promise<void> {
     const generation = ++this.generation;
     this.poll?.unsubscribe(); this.priorityPoll?.unsubscribe(); this.detailRequest?.unsubscribe();
+    this.releasePages.set(null);
     this.triageData.set(null); this.triageBusy.set(false); this.triageError.set(false); this.triageLoading.set(false);
     this.benchmarkReady.set(false);
     this.rows.set([]); this.detail.set(null); this.run.set(null); this.selected.set(null); this.sourceDocumentId.set(null);
@@ -190,6 +195,7 @@ export class ClaimsStudioComponent {
       const release = await firstValueFrom(this.work.resolve('reclamations'));
       if (generation !== this.generation) return;
       if (release.kind !== 'ok') throw Error('Release unavailable');
+      this.releasePages.set(release.body.release.pages ?? null);
       const response = await firstValueFrom(this.api.get<{ data: { queue: ClaimRow[] } }>('/ecommerce-claims'));
       if (generation !== this.generation) return;
       this.rows.set(response.data.queue); this.loading.set(false);
@@ -206,6 +212,7 @@ export class ClaimsStudioComponent {
     finally { if (generation === this.generation) this.triageLoading.set(false); }
   }
   priorityFor(claimId: string) { return this.triage()?.status === 'ready' ? this.triage()?.rows.find(row => row.claim_id === claimId) : null; }
+  priorityLabel(key: string): string { return this.triage()?.prediction_contract?.bands?.find(band => band.key === key)?.label ?? this.i18n.t('experience.claims.triage.priority.' + key); }
   percent(value: number): string { return new Intl.NumberFormat(this.i18n.locale(), { style: 'percent', maximumFractionDigits: 0 }).format(value); }
   async recalculatePriority(): Promise<void> {
     const scoring = this.triage()?.scoring;

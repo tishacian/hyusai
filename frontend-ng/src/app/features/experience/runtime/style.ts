@@ -46,6 +46,7 @@ export interface NodeA11y {
 const TITLE_TYPES = new Set([
   'header',
   'section',
+  'prediction',
   'approval_card',
   'form',
   'table',
@@ -63,6 +64,7 @@ const EMPTY_TYPES = new Set([
   'queue',
   'approval_card',
   'chart',
+  'prediction',
   'map_panel',
   'agenda_panel',
   'intelligence_feed',

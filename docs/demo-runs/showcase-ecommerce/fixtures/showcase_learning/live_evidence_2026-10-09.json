@@ -1,0 +1,362 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-10-09",
+  "environment": "https://agentium.papai.ai",
+  "workspace_slug": "agentium-showcase",
+  "data_kind": "synthetic_demo",
+  "scope": "Actual API model/dataset preparation; assembled Work release and Flow not activated",
+  "fixture_manifest": {
+    "path": "manifest.reference.json",
+    "sha256": "65a404aa166b351577226493de7be1670a4485b6d483a540b0ff0a2c5b740c14",
+    "train_rows": 4573,
+    "heldout_rows": 1433,
+    "daily_volume_rows": 420,
+    "text_review_rows": 480,
+    "anchor_exclusive_utc": "2026-10-09T00:00:00Z",
+    "human_review": "not_performed"
+  },
+  "datasets": [
+    {
+      "id": "e1141f15-820e-46e5-87f8-9c6f3dc9a430",
+      "name": "Luma — Apprentissage SLA · octobre 2026",
+      "version": 2,
+      "status": "ready",
+      "row_count": 4573,
+      "column_count": 9
+    },
+    {
+      "id": "1268f620-0608-4a56-b095-0143e6e213e4",
+      "name": "Luma — Volumes quotidiens SAV · octobre 2026",
+      "version": 1,
+      "status": "ready",
+      "row_count": 420,
+      "column_count": 5
+    },
+    {
+      "id": "4b75d695-63d0-448b-8ec2-663aa2567681",
+      "name": "Luma — Apprentissage durée de résolution",
+      "version": 1,
+      "status": "ready",
+      "row_count": 4573,
+      "column_count": 9
+    },
+    {
+      "id": "b2280d68-9fb2-43e9-abbf-7e51b2126cca",
+      "name": "Luma — Variables de segmentation SAV",
+      "version": 1,
+      "status": "ready",
+      "row_count": 4573,
+      "column_count": 5
+    },
+    {
+      "id": "a58c4067-1eea-48d3-bcda-e8340fcef74e",
+      "name": "Luma — Messages FR-EN à qualifier",
+      "version": 1,
+      "status": "ready",
+      "row_count": 480,
+      "column_count": 3
+    }
+  ],
+  "models": [
+    {
+      "id": "17331ddf-7811-42e1-8e0f-c8dc75dd3541",
+      "name": "Luma — Risque de résolution >72h",
+      "version": 1,
+      "status": "ready",
+      "family": "tabular",
+      "task": "classification",
+      "algo": "linear",
+      "dataset_id": "e1141f15-820e-46e5-87f8-9c6f3dc9a430",
+      "is_champion": true,
+      "role": "sla_calibrated",
+      "metrics_basis": "synthetic_training_test_or_backtest",
+      "primary": {
+        "key": "roc_auc",
+        "value": 0.820671
+      },
+      "scores": {
+        "roc_auc": 0.820671,
+        "brier_score": 0.171513
+      },
+      "source_file": "model-sla_calibrated.json",
+      "calibration": {
+        "method": "sigmoid",
+        "calibration_rows": 686
+      },
+      "decision": {
+        "threshold": 0.4869154328287709,
+        "criterion": "youden",
+        "source": "calibration"
+      },
+      "has_monitoring_reference": true
+    },
+    {
+      "id": "0c93ef17-3241-43bd-93dc-cc0d9c5524e1",
+      "name": "Luma — Risque de résolution >72h",
+      "version": 2,
+      "status": "ready",
+      "family": "tabular",
+      "task": "classification",
+      "algo": "linear",
+      "dataset_id": "e1141f15-820e-46e5-87f8-9c6f3dc9a430",
+      "is_champion": false,
+      "role": "sla_challenger_tuned",
+      "metrics_basis": "synthetic_training_test_or_backtest",
+      "primary": {
+        "key": "roc_auc",
+        "value": 0.820925
+      },
+      "scores": {
+        "roc_auc": 0.820925,
+        "brier_score": 0.171606
+      },
+      "source_file": "model-sla_challenger_tuned.json",
+      "calibration": {
+        "method": "sigmoid",
+        "calibration_rows": 686
+      },
+      "decision": {
+        "threshold": 0.48349723460426963,
+        "criterion": "youden",
+        "source": "calibration"
+      },
+      "has_monitoring_reference": true,
+      "tuning": {
+        "metric": "roc_auc",
+        "trials_run": 5,
+        "folds": 3,
+        "budget_s": 60
+      }
+    },
+    {
+      "id": "afa061f3-a36d-4e75-901f-85df6a7a22f0",
+      "name": "Luma — Charge SAV · naïf saisonnier",
+      "version": 1,
+      "status": "ready",
+      "family": "forecasting",
+      "task": "forecasting",
+      "algo": "seasonal_naive",
+      "dataset_id": "1268f620-0608-4a56-b095-0143e6e213e4",
+      "is_champion": true,
+      "role": "volume_seasonal_naive",
+      "metrics_basis": "synthetic_training_test_or_backtest",
+      "primary": {
+        "key": "mase",
+        "value": 0.938266529633436
+      },
+      "scores": {
+        "mae": 3.9761904761904763,
+        "mase": 0.938266529633436,
+        "coverage": 0.6607142857142857
+      },
+      "source_file": "model-volume_seasonal_naive.json",
+      "backtest": {
+        "folds": 3,
+        "horizon": 28,
+        "interval_level": 0.8,
+        "interval_method": "conformal"
+      }
+    },
+    {
+      "id": "b79ed3b2-3f2e-411a-a2e4-14aeaa78699b",
+      "name": "Luma — Charge SAV · classique",
+      "version": 1,
+      "status": "ready",
+      "family": "forecasting",
+      "task": "forecasting",
+      "algo": "linear",
+      "dataset_id": "1268f620-0608-4a56-b095-0143e6e213e4",
+      "is_champion": true,
+      "role": "volume_classical",
+      "metrics_basis": "synthetic_training_test_or_backtest",
+      "primary": {
+        "key": "mase",
+        "value": 0.5162125168122428
+      },
+      "scores": {
+        "mae": 2.1888150802468935,
+        "mase": 0.5162125168122428,
+        "coverage": 0.875
+      },
+      "source_file": "model-volume_classical.json",
+      "backtest": {
+        "folds": 3,
+        "horizon": 28,
+        "interval_level": 0.8,
+        "interval_method": "conformal"
+      }
+    },
+    {
+      "id": "ec5436b1-8233-4e06-9912-5bc9956c96f3",
+      "name": "Luma — Charge SAV · Chronos",
+      "version": 1,
+      "status": "ready",
+      "family": "forecasting_deep",
+      "task": "forecasting",
+      "algo": "chronos_zero_shot",
+      "dataset_id": "1268f620-0608-4a56-b095-0143e6e213e4",
+      "is_champion": true,
+      "role": "volume_chronos",
+      "metrics_basis": "synthetic_training_test_or_backtest",
+      "primary": {
+        "key": "mase",
+        "value": 0.400475951015204
+      },
+      "scores": {
+        "mae": 1.7118852592649914,
+        "mase": 0.400475951015204,
+        "coverage": 0.7738095238095238
+      },
+      "source_file": "model-volume_chronos.json",
+      "backtest": {
+        "folds": 3,
+        "horizon": 28,
+        "interval_level": 0.8,
+        "interval_method": "model"
+      }
+    },
+    {
+      "id": "e7429b0c-98cd-4fe0-85d8-f57ca661fb1b",
+      "name": "Luma — Durée calendaire de résolution",
+      "version": 1,
+      "status": "ready",
+      "family": "tabular",
+      "task": "regression",
+      "algo": "linear",
+      "dataset_id": "4b75d695-63d0-448b-8ec2-663aa2567681",
+      "is_champion": true,
+      "role": "resolution_duration",
+      "metrics_basis": "synthetic_training_test_or_backtest",
+      "primary": {
+        "key": "r2",
+        "value": 0.271719
+      },
+      "scores": {
+        "r2": 0.271719,
+        "mae": 29.725499
+      },
+      "source_file": "model-resolution_duration.json"
+    },
+    {
+      "id": "513f0c17-baef-4a67-95da-7453d9593f14",
+      "name": "Luma — Profils numériques SAV",
+      "version": 1,
+      "status": "ready",
+      "family": "clustering",
+      "task": "clustering",
+      "algo": "kmeans",
+      "dataset_id": "b2280d68-9fb2-43e9-abbf-7e51b2126cca",
+      "is_champion": true,
+      "role": "numeric_segments",
+      "metrics_basis": "synthetic_training_test_or_backtest",
+      "primary": {
+        "key": "silhouette",
+        "value": 0.327735630751211
+      },
+      "scores": {
+        "silhouette": 0.327735630751211,
+        "stability_ari": 0.5934815712225645
+      },
+      "source_file": "model-numeric_segments.json"
+    }
+  ],
+  "heldout": {
+    "source_file": "heldout-evaluation.json",
+    "predictions_per_version": 1433,
+    "successful_requests": 30,
+    "maximum_rows_per_request": 100,
+    "total_scored_rows": 2866,
+    "preliminary_oversized_requests": "HTTP 422 refused before prediction",
+    "scores": {
+      "v1": {
+        "rows": 1433,
+        "roc_auc": 0.8216038863097685,
+        "brier": 0.17085618534625402,
+        "f1_at_served_threshold": 0.7401574803149606,
+        "api_batches": 15,
+        "batch_limit": 100
+      },
+      "v2": {
+        "rows": 1433,
+        "roc_auc": 0.8219026071967248,
+        "brier": 0.17076390321279622,
+        "f1_at_served_threshold": 0.7433881343817013,
+        "api_batches": 15,
+        "batch_limit": 100
+      }
+    },
+    "promotion": "none",
+    "planned_serving_version": 1,
+    "conclusion": "No statistical or business improvement established by the small point-estimate difference"
+  },
+  "forecast_requests": {
+    "chronos": {
+      "http_status": 200,
+      "model_id": "ec5436b1-8233-4e06-9912-5bc9956c96f3",
+      "rows": 28,
+      "horizon": 28,
+      "interval_level": 0.8,
+      "first_timestamp": "2026-10-09",
+      "last_timestamp": "2026-11-05",
+      "prediction_id": "f3259a13-5cf4-456a-bfc6-5a7f01d1a672",
+      "duration_ms": 1833.2
+    },
+    "classical": {
+      "http_status": 504,
+      "error_code": "ML_FORECAST_TIMEOUT",
+      "timeout_seconds": 30,
+      "resolved": false
+    }
+  },
+  "activation": {
+    "plan": "live_learning_plan.json",
+    "review": "live_learning_plan.review.json",
+    "status": "prepared_not_applied",
+    "operator_deployment_required": true,
+    "future_actuals_attached": false,
+    "human_label_review_performed": false,
+    "new_monitoring_policies_enabled": false,
+    "shadow_enabled_for_new_models": false,
+    "realised_roi_measured": false
+  },
+  "validation": {
+    "scope": "Generic complements before incoming remote commit 8ab77d7f integration; not production visual qualification",
+    "backend_tests_passed": 278,
+    "backend_post_format_smoke_passed": 33,
+    "composition_tests_passed": 13,
+    "composition_atomicity_regression_passed": 1,
+    "fixture_tests_passed": 12,
+    "frontend_unit_passed": 2089,
+    "frontend_unit_total": 2089,
+    "contrast_tests_passed": 11,
+    "browser_mocked_passed": 8,
+    "browser_mocked_variants": [
+      "desktop dark FR",
+      "desktop light EN",
+      "mobile 390px"
+    ],
+    "production_optimized_build": "passed with font inlining temporarily disabled for proxy; angular.json restored",
+    "live_ui_qa_performed": false,
+    "post_integration": {
+      "integrated_commit": "8ab77d7f25fe6afdc0825f15eaf983dbf4c837b0",
+      "frontend_unit_passed": 2104,
+      "frontend_unit_total": 2104,
+      "backend_passed": 180,
+      "backend_groups": [
+        29,
+        151
+      ],
+      "hf_optional_skipped": 12,
+      "hf_skip_reasons": {
+        "activation_onnx_runtime_missing": 6,
+        "legacy_artifact_sentence_transformers_missing": 6
+      },
+      "schema_migration_123_tested": true,
+      "browser_mocked_passed": 8,
+      "production_optimized_build": "passed, font inlining temporarily disabled; angular.json restored",
+      "i18n_ui_chrome_nav_checks": "passed",
+      "hooks": "passed; tool-version updater excluded",
+      "live_ui_qa_performed": false
+    }
+  }
+}

@@ -27,8 +27,8 @@ from app.models.experience import (
     ExperienceDraftRevision,
     ExperienceRelease,
 )
-from app.models.workspace import Workspace
 from app.models.system_binding import SystemBinding
+from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
 from app.services.experience import bindings as binding_service
 from app.services.flow_contracts import (
@@ -60,6 +60,7 @@ COMPONENT_TYPES = frozenset(
         "history",
         "kpi",
         "chart",
+        "prediction",
         "callout",
         "map_panel",
         "agenda_panel",
@@ -94,6 +95,7 @@ DATA_BOUND_COMPONENT_TYPES = frozenset(
         "history",
         "kpi",
         "chart",
+        "prediction",
         "map_panel",
         "agenda_panel",
         "intelligence_feed",
@@ -108,6 +110,7 @@ QUERY_BOUND_COMPONENT_TYPES = frozenset(
         "history",
         "kpi",
         "chart",
+        "prediction",
         "map_panel",
         "agenda_panel",
         "intelligence_feed",
@@ -301,7 +304,7 @@ def _validate_emblem(value: Any) -> str | None:
     if not cleaned:
         return None
     is_identifier = bool(EMBLEM_ID_RE.fullmatch(cleaned))
-    forbidden = set('<>/\\:\"\'&')
+    forbidden = set("<>/\\:\"'&")
     is_glyph = (
         len(cleaned) <= 8
         and not forbidden.intersection(cleaned)
@@ -329,7 +332,9 @@ def _validate_pattern(pattern: str) -> str:
 def _validate_languages(value: Any) -> list[str]:
     if value is None:
         return []
-    if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
+    if not isinstance(value, list) or any(
+        not isinstance(item, str) or not item.strip() for item in value
+    ):
         raise ExperienceError(
             code="EXPERIENCE_LANGUAGES_INVALID",
             message="languages must be an array of non-empty strings.",
@@ -905,9 +910,7 @@ def resolve_work(
     selected = _pick_work_release(
         db,
         experience=row,
-        deployments=_deployments_for(
-            db, workspace_id=workspace_id, experience_id=row.id
-        ),
+        deployments=_deployments_for(db, workspace_id=workspace_id, experience_id=row.id),
         role=role,
         groups=groups,
     )
@@ -1192,9 +1195,7 @@ def list_system_work_apps(
                 if workspace is not None
                 else None
             )
-            apps.append(
-                serialize_system_automation_work_app(card, last_opened_at=opened)
-            )
+            apps.append(serialize_system_automation_work_app(card, last_opened_at=opened))
     return apps
 
 
@@ -1269,8 +1270,10 @@ def get_experience(
     db: DBSession, *, workspace_id: str, experience_id: str
 ) -> tuple[Experience, ExperienceDraftRevision, list[ExperienceDeployment]]:
     row = _owned(db, workspace_id=workspace_id, experience_id=experience_id)
-    return row, _draft_for(db, row), _deployments_for(
-        db, workspace_id=workspace_id, experience_id=experience_id
+    return (
+        row,
+        _draft_for(db, row),
+        _deployments_for(db, workspace_id=workspace_id, experience_id=experience_id),
     )
 
 
@@ -1548,7 +1551,11 @@ def save_draft(
     referenced_binding_keys(document)
     digest = content_sha256(document, keys)
     draft = _draft_for(db, experience)
-    if draft.content_sha256 == digest and draft.pages == document and list(draft.binding_keys or []) == keys:
+    if (
+        draft.content_sha256 == digest
+        and draft.pages == document
+        and list(draft.binding_keys or []) == keys
+    ):
         return draft
     if int(draft.revision) != expected_revision:
         raise ExperienceError(
@@ -1761,7 +1768,9 @@ def referenced_binding_keys(pages: Mapping[str, Any]) -> list[str]:
             for raw in raw_values:
                 if raw in (None, ""):
                     continue
-                if not isinstance(raw, str) or not binding_service.BINDING_KEY_RE.fullmatch(raw.strip()):
+                if not isinstance(raw, str) or not binding_service.BINDING_KEY_RE.fullmatch(
+                    raw.strip()
+                ):
                     raise ExperienceError(
                         code="COMPONENT_BINDING_KEY_INVALID",
                         message="A component bindingKey is invalid.",
@@ -1790,7 +1799,12 @@ def _i18n_issues(pages: Mapping[str, Any], languages: list[str]) -> list[dict[st
         if "$i18n" in value:
             key = value.get("$i18n")
             fallback = value.get("fallback")
-            if not isinstance(key, str) or not key.strip() or not isinstance(fallback, str) or not fallback.strip():
+            if (
+                not isinstance(key, str)
+                or not key.strip()
+                or not isinstance(fallback, str)
+                or not fallback.strip()
+            ):
                 issues.append(
                     {
                         "code": "I18N_REFERENCE_INVALID",
@@ -1971,11 +1985,7 @@ def _has_i18n_reference(value: Any) -> bool:
         return False
     if isinstance(value.get("$i18n"), str) and bool(value["$i18n"].strip()):
         return True
-    return any(
-        _has_i18n_reference(item)
-        for name, item in value.items()
-        if name != "i18n"
-    )
+    return any(_has_i18n_reference(item) for name, item in value.items() if name != "i18n")
 
 
 def _selector_valid(value: Any) -> bool:
@@ -1983,9 +1993,31 @@ def _selector_valid(value: Any) -> bool:
         return True
     if not isinstance(value, str) or not SELECTOR_RE.fullmatch(value.strip()):
         return False
-    return not {"__proto__", "prototype", "constructor"}.intersection(
-        value.strip().split(".")
+    return not {"__proto__", "prototype", "constructor"}.intersection(value.strip().split("."))
+
+
+def _node_output_id_valid(value: Any) -> bool:
+    return value in (None, "") or (
+        isinstance(value, str) and bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", value))
     )
+
+
+def _node_output_issue(
+    resolved: Mapping[str, Any] | None, binding: Mapping[str, Any], component_id: Any
+) -> dict | None:
+    node_id = binding.get("nodeId")
+    if (
+        node_id
+        and isinstance(resolved, Mapping)
+        and node_id not in (resolved.get("output_node_ids") or [])
+    ):
+        return {
+            "code": "OUTPUT_NODE_NOT_FOUND",
+            "message": "The selected node is absent from the bound published Flow.",
+            "component_id": component_id,
+            "node_id": node_id,
+        }
+    return None
 
 
 def _query_binding_valid(component: Mapping[str, Any]) -> bool:
@@ -1996,12 +2028,13 @@ def _query_binding_valid(component: Mapping[str, Any]) -> bool:
     key = query.get("bindingKey")
     return (
         component.get("type") in QUERY_BOUND_COMPONENT_TYPES
-        and not (set(query) - {"source", "bindingKey", "selector", "input"})
+        and not (set(query) - {"source", "bindingKey", "selector", "input", "nodeId"})
         and query.get("source") == "system-binding"
         and isinstance(key, str)
         and bool(binding_service.BINDING_KEY_RE.fullmatch(key.strip()))
         and isinstance(query.get("input"), Mapping)
         and _selector_valid(query.get("selector"))
+        and _node_output_id_valid(query.get("nodeId"))
     )
 
 
@@ -2011,9 +2044,7 @@ def _bound_action(component: Mapping[str, Any] | None) -> bool:
     props = component.get("props")
     if component.get("type") in {"form", "action_button"} and isinstance(props, Mapping):
         key = props.get("bindingKey")
-        return isinstance(key, str) and bool(
-            binding_service.BINDING_KEY_RE.fullmatch(key.strip())
-        )
+        return isinstance(key, str) and bool(binding_service.BINDING_KEY_RE.fullmatch(key.strip()))
     return _query_binding_valid(component)
 
 
@@ -2048,7 +2079,7 @@ def _data_binding_issues(pages: Mapping[str, Any]) -> list[dict[str, Any]]:
                         }
                     )
                 else:
-                    unknown = set(query) - {"source", "bindingKey", "selector", "input"}
+                    unknown = set(query) - {"source", "bindingKey", "selector", "input", "nodeId"}
                     if not _query_binding_valid(component):
                         issues.append(
                             {
@@ -2069,7 +2100,7 @@ def _data_binding_issues(pages: Mapping[str, Any]) -> list[dict[str, Any]]:
                         }
                     )
                 else:
-                    unknown = set(data) - {"source", "componentId", "selector"}
+                    unknown = set(data) - {"source", "componentId", "selector", "nodeId"}
                     source_id = data.get("componentId")
                     source = by_id.get(source_id) if isinstance(source_id, str) else None
                     if (
@@ -2080,6 +2111,7 @@ def _data_binding_issues(pages: Mapping[str, Any]) -> list[dict[str, Any]]:
                         or not source_id.strip()
                         or not _bound_action(source)
                         or not _selector_valid(data.get("selector"))
+                        or not _node_output_id_valid(data.get("nodeId"))
                     ):
                         issues.append(
                             {
@@ -2092,7 +2124,11 @@ def _data_binding_issues(pages: Mapping[str, Any]) -> list[dict[str, Any]]:
             source_id = props.get("sourceComponentId")
             if source_id is not None:
                 source = by_id.get(source_id) if isinstance(source_id, str) else None
-                if not isinstance(source_id, str) or not source_id.strip() or not _bound_action(source):
+                if (
+                    not isinstance(source_id, str)
+                    or not source_id.strip()
+                    or not _bound_action(source)
+                ):
                     issues.append(
                         {
                             "code": "SOURCE_COMPONENT_INVALID",
@@ -2163,9 +2199,7 @@ def _implicit_action_issues(pages: Mapping[str, Any]) -> list[dict[str, Any]]:
     return issues
 
 
-def _selected_schema(
-    schema: Mapping[str, Any], selector: Any
-) -> Mapping[str, Any] | None:
+def _selected_schema(schema: Mapping[str, Any], selector: Any) -> Mapping[str, Any] | None:
     if selector in (None, ""):
         return schema
     if not isinstance(selector, str) or not _selector_valid(selector):
@@ -2243,15 +2277,30 @@ def _selector_target_compatible(
 def _form_schema_supported(schema: Mapping[str, Any]) -> bool:
     """Subset faithfully represented by the certified accessible form renderer."""
     supported_root = {
-        "$schema", "type", "title", "description", "properties", "required",
+        "$schema",
+        "type",
+        "title",
+        "description",
+        "properties",
+        "required",
         "additionalProperties",
     }
     if set(schema) - supported_root:
         return False
     unsupported_root = {
-        "$ref", "oneOf", "anyOf", "allOf", "not", "if", "then", "else",
-        "dependentRequired", "patternProperties", "unevaluatedProperties",
-        "minProperties", "maxProperties",
+        "$ref",
+        "oneOf",
+        "anyOf",
+        "allOf",
+        "not",
+        "if",
+        "then",
+        "else",
+        "dependentRequired",
+        "patternProperties",
+        "unevaluatedProperties",
+        "minProperties",
+        "maxProperties",
     }
     if unsupported_root.intersection(schema):
         return False
@@ -2265,8 +2314,16 @@ def _form_schema_supported(schema: Mapping[str, Any]) -> bool:
         return False
     unsupported_shape = {"$ref", "oneOf", "anyOf", "allOf", "items", "properties"}
     supported_field_keys = {
-        "type", "title", "description", "default", "enum", "format",
-        "contentMediaType", "x-file", "minLength", "maxLength",
+        "type",
+        "title",
+        "description",
+        "default",
+        "enum",
+        "format",
+        "contentMediaType",
+        "x-file",
+        "minLength",
+        "maxLength",
     }
     for raw in properties.values():
         if (
@@ -2301,24 +2358,19 @@ def _form_schema_supported(schema: Mapping[str, Any]) -> bool:
             return False
         if field_format in {"date", "binary"} and value_type != "string":
             return False
-        if (
-            "contentMediaType" in raw
-            and field_format != "binary"
-            and raw.get("x-file") is not True
-        ):
+        if "contentMediaType" in raw and field_format != "binary" and raw.get("x-file") is not True:
             return False
         if "x-file" in raw and raw.get("x-file") is not True:
             return False
         enum = raw.get("enum")
-        if (
-            ("contentMediaType" in raw or raw.get("x-file") is True)
-            and field_format not in {None, "binary"}
-        ):
+        if ("contentMediaType" in raw or raw.get("x-file") is True) and field_format not in {
+            None,
+            "binary",
+        }:
             return False
         if (
-            (field_format == "binary" or "contentMediaType" in raw or raw.get("x-file") is True)
-            and (value_type != "string" or enum is not None)
-        ):
+            field_format == "binary" or "contentMediaType" in raw or raw.get("x-file") is True
+        ) and (value_type != "string" or enum is not None):
             return False
         if enum is not None:
             if not isinstance(enum, list) or not enum:
@@ -2424,9 +2476,11 @@ def _binding_contract_issues(
                                 "binding_key": query_key,
                             }
                         )
+                if issue := _node_output_issue(query_resolved, query, component.get("id")):
+                    issues.append(issue)
                 output_schema = (
                     query_resolved.get("output_schema")
-                    if isinstance(query_resolved, Mapping)
+                    if isinstance(query_resolved, Mapping) and not query.get("nodeId")
                     else None
                 )
                 if isinstance(output_schema, Mapping) and not _selector_matches_schema(
@@ -2459,7 +2513,9 @@ def _binding_contract_issues(
                 continue
             source = by_id.get(data.get("componentId"))
             source_props = source.get("props") if isinstance(source, Mapping) else None
-            source_key = source_props.get("bindingKey") if isinstance(source_props, Mapping) else None
+            source_key = (
+                source_props.get("bindingKey") if isinstance(source_props, Mapping) else None
+            )
             if not isinstance(source_key, str) and isinstance(source_props, Mapping):
                 source_query = source_props.get("queryBinding")
                 source_key = (
@@ -2468,9 +2524,11 @@ def _binding_contract_issues(
             source_resolved = (
                 resolved_by_key.get(source_key) if isinstance(source_key, str) else None
             )
+            if issue := _node_output_issue(source_resolved, data, component.get("id")):
+                issues.append(issue)
             output_schema = (
                 source_resolved.get("output_schema")
-                if isinstance(source_resolved, Mapping)
+                if isinstance(source_resolved, Mapping) and not data.get("nodeId")
                 else None
             )
             if isinstance(output_schema, Mapping) and not _selector_matches_schema(
@@ -2505,12 +2563,20 @@ def _has_template_data_source(pages: Mapping[str, Any]) -> bool:
         if not isinstance(page, Mapping):
             continue
         for component in page.get("components") or []:
-            if not isinstance(component, Mapping) or component.get("type") not in DATA_BOUND_COMPONENT_TYPES:
+            if (
+                not isinstance(component, Mapping)
+                or component.get("type") not in DATA_BOUND_COMPONENT_TYPES
+            ):
                 continue
             props = component.get("props")
             if isinstance(props, Mapping) and (
                 isinstance(props.get("dataBinding"), Mapping)
                 or isinstance(props.get("queryBinding"), Mapping)
+                or (
+                    component.get("type") == "chart"
+                    and props.get("kind") == "timeseries"
+                    and isinstance(props.get("datasetSource"), Mapping)
+                )
             ):
                 return True
     return False
@@ -2572,9 +2638,7 @@ def _hex_luminance(value: str) -> float:
         raw = "".join(character * 2 for character in raw)
     channels = [int(raw[index : index + 2], 16) / 255 for index in (0, 2, 4)]
     linear = [
-        channel / 12.92
-        if channel <= 0.03928
-        else ((channel + 0.055) / 1.055) ** 2.4
+        channel / 12.92 if channel <= 0.03928 else ((channel + 0.055) / 1.055) ** 2.4
         for channel in channels
     ]
     return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
@@ -2659,7 +2723,11 @@ def ready_check(
         )
     access_policy = experience.access_policy if isinstance(experience.access_policy, dict) else {}
     has_explicit_open_access = "roles" in access_policy or "role_templates" in access_policy
-    has_restricted_access = bool(access_policy.get("roles") or access_policy.get("role_templates") or access_policy.get("groups"))
+    has_restricted_access = bool(
+        access_policy.get("roles")
+        or access_policy.get("role_templates")
+        or access_policy.get("groups")
+    )
     if not has_explicit_open_access and not has_restricted_access:
         blockers.append(
             {
@@ -2699,6 +2767,13 @@ def ready_check(
     if len(languages) > 1:
         blockers.extend(_form_copy_issues(pages))
         blockers.extend(_visible_copy_issues(pages))
+    from app.services.work_datasets import validate_dataset_chart_configuration
+    from app.services.work_predictions import (
+        configuration_issues as prediction_configuration_issues,
+    )
+
+    blockers.extend(prediction_configuration_issues(pages))
+    blockers.extend(validate_dataset_chart_configuration(pages))
     blockers.extend(_data_binding_issues(pages))
     blockers.extend(_implicit_action_issues(pages))
     blockers.extend(_binding_contract_issues(pages, resolved_by_key))
@@ -2772,9 +2847,7 @@ def _binding_snapshot_item(resolved: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _bindings_snapshot(
-    db: DBSession, *, workspace: Any, keys: list[str]
-) -> list[dict[str, Any]]:
+def _bindings_snapshot(db: DBSession, *, workspace: Any, keys: list[str]) -> list[dict[str, Any]]:
     snapshot: list[dict[str, Any]] = []
     for key in keys:
         resolved, issue = _resolve_referenced(db, workspace=workspace, key=key)
@@ -3212,10 +3285,7 @@ def rollback_deployment(
         and row.audience == target_audience
     ):
         return row
-    if (
-        row.release_id != expected_current_id
-        or row.updated_at != expected_deployment_updated_at
-    ):
+    if row.release_id != expected_current_id or row.updated_at != expected_deployment_updated_at:
         raise ExperienceError(
             code="EXPERIENCE_DEPLOYMENT_CONFLICT",
             message="The deployment changed; refresh before rolling back.",

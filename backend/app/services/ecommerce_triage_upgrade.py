@@ -12,6 +12,7 @@ from app.services.ecommerce_triage import (
     FEATURE_DATASET_SKILL,
     FEATURE_SKILL,
     SCORE_ROLE,
+    get_prediction_contract,
     validate_model,
 )
 from app.services.ecommerce_triage_flows import fresh_scoring, with_triage
@@ -131,6 +132,9 @@ def upgrade(
     )
     settings = copy.deepcopy(workspace.settings or {})
     settings["ecommerce_claims"]["triage"] = {
+        "prediction_contract": get_prediction_contract(
+            {"model_id": model.id, "model_version": model.version}
+        ),
         "model_id": model.id,
         "model_version": model.version,
         "training_system_id": model.system_id,
