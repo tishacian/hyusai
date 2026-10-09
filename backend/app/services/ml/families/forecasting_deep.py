@@ -31,6 +31,8 @@ def validate_foundation(dataset, *, task, target, features, algo, knobs, test_si
                         cross_validation, name, spec):
     if str(algo or "") != "chronos_zero_shot":
         raise _refuse("ML_ALGO_TASK_MISMATCH", "This family uses the local Chronos zero-shot model.")
+    if knobs not in (None, {}):
+        raise _refuse("ML_SPEC_INVALID", "The frozen foundation model takes no estimator settings.", field="knobs")
     if features:
         raise _refuse("ML_SPEC_INVALID", "Zero-shot forecasting uses only the target's history.", field="features")
     if spec.get("shape") == "panel" and max(
