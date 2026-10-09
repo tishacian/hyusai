@@ -10,7 +10,7 @@ TABULAR_DEEP = replace(
     required_modules=(*TABULAR.required_modules, "torch", "sentence_transformers"),
     spec_fields=(
         SpecField("text_encoder", "enum", default="embedding", choices=("embedding",)),
-        SpecField("embedding_columns", "columns", required=True, max_items=4, column_kinds=("text", "categorical")),
+        SpecField("embedding_columns", "columns", required=True, max_items=1, column_kinds=("text", "categorical", "string")),
         SpecField("embedding_components", "int", default=30, minimum=2, maximum=128),
         *(field for field in TABULAR.spec_fields if field.key != "text_encoder"),
     ),

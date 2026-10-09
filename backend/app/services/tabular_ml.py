@@ -613,7 +613,7 @@ def validate_training(
                                status_code=409, details={"reason": reason, "model_id": "multilingual-minilm"})
         columns = problem.get("embedding_columns") or []
         if not columns or any(kinds.get(col) not in {"text", "categorical", "string"} or col == label for col in columns):
-            raise TabularError(code="ML_SPEC_INVALID", message="Select one to four text feature columns for embeddings.",
+            raise TabularError(code="ML_SPEC_INVALID", message="Select one text feature column for embeddings.",
                                details={"field": "embedding_columns"})
         # The first release bounds repeated transformer fits explicitly.
         unsupported = [key for key, default in (("tuning", "off"), ("explain", "off"), ("calibration", "off"),
