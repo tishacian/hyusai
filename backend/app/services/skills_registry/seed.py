@@ -1313,7 +1313,7 @@ SEED_SKILLS: List[Dict[str, Any]] = [
     },
     {
         "slug": "ml_monitor_model_v1", "version": "1", "name": "Monitor Model",
-        "description": "Measures a scheduled model window and proposes retraining on labeled feedback for human review.",
+        "description": "Measures a scheduled model window and proposes retraining on labeled feedback or observed forecast history for human review.",
         "type": "workflow", "provider": "internal", "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 120000, "retryable": False, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
@@ -1323,7 +1323,7 @@ SEED_SKILLS: List[Dict[str, Any]] = [
     },
     {
         "slug": "ml_retrain_model_v1", "version": "1", "name": "Train Reviewed Challenger",
-        "description": "Trains the exact feedback snapshot confirmed at the model's human review gate; promotion remains separate.",
+        "description": "Trains the exact data snapshot confirmed at the model's human review gate; promotion remains separate.",
         "type": "workflow", "provider": "internal", "certification_level": "beta",
         "execution": {"mode": "async", "timeout_ms": 900000, "retryable": False, "idempotent": True},
         "pricing": {"unit": "per_training", "unit_price": 0.0, "currency": "USD"},
