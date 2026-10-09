@@ -21,6 +21,7 @@ import {
   TRAINING_ERROR_CODES,
   TRAIN_STEPS,
   algoIcon,
+  algosForTask,
   balanceBars,
   bestScore,
   clampKnob,
@@ -1327,4 +1328,14 @@ test('forecast progress separates temporal tuning from the final backtest and fi
   assert.deepEqual(steps.find((line) => line.state === 'active'), {step:'tuning',key:'models.progress.step.tuning.counted',params:{fold:2,folds:8},state:'active'});
   assert.equal(trainChecklist('training','tuning:2/8',3,'en','forecasting').find((line) => line.state === 'active')?.step,'tuning');
   assert.ok(!trainChecklist('ready','saving',3,'en','forecasting',{tuning:'off'}).some((line) => line.step === 'tuning'));
+});
+
+
+test('algorithms requiring unprovisioned models are not offered while old catalogs remain valid', () => {
+  const catalog = {algos:[
+    {key:'linear',tasks:['forecasting']},
+    {key:'chronos_zero_shot',tasks:['forecasting'],available:false},
+    {key:'forest',tasks:['regression'],available:true},
+  ]} as ModelCatalog;
+  assert.deepEqual(algosForTask(catalog,'forecasting').map((algo) => algo.key), ['linear']);
 });

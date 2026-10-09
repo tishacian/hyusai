@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { addFoundationCatalog } from '../fixtures/ml-foundation';
 import { resolve } from 'node:path';
 import { expect, test, type Page, type Route } from '@playwright/test';
 
@@ -20,6 +21,7 @@ fixture.catalog.families.find((family: any) => family.key === 'forecasting').spe
   {key:'tuning_budget_s',kind:'int',required:false,default:60,min:30,max:60},
   {key:'tuning_folds',kind:'int',required:false,default:3,min:2,max:5},
 );
+addFoundationCatalog(fixture.catalog);
 const workspace = { id: 'flow-forecast-qa', slug: 'flow-forecast-qa', name: 'Nawa QA', role: 'owner', role_template: 'workspace_owner', settings: {}, mode: 'builder' };
 const systemId = 'nawa-capacity';
 const hash = '2'.repeat(64);
@@ -184,4 +186,32 @@ test.describe('Flow · forecasting — isolated end-user QA', () => {
       await page.screenshot({ path: info.outputPath(`train-workshop-${theme}-${locale}.png`), fullPage: true });
     });
   }
+});
+
+
+test.describe('Flow · zero-shot forecast — mocked QA', () => {
+  test.beforeEach(async ({}, info) => {
+    test.skip(process.env['E2E_CHROME_V2_MOCKED'] !== '1' || !['localhost','127.0.0.1'].includes(new URL(String(info.project.use.baseURL)).hostname), 'Local mocked QA only.');
+  });
+  for (const locale of ['fr','en']) test(`zero-shot ${locale}: Flow persists only foundation fields`, async ({page}) => {
+    const api = await setup(page,{theme:'light',locale});
+    await page.goto(`/systems/${systemId}/flow?lens=build`);
+    await page.locator('app-flow-node').filter({hasText:'Apprendre la charge'}).click();
+    await page.getByTestId('open-train-workshop').click();
+    const workshop = page.locator('app-flow-train-workshop');
+    await workshop.getByTestId('train-target').locator('[data-testid="column-select"][data-name="prb_utilization_pct"]').click();
+    await workshop.getByRole('button',{name:locale==='fr'?'Prévision':'Forecasting',exact:true}).click();
+    await workshop.getByRole('button',{name:locale==='fr'?'Panel de séries':'Panel of series',exact:true}).click();
+    await workshop.getByRole('button',{name:'cell_id',exact:true}).click();
+    await workshop.getByRole('combobox',{name:'technology',exact:true}).selectOption('static');
+    await workshop.getByRole('button',{name:locale==='fr'?/Prévision zéro-shot/:/Zero-shot forecast/}).click();
+    await expect(workshop.locator('#train-horizon')).toHaveAttribute('max','64');
+    await expect(workshop.locator('#train-lags')).toHaveCount(0);
+    await expect.poll(() => api.params('train.prb').spec).toEqual({time_column:'ts',shape:'panel',series_columns:['cell_id'],horizon:24,
+      frequency:'auto',interval_level:.8,backtest_folds:3,fill:'refuse'});
+    await workshop.getByRole('button',{name:locale==='fr'?'Fermer l’atelier d’entraînement':'Close the training studio',exact:true}).click();
+    await page.getByTestId('open-train-workshop').click();
+    await expect(workshop.locator('#train-lags')).toHaveCount(0);
+    await expect(workshop.locator('#train-horizon')).toHaveAttribute('max','64');
+  });
 });

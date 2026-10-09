@@ -110,6 +110,8 @@ import {
   FORECASTING_TASK,
   draftFromSpec,
   forecastSpec,
+  forecastFieldsFor,
+  forecastDraftForFields,
   forecastTuningIssue,
   withTimeColumn,
   type ForecastDraft,
@@ -264,6 +266,7 @@ import {
                         [columns]="columns()"
                         [target]="params().target"
                         [algo]="effectiveAlgo()"
+                        [fields]="forecastFields()"
                         [refusal]="refusalFor('spec')"
                         (draftChange)="onForecastDraft($event)"
                       />
@@ -818,7 +821,7 @@ export class FlowTrainWorkshopComponent {
 
   /** The node's forecast spec as form fields; it lives on the node as `spec`. */
   protected readonly forecastFields = computed(() =>
-    this.ml.catalog().families?.find((family) => family.key === FORECASTING_TASK)?.spec_fields ?? [],
+    forecastFieldsFor(this.ml.catalog(), this.effectiveAlgo()),
   );
   protected readonly tuningIssue = computed(() => this.isForecasting()
     ? forecastTuningIssue(this.forecastDraft(), this.effectiveAlgo(), this.forecastFields()) : null);
@@ -828,8 +831,7 @@ export class FlowTrainWorkshopComponent {
 
   /** The ceiling the forecasting family declares for its horizon. */
   protected readonly horizonMax = computed(() => {
-    const family = this.ml.catalog().families?.find((entry) => entry.key === FORECASTING_TASK);
-    return family?.spec_fields.find((field) => field.key === 'horizon')?.max ?? 720;
+    return this.forecastFields().find((field) => field.key === 'horizon')?.max ?? 720;
   });
 
   protected readonly featureColumns = computed(() =>
@@ -1059,7 +1061,10 @@ export class FlowTrainWorkshopComponent {
     this.writeParams({
       algo,
       knobs: {},
-      ...(this.isForecasting() ? { spec: forecastSpec(this.forecastDraft(), algo, this.forecastFields()) } : {}),
+      ...(this.isForecasting() ? { spec: forecastSpec(
+        forecastDraftForFields(this.forecastDraft(), forecastFieldsFor(this.ml.catalog(), algo)),
+        algo, forecastFieldsFor(this.ml.catalog(), algo),
+      ) } : {}),
     });
   }
 

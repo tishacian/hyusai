@@ -36,6 +36,8 @@ import {
   forecastPeak,
   forecastRequest,
   forecastSpec,
+  forecastFieldsFor,
+  forecastDraftForFields,
   frequencyKey,
   futureStamps,
   horizonBars,
@@ -51,7 +53,7 @@ import {
   timeColumns,
   type ForecastMetrics,
 } from './forecast.vm';
-import type { PlanColumn } from './models.vm';
+import type { ModelCatalog, PlanColumn, SpecFieldDescriptor } from './models.vm';
 
 const column = (name: string, kind: string): PlanColumn => ({
   name,
@@ -473,4 +475,44 @@ test('older catalogs receive no unsupported tuning keys and saved tuning is visi
   const saved = {...DEFAULT_FORECAST_DRAFT, tuning:'budget' as const};
   assert.equal(forecastTuningIssue(saved,'linear',[]), 'models.forecast.tuning.unavailable');
   assert.equal(forecastSpec(saved,'linear',[])['tuning'],'budget');
+});
+
+
+const foundationFields: SpecFieldDescriptor[] = [
+  { key: 'time_column', kind: 'column', required: true },
+  { key: 'shape', kind: 'enum', choices: ['single', 'panel'], default: 'single' },
+  { key: 'series_columns', kind: 'columns' },
+  { key: 'horizon', kind: 'int', min: 1, max: 64 },
+  { key: 'frequency', kind: 'enum' },
+  { key: 'interval_level', kind: 'float' },
+  { key: 'backtest_folds', kind: 'int', min: 1, max: 5 },
+  { key: 'fill', kind: 'enum', choices: ['refuse', 'zero'], default: 'refuse' },
+];
+
+test('foundation forecast sends only its family fields, preserving the selected series', () => {
+  const draft = {...DEFAULT_FORECAST_DRAFT, timeColumn:'ts', shape:'panel' as const, seriesColumns:['cell_id'],
+    strategy:'direct' as const, lags:'1,24', exog:{users:'future' as const}, calendar:true};
+  const spec = forecastSpec(draft,'chronos_zero_shot',foundationFields);
+  assert.deepEqual(spec, {time_column:'ts',shape:'panel',series_columns:['cell_id'],horizon:24,
+    frequency:'auto',interval_level:.8,backtest_folds:3,fill:'refuse'});
+  assert.deepEqual(forecastSpec(draftFromSpec(spec),'chronos_zero_shot',foundationFields), spec);
+});
+
+test('switching to foundation adapts unsupported choices and bounds without hiding a saved tuning budget', () => {
+  const draft = forecastDraftForFields({...DEFAULT_FORECAST_DRAFT,shape:'multivariate',horizon:168,folds:8,
+    fill:'interpolate',tuning:'budget'},foundationFields);
+  assert.equal(draft.shape,'single');
+  assert.equal(draft.horizon,64);
+  assert.equal(draft.folds,5);
+  assert.equal(draft.fill,'refuse');
+  assert.equal(forecastTuningIssue(draft,'chronos_zero_shot',foundationFields),'models.forecast.tuning.unavailable');
+});
+
+test('forecast fields follow the algorithm family, with legacy catalog fallback', () => {
+  const classic = [{key:'lags',kind:'int_list'}] as SpecFieldDescriptor[];
+  const catalog = {algos:[{key:'chronos_zero_shot',family:'forecasting_deep'},{key:'linear'}],
+    families:[{key:'forecasting',spec_fields:classic},{key:'forecasting_deep',spec_fields:foundationFields}]} as ModelCatalog;
+  assert.deepEqual(forecastFieldsFor(catalog,'chronos_zero_shot'),foundationFields);
+  assert.deepEqual(forecastFieldsFor(catalog,'linear'),classic);
+  assert.deepEqual(forecastFieldsFor(catalog),classic);
 });
