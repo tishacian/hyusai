@@ -1182,6 +1182,9 @@ def delete_model(db: DBSession, model: MLModel) -> str:
         .filter(MLModelApiKey.model_id == model_id)
         .delete(synchronize_session=False)
     )
+    from app.services.ml_retraining import stop_model_schedules
+
+    stop_model_schedules(db, model)
     db.delete(model)
     db.commit()
 

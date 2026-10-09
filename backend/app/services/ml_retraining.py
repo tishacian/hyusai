@@ -140,6 +140,26 @@ def configure(db, *, model, workspace, user, body: MonitoringPolicy):
     return monitoring_view(db, model)
 
 
+def stop_model_schedules(db, model):
+    """Retire future ticks with the deleted model, retaining its Flow history.
+
+    Do not commit: scheduling and model deletion must settle atomically. Only
+    the dedicated, workspace-owned monitoring System may be affected.
+    """
+    # Serialize with configure() and refresh a policy enabled since the caller
+    # loaded the model. Both paths acquire the model before its schedules.
+    model = db.query(MLModel).filter_by(id=model.id, workspace_id=model.workspace_id).populate_existing().with_for_update().first()
+    if model is None:
+        return
+    policy = policy_for(model)
+    system = db.get(System, policy.get("system_id")) if policy.get("system_id") else None
+    if (system is None or system.workspace_id != model.workspace_id
+            or (system.settings or {}).get("ml_monitoring_model_id") != model.id):
+        return
+    db.query(RunSchedule).filter_by(workspace_id=model.workspace_id, system_id=system.id).update(
+        {"enabled": False, "next_fire_at": None}, synchronize_session="fetch")
+
+
 def _active(db, model, run):
     from app.services.run_engine.execution_contract import canonical_flow_sha256
 
