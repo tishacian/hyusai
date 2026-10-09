@@ -15,7 +15,7 @@ import { monitoringPolicy, monitoringDate, retrainingReason, retrainingState, pr
  @if (evidence(); as report) {
   <section data-testid="scheduled-monitoring">
    <div class="head"><h3>{{ t('title') }}</h3><button type="button" data-testid="monitoring-refresh" [disabled]="busy()" (click)="refresh.emit()">{{ i18n.t('models.shadow.refresh') }}</button></div>
-   <p>{{ t('hint') }}</p><p>{{ i18n.t('models.shadow.observed', {version: version()}) }}</p>
+   <p>{{ t(report.family === 'forecasting' ? 'forecast_hint' : 'hint') }}</p><p>{{ i18n.t('models.shadow.observed', {version: version()}) }}</p>
    @if (!report.supported) { <p data-testid="monitoring-unsupported">{{ i18n.t('models.retraining.reason.monitoring_unsupported') }}</p> }
    @else {
     <p data-testid="monitoring-state">{{ t(report.policy.enabled ? 'enabled' : 'disabled') }}</p>
@@ -34,7 +34,7 @@ import { monitoringPolicy, monitoringDate, retrainingReason, retrainingState, pr
    @if (report.policy.system_id; as systemId) { <a data-testid="monitoring-flow" [navLink]="{leaf:'system-flow',ref:systemId}">{{ t('open_flow') }}</a> }
    <h4>{{ t('history') }}</h4>
    @if (!report.history.length) { <p>{{ t('history_empty') }}</p> }
-   @else { <div class="table-wrap"><table data-testid="monitoring-history"><thead><tr><th>{{ t('date') }}</th><th>{{ t('badge') }}</th><th>{{ t('prediction_count') }}</th><th>{{ t('labeled_count') }}</th><th>{{ t('reason') }}</th></tr></thead><tbody>
+   @else { <div class="table-wrap"><table data-testid="monitoring-history"><thead><tr><th>{{ t('date') }}</th><th>{{ t('badge') }}</th><th>{{ t('prediction_count') }}</th><th>{{ t(report.family === 'forecasting' ? 'observed_count' : 'labeled_count') }}</th><th>{{ t('reason') }}</th></tr></thead><tbody>
     @for (item of report.history; track item.id) { <tr><td>{{ date(item.created_at) }}</td><td>{{ badge(item.badge) }}</td><td>{{ item.window.predictions }}</td><td>{{ item.window.labeled }}</td><td>{{ item.reason ? reason(item.reason) : '—' }}</td></tr> }
    </tbody></table></div> }
    <h4>{{ t('proposals') }}</h4>

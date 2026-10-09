@@ -693,10 +693,10 @@ async def configure_monitoring(
     from app.services.ml_retraining import configure
     try:
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
-        configure(db, model=model, workspace=workspace, user=user, body=body)
+        await run_in_threadpool(configure, db, model=model, workspace=workspace, user=user, body=body)
     except TabularError as exc:
         _raise_tabular(exc)
-    return {"monitoring": _monitoring_for(db, model=model, workspace=workspace, user=user)}
+    return {"monitoring": await run_in_threadpool(_monitoring_for, db, model=model, workspace=workspace, user=user)}
 
 
 @router.get("/{model_id}/monitoring")
