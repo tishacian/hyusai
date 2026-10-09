@@ -751,3 +751,20 @@ test('loop and retry budgets must be finite positive integers', () => {
     }
   }
 });
+
+
+test('strict retraining approval preserves proposal wiring and derives its portable verdict output', () => {
+  const s = svc();
+  const flow: CanonicalFlow = {source:'flow',schema_version:3,io_mode:'strict',nodes:[
+    {id:'source',type:'source',kind:'source',outputs:[{name:'proposal_id',schema:'string'}]},
+    {id:'review',type:'hitl',kind:'hitl',inputs:[{name:'proposal_id',schema:'string'}],outputs:[{name:'approved',schema:'boolean'}],config:{prompt_kind:'approve_model_retraining',inputs_map:{proposal_id:{node_id:'source',path:['proposal_id'],required:true}}}},
+    {id:'sink',type:'sink',kind:'sink',inputs:[{name:'proposal_id',schema:'string'}],config:{inputs_map:{proposal_id:{node_id:'review',path:['proposal_id'],required:true}}}},
+  ],edges:[{from:'source',to:'review'},{from:'review',to:'sink'}]};
+  assert.deepEqual(s.validateFlow(flow).filter(issue => issue.level === 'error'), []);
+  const normalized = s.normalize(flow);
+  assert.deepEqual(normalized.nodes[1].inputs, flow.nodes[1].inputs);
+  assert.ok(normalized.nodes[1].outputs?.some(port => port.name === 'proposal_id' && port.schema === 'string'));
+  assert.deepEqual(s.normalize(normalized), normalized);
+  flow.nodes[1].config = {...flow.nodes[1].config,prompt_kind:'approve_write'};
+  assert.ok(s.validateFlow(flow).some(issue => issue.code === 'variable_unresolved' && issue.level === 'error'));
+});

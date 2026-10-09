@@ -1,3 +1,4 @@
+import type { MonitoringPolicy } from './retraining-evidence.vm';
 /**
  * Model plane client: the algorithm catalog, training runs and the registry.
  *
@@ -268,6 +269,12 @@ export class ModelsService {
     return firstValueFrom(
       this.http.get<{ monitoring: MonitoringReport }>(`${this.base}/${modelId}/monitoring`),
     ).then((body) => body.monitoring);
+  }
+
+  async configureMonitoringPolicy(modelId: string, policy: MonitoringPolicy): Promise<MonitoringReport> {
+    const { enabled, propose_retraining, interval_minutes } = policy;
+    const result = await firstValueFrom(this.http.post<{monitoring: MonitoringReport}>(`/api/v1/ml-models/${modelId}/monitoring/policy`, { enabled, propose_retraining, interval_minutes }));
+    return result.monitoring;
   }
 
   configureShadow(modelId: string, config: ShadowConfig): Promise<ShadowReport> {

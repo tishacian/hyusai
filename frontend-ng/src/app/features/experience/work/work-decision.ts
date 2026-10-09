@@ -4,7 +4,7 @@ import type { Run } from '@app/core/canonical-api.service';
 export function workDecisionKey(run: Run): string {
   const h = run.hitl;
   return JSON.stringify([run.id, run.flow_sha256, h?.decision_id, h?.node_id,
-    h?.decision_title, h?.prompt, h?.prompt_kind, h?.label_review, h?.upstream, h?.expires_at]);
+    h?.decision_title, h?.prompt, h?.prompt_kind, h?.label_review, h?.model_retraining, h?.upstream, h?.expires_at]);
 }
 
 export function workDecisionAvailable(run: Run, now = Date.now()): boolean {

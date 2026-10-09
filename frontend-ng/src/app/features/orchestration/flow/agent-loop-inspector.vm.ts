@@ -26,6 +26,7 @@ export const PROMPT_KINDS: readonly PromptKind[] = [
   'missing_file',
   'approve_write',
   'review_dataset_labels',
+  'approve_model_retraining',
 ];
 
 export const ITSD_OVERLAY_ALLOWLIST = [
@@ -237,4 +238,9 @@ export function formatAgentLoopEnvelopeLine(
 export function agentLoopEnvelopeLine(node: CanonicalFlowNode): string | null {
   const parts = agentLoopEnvelopeParts(node);
   return parts ? formatAgentLoopEnvelopeLine(parts) : null;
+}
+
+/** Server-owned retraining mode is readable but cannot be selected on an ordinary gate. */
+export function availableHitlPromptKinds(node: CanonicalFlowNode): readonly PromptKind[] {
+  return readHitlConfig(node).prompt_kind === 'approve_model_retraining' ? PROMPT_KINDS : PROMPT_KINDS.filter(kind => kind !== 'approve_model_retraining');
 }

@@ -1,3 +1,5 @@
+import { RetrainingContextComponent } from '@app/features/models/retraining-context.component';
+import { retrainingReviewReady } from '@app/features/models/retraining-evidence.vm';
 /**
  * `<app-flow-terminal>` — the execution terminal (presentational only).
  *
@@ -35,7 +37,7 @@ import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
   selector: 'app-flow-terminal',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, DatasetLabelReviewComponent],
+  imports: [IconComponent, DatasetLabelReviewComponent, RetrainingContextComponent],
   styleUrl: './flow-terminal.component.scss',
   template: `
     <section class="ck-term" [attr.aria-label]="i18n.t('flow.terminal.aria')">
@@ -115,6 +117,7 @@ import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
                 }
               </div>
             }
+            @if (h.prompt_kind === 'approve_model_retraining') { <ck-retraining-context [binding]="h.model_retraining" /> }
             @if (h.prompt_kind === 'review_dataset_labels') {
               <app-dataset-label-review [runId]="runId()" [decisionId]="h.decision_id ?? ''" [disabled]="hitlResolving()" (submissionChange)="labelReview.set($event)" />
             }
@@ -130,7 +133,7 @@ import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
               <button
                 type="button"
                 class="ck-term__btn ck-term__btn--accept"
-                [disabled]="hitlResolving() || (h.prompt_kind === 'review_dataset_labels' && !labelReview())"
+                [disabled]="hitlResolving() || (h.prompt_kind === 'review_dataset_labels' && !labelReview()) || (h.prompt_kind === 'approve_model_retraining' && !retrainingReviewReady(h.model_retraining))"
                 (click)="resolve('accept')"
               >
                 <app-icon name="check" [size]="12" /> {{ i18n.t('flow.terminal.approval.accept') }}
@@ -214,6 +217,7 @@ import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
   `,
 })
 export class FlowTerminalComponent {
+  readonly retrainingReviewReady = retrainingReviewReady;
   readonly i18n = inject(I18nService);
 
   readonly entries = input<RunLogEntry[]>([]);
@@ -246,6 +250,7 @@ export class FlowTerminalComponent {
 
   protected resolve(action: 'accept' | 'reject'): void {
     if (this.hitlResolving()) return;
+    if (action === 'accept' && this.hitl()?.prompt_kind === 'approve_model_retraining' && !retrainingReviewReady(this.hitl()?.model_retraining)) return;
     const label_review = this.labelReview();
     if (action === 'accept' && this.hitl()?.prompt_kind === 'review_dataset_labels') {
       if (!label_review) return;

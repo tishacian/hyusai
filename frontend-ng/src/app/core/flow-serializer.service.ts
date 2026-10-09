@@ -239,7 +239,7 @@ export interface HitlNodeConfig {
   timeout_ms?: number;
   /** Roles allowed to approve/reject. */
   approvers?: string[];
-  prompt_kind?: 'choice' | 'validate_draft' | 'missing_file' | 'approve_write' | 'review_dataset_labels';
+  prompt_kind?: 'choice' | 'validate_draft' | 'missing_file' | 'approve_write' | 'review_dataset_labels' | 'approve_model_retraining';
 }
 
 export interface SubflowNodeConfig {

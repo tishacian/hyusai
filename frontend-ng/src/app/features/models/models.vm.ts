@@ -1,3 +1,4 @@
+import type { ScheduledMonitoringReport } from './retraining-evidence.vm';
 import type { CalibrationEvidence, DecisionEvidence } from "./classification-evidence.vm";
 import type { ExplanationEvidence } from "./explanation-evidence.vm";
 import type { ShadowReport } from './shadow-evidence.vm';
@@ -56,6 +57,7 @@ export interface DriftFeature {
 }
 
 export interface MonitoringReport {
+  scheduled?: ScheduledMonitoringReport;
   shadow?: ShadowReport;
   badge: MonitorStatus | null;
   window: { predictions: number; labeled: number; limit: number; model_id?: string; served_version?: number };
