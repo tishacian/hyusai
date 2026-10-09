@@ -19,7 +19,7 @@ import type {
   ForecastHistoryPoint,
 } from '@app/features/data/viz/forecast-chart.vm';
 
-import type { MetricsBlock, PlanColumn } from './models.vm';
+import type { MetricsBlock, PlanColumn, SpecFieldDescriptor } from './models.vm';
 
 export const FORECASTING_TASK = 'forecasting';
 
@@ -48,6 +48,10 @@ export interface ForecastDraft {
   intervalLevel: number;
   folds: number;
   fill: ForecastFill;
+  tuning: 'off' | 'budget';
+  tuningTrials: number;
+  tuningBudget: number;
+  tuningFolds: number;
 }
 
 export const DEFAULT_FORECAST_DRAFT: ForecastDraft = {
@@ -63,6 +67,10 @@ export const DEFAULT_FORECAST_DRAFT: ForecastDraft = {
   intervalLevel: 0.8,
   folds: 3,
   fill: 'refuse',
+  tuning: 'off',
+  tuningTrials: 30,
+  tuningBudget: 300,
+  tuningFolds: 3,
 };
 
 /** The roles a covariate can take in a shape: static needs a panel, past a multivariate. */
@@ -93,8 +101,16 @@ export function parseLags(text: string): number[] | null {
  * A draft rebuilt from the spec a version was trained with, so a retrain opens
  * on the same question rather than on the defaults.
  */
-export function draftFromSpec(spec: Record<string, unknown> | null | undefined): ForecastDraft {
-  const draft: ForecastDraft = { ...DEFAULT_FORECAST_DRAFT, exog: {} };
+export function draftFromSpec(
+  spec: Record<string, unknown> | null | undefined,
+  fields: readonly SpecFieldDescriptor[] = [],
+): ForecastDraft {
+  const draft: ForecastDraft = {
+    ...DEFAULT_FORECAST_DRAFT, exog: {},
+    tuningTrials: tuningBounds(fields, 'tuning_trials').default,
+    tuningBudget: tuningBounds(fields, 'tuning_budget_s').default,
+    tuningFolds: tuningBounds(fields, 'tuning_folds').default,
+  };
   if (!spec) return draft;
   const text = (key: string) => (typeof spec[key] === 'string' ? (spec[key] as string) : undefined);
   const number = (key: string) => (typeof spec[key] === 'number' ? (spec[key] as number) : undefined);
@@ -118,9 +134,47 @@ export function draftFromSpec(spec: Record<string, unknown> | null | undefined):
   if (typeof spec['calendar'] === 'boolean') draft.calendar = spec['calendar'] as boolean;
   draft.intervalLevel = number('interval_level') ?? draft.intervalLevel;
   draft.folds = number('backtest_folds') ?? draft.folds;
+  draft.tuning = text('tuning') === 'budget' ? 'budget' : 'off';
+  draft.tuningTrials = number('tuning_trials') ?? draft.tuningTrials;
+  draft.tuningBudget = number('tuning_budget_s') ?? draft.tuningBudget;
+  draft.tuningFolds = number('tuning_folds') ?? draft.tuningFolds;
   const fill = text('fill');
   if (fill && (FORECAST_FILLS as readonly string[]).includes(fill)) draft.fill = fill as ForecastFill;
   return draft;
+}
+
+export type ForecastTuningField = 'tuning_trials' | 'tuning_budget_s' | 'tuning_folds';
+
+/** The server owns these ceilings, including 60% of its current training timeout. */
+export function tuningBounds(fields: readonly SpecFieldDescriptor[], key: ForecastTuningField) {
+  const fallback = {
+    tuning_trials: { min: 5, max: 100, default: 30 },
+    tuning_budget_s: { min: 30, max: 540, default: 300 },
+    tuning_folds: { min: 2, max: 5, default: 3 },
+  }[key];
+  const field = fields.find((entry) => entry.key === key);
+  return {
+    min: field?.min ?? fallback.min,
+    max: field?.max ?? fallback.max,
+    default: typeof field?.default === 'number' ? field.default : fallback.default,
+  };
+}
+
+/** Unsupported choices stay visible and are refused; switching algorithms never silently drops tuning. */
+export function forecastTuningIssue(
+  draft: ForecastDraft, algo: string | undefined, fields?: readonly SpecFieldDescriptor[],
+): string | null {
+  if (draft.tuning !== 'budget') return null;
+  if (fields && !fields.some((field) => field.key === 'tuning')) return 'models.forecast.tuning.unavailable';
+  if (SINGLE_SERIES_ALGOS.has(algo ?? '')) return 'models.refusal.ml_ts_tuning_unsupported';
+  if (draft.fill === 'interpolate') return 'models.refusal.ml_ts_tuning_fill_unsafe';
+  for (const [key, value] of [
+    ['tuning_trials', draft.tuningTrials], ['tuning_budget_s', draft.tuningBudget], ['tuning_folds', draft.tuningFolds],
+  ] as const) {
+    const bounds = tuningBounds(fields ?? [], key);
+    if (!Number.isInteger(value) || value < bounds.min || value > bounds.max) return 'models.forecast.tuning.bounds';
+  }
+  return null;
 }
 
 /**
@@ -143,7 +197,9 @@ export function strategyApplies(shape: ForecastShape, algo: string | undefined):
 }
 
 /** The draft as the `spec` the plan and train endpoints read. */
-export function forecastSpec(draft: ForecastDraft, algo?: string): Record<string, unknown> {
+export function forecastSpec(
+  draft: ForecastDraft, algo?: string, fields?: readonly SpecFieldDescriptor[],
+): Record<string, unknown> {
   const spec: Record<string, unknown> = {
     time_column: draft.timeColumn,
     shape: draft.shape,
@@ -154,6 +210,16 @@ export function forecastSpec(draft: ForecastDraft, algo?: string): Record<string
     backtest_folds: draft.folds,
     fill: draft.fill,
   };
+  // Older catalogs reject unknown spec keys. An unsupported saved budget is
+  // retained for editing, while forecastTuningIssue prevents submitting it.
+  if (!fields || fields.some((field) => field.key === 'tuning') || draft.tuning === 'budget') {
+    spec['tuning'] = draft.tuning;
+  }
+  if (draft.tuning === 'budget') {
+    spec['tuning_trials'] = draft.tuningTrials;
+    spec['tuning_budget_s'] = draft.tuningBudget;
+    spec['tuning_folds'] = draft.tuningFolds;
+  }
   if (draft.shape === 'panel') spec['series_columns'] = [...draft.seriesColumns];
   if (strategyApplies(draft.shape, algo)) spec['strategy'] = draft.strategy;
   const lags = parseLags(draft.lags);

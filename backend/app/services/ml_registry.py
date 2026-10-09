@@ -230,6 +230,8 @@ def publish(
             )
             child_id = child.info.run_id
             client.log_param(child_id, "trial", trial["n"])
+            for key, value in (trial.get("knobs") or {}).items():
+                client.log_param(child_id, str(key), str(value))
             for key in ("score", "duration_ms"):
                 value = trial.get(key)
                 if isinstance(value, (int, float)):

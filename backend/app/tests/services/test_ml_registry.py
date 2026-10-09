@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
 
@@ -384,8 +383,8 @@ def test_the_run_points_at_the_evaluation_and_not_only_at_the_pipeline(
     were measured on.
     """
 
-    from app.services.tabular_ml import report_state_key, submit_training
     from app.services.object_store import get_object_store
+    from app.services.tabular_ml import report_state_key, submit_training
 
     _stub_harness(monkeypatch, report_state=b"skore-state-bytes")
     model = submit_training(
@@ -715,7 +714,7 @@ def test_tuning_trials_are_nested_under_the_registered_run(registry):
     result = ml_registry.publish(
         model_name='budgeted-tuning', source_uri='file:///tmp/model',
         metrics={'tuning': {'start': {'score': .7}, 'best': {'score': .8}, 'trials': [
-            {'n': 0, 'score': .7, 'state': 'complete', 'duration_ms': 20},
+            {'n': 0, 'score': .7, 'state': 'complete', 'duration_ms': 20, 'knobs': {'alpha': 1.0}},
             {'n': 1, 'score': .8, 'state': 'complete', 'duration_ms': 25},
             {'n': 2, 'score': None, 'state': 'failed', 'duration_ms': 10},
         ]}}, params={'tuned': True},
@@ -726,4 +725,6 @@ def test_tuning_trials_are_nested_under_the_registered_run(registry):
     assert parent.data.metrics['tuning.best.score'] == .8
     children = client.search_runs([parent.info.experiment_id], f"tags.`mlflow.parentRunId` = '{result['run_id']}'")
     assert len(children) == 3
+    baseline = next(child for child in children if child.data.params['trial'] == '0')
+    assert baseline.data.params['alpha'] == '1.0'
     assert {child.info.status for child in children} == {'FINISHED', 'FAILED'}
