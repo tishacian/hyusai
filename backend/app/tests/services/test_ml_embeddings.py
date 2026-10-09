@@ -182,3 +182,40 @@ def test_real_export_loads_offline_after_source_disappears(tmp_path, task):
     encoder = vectorizer.transformers_['text']
     assert encoder.store_weights_in_pickle
     assert encoder.pca_.n_samples_ == 48
+
+
+def test_embedding_worker_lifecycle_uses_frozen_asset_and_serves_predictions(tmp_path, db_session, enabled, monkeypatch):
+    source = os.environ.get('ML_DEEP_TEST_EMBEDDING_DIR')
+    if not source:
+        pytest.skip('Provision the multilingual encoder to exercise the supervised worker')
+    import polars as pl
+    from pathlib import Path
+    from app.services.ml import local_models
+    from app.services.tabular_datasets import register_frame
+    folder = Path(source)
+    files = {str(path.relative_to(folder)): local_models.file_hash(path) for path in folder.rglob('*') if path.is_file()}
+    local = local_models.LocalModel(path=folder, model_id='multilingual-minilm', revision='e8f8c211226b894fcb81acc59f3b34ba3efd5f42',
+                                   kind='embedding', fingerprint=hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest(),
+                                   upstream_id='sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2', files=files)
+    monkeypatch.setattr(local_models, 'resolve_model', lambda *a, **kw: local)
+    monkeypatch.setattr(runtime, 'model_descriptors', lambda *a, **kw: {'multilingual-minilm': local.public()})
+    monkeypatch.setattr(settings, 'ml_runtime', 'ml-deep')
+    monkeypatch.setattr(settings, 'object_store_backend', 'local')
+    monkeypatch.setattr(settings, 'object_store_base_path', str(tmp_path/'store'))
+    monkeypatch.setattr(settings, 'ml_train_timeout_s', 180)
+    space = Workspace(id=uuid4().hex, name='Real embeddings', slug=uuid4().hex, settings={})
+    db_session.add(space)
+    db_session.flush()
+    dataset = register_frame(db_session, workspace_id=space.id, name='Tickets', source='generated', produced_by='test',
+        frame=pl.DataFrame([{'text': ('réseau perdu' if i % 2 else 'paiement facture')+f' numéro {i}', 'amount': float(i % 5), 'label': str(i % 2)} for i in range(64)]))
+    selected = validate(dataset, spec={'text_encoder': 'embedding', 'embedding_columns': ['text'], 'embedding_components': 5})
+    row = tabular_ml.create_model(db_session, workspace_id=space.id, spec=selected)
+    db_session.commit()
+    assert row.params_json['foundation']['fingerprint'] == local.fingerprint
+    result = tabular_ml.run_training(row.id)
+    db_session.refresh(row)
+    assert result['status'] == 'ready', row.error
+    assert row.runtime_json['runtime'] == 'ml-deep' and row.metrics_json['artifact']['files']
+    answer = tabular_predict.predict_rows(db_session, row, [{'text': 'réseau perdu', 'amount': 1.0}], version=row.version)
+    assert answer['rows'] == 1 and answer['predictions'][0]['prediction'] in {'0', '1'}
+    tabular_predict.reset_cache()
