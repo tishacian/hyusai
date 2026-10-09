@@ -270,7 +270,7 @@ def load_pipeline_traced(model: MLModel) -> tuple[LoadedModel, bool]:
             details={"status": model.status},
         )
     family = get_family(getattr(model, "family", None))
-    if family.serving != "in_process":
+    if model.task == "forecasting":
         # A forecast answers a horizon, not a row, and its artifact only loads
         # in its own runtime: unpickling it here would need skforecast in the API.
         raise TabularError(
@@ -280,6 +280,8 @@ def load_pipeline_traced(model: MLModel) -> tuple[LoadedModel, bool]:
             details={"family": family.key},
         )
 
+    if family.key == "tabular_deep" and settings.ml_runtime != "ml-deep" and not settings.worker_eager_mode:
+        raise TabularError(code="ML_RUNTIME_MISSING", message="Embedding models load only in the deep runtime.", status_code=409)
     fingerprint = _fingerprint(model)
     with _cache_lock:
         cached = _cache.get(model.id)
@@ -294,6 +296,9 @@ def load_pipeline_traced(model: MLModel) -> tuple[LoadedModel, bool]:
         directory = Path(tempfile.mkdtemp(prefix="ml-serve-"))
         try:
             download_model_dir(model, directory)
+            if family.key == "tabular_deep":
+                from app.services.ml.artifacts import verify_bundle
+                verify_bundle(directory, (model.metrics_json or {}).get("artifact") or {})
             pipeline = _load_mlflow_model(directory)
         except TabularError:
             shutil.rmtree(directory, ignore_errors=True)
@@ -838,21 +843,8 @@ def _add_intervals(answers: list[dict[str, Any]], band: tuple[float, float] | No
             answer.update(lower=_finite(prediction - radius), upper=_finite(prediction + radius), level=level)
 
 
-def predict_rows(
-    db: DBSession,
-    model: MLModel,
-    rows: Any,
-    *,
-    version: Any = None,
-    caller: str = "session",
-    explain: bool = False,
-    interval_level: float | None = None,
-) -> dict[str, Any]:
-    """Answer an inline batch, and say which version answered."""
-
-    served = serving_version(db, model, version=version)
+def _prediction_payload(served: MLModel, coerced: list[dict], *, explain=False, interval_level=None) -> dict:
     band = _interval_band(served, interval_level)
-    coerced = coerce_rows(served, rows)
     entry, resident = load_pipeline_traced(served)
     started = time.monotonic()
     fields = contract_fields(served)
@@ -873,6 +865,31 @@ def predict_rows(
             positive=positive,
         )
     elapsed_ms = round((time.monotonic() - started) * 1000, 1)
+    return {"classes": classes, "positive_label": positive, "predictions": answers,
+            "duration_ms": elapsed_ms, "load_ms": 0.0 if resident else entry.load_ms, "cached": resident}
+
+
+def predict_rows(
+    db: DBSession,
+    model: MLModel,
+    rows: Any,
+    *,
+    version: Any = None,
+    caller: str = "session",
+    explain: bool = False,
+    interval_level: float | None = None,
+) -> dict[str, Any]:
+    """Answer an inline batch, and say which version answered."""
+
+    served = serving_version(db, model, version=version)
+    coerced = coerce_rows(served, rows)
+    if served.family == "tabular_deep" and settings.ml_runtime != "ml-deep":
+        from app.services.ml.deep_serving import request_rows
+        result = request_rows(db, served, coerced, explain=explain, interval_level=interval_level)
+    else:
+        result = _prediction_payload(served, coerced, explain=explain, interval_level=interval_level)
+    answers, classes, positive = result["predictions"], result["classes"], result["positive_label"]
+    elapsed_ms = result["duration_ms"]
     record_usage(db, served, rows=len(answers))
     prediction_id = journal_call(
         db,
@@ -903,8 +920,8 @@ def predict_rows(
         "prediction_id": prediction_id,
         # What *this* request paid to get a pipeline in memory. Zero on a hit,
         # which is the number the cache exists to produce.
-        "load_ms": 0.0 if resident else entry.load_ms,
-        "cached": resident,
+        "load_ms": result["load_ms"],
+        "cached": result["cached"],
     }
 
 
@@ -1118,8 +1135,9 @@ def _score_into(
             details={"columns": absent[:8]},
         )
 
-    entry = load_pipeline(served)
-    classes = entry.classes
+    remote = served.family == "tabular_deep" and settings.ml_runtime != "ml-deep"
+    entry = None if remote else load_pipeline(served)
+    classes = [str(value) for value in (served.classes_json or [])] if remote else entry.classes
     positive = _positive_label(served, classes)
     features = frame.select(wanted).to_pandas()
 
@@ -1130,18 +1148,23 @@ def _score_into(
     upper: list[float | None] = []
     band = _interval_band(served)
     total = len(features)
-    for offset in range(0, max(total, 1), _SCORE_CHUNK_ROWS):
-        chunk = features.iloc[offset : offset + _SCORE_CHUNK_ROWS]
+    chunk_size = min(100, int(settings.ml_predict_max_rows)) if remote else _SCORE_CHUNK_ROWS
+    for offset in range(0, max(total, 1), chunk_size):
+        chunk = features.iloc[offset : offset + chunk_size]
         if chunk.empty:
             break
         # Published before the chunk rather than after it: on a base that fits in
         # one chunk — which the demo's does — reporting afterwards would say
         # "0 of 6 903" for the whole scoring and then jump straight to written.
         mark_step(db, output, f"{SCORE_STEPS[2]}:{offset}/{total}")
-        typed = build_frame(fields, chunk.to_dict(orient="records"))
-        predicted, proba = _predict_frame(entry, served, typed)
-        answers = _rows_from(served, classes, positive, predicted, proba)
-        _add_intervals(answers, band)
+        if remote:
+            from app.services.ml.deep_serving import request_rows
+            answers = request_rows(db, served, coerce_rows(served, chunk.to_dict(orient="records")))["predictions"]
+        else:
+            typed = build_frame(fields, chunk.to_dict(orient="records"))
+            predicted, proba = _predict_frame(entry, served, typed)
+            answers = _rows_from(served, classes, positive, predicted, proba)
+            _add_intervals(answers, band)
         for answer in answers:
             predictions.append(answer.get("prediction"))
             confidences.append(answer.get("confidence"))
@@ -1817,7 +1840,7 @@ def serving_block(db: DBSession, model: MLModel) -> dict[str, Any]:
 
         listening, _ = serving_availability(family, db)
         callable_now = bool(settings.ml_predict_enabled and model.status == "ready" and listening)
-        endpoint = public_forecast_path(model)
+        endpoint = public_forecast_path(model) if model.task == "forecasting" else public_predict_path(model)
     else:
         callable_now = bool(settings.ml_predict_enabled and model.status == "ready" and fields)
         endpoint = public_predict_path(model)
@@ -1842,7 +1865,7 @@ def serving_block(db: DBSession, model: MLModel) -> dict[str, Any]:
         "endpoint": endpoint,
         "key_header": API_KEY_HEADER,
         # A forecast is asked for with a horizon, not rows (see forecast_serving).
-        "mode": "forecast" if remote else "rows",
+        "mode": "forecast" if model.task == "forecasting" else "rows",
     }
 
 
