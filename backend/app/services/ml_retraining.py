@@ -82,6 +82,11 @@ def _flow(model_id):
                  {"from": "review", "to": "retrain"}, {"from": "retrain", "to": "sink"}]}
 
 
+def supported(model):
+    return ((model.family or "tabular") == "tabular" and model.task in {"classification", "regression"}
+            or model.family == "forecasting" and model.task == "forecasting")
+
+
 def configure(db, *, model, workspace, user, body: MonitoringPolicy):
     from app.services.run_engine.scheduler import validate_cron_expr
     from app.services.systems.flow_publication import initialize_new_system_publication_if_enabled
@@ -89,11 +94,14 @@ def configure(db, *, model, workspace, user, body: MonitoringPolicy):
 
     if not can_configure_mlops(db, workspace=workspace, user=user, admin_only=True):
         refuse("ML_MONITORING_FORBIDDEN", "Workspace administration is required to schedule retraining proposals.", 403)
-    if body.enabled and (model.status != "ready" or model.task not in {"classification", "regression"}):
-        refuse("ML_MONITORING_UNSUPPORTED", "Select a ready tabular classification or regression model.")
+    if body.enabled and (model.status != "ready" or not supported(model)):
+        refuse("ML_MONITORING_UNSUPPORTED", "Select a ready tabular or forecasting model.")
     if body.interval_minutes not in {60, 360, 1440}:
         refuse("ML_MONITORING_INTERVAL_INVALID", "Choose an hourly, six-hourly or daily schedule.", 422)
     db.query(MLModel).filter_by(id=model.id, workspace_id=workspace.id).populate_existing().with_for_update().one()
+    if body.enabled and model.family == "forecasting":
+        from app.services.ml.forecast_monitoring import snapshot
+        snapshot(db, model=model)  # Verify the explicit actuals binding before scheduling.
     current = policy_for(model)
     if not body.enabled:
         schedule = db.get(RunSchedule, current.get("schedule_id")) if current.get("schedule_id") else None
@@ -195,7 +203,7 @@ def _training_options(model):
     params = model.params_json or {}
     spec = {key: value for key, value in (model.spec_json or {}).items()
             if key != "distillation_inference_cost_per_1000"}
-    return {"task": model.task, "target": model.target, "features": [field["name"] for field in contract_fields(model)], "algo": model.algo,
+    return {"task": model.task, "target": model.target, "features": list(model.features or []) if model.family == "forecasting" else [field["name"] for field in contract_fields(model)], "algo": model.algo,
             "knobs": params.get("knobs") or {}, "spec": spec, "test_size": model.test_size,
             "cross_validation": model.cross_validation, "name": model.slug}
 
@@ -228,6 +236,33 @@ def _feedback_dataset(db, model, rows):
     return dataset, ids
 
 
+def _forecast_evidence(model, measured):
+    return {"badge": measured["status"] if measured["status"] in {"ok", "watch", "alert"} else None,
+        "window": {"predictions": measured["window"]["calls"], "labeled": measured["window"]["matched"],
+                   "limit": measured["window"]["limit_calls"], "model_id": model.id, "served_version": model.version},
+        "data_drift": {"status": "unknown", "features": []},
+        "score_drift": {"status": "unknown", "value": None, "served_mean": None, "reference_mean": None, "n": 0},
+        "concept_drift": {"status": "unknown", "rolling_auc": None, "train_auc": None, "delta": None, "labeled": 0},
+        "forecast_actuals": measured}
+
+
+def _verify_forecast_sources(db, model, binding):
+    from app.services.ml.forecast_monitoring import binding_for
+
+    sources = binding.get("forecast_sources") or {}
+    if (not sources or binding_for(model) != binding.get("actuals_binding")
+            or model.dataset_id != (sources.get("training_dataset") or {}).get("id")):
+        refuse("ML_RETRAIN_SOURCE_CHANGED", "The forecast history association changed after human evidence was frozen.")
+    # Following later versions does not alter an existing proposal. Its exact
+    # source versions and bytes must still exist when approved and before fit.
+    for key in ("training_dataset", "actuals_dataset"):
+        expected = sources.get(key) or {}
+        source = db.get(TabularDataset, expected.get("id"), populate_existing=True)
+        if (source is None or source.workspace_id != model.workspace_id
+                or source.version != expected.get("version") or _file_hash(source) != expected.get("sha256")):
+            refuse("ML_RETRAIN_SOURCE_CHANGED", "The reviewed forecast source history changed.")
+
+
 def monitor_cycle(db, *, model_id, run_id):
     from app.services.tabular_monitoring import report, _recent
     from app.services.tabular_ml import validate_training
@@ -237,12 +272,19 @@ def monitor_cycle(db, *, model_id, run_id):
     if model is None:
         refuse("ML_MODEL_NOT_FOUND", "The monitored model is unavailable.", 404)
     policy = _active(db, model, run)
-    rows = _recent(db, model)
-    window_hash = digest([(row.id, row.label, row.labeled_at) for row in rows])
+    forecast = None
+    if model.family == "forecasting":
+        from app.services.ml.forecast_monitoring import snapshot as forecast_snapshot
+        forecast = forecast_snapshot(db, model=model)
+        rows, window_hash = [], forecast.fingerprint
+        measured = _forecast_evidence(model, forecast.report)
+    else:
+        rows = _recent(db, model)
+        window_hash = digest([(row.id, row.label, row.labeled_at) for row in rows])
+        measured = {key: value for key, value in report(db, model=model).items()
+                    if key in {"badge", "window", "data_drift", "score_drift", "concept_drift"}}
     snapshot_id = operational_job_id(SNAPSHOT_KIND, model.id, window_hash)
     snapshot = db.get(WorkspaceJob, snapshot_id)
-    measured = {key: value for key, value in report(db, model=model).items()
-                if key in {"badge", "window", "data_drift", "score_drift", "concept_drift"}}
     if snapshot is None:
         snapshot = WorkspaceJob(id=snapshot_id, workspace_id=model.workspace_id, system_id=run.system_id,
             run_id=run.id, kind=SNAPSHOT_KIND, title=f"Monitor {model.name[:200]}", status="completed", stage="measured",
@@ -260,12 +302,21 @@ def monitor_cycle(db, *, model_id, run_id):
             and existing is None and active is None):
         try:
             with db.begin_nested():
-                dataset, ids = _feedback_dataset(db, model, rows)
+                sources = {}
+                if forecast is not None:
+                    from app.services.ml.forecast_monitoring import materialize_training_history, binding_for
+                    dataset, provenance = materialize_training_history(db, model=model, snapshot=forecast,
+                                                                       created_by=policy["configured_by"])
+                    ids, labeled_rows = [], provenance["history_rows"]
+                    sources = {"forecast_sources": provenance, "actuals_binding": binding_for(model)}
+                else:
+                    dataset, ids = _feedback_dataset(db, model, rows)
+                    labeled_rows = len(ids)
                 options = _training_options(model)
                 validate_training(dataset, db=db, **options)
                 binding = {"model_id": model.id, "model_version": model.version, "model_name": model.name,
                            "dataset_id": dataset.id, "dataset_version": dataset.version, "dataset_sha256": _file_hash(dataset),
-                           "labeled_rows": len(ids), "prediction_ids": ids, "training": options,
+                           "labeled_rows": labeled_rows, "prediction_ids": ids, "training": options, **sources,
                            "snapshot_id": snapshot.id, "window_sha256": window_hash, "evidence": measured}
                 job = WorkspaceJob(id=proposal_id, workspace_id=model.workspace_id, system_id=run.system_id,
                     run_id=run.id, kind=PROPOSAL_KIND, title=f"Retrain {model.name[:200]}", status="created", stage="proposed",
@@ -297,7 +348,7 @@ def proposal_for(db, proposal_id, *, workspace_id, run_id):
                                           kind=PROPOSAL_KIND).populate_existing().with_for_update().first()
     if job is None or digest(job.input_ref) != (job.result or {}).get("binding_sha256"):
         refuse("ML_RETRAIN_PROPOSAL_INVALID", "The retraining proposal has no matching server-owned snapshot.")
-    model = db.get(MLModel, job.input_ref["model_id"])
+    model = db.get(MLModel, job.input_ref["model_id"], populate_existing=True)
     if model is None or model.workspace_id != workspace_id:
         refuse("ML_RETRAIN_PROPOSAL_INVALID", "The source model is unavailable.")
     policy = _active(db, model, db.get(Run, run_id))
@@ -305,7 +356,9 @@ def proposal_for(db, proposal_id, *, workspace_id, run_id):
         refuse("ML_RETRAIN_PROPOSAL_CHANGED", "The serving model or retraining policy changed after the proposal.")
     if _training_options(model) != job.input_ref["training"]:
         refuse("ML_RETRAIN_PROPOSAL_CHANGED", "The training configuration changed after the proposal.")
-    dataset = db.get(TabularDataset, job.input_ref["dataset_id"])
+    if model.family == "forecasting":
+        _verify_forecast_sources(db, model, job.input_ref)
+    dataset = db.get(TabularDataset, job.input_ref["dataset_id"], populate_existing=True)
     if (dataset is None or dataset.workspace_id != workspace_id
             or dataset.version != job.input_ref["dataset_version"] or _file_hash(dataset) != job.input_ref["dataset_sha256"]):
         refuse("ML_RETRAIN_SOURCE_CHANGED", "The feedback dataset changed after the proposal.")
@@ -569,7 +622,7 @@ def monitoring_view(db, model):
                 "model_id": job.result.get("model_id"), "source_model_id": model.id, "source_model_name": binding["model_name"],
                 "source_version": binding["model_version"],
                 "dataset_id": binding["dataset_id"], "dataset_version": binding["dataset_version"],
-                "dataset_sha256": binding["dataset_sha256"], "labeled_rows": binding["labeled_rows"], "training": binding["training"], "evidence": binding.get("evidence")})
-    return {"supported": (model.family or "tabular") == "tabular" and model.task in {"classification", "regression"},
+                "dataset_sha256": binding["dataset_sha256"], "labeled_rows": binding["labeled_rows"], "training": binding["training"], "evidence": binding.get("evidence"), "forecast_sources": binding.get("forecast_sources")})
+    return {"supported": supported(model), "family": model.family or "tabular",
             "policy": {"enabled": False, "propose_retraining": False, "interval_minutes": 60, **policy},
             "history": history[:20], "proposals": proposals[:20]}
