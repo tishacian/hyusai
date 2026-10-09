@@ -1,0 +1,7 @@
+# Additive deep-runtime dependencies, resolved 2026-10-09 on Python 3.12.
+# torch and transformers retain constraints-demo-app.txt's exact CPU versions.
+# No application or ml-ts pin is overridden here.
+accelerate==1.15.0
+chronos-forecasting==2.3.2
+einops==0.8.2
+sentence-transformers==6.1.0
