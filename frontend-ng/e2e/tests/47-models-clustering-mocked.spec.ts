@@ -17,7 +17,7 @@ const model = {
   trained_at: '2026-10-07T09:12:00Z', primary_metric: { key: 'silhouette', value: 0.65 },
   metrics: { primary: { key: 'silhouette', value: 0.65 }, scores: [{ key: 'silhouette', value: 0.65 }], clustering: { algorithm:'kmeans',n_clusters:2,features:['visits','amount'],rows:800,silhouette:{value:0.65,sample_rows:800},stability:{metric:'adjusted_rand_index',mean:0.9,std:0.02,min:0.87,runs:3,sample_rows:800,subsample_rows:640,values:[0.87,0.91,0.92]},clusters:[{cluster:0,count:500,share:0.625,features:[{feature:'amount',mean:25,median:24,std:3,missing:2,overall_mean:35,standardized_difference:-0.8}]},{cluster:1,count:300,share:0.375,features:[{feature:'amount',mean:51,median:50,std:5,missing:0,overall_mean:35,standardized_difference:1.2}]}],warnings:[] } },
   signature: { inputs: [{ name: 'visits', type: 'long' }], outputs: [{ name: 'prediction', type: 'double' }] },
-  input_example: [], classes: [], params: { knobs: {} }, spec: {},
+  input_example: [], classes: [], params: { knobs: { n_clusters: 2, max_iter: 300 } }, spec: {},
 };
 const monitoring = {
   badge: null, window: { predictions: 1, labeled: 0, limit: 1000 }, data_drift: { status: 'insufficient', features: [] },
@@ -95,6 +95,26 @@ test.describe('Models · KMeans segmentation — mocked QA', () => {
     test.skip(process.env['E2E_CHROME_V2_MOCKED'] !== '1' || !['localhost', '127.0.0.1'].includes(new URL(String(info.project.use.baseURL)).hostname), 'Local mocked QA only.');
   });
   for (const locale of ['fr', 'en']) {
+    test(`${locale}: retraining preserves explicit features before the schema loads`, async ({ page }) => {
+      const api = await setup(page, { theme: 'dark', locale });
+      await page.goto(`/models/${model.id}`);
+      await page.getByRole('button', { name: locale === 'fr' ? 'Réentraîner' : 'Retrain', exact: true }).click();
+      const studio = page.getByRole('dialog');
+      await expect.poll(() => api.plans.at(-1)).toMatchObject({
+        task: 'clustering', features: ['visits', 'amount'], algo: 'kmeans',
+        knobs: { n_clusters: 2, max_iter: 300 },
+      });
+      await expect(studio.locator('.ck-submit')).toBeEnabled();
+      await studio.locator('.ck-submit').click();
+      await expect.poll(() => api.trains.length).toBe(1);
+      expect(api.trains[0]).toMatchObject({
+        task: 'clustering', target: '', features: ['visits', 'amount'], algo: 'kmeans',
+        knobs: { n_clusters: 2, max_iter: 300 },
+      });
+      expect(api.trains[0]).not.toHaveProperty('test_size');
+      expect(api.trains[0]).not.toHaveProperty('cross_validation');
+      expect(api.trains[0]).not.toHaveProperty('spec');
+    });
     test(`${locale}: targetless Studio uses explicit numeric features without supervised options`, async ({ page }) => {
       const api = await setup(page, { theme: 'dark', locale });
       await page.goto('/models');

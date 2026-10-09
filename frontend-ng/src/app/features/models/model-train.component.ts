@@ -1233,7 +1233,10 @@ export class ModelTrainComponent implements OnInit {
         dataset_id: datasetId,
         ...(this.target() ? { target: this.target() } : {}),
         ...(this.taskOverride() ? { task: this.taskOverride()! } : {}),
-        ...(!this.isForecasting() && (this.isClustering() || this.featureOverride()) ? { features: this.selectedFeatures() } : {}),
+        // A saved segmentation already names its features before this first
+        // response supplies the schema. Let the server validate that choice.
+        ...(!this.isForecasting() && (this.isClustering() || this.featureOverride())
+          ? { features: this.isClustering() ? this.featureOverride() ?? [] : this.selectedFeatures() } : {}),
         ...(this.algoKey() ? { algo: this.algoKey() } : {}),
         ...(this.isClustering() ? { knobs: this.knobPayload() } : {}),
         ...(this.target() ? this.specPayload() : {}),
