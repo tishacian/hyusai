@@ -2642,7 +2642,7 @@ async def put_operational_objective(
         db.query(System)
         .filter_by(id=system_id, workspace_id=workspace.id)
         .populate_existing()
-        .with_for_update()
+        .with_for_update(of=System)
         .first()
     )
     if not system:

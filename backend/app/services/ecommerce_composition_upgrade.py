@@ -143,7 +143,7 @@ def upgrade(db, workspace, actor, *, plan, apply=False, expected_composition_sha
         system = (
             db.query(System)
             .filter(System.id == item["system_id"], System.workspace_id == workspace.id)
-            .with_for_update()
+            .with_for_update(of=System)
             .one_or_none()
         )
         if system is None or (system.settings or {}).get("demo_role") != expected_roles[system.id]:
