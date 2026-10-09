@@ -1643,7 +1643,16 @@ def _write_manifest(
             raise TabularError(code="ML_DEEP_MODEL_CHANGED", message="The foundation model changed since submission.", status_code=409)
         manifest["foundation"] = {**expected, "path": str(local.path)}
         if deep_tabular:
-            manifest["spec"]["_embedding_path"] = str(local.path)
+            # Fit reads an immutable copy of the exact bytes accepted at submission.
+            from app.services.ml.local_models import file_hash
+            asset_copy = scratch / "embedding-source"
+            for name, expected_hash in local.files.items():
+                destination = asset_copy / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(local.path / name, destination)
+                if file_hash(destination) != expected_hash:
+                    raise TabularError(code="ML_DEEP_MODEL_CHANGED", message="The embedding source changed while preparing the fit.", status_code=409)
+            manifest["spec"]["_embedding_path"] = str(asset_copy)
             manifest["report_state_limit_mb"] = 0
     if manifest["spec"].get("tuning") == "budget" and params.get("tuning"):
         manifest["tuning"] = dict(params["tuning"])
