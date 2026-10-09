@@ -413,7 +413,7 @@ def report(db: DBSession, *, model: MLModel) -> dict[str, Any]:
 
     from app.services.ml_shadow import summary as shadow_summary
 
-    if model.family == "forecasting":
+    if model.task == "forecasting":
         from app.services.ml.forecast_monitoring import report as forecast_report
         actuals = forecast_report(db, model=model)
         status = actuals["status"]
@@ -501,7 +501,7 @@ def badges_for(db: DBSession, models: list[MLModel]) -> dict[str, str | None]:
     }
     badges: dict[str, str | None] = {}
     for model in models:
-        if model.family == "forecasting":
+        if model.task == "forecasting":
             badges[model.id] = None
             continue
         window = [row for row in by_model.get(model.id, []) if row.workspace_id == model.workspace_id]

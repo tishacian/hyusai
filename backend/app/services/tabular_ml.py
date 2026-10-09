@@ -296,6 +296,12 @@ ALGOS: tuple[Algo, ...] = (
     ),
 )
 
+ALGOS += (Algo(
+    key="chronos_zero_shot",
+    estimators={FORECASTING: "skforecast.foundation.ForecasterFoundation"},
+    rank=7, tags=("foundation", "zero_shot"), seeded=False,
+),)
+
 ALGO_BY_KEY = {algo.key: algo for algo in ALGOS}
 
 
@@ -346,6 +352,21 @@ def tuning_configuration(spec: TrainingSpec) -> dict[str, Any] | None:
     }
 
 
+def _catalog_algo(algo: Algo, db: DBSession | None) -> dict:
+    payload = algo.payload()
+    if algo.key == "chronos_zero_shot":
+        from app.services.ml.runtime import model_availability
+        ready, reason = family_availability(get_family("forecasting_deep"), db)
+        asset_ready, asset_reason = model_availability("chronos-2-small", db)
+        payload.update(available=ready and asset_ready, reason=reason or asset_reason,
+                       family="forecasting_deep", model_id="chronos-2-small")
+    elif FORECASTING in payload["tasks"] and not family_availability(get_family(FORECASTING), db)[0]:
+        # A deep worker makes the forecasting task available, but cannot fit
+        # the regressors/statistical models routed to the separate TS image.
+        payload["tasks"] = [task for task in payload["tasks"] if task != FORECASTING]
+    return payload
+
+
 def catalog_payload(db: DBSession | None = None) -> dict[str, Any]:
     """What the training form renders: algorithms, knobs and platform limits.
 
@@ -360,6 +381,10 @@ def catalog_payload(db: DBSession | None = None) -> dict[str, Any]:
     families = []
     for family in ml_families.FAMILIES:
         available, reason = family_availability(family, db)
+        if family.key == "forecasting_deep":
+            from app.services.ml.runtime import model_availability
+            asset_ready, asset_reason = model_availability("chronos-2-small", db)
+            available, reason = available and asset_ready, reason or asset_reason
         serve = serving_availability(family, db)[0] if family.serving != "in_process" else None
         family_payload = family.payload(available=available, reason=reason, serve_available=serve)
         if family.key == FORECASTING:
@@ -373,7 +398,7 @@ def catalog_payload(db: DBSession | None = None) -> dict[str, Any]:
         "tasks": list(all_tasks()),
         "families": families,
         "metrics": ml_metrics.payload(),
-        "algos": [algo.payload() for algo in sorted(ALGOS, key=lambda a: a.rank)],
+        "algos": [_catalog_algo(algo, db) for algo in sorted(ALGOS, key=lambda a: a.rank)],
         "limits": {
             "min_rows": int(settings.ml_train_min_rows),
             "max_rows": int(settings.ml_train_max_rows),
@@ -520,6 +545,8 @@ def validate_training(
             status_code=409,
         )
     family = family_of_task(chosen_task)
+    if str(algo or "") == "chronos_zero_shot" and chosen_task == FORECASTING:
+        family = get_family("forecasting_deep")
     if family is None or (family is not TABULAR and family.validator is None):
         raise TabularError(
             code="ML_TASK_UNKNOWN",
@@ -536,6 +563,13 @@ def validate_training(
             status_code=409,
             details={"family": family.key, "reason": reason},
         )
+    if family.key == "forecasting_deep":
+        from app.services.ml.runtime import model_availability
+        asset_ready, asset_reason = model_availability("chronos-2-small", db)
+        if not asset_ready:
+            raise TabularError(code="ML_DEEP_MODEL_MISSING",
+                               message="The local foundation model is not available in the deep runtime.",
+                               status_code=409, details={"model_id": "chronos-2-small", "reason": asset_reason})
     if (family.key == FORECASTING and isinstance(spec, dict) and spec.get("tuning") == "budget"
             and spec.get("tuning_budget_s") is None):
         spec = {**spec, "tuning_budget_s": min(300, int(0.6 * float(settings.ml_train_timeout_s)))}
@@ -858,6 +892,13 @@ def create_model(
     published_id, published_slug = _lineage_publication(
         db, workspace_id=workspace_id, slug=slug
     )
+    foundation = None
+    if spec.family == "forecasting_deep":
+        from app.services.ml.runtime import model_descriptors
+        foundation = model_descriptors(db).get("chronos-2-small")
+        if not foundation:
+            raise TabularError(code="ML_DEEP_MODEL_MISSING", message="The foundation model is unavailable.", status_code=409)
+        foundation = {**foundation, "model_id": "chronos-2-small"}
     model = MLModel(
         id=str(uuid4()),
         workspace_id=workspace_id,
@@ -877,6 +918,7 @@ def create_model(
             "estimator_params": estimator_params(spec.algo, spec.task, spec.knobs),
             "scale": bool(spec.algo.scale),
             "warnings": list(spec.warnings),
+            **({"foundation": foundation} if foundation is not None else {}),
             **({"distillation": distillation} if distillation is not None else {}),
             **({"tuning": tuning_configuration(spec)} if spec.spec.get("tuning") == "budget" else {}),
         },
@@ -1572,6 +1614,16 @@ def _write_manifest(
         "report_path": str(scratch / "report" / _REPORT_STATE_FILE),
         "report_state_limit_mb": int(settings.ml_train_report_state_limit_mb),
     }
+    if manifest["family"] == "forecasting_deep":
+        from app.services.ml.local_models import LocalModelError, resolve_model
+        try:
+            local = resolve_model("chronos-2-small", kind="forecasting")
+        except LocalModelError as exc:
+            raise TabularError(code=exc.code, message=str(exc), status_code=409) from exc
+        expected = params.get("foundation") or {}
+        if expected.get("fingerprint") != local.fingerprint or expected.get("revision") != local.revision:
+            raise TabularError(code="ML_DEEP_MODEL_CHANGED", message="The foundation model changed since submission.", status_code=409)
+        manifest["foundation"] = {**expected, "path": str(local.path), "files": local.files}
     if manifest["spec"].get("tuning") == "budget" and params.get("tuning"):
         manifest["tuning"] = dict(params["tuning"])
         if manifest["family"] == FORECASTING:
@@ -1683,6 +1735,10 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
             db.commit()
             return {"id": model_id, "status": "cancelled"}
         family = get_family(model.family)
+        if family.runtime == "ml-deep" and settings.ml_runtime != "ml-deep" and not settings.worker_eager_mode:
+            _finalize(model, status="failed", error="ML_RUNTIME_MISSING: deep models require the ml-deep runtime")
+            db.commit()
+            return {"id": model_id, "status": "failed"}
         missing = family.missing_modules()
         if missing:
             # The task reached an image that cannot fit this family: a queue

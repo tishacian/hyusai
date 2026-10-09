@@ -115,3 +115,6 @@ docs/pih/**/*.pptx
 # Scala / SBT / Metals build & BSP artifacts (root)
 /target/
 /.bsp/
+
+# Angular compiler output
+frontend-ng/out-tsc/
