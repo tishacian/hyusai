@@ -110,6 +110,7 @@ import {
   FORECASTING_TASK,
   draftFromSpec,
   forecastSpec,
+  forecastTuningIssue,
   withTimeColumn,
   type ForecastDraft,
 } from '@app/features/models/forecast.vm';
@@ -172,7 +173,7 @@ import {
               type="button"
               class="ck-train-workshop__action ck-train-workshop__action--primary"
               data-testid="run-train-test"
-              [disabled]="ml.busy()"
+              [disabled]="ml.busy() || !!tuningIssue()"
               (click)="runTest()"
             >
               <app-icon [name]="ml.busy() ? 'loader-2' : 'play'" [size]="13" />
@@ -391,6 +392,7 @@ import {
                         [target]="params().target"
                         [algo]="effectiveAlgo()"
                         [horizonMax]="horizonMax()"
+                        [fields]="forecastFields()"
                         (draftChange)="onForecastDraft($event)"
                       />
                     } @else {
@@ -815,8 +817,13 @@ export class FlowTrainWorkshopComponent {
   protected readonly tabularSpec = computed(() => tabularSpec(this.tabularFields(), this.params().spec, this.effectiveTask()));
 
   /** The node's forecast spec as form fields; it lives on the node as `spec`. */
+  protected readonly forecastFields = computed(() =>
+    this.ml.catalog().families?.find((family) => family.key === FORECASTING_TASK)?.spec_fields ?? [],
+  );
+  protected readonly tuningIssue = computed(() => this.isForecasting()
+    ? forecastTuningIssue(this.forecastDraft(), this.effectiveAlgo(), this.forecastFields()) : null);
   protected readonly forecastDraft = computed<ForecastDraft>(() =>
-    withTimeColumn(draftFromSpec(this.params().spec), this.columns()),
+    withTimeColumn(draftFromSpec(this.params().spec, this.forecastFields()), this.columns()),
   );
 
   /** The ceiling the forecasting family declares for its horizon. */
@@ -1036,7 +1043,7 @@ export class FlowTrainWorkshopComponent {
     // A forecast is a question with more than a target: it starts from the
     // form's defaults, so the node is runnable before any field is touched.
     if (task === FORECASTING_TASK && !this.params().spec) {
-      patch['spec'] = forecastSpec(this.forecastDraft(), this.params().algo);
+      patch['spec'] = forecastSpec(this.forecastDraft(), this.params().algo, this.forecastFields());
     }
     // An estimator that cannot do the new task must not stay selected.
     if (!algosForTask(this.ml.catalog(), task).some((a) => a.key === this.params().algo)) {
@@ -1052,13 +1059,13 @@ export class FlowTrainWorkshopComponent {
     this.writeParams({
       algo,
       knobs: {},
-      ...(this.isForecasting() ? { spec: forecastSpec(this.forecastDraft(), algo) } : {}),
+      ...(this.isForecasting() ? { spec: forecastSpec(this.forecastDraft(), algo, this.forecastFields()) } : {}),
     });
   }
 
   /** One gesture in the forecast fields, as one store write of the node's spec. */
   protected onForecastDraft(patch: Partial<ForecastDraft>): void {
-    this.writeParams({ spec: forecastSpec({ ...this.forecastDraft(), ...patch }, this.effectiveAlgo()) });
+    this.writeParams({ spec: forecastSpec({ ...this.forecastDraft(), ...patch }, this.effectiveAlgo(), this.forecastFields()) });
   }
 
   protected onTabularSpec(spec: Record<string, unknown>): void {
@@ -1118,6 +1125,7 @@ export class FlowTrainWorkshopComponent {
   }
 
   protected async runTest(): Promise<void> {
+    if (this.tuningIssue()) return;
     this.tab.set('test');
     const params = this.params();
     const refusal = preflightTrain(params, { wired: false });
@@ -1133,7 +1141,7 @@ export class FlowTrainWorkshopComponent {
       ...(Object.keys(params.knobs).length ? { knobs: params.knobs } : {}),
       // A forecast is judged by its backtest, not by a random split.
       ...(this.isForecasting()
-        ? { spec: forecastSpec(this.forecastDraft(), this.effectiveAlgo()) }
+        ? { spec: forecastSpec(this.forecastDraft(), this.effectiveAlgo(), this.forecastFields()) }
         : {
             ...(params.features ? { features: this.selectedFeatures() } : {}),
             test_size: params.test_size,
@@ -1178,7 +1186,7 @@ export class FlowTrainWorkshopComponent {
         ...(params.task ? { task: params.task } : {}),
         ...(params.algo ? { algo: params.algo } : {}),
         ...(this.isForecasting()
-          ? { spec: forecastSpec(this.forecastDraft(), this.effectiveAlgo()) }
+          ? { spec: forecastSpec(this.forecastDraft(), this.effectiveAlgo(), this.forecastFields()) }
           : {
               ...(params.features ? { features: params.features } : {}),
               ...(Object.keys(this.tabularSpec()).length ? { spec: this.tabularSpec() } : {}),

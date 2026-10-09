@@ -1319,3 +1319,12 @@ test('optional training steps follow the saved spec and keep their live counters
     }
   }
 });
+
+
+test('forecast progress separates temporal tuning from the final backtest and fit', () => {
+  const steps = trainChecklist('training','tuning:2/8',3,'en','forecasting',{tuning:'budget'});
+  assert.deepEqual(steps.map((line) => line.step), ['queued','reading','tuning','backtesting','fitting','saving']);
+  assert.deepEqual(steps.find((line) => line.state === 'active'), {step:'tuning',key:'models.progress.step.tuning.counted',params:{fold:2,folds:8},state:'active'});
+  assert.equal(trainChecklist('training','tuning:2/8',3,'en','forecasting').find((line) => line.state === 'active')?.step,'tuning');
+  assert.ok(!trainChecklist('ready','saving',3,'en','forecasting',{tuning:'off'}).some((line) => line.step === 'tuning'));
+});

@@ -14,6 +14,12 @@ import { expect, test, type Page, type Route } from '@playwright/test';
 test.use({ serviceWorkers: 'block', video: 'off' });
 
 const fixture = JSON.parse(readFileSync(resolve(process.cwd(), 'e2e/fixtures/ml-forecast.json'), 'utf8'));
+fixture.catalog.families.find((family: any) => family.key === 'forecasting').spec_fields.push(
+  {key:'tuning',kind:'enum',required:false,default:'off',choices:['off','budget']},
+  {key:'tuning_trials',kind:'int',required:false,default:30,min:5,max:100},
+  {key:'tuning_budget_s',kind:'int',required:false,default:60,min:30,max:60},
+  {key:'tuning_folds',kind:'int',required:false,default:3,min:2,max:5},
+);
 const workspace = { id: 'flow-forecast-qa', slug: 'flow-forecast-qa', name: 'Nawa QA', role: 'owner', role_template: 'workspace_owner', settings: {}, mode: 'builder' };
 const systemId = 'nawa-capacity';
 const hash = '2'.repeat(64);
@@ -159,6 +165,22 @@ test.describe('Flow · forecasting — isolated end-user QA', () => {
         target: 'prb_utilization_pct',
         spec: { time_column: 'ts', shape: 'panel', series_columns: ['cell_id'], exog: { technology: 'static' }, horizon: 24 },
       });
+      await workshop.locator('#forecast-tuning-mode').selectOption('budget');
+      await expect(workshop.locator('#forecast-tuning_budget_s')).toHaveValue('60');
+      await workshop.locator('#forecast-tuning_trials').fill('8');
+      await workshop.locator('#forecast-tuning_trials').press('Tab');
+      await workshop.locator('#forecast-tuning_folds').fill('2');
+      await workshop.locator('#forecast-tuning_folds').press('Tab');
+      await expect.poll(() => api.params('train.prb').spec).toMatchObject({tuning:'budget',tuning_trials:8,tuning_folds:2,tuning_budget_s:60});
+      await workshop.locator('#train-fill').selectOption('interpolate');
+      await expect(workshop.getByTestId('forecast-tuning-refusal')).toBeVisible();
+      await expect(workshop.getByTestId('run-train-test')).toBeDisabled();
+      await workshop.locator('#train-fill').selectOption('refuse');
+      await expect(workshop.getByTestId('run-train-test')).toBeEnabled();
+      await workshop.getByRole('button',{name:locale==='fr'?'Fermer l’atelier d’entraînement':'Close the training studio',exact:true}).click();
+      await page.getByTestId('open-train-workshop').click();
+      await expect(workshop.locator('#forecast-tuning_trials')).toHaveValue('8');
+      await expect(workshop.locator('#forecast-tuning_folds')).toHaveValue('2');
       await page.screenshot({ path: info.outputPath(`train-workshop-${theme}-${locale}.png`), fullPage: true });
     });
   }
