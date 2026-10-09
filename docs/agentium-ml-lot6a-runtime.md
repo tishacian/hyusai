@@ -117,3 +117,9 @@ une dépendance ou une réservation GPU.
 
 Les capacités de prévision zéro-shot et d'encodage de texte sont livrées par les
 sous-lots 6b et 6c. Les modèles temporels profonds entraînés restent sur demande.
+
+Les contrôles Python et Compose sont qualifiés localement. Le build complet de
+l’image `ml-deep` et sa taille compressée restent à vérifier dans l’environnement
+de build de la livraison ; ils ne sont pas annoncés comme mesurés ici. Les
+spikes CPU avec les versions contraintes, les poids réels et les exports sont
+qualifiés dans les sous-lots suivants. Le profil reste désactivé par défaut.
