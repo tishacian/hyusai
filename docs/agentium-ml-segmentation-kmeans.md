@@ -121,6 +121,13 @@ libellés du catalogue et la reconnaissance de l’erreur de service
 tests unitaires et le contrat croisé du catalogue, sans nouveau build production.
 Les avertissements Angular/CSS/budgets et CommonJS préexistants restent présents.
 
+La revue d’intégration a corrigé la réouverture d’un réentraînement manuel :
+le premier plan conserve maintenant les variables enregistrées avant le
+chargement du schéma. Le défaut a été reproduit par un test, puis les deux
+nouveaux parcours FR/EN et les huit parcours KMeans existants ont réussi sur
+le serveur de développement. Les 158 tests unitaires frontend et la compilation
+Angular ont également été rejoués avec succès, sans nouveau `build:prod`.
+
 La livraison reconstruit les images applicatives et le frontend sur une même
 révision, en conservant les profils déjà actifs. Pour la VM actuelle, garder
 `AGENTIUM_ML_TS=1 AGENTIUM_ML_DEEP=1`. Alembic reste à `122_ml_families`.
