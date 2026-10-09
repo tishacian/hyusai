@@ -62,6 +62,7 @@ VM_STORAGE_ENVIRONMENT = {
 }
 VM_APPLICATION_STORAGE_ENVIRONMENT = {
     "AGENTIUM_FAISS_PATH": "/home/ubuntu/omnirag/backend/faiss_db",
+    "AGENTIUM_ML_DEEP_MODELS_PATH": "/srv/agentium-data/ml-deep-models",
     "AGENTIUM_OBJECT_STORE_PATH": "/srv/agentium-data/object_store",
     "AGENTIUM_RECIPE_ENVS_PATH": "/srv/agentium-data/recipe_envs",
     "AGENTIUM_SECURE_DEPOSIT_PATH": (
@@ -109,10 +110,22 @@ for _ml_ts_service in ("agentium-worker-ml-ts", "agentium-worker-ml-ts-serve"):
     VM_APPLICATION_STORAGE_MOUNTS[_ml_ts_service] = {
         "/data/object_store": ("AGENTIUM_OBJECT_STORE_PATH", False),
     }
+# The deep workers (profile ml-deep) add the operator-provisioned weights,
+# which they only ever read.
+for _ml_deep_service in ("agentium-worker-ml-deep", "agentium-worker-ml-deep-serve"):
+    VM_APPLICATION_STORAGE_MOUNTS[_ml_deep_service] = {
+        "/data/object_store": ("AGENTIUM_OBJECT_STORE_PATH", False),
+        "/data/models": ("AGENTIUM_ML_DEEP_MODELS_PATH", True),
+    }
 # Services that only exist when an opt-in Compose profile is active. Absent
 # from a rendering without the profile and from a host that never enabled it,
 # they are skipped; present, they are held to their contract like any other.
-VM_OPTIONAL_PROFILE_SERVICES = frozenset({"agentium-worker-ml-ts", "agentium-worker-ml-ts-serve"})
+VM_OPTIONAL_PROFILE_SERVICES = frozenset({
+    "agentium-worker-ml-ts",
+    "agentium-worker-ml-ts-serve",
+    "agentium-worker-ml-deep",
+    "agentium-worker-ml-deep-serve",
+})
 
 # Targets added to the contract after their service already ran in
 # production. The pre-mutation gate inspects the PREVIOUS container

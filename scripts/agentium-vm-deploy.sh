@@ -25,6 +25,7 @@ readonly DATA_ROOT=/srv/agentium-data
 readonly EXPECTED_DATA_SOURCE=/dev/sdb
 readonly OBJECT_STORE_ROOT="$DATA_ROOT/object_store"
 readonly RECIPE_ENVS_ROOT="$DATA_ROOT/recipe_envs"
+readonly ML_DEEP_MODELS_ROOT="$DATA_ROOT/ml-deep-models"
 readonly SECURE_DEPOSIT_ROOT=/home/ubuntu/omnirag/backend/data/secure_deposit
 readonly EXPECTED_SECURE_SOURCE=/dev/sdc
 readonly FAISS_ROOT=/home/ubuntu/omnirag/backend/faiss_db
@@ -69,6 +70,21 @@ ML_TS_SERVICES=()
 if [ "$ML_TS" = 1 ]; then
   ML_TS_PROFILE=(--profile ml-ts)
   ML_TS_SERVICES=("${ML_TS_ALL[@]}")
+fi
+
+# Deep-model workers (Compose profile ml-deep), same opt-in shape. They also
+# mount the provisioned weights read-only from AGENTIUM_ML_DEEP_MODELS_PATH.
+ML_DEEP="${AGENTIUM_ML_DEEP:-0}"
+case "$ML_DEEP" in
+  0|1) ;;
+  *) fail "AGENTIUM_ML_DEEP must be 0 or 1" ;;
+esac
+ML_DEEP_ALL=(agentium-worker-ml-deep agentium-worker-ml-deep-serve)
+ML_DEEP_PROFILE=()
+ML_DEEP_SERVICES=()
+if [ "$ML_DEEP" = 1 ]; then
+  ML_DEEP_PROFILE=(--profile ml-deep)
+  ML_DEEP_SERVICES=("${ML_DEEP_ALL[@]}")
 fi
 
 clean_exec() {
@@ -180,10 +196,11 @@ storage_check() {
   assert_protected_data_path "$DATA_ROOT/qdrant-snapshots"
   assert_protected_data_path "$OBJECT_STORE_ROOT"
   assert_protected_data_path "$RECIPE_ENVS_ROOT"
+  assert_protected_data_path "$ML_DEEP_MODELS_ROOT"
   assert_exact_backing_path \
     "$SECURE_DEPOSIT_ROOT" "$EXPECTED_SECURE_SOURCE" "$SECURE_DEPOSIT_ROOT"
   assert_exact_backing_path "$FAISS_ROOT" "$EXPECTED_ROOT_SOURCE" /
-  compose --profile infra --profile tools --profile sftp "${ML_TS_PROFILE[@]}" config --format json |
+  compose --profile infra --profile tools --profile sftp "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" config --format json |
     clean_exec python3 "$ENV_HELPER" vm-storage-compose-check
   readonly_docker volume inspect agentium_minio_block |
     clean_exec python3 "$ENV_HELPER" vm-storage-volume-check \
@@ -197,10 +214,10 @@ storage_check() {
   if readonly_docker inspect --type container agentium-worker-recipes >/dev/null 2>&1; then
     recipe_containers=(agentium-worker-recipes)
   fi
-  # Forecasting workers mount the object store: checked wherever they exist,
-  # including a host that has since switched AGENTIUM_ML_TS back to 0.
+  # Forecasting and deep workers mount the object store: checked wherever they
+  # exist, including a host that has since switched their flag back to 0.
   local ml_ts_containers=() container
-  for container in "${ML_TS_ALL[@]}"; do
+  for container in "${ML_TS_ALL[@]}" "${ML_DEEP_ALL[@]}"; do
     if readonly_docker inspect --type container "$container" >/dev/null 2>&1; then
       ml_ts_containers+=("$container")
     fi
@@ -222,16 +239,17 @@ catalog() {
 }
 
 case "${1:-}" in
-  images)        compose "${ML_TS_PROFILE[@]}" config --images ;;
+  images)        compose "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" config --images ;;
   storage-check) storage_check ;;
   migrate)       storage_check; compose run --rm --no-deps --pull never agentium-migrate ;;
-  up)            storage_check; compose up -d --no-build --no-deps --pull never agentium-worker-recipes agentium-backend agentium-worker-cpu agentium-frontend agentium-p4-maintenance agentium-beat "${ML_TS_SERVICES[@]}"
+  up)            storage_check; compose up -d --no-build --no-deps --pull never agentium-worker-recipes agentium-backend agentium-worker-cpu agentium-frontend agentium-p4-maintenance agentium-beat "${ML_TS_SERVICES[@]}" "${ML_DEEP_SERVICES[@]}"
                  # Said at the end of every switch, never blocking it: new code
                  # whose Skills the database lacks is a feature nobody can see.
                  catalog >/dev/null || printf '%s\n' "WARNING: catalog-check did not pass (verdict above); to bring the Skills catalog to this release: $0 catalog-apply" >&2 ;;
   catalog-check) catalog ;;
   catalog-apply) storage_check; catalog --apply ;;
   ml-ts-stop)    compose --profile ml-ts rm --stop --force "${ML_TS_ALL[@]}" ;;
-  ps)            compose "${ML_TS_PROFILE[@]}" ps ;;
-  *)             echo "usage: $0 {images|storage-check|migrate|up|catalog-check|catalog-apply|ml-ts-stop|ps}" >&2; exit 2 ;;
+  ml-deep-stop)  compose --profile ml-deep rm --stop --force "${ML_DEEP_ALL[@]}" ;;
+  ps)            compose "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" ps ;;
+  *)             echo "usage: $0 {images|storage-check|migrate|up|catalog-check|catalog-apply|ml-ts-stop|ml-deep-stop|ps}" >&2; exit 2 ;;
 esac

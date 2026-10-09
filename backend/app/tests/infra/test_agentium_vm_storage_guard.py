@@ -22,6 +22,7 @@ EXPECTED_ENV = {
     "AGENTIUM_FAISS_PATH": "/home/ubuntu/omnirag/backend/faiss_db",
     "AGENTIUM_MINIO_VOLUME": "agentium_minio_block",
     "AGENTIUM_MINIO_VOLUME_EXTERNAL": "true",
+    "AGENTIUM_ML_DEEP_MODELS_PATH": "/srv/agentium-data/ml-deep-models",
     "AGENTIUM_OBJECT_STORE_PATH": "/srv/agentium-data/object_store",
     "AGENTIUM_QDRANT_VOLUME": "agentium_qdrant_block",
     "AGENTIUM_QDRANT_SNAPSHOT_PATH": "/srv/agentium-data/qdrant-snapshots",
@@ -826,7 +827,7 @@ def test_launcher_scrubs_shell_and_gates_only_closed_application_commands() -> N
         assert f"{polluted}=" not in compose
     # The opt-in forecasting profile is rendered into the same check when on.
     assert (
-        'compose --profile infra --profile tools --profile sftp "${ML_TS_PROFILE[@]}" config --format json'
+        'compose --profile infra --profile tools --profile sftp "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" config --format json'
         in storage
     )
     assert 'assert_protected_data_path "$OBJECT_STORE_ROOT"' in storage
@@ -973,6 +974,37 @@ def test_forecasting_workers_are_checked_only_when_their_profile_renders_them():
     )
     with pytest.raises(module.RuntimeEnvBundleError, match="approved boundary"):
         module.assert_vm_compose_storage(leaked)
+
+
+def test_deep_workers_mount_the_provisioned_weights_read_only():
+    module = _module()
+
+    def deep(*, weights_read_only: bool = True) -> dict:
+        return _ml_ts_compose_service(
+            extra=[
+                {
+                    "type": "bind",
+                    "source": EXPECTED_ENV["AGENTIUM_ML_DEEP_MODELS_PATH"],
+                    "target": "/data/models",
+                    "read_only": weights_read_only,
+                }
+            ]
+        )
+
+    with_profile = _compose_model()
+    for name in ("agentium-worker-ml-deep", "agentium-worker-ml-deep-serve"):
+        with_profile["services"][name] = deep()
+    module.assert_vm_compose_storage(with_profile)
+
+    writable = deepcopy(with_profile)
+    writable["services"]["agentium-worker-ml-deep-serve"] = deep(weights_read_only=False)
+    with pytest.raises(module.RuntimeEnvBundleError, match="source or access mode differs"):
+        module.assert_vm_compose_storage(writable)
+
+    missing = deepcopy(with_profile)
+    missing["services"]["agentium-worker-ml-deep"] = _ml_ts_compose_service()
+    with pytest.raises(module.RuntimeEnvBundleError, match="inventory is incomplete"):
+        module.assert_vm_compose_storage(missing)
 
 
 def test_running_forecasting_workers_must_use_the_protected_object_store():
