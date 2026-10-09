@@ -50,6 +50,13 @@ SPEC_FIELDS = (
     SpecField("interval_level", "float", default=0.8, minimum=0.5, maximum=0.99),
     SpecField("backtest_folds", "int", default=3, minimum=1, maximum=8),
     SpecField("fill", "enum", default="refuse", choices=("refuse", "interpolate", "zero")),
+    SpecField("tuning", "enum", default="off", choices=("off", "budget")),
+    SpecField("tuning_trials", "int", default=30, minimum=5, maximum=100,
+              when=(("tuning", ("budget",)),)),
+    SpecField("tuning_budget_s", "int", default=300, minimum=30, maximum=1500,
+              when=(("tuning", ("budget",)),)),
+    SpecField("tuning_folds", "int", default=3, minimum=2, maximum=5,
+              when=(("tuning", ("budget",)),)),
 )
 
 
@@ -165,12 +172,28 @@ def validate_forecast(
     if shape == "panel" and strategy == "direct":
         strategy = "recursive"
 
+    tuning = spec.get("tuning") == "budget"
+    if tuning and algo_key in STATISTICAL_ALGOS | {NAIVE_ALGO}:
+        raise _refuse("ML_TS_TUNING_UNSUPPORTED", "Automatic tuning requires a forecasting regressor.", field="tuning")
+    if tuning and spec.get("fill") == "interpolate":
+        raise _refuse(
+            "ML_TS_TUNING_FILL_UNSAFE",
+            "Interpolation can use future observations: tuning requires refusing gaps or filling with zero.",
+            field="fill",
+        )
+    if tuning:
+        maximum = min(1500, int(0.6 * float(settings.ml_train_timeout_s)))
+        if spec["tuning_budget_s"] > maximum:
+            raise _refuse("ML_SPEC_INVALID", f"Tuning budget must not exceed {maximum:g} seconds.",
+                          field="tuning_budget_s", max=maximum)
+
     horizon = int(spec["horizon"])
     folds = int(spec.get("backtest_folds") or cross_validation or 3)
     # Lags left to the harness follow the frequency it finds, trimmed to the
     # history; only lags the author chose are held against the history here.
     lags = list(spec.get("lags") or [])
-    needed = max(2, folds + 1) * horizon + max(lags or [1])
+    reserved = folds + int(spec["tuning_folds"]) + 2 if tuning else max(2, folds + 1)
+    needed = reserved * horizon + max(lags or [1])
     if timestamps < needed:
         raise _refuse(
             "ML_TS_HISTORY_TOO_SHORT",
@@ -218,7 +241,7 @@ FORECASTING_FAMILY = Family(
     required_modules=("skforecast", "statsmodels"),
     harness=Path(__file__).resolve().parents[3] / "resources" / "ml_forecast_harness.py",
     spec_fields=SPEC_FIELDS,
-    steps=("queued", "reading", "fitting", "backtesting", "saving"),
+    steps=("queued", "reading", "tuning", "fitting", "backtesting", "saving"),
     exit_codes={2: "ML_TS_SERIES_UNUSABLE", 3: "ML_TS_HISTORY_TOO_SHORT"},
     validator=validate_forecast,
     serve_queue_setting="celery_ml_ts_serve_queue",
