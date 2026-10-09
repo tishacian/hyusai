@@ -156,7 +156,7 @@ def propose(
         db.query(System)
         .filter(System.id == system.id, System.workspace_id == workspace.id)
         .populate_existing()
-        .with_for_update()
+        .with_for_update(of=System)
         .one()
     )
     history = revisions(db, locked.id)
