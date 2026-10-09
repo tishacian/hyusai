@@ -182,8 +182,15 @@ session manuelle de l’opérateur est active ou en pause. La QA automatique
 n’alimente pas les temps humains ni les gains du benchmark.
 
 La [campagne d’activité du 7 octobre](ACTIVITY-ROI-2026-10-07.md) a créé 20
-enquêtes natives sur le parcours déjà déployé. Une carte Impact séparée expose
-l’activité et le scénario financier approuvé (8 min manuelles, 2 min assistées,
-0,50 €/dossier à 40 €/h), soit 3,50 € nets et 700 % de ROI projetés. Elle ne
-modifie ni la composition, ni le protocole, ni les résultats humains. Son
-affichage et la correction des relances attendent également le déploiement.
+enquêtes natives sur le parcours déjà déployé. Depuis les évolutions génériques
+d’Impact, l’activité et le scénario financier approuvé se configurent dans une
+vue personnalisée : périmètre du System, période, composants et ordre d’affichage.
+Les conventions restent 8 min manuelles, 2 min assistées, 0,50 €/dossier à 40 €/h,
+soit 3,50 € nets et 700 % de ROI projetés. Elles ne modifient ni le protocole,
+ni les résultats humains.
+
+La [vérification du 9 octobre](SHOWCASE-EVOLUTION-2026-10-09.md) constate cette
+vue générique déployée et définie par défaut dans Showcase. Elle constate aussi
+que la composition DataOps/ML du présent runbook reste à activer après revue du
+draft courant. Elle détaille le parcours proposé pour couvrir les nouvelles
+capacités produit, leurs prérequis et les écarts de restitution dans Work.
