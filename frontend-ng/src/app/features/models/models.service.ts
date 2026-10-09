@@ -272,7 +272,7 @@ export class ModelsService {
   }
 
   forecastActualDatasets(): Promise<import('../data/data.service').DatasetDto[]> {
-    return firstValueFrom(this.http.get<{datasets: import('../data/data.service').DatasetDto[]}>('/api/v1/datasets')).then(body => body.datasets ?? []);
+    return firstValueFrom(this.http.get<{datasets: import('../data/data.service').DatasetDto[]}>('/api/v1/datasets', {params: {status: 'ready', limit: 500}})).then(body => body.datasets ?? []);
   }
 
   configureForecastActuals(modelId: string, datasetId: string, followLatest: boolean): Promise<MonitoringReport> {
