@@ -271,6 +271,14 @@ export class ModelsService {
     ).then((body) => body.monitoring);
   }
 
+  forecastActualDatasets(): Promise<import('../data/data.service').DatasetDto[]> {
+    return firstValueFrom(this.http.get<{datasets: import('../data/data.service').DatasetDto[]}>('/api/v1/datasets')).then(body => body.datasets ?? []);
+  }
+
+  configureForecastActuals(modelId: string, datasetId: string, followLatest: boolean): Promise<MonitoringReport> {
+    return firstValueFrom(this.http.post<{monitoring: MonitoringReport}>(`${this.base}/${modelId}/monitoring/actuals`, {dataset_id: datasetId, follow_latest: followLatest})).then(body => body.monitoring);
+  }
+
   async configureMonitoringPolicy(modelId: string, policy: MonitoringPolicy): Promise<MonitoringReport> {
     const { enabled, propose_retraining, interval_minutes } = policy;
     const result = await firstValueFrom(this.http.post<{monitoring: MonitoringReport}>(`/api/v1/ml-models/${modelId}/monitoring/policy`, { enabled, propose_retraining, interval_minutes }));
