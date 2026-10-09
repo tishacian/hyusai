@@ -56,7 +56,7 @@ def test_demo_constraints_cover_declared_requirements(kind):
         assert requirement.specifier.contains(constraints[name]), f"Incompatible {name}: {constraints[name]}"
 
 
-PYTHON_IMAGES = ("backend", "worker", "ml-ts")
+PYTHON_IMAGES = ("backend", "worker", "ml-ts", "ml-deep")
 
 
 def test_api_and_worker_build_one_shared_python_stack():
@@ -73,7 +73,7 @@ def test_api_and_worker_build_one_shared_python_stack():
         dockerfile = (ROOT / "docker" / f"Dockerfile.agentium-{name}").read_text(encoding="utf-8")
         assert dockerfile.count(PREFIX_END) == 1, f"{name} lost its shared-prefix marker"
         prefixes[name] = _instructions(dockerfile.split(PREFIX_END, 1)[0])
-    assert prefixes["backend"] == prefixes["worker"] == prefixes["ml-ts"]
+    assert all(prefix == prefixes["backend"] for prefix in prefixes.values())
     shared = "\n".join(prefixes["backend"])
     assert "constraints-demo-app.txt" in shared
     # The baked cross-encoder files are shared; torch is not.
@@ -81,7 +81,7 @@ def test_api_and_worker_build_one_shared_python_stack():
     assert "torch" not in shared and "transformers" not in shared
 
 
-def test_only_the_worker_installs_torch():
+def test_the_existing_worker_torch_install_stays_cpu_only():
     """The API reranks on ONNX Runtime; torch is the worker's, for Giskard's venv
     and the fallback rerank engine, and comes from the CPU-only index."""
 
@@ -118,9 +118,11 @@ def test_giskard_constraints_only_reach_the_giskard_venv():
         dockerfile = (ROOT / "docker" / f"Dockerfile.agentium-{name}").read_text(encoding="utf-8")
         for run in _run_instructions(dockerfile):
             kinds = set(re.findall(r"--constraint=\S*constraints-demo-([\w-]+)\.txt", run))
-            assert kinds <= {"app", "giskard", "ml-ts"}, f"{name} installs with unknown constraints {kinds}"
+            assert kinds <= {"app", "giskard", "ml-ts", "ml-deep"}, f"{name} installs with unknown constraints {kinds}"
             if "ml-ts" in kinds:
-                assert name == "ml-ts" and kinds == {"app", "ml-ts"}, f"{name} applies forecasting pins"
+                assert name in {"ml-ts", "ml-deep"} and {"app", "ml-ts"} <= kinds, f"{name} applies forecasting pins"
+            if "ml-deep" in kinds:
+                assert name == "ml-deep" and kinds == {"app", "ml-ts", "ml-deep"}
             if "giskard" not in kinds:
                 continue
             assert kinds == {"giskard"}, f"{name} mixes Giskard and app pins in one install"
@@ -190,3 +192,21 @@ def test_the_forecasting_image_has_no_torch_and_runs_the_ml_worker():
     assert "/opt/agentium-giskard" not in specific and "build-essential" not in specific
     assert "CELERY_APP=app.workers.celery_ml:celery_ml" in specific
     assert "ML_RUNTIME=ml-ts" in specific and "CELERY_QUEUES=ml_ts" in specific
+
+
+def test_deep_dependencies_only_add_to_the_qualified_application_stack():
+    app, ts, deep = _constraints("app"), _constraints("ml-ts"), _constraints("ml-deep")
+    assert not set(deep) & (set(app) | set(ts))
+    for line in (ROOT / "backend" / "requirements_ml_deep.txt").read_text().splitlines():
+        if line.strip() and not line.lstrip().startswith("#"):
+            name = canonicalize_name(Requirement(line).name)
+            assert name in app or name in deep
+    assert {"chronos-forecasting", "sentence-transformers", "accelerate", "einops"} <= set(deep)
+    image = (ROOT / "docker" / "Dockerfile.agentium-ml-deep").read_text()
+    specific = image.split(PREFIX_END, 1)[1]
+    assert "ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu" in specific
+    assert "--index-url=${TORCH_INDEX_URL} torch" in specific
+    assert specific.index("--index-url=${TORCH_INDEX_URL} torch") < specific.index("-r /tmp/requirements/requirements_ml_deep.txt")
+    assert "ML_RUNTIME=ml-deep" in specific and "CELERY_QUEUES=ml_deep" in specific
+    assert "HF_HUB_OFFLINE=1" in specific and "TRANSFORMERS_OFFLINE=1" in specific
+    assert "/opt/agentium-giskard" not in specific
