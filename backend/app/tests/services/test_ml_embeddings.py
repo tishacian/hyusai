@@ -120,8 +120,9 @@ def test_rpc_pins_version_and_api_journals_once(enabled, db_session, model, monk
 
 
 def test_rpc_timeout_uses_deep_queue_and_forgets_result(enabled, db_session, model, monkeypatch):
-    from app.workers.celery_app import celery_app
     from celery.exceptions import TimeoutError
+
+    from app.workers.celery_app import celery_app
     monkeypatch.setattr(runtime, 'serving_availability', lambda *a: (True, None))
     sent = {}
     class Pending:
@@ -149,9 +150,10 @@ def test_real_export_loads_offline_after_source_disappears(tmp_path, task):
     model_dir = os.environ.get('ML_DEEP_TEST_EMBEDDING_DIR')
     if not model_dir:
         pytest.skip('Provision the multilingual encoder to exercise the deep runtime')
+    import mlflow.pyfunc
     import numpy as np
     import pandas as pd
-    import mlflow.pyfunc
+
     from app.resources import ml_train_harness
     source = tmp_path/'source'
     source.symlink_to(model_dir, target_is_directory=True)
@@ -188,8 +190,10 @@ def test_embedding_worker_lifecycle_uses_frozen_asset_and_serves_predictions(tmp
     source = os.environ.get('ML_DEEP_TEST_EMBEDDING_DIR')
     if not source:
         pytest.skip('Provision the multilingual encoder to exercise the supervised worker')
-    import polars as pl
     from pathlib import Path
+
+    import polars as pl
+
     from app.services.ml import local_models
     from app.services.tabular_datasets import register_frame
     folder = Path(source)
@@ -222,8 +226,9 @@ def test_embedding_worker_lifecycle_uses_frozen_asset_and_serves_predictions(tmp
 
 
 def test_queued_fit_rejects_asset_changes_and_reads_verified_copy(tmp_path, model, monkeypatch):
-    from app.services.ml import local_models
     from pathlib import Path
+
+    from app.services.ml import local_models
     source = tmp_path/'original'
     source.mkdir()
     (source/'model.safetensors').write_bytes(b'frozen')
