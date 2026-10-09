@@ -16,4 +16,34 @@ Optuna est déjà dans les dépendances communes ; aucune dépendance, migration
 - Une perturbation des seules valeurs du backtest réservé conserve exactement tous les scores des essais et le candidat choisi ; elle modifie bien les métriques du backtest.
 - 77 tests existants passent : harness de prévision réel, validation des prévisions et Optuna tabulaire.
 - Le test d’enregistrement des runs enfants MLflow (avec réglages) et les trois contrôles d’import API passent. Aucun import Optuna/skforecast n’est ajouté au chargement des routes.
-- Ruff ciblé, vérification du diff et scan des secrets passent. Aucun build frontend exécuté pour cette contribution backend.
+- Ruff ciblé, vérification du diff et scan des secrets passent.
+
+## Formulaire et qualification d’intégration
+
+Le studio et l’atelier Flow utilisent les mêmes contrôles de réglage temporel.
+Les limites et valeurs initiales viennent du catalogue ; une réouverture conserve
+les réglages enregistrés. Une ancienne API sans cette capacité continue de
+recevoir une spécification de prévision ordinaire. Un budget déjà enregistré
+reste visible mais ne peut pas être lancé tant que le catalogue ne le propose
+pas. Le formulaire explique également les refus d’algorithme, d’interpolation
+et de valeurs hors limites.
+
+La carte du modèle distingue la validation interne utilisée pour choisir les
+réglages, sa référence naïve saisonnière et le backtest réservé. La progression
+indique les essais de réglage avant l’ajustement et le backtest.
+
+- 153 tests frontend ciblés passent, ainsi que cinq parcours navigateur FR/EN
+  et mobile : preuve temporelle, bornes du catalogue, refus d’interpolation et
+  conservation des paramètres à la réouverture du Flow.
+- Compilation Angular, i18n, contrôles UI et navigation passent.
+- Après intégration de TS-A et TS-B, 31 tests backend passent, comprenant le
+  réentraînement réellement approuvé, Optuna réel et les imports de l’API.
+- 132 tests frontend couvrent ensemble le suivi des réels, la revue humaine,
+  les spécifications de prévision et les résultats du réglage.
+- Le build production unique passe avec les avertissements Angular, CSS,
+  budget initial et dagre déjà présents.
+- Les revues indépendantes backend et frontend ne laissent aucun blocage.
+
+Ordre d’intégration : TS-A, TS-B, TS-C. La fusion dans la branche de livraison
+et le déploiement suivent la validation de ces branches. Les changements validés sont
+synchronisés vers Bitbucket, dépôt source du déploiement.
