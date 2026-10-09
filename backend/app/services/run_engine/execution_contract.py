@@ -16,9 +16,7 @@ from typing import Any, Literal, cast
 
 RuntimeMode = Literal["dag_strict", "dag_overlay", "sequential_legacy"]
 
-RUNTIME_MODES: frozenset[str] = frozenset(
-    {"dag_strict", "dag_overlay", "sequential_legacy"}
-)
+RUNTIME_MODES: frozenset[str] = frozenset({"dag_strict", "dag_overlay", "sequential_legacy"})
 CONTROL_KINDS: frozenset[str] = frozenset(
     {"decision", "fork", "join", "retry", "hitl", "subflow", "loop", "agent_loop"}
 )
@@ -43,6 +41,7 @@ GRAPH_OWNED_CONFIG_SKILLS: frozenset[str] = frozenset(
         "ml_batch_score_v1",
         "ml_forecast_v1",
         "llm_label_dataset_v1",
+        "hf_dataset_import_v1",
         "ml_monitor_model_v1",
     }
 )
@@ -100,10 +99,7 @@ def canonical_flow_sha256(flow: Any) -> str:
 def workspace_strict_dag_enabled(workspace: Any) -> bool:
     raw_settings = getattr(workspace, "settings", None)
     features = raw_settings.get("features") if isinstance(raw_settings, dict) else None
-    return bool(
-        isinstance(features, dict)
-        and features.get("flow_v3_dag_authoritative") is True
-    )
+    return bool(isinstance(features, dict) and features.get("flow_v3_dag_authoritative") is True)
 
 
 def _schema_version(flow: Mapping[str, Any]) -> int:
@@ -168,10 +164,7 @@ def resolve_flow_execution(
         )
 
     if schema_version >= 2:
-        if any(
-            isinstance(node, Mapping) and node.get("kind") in CONTROL_KINDS
-            for node in nodes
-        ):
+        if any(isinstance(node, Mapping) and node.get("kind") in CONTROL_KINDS for node in nodes):
             return FlowExecutionResolution(
                 runtime_mode="dag_overlay",
                 reason="control_node_requires_compatibility_dag",
@@ -215,11 +208,7 @@ def resolve_run_flow_execution(
     snapshot = getattr(run, "flow_snapshot", None)
     has_snapshot = isinstance(snapshot, dict)
     flow = snapshot if has_snapshot else getattr(system, "flow_definition", None)
-    pinned_mode = (
-        execution_runtime_mode(getattr(run, "input_ref", None))
-        if has_snapshot
-        else None
-    )
+    pinned_mode = execution_runtime_mode(getattr(run, "input_ref", None)) if has_snapshot else None
     return resolve_flow_execution(
         flow,
         workspace,

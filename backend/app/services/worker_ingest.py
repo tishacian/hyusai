@@ -1,4 +1,5 @@
 """Worker-owned document ingestion and indexing workflows."""
+
 from __future__ import annotations
 
 import asyncio
@@ -92,9 +93,7 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _existing_content_hashes(
-    db, collection: KnowledgeCollection
-) -> dict[tuple[str, str], str]:
+def _existing_content_hashes(db, collection: KnowledgeCollection) -> dict[tuple[str, str], str]:
     """Map ``(content_sha256, project scope)`` to an indexed filename.
 
     Identical manuals are legitimately delivered in several industrial
@@ -122,9 +121,7 @@ def _existing_content_hashes(
     return hashes
 
 
-def _incremental_document_inventory(
-    db, collection: KnowledgeCollection
-) -> tuple[list[str], int]:
+def _incremental_document_inventory(db, collection: KnowledgeCollection) -> tuple[list[str], int]:
     """Build the source inventory without scrolling the full vector corpus.
 
     Incremental jobs only need the durable source ledger after indexing their
@@ -181,8 +178,7 @@ def _incremental_document_inventory(
     indexed_count = sum(
         1
         for normalized, statuses in statuses_by_name.items()
-        if normalized in inventory_normalized
-        and statuses.intersection({"ready", "indexed"})
+        if normalized in inventory_normalized and statuses.intersection({"ready", "indexed"})
     )
     return inventory, indexed_count
 
@@ -254,10 +250,7 @@ def _finalize_linked_deposit_files(
         .filter(KnowledgeCollectionSource.collection_id == collection.id)
         .all()
     )
-    source_rows = {
-        row.normalized_name: row
-        for row in source_row_list
-    }
+    source_rows = {row.normalized_name: row for row in source_row_list}
     all_names = list(file_names)
     summaries: list[dict] = []
     for row in rows:
@@ -270,10 +263,7 @@ def _finalize_linked_deposit_files(
         document_names = [
             name
             for name in all_names
-            if str(
-                (document_metadata_by_name.get(name) or {}).get("source_deposit_path")
-                or ""
-            )
+            if str((document_metadata_by_name.get(name) or {}).get("source_deposit_path") or "")
             == str(row.filename or "")
         ]
         if not document_names and len(rows) == 1:
@@ -289,8 +279,7 @@ def _finalize_linked_deposit_files(
             item = source_results_by_name.get(name) or {}
             status = source_row.status if source_row else _source_result_status(item)
             chunks = int(
-                (source_row.chunk_count if source_row else item.get("chunks_processed"))
-                or 0
+                (source_row.chunk_count if source_row else item.get("chunks_processed")) or 0
             )
             if status in {"ready", "indexed"}:
                 indexed_count += 1
@@ -304,10 +293,7 @@ def _finalize_linked_deposit_files(
                     "document_name": name,
                     "status": status,
                     "chunk_count": chunks,
-                    "error": (
-                        source_row.last_error if source_row else item.get("error")
-                    )
-                    or None,
+                    "error": (source_row.last_error if source_row else item.get("error")) or None,
                 }
             )
 
@@ -350,13 +336,8 @@ def _finalize_linked_deposit_files(
                     if source_row.status in {"ready", "indexed", "deduplicated"}
                 }
             )
-            awaiting_document_count = max(
-                0, expected_document_count - cumulative_verified_count
-            )
-            if (
-                indexing_status in {"indexed", "deduplicated"}
-                and awaiting_document_count > 0
-            ):
+            awaiting_document_count = max(0, expected_document_count - cumulative_verified_count)
+            if indexing_status in {"indexed", "deduplicated"} and awaiting_document_count > 0:
                 # A safe ZIP may span several operator-approved waves. The
                 # current job succeeded, but its DepositFile remains received
                 # until every eligible member for the immutable archive SHA is
@@ -418,9 +399,7 @@ def _finalize_linked_deposit_files(
     return summaries
 
 
-def _mark_linked_deposit_files_failed(
-    db, *, job_id: str, workspace_id: str, error: str
-) -> None:
+def _mark_linked_deposit_files_failed(db, *, job_id: str, workspace_id: str, error: str) -> None:
     rows = (
         db.query(DepositFile)
         .filter(
@@ -512,9 +491,7 @@ async def _rollback_incremental_vectors(
     after a partial upsert.
     """
 
-    ids = list(
-        dict.fromkeys(str(value) for value in document_ids if str(value).strip())
-    )
+    ids = list(dict.fromkeys(str(value) for value in document_ids if str(value).strip()))
     if doc_service is None:
         # No vector client was created, therefore the failure happened before
         # this worker could write any points.
@@ -609,9 +586,7 @@ def _record_wave_ledger_if_verified(
         }
     from app.services.spl_wave_importer import record_wave_ledger
 
-    filenames = [
-        str(name) for name in wave_ledger.get("filenames") or [] if str(name).strip()
-    ]
+    filenames = [str(name) for name in wave_ledger.get("filenames") or [] if str(name).strip()]
     collection_slug = str(wave_ledger.get("collection_slug") or "")
     wave_id = str(wave_ledger.get("wave_id") or ingest_options.get("wave_id") or "")
     if not filenames or not collection_slug or not wave_id:
@@ -699,9 +674,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
         job = update_job(db, job_id, progress=5, stage="copy_originals")
         if not job or not job.collection_id:
             db.commit()
-            raise ValueError(
-                f"Worker job {job_id!r} not found or not linked to a collection"
-            )
+            raise ValueError(f"Worker job {job_id!r} not found or not linked to a collection")
 
         ingest_options = dict((job.result or {}).get("ingest_options") or {})
         ingest_mode = str(ingest_options.get("mode") or "full")
@@ -710,9 +683,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             and str(ingest_options.get("source_profile") or "") == "needlepunch"
         )
         incremental_names = [
-            str(name)
-            for name in (ingest_options.get("document_names") or [])
-            if str(name).strip()
+            str(name) for name in (ingest_options.get("document_names") or []) if str(name).strip()
         ]
         ocr_overrides = (
             ingest_options.get("document_ocr")
@@ -729,6 +700,13 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             db.commit()
             raise ValueError(f"Collection for worker job {job_id!r} not found")
 
+        from app.services.rag.embedding_generation import binding_for
+
+        if collection.pending_generation:
+            raise RuntimeError("RAG_REINDEX_IN_PROGRESS")
+        embedding_binding = binding_for(collection)
+        job.result = {**(job.result or {}), "embedding_binding": embedding_binding}
+
         workspace = db.query(Workspace).filter(Workspace.id == job.workspace_id).first()
         if not workspace:
             db.commit()
@@ -739,9 +717,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
                 str(ingest_options.get("source_profile") or "") == "needlepunch"
                 and collection.status != "ready"
             ):
-                raise RuntimeError(
-                    "Needlepunch incremental ingestion requires a ready collection"
-                )
+                raise RuntimeError("Needlepunch incremental ingestion requires a ready collection")
             # Incremental ingestion is additive: the existing Qdrant corpus is
             # still authoritative and must remain available to chat while this
             # job parses and embeds its private wave.
@@ -753,9 +729,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
         file_names = list(collection.document_names or [])
         if incremental_names:
             file_names = [
-                name
-                for name in incremental_names
-                if name in set(collection.document_names or [])
+                name for name in incremental_names if name in set(collection.document_names or [])
             ]
         elif ingest_mode == "incremental" and collection.document_names:
             file_names = list(collection.document_names or [])
@@ -765,9 +739,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             file_names = [Path(k).name for k in store.list_keys(prefix)]
         if not file_names:
             source_failure = {"code": "originals_missing"}
-            raise ValueError(
-                f"No original documents found for collection {collection.id}"
-            )
+            raise ValueError(f"No original documents found for collection {collection.id}")
 
         requested_file_names = list(file_names)
         local_paths: list[str] = []
@@ -778,17 +750,14 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
                 collection=collection,
                 filename=name,
                 status="ingesting",
-                origin=manifest_entry.get("origin")
-                or "upload",
+                origin=manifest_entry.get("origin") or "upload",
             )
             dest = temp_dir / Path(name).name
             legacy_name = manifest_entry.get("legacy_document_name")
 
             def copy_legacy_source(destination: Path) -> None:
                 nonlocal source_failure
-                key = resolve_original_key(
-                    collection, name, legacy_name=legacy_name, store=store
-                )
+                key = resolve_original_key(collection, name, legacy_name=legacy_name, store=store)
                 try:
                     store.copy_to_local(key, destination)
                 except FileNotFoundError:
@@ -819,9 +788,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
         # chunk carries ``content_sha256`` for provenance.
         db.flush()  # sessions run autoflush=False; make the rows above queryable
         existing_hashes = (
-            _existing_content_hashes(db, collection)
-            if ingest_mode == "incremental"
-            else {}
+            _existing_content_hashes(db, collection) if ingest_mode == "incremental" else {}
         )
         batch_hashes: dict[tuple[str, str], str] = {}
         kept_names: list[str] = []
@@ -838,19 +805,14 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             locator = source_locator(manifest_entry)
             locator_kind = str((locator or {}).get("kind") or "")
             expected_hash_key = (
-                "member_sha256"
-                if locator_kind == "secure_deposit_zip_member"
-                else "sha256"
+                "member_sha256" if locator_kind == "secure_deposit_zip_member" else "sha256"
             )
-            expected_hash = str(
-                (locator or {}).get(expected_hash_key) or ""
-            ).strip().lower()
+            expected_hash = str((locator or {}).get(expected_hash_key) or "").strip().lower()
             if expected_hash and expected_hash != content_hash:
                 raise SourceBackingError("secure_deposit_source_content_changed")
             manifest_entry["content_sha256"] = content_hash
             project_scope = (
-                str(manifest_entry.get("project_code") or "").strip().upper()
-                or "__unscoped__"
+                str(manifest_entry.get("project_code") or "").strip().upper() or "__unscoped__"
             )
             dedup_key = (content_hash, project_scope)
             canonical = batch_hashes.get(dedup_key) or existing_hashes.get(dedup_key)
@@ -925,9 +887,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
                 "deposit_files": deposit_summaries,
                 "ingest_options": ingest_options,
                 "postflight_required": requires_notice_postflight,
-                "postflight_status": (
-                    "pending" if requires_notice_postflight else "not_required"
-                ),
+                "postflight_status": ("pending" if requires_notice_postflight else "not_required"),
             }
             if wave_ledger_result:
                 result["wave_ledger"] = wave_ledger_result
@@ -982,10 +942,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
                 db.commit()
 
         app_settings = get_resolved_settings(workspace_id=workspace.id)
-        collection.embedding_model = settings.embedding_model
-        collection.chunking_method = app_settings.get(
-            "ragChunkingMethod", "recursive_character"
-        )
+        collection.chunking_method = app_settings.get("ragChunkingMethod", "recursive_character")
         collection.chunking_params = {
             "chunk_size": app_settings.get("ragChunkSize", 1000),
             "chunk_overlap": app_settings.get("ragChunkOverlap", 200),
@@ -1000,15 +957,14 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             collection_name=collection.slug,
             vector_db_type=db_type,
             workspace_slug=workspace.slug,
+            embedding_binding=embedding_binding,
         )
         if ingest_mode != "incremental":
             # Worker jobs ingest the full collection snapshot. Clear stale vectors
             # first so a reindex cannot accumulate duplicate chunks with fresh temp
             # file-derived IDs.
             await doc_service.clear_all_documents()
-            clear_collection_table_facts(
-                db, workspace_id=workspace.id, collection_id=collection.id
-            )
+            clear_collection_table_facts(db, workspace_id=workspace.id, collection_id=collection.id)
             clear_collection_document_facts(
                 db, workspace_id=workspace.id, collection_id=collection.id
             )
@@ -1034,8 +990,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
         indexed_document_ids = [
             str(item.get("document_id"))
             for item in (ingest_result.get("results") or [])
-            if isinstance(item, dict)
-            and item.get("document_id")
+            if isinstance(item, dict) and item.get("document_id")
         ]
         if (
             ingest_mode == "incremental"
@@ -1055,20 +1010,15 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
                 if failed_count:
                     reasons.append(f"{failed_count} document(s) failed")
                 if zero_chunk_names:
-                    reasons.append(
-                        "zero chunks for " + ", ".join(zero_chunk_names[:10])
-                    )
+                    reasons.append("zero chunks for " + ", ".join(zero_chunk_names[:10]))
                 raise RuntimeError(
-                    "Needlepunch incremental wave verification failed: "
-                    + "; ".join(reasons)
+                    "Needlepunch incremental wave verification failed: " + "; ".join(reasons)
                 )
         source_results_by_name: dict[str, dict] = {}
         for index, item in enumerate(ingest_result.get("results") or []):
             if not isinstance(item, dict):
                 continue
-            filename = (
-                file_names[index] if index < len(file_names) else item.get("filename")
-            )
+            filename = file_names[index] if index < len(file_names) else item.get("filename")
             filename = filename or Path(str(item.get("document_id") or "")).name
             if not filename:
                 continue
@@ -1093,8 +1043,8 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
         db.flush()
         chunk_count = await doc_service.get_document_count()
         if ingest_mode == "incremental":
-            inventory_document_names, indexed_document_count = (
-                _incremental_document_inventory(db, collection)
+            inventory_document_names, indexed_document_count = _incremental_document_inventory(
+                db, collection
             )
         else:
             documents = await doc_service.list_documents()
@@ -1165,9 +1115,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             source_document_count = len(source_document_names)
         else:
             source_document_names = list(collection.document_names or file_names)
-            source_document_count = len(
-                collection.document_names or file_names or documents
-            )
+            source_document_count = len(collection.document_names or file_names or documents)
 
         result = {
             "ingest": ingest_result,
@@ -1180,9 +1128,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             "deposit_files": deposit_summaries,
             "ingest_options": ingest_options,
             "postflight_required": requires_notice_postflight,
-            "postflight_status": (
-                "pending" if requires_notice_postflight else "not_required"
-            ),
+            "postflight_status": ("pending" if requires_notice_postflight else "not_required"),
         }
         if wave_ledger_result:
             result["wave_ledger"] = wave_ledger_result
@@ -1194,9 +1140,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             chunk_count=chunk_count,
             document_names=source_document_names,
         )
-        update_job(
-            db, job_id, status="completed", progress=100, result=result, stage="ready"
-        )
+        update_job(db, job_id, status="completed", progress=100, result=result, stage="ready")
         db.commit()
         return result
     except Exception as exc:
@@ -1206,16 +1150,13 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
         if job and job.collection_id:
             failed_options = dict((job.result or {}).get("ingest_options") or {})
             if str(failed_options.get("mode") or "full") == "incremental":
-                is_needlepunch = (
-                    str(failed_options.get("source_profile") or "")
-                    == "needlepunch"
-                )
+                is_needlepunch = str(failed_options.get("source_profile") or "") == "needlepunch"
                 baseline_error: NoticeWaveBaselineError | None = None
                 expected_chunk_count: int | None = None
                 if is_needlepunch:
                     try:
-                        _names, _documents, expected_chunk_count = (
-                            notice_wave_baseline(failed_options)
+                        _names, _documents, expected_chunk_count = notice_wave_baseline(
+                            failed_options
                         )
                     except NoticeWaveBaselineError as baseline_exc:
                         baseline_error = baseline_exc
@@ -1225,9 +1166,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
                     wave_id=str(failed_options.get("wave_id") or ""),
                     expected_chunk_count=expected_chunk_count,
                 )
-                rollback_confirmed = (
-                    vector_cleanup_confirmed and baseline_error is None
-                )
+                rollback_confirmed = vector_cleanup_confirmed and baseline_error is None
                 if rollback_confirmed:
                     # The failed wave is gone; the pre-existing corpus remains
                     # byte-for-byte authoritative and can keep serving chat.
@@ -1246,9 +1185,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
                         )
                         try:
                             if failed_collection is None:
-                                raise NoticeWaveBaselineError(
-                                    "notice_wave_collection_missing"
-                                )
+                                raise NoticeWaveBaselineError("notice_wave_collection_missing")
                             baseline_names, baseline_documents, baseline_chunks = (
                                 restore_notice_wave_baseline(
                                     failed_collection,
@@ -1294,10 +1231,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
                     db,
                     collection_id=job.collection_id,
                     file_names=requested_file_names
-                    or [
-                        str(name)
-                        for name in (failed_options.get("document_names") or [])
-                    ],
+                    or [str(name) for name in (failed_options.get("document_names") or [])],
                     error=str(exc),
                 )
                 _rollback_incremental_facts(
@@ -1307,13 +1241,15 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
                     document_ids=indexed_document_ids,
                 )
             else:
-                update_collection_status(
-                    db, job.collection_id, status="error", last_error=str(exc)
-                )
+                update_collection_status(db, job.collection_id, status="error", last_error=str(exc))
             _mark_linked_deposit_files_failed(
                 db, job_id=job.id, workspace_id=job.workspace_id, error=str(exc)
             )
-        failure_result = {**(job.result or {}), "source_failure": source_failure} if job and source_failure else None
+        failure_result = (
+            {**(job.result or {}), "source_failure": source_failure}
+            if job and source_failure
+            else None
+        )
         update_job(db, job_id, status="failed", progress=100, error=str(exc), result=failure_result)
         db.commit()
         raise

@@ -817,16 +817,27 @@ export function numericKnobs(algo: AlgoDescriptor | undefined): NumericKnobDescr
 /** A field of a model family's problem definition (time column, horizon, …). */
 export interface SpecFieldDescriptor {
   key: string;
-  kind: 'column' | 'columns' | 'int' | 'float' | 'enum' | 'bool' | 'int_list' | 'column_roles';
+  kind: 'artifact' | 'column' | 'columns' | 'int' | 'float' | 'enum' | 'bool' | 'int_list' | 'column_roles';
   required: boolean;
   default?: unknown;
   min?: number;
   max?: number;
   max_items?: number;
   choices?: string[];
+  artifact_choices?: FoundationModelDescriptor[];
   column_kinds?: string[];
   /** Shown only while another field holds one of these values. */
   when?: Record<string, string[]>;
+}
+
+export interface FoundationModelDescriptor {
+  model_id: string;
+  kind: string;
+  revision: string;
+  upstream_id: string;
+  fingerprint: string;
+  artifact_id?: string;
+  runtime?: Record<string, unknown>;
 }
 
 export interface FamilyDescriptor {
@@ -840,6 +851,7 @@ export interface FamilyDescriptor {
   serve_available?: boolean;
   reason?: 'no_worker' | 'runtime_missing' | 'disabled' | (string & {});
   spec_fields: SpecFieldDescriptor[];
+  foundation_models?: FoundationModelDescriptor[];
 }
 
 /** How a metric ranks and reads, served by the catalog (app.services.ml.metrics). */

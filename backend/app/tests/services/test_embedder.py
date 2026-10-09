@@ -5,7 +5,11 @@ import numpy as np
 import pytest
 
 from app.services.embedding import embedder as embedder_module
-from app.services.embedding.embedder import Embedder, capture_embedding_provider_usage
+from app.services.embedding.embedder import (
+    Embedder,
+    EmbeddingUnavailable,
+    capture_embedding_provider_usage,
+)
 from app.services.evaluation.judge import provider_usage_evidence
 
 
@@ -24,15 +28,11 @@ class FakeEmbeddings:
 
     def create(self, *, input: list[str], model: str):
         self.calls.append(list(input))
-        if self.always_fail or (
-            self.fail_above is not None and len(input) > self.fail_above
-        ):
+        if self.always_fail or (self.fail_above is not None and len(input) > self.fail_above):
             raise RuntimeError("embedding request too large")
         response = {
             "data": [
-                SimpleNamespace(
-                    index=index, embedding=[float(len(text)), float(index), 1.0]
-                )
+                SimpleNamespace(index=index, embedding=[float(len(text)), float(index), 1.0])
                 for index, text in enumerate(input)
             ]
         }
@@ -56,9 +56,7 @@ def make_embedder(fake_embeddings: FakeEmbeddings) -> Embedder:
 @pytest.mark.asyncio
 async def test_openai_embed_splits_large_batches_by_count(monkeypatch):
     monkeypatch.setattr(embedder_module, "_OPENAI_EMBEDDING_MAX_BATCH_INPUTS", 2)
-    monkeypatch.setattr(
-        embedder_module, "_OPENAI_EMBEDDING_MAX_BATCH_ESTIMATED_TOKENS", 1000
-    )
+    monkeypatch.setattr(embedder_module, "_OPENAI_EMBEDDING_MAX_BATCH_ESTIMATED_TOKENS", 1000)
     fake_embeddings = FakeEmbeddings()
     embedder = make_embedder(fake_embeddings)
 
@@ -69,11 +67,9 @@ async def test_openai_embed_splits_large_batches_by_count(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_openai_embed_retries_failed_batch_before_fallback(monkeypatch):
+async def test_openai_embed_retries_smaller_batches_without_changing_model(monkeypatch):
     monkeypatch.setattr(embedder_module, "_OPENAI_EMBEDDING_MAX_BATCH_INPUTS", 10)
-    monkeypatch.setattr(
-        embedder_module, "_OPENAI_EMBEDDING_MAX_BATCH_ESTIMATED_TOKENS", 1000
-    )
+    monkeypatch.setattr(embedder_module, "_OPENAI_EMBEDDING_MAX_BATCH_ESTIMATED_TOKENS", 1000)
     fake_embeddings = FakeEmbeddings(fail_above=1)
     embedder = make_embedder(fake_embeddings)
 
@@ -94,15 +90,13 @@ async def test_openai_embed_retries_failed_batch_before_fallback(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_openai_embed_fallback_is_limited_to_single_failed_input():
+async def test_openai_embed_failed_input_does_not_change_vector_space():
     fake_embeddings = FakeEmbeddings(always_fail=True)
     embedder = make_embedder(fake_embeddings)
 
-    result = await embedder.embed_batch(["alpha"])
-
+    with pytest.raises(EmbeddingUnavailable):
+        await embedder.embed_batch(["alpha"])
     assert [len(call) for call in fake_embeddings.calls] == [1]
-    assert result.shape == (1, 3)
-    assert np.isclose(np.linalg.norm(result[0]), 1.0)
 
 
 @pytest.mark.asyncio
@@ -223,15 +217,15 @@ def test_describe_reports_real_provider_and_dimension():
 
 
 @pytest.mark.asyncio
-async def test_hash_fallback_marks_embedder_degraded():
+async def test_provider_failure_never_emits_hash_vector():
     embedder = make_embedder(FakeEmbeddings(always_fail=True))
     embedder.provider = "openai"
 
     assert not embedder.is_degraded()
-    await embedder.embed_batch(["alpha"])
-
-    assert embedder.is_degraded()
-    assert embedder.describe()["degraded"] is True
+    with pytest.raises(EmbeddingUnavailable):
+        await embedder.embed_batch(["alpha"])
+    assert not embedder.is_degraded()
+    assert embedder.describe()["provider"] == "openai"
 
 
 def test_hash_provider_is_degraded_from_init():

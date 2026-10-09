@@ -1,4 +1,5 @@
 """Celery task definitions for Agentium."""
+
 from __future__ import annotations
 
 import asyncio
@@ -6,6 +7,7 @@ from datetime import datetime
 from typing import Callable, TypeVar
 
 from app.services.rag.context import run_rag_retrieve_context
+from app.services.rag.embedding_generation import run_embedding_reindex
 from app.services.secure_deposit_operations import run_sftp_reconciliation_job
 from app.services.visual_intelligence import run_visual_capture_job
 from app.services.worker_bm25 import run_bm25_rebuild
@@ -93,6 +95,25 @@ def document_ingest_index(job_id: str) -> dict:
 @celery_app.task(name="agentium.bm25_rebuild")
 def bm25_rebuild(job_id: str) -> dict:
     return run_bm25_rebuild(job_id)
+
+
+@celery_app.task(name="agentium.embedding_reindex")
+def embedding_reindex(job_id: str) -> dict:
+    return run_embedding_reindex(job_id)
+
+
+@celery_app.task(name="agentium.embedding_reindex_preparation_failed")
+def embedding_reindex_preparation_failed(job_id: str) -> dict:
+    from app.services.rag.embedding_generation import fail_embedding_preparation
+
+    return fail_embedding_preparation(job_id)
+
+
+@celery_app.task(name="agentium.reranker_activate")
+def reranker_activate(job_id: str) -> dict:
+    from app.services.rag.reranker_artifacts import run_reranker_activation
+
+    return run_reranker_activation(job_id)
 
 
 @celery_app.task(name="agentium.rag_deep_retrieval")
@@ -209,7 +230,11 @@ def subflow_run(self, child_run_id: str) -> dict:
             else {}
         )
         celery_dispatch_snapshot = delegation.get("execution_plane") == "celery"
-        waiting = parent.waiting_subflows if parent is not None and isinstance(parent.waiting_subflows, dict) else {}
+        waiting = (
+            parent.waiting_subflows
+            if parent is not None and isinstance(parent.waiting_subflows, dict)
+            else {}
+        )
         entry = waiting.get(child.delegation_key) if child is not None else None
         meta = waiting.get("_meta") if isinstance(waiting.get("_meta"), dict) else {}
         envelope_valid = bool(
@@ -225,13 +250,10 @@ def subflow_run(self, child_run_id: str) -> dict:
         )
         if not envelope_valid:
             return {"id": child_run_id, "status": "delegation_envelope_invalid"}
-        if (
-            not celery_dispatch_snapshot
-            and (
-                not settings.enable_subflow_celery
-                or parent_system is None
-                or not subflow_celery_enabled(parent_system)
-            )
+        if not celery_dispatch_snapshot and (
+            not settings.enable_subflow_celery
+            or parent_system is None
+            or not subflow_celery_enabled(parent_system)
         ):
             return {"id": child_run_id, "status": "subflow_celery_disabled"}
 
@@ -273,7 +295,9 @@ def subflow_run(self, child_run_id: str) -> dict:
                         {
                             "kind": "subflow_terminal_redelivery",
                             "task_id": task_id,
-                            "redelivered": bool((self.request.delivery_info or {}).get("redelivered")),
+                            "redelivered": bool(
+                                (self.request.delivery_info or {}).get("redelivered")
+                            ),
                         }
                     )
                     child.checkpoints = checkpoints
@@ -294,9 +318,7 @@ def subflow_run(self, child_run_id: str) -> dict:
             )
         except asyncio.CancelledError as exc:
             remaining_after_cancel = _subflow_deadline_remaining(child_run_id)
-            deadline_expired = (
-                remaining_after_cancel is not None and remaining_after_cancel <= 0.25
-            )
+            deadline_expired = remaining_after_cancel is not None and remaining_after_cancel <= 0.25
             execution_error = (
                 "delegated subflow deadline expired"
                 if deadline_expired
@@ -323,8 +345,10 @@ def subflow_run(self, child_run_id: str) -> dict:
             deadline_expired = "deadline" in execution_error.lower()
             with SessionLocal() as db:
                 failed = db.query(Run).filter(Run.id == child_run_id).first()
-                if failed is not None and failed.status != "completed" and (
-                    deadline_expired or failed.status not in {"failed", "cancelled"}
+                if (
+                    failed is not None
+                    and failed.status != "completed"
+                    and (deadline_expired or failed.status not in {"failed", "cancelled"})
                 ):
                     failed.status = "failed"
                     failed.error = (
@@ -416,12 +440,7 @@ def subflow_parent_resume(self, parent_run_id: str) -> dict:
         )
     except TimeoutError as exc:
         with SessionLocal() as db:
-            parent = (
-                db.query(Run)
-                .filter(Run.id == parent_run_id)
-                .with_for_update()
-                .first()
-            )
+            parent = db.query(Run).filter(Run.id == parent_run_id).with_for_update().first()
             if parent is not None and parent.status not in {"completed", "failed", "cancelled"}:
                 parent.status = "failed"
                 parent.error = parent.error or f"subflow_deadline_expired:{str(exc)[:300]}"
@@ -522,13 +541,10 @@ def subflow_hitl_resume(
             else {}
         )
         celery_dispatch_snapshot = delegation.get("execution_plane") == "celery"
-        if (
-            not celery_dispatch_snapshot
-            and (
-                not settings.enable_subflow_celery
-                or parent_system is None
-                or not subflow_celery_enabled(parent_system)
-            )
+        if not celery_dispatch_snapshot and (
+            not settings.enable_subflow_celery
+            or parent_system is None
+            or not subflow_celery_enabled(parent_system)
         ):
             return {"status": "subflow_celery_disabled", "child_run_id": child_run_id}
         waiting = (
@@ -574,7 +590,8 @@ def subflow_hitl_resume(
                         (
                             checkpoint
                             for checkpoint in reversed(list(child.checkpoints or []))
-                            if isinstance(checkpoint, dict) and checkpoint.get("kind") == "hitl_pause"
+                            if isinstance(checkpoint, dict)
+                            and checkpoint.get("kind") == "hitl_pause"
                         ),
                         None,
                     )
@@ -595,7 +612,11 @@ def subflow_hitl_resume(
                         if decision_id
                         else None
                     )
-                    if decision is None or decision.status not in {"accepted", "applied", "rejected"}:
+                    if decision is None or decision.status not in {
+                        "accepted",
+                        "applied",
+                        "rejected",
+                    }:
                         return {"status": "waiting_decision", "child_run_id": child_run_id}
                 if child.status == "running":
                     child.status = "failed"
@@ -614,9 +635,15 @@ def subflow_hitl_resume(
                 except Exception as exc:
                     with SessionLocal() as db:
                         failed = db.query(Run).filter(Run.id == child_run_id).first()
-                        if failed is not None and failed.status not in {"completed", "failed", "cancelled"}:
+                        if failed is not None and failed.status not in {
+                            "completed",
+                            "failed",
+                            "cancelled",
+                        }:
                             failed.status = "failed"
-                            failed.error = failed.error or f"subflow_hitl_resume_failed:{str(exc)[:400]}"
+                            failed.error = (
+                                failed.error or f"subflow_hitl_resume_failed:{str(exc)[:400]}"
+                            )
                             failed.completed_at = datetime.utcnow()
                             db.commit()
                     summary = {"id": child_run_id, "status": "failed", "error": str(exc)[:400]}
@@ -703,8 +730,7 @@ def run_hitl_resume(
                     for checkpoint in reversed(list(run.checkpoints or []))
                     if isinstance(checkpoint, dict)
                     and checkpoint.get("kind") == "hitl_resume_dispatch"
-                    and str(checkpoint.get("decision_id") or "")
-                    == str(expected_decision_id)
+                    and str(checkpoint.get("decision_id") or "") == str(expected_decision_id)
                 ),
                 None,
             )
@@ -886,7 +912,12 @@ def dataset_ingest(dataset_id: str) -> dict:
 
 # Defined as a shared task in ml_tasks so a model-family image can register it
 # without importing this module; re-exported here for the general worker.
-from app.workers.ml_tasks import ml_train, ml_shadow, ml_shadow_recover, ml_retraining_recovery  # noqa: E402,F401
+from app.workers.ml_tasks import (  # noqa: E402,F401
+    ml_retraining_recovery,
+    ml_shadow,
+    ml_shadow_recover,
+    ml_train,
+)
 
 
 @celery_app.task(name="agentium.recipe_env_sweep")
@@ -917,7 +948,11 @@ def refresh_macro_indicators_task(workspace_slug: str = "sentinel-ci", force: bo
     with SessionLocal() as db:
         workspace = db.query(Workspace).filter(Workspace.slug == workspace_slug).first()
         if not workspace:
-            return {"status": "skipped", "reason": "workspace_not_found", "workspace_slug": workspace_slug}
+            return {
+                "status": "skipped",
+                "reason": "workspace_not_found",
+                "workspace_slug": workspace_slug,
+            }
         result = fetch_civ_indicators(db, workspace, force=bool(force))
     return {"status": "ok", **result}
 
@@ -933,22 +968,26 @@ def scheduler_tick_task() -> dict:
 @celery_app.task(name="agentium.run_evaluation", acks_late=True, reject_on_worker_lost=True)
 def run_evaluation(job_id: str) -> dict:
     from app.services.evaluation.lifecycle import run_evaluation_job
+
     return run_evaluation_job(job_id)
 
 
 @celery_app.task(name="agentium.evaluation_campaign", acks_late=True, reject_on_worker_lost=True)
 def evaluation_campaign(job_id: str) -> dict:
     from app.services.evaluation.campaigns import run_campaign_job
+
     return run_campaign_job(job_id)
 
 
 @celery_app.task(name="agentium.evaluation_generation", acks_late=True, reject_on_worker_lost=True)
 def evaluation_generation(job_id: str) -> dict:
     from app.services.evaluation.campaigns import run_generation_job
+
     return run_generation_job(job_id)
 
 
 @celery_app.task(name="agentium.brd_generation", acks_late=True, reject_on_worker_lost=True)
 def brd_generation(job_id: str) -> dict:
     from app.services.skills_registry.brd_generation import run_generation_job
+
     return run_generation_job(job_id)

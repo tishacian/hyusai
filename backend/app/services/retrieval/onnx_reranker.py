@@ -15,6 +15,7 @@ same bytes the release qualified.
 Scores match ``FlashReranker``: the sigmoid of the single logit, in input
 order for ``score``, sorted and thresholded for ``rerank``.
 """
+
 from __future__ import annotations
 
 import threading
@@ -45,18 +46,25 @@ def has_model_files(models_dir: str | Path, model_name: str) -> bool:
 class OnnxReranker:
     """Drop-in for ``FlashReranker`` on ONNX Runtime (CPU)."""
 
-    _sessions: dict[tuple[str, int], tuple[Any, Any]] = {}
+    _sessions: dict[tuple[str, int, bool], tuple[Any, Any]] = {}
     _lock = threading.Lock()
 
-    def __init__(self, config: RerankerConfig | None = None, *, models_dir: str | Path):
+    def __init__(
+        self,
+        config: RerankerConfig | None = None,
+        *,
+        models_dir: str | Path,
+        model_bytes: bytes | None = None,
+    ):
         self.config = config or RerankerConfig()
         self.device = "cpu"
         self.models_dir = Path(models_dir)
         self.directory = model_directory(self.models_dir, self.config.model_name)
+        self.model_bytes = model_bytes
         self.session, self.tokenizer = self._load()
 
     def _load(self) -> tuple[Any, Any]:
-        key = (str(self.directory), int(self.config.max_length))
+        key = (str(self.directory), int(self.config.max_length), self.model_bytes is not None)
         with OnnxReranker._lock:
             cached = OnnxReranker._sessions.get(key)
             if cached is not None:
@@ -69,7 +77,9 @@ class OnnxReranker:
             options = onnxruntime.SessionOptions()
             options.intra_op_num_threads = max(1, int(self.config.num_threads))
             session = onnxruntime.InferenceSession(
-                str(self.directory / MODEL_FILE),
+                self.model_bytes
+                if self.model_bytes is not None
+                else str(self.directory / MODEL_FILE),
                 sess_options=options,
                 providers=["CPUExecutionProvider"],
             )
@@ -126,7 +136,9 @@ class OnnxReranker:
     def rerank(
         self, query: str, passages: list[str], return_scores: bool = False
     ) -> list[str] | tuple[list[str], list[float]]:
-        scored = sorted(zip(passages, self.score(query, passages)), key=lambda pair: pair[1], reverse=True)
+        scored = sorted(
+            zip(passages, self.score(query, passages)), key=lambda pair: pair[1], reverse=True
+        )
         kept = [pair for pair in scored if pair[1] >= self.config.threshold] or scored
         ranked = [passage for passage, _ in kept]
         if return_scores:

@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
-
 SCHEMA_VERSION = 3
 PROFILE = "agentium-runtime-env-bundle-v3"
 MAX_SOURCE_BYTES = 1024 * 1024
@@ -33,7 +32,9 @@ REFERENCE_KEYS = {
     "qdrant": "AGENTIUM_QDRANT_ENV_FILE",
     "keycloak": "AGENTIUM_KEYCLOAK_ENV_FILE",
 }
+OPTIONAL_REFERENCE_KEYS = {"hub": "AGENTIUM_HUB_ENV_FILE"}
 ROLES = frozenset({"compose_main", "application", "qdrant", "keycloak", "systemd"})
+OPTIONAL_ROLES = frozenset(OPTIONAL_REFERENCE_KEYS)
 SENSITIVE_KEY_RE = re.compile(
     r"(?:PASSWORD|PASSWD|SECRET|TOKEN|API_KEY|PRIVATE_KEY|CREDENTIAL)$"
 )
@@ -68,6 +69,34 @@ VM_APPLICATION_STORAGE_ENVIRONMENT = {
     "AGENTIUM_SECURE_DEPOSIT_PATH": (
         "/home/ubuntu/omnirag/backend/data/secure_deposit"
     ),
+}
+VM_HUB_STORAGE_ENVIRONMENT = {
+    "AGENTIUM_HUB_CACHE_PATH": "/srv/agentium-data/hub-cache",
+    "AGENTIUM_HUB_BUNDLES_PATH": "/srv/agentium-data/hub-bundles",
+    "AGENTIUM_HF_BUNDLE_KEYS_PATH": "/srv/agentium-data/hf-bundle-keys",
+}
+VM_HUB_STORAGE_MOUNTS = {
+    "agentium-hub-fetch": {
+        "/data/object_store": ("AGENTIUM_OBJECT_STORE_PATH", False),
+        "/data/hub-cache": ("AGENTIUM_HUB_CACHE_PATH", False),
+        "/data/hub-bundles": ("AGENTIUM_HUB_BUNDLES_PATH", False),
+        "/run/hf-bundle-keys": ("AGENTIUM_HF_BUNDLE_KEYS_PATH", True),
+    },
+    "agentium-backend": {
+        "/data/hub-cache": ("AGENTIUM_HUB_CACHE_PATH", True),
+        "/data/hub-bundles": ("AGENTIUM_HUB_BUNDLES_PATH", False),
+    },
+    "agentium-worker-cpu": {
+        "/data/hub-cache": ("AGENTIUM_HUB_CACHE_PATH", True),
+        "/data/hub-bundles": ("AGENTIUM_HUB_BUNDLES_PATH", False),
+        "/run/hf-bundle-keys": ("AGENTIUM_HF_BUNDLE_KEYS_PATH", True),
+    },
+    "agentium-worker-ml-deep": {
+        "/data/hub-cache": ("AGENTIUM_HUB_CACHE_PATH", True),
+    },
+    "agentium-worker-ml-deep-serve": {
+        "/data/hub-cache": ("AGENTIUM_HUB_CACHE_PATH", True),
+    },
 }
 VM_APPLICATION_STORAGE_MOUNTS = {
     "agentium-migrate": {
@@ -120,12 +149,15 @@ for _ml_deep_service in ("agentium-worker-ml-deep", "agentium-worker-ml-deep-ser
 # Services that only exist when an opt-in Compose profile is active. Absent
 # from a rendering without the profile and from a host that never enabled it,
 # they are skipped; present, they are held to their contract like any other.
-VM_OPTIONAL_PROFILE_SERVICES = frozenset({
-    "agentium-worker-ml-ts",
-    "agentium-worker-ml-ts-serve",
-    "agentium-worker-ml-deep",
-    "agentium-worker-ml-deep-serve",
-})
+VM_OPTIONAL_PROFILE_SERVICES = frozenset(
+    {
+        "agentium-hub-fetch",
+        "agentium-worker-ml-ts",
+        "agentium-worker-ml-ts-serve",
+        "agentium-worker-ml-deep",
+        "agentium-worker-ml-deep-serve",
+    }
+)
 
 # Targets added to the contract after their service already ran in
 # production. The pre-mutation gate inspects the PREVIOUS container
@@ -286,7 +318,7 @@ def _file_identity(details: os.stat_result) -> tuple[int, ...]:
 
 
 def _parse_role_contents(contents: Mapping[str, bytes]) -> dict[str, dict[str, str]]:
-    if set(contents) != ROLES:
+    if not ROLES <= set(contents) <= ROLES | OPTIONAL_ROLES:
         raise RuntimeEnvBundleError("runtime environment role contents are incomplete")
     return {
         role: _parse_dotenv(content, label=f"{role} environment")[0]
@@ -314,6 +346,23 @@ def assert_vm_storage_environment(content: bytes) -> None:
         expected=VM_STORAGE_ENVIRONMENT | VM_APPLICATION_STORAGE_ENVIRONMENT,
         contract="protected storage",
     )
+    values, _ = _parse_dotenv(content, label="VM storage environment")
+    for key, expected in VM_HUB_STORAGE_ENVIRONMENT.items():
+        if key in values and values[key] != expected:
+            raise RuntimeEnvBundleError(
+                "VM Hugging Face storage path differs from its protected data-disk location"
+            )
+
+
+def _application_mount_contracts(service_names, *, hub_present=False):
+    contracts = {
+        name: dict(mounts) for name, mounts in VM_APPLICATION_STORAGE_MOUNTS.items()
+    }
+    if hub_present:
+        for service, mounts in VM_HUB_STORAGE_MOUNTS.items():
+            if service in service_names:
+                contracts.setdefault(service, {}).update(mounts)
+    return contracts
 
 
 def assert_vm_block_storage_environment(content: bytes) -> None:
@@ -324,20 +373,30 @@ def assert_vm_block_storage_environment(content: bytes) -> None:
     )
 
 
-def _rendered_service_mounts(compose: Mapping[str, Any], service_name: str) -> dict[str, Any]:
+def _rendered_service_mounts(
+    compose: Mapping[str, Any], service_name: str
+) -> dict[str, Any]:
     services = compose.get("services")
-    if not isinstance(services, dict) or not isinstance(services.get(service_name), dict):
-        raise RuntimeEnvBundleError("rendered VM Compose storage services are incomplete")
+    if not isinstance(services, dict) or not isinstance(
+        services.get(service_name), dict
+    ):
+        raise RuntimeEnvBundleError(
+            "rendered VM Compose storage services are incomplete"
+        )
     mounts = services[service_name].get("volumes")
     if not isinstance(mounts, list):
         raise RuntimeEnvBundleError("rendered VM Compose storage mounts are invalid")
     result: dict[str, Any] = {}
     for mount in mounts:
         if not isinstance(mount, dict) or not isinstance(mount.get("target"), str):
-            raise RuntimeEnvBundleError("rendered VM Compose storage mounts are invalid")
+            raise RuntimeEnvBundleError(
+                "rendered VM Compose storage mounts are invalid"
+            )
         target = mount["target"]
         if target in result:
-            raise RuntimeEnvBundleError("rendered VM Compose storage target is duplicated")
+            raise RuntimeEnvBundleError(
+                "rendered VM Compose storage target is duplicated"
+            )
         result[target] = mount
     return result
 
@@ -363,7 +422,9 @@ def assert_vm_compose_storage(compose: Any) -> None:
     for (service, target), (expected_name,) in expected_volume_mounts.items():
         mount = mounts_by_service[service][target]
         logical_name = mount.get("source")
-        definition = volumes.get(logical_name) if isinstance(logical_name, str) else None
+        definition = (
+            volumes.get(logical_name) if isinstance(logical_name, str) else None
+        )
         if (
             mount.get("type") != "volume"
             or mount.get("read_only", False) is not False
@@ -371,29 +432,44 @@ def assert_vm_compose_storage(compose: Any) -> None:
             or definition.get("name") != expected_name
             or definition.get("external") is not True
         ):
-            raise RuntimeEnvBundleError("rendered VM bind-backed volume contract differs")
+            raise RuntimeEnvBundleError(
+                "rendered VM bind-backed volume contract differs"
+            )
     snapshot = mounts_by_service["agentium-qdrant"]["/qdrant/snapshots"]
     if (
         snapshot.get("type") != "bind"
-        or snapshot.get("source") != VM_STORAGE_ENVIRONMENT["AGENTIUM_QDRANT_SNAPSHOT_PATH"]
+        or snapshot.get("source")
+        != VM_STORAGE_ENVIRONMENT["AGENTIUM_QDRANT_SNAPSHOT_PATH"]
         or snapshot.get("read_only", False) is not False
     ):
         raise RuntimeEnvBundleError("rendered VM Qdrant snapshot bind differs")
 
+    environments = VM_APPLICATION_STORAGE_ENVIRONMENT | VM_HUB_STORAGE_ENVIRONMENT
+    services = compose["services"]
+    hub_present = "agentium-hub-fetch" in services or any(
+        mount.get("target") in {"/data/hub-cache", "/data/hub-bundles"}
+        for service in services.values()
+        if isinstance(service, dict)
+        for mount in service.get("volumes", [])
+        if isinstance(mount, dict)
+    )
+    contracts = _application_mount_contracts(services, hub_present=hub_present)
     protected_sources = {
-        VM_APPLICATION_STORAGE_ENVIRONMENT[environment_key]
+        environments[environment_key]
         for required in VM_APPLICATION_STORAGE_MOUNTS.values()
         for environment_key, _ in required.values()
-    }
+    } | set(VM_HUB_STORAGE_ENVIRONMENT.values())
     protected_targets = {
         target
         for required in VM_APPLICATION_STORAGE_MOUNTS.values()
         for target in required
-    }
+    } | {"/data/hub-cache", "/data/hub-bundles", "/run/hf-bundle-keys"}
     observed: set[tuple[str, str]] = set()
-    services = compose["services"]
-    for service_name, required in VM_APPLICATION_STORAGE_MOUNTS.items():
-        if service_name in VM_OPTIONAL_PROFILE_SERVICES and service_name not in services:
+    for service_name, required in contracts.items():
+        if (
+            service_name in VM_OPTIONAL_PROFILE_SERVICES
+            and service_name not in services
+        ):
             continue
         mounts = _rendered_service_mounts(compose, service_name)
         for target, (environment_key, must_be_read_only) in required.items():
@@ -404,8 +480,7 @@ def assert_vm_compose_storage(compose: Any) -> None:
                 )
             if (
                 mount.get("type") != "bind"
-                or mount.get("source")
-                != VM_APPLICATION_STORAGE_ENVIRONMENT[environment_key]
+                or mount.get("source") != environments[environment_key]
                 or mount.get("read_only", False) is not must_be_read_only
             ):
                 raise RuntimeEnvBundleError(
@@ -414,13 +489,19 @@ def assert_vm_compose_storage(compose: Any) -> None:
             observed.add((service_name, target))
     for service_name, service in services.items():
         if not isinstance(service, dict):
-            raise RuntimeEnvBundleError("rendered VM Compose storage services are invalid")
+            raise RuntimeEnvBundleError(
+                "rendered VM Compose storage services are invalid"
+            )
         mounts = service.get("volumes", [])
         if not isinstance(mounts, list):
-            raise RuntimeEnvBundleError("rendered VM Compose storage mounts are invalid")
+            raise RuntimeEnvBundleError(
+                "rendered VM Compose storage mounts are invalid"
+            )
         for mount in mounts:
             if not isinstance(mount, dict):
-                raise RuntimeEnvBundleError("rendered VM Compose storage mounts are invalid")
+                raise RuntimeEnvBundleError(
+                    "rendered VM Compose storage mounts are invalid"
+                )
             source = mount.get("source")
             target = mount.get("target")
             if source not in protected_sources and target not in protected_targets:
@@ -437,7 +518,11 @@ def assert_vm_volume_inspect(payload: Any, *, volume_name: str) -> None:
     expected_device = VM_BIND_BACKED_VOLUMES.get(volume_name)
     if expected_device is None:
         raise RuntimeEnvBundleError("VM storage volume name is invalid")
-    if not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
+    if (
+        not isinstance(payload, list)
+        or len(payload) != 1
+        or not isinstance(payload[0], dict)
+    ):
         raise RuntimeEnvBundleError("VM storage volume is missing or ambiguous")
     volume = payload[0]
     expected_mountpoint = f"{VM_DOCKER_VOLUME_ROOT}/{volume_name}/_data"
@@ -465,9 +550,13 @@ def assert_vm_active_storage_mounts(payload: Any) -> None:
     ):
         expected_container_names.discard("agentium-worker-recipes")
     # An opt-in profile's containers are inspected only where they exist.
-    present = {
-        row.get("Name") for row in payload if isinstance(row, dict)
-    } if isinstance(payload, list) else set()
+    present = (
+        {row.get("Name") for row in payload if isinstance(row, dict)}
+        if isinstance(payload, list)
+        else set()
+    )
+    if "/agentium-hub-fetch" in present:
+        expected_container_names.add("agentium-hub-fetch")
     for optional in VM_OPTIONAL_PROFILE_SERVICES:
         if f"/{optional}" not in present:
             expected_container_names.discard(optional)
@@ -475,7 +564,9 @@ def assert_vm_active_storage_mounts(payload: Any) -> None:
         raise RuntimeEnvBundleError("VM storage containers are missing or ambiguous")
     containers: dict[str, Mapping[str, Any]] = {}
     for container in payload:
-        if not isinstance(container, dict) or not isinstance(container.get("Name"), str):
+        if not isinstance(container, dict) or not isinstance(
+            container.get("Name"), str
+        ):
             raise RuntimeEnvBundleError("VM storage container inspection is invalid")
         name = container["Name"].removeprefix("/")
         if name in containers:
@@ -497,14 +588,31 @@ def assert_vm_active_storage_mounts(payload: Any) -> None:
             ),
         },
     }
-    for service_name, required in VM_APPLICATION_STORAGE_MOUNTS.items():
-        if service_name == "agentium-migrate" or service_name not in expected_container_names:
+    environments = VM_APPLICATION_STORAGE_ENVIRONMENT | VM_HUB_STORAGE_ENVIRONMENT
+    contracts = _application_mount_contracts(
+        expected_container_names,
+        hub_present="agentium-hub-fetch" in expected_container_names,
+    )
+    # API/worker containers may already have the opt-in overlay after the Hub
+    # worker has been stopped. Validate those mounts if present as well.
+    for service, contract in VM_HUB_STORAGE_MOUNTS.items():
+        if service not in containers:
+            continue
+        for mount in containers[service].get("Mounts", []):
+            target = mount.get("Destination") if isinstance(mount, dict) else None
+            if target in contract:
+                contracts.setdefault(service, {})[target] = contract[target]
+    for service_name, required in contracts.items():
+        if (
+            service_name == "agentium-migrate"
+            or service_name not in expected_container_names
+        ):
             continue
         expected[service_name] = {
             target: (
                 "bind",
                 None,
-                VM_APPLICATION_STORAGE_ENVIRONMENT[environment_key],
+                environments[environment_key],
                 not read_only,
             )
             for target, (environment_key, read_only) in required.items()
@@ -603,6 +711,47 @@ def _assert_credential_url(value: str, *, schemes: frozenset[str]) -> None:
 
 def _assert_production_contract(contents: Mapping[str, bytes]) -> None:
     values = _parse_role_contents(contents)
+    if "hub" in values:
+        hub, application = values["hub"], values["application"]
+        for key in (
+            "DATABASE_URL",
+            "CELERY_BROKER_URL",
+            "OBJECT_STORE_BACKEND",
+            "OBJECT_STORE_S3_BUCKET",
+            "OBJECT_STORE_S3_ENDPOINT_URL",
+        ):
+            if not hub.get(key) or hub[key] != application.get(key):
+                raise RuntimeEnvBundleError(
+                    "Hub worker clients must use the frozen application data plane"
+                )
+        for key in ("HF_S3_ACCESS_KEY", "HF_S3_SECRET_KEY"):
+            value = hub.get(key)
+            if not value or _is_placeholder(value):
+                raise RuntimeEnvBundleError(
+                    "Hub worker requires its dedicated object-store identity"
+                )
+            _assert_literal_credential(value)
+            if value == application.get(key) or value in {
+                application.get("OBJECT_STORE_S3_ACCESS_KEY"),
+                application.get("OBJECT_STORE_S3_SECRET_KEY"),
+                values["compose_main"].get("AGENTIUM_MINIO_ROOT_USER"),
+                values["compose_main"].get("AGENTIUM_MINIO_ROOT_PASSWORD"),
+            }:
+                raise RuntimeEnvBundleError(
+                    "Hub worker, application and MinIO root credentials must be distinct"
+                )
+        if any(
+            application.get(key)
+            for key in (
+                "HF_TABULAR_DELETE_ACCESS_KEY",
+                "HF_TABULAR_DELETE_SECRET_KEY",
+                "HF_TABULAR_PURGE_ACCESS_KEY",
+                "HF_TABULAR_PURGE_SECRET_KEY",
+            )
+        ):
+            raise RuntimeEnvBundleError(
+                "Tabular purge credentials must not enter the common application environment"
+            )
     required = {
         "compose_main": {
             "AGENTIUM_FAISS_PATH",
@@ -807,8 +956,7 @@ def _assert_production_contract(contents: Mapping[str, bytes]) -> None:
     if (
         application["OBJECT_STORE_BACKEND"] not in {"local", "s3"}
         or application["OBJECT_STORE_BASE_PATH"] != "/data/object_store"
-        or application["OBJECT_STORE_S3_ENDPOINT_URL"]
-        != "http://agentium-minio:9000"
+        or application["OBJECT_STORE_S3_ENDPOINT_URL"] != "http://agentium-minio:9000"
         or application["OBJECT_STORE_S3_BUCKET"]
         != values["compose_main"]["AGENTIUM_MINIO_BUCKET"]
     ):
@@ -818,12 +966,13 @@ def _assert_production_contract(contents: Mapping[str, bytes]) -> None:
     expected_container_paths = {
         "FAISS_PERSIST_DIRECTORY": "/data/faiss_db",
         "SECURE_DEPOSIT_STORAGE_DIR": "/data/secure_deposit",
-        "SECURE_DEPOSIT_SFTP_HOST_KEY_PATH": (
-            "/data/secure_deposit/sftp_host_key"
-        ),
+        "SECURE_DEPOSIT_SFTP_HOST_KEY_PATH": ("/data/secure_deposit/sftp_host_key"),
         "SECURE_DEPOSIT_SFTP_TEMP_DIR": "/data/secure_deposit/_sftp_uploads",
     }
-    if any(application[key] != expected for key, expected in expected_container_paths.items()):
+    if any(
+        application[key] != expected
+        for key, expected in expected_container_paths.items()
+    ):
         raise RuntimeEnvBundleError(
             "application filesystem paths are not bound to protected mounts"
         )
@@ -920,7 +1069,9 @@ def _effective_main(
     # Parsing first makes replacement fail-closed on duplicate keys.  Keep all
     # unrelated bytes human-readable and replace only the indirect paths.
     _parse_dotenv(content, label="compose main environment")
-    reference_keys = set(REFERENCE_KEYS.values())
+    reference_keys = set(REFERENCE_KEYS.values()) | set(
+        OPTIONAL_REFERENCE_KEYS.values()
+    )
     lines: list[str] = []
     for raw_line in content.decode("utf-8").splitlines():
         stripped = raw_line.strip()
@@ -934,7 +1085,9 @@ def _effective_main(
     if lines and lines[-1]:
         lines.append("")
     lines.append("# Paths below are frozen by agentium-runtime-env-bundle-v3.")
-    for role, key in REFERENCE_KEYS.items():
+    for role, key in (REFERENCE_KEYS | OPTIONAL_REFERENCE_KEYS).items():
+        if role not in role_files:
+            continue
         lines.append(f"{key}={final_bundle / role_files[role]}")
     return ("\n".join(lines) + "\n").encode("utf-8")
 
@@ -998,6 +1151,11 @@ def freeze_bundle(
                 compose_dir=compose_dir.absolute(),
                 label=role,
             )
+        for role, key in OPTIONAL_REFERENCE_KEYS.items():
+            if main_values.get(key):
+                source_paths[role] = _resolve_reference(
+                    main_values[key], compose_dir=compose_dir.absolute(), label=role
+                )
         source_paths["systemd"] = systemd_env.absolute()
 
         roles: dict[str, dict[str, Any]] = {}
@@ -1091,7 +1249,9 @@ def freeze_bundle(
             "roles": roles,
             "effective_compose_file": effective_name,
             "effective_references": {
-                key: role_files[role] for role, key in REFERENCE_KEYS.items()
+                key: role_files[role]
+                for role, key in (REFERENCE_KEYS | OPTIONAL_REFERENCE_KEYS).items()
+                if role in role_files
             },
             "checks": {
                 "object_store_minio_credentials_separated": True,
@@ -1181,7 +1341,7 @@ def verify_bundle(
         or not isinstance(references, dict)
     ):
         raise RuntimeEnvBundleError("runtime environment manifest shape is invalid")
-    if set(roles) != ROLES:
+    if not ROLES <= set(roles) <= ROLES | OPTIONAL_ROLES:
         raise RuntimeEnvBundleError("runtime environment role set is invalid")
     if effective_name != "compose.effective.env" or effective_name not in files:
         raise RuntimeEnvBundleError("effective Compose environment is missing")
@@ -1269,7 +1429,11 @@ def verify_bundle(
         *(contract["file"] for contract in roles.values()),
     }:
         raise RuntimeEnvBundleError("runtime environment file inventory is invalid")
-    if references != {key: roles[role]["file"] for role, key in REFERENCE_KEYS.items()}:
+    if references != {
+        key: roles[role]["file"]
+        for role, key in (REFERENCE_KEYS | OPTIONAL_REFERENCE_KEYS).items()
+        if role in roles
+    }:
         raise RuntimeEnvBundleError("effective environment references differ")
     role_contents = {
         role: file_contents[contract["file"]] for role, contract in roles.items()
@@ -1288,7 +1452,9 @@ def verify_bundle(
     effective_values, _ = _parse_dotenv(
         effective_content, label="effective Compose environment"
     )
-    for role, key in REFERENCE_KEYS.items():
+    for role, key in (REFERENCE_KEYS | OPTIONAL_REFERENCE_KEYS).items():
+        if role not in roles:
+            continue
         expected = str(bundle_dir / roles[role]["file"])
         if effective_values.get(key) != expected:
             raise RuntimeEnvBundleError("effective environment path escaped the bundle")
@@ -1310,9 +1476,13 @@ def bundle_role_path(
         deployment_id=deployment_id,
         expected_manifest_sha256=expected_manifest_sha256,
     )
-    if role not in ROLES:
+    if role not in ROLES | OPTIONAL_ROLES:
         raise RuntimeEnvBundleError("runtime environment role is invalid")
     manifest, _ = _load_manifest(bundle_dir / "manifest.json")
+    if role not in manifest["roles"]:
+        raise RuntimeEnvBundleError(
+            "this bundle does not enable the optional runtime role"
+        )
     filename = manifest["roles"][role]["file"]
     path = bundle_dir / filename
     if path.parent != bundle_dir or not path.is_file() or path.is_symlink():
@@ -1374,7 +1544,7 @@ def _parser() -> argparse.ArgumentParser:
     role_path.add_argument("--expected-manifest-sha256", required=True)
     role_path.add_argument(
         "--role",
-        choices=("compose_main", "application", "qdrant", "keycloak", "systemd"),
+        choices=tuple(sorted(ROLES | OPTIONAL_ROLES)),
         required=True,
     )
     value = subparsers.add_parser("value")
@@ -1382,7 +1552,7 @@ def _parser() -> argparse.ArgumentParser:
     value.add_argument("--expected-manifest-sha256", required=True)
     value.add_argument(
         "--role",
-        choices=tuple(sorted(ROLES)),
+        choices=tuple(sorted(ROLES | OPTIONAL_ROLES)),
         required=True,
     )
     value.add_argument("--key", required=True)
@@ -1448,7 +1618,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             assert_vm_storage_environment(content)
             return 0
         elif args.command == "vm-storage-compose-check":
-            assert_vm_compose_storage(_read_json_stdin(label="rendered VM Compose model"))
+            assert_vm_compose_storage(
+                _read_json_stdin(label="rendered VM Compose model")
+            )
             return 0
         elif args.command == "vm-storage-volume-check":
             assert_vm_volume_inspect(

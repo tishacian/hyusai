@@ -65,6 +65,17 @@ RUN pip install --no-cache-dir torch torchvision \
         "transformers>=4.41.0" \
     && pip check
 
+# Use the same qualified embedding runtime as the optional API layer.
+ARG INSTALL_HF_RAG=0
+COPY backend/requirements_hf_rag.txt backend/constraints-demo-ml-deep.txt /tmp/requirements/
+RUN if [ "$INSTALL_HF_RAG" = "1" ]; then \
+      pip install --no-cache-dir \
+        --constraint=/tmp/requirements/constraints-demo-app.txt \
+        --constraint=/tmp/requirements/constraints-demo-ml-deep.txt \
+        --index-url=${PIP_INDEX_URL} -r /tmp/requirements/requirements_hf_rag.txt \
+      && pip check; \
+    fi
+
 # build-essential: recipe venvs are built here at run time from author
 # requirements, some of which only ship sdists.
 RUN apt-get update \

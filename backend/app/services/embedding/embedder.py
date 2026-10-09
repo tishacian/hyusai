@@ -1,4 +1,5 @@
 """Embedding generation service -- OpenAI-first for demo."""
+
 import asyncio
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -92,6 +93,12 @@ def _openai_retry_count(source: Any) -> int:
         return 0
 
 
+class EmbeddingUnavailable(RuntimeError):
+    """The selected embedding space cannot currently be served."""
+
+    code = "RAG_EMBEDDING_UNAVAILABLE"
+
+
 class Embedder:
     """Embedding generation using OpenAI API (demo) or sentence-transformers (on-prem)."""
 
@@ -105,40 +112,39 @@ class Embedder:
         self._init_provider()
 
     def _init_provider(self):
-        if settings.embedding_provider == "openai" and settings.openai_api_key:
+        # A collection's vectors belong to exactly one embedding space. A
+        # provider outage must never silently change the space used by queries
+        # or newly ingested chunks (even when both spaces share a dimension).
+        if settings.embedding_provider == "openai":
+            if not settings.openai_api_key:
+                raise EmbeddingUnavailable(
+                    "The configured OpenAI embedding credential is unavailable."
+                )
             try:
                 from openai import OpenAI
 
                 self._client = OpenAI(api_key=settings.openai_api_key)
                 self._dimension = 1536 if "small" in self.model_name else 3072
                 self.provider = "openai"
-                logger.info("Using OpenAI embeddings", model=self.model_name)
                 return
-            except Exception as e:
-                logger.warning("OpenAI embeddings init failed", error=str(e))
-
+            except Exception as exc:
+                raise EmbeddingUnavailable(
+                    "The configured OpenAI embedding provider is unavailable."
+                ) from exc
         try:
             from sentence_transformers import SentenceTransformer
 
             self._local_model = SentenceTransformer(
-                self.model_name or "all-MiniLM-L6-v2"
+                self.model_name or "all-MiniLM-L6-v2",
+                local_files_only=True,
+                trust_remote_code=False,
             )
             self._dimension = self._local_model.get_sentence_embedding_dimension()
             self.provider = "local"
-            logger.info("Using local embeddings", model=self.model_name)
-            return
-        except ImportError:
-            pass
-
-        # Hash pseudo-embeddings keep the pipeline running but carry no
-        # semantics: retrieval silently degrades to noise. Make it loud.
-        logger.error(
-            "No embedding provider available, using hash fallback — "
-            "retrieval quality is degraded to lexical noise",
-            model=self.model_name,
-        )
-        self.provider = "hash"
-        self._dimension = 1536
+        except Exception as exc:
+            raise EmbeddingUnavailable(
+                "The configured local embedding model is unavailable."
+            ) from exc
 
     def describe(self) -> dict:
         """Real embedder telemetry for decision steps and diagnostics."""
@@ -164,7 +170,7 @@ class Embedder:
             return await self._openai_embed(texts)
         if self._local_model:
             return await self._local_embed(texts)
-        return np.array([self._fallback_embed(t) for t in texts])
+        raise EmbeddingUnavailable("The selected embedding model is unavailable.")
 
     async def _openai_embed(self, texts: list[str]) -> np.ndarray:
         if not texts:
@@ -196,9 +202,7 @@ class Embedder:
                 for _ in range(retry_count):
                     final_attempt = self._begin_openai_attempt()
                 self._complete_openai_attempt(final_attempt, response)
-                ordered = sorted(
-                    response.data, key=lambda item: getattr(item, "index", 0)
-                )
+                ordered = sorted(response.data, key=lambda item: getattr(item, "index", 0))
                 return np.array([item.embedding for item in ordered], dtype=np.float32)
             except Exception as e:
                 for _ in range(_openai_retry_count(e)):
@@ -209,22 +213,16 @@ class Embedder:
                         "OpenAI embedding batch failed, retrying smaller batches",
                         error=str(e),
                         batch_size=len(batch),
-                        estimated_tokens=sum(
-                            self._estimate_tokens(text) for text in batch
-                        ),
+                        estimated_tokens=sum(self._estimate_tokens(text) for text in batch),
                     )
                     left = await embed_openai_batch(batch[:mid])
                     right = await embed_openai_batch(batch[mid:])
                     return np.vstack([left, right])
-                logger.error(
-                    "OpenAI embedding error for single input, using fallback",
-                    error=str(e),
-                )
-                return np.array([self._fallback_embed(batch[0])], dtype=np.float32)
+                raise EmbeddingUnavailable(
+                    "The selected embedding provider failed to produce a vector."
+                ) from e
 
-        embeddings = [
-            await embed_openai_batch(batch) for batch in self._openai_batches(texts)
-        ]
+        embeddings = [await embed_openai_batch(batch) for batch in self._openai_batches(texts)]
         return (
             np.vstack(embeddings)
             if embeddings
@@ -268,8 +266,7 @@ class Embedder:
             token_estimate = cls._estimate_tokens(text)
             would_exceed_count = len(current) >= _OPENAI_EMBEDDING_MAX_BATCH_INPUTS
             would_exceed_tokens = (
-                current_tokens + token_estimate
-                > _OPENAI_EMBEDDING_MAX_BATCH_ESTIMATED_TOKENS
+                current_tokens + token_estimate > _OPENAI_EMBEDDING_MAX_BATCH_ESTIMATED_TOKENS
             )
             if current and (would_exceed_count or would_exceed_tokens):
                 batches.append(current)
@@ -291,31 +288,12 @@ class Embedder:
         loop = asyncio.get_event_loop()
 
         def _encode():
-            return self._local_model.encode(
-                texts, convert_to_numpy=True, show_progress_bar=False
-            )
+            return self._local_model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
 
         return await loop.run_in_executor(None, _encode)
 
     def _fallback_embed(self, text: str) -> np.ndarray:
-        import hashlib
-
-        self._hash_fallback_count = getattr(self, "_hash_fallback_count", 0) + 1
-        if self._hash_fallback_count == 1 or self._hash_fallback_count % 100 == 0:
-            logger.error(
-                "Hash pseudo-embedding emitted — vectors are not semantic",
-                provider=getattr(self, "provider", "unknown"),
-                model=self.model_name,
-                count=self._hash_fallback_count,
-            )
-        hash_bytes = hashlib.sha256(text.encode()).digest()
-        embedding = np.frombuffer(hash_bytes * 48, dtype=np.uint8)[
-            : self._dimension
-        ].astype(np.float32)
-        norm = np.linalg.norm(embedding)
-        if norm > 0:
-            embedding = embedding / norm
-        return embedding
+        raise EmbeddingUnavailable("Embedding fallback is forbidden for an existing vector space.")
 
     def get_dimension(self) -> int:
         return self._dimension or 1536

@@ -590,6 +590,15 @@ class Settings(BaseSettings):
     # this runs no author-written code by itself, so it ships enabled; the
     # transform/train nodes that DO run author code stay gated behind
     # ``recipe_execution_enabled``.
+    # Hub transfer workers write this cache; inference workers mount it read-only.
+    hf_cache_dir: str = "/data/hub-cache"
+    hf_cache_max_bytes: int = Field(default=40 * 1024**3, ge=1024)
+    hf_cache_min_free_bytes: int = Field(default=2 * 1024**3, ge=0)
+    hf_disk_min_free_bytes: int = Field(default=10 * 1024**3, ge=0)
+    hf_import_timeout_seconds: int = Field(default=7200, ge=60)
+    hf_import_lease_seconds: int = Field(default=300, ge=30)
+    hf_download_timeout_seconds: int = Field(default=60, ge=5, le=600)
+    hf_max_files: int = Field(default=512, ge=1, le=10000)
     tabular_data_enabled: bool = True
     tabular_upload_max_bytes: int = Field(default=256 * 1024**2, ge=1024)
     tabular_preview_rows: int = Field(default=50, ge=1, le=500)

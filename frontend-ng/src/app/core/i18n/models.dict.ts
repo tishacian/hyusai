@@ -15,6 +15,12 @@
  */
 
 export const MODELS_FR = {
+  "models.spec.artifact_unavailable": "Artefact indisponible : {id}",
+
+  "models.spec.artifact_id": "Artefact Hugging Face",
+  "models.spec.artifact_default": "Modèle préinstallé",
+  "models.spec.artifact_id.hint": "Seuls les artefacts autorisés et compatibles sont proposés.",
+
   "models.family.clustering": "Segmentation",
   "models.tag.foundation": "Préentraîné",
   "models.tag.zero_shot": "Sans ajustement",
@@ -1273,6 +1279,12 @@ export const MODELS_FR = {
 } as const;
 
 export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
+  "models.spec.artifact_unavailable": "Unavailable artifact: {id}",
+
+  "models.spec.artifact_id": "Hugging Face artifact",
+  "models.spec.artifact_default": "Preinstalled model",
+  "models.spec.artifact_id.hint": "Only authorized, compatible artifacts are listed.",
+
   "models.family.clustering": "Segmentation",
   "models.tag.foundation": "Pretrained",
   "models.tag.zero_shot": "Zero-shot",

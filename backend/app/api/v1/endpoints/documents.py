@@ -18,15 +18,16 @@ from uuid import UUID
 import numpy as np
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session as DBSession
 from starlette.background import BackgroundTask
 
+from app.api.v1.endpoints.huggingface import handled as handled_huggingface
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
-from app.core.iam.roles import is_admin_template
 from app.core.iam.dependencies import enforce_permission
+from app.core.iam.roles import is_admin_template
 from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
 from app.db.base import get_db
@@ -37,16 +38,9 @@ from app.models.knowledge_collection import (
 )
 from app.models.knowledge_document_fact import KnowledgeDocumentFact
 from app.models.knowledge_table_fact import KnowledgeTableFact
-from app.models.user import User
 from app.models.secure_deposit import DepositFile
+from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
-from app.services.collection_source_backing import (
-    SourceBackingError,
-    backing_source_meta,
-    materialize_backing_source,
-    read_backing_source_bytes,
-    source_locator,
-)
 from app.services.audit_logger import emit_audit_event
 from app.services.collection_access import (
     bind_retrieval_identity,
@@ -61,6 +55,13 @@ from app.services.collection_access import (
     require_named_collection_write,
     require_read_collection,
     require_write_collection,
+)
+from app.services.collection_source_backing import (
+    SourceBackingError,
+    backing_source_meta,
+    materialize_backing_source,
+    read_backing_source_bytes,
+    source_locator,
 )
 from app.services.knowledge_collections import (
     collection_inventory,
@@ -163,7 +164,9 @@ def _require_workspace_admin(db: DBSession, user: User, workspace: Workspace) ->
         .filter(WorkspaceMember.user_id == user.id, WorkspaceMember.workspace_id == workspace.id)
         .first()
     )
-    if not membership or not is_admin_template(getattr(membership, "role_template", None), membership.role):
+    if not membership or not is_admin_template(
+        getattr(membership, "role_template", None), membership.role
+    ):
         raise HTTPException(status_code=403, detail={"code": "WORKSPACE_PERMISSION_DENIED"})
 
 
@@ -202,6 +205,16 @@ class CollectionPatchRequest(BaseModel):
     name: str | None = None
     description: str | None = None
     access: dict[str, list[str] | None] | None = None
+
+
+class CollectionEmbeddingReindexRequest(BaseModel):
+    artifact_id: str = Field(min_length=1, max_length=128)
+    normalize_embeddings: bool = True
+    batch_size: int = Field(default=32, ge=1, le=256)
+
+
+class CollectionRerankerRequest(BaseModel):
+    artifact_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 class RetrievalArtifactJobRequest(BaseModel):
@@ -624,7 +637,9 @@ async def search_documents(
         db_type = _resolve_document_vector_db_type(workspace)
         raw_filters = dict(request.filters or {})
         system_scope = raw_filters.get("collection_slug") or raw_filters.get("collection")
-        collection_name = str(system_scope or request.collection_name or "documents").strip() or "documents"
+        collection_name = (
+            str(system_scope or request.collection_name or "documents").strip() or "documents"
+        )
         require_named_collection_read(
             db,
             workspace=workspace,
@@ -666,18 +681,25 @@ async def search_documents(
         doc_service = DocumentService(
             collection_name=str(profile.get("collection") or collection_name),
             vector_db_type=db_type,
-            use_hybrid=bool(request.use_hybrid and plan.allow_legacy_hybrid and (plan.use_hybrid is not False)),
+            use_hybrid=bool(
+                request.use_hybrid and plan.allow_legacy_hybrid and (plan.use_hybrid is not False)
+            ),
             workspace_slug=workspace.slug,
         )
         vector_count: int | None = None
         try:
             vector_count = int(await doc_service.get_document_count())
         except Exception as exc:  # noqa: BLE001 - search can still run bounded.
-            logger.warning("Could not compute document search vector count", error=str(exc), collection=collection_name)
+            logger.warning(
+                "Could not compute document search vector count",
+                error=str(exc),
+                collection=collection_name,
+            )
 
         dense_from_vectors = bool(
             vector_count is not None
-            and vector_count > int(getattr(settings, "rag_dense_chunk_threshold", 100_000) or 100_000)
+            and vector_count
+            > int(getattr(settings, "rag_dense_chunk_threshold", 100_000) or 100_000)
         )
         effective_filters = dict(plan.filters or {})
         dense_unscoped = bool((plan.dense or dense_from_vectors) and not effective_filters)
@@ -719,7 +741,10 @@ async def search_documents(
                     filters=effective_filters or None,
                     use_hybrid=effective_use_hybrid,
                 ),
-                timeout=max(0.001, float(plan.deadline_seconds or settings.rag_fast_retrieval_deadline_seconds)),
+                timeout=max(
+                    0.001,
+                    float(plan.deadline_seconds or settings.rag_fast_retrieval_deadline_seconds),
+                ),
             )
         except TimeoutError:
             return DocumentSearchResponse(
@@ -899,7 +924,11 @@ async def list_table_facts(
             }
             for row in rows
         ]
-        fallback_by_type = dict(sorted(Counter(str(item.get("semantic_type") or "spreadsheet") for item in items).items()))
+        fallback_by_type = dict(
+            sorted(
+                Counter(str(item.get("semantic_type") or "spreadsheet") for item in items).items()
+            )
+        )
         return {
             "collection_name": collection_name,
             "vector_db_type": db_type,
@@ -964,7 +993,11 @@ def list_document_facts(
         query = query.filter(KnowledgeDocumentFact.semantic_type == semantic_type)
     total = query.count()
     rows = (
-        query.order_by(KnowledgeDocumentFact.document_filename, KnowledgeDocumentFact.page, KnowledgeDocumentFact.paragraph_index)
+        query.order_by(
+            KnowledgeDocumentFact.document_filename,
+            KnowledgeDocumentFact.page,
+            KnowledgeDocumentFact.paragraph_index,
+        )
         .offset(offset)
         .limit(limit)
         .all()
@@ -1121,13 +1154,9 @@ def _resolve_governed_original_path(
     except HTTPException:
         return False, None, None
     try:
-        locator = _source_backing_locator(
-            db, collection=collection, filename=filename
-        )
+        locator = _source_backing_locator(db, collection=collection, filename=filename)
     except SourceBackingError as exc:
-        logger.warning(
-            f"Governed source locator is invalid for {document_id}: {exc}"
-        )
+        logger.warning(f"Governed source locator is invalid for {document_id}: {exc}")
         return True, None, None
     if locator is None:
         return False, None, None
@@ -1170,9 +1199,7 @@ def _resolve_original_bytes(
         collection = get_collection_or_404(
             db, workspace_id=workspace.id, collection_ref=collection_name
         )
-        locator = _source_backing_locator(
-            db, collection=collection, filename=filename
-        )
+        locator = _source_backing_locator(db, collection=collection, filename=filename)
         if locator is not None:
             # The governed locator is the authoritative original. Never let a
             # stale same-named object-store key shadow it.
@@ -1185,9 +1212,7 @@ def _resolve_original_bytes(
                     allowed_statuses={"received", "promoted"},
                 )
             except Exception as exc:  # noqa: BLE001 - fail closed at the boundary.
-                logger.warning(
-                    f"Governed source lookup failed for {document_id}: {exc}"
-                )
+                logger.warning(f"Governed source lookup failed for {document_id}: {exc}")
                 return None
         store = get_object_store()
         key = resolve_original_key(collection, filename, store=store)
@@ -1197,9 +1222,7 @@ def _resolve_original_bytes(
         if fallback_key:
             return store.read_bytes(fallback_key)
     except SourceBackingError as exc:
-        logger.warning(
-            f"Governed source locator is invalid for {document_id}: {exc}"
-        )
+        logger.warning(f"Governed source locator is invalid for {document_id}: {exc}")
         return None
     except HTTPException:
         pass
@@ -1228,9 +1251,7 @@ def _resolve_original_meta(
         collection = get_collection_or_404(
             db, workspace_id=workspace.id, collection_ref=collection_name
         )
-        locator = _source_backing_locator(
-            db, collection=collection, filename=filename
-        )
+        locator = _source_backing_locator(db, collection=collection, filename=filename)
         if locator is not None:
             try:
                 return backing_source_meta(
@@ -1241,9 +1262,7 @@ def _resolve_original_meta(
                     allowed_statuses={"received", "promoted"},
                 )
             except Exception as exc:  # noqa: BLE001 - fail closed at the boundary.
-                logger.warning(
-                    f"Governed source metadata lookup failed for {document_id}: {exc}"
-                )
+                logger.warning(f"Governed source metadata lookup failed for {document_id}: {exc}")
                 return False, 0
         store = get_object_store()
         key = resolve_original_key(collection, filename, store=store)
@@ -1253,9 +1272,7 @@ def _resolve_original_meta(
         if fallback_key:
             return True, int(store.size(fallback_key) or 0)
     except SourceBackingError as exc:
-        logger.warning(
-            f"Governed source locator is invalid for {document_id}: {exc}"
-        )
+        logger.warning(f"Governed source locator is invalid for {document_id}: {exc}")
         return False, 0
     except HTTPException:
         pass
@@ -1312,9 +1329,9 @@ def _office_preview_pdf_file(source_path: Path, filename: str) -> Path:
     ]
     completed = subprocess.run(cmd, capture_output=True, timeout=45, check=False)
     if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or b"").decode(
-            "utf-8", errors="ignore"
-        )[:300]
+        detail = (completed.stderr or completed.stdout or b"").decode("utf-8", errors="ignore")[
+            :300
+        ]
         raise RuntimeError(f"office_preview_conversion_failed:{detail}")
     pdf_path = source_path.with_suffix(".pdf")
     if not pdf_path.exists():
@@ -1708,7 +1725,9 @@ async def converted_preview_document(
         if not resolved_name:
             raise HTTPException(status_code=404, detail="Document not found")
         if Path(resolved_name).suffix.lower() not in _OFFICE_PREVIEW_EXTENSIONS:
-            raise HTTPException(status_code=415, detail="Converted preview is not available for this file type")
+            raise HTTPException(
+                status_code=415, detail="Converted preview is not available for this file type"
+            )
         safe_disposition = "attachment" if disposition == "attachment" else "inline"
         governed, governed_path, cleanup_root = _resolve_governed_original_path(
             db,
@@ -1734,9 +1753,7 @@ async def converted_preview_document(
                     ),
                     "Cache-Control": "private, max-age=300",
                 },
-                background=BackgroundTask(
-                    shutil.rmtree, cleanup_root, ignore_errors=True
-                ),
+                background=BackgroundTask(shutil.rmtree, cleanup_root, ignore_errors=True),
             )
 
         data = _resolve_original_bytes(db, workspace, collection_name, document_id, resolved_name)
@@ -1800,7 +1817,9 @@ async def list_document_chunks(
                 )
                 for row in collection_source_rows(db, collection=collection):
                     metadata = dict(row.source_metadata or {})
-                    row_doc_id = metadata.get("document_id") or row.normalized_name or row.filename or row.id
+                    row_doc_id = (
+                        metadata.get("document_id") or row.normalized_name or row.filename or row.id
+                    )
                     if str(row_doc_id) == str(document_id):
                         total = int(row.chunk_count or 0)
                         total_is_exact = True
@@ -1812,7 +1831,9 @@ async def list_document_chunks(
                 total = await doc_service.get_document_count()
                 total_is_exact = True
         except Exception as exc:  # noqa: BLE001 - diagnostics only.
-            logger.warning("Could not compute chunk total", error=str(exc), collection=collection_name)
+            logger.warning(
+                "Could not compute chunk total", error=str(exc), collection=collection_name
+            )
         payloads = await doc_service.vector_db.list_payloads(
             filters=filters, limit=limit, offset=offset
         )
@@ -1842,7 +1863,9 @@ async def list_document_chunks(
             "count": len(chunks),
             "total": total if total is not None else len(chunks),
             "total_is_exact": total_is_exact,
-            "has_more": (offset + len(chunks) < total) if total is not None else len(chunks) >= limit,
+            "has_more": (offset + len(chunks) < total)
+            if total is not None
+            else len(chunks) >= limit,
             "navigation_note": (
                 "Global chunk browsing is paginated over a dense vector collection; use document filters for audit-grade navigation."
                 if not document_id
@@ -1964,7 +1987,10 @@ def _is_dense_graph_request(
     source_threshold = int(getattr(settings, "rag_dense_source_threshold", 5_000) or 5_000)
     ledger_chunks = int(getattr(collection, "chunk_count", 0) or 0) if collection else 0
     ledger_sources = int(getattr(collection, "document_count", 0) or 0) if collection else 0
-    return max(int(total_chunks or 0), ledger_chunks) > chunk_threshold or ledger_sources > source_threshold
+    return (
+        max(int(total_chunks or 0), ledger_chunks) > chunk_threshold
+        or ledger_sources > source_threshold
+    )
 
 
 @router.get("/graph")
@@ -2061,11 +2087,14 @@ async def embedding_graph(
                 "edges": [],
                 "supported": db_type == "qdrant" or db_type == "faiss",
                 "cached": False,
-                "warnings": ["No sampled vectors were returned before the graph timeout."] + warnings,
+                "warnings": ["No sampled vectors were returned before the graph timeout."]
+                + warnings,
             }
         try:
             graph = await asyncio.wait_for(
-                asyncio.to_thread(_build_embedding_graph, rows, neighbors=neighbors, min_score=min_score),
+                asyncio.to_thread(
+                    _build_embedding_graph, rows, neighbors=neighbors, min_score=min_score
+                ),
                 timeout=8,
             )
         except asyncio.TimeoutError:
@@ -2078,9 +2107,11 @@ async def embedding_graph(
                         "document_filename": (row.get("payload") or {}).get("document_filename"),
                         "chunk_index": (row.get("payload") or {}).get("chunk_index"),
                         "section_path": (row.get("payload") or {}).get("section_path"),
-                        "page": (row.get("payload") or {}).get("page") or (row.get("payload") or {}).get("page_number"),
+                        "page": (row.get("payload") or {}).get("page")
+                        or (row.get("payload") or {}).get("page_number"),
                         "snippet": str((row.get("payload") or {}).get("content") or "")[:180],
-                        "source_kind": (row.get("payload") or {}).get("source_kind") or (row.get("payload") or {}).get("document_type"),
+                        "source_kind": (row.get("payload") or {}).get("source_kind")
+                        or (row.get("payload") or {}).get("document_type"),
                         "project_code": (row.get("payload") or {}).get("project_code"),
                         "archive_name": (row.get("payload") or {}).get("archive_name"),
                         "x": 0.5,
@@ -2526,7 +2557,9 @@ async def get_collection_inventory(
         workspace_id=workspace.id,
         collection_ref=collection_id,
     )
-    require_read_collection(db, workspace=workspace, user_id=getattr(user, "id", None), collection=row)
+    require_read_collection(
+        db, workspace=workspace, user_id=getattr(user, "id", None), collection=row
+    )
     return collection_inventory(
         db,
         collection=row,
@@ -2545,6 +2578,85 @@ async def get_collection_inventory(
     )
 
 
+@router.post("/collections/{collection_id}/embedding/reindex", status_code=202)
+@handled_huggingface
+def reindex_collection_embedding(
+    collection_id: str,
+    payload: CollectionEmbeddingReindexRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Rebuild all chunks; retain the active model/index until validation succeeds."""
+    from app.services.rag.embedding_generation import queue_embedding_reindex
+
+    collection = get_collection_or_404(db, workspace_id=workspace.id, collection_ref=collection_id)
+    require_write_collection(db, workspace=workspace, user_id=user.id, collection=collection)
+    job = queue_embedding_reindex(
+        db,
+        collection=collection,
+        artifact_id=payload.artifact_id,
+        parameters={
+            "normalize_embeddings": payload.normalize_embeddings,
+            "batch_size": payload.batch_size,
+        },
+    )
+    db.commit()
+    dispatch_worker_job(db, job, allow_inline_fallback=False)
+    db.commit()
+    db.refresh(job)
+    return {
+        "job": serialize_job(job),
+        "estimated_chunks": collection.chunk_count,
+        "active_generation": collection.active_generation,
+        "pending_generation": collection.pending_generation,
+    }
+
+
+@router.post("/collections/{collection_id}/reranker", status_code=202)
+@handled_huggingface
+def select_collection_reranker(
+    collection_id: str,
+    payload: CollectionRerankerRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    from app.services.rag.reranker_artifacts import queue_reranker_activation
+
+    collection = get_collection_or_404(db, workspace_id=workspace.id, collection_ref=collection_id)
+    require_write_collection(db, workspace=workspace, user_id=user.id, collection=collection)
+    job = queue_reranker_activation(db, collection=collection, artifact_id=payload.artifact_id)
+    db.commit()
+    if job:
+        dispatch_worker_job(db, job, allow_inline_fallback=False)
+        db.commit()
+        db.refresh(job)
+    return {
+        "job": serialize_job(job) if job else None,
+        "reranker_artifact_id": collection.reranker_artifact_id,
+    }
+
+
+@router.post("/collections/{collection_id}/model-jobs/{job_id}/cancel")
+def cancel_collection_model_job(
+    collection_id: str,
+    job_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    from app.services.rag.embedding_generation import cancel_model_job
+
+    collection = get_collection_or_404(db, workspace_id=workspace.id, collection_ref=collection_id)
+    require_write_collection(db, workspace=workspace, user_id=user.id, collection=collection)
+    job = cancel_model_job(
+        db, workspace_id=workspace.id, collection_id=collection.id, job_id=job_id
+    )
+    db.commit()
+    return {"job": serialize_job(job)}
+
+
 @router.get("/collections/{collection_id}/diagnostics")
 async def get_collection_diagnostics(
     collection_id: str,
@@ -2559,7 +2671,9 @@ async def get_collection_diagnostics(
         workspace_id=workspace.id,
         collection_ref=collection_id,
     )
-    require_read_collection(db, workspace=workspace, user_id=getattr(user, "id", None), collection=row)
+    require_read_collection(
+        db, workspace=workspace, user_id=getattr(user, "id", None), collection=row
+    )
     db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
     inventory = collection_inventory(db, collection=row, include_sources=False)
     vector_points: int | None = None
@@ -2591,7 +2705,10 @@ async def get_collection_diagnostics(
     document_fact_doc_types = {
         str(kind or "unknown"): int(count)
         for kind, count in (
-            db.query(KnowledgeDocumentFact.document_type, func.count(func.distinct(KnowledgeDocumentFact.document_id)))
+            db.query(
+                KnowledgeDocumentFact.document_type,
+                func.count(func.distinct(KnowledgeDocumentFact.document_id)),
+            )
             .filter(
                 KnowledgeDocumentFact.workspace_id == workspace.id,
                 KnowledgeDocumentFact.collection_id == row.id,
@@ -2618,7 +2735,10 @@ async def get_collection_diagnostics(
     drift_status = "unknown"
     if drift is not None:
         drift_status = "ok" if drift_abs == 0 else ("warning" if drift_abs <= 5000 else "drift")
-    dense = bool((vector_points or ledger_chunks) > 100_000 or int(inventory.get("source_count") or 0) > 5_000)
+    dense = bool(
+        (vector_points or ledger_chunks) > 100_000
+        or int(inventory.get("source_count") or 0) > 5_000
+    )
     offline_sample = 5_000 if dense else min(max(vector_points or ledger_chunks or 0, 0), 500)
     offline_artifact_key = get_object_store().key(
         row.artifact_prefix,
@@ -2627,7 +2747,9 @@ async def get_collection_diagnostics(
         "latest.json",
     )
     offline_clustering = {
-        "state": "recommended" if dense and supported_graph and (vector_points or ledger_chunks) else "not_needed",
+        "state": "recommended"
+        if dense and supported_graph and (vector_points or ledger_chunks)
+        else "not_needed",
         "reason": (
             "Use a manually launched offline artifact if the live sampled graph becomes slow or unstable."
             if dense
@@ -2646,7 +2768,9 @@ async def get_collection_diagnostics(
     feature_status = {
         "graph": {
             "state": "available" if supported_graph and (vector_points or 0) > 0 else "disabled",
-            "reason": "Sampled only for dense collections." if supported_graph else "Vector store does not expose graph sampling.",
+            "reason": "Sampled only for dense collections."
+            if supported_graph
+            else "Vector store does not expose graph sampling.",
         },
         "offline_clustering": {
             "state": offline_clustering["state"],
@@ -2654,11 +2778,21 @@ async def get_collection_diagnostics(
         },
         "document_facts": {
             "state": "available" if sum(document_fact_counts.values()) > 0 else "empty",
-            "reason": "Structured document facts are present." if document_fact_counts else "No document facts are indexed.",
+            "reason": "Structured document facts are present."
+            if document_fact_counts
+            else "No document facts are indexed.",
         },
         "ocr": {
             "state": "available"
-            if any(key in document_fact_counts for key in ("document_ocr_text", "visual_text_block", "visual_parameter", "visual_warning"))
+            if any(
+                key in document_fact_counts
+                for key in (
+                    "document_ocr_text",
+                    "visual_text_block",
+                    "visual_parameter",
+                    "visual_warning",
+                )
+            )
             else "empty",
             "reason": "No OCR/visual fact layer exists for this collection.",
         },
@@ -2939,9 +3073,7 @@ async def list_worker_jobs(
         require_read_collection(db, workspace=workspace, collection=collection, member=principal)
         query = query.filter(WorkerJob.collection_id == collection.id)
     jobs = (
-        query.order_by(WorkerJob.updated_at.desc(), WorkerJob.created_at.desc())
-        .limit(limit)
-        .all()
+        query.order_by(WorkerJob.updated_at.desc(), WorkerJob.created_at.desc()).limit(limit).all()
     )
     collection_rows = {
         row.id: row
@@ -2960,7 +3092,9 @@ async def list_worker_jobs(
 @router.get("/jobs/{job_id}")
 async def get_worker_job(
     job_id: str,
-    include_context: bool = Query(False, description="Include heavy deep retrieval context when explicitly requested."),
+    include_context: bool = Query(
+        False, description="Include heavy deep retrieval context when explicitly requested."
+    ),
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
@@ -2975,10 +3109,14 @@ async def get_worker_job(
     principal = load_principal(db, workspace_id=workspace.id, user_id=getattr(user, "id", None))
     collection_rows: dict[str, KnowledgeCollection] = {}
     if job.collection_id:
-        collection = db.query(KnowledgeCollection).filter(
-            KnowledgeCollection.id == job.collection_id,
-            KnowledgeCollection.workspace_id == workspace.id,
-        ).first()
+        collection = (
+            db.query(KnowledgeCollection)
+            .filter(
+                KnowledgeCollection.id == job.collection_id,
+                KnowledgeCollection.workspace_id == workspace.id,
+            )
+            .first()
+        )
         if collection is not None:
             collection_rows[collection.id] = collection
     if not _worker_job_visible(job, principal, collection_rows):
@@ -3001,9 +3139,15 @@ def retry_document_ingest(
 ):
     """Reindex retained sources; preserve the deposit binding and failed attempt."""
     _require_workspace_admin(db, user, workspace)
-    job = db.query(WorkerJob).filter(
-        WorkerJob.id == job_id, WorkerJob.workspace_id == workspace.id,
-    ).with_for_update().first()
+    job = (
+        db.query(WorkerJob)
+        .filter(
+            WorkerJob.id == job_id,
+            WorkerJob.workspace_id == workspace.id,
+        )
+        .with_for_update()
+        .first()
+    )
     if not job:
         raise HTTPException(404, "Worker job not found")
     if job.kind != "document_ingest_index" or not job.collection_id:
@@ -3013,18 +3157,33 @@ def retry_document_ingest(
     # Governed waves require their runner's baseline/rollback and postflight.
     if options.get("source_profile") == "needlepunch" or options.get("wave_id"):
         raise HTTPException(409, detail={"code": "INGEST_RETRY_CAMPAIGN_REQUIRED"})
-    deposits = db.query(DepositFile).filter(
-        DepositFile.workspace_id == workspace.id, DepositFile.worker_job_id == job.id,
-    ).all()
+    deposits = (
+        db.query(DepositFile)
+        .filter(
+            DepositFile.workspace_id == workspace.id,
+            DepositFile.worker_job_id == job.id,
+        )
+        .all()
+    )
     if deposits:
-        enforce_permission(db, user=user, workspace=workspace,
-                           resource_kind="deposit_file", action="promote",
-                           resource_attrs={"capability": "secure_deposit"}, audit_prefix="deposit")
+        enforce_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="deposit_file",
+            action="promote",
+            resource_attrs={"capability": "secure_deposit"},
+            audit_prefix="deposit",
+        )
         if any(row.status not in {"received", "promoted"} for row in deposits):
             raise HTTPException(409, detail={"code": "INGEST_RETRY_SOURCE_UNAVAILABLE"})
     request_id = str(payload.request_id)
     replay = result.get("retry_request_id") == request_id
-    pending = job.status == "queued" and result.get("stage") == "dispatch_pending" and not job.celery_task_id
+    pending = (
+        job.status == "queued"
+        and result.get("stage") == "dispatch_pending"
+        and not job.celery_task_id
+    )
     if replay and not pending:
         return serialize_job(job)
     observed = payload.observed_updated_at
@@ -3034,27 +3193,42 @@ def retry_document_ingest(
         raise HTTPException(409, detail={"code": "INGEST_RETRY_STALE"})
     if job.status != "failed" and not pending:
         raise HTTPException(409, detail={"code": "INGEST_RETRY_NOT_FAILED"})
-    collection = get_collection_or_404(db, workspace_id=workspace.id, collection_ref=job.collection_id)
-    newer_or_active = db.query(WorkerJob).filter(
-        WorkerJob.collection_id == job.collection_id,
-        WorkerJob.kind == "document_ingest_index", WorkerJob.id != job.id,
-        (WorkerJob.created_at > job.created_at) | WorkerJob.status.in_(["queued", "running"]),
-    ).first()
+    collection = get_collection_or_404(
+        db, workspace_id=workspace.id, collection_ref=job.collection_id
+    )
+    newer_or_active = (
+        db.query(WorkerJob)
+        .filter(
+            WorkerJob.collection_id == job.collection_id,
+            WorkerJob.kind == "document_ingest_index",
+            WorkerJob.id != job.id,
+            (WorkerJob.created_at > job.created_at) | WorkerJob.status.in_(["queued", "running"]),
+        )
+        .first()
+    )
     if newer_or_active:
         raise HTTPException(409, detail={"code": "INGEST_RETRY_SUPERSEDED"})
     if options.get("mode") == "incremental" and collection.status != "ready":
         raise HTTPException(409, detail={"code": "INGEST_RETRY_BASELINE_REQUIRED"})
     if job.status == "failed":
         history = list(result.get("retry_history") or [])
-        history.append({
-            "error": job.error, "celery_task_id": job.celery_task_id,
-            "started_at": job.started_at.isoformat() if job.started_at else None,
-            "completed_at": job.completed_at.isoformat() if job.completed_at else None,
-            "result": {key: value for key, value in result.items() if key != "retry_history"},
-            "retried_by": user.id, "retried_at": datetime.utcnow().isoformat(),
-        })
-        job.result = {"ingest_options": options, "retry_history": history,
-                      "retry_request_id": request_id, "stage": "dispatch_pending"}
+        history.append(
+            {
+                "error": job.error,
+                "celery_task_id": job.celery_task_id,
+                "started_at": job.started_at.isoformat() if job.started_at else None,
+                "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+                "result": {key: value for key, value in result.items() if key != "retry_history"},
+                "retried_by": user.id,
+                "retried_at": datetime.utcnow().isoformat(),
+            }
+        )
+        job.result = {
+            "ingest_options": options,
+            "retry_history": history,
+            "retry_request_id": request_id,
+            "stage": "dispatch_pending",
+        }
         job.status, job.progress, job.error = "queued", 0, None
         job.started_at = job.completed_at = job.celery_task_id = None
         job.updated_at = datetime.utcnow()
@@ -3155,7 +3329,9 @@ async def delete_collection(
             else:
                 row_id = None
 
-            logger.info(f"Successfully deleted collection: {logical_collection_name} (type: {db_type})")
+            logger.info(
+                f"Successfully deleted collection: {logical_collection_name} (type: {db_type})"
+            )
             return {
                 "status": "success",
                 "message": f"Collection '{logical_collection_name}' deleted successfully",

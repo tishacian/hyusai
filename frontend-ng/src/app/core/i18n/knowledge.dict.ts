@@ -7,6 +7,18 @@
  */
 
 export const KNOWLEDGE_FR = {
+  "knowledge.models.title": "Modèles d’indexation et de classement",
+  "knowledge.models.active": "Modèle et index actifs",
+  "knowledge.models.pending": "Génération en préparation",
+  "knowledge.models.embedding": "Modèle d’embedding importé",
+  "knowledge.models.choose": "Choisir un artefact",
+  "knowledge.models.reranker": "Modèle de reclassement",
+  "knowledge.models.built_in": "Modèle intégré",
+  "knowledge.models.reindex_help": "La réindexation recalculera environ {count} fragments. La recherche conserve le modèle et l’index actifs jusqu’à la bascule après validation.",
+  "knowledge.models.confirm": "Je confirme la reconstruction de cette collection.",
+  "knowledge.models.reindex": "Réindexer avec ce modèle",
+  "knowledge.models.set_reranker": "Activer le modèle de reclassement",
+
   'knowledge.title': 'Connaissances',
 
   // --- Object header ------------------------------------------------
@@ -163,6 +175,18 @@ export const KNOWLEDGE_FR = {
  * other, before the guard even runs.
  */
 export const KNOWLEDGE_EN: Record<keyof typeof KNOWLEDGE_FR, string> = {
+  "knowledge.models.title": "Indexing and reranking models",
+  "knowledge.models.active": "Active model and index",
+  "knowledge.models.pending": "Pending generation",
+  "knowledge.models.embedding": "Imported embedding model",
+  "knowledge.models.choose": "Choose an artifact",
+  "knowledge.models.reranker": "Reranking model",
+  "knowledge.models.built_in": "Built-in model",
+  "knowledge.models.reindex_help": "Reindexing will recalculate approximately {count} chunks. Search keeps using the active model and index until the validated replacement is ready.",
+  "knowledge.models.confirm": "I confirm rebuilding this collection.",
+  "knowledge.models.reindex": "Reindex with this model",
+  "knowledge.models.set_reranker": "Activate reranking model",
+
   'knowledge.title': 'Knowledge',
 
   // --- Object header ------------------------------------------------

@@ -597,6 +597,7 @@ export const AGENTIUM_SURFACE_LEAVES: AgentiumSurfaceLeaf[] = [
   { id: 'system-run', parent: 'systems', route: '/systems/:systemId/run', label: 'System Run' },
   { id: 'capability-curation', parent: 'capabilities', route: '/capabilities/curation', label: 'Capability curation' },
   { id: 'connector-rpa-bridge', parent: 'connectors', route: '/connectors/rpa-bridge', label: 'RPA bridge' },
+  { id: 'connector-huggingface', parent: 'connectors', route: '/connectors/huggingface', label: 'Hugging Face' },
   { id: 'connector-postgresql', parent: 'connectors', route: '/connectors/postgresql', label: 'PostgreSQL' },
   { id: 'create-app-new', parent: 'create-apps', route: '/create/apps/new', label: 'New business application' },
   { id: 'create-app-edit', parent: 'create-apps', route: '/create/apps/:appId', label: 'Studio editor' },

@@ -73,24 +73,37 @@ router = APIRouter()
 
 @router.get("/workspaces/{slug}/me/experience")
 async def get_member_experience(
-    slug: str, user: User = Depends(get_current_user), db: DBSession = Depends(get_db),
+    slug: str,
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
     from app.schemas.adoption import ExperienceProgress, with_first_seen
+
     workspace, member = _resolve_workspace_and_role(db, user, slug)
     progress = ExperienceProgress.model_validate(member.experience_progress or {})
     if progress.first_seen_at is None:
         # First read by this member in this workspace: record it once, under
         # the row lock, so a concurrent first read cannot move it. It starts
         # at the membership's join date when there is one.
-        member = db.query(WorkspaceMember).filter(WorkspaceMember.id == member.id).populate_existing().with_for_update().one()
-        progress, created = with_first_seen(member.experience_progress or {}, joined_at=member.joined_at)
+        member = (
+            db.query(WorkspaceMember)
+            .filter(WorkspaceMember.id == member.id)
+            .populate_existing()
+            .with_for_update()
+            .one()
+        )
+        progress, created = with_first_seen(
+            member.experience_progress or {}, joined_at=member.joined_at
+        )
         if created:
             member.experience_progress = progress.model_dump(mode="json")
         db.commit()
     return _experience_payload(db, workspace, member, progress)
 
 
-def _experience_payload(db: DBSession, workspace: Workspace, member: WorkspaceMember, progress) -> dict:
+def _experience_payload(
+    db: DBSession, workspace: Workspace, member: WorkspaceMember, progress
+) -> dict:
     """The member's progress for the journey this workspace offers, and whether it can run.
 
     Showcase keeps the NorthForge example (available once its corpus is
@@ -99,24 +112,35 @@ def _experience_payload(db: DBSession, workspace: Workspace, member: WorkspaceMe
     """
     from app.models.knowledge_collection import KnowledgeCollection
     from app.schemas.adoption import SHOWCASE_WORKSPACE_SLUG, for_journey, journey_for_workspace
+
     journey = journey_for_workspace(workspace.slug)
     progress = for_journey(progress.model_dump(mode="json"), journey)
     example_row = (
-        db.query(KnowledgeCollection).filter_by(
+        db.query(KnowledgeCollection)
+        .filter_by(
             workspace_id=workspace.id,
             slug="agentium-showcase-notices",
             status="ready",
-        ).filter(KnowledgeCollection.document_count > 0, KnowledgeCollection.chunk_count > 0).first()
+        )
+        .filter(KnowledgeCollection.document_count > 0, KnowledgeCollection.chunk_count > 0)
+        .first()
         if workspace.slug == SHOWCASE_WORKSPACE_SLUG
         else None
     )
     from app.services.collection_access import can_read_collection
+
     example_available = example_row is not None and can_read_collection(member, example_row)
     payload = {**progress.model_dump(mode="json"), "example_available": example_available}
     if journey == "northforge_sources":
         return {**payload, "available": example_available}
     from app.services.adoption_sources import member_sources
-    return {**payload, **member_sources(db, workspace=workspace, member=member, chosen_collection_id=progress.collection_id)}
+
+    return {
+        **payload,
+        **member_sources(
+            db, workspace=workspace, member=member, chosen_collection_id=progress.collection_id
+        ),
+    }
 
 
 # Server-side evidence that a member decided on an answer: the chat feedback
@@ -125,7 +149,9 @@ def _experience_payload(db: DBSession, workspace: Workspace, member: WorkspaceMe
 _CLIENT_DECISION_EVENTS = ("chat_feedback", "kc.chat_correction.created")
 
 
-def _client_journey_started_at(db: DBSession, *, workspace: Workspace, user: User, progress) -> Optional[datetime]:
+def _client_journey_started_at(
+    db: DBSession, *, workspace: Workspace, user: User, progress
+) -> Optional[datetime]:
     """When the member started ``client_sources``: their first recorded step,
     else their first sighting in the workspace (naive UTC, like audit rows)."""
     from app.models.audit import AuditLog
@@ -182,28 +208,56 @@ def _client_decision_recorded(db: DBSession, *, workspace: Workspace, user: User
 
 @router.patch("/workspaces/{slug}/me/experience")
 async def update_member_experience(
-    slug: str, body: "ExperienceProgressUpdate",
-    user: User = Depends(get_current_user), db: DBSession = Depends(get_db),
+    slug: str,
+    body: "ExperienceProgressUpdate",
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
     from app.schemas.adoption import update_progress
     from app.services.audit_logger import emit_audit_event
+
     workspace, member = _resolve_workspace_and_role(db, user, slug)
-    member = db.query(WorkspaceMember).filter(WorkspaceMember.id == member.id).populate_existing().with_for_update().one()
+    member = (
+        db.query(WorkspaceMember)
+        .filter(WorkspaceMember.id == member.id)
+        .populate_existing()
+        .with_for_update()
+        .one()
+    )
     if body.session_id:
         from app.models.user import Session as ChatSession
-        if not db.query(ChatSession).filter_by(id=body.session_id, workspace_id=workspace.id, user_id=user.id, status="active").first():
+
+        if (
+            not db.query(ChatSession)
+            .filter_by(
+                id=body.session_id, workspace_id=workspace.id, user_id=user.id, status="active"
+            )
+            .first()
+        ):
             raise HTTPException(404, "Conversation unavailable")
     if body.run_id:
         from app.models.run import Run
         from app.services.run_access import run_is_visible
-        run = db.query(Run).filter_by(id=body.run_id, workspace_id=workspace.id, initiated_by_user_id=user.id).first()
+
+        run = (
+            db.query(Run)
+            .filter_by(id=body.run_id, workspace_id=workspace.id, initiated_by_user_id=user.id)
+            .first()
+        )
         if run is None or not run_is_visible(db, run=run, user=user, workspace=workspace):
             raise HTTPException(404, "Run unavailable")
     if body.collection_id:
         from app.services.adoption_sources import usable_collection
-        if usable_collection(db, workspace=workspace, member=member, collection_id=body.collection_id) is None:
+
+        if (
+            usable_collection(
+                db, workspace=workspace, member=member, collection_id=body.collection_id
+            )
+            is None
+        ):
             raise HTTPException(404, "Source unavailable")
     from app.schemas.adoption import for_journey, journey_for_workspace
+
     journey = journey_for_workspace(workspace.slug)
     if journey == "client_sources" and body.completed_step == "decision":
         current = for_journey(member.experience_progress or {}, journey)
@@ -225,8 +279,11 @@ async def update_member_experience(
     # JSON mode: ``first_seen_at`` is a datetime and the column is plain JSON.
     member.experience_progress = progress.model_dump(mode="json")
     emit_audit_event(
-        event_type="adoption.progress", workspace_id=workspace.id, actor=user.id,
-        details={"journey": progress.journey, **body.model_dump(exclude_none=True)}, db=db,
+        event_type="adoption.progress",
+        workspace_id=workspace.id,
+        actor=user.id,
+        details={"journey": progress.journey, **body.model_dump(exclude_none=True)},
+        db=db,
     )
     db.commit()
     return progress.model_dump(mode="json")
@@ -332,7 +389,9 @@ class WorkspaceUpdate(BaseModel):
             normalized = dict(value)
             brand = normalized.get("platform_brand")
             if isinstance(brand, dict) and "appearance" in brand:
-                normalized["platform_brand"] = PlatformBrand.model_validate(brand).model_dump(exclude_none=True)
+                normalized["platform_brand"] = PlatformBrand.model_validate(brand).model_dump(
+                    exclude_none=True
+                )
             if "family" in normalized:
                 raw_family = normalized["family"]
                 if not isinstance(raw_family, str):
@@ -1162,6 +1221,7 @@ def _settings_with_managed_workspace_fields_preserved(
         (WORKSPACE_GATE_KEY, "LOT7_PROJECTION_ROLLOUT_STATE_MANAGED"),
         (WORKSPACE_APP_ROLLOUT_STATE_KEY, "LOT9_WORKSPACE_APP_ROLLOUT_STATE_MANAGED"),
         (GENERIC_CONNECTORS_KEY, "GENERIC_CONNECTORS_MANAGED"),
+        ("huggingface_policy", "HF_POLICY_MANAGED"),
     )
     for field, code in managed_top_level_fields:
         current_has_field = field in current_settings
@@ -1181,16 +1241,12 @@ def _settings_with_managed_workspace_fields_preserved(
 
     current_experience_raw = current_settings.get("experience")
     current_experience = (
-        dict(current_experience_raw)
-        if isinstance(current_experience_raw, Mapping)
-        else {}
+        dict(current_experience_raw) if isinstance(current_experience_raw, Mapping) else {}
     )
     requested_has_experience = "experience" in next_settings
     requested_experience_raw = next_settings.get("experience")
     requested_experience = (
-        dict(requested_experience_raw)
-        if isinstance(requested_experience_raw, Mapping)
-        else {}
+        dict(requested_experience_raw) if isinstance(requested_experience_raw, Mapping) else {}
     )
     current_has_app_canary = WORKSPACE_APP_CANARY_MARKER in current_experience
     requested_has_app_canary = WORKSPACE_APP_CANARY_MARKER in requested_experience
@@ -1279,9 +1335,7 @@ def _settings_with_managed_workspace_fields_preserved(
     managed_projection_flags = frozenset(FEATURE_BY_PROJECTION.values())
     for flag in managed_projection_flags:
         current_has_flag = isinstance(current_features, Mapping) and flag in current_features
-        requested_has_flag = (
-            isinstance(requested_features, Mapping) and flag in requested_features
-        )
+        requested_has_flag = isinstance(requested_features, Mapping) and flag in requested_features
         if requested_has_flag and (
             not current_has_flag or requested_features[flag] != current_features[flag]
         ):
@@ -1309,16 +1363,14 @@ def _settings_with_managed_workspace_fields_preserved(
     )
     if requested_has_value_loop_flag and (
         not current_has_value_loop_flag
-        or requested_features[VALUE_LOOP_FEATURE_KEY]
-        != current_features[VALUE_LOOP_FEATURE_KEY]
+        or requested_features[VALUE_LOOP_FEATURE_KEY] != current_features[VALUE_LOOP_FEATURE_KEY]
     ):
         raise HTTPException(
             status_code=409,
             detail={
                 "code": "LOT8_VALUE_LOOP_ROLLOUT_STATE_MANAGED",
                 "message": (
-                    f"features.{VALUE_LOOP_FEATURE_KEY} is managed by the Lot 8 "
-                    "rollout service"
+                    f"features.{VALUE_LOOP_FEATURE_KEY} is managed by the Lot 8 rollout service"
                 ),
             },
         )
@@ -1328,9 +1380,7 @@ def _settings_with_managed_workspace_fields_preserved(
             if isinstance(next_settings.get("features"), Mapping)
             else {}
         )
-        preserved_features[VALUE_LOOP_FEATURE_KEY] = current_features[
-            VALUE_LOOP_FEATURE_KEY
-        ]
+        preserved_features[VALUE_LOOP_FEATURE_KEY] = current_features[VALUE_LOOP_FEATURE_KEY]
         next_settings["features"] = preserved_features
 
     current_has_workspace_app_flag = isinstance(current_features, Mapping) and (
@@ -1526,10 +1576,14 @@ async def update_workspace(
         before = body.expected_platform_brand or {}
         after = current_settings.get("platform_brand") or {}
         emit_audit_event(
-            event_type="workspace.brand.updated", workspace_id=workspace.id, actor=user.id,
+            event_type="workspace.brand.updated",
+            workspace_id=workspace.id,
+            actor=user.id,
             details={
                 "enabled": bool(after),
-                "changed_fields": sorted(key for key in before.keys() | after.keys() if before.get(key) != after.get(key)),
+                "changed_fields": sorted(
+                    key for key in before.keys() | after.keys() if before.get(key) != after.get(key)
+                ),
             },
             db=db,
         )
@@ -2015,12 +2069,7 @@ async def available_members(
         .limit(10)
         .all()
     )
-    return {
-        "users": [
-            {"id": row.id, "email": row.email, "username": row.username}
-            for row in rows
-        ]
-    }
+    return {"users": [{"id": row.id, "email": row.email, "username": row.username} for row in rows]}
 
 
 @router.post("/workspaces/{slug}/members")
@@ -2147,8 +2196,7 @@ async def invite_member(
             list(body.custom_labels) == list(existing.custom_labels or [])
         )
         same_entitlements = (
-            requested_app_entitlements is None
-            or requested_app_entitlements == current_entitlements
+            requested_app_entitlements is None or requested_app_entitlements == current_entitlements
         )
         if same_role and same_labels and same_entitlements:
             return {

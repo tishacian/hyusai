@@ -46,7 +46,12 @@ def test_numeric_knobs_keep_their_clamp_and_auto_sentinel():
 def test_enum_bool_and_int_list_knobs_coerce_into_their_own_domain():
     encoder = Knob("text_encoder", "enum", "lsa", choices=("lsa", "minhash"))
     assert encoder.coerce("minhash") == "minhash" and encoder.coerce("bert") == "lsa"
-    assert encoder.payload() == {"key": "text_encoder", "kind": "enum", "default": "lsa", "choices": ["lsa", "minhash"]}
+    assert encoder.payload() == {
+        "key": "text_encoder",
+        "kind": "enum",
+        "default": "lsa",
+        "choices": ["lsa", "minhash"],
+    }
 
     toggle = Knob("calibrate", "bool", False)
     assert toggle.coerce(True) is True and toggle.coerce("yes") is True
@@ -85,18 +90,31 @@ def test_every_metric_ranks_in_its_own_direction():
     assert metric_registry.rank_value("roc_auc", 0.8) == 0.8
     assert metric_registry.rank_value("rmse", 3.0) == -3.0
     assert metric_registry.rank_value("mase", 0.7) > metric_registry.rank_value("mase", 0.9)
-    for unranked in (("coverage", 0.8), ("nonsense", 1.0), ("r2", None), ("r2", True), ("r2", float("nan"))):
+    for unranked in (
+        ("coverage", 0.8),
+        ("nonsense", 1.0),
+        ("r2", None),
+        ("r2", True),
+        ("r2", float("nan")),
+    ):
         assert metric_registry.rank_value(*unranked) is None
 
 
 def test_every_metric_the_harness_reports_is_registered():
-    tree = ast.parse((BACKEND / "app" / "resources" / "ml_train_harness.py").read_text(encoding="utf-8"))
+    tree = ast.parse(
+        (BACKEND / "app" / "resources" / "ml_train_harness.py").read_text(encoding="utf-8")
+    )
     card = next(
         node.value
         for node in ast.walk(tree)
-        if isinstance(node, ast.Assign) and any(getattr(t, "id", "") == "_CARD_METRICS" for t in node.targets)
+        if isinstance(node, ast.Assign)
+        and any(getattr(t, "id", "") == "_CARD_METRICS" for t in node.targets)
     )
-    keys = {element.value for element in ast.walk(card) if isinstance(element, ast.Constant) and isinstance(element.value, str)}
+    keys = {
+        element.value
+        for element in ast.walk(card)
+        if isinstance(element, ast.Constant) and isinstance(element.value, str)
+    }
     assert keys and keys <= set(metric_registry.METRIC_BY_KEY)
 
 
@@ -104,7 +122,9 @@ def test_the_frontend_fallback_agrees_with_the_registry():
     """Until every surface reads the catalog's registry, its offline copy must
     not rank a metric the other way."""
 
-    source = (BACKEND.parent / "frontend-ng/src/app/features/models/models.vm.ts").read_text(encoding="utf-8")
+    source = (BACKEND.parent / "frontend-ng/src/app/features/models/models.vm.ts").read_text(
+        encoding="utf-8"
+    )
     entries = re.findall(r"^  (\w+): \{[^}]*higherIsBetter: (true|false)", source, re.MULTILINE)
     assert len(entries) >= 12
     for key, higher in entries:
@@ -155,7 +175,9 @@ FORECAST_FIELDS = (
     SpecField("time_column", "column", required=True, column_kinds=("datetime",)),
     SpecField("horizon", "int", required=True, minimum=1, maximum=720),
     SpecField("shape", "enum", default="single", choices=("single", "panel")),
-    SpecField("series_columns", "columns", required=True, max_items=3, when=(("shape", ("panel",)),)),
+    SpecField(
+        "series_columns", "columns", required=True, max_items=3, when=(("shape", ("panel",)),)
+    ),
     SpecField("exog", "column_roles", choices=("future", "static"), max_items=8),
 )
 
@@ -186,9 +208,19 @@ def test_rows_from_before_families_and_unknown_keys_are_tabular():
 
 def test_a_spec_is_parsed_by_its_family_fields():
     family = _forecasting()
-    assert family.parse_spec({"time_column": "ts", "horizon": 24}) == {"time_column": "ts", "horizon": 24, "shape": "single"}
+    assert family.parse_spec({"time_column": "ts", "horizon": 24}) == {
+        "time_column": "ts",
+        "horizon": 24,
+        "shape": "single",
+    }
     panel = family.parse_spec(
-        {"time_column": "ts", "horizon": 24.0, "shape": "panel", "series_columns": ["cell", "cell"], "exog": {"promo": "future"}}
+        {
+            "time_column": "ts",
+            "horizon": 24.0,
+            "shape": "panel",
+            "series_columns": ["cell", "cell"],
+            "exog": {"promo": "future"},
+        }
     )
     assert panel["series_columns"] == ["cell"] and panel["exog"] == {"promo": "future"}
 
@@ -204,9 +236,31 @@ TABULAR_TEST_FIELDS = (
 
 
 def test_tabular_catalog_does_not_offer_options_without_training_effects():
-    assert {field.key for field in TABULAR.spec_fields} == {"calibration", "explain", "fairness_columns", "intervals", "text_encoder", "threshold", "tuning", "tuning_budget_s", "tuning_trials", "distillation_inference_cost_per_1000"}
-    assert TABULAR.parse_spec({}, task="regression") == {"intervals": "off", "tuning": "off", "explain": "off", "text_encoder": "auto"}
-    assert TABULAR.parse_spec({"intervals": "conformal"}, task="classification") == {"calibration": "off", "threshold": "default", "tuning": "off", "explain": "off", "text_encoder": "auto"}
+    assert {field.key for field in TABULAR.spec_fields} == {
+        "calibration",
+        "explain",
+        "fairness_columns",
+        "intervals",
+        "text_encoder",
+        "threshold",
+        "tuning",
+        "tuning_budget_s",
+        "tuning_trials",
+        "distillation_inference_cost_per_1000",
+    }
+    assert TABULAR.parse_spec({}, task="regression") == {
+        "intervals": "off",
+        "tuning": "off",
+        "explain": "off",
+        "text_encoder": "auto",
+    }
+    assert TABULAR.parse_spec({"intervals": "conformal"}, task="classification") == {
+        "calibration": "off",
+        "threshold": "default",
+        "tuning": "off",
+        "explain": "off",
+        "text_encoder": "auto",
+    }
     with pytest.raises(SpecInvalid) as error:
         TABULAR.parse_spec({"unsupported_option": "auto"}, task="regression")
     assert error.value.field == "unsupported_option"
@@ -215,7 +269,10 @@ def test_tabular_catalog_does_not_offer_options_without_training_effects():
 def test_tabular_visibility_uses_resolved_task_and_defaults_without_storing_task():
     family = replace(TABULAR, spec_fields=TABULAR_TEST_FIELDS)
     assert family.parse_spec({}, task="regression") == {"regression_only": False, "mode": "off"}
-    assert family.parse_spec({}, task="classification") == {"classification_only": False, "mode": "off"}
+    assert family.parse_spec({}, task="classification") == {
+        "classification_only": False,
+        "mode": "off",
+    }
     with pytest.raises(SpecInvalid) as error:
         family.parse_spec({"task": "classification"}, task="regression")
     assert error.value.field == "task"
@@ -226,7 +283,8 @@ def test_incompatible_tabular_options_are_removed_before_validation_with_a_warni
     family = replace(TABULAR, spec_fields=TABULAR_TEST_FIELDS)
     parsed = family.parse_spec(
         {"classification_only": "stale-invalid-value", "budget": "stale-invalid-value"},
-        task="regression", warnings=warnings,
+        task="regression",
+        warnings=warnings,
     )
     assert parsed == {"regression_only": False, "mode": "off"}
     assert warnings == [
@@ -245,9 +303,12 @@ def test_shown_tabular_options_are_required_and_validated_even_before_their_cont
 
 
 def test_task_dependent_required_fields_use_the_same_visibility_context():
-    family = replace(TABULAR, spec_fields=(
-        SpecField("required_number", "int", required=True, when=(("task", ("regression",)),)),
-    ))
+    family = replace(
+        TABULAR,
+        spec_fields=(
+            SpecField("required_number", "int", required=True, when=(("task", ("regression",)),)),
+        ),
+    )
     assert family.parse_spec({}, task="classification") == {}
     with pytest.raises(SpecInvalid) as error:
         family.parse_spec({}, task="regression")
@@ -272,12 +333,16 @@ def test_training_plan_resolves_task_before_spec_and_persists_only_visible_optio
     )
     assert spec.task == "classification"
     assert spec.spec == {"classification_only": False, "mode": "off"}
-    assert spec.warnings == [{"code": "ML_SPEC_FIELD_IGNORED", "field": "regression_only", "task": "classification"}]
+    assert spec.warnings == [
+        {"code": "ML_SPEC_FIELD_IGNORED", "field": "regression_only", "task": "classification"}
+    ]
     model = tabular_ml.create_model(db_session, workspace_id=workspace.id, spec=spec)
     assert model.spec_json == spec.spec
     assert model.params_json["warnings"] == spec.warnings
     with pytest.raises(TabularError) as error:
-        tabular_ml.validate_training(dataset, task=None, target="churn", spec={"mode": "on", "budget": 11})
+        tabular_ml.validate_training(
+            dataset, task=None, target="churn", spec={"mode": "on", "budget": 11}
+        )
     assert error.value.code == "ML_SPEC_INVALID"
     assert error.value.details == {"field": "budget"}
 
@@ -292,7 +357,15 @@ def test_training_plan_resolves_task_before_spec_and_persists_only_visible_optio
         ({"time_column": "ts", "horizon": True}, "horizon"),
         ({"time_column": "ts", "horizon": 24, "shape": "panel"}, "series_columns"),
         ({"time_column": "ts", "horizon": 24, "exog": {"promo": "past"}}, "exog"),
-        ({"time_column": "ts", "horizon": 24, "shape": "panel", "series_columns": ["a", "b", "c", "d"]}, "series_columns"),
+        (
+            {
+                "time_column": "ts",
+                "horizon": 24,
+                "shape": "panel",
+                "series_columns": ["a", "b", "c", "d"],
+            },
+            "series_columns",
+        ),
         ("not an object", "spec"),
     ],
 )
@@ -303,7 +376,13 @@ def test_a_spec_the_family_cannot_read_names_the_field(raw, field):
 
 
 def test_the_tabular_family_accepts_only_implemented_spec_fields(dataset, enabled):
-    assert tabular_ml.validate_training(dataset, task=None, target="churn", spec={}).spec == {"calibration": "off", "threshold": "default", "tuning": "off", "explain": "off", "text_encoder": "auto"}
+    assert tabular_ml.validate_training(dataset, task=None, target="churn", spec={}).spec == {
+        "calibration": "off",
+        "threshold": "default",
+        "tuning": "off",
+        "explain": "off",
+        "text_encoder": "auto",
+    }
     with pytest.raises(TabularError) as error:
         tabular_ml.validate_training(dataset, task=None, target="churn", spec={"horizon": 3})
     assert error.value.code == "ML_SPEC_INVALID" and error.value.details == {"field": "horizon"}
@@ -318,7 +397,9 @@ def test_a_family_trains_on_its_own_queue(monkeypatch):
     assert _forecasting(queue_setting="celery_ml_unset_queue").train_queue() == "cpu"
 
 
-def test_dispatch_sends_the_one_training_task_to_the_family_queue(db_session, workspace, monkeypatch):
+def test_dispatch_sends_the_one_training_task_to_the_family_queue(
+    db_session, workspace, monkeypatch
+):
     import app.workers.celery_app as celery_module
 
     sent = {}
@@ -330,7 +411,14 @@ def test_dispatch_sends_the_one_training_task_to_the_family_queue(db_session, wo
     monkeypatch.setattr(settings, "worker_eager_mode", False)
     monkeypatch.setattr(settings, "celery_ml_tabular_queue", "ml_tabular")
     monkeypatch.setattr(celery_module.celery_app, "send_task", send_task)
-    row = MLModel(workspace_id=workspace.id, name="m", slug="m", task="classification", algo="linear", target="y")
+    row = MLModel(
+        workspace_id=workspace.id,
+        name="m",
+        slug="m",
+        task="classification",
+        algo="linear",
+        target="y",
+    )
     db_session.add(row)
     db_session.commit()
     assert tabular_ml.dispatch_training(db_session, row) == "task-1"
@@ -369,7 +457,9 @@ def test_a_family_image_is_offered_only_while_its_heartbeat_is_fresh(db_session,
 
     monkeypatch.setattr(settings, "ml_runtime", "ml-ts")
     now = datetime.utcnow()
-    ml_runtime.beat(db_session, queues=["ml_ts_rpc", "ml_ts"], hostname="ts-1", now=now - timedelta(seconds=600))
+    ml_runtime.beat(
+        db_session, queues=["ml_ts_rpc", "ml_ts"], hostname="ts-1", now=now - timedelta(seconds=600)
+    )
     db_session.commit()
     assert ml_runtime.family_availability(family, db_session, now=now) == (False, "no_worker")
 
@@ -378,7 +468,12 @@ def test_a_family_image_is_offered_only_while_its_heartbeat_is_fresh(db_session,
     assert db_session.query(MLRuntimeHeartbeat).count() == 1  # upserted, not appended
     assert ml_runtime.family_availability(family, db_session, now=now) == (True, None)
     # Listening on another queue does not count: this one trains on "cpu".
-    assert ml_runtime.family_availability(_forecasting(queue_setting="celery_ml_tabular_queue"), db_session, now=now)[0] is False
+    assert (
+        ml_runtime.family_availability(
+            _forecasting(queue_setting="celery_ml_tabular_queue"), db_session, now=now
+        )[0]
+        is False
+    )
 
 
 def test_in_eager_mode_a_family_is_available_when_its_modules_import(monkeypatch):
@@ -386,27 +481,46 @@ def test_in_eager_mode_a_family_is_available_when_its_modules_import(monkeypatch
     monkeypatch.setattr(settings, "ml_train_enabled", True)
     monkeypatch.setattr(settings, "tabular_data_enabled", True)
     assert ml_runtime.family_availability(_forecasting()) == (True, None)
-    assert ml_runtime.family_availability(_forecasting(required_modules=("no_such_module_x",))) == (False, "runtime_missing")
+    assert ml_runtime.family_availability(_forecasting(required_modules=("no_such_module_x",))) == (
+        False,
+        "runtime_missing",
+    )
 
 
 def test_an_unavailable_family_is_refused_before_any_validation(dataset, monkeypatch, enabled):
-    family = _forecasting(required_modules=("no_such_module_x",), validator=lambda *a, **k: pytest.fail("validated"))
-    monkeypatch.setattr(tabular_ml, "family_of_task", lambda task: family if task == "forecasting" else TABULAR)
+    family = _forecasting(
+        required_modules=("no_such_module_x",), validator=lambda *a, **k: pytest.fail("validated")
+    )
+    monkeypatch.setattr(
+        tabular_ml, "family_of_task", lambda task: family if task == "forecasting" else TABULAR
+    )
     with pytest.raises(TabularError) as error:
-        tabular_ml.validate_training(dataset, task="forecasting", target="churn", spec={"time_column": "ts", "horizon": 2})
+        tabular_ml.validate_training(
+            dataset, task="forecasting", target="churn", spec={"time_column": "ts", "horizon": 2}
+        )
     assert error.value.code == "ML_FAMILY_UNAVAILABLE" and error.value.status_code == 409
 
 
 def test_a_non_tabular_family_validates_its_own_request(dataset, monkeypatch, enabled):
     seen = {}
-    family = _forecasting(validator=lambda dataset, **kwargs: seen.update(kwargs) or "spec-from-family")
-    monkeypatch.setattr(tabular_ml, "family_of_task", lambda task: family if task == "forecasting" else TABULAR)
-    result = tabular_ml.validate_training(dataset, task="forecasting", target="churn", spec={"time_column": "ts", "horizon": 2})
+    family = _forecasting(
+        validator=lambda dataset, **kwargs: seen.update(kwargs) or "spec-from-family"
+    )
+    monkeypatch.setattr(
+        tabular_ml, "family_of_task", lambda task: family if task == "forecasting" else TABULAR
+    )
+    result = tabular_ml.validate_training(
+        dataset, task="forecasting", target="churn", spec={"time_column": "ts", "horizon": 2}
+    )
     assert result == "spec-from-family"
     assert seen["spec"] == {"time_column": "ts", "horizon": 2, "shape": "single"}
     assert seen["task"] == "forecasting" and seen["target"] == "churn"
     # Without a validator, a family is not trainable yet.
-    monkeypatch.setattr(tabular_ml, "family_of_task", lambda task: _forecasting() if task == "forecasting" else TABULAR)
+    monkeypatch.setattr(
+        tabular_ml,
+        "family_of_task",
+        lambda task: _forecasting() if task == "forecasting" else TABULAR,
+    )
     with pytest.raises(TabularError) as error:
         tabular_ml.validate_training(dataset, task="forecasting", target="churn")
     assert error.value.code == "ML_TASK_UNKNOWN"
@@ -422,11 +536,31 @@ def test_a_trained_row_records_its_family_and_the_interpreter_that_fitted_it(
 ):
     captured = _stub_harness(monkeypatch)
     model = tabular_ml.submit_training(
-        db_session, workspace_id=workspace.id, dataset_ref={"dataset_id": dataset.id}, target="churn"
+        db_session,
+        workspace_id=workspace.id,
+        dataset_ref={"dataset_id": dataset.id},
+        target="churn",
     )
-    assert model.status == "ready" and model.family == "tabular" and model.spec_json == {"calibration": "off", "threshold": "default", "tuning": "off", "explain": "off", "text_encoder": "auto"}
+    assert (
+        model.status == "ready"
+        and model.family == "tabular"
+        and model.spec_json
+        == {
+            "calibration": "off",
+            "threshold": "default",
+            "tuning": "off",
+            "explain": "off",
+            "text_encoder": "auto",
+        }
+    )
     assert model.runtime_json["fingerprint"] == ml_runtime.runtime_fingerprint()["fingerprint"]
-    assert captured["manifest"]["family"] == "tabular" and captured["manifest"]["spec"] == {"calibration": "off", "threshold": "default", "tuning": "off", "explain": "off", "text_encoder": "auto"}
+    assert captured["manifest"]["family"] == "tabular" and captured["manifest"]["spec"] == {
+        "calibration": "off",
+        "threshold": "default",
+        "tuning": "off",
+        "explain": "off",
+        "text_encoder": "auto",
+    }
     detail = tabular_ml.serialize_model(model, include_detail=True)
     assert detail["family"] == "tabular" and detail["runtime"]["runtime"] == settings.ml_runtime
 
@@ -437,7 +571,10 @@ def test_a_task_delivered_to_an_image_without_the_family_stack_fails_closed(
     captured = _stub_harness(monkeypatch)
     monkeypatch.setattr(Family, "missing_modules", lambda self: ["skforecast"])
     model = tabular_ml.submit_training(
-        db_session, workspace_id=workspace.id, dataset_ref={"dataset_id": dataset.id}, target="churn"
+        db_session,
+        workspace_id=workspace.id,
+        dataset_ref={"dataset_id": dataset.id},
+        target="churn",
     )
     assert model.status == "failed" and model.error.startswith("ML_RUNTIME_MISSING: skforecast")
     assert "argv" not in captured  # no fit was attempted
@@ -459,14 +596,26 @@ def test_the_family_image_app_registers_the_training_task_and_nothing_else():
         "heavy = sorted(m for m in sys.modules if m.startswith(('app.services.rag', 'app.services.worker_ingest', 'torch', 'transformers')))\n"
         "print('PROBE ' + json.dumps({'tasks': tasks, 'heavy': heavy}))\n"
     )
-    result = subprocess.run([sys.executable, "-c", probe], cwd=BACKEND, capture_output=True, text=True, timeout=300)
+    result = subprocess.run(
+        [sys.executable, "-c", probe], cwd=BACKEND, capture_output=True, text=True, timeout=300
+    )
     lines = [line for line in result.stdout.splitlines() if line.startswith("PROBE ")]
     assert result.returncode == 0 and lines, result.stderr[-2000:]
     report = json.loads(lines[-1].removeprefix("PROBE "))
-    assert report["tasks"] == sorted([
-        "agentium.ml_forecast", "agentium.ml_forecast_batch", "agentium.ml_train",
-        "agentium.ml_retraining_recovery", "agentium.ml_shadow", "agentium.ml_shadow_recover", "agentium.ml_deep_predict",
-    ])
+    assert report["tasks"] == sorted(
+        [
+            "agentium.ml_forecast",
+            "agentium.ml_forecast_batch",
+            "agentium.ml_train",
+            "agentium.ml_retraining_recovery",
+            "agentium.ml_shadow",
+            "agentium.ml_shadow_recover",
+            "agentium.ml_deep_predict",
+            "agentium.hf_validate_adapter",
+            "agentium.hf_adapter_prepare_failed",
+            "agentium.hf_migrate_legacy",
+        ]
+    )
     assert report["heavy"] == []
 
 

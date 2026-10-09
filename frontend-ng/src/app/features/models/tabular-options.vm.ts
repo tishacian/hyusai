@@ -13,6 +13,7 @@ export function tabularFields(
   if ((deep?.available || embedding) && !choices.includes('embedding')) choices.push('embedding');
   const fields = embedding && deep ? deep.spec_fields : classic;
   return fields.map((field) => {
+    if (field.kind === 'artifact') return { ...field, artifact_choices: deep?.foundation_models?.filter(model => model.artifact_id) ?? [] };
     if (field.key === 'text_encoder') return { ...encoder, choices };
     const defaultValue = EMBEDDING_UNSUPPORTED[field.key];
     if (embedding && defaultValue !== undefined) {
@@ -78,7 +79,7 @@ export function tabularSpec(
 ): Record<string, unknown> {
   const values = specValues(fields, spec, task);
   return Object.fromEntries(shownSpecFields(fields, spec, task)
-    .filter((field) => values[field.key] !== undefined)
+    .filter((field) => values[field.key] !== undefined && (field.kind !== 'artifact' || !!values[field.key]))
     .map((field) => [field.key, values[field.key]]));
 }
 

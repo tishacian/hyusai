@@ -100,7 +100,9 @@ import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
               </div>
 
               <div class="mt-5">
-                @if (connector.id === 'postgresql') {
+                @if (connector.id === 'huggingface') {
+                  <a [navLink]="{ leaf: 'connector-huggingface' }" class="ck-btn ck-btn-accent w-full justify-center">{{ i18n.t('connectors.hf.open') }}</a>
+                } @else if (connector.id === 'postgresql') {
                   <a [navLink]="{ leaf: 'connector-postgresql' }" class="ck-btn ck-btn-accent w-full justify-center">
                     <app-icon name="database" [size]="14" /> {{ i18n.t('connectors.pg.open') }}
                   </a>
@@ -315,6 +317,10 @@ export class ConnectorsPageComponent implements OnInit, OnDestroy {
   }
 
   openSetup(connector: ConnectorDef): void {
+    if (connector.id === 'huggingface') {
+      void this.router.navigateByUrl(this.navigation.leafUrl('connector-huggingface'));
+      return;
+    }
     if (connector.id === 'postgresql') {
       void this.router.navigateByUrl(this.navigation.leafUrl('connector-postgresql'));
       return;

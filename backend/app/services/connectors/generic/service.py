@@ -69,6 +69,7 @@ CONNECTORS: dict[str, ConnectorSpec] = {
     "mqtt": ConnectorSpec(("broker_url", "topic", "client_id", "username"), ("password",)),
     "postgresql": ConnectorSpec(("host", "port", "database", "username"), ("password",)),
     "s3": ConnectorSpec(("bucket", "region", "access_key_id"), ("secret_access_key",)),
+    "huggingface": ConnectorSpec(("endpoint",), ("token",)),
 }
 
 
@@ -159,8 +160,13 @@ def get_config(
         "testable": connector_id in _TESTERS,
     }
     if include_secrets:
+        decrypt = _decrypt_secret
+        if connector_id == "huggingface":
+            from app.services.huggingface.connection import decrypt_token
+
+            decrypt = decrypt_token
         config["secrets"] = {
-            key: _decrypt_secret(str(stored_secrets[key]))
+            key: decrypt(str(stored_secrets[key]))
             for key in spec.secrets
             if stored_secrets.get(key)
         }
@@ -215,11 +221,31 @@ def set_config(
         if text:
             plain[key] = text
     secrets = _mapping(current.get("secrets"))
+    encrypt = _encrypt_secret
+    if connector_id == "huggingface":
+        from app.services.huggingface.connection import (
+            DEFAULT_ENDPOINT,
+            encrypt_token,
+            validate_endpoint,
+        )
+        from app.services.huggingface.errors import HFError
+
+        plain["endpoint"] = validate_endpoint(plain.get("endpoint"))
+        if (
+            plain["endpoint"] != previous.get("endpoint", DEFAULT_ENDPOINT)
+            and secrets.get("token")
+            and not values.get("token")
+        ):
+            raise HFError(
+                "HF_TOKEN_ENDPOINT_CHANGED",
+                "Replace the token or clear the connection before changing its Hub endpoint.",
+            )
+        encrypt = encrypt_token
     replaced: list[str] = []
     for key in spec.secrets:
         text = _text(key, values.get(key))
         if text.strip():
-            secrets[key] = _encrypt_secret(text)
+            secrets[key] = encrypt(text)
             replaced.append(key)
 
     entries[connector_id] = {"values": plain, "secrets": secrets}
@@ -381,11 +407,28 @@ def _test_rest_api(values: Mapping[str, Any], secrets: Mapping[str, Any]) -> _Ou
     return "connected", f"HTTP {response.status_code}"
 
 
+def _test_huggingface(values: Mapping[str, Any], secrets: Mapping[str, Any]) -> _Outcome:
+    from app.services.huggingface.client import HFClient
+    from app.services.huggingface.connection import DEFAULT_ENDPOINT, Connection
+    from app.services.huggingface.errors import HFError
+
+    try:
+        HFClient(
+            Connection(
+                values.get("endpoint") or DEFAULT_ENDPOINT, secrets.get("token"), "workspace"
+            )
+        ).test()
+        return "connected", None
+    except HFError as exc:
+        return ("auth_failed" if exc.code == "HF_ACCESS_DENIED" else "error"), exc.code
+
+
 _TESTERS: dict[str, Callable[[Mapping[str, Any], Mapping[str, Any]], _Outcome]] = {
     "telegram": _test_telegram,
     "smtp": _test_smtp,
     "postgresql": _test_postgresql,
     "rest_api": _test_rest_api,
+    "huggingface": _test_huggingface,
 }
 
 

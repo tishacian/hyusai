@@ -98,3 +98,9 @@ test('saved embedding options are visibly refused instead of silently changing t
   const wire = tabularSpec(tabularFields(deepCatalog(),'regression',hidden),hidden,'regression');
   assert.equal(embeddingIssue(deepCatalog(),wire,0,['region']),null,'hidden classification options cannot block a regression');
 });
+
+test('artifact selectors preserve explicit imported model IDs and omit the legacy blank choice', () => {
+  const fields = [{ key: 'artifact_id', kind: 'artifact', required: false }] as SpecFieldDescriptor[];
+  assert.deepEqual(tabularSpec(fields, { artifact_id: 'hf-minilm' }, 'classification'), { artifact_id: 'hf-minilm' });
+  assert.deepEqual(tabularSpec(fields, { artifact_id: '' }, 'classification'), {});
+});

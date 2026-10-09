@@ -1,3 +1,4 @@
+import { CollectionModelsComponent } from './collection-models.component';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -244,6 +245,7 @@ type KbTabId = KnowledgeFacetId;
     DocumentPreviewComponent,
     EmbeddingMapComponent,
     IngestionStatusComponent,
+    CollectionModelsComponent,
   ],
   template: `
     <ck-object-header
@@ -292,6 +294,7 @@ type KbTabId = KnowledgeFacetId;
     }
 
     <div class="mb-4"><app-ingestion-status [collectionId]="kbId" /></div>
+    <app-collection-models [collectionId]="kbId" />
 
     <ck-tabs
       [active]="activeTab()"
@@ -374,7 +377,7 @@ type KbTabId = KnowledgeFacetId;
             </div>
           }
         </section>
-      
+
         <div class="mt-6 space-y-4" data-testid="knowledge-diagnostics-section">
         <section class="grid gap-4 lg:grid-cols-2">
           <article class="ck-surface rounded-md p-5">
@@ -537,7 +540,7 @@ type KbTabId = KnowledgeFacetId;
             </div>
           </article>
         </section>
-      
+
         </div>
       </ck-tab>
 
@@ -712,7 +715,7 @@ type KbTabId = KnowledgeFacetId;
             </div>
           </div>
         }
-      
+
       </ck-tab>
 
       <ck-tab id="content" [label]="i18n.t('knowledge.facet.content')">
@@ -888,7 +891,7 @@ type KbTabId = KnowledgeFacetId;
             </div>
           }
         </section>
-      
+
         }
         @if (contentPanel() === 'structure') {
 
@@ -960,7 +963,7 @@ type KbTabId = KnowledgeFacetId;
             </div>
           }
         </section>
-      
+
         }
         @if (contentPanel() === 'facts') {
 
@@ -1099,7 +1102,7 @@ type KbTabId = KnowledgeFacetId;
             </div>
           }
         </section>
-      
+
         }
         @if (contentPanel() === 'ocr') {
 
@@ -1212,7 +1215,7 @@ type KbTabId = KnowledgeFacetId;
             </div>
           }
         </section>
-      
+
         }
         @if (contentPanel() === 'table-facts') {
 
@@ -1365,7 +1368,7 @@ type KbTabId = KnowledgeFacetId;
             </div>
           }
         </section>
-      
+
         }
       </ck-tab>
 
@@ -1427,7 +1430,7 @@ type KbTabId = KnowledgeFacetId;
             }
           </ul>
         }
-      
+
         <div class="mt-6">
         <section class="ck-surface rounded-md overflow-hidden mb-4">
           <div class="px-5 py-4 border-b ck-bd-1 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -1575,7 +1578,7 @@ type KbTabId = KnowledgeFacetId;
             }
           </section>
         }
-      
+
         </div>
       </ck-tab>
 
@@ -1587,7 +1590,7 @@ type KbTabId = KnowledgeFacetId;
           [documents]="sources()"
           (previewRequested)="previewFromNode($event)"
         />
-      
+
       </ck-tab>
     </ck-tabs>
 

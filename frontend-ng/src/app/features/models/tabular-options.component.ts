@@ -25,6 +25,15 @@ import { shownSpecFields, specColumns, specValues } from './tabular-options.vm';
             <div class="ck-field" [attr.data-spec-field]="field.key">
               <label class="ck-label" [for]="'tabular-' + field.key">{{ label(field.key) }}</label>
               @switch (field.kind) {
+                @case ('artifact') {
+                  <select class="ck-input" [id]="'tabular-' + field.key" [ngModel]="values()[field.key] ?? ''" (ngModelChange)="patch(field, $event)">
+                    <option value="">{{ i18n.t('models.spec.artifact_default') }}</option>
+                    @if (values()[field.key] && !artifactKnown(field, values()[field.key])) { <option [value]="values()[field.key]">{{ i18n.t('models.spec.artifact_unavailable', { id: artifactId(values()[field.key]) }) }}</option> }
+                    @for (model of field.artifact_choices ?? []; track model.artifact_id) {
+                      <option [value]="model.artifact_id">{{ model.upstream_id }} · {{ model.revision }}</option>
+                    }
+                  </select>
+                }
                 @case ('enum') {
                   <select class="ck-input" [id]="'tabular-' + field.key" [ngModel]="values()[field.key]" (ngModelChange)="patch(field, $event)">
                     @for (choice of field.choices ?? []; track choice) {
@@ -120,6 +129,8 @@ export class TabularOptionsComponent {
     const translated = this.i18n.t(key);
     return translated === key ? this.i18n.t('models.tabular.option.hint', { field: this.label(field.key) }) : translated;
   }
+  protected artifactId(value: unknown): string { return String(value ?? ''); }
+  protected artifactKnown(field: SpecFieldDescriptor, value: unknown): boolean { return !!field.artifact_choices?.some(model => model.artifact_id === value); }
   protected candidates(field: SpecFieldDescriptor): PlanColumn[] { return specColumns(field, this.columns(), this.target()); }
   protected patch(field: SpecFieldDescriptor, value: unknown): void { this.specChange.emit({ ...this.spec(), [field.key]: value }); }
   protected unavailableSelections(field: SpecFieldDescriptor): string[] {

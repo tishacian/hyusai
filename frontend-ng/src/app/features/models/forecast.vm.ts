@@ -34,6 +34,7 @@ export const FORECAST_FILLS: readonly ForecastFill[] = ['refuse', 'interpolate',
 export const SINGLE_SERIES_ALGOS: ReadonlySet<string> = new Set(['ets', 'arima', 'seasonal_naive']);
 
 export interface ForecastDraft {
+  artifactId?: string;
   timeColumn: string;
   shape: ForecastShape;
   seriesColumns: string[];
@@ -115,6 +116,7 @@ export function draftFromSpec(
   const text = (key: string) => (typeof spec[key] === 'string' ? (spec[key] as string) : undefined);
   const number = (key: string) => (typeof spec[key] === 'number' ? (spec[key] as number) : undefined);
   draft.timeColumn = text('time_column') ?? '';
+  draft.artifactId = text('artifact_id');
   const shape = text('shape');
   if (shape && (FORECAST_SHAPES as readonly string[]).includes(shape)) draft.shape = shape as ForecastShape;
   if (Array.isArray(spec['series_columns'])) draft.seriesColumns = (spec['series_columns'] as unknown[]).map(String);
@@ -199,13 +201,17 @@ export function strategyApplies(shape: ForecastShape, algo: string | undefined):
 /** Each algorithm owns its family's fields; old catalogs use forecasting. */
 export function forecastFieldsFor(catalog: ModelCatalog, algo?: string): SpecFieldDescriptor[] {
   const family = catalog.algos.find((entry) => entry.key === algo)?.family ?? FORECASTING_TASK;
-  return catalog.families?.find((entry) => entry.key === family)?.spec_fields ?? [];
+  const descriptor = catalog.families?.find((entry) => entry.key === family);
+  return (descriptor?.spec_fields ?? []).map(field => field.kind === 'artifact'
+    ? { ...field, artifact_choices: descriptor?.foundation_models?.filter(model => model.artifact_id) ?? [] }
+    : field);
 }
 
 /** Changing algorithms adapts bounds and enum choices to the new family. */
 export function forecastDraftForFields(draft: ForecastDraft, fields: readonly SpecFieldDescriptor[]): ForecastDraft {
   if (!fields.length) return draft;
   const next = { ...draft };
+  if (!fields.some(field => field.kind === 'artifact')) delete next.artifactId;
   for (const [key, prop] of [['shape', 'shape'], ['fill', 'fill']] as const) {
     const field = fields.find((entry) => entry.key === key);
     if (field?.choices?.length && !field.choices.includes(next[prop])) {
@@ -233,6 +239,7 @@ export function forecastSpec(
     backtest_folds: draft.folds,
     fill: draft.fill,
   };
+  if (draft.artifactId && fields?.some(field => field.kind === 'artifact')) spec['artifact_id'] = draft.artifactId;
   // Older catalogs reject unknown spec keys. An unsupported saved budget is
   // retained for editing, while forecastTuningIssue prevents submitting it.
   if (!fields || fields.some((field) => field.key === 'tuning') || draft.tuning === 'budget') {

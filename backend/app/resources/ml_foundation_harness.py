@@ -4,6 +4,7 @@ The final horizons are never part of their forecast's context. No optimizer or
 weight update is used. MLflow exports contain JSON context and safetensors,
 with every file fingerprinted before the serving process can execute code.
 """
+
 from __future__ import annotations
 
 import json
@@ -16,10 +17,26 @@ from pathlib import Path
 # These helpers contain no application imports and use the same frequency and
 # gap policy as the ordinary forecasting runtime.
 if __package__:
-    from .ml_forecast_harness import _fail, _frequency, _number, _progress, _regularize, _season, _sha256
+    from .ml_forecast_harness import (
+        _fail,
+        _frequency,
+        _number,
+        _progress,
+        _regularize,
+        _season,
+        _sha256,
+    )
     from .ml_foundation_pyfunc import build_forecaster
 else:
-    from ml_forecast_harness import _fail, _frequency, _number, _progress, _regularize, _season, _sha256
+    from ml_forecast_harness import (
+        _fail,
+        _frequency,
+        _number,
+        _progress,
+        _regularize,
+        _season,
+        _sha256,
+    )
     from ml_foundation_pyfunc import build_forecaster
 
 PYFUNC = Path(__file__).with_name("ml_foundation_pyfunc.py")
@@ -62,7 +79,9 @@ def read_series(frame, spec, target):
             raise ValueError("ml_ts_frequency: series must share one regular frequency")
         frequency = found
         values = rows.set_index(time_column)[[target]].astype(float)
-        grid, missing = _regularize(values, frequency=frequency, columns=[target], fill=spec.get("fill", "refuse"))
+        grid, missing = _regularize(
+            values, frequency=frequency, columns=[target], fill=spec.get("fill", "refuse")
+        )
         # asfreq can omit an off-grid observation; reject that rather than
         # silently changing the historical or held-out values being scored.
         if not values.index.isin(grid.index).all():
@@ -87,17 +106,21 @@ def evaluate(forecaster, series, *, horizon, folds, level, season, progress=None
     span = len(next(iter(series.values())))
     initial = span - folds * horizon
     if initial < max(32, season):
-        raise ValueError(f"ml_ts_history: at least {max(32, season)} context steps before {folds} held-out horizons required")
+        raise ValueError(
+            f"ml_ts_history: at least {max(32, season)} context steps before {folds} held-out horizons required"
+        )
     points = []
     _progress(progress, f"backtesting:0/{folds}")
     for fold in range(folds):
         stop = initial + fold * horizon
         prefix = {name: values.iloc[:stop] for name, values in series.items()}
         forecaster.fit(series=prefix)
-        predicted = forecaster.predict_interval(steps=horizon, interval=[(1 - level) / 2, (1 + level) / 2])
+        predicted = forecaster.predict_interval(
+            steps=horizon, interval=[(1 - level) / 2, (1 + level) / 2]
+        )
         for name, values in series.items():
             block = predicted[predicted["level"] == name]
-            expected_index = values.index[stop:stop + horizon]
+            expected_index = values.index[stop : stop + horizon]
             if not block.index.equals(expected_index) or len(block) != horizon:
                 raise ValueError("ml_ts_prediction: incomplete forecast for held-out dates")
             if not np.isfinite(block[["pred", "lower_bound", "upper_bound"]].to_numpy()).all():
@@ -112,12 +135,20 @@ def evaluate(forecaster, series, *, horizon, folds, level, season, progress=None
             scaling = values.iloc[:initial].diff().abs().dropna().mean()
             for step, (stamp, row) in enumerate(block.iterrows(), start=1):
                 actual = float(values.loc[stamp])
-                points.append({
-                    "t": str(stamp), "series": name, "fold": fold, "step": step,
-                    "actual": actual, "pred": float(row["pred"]),
-                    "lower": float(row["lower_bound"]), "upper": float(row["upper_bound"]),
-                    "naive": float(naive[step - 1]), "scale": float(scaling),
-                })
+                points.append(
+                    {
+                        "t": str(stamp),
+                        "series": name,
+                        "fold": fold,
+                        "step": step,
+                        "actual": actual,
+                        "pred": float(row["pred"]),
+                        "lower": float(row["lower_bound"]),
+                        "upper": float(row["upper_bound"]),
+                        "naive": float(naive[step - 1]),
+                        "scale": float(scaling),
+                    }
+                )
         _progress(progress, f"backtesting:{fold + 1}/{folds}")
     return pd.DataFrame(points), initial
 
@@ -130,9 +161,11 @@ def score(points):
     scale = points["scale"].where(points["scale"] > 0)
     inside = (points["actual"] >= points["lower"]) & (points["actual"] <= points["upper"])
     return {
-        "mae": _number(error.mean()), "rmse": _number(np.sqrt((error ** 2).mean())),
+        "mae": _number(error.mean()),
+        "rmse": _number(np.sqrt((error**2).mean())),
         "smape": _number((200 * error.div(denominator.where(denominator > 0))).fillna(0).mean()),
-        "mase": _number(error.div(scale).mean()), "coverage": _number(inside.mean()),
+        "mase": _number(error.div(scale).mean()),
+        "coverage": _number(inside.mean()),
         "interval_width": _number((points["upper"] - points["lower"]).mean()),
     }
 
@@ -146,43 +179,99 @@ def save_export(manifest, series, frequency, weights, weight_hashes, model_dir):
     work = weights.parent
     foundation = {key: value for key, value in manifest["foundation"].items() if key != "path"}
     foundation["files"] = weight_hashes
-    context = {"series": {
-        name: {"timestamps": [str(stamp) for stamp in values.tail(CONTEXT_LENGTH).index],
-               "values": values.tail(CONTEXT_LENGTH).tolist()}
-        for name, values in series.items()
-    }}
+    context = {
+        "series": {
+            name: {
+                "timestamps": [str(stamp) for stamp in values.tail(CONTEXT_LENGTH).index],
+                "values": values.tail(CONTEXT_LENGTH).tolist(),
+            }
+            for name, values in series.items()
+        }
+    }
     (work / "forecaster.json").write_text(json.dumps(context, allow_nan=False))
     meta = {
-        "serialization": "json", "kind": "foundation", "shape": spec.get("shape", "single"),
-        "target": manifest["target"], "levels": list(series), "frequency": frequency,
+        "serialization": "json",
+        "kind": "foundation",
+        "shape": spec.get("shape", "single"),
+        "target": manifest["target"],
+        "levels": list(series),
+        "frequency": frequency,
         "last_timestamp": str(next(iter(series.values())).index[-1]),
-        "horizon": spec["horizon"], "max_steps": MAX_HORIZON, "interval_level": spec.get("interval_level", 0.8),
-        "context_length": CONTEXT_LENGTH, "foundation": foundation,
-        "exog_future": [], "exog_static": [], "explain": {"kind": "none"},
+        "horizon": spec["horizon"],
+        "max_steps": MAX_HORIZON,
+        "interval_level": spec.get("interval_level", 0.8),
+        "context_length": CONTEXT_LENGTH,
+        "foundation": foundation,
+        "exog_future": [],
+        "exog_static": [],
+        "explain": {"kind": "none"},
     }
     (work / "meta.json").write_text(json.dumps(meta, allow_nan=False))
     signature = ModelSignature(
-        inputs=Schema([ColSpec("string", "series", required=False), ColSpec("string", "timestamp", required=False)]),
-        outputs=Schema([ColSpec("string", "series"), ColSpec("string", "timestamp"),
-                        ColSpec("double", "pred"), ColSpec("double", "lower_bound"), ColSpec("double", "upper_bound")]),
-        params=ParamSchema([ParamSpec("horizon", "long", spec["horizon"]),
-                            ParamSpec("interval_level", "double", spec.get("interval_level", 0.8))]),
+        inputs=Schema(
+            [
+                ColSpec("string", "series", required=False),
+                ColSpec("string", "timestamp", required=False),
+            ]
+        ),
+        outputs=Schema(
+            [
+                ColSpec("string", "series"),
+                ColSpec("string", "timestamp"),
+                ColSpec("double", "pred"),
+                ColSpec("double", "lower_bound"),
+                ColSpec("double", "upper_bound"),
+            ]
+        ),
+        params=ParamSchema(
+            [
+                ParamSpec("horizon", "long", spec["horizon"]),
+                ParamSpec("interval_level", "double", spec.get("interval_level", 0.8)),
+            ]
+        ),
     )
-    requirements = [f"{name}=={version(name)}" for name in (
-        "torch", "chronos-forecasting", "transformers", "accelerate", "einops", "safetensors",
-        "skforecast", "scikit-learn", "pandas", "numpy", "mlflow",
-    )]
+    requirements = [
+        f"{name}=={version(name)}"
+        for name in (
+            "torch",
+            "chronos-forecasting",
+            "transformers",
+            "accelerate",
+            "einops",
+            "safetensors",
+            "skforecast",
+            "scikit-learn",
+            "pandas",
+            "numpy",
+            "mlflow",
+        )
+    ]
     # A CPU wheel is provided by the dedicated index when installing the
     # exported requirements in an otherwise empty Python environment.
     requirements.insert(0, "--extra-index-url https://download.pytorch.org/whl/cpu")
     mlflow.pyfunc.save_model(
-        path=str(model_dir), python_model=str(PYFUNC), signature=signature, pip_requirements=requirements,
-        artifacts={"forecaster": str(work / "forecaster.json"), "meta": str(work / "meta.json"), "foundation": str(weights)},
+        path=str(model_dir),
+        python_model=str(PYFUNC),
+        signature=signature,
+        pip_requirements=requirements,
+        artifacts={
+            "forecaster": str(work / "forecaster.json"),
+            "meta": str(work / "meta.json"),
+            "foundation": str(weights),
+        },
     )
-    files = {path.relative_to(model_dir).as_posix(): _sha256(path)
-             for path in sorted(model_dir.rglob("*")) if path.is_file()}
-    return {"serialization": "json", "sha256": files["artifacts/forecaster.json"],
-            "code_file": PYFUNC.name, "code_sha256": files[PYFUNC.name], "files": files}
+    files = {
+        path.relative_to(model_dir).as_posix(): _sha256(path)
+        for path in sorted(model_dir.rglob("*"))
+        if path.is_file()
+    }
+    return {
+        "serialization": "json",
+        "sha256": files["artifacts/forecaster.json"],
+        "code_file": PYFUNC.name,
+        "code_sha256": files[PYFUNC.name],
+        "files": files,
+    }
 
 
 def main(argv):
@@ -196,24 +285,51 @@ def main(argv):
         level = float(spec.get("interval_level", 0.8))
         if not 1 <= horizon <= MAX_HORIZON or not 1 <= folds <= 5 or not 0.5 <= level <= 0.98:
             raise ValueError("invalid horizon, folds or interval level")
-        if spec.get("shape", "single") not in ("single", "panel") or spec.get("fill", "refuse") not in ("refuse", "zero"):
+        if spec.get("shape", "single") not in ("single", "panel") or spec.get(
+            "fill", "refuse"
+        ) not in ("refuse", "zero"):
             raise ValueError("unsupported series shape or fill policy")
-        if any(spec.get(key) for key in ("exog", "calendar", "lags")) or spec.get("tuning", "off") != "off":
+        if (
+            any(spec.get(key) for key in ("exog", "calendar", "lags"))
+            or spec.get("tuning", "off") != "off"
+        ):
             raise ValueError("foundation forecasts do not use covariates, calendar, lags or tuning")
-        if manifest.get("algo") != "chronos_zero_shot" or manifest.get("params") or manifest.get("features"):
-            raise ValueError("foundation forecasting requires the frozen model and no estimator parameters")
+        if (
+            manifest.get("algo") != "chronos_zero_shot"
+            or manifest.get("params")
+            or manifest.get("features")
+        ):
+            raise ValueError(
+                "foundation forecasting requires the frozen model and no estimator parameters"
+            )
         progress = manifest.get("progress_path")
         model_dir = Path(manifest["model_dir"])
         snapshot = Path(manifest["foundation"]["path"])
-        hashes = {name: _sha256(snapshot / name) for name in WEIGHT_FILES}
         expected = manifest["foundation"].get("files")
-        if not isinstance(expected, dict) or any(expected.get(name) != digest for name, digest in hashes.items()):
-            raise ValueError("foundation snapshot changed after submission")
+        if not isinstance(expected, dict) or not expected or "config.json" not in expected:
+            raise ValueError("foundation file inventory is missing")
+        if "model.safetensors" not in expected and "model.safetensors.index.json" not in expected:
+            raise ValueError("foundation safetensors weights are missing")
+        hashes = {}
+        for name, digest in expected.items():
+            path = snapshot / name
+            if (
+                not isinstance(name, str)
+                or Path(name).is_absolute()
+                or any(part in {"", ".", ".."} for part in name.split("/"))
+                or path.is_symlink()
+                or not path.resolve().is_relative_to(snapshot.resolve())
+                or path.suffix.lower() in {".py", ".bin", ".pt", ".pth", ".pkl", ".ckpt"}
+                or _sha256(path) != digest
+            ):
+                raise ValueError("foundation snapshot changed after submission")
+            hashes[name] = digest
     except Exception as exc:
         return _fail(5, f"manifest_unusable: {exc}")
     _progress(progress, "reading")
     try:
         import pandas as pd
+
         frame = pd.read_parquet(manifest["data_path"])
         series, frequency, holes = read_series(frame, spec, manifest["target"])
     except Exception as exc:
@@ -222,15 +338,23 @@ def main(argv):
     weights = work / "foundation"
     try:
         weights.mkdir(parents=True, exist_ok=True)
-        for name in WEIGHT_FILES:
+        for name in hashes:
+            (weights / name).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(snapshot / name, weights / name)
         if any(_sha256(weights / name) != digest for name, digest in hashes.items()):
             return _fail(5, "foundation snapshot changed while copying")
         forecaster = build_forecaster(weights, context_length=CONTEXT_LENGTH)
         season = _season(frequency)
         try:
-            points, initial = evaluate(forecaster, series, horizon=horizon, folds=folds,
-                                       level=level, season=season, progress=progress)
+            points, initial = evaluate(
+                forecaster,
+                series,
+                horizon=horizon,
+                folds=folds,
+                level=level,
+                season=season,
+                progress=progress,
+            )
         except ValueError as exc:
             return _fail(3 if str(exc).startswith("ml_ts_history") else 2, str(exc))
         _progress(progress, f"fitting:{len(frame)}")
@@ -249,35 +373,91 @@ def main(argv):
     per_series = [{"series": name, **score(rows)} for name, rows in points.groupby("series")]
     per_horizon = [{"step": int(step), **score(rows)} for step, rows in points.groupby("step")]
     plotted = list(series)[:8]
-    sample = points[points["series"].isin(plotted)].groupby("series", group_keys=False).tail(max(horizon, 600 // len(plotted)))
-    backtest = sample[["t", "series", "fold", "step", "actual", "pred", "lower", "upper"]].to_dict("records")
-    history_tail = [{"t": str(stamp), "series": name, "value": float(value)}
-                    for name in plotted for stamp, value in series[name].iloc[:initial].tail(min(2 * horizon, 200)).items()]
+    sample = (
+        points[points["series"].isin(plotted)]
+        .groupby("series", group_keys=False)
+        .tail(max(horizon, 600 // len(plotted)))
+    )
+    backtest = sample[["t", "series", "fold", "step", "actual", "pred", "lower", "upper"]].to_dict(
+        "records"
+    )
+    history_tail = [
+        {"t": str(stamp), "series": name, "value": float(value)}
+        for name in plotted
+        for stamp, value in series[name].iloc[:initial].tail(min(2 * horizon, 200)).items()
+    ]
     forecast = {
-        "shape": spec.get("shape", "single"), "algo": "chronos_zero_shot", "strategy": "foundation",
-        "frequency": frequency, "season": season, "horizon": horizon, "folds": folds,
-        "interval_level": level, "interval_method": "model", "lags": [], "calendar": [],
-        "series_count": len(series), "filled_steps": holes, "fill": spec.get("fill", "refuse"),
-        "last_timestamp": str(next(iter(series.values())).index[-1]), "serialization": "json",
-        "context_length": CONTEXT_LENGTH, "max_steps": MAX_HORIZON,
+        "shape": spec.get("shape", "single"),
+        "algo": "chronos_zero_shot",
+        "strategy": "foundation",
+        "frequency": frequency,
+        "season": season,
+        "horizon": horizon,
+        "folds": folds,
+        "interval_level": level,
+        "interval_method": "model",
+        "lags": [],
+        "calendar": [],
+        "series_count": len(series),
+        "filled_steps": holes,
+        "fill": spec.get("fill", "refuse"),
+        "last_timestamp": str(next(iter(series.values())).index[-1]),
+        "serialization": "json",
+        "context_length": CONTEXT_LENGTH,
+        "max_steps": MAX_HORIZON,
     }
-    provenance = {key: value for key, value in manifest["foundation"].items() if key not in ("path", "files")}
+    provenance = {
+        key: value for key, value in manifest["foundation"].items() if key not in ("path", "files")
+    }
     metrics = {
-        "task": "forecasting", "primary": {"key": primary, "value": scores[primary]},
-        "scores": [{"key": key, "value": value} for key, value in scores.items() if value is not None],
-        "rows": {"total": len(frame), "history": len(next(iter(series.values()))), "backtest": len(points)},
-        "columns": {"used": [spec["time_column"], manifest["target"], *spec.get("series_columns", [])], "dropped": []},
-        "forecast": forecast, "foundation": {**provenance, "zero_shot": True, "weights_unchanged": True, "files": hashes},
-        "baseline": {"key": "seasonal_naive", "season": season, "mae": float((points["actual"] - points["naive"]).abs().mean())},
-        "per_series": per_series, "per_horizon": per_horizon, "backtest": backtest, "history_tail": history_tail,
-        "importances": [], "explanation": {"method": "unavailable", "reason": "Pretrained foundation model; no feature importance is estimated."},
-        "analysis": [], "target": {"name": manifest["target"]},
+        "task": "forecasting",
+        "primary": {"key": primary, "value": scores[primary]},
+        "scores": [
+            {"key": key, "value": value} for key, value in scores.items() if value is not None
+        ],
+        "rows": {
+            "total": len(frame),
+            "history": len(next(iter(series.values()))),
+            "backtest": len(points),
+        },
+        "columns": {
+            "used": [spec["time_column"], manifest["target"], *spec.get("series_columns", [])],
+            "dropped": [],
+        },
+        "forecast": forecast,
+        "foundation": {**provenance, "zero_shot": True, "weights_unchanged": True, "files": hashes},
+        "baseline": {
+            "key": "seasonal_naive",
+            "season": season,
+            "mae": float((points["actual"] - points["naive"]).abs().mean()),
+        },
+        "per_series": per_series,
+        "per_horizon": per_horizon,
+        "backtest": backtest,
+        "history_tail": history_tail,
+        "importances": [],
+        "explanation": {
+            "method": "unavailable",
+            "reason": "Pretrained foundation model; no feature importance is estimated.",
+        },
+        "analysis": [],
+        "target": {"name": manifest["target"]},
     }
     result = {
         "metrics": metrics,
-        "signature": {"inputs": [], "output": {"task": "forecasting", "target": manifest["target"],
-                                                     "levels": list(series), "horizon": horizon, "max_steps": MAX_HORIZON}},
-        "input_example": [], "classes": [], "artifact": artifact,
+        "signature": {
+            "inputs": [],
+            "output": {
+                "task": "forecasting",
+                "target": manifest["target"],
+                "levels": list(series),
+                "horizon": horizon,
+                "max_steps": MAX_HORIZON,
+            },
+        },
+        "input_example": [],
+        "classes": [],
+        "artifact": artifact,
         "duration_ms": round(1000 * (time.monotonic() - started), 1),
     }
     Path(argv[2]).write_text(json.dumps(result, allow_nan=False))

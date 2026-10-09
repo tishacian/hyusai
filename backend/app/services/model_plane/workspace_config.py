@@ -11,7 +11,7 @@ import base64
 import json
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional
+from typing import TYPE_CHECKING, Any, Mapping, Optional
 
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -46,7 +46,7 @@ class EncryptionNotConfigured(RuntimeError):
     """Fernet master key missing or invalid."""
 
 
-def _portal_blob(workspace: "Workspace") -> Dict[str, Any]:
+def _portal_blob(workspace: "Workspace") -> dict[str, Any]:
     settings = workspace.settings if isinstance(workspace.settings, Mapping) else {}
     raw = settings.get(SETTINGS_KEY)
     return dict(raw) if isinstance(raw, Mapping) else {}
@@ -124,7 +124,7 @@ def decrypt_secret(blob: str) -> str:
     return fernet.decrypt(ciphertext.encode("ascii")).decode("utf-8")
 
 
-def _persist(db: DBSession, workspace: "Workspace", portal: Dict[str, Any]) -> Dict[str, Any]:
+def _persist(db: DBSession, workspace: "Workspace", portal: dict[str, Any]) -> dict[str, Any]:
     settings = dict(workspace.settings or {})
     settings[SETTINGS_KEY] = portal
     workspace.settings = settings
@@ -142,7 +142,7 @@ def _persist(db: DBSession, workspace: "Workspace", portal: Dict[str, Any]) -> D
 # ---------------------------------------------------------------------------
 
 
-def get_routing(workspace: "Workspace") -> Dict[str, Any]:
+def get_routing(workspace: "Workspace") -> dict[str, Any]:
     from app.core.config import settings
 
     blob = _portal_blob(workspace)
@@ -157,11 +157,7 @@ def get_routing(workspace: "Workspace") -> Dict[str, Any]:
         if "ollama" not in chain:
             chain.append("ollama")
     named_routes_raw = routing.get("named_routes")
-    named_routes = (
-        dict(named_routes_raw)
-        if isinstance(named_routes_raw, Mapping)
-        else {}
-    )
+    named_routes = dict(named_routes_raw) if isinstance(named_routes_raw, Mapping) else {}
     return {
         "default_provider": provider,
         "default_model": model,
@@ -171,18 +167,16 @@ def get_routing(workspace: "Workspace") -> Dict[str, Any]:
     }
 
 
-def get_cloud_credentials_public(workspace: "Workspace") -> List[Dict[str, Any]]:
+def get_cloud_credentials_public(workspace: "Workspace") -> list[dict[str, Any]]:
     """Credential status without secrets (write-only keys)."""
     blob = _portal_blob(workspace)
     stored = (
-        blob.get("cloud_credentials")
-        if isinstance(blob.get("cloud_credentials"), Mapping)
-        else {}
+        blob.get("cloud_credentials") if isinstance(blob.get("cloud_credentials"), Mapping) else {}
     )
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     for key in CLOUD_PROVIDERS:
         entry = stored.get(key) if isinstance(stored.get(key), Mapping) else {}
-        meta: Dict[str, Any] = {"key": key, "api_key_set": bool(entry.get("api_key_encrypted"))}
+        meta: dict[str, Any] = {"key": key, "api_key_set": bool(entry.get("api_key_encrypted"))}
         if key in _ENDPOINT_PROVIDERS:
             for field in _AZURE_META:
                 if entry.get(field):
@@ -194,9 +188,7 @@ def get_cloud_credentials_public(workspace: "Workspace") -> List[Dict[str, Any]]
 def get_decrypted_api_key(workspace: "Workspace", provider: str) -> Optional[str]:
     blob = _portal_blob(workspace)
     stored = (
-        blob.get("cloud_credentials")
-        if isinstance(blob.get("cloud_credentials"), Mapping)
-        else {}
+        blob.get("cloud_credentials") if isinstance(blob.get("cloud_credentials"), Mapping) else {}
     )
     entry = stored.get(provider) if isinstance(stored.get(provider), Mapping) else {}
     enc = entry.get("api_key_encrypted")
@@ -209,33 +201,31 @@ def get_decrypted_api_key(workspace: "Workspace", provider: str) -> Optional[str
         return None
 
 
-def get_provider_meta(workspace: "Workspace", provider: str = "azure_openai") -> Dict[str, str]:
+def get_provider_meta(workspace: "Workspace", provider: str = "azure_openai") -> dict[str, str]:
     """Non-secret endpoint metadata (endpoint / api_version / deployment)."""
     blob = _portal_blob(workspace)
     stored = (
-        blob.get("cloud_credentials")
-        if isinstance(blob.get("cloud_credentials"), Mapping)
-        else {}
+        blob.get("cloud_credentials") if isinstance(blob.get("cloud_credentials"), Mapping) else {}
     )
     entry = stored.get(provider) if isinstance(stored.get(provider), Mapping) else {}
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     for field in _AZURE_META:
         if entry.get(field):
             out[field] = str(entry[field])
     return out
 
 
-def get_azure_meta(workspace: "Workspace") -> Dict[str, str]:
+def get_azure_meta(workspace: "Workspace") -> dict[str, str]:
     return get_provider_meta(workspace, "azure_openai")
 
 
-def list_serving_node_configs(workspace: "Workspace") -> List[Dict[str, Any]]:
+def list_serving_node_configs(workspace: "Workspace") -> list[dict[str, Any]]:
     """Decrypted serving-node configs from workspace (not env)."""
     blob = _portal_blob(workspace)
     raw = blob.get("serving_nodes")
     if not isinstance(raw, list):
         return []
-    nodes: List[Dict[str, Any]] = []
+    nodes: list[dict[str, Any]] = []
     for item in raw:
         if not isinstance(item, Mapping):
             continue
@@ -254,12 +244,12 @@ def list_serving_node_configs(workspace: "Workspace") -> List[Dict[str, Any]]:
     return nodes
 
 
-def list_serving_nodes_public(workspace: "Workspace") -> List[Dict[str, Any]]:
+def list_serving_nodes_public(workspace: "Workspace") -> list[dict[str, Any]]:
     blob = _portal_blob(workspace)
     raw = blob.get("serving_nodes")
     if not isinstance(raw, list):
         return []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for item in raw:
         if not isinstance(item, Mapping):
             continue
@@ -276,7 +266,7 @@ def list_serving_nodes_public(workspace: "Workspace") -> List[Dict[str, Any]]:
     return out
 
 
-def get_public_config(workspace: "Workspace") -> Dict[str, Any]:
+def get_public_config(workspace: "Workspace") -> dict[str, Any]:
     return {
         "routing": get_routing(workspace),
         "cloud_credentials": get_cloud_credentials_public(workspace),
@@ -295,38 +285,42 @@ def set_routing(
     *,
     default_provider: str,
     default_model: str,
-    fallback_chain: Optional[List[str]] = None,
+    fallback_chain: Optional[list[str]] = None,
     named_routes: Optional[Mapping[str, Mapping[str, Any]]] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     provider = (default_provider or "").strip()
     model = (default_model or "").strip()
     if not provider or not model:
         raise ValueError("default_provider and default_model are required")
-    from app.services.model_plane.providers import RUNTIME_PROVIDERS, model_compatibility
+    from app.services.model_plane.execution import routable_runtime_providers
+    from app.services.model_plane.providers import model_compatibility
 
-    if provider not in RUNTIME_PROVIDERS:
+    supported_providers = routable_runtime_providers(workspace)
+
+    if provider not in supported_providers:
         raise ValueError("This provider is not supported by the workspace text generation runtime")
     from app.services.model_plane.execution import resolve_model_execution
+
     resolved = resolve_model_execution(workspace, provider=provider, model=model)
     model = resolved.model
     if model_compatibility(provider, model) == "other":
         raise ValueError("Choose a text generation model, not an embedding, image or audio model")
     chain = list(dict.fromkeys(str(x).strip() for x in (fallback_chain or []) if str(x).strip()))
-    if any(item not in RUNTIME_PROVIDERS for item in chain):
+    if any(item not in supported_providers for item in chain):
         raise ValueError("The fallback chain contains an unsupported text generation provider")
-    if len(chain) > len(RUNTIME_PROVIDERS):
+    if len(chain) > len(supported_providers):
         raise ValueError("The fallback chain is too long")
     if provider not in chain:
         chain = [provider, *chain]
-    routes: Dict[str, Dict[str, Any]] = {}
+    routes: dict[str, dict[str, Any]] = {}
     for raw_name, raw_route in (named_routes or {}).items():
         name = str(raw_name or "").strip()
         route = raw_route if isinstance(raw_route, Mapping) else {}
         route_provider = str(route.get("provider") or "").strip()
         route_model = str(route.get("model") or "").strip()
-        if not name or name in RUNTIME_PROVIDERS or name == "workspace":
+        if not name or name in supported_providers or name == "workspace":
             raise ValueError("A model route name must be non-empty and reserved")
-        if route_provider not in RUNTIME_PROVIDERS:
+        if route_provider not in supported_providers:
             raise ValueError(f"Model route {name!r} uses an unsupported provider")
         resolved_route = resolve_model_execution(
             workspace,
@@ -342,7 +336,7 @@ def set_routing(
                 if str(item).strip()
             )
         )
-        if any(item not in RUNTIME_PROVIDERS for item in route_chain):
+        if any(item not in supported_providers for item in route_chain):
             raise ValueError(f"Model route {name!r} has an unsupported fallback")
         routes[name] = {
             "provider": route_provider,
@@ -369,7 +363,7 @@ def set_cloud_credential(
     endpoint: Optional[str] = None,
     api_version: Optional[str] = None,
     deployment: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     key = (provider or "").strip()
     if key not in CLOUD_PROVIDERS:
         raise ValueError(f"Unsupported provider {provider!r}")
@@ -409,7 +403,7 @@ def upsert_serving_node(
     name: str,
     base_url: str,
     token: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     node_name = (name or "").strip()
     url = (base_url or "").strip().rstrip("/")
     if not node_name or not url:
@@ -419,7 +413,7 @@ def upsert_serving_node(
     if not isinstance(nodes, list):
         nodes = []
     updated = False
-    new_nodes: List[Dict[str, Any]] = []
+    new_nodes: list[dict[str, Any]] = []
     for item in nodes:
         if not isinstance(item, Mapping):
             continue
@@ -448,7 +442,7 @@ def delete_serving_node(
     db: DBSession,
     workspace: "Workspace",
     name: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     node_name = (name or "").strip()
     if not node_name:
         raise ValueError("name is required")

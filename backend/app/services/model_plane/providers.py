@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from contextvars import ContextVar
-
 import os
 import time
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from contextvars import ContextVar
+from typing import TYPE_CHECKING, Any, Optional
 
 import httpx
 
@@ -23,22 +22,22 @@ HEALTH_TTL_SECONDS = 60.0
 _HEALTH_TIMEOUT = 5.0
 
 # key -> (expires_at, payload)
-_cache: Dict[tuple[str, str], Tuple[float, Dict[str, Any]]] = {}
+_cache: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
 _cache_workspace: ContextVar[str] = ContextVar("model_probe_workspace", default="global")
-RUNTIME_PROVIDERS = frozenset({"openai", "azure_openai", "ollama"})
+RUNTIME_PROVIDERS = frozenset({"openai", "azure_openai", "ollama", "huggingface"})
 
 
 def _env(*names: str) -> bool:
     return all(bool(os.getenv(name)) for name in names)
 
 
-def _workspace_keys(workspace: Optional["Workspace"]) -> Dict[str, str]:
+def _workspace_keys(workspace: Optional["Workspace"]) -> dict[str, str]:
     """Decrypted workspace API keys (provider → key), empty when none."""
     if workspace is None:
         return {}
     from app.services.model_plane import workspace_config as ws_cfg
 
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     for provider in ws_cfg.CLOUD_PROVIDERS:
         key = ws_cfg.get_decrypted_api_key(workspace, provider)
         if key:
@@ -46,7 +45,7 @@ def _workspace_keys(workspace: Optional["Workspace"]) -> Dict[str, str]:
     return out
 
 
-def _cache_get(key: str) -> Optional[Dict[str, Any]]:
+def _cache_get(key: str) -> Optional[dict[str, Any]]:
     entry = _cache.get((_cache_workspace.get(), key))
     if not entry:
         return None
@@ -56,7 +55,7 @@ def _cache_get(key: str) -> Optional[Dict[str, Any]]:
     return dict(payload)
 
 
-def _cache_set(key: str, payload: Dict[str, Any]) -> None:
+def _cache_set(key: str, payload: dict[str, Any]) -> None:
     _cache[(_cache_workspace.get(), key)] = (time.monotonic() + HEALTH_TTL_SECONDS, dict(payload))
 
 
@@ -74,9 +73,9 @@ async def _probe(
     *,
     method: str,
     url: str,
-    headers: Optional[Dict[str, str]] = None,
-    params: Optional[Dict[str, str]] = None,
-) -> Dict[str, Any]:
+    headers: Optional[dict[str, str]] = None,
+    params: Optional[dict[str, str]] = None,
+) -> dict[str, Any]:
     started = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=_HEALTH_TIMEOUT) as client:
@@ -107,7 +106,7 @@ async def _probe(
         }
 
 
-def _extract_models(response: httpx.Response) -> List[str]:
+def _extract_models(response: httpx.Response) -> list[str]:
     try:
         data = response.json()
     except Exception:  # noqa: BLE001
@@ -115,7 +114,7 @@ def _extract_models(response: httpx.Response) -> List[str]:
 
     # OpenAI / OpenRouter / Azure / Anthropic: {"data":[{"id":...}, ...]}
     if isinstance(data, dict) and isinstance(data.get("data"), list):
-        ids: List[str] = []
+        ids: list[str] = []
         for item in data["data"]:
             if isinstance(item, dict):
                 mid = item.get("id") or item.get("name")
@@ -125,7 +124,7 @@ def _extract_models(response: httpx.Response) -> List[str]:
 
     # Ollama: {"models":[{"name":...}, ...]}
     if isinstance(data, dict) and isinstance(data.get("models"), list):
-        names: List[str] = []
+        names: list[str] = []
         for item in data["models"]:
             if isinstance(item, dict):
                 name = item.get("name") or item.get("model")
@@ -148,7 +147,7 @@ def _extract_models(response: httpx.Response) -> List[str]:
     return []
 
 
-async def _health_openai(*, api_key: Optional[str] = None) -> Dict[str, Any]:
+async def _health_openai(*, api_key: Optional[str] = None) -> dict[str, Any]:
     key = api_key or os.getenv("OPENAI_API_KEY")
     if not key:
         return {"status": "available", "latency_ms": None, "models": [], "error": None}
@@ -173,7 +172,7 @@ async def _health_azure(
     endpoint: Optional[str] = None,
     api_version: Optional[str] = None,
     deployment: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     resolved_key = api_key or os.getenv("AZURE_OPENAI_API_KEY")
     resolved_endpoint = (endpoint or os.getenv("AZURE_OPENAI_ENDPOINT") or "").rstrip("/")
     if not resolved_key or not resolved_endpoint:
@@ -204,7 +203,7 @@ async def _health_foundry(
     endpoint: Optional[str] = None,
     api_version: Optional[str] = None,
     deployment: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     resolved_key = api_key or os.getenv("AZURE_FOUNDRY_API_KEY")
     resolved_endpoint = (endpoint or os.getenv("AZURE_FOUNDRY_ENDPOINT") or "").rstrip("/")
     if not resolved_key or not resolved_endpoint:
@@ -229,7 +228,7 @@ async def _health_foundry(
     return result
 
 
-async def _health_openrouter(*, api_key: Optional[str] = None) -> Dict[str, Any]:
+async def _health_openrouter(*, api_key: Optional[str] = None) -> dict[str, Any]:
     key = api_key or os.getenv("OPENROUTER_API_KEY")
     if not key:
         return {"status": "available", "latency_ms": None, "models": [], "error": None}
@@ -248,7 +247,7 @@ async def _health_openrouter(*, api_key: Optional[str] = None) -> Dict[str, Any]
     return result
 
 
-async def _health_anthropic(*, api_key: Optional[str] = None) -> Dict[str, Any]:
+async def _health_anthropic(*, api_key: Optional[str] = None) -> dict[str, Any]:
     key = api_key or os.getenv("ANTHROPIC_API_KEY")
     if not key:
         return {"status": "available", "latency_ms": None, "models": [], "error": None}
@@ -270,7 +269,7 @@ async def _health_anthropic(*, api_key: Optional[str] = None) -> Dict[str, Any]:
     return result
 
 
-async def _health_gemini(*, api_key: Optional[str] = None) -> Dict[str, Any]:
+async def _health_gemini(*, api_key: Optional[str] = None) -> dict[str, Any]:
     key = api_key or os.getenv("GEMINI_API_KEY")
     if not key:
         return {"status": "available", "latency_ms": None, "models": [], "error": None}
@@ -289,7 +288,7 @@ async def _health_gemini(*, api_key: Optional[str] = None) -> Dict[str, Any]:
     return result
 
 
-async def _health_ollama() -> Dict[str, Any]:
+async def _health_ollama() -> dict[str, Any]:
     base = (settings.ollama_base_url or "").rstrip("/")
     if not base:
         return {"status": "available", "latency_ms": None, "models": [], "error": None}
@@ -308,14 +307,53 @@ async def _health_ollama() -> Dict[str, Any]:
     return result
 
 
+def _huggingface_entry(workspace):
+    from app.services.huggingface.connection import (
+        DEFAULT_ENDPOINT,
+        INFERENCE_ENDPOINT,
+        resolve_for_workspace,
+    )
+    from app.services.huggingface.errors import HFError
+
+    connection = None
+    error = None
+    try:
+        connection = resolve_for_workspace(workspace)
+        if connection.endpoint != DEFAULT_ENDPOINT:
+            error = "HF_INFERENCE_ENDPOINT_UNSUPPORTED"
+    except HFError as exc:
+        error = exc.code
+
+    async def health():
+        if error:
+            return {"status": "unreachable", "models": [], "latency_ms": None, "error": error}
+        return await _probe(
+            method="GET",
+            url=INFERENCE_ENDPOINT + "/models",
+            headers={"Authorization": "Bearer " + connection.token},
+        )
+
+    return {
+        "key": "huggingface",
+        "label": "Hugging Face Inference",
+        "kind": "cloud",
+        "configured": bool(error or (connection and connection.token)),
+        "fallback_models": [],
+        "notes": "Hugging Face connection; license policy checked before every call",
+        "health": health,
+        "api_key_set": bool(connection and connection.token),
+        "credential_source": connection.source if connection else None,
+    }
+
+
 def _base_catalog(
     *,
     workspace: Optional["Workspace"] = None,
-    ws_keys: Optional[Dict[str, str]] = None,
-) -> List[Dict[str, Any]]:
+    ws_keys: Optional[dict[str, str]] = None,
+) -> list[dict[str, Any]]:
     keys = ws_keys if ws_keys is not None else _workspace_keys(workspace)
-    azure_meta: Dict[str, str] = {}
-    foundry_meta: Dict[str, str] = {}
+    azure_meta: dict[str, str] = {}
+    foundry_meta: dict[str, str] = {}
     if workspace is not None:
         from app.services.model_plane import workspace_config as ws_cfg
 
@@ -329,12 +367,15 @@ def _base_catalog(
     foundry_key = keys.get("azure_foundry") or os.getenv("AZURE_FOUNDRY_API_KEY")
 
     return [
+        _huggingface_entry(workspace),
         {
             "key": "ollama",
             "label": "Ollama",
             "kind": "local",
             "configured": bool(settings.ollama_base_url),
-            "fallback_models": [settings.ollama_default_model] if settings.ollama_default_model else [],
+            "fallback_models": [settings.ollama_default_model]
+            if settings.ollama_default_model
+            else [],
             "notes": "Local / sovereign serving",
             "health": lambda: _health_ollama(),
             "api_key_set": False,
@@ -349,7 +390,9 @@ def _base_catalog(
             "notes": "OpenAI API (chat completions, streaming)",
             "health": lambda: _health_openai(api_key=keys.get("openai")),
             "api_key_set": bool(keys.get("openai") or os.getenv("OPENAI_API_KEY")),
-            "credential_source": "workspace" if keys.get("openai") else ("env" if os.getenv("OPENAI_API_KEY") else None),
+            "credential_source": "workspace"
+            if keys.get("openai")
+            else ("env" if os.getenv("OPENAI_API_KEY") else None),
         },
         {
             "key": "azure_openai",
@@ -365,7 +408,9 @@ def _base_catalog(
                 deployment=azure_meta.get("deployment"),
             ),
             "api_key_set": bool(azure_key),
-            "credential_source": "workspace" if keys.get("azure_openai") else ("env" if azure_key else None),
+            "credential_source": "workspace"
+            if keys.get("azure_openai")
+            else ("env" if azure_key else None),
         },
         {
             "key": "azure_foundry",
@@ -381,7 +426,9 @@ def _base_catalog(
                 deployment=foundry_meta.get("deployment"),
             ),
             "api_key_set": bool(foundry_key),
-            "credential_source": "workspace" if keys.get("azure_foundry") else ("env" if foundry_key else None),
+            "credential_source": "workspace"
+            if keys.get("azure_foundry")
+            else ("env" if foundry_key else None),
         },
         {
             "key": "openrouter",
@@ -392,7 +439,9 @@ def _base_catalog(
             "notes": "Multi-provider gateway (Anthropic, Meta, Mistral, ...)",
             "health": lambda: _health_openrouter(api_key=keys.get("openrouter")),
             "api_key_set": bool(keys.get("openrouter") or os.getenv("OPENROUTER_API_KEY")),
-            "credential_source": "workspace" if keys.get("openrouter") else ("env" if os.getenv("OPENROUTER_API_KEY") else None),
+            "credential_source": "workspace"
+            if keys.get("openrouter")
+            else ("env" if os.getenv("OPENROUTER_API_KEY") else None),
         },
         {
             "key": "anthropic",
@@ -403,7 +452,9 @@ def _base_catalog(
             "notes": "Claude models via the Anthropic API",
             "health": lambda: _health_anthropic(api_key=keys.get("anthropic")),
             "api_key_set": bool(keys.get("anthropic") or os.getenv("ANTHROPIC_API_KEY")),
-            "credential_source": "workspace" if keys.get("anthropic") else ("env" if os.getenv("ANTHROPIC_API_KEY") else None),
+            "credential_source": "workspace"
+            if keys.get("anthropic")
+            else ("env" if os.getenv("ANTHROPIC_API_KEY") else None),
         },
         {
             "key": "gemini",
@@ -414,7 +465,9 @@ def _base_catalog(
             "notes": "Gemini models via the Google AI API",
             "health": lambda: _health_gemini(api_key=keys.get("gemini")),
             "api_key_set": bool(keys.get("gemini") or os.getenv("GEMINI_API_KEY")),
-            "credential_source": "workspace" if keys.get("gemini") else ("env" if os.getenv("GEMINI_API_KEY") else None),
+            "credential_source": "workspace"
+            if keys.get("gemini")
+            else ("env" if os.getenv("GEMINI_API_KEY") else None),
         },
     ]
 
@@ -422,29 +475,55 @@ def _base_catalog(
 def model_compatibility(provider: str, model: str) -> str:
     """Conservative name-based classification, never an inference attestation."""
     name = model.lower().strip()
-    if any(part in name for part in (
-        "embedding", "embed-", "nomic-embed", "bge-", "e5-", "rerank",
-        "whisper", "transcrib", "tts", "dall-e", "image", "moderation", "realtime", "audio", "sora",
-    )):
+    if any(
+        part in name
+        for part in (
+            "embedding",
+            "embed-",
+            "nomic-embed",
+            "bge-",
+            "e5-",
+            "rerank",
+            "whisper",
+            "transcrib",
+            "tts",
+            "dall-e",
+            "image",
+            "moderation",
+            "realtime",
+            "audio",
+            "sora",
+        )
+    ):
         return "other"
     if name.startswith(("gpt-", "chatgpt-", "o1", "o3", "o4", "claude-", "gemini-")):
         return "text_generation"
-    if provider == "ollama" and any(part in name for part in ("llama", "qwen", "mistral", "gemma", "deepseek", "phi", "command-r")):
+    if provider == "ollama" and any(
+        part in name
+        for part in ("llama", "qwen", "mistral", "gemma", "deepseek", "phi", "command-r")
+    ):
         return "text_generation"
     return "unknown"
 
 
 async def list_providers(
-    *, include_local_serving: bool = True, workspace: Optional["Workspace"] = None,
+    *,
+    include_local_serving: bool = True,
+    workspace: Optional["Workspace"] = None,
     provider_key: str | None = None,
     node_snapshots: list[dict[str, Any]] | None = None,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     # A probe result may contain account-specific model IDs. ContextVar keeps
     # concurrent requests and global/env probes in separate cache namespaces.
     scope = f"workspace:{workspace.id}" if workspace is not None else "global"
     token = _cache_workspace.set(scope)
     try:
-        return await _list_providers(include_local_serving=include_local_serving, workspace=workspace, provider_key=provider_key, node_snapshots=node_snapshots)
+        return await _list_providers(
+            include_local_serving=include_local_serving,
+            workspace=workspace,
+            provider_key=provider_key,
+            node_snapshots=node_snapshots,
+        )
     finally:
         _cache_workspace.reset(token)
 
@@ -456,27 +535,53 @@ def scoped_serving_providers(nodes: list[dict[str, Any]]) -> list[dict[str, Any]
         if node.get("status") not in ("active", "configured"):
             continue
         for instance in node.get("instances") or []:
-            if not isinstance(instance, dict) or instance.get("status") != "running" or not instance.get("id"):
+            if (
+                not isinstance(instance, dict)
+                or instance.get("status") != "running"
+                or not instance.get("id")
+            ):
                 continue
             model = str(instance.get("model") or "")
             node_name = str(node.get("name") or "")
-            rows.append({
-                "key": provider_key(node_name, str(instance["id"])),
-                "label": instance.get("name") or model or instance["id"],
-                "kind": "local", "runtime": instance.get("provider") or instance.get("engine"),
-                "node": node_name, "instance_id": instance["id"], "model": model,
-                "models": [model] if model else [], "status": "active",
-                "runtime_available": False, "notes": "Serving instance on " + node_name,
-            })
+            rows.append(
+                {
+                    "key": provider_key(node_name, str(instance["id"])),
+                    "label": instance.get("name") or model or instance["id"],
+                    "kind": "local",
+                    "runtime": instance.get("provider") or instance.get("engine"),
+                    "node": node_name,
+                    "instance_id": instance["id"],
+                    "model": model,
+                    "models": [model] if model else [],
+                    "status": "active",
+                    "runtime_available": False,
+                    "notes": "Serving instance on " + node_name,
+                    **{
+                        field: instance[field]
+                        for field in (
+                            "artifact_id",
+                            "revision",
+                            "variant",
+                            "runtime_version",
+                            "workspace_id",
+                            "deployment_id",
+                        )
+                        if instance.get(field) is not None
+                    },
+                }
+            )
     return rows
 
 
-async def list_models(*, workspace: "Workspace") -> List[Dict[str, Any]]:
+async def list_models(*, workspace: "Workspace") -> list[dict[str, Any]]:
     rows = await list_providers(workspace=workspace)
     return [
         {
-            "id": f"{provider['key']}:{model}", "name": model, "model": model,
-            "provider": provider["key"], "status": provider["status"],
+            "id": f"{provider['key']}:{model}",
+            "name": model,
+            "model": model,
+            "provider": provider["key"],
+            "status": provider["status"],
             "configured": provider.get("configured", False),
             "discovered": provider.get("models_source") == "provider_catalog",
             "runtime_available": provider.get("runtime_available", False),
@@ -485,7 +590,8 @@ async def list_models(*, workspace: "Workspace") -> List[Dict[str, Any]]:
             "credential_source": provider.get("credential_source"),
             "generation_verified": False,
         }
-        for provider in rows for model in dict.fromkeys(provider.get("models") or [])
+        for provider in rows
+        for model in dict.fromkeys(provider.get("models") or [])
     ]
 
 
@@ -495,23 +601,42 @@ async def _list_providers(
     workspace: Optional["Workspace"] = None,
     provider_key: str | None = None,
     node_snapshots: list[dict[str, Any]] | None = None,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Return live provider statuses + real model lists where available."""
     ws_keys = _workspace_keys(workspace)
     from app.services.model_plane import workspace_config as ws_cfg
-    stored = {row["key"]: row for row in ws_cfg.get_cloud_credentials_public(workspace)} if workspace is not None else {}
-    providers: List[Dict[str, Any]] = []
+
+    stored = (
+        {row["key"]: row for row in ws_cfg.get_cloud_credentials_public(workspace)}
+        if workspace is not None
+        else {}
+    )
+    providers: list[dict[str, Any]] = []
     for entry in _base_catalog(workspace=workspace, ws_keys=ws_keys):
         if provider_key is not None and entry["key"] != provider_key:
             continue
         health_fn = entry["health"]
-        unreadable_key = stored.get(entry["key"], {}).get("api_key_set") and not ws_keys.get(entry["key"])
+        unreadable_key = stored.get(entry["key"], {}).get("api_key_set") and not ws_keys.get(
+            entry["key"]
+        )
         if unreadable_key:
-            entry = {**entry, "configured": True, "api_key_set": True, "credential_source": "workspace"}
+            entry = {
+                **entry,
+                "configured": True,
+                "api_key_set": True,
+                "credential_source": "workspace",
+            }
         if entry["configured"]:
-            health = ({"status": "unreachable", "models": [], "latency_ms": None,
-                       "error": "Workspace credential cannot be read; reconnect this provider."}
-                      if unreadable_key else await health_fn())
+            health = (
+                {
+                    "status": "unreachable",
+                    "models": [],
+                    "latency_ms": None,
+                    "error": "Workspace credential cannot be read; reconnect this provider.",
+                }
+                if unreadable_key
+                else await health_fn()
+            )
             status = health["status"]
             # Credentials present but probe not yet conclusive → configured.
             if status == "available":
@@ -538,7 +663,9 @@ async def _list_providers(
                 "credential_source": entry.get("credential_source"),
                 "configured": entry["configured"],
                 "runtime_available": entry["key"] in RUNTIME_PROVIDERS,
-                "models_source": "provider_catalog" if entry["configured"] and health.get("models") and status == "active" else "configured_default",
+                "models_source": "provider_catalog"
+                if entry["configured"] and health.get("models") and status == "active"
+                else "configured_default",
                 "models_truncated": len(models) >= 500,
                 "generation_verified": False,
             }
@@ -548,7 +675,10 @@ async def _list_providers(
         if workspace is not None:
             if node_snapshots is None:
                 from app.services.model_plane import serving_nodes
-                node_snapshots = (await serving_nodes.list_nodes(workspace=workspace, sync_registry=False))["nodes"]
+
+                node_snapshots = (
+                    await serving_nodes.list_nodes(workspace=workspace, sync_registry=False)
+                )["nodes"]
             local_rows = scoped_serving_providers(node_snapshots)
         else:
             local_rows = list_routable_providers()
@@ -567,9 +697,24 @@ async def _list_providers(
                     "node": local.get("node"),
                     "openai_base_url": local.get("openai_base_url"),
                     "configured": True,
-                    "runtime_available": False,
+                    "runtime_available": bool(
+                        workspace is not None
+                        and local.get("artifact_id")
+                        and local.get("workspace_id") == workspace.id
+                    ),
                     "models_source": "serving_configuration",
                     "generation_verified": False,
+                    **{
+                        field: local[field]
+                        for field in (
+                            "artifact_id",
+                            "revision",
+                            "variant",
+                            "runtime_version",
+                            "deployment_id",
+                        )
+                        if local.get(field) is not None
+                    },
                 }
             )
     return providers

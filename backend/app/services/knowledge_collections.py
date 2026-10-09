@@ -1,4 +1,5 @@
 """Service helpers for canonical knowledge collections and worker jobs."""
+
 from __future__ import annotations
 
 import mimetypes
@@ -13,7 +14,11 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
-from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource, WorkerJob
+from app.models.knowledge_collection import (
+    KnowledgeCollection,
+    KnowledgeCollectionSource,
+    WorkerJob,
+)
 from app.models.workspace import Workspace
 from app.services.collection_access import normalize_collection_access
 from app.services.object_store import ObjectStore, get_object_store
@@ -36,7 +41,7 @@ def _unique_slug(db: DBSession, workspace_id: str, base_slug: str) -> str:
         .first()
     ):
         suffix = f"-{index}"
-        slug = f"{base_slug[:100 - len(suffix)]}{suffix}"
+        slug = f"{base_slug[: 100 - len(suffix)]}{suffix}"
         index += 1
     return slug
 
@@ -51,7 +56,8 @@ def get_collection_or_404(
         db.query(KnowledgeCollection)
         .filter(
             KnowledgeCollection.workspace_id == workspace_id,
-            (KnowledgeCollection.id == collection_ref) | (KnowledgeCollection.slug == collection_ref),
+            (KnowledgeCollection.id == collection_ref)
+            | (KnowledgeCollection.slug == collection_ref),
         )
         .first()
     )
@@ -104,7 +110,10 @@ def create_or_get_collection(
     requested_slug = slugify(slug or name)
     existing = (
         db.query(KnowledgeCollection)
-        .filter(KnowledgeCollection.workspace_id == workspace.id, KnowledgeCollection.slug == requested_slug)
+        .filter(
+            KnowledgeCollection.workspace_id == workspace.id,
+            KnowledgeCollection.slug == requested_slug,
+        )
         .first()
     )
     if existing:
@@ -260,7 +269,9 @@ def collection_source_rows(
     collection: KnowledgeCollection,
     include_deleted: bool = False,
 ) -> list[KnowledgeCollectionSource]:
-    query = db.query(KnowledgeCollectionSource).filter(KnowledgeCollectionSource.collection_id == collection.id)
+    query = db.query(KnowledgeCollectionSource).filter(
+        KnowledgeCollectionSource.collection_id == collection.id
+    )
     recorded = query.order_by(KnowledgeCollectionSource.filename.asc()).all()
     rows = [row for row in recorded if include_deleted or row.status != "deleted"]
     known_names = {normalize_source_name(row.normalized_name or row.filename) for row in recorded}
@@ -329,10 +340,14 @@ def collection_inventory(
         ]
     if source_kind:
         wanted = source_kind.strip().lower()
-        filtered_rows = [row for row in filtered_rows if str(row.source_kind or "").lower() == wanted]
+        filtered_rows = [
+            row for row in filtered_rows if str(row.source_kind or "").lower() == wanted
+        ]
     if extension:
         wanted = extension.strip().lower().lstrip(".")
-        filtered_rows = [row for row in filtered_rows if str(row.extension or "").lower().lstrip(".") == wanted]
+        filtered_rows = [
+            row for row in filtered_rows if str(row.extension or "").lower().lstrip(".") == wanted
+        ]
     if status:
         wanted = status.strip().lower()
         filtered_rows = [row for row in filtered_rows if str(row.status or "").lower() == wanted]
@@ -360,18 +375,13 @@ def collection_inventory(
             is_needlepunch_source = (
                 str(metadata.get("project_code_scheme") or "").strip().lower()
                 == "needlepunch_numeric5"
-                or str(metadata.get("business_scope") or "").strip().lower()
-                == "needlepunch"
+                or str(metadata.get("business_scope") or "").strip().lower() == "needlepunch"
             )
             if is_numeric5 or is_needlepunch_source:
                 return False
             return wanted in str(row.filename or "").lower()
 
-        filtered_rows = [
-            row
-            for row in filtered_rows
-            if matches_project_code(row)
-        ]
+        filtered_rows = [row for row in filtered_rows if matches_project_code(row)]
     if archive_name:
         wanted = archive_name.strip().lower()
         filtered_rows = [
@@ -392,7 +402,8 @@ def collection_inventory(
         filtered_rows = [
             row
             for row in filtered_rows
-            if str((row.source_metadata or {}).get("document_id") or "").lower() in wanted_document_ids
+            if str((row.source_metadata or {}).get("document_id") or "").lower()
+            in wanted_document_ids
         ]
     wanted_filenames = _wanted_values(document_filename)
     if wanted_filenames:
@@ -504,7 +515,8 @@ def collection_inventory(
         "access": normalize_collection_access(collection.access),
         "source_count": len(rows),
         "sources_total": len(filtered_rows),
-        "document_count": len(rows) or (collection.document_count or len(collection.document_names or [])),
+        "document_count": len(rows)
+        or (collection.document_count or len(collection.document_names or [])),
         "chunk_count": total_chunks,
         "by_kind": dict(sorted(by_kind.items())),
         "by_extension": dict(sorted(by_extension.items())),
@@ -548,6 +560,15 @@ def create_worker_job(
     collection_id: str | None,
     kind: str = "document_ingest_index",
 ) -> WorkerJob:
+    if collection_id and kind in {"document_ingest_index", "qdrant_sparse_reindex"}:
+        row = (
+            db.query(KnowledgeCollection)
+            .filter(KnowledgeCollection.id == collection_id)
+            .with_for_update()
+            .first()
+        )
+        if row and row.pending_generation:
+            raise HTTPException(409, detail={"code": "RAG_REINDEX_IN_PROGRESS"})
     job = WorkerJob(
         id=str(uuid4()),
         workspace_id=workspace_id,
@@ -597,8 +618,11 @@ def update_job(
         if job.kind == "document_ingest_index":
             # Keep attempt provenance on every exit, including duplicate-only waves.
             result = {
-                **{key: value for key, value in (job.result or {}).items()
-                   if key in {"retry_history", "retry_request_id"}},
+                **{
+                    key: value
+                    for key, value in (job.result or {}).items()
+                    if key in {"retry_history", "retry_request_id"}
+                },
                 **result,
             }
         job.result = result
@@ -732,7 +756,9 @@ async def serialize_collection(
             source_rows = []
     else:
         source_rows = []
-    source_count = len(source_rows) or (collection.document_count or len(collection.document_names or []))
+    source_count = len(source_rows) or (
+        collection.document_count or len(collection.document_names or [])
+    )
     source_kind_counts = Counter(row.source_kind or "document" for row in source_rows)
     source_extension_counts = Counter((row.extension or "unknown") for row in source_rows)
     payload = {
@@ -752,6 +778,12 @@ async def serialize_collection(
         "source_extension_counts": dict(sorted(source_extension_counts.items())),
         "chunk_count": collection.chunk_count or 0,
         "embedding_model": collection.embedding_model,
+        "embedding_artifact_id": collection.embedding_artifact_id,
+        "reranker_artifact_id": collection.reranker_artifact_id,
+        "embedding_dimension": collection.embedding_dimension,
+        "embedding_params": collection.embedding_params,
+        "active_generation": collection.active_generation,
+        "pending_generation": collection.pending_generation,
         "chunking_method": collection.chunking_method,
         "chunking_params": collection.chunking_params,
         "vector_collection_name": collection.vector_collection_name,
@@ -793,7 +825,9 @@ async def serialize_collection(
                 workspace_slug=workspace_slug,
             )
             payload["nb_chunks"] = await vector_db.get_count()
-            payload["qdrant_collection_size"] = payload["nb_chunks"] if vector_db_type == "qdrant" else None
+            payload["qdrant_collection_size"] = (
+                payload["nb_chunks"] if vector_db_type == "qdrant" else None
+            )
             payload["vector_metrics"] = {
                 "type": vector_db_type,
                 "collection": collection.vector_collection_name,

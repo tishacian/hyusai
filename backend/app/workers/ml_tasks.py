@@ -46,7 +46,9 @@ def ml_forecast(model_id: str, *, horizon=None, level=None, inputs=None, explain
 
     from app.services.ml.forecast_serving import answer_for
 
-    return answer_for(model_id, horizon=horizon, level=level, inputs=list(inputs or []), explain=bool(explain))
+    return answer_for(
+        model_id, horizon=horizon, level=level, inputs=list(inputs or []), explain=bool(explain)
+    )
 
 
 @shared_task(name="agentium.ml_forecast_batch", acks_late=True, reject_on_worker_lost=True)
@@ -66,7 +68,9 @@ def ml_forecast_batch(output_id: str, served_id: str, **kwargs) -> dict:
 @shared_task(name="agentium.ml_retraining_recovery", ignore_result=True)
 def ml_retraining_recovery() -> dict:
     from app.services.ml_retraining import recover_retraining
+
     return recover_retraining()
+
 
 @shared_task(name="agentium.ml_shadow", acks_late=True, reject_on_worker_lost=True)
 def ml_shadow(job_id: str) -> dict:
@@ -85,4 +89,26 @@ def ml_shadow_recover() -> dict:
 @shared_task(name="agentium.ml_deep_predict", acks_late=False, ignore_result=False)
 def ml_deep_predict(model_id: str, rows: list[dict], *, explain=False, interval_level=None) -> dict:
     from app.services.ml.deep_serving import answer_for
+
     return answer_for(model_id, rows, explain=explain, interval_level=interval_level)
+
+
+@shared_task(name="agentium.hf_validate_adapter", acks_late=True, reject_on_worker_lost=True)
+def hf_validate_adapter(job_id: str) -> dict:
+    from app.services.huggingface.activation import run_activation
+
+    return run_activation(job_id)
+
+
+@shared_task(name="agentium.hf_adapter_prepare_failed", acks_late=True)
+def hf_adapter_prepare_failed(job_id: str) -> dict:
+    from app.services.huggingface.activation import fail_preparation
+
+    return fail_preparation(job_id)
+
+
+@shared_task(name="agentium.hf_migrate_legacy", acks_late=True, reject_on_worker_lost=True)
+def hf_migrate_legacy(job_id: str) -> dict:
+    from app.services.huggingface.legacy_migration import run_migration
+
+    return run_migration(job_id)

@@ -1,8 +1,11 @@
 # Connecteur Hugging Face — spec
 
-Statut : proposition révisée. Les arbitrages du §11 sont conservés ; les
-contrats d'identité, d'intégrité, de droits et de rejeu ci-dessous précisent
-leur implémentation. Les critères de recette du §12 conditionnent chaque lot.
+Statut : implémentation Agentium livrée, recette d'environnement restante.
+Les arbitrages du §11 et les contrats ci-dessous restent la référence.
+Le [guide d'exploitation](huggingface-operations.md) détaille les parcours
+livrés, le déploiement et les limites vérifiées. Le service externe des nœuds
+LLM doit encore implémenter le protocole HF-4 ; les critères de recette du §12
+conditionnent la validation de chaque lot sur la VM.
 
 ## 1. Objectif
 

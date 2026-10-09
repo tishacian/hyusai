@@ -2222,6 +2222,11 @@ _GRAPH_OWNED_BLOCKS: tuple[tuple[str, frozenset, tuple[str, ...]], ...] = (
     ("_predict", _PREDICT_SKILL_SLUGS, _PREDICT_PARAM_KEYS),
     ("_forecast", _FORECAST_SKILL_SLUGS, _FORECAST_PARAM_KEYS),
     ("_label", _LABEL_SKILL_SLUGS, _LABEL_PARAM_KEYS),
+    (
+        "_hf_dataset",
+        frozenset({"hf_dataset_import_v1"}),
+        ("artifact_id", "selection_digest", "output_name"),
+    ),
     ("_ml_monitor", frozenset({"ml_monitor_model_v1"}), ("model_id",)),
 )
 
@@ -3005,9 +3010,7 @@ def _run_join(node: DagNode, graph: DagGraph, state: WalkerState) -> dict[str, A
                     "_branches": branch_outputs,
                     "_failed_branches": failed_branches,
                 },
-                "terminal_error": (
-                    f"join_min_success:{node.id}:{success_count}/{min_success}"
-                ),
+                "terminal_error": (f"join_min_success:{node.id}:{success_count}/{min_success}"),
             }
     if strategy in ("any", "race"):
         primary = next(
@@ -3795,8 +3798,12 @@ def _run_hitl(
         from app.services.skills_registry.wrappers import _first_dataset_ref
         from app.services.tabular_datasets import resolve_dataset_ref
 
-        source = resolve_dataset_ref(db, workspace_id=run.workspace_id, ref=_first_dataset_ref(merged))
-        rationale["label_review"] = make_binding(db, workspace_id=run.workspace_id, dataset_id=source.id)
+        source = resolve_dataset_ref(
+            db, workspace_id=run.workspace_id, ref=_first_dataset_ref(merged)
+        )
+        rationale["label_review"] = make_binding(
+            db, workspace_id=run.workspace_id, dataset_id=source.id
+        )
         # A timeout cannot substitute for a person reading and confirming labels.
         config = {**config, "expiry_action": "reject"}
     if config.get("prompt_kind") == "approve_model_retraining":
@@ -3804,9 +3811,11 @@ def _run_hitl(
 
         binding = make_binding(db, proposal_id=merged.get("proposal_id"), run=run)
         rationale["model_retraining"] = binding
-        rationale["prompt"] = (f"Retrain {binding['model_name']} v{binding['model_version']} using "
+        rationale["prompt"] = (
+            f"Retrain {binding['model_name']} v{binding['model_version']} using "
             f"{binding['labeled_rows']} labeled feedback rows? Algorithm: {binding['training']['algo']}; "
-            f"target: {binding['training']['target']}. The new model remains a challenger until separately promoted.")
+            f"target: {binding['training']['target']}. The new model remains a challenger until separately promoted."
+        )
         prompt = rationale["prompt"]
         config = {**config, "expiry_action": "reject"}
     decision = _log_decision(

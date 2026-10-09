@@ -9,7 +9,7 @@ import re
 import time
 import uuid
 from collections import Counter
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -102,9 +102,9 @@ def _content_text_index_schema() -> Any:
     )
 
 
-def _sanitize_payload(metadata: Dict[str, Any]) -> Dict[str, Any]:
+def _sanitize_payload(metadata: dict[str, Any]) -> dict[str, Any]:
     """Qdrant payload: JSON-serializable scalars and keyword arrays."""
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k, v in metadata.items():
         if v is None:
             continue
@@ -114,7 +114,9 @@ def _sanitize_payload(metadata: Dict[str, Any]) -> Dict[str, Any]:
             values = [
                 item
                 for item in v
-                if item is not None and isinstance(item, (str, int, float, bool)) and str(item) != ""
+                if item is not None
+                and isinstance(item, (str, int, float, bool))
+                and str(item) != ""
             ]
             if values:
                 out[str(k)] = values
@@ -149,7 +151,9 @@ def _sparse_vector_from_text(text: str) -> Any:
     counts = Counter(tokens)
     buckets: dict[int, float] = {}
     for token, count in counts.items():
-        buckets[_sparse_index(token)] = buckets.get(_sparse_index(token), 0.0) + math.log1p(float(count))
+        buckets[_sparse_index(token)] = buckets.get(_sparse_index(token), 0.0) + math.log1p(
+            float(count)
+        )
     norm = math.sqrt(sum(value * value for value in buckets.values())) or 1.0
     ordered = sorted(buckets)
     return SparseVector(
@@ -158,15 +162,15 @@ def _sparse_vector_from_text(text: str) -> Any:
     )
 
 
-def _payload_for_sparse(payload: Dict[str, Any]) -> Dict[str, Any]:
+def _payload_for_sparse(payload: dict[str, Any]) -> dict[str, Any]:
     return enrich_payload_for_lexical_sparse(payload)
 
 
-def _sparse_vector_from_payload(payload: Dict[str, Any]) -> Any:
+def _sparse_vector_from_payload(payload: dict[str, Any]) -> Any:
     return _sparse_vector_from_text(metadata_search_text(payload))
 
 
-def _qdrant_search_params(search_params: Optional[Dict[str, Any]]) -> Any:
+def _qdrant_search_params(search_params: Optional[dict[str, Any]]) -> Any:
     if not search_params:
         return None
     from qdrant_client.models import QuantizationSearchParams, SearchParams
@@ -190,7 +194,9 @@ def _qdrant_search_params(search_params: Optional[Dict[str, Any]]) -> Any:
         except (TypeError, ValueError):
             hnsw_ef = None
     quantization = None
-    if profile in {"oracle_fast", "chat"} and bool(getattr(settings, "rag_qdrant_quantized_search_enabled", True)):
+    if profile in {"oracle_fast", "chat"} and bool(
+        getattr(settings, "rag_qdrant_quantized_search_enabled", True)
+    ):
         quantization = QuantizationSearchParams(ignore=False, rescore=True)
     elif profile == "deep_async":
         quantization = QuantizationSearchParams(ignore=True)
@@ -199,17 +205,19 @@ def _qdrant_search_params(search_params: Optional[Dict[str, Any]]) -> Any:
     return SearchParams(hnsw_ef=hnsw_ef, quantization=quantization)
 
 
-def _qdrant_fusion(search_params: Optional[Dict[str, Any]]) -> Any:
+def _qdrant_fusion(search_params: Optional[dict[str, Any]]) -> Any:
     from qdrant_client.models import Fusion
 
-    requested = str((search_params or {}).get("fusion") or getattr(settings, "rag_qdrant_hybrid_fusion", "rrf"))
+    requested = str(
+        (search_params or {}).get("fusion") or getattr(settings, "rag_qdrant_hybrid_fusion", "rrf")
+    )
     requested = requested.strip().lower()
     if requested == "dbsf":
         return Fusion.DBSF
     return Fusion.RRF
 
 
-def _qdrant_grouping(search_params: Optional[Dict[str, Any]]) -> Optional[tuple[str, int]]:
+def _qdrant_grouping(search_params: Optional[dict[str, Any]]) -> Optional[tuple[str, int]]:
     if not search_params:
         return None
     raw_group_by = search_params.get("group_by") or search_params.get("qdrant_group_by")
@@ -217,13 +225,15 @@ def _qdrant_grouping(search_params: Optional[Dict[str, Any]]) -> Optional[tuple[
     if not group_by or group_by.lower() in {"0", "false", "none", "off", "disabled"}:
         return None
     try:
-        group_size = int(search_params.get("group_size") or search_params.get("qdrant_group_size") or 1)
+        group_size = int(
+            search_params.get("group_size") or search_params.get("qdrant_group_size") or 1
+        )
     except (TypeError, ValueError):
         group_size = 1
     return group_by, max(1, min(group_size, 4))
 
 
-def _dense_vector_from_raw(raw: Any) -> Optional[List[float]]:
+def _dense_vector_from_raw(raw: Any) -> Optional[list[float]]:
     if raw is None:
         return None
     if isinstance(raw, dict):
@@ -289,7 +299,7 @@ class QdrantVectorDB(VectorDBBase):
             kwargs["sparse_vectors_config"] = sparse_vectors_config
         self.client.create_collection(**kwargs)
 
-    def get_metadatas_for_chunk_ids(self, chunk_ids: List[str]) -> List[Dict[str, Any]]:
+    def get_metadatas_for_chunk_ids(self, chunk_ids: list[str]) -> list[dict[str, Any]]:
         """Sync: retrieve payloads for BM25 warm-up (used by DocumentService hybrid path)."""
         if not chunk_ids or self.client is None:
             return []
@@ -411,9 +421,7 @@ class QdrantVectorDB(VectorDBBase):
             )
             return False
 
-    async def add_vectors(
-        self, vectors: np.ndarray, metadatas: List[Dict], ids: List[str]
-    ):
+    async def add_vectors(self, vectors: np.ndarray, metadatas: list[dict], ids: list[str]):
         from qdrant_client.models import PointStruct
 
         if len(vectors) == 0:
@@ -437,9 +445,7 @@ class QdrantVectorDB(VectorDBBase):
                         _DENSE_VECTOR_NAME: normalized[i].tolist(),
                         _SPARSE_VECTOR_NAME: _sparse_vector_from_payload(payload),
                     }
-                points.append(
-                    PointStruct(id=pid, vector=vector, payload=payload)
-                )
+                points.append(PointStruct(id=pid, vector=vector, payload=payload))
             batch_size = _batch_size()
             for start in range(0, len(points), batch_size):
                 batch = points[start : start + batch_size]
@@ -452,7 +458,7 @@ class QdrantVectorDB(VectorDBBase):
         await loop.run_in_executor(None, _add)
         logger.debug(f"Qdrant upserted {len(ids)} points into '{self.collection_name}'")
 
-    async def reindex_sparse_vectors(self, batch_size: Optional[int] = None) -> Dict[str, Any]:
+    async def reindex_sparse_vectors(self, batch_size: Optional[int] = None) -> dict[str, Any]:
         """Backfill named dense+sparse vectors through a streaming alias cutover.
 
         Qdrant 1.12 cannot add sparse vectors to a legacy unnamed-dense
@@ -475,14 +481,16 @@ class QdrantVectorDB(VectorDBBase):
 
         loop = asyncio.get_event_loop()
 
-        def _reindex() -> Dict[str, Any]:
+        def _reindex() -> dict[str, Any]:
             named_sparse = self._collection_supports_named_sparse()
             if named_sparse and self._collection_sparse_schema_ready():
                 return {
                     "status": "ready",
                     "configured": True,
                     "collection": self.collection_name,
-                    "points_reindexed": self.client.count(collection_name=self.collection_name, exact=True).count,
+                    "points_reindexed": self.client.count(
+                        collection_name=self.collection_name, exact=True
+                    ).count,
                     "recreated_collection": False,
                     "alias_cutover": False,
                     "reason": "already_named_dense_sparse_metadata_v1",
@@ -492,7 +500,9 @@ class QdrantVectorDB(VectorDBBase):
             info = self.client.get_collection(collection_name=self.collection_name)
             vectors_config = getattr(getattr(info.config, "params", None), "vectors", None)
             if isinstance(vectors_config, dict):
-                dense_config = vectors_config.get(_DENSE_VECTOR_NAME) or next(iter(vectors_config.values()), None)
+                dense_config = vectors_config.get(_DENSE_VECTOR_NAME) or next(
+                    iter(vectors_config.values()), None
+                )
                 dimension = int(getattr(dense_config, "size", 0) or 0)
             else:
                 dimension = int(getattr(vectors_config, "size", 0) or 0)
@@ -548,7 +558,9 @@ class QdrantVectorDB(VectorDBBase):
                     break
                 points = []
                 for record in records:
-                    payload = _payload_for_sparse(_sanitize_payload(dict(getattr(record, "payload", None) or {})))
+                    payload = _payload_for_sparse(
+                        _sanitize_payload(dict(getattr(record, "payload", None) or {}))
+                    )
                     dense = _dense_vector_from_raw(getattr(record, "vector", None))
                     if dense is None:
                         skipped += 1
@@ -593,7 +605,9 @@ class QdrantVectorDB(VectorDBBase):
             self.client.update_collection_aliases(
                 [
                     CreateAliasOperation(
-                        create_alias=CreateAlias(collection_name=temp_name, alias_name=self.collection_name)
+                        create_alias=CreateAlias(
+                            collection_name=temp_name, alias_name=self.collection_name
+                        )
                     )
                 ]
             )
@@ -626,7 +640,7 @@ class QdrantVectorDB(VectorDBBase):
         )
         return result
 
-    def _filters_to_qdrant(self, filters: Optional[Dict]) -> Optional[Any]:
+    def _filters_to_qdrant(self, filters: Optional[dict]) -> Optional[Any]:
         if not filters:
             return None
         from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
@@ -644,8 +658,8 @@ class QdrantVectorDB(VectorDBBase):
         return Filter(must=must) if must else None
 
     @staticmethod
-    def _hits_to_results(points: Any) -> List[dict]:
-        out: List[dict] = []
+    def _hits_to_results(points: Any) -> list[dict]:
+        out: list[dict] = []
         for hit in points:
             payload = dict(hit.payload) if hit.payload else {}
             chunk_id = payload.pop("chunk_id", None) or str(hit.id)
@@ -663,12 +677,14 @@ class QdrantVectorDB(VectorDBBase):
         return out
 
     @staticmethod
-    def _groups_to_points(groups_result: Any, *, limit: int) -> List[Any]:
+    def _groups_to_points(groups_result: Any, *, limit: int) -> list[Any]:
         groups = list(getattr(groups_result, "groups", None) or [])
         if not groups:
             return []
-        max_group_size = max((len(getattr(group, "hits", None) or []) for group in groups), default=0)
-        points: List[Any] = []
+        max_group_size = max(
+            (len(getattr(group, "hits", None) or []) for group in groups), default=0
+        )
+        points: list[Any] = []
         for hit_index in range(max_group_size):
             for group in groups:
                 hits = list(getattr(group, "hits", None) or [])
@@ -680,7 +696,7 @@ class QdrantVectorDB(VectorDBBase):
         return points
 
     @staticmethod
-    def _annotate_grouping(rows: List[dict], grouping: Optional[tuple[str, int]]) -> List[dict]:
+    def _annotate_grouping(rows: list[dict], grouping: Optional[tuple[str, int]]) -> list[dict]:
         if not grouping:
             return rows
         group_by, group_size = grouping
@@ -698,8 +714,8 @@ class QdrantVectorDB(VectorDBBase):
         query_vector: np.ndarray,
         top_k: int = 10,
         filters: Optional[dict] = None,
-        search_params: Optional[Dict[str, Any]] = None,
-    ) -> List[dict]:
+        search_params: Optional[dict[str, Any]] = None,
+    ) -> list[dict]:
         if top_k <= 0 or self.client is None:
             return []
         if not self.client.collection_exists(self.collection_name):
@@ -738,7 +754,9 @@ class QdrantVectorDB(VectorDBBase):
                         with_vectors=False,
                     )
                     return self._annotate_grouping(
-                        self._hits_to_results(self._groups_to_points(grouped_response, limit=top_k)),
+                        self._hits_to_results(
+                            self._groups_to_points(grouped_response, limit=top_k)
+                        ),
                         grouping,
                     )
                 except Exception as exc:  # noqa: BLE001 - grouping is an optimization.
@@ -767,7 +785,7 @@ class QdrantVectorDB(VectorDBBase):
         query: str,
         top_k: int = 10,
         filters: Optional[dict] = None,
-    ) -> List[dict]:
+    ) -> list[dict]:
         if top_k <= 0 or self.client is None or not _qdrant_sparse_enabled():
             return []
         if not self.client.collection_exists(self.collection_name):
@@ -816,8 +834,8 @@ class QdrantVectorDB(VectorDBBase):
         query_text: str,
         top_k: int = 10,
         filters: Optional[dict] = None,
-        search_params: Optional[Dict[str, Any]] = None,
-    ) -> Optional[List[dict]]:
+        search_params: Optional[dict[str, Any]] = None,
+    ) -> Optional[list[dict]]:
         if top_k <= 0 or self.client is None or not _qdrant_sparse_enabled():
             return None
         if not self.client.collection_exists(self.collection_name):
@@ -912,7 +930,7 @@ class QdrantVectorDB(VectorDBBase):
 
         return await loop.run_in_executor(None, _search_hybrid)
 
-    async def delete(self, ids: List[str]):
+    async def delete(self, ids: list[str]):
         if not ids or self.client is None:
             return
         from qdrant_client.models import PointIdsList
@@ -928,7 +946,7 @@ class QdrantVectorDB(VectorDBBase):
 
         await loop.run_in_executor(None, _del)
 
-    async def delete_by_metadata(self, filters: Optional[Dict[str, Any]] = None) -> bool:
+    async def delete_by_metadata(self, filters: Optional[dict[str, Any]] = None) -> bool:
         """Delete exactly the points selected by an indexed payload filter."""
         if self.client is None or not filters:
             return False
@@ -956,7 +974,7 @@ class QdrantVectorDB(VectorDBBase):
 
         return bool(await loop.run_in_executor(None, _del))
 
-    async def update(self, ids: List[str], vectors: np.ndarray, metadatas: List[Dict]):
+    async def update(self, ids: list[str], vectors: np.ndarray, metadatas: list[dict]):
         await self.delete(ids)
         await self.add_vectors(vectors, metadatas, ids)
 
@@ -970,7 +988,7 @@ class QdrantVectorDB(VectorDBBase):
 
         return await loop.run_in_executor(None, _c)
 
-    async def count_payloads(self, filters: Optional[Dict[str, Any]] = None) -> Optional[int]:
+    async def count_payloads(self, filters: Optional[dict[str, Any]] = None) -> Optional[int]:
         if self.client is None or not self.client.collection_exists(self.collection_name):
             return 0
         loop = asyncio.get_event_loop()
@@ -987,13 +1005,13 @@ class QdrantVectorDB(VectorDBBase):
 
         return await loop.run_in_executor(None, _c)
 
-    async def get_all_ids(self) -> List[str]:
+    async def get_all_ids(self) -> list[str]:
         if self.client is None or not self.client.collection_exists(self.collection_name):
             return []
         loop = asyncio.get_event_loop()
 
         def _scroll():
-            chunk_ids: List[str] = []
+            chunk_ids: list[str] = []
             next_off = None
             while True:
                 records, next_off = self.client.scroll(
@@ -1016,7 +1034,7 @@ class QdrantVectorDB(VectorDBBase):
 
         return await loop.run_in_executor(None, _scroll)
 
-    async def get_by_document_id(self, document_id: str) -> List[str]:
+    async def get_by_document_id(self, document_id: str) -> list[str]:
         if self.client is None or not self.client.collection_exists(self.collection_name):
             return []
         from qdrant_client.models import FieldCondition, Filter, MatchValue
@@ -1026,7 +1044,7 @@ class QdrantVectorDB(VectorDBBase):
         self._ensure_payload_indexes_once()
 
         def _scroll():
-            chunk_ids: List[str] = []
+            chunk_ids: list[str] = []
             next_off = None
             while True:
                 records, next_off = self.client.scroll(
@@ -1079,12 +1097,35 @@ class QdrantVectorDB(VectorDBBase):
 
         return await loop.run_in_executor(None, _scroll_first)
 
+    async def iter_payload_batches(self, batch_size: int = 256):
+        """Use a real scroll cursor, avoiding repeated scans during reembedding."""
+        offset = None
+        while True:
+            records, offset = await asyncio.to_thread(
+                self.client.scroll,
+                collection_name=self.collection_name,
+                limit=max(1, min(batch_size, 500)),
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            if not records:
+                return
+            batch = []
+            for record in records:
+                payload = dict(record.payload or {})
+                payload.setdefault("point_id", str(record.id))
+                batch.append(payload)
+            yield batch
+            if offset is None:
+                return
+
     async def list_payloads(
         self,
-        filters: Optional[Dict[str, Any]] = None,
+        filters: Optional[dict[str, Any]] = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """List payloads for diagnostics/table-fact browsing."""
         if self.client is None or not self.client.collection_exists(self.collection_name):
             return []
@@ -1096,7 +1137,7 @@ class QdrantVectorDB(VectorDBBase):
         loop = asyncio.get_event_loop()
 
         def _scroll_payloads():
-            out: List[Dict[str, Any]] = []
+            out: list[dict[str, Any]] = []
             seen = 0
             next_off = None
             while len(out) < limit:
@@ -1129,10 +1170,10 @@ class QdrantVectorDB(VectorDBBase):
         self,
         *,
         project_code: str,
-        content_terms: List[str],
+        content_terms: list[str],
         limit: int = 6,
         scan_limit: int = 192,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Return bounded, project-scoped evidence for equipment inventories.
 
         This is deliberately not another semantic/deep retrieval.  It uses the
@@ -1145,9 +1186,11 @@ class QdrantVectorDB(VectorDBBase):
         terms: list[str] = []
         for value in content_terms or []:
             term = " ".join(str(value or "").strip().split())
-            if term and 2 < len(term) <= 80 and term.lower() not in {
-                existing.lower() for existing in terms
-            }:
+            if (
+                term
+                and 2 < len(term) <= 80
+                and term.lower() not in {existing.lower() for existing in terms}
+            ):
                 terms.append(term)
             if len(terms) >= 12:
                 break
@@ -1160,7 +1203,7 @@ class QdrantVectorDB(VectorDBBase):
         bounded_scan = max(limit, min(max(int(scan_limit or 192), 1), 384))
         bounded_limit = max(1, min(int(limit or 6), 12))
 
-        def _search_inventory() -> List[Dict[str, Any]]:
+        def _search_inventory() -> list[dict[str, Any]]:
             # Do not preflight with ``collection_exists``: the production client
             # version cannot bound that call, and cancelling the outer asyncio
             # wait does not stop its executor thread. The actual query/scroll
@@ -1177,9 +1220,7 @@ class QdrantVectorDB(VectorDBBase):
             spare_filter = Filter(
                 must=[
                     project_condition,
-                    FieldCondition(
-                        key="source_family", match=MatchValue(value="spare_parts_list")
-                    ),
+                    FieldCondition(key="source_family", match=MatchValue(value="spare_parts_list")),
                 ]
             )
 
@@ -1335,10 +1376,9 @@ class QdrantVectorDB(VectorDBBase):
                         "source_kind",
                     )
                 )
-                is_pdf = (
-                    str(payload.get("extension") or "").strip().lower() == "pdf"
-                    or filename.lower().endswith(".pdf")
-                )
+                is_pdf = str(
+                    payload.get("extension") or ""
+                ).strip().lower() == "pdf" or filename.lower().endswith(".pdf")
                 # "operating_manual" is the only manual family the deposit
                 # classifier emits; the other names it used to list never were.
                 is_manual = source_family == "operating_manual" or bool(
@@ -1387,7 +1427,7 @@ class QdrantVectorDB(VectorDBBase):
             seen_content: set[str] = set()
 
             def document_family_values(
-                metadata: Dict[str, Any],
+                metadata: dict[str, Any],
                 document_key: str,
             ) -> tuple[str, str]:
                 # Separate the functional folder (diversity category) from the
@@ -1460,26 +1500,19 @@ class QdrantVectorDB(VectorDBBase):
             )
             for row in ranked:
                 metadata = row.get("metadata") or {}
-                family_tokens = family_evidence_tokens(
-                    metadata.get("inventory_equipment_family")
-                )
+                family_tokens = family_evidence_tokens(metadata.get("inventory_equipment_family"))
                 metadata["inventory_family_attested_by_spare"] = bool(
                     family_tokens and spare_tokens and family_tokens <= spare_tokens
                 )
             attested_categories = {
                 str((row.get("metadata") or {}).get("inventory_functional_category") or "")
                 for row in ranked
-                if bool(
-                    (row.get("metadata") or {}).get(
-                        "inventory_family_attested_by_spare"
-                    )
-                )
+                if bool((row.get("metadata") or {}).get("inventory_family_attested_by_spare"))
             }
             for row in ranked:
                 metadata = row.get("metadata") or {}
                 metadata["inventory_category_has_spare_attested_family"] = bool(
-                    str(metadata.get("inventory_functional_category") or "")
-                    in attested_categories
+                    str(metadata.get("inventory_functional_category") or "") in attested_categories
                 )
 
             unattested_family_rows = [
@@ -1487,25 +1520,23 @@ class QdrantVectorDB(VectorDBBase):
                 for row in ranked
                 if str((row.get("metadata") or {}).get("source_family") or "").lower()
                 != "spare_parts_list"
-                and not bool(
-                    (row.get("metadata") or {}).get(
-                        "inventory_family_attested_by_spare"
-                    )
-                )
+                and not bool((row.get("metadata") or {}).get("inventory_family_attested_by_spare"))
             ]
             # Prefer the missing family inside a category otherwise dominated
             # by spare-attested models. Stable sorting preserves score order
             # within both priority classes.
             unattested_family_rows.sort(
-                key=lambda row: not bool(
-                    (row.get("metadata") or {}).get(
-                        "inventory_category_has_spare_attested_family"
+                key=lambda row: (
+                    not bool(
+                        (row.get("metadata") or {}).get(
+                            "inventory_category_has_spare_attested_family"
+                        )
                     )
                 )
             )
 
             def add_rows(
-                rows: List[Dict[str, Any]],
+                rows: list[dict[str, Any]],
                 *,
                 cap: int,
                 per_document: int,
@@ -1523,9 +1554,7 @@ class QdrantVectorDB(VectorDBBase):
                         " ".join(str(row.get("content") or "").split()).encode("utf-8")
                     ).hexdigest()
                     family = str(metadata.get("inventory_equipment_family") or document_key)
-                    category = str(
-                        metadata.get("inventory_functional_category") or document_key
-                    )
+                    category = str(metadata.get("inventory_functional_category") or document_key)
                     family_key = f"family:{family}"
                     category_key = f"category:{category}"
                     if (
@@ -1552,9 +1581,7 @@ class QdrantVectorDB(VectorDBBase):
                 per_category=2,
             )
             reserve_unattested_slot = bool(
-                spare_rows
-                and unattested_family_rows
-                and len(selected) < bounded_limit
+                spare_rows and unattested_family_rows and len(selected) < bounded_limit
             )
             attested_category_counts: dict[str, int] = {}
             for row in ranked:
@@ -1572,9 +1599,7 @@ class QdrantVectorDB(VectorDBBase):
                 and bounded_limit - len(selected) > 1
             )
             if len(selected) < bounded_limit:
-                reserved_slots = int(reserve_unattested_slot) + int(
-                    reserve_attested_repeat_slot
-                )
+                reserved_slots = int(reserve_unattested_slot) + int(reserve_attested_repeat_slot)
                 add_rows(
                     ranked,
                     cap=max(len(selected), bounded_limit - reserved_slots),
@@ -1607,11 +1632,11 @@ class QdrantVectorDB(VectorDBBase):
 
     async def parent_contexts_for_hits(
         self,
-        metadatas: List[Dict[str, Any]],
+        metadatas: list[dict[str, Any]],
         *,
         max_parents: int = 3,
         max_chars: int = 2500,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Return coarse parent contexts for already-ranked child hits.
 
         Current collections may not have explicit parent ids yet, so the
@@ -1690,19 +1715,32 @@ class QdrantVectorDB(VectorDBBase):
                         with_vectors=False,
                     )
             payloads = [dict(getattr(record, "payload", None) or {}) for record in records or []]
-            payloads = [payload for payload in payloads if str(payload.get("content") or "").strip()]
+            payloads = [
+                payload for payload in payloads if str(payload.get("content") or "").strip()
+            ]
             if not payloads:
                 return None
             seed_index = _chunk_index(seed)
             if seed_index is not None:
                 payloads.sort(
                     key=lambda payload: (
-                        abs((_chunk_index(payload) if _chunk_index(payload) is not None else seed_index) - seed_index),
+                        abs(
+                            (
+                                _chunk_index(payload)
+                                if _chunk_index(payload) is not None
+                                else seed_index
+                            )
+                            - seed_index
+                        ),
                         _chunk_index(payload) if _chunk_index(payload) is not None else 10**9,
                     )
                 )
             else:
-                payloads.sort(key=lambda payload: _chunk_index(payload) if _chunk_index(payload) is not None else 10**9)
+                payloads.sort(
+                    key=lambda payload: (
+                        _chunk_index(payload) if _chunk_index(payload) is not None else 10**9
+                    )
+                )
 
             selected: list[dict[str, Any]] = []
             total_chars = 0
@@ -1719,7 +1757,11 @@ class QdrantVectorDB(VectorDBBase):
                     break
             if not selected:
                 return None
-            selected.sort(key=lambda payload: _chunk_index(payload) if _chunk_index(payload) is not None else 10**9)
+            selected.sort(
+                key=lambda payload: (
+                    _chunk_index(payload) if _chunk_index(payload) is not None else 10**9
+                )
+            )
             content_parts = [str(payload.get("content") or "").strip() for payload in selected]
             content = "\n\n".join(part for part in content_parts if part)[:max_chars_local]
             first = dict(selected[0])
@@ -1757,15 +1799,19 @@ class QdrantVectorDB(VectorDBBase):
         self,
         query: str,
         top_k: int = 10,
-        filters: Optional[Dict[str, Any]] = None,
+        filters: Optional[dict[str, Any]] = None,
         lexical_config: Optional[LexicalRetrievalConfig] = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Search exact metadata candidates via payload keyword indexes.
 
         This is intentionally conservative: it only runs when the query analysis
         yields exact identifiers or configured document-type aliases.
         """
-        if top_k <= 0 or self.client is None or not self.client.collection_exists(self.collection_name):
+        if (
+            top_k <= 0
+            or self.client is None
+            or not self.client.collection_exists(self.collection_name)
+        ):
             return []
         config = lexical_config or LexicalRetrievalConfig()
         signals = analyze_query(query, config)
@@ -1779,13 +1825,21 @@ class QdrantVectorDB(VectorDBBase):
         for exact_term in signals.exact_terms:
             variants = sorted({term.lower() for term in identifier_variants(exact_term) if term})
             if variants:
-                must.append(FieldCondition(key="retrieval_identifiers", match=MatchAny(any=variants)))
+                must.append(
+                    FieldCondition(key="retrieval_identifiers", match=MatchAny(any=variants))
+                )
 
         document_type_terms: list[str] = []
         for alias in signals.document_type_aliases:
-            document_type_terms.extend(token.lower() for token in re.findall(r"[A-Za-zÀ-ÿ0-9]{2,}", alias))
+            document_type_terms.extend(
+                token.lower() for token in re.findall(r"[A-Za-zÀ-ÿ0-9]{2,}", alias)
+            )
         if document_type_terms:
-            must.append(FieldCondition(key="retrieval_terms", match=MatchAny(any=sorted(set(document_type_terms)))))
+            must.append(
+                FieldCondition(
+                    key="retrieval_terms", match=MatchAny(any=sorted(set(document_type_terms)))
+                )
+            )
 
         if not must:
             return []
@@ -1814,7 +1868,9 @@ class QdrantVectorDB(VectorDBBase):
                 scanned += len(records)
                 for record in records:
                     payload = dict(getattr(record, "payload", None) or {})
-                    doc_key = str(payload.get("document_id") or payload.get("document_filename") or record.id)
+                    doc_key = str(
+                        payload.get("document_id") or payload.get("document_filename") or record.id
+                    )
                     if doc_key in seen_docs:
                         continue
                     details = lexical_match_details(
@@ -1823,15 +1879,23 @@ class QdrantVectorDB(VectorDBBase):
                         query=query,
                         config=config,
                     )
-                    if details.get("requires_exact_match") and not details.get("matched_exact_terms"):
+                    if details.get("requires_exact_match") and not details.get(
+                        "matched_exact_terms"
+                    ):
                         continue
                     metadata = dict(payload)
                     metadata["exact_metadata_match"] = True
                     metadata["exact_metadata_backend"] = "qdrant_payload"
                     metadata["retrieval_lexical_score"] = int(details.get("score") or 0)
-                    metadata["retrieval_exact_terms_matched"] = list(details.get("matched_exact_terms") or [])
-                    metadata["retrieval_document_types_matched"] = list(details.get("matched_document_types") or [])
-                    metadata["retrieval_exact_match_missing"] = bool(details.get("missing_exact_match"))
+                    metadata["retrieval_exact_terms_matched"] = list(
+                        details.get("matched_exact_terms") or []
+                    )
+                    metadata["retrieval_document_types_matched"] = list(
+                        details.get("matched_document_types") or []
+                    )
+                    metadata["retrieval_exact_match_missing"] = bool(
+                        details.get("missing_exact_match")
+                    )
                     score = max(1.0, float(details.get("score") or 0))
                     records_out.append(
                         {
@@ -1849,18 +1913,20 @@ class QdrantVectorDB(VectorDBBase):
                         break
                 if next_off is None:
                     break
-            records_out.sort(key=lambda item: float(item.get("combined_score") or 0.0), reverse=True)
+            records_out.sort(
+                key=lambda item: float(item.get("combined_score") or 0.0), reverse=True
+            )
             return records_out[:top_k]
 
         return await loop.run_in_executor(None, _scroll_exact)
 
-    async def list_documents(self) -> List[dict]:
+    async def list_documents(self) -> list[dict]:
         if self.client is None or not self.client.collection_exists(self.collection_name):
             return []
         loop = asyncio.get_event_loop()
 
         def _list():
-            seen: Dict[str, dict] = {}
+            seen: dict[str, dict] = {}
             next_off = None
             while True:
                 records, next_off = self.client.scroll(
@@ -1900,8 +1966,8 @@ class QdrantVectorDB(VectorDBBase):
     async def sample_chunk_vectors(
         self,
         limit: int = 200,
-        filters: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, Any]]:
+        filters: Optional[dict[str, Any]] = None,
+    ) -> list[dict[str, Any]]:
         """Sample points (with vectors) for the embedding-map visualization."""
         if self.client is None or not self.client.collection_exists(self.collection_name):
             return []
@@ -1911,7 +1977,7 @@ class QdrantVectorDB(VectorDBBase):
             self._ensure_payload_indexes_once()
         loop = asyncio.get_event_loop()
 
-        def _as_vector(raw) -> Optional[List[float]]:
+        def _as_vector(raw) -> Optional[list[float]]:
             if raw is None:
                 return None
             if isinstance(raw, dict):  # named vectors — take the first dense one.
@@ -1921,7 +1987,7 @@ class QdrantVectorDB(VectorDBBase):
             return [float(x) for x in raw]
 
         def _sample():
-            out: List[Dict[str, Any]] = []
+            out: list[dict[str, Any]] = []
             # Prefer a true random sample (Qdrant >= 1.11); fall back to scroll.
             try:
                 from qdrant_client import models as qmodels

@@ -32,7 +32,15 @@ from typing import Annotated, Any, Optional, Union
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from fastapi.security import HTTPAuthorizationCredentials
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    model_validator,
+)
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace, security
@@ -42,6 +50,8 @@ from app.models.tabular import MLModel, TabularDataset
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services import ml_comparison
+from app.services.ml.forecast_monitoring import ActualsBinding
+from app.services.ml_retraining import MonitoringPolicy
 from app.services.ml_shadow import ShadowConfig
 from app.services.tabular_datasets import (
     TabularError,
@@ -62,8 +72,6 @@ from app.services.tabular_ml import (
     submit_training,
     validate_training,
 )
-from app.services.ml.forecast_monitoring import ActualsBinding
-
 from app.services.tabular_monitoring import (
     attach_feedback,
     badges_for,
@@ -73,7 +81,6 @@ from app.services.tabular_monitoring import (
 from app.services.tabular_monitoring import (
     report as monitoring_report,
 )
-from app.services.ml_retraining import MonitoringPolicy
 from app.services.tabular_predict import (
     API_KEY_HEADER,
     authenticate_key,
@@ -182,10 +189,8 @@ async def list_models(
     models = query.order_by(MLModel.created_at.desc()).limit(limit).all()
     badges = badges_for(db, models)
     return {
-        "models": [
-            serialize_model(row, monitor_status=badges.get(row.id)) for row in models
-        ],
-        "catalog": catalog_payload(db),
+        "models": [serialize_model(row, monitor_status=badges.get(row.id)) for row in models],
+        "catalog": catalog_payload(db, workspace_id=workspace.id),
     }
 
 
@@ -197,7 +202,7 @@ async def get_catalog(
 ):
     """Algorithms, their knobs, the model families and the training limits."""
 
-    return {"catalog": catalog_payload(db)}
+    return {"catalog": catalog_payload(db, workspace_id=workspace.id)}
 
 
 class PlanBody(BaseModel):
@@ -235,9 +240,7 @@ async def plan_training(
     """
 
     try:
-        dataset = resolve_dataset_ref(
-            db, workspace_id=workspace.id, ref=body.dataset_ref()
-        )
+        dataset = resolve_dataset_ref(db, workspace_id=workspace.id, ref=body.dataset_ref())
     except TabularError as exc:
         _raise_tabular(exc)
 
@@ -268,7 +271,7 @@ async def plan_training(
     payload: dict[str, Any] = {
         "dataset": serialize_dataset(dataset),
         "columns": columns,
-        "catalog": catalog_payload(db),
+        "catalog": catalog_payload(db, workspace_id=workspace.id),
         "plan": None,
         "refusal": None,
     }
@@ -293,16 +296,28 @@ async def plan_training(
         return payload
 
     if spec.spec.get("tuning") == "budget":
-        previous = (db.query(MLModel).filter(
-            MLModel.workspace_id == workspace.id, MLModel.dataset_id == dataset.id,
-            MLModel.target == spec.target, MLModel.algo == spec.algo.key,
-            MLModel.status == "ready", MLModel.train_duration_ms.isnot(None),
-        ).order_by(MLModel.trained_at.desc()).first())
+        previous = (
+            db.query(MLModel)
+            .filter(
+                MLModel.workspace_id == workspace.id,
+                MLModel.dataset_id == dataset.id,
+                MLModel.target == spec.target,
+                MLModel.algo == spec.algo.key,
+                MLModel.status == "ready",
+                MLModel.train_duration_ms.isnot(None),
+            )
+            .order_by(MLModel.trained_at.desc())
+            .first()
+        )
         if previous is not None:
-            estimate = (float(previous.train_duration_ms) / 1000
-                        * spec.spec["tuning_trials"] * 3)
-            spec.warnings.append({"code": "ML_TUNING_ESTIMATE", "estimated_s": round(estimate),
-                                  "budget_s": spec.spec["tuning_budget_s"]})
+            estimate = float(previous.train_duration_ms) / 1000 * spec.spec["tuning_trials"] * 3
+            spec.warnings.append(
+                {
+                    "code": "ML_TUNING_ESTIMATE",
+                    "estimated_s": round(estimate),
+                    "budget_s": spec.spec["tuning_budget_s"],
+                }
+            )
             if estimate > spec.spec["tuning_budget_s"]:
                 spec.warnings.append({"code": "ML_TUNING_BUDGET_LIMITED"})
 
@@ -378,21 +393,17 @@ async def get_model_detail(
     except TabularError as exc:
         _raise_tabular(exc)
     dataset = (
-        db.query(TabularDataset)
-        .filter(TabularDataset.id == model.dataset_id)
-        .first()
+        db.query(TabularDataset).filter(TabularDataset.id == model.dataset_id).first()
         if model.dataset_id
         else None
     )
     badges = badges_for(db, [model])
     return {
-        "model": serialize_model(
-            model, include_detail=True, monitor_status=badges.get(model.id)
-        ),
+        "model": serialize_model(model, include_detail=True, monitor_status=badges.get(model.id)),
         "dataset": serialize_dataset(dataset) if dataset is not None else None,
         "provenance": pipeline_provenance(db, model=model),
         **_lineage(db, workspace=workspace, model=model),
-        "catalog": catalog_payload(),
+        "catalog": catalog_payload(db, workspace_id=workspace.id),
         "serving": serving_block(db, model),
     }
 
@@ -493,9 +504,7 @@ class PredictBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     inputs: Optional[list[dict[str, Any]]] = Field(default=None, max_length=1_000)
-    dataframe_records: Optional[list[dict[str, Any]]] = Field(
-        default=None, max_length=1_000
-    )
+    dataframe_records: Optional[list[dict[str, Any]]] = Field(default=None, max_length=1_000)
     rows: Optional[list[dict[str, Any]]] = Field(default=None, max_length=1_000)
     # Absent means "whatever serves this lineage", which is the behaviour an
     # integration wants; a number is a caller asking for reproducibility.
@@ -666,8 +675,11 @@ class FeedbackBody(BaseModel):
 
 def _monitoring_for(db, *, model, workspace, user):
     from app.services.mlops_jobs import can_configure_mlops
+
     result = monitoring_report(db, model=model)
-    result["scheduled"]["can_configure"] = can_configure_mlops(db, workspace=workspace, user=user, admin_only=True)
+    result["scheduled"]["can_configure"] = can_configure_mlops(
+        db, workspace=workspace, user=user, admin_only=True
+    )
     result["shadow"]["can_configure"] = can_configure_mlops(db, workspace=workspace, user=user)
     if result.get("forecast_actuals") is not None:
         result["forecast_actuals"]["can_configure"] = result["scheduled"]["can_configure"]
@@ -683,12 +695,19 @@ async def associate_forecast_actuals(
     db: DBSession = Depends(get_db),
 ):
     from app.services.ml.forecast_monitoring import associate
+
     try:
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
-        await run_in_threadpool(associate, db, model=model, workspace=workspace, user=user, body=body)
+        await run_in_threadpool(
+            associate, db, model=model, workspace=workspace, user=user, body=body
+        )
     except TabularError as exc:
         _raise_tabular(exc)
-    return {"monitoring": await run_in_threadpool(_monitoring_for, db, model=model, workspace=workspace, user=user)}
+    return {
+        "monitoring": await run_in_threadpool(
+            _monitoring_for, db, model=model, workspace=workspace, user=user
+        )
+    }
 
 
 @router.post("/{model_id}/monitoring/policy")
@@ -700,12 +719,19 @@ async def configure_monitoring(
     db: DBSession = Depends(get_db),
 ):
     from app.services.ml_retraining import configure
+
     try:
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
-        await run_in_threadpool(configure, db, model=model, workspace=workspace, user=user, body=body)
+        await run_in_threadpool(
+            configure, db, model=model, workspace=workspace, user=user, body=body
+        )
     except TabularError as exc:
         _raise_tabular(exc)
-    return {"monitoring": await run_in_threadpool(_monitoring_for, db, model=model, workspace=workspace, user=user)}
+    return {
+        "monitoring": await run_in_threadpool(
+            _monitoring_for, db, model=model, workspace=workspace, user=user
+        )
+    }
 
 
 @router.get("/{model_id}/monitoring")
@@ -721,8 +747,11 @@ async def get_monitoring(
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
     except TabularError as exc:
         _raise_tabular(exc)
-    return {"monitoring": await run_in_threadpool(_monitoring_for, db, model=model, workspace=workspace, user=user)}
-
+    return {
+        "monitoring": await run_in_threadpool(
+            _monitoring_for, db, model=model, workspace=workspace, user=user
+        )
+    }
 
 
 @router.post("/{model_id}/shadow")
@@ -733,13 +762,17 @@ async def configure_shadow(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    from app.services.mlops_jobs import can_configure_mlops
     from app.services.ml_shadow import configure, summary
+    from app.services.mlops_jobs import can_configure_mlops
 
     try:
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
         if not can_configure_mlops(db, workspace=workspace, user=user):
-            raise TabularError(code="ML_SHADOW_FORBIDDEN", message="A workspace contributor or administrator must configure shadow scoring.", status_code=403)
+            raise TabularError(
+                code="ML_SHADOW_FORBIDDEN",
+                message="A workspace contributor or administrator must configure shadow scoring.",
+                status_code=403,
+            )
         configure(db, model=model, config=body)
     except TabularError as exc:
         _raise_tabular(exc)
@@ -786,9 +819,7 @@ async def post_feedback_dataset(
 
     try:
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
-        dataset = materialize_labeled(
-            db, model=model, created_by=getattr(user, "id", None)
-        )
+        dataset = materialize_labeled(db, model=model, created_by=getattr(user, "id", None))
     except TabularError as exc:
         _raise_tabular(exc)
     return {"dataset": serialize_dataset(dataset)}
@@ -864,9 +895,7 @@ async def publish(
 
     try:
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
-        skill = publish_as_skill(
-            db, model=model, created_by=getattr(user, "id", None)
-        )
+        skill = publish_as_skill(db, model=model, created_by=getattr(user, "id", None))
     except TabularError as exc:
         _raise_tabular(exc)
     db.expire(model)
