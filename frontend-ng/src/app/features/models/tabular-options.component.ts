@@ -18,6 +18,9 @@ import { shownSpecFields, specColumns, specValues } from './tabular-options.vm';
           @if (textColumns().length) {
             <p class="ck-hint" data-testid="tabular-text-columns">{{ i18n.t('models.tabular.text_columns', { columns: textColumns().join(', ') }) }}</p>
           }
+          @if (values()['text_encoder'] === 'embedding') {
+            <p class="ck-hint" data-testid="embedding-scope">{{ i18n.t('models.embedding.scope') }}</p>
+          }
           @for (field of visibleFields(); track field.key) {
             <div class="ck-field" [attr.data-spec-field]="field.key">
               <label class="ck-label" [for]="'tabular-' + field.key">{{ label(field.key) }}</label>
@@ -45,6 +48,12 @@ import { shownSpecFields, specColumns, specValues } from './tabular-options.vm';
                         <input type="checkbox" [checked]="selected(field, column.name)" [disabled]="full(field) && !selected(field, column.name)" (change)="toggleColumn(field, column.name)" />
                         {{ column.name }}
                       </label>
+                    }
+                    @for (name of unavailableSelections(field); track name) {
+                      <div class="ck-field">
+                        <span class="ck-hint">{{ i18n.t('models.tabular.unavailable_column', { column: name }) }}</span>
+                        <button type="button" class="ck-input" (click)="toggleColumn(field, name)">{{ i18n.t('models.tabular.remove_column', { column: name }) }}</button>
+                      </div>
                     }
                   </div>
                 }
@@ -113,6 +122,10 @@ export class TabularOptionsComponent {
   }
   protected candidates(field: SpecFieldDescriptor): PlanColumn[] { return specColumns(field, this.columns(), this.target()); }
   protected patch(field: SpecFieldDescriptor, value: unknown): void { this.specChange.emit({ ...this.spec(), [field.key]: value }); }
+  protected unavailableSelections(field: SpecFieldDescriptor): string[] {
+    const candidates = new Set(this.candidates(field).map((column) => column.name));
+    return this.names(field).filter((name) => !candidates.has(name));
+  }
   protected selected(field: SpecFieldDescriptor, name: string): boolean { return this.names(field).includes(name); }
   private names(field: SpecFieldDescriptor): string[] { const value = this.values()[field.key]; return Array.isArray(value) ? value : []; }
   protected full(field: SpecFieldDescriptor): boolean { return !!field.max_items && this.names(field).length >= field.max_items; }

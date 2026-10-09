@@ -34,6 +34,7 @@ import {
   peakFeatureBars,
   forecastCurlSnippet,
   forecastPeak,
+  forecastMaxSteps,
   forecastRequest,
   forecastSpec,
   forecastFieldsFor,
@@ -515,4 +516,12 @@ test('forecast fields follow the algorithm family, with legacy catalog fallback'
   assert.deepEqual(forecastFieldsFor(catalog,'chronos_zero_shot'),foundationFields);
   assert.deepEqual(forecastFieldsFor(catalog,'linear'),classic);
   assert.deepEqual(forecastFieldsFor(catalog),classic);
+});
+
+
+test('Play obeys the artifact horizon for foundation forecasts and keeps legacy direct limits', () => {
+  assert.equal(forecastMaxSteps({spec:{horizon:24},signature:{output:{max_steps:64}}}),64);
+  assert.equal(forecastMaxSteps({spec:{horizon:24},metrics:{task:'forecasting',forecast:{max_steps:64}} as ForecastMetrics}),64);
+  assert.equal(forecastMaxSteps({spec:{horizon:12,strategy:'direct'},signature:{output:{max_steps:64}}}),12);
+  assert.equal(forecastMaxSteps({spec:{horizon:24}}),720);
 });
