@@ -57,6 +57,7 @@ export interface DriftFeature {
 }
 
 export interface MonitoringReport {
+  forecast_actuals?: import('./forecast-actuals.vm').ForecastActualsReport | null;
   scheduled?: ScheduledMonitoringReport;
   shadow?: ShadowReport;
   badge: MonitorStatus | null;
