@@ -67,3 +67,13 @@ def test_application_import_never_attempts_optuna():
     lines = [line for line in result.stdout.splitlines() if line.startswith("FOOTPRINT ")]
     assert result.returncode == 0 and lines, result.stderr[-2000:]
     assert json.loads(lines[-1].removeprefix("FOOTPRINT ")) == []
+
+
+def test_deep_runtime_metadata_and_api_never_attempt_provider_imports():
+    modules = ("app.main", "app.services.ml.local_models", "app.services.ml.runtime", "app.workers.celery_ml")
+    forbidden = ("torch", "torchvision", "transformers", "chronos", "sentence_transformers")
+    probe = PROBE.replace(repr(FORBIDDEN), repr(forbidden)).replace(repr(MODULES), repr(modules))
+    result = subprocess.run([sys.executable, "-c", probe], cwd=BACKEND, capture_output=True, text=True, timeout=120)
+    lines = [line for line in result.stdout.splitlines() if line.startswith("FOOTPRINT ")]
+    assert result.returncode == 0 and lines, result.stderr[-2000:]
+    assert json.loads(lines[-1].removeprefix("FOOTPRINT ")) == []
