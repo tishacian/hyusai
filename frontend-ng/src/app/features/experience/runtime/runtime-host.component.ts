@@ -100,12 +100,13 @@ export class ExperienceRuntimeHostComponent {
   private context(page: ExperiencePage, node: ExperienceNode, index: number): RuntimeNodeContext {
     const componentId = node.id || `${node.type}-${index}`;
     const binding = runtimeDataBinding(node);
-    const explicit =
+    const datasetSource = node.props?.['datasetSource'] as { componentId?: string } | undefined;
+    const explicit = datasetSource?.componentId || (
       binding?.source === 'run-output'
         ? binding.componentId
         : typeof node.props?.['sourceComponentId'] === 'string'
           ? node.props['sourceComponentId']
-          : null;
+          : null);
     const previous = [...page.components]
       .slice(0, index)
       .reverse()
@@ -176,6 +177,7 @@ const CONTEXT_TYPES = new Set([
   'queue',
   'kpi',
   'chart',
+  'prediction',
   'map_panel',
   'agenda_panel',
   'intelligence_feed',

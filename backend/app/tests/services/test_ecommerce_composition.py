@@ -5,6 +5,7 @@ import json
 import subprocess
 import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 from unittest.mock import Mock
 from uuid import uuid4
 
@@ -16,7 +17,9 @@ from app.models.claim_trial import ClaimTrial
 from app.models.decision import Decision
 from app.models.experience import ExperienceRelease
 from app.models.run import SkillInvocation
+from app.models.skill import Skill
 from app.models.system import System
+from app.models.system_binding import SystemBinding
 from app.models.tabular import MLModel, TabularDataset
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
@@ -231,6 +234,304 @@ def activate(db, environment):
     )
     db.commit()
     return result
+
+
+def test_authored_configuration_binds_an_additional_entry_and_reviews_every_page(
+    db_session, environment, monkeypatch
+):
+    ws, actor, main, _, model, plan, _ = environment
+    initial = activation.upgrade(db_session, ws, actor, plan=plan)
+    flow = copy.deepcopy(initial["flow_definition"])
+    flow["nodes"].extend(
+        [
+            {
+                "id": "source.capacity",
+                "type": "source",
+                "kind": "source",
+                "label": "Capacity",
+                "config": {
+                    "ingress_kind": "manual",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            {"id": "sink.capacity", "type": "sink", "kind": "sink", "label": "Capacity result"},
+        ]
+    )
+    flow["edges"].append({"from": "source.capacity", "to": "sink.capacity", "kind": "data"})
+    pages = copy.deepcopy(initial["pages"])
+    for locale, title, label in [("fr", "Capacité", "Actualiser"), ("en", "Capacity", "Refresh")]:
+        pages["i18n"][locale].update({"capacity_title": title, "capacity_refresh": label})
+    pages["pages"].append(
+        {
+            "id": "capacity",
+            "title": {"$i18n": "capacity_title", "fallback": "Capacity"},
+            "components": [
+                {
+                    "id": "capacity_refresh",
+                    "type": "action_button",
+                    "props": {
+                        "label": {"$i18n": "capacity_refresh", "fallback": "Refresh"},
+                        "bindingKey": "sav.capacity",
+                        "input": {},
+                    },
+                },
+                {
+                    "id": "capacity_result",
+                    "type": "result",
+                    "props": {"sourceComponentId": "capacity_refresh"},
+                },
+            ],
+        }
+    )
+    plan["configuration"] = {
+        "flow_definition": flow,
+        "pages": pages,
+        "bindings": [{"binding_key": "sav.capacity", "ingress_id": "source.capacity"}],
+    }
+    reviewed = activation.upgrade(db_session, ws, actor, plan=plan)
+    changed = copy.deepcopy(plan)
+    changed["configuration"]["pages"]["i18n"]["en"]["capacity_title"] = "Another title"
+    with pytest.raises(ValueError, match="TARGET_NOT_REVIEWED"):
+        activation.upgrade(
+            db_session,
+            ws,
+            actor,
+            plan=changed,
+            apply=True,
+            expected_composition_sha256=reviewed["composition_sha256"],
+        )
+    original_check = activation.lifecycle.ready_check
+
+    def assert_ready(*args, **kwargs):
+        check = original_check(*args, **kwargs)
+        assert not check["blockers"], check["blockers"]
+        return check
+
+    monkeypatch.setattr(activation.lifecycle, "ready_check", assert_ready)
+    result = activate(db_session, environment)
+    binding = bindings.get_binding(db_session, workspace_id=ws.id, binding_key="sav.capacity")
+    assert binding.system_id == main.id
+    assert binding.published_flow_version_id == result["published_flow_version_id"]
+    assert binding.ingress_id == "source.capacity"
+    assert ws.settings["ecommerce_claims"]["triage"]["prediction_contract"]["model_id"] == model.id
+    release = db_session.get(ExperienceRelease, result["release_id"])
+    assert release.pages["pages"][-1]["title"]["$i18n"] == "capacity_title"
+    assert "sav.capacity" in [item["binding_key"] for item in release.bindings_snapshot]
+
+
+def test_unchanged_authored_flow_refuses_apply_before_any_mutation(db_session, environment):
+    ws, actor, main, legacy, model, plan, _ = environment
+    plan["configuration"] = {"flow_definition": copy.deepcopy(main.flow_definition)}
+    reviewed = activation.upgrade(db_session, ws, actor, plan=plan)
+    assert reviewed["changed"] is False
+    before = {
+        "name": main.name,
+        "skill_ids": copy.deepcopy(main.skill_ids),
+        "workspace_settings": copy.deepcopy(ws.settings),
+        "model_description": model.description,
+        "legacy_statuses": [system.status for system in legacy],
+        "skills": db_session.query(Skill).count(),
+        "bindings": db_session.query(SystemBinding).count(),
+        "releases": db_session.query(ExperienceRelease).count(),
+    }
+    with pytest.raises(ValueError, match="CLAIMS_COMPOSITION_FLOW_UNCHANGED"):
+        activation.upgrade(
+            db_session,
+            ws,
+            actor,
+            plan=plan,
+            apply=True,
+            expected_composition_sha256=reviewed["composition_sha256"],
+        )
+    # No rollback is needed to undo partial mutations: even an explicit commit
+    # after the refused plan must preserve the original catalog and app.
+    db_session.commit()
+    assert main.name == before["name"]
+    assert main.skill_ids == before["skill_ids"]
+    assert ws.settings == before["workspace_settings"]
+    assert model.description == before["model_description"]
+    assert [system.status for system in legacy] == before["legacy_statuses"]
+    assert db_session.query(Skill).count() == before["skills"]
+    assert db_session.query(SystemBinding).count() == before["bindings"]
+    assert db_session.query(ExperienceRelease).count() == before["releases"]
+
+
+def test_model_center_replacement_requires_explicit_training_history(db_session, environment):
+    ws, actor, _, legacy, previous, plan, _ = environment
+    replacement = MLModel(
+        id="replacement-model",
+        workspace_id=ws.id,
+        name="Replacement SLA",
+        slug="replacement-sla",
+        version=1,
+        task="classification",
+        target=triage.TARGET,
+        algo="linear",
+        features=triage.FEATURES,
+        classes_json=["0", "1"],
+        status="ready",
+        dataset_id=previous.dataset_id,
+    )
+    db_session.add(replacement)
+    db_session.flush()
+    plan["model_id"] = replacement.id
+    with pytest.raises(ValueError, match="TRAINING_SYSTEM_MISMATCH"):
+        activation.upgrade(db_session, ws, actor, plan=plan)
+    plan["training_history_model_id"] = previous.id
+    plan["training_history_model_version"] = previous.version
+    reviewed = activation.upgrade(db_session, ws, actor, plan=plan)
+    assert reviewed["training_history_model_id"] == previous.id
+    assert reviewed["model_id"] == replacement.id
+    assert replacement.system_id is None
+    assert {item["system_id"] for item in reviewed["retire"]} == {s.id for s in legacy}
+
+
+@pytest.mark.asyncio
+async def test_forecast_entry_publishes_one_app_and_real_timeline_dataset(
+    db_session, environment, monkeypatch
+):
+    """Only the external forecast worker is replaced; publication, DAG and SQL are real."""
+    import importlib.util
+
+    from app.services import work_datasets
+    from app.services.ml import forecast_serving
+
+    path = (
+        Path(__file__).resolve().parents[4]
+        / "docs/demo-runs/showcase-ecommerce/fixtures/showcase_learning/workflow_configuration.py"
+    )
+    spec = importlib.util.spec_from_file_location("showcase_workflow_configuration", path)
+    configuration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(configuration)
+    ws, actor, main, _, sla, plan, _ = environment
+    history = register_frame(
+        db_session,
+        workspace_id=ws.id,
+        name="Daily service history",
+        frame=pl.DataFrame(
+            {
+                "observed_at": [datetime(2026, 8, 1) + timedelta(days=i) for i in range(60)],
+                "claim_count": [10 + i % 7 for i in range(60)],
+            }
+        ),
+    )
+    forecast = MLModel(
+        id="work-forecast-model",
+        workspace_id=ws.id,
+        name="Work forecast",
+        slug="work-forecast",
+        version=1,
+        task="forecasting",
+        family="forecasting_deep",
+        target="claim_count",
+        algo="chronos_zero_shot",
+        features=[],
+        status="ready",
+        is_champion=True,
+        dataset_id=history.id,
+        signature_json={"inputs": []},
+    )
+    db_session.add(forecast)
+    db_session.commit()
+    base = activation.upgrade(db_session, ws, actor, plan=plan)
+    plan["configuration"] = configuration.build_configuration(
+        base["flow_definition"],
+        base["pages"],
+        forecast.id,
+        forecast.slug,
+        forecast.version,
+        history.id,
+        triage.get_prediction_contract({"model_id": sla.id, "model_version": sla.version}),
+    )
+    result = activate(db_session, environment)
+    release = db_session.get(ExperienceRelease, result["release_id"])
+    assert len(release.bindings_snapshot) == 3
+    assert {page["id"] for page in release.pages["pages"]} >= {"dossier", "charge", "amelioration"}
+    snapshot = next(
+        item
+        for item in release.bindings_snapshot
+        if item["binding_key"] == configuration.FORECAST_BINDING
+    )
+    run = bindings.invoke_binding_snapshot(
+        db_session,
+        workspace=ws,
+        snapshot=snapshot,
+        payload={},
+        confirmed=True,
+        initiated_by_user_id=actor.id,
+        actor=actor.email,
+        provenance={
+            "experience_id": release.experience_id,
+            "release_id": release.id,
+            "page_id": "charge",
+            "component_id": "forecast_refresh",
+        },
+        trigger_dedup_key="work:" + str(uuid4()),
+        experience_idempotency_key=str(uuid4()),
+    )
+    db_session.commit()
+
+    def settled_forecast(db, **kwargs):
+        output = register_frame(
+            db,
+            workspace_id=ws.id,
+            name="Forecast worker answer",
+            frame=pl.DataFrame(
+                {
+                    "timestamp": [datetime(2026, 9, 30) + timedelta(days=i) for i in range(28)],
+                    "series": ["claim_count"] * 28,
+                    "pred": [16.0] * 28,
+                    "lower_bound": [10.0] * 28,
+                    "upper_bound": [22.0] * 28,
+                }
+            ),
+            run_id=kwargs["run_id"],
+            node_id=kwargs["node_id"],
+            lineage={"model": {"id": forecast.id, "version": 1}, "horizon": 28},
+        )
+        db.commit()
+        return output
+
+    monkeypatch.setattr(forecast_serving, "submit_forecast_dataset", settled_forecast)
+    summary = await dag.execute_run_dag(run.id)
+    assert summary["status"] == "completed", summary
+    db_session.expire_all()
+    assert db_session.query(Decision).count() == 0
+    rows = db_session.query(SkillInvocation).filter(SkillInvocation.run_id == run.id).all()
+    assert {row.skill_slug for row in rows} == {"ml_forecast_v1", "sql_transform_v1"}
+    timeline = (
+        db_session.query(TabularDataset)
+        .filter(TabularDataset.run_id == run.id, TabularDataset.node_id == "forecast.timeline")
+        .one()
+    )
+    actual = read_rows(timeline, limit=100)
+    assert len(actual) == 70
+    assert sum(row["actual"] is not None for row in actual) == 42
+    assert sum(row["pred"] is not None for row in actual) == 28
+    assert (
+        work_datasets.component_contract(release, "charge", "forecast_chart")["system_id"]
+        == main.id
+    )
+
+
+@pytest.mark.parametrize(
+    "bad_bindings",
+    [
+        [{"binding_key": "showcase.claims.investigate", "ingress_id": "source.request"}],
+        [{"binding_key": "sav.extra", "ingress_id": "x", "system_id": "other"}],
+    ],
+)
+def test_authored_configuration_refuses_ambiguous_binding_ownership(
+    db_session, environment, bad_bindings
+):
+    ws, actor, *_, plan, _ = environment
+    plan["configuration"] = {"bindings": bad_bindings}
+    with pytest.raises(ValueError, match="CONFIGURATION_INVALID"):
+        activation.upgrade(db_session, ws, actor, plan=plan)
 
 
 def create_run(db, environment, ingress):

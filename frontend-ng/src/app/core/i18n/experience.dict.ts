@@ -1,3 +1,5 @@
+import { PREDICTION_FR, PREDICTION_EN } from './prediction.dict';
+import { TIMESERIES_FR, TIMESERIES_EN } from './timeseries.dict';
 /**
  * Experience / Cockpit create hub — business applications, the /create
  * intent page, and the inventory stub.
@@ -11,7 +13,9 @@
 import { CLAIMS_FR, CLAIMS_EN } from './claims.dict';
 
 export const EXPERIENCE_FR = {
+  ...TIMESERIES_FR,
   ...CLAIMS_FR,
+  ...PREDICTION_FR,
   "experience.brand.title": "Identité visuelle",
   "experience.brand.hint": "Choisissez un style, une couleur et vos logos. L’aperçu montre les composants communs de votre application.",
   "experience.brand.palette": "Palette",
@@ -820,6 +824,7 @@ export const EXPERIENCE_FR = {
   'experience.editor.type.history': 'Historique',
   'experience.editor.type.kpi': 'Indicateur',
   'experience.editor.type.chart': 'Graphique',
+  'experience.editor.type.prediction': 'Prédiction',
   'experience.editor.type.callout': 'Encadré',
   'experience.editor.type.map_panel': 'Carte géographique',
   'experience.editor.type.agenda_panel': 'Agenda',
@@ -1371,7 +1376,9 @@ export const EXPERIENCE_FR = {
 } as const satisfies Record<string, string>;
 
 export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
+  ...TIMESERIES_EN,
   ...CLAIMS_EN,
+  ...PREDICTION_EN,
   "experience.brand.title": "Visual identity",
   "experience.brand.hint": "Choose a style, an accent and your logos. The preview shows your application’s shared components.",
   "experience.brand.palette": "Palette",
@@ -2175,6 +2182,7 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.editor.type.history': 'History',
   'experience.editor.type.kpi': 'Indicator',
   'experience.editor.type.chart': 'Chart',
+  'experience.editor.type.prediction': 'Prediction',
   'experience.editor.type.callout': 'Callout',
   'experience.editor.type.map_panel': 'Map',
   'experience.editor.type.agenda_panel': 'Agenda',

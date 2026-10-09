@@ -15,7 +15,7 @@ import {
 } from '@app/shared/cockpit';
 import { SystemsStore, SystemAgent } from './systems.store';
 import { isFlowBackedSystem, isPromotedFromScratchpad, systemCatalogBadge } from './system-flow-profile';
-import { activeSystemsKey, systemsPrimaryAction } from './systems-grid.vm';
+import { activeSystemsKey, filterSystems, systemCategory, systemsPrimaryAction, type SystemCategoryFilter } from './systems-grid.vm';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { WorkspaceViewContext } from '@app/core/workspace-view-context';
@@ -158,6 +158,19 @@ interface Template {
         </div>
       </section>
 
+      <div role="group" [attr.aria-label]="i18n.t('systems.grid.category')" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        @for (category of categories; track category) {
+          <button type="button" class="sg-chip" [attr.aria-pressed]="categoryFilter() === category"
+            [style.borderColor]="categoryFilter() === category ? 'var(--ck-signal-cool)' : null"
+            [attr.data-testid]="'systems-category-' + category" (click)="categoryFilter.set(category)">
+            {{ i18n.t('systems.grid.category.' + category) }} · {{ categoryCount(category) }}
+          </button>
+        }
+      </div>
+      @if (categoryFilter() === 'model_operations') {
+        <p class="ck-label" style="margin-bottom:16px">{{ i18n.t('systems.grid.operations_hint') }}</p>
+      }
+
       @if (recentSystems().length > 0) {
         <div
           [style.display]="'flex'"
@@ -205,6 +218,8 @@ interface Template {
             <a style="text-decoration:underline" [navLink]="{ leaf: 'help-guide', ref: 'systems' }">{{ i18n.t('experience.adoption.help') }}</a>
           </div>
         </section>
+      } @else if (systems().length === 0 && store.systems().length > 0) {
+        <p style="padding:24px;color:var(--ck-fg-3)" role="status">{{ i18n.t('systems.grid.category_empty') }}</p>
       } @else if (systems().length === 0) {
         <div
           [style.padding]="'48px 32px'"
@@ -319,6 +334,12 @@ interface Template {
                 </span>
               </div>
             </a>
+            <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap">
+            @if (system.model_operation; as operation) {
+              <a [navLink]="{ leaf: 'model-doc', ref: operation.model_id }" class="ck-btn ck-btn--sm ck-btn-quiet" data-testid="system-card-open-model">
+                {{ i18n.t('systems.grid.open_model') }}
+              </a>
+            }
             @if (hasFlow(system)) {
               <a
                 [navLink]="{ leaf: 'system-flow', ref: system.id, lens: 'build' }"
@@ -329,6 +350,7 @@ interface Template {
                 <ck-glyph name="flow" [size]="12" /> {{ i18n.t('systems.design.open_flow') }}
               </a>
             }
+            </div>
             </article>
           }
         </div>
@@ -358,7 +380,12 @@ export class SystemsGridComponent implements OnInit, OnDestroy {
   prompt = '';
   private readonly summaries = signal<RunSystemSummary[]>([]);
 
-  readonly recentSystems = computed(() => this.summaries().slice(0, 3));
+  readonly categories: SystemCategoryFilter[] = ['business', 'model_operations', 'all'];
+  readonly categoryFilter = signal<SystemCategoryFilter>('business');
+  readonly recentSystems = computed(() => {
+    const visible = new Set(this.systems().map(system => system.id));
+    return this.summaries().filter(summary => visible.has(summary.system_id)).slice(0, 3);
+  });
 
   statsFor(id: string): AgentStats {
     const s = this.summaries().find((summary) => summary.system_id === id);
@@ -386,12 +413,13 @@ export class SystemsGridComponent implements OnInit, OnDestroy {
     return `${minutes}m ${Math.round(seconds % 60)}s`;
   }
 
-  readonly systems = this.store.systems;
+  readonly systems = computed(() => filterSystems(this.store.systems(), this.categoryFilter()));
+  categoryCount(category: SystemCategoryFilter): number { return filterSystems(this.store.systems(), category).length; }
   readonly activeKey = computed(() => activeSystemsKey(this.systems().length));
   readonly primaryAction = computed(() => systemsPrimaryAction({
     loading: this.store.loading(),
     problem: !!this.loadProblem(),
-    count: this.systems().length,
+    count: this.store.systems().length,
   }));
 
   readonly templates: Template[] = [
@@ -462,6 +490,7 @@ export class SystemsGridComponent implements OnInit, OnDestroy {
   }
 
   badgeFor(system: SystemAgent): string {
+    if (systemCategory(system) === 'model_operations') return this.i18n.t('systems.grid.category.model_operations');
     return systemCatalogBadge(system, system.rag_mode);
   }
 
@@ -526,6 +555,7 @@ export class SystemsGridComponent implements OnInit, OnDestroy {
   }
 
   private resetWorkspaceState(): void {
+    this.categoryFilter.set('business');
     this.requestSubscription?.unsubscribe();
     this.requestSubscription = null;
     this.summaries.set([]);

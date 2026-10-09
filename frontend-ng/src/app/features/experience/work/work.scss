@@ -536,6 +536,27 @@
 }
 
 @media (max-width: 720px) {
+  .xp-work-app-header {
+    flex-direction: column;
+  }
+
+  .xp-work-app-header-actions {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .xp-work-app-header-actions .xp-work-nav {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .xp-work-app-header-actions .xp-work-link,
+  .xp-work-app-header-actions .xp-work-nav a {
+    max-width: 100%;
+    white-space: normal;
+  }
+
   .xp-work-bar,
   .xp-work-intro {
     align-items: stretch;

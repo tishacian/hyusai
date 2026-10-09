@@ -51,7 +51,7 @@ import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -933,6 +933,7 @@ def predict_rows(
     )
     return {
         "served": _served_block(served),
+        "captured_at": datetime.now(timezone.utc).isoformat(),
         "task": served.task,
         "target": served.target,
         "classes": classes,
@@ -1205,19 +1206,25 @@ def _score_into(
             else pl.Float64,
         )
     }
+    prediction_output = {
+        "task": served.task,
+        "target": served.target,
+        "positive_label": positive,
+        "value_column": next(iter(columns)),
+    }
     if served.task == CLASSIFICATION and any(value is not None for value in confidences):
         columns[_unique_name("confidence", [*frame.columns, *columns])] = pl.Series(
             confidences, dtype=pl.Float64
         )
         if positive is not None and any(value is not None for value in scores):
-            columns[_unique_name(f"score_{positive}", [*frame.columns, *columns])] = pl.Series(
-                scores, dtype=pl.Float64
-            )
+            score_column = _unique_name(f"score_{positive}", [*frame.columns, *columns])
+            columns[score_column] = pl.Series(scores, dtype=pl.Float64)
+            prediction_output["score_column"] = score_column
     if band is not None:
         for suffix, values in (("lower", lower), ("upper", upper)):
-            columns[_unique_name(f"{served.target}_{suffix}", [*frame.columns, *columns])] = (
-                pl.Series(values, dtype=pl.Float64)
-            )
+            interval_column = _unique_name(f"{served.target}_{suffix}", [*frame.columns, *columns])
+            columns[interval_column] = pl.Series(values, dtype=pl.Float64)
+            prediction_output[f"{suffix}_column"] = interval_column
     scored = frame.with_columns([series.alias(name) for name, series in columns.items()])
 
     mark_step(db, output, SCORE_STEPS[3])
@@ -1242,6 +1249,7 @@ def _score_into(
                 "target": served.target,
             },
             "added_columns": list(columns),
+            "prediction_output": prediction_output,
             "sources": [{"dataset_id": dataset.id, "slug": dataset.slug}],
             "duration_ms": elapsed_ms,
         },

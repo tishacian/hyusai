@@ -1,3 +1,5 @@
+import { TimeseriesEditorComponent } from './timeseries-editor.component';
+import { PredictionContractEditorComponent } from '../work/prediction-contract-editor.component';
 import { BrandAppearanceEditorComponent } from '@app/shared/brand-appearance-editor.component';
 import { brandAppearance, type BrandAppearance } from '@app/core/brand-appearance';
 import {
@@ -112,6 +114,8 @@ const RUN_OUTPUT_TARGETS = new Set<string>([
   'evidence',
   'history',
   'kpi',
+  'chart',
+  'prediction',
   'map_panel',
   'agenda_panel',
   'intelligence_feed',
@@ -123,6 +127,8 @@ const QUERY_TARGETS = new Set<string>([
   'approval_card',
   'history',
   'kpi',
+  'chart',
+  'prediction',
   'map_panel',
   'agenda_panel',
   'intelligence_feed',
@@ -167,6 +173,8 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     BrandAppearanceEditorComponent,
+    TimeseriesEditorComponent,
+    PredictionContractEditorComponent,
     RouterLink,
     HelpTooltipComponent,
     ExperienceRuntimeHostComponent,
@@ -641,12 +649,14 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
                 }
               </div>
             </div>
+            @if (!selectedNode()) {
             @if (selectedPage(); as page) {
               <label class="xp-field">
                 <span>{{ i18n.t('experience.editor.field.title') }}</span>
                 <input [value]="localizedValue(page.title)" (input)="setLocalizedPageTitle(page, inputValue($event))" />
               </label>
               <p class="xp-hint">{{ i18n.t('experience.editor.locale.fallback') }} · {{ pageFallback(page) }}</p>
+            }
             }
             @if (selectedNode(); as node) {
               @if (hasProp(node, 'title')) {
@@ -678,6 +688,12 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
                   <span>{{ i18n.t('experience.editor.field.caption') }}</span>
                   <input [value]="localizedProp(node, 'caption')" (input)="setLocalizedProp(node, 'caption', inputValue($event))" />
                 </label>
+              }
+              @if (node.type === 'chart') {
+                <xp-timeseries-editor [node]="node" [sources]="sourceNodes(node)" (changed)="setChartProp(node, $event.key, $event.value)" />
+              }
+              @if (node.type === 'prediction') {
+                <xp-prediction-contract-editor [value]="node.props?.['predictionContract']" (changed)="setProp(node, 'predictionContract', $event)" />
               }
               @if (hasProp(node, 'value')) {
                 <label class="xp-field">
@@ -973,6 +989,11 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
                         <textarea [value]="queryInput(node)" (change)="setQueryInput(node, inputValue($event))"></textarea>
                       </label>
                     }
+                    <label class="xp-field">
+                      <span>{{ i18n.t('experience.prediction.source_node') }}</span>
+                      <input [value]="dataBinding(node)?.nodeId ?? ''" (input)="setDataField(node, 'nodeId', inputValue($event))" />
+                      <small>{{ i18n.t('experience.prediction.source_node_hint') }}</small>
+                    </label>
                     <label class="xp-field">
                       <span>{{ i18n.t('experience.editor.data.selector') }}</span>
                       <input [value]="dataBinding(node)?.selector ?? ''" (input)="setDataField(node, 'selector', inputValue($event))" />
@@ -1821,6 +1842,8 @@ export class ExperienceEditorComponent implements OnDestroy {
       kpi: ['label', 'value'],
       section: ['title'],
       table: ['caption'],
+      chart: ['title', 'caption'],
+      prediction: ['title'],
       map_panel: ['title'],
       agenda_panel: ['title'],
       intelligence_feed: ['title'],
@@ -2064,6 +2087,7 @@ export class ExperienceEditorComponent implements OnDestroy {
     return {
       source,
       componentId: typeof raw?.['componentId'] === 'string' ? raw['componentId'] : undefined,
+      nodeId: typeof raw?.['nodeId'] === 'string' ? raw['nodeId'] : undefined,
       bindingKey: typeof raw?.['bindingKey'] === 'string' ? raw['bindingKey'] : undefined,
       selector: typeof raw?.['selector'] === 'string' ? raw['selector'] : '',
       input: this.record(raw?.['input']) ?? {},
@@ -2102,11 +2126,13 @@ export class ExperienceEditorComponent implements OnDestroy {
     this.dataContractStates.set({});
     if (source === 'run-output' && this.supportsRunOutput(node)) {
       this.setProps(node, {
+        datasetSource: undefined,
         dataBinding: { source, componentId: '', selector: '' },
         queryBinding: undefined,
       });
     } else if (source === 'system-binding' && this.supportsQuery(node)) {
       this.setProps(node, {
+        datasetSource: undefined,
         queryBinding: { source, bindingKey: '', input: {}, selector: '' },
         dataBinding: undefined,
       });
@@ -2115,7 +2141,7 @@ export class ExperienceEditorComponent implements OnDestroy {
     }
   }
 
-  setDataField(node: ExperienceNode, key: 'componentId' | 'bindingKey' | 'selector', value: string): void {
+  setDataField(node: ExperienceNode, key: 'componentId' | 'bindingKey' | 'selector' | 'nodeId', value: string): void {
     if (this.readOnly()) return;
     const source = this.dataSource(node);
     if (source === 'none') return;
@@ -2346,6 +2372,12 @@ export class ExperienceEditorComponent implements OnDestroy {
   renamePage(pageId: string, title: string): void {
     if (this.readOnly()) return;
     this.commit(applyPatch(this.doc(), { kind: 'rename_page', pageId, title }));
+  }
+
+  setChartProp(node: ExperienceNode, key: string, value: unknown): void {
+    if (key === 'datasetSource') {
+      this.setProps(node, value ? {datasetSource: value, dataBinding: undefined, queryBinding: undefined} : {datasetSource: undefined});
+    } else this.setProp(node, key, value);
   }
 
   setProp(node: ExperienceNode, key: string, value: unknown): void {

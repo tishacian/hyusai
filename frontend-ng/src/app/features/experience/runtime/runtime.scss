@@ -485,3 +485,16 @@
 .xp-rt-field input[type='file'] {
   padding: 4px;
 }
+
+.xp-rt-timeseries-select { display: flex; gap: 10px; align-items: center; font-size: 12px; margin-bottom: 12px; }
+.xp-rt-timeseries-select select { color: var(--ck-fg-1); background: var(--ck-bg-panel); border: 1px solid var(--ck-stroke-2); border-radius: 4px; max-width: 100%; padding: 5px 8px; }
+.xp-rt-timeseries-table { margin-top: 12px; font-size: 12px; }
+.xp-rt-timeseries-table summary { color: var(--ck-fg-2); cursor: pointer; }
+.xp-rt-timeseries-table .xp-rt-table-scroll { overflow: auto; max-height: 240px; }
+
+/* A command keeps its intrinsic width; fields and result cards retain the row. */
+:host(xp-rt-action) .xp-rt-btn {
+  align-self: flex-start;
+  max-width: 100%;
+  white-space: normal;
+}

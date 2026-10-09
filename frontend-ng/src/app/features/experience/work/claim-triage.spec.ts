@@ -6,6 +6,12 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
 
 const now = Date.parse('2026-10-06T20:00:00Z');
 const triage: ClaimTriage = {
+  prediction_contract: {
+    schema_version: 1, model_id: 'sla-model', model_version: 1, task: 'classification',
+    target: 'resolution_over_72h', positive_label: '1', label: 'SLA', unit: 'probability',
+    value_column: 'prediction', score_column: 'score_1', max_age_seconds: 3600,
+    order: 'descending', bands: [{ key: 'low', label: 'Low', min: 0 }, { key: 'medium', label: 'Medium', min: .35 }, { key: 'high', label: 'High', min: .6 }],
+  },
   status: 'ready', captured_at: new Date(now).toISOString(), rows: [
     { claim_id: 'RC-1042', risk: 0.82, priority: 'high' },
     { claim_id: 'RC-1043', risk: 0.16, priority: 'low' },

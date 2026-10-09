@@ -24,6 +24,9 @@ export interface SystemAgent {
   objective?: string;
   capability_id?: string | null;
   status: SystemStatus;
+  category?: 'business' | 'model_operations';
+  model_operation?: { kind: 'model_monitoring'; model_id: string } | null;
+  model_references?: Array<{ node_id: string; binding: 'champion' | 'pinned'; pinned_version: number | null; flow_version_id: string | null }>;
   rag_mode?: string;
   model?: string;
   template?: string;

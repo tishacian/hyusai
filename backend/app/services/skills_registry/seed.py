@@ -1622,7 +1622,7 @@ SEED_SKILLS: list[dict[str, Any]] = [
         "slug": "ml_monitor_model_v1",
         "version": "1",
         "name": "Monitor Model",
-        "description": "Measures a scheduled model window and proposes retraining on labeled feedback or observed forecast history for human review.",
+        "description": "Measures a scheduled model window and proposes retraining on labeled feedback or observed forecast history for human review. Configure the managed monitoring Flow from Model Center; this Skill requires that model's monitoring binding.",
         "type": "workflow",
         "provider": "internal",
         "certification_level": "beta",
@@ -1643,7 +1643,7 @@ SEED_SKILLS: list[dict[str, Any]] = [
         "slug": "ml_retrain_model_v1",
         "version": "1",
         "name": "Train Reviewed Challenger",
-        "description": "Trains the exact data snapshot confirmed at the model's human review gate; promotion remains separate.",
+        "description": "Trains the exact data snapshot confirmed at the model's human review gate in its managed monitoring Flow. An approved proposal and its review decision are required; promotion remains separate.",
         "type": "workflow",
         "provider": "internal",
         "certification_level": "beta",
@@ -3500,7 +3500,6 @@ SEED_SKILLS: list[dict[str, Any]] = [
 
 
 # ---- Universal Capabilities -------------------------------------------------
-
 SEED_SKILLS.extend(CLAIM_SKILLS)
 
 SEED_CAPABILITIES: list[dict[str, Any]] = [
@@ -3807,6 +3806,26 @@ SEED_CAPABILITIES: list[dict[str, Any]] = [
         "confidence_threshold": 0.60,
         "sla": {"max_latency_ms": 600_000},
         "roi_model": {"type": "time_saved"},
+    },
+    {
+        # Model operations span both tabular and forecasting families. Their
+        # runtime wrappers are deliberately restricted to the managed Flow,
+        # but that does not make their catalog contracts private: a visible
+        # carrier is necessary to inspect them and bind the generated Flow.
+        "slug": "model_operations",
+        "name": "Model Operations",
+        "tier": "universal",
+        "industry": None,
+        "description": "Monitor deployed tabular and forecasting models, review retraining proposals and train challengers from approved evidence. Policies are configured in Model Center; their managed Flows preserve human approval and never promote a challenger automatically.",
+        "input_unit": "monitoring_window",
+        "output_unit": "reviewed_proposal",
+        "skill_slugs": ["ml_monitor_model_v1", "ml_retrain_model_v1"],
+        # No monetary value or cost is inferred from a monitoring event.
+        "pricing": {},
+        "value_per_outcome": None,
+        "confidence_threshold": None,
+        "sla": {},
+        "roi_model": {},
     },
     {
         # Carrier of News Lab, a neutral watch every workspace may create: no

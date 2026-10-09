@@ -110,6 +110,8 @@ export class ForecastChartComponent {
   readonly frequency = input<string | undefined>(undefined);
   readonly locale = input('fr-FR');
   readonly aspect = input(3);
+  /** Keep date labels readable when embedded in a narrow business card. */
+  readonly maxTicks = input(7);
   /** Screen-reader label. Required: a bare `role="img"` announces nothing. */
   readonly label = input.required<string>();
   readonly names = input<ForecastChartLabels>({ actual: 'Actual', pred: 'Forecast', interval: 'Interval' });
@@ -201,7 +203,7 @@ export class ForecastChartComponent {
           ticks: {
             color: palette.text,
             font: { size: 10 },
-            maxTicksLimit: 7,
+            maxTicksLimit: Math.max(2, Math.min(12, this.maxTicks())),
             maxRotation: 0,
             autoSkip: true,
             callback: (_value, index) => stamp(index),

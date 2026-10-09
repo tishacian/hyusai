@@ -2,7 +2,18 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { SYSTEMS_EN, SYSTEMS_FR } from '../../core/i18n/systems.dict';
-import { activeSystemsKey, systemsPrimaryAction } from './systems-grid.vm';
+import { activeSystemsKey, filterSystems, systemsPrimaryAction } from './systems-grid.vm';
+import type { SystemAgent } from './systems.store';
+
+test('portfolio category filters preserve all entries and recognize legacy monitors', () => {
+  const rows: Array<Pick<SystemAgent, 'category' | 'settings'>> = [
+    {}, {category: 'model_operations'}, {settings: {ml_monitoring_model_id: 'model'}},
+    {settings: {ml_monitoring_model_id: ''}},
+  ];
+  assert.deepEqual(filterSystems(rows, 'business'), [rows[0], rows[3]]);
+  assert.deepEqual(filterSystems(rows, 'model_operations'), [rows[1], rows[2]]);
+  assert.equal(filterSystems(rows, 'all'), rows);
+});
 
 function label(dict: Record<string, string>, count: number): string {
   return dict[activeSystemsKey(count)].replace('{count}', String(count));

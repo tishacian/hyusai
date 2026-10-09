@@ -1,0 +1,25 @@
+:host { display: block; min-width: 0; }
+
+// Same compact navigation chrome as the generic Work shell. Native links keep
+// keyboard navigation and opening a page in a new tab without custom handlers.
+.xp-work-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.xp-work-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--ck-stroke-3);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ck-fg-2);
+  font-family: var(--ck-font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.xp-work-nav a[aria-current='page'] {
+  background: var(--ck-signal-cool);
+  border-color: transparent;
+  color: var(--ck-on-signal);
+}
+.xp-work-nav a:focus-visible { outline: 2px solid var(--ck-primary); outline-offset: 3px; }

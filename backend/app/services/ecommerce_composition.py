@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 import copy
-import math
-from datetime import UTC, datetime
+from datetime import UTC
 
 from app.models.run import Run
 from app.models.system import System
 from app.models.tabular import TabularDataset
 from app.models.workspace import Workspace
 from app.services import ecommerce_claims as claims
+from app.services import work_predictions
 from app.services.connectors.generic import postgresql_claims as pg
 from app.services.ecommerce_install import BLUEPRINT
-from app.services.ecommerce_triage import FEATURES, MAX_AGE, TARGET, feature_row, validate_model
+from app.services.ecommerce_triage import (
+    FEATURES,
+    contract_advice,
+    feature_row,
+    get_prediction_contract,
+    validate_model,
+)
 from app.services.ecommerce_triage_flows import _task
 
 DATASET_SKILL = "ecommerce_sav_dataset_v1"
@@ -88,7 +94,7 @@ def compose(flow, model_id, version, *, model_slug):
             ),
             _task(
                 SCORE_NODE,
-                "Prioriser avec le modèle SLA v1",
+                f"Prioriser avec le modèle SLA v{version}",
                 "ml_batch_score_v1",
                 params={
                     "model_id": model_id,
@@ -398,28 +404,46 @@ def _case_context(payload, ctx):
             raise ValueError("CLAIMS_COMPOSITION_CASE_REQUIRED")
         node = next(node for node in run.flow_snapshot["nodes"] if node["id"] == SCORE_NODE)
         pin = node["config"]["params"]
-        model, _ = validate_model(db, workspace, pin["model_id"], pin["pinned_version"])
+        triage = claims._config(workspace).get("triage") or {}
+        contract = get_prediction_contract(
+            {**triage, "model_id": pin["model_id"], "model_version": pin["pinned_version"]}
+        )
+        model, _ = validate_model(
+            db, workspace, pin["model_id"], pin["pinned_version"], contract=contract
+        )
         scored = db.get(TabularDataset, payload.get("dataset_id"))
         prepared = _artifacts(db, workspace, run, model, scored)
+        work_predictions.validate_dataset_contract(scored, model, contract)
         records = read_rows(scored, limit=2)
         if len(records) != 1 or records[0].get("claim_id") != claim_id:
             raise ValueError("CLAIMS_COMPOSITION_CASE_DATASET_MISMATCH")
         row = records[0]
-        risk = row.get("score_1")
-        if not isinstance(risk, (int, float)) or not math.isfinite(risk) or not 0 <= risk <= 1:
-            raise ValueError("CLAIM_TRIAGE_SCORE_INVALID")
+        advice = work_predictions.project_row(
+            row,
+            contract,
+            captured_at=scored.ingested_at,
+            provenance={"dataset_id": scored.id, "run_id": run.id},
+        )
+        risk = advice["score"]
         facts = feature_row(row)
         quality = {key: row.get(key) for key in ("evidence_gap", "duplicate_refund_check")}
         if not all(isinstance(flag, bool) for flag in quality.values()):
             raise ValueError("CLAIMS_COMPOSITION_DATA_QUALITY_REQUIRED")
-        prediction = {"score": risk, "prediction": row["prediction"], "positive_label": "1"}
+        prediction = {
+            "score": risk,
+            "prediction": advice["value"],
+            "positive_label": contract.get("positive_label"),
+        }
         return {
             "claim_id": claim_id,
             "facts": facts,
             "quality": quality,
             "served": {"model_id": model.id, "version": model.version},
-            "target": TARGET,
-            "positive_label": "1",
+            "target": contract.get("target"),
+            "positive_label": contract.get("positive_label"),
+            "prediction_contract": contract,
+            "model_advice": advice,
+            "captured_at": advice["captured_at"],
             "score": risk,
             "predictions": [prediction],
             "prepared_dataset": _reference(prepared),
@@ -437,8 +461,9 @@ def read_queue(db, workspace, triage):
 
     try:
         config = claims._config(workspace)
+        contract = get_prediction_contract(triage)
         model, training = validate_model(
-            db, workspace, triage.get("model_id"), triage.get("model_version")
+            db, workspace, triage.get("model_id"), triage.get("model_version"), contract=contract
         )
         system = (
             db.query(System)
@@ -465,8 +490,7 @@ def read_queue(db, workspace, triage):
                 "flow_sha256": published["flow_sha256"],
                 "ingress_id": QUEUE_INGRESS,
             },
-            "thresholds": {"high": 0.6, "medium": 0.35},
-            "sla_hours": 72,
+            "prediction_contract": contract,
             "evidence_kind": "synthetic_demo",
             "use": "queue_ordering_only",
             "composition": MODE,
@@ -494,24 +518,19 @@ def read_queue(db, workspace, triage):
         if operation_for_run(run) != "queue":
             raise ValueError("CLAIMS_COMPOSITION_QUEUE_REQUIRED")
         prepared = _artifacts(db, workspace, run, model, scored)
-        records = read_rows(scored, columns=["claim_id", "score_1"], limit=pg.MAX_ROWS + 1)
+        work_predictions.validate_dataset_contract(scored, model, contract)
+        records = read_rows(scored, limit=pg.MAX_ROWS + 1)
         ids = [row["claim_id"] for row in records]
         if len(ids) != len(set(ids)) or set(ids) != set(config["allowed_claim_ids"]):
             raise ValueError("CLAIM_TRIAGE_COHORT_MISMATCH")
-        advice = []
-        for row in records:
-            risk = row["score_1"]
-            if not isinstance(risk, (int, float)) or not math.isfinite(risk) or not 0 <= risk <= 1:
-                raise ValueError("CLAIM_TRIAGE_SCORE_INVALID")
-            advice.append(
-                {
-                    "claim_id": row["claim_id"],
-                    "risk": risk,
-                    "priority": "high" if risk >= 0.6 else "medium" if risk >= 0.35 else "low",
-                }
-            )
         captured = scored.ingested_at.replace(tzinfo=UTC)
-        stale = datetime.now(UTC) - captured > MAX_AGE
+        advice = [
+            contract_advice(
+                row, contract, captured, provenance={"dataset_id": scored.id, "run_id": run.id}
+            )
+            for row in records
+        ]
+        stale = not advice or advice[0]["prediction"]["status"] != "ready"
         return {
             **base,
             "status": "stale" if stale else "ready",
@@ -520,7 +539,7 @@ def read_queue(db, workspace, triage):
             "scored_dataset": _reference(scored),
             "captured_at": captured.isoformat(),
             "run_id": run.id,
-            "max_age_minutes": 60,
+            "max_age_minutes": contract["max_age_seconds"] / 60,
         }
     except (ValueError, TabularError, flow_publication.FlowPublicationError):
         return {"status": "unavailable", "rows": []}

@@ -277,7 +277,9 @@ def get_binding(db: DBSession, *, workspace_id: str, binding_key: str) -> System
         .one_or_none()
     )
     if row is None:
-        raise BindingError(code="BINDING_NOT_FOUND", message="System binding not found.", status_code=404)
+        raise BindingError(
+            code="BINDING_NOT_FOUND", message="System binding not found.", status_code=404
+        )
     return row
 
 
@@ -315,9 +317,7 @@ def create_binding(
     policy = _validate_policy(
         confirmation_policy, CONFIRMATION_POLICIES, field="confirmation_policy"
     )
-    unavailable = _validate_policy(
-        on_unavailable, ON_UNAVAILABLE_POLICIES, field="on_unavailable"
-    )
+    unavailable = _validate_policy(on_unavailable, ON_UNAVAILABLE_POLICIES, field="on_unavailable")
     existing = (
         db.query(SystemBinding)
         .filter(
@@ -630,14 +630,18 @@ def resolve_binding(
     except flow_publication.FlowPublicationError:
         return _resolve_payload("unavailable", row, ["locked_evidence_unavailable"])
     raw = contract.get("ingresses")
-    ingress = next(
-        (
-            item
-            for item in raw
-            if isinstance(item, Mapping) and item.get("ingress_id") == row.ingress_id
-        ),
-        None,
-    ) if isinstance(raw, list) else None
+    ingress = (
+        next(
+            (
+                item
+                for item in raw
+                if isinstance(item, Mapping) and item.get("ingress_id") == row.ingress_id
+            ),
+            None,
+        )
+        if isinstance(raw, list)
+        else None
+    )
     if ingress is None:
         reasons.append("ingress_missing")
     input_sha = ingress.get("input_schema_sha256") if isinstance(ingress, Mapping) else None
@@ -658,6 +662,12 @@ def resolve_binding(
     if row.confirmation_policy == "hitl" and not _has_direct_hitl(flow):
         return _resolve_payload("unavailable", row, ["hitl_gate_missing"])
     payload = _resolve_payload("ok", row, [])
+    # IDs only: authorize intermediate Work projections without exposing Flow settings.
+    payload["output_node_ids"] = [
+        node["id"]
+        for node in flow.get("nodes", [])
+        if isinstance(node, Mapping) and isinstance(node.get("id"), str)
+    ]
     input_schema = ingress.get("input_schema") if isinstance(ingress, Mapping) else None
     if isinstance(input_schema, Mapping):
         payload["input_schema"] = copy.deepcopy(dict(input_schema))

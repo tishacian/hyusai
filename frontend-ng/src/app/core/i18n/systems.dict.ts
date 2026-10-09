@@ -6,6 +6,13 @@
  */
 
 export const SYSTEMS_FR = {
+  "systems.grid.category": "Catégorie de systèmes",
+  "systems.grid.category.business": "Métier",
+  "systems.grid.category.model_operations": "Opérations modèles",
+  "systems.grid.category.all": "Tous",
+  "systems.grid.category_empty": "Aucun système dans cette catégorie.",
+  "systems.grid.operations_hint": "Surveillance et apprentissage associés aux modèles. Leurs exécutions et coûts restent accessibles dans Exécutions et Impact selon le périmètre sélectionné.",
+  "systems.grid.open_model": "Voir le modèle",
   "systems.view.operator_hint": "Ouvrir le Flow publié dans le panneau d’exécution",
   "systems.view.chat_hint": "Ouvrir le panneau de conversation",
   "systems.view.settings_hint": "Ouvrir les paramètres",
@@ -476,6 +483,13 @@ export const SYSTEMS_FR = {
  */
 
 export const SYSTEMS_EN: Record<keyof typeof SYSTEMS_FR, string> = {
+  "systems.grid.category": "System category",
+  "systems.grid.category.business": "Business",
+  "systems.grid.category.model_operations": "Model operations",
+  "systems.grid.category.all": "All",
+  "systems.grid.category_empty": "No Systems in this category.",
+  "systems.grid.operations_hint": "Monitoring and learning associated with models. Their executions and costs remain available in Runs and Impact for the selected scope.",
+  "systems.grid.open_model": "View model",
   "systems.view.operator_hint": "Open the published Flow in the Operator Runner",
   "systems.view.chat_hint": "Open chat panel",
   "systems.view.settings_hint": "Open settings panel",

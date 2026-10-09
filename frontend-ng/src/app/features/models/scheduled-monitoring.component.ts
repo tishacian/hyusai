@@ -6,11 +6,12 @@ import { NavLinkDirective } from '@app/shared/cockpit';
 import { ModelsService } from './models.service';
 import type { MonitoringReport } from './models.vm';
 import { RetrainingContextComponent } from './retraining-context.component';
+import { ModelSystemsComponent } from './model-systems.component';
 import { monitoringPolicy, monitoringDate, retrainingReason, retrainingState, proposalBinding, type ScheduledMonitoringReport } from './retraining-evidence.vm';
 
 @Component({
  selector: 'ck-scheduled-monitoring', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
- imports: [NavLinkDirective, RetrainingContextComponent],
+ imports: [NavLinkDirective, RetrainingContextComponent, ModelSystemsComponent],
  template: `
  @if (evidence(); as report) {
   <section data-testid="scheduled-monitoring">
@@ -32,6 +33,7 @@ import { monitoringPolicy, monitoringDate, retrainingReason, retrainingState, pr
    @if (error()) { <p role="alert">{{ i18n.t(error()) }}</p> }
    @if (saved()) { <p role="status">{{ i18n.t('models.shadow.saved') }}</p> }
    @if (report.policy.system_id; as systemId) { <a data-testid="monitoring-flow" [navLink]="{leaf:'system-flow',ref:systemId}">{{ t('open_flow') }}</a> }
+   <ck-model-systems [modelId]="modelId()" />
    <h4>{{ t('history') }}</h4>
    @if (!report.history.length) { <p>{{ t('history_empty') }}</p> }
    @else { <div class="table-wrap"><table data-testid="monitoring-history"><thead><tr><th>{{ t('date') }}</th><th>{{ t('badge') }}</th><th>{{ t('prediction_count') }}</th><th>{{ t(report.family === 'forecasting' ? 'observed_count' : 'labeled_count') }}</th><th>{{ t('reason') }}</th></tr></thead><tbody>
