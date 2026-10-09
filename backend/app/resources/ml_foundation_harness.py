@@ -157,7 +157,7 @@ def save_export(manifest, series, frequency, weights, weight_hashes, model_dir):
         "target": manifest["target"], "levels": list(series), "frequency": frequency,
         "last_timestamp": str(next(iter(series.values())).index[-1]),
         "horizon": spec["horizon"], "max_steps": MAX_HORIZON, "interval_level": spec.get("interval_level", 0.8),
-        "context_length": CONTEXT_LENGTH, "max_steps": MAX_HORIZON, "foundation": foundation,
+        "context_length": CONTEXT_LENGTH, "foundation": foundation,
         "exog_future": [], "exog_static": [], "explain": {"kind": "none"},
     }
     (work / "meta.json").write_text(json.dumps(meta, allow_nan=False))
