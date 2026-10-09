@@ -37,6 +37,7 @@ def request_rows(db, model, rows, *, explain=False, interval_level=None):
         result = answer_for(model.id, rows, **kwargs)
     else:
         from celery.exceptions import TimeoutError as CeleryTimeout
+
         from app.workers.celery_app import celery_app
         timeout = float(settings.ml_predict_timeout_s)
         pending = celery_app.send_task(TASK, args=[model.id, rows], kwargs=kwargs, queue=family.serve_queue(), expires=timeout)

@@ -740,8 +740,9 @@ def _monitoring_reference(frame, seed):
 def _configure_text_encoder(pipeline, spec, seed):
     encoder = (spec or {}).get("text_encoder", "auto")
     if encoder == "embedding":
-        from skrub import TextEncoder
         import os
+
+        from skrub import TextEncoder
         os.environ["HF_HUB_OFFLINE"] = "1"
         os.environ["TRANSFORMERS_OFFLINE"] = "1"
         path = (spec or {}).get("_embedding_path")
