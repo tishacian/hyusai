@@ -156,7 +156,7 @@ def compare(db, *, left: MLModel, right: MLModel) -> dict[str, Any]:
         # compare version to version.
         raise TabularError(
             code="ML_COMPARE_NOT_TABULAR",
-            message="Only tabular models are re-scored on a shared split; forecasts compare by their backtests.",
+            message="Only supervised tabular models can be re-scored on a shared test split.",
             status_code=409,
             details={"families": sorted(families)},
         )

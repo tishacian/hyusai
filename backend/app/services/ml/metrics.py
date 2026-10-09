@@ -35,6 +35,9 @@ class MetricSpec:
 
 
 METRICS: tuple[MetricSpec, ...] = (
+    # Both scores can be negative; neither has a universal quality threshold.
+    MetricSpec("silhouette", MAX, "value"),
+    MetricSpec("stability_ari", MAX, "value"),
     MetricSpec("roc_auc", MAX, "ratio", 0.8, 0.65),
     MetricSpec("accuracy", MAX, "ratio", 0.85, 0.7),
     MetricSpec("balanced_accuracy", MAX, "ratio", 0.8, 0.65),

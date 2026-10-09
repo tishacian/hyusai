@@ -1,4 +1,4 @@
-"""Verify complete portable deep-model bundles before executing their code."""
+"""Verify complete portable model bundles before executing their code."""
 from __future__ import annotations
 
 import hashlib

@@ -161,6 +161,7 @@ export class ModelsService {
     task?: ModelTask;
     features?: string[];
     algo?: string;
+    knobs?: Record<string, number>;
     spec?: Record<string, unknown>;
   }): Promise<PlanResponseDto> {
     const response = await firstValueFrom(

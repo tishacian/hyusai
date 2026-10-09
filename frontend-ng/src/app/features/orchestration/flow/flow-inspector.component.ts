@@ -1546,7 +1546,8 @@ export class FlowInspectorComponent {
     return {
       ...descriptor.copy,
       writesDataset: descriptor.writesDataset,
-      supportsExplain: descriptor.supportsExplain,
+      supportsExplain: descriptor.supportsExplain && !(this.mlSvc?.registry() ?? []).some(model =>
+        model.task === 'clustering' && (model.id === this.servingParams(n).model_id || model.slug === this.servingParams(n).model_slug)),
       forecasts: descriptor.serves === 'forecast',
     };
   }

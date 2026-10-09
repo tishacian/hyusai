@@ -248,7 +248,7 @@ def test_an_identifier_like_feature_warns_instead_of_being_refused(dataset, enab
     [
         ({"target": ""}, "ML_TARGET_REQUIRED"),
         ({"target": "nope"}, "ML_TARGET_UNKNOWN"),
-        ({"target": "churn", "task": "clustering"}, "ML_TASK_UNKNOWN"),
+        ({"target": "churn", "task": "unknown"}, "ML_TASK_UNKNOWN"),
         ({"target": "plan", "task": REGRESSION}, "ML_TARGET_NOT_NUMERIC"),
         ({"target": "msisdn", "task": CLASSIFICATION}, "ML_TARGET_TOO_MANY_CLASSES"),
         ({"target": "churn", "features": ["ghost"]}, "ML_FEATURE_UNKNOWN"),

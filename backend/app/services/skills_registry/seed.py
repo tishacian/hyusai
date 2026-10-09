@@ -1337,11 +1337,11 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "name": "Train sklearn Model",
         # Plain text only: catalog descriptions render verbatim in the UI.
         "description": (
-            "Trains a scikit-learn model on a workspace dataset without writing "
-            "code: skrub decides the preprocessing per column, the estimator "
-            "comes from a curated catalog, and the run computes its own metrics, "
-            "curves and feature importances. The model is saved in the MLflow "
-            "format and registered as a version of its lineage."
+            "Trains a model on a workspace dataset without writing code. Supervised "
+            "tabular models report test metrics, curves and feature importances; "
+            "KMeans segmentation uses selected numeric features without a target, "
+            "and reports cluster profiles, silhouette and resampling stability. "
+            "Models are saved in portable MLflow format and registered by version."
         ),
         "type": "workflow",
         "provider": "internal",
@@ -1381,8 +1381,8 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "name": "Predict with Model",
         # Plain text only: catalog descriptions render verbatim in the UI.
         "description": (
-            "Answers one record with a trained model: the prediction, the class "
-            "probabilities and the confidence, inline in the run. This is also "
+            "Answers one record with a trained model: a prediction, with probabilities "
+            "when available, or a version-specific cluster identifier for segmentation. This is also "
             "what a model published as a Skill runs, so an agent asking about a "
             "single customer and a Flow scoring an event take the same path. The "
             "version that answers is whichever one currently serves the model's "

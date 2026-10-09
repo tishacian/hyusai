@@ -283,14 +283,14 @@ export function readTrainParams(
     }
   }
   return {
-    task: task === 'classification' || task === 'regression' || task === 'forecasting' ? task : null,
+    task: task === 'classification' || task === 'regression' || task === 'forecasting' || task === 'clustering' ? task : null,
     target: typeof params['target'] === 'string' ? params['target'].trim() : '',
     features: Array.isArray(features)
       ? features.filter((name): name is string => typeof name === 'string' && !!name)
       : null,
     algo: typeof params['algo'] === 'string' ? params['algo'].trim() : '',
     knobs,
-    test_size: clampTestSize(params['test_size']),
+    test_size: task === 'clustering' ? 0 : clampTestSize(params['test_size']),
     cross_validation: clampFolds(params['cross_validation']),
     model_name:
       typeof params['model_name'] === 'string' ? params['model_name'].trim() : '',
@@ -406,7 +406,8 @@ export function preflightTrain(
   if (params.sources.length === 0 && !options.wired) {
     return mlFailure('ML_NO_DATASET');
   }
-  if (!params.target) return mlFailure('ML_TARGET_REQUIRED');
+  if (!params.target && params.task !== 'clustering') return mlFailure('ML_TARGET_REQUIRED');
+  if (params.task === 'clustering' && params.features === null) return mlFailure('ML_FEATURES_REQUIRED');
   if (params.features !== null && params.features.length === 0) {
     return mlFailure('ML_FEATURES_REQUIRED');
   }
@@ -438,6 +439,7 @@ export function preflightServing(
  * identifies a node and "gradient boosting" does not.
  */
 export function trainSummary(params: TrainNodeParams): string {
+  if (params.task === 'clustering') return `KMeans · ${params.features?.length ?? 0}`;
   if (!params.target) return '';
   const count =
     params.features === null ? null : params.features.length;
@@ -511,7 +513,7 @@ export function lineageVersions(
  * back. Pinning a version is the explicit opposite gesture.
  */
 export function chooseModelPatch(model: ModelDto): Record<string, unknown> {
-  return { model_slug: model.slug, model_id: '', pinned_version: null };
+  return { model_slug: model.slug, model_id: '', pinned_version: null, ...(model.task === 'clustering' ? { explain: false } : {}) };
 }
 
 export function pinVersionPatch(version: number | null): Record<string, unknown> {

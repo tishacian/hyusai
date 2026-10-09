@@ -841,6 +841,7 @@ test('the AUC trace is two points so the curve kit can draw the drop', () => {
 });
 
 test('every coded serving refusal has a sentence of its own', () => {
+  assert.equal(servingErrorKey('ML_RUNTIME_MISSING'), 'models.serving.error.ml_runtime_missing');
   for (const code of SERVING_ERROR_CODES) {
     assert.equal(servingErrorKey(code), `models.serving.error.${code.toLowerCase()}`);
   }

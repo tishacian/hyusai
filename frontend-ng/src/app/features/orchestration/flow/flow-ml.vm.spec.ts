@@ -183,7 +183,7 @@ test('a dropped serving node carries only the keys its shape reads', () => {
 test('reading a training node normalises what an author can leave broken', () => {
   const params = readTrainParams(
     node(ML_TRAIN_SKILL_SLUG, {
-      task: 'clustering',
+      task: 'unsupported-task',
       target: '  churn  ',
       features: ['arpu', 42, '', 'plan'],
       algo: ' random_forest ',

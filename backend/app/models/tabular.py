@@ -42,9 +42,9 @@ DATASET_TERMINAL_STATUSES = frozenset({"ready", "failed", "deleted"})
 # How the bytes came to exist. Drives the icon and the lineage wording.
 DATASET_SOURCES = ("upload", "transform", "score", "generated", "postgresql")
 
-MODEL_TASKS = ("classification", "regression", "forecasting")
+MODEL_TASKS = ("classification", "regression", "forecasting", "clustering")
 # Which declaration in app.services.ml.families trains and serves the row.
-MODEL_FAMILIES = ("tabular", "forecasting", "forecasting_deep", "tabular_deep")
+MODEL_FAMILIES = ("tabular", "forecasting", "forecasting_deep", "tabular_deep", "clustering")
 MODEL_STATUSES = ("pending", "training", "ready", "failed", "cancelled")
 MODEL_TERMINAL_STATUSES = frozenset({"ready", "failed", "cancelled"})
 
@@ -156,7 +156,7 @@ class MLModel(Base):
     version = Column(Integer, default=1, nullable=False)
     description = Column(Text, nullable=True)
 
-    # classification | regression
+    # classification | regression | forecasting | clustering
     task = Column(String(20), nullable=False)
     # The family whose harness trained the row and whose runtime serves it.
     family = Column(

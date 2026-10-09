@@ -180,7 +180,8 @@ def test_rows_from_before_families_and_unknown_keys_are_tabular():
     assert get_family("unheard-of") is TABULAR
     assert ml_families.family_of_task("regression") is TABULAR
     assert ml_families.family_of_task("forecasting") is ml_families.FORECASTING_FAMILY
-    assert ml_families.family_of_task("clustering") is None
+    assert ml_families.family_of_task("clustering") is ml_families.CLUSTERING_FAMILY
+    assert ml_families.family_of_task("unknown") is None
 
 
 def test_a_spec_is_parsed_by_its_family_fields():
