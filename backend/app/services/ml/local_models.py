@@ -116,6 +116,13 @@ def _manifest(root: Path) -> dict:
 
 def resolve_model(model_id: str, *, kind: str, models_dir: str | Path | None = None) -> LocalModel:
     """Verify all bytes and return the local model. No network or cached hashes."""
+    try:
+        return _resolve_model(model_id, kind=kind, models_dir=models_dir)
+    except (OSError, RuntimeError) as exc:
+        raise LocalModelError("ML_DEEP_MODEL_INVALID", "The provisioned model files cannot be read.") from exc
+
+
+def _resolve_model(model_id: str, *, kind: str, models_dir: str | Path | None) -> LocalModel:
     expected = MODEL_SPECS.get(model_id)
     if expected is None or expected["kind"] != kind:
         _invalid("This model is not offered for the requested capability.")
