@@ -1,0 +1,5 @@
+# Optional local foundation and text encoders. torch comes from TORCH_INDEX_URL
+# in Dockerfile.agentium-ml-deep before these packages are resolved.
+transformers
+chronos-forecasting
+sentence-transformers
