@@ -86,3 +86,11 @@ chemin de livraison reste Bitbucket puis la VM habituelle.
 Le build complet et la taille de l’image Docker optionnelle restent à qualifier
 avant activation du profil, comme indiqué dans le lot 6a. Aucun téléchargement
 de poids n’est effectué par les tests ; le provisionnement précède leur lancement.
+
+La qualification frontend finale passe 141 tests unitaires et 21 parcours
+navigateur sur le bundle de production : 10 parcours de prévision (dont la borne
+de 64 pas), 11 parcours texte/embeddings, en français et en anglais. Compilation
+Angular, i18n, contrôles UI et navigation passent. Les builds production des
+sous-lots 6b et 6c ont chacun été exécutés une seule fois ; les avertissements
+Angular/CSS/budgets et CommonJS préexistants restent présents. Le bundle final
+inclut les corrections issues de la revue.
