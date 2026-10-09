@@ -2613,6 +2613,12 @@ async def _dbt_transform_v1(
     raise RuntimeError(f"dbt_transform_{status}: {detail}{suffix}"[:480])
 
 
+async def _hf_dataset_import_v1(payload, ctx=None):
+    from app.services.huggingface.datasets import flow_import
+
+    return await flow_import(payload, ctx)
+
+
 async def _llm_label_dataset_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
@@ -2635,6 +2641,7 @@ async def _llm_label_dataset_v1(
 
 async def _ml_monitor_model_v1(payload, ctx=None):
     import asyncio
+
     from app.db.base import SessionLocal
     from app.services.ml_retraining import monitor_cycle
     from app.services.tabular_datasets import TabularError
@@ -2649,16 +2656,18 @@ async def _ml_monitor_model_v1(payload, ctx=None):
                 return monitor_cycle(db, model_id=block.get("model_id"), run_id=ctx["run_id"])
             except TabularError as exc:
                 raise ValueError(f"{exc.code}: {exc.message}") from exc
+
     return await asyncio.to_thread(execute)
 
 
 async def _ml_retrain_model_v1(payload, ctx=None):
     import asyncio
     import time
+
     from app.core.config import settings
     from app.db.base import SessionLocal
     from app.models.tabular import MLModel
-    from app.services.ml_retraining import stage_retraining, recover_retraining
+    from app.services.ml_retraining import recover_retraining, stage_retraining
     from app.services.tabular_datasets import TabularError
     from app.services.tabular_ml import training_summary
 
@@ -2668,10 +2677,15 @@ async def _ml_retrain_model_v1(payload, ctx=None):
     def stage():
         with SessionLocal() as db:
             try:
-                return stage_retraining(db, proposal_id=payload.get("proposal_id"),
-                    decision_id=payload.get("decision_id"), run_id=ctx["run_id"])
+                return stage_retraining(
+                    db,
+                    proposal_id=payload.get("proposal_id"),
+                    decision_id=payload.get("decision_id"),
+                    run_id=ctx["run_id"],
+                )
             except TabularError as exc:
                 raise ValueError(f"{exc.code}: {exc.message}") from exc
+
     model_id = await asyncio.to_thread(stage)
     await asyncio.to_thread(recover_retraining)
     deadline = time.monotonic() + settings.ml_train_timeout_s + 60
@@ -2680,6 +2694,7 @@ async def _ml_retrain_model_v1(payload, ctx=None):
         with SessionLocal() as db:
             row = db.get(MLModel, model_id)
             return (row.status, training_summary(row), row.error) if row else ("missing", {}, None)
+
     while time.monotonic() < deadline:
         status, summary, error = await asyncio.to_thread(read)
         if status == "ready":
@@ -2688,8 +2703,10 @@ async def _ml_retrain_model_v1(payload, ctx=None):
         if status in {"failed", "cancelled", "missing"}:
             await asyncio.to_thread(recover_retraining)
             raise ValueError(f"ML_RETRAIN_{status.upper()}: {error or status}")
-        await asyncio.sleep(.5)
-    raise ValueError("ML_RETRAIN_PENDING: training continues in the worker; inspect the staged model")
+        await asyncio.sleep(0.5)
+    raise ValueError(
+        "ML_RETRAIN_PENDING: training continues in the worker; inspect the staged model"
+    )
 
 
 async def _ml_train_sklearn_v1(
@@ -2976,7 +2993,12 @@ async def _ml_forecast_v1(
     from app.db.base import SessionLocal
     from app.models.tabular import TabularDataset
     from app.services.ml.forecast_serving import submit_forecast_dataset
-    from app.services.tabular_datasets import TabularError, dataset_reference, fail_frame, resolve_dataset_ref
+    from app.services.tabular_datasets import (
+        TabularError,
+        dataset_reference,
+        fail_frame,
+        resolve_dataset_ref,
+    )
 
     ctx = ctx or {}
     spec = payload.get("_forecast")
@@ -3006,7 +3028,9 @@ async def _ml_forecast_v1(
             if wired is not None and wired.get("model_id"):
                 wired = None
             ref = pinned or (wired if takes_future else None)
-            future = resolve_dataset_ref(db, workspace_id=str(workspace_id), ref=ref) if ref else None
+            future = (
+                resolve_dataset_ref(db, workspace_id=str(workspace_id), ref=ref) if ref else None
+            )
             output = submit_forecast_dataset(
                 db,
                 model=model,
@@ -3039,7 +3063,11 @@ async def _ml_forecast_v1(
         with SessionLocal() as db:
             row = db.query(TabularDataset).filter(TabularDataset.id == output_id).first()
             if row is not None and row.status == "ingesting":
-                fail_frame(db, row, "ML_FORECAST_TIMEOUT: no forecasting worker settled this dataset in time")
+                fail_frame(
+                    db,
+                    row,
+                    "ML_FORECAST_TIMEOUT: no forecasting worker settled this dataset in time",
+                )
 
     while True:
         status, error, reference, lineage = await asyncio.to_thread(_read)
@@ -4585,6 +4613,7 @@ async def _chain_mixed_hah_v1(
 # artifact, so downstream ``inputs_map`` VariableRefs resolve.
 # ---------------------------------------------------------------------------
 _KNOWN_PROVIDERS = {
+    "huggingface",
     "azure_openai",
     "ollama",
     "openai",
@@ -4919,9 +4948,12 @@ async def _route_llm_complete(
             ModelExecutionError,
             complete_model,
             resolve_model_execution,
+            routable_runtime_providers,
         )
 
-        if prefs["provider"] not in {"openai", "azure_openai", "ollama", "anthropic"}:
+        if prefs["provider"] not in routable_runtime_providers(ctx["_model_workspace"]) | {
+            "anthropic"
+        }:
             raise ModelExecutionError(
                 "This provider has no workspace-scoped text runtime. Choose a supported provider."
             )
@@ -7172,6 +7204,11 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "dbt_transform_v1": (
         _dbt_transform_v1,
         "app.services.tabular_dbt",
+        "bound",
+    ),
+    "hf_dataset_import_v1": (
+        _hf_dataset_import_v1,
+        "app.services.huggingface.datasets",
         "bound",
     ),
     "llm_label_dataset_v1": (

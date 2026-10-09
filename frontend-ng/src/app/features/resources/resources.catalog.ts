@@ -53,6 +53,15 @@ export const CONNECTOR_CATEGORIES: {
 ];
 
 export const CONNECTORS: ConnectorDef[] = [
+  {
+    id: 'huggingface', category: 'data-storage', icon: 'database', name: 'Hugging Face',
+    description: 'Hugging Face models and datasets, verified imports and license controls.',
+    version: 'Hub API', status: 'available', backendPrefix: 'huggingface',
+    fields: [
+      { key: 'endpoint', label: 'Hub endpoint', type: 'url', placeholder: 'https://huggingface.co' },
+      { key: 'token', label: 'Token', type: 'password' },
+    ],
+  },
   // Microsoft 365
   {
     id: 'dynamics365',

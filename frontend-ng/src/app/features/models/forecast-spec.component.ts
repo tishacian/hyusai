@@ -52,6 +52,16 @@ import type { PlanColumn, SpecFieldDescriptor } from './models.vm';
   imports: [FormsModule, IconComponent],
   template: `
     @if (part() === 'data') {
+      @if (artifactField(); as field) {
+        <div class="ck-field">
+          <label class="ck-label" for="forecast-artifact">{{ i18n.t('models.spec.artifact_id') }}</label>
+          <select id="forecast-artifact" class="ck-input" [ngModel]="draft().artifactId ?? ''" (ngModelChange)="patch({ artifactId: $event || undefined })">
+            <option value="">{{ i18n.t('models.spec.artifact_default') }}</option>
+            @if (draft().artifactId && !artifactKnown()) { <option [value]="draft().artifactId">{{ i18n.t('models.spec.artifact_unavailable', { id: draft().artifactId || '' }) }}</option> }
+            @for (model of field.artifact_choices ?? []; track model.artifact_id) { <option [value]="model.artifact_id">{{ model.upstream_id }} · {{ model.revision }}</option> }
+          </select>
+        </div>
+      }
       <div class="ck-field" data-testid="train-forecast">
         <label class="ck-label" for="train-time">{{ i18n.t('models.spec.time_column') }}</label>
         @if (timeOptions().length) {
@@ -482,6 +492,8 @@ export class ForecastSpecComponent {
   /** One patch per gesture; the host merges it into its draft. */
   readonly draftChange = output<Partial<ForecastDraft>>();
 
+  protected readonly artifactKnown = computed(() => this.artifactField()?.artifact_choices?.some(model => model.artifact_id === this.draft().artifactId));
+  protected readonly artifactField = computed(() => this.fields().find(field => field.kind === 'artifact'));
   protected readonly hasTuning = computed(() => this.fields().some((field) => field.key === 'tuning'));
   protected readonly tuningIssue = computed(() => forecastTuningIssue(this.draft(), this.algo(), this.fields()));
   protected readonly tuningSettings = computed(() => [

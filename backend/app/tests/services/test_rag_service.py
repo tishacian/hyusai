@@ -1,9 +1,11 @@
 """Tests for RAG service"""
-import pytest
-import asyncio
-import tempfile
+
 import os
+import tempfile
+
 import numpy as np
+import pytest
+
 from app.services.rag.document_service import DocumentService, _document_extra_metadata
 from app.services.vector_db.factory import VectorDBFactory
 
@@ -44,6 +46,24 @@ class FakeVectorDB:
 
 @pytest.fixture
 def fake_vector_db(monkeypatch):
+    class TestEmbedder:
+        def get_dimension(self):
+            return 3
+
+        async def embed_batch(self, texts):
+            return np.asarray(
+                [[len(text), len(text.split()), 1.0] for text in texts], dtype=np.float32
+            )
+
+        async def embed(self, text):
+            return (await self.embed_batch([text]))[0]
+
+    monkeypatch.setattr("app.services.rag.document_service.Embedder", TestEmbedder)
+
+    def no_reranker(_config):
+        raise ImportError("This ingestion test does not provision a reranker")
+
+    monkeypatch.setattr("app.services.retrieval.rerankers.make_reranker", no_reranker)
     vector_db = FakeVectorDB()
     monkeypatch.setattr(
         VectorDBFactory,
@@ -60,13 +80,13 @@ def sample_text_file():
 It involves training algorithms on data to make predictions.
 Deep learning uses neural networks with multiple layers.
 Natural language processing helps computers understand human language."""
-    
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
         f.write(content)
         temp_path = f.name
-    
+
     yield temp_path
-    
+
     # Cleanup
     if os.path.exists(temp_path):
         os.unlink(temp_path)
@@ -107,7 +127,7 @@ async def test_document_ingestion(sample_text_file, fake_vector_db):
     service = DocumentService(collection_name="test_collection")
     assert service.vector_db_type == "qdrant"
     result = await service.ingest_document(sample_text_file)
-    
+
     assert result["status"] == "success"
     assert "document_id" in result
     assert result["chunks_processed"] > 0
@@ -118,13 +138,13 @@ async def test_document_search(sample_text_file, fake_vector_db):
     """Test document search"""
     service = DocumentService(collection_name="test_collection")
     assert service.vector_db_type == "qdrant"
-    
+
     # First ingest document
     await service.ingest_document(sample_text_file)
-    
+
     # Then search
     results = await service.search("machine learning", top_k=5)
-    
+
     assert len(results) > 0
     assert "id" in results[0]
     assert "score" in results[0]

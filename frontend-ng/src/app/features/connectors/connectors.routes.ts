@@ -9,6 +9,10 @@ export const connectorsRoutes: Routes = [
       import('./connectors-page.component').then((m) => m.ConnectorsPageComponent),
   },
   {
+    path: 'huggingface',
+    loadComponent: () => import('./huggingface/huggingface-connector.component').then(m => m.HuggingfaceConnectorComponent),
+  },
+  {
     path: 'postgresql',
     loadComponent: () => import('./postgresql/postgresql-connector.component').then(m => m.PostgresqlConnectorComponent),
   },

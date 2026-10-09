@@ -280,8 +280,20 @@ def load_pipeline_traced(model: MLModel) -> tuple[LoadedModel, bool]:
             details={"family": family.key},
         )
 
-    if family.key == "tabular_deep" and settings.ml_runtime != "ml-deep" and not settings.worker_eager_mode:
-        raise TabularError(code="ML_RUNTIME_MISSING", message="Embedding models load only in the deep runtime.", status_code=409)
+    if (
+        family.key == "tabular_deep"
+        and settings.ml_runtime != "ml-deep"
+        and not settings.worker_eager_mode
+    ):
+        raise TabularError(
+            code="ML_RUNTIME_MISSING",
+            message="Embedding models load only in the deep runtime.",
+            status_code=409,
+        )
+    if family.key == "tabular_deep":
+        from app.services.huggingface.adapters import require_model_foundation
+
+        require_model_foundation(model)
     fingerprint = _fingerprint(model)
     with _cache_lock:
         cached = _cache.get(model.id)
@@ -298,6 +310,7 @@ def load_pipeline_traced(model: MLModel) -> tuple[LoadedModel, bool]:
             download_model_dir(model, directory)
             if family.key in {"tabular_deep", "clustering"}:
                 from app.services.ml.artifacts import verify_bundle
+
                 verify_bundle(directory, (model.metrics_json or {}).get("artifact") or {})
             pipeline = _load_mlflow_model(directory)
         except TabularError:
@@ -521,9 +534,7 @@ def coerce_rows(model: MLModel, rows: Any) -> list[dict[str, Any]]:
         if missing:
             raise TabularError(
                 code="ML_PREDICT_FIELD_MISSING",
-                message=(
-                    f"'{missing[0]}' is required by this model's input contract."
-                ),
+                message=(f"'{missing[0]}' is required by this model's input contract."),
                 details={"row": index, "fields": missing[:8]},
             )
         try:
@@ -574,9 +585,7 @@ def build_frame(fields: list[dict[str, Any]], rows: list[dict[str, Any]]) -> Any
 # ---------------------------------------------------------------------------
 
 
-def serving_version(
-    db: DBSession, model: MLModel, *, version: Any = None
-) -> MLModel:
+def serving_version(db: DBSession, model: MLModel, *, version: Any = None) -> MLModel:
     """The version that answers for a lineage, or one pinned explicitly.
 
     Default is the champion, so an integration written against a model follows
@@ -621,9 +630,7 @@ def serving_version(
             )
         return pinned
 
-    serving = champion_for(
-        db, workspace_id=model.workspace_id, slug=model.slug
-    )
+    serving = champion_for(db, workspace_id=model.workspace_id, slug=model.slug)
     if serving is None:
         raise TabularError(
             code="ML_NOTHING_SERVES",
@@ -656,9 +663,7 @@ def _positive_label(model: MLModel, classes: list[str]) -> str | None:
     return classes[-1] if len(classes) == 2 else None
 
 
-def _predict_frame(
-    entry: LoadedModel, model: MLModel, frame: Any
-) -> tuple[list[Any], Any]:
+def _predict_frame(entry: LoadedModel, model: MLModel, frame: Any) -> tuple[list[Any], Any]:
     """Run the pipeline once, with probabilities when the task has them."""
 
     try:
@@ -707,11 +712,7 @@ def _rows_from(
                     answer["confidence"] = confident["value"]
                 if positive is not None:
                     answer["score"] = next(
-                        (
-                            item["value"]
-                            for item in vector
-                            if item["label"] == positive
-                        ),
+                        (item["value"] for item in vector if item["label"] == positive),
                         None,
                     )
         elif model.task == "clustering":
@@ -823,16 +824,20 @@ def _interval_band(model: MLModel, level: Any = None) -> tuple[float, float] | N
     levels = {
         entry["level"]: entry["q"]
         for entry in block.get("levels", [])
-        if isinstance(entry, dict) and _finite(entry.get("level")) is not None
-        and _finite(entry.get("q")) is not None and entry["q"] >= 0
+        if isinstance(entry, dict)
+        and _finite(entry.get("level")) is not None
+        and _finite(entry.get("q")) is not None
+        and entry["q"] >= 0
     }
     if not levels:
         return None
     chosen = block.get("default_level", 0.9) if level is None else level
     if isinstance(chosen, bool) or not isinstance(chosen, (int, float)) or chosen not in levels:
         raise TabularError(
-            code="ML_INTERVAL_LEVEL_UNKNOWN", message="This interval level was not calibrated.",
-            status_code=422, details={"levels": sorted(levels)},
+            code="ML_INTERVAL_LEVEL_UNKNOWN",
+            message="This interval level was not calibrated.",
+            status_code=422,
+            details={"levels": sorted(levels)},
         )
     return float(chosen), float(levels[chosen])
 
@@ -844,10 +849,14 @@ def _add_intervals(answers: list[dict[str, Any]], band: tuple[float, float] | No
     for answer in answers:
         prediction = _finite(answer.get("prediction"))
         if prediction is not None:
-            answer.update(lower=_finite(prediction - radius), upper=_finite(prediction + radius), level=level)
+            answer.update(
+                lower=_finite(prediction - radius), upper=_finite(prediction + radius), level=level
+            )
 
 
-def _prediction_payload(served: MLModel, coerced: list[dict], *, explain=False, interval_level=None) -> dict:
+def _prediction_payload(
+    served: MLModel, coerced: list[dict], *, explain=False, interval_level=None
+) -> dict:
     band = _interval_band(served, interval_level)
     entry, resident = load_pipeline_traced(served)
     started = time.monotonic()
@@ -869,8 +878,14 @@ def _prediction_payload(served: MLModel, coerced: list[dict], *, explain=False, 
             positive=positive,
         )
     elapsed_ms = round((time.monotonic() - started) * 1000, 1)
-    return {"classes": classes, "positive_label": positive, "predictions": answers,
-            "duration_ms": elapsed_ms, "load_ms": 0.0 if resident else entry.load_ms, "cached": resident}
+    return {
+        "classes": classes,
+        "positive_label": positive,
+        "predictions": answers,
+        "duration_ms": elapsed_ms,
+        "load_ms": 0.0 if resident else entry.load_ms,
+        "cached": resident,
+    }
 
 
 def predict_rows(
@@ -890,9 +905,12 @@ def predict_rows(
     coerced = coerce_rows(served, rows)
     if served.family == "tabular_deep" and settings.ml_runtime != "ml-deep":
         from app.services.ml.deep_serving import request_rows
+
         result = request_rows(db, served, coerced, explain=explain, interval_level=interval_level)
     else:
-        result = _prediction_payload(served, coerced, explain=explain, interval_level=interval_level)
+        result = _prediction_payload(
+            served, coerced, explain=explain, interval_level=interval_level
+        )
     answers, classes, positive = result["predictions"], result["classes"], result["positive_label"]
     elapsed_ms = result["duration_ms"]
     record_usage(db, served, rows=len(answers))
@@ -1007,7 +1025,10 @@ def journal_call(
             stage(db, row=row, served=served)
     except Exception:  # shadow availability must never fail a served answer
         logger.warning("tabular_predict: shadow intention skipped", prediction_id=row.id)
-        row.scores_json = {**(row.scores_json or {}), "shadow": {"status": "skipped", "error": "ML_SHADOW_STAGE_FAILED"}}
+        row.scores_json = {
+            **(row.scores_json or {}),
+            "shadow": {"status": "skipped", "error": "ML_SHADOW_STAGE_FAILED"},
+        }
     db.commit()
     return row.id
 
@@ -1068,10 +1089,7 @@ def score_dataset(
     if rows > ceiling:
         raise TabularError(
             code="ML_SCORE_TOO_MANY_ROWS",
-            message=(
-                f"The dataset has {rows:,} rows, above the {ceiling:,} scoring "
-                "ceiling."
-            ),
+            message=(f"The dataset has {rows:,} rows, above the {ceiling:,} scoring ceiling."),
             details={"rows": rows, "limit": ceiling},
         )
 
@@ -1132,10 +1150,7 @@ def _score_into(
     if absent:
         raise TabularError(
             code="ML_SCORE_COLUMN_MISSING",
-            message=(
-                f"The dataset has no '{absent[0]}' column, which this model "
-                "requires."
-            ),
+            message=(f"The dataset has no '{absent[0]}' column, which this model requires."),
             status_code=409,
             details={"columns": absent[:8]},
         )
@@ -1164,7 +1179,10 @@ def _score_into(
         mark_step(db, output, f"{SCORE_STEPS[2]}:{offset}/{total}")
         if remote:
             from app.services.ml.deep_serving import request_rows
-            answers = request_rows(db, served, coerce_rows(served, chunk.to_dict(orient="records")))["predictions"]
+
+            answers = request_rows(
+                db, served, coerce_rows(served, chunk.to_dict(orient="records"))
+            )["predictions"]
         else:
             typed = build_frame(fields, chunk.to_dict(orient="records"))
             predicted, proba = _predict_frame(entry, served, typed)
@@ -1180,27 +1198,27 @@ def _score_into(
     columns = {
         _unique_name("prediction", frame.columns): pl.Series(
             predictions,
-            dtype=pl.Utf8 if served.task == CLASSIFICATION else pl.Int64 if served.task == "clustering" else pl.Float64,
+            dtype=pl.Utf8
+            if served.task == CLASSIFICATION
+            else pl.Int64
+            if served.task == "clustering"
+            else pl.Float64,
         )
     }
-    if served.task == CLASSIFICATION and any(
-        value is not None for value in confidences
-    ):
+    if served.task == CLASSIFICATION and any(value is not None for value in confidences):
         columns[_unique_name("confidence", [*frame.columns, *columns])] = pl.Series(
             confidences, dtype=pl.Float64
         )
         if positive is not None and any(value is not None for value in scores):
-            columns[
-                _unique_name(f"score_{positive}", [*frame.columns, *columns])
-            ] = pl.Series(scores, dtype=pl.Float64)
+            columns[_unique_name(f"score_{positive}", [*frame.columns, *columns])] = pl.Series(
+                scores, dtype=pl.Float64
+            )
     if band is not None:
         for suffix, values in (("lower", lower), ("upper", upper)):
-            columns[_unique_name(f"{served.target}_{suffix}", [*frame.columns, *columns])] = pl.Series(
-                values, dtype=pl.Float64
+            columns[_unique_name(f"{served.target}_{suffix}", [*frame.columns, *columns])] = (
+                pl.Series(values, dtype=pl.Float64)
             )
-    scored = frame.with_columns(
-        [series.alias(name) for name, series in columns.items()]
-    )
+    scored = frame.with_columns([series.alias(name) for name, series in columns.items()])
 
     mark_step(db, output, SCORE_STEPS[3])
     elapsed_ms = round((time.monotonic() - started) * 1000, 1)
@@ -1361,9 +1379,7 @@ def revoke_api_key(db: DBSession, *, model: MLModel, key_id: str) -> MLModelApiK
     return row
 
 
-def serialize_api_key(
-    row: MLModelApiKey, *, secret: str | None = None
-) -> dict[str, Any]:
+def serialize_api_key(row: MLModelApiKey, *, secret: str | None = None) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "id": row.id,
         "name": row.name,
@@ -1391,11 +1407,7 @@ def authenticate_key(db: DBSession, presented: Any) -> tuple[MLModelApiKey, MLMo
             status_code=401,
         )
     digest = _hash_secret(secret)
-    row = (
-        db.query(MLModelApiKey)
-        .filter(MLModelApiKey.key_sha256 == digest)
-        .first()
-    )
+    row = db.query(MLModelApiKey).filter(MLModelApiKey.key_sha256 == digest).first()
     # Compared again in constant time so a partial-index match cannot be turned
     # into an oracle by timing the lookup.
     if row is None or not hmac.compare_digest(str(row.key_sha256), digest):
@@ -1483,7 +1495,11 @@ def predict_output_schema(model: MLModel) -> dict[str, Any]:
         "type": "object",
         "properties": {
             "prediction": {
-                "type": "string" if model.task == CLASSIFICATION else "integer" if model.task == "clustering" else "number"
+                "type": "string"
+                if model.task == CLASSIFICATION
+                else "integer"
+                if model.task == "clustering"
+                else "number"
             },
             "served": {"type": "object"},
         },
@@ -1581,9 +1597,7 @@ def publish_as_skill(
     # card the publish button happened to be pressed on. Publishing from an old
     # card would otherwise freeze that card's fields under a Skill that answers
     # with different ones.
-    serving = (
-        champion_for(db, workspace_id=model.workspace_id, slug=model.slug) or model
-    )
+    serving = champion_for(db, workspace_id=model.workspace_id, slug=model.slug) or model
     row = existing or Skill(workspace_id=model.workspace_id, slug=identity.slug)
     row.name = f"Predict · {serving.name}"[:200]
     row.description = _skill_description(serving)
@@ -1716,9 +1730,7 @@ def refresh_published_skill(db: DBSession, *, model: MLModel) -> bool:
     if not slug:
         return False
     row = (
-        db.query(Skill)
-        .filter(Skill.slug == slug, Skill.workspace_id == model.workspace_id)
-        .first()
+        db.query(Skill).filter(Skill.slug == slug, Skill.workspace_id == model.workspace_id).first()
     )
     if row is None:
         return False
@@ -1767,9 +1779,7 @@ def pinned_lineage(executor: Any) -> tuple[str, str] | None:
     return (workspace_id, slug) if workspace_id and slug else None
 
 
-def skill_provenance(
-    db: DBSession, skills: Sequence[Skill]
-) -> dict[str, dict[str, Any]]:
+def skill_provenance(db: DBSession, skills: Sequence[Skill]) -> dict[str, dict[str, Any]]:
     """The model each published Skill answers from, keyed by Skill slug.
 
     Derived on read rather than copied at publication, and that is the whole
@@ -1795,9 +1805,7 @@ def skill_provenance(
     for skill_slug, lineage in wanted.items():
         if lineage not in champions:
             workspace_id, model_slug = lineage
-            champions[lineage] = champion_for(
-                db, workspace_id=workspace_id, slug=model_slug
-            )
+            champions[lineage] = champion_for(db, workspace_id=workspace_id, slug=model_slug)
         model = champions[lineage]
         if model is None:
             continue
@@ -1853,7 +1861,11 @@ def serving_block(db: DBSession, model: MLModel) -> dict[str, Any]:
 
         listening, _ = serving_availability(family, db)
         callable_now = bool(settings.ml_predict_enabled and model.status == "ready" and listening)
-        endpoint = public_forecast_path(model) if model.task == "forecasting" else public_predict_path(model)
+        endpoint = (
+            public_forecast_path(model)
+            if model.task == "forecasting"
+            else public_predict_path(model)
+        )
     else:
         callable_now = bool(settings.ml_predict_enabled and model.status == "ready" and fields)
         endpoint = public_predict_path(model)
@@ -1870,9 +1882,7 @@ def serving_block(db: DBSession, model: MLModel) -> dict[str, Any]:
             model, [str(value) for value in (model.classes_json or [])]
         ),
         "predict_count": int(model.predict_count or 0),
-        "last_predict_at": (
-            model.last_predict_at.isoformat() if model.last_predict_at else None
-        ),
+        "last_predict_at": (model.last_predict_at.isoformat() if model.last_predict_at else None),
         "published_skill": published_skill(db, model),
         "keys": [serialize_api_key(row) for row in list_api_keys(db, model=model)],
         "endpoint": endpoint,

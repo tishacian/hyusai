@@ -31,7 +31,17 @@ from typing import Any, Callable
 
 from app.core.config import settings
 
-SPEC_FIELD_KINDS = ("column", "columns", "int", "float", "enum", "bool", "column_roles", "int_list")
+SPEC_FIELD_KINDS = (
+    "column",
+    "columns",
+    "int",
+    "float",
+    "enum",
+    "bool",
+    "column_roles",
+    "int_list",
+    "artifact",
+)
 
 
 class SpecInvalid(ValueError):
@@ -70,12 +80,23 @@ class SpecField:
 
     def parse(self, value: Any) -> Any:
         kind = self.kind
+        if kind == "artifact":
+            import re
+
+            if (
+                not isinstance(value, str)
+                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", value) is None
+            ):
+                raise SpecInvalid(self.key, "expected an artifact identifier")
+            return value
         if kind == "column":
             if not isinstance(value, str) or not value.strip() or len(value) > 200:
                 raise SpecInvalid(self.key, "expected one column name")
             return value.strip()
         if kind == "columns":
-            if not isinstance(value, list) or not all(isinstance(v, str) and v.strip() for v in value):
+            if not isinstance(value, list) or not all(
+                isinstance(v, str) and v.strip() for v in value
+            ):
                 raise SpecInvalid(self.key, "expected a list of column names")
             names = list(dict.fromkeys(v.strip() for v in value))
             if self.max_items and len(names) > self.max_items:
@@ -90,8 +111,10 @@ class SpecField:
                 raise SpecInvalid(self.key, f"at most {self.max_items} columns")
             return {k.strip(): v for k, v in value.items()}
         if kind == "int_list":
-            if not isinstance(value, list) or not value or any(
-                isinstance(item, bool) or not isinstance(item, int) for item in value
+            if (
+                not isinstance(value, list)
+                or not value
+                or any(isinstance(item, bool) or not isinstance(item, int) for item in value)
             ):
                 raise SpecInvalid(self.key, "expected a list of whole numbers")
             items = sorted(set(value))
@@ -176,7 +199,11 @@ class Family:
         return queue or settings.celery_task_default_queue
 
     def serve_queue(self) -> str:
-        return str(getattr(settings, self.serve_queue_setting, "") or "").strip() if self.serve_queue_setting else ""
+        return (
+            str(getattr(settings, self.serve_queue_setting, "") or "").strip()
+            if self.serve_queue_setting
+            else ""
+        )
 
     def missing_modules(self) -> list[str]:
         """Modules a fit needs that this interpreter cannot import."""

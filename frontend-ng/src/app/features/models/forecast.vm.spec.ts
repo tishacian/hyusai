@@ -525,3 +525,12 @@ test('Play obeys the artifact horizon for foundation forecasts and keeps legacy 
   assert.equal(forecastMaxSteps({spec:{horizon:12,strategy:'direct'},signature:{output:{max_steps:64}}}),12);
   assert.equal(forecastMaxSteps({spec:{horizon:24}}),720);
 });
+
+test('imported forecasting artifacts round-trip only for families that advertise artifact selection', () => {
+  const fields = [{ key: 'artifact_id', kind: 'artifact', required: false }] as SpecFieldDescriptor[];
+  const draft = draftFromSpec({ artifact_id: 'hf-chronos' }, fields);
+  assert.equal(draft.artifactId, 'hf-chronos');
+  assert.equal(forecastSpec(draft, undefined, fields)['artifact_id'], 'hf-chronos');
+  assert.equal(forecastSpec(draft, undefined, [])['artifact_id'], undefined);
+  assert.equal(forecastDraftForFields(draft, [{ key: 'horizon', kind: 'int', required: true }]).artifactId, undefined);
+});

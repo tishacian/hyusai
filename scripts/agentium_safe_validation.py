@@ -21,7 +21,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-
 SCHEMA_VERSION = 2
 MAX_AGE_SECONDS = 60 * 60
 MAX_FUTURE_SKEW_SECONDS = 5 * 60
@@ -35,9 +34,7 @@ MAX_DATABASE_LEDGER_BYTES = 1024 * 1024
 MAX_CONTROLLED_DATABASE_INVOCATIONS = 10_000
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-UUID_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-)
+UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 WORKSPACE_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,99}$")
 DEPLOYMENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{5,95}$")
 ALEMBIC_REVISION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+,-]{0,255}$")
@@ -64,6 +61,7 @@ RUNTIME_ENV_REFERENCE_KEYS = {
     "application": "AGENTIUM_ENV_FILE",
     "qdrant": "AGENTIUM_QDRANT_ENV_FILE",
     "keycloak": "AGENTIUM_KEYCLOAK_ENV_FILE",
+    "hub": "AGENTIUM_HUB_ENV_FILE",
 }
 DEPLOYMENT_METADATA_KEYS = frozenset(
     {
@@ -536,9 +534,7 @@ def _deployment_metadata_env_digest(
         FULL_SHA_RE.fullmatch(values.get("previous_sha", "")) is None
         or FULL_SHA_RE.fullmatch(values.get("sftp_release_sha", "")) is None
         or DOCKER_IMAGE_ID_RE.fullmatch(values.get("sftp_image_id", "")) is None
-        or re.fullmatch(
-            r"[A-Za-z0-9_]+", values.get("previous_database_revision", "")
-        )
+        or re.fullmatch(r"[A-Za-z0-9_]+", values.get("previous_database_revision", ""))
         is None
     ):
         raise SafeValidationError("deployment metadata release lineage is invalid")
@@ -665,7 +661,7 @@ def _runtime_env_attestation(
         not isinstance(files, dict)
         or not isinstance(roles, dict)
         or not isinstance(references, dict)
-        or set(roles) != RUNTIME_ENV_ROLES
+        or not RUNTIME_ENV_ROLES <= set(roles) <= RUNTIME_ENV_ROLES | {"hub"}
         or effective_name != "compose.effective.env"
     ):
         raise SafeValidationError("runtime env manifest contract is invalid")
@@ -696,7 +692,9 @@ def _runtime_env_attestation(
         role_files[role] = filename
 
     expected_references = {
-        key: role_files[role] for role, key in RUNTIME_ENV_REFERENCE_KEYS.items()
+        key: role_files[role]
+        for role, key in RUNTIME_ENV_REFERENCE_KEYS.items()
+        if role in role_files
     }
     if references != expected_references:
         raise SafeValidationError("runtime env effective references differ")
@@ -2015,7 +2013,9 @@ def _database_workspace_identities(
         result.get(slug) != workspace_hash
         for slug, workspace_hash in expected_canary_identities.items()
     ):
-        raise SafeValidationError(f"{label} omits or changes a resolved canary workspace")
+        raise SafeValidationError(
+            f"{label} omits or changes a resolved canary workspace"
+        )
     return result
 
 

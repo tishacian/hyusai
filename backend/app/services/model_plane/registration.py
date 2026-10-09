@@ -8,7 +8,7 @@ without exposing portal credentials to the browser.
 from __future__ import annotations
 
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 from urllib.parse import urlparse
 
 from app.core.logging import get_logger
@@ -22,7 +22,7 @@ _OPENAI_COMPAT_PROVIDERS = frozenset(
 
 _lock = threading.Lock()
 # key -> descriptor used by ModelRouter / providers listing
-_routable: Dict[str, Dict[str, Any]] = {}
+_routable: dict[str, dict[str, Any]] = {}
 
 
 def _openai_base_url(node_base_url: str, port: int) -> str:
@@ -38,12 +38,12 @@ def provider_key(node_name: str, instance_id: str) -> str:
     return f"serving_{safe_node}_{safe_id}"
 
 
-def sync_from_node_snapshots(nodes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def sync_from_node_snapshots(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Replace the routable registry from node list payloads.
 
     Returns the current routable descriptors (also stored in-memory).
     """
-    next_map: Dict[str, Dict[str, Any]] = {}
+    next_map: dict[str, dict[str, Any]] = {}
     for node in nodes:
         if node.get("status") not in ("active", "configured"):
             continue
@@ -88,22 +88,49 @@ def sync_from_node_snapshots(nodes: List[Dict[str, Any]]) -> List[Dict[str, Any]
                 "status": "active",
                 "notes": f"Serving instance on node {node_name}",
             }
+            # Artifact nodes must report the complete immutable provenance;
+            # never reconstruct it from a mutable model name.
+            provenance = inst.get("provenance") or {}
+            if not isinstance(provenance, dict):
+                next_map.pop(key)
+                continue
+            artifact_id = inst.get("artifact_id") or provenance.get("artifact_id")
+            if artifact_id:
+                revision = inst.get("revision") or provenance.get("revision")
+                runtime_version = inst.get("runtime_version") or provenance.get("runtime_version")
+                workspace_id = inst.get("workspace_id")
+                if not revision or not runtime_version or not workspace_id:
+                    next_map.pop(key)
+                    continue
+                next_map[key].update(
+                    {
+                        "artifact_id": str(artifact_id),
+                        "revision": str(revision),
+                        "repo_id": inst.get("repo_id") or provenance.get("repo_id"),
+                        "variant": inst.get("variant") or provenance.get("variant"),
+                        "runtime_version": str(runtime_version),
+                        "workspace_id": str(workspace_id),
+                        "deployment_id": inst.get("deployment_id"),
+                    }
+                )
 
     with _lock:
         _routable.clear()
         _routable.update(next_map)
         snapshot = list(_routable.values())
 
-    logger.info("Serving providers registered", count=len(snapshot), keys=[p["key"] for p in snapshot])
+    logger.info(
+        "Serving providers registered", count=len(snapshot), keys=[p["key"] for p in snapshot]
+    )
     return snapshot
 
 
-def list_routable_providers() -> List[Dict[str, Any]]:
+def list_routable_providers() -> list[dict[str, Any]]:
     with _lock:
         return [dict(item) for item in _routable.values()]
 
 
-def get_routable_provider(key: str) -> Optional[Dict[str, Any]]:
+def get_routable_provider(key: str) -> Optional[dict[str, Any]]:
     with _lock:
         item = _routable.get(key)
         return dict(item) if item else None
@@ -114,13 +141,24 @@ def clear_routable_providers() -> None:
         _routable.clear()
 
 
-def build_llm(*, key: str | None = None, provider_meta: Dict[str, Any] | None = None):
+def build_llm(
+    *, key: str | None = None, provider_meta: dict[str, Any] | None = None, workspace=None, db=None
+):
     """Return an ``app.llm.LLM`` bound to a registered local OpenAI-compatible endpoint."""
     from app.llm import LLM
 
     meta = provider_meta or (get_routable_provider(key) if key else None)
     if not meta:
         raise KeyError(f"No routable local provider for key={key!r}")
+    if meta.get("artifact_id"):
+        from app.services.huggingface.errors import HFError
+
+        # Returning a reusable bare LLM would allow its later calls to bypass
+        # a grant revocation. The canonical runtime wraps every dispatch with
+        # ArtifactInferenceClient and records this artifact's provenance.
+        raise HFError(
+            "HF_INCOMPATIBLE_USAGE", "Use the workspace model runtime for artifact inference", 409
+        )
     runtime = str(meta.get("runtime") or "vllm")
     # vLLM factory is the canonical OpenAI-compatible local adapter; other
     # runtimes share the same wire protocol.

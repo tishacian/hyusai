@@ -4,6 +4,7 @@ The API reads public provenance from the worker heartbeat. Only the deep worker
 opens these files; every fit verifies their bytes again, even when its heartbeat
 has a cached verification. Provisioning is explicit and never downloads a model.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -39,20 +40,28 @@ class LocalModel:
     fingerprint: str
     upstream_id: str
     files: dict[str, str]
+    artifact_id: str | None = None
+    runtime: dict | None = None
 
-    def public(self) -> dict[str, str]:
+    def public(self) -> dict[str, Any]:
         return {
             "model_id": self.model_id,
             "kind": self.kind,
             "revision": self.revision,
             "upstream_id": self.upstream_id,
             "fingerprint": self.fingerprint,
+            **(
+                {"artifact_id": self.artifact_id, "runtime": self.runtime}
+                if self.artifact_id
+                else {}
+            ),
         }
 
 
 def _root(models_dir: str | Path | None) -> Path:
     if models_dir is None:
         from app.core.config import settings
+
         models_dir = settings.ml_deep_models_dir
     return Path(models_dir).resolve()
 
@@ -109,7 +118,11 @@ def _manifest(root: Path) -> dict:
         content = json.loads(manifest.read_text(encoding="utf-8"))
     except (ValueError, OSError):
         _invalid("The local model manifest cannot be read.")
-    if not isinstance(content, dict) or content.get("version") != 1 or not isinstance(content.get("models"), dict):
+    if (
+        not isinstance(content, dict)
+        or content.get("version") != 1
+        or not isinstance(content.get("models"), dict)
+    ):
         _invalid("Unsupported local model manifest.")
     return content
 
@@ -119,7 +132,9 @@ def resolve_model(model_id: str, *, kind: str, models_dir: str | Path | None = N
     try:
         return _resolve_model(model_id, kind=kind, models_dir=models_dir)
     except (OSError, RuntimeError) as exc:
-        raise LocalModelError("ML_DEEP_MODEL_INVALID", "The provisioned model files cannot be read.") from exc
+        raise LocalModelError(
+            "ML_DEEP_MODEL_INVALID", "The provisioned model files cannot be read."
+        ) from exc
 
 
 def _resolve_model(model_id: str, *, kind: str, models_dir: str | Path | None) -> LocalModel:
@@ -129,8 +144,14 @@ def _resolve_model(model_id: str, *, kind: str, models_dir: str | Path | None) -
     root = _root(models_dir)
     entry = _manifest(root)["models"].get(model_id)
     if entry is None:
-        raise LocalModelError("ML_DEEP_MODEL_MISSING", f"The local model {model_id} is not provisioned.")
-    if not isinstance(entry, dict) or entry.get("kind") != kind or entry.get("upstream_id") != expected["upstream_id"]:
+        raise LocalModelError(
+            "ML_DEEP_MODEL_MISSING", f"The local model {model_id} is not provisioned."
+        )
+    if (
+        not isinstance(entry, dict)
+        or entry.get("kind") != kind
+        or entry.get("upstream_id") != expected["upstream_id"]
+    ):
         _invalid("The provisioned model does not match the allowed model identity.")
     revision = entry.get("revision")
     if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40,64}", revision) is None:
@@ -146,12 +167,23 @@ def _resolve_model(model_id: str, *, kind: str, models_dir: str | Path | None) -
         _invalid("The model directory differs from its declared file inventory.")
     for name, expected_hash in files.items():
         file_path = _inside(path.resolve(), name)
-        if not isinstance(expected_hash, str) or re.fullmatch(r"[0-9a-f]{64}", expected_hash) is None:
+        if (
+            not isinstance(expected_hash, str)
+            or re.fullmatch(r"[0-9a-f]{64}", expected_hash) is None
+        ):
             _invalid("The model manifest contains an invalid file hash.")
         if file_hash(file_path) != expected_hash:
             _invalid(f"A provisioned model file has changed: {name}.")
-    fingerprint = hashlib.sha256(json.dumps({"model_id": model_id, "revision": revision, "files": files}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    return LocalModel(path.resolve(), model_id, revision, kind, fingerprint, expected["upstream_id"], dict(files))
+    fingerprint = hashlib.sha256(
+        json.dumps(
+            {"model_id": model_id, "revision": revision, "files": files},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    return LocalModel(
+        path.resolve(), model_id, revision, kind, fingerprint, expected["upstream_id"], dict(files)
+    )
 
 
 def _stamp(root: Path) -> tuple:
@@ -193,4 +225,90 @@ def local_model_descriptors(models_dir: str | Path | None = None) -> dict[str, d
     """Verified public metadata for the heartbeat; absent/invalid entries omitted."""
     root = _root(models_dir)
     # Return a copy: callers must never alter the cache's verified descriptors.
-    return {key: dict(value) for key, value in _verified_descriptors(str(root), _stamp(root)).items()}
+    return {
+        key: dict(value) for key, value in _verified_descriptors(str(root), _stamp(root)).items()
+    }
+
+
+def resolve_artifact_model(
+    artifact_id: str,
+    *,
+    kind: str,
+    cache_dir: str | Path | None = None,
+    manifest: dict | None = None,
+) -> LocalModel:
+    """Explicit v2 reader, independent of the legacy global v1 manifest.
+
+    Callers verify workspace grants separately and retain a cache lease while
+    copying/loading. This function never makes the artifact available by itself.
+    """
+    from app.services.huggingface.adapters import runtime_versions, validate_layout
+    from app.services.huggingface.cache import artifact_name, configured_cache, verify_snapshot
+
+    root = Path(cache_dir) if cache_dir is not None else configured_cache().root
+    snapshot = verify_snapshot(root / artifact_name(artifact_id), manifest)
+    contract = validate_layout(snapshot, kind)
+    runtime = runtime_versions(contract["engine"])
+    source = snapshot.manifest
+    return LocalModel(
+        snapshot.path,
+        artifact_id,
+        source["revision"],
+        kind,
+        snapshot.fingerprint,
+        source["repo_id"],
+        {name: entry["sha256"] for name, entry in source["files"].items()},
+        artifact_id=artifact_id,
+        runtime=runtime,
+    )
+
+
+@lru_cache(maxsize=4)
+def _verified_artifact_descriptors(root: str, stamp: tuple) -> dict[str, dict]:
+    """Worker inventory only; workspace selectors must filter through grants."""
+    from app.services.huggingface.cache import ArtifactError
+
+    del stamp
+    from app.services.huggingface.cache import ArtifactCache
+
+    cache = ArtifactCache(root)
+    result = {}
+    for path in cache.root.iterdir():
+        if not path.is_dir() or path.name.startswith("."):
+            continue
+        for kind in ("forecasting", "embedding"):
+            try:
+                with cache.lease(path.name):
+                    result[path.name] = resolve_artifact_model(
+                        path.name, kind=kind, cache_dir=root
+                    ).public()
+                break
+            except (ArtifactError, OSError, ValueError):
+                continue
+    return result
+
+
+def artifact_model_descriptors() -> dict[str, dict]:
+    from copy import deepcopy
+
+    from app.services.huggingface.cache import configured_cache
+
+    root = configured_cache().root
+    if not root.is_dir():
+        return {}
+    try:
+        stamp = tuple(
+            sorted(
+                (
+                    str(path.relative_to(root)),
+                    path.lstat().st_size,
+                    path.lstat().st_mtime_ns,
+                    path.lstat().st_ctime_ns,
+                )
+                for path in root.rglob("*")
+                if not path.name.startswith(".staging-")
+            )
+        )
+        return deepcopy(_verified_artifact_descriptors(str(root), stamp))
+    except OSError:
+        return {}

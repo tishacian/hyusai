@@ -576,6 +576,9 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
               </dl>
             }
 
+            @if (p.key === 'huggingface') {
+              <a [navLink]="{ leaf: 'connector-huggingface' }" class="ck-btn">{{ i18n.t('connectors.hf.open') }}</a>
+            }
             @if (canConfigure() && isConfigurableCloud(p.key)) {
               <form class="mt-1 space-y-2 border-t border-white/5 pt-3" (ngSubmit)="saveCredential(p.key)">
                 <label class="block">
@@ -2231,6 +2234,10 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
   }
 
   openConnector(c: ConnectorDef): void {
+    if (c.id === 'huggingface') {
+      void this.router.navigateByUrl(this.navigation.leafUrl('connector-huggingface'));
+      return;
+    }
     if (c.id === 'postgresql') {
       void this.router.navigateByUrl(this.navigation.leafUrl('connector-postgresql'));
       return;

@@ -27,9 +27,7 @@ EXPECTED_ENV = {
     "AGENTIUM_QDRANT_VOLUME": "agentium_qdrant_block",
     "AGENTIUM_QDRANT_SNAPSHOT_PATH": "/srv/agentium-data/qdrant-snapshots",
     "AGENTIUM_RECIPE_ENVS_PATH": "/srv/agentium-data/recipe_envs",
-    "AGENTIUM_SECURE_DEPOSIT_PATH": (
-        "/home/ubuntu/omnirag/backend/data/secure_deposit"
-    ),
+    "AGENTIUM_SECURE_DEPOSIT_PATH": ("/home/ubuntu/omnirag/backend/data/secure_deposit"),
 }
 
 
@@ -39,6 +37,12 @@ def _module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _shell_case(script: str, name: str) -> str:
+    match = re.search(rf"^[ \t]*{re.escape(name)}\)(.*?)\s*;;", script, re.M | re.S)
+    assert match is not None, f"Missing case branch: {name}"
+    return match.group(1)
 
 
 def _shell_function(script: str, name: str) -> str:
@@ -113,13 +117,9 @@ def _compose_model() -> dict:
                 ]
             },
             "agentium-migrate": {
-                "volumes": application_mounts(
-                    secure_read_only=True, all_read_only=True
-                )
+                "volumes": application_mounts(secure_read_only=True, all_read_only=True)
             },
-            "agentium-backend": {
-                "volumes": application_mounts(secure_read_only=False)
-            },
+            "agentium-backend": {"volumes": application_mounts(secure_read_only=False)},
             "agentium-worker-cpu": {
                 "volumes": application_mounts(secure_read_only=True)
                 + [
@@ -131,9 +131,7 @@ def _compose_model() -> dict:
                     }
                 ]
             },
-            "agentium-p4-maintenance": {
-                "volumes": application_mounts(secure_read_only=True)
-            },
+            "agentium-p4-maintenance": {"volumes": application_mounts(secure_read_only=True)},
             "agentium-sftp": {
                 "volumes": [
                     {
@@ -157,7 +155,9 @@ def _compose_model() -> dict:
         },
     }
 
-    model["services"]["agentium-worker-recipes"] = deepcopy(model["services"]["agentium-worker-cpu"])
+    model["services"]["agentium-worker-recipes"] = deepcopy(
+        model["services"]["agentium-worker-cpu"]
+    )
     return model
 
 
@@ -365,11 +365,7 @@ def test_rendered_compose_application_binds_fail_closed(
 ) -> None:
     module = _module()
     model = _compose_model()
-    mount = next(
-        row
-        for row in model["services"][service]["volumes"]
-        if row["target"] == target
-    )
+    mount = next(row for row in model["services"][service]["volumes"] if row["target"] == target)
     mount[field] = replacement
 
     with pytest.raises(module.RuntimeEnvBundleError, match=message):
@@ -435,18 +431,14 @@ def test_active_mounts_tolerate_only_the_pre_recipe_worker_generation() -> None:
     # replaced through `migrate`/`up`.
     previous_generation = _active_containers()
     previous_generation[3]["Mounts"] = [
-        row
-        for row in previous_generation[3]["Mounts"]
-        if row["Destination"] != "/data/recipe_envs"
+        row for row in previous_generation[3]["Mounts"] if row["Destination"] != "/data/recipe_envs"
     ]
     module.assert_vm_active_storage_mounts(previous_generation)
 
     # When the bind is present it must carry the protected identity.
     wrong_source = _active_containers()
     recipe_mount = next(
-        row
-        for row in wrong_source[3]["Mounts"]
-        if row["Destination"] == "/data/recipe_envs"
+        row for row in wrong_source[3]["Mounts"] if row["Destination"] == "/data/recipe_envs"
     )
     recipe_mount["Source"] = "/home/ubuntu/agentium-data/recipe_envs"
     with pytest.raises(module.RuntimeEnvBundleError, match="mount identity differs"):
@@ -544,7 +536,9 @@ def test_existing_volume_and_active_mounts_accept_only_protected_identity() -> N
         module.assert_vm_active_storage_mounts(writable_secure_deposit)
 
 
-@pytest.mark.parametrize(("source", "accepted"), [("/dev/sdb", True), ("/dev/sda1", False), ("", False)])
+@pytest.mark.parametrize(
+    ("source", "accepted"), [("/dev/sdb", True), ("/dev/sda1", False), ("", False)]
+)
 def test_data_device_check_rejects_wrong_or_absent_dev_sdb(
     tmp_path: Path, source: str, accepted: bool
 ) -> None:
@@ -554,7 +548,7 @@ def test_data_device_check_rejects_wrong_or_absent_dev_sdb(
     findmnt = bin_dir / "findmnt"
     findmnt.write_text(
         "#!/bin/sh\n"
-        "case \"$*\" in\n"
+        'case "$*" in\n'
         f"  *SOURCE*) printf '%s\\n' {shlex.quote(source)} ;;\n"
         "  *TARGET*) printf '%s\\n' /srv/agentium-data ;;\n"
         "esac\n",
@@ -615,7 +609,7 @@ def test_protected_data_path_rejects_root_nested_and_symlink_backing(
     findmnt = bin_dir / "findmnt"
     findmnt.write_text(
         "#!/bin/sh\n"
-        "case \"$*\" in\n"
+        'case "$*" in\n'
         f"  *SOURCE*) printf '%s\\n' {shlex.quote(source)} ;;\n"
         f"  *TARGET*) printf '%s\\n' {shlex.quote(str(targets[target_kind]))} ;;\n"
         "esac\n",
@@ -680,7 +674,7 @@ def test_exact_backing_path_rejects_absent_or_wrong_secure_device(
     findmnt = bin_dir / "findmnt"
     findmnt.write_text(
         "#!/bin/sh\n"
-        "case \"$*\" in\n"
+        'case "$*" in\n'
         f"  *SOURCE*) printf '%s\\n' {shlex.quote(source)} ;;\n"
         f"  *TARGET*) printf '%s\\n' {shlex.quote(str(reported_target))} ;;\n"
         "esac\n",
@@ -712,9 +706,7 @@ def test_exact_backing_path_rejects_absent_or_wrong_secure_device(
         f"{shlex.quote(str(secure))}\n",
         encoding="utf-8",
     )
-    result = subprocess.run(
-        ["bash", str(harness)], check=False, capture_output=True, text=True
-    )
+    result = subprocess.run(["bash", str(harness)], check=False, capture_output=True, text=True)
     assert (result.returncode == 0) is accepted
 
 
@@ -754,7 +746,7 @@ def test_volume_mountpoint_requires_exact_active_dev_sdb_bind(
     findmnt = bin_dir / "findmnt"
     findmnt.write_text(
         "#!/bin/sh\n"
-        "case \"$*\" in\n"
+        'case "$*" in\n'
         f"  *SOURCE*) printf '%s\\n' {shlex.quote(source)} ;;\n"
         f"  *TARGET*) printf '%s\\n' {shlex.quote(str(reported_target))} ;;\n"
         "esac\n",
@@ -827,15 +819,12 @@ def test_launcher_scrubs_shell_and_gates_only_closed_application_commands() -> N
         assert f"{polluted}=" not in compose
     # The opt-in forecasting profile is rendered into the same check when on.
     assert (
-        'compose --profile infra --profile tools --profile sftp "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" config --format json'
+        'compose --profile infra --profile tools --profile sftp "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" config --format json'
         in storage
     )
     assert 'assert_protected_data_path "$OBJECT_STORE_ROOT"' in storage
     assert 'assert_protected_data_path "$RECIPE_ENVS_ROOT"' in storage
-    assert (
-        '"$SECURE_DEPOSIT_ROOT" "$EXPECTED_SECURE_SOURCE" "$SECURE_DEPOSIT_ROOT"'
-        in storage
-    )
+    assert '"$SECURE_DEPOSIT_ROOT" "$EXPECTED_SECURE_SOURCE" "$SECURE_DEPOSIT_ROOT"' in storage
     assert '"$FAISS_ROOT" "$EXPECTED_ROOT_SOURCE" /' in storage
     assert "volume inspect agentium_minio_block" in storage
     assert "volume inspect agentium_qdrant_block" in storage
@@ -851,14 +840,17 @@ def test_launcher_scrubs_shell_and_gates_only_closed_application_commands() -> N
         assert runtime_container in storage
     assert "compose up" not in storage
     assert "compose run" not in storage
-    assert (
-        "migrate)       storage_check; compose run --rm --no-deps --pull never "
-        "agentium-migrate"
-    ) in script
-    assert (
-        "up)            storage_check; compose up -d --no-build --no-deps --pull never "
-        "agentium-worker-recipes agentium-backend agentium-worker-cpu agentium-frontend"
-    ) in script
+    assert re.fullmatch(
+        r"\s*storage_check\s*(?:;|\n)\s*"
+        r"compose run --rm --no-deps --pull never agentium-migrate\s*",
+        _shell_case(script, "migrate"),
+    )
+    assert re.match(
+        r"\s*storage_check\s*(?:;|\n)\s*"
+        r"compose up -d --no-build --no-deps --pull never "
+        r"agentium-worker-recipes agentium-backend agentium-worker-cpu agentium-frontend\b",
+        _shell_case(script, "up"),
+    )
     for stateful in ("agentium-pg", "agentium-minio", "agentium-qdrant", "agentium-rabbitmq"):
         assert f"compose up -d {stateful}" not in script
 
@@ -922,7 +914,9 @@ def test_dedicated_recipe_consumer_storage_is_checked_when_present():
     recipe["Name"] = "/agentium-worker-recipes"
     containers.append(recipe)
     module.assert_vm_active_storage_mounts(containers)
-    next(m for m in recipe["Mounts"] if m["Destination"] == "/data/recipe_envs")["Source"] = "/tmp/wrong"
+    next(m for m in recipe["Mounts"] if m["Destination"] == "/data/recipe_envs")["Source"] = (
+        "/tmp/wrong"
+    )
     with pytest.raises(module.RuntimeEnvBundleError, match="mount identity differs"):
         module.assert_vm_active_storage_mounts(containers)
 
@@ -1007,6 +1001,50 @@ def test_deep_workers_mount_the_provisioned_weights_read_only():
         module.assert_vm_compose_storage(missing)
 
 
+def test_hub_overlay_guards_single_cache_writer_and_bundle_key_permissions():
+    module = _module()
+    model = _compose_model()
+    environments = module.VM_APPLICATION_STORAGE_ENVIRONMENT | module.VM_HUB_STORAGE_ENVIRONMENT
+    model["services"]["agentium-hub-fetch"] = {"volumes": []}
+    for service, mounts in module.VM_HUB_STORAGE_MOUNTS.items():
+        if service not in model["services"]:
+            continue
+        for target, (key, read_only) in mounts.items():
+            model["services"][service]["volumes"].append(
+                {
+                    "type": "bind",
+                    "source": environments[key],
+                    "target": target,
+                    "read_only": read_only,
+                }
+            )
+    module.assert_vm_compose_storage(model)
+    writable = deepcopy(model)
+    next(
+        m
+        for m in writable["services"]["agentium-worker-cpu"]["volumes"]
+        if m["target"] == "/data/hub-cache"
+    )["read_only"] = False
+    with pytest.raises(module.RuntimeEnvBundleError, match="source or access mode"):
+        module.assert_vm_compose_storage(writable)
+    redirected = deepcopy(model)
+    next(
+        m
+        for m in redirected["services"]["agentium-hub-fetch"]["volumes"]
+        if m["target"] == "/data/hub-cache"
+    )["source"] = "/tmp/hub-cache"
+    with pytest.raises(module.RuntimeEnvBundleError, match="source or access mode"):
+        module.assert_vm_compose_storage(redirected)
+    keys = deepcopy(model)
+    next(
+        m
+        for m in keys["services"]["agentium-hub-fetch"]["volumes"]
+        if m["target"] == "/run/hf-bundle-keys"
+    )["read_only"] = False
+    with pytest.raises(module.RuntimeEnvBundleError, match="source or access mode"):
+        module.assert_vm_compose_storage(keys)
+
+
 def test_running_forecasting_workers_must_use_the_protected_object_store():
     module = _module()
     containers = _active_containers()
@@ -1016,7 +1054,9 @@ def test_running_forecasting_workers_must_use_the_protected_object_store():
         return {
             "Name": f"/{name}",
             "State": {"Running": True},
-            "Mounts": [{"Type": "bind", "Source": source, "Destination": "/data/object_store", "RW": True}],
+            "Mounts": [
+                {"Type": "bind", "Source": source, "Destination": "/data/object_store", "RW": True}
+            ],
         }
 
     enabled = containers + [
@@ -1025,7 +1065,9 @@ def test_running_forecasting_workers_must_use_the_protected_object_store():
     ]
     module.assert_vm_active_storage_mounts(enabled)
 
-    rooted = containers + [worker("agentium-worker-ml-ts", "/home/ubuntu/agentium-data/object_store")]
+    rooted = containers + [
+        worker("agentium-worker-ml-ts", "/home/ubuntu/agentium-data/object_store")
+    ]
     with pytest.raises(module.RuntimeEnvBundleError, match="mount identity differs"):
         module.assert_vm_active_storage_mounts(rooted)
 
@@ -1039,7 +1081,10 @@ def test_launcher_enables_forecasting_workers_only_on_request(tmp_path: Path) ->
     assert 'ML_TS="${AGENTIUM_ML_TS:-0}"' in script
     assert "ML_TS_ALL=(agentium-worker-ml-ts agentium-worker-ml-ts-serve)" in script
     assert 'agentium-p4-maintenance agentium-beat "${ML_TS_SERVICES[@]}"' in script
-    assert 'ml-ts-stop)    compose --profile ml-ts rm --stop --force "${ML_TS_ALL[@]}" ;;' in script
+    assert (
+        _shell_case(script, "ml-ts-stop").strip()
+        == 'compose --profile ml-ts rm --stop --force "${ML_TS_ALL[@]}"'
+    )
     storage = _shell_function(script, "storage_check")
     assert '"${recipe_containers[@]}" "${ml_ts_containers[@]}"' in storage
 
@@ -1056,7 +1101,9 @@ def test_launcher_enables_forecasting_workers_only_on_request(tmp_path: Path) ->
             'echo "${ML_TS_PROFILE[*]-}|${ML_TS_SERVICES[*]-}"\n',
             encoding="utf-8",
         )
-        out = subprocess.run(["bash", str(probe)], check=True, capture_output=True, text=True).stdout.strip()
+        out = subprocess.run(
+            ["bash", str(probe)], check=True, capture_output=True, text=True
+        ).stdout.strip()
         assert out == f"{expected_profile}|{expected_services}"
     bad = tmp_path / "flag-bad.sh"
     bad.write_text(
@@ -1081,9 +1128,12 @@ def test_launcher_reconciles_the_catalog_explicitly_and_reports_it_after_every_s
         'compose run --rm --no-deps --pull never agentium-migrate python -m app.cli.reconcile_catalog "$@"'
         in catalog
     )
-    assert "  catalog-check) catalog ;;" in script
-    assert "  catalog-apply) storage_check; catalog --apply ;;" in script
-    up = script.split("  up)", 1)[1].split(";;", 1)[0]
+    assert _shell_case(script, "catalog-check").strip() == "catalog"
+    assert re.fullmatch(
+        r"\s*storage_check\s*(?:;|\n)\s*catalog --apply\s*",
+        _shell_case(script, "catalog-apply"),
+    )
+    up = _shell_case(script, "up")
     assert "catalog >/dev/null || printf" in up
     assert "catalog-apply" in up
     assert "catalog-check|catalog-apply" in script

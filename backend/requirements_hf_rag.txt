@@ -1,0 +1,5 @@
+# Opt-in local Hugging Face embeddings and safetensors rerankers for API/worker.
+# Reuse constraints-demo-app.txt and constraints-demo-ml-deep.txt; torch and
+# torchvision are installed first from the CPU-only index by the Dockerfiles.
+transformers>=4.41,<6
+sentence-transformers>=3.0,<7

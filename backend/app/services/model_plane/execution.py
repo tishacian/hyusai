@@ -4,6 +4,7 @@ Only ``public()`` belongs in APIs or the invocation ledger. Connection material
 is private, never represented, and frozen for this invocation so a concurrent
 workspace edit cannot change the provider between policy and dispatch.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -17,7 +18,7 @@ from urllib.parse import urlparse
 from app.core.config import settings
 from app.services.model_plane import workspace_config
 
-TEXT_PROVIDERS = ("openai", "azure_openai", "ollama")
+TEXT_PROVIDERS = ("openai", "azure_openai", "ollama", "huggingface")
 _MODEL_PREFIXES = (*TEXT_PROVIDERS, "azure", "anthropic")
 
 
@@ -44,6 +45,8 @@ class ModelExecution:
     _api_version: str | None = field(default=None, repr=False)
     _fallbacks: tuple[ModelExecution, ...] = field(default=(), repr=False)
     requested_provider: str | None = None
+    _workspace_id: str | None = field(default=None, repr=False)
+    artifact_provenance: dict | None = None
 
     def public(self, *, returned_model: str | None = None) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -61,6 +64,8 @@ class ModelExecution:
             result["requested_provider"] = self.requested_provider
         if self.requested_provider == "workspace" or self.model_source.startswith("route:"):
             result["fallback_plan"] = [candidate.public() for candidate in self._fallbacks]
+        if self.artifact_provenance:
+            result.update(self.artifact_provenance)
         return result
 
     def policy_model(self, allowed_models: list[str]) -> str:
@@ -130,6 +135,15 @@ def resolve_model_execution(
     selected = _text(routing["default_provider"]) if inherited else requested
     legacy = "azure" if selected == "azure" else None
     selected = "openai" if legacy else selected
+    if selected.startswith("serving_"):
+        return _resolve_serving_execution(
+            workspace,
+            selected,
+            model,
+            model_source,
+            "workspace" if inherited else requested,
+            routing if inherited else {},
+        )
     if selected not in (*TEXT_PROVIDERS, "anthropic"):
         raise ModelExecutionError(
             f"{selected or 'unknown'}: text generation is not supported by this runtime."
@@ -178,6 +192,20 @@ def resolve_model_execution(
         credential_source = "env" if key else "not_configured"
     elif selected == "ollama":
         key, credential_source = None, "none"
+    elif selected == "huggingface":
+        from app.services.huggingface.connection import DEFAULT_ENDPOINT, resolve_for_workspace
+
+        if workspace is None:
+            raise ModelExecutionError(
+                "huggingface: choose a workspace to apply its license policy."
+            )
+        connection = resolve_for_workspace(workspace)
+        if connection.endpoint != DEFAULT_ENDPOINT:
+            raise ModelExecutionError(
+                "huggingface: HF Inference requires a huggingface.co connection."
+            )
+        key = connection.token
+        credential_source = connection.source if key else "not_configured"
     else:
         env = {
             "openai": "OPENAI_API_KEY",
@@ -209,6 +237,10 @@ def resolve_model_execution(
             credential_source = "not_configured"
     elif selected == "ollama":
         endpoint = "http://localhost:11434" if legacy_defaults else settings.ollama_base_url
+    elif selected == "huggingface":
+        from app.services.huggingface.connection import INFERENCE_ENDPOINT
+
+        endpoint = INFERENCE_ENDPOINT
     fallbacks = []
     if inherited:
         for candidate in dict.fromkeys(routing.get("fallback_chain") or []):
@@ -228,10 +260,20 @@ def resolve_model_execution(
         api_version,
         tuple(fallbacks),
         "workspace" if inherited else requested,
+        getattr(workspace, "id", None),
     )
 
 
 def build_model_client(execution: ModelExecution, *, no_retries: bool = False):
+    if execution.artifact_provenance:
+        from app.services.huggingface.inference import ArtifactInferenceClient
+
+        return ArtifactInferenceClient(
+            execution._workspace_id,
+            execution.provider,
+            execution.artifact_provenance,
+            **({"max_retries": 0} if no_retries else {}),
+        )
     if execution.provider == "ollama":
         from app.services.model_clients.ollama_client import OllamaClient
 
@@ -241,6 +283,10 @@ def build_model_client(execution: ModelExecution, *, no_retries: bool = False):
             f"{execution.provider}: connection is not configured. Open Models & Providers."
         )
     retry_options = {"max_retries": 0} if no_retries else {}
+    if execution.provider == "huggingface":
+        from app.services.huggingface.inference import HFInferenceClient
+
+        return HFInferenceClient(execution._workspace_id, **retry_options)
     if execution.provider == "azure_openai":
         from app.services.model_clients.azure_openai_client import AzureOpenAIClient
 
@@ -394,8 +440,13 @@ def _provider_generation_options(execution, generation_options):
 
         schema = validate_schema_definition(options.pop("json_schema"), field="json_schema")
         if "response_format" in options or "format" in options:
-            raise ModelExecutionError("json_schema cannot be combined with a provider-specific format.")
-        if execution.provider in {"openai", "azure_openai"}:
+            raise ModelExecutionError(
+                "json_schema cannot be combined with a provider-specific format."
+            )
+        if (
+            execution.provider in {"openai", "azure_openai", "huggingface"}
+            or execution.artifact_provenance
+        ):
             options["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {"name": "structured_response", "strict": True, "schema": schema},
@@ -424,12 +475,21 @@ async def _complete_once(execution, prompt, ctx, usage_accumulator, generation_o
         options = _provider_generation_options(execution, generation_options)
     except Exception as exc:
         raise _DispatchRefused(exc) from exc
-    client = (build_model_client(execution, no_retries=True)
-              if ctx.get("_model_no_retries") is True else build_model_client(execution))
+    client = (
+        build_model_client(execution, no_retries=True)
+        if ctx.get("_model_no_retries") is True
+        else build_model_client(execution)
+    )
     sink = ctx.get("token_sink") if stream else None
     returned_model = execution.model
     result = None
     evidence = ctx["_model_resolution_evidence"]
+    if execution.provider == "huggingface" or execution.artifact_provenance:
+        try:
+            evidence["huggingface"] = await client.prepare(execution.model)
+            evidence["attempts"][-1]["huggingface"] = dict(evidence["huggingface"])
+        except Exception as exc:
+            raise _DispatchRefused(exc) from exc
     before_dispatch = ctx.get("_model_before_dispatch")
     if callable(before_dispatch):
         try:
@@ -473,3 +533,76 @@ async def _complete_once(execution, prompt, ctx, usage_accumulator, generation_o
         "model": returned_model,
         **({"streamed": True} if callable(sink) else {}),
     }
+
+
+def routable_runtime_providers(workspace) -> set[str]:
+    from app.services.model_plane.providers import RUNTIME_PROVIDERS
+    from app.services.model_plane.registration import list_routable_providers
+
+    workspace_id = getattr(workspace, "id", None)
+    return set(RUNTIME_PROVIDERS) | {
+        entry["key"]
+        for entry in list_routable_providers()
+        if entry.get("artifact_id")
+        and entry.get("workspace_id") == workspace_id
+        and entry.get("status") == "active"
+    }
+
+
+def _resolve_serving_execution(workspace, provider, model, source, requested, routing):
+    from app.services.model_plane.registration import _openai_base_url, get_routable_provider
+    from app.services.model_plane.serving_nodes import get_node
+
+    metadata = get_routable_provider(provider)
+    workspace_id = getattr(workspace, "id", None)
+    if (
+        not workspace_id
+        or not metadata
+        or not metadata.get("artifact_id")
+        or metadata.get("workspace_id") != workspace_id
+        or metadata.get("status") != "active"
+    ):
+        raise ModelExecutionError("This artifact provider is not available to the workspace.")
+    node = get_node(metadata["node"], workspace=workspace)
+    port = int(metadata.get("port") or 0)
+    if (
+        not node
+        or not 1 <= port <= 65535
+        or _openai_base_url(node.base_url, port) != metadata.get("openai_base_url")
+    ):
+        raise ModelExecutionError(
+            "The artifact serving endpoint is not configured for this workspace."
+        )
+    chosen = _text(model) or metadata["model"]
+    if chosen.startswith(provider + ":"):
+        chosen = chosen[len(provider) + 1 :]
+    if chosen != metadata.get("model"):
+        raise ModelExecutionError("Choose the model served by this artifact deployment.")
+    provenance = {
+        key: metadata.get(key)
+        for key in (
+            "artifact_id",
+            "revision",
+            "repo_id",
+            "variant",
+            "runtime_version",
+            "deployment_id",
+        )
+    }
+    fallbacks = tuple(
+        resolve_model_execution(workspace, provider=item)
+        for item in dict.fromkeys(routing.get("fallback_chain") or [])
+        if item not in {provider, "workspace"}
+    )
+    return ModelExecution(
+        provider=provider,
+        model=chosen,
+        credential_source="workspace",
+        model_source=source,
+        _api_key="local",
+        _endpoint=metadata["openai_base_url"],
+        _workspace_id=workspace_id,
+        requested_provider=requested,
+        _fallbacks=fallbacks,
+        artifact_provenance=provenance,
+    )

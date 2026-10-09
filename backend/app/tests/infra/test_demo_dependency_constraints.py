@@ -1,4 +1,5 @@
 """The demo's constraints must support its declared requirements on Python 3.12."""
+
 import re
 from pathlib import Path
 
@@ -53,7 +54,9 @@ def test_demo_constraints_cover_declared_requirements(kind):
         requirement = Requirement(line)
         name = canonicalize_name(requirement.name)
         assert name in constraints, f"Unqualified dependency: {name}"
-        assert requirement.specifier.contains(constraints[name]), f"Incompatible {name}: {constraints[name]}"
+        assert requirement.specifier.contains(constraints[name]), (
+            f"Incompatible {name}: {constraints[name]}"
+        )
 
 
 PYTHON_IMAGES = ("backend", "worker", "ml-ts", "ml-deep")
@@ -87,10 +90,21 @@ def test_the_existing_worker_torch_install_stays_cpu_only():
 
     backend = (ROOT / "docker" / "Dockerfile.agentium-backend").read_text(encoding="utf-8")
     worker = (ROOT / "docker" / "Dockerfile.agentium-worker").read_text(encoding="utf-8")
-    installs = "\n".join(_run_instructions(backend))
-    assert "torch" not in installs and "transformers" not in installs
+    # The default API image remains ONNX-only. Imported embedding support is
+    # an explicit build option whose CPU stack matches the worker's pins.
+    assert "ARG INSTALL_HF_RAG=0" in backend
+    optional = [
+        run
+        for run in _run_instructions(backend)
+        if "pip install --no-cache-dir torch torchvision" in run
+    ]
+    assert len(optional) == 1 and 'if [ "$INSTALL_HF_RAG" = "1" ]' in optional[0]
+    assert "--index-url=https://download.pytorch.org/whl/cpu" in optional[0]
+    assert "requirements_hf_rag.txt" in optional[0]
     worker_runs = _run_instructions(worker.split(PREFIX_END, 1)[1])
-    torch_runs = [run for run in worker_runs if "pip install --no-cache-dir torch torchvision" in run]
+    torch_runs = [
+        run for run in worker_runs if "pip install --no-cache-dir torch torchvision" in run
+    ]
     assert len(torch_runs) == 1
     assert "--index-url=https://download.pytorch.org/whl/cpu" in torch_runs[0]
     # The Giskard venv inherits it rather than resolving a CUDA build from PyPI.
@@ -118,11 +132,20 @@ def test_giskard_constraints_only_reach_the_giskard_venv():
         dockerfile = (ROOT / "docker" / f"Dockerfile.agentium-{name}").read_text(encoding="utf-8")
         for run in _run_instructions(dockerfile):
             kinds = set(re.findall(r"--constraint=\S*constraints-demo-([\w-]+)\.txt", run))
-            assert kinds <= {"app", "giskard", "ml-ts", "ml-deep"}, f"{name} installs with unknown constraints {kinds}"
+            assert kinds <= {"app", "giskard", "ml-ts", "ml-deep"}, (
+                f"{name} installs with unknown constraints {kinds}"
+            )
             if "ml-ts" in kinds:
-                assert name in {"ml-ts", "ml-deep"} and {"app", "ml-ts"} <= kinds, f"{name} applies forecasting pins"
+                assert name in {"ml-ts", "ml-deep"} and {"app", "ml-ts"} <= kinds, (
+                    f"{name} applies forecasting pins"
+                )
             if "ml-deep" in kinds:
-                assert name == "ml-deep" and kinds == {"app", "ml-ts", "ml-deep"}
+                if name == "ml-deep":
+                    assert kinds == {"app", "ml-ts", "ml-deep"}
+                else:
+                    assert name in {"backend", "worker"} and kinds == {"app", "ml-deep"}
+                    assert 'if [ "$INSTALL_HF_RAG" = "1" ]' in run
+                    assert "requirements_hf_rag.txt" in run
             if "giskard" not in kinds:
                 continue
             assert kinds == {"giskard"}, f"{name} mixes Giskard and app pins in one install"
@@ -188,7 +211,9 @@ def test_the_forecasting_image_has_no_torch_and_runs_the_ml_worker():
     installs = [run for run in runs if "pip install" in run]
     assert len(installs) == 1
     assert "torch" not in installs[0].replace('! python -c "import torch"', "")
-    assert '! python -c "import torch"' in installs[0], "the image must prove torch did not ride along"
+    assert '! python -c "import torch"' in installs[0], (
+        "the image must prove torch did not ride along"
+    )
     assert "/opt/agentium-giskard" not in specific and "build-essential" not in specific
     assert "CELERY_APP=app.workers.celery_ml:celery_ml" in specific
     assert "ML_RUNTIME=ml-ts" in specific and "CELERY_QUEUES=ml_ts" in specific
@@ -206,7 +231,9 @@ def test_deep_dependencies_only_add_to_the_qualified_application_stack():
     specific = image.split(PREFIX_END, 1)[1]
     assert "ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu" in specific
     assert "--index-url=${TORCH_INDEX_URL} torch" in specific
-    assert specific.index("--index-url=${TORCH_INDEX_URL} torch") < specific.index("-r /tmp/requirements/requirements_ml_deep.txt")
+    assert specific.index("--index-url=${TORCH_INDEX_URL} torch") < specific.index(
+        "-r /tmp/requirements/requirements_ml_deep.txt"
+    )
     assert "ML_RUNTIME=ml-deep" in specific and "CELERY_QUEUES=ml_deep" in specific
     assert "HF_HUB_OFFLINE=1" in specific and "TRANSFORMERS_OFFLINE=1" in specific
     assert "/opt/agentium-giskard" not in specific

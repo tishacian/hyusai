@@ -74,7 +74,9 @@ def runtime_fingerprint() -> dict[str, Any]:
     }
 
 
-def beat(db: Any, *, queues: list[str], hostname: str | None = None, now: datetime | None = None) -> None:
+def beat(
+    db: Any, *, queues: list[str], hostname: str | None = None, now: datetime | None = None
+) -> None:
     """Upsert this worker's heartbeat row (the caller commits)."""
 
     from app.models.tabular import MLRuntimeHeartbeat
@@ -91,8 +93,12 @@ def beat(db: Any, *, queues: list[str], hostname: str | None = None, now: dateti
     row.fingerprint = identity["fingerprint"]
     row.packages_json = dict(identity["packages"])
     if settings.ml_runtime == "ml-deep":
-        from app.services.ml.local_models import local_model_descriptors
-        row.packages_json = {**row.packages_json, "agentium_models": local_model_descriptors()}
+        from app.services.ml.local_models import artifact_model_descriptors, local_model_descriptors
+
+        row.packages_json = {
+            **row.packages_json,
+            "agentium_models": {**local_model_descriptors(), **artifact_model_descriptors()},
+        }
     row.seen_at = now
 
 
@@ -143,7 +149,9 @@ def _heard_on(runtime: str, queue: str, db: Any, now: datetime | None) -> tuple[
         return False, "no_worker"
     from app.models.tabular import MLRuntimeHeartbeat
 
-    cutoff = (now or datetime.utcnow()) - timedelta(seconds=float(settings.ml_runtime_heartbeat_ttl_s))
+    cutoff = (now or datetime.utcnow()) - timedelta(
+        seconds=float(settings.ml_runtime_heartbeat_ttl_s)
+    )
     rows = (
         db.query(MLRuntimeHeartbeat)
         .filter(MLRuntimeHeartbeat.runtime == runtime, MLRuntimeHeartbeat.seen_at >= cutoff)
@@ -154,7 +162,9 @@ def _heard_on(runtime: str, queue: str, db: Any, now: datetime | None) -> tuple[
     return False, "no_worker"
 
 
-def model_descriptors(db: Any = None, *, now: datetime | None = None) -> dict[str, dict[str, Any]]:
+def model_descriptors(
+    db: Any = None, *, now: datetime | None = None, workspace_id: str | None = None
+) -> dict[str, dict[str, Any]]:
     """Allowlisted model provenance from live deep training workers, no paths.
 
     Conflicting revisions on one queue are unavailable: Celery can deliver a
@@ -163,15 +173,26 @@ def model_descriptors(db: Any = None, *, now: datetime | None = None) -> dict[st
     from app.services.ml.local_models import MODEL_SPECS, local_model_descriptors
 
     if settings.worker_eager_mode:
-        return local_model_descriptors()
+        from app.services.ml.local_models import artifact_model_descriptors
+
+        return _authorized_descriptors(
+            {**local_model_descriptors(), **artifact_model_descriptors()}, db, workspace_id
+        )
     if db is None:
         return {}
     from app.models.tabular import MLRuntimeHeartbeat
 
-    cutoff = (now or datetime.utcnow()) - timedelta(seconds=float(settings.ml_runtime_heartbeat_ttl_s))
-    rows = db.query(MLRuntimeHeartbeat).filter(
-        MLRuntimeHeartbeat.runtime == "ml-deep", MLRuntimeHeartbeat.seen_at >= cutoff,
-    ).all()
+    cutoff = (now or datetime.utcnow()) - timedelta(
+        seconds=float(settings.ml_runtime_heartbeat_ttl_s)
+    )
+    rows = (
+        db.query(MLRuntimeHeartbeat)
+        .filter(
+            MLRuntimeHeartbeat.runtime == "ml-deep",
+            MLRuntimeHeartbeat.seen_at >= cutoff,
+        )
+        .all()
+    )
     candidates: dict[str, list[dict[str, str]]] = {}
     workers = [row for row in rows if settings.celery_ml_deep_queue in (row.queues or [])]
     for row in workers:
@@ -180,25 +201,85 @@ def model_descriptors(db: Any = None, *, now: datetime | None = None) -> dict[st
             continue
         for model_id, descriptor in descriptors.items():
             spec = MODEL_SPECS.get(model_id)
-            if not spec or not isinstance(descriptor, dict):
+            if not isinstance(descriptor, dict):
                 continue
-            if descriptor.get("kind") != spec["kind"] or descriptor.get("upstream_id") != spec["upstream_id"]:
+            artifact_id = descriptor.get("artifact_id")
+            if artifact_id:
+                if artifact_id != model_id or descriptor.get("kind") not in {
+                    "forecasting",
+                    "embedding",
+                }:
+                    continue
+            elif (
+                not spec
+                or descriptor.get("kind") != spec["kind"]
+                or descriptor.get("upstream_id") != spec["upstream_id"]
+            ):
                 continue
-            public = {key: descriptor[key] for key in ("model_id", "kind", "revision", "upstream_id", "fingerprint") if isinstance(descriptor.get(key), str)}
+            public = {
+                key: descriptor[key]
+                for key in ("model_id", "kind", "revision", "upstream_id", "fingerprint")
+                if isinstance(descriptor.get(key), str)
+            }
             if len(public) == 5 and public["model_id"] == model_id:
+                if artifact_id:
+                    public.update(artifact_id=artifact_id, runtime=descriptor.get("runtime", {}))
                 candidates.setdefault(model_id, []).append(public)
     result = {}
     for model_id, descriptors in candidates.items():
         if len(descriptors) == len(workers) and all(item == descriptors[0] for item in descriptors):
             result[model_id] = descriptors[0]
+    return _authorized_descriptors(result, db, workspace_id)
+
+
+def _authorized_descriptors(descriptors, db, workspace_id):
+    result = {}
+    for model_id, descriptor in descriptors.items():
+        if not descriptor.get("artifact_id"):
+            result[model_id] = descriptor
+        elif workspace_id and db is not None:
+            from app.services.huggingface.registry import require_artifact
+
+            try:
+                require_artifact(
+                    db, workspace_id, descriptor["artifact_id"], usage=descriptor["kind"]
+                )
+            except ValueError:
+                continue
+            from app.models.huggingface import HubArtifactUsage
+
+            activation = (
+                db.query(HubArtifactUsage)
+                .filter_by(
+                    workspace_id=workspace_id, kind="adapter", target_id=model_id, status="active"
+                )
+                .first()
+            )
+            probe = (
+                (activation.details_json or {})
+                .get("validations", {})
+                .get(f"{descriptor['kind']}:ml")
+                if activation
+                else None
+            )
+            if (
+                not probe
+                or probe.get("validation") != "loaded_and_inferred"
+                or probe.get("fingerprint") != descriptor.get("fingerprint")
+                or probe.get("runtime") != descriptor.get("runtime")
+            ):
+                continue
+            result[model_id] = descriptor
     return result
 
 
-def model_availability(model_id: str, db: Any = None, *, now: datetime | None = None) -> tuple[bool, str | None]:
+def model_availability(
+    model_id: str, db: Any = None, *, now: datetime | None = None, workspace_id: str | None = None
+) -> tuple[bool, str | None]:
     """Only a live training queue with consistent verified local weights offers a model."""
     from app.services.ml.local_models import MODEL_SPECS
 
-    if model_id not in MODEL_SPECS:
+    if model_id not in MODEL_SPECS and not workspace_id:
         return False, "model_unknown"
     if not (settings.ml_train_enabled and settings.tabular_data_enabled):
         return False, "disabled"
@@ -206,6 +287,6 @@ def model_availability(model_id: str, db: Any = None, *, now: datetime | None = 
         available, reason = _heard_on("ml-deep", settings.celery_ml_deep_queue, db, now)
         if not available:
             return False, reason
-    if model_id not in model_descriptors(db, now=now):
+    if model_id not in model_descriptors(db, now=now, workspace_id=workspace_id):
         return False, "model_missing"
     return True, None

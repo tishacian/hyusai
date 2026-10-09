@@ -20,6 +20,7 @@ hits a cold model simply times out to the policy order while the load
 completes in the background. A process-wide semaphore bounds concurrent
 reranks so CPU saturation under load degrades to skips, not queueing.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -48,7 +49,9 @@ def _semaphore() -> asyncio.Semaphore:
     return semaphore
 
 
-def _score_passages(query: str, passages: list[str], *, model_name: str, max_length: int) -> list[float]:
+def _score_passages(
+    query: str, passages: list[str], *, model_name: str, max_length: int
+) -> list[float]:
     """Blocking scoring call — runs in an executor thread."""
     from app.services.retrieval.reranker_config import RerankerConfig
     from app.services.retrieval.rerankers import make_reranker
@@ -81,6 +84,8 @@ async def rerank_with_cross_encoder(
     allow_cross_encoder: bool,
     top_k: int,
     is_exempt_metadata=None,
+    workspace_slug: str | None = None,
+    collection_ref: str | None = None,
 ) -> tuple[list[str], list[float], list[dict[str, Any]], dict[str, Any]]:
     """Rerank the fused candidate pool; never degrade below the policy order.
 
@@ -102,15 +107,22 @@ async def rerank_with_cross_encoder(
         return chunks, scores, metadatas, _diag("skipped_profile")
     if profile not in {"balanced", "deep"}:
         return chunks, scores, metadatas, _diag("skipped_fast")
-    if _reranker_unavailable_reason:
-        return chunks, scores, metadatas, _diag("unavailable", cross_encoder_error=_reranker_unavailable_reason)
+    if _reranker_unavailable_reason and not workspace_slug:
+        return (
+            chunks,
+            scores,
+            metadatas,
+            _diag("unavailable", cross_encoder_error=_reranker_unavailable_reason),
+        )
     if not chunks or not str(query or "").strip():
         return chunks, scores, metadatas, _diag("skipped_empty")
 
     if profile == "deep":
         model_name = settings.rag_cross_encoder_model_deep
         max_length = max(64, int(settings.rag_cross_encoder_max_length_deep))
-        budget_seconds: float | None = max(0.05, float(settings.rag_cross_encoder_budget_seconds_deep))
+        budget_seconds: float | None = max(
+            0.05, float(settings.rag_cross_encoder_budget_seconds_deep)
+        )
         pool = min(len(chunks), max(1, int(settings.rag_cross_encoder_max_candidates_deep)))
     else:
         model_name = settings.rag_cross_encoder_model_balanced
@@ -140,34 +152,85 @@ async def rerank_with_cross_encoder(
         return chunks, scores, metadatas, _diag("skipped_concurrency")
     async with semaphore:
         loop = asyncio.get_running_loop()
+        selection_provenance = {}
+
+        def score_selected():
+            if workspace_slug:
+                from app.services.rag.reranker_artifacts import score_collection_passages
+
+                return score_collection_passages(
+                    query,
+                    passages,
+                    [metadatas[i] if i < len(metadatas) else {} for i in candidate_idx],
+                    workspace_slug=workspace_slug,
+                    collection_ref=collection_ref,
+                    model_name=model_name,
+                    max_length=max_length,
+                    models=selection_provenance,
+                )
+            return _score_passages(
+                query, passages, model_name=model_name, max_length=max_length
+            ), {}
+
         future = loop.run_in_executor(
             None,
-            lambda: _score_passages(query, passages, model_name=model_name, max_length=max_length),
+            score_selected,
         )
         try:
             if budget_seconds is not None:
-                ce_scores = await asyncio.wait_for(asyncio.shield(future), timeout=budget_seconds)
+                ce_scores, provenance = await asyncio.wait_for(
+                    asyncio.shield(future), timeout=budget_seconds
+                )
             else:
-                ce_scores = await future
+                ce_scores, provenance = await future
         except (TimeoutError, asyncio.TimeoutError):
             # The thread keeps loading/scoring in the background, so the next
             # request usually hits a warm model. Keep the policy order now.
-            return chunks, scores, metadatas, _diag(
-                "timeout",
-                cross_encoder_budget_seconds=budget_seconds,
-                cross_encoder_model=model_name,
+            return (
+                chunks,
+                scores,
+                metadatas,
+                _diag(
+                    "timeout",
+                    cross_encoder_budget_seconds=budget_seconds,
+                    cross_encoder_model=model_name,
+                    cross_encoder_collection_models=dict(selection_provenance),
+                ),
             )
         except ImportError as exc:
             _reranker_unavailable_reason = str(exc)
             logger.warning("Cross-encoder unavailable", error=str(exc))
-            return chunks, scores, metadatas, _diag("unavailable", cross_encoder_error=str(exc))
+            return (
+                chunks,
+                scores,
+                metadatas,
+                _diag(
+                    "unavailable",
+                    cross_encoder_error=str(exc),
+                    cross_encoder_collection_models=dict(selection_provenance),
+                ),
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Cross-encoder rerank failed", error=str(exc))
-            return chunks, scores, metadatas, _diag("error", cross_encoder_error=str(exc))
+            return (
+                chunks,
+                scores,
+                metadatas,
+                _diag(
+                    "error",
+                    cross_encoder_error=str(exc),
+                    cross_encoder_collection_models=dict(selection_provenance),
+                ),
+            )
 
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     if len(ce_scores) != len(candidate_idx):
-        return chunks, scores, metadatas, _diag("error", cross_encoder_error="score_alignment_mismatch")
+        return (
+            chunks,
+            scores,
+            metadatas,
+            _diag("error", cross_encoder_error="score_alignment_mismatch"),
+        )
 
     threshold = max(0.0, min(1.0, float(settings.rag_cross_encoder_threshold)))
     ranked = sorted(zip(candidate_idx, ce_scores), key=lambda item: item[1], reverse=True)
@@ -190,11 +253,19 @@ async def rerank_with_cross_encoder(
         new_scores.append(float(scores[index]) if index < len(scores) else 0.0)
         new_metadatas.append(metadata)
 
-    return new_chunks, new_scores, new_metadatas, _diag(
-        "applied",
-        cross_encoder_model=model_name,
-        cross_encoder_ms=elapsed_ms,
-        cross_encoder_scored=len(candidate_idx),
-        cross_encoder_filtered=dropped,
-        cross_encoder_threshold=threshold,
+    return (
+        new_chunks,
+        new_scores,
+        new_metadatas,
+        _diag(
+            "applied",
+            cross_encoder_model=next(iter(provenance.values()))
+            if len(set(provenance.values())) == 1
+            else ("per_collection" if provenance else model_name),
+            cross_encoder_collection_models=provenance,
+            cross_encoder_ms=elapsed_ms,
+            cross_encoder_scored=len(candidate_idx),
+            cross_encoder_filtered=dropped,
+            cross_encoder_threshold=threshold,
+        ),
     )

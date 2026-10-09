@@ -92,8 +92,13 @@ def _verify(model: Any, directory: Path) -> None:
     artifact = (model.metrics_json or {}).get("artifact") or {}
     if model.family == "forecasting_deep":
         from app.services.ml.artifacts import verify_bundle
+
         if artifact.get("code_file") != "ml_foundation_pyfunc.py":
-            raise TabularError(code="ML_ARTIFACT_UNVERIFIED", message="The foundation model code is not recognized.", status_code=409)
+            raise TabularError(
+                code="ML_ARTIFACT_UNVERIFIED",
+                message="The foundation model code is not recognized.",
+                status_code=409,
+            )
         verify_bundle(directory, artifact)
         return
     expected_code = artifact.get("code_sha256")
@@ -128,8 +133,19 @@ def _evict(entry: LoadedForecaster) -> None:
 def load_forecaster(model: Any) -> tuple[LoadedForecaster, bool]:
     """The loaded model, and whether it was already resident."""
 
-    if model.family == "forecasting_deep" and settings.ml_runtime != "ml-deep" and not settings.worker_eager_mode:
-        raise TabularError(code="ML_RUNTIME_MISSING", message="Foundation forecasts must load in the deep runtime.", status_code=409)
+    if (
+        model.family == "forecasting_deep"
+        and settings.ml_runtime != "ml-deep"
+        and not settings.worker_eager_mode
+    ):
+        raise TabularError(
+            code="ML_RUNTIME_MISSING",
+            message="Foundation forecasts must load in the deep runtime.",
+            status_code=409,
+        )
+    from app.services.huggingface.adapters import require_model_foundation
+
+    require_model_foundation(model)
     fingerprint = _fingerprint(model)
     with _cache_lock:
         cached = _cache.get(model.id)
@@ -199,7 +215,9 @@ def _model_input(inputs: list[dict[str, Any]], meta: dict[str, Any]):
     for column in ("series", "timestamp"):
         frame[column] = frame[column].astype(str) if column in frame else pd.Series([], dtype=str)
     if frame.empty:
-        frame = pd.DataFrame({"series": pd.Series([], dtype=str), "timestamp": pd.Series([], dtype=str)})
+        frame = pd.DataFrame(
+            {"series": pd.Series([], dtype=str), "timestamp": pd.Series([], dtype=str)}
+        )
     for column in future:
         if column in frame:
             frame[column] = pd.to_numeric(frame[column], errors="coerce").astype(float)
@@ -233,7 +251,9 @@ def _inverse_scale(forecaster: Any, series: str) -> tuple[float, float]:
     return float(scale[0]), float(mean[0])
 
 
-def explain_forecast(entry: LoadedForecaster, model_input: Any, *, steps: int, answered: list[dict[str, Any]]):
+def explain_forecast(
+    entry: LoadedForecaster, model_input: Any, *, steps: int, answered: list[dict[str, Any]]
+):
     """What lifted or lowered each step of one series' forecast.
 
     The matrix the model predicted from (``create_predict_X``: lags — which,
@@ -255,12 +275,18 @@ def explain_forecast(entry: LoadedForecaster, model_input: Any, *, steps: int, a
     python_model = entry.pyfunc.unwrap_python_model()
     forecaster = python_model.forecaster
     meta = entry.meta
-    peak_row = max(answered, key=lambda row: row.get("pred") if row.get("pred") is not None else float("-inf"))
+    peak_row = max(
+        answered, key=lambda row: row.get("pred") if row.get("pred") is not None else float("-inf")
+    )
     series = str(peak_row["series"])
     panel = meta.get("shape") == "panel"
-    exog = python_model._exog(model_input, steps, [series] if panel else list(meta.get("levels") or []))
+    exog = python_model._exog(
+        model_input, steps, [series] if panel else list(meta.get("levels") or [])
+    )
     if panel:
-        matrix = forecaster.create_predict_X(steps=steps, levels=[series], exog=exog, suppress_warnings=True)
+        matrix = forecaster.create_predict_X(
+            steps=steps, levels=[series], exog=exog, suppress_warnings=True
+        )
     else:
         matrix = forecaster.create_predict_X(steps=steps, exog=exog, suppress_warnings=True)
     if "level" in matrix.columns:
@@ -270,7 +296,9 @@ def explain_forecast(entry: LoadedForecaster, model_input: Any, *, steps: int, a
     means = info.get("means") or {}
     # One estimator per step ahead, keyed by the step.
     direct = type(forecaster).__name__ in ("ForecasterDirect", "ForecasterDirectMultiVariate")
-    scale, shift = _inverse_scale(forecaster, meta.get("target") if meta.get("shape") == "multivariate" else series)
+    scale, shift = _inverse_scale(
+        forecaster, meta.get("target") if meta.get("shape") == "multivariate" else series
+    )
     explainers: dict[int, Any] = {}
     approximate = False
     by_step = []
@@ -314,7 +342,9 @@ def explain_forecast(entry: LoadedForecaster, model_input: Any, *, steps: int, a
             }
         )
         if row is peak_row:
-            ranked = sorted(zip(columns, contributions, x.to_numpy()[0]), key=lambda item: -abs(item[1]))
+            ranked = sorted(
+                zip(columns, contributions, x.to_numpy()[0]), key=lambda item: -abs(item[1])
+            )
             peak_features = [
                 {
                     "feature": column,
@@ -366,7 +396,9 @@ def answer(
     started = time.monotonic()
     model_input = _model_input(inputs, meta)
     try:
-        frame = entry.pyfunc.predict(model_input, params={"horizon": steps, "interval_level": interval})
+        frame = entry.pyfunc.predict(
+            model_input, params={"horizon": steps, "interval_level": interval}
+        )
     except ValueError as exc:
         # The pyfunc says what is missing in a sentence: a future covariate,
         # an unknown series. That sentence is the answer.
@@ -419,6 +451,9 @@ def answer_for(
                 raise TabularError(
                     code="ML_MODEL_NOT_READY", message="The model is not trained.", status_code=409
                 )
+            from app.services.huggingface.adapters import require_model_foundation
+
+            require_model_foundation(model, db)
             db.expunge(model)
         return answer(model, horizon=horizon, level=level, inputs=inputs, explain=explain)
     except TabularError as exc:
@@ -436,7 +471,10 @@ def _raise_from(result: dict[str, Any]) -> None:
         code=str(error.get("code") or "ML_FORECAST_FAILED"),
         message=str(error.get("message") or "The forecast failed."),
         status_code=int(result.get("status") or 500),
-        details={key: value for key, value in error.items() if key not in {"code", "message", "error"}} or None,
+        details={
+            key: value for key, value in error.items() if key not in {"code", "message", "error"}
+        }
+        or None,
     )
 
 
@@ -469,6 +507,9 @@ def request_forecast(
     from app.services.tabular_predict import journal_call, record_usage, serving_version
 
     served = serving_version(db, model, version=version)
+    from app.services.huggingface.adapters import require_model_foundation
+
+    require_model_foundation(served, db)
     family = get_family(served.family)
     if served.task != "forecasting":
         raise TabularError(
@@ -521,7 +562,9 @@ def request_forecast(
                 with suppress(NotImplementedError):
                     pending.forget()
     if not isinstance(result, dict):
-        raise TabularError(code="ML_FORECAST_FAILED", message="The forecasting worker failed.", status_code=500)
+        raise TabularError(
+            code="ML_FORECAST_FAILED", message="The forecasting worker failed.", status_code=500
+        )
     if result.get("error"):
         _raise_from(result)
     duration_ms = round((time.monotonic() - started) * 1000, 1)
@@ -531,7 +574,8 @@ def request_forecast(
         requested=model,
         served=served,
         caller=caller,
-        rows=rows or [{"horizon": result.get("horizon"), "interval_level": result.get("interval_level")}],
+        rows=rows
+        or [{"horizon": result.get("horizon"), "interval_level": result.get("interval_level")}],
         answers=_journal_forecast(forecast, result.get("interval_level")),
         duration_ms=duration_ms,
     )
@@ -606,6 +650,9 @@ def submit_forecast_dataset(
     from app.services.tabular_predict import serving_version
 
     served = serving_version(db, model, version=version)
+    from app.services.huggingface.adapters import require_model_foundation
+
+    require_model_foundation(served, db)
     family = get_family(served.family)
     if served.task != "forecasting":
         raise TabularError(
@@ -634,7 +681,11 @@ def submit_forecast_dataset(
         name=(output_name or f"{served.name} · forecast +{steps}")[:200],
         source="score",
         produced_by=FORECAST_SKILL_SLUG,
-        parent_ids=[future.id] if future is not None else [served.dataset_id] if served.dataset_id else [],
+        parent_ids=[future.id]
+        if future is not None
+        else [served.dataset_id]
+        if served.dataset_id
+        else [],
         run_id=run_id,
         node_id=node_id,
         step=FORECAST_STEPS[0],
@@ -652,7 +703,10 @@ def submit_forecast_dataset(
         from app.workers.celery_app import celery_app
 
         celery_app.send_task(
-            FORECAST_BATCH_TASK, args=[output.id, served.id], kwargs=kwargs, queue=family.serve_queue()
+            FORECAST_BATCH_TASK,
+            args=[output.id, served.id],
+            kwargs=kwargs,
+            queue=family.serve_queue(),
         )
     return output
 
@@ -668,10 +722,14 @@ def _peaks(frame: Any) -> list[dict[str, Any]]:
                 "series": str(name),
                 "timestamp": str(top["timestamp"]),
                 "pred": float(top["pred"]),
-                "upper_bound": float(top["upper_bound"]) if top["upper_bound"] == top["upper_bound"] else None,
+                "upper_bound": float(top["upper_bound"])
+                if top["upper_bound"] == top["upper_bound"]
+                else None,
             }
         )
-    peaks.sort(key=lambda peak: -(peak["upper_bound"] if peak["upper_bound"] is not None else peak["pred"]))
+    peaks.sort(
+        key=lambda peak: -(peak["upper_bound"] if peak["upper_bound"] is not None else peak["pred"])
+    )
     return peaks[:_PEAKS]
 
 
@@ -706,15 +764,22 @@ def forecast_into(
         try:
             served = db.query(MLModel).filter(MLModel.id == served_id).first()
             if served is None or served.status != "ready":
-                raise TabularError(code="ML_MODEL_NOT_READY", message="The model is not trained.", status_code=409)
-            requested = db.query(MLModel).filter(MLModel.id == (requested_id or served_id)).first() or served
+                raise TabularError(
+                    code="ML_MODEL_NOT_READY", message="The model is not trained.", status_code=409
+                )
+            requested = (
+                db.query(MLModel).filter(MLModel.id == (requested_id or served_id)).first()
+                or served
+            )
             inputs: list[dict[str, Any]] = []
             future = None
             if future_id:
                 future = db.query(TabularDataset).filter(TabularDataset.id == future_id).first()
                 if future is None or future.status != "ready":
                     raise TabularError(
-                        code="DATASET_NOT_READY", message="The dataset of future values is gone.", status_code=409
+                        code="DATASET_NOT_READY",
+                        message="The dataset of future values is gone.",
+                        status_code=409,
                     )
                 if int(future.row_count or 0) > int(settings.ml_forecast_max_rows):
                     raise TabularError(
@@ -727,11 +792,21 @@ def forecast_into(
                     if pd.api.types.is_datetime64_any_dtype(frame_in[column]):
                         frame_in[column] = frame_in[column].dt.strftime("%Y-%m-%d %H:%M:%S")
                 time_column = (served.spec_json or {}).get("time_column")
-                if time_column and time_column in frame_in.columns and "timestamp" not in frame_in.columns:
+                if (
+                    time_column
+                    and time_column in frame_in.columns
+                    and "timestamp" not in frame_in.columns
+                ):
                     frame_in = frame_in.rename(columns={time_column: "timestamp"})
                 series_columns = list((served.spec_json or {}).get("series_columns") or [])
-                if series_columns and "series" not in frame_in.columns and set(series_columns) <= set(frame_in.columns):
-                    frame_in["series"] = frame_in[series_columns].astype(str).agg(" · ".join, axis=1)
+                if (
+                    series_columns
+                    and "series" not in frame_in.columns
+                    and set(series_columns) <= set(frame_in.columns)
+                ):
+                    frame_in["series"] = (
+                        frame_in[series_columns].astype(str).agg(" · ".join, axis=1)
+                    )
                 inputs = frame_in.to_dict(orient="records")
             db.expunge(served)
             mark_step(db, output, FORECAST_STEPS[1])
@@ -770,7 +845,9 @@ def forecast_into(
                     "frequency": result.get("frequency"),
                     "series": len(result["series"]),
                     "peaks": peaks,
-                    "sources": [{"dataset_id": future.id, "slug": future.slug}] if future is not None else [],
+                    "sources": [{"dataset_id": future.id, "slug": future.slug}]
+                    if future is not None
+                    else [],
                     "duration_ms": elapsed_ms,
                 },
             )
@@ -780,7 +857,8 @@ def forecast_into(
                 requested=requested,
                 served=served,
                 caller="forecast",
-                rows=inputs or [{"horizon": result["horizon"], "interval_level": result["interval_level"]}],
+                rows=inputs
+                or [{"horizon": result["horizon"], "interval_level": result["interval_level"]}],
                 answers=_journal_forecast(rows, result.get("interval_level")),
                 duration_ms=elapsed_ms,
                 dataset_id=output.id,

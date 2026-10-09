@@ -1,0 +1,56 @@
+@if (config.can_configure) {
+  <details class="hf-panel">
+    <summary>{{ i18n.t('connectors.hf.lifecycle') }}</summary>
+    <div class="hf-stack">
+      @if (error()) { <p class="hf-error" role="alert">{{ error() }}</p> }
+      <label>{{ i18n.t('connectors.hf.artifact') }}<select [(ngModel)]="artifactId" (ngModelChange)="globalConfirmed = false"> <option value="">{{ i18n.t('connectors.hf.choose') }}</option>@for (artifact of artifacts; track artifact.artifact_id) { <option [value]="artifact.artifact_id">{{ artifact.repo_id }} · {{ artifact.variant || artifact.format }} · {{ artifact.status }} · {{ artifact.artifact_id }}</option> }</select></label>
+      <details>
+        <summary>{{ i18n.t('connectors.hf.deploy_title') }}</summary>
+        <form (ngSubmit)="deploy()" class="hf-stack">
+          <div class="hf-grid">
+            <label>{{ i18n.t('connectors.hf.node') }}<input [(ngModel)]="nodeName" name="nodeName" required /></label>
+            <label>{{ i18n.t('connectors.hf.architecture') }}<input [(ngModel)]="architecture" name="architecture" required /></label>
+            <label>{{ i18n.t('connectors.hf.context') }}<input type="number" [(ngModel)]="contextLength" name="contextLength" min="1" step="1" required /></label>
+            <label>{{ i18n.t('connectors.hf.memory') }}<input type="number" [(ngModel)]="memoryGiB" name="memoryGiB" min="0.01" step="0.01" required /></label>
+          </div>
+          <p class="hf-muted">{{ i18n.t('connectors.hf.deploy_help') }}</p>
+          <div class="hf-actions"><button type="button" class="ck-btn" (click)="inspectNode()" [disabled]="busy() || !nodeName.trim()">{{ i18n.t('connectors.hf.capabilities') }}</button><button type="submit" class="ck-btn ck-btn-accent" [disabled]="busy() || !artifactId || !architecture.trim() || !memoryGiB">{{ i18n.t('connectors.hf.deploy') }}</button></div>
+        </form>
+        @if (capabilities()) { <pre>{{ capabilities() | json }}</pre> }
+        <form (ngSubmit)="deploymentAction(deploymentId)" class="hf-search">
+          <label class="hf-grow">{{ i18n.t('connectors.hf.deployment_id') }}<input name="deploymentId" [(ngModel)]="deploymentId" required /></label><button type="submit" class="ck-btn" [disabled]="busy() || !deploymentId.trim()">{{ i18n.t('connectors.hf.track') }}</button>
+        </form>
+        @for (deployment of deployments(); track deployment.deployment_id) {
+          <article class="hf-artifact"><div><strong>{{ deployment.deployment_id }}</strong><p>{{ deployment.node_name }} · {{ deployment.state }}</p>@if (deployment.error_code) { <p class="hf-error">{{ deployment.error_code }}</p> }</div><div class="hf-actions"><button type="button" class="ck-btn" [disabled]="busy()" (click)="deploymentAction(deployment.deployment_id)">{{ i18n.t('connectors.hf.refresh') }}</button>@if (deployment.state !== 'stopped') { <button type="button" class="ck-btn" [disabled]="busy()" (click)="deploymentAction(deployment.deployment_id, 'stop')">{{ i18n.t('connectors.hf.stop') }}</button> }</div></article>
+        }
+      </details>
+      <details>
+        <summary>{{ i18n.t('connectors.hf.bundles') }}</summary>
+        <div class="hf-stack">
+          <p class="hf-muted">{{ i18n.t('connectors.hf.bundle_help') }}</p>
+          <button type="button" class="ck-btn" [disabled]="busy() || !artifactId || selectedArtifact()?.status !== 'ready'" (click)="exportBundle()">{{ i18n.t('connectors.hf.export_bundle') }}</button>
+          <label>{{ i18n.t('connectors.hf.bundle_file') }}<input type="file" accept=".tar,application/x-tar" (change)="selectFile($event)" /></label>
+          <button type="button" class="ck-btn" [disabled]="busy() || !file" (click)="uploadBundle()">{{ i18n.t('connectors.hf.import_bundle') }}</button>
+        </div>
+      </details>
+      @if (config.can_admin_platform) {
+        <details><summary>{{ i18n.t('connectors.hf.platform_actions') }}</summary>
+          <div class="hf-stack">
+            <div class="hf-actions"><button type="button" class="ck-btn" [disabled]="busy() || selectedArtifact()?.status !== 'ready'" (click)="publish(true)">{{ i18n.t('connectors.hf.publish') }}</button><button type="button" class="ck-btn" [disabled]="busy() || !selectedArtifact()?.in_catalogue" (click)="publish(false)">{{ i18n.t('connectors.hf.unpublish') }}</button></div>
+            <p class="hf-muted">{{ i18n.t('connectors.hf.global_help') }}</p>
+            <label>{{ i18n.t('connectors.hf.reason') }}<input [(ngModel)]="reason" /></label>
+            <label class="hf-inline"><input type="checkbox" [(ngModel)]="globalConfirmed" />{{ i18n.t('connectors.hf.global_confirm') }}</label>
+            <div class="hf-actions"><button type="button" class="ck-btn" [disabled]="busy() || !globalConfirmed || !reason.trim() || !artifactId" (click)="revoke()">{{ i18n.t('connectors.hf.global_revoke') }}</button><button type="button" class="ck-btn" [disabled]="busy() || !globalConfirmed || selectedArtifact()?.status !== 'revoked'" (click)="purge()">{{ i18n.t('connectors.hf.purge') }}</button></div>
+          </div>
+        </details>
+      }
+      @if (jobs().length) {
+        <div aria-live="polite">@for (job of jobs(); track job.job_id) { <div class="hf-artifact"><div><strong>{{ job.job_id }}</strong><p>{{ job.status }} · {{ job.stage }}</p>@if (job.error_code) { <p class="hf-error">{{ job.error_code }}</p> }</div>@if (job.stage === 'license_required' && job.license) {
+          <div class="hf-stack"><strong>{{ job.license.tag }}</strong><pre class="hf-license">{{ job.license.text }}</pre><p class="hf-sha">{{ job.license.digest }}</p><label class="hf-inline"><input type="checkbox" [checked]="acceptedLicenses().includes(job.job_id)" (change)="toggleLicense(job.job_id, $any($event.target).checked)" />{{ i18n.t('connectors.hf.accept_check') }}</label><button type="button" class="ck-btn" [disabled]="busy() || !acceptedLicenses().includes(job.job_id)" (click)="acceptLicense(job)">{{ i18n.t('connectors.hf.accept') }}</button></div>
+        }
+        @if (job.download_available) { <button type="button" class="ck-btn" (click)="download(job)" [disabled]="downloadBusy()">{{ i18n.t('connectors.hf.download') }}</button> }</div> }</div>
+        <button type="button" class="ck-btn" (click)="refresh()">{{ i18n.t('connectors.hf.refresh') }}</button>
+      }
+    </div>
+  </details>
+}

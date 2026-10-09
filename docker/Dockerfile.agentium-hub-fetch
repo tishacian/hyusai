@@ -1,0 +1,33 @@
+ARG PYTHON_BASE_IMAGE=python:3.12-slim
+FROM ${PYTHON_BASE_IMAGE}
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    HF_HUB_DISABLE_TELEMETRY=1
+ARG PIP_INDEX_URL
+RUN : "${PIP_INDEX_URL:?PIP_INDEX_URL is required}"
+COPY backend/requirements_hub.txt backend/constraints-demo-app.txt /tmp/requirements/
+RUN pip install --no-cache-dir --index-url=${PIP_INDEX_URL} \
+    --constraint=/tmp/requirements/constraints-demo-app.txt -r /tmp/requirements/requirements_hub.txt \
+    && pip check
+
+ARG USERNAME=agentium
+ARG USER_UID=1000
+ARG USER_GID=1000
+RUN groupadd --gid "$USER_GID" "$USERNAME" \
+    && useradd --uid "$USER_UID" --gid "$USER_GID" --create-home "$USERNAME"
+WORKDIR /app
+COPY --chown=$USERNAME:$USERNAME backend /app/backend
+COPY --chown=$USERNAME:$USERNAME run_celery.sh /app/run_celery.sh
+RUN chmod +x /app/run_celery.sh \
+    && mkdir -p /data/hub-cache /data/object_store \
+    && chown -R "$USERNAME":"$USERNAME" /data
+USER $USERNAME
+ENV PYTHONPATH=/app/backend \
+    CELERY_APP=app.workers.celery_hub:celery_hub \
+    CELERY_QUEUES=hub_fetch \
+    CELERY_CONCURRENCY=2
+ARG AGENTIUM_IMAGE_REVISION=unknown
+ENV AGENTIUM_IMAGE_REVISION=${AGENTIUM_IMAGE_REVISION}
+LABEL org.opencontainers.image.revision="${AGENTIUM_IMAGE_REVISION}"
+CMD ["/app/run_celery.sh"]

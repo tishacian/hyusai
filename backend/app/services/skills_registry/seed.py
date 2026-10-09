@@ -6,22 +6,26 @@ endpoint. The actual `invoke()` callable is registered in
 the typed contracts so the registry is queryable from `/skills` without
 the runtime needing to be alive.
 """
+
 import json
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
 
 from sqlalchemy.orm import Session as DBSession
 
 from app.models.capability import Capability
 from app.models.skill import Skill
+from app.services.ecommerce_skill_catalog import CLAIM_SKILLS
 
-
-RETRIEVAL_POLICY_PROPERTIES: Dict[str, Any] = {
+RETRIEVAL_POLICY_PROPERTIES: dict[str, Any] = {
     "top_k": {"type": "integer", "default": 5},
     "candidate_pool_k": {"type": "integer"},
     "synthesis_k": {"type": "integer"},
     "source_display_k": {"type": "integer"},
-    "rag_pipeline_mode": {"type": "string", "enum": ["auto", "vector", "dense", "hybrid", "hah", "chah"]},
+    "rag_pipeline_mode": {
+        "type": "string",
+        "enum": ["auto", "vector", "dense", "hybrid", "hah", "chah"],
+    },
     "latency_profile": {"type": "string", "enum": ["fast", "balanced", "deep"]},
     "retrieval_profile": {"type": "string", "enum": ["oracle_fast", "chat", "deep_async"]},
     "deep_retrieval": {"type": "boolean"},
@@ -41,10 +45,10 @@ def _translation_skill(
     *,
     mode: str = "async",
     timeout_ms: int = 1_800_000,
-    required: List[str] | None = None,
-    properties: Dict[str, Any] | None = None,
-    outputs: Dict[str, Any] | None = None,
-) -> Dict[str, Any]:
+    required: list[str] | None = None,
+    properties: dict[str, Any] | None = None,
+    outputs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     return {
         "slug": slug,
         "version": "1",
@@ -53,7 +57,12 @@ def _translation_skill(
         "type": skill_type,
         "provider": "internal",
         "certification_level": "enterprise",
-        "execution": {"mode": mode, "timeout_ms": timeout_ms, "retryable": True, "idempotent": True},
+        "execution": {
+            "mode": mode,
+            "timeout_ms": timeout_ms,
+            "retryable": True,
+            "idempotent": True,
+        },
         "pricing": {"unit": "per_batch_stage", "unit_price": 0.0, "currency": "EUR"},
         "input_schema": {
             "type": "object",
@@ -77,7 +86,7 @@ def _translation_skill(
     }
 
 
-TRANSLATION_SKILLS: List[Dict[str, Any]] = [
+TRANSLATION_SKILLS: list[dict[str, Any]] = [
     _translation_skill(
         "translation_archive_ingest_v1",
         "Translation Archive Ingest",
@@ -234,7 +243,7 @@ TRANSLATION_SKILLS: List[Dict[str, Any]] = [
 # ---- Skills ----------------------------------------------------------------
 # (slug, version, name, description, type, provider, certification, execution,
 #  pricing, input_schema, output_schema)
-SEED_SKILLS: List[Dict[str, Any]] = [
+SEED_SKILLS: list[dict[str, Any]] = [
     *TRANSLATION_SKILLS,
     {
         "slug": "llm_rag_answer_v1",
@@ -244,21 +253,36 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "rag",
         "provider": "internal",
         "certification_level": "production",
-        "execution": {"mode": "stream", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 60_000,
+            "retryable": True,
+            "idempotent": False,
+        },
         "pricing": {"unit": "per_call", "unit_price": 0.012, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["query"], "properties": {
-            "query": {"type": "string"},
-            "context_id": {"type": "string"},
-            "context": {"type": "array", "description": "Pre-retrieved chunks (e.g. join.retrieval.results). When present, the answer is synthesised FROM these (no second retrieval)."},
-            "answer_profile": {"type": "string"},
-            "lang_target": {"type": "string"},
-            **RETRIEVAL_POLICY_PROPERTIES,
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "answer": {"type": "string"},
-            "citations": {"type": "array"},
-            "decision_steps": {"type": "array"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "context_id": {"type": "string"},
+                "context": {
+                    "type": "array",
+                    "description": "Pre-retrieved chunks (e.g. join.retrieval.results). When present, the answer is synthesised FROM these (no second retrieval).",
+                },
+                "answer_profile": {"type": "string"},
+                "lang_target": {"type": "string"},
+                **RETRIEVAL_POLICY_PROPERTIES,
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string"},
+                "citations": {"type": "array"},
+                "decision_steps": {"type": "array"},
+            },
+        },
     },
     {
         "slug": "semantic_search_v1",
@@ -270,15 +294,22 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 8_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.0008, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["query"], "properties": {
-            "query": {"type": "string"},
-            "mode": {"type": "string"},
-            "rag_pipeline_mode": {"type": "string"},
-            **RETRIEVAL_POLICY_PROPERTIES,
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "results": {"type": "array"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "mode": {"type": "string"},
+                "rag_pipeline_mode": {"type": "string"},
+                **RETRIEVAL_POLICY_PROPERTIES,
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "results": {"type": "array"},
+            },
+        },
     },
     {
         "slug": "multi_hop_retrieve_v1",
@@ -290,18 +321,25 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 20_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.0016, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["query"], "properties": {
-            "query": {"type": "string"},
-            "sub_queries": {"type": "array", "items": {"type": "string"}},
-            "rag_pipeline_mode": {"type": "string"},
-            **RETRIEVAL_POLICY_PROPERTIES,
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "results": {"type": "array"},
-            "raw_chunks_retrieved": {"type": "integer"},
-            "sub_queries": {"type": "array", "items": {"type": "string"}},
-            "hop_count": {"type": "integer"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "sub_queries": {"type": "array", "items": {"type": "string"}},
+                "rag_pipeline_mode": {"type": "string"},
+                **RETRIEVAL_POLICY_PROPERTIES,
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "results": {"type": "array"},
+                "raw_chunks_retrieved": {"type": "integer"},
+                "sub_queries": {"type": "array", "items": {"type": "string"}},
+                "hop_count": {"type": "integer"},
+            },
+        },
     },
     {
         "slug": "chat_trivial_bypass_v1",
@@ -313,14 +351,21 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 500, "retryable": False, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["query"], "properties": {
-            "query": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "bypassed": {"type": "boolean"},
-            "answer": {"type": "string"},
-            "reason": {"type": "string"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "bypassed": {"type": "boolean"},
+                "answer": {"type": "string"},
+                "reason": {"type": "string"},
+            },
+        },
     },
     {
         "slug": "chat_grounding_policy_v1",
@@ -332,16 +377,23 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 1000, "retryable": False, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["query"], "properties": {
-            "query": {"type": "string"},
-            "assistant_profile": {"type": "string"},
-            "grounding_mode": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "mode": {"type": "string"},
-            "require_sources": {"type": "boolean"},
-            "fallback_disclaimer": {"type": "string"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "assistant_profile": {"type": "string"},
+                "grounding_mode": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "mode": {"type": "string"},
+                "require_sources": {"type": "boolean"},
+                "fallback_disclaimer": {"type": "string"},
+            },
+        },
     },
     {
         "slug": "chat_action_resolver_v1",
@@ -353,16 +405,23 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 1500, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["query"], "properties": {
-            "query": {"type": "string"},
-            "assistant_profile": {"type": "string"},
-            "surface": {"type": "string", "default": "chat"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "matched": {"type": "boolean"},
-            "action_id": {"type": "string"},
-            "requires_confirmation": {"type": "boolean"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "assistant_profile": {"type": "string"},
+                "surface": {"type": "string", "default": "chat"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "matched": {"type": "boolean"},
+                "action_id": {"type": "string"},
+                "requires_confirmation": {"type": "boolean"},
+            },
+        },
     },
     {
         "slug": "document_ingestion_v1",
@@ -372,16 +431,28 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "ingestion",
         "provider": "internal",
         "certification_level": "production",
-        "execution": {"mode": "async", "timeout_ms": 120_000, "retryable": True, "idempotent": True},
+        "execution": {
+            "mode": "async",
+            "timeout_ms": 120_000,
+            "retryable": True,
+            "idempotent": True,
+        },
         "pricing": {"unit": "per_doc", "unit_price": 0.04, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["filename"], "properties": {
-            "filename": {"type": "string"},
-            "collection": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "doc_id": {"type": "string"},
-            "chunks": {"type": "integer"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["filename"],
+            "properties": {
+                "filename": {"type": "string"},
+                "collection": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "doc_id": {"type": "string"},
+                "chunks": {"type": "integer"},
+            },
+        },
     },
     {
         "slug": "eval_radar_v1",
@@ -393,14 +464,21 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": False, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.02, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["answer"], "properties": {
-            "answer": {"type": "string"},
-            "ground_truth": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "axes": {"type": "object"},
-            "overall": {"type": "number"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["answer"],
+            "properties": {
+                "answer": {"type": "string"},
+                "ground_truth": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "axes": {"type": "object"},
+                "overall": {"type": "number"},
+            },
+        },
     },
     {
         "slug": "claim_audit_v1",
@@ -412,14 +490,21 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": False, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.025, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["answer"], "properties": {
-            "answer": {"type": "string"},
-            "citations": {"type": "array"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "claims": {"type": "array"},
-            "verdict": {"type": "string"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["answer"],
+            "properties": {
+                "answer": {"type": "string"},
+                "citations": {"type": "array"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "claims": {"type": "array"},
+                "verdict": {"type": "string"},
+            },
+        },
     },
     {
         "slug": "chat_agentic_plan_v1",
@@ -431,31 +516,44 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.004, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["query"], "properties": {
-            "query": {"type": "string"},
-            "conversation_history": {"type": "array"},
-            "model": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "action": {"type": "string", "enum": ["answer", "clarify", "reject_oos"]},
-            "mode": {"type": "string", "enum": ["fast", "balanced", "deep"]},
-            "answer_profile": {"type": "string"},
-            "scope_hint": {"type": "string"},
-            "clarifying_question": {"type": "string"},
-            "oos_reason": {"type": "string"},
-            "lang_target": {"type": "string"},
-            "confidence": {"type": "number"},
-            "retrieval": {"type": "object", "properties": {
-                "latency_profile": {"type": "string", "enum": ["fast", "balanced", "deep"]},
-                "retrieval_profile": {"type": "string", "enum": ["oracle_fast", "chat", "deep_async"]},
-                "top_k": {"type": "integer"},
-                "synthesis_k": {"type": "integer"},
-                "candidate_pool_k": {"type": "integer"},
-                "rag_pipeline_mode": {"type": "string", "enum": ["chah", "auto"]},
-                "deep_retrieval": {"type": "boolean"},
-            }},
-            "sub_queries": {"type": "array", "items": {"type": "string"}},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "conversation_history": {"type": "array"},
+                "model": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["answer", "clarify", "reject_oos"]},
+                "mode": {"type": "string", "enum": ["fast", "balanced", "deep"]},
+                "answer_profile": {"type": "string"},
+                "scope_hint": {"type": "string"},
+                "clarifying_question": {"type": "string"},
+                "oos_reason": {"type": "string"},
+                "lang_target": {"type": "string"},
+                "confidence": {"type": "number"},
+                "retrieval": {
+                    "type": "object",
+                    "properties": {
+                        "latency_profile": {"type": "string", "enum": ["fast", "balanced", "deep"]},
+                        "retrieval_profile": {
+                            "type": "string",
+                            "enum": ["oracle_fast", "chat", "deep_async"],
+                        },
+                        "top_k": {"type": "integer"},
+                        "synthesis_k": {"type": "integer"},
+                        "candidate_pool_k": {"type": "integer"},
+                        "rag_pipeline_mode": {"type": "string", "enum": ["chah", "auto"]},
+                        "deep_retrieval": {"type": "boolean"},
+                    },
+                },
+                "sub_queries": {"type": "array", "items": {"type": "string"}},
+            },
+        },
     },
     {
         "slug": "decide_next_v1",
@@ -467,23 +565,29 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 20_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.003, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {
-            "goal": {"type": "object"},
-            "observations": {"type": "array"},
-            "visible_skills": {"type": "array"},
-            "budget": {"type": "object"},
-            "confidence_floor": {"type": "number"},
-            "model": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "next_skill": {"type": ["string", "null"]},
-            "rationale": {"type": "string"},
-            "confidence": {"type": "number"},
-            "needs_human": {"type": "boolean"},
-            "human_prompt": {"type": ["string", "null"]},
-            "exit": {"type": ["string", "null"]},
-            "done": {"type": "boolean"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "goal": {"type": "object"},
+                "observations": {"type": "array"},
+                "visible_skills": {"type": "array"},
+                "budget": {"type": "object"},
+                "confidence_floor": {"type": "number"},
+                "model": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "next_skill": {"type": ["string", "null"]},
+                "rationale": {"type": "string"},
+                "confidence": {"type": "number"},
+                "needs_human": {"type": "boolean"},
+                "human_prompt": {"type": ["string", "null"]},
+                "exit": {"type": ["string", "null"]},
+                "done": {"type": "boolean"},
+            },
+        },
     },
     {
         "slug": "skill_search_v1",
@@ -495,16 +599,22 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {
-            "query": {"type": "string"},
-            "skill_allowlist": {"type": "array", "items": {"type": "string"}},
-            "privilege_tier": {"type": "string"},
-            "limit": {"type": "integer"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "skills": {"type": "array"},
-            "count": {"type": "integer"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "skill_allowlist": {"type": "array", "items": {"type": "string"}},
+                "privilege_tier": {"type": "string"},
+                "limit": {"type": "integer"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "skills": {"type": "array"},
+                "count": {"type": "integer"},
+            },
+        },
     },
     {
         "slug": "chat_self_correct_v1",
@@ -516,23 +626,33 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 45_000, "retryable": True, "idempotent": False},
         "pricing": {"unit": "per_call", "unit_price": 0.012, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["draft_answer"], "properties": {
-            "draft_answer": {"type": "string"},
-            "query": {"type": "string"},
-            "citations": {"type": "array"},
-            "composite": {"type": "number"},
-            "hallucination_rate": {"type": "number"},
-            "mode": {"type": "string"},
-            "scope_hint": {"type": "string"},
-            "lang_target": {"type": "string"},
-            "answer_profile": {"type": "string"},
-            "model": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "answer": {"type": "string"},
-            "citations": {"type": "array"},
-            "action_taken": {"type": "string", "enum": ["escalate_deep", "translate", "declare_partial"]},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["draft_answer"],
+            "properties": {
+                "draft_answer": {"type": "string"},
+                "query": {"type": "string"},
+                "citations": {"type": "array"},
+                "composite": {"type": "number"},
+                "hallucination_rate": {"type": "number"},
+                "mode": {"type": "string"},
+                "scope_hint": {"type": "string"},
+                "lang_target": {"type": "string"},
+                "answer_profile": {"type": "string"},
+                "model": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string"},
+                "citations": {"type": "array"},
+                "action_taken": {
+                    "type": "string",
+                    "enum": ["escalate_deep", "translate", "declare_partial"],
+                },
+            },
+        },
     },
     {
         "slug": "response_eval_v1",
@@ -544,20 +664,27 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": False, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.002, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["answer"], "properties": {
-            "answer": {"type": "string"},
-            "citations": {"type": "array"},
-            "context_chunks": {"type": "array"},
-            "query": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "composite": {"type": "number"},
-            "hallucination_rate": {"type": "number"},
-            "context_count": {"type": "integer"},
-            "hhem": {"type": "number"},
-            "factuality": {"type": "number"},
-            "coherence": {"type": "number"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["answer"],
+            "properties": {
+                "answer": {"type": "string"},
+                "citations": {"type": "array"},
+                "context_chunks": {"type": "array"},
+                "query": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "composite": {"type": "number"},
+                "hallucination_rate": {"type": "number"},
+                "context_count": {"type": "integer"},
+                "hhem": {"type": "number"},
+                "factuality": {"type": "number"},
+                "coherence": {"type": "number"},
+            },
+        },
     },
     {
         "slug": "intelligence_batch_v1",
@@ -567,15 +694,26 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "ingestion",
         "provider": "internal",
         "certification_level": "production",
-        "execution": {"mode": "async", "timeout_ms": 600_000, "retryable": True, "idempotent": False},
+        "execution": {
+            "mode": "async",
+            "timeout_ms": 600_000,
+            "retryable": True,
+            "idempotent": False,
+        },
         "pricing": {"unit": "per_batch", "unit_price": 0.5, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {
-            "feed_ids": {"type": "array"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "ingested": {"type": "integer"},
-            "errors": {"type": "integer"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "feed_ids": {"type": "array"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "ingested": {"type": "integer"},
+                "errors": {"type": "integer"},
+            },
+        },
     },
     {
         "slug": "ministerial_briefing_v1",
@@ -587,15 +725,21 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 12_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_brief", "unit_price": 0.08, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {
-            "workspace_name": {"type": "string"},
-            "date": {"type": "string"},
-            "include_sources": {"type": "boolean", "default": True},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "briefing": {"type": "object"},
-            "sources": {"type": "array"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "workspace_name": {"type": "string"},
+                "date": {"type": "string"},
+                "include_sources": {"type": "boolean", "default": True},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "briefing": {"type": "object"},
+                "sources": {"type": "array"},
+            },
+        },
     },
     {
         "slug": "news_signal_synthesis_v1",
@@ -607,15 +751,21 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_signal_batch", "unit_price": 0.06, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {
-            "signals": {"type": "array"},
-            "target": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "summary": {"type": "string"},
-            "signals": {"type": "array"},
-            "sources": {"type": "array"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "signals": {"type": "array"},
+                "target": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string"},
+                "signals": {"type": "array"},
+                "sources": {"type": "array"},
+            },
+        },
     },
     {
         "slug": "project_risk_explainer_v1",
@@ -627,15 +777,21 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_project", "unit_price": 0.05, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {
-            "project_id": {"type": "string"},
-            "question": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "project": {"type": "object"},
-            "explanation": {"type": "object"},
-            "sources": {"type": "array"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string"},
+                "question": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "project": {"type": "object"},
+                "explanation": {"type": "object"},
+                "sources": {"type": "array"},
+            },
+        },
     },
     {
         "slug": "territorial_signal_map_v1",
@@ -647,15 +803,21 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_map", "unit_price": 0.07, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {
-            "question": {"type": "string"},
-            "scope": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "map": {"type": "object"},
-            "zones": {"type": "array"},
-            "sources": {"type": "array"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "question": {"type": "string"},
+                "scope": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "map": {"type": "object"},
+                "zones": {"type": "array"},
+                "sources": {"type": "array"},
+            },
+        },
     },
     {
         "slug": "instruction_draft_v1",
@@ -667,18 +829,25 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": False},
         "pricing": {"unit": "per_draft", "unit_price": 0.04, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["target_id"], "properties": {
-            "target_id": {"type": "string"},
-            "target_type": {"type": "string"},
-            "instruction_type": {"type": "string"},
-            "tone": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "status": {"type": "string"},
-            "requires_validation": {"type": "boolean"},
-            "body": {"type": "string"},
-            "sources": {"type": "array"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["target_id"],
+            "properties": {
+                "target_id": {"type": "string"},
+                "target_type": {"type": "string"},
+                "instruction_type": {"type": "string"},
+                "tone": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "requires_validation": {"type": "boolean"},
+                "body": {"type": "string"},
+                "sources": {"type": "array"},
+            },
+        },
     },
     {
         "slug": "calendar_read_v1",
@@ -691,7 +860,10 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_read", "unit_price": 0.01, "currency": "USD"},
         "input_schema": {"type": "object", "properties": {"date": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"events": {"type": "array"}, "summary": {"type": "string"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {"events": {"type": "array"}, "summary": {"type": "string"}},
+        },
     },
     {
         "slug": "calendar_create_event_v1",
@@ -703,8 +875,19 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": False, "idempotent": False},
         "pricing": {"unit": "per_event", "unit_price": 0.02, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["title", "start_at"], "properties": {"title": {"type": "string"}, "start_at": {"type": "string"}, "end_at": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"event": {"type": "object"}, "requires_validation": {"type": "boolean"}}},
+        "input_schema": {
+            "type": "object",
+            "required": ["title", "start_at"],
+            "properties": {
+                "title": {"type": "string"},
+                "start_at": {"type": "string"},
+                "end_at": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"event": {"type": "object"}, "requires_validation": {"type": "boolean"}},
+        },
     },
     {
         "slug": "calendar_update_event_v1",
@@ -716,8 +899,19 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": False, "idempotent": False},
         "pricing": {"unit": "per_event", "unit_price": 0.02, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["event_id"], "properties": {"event_id": {"type": "string"}, "start_at": {"type": "string"}, "title": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"event": {"type": "object"}, "requires_validation": {"type": "boolean"}}},
+        "input_schema": {
+            "type": "object",
+            "required": ["event_id"],
+            "properties": {
+                "event_id": {"type": "string"},
+                "start_at": {"type": "string"},
+                "title": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"event": {"type": "object"}, "requires_validation": {"type": "boolean"}},
+        },
     },
     {
         "slug": "calendar_cancel_event_v1",
@@ -729,8 +923,15 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": False, "idempotent": False},
         "pricing": {"unit": "per_event", "unit_price": 0.02, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["event_id"], "properties": {"event_id": {"type": "string"}, "reason": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"event": {"type": "object"}, "requires_validation": {"type": "boolean"}}},
+        "input_schema": {
+            "type": "object",
+            "required": ["event_id"],
+            "properties": {"event_id": {"type": "string"}, "reason": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"event": {"type": "object"}, "requires_validation": {"type": "boolean"}},
+        },
     },
     {
         "slug": "calendar_daily_summary_v1",
@@ -743,7 +944,10 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_summary", "unit_price": 0.02, "currency": "USD"},
         "input_schema": {"type": "object", "properties": {"date": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"summary": {"type": "string"}, "events": {"type": "array"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {"summary": {"type": "string"}, "events": {"type": "array"}},
+        },
     },
     {
         "slug": "sap_hana_query_v1",
@@ -835,7 +1039,10 @@ SEED_SKILLS: List[Dict[str, Any]] = [
             "required": ["server_id", "tool"],
             "properties": {
                 "server_id": {"type": "string"},
-                "tool": {"type": "string", "description": "Contract tool name (resolved via server tool_aliases)."},
+                "tool": {
+                    "type": "string",
+                    "description": "Contract tool name (resolved via server tool_aliases).",
+                },
                 "arguments": {"type": "object"},
             },
         },
@@ -937,7 +1144,12 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "connector",
         "provider": "sap",
         "certification_level": "beta",
-        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": False, "idempotent": False},
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 30_000,
+            "retryable": False,
+            "idempotent": False,
+        },
         "pricing": {"unit": "per_call", "unit_price": 0.05, "currency": "USD"},
         "input_schema": {
             "type": "object",
@@ -995,7 +1207,12 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "connector",
         "provider": "sap",
         "certification_level": "beta",
-        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": False, "idempotent": False},
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 30_000,
+            "retryable": False,
+            "idempotent": False,
+        },
         "pricing": {"unit": "per_call", "unit_price": 0.05, "currency": "USD"},
         "input_schema": {
             "type": "object",
@@ -1028,7 +1245,12 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "connector",
         "provider": "sap",
         "certification_level": "beta",
-        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": False, "idempotent": False},
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 30_000,
+            "retryable": False,
+            "idempotent": False,
+        },
         "pricing": {"unit": "per_call", "unit_price": 0.05, "currency": "USD"},
         "input_schema": {
             "type": "object",
@@ -1066,7 +1288,12 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "workflow",
         "provider": "internal",
         "certification_level": "beta",
-        "execution": {"mode": "async", "timeout_ms": 600_000, "retryable": False, "idempotent": False},
+        "execution": {
+            "mode": "async",
+            "timeout_ms": 600_000,
+            "retryable": False,
+            "idempotent": False,
+        },
         "pricing": {"unit": "per_execution", "unit_price": 0.0, "currency": "USD"},
         # The concrete contract is author-declared on the node
         # (config.input_schema / config.output_schema); the catalog schema
@@ -1238,6 +1465,59 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         },
     },
     {
+        "slug": "hf_dataset_import_v1",
+        "version": "1",
+        "name": "Hugging Face Dataset",
+        "description": (
+            "Publishes the verified result of an imported Hugging Face dataset in this "
+            "workspace. Pins its artifact and selection digest for reproducible replay; "
+            "checks current access and never downloads a moving Hub revision."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 300_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_transform", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            # Editor parameters move into the graph-owned _hf_dataset block
+            # before execution. The wrapper validates its required pins there.
+            "type": "object",
+            "properties": {
+                "artifact_id": {
+                    "type": "string",
+                    "maxLength": 36,
+                    "description": "Imported dataset artifact identifier.",
+                },
+                "selection_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$",
+                    "description": "Immutable selection digest returned by the dataset import.",
+                },
+                "output_name": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "default": "Hugging Face dataset",
+                },
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "dataset_id": {"type": "string"},
+                "artifact_id": {"type": "string"},
+                "selection_digest": {"type": "string"},
+                "rows": {"type": "integer"},
+                "columns": {"type": "integer"},
+                "name": {"type": "string"},
+            },
+        },
+    },
+    {
         "slug": "llm_label_dataset_v1",
         "version": "1",
         "name": "Label Dataset with LLM",
@@ -1262,15 +1542,23 @@ SEED_SKILLS: List[Dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "sources": {
-                    "type": "array", "items": {"type": "object"}, "default": [],
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "default": [],
                     "description": "Optional dataset pin; otherwise use the upstream dataset.",
                 },
                 "text_columns": {
-                    "type": "array", "items": {"type": "string", "maxLength": 100}, "minItems": 1, "maxItems": 8,
+                    "type": "array",
+                    "items": {"type": "string", "maxLength": 100},
+                    "minItems": 1,
+                    "maxItems": 8,
                     "description": "Required: names of the text columns sent to the model.",
                 },
                 "labels": {
-                    "type": "array", "items": {"type": "string", "maxLength": 100}, "minItems": 2, "maxItems": 100,
+                    "type": "array",
+                    "items": {"type": "string", "maxLength": 100},
+                    "minItems": 2,
+                    "maxItems": 100,
                     "description": "Required: allowed class labels.",
                 },
                 "label_column": {"type": "string", "default": "label", "maxLength": 100},
@@ -1282,15 +1570,34 @@ SEED_SKILLS: List[Dict[str, Any]] = [
                 "output_name": {"type": "string", "maxLength": 200},
                 "batch_size": {"type": "integer", "default": 10, "minimum": 1, "maximum": 50},
                 "max_rows": {"type": "integer", "default": 500, "minimum": 1, "maximum": 5000},
-                "max_tokens": {"type": "integer", "default": 100000, "minimum": 1, "maximum": 2000000},
-                "max_output_tokens": {"type": "integer", "default": 2048, "minimum": 64, "maximum": 8192},
-                "max_cost_usd": {"type": "number", "default": 1, "exclusiveMinimum": 0, "maximum": 100},
+                "max_tokens": {
+                    "type": "integer",
+                    "default": 100000,
+                    "minimum": 1,
+                    "maximum": 2000000,
+                },
+                "max_output_tokens": {
+                    "type": "integer",
+                    "default": 2048,
+                    "minimum": 64,
+                    "maximum": 8192,
+                },
+                "max_cost_usd": {
+                    "type": "number",
+                    "default": 1,
+                    "exclusiveMinimum": 0,
+                    "maximum": 100,
+                },
                 "input_cost_per_million": {
-                    "type": "number", "minimum": 0, "maximum": 1000,
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1000,
                     "description": "Required: estimated USD per million input tokens for the workspace model. No assumed provider price.",
                 },
                 "output_cost_per_million": {
-                    "type": "number", "minimum": 0, "maximum": 1000,
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1000,
                     "description": "Required: estimated USD per million output tokens for the workspace model. No assumed provider price.",
                 },
                 "timeout_s": {"type": "integer", "default": 300, "minimum": 1, "maximum": 900},
@@ -1312,23 +1619,46 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         },
     },
     {
-        "slug": "ml_monitor_model_v1", "version": "1", "name": "Monitor Model",
+        "slug": "ml_monitor_model_v1",
+        "version": "1",
+        "name": "Monitor Model",
         "description": "Measures a scheduled model window and proposes retraining on labeled feedback or observed forecast history for human review.",
-        "type": "workflow", "provider": "internal", "certification_level": "beta",
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 120000, "retryable": False, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
         "input_schema": {"type": "object", "properties": {}},
-        "output_schema": {"type": "object", "properties": {"proposed": {"type": "boolean"},
-            "proposal_id": {"type": "string"}, "snapshot_id": {"type": "string"}, "badge": {"type": ["string", "null"]}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "proposed": {"type": "boolean"},
+                "proposal_id": {"type": "string"},
+                "snapshot_id": {"type": "string"},
+                "badge": {"type": ["string", "null"]},
+            },
+        },
     },
     {
-        "slug": "ml_retrain_model_v1", "version": "1", "name": "Train Reviewed Challenger",
+        "slug": "ml_retrain_model_v1",
+        "version": "1",
+        "name": "Train Reviewed Challenger",
         "description": "Trains the exact data snapshot confirmed at the model's human review gate; promotion remains separate.",
-        "type": "workflow", "provider": "internal", "certification_level": "beta",
-        "execution": {"mode": "async", "timeout_ms": 900000, "retryable": False, "idempotent": True},
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "async",
+            "timeout_ms": 900000,
+            "retryable": False,
+            "idempotent": True,
+        },
         "pricing": {"unit": "per_training", "unit_price": 0.0, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {"proposal_id": {"type": "string"},
-            "decision_id": {"type": "string"}}, "required": ["proposal_id", "decision_id"]},
+        "input_schema": {
+            "type": "object",
+            "properties": {"proposal_id": {"type": "string"}, "decision_id": {"type": "string"}},
+            "required": ["proposal_id", "decision_id"],
+        },
         "output_schema": {"type": "object", "properties": {"model_id": {"type": "string"}}},
     },
     {
@@ -1513,8 +1843,19 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": False, "idempotent": False},
         "pricing": {"unit": "per_action", "unit_price": 0.02, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["title"], "properties": {"title": {"type": "string"}, "due_at": {"type": "string"}, "priority": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"item": {"type": "object"}, "requires_validation": {"type": "boolean"}}},
+        "input_schema": {
+            "type": "object",
+            "required": ["title"],
+            "properties": {
+                "title": {"type": "string"},
+                "due_at": {"type": "string"},
+                "priority": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"item": {"type": "object"}, "requires_validation": {"type": "boolean"}},
+        },
     },
     {
         "slug": "action_plan_reschedule_v1",
@@ -1526,7 +1867,11 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": False, "idempotent": False},
         "pricing": {"unit": "per_action", "unit_price": 0.01, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["item_id", "due_at"], "properties": {"item_id": {"type": "string"}, "due_at": {"type": "string"}}},
+        "input_schema": {
+            "type": "object",
+            "required": ["item_id", "due_at"],
+            "properties": {"item_id": {"type": "string"}, "due_at": {"type": "string"}},
+        },
         "output_schema": {"type": "object", "properties": {"item": {"type": "object"}}},
     },
     {
@@ -1540,7 +1885,10 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_read", "unit_price": 0.01, "currency": "USD"},
         "input_schema": {"type": "object", "properties": {"status": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"items": {"type": "array"}, "summary": {"type": "object"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {"items": {"type": "array"}, "summary": {"type": "object"}},
+        },
     },
     {
         "slug": "action_plan_cancel_v1",
@@ -1552,7 +1900,11 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": False, "idempotent": False},
         "pricing": {"unit": "per_action", "unit_price": 0.01, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["item_id"], "properties": {"item_id": {"type": "string"}, "reason": {"type": "string"}}},
+        "input_schema": {
+            "type": "object",
+            "required": ["item_id"],
+            "properties": {"item_id": {"type": "string"}, "reason": {"type": "string"}},
+        },
         "output_schema": {"type": "object", "properties": {"item": {"type": "object"}}},
     },
     {
@@ -1565,7 +1917,14 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_scenario_pack", "unit_price": 0.03, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {"target_kind": {"type": "string"}, "target_id": {"type": "string"}, "risk_level": {"type": "string"}}},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "target_kind": {"type": "string"},
+                "target_id": {"type": "string"},
+                "risk_level": {"type": "string"},
+            },
+        },
         "output_schema": {"type": "object", "properties": {"options": {"type": "array"}}},
     },
     {
@@ -1579,7 +1938,10 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_comparison", "unit_price": 0.02, "currency": "USD"},
         "input_schema": {"type": "object", "properties": {"options": {"type": "array"}}},
-        "output_schema": {"type": "object", "properties": {"best": {"type": "object"}, "tradeoffs": {"type": "array"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {"best": {"type": "object"}, "tradeoffs": {"type": "array"}},
+        },
     },
     {
         "slug": "scenario_recommend_v1",
@@ -1591,8 +1953,18 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_recommendation", "unit_price": 0.03, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {"target_kind": {"type": "string"}, "target_id": {"type": "string"}, "risk_level": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"recommended": {"type": "object"}, "options": {"type": "array"}}},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "target_kind": {"type": "string"},
+                "target_id": {"type": "string"},
+                "risk_level": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"recommended": {"type": "object"}, "options": {"type": "array"}},
+        },
     },
     {
         "slug": "map_layer_read_v1",
@@ -1605,7 +1977,10 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_read", "unit_price": 0.01, "currency": "USD"},
         "input_schema": {"type": "object", "properties": {"map_slug": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"map": {"type": "object"}, "zones": {"type": "array"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {"map": {"type": "object"}, "zones": {"type": "array"}},
+        },
     },
     {
         "slug": "map_zone_score_v1",
@@ -1618,7 +1993,10 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_map", "unit_price": 0.04, "currency": "USD"},
         "input_schema": {"type": "object", "properties": {"map_slug": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"scores": {"type": "array"}, "job": {"type": "object"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {"scores": {"type": "array"}, "job": {"type": "object"}},
+        },
     },
     {
         "slug": "map_signal_attach_v1",
@@ -1630,7 +2008,15 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": False, "idempotent": False},
         "pricing": {"unit": "per_signal", "unit_price": 0.02, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["zone_key", "title"], "properties": {"zone_key": {"type": "string"}, "title": {"type": "string"}, "weight": {"type": "number"}}},
+        "input_schema": {
+            "type": "object",
+            "required": ["zone_key", "title"],
+            "properties": {
+                "zone_key": {"type": "string"},
+                "title": {"type": "string"},
+                "weight": {"type": "number"},
+            },
+        },
         "output_schema": {"type": "object", "properties": {"signal": {"type": "object"}}},
     },
     {
@@ -1666,7 +2052,10 @@ SEED_SKILLS: List[Dict[str, Any]] = [
                 "layers": {"type": "array", "items": {"type": "string"}},
             },
         },
-        "output_schema": {"type": "object", "properties": {"map_state": {"type": "object"}, "sources": {"type": "array"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {"map_state": {"type": "object"}, "sources": {"type": "array"}},
+        },
     },
     {
         "slug": "source_registry_refresh_v1",
@@ -1679,7 +2068,10 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "execution": {"mode": "sync", "timeout_ms": 8_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_refresh", "unit_price": 0.02, "currency": "USD"},
         "input_schema": {"type": "object", "properties": {"workspace_slug": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"source_health": {"type": "object"}, "layers": {"type": "array"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {"source_health": {"type": "object"}, "layers": {"type": "array"}},
+        },
     },
     {
         "slug": "osint_signal_prioritize_v1",
@@ -1691,8 +2083,14 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_signal_batch", "unit_price": 0.04, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {"signals": {"type": "array"}, "geography": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"priorities": {"type": "array"}, "geographic_tiers": {"type": "array"}}},
+        "input_schema": {
+            "type": "object",
+            "properties": {"signals": {"type": "array"}, "geography": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"priorities": {"type": "array"}, "geographic_tiers": {"type": "array"}},
+        },
     },
     {
         "slug": "rumor_origin_trace_v1",
@@ -1704,8 +2102,18 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_trace", "unit_price": 0.04, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {"rumor_id": {"type": "string"}, "signals": {"type": "array"}}},
-        "output_schema": {"type": "object", "properties": {"origin": {"type": "string"}, "spread": {"type": "array"}, "confidence": {"type": "number"}}},
+        "input_schema": {
+            "type": "object",
+            "properties": {"rumor_id": {"type": "string"}, "signals": {"type": "array"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "origin": {"type": "string"},
+                "spread": {"type": "array"},
+                "confidence": {"type": "number"},
+            },
+        },
     },
     {
         "slug": "evidence_graph_build_v1",
@@ -1718,7 +2126,14 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_graph", "unit_price": 0.05, "currency": "USD"},
         "input_schema": {"type": "object", "properties": {"scope": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"nodes": {"type": "array"}, "edges": {"type": "array"}, "clusters": {"type": "array"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "nodes": {"type": "array"},
+                "edges": {"type": "array"},
+                "clusters": {"type": "array"},
+            },
+        },
     },
     {
         "slug": "situation_posture_score_v1",
@@ -1731,7 +2146,14 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "execution": {"mode": "sync", "timeout_ms": 8_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_score", "unit_price": 0.03, "currency": "USD"},
         "input_schema": {"type": "object", "properties": {"signals": {"type": "array"}}},
-        "output_schema": {"type": "object", "properties": {"score": {"type": "number"}, "label": {"type": "string"}, "axes": {"type": "array"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "score": {"type": "number"},
+                "label": {"type": "string"},
+                "axes": {"type": "array"},
+            },
+        },
     },
     {
         "slug": "maritime_snapshot_read_v1",
@@ -1743,8 +2165,18 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 8_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_snapshot", "unit_price": 0.03, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {"port": {"type": "string"}, "time_range": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"ports": {"type": "array"}, "vessels": {"type": "array"}, "source_health": {"type": "object"}}},
+        "input_schema": {
+            "type": "object",
+            "properties": {"port": {"type": "string"}, "time_range": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "ports": {"type": "array"},
+                "vessels": {"type": "array"},
+                "source_health": {"type": "object"},
+            },
+        },
     },
     {
         "slug": "decision_option_rank_v1",
@@ -1756,8 +2188,14 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 8_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_decision", "unit_price": 0.03, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {"options": {"type": "array"}, "deadline": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"recommended": {"type": "object"}, "alternatives": {"type": "array"}}},
+        "input_schema": {
+            "type": "object",
+            "properties": {"options": {"type": "array"}, "deadline": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"recommended": {"type": "object"}, "alternatives": {"type": "array"}},
+        },
     },
     {
         "slug": "draft_response_email_v1",
@@ -1769,8 +2207,23 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": False},
         "pricing": {"unit": "per_email_draft", "unit_price": 0.04, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["target_id"], "properties": {"target_id": {"type": "string"}, "recipient": {"type": "string"}, "tone": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"subject": {"type": "string"}, "body": {"type": "string"}, "requires_validation": {"type": "boolean"}}},
+        "input_schema": {
+            "type": "object",
+            "required": ["target_id"],
+            "properties": {
+                "target_id": {"type": "string"},
+                "recipient": {"type": "string"},
+                "tone": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string"},
+                "body": {"type": "string"},
+                "requires_validation": {"type": "boolean"},
+            },
+        },
     },
     {
         "slug": "visual_source_read_v1",
@@ -1783,7 +2236,10 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_read", "unit_price": 0.01, "currency": "USD"},
         "input_schema": {"type": "object", "properties": {"source_id": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"sources": {"type": "array"}, "dashboard": {"type": "object"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {"sources": {"type": "array"}, "dashboard": {"type": "object"}},
+        },
     },
     {
         "slug": "visual_snapshot_capture_v1",
@@ -1793,10 +2249,22 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "ingestion",
         "provider": "internal",
         "certification_level": "beta",
-        "execution": {"mode": "async", "timeout_ms": 30_000, "retryable": True, "idempotent": False},
+        "execution": {
+            "mode": "async",
+            "timeout_ms": 30_000,
+            "retryable": True,
+            "idempotent": False,
+        },
         "pricing": {"unit": "per_snapshot", "unit_price": 0.03, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["source_id"], "properties": {"source_id": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"capture": {"type": "object"}, "job": {"type": "object"}}},
+        "input_schema": {
+            "type": "object",
+            "required": ["source_id"],
+            "properties": {"source_id": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"capture": {"type": "object"}, "job": {"type": "object"}},
+        },
     },
     {
         "slug": "visual_snapshot_analyze_v1",
@@ -1808,7 +2276,11 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 15_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_snapshot", "unit_price": 0.04, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["capture_id"], "properties": {"capture_id": {"type": "string"}}},
+        "input_schema": {
+            "type": "object",
+            "required": ["capture_id"],
+            "properties": {"capture_id": {"type": "string"}},
+        },
         "output_schema": {"type": "object", "properties": {"observation": {"type": "object"}}},
     },
     {
@@ -1821,8 +2293,15 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 8_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_observation", "unit_price": 0.01, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["observation_id"], "properties": {"observation_id": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"collection": {"type": "string"}, "object_key": {"type": "string"}}},
+        "input_schema": {
+            "type": "object",
+            "required": ["observation_id"],
+            "properties": {"observation_id": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"collection": {"type": "string"}, "object_key": {"type": "string"}},
+        },
     },
     {
         "slug": "time_context_set_v1",
@@ -1834,8 +2313,14 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": False, "idempotent": False},
         "pricing": {"unit": "per_update", "unit_price": 0.01, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {"current_date": {"type": "string"}, "label": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"demo_time_context": {"type": "object"}}},
+        "input_schema": {
+            "type": "object",
+            "properties": {"current_date": {"type": "string"}, "label": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"demo_time_context": {"type": "object"}},
+        },
     },
     {
         "slug": "territorial_action_window_v1",
@@ -1847,8 +2332,14 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "beta",
         "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_window", "unit_price": 0.02, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {"zone_id": {"type": "string"}, "target_id": {"type": "string"}}},
-        "output_schema": {"type": "object", "properties": {"recommended_windows": {"type": "array"}}},
+        "input_schema": {
+            "type": "object",
+            "properties": {"zone_id": {"type": "string"}, "target_id": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"recommended_windows": {"type": "array"}},
+        },
     },
     {
         "slug": "sharepoint_ingestion_v1",
@@ -1858,16 +2349,28 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "ingestion",
         "provider": "microsoft",
         "certification_level": "production",
-        "execution": {"mode": "async", "timeout_ms": 1_800_000, "retryable": True, "idempotent": False},
+        "execution": {
+            "mode": "async",
+            "timeout_ms": 1_800_000,
+            "retryable": True,
+            "idempotent": False,
+        },
         "pricing": {"unit": "per_file", "unit_price": 0.06, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["site_url"], "properties": {
-            "site_url": {"type": "string"},
-            "library": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "files": {"type": "integer"},
-            "skipped": {"type": "integer"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["site_url"],
+            "properties": {
+                "site_url": {"type": "string"},
+                "library": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "files": {"type": "integer"},
+                "skipped": {"type": "integer"},
+            },
+        },
     },
     {
         "slug": "voice_transcribe_v1",
@@ -1879,16 +2382,23 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
         "pricing": {"unit": "per_minute", "unit_price": 0.012, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["audio_ref"], "properties": {
-            "audio_ref": {"type": "string"},
-            "audio_base64": {"type": "string"},
-            "filename": {"type": "string"},
-            "content_type": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "transcript": {"type": "string"},
-            "model": {"type": "string"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["audio_ref"],
+            "properties": {
+                "audio_ref": {"type": "string"},
+                "audio_base64": {"type": "string"},
+                "filename": {"type": "string"},
+                "content_type": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "transcript": {"type": "string"},
+                "model": {"type": "string"},
+            },
+        },
     },
     {
         "slug": "voice_tts_v1",
@@ -1898,18 +2408,30 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "voice",
         "provider": "internal",
         "certification_level": "production",
-        "execution": {"mode": "stream", "timeout_ms": 30_000, "retryable": True, "idempotent": True},
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 30_000,
+            "retryable": True,
+            "idempotent": True,
+        },
         "pricing": {"unit": "per_char", "unit_price": 0.00002, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["text"], "properties": {
-            "text": {"type": "string"},
-            "voice": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "audio_url": {"type": "string"},
-            "audio_base64": {"type": "string"},
-            "content_type": {"type": "string"},
-            "model": {"type": "string"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["text"],
+            "properties": {
+                "text": {"type": "string"},
+                "voice": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "audio_url": {"type": "string"},
+                "audio_base64": {"type": "string"},
+                "content_type": {"type": "string"},
+                "model": {"type": "string"},
+            },
+        },
     },
     {
         "slug": "voice_realtime_session_v1",
@@ -1919,22 +2441,33 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "voice",
         "provider": "internal",
         "certification_level": "beta",
-        "execution": {"mode": "stream", "timeout_ms": 30_000, "retryable": True, "idempotent": False},
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 30_000,
+            "retryable": True,
+            "idempotent": False,
+        },
         "pricing": {"unit": "per_session", "unit_price": 0.02, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {
-            "provider": {"type": "string"},
-            "model": {"type": "string"},
-            "transport": {"type": "string"},
-            "language": {"type": "string"},
-            "voice": {"type": "string"},
-            "fallback_policy": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "provider": {"type": "string"},
-            "transport": {"type": "string"},
-            "events": {"type": "array"},
-            "capabilities": {"type": "object"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "provider": {"type": "string"},
+                "model": {"type": "string"},
+                "transport": {"type": "string"},
+                "language": {"type": "string"},
+                "voice": {"type": "string"},
+                "fallback_policy": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "provider": {"type": "string"},
+                "transport": {"type": "string"},
+                "events": {"type": "array"},
+                "capabilities": {"type": "object"},
+            },
+        },
     },
     {
         "slug": "voice_realtime_transcribe_v1",
@@ -1944,23 +2477,34 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "voice",
         "provider": "internal",
         "certification_level": "beta",
-        "execution": {"mode": "stream", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 60_000,
+            "retryable": True,
+            "idempotent": False,
+        },
         "pricing": {"unit": "per_minute", "unit_price": 0.012, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {
-            "audio_ref": {"type": "string"},
-            "audio_base64": {"type": "string"},
-            "provider": {"type": "string"},
-            "model": {"type": "string"},
-            "language": {"type": "string"},
-            "transport": {"type": "string"},
-            "fallback_policy": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "transcript": {"type": "string"},
-            "text_events": {"type": "array"},
-            "provider": {"type": "string"},
-            "fallback": {"type": "boolean"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "audio_ref": {"type": "string"},
+                "audio_base64": {"type": "string"},
+                "provider": {"type": "string"},
+                "model": {"type": "string"},
+                "language": {"type": "string"},
+                "transport": {"type": "string"},
+                "fallback_policy": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "transcript": {"type": "string"},
+                "text_events": {"type": "array"},
+                "provider": {"type": "string"},
+                "fallback": {"type": "boolean"},
+            },
+        },
     },
     {
         "slug": "voice_realtime_speak_v1",
@@ -1970,23 +2514,35 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "voice",
         "provider": "internal",
         "certification_level": "beta",
-        "execution": {"mode": "stream", "timeout_ms": 30_000, "retryable": True, "idempotent": True},
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 30_000,
+            "retryable": True,
+            "idempotent": True,
+        },
         "pricing": {"unit": "per_char", "unit_price": 0.00002, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["text"], "properties": {
-            "text": {"type": "string"},
-            "provider": {"type": "string"},
-            "model": {"type": "string"},
-            "transport": {"type": "string"},
-            "language": {"type": "string"},
-            "voice": {"type": "string"},
-            "fallback_policy": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "audio_base64": {"type": "string"},
-            "content_type": {"type": "string"},
-            "provider": {"type": "string"},
-            "events": {"type": "array"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["text"],
+            "properties": {
+                "text": {"type": "string"},
+                "provider": {"type": "string"},
+                "model": {"type": "string"},
+                "transport": {"type": "string"},
+                "language": {"type": "string"},
+                "voice": {"type": "string"},
+                "fallback_policy": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "audio_base64": {"type": "string"},
+                "content_type": {"type": "string"},
+                "provider": {"type": "string"},
+                "events": {"type": "array"},
+            },
+        },
     },
     {
         "slug": "voice_realtime_translate_v1",
@@ -1996,21 +2552,32 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "voice",
         "provider": "internal",
         "certification_level": "beta",
-        "execution": {"mode": "stream", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 60_000,
+            "retryable": True,
+            "idempotent": False,
+        },
         "pricing": {"unit": "per_minute", "unit_price": 0.02, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {
-            "text": {"type": "string"},
-            "provider": {"type": "string"},
-            "source_language": {"type": "string"},
-            "target_language": {"type": "string"},
-            "transport": {"type": "string"},
-            "fallback_policy": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "events": {"type": "array"},
-            "translated_text": {"type": "string"},
-            "provider": {"type": "string"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "provider": {"type": "string"},
+                "source_language": {"type": "string"},
+                "target_language": {"type": "string"},
+                "transport": {"type": "string"},
+                "fallback_policy": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "events": {"type": "array"},
+                "translated_text": {"type": "string"},
+                "provider": {"type": "string"},
+            },
+        },
     },
     {
         "slug": "voice_oracle_turn_v1",
@@ -2022,17 +2589,23 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 15_000, "retryable": True, "idempotent": False},
         "pricing": {"unit": "per_turn", "unit_price": 0.01, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {
-            "answer": {"type": "string"},
-            "question": {"type": "object"},
-            "gap": {"type": "object"},
-            "context": {"type": "object"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "action": {"type": "string"},
-            "evaluation": {"type": "object"},
-            "events": {"type": "array"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string"},
+                "question": {"type": "object"},
+                "gap": {"type": "object"},
+                "context": {"type": "object"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string"},
+                "evaluation": {"type": "object"},
+                "events": {"type": "array"},
+            },
+        },
     },
     {
         "slug": "voice_tandem_oracle_v1",
@@ -2042,25 +2615,36 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "voice",
         "provider": "internal",
         "certification_level": "beta",
-        "execution": {"mode": "stream", "timeout_ms": 15_000, "retryable": True, "idempotent": False},
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 15_000,
+            "retryable": True,
+            "idempotent": False,
+        },
         "pricing": {"unit": "per_turn", "unit_price": 0.012, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {
-            "partial_text": {"type": "string"},
-            "final_text": {"type": "string"},
-            "turn_id": {"type": "string"},
-            "duration_ms": {"type": "integer"},
-            "evaluation": {"type": "object"},
-            "next_prompt": {"type": "string"},
-            "sources": {"type": "array"},
-            "provider": {"type": "string"},
-            "transport": {"type": "string"},
-            "fallback_policy": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "events": {"type": "array"},
-            "mode": {"type": "string"},
-            "committed": {"type": "boolean"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "partial_text": {"type": "string"},
+                "final_text": {"type": "string"},
+                "turn_id": {"type": "string"},
+                "duration_ms": {"type": "integer"},
+                "evaluation": {"type": "object"},
+                "next_prompt": {"type": "string"},
+                "sources": {"type": "array"},
+                "provider": {"type": "string"},
+                "transport": {"type": "string"},
+                "fallback_policy": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "events": {"type": "array"},
+                "mode": {"type": "string"},
+                "committed": {"type": "boolean"},
+            },
+        },
     },
     {
         "slug": "knowledge_gap_analysis_v1",
@@ -2072,15 +2656,22 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 15_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.015, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["objective"], "properties": {
-            "objective": {"type": "string"},
-            "expert_profile": {"type": "string"},
-            "context": {"type": "object"},
-            "knowledge_refs": {"type": "array"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "gaps": {"type": "array"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["objective"],
+            "properties": {
+                "objective": {"type": "string"},
+                "expert_profile": {"type": "string"},
+                "context": {"type": "object"},
+                "knowledge_refs": {"type": "array"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "gaps": {"type": "array"},
+            },
+        },
     },
     {
         "slug": "expert_interview_plan_v1",
@@ -2092,16 +2683,23 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 15_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_plan", "unit_price": 0.03, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["objective", "duration_minutes", "gaps"], "properties": {
-            "objective": {"type": "string"},
-            "expert_profile": {"type": "string"},
-            "duration_minutes": {"type": "integer"},
-            "gaps": {"type": "array"},
-            "context": {"type": "object"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "plan": {"type": "object"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["objective", "duration_minutes", "gaps"],
+            "properties": {
+                "objective": {"type": "string"},
+                "expert_profile": {"type": "string"},
+                "duration_minutes": {"type": "integer"},
+                "gaps": {"type": "array"},
+                "context": {"type": "object"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "plan": {"type": "object"},
+            },
+        },
     },
     {
         "slug": "expert_answer_evaluator_v1",
@@ -2113,17 +2711,24 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 8_000, "retryable": False, "idempotent": True},
         "pricing": {"unit": "per_answer", "unit_price": 0.01, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["answer"], "properties": {
-            "answer": {"type": "string"},
-            "question": {"type": "object"},
-            "gap": {"type": "object"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "verdict": {"type": "string"},
-            "score": {"type": "number"},
-            "follow_up": {"type": "string"},
-            "signals": {"type": "object"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["answer"],
+            "properties": {
+                "answer": {"type": "string"},
+                "question": {"type": "object"},
+                "gap": {"type": "object"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "verdict": {"type": "string"},
+                "score": {"type": "number"},
+                "follow_up": {"type": "string"},
+                "signals": {"type": "object"},
+            },
+        },
     },
     {
         "slug": "capture_structuring_v1",
@@ -2135,12 +2740,19 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 20_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_session", "unit_price": 0.04, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["session"], "properties": {
-            "session": {"type": "object"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "proposal": {"type": "object"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["session"],
+            "properties": {
+                "session": {"type": "object"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "proposal": {"type": "object"},
+            },
+        },
     },
     {
         "slug": "audit_log_v1",
@@ -2152,13 +2764,20 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "enterprise",
         "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.0001, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["event_type"], "properties": {
-            "event_type": {"type": "string"},
-            "details": {"type": "object"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "id": {"type": "string"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["event_type"],
+            "properties": {
+                "event_type": {"type": "string"},
+                "details": {"type": "object"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string"},
+            },
+        },
     },
     {
         "slug": "ollama_llm_v1",
@@ -2168,15 +2787,27 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "llm",
         "provider": "ollama",
         "certification_level": "basic",
-        "execution": {"mode": "stream", "timeout_ms": 120_000, "retryable": True, "idempotent": False},
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 120_000,
+            "retryable": True,
+            "idempotent": False,
+        },
         "pricing": {"unit": "per_1k_tokens", "unit_price": 0.0, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["prompt"], "properties": {
-            "prompt": {"type": "string"},
-            "model": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "completion": {"type": "string"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["prompt"],
+            "properties": {
+                "prompt": {"type": "string"},
+                "model": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "completion": {"type": "string"},
+            },
+        },
     },
     {
         "slug": "chain_naive_v1",
@@ -2186,18 +2817,30 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "rag",
         "provider": "internal",
         "certification_level": "production",
-        "execution": {"mode": "stream", "timeout_ms": 45_000, "retryable": True, "idempotent": False},
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 45_000,
+            "retryable": True,
+            "idempotent": False,
+        },
         "pricing": {"unit": "per_call", "unit_price": 0.006, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["query"], "properties": {
-            "query": {"type": "string"},
-            "context_id": {"type": "string"},
-            **RETRIEVAL_POLICY_PROPERTIES,
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "answer": {"type": "string"},
-            "citations": {"type": "array"},
-            "decision_steps": {"type": "array"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "context_id": {"type": "string"},
+                **RETRIEVAL_POLICY_PROPERTIES,
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string"},
+                "citations": {"type": "array"},
+                "decision_steps": {"type": "array"},
+            },
+        },
     },
     {
         "slug": "chain_hybrid_v1",
@@ -2207,18 +2850,30 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "rag",
         "provider": "internal",
         "certification_level": "production",
-        "execution": {"mode": "stream", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 60_000,
+            "retryable": True,
+            "idempotent": False,
+        },
         "pricing": {"unit": "per_call", "unit_price": 0.014, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["query"], "properties": {
-            "query": {"type": "string"},
-            "context_id": {"type": "string"},
-            **RETRIEVAL_POLICY_PROPERTIES,
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "answer": {"type": "string"},
-            "citations": {"type": "array"},
-            "decision_steps": {"type": "array"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "context_id": {"type": "string"},
+                **RETRIEVAL_POLICY_PROPERTIES,
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string"},
+                "citations": {"type": "array"},
+                "decision_steps": {"type": "array"},
+            },
+        },
     },
     {
         "slug": "chain_mixed_hah_v1",
@@ -2228,18 +2883,30 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "rag",
         "provider": "internal",
         "certification_level": "production",
-        "execution": {"mode": "stream", "timeout_ms": 75_000, "retryable": True, "idempotent": False},
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 75_000,
+            "retryable": True,
+            "idempotent": False,
+        },
         "pricing": {"unit": "per_call", "unit_price": 0.022, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["query"], "properties": {
-            "query": {"type": "string"},
-            "context_id": {"type": "string"},
-            **RETRIEVAL_POLICY_PROPERTIES,
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "answer": {"type": "string"},
-            "citations": {"type": "array"},
-            "decision_steps": {"type": "array"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "context_id": {"type": "string"},
+                **RETRIEVAL_POLICY_PROPERTIES,
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string"},
+                "citations": {"type": "array"},
+                "decision_steps": {"type": "array"},
+            },
+        },
     },
     {
         "slug": "azure_llm_v1",
@@ -2249,15 +2916,27 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "llm",
         "provider": "azure",
         "certification_level": "production",
-        "execution": {"mode": "stream", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 60_000,
+            "retryable": True,
+            "idempotent": False,
+        },
         "pricing": {"unit": "per_1k_tokens", "unit_price": 0.01, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["prompt"], "properties": {
-            "prompt": {"type": "string"},
-            "model": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "completion": {"type": "string"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["prompt"],
+            "properties": {
+                "prompt": {"type": "string"},
+                "model": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "completion": {"type": "string"},
+            },
+        },
     },
     {
         "slug": "workspace_llm_v1",
@@ -2267,16 +2946,27 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "type": "llm",
         "provider": "internal",
         "certification_level": "production",
-        "execution": {"mode": "stream", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 60_000,
+            "retryable": True,
+            "idempotent": False,
+        },
         "pricing": {"unit": "per_1k_tokens", "unit_price": 0.0, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {
-            "instruction": {"type": "string"},
-            "prompt": {"type": "string"},
-            "transcript": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "completion": {"type": "string"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "instruction": {"type": "string"},
+                "prompt": {"type": "string"},
+                "transcript": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "completion": {"type": "string"},
+            },
+        },
     },
     # ---- Mission Room assistant skills --------------------------------------
     # These carry a bound wrapper and are invoked by the assistant action pack
@@ -2292,14 +2982,20 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "basic",
         "execution": {"mode": "sync", "timeout_ms": 20_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {
-            "knowledge_scope": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "status": {"type": "string"},
-            "priorities": {"type": "array"},
-            "cockpit": {"type": "object"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "knowledge_scope": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "priorities": {"type": "array"},
+                "cockpit": {"type": "object"},
+            },
+        },
     },
     {
         "slug": "summarize_long_document_v1",
@@ -2311,19 +3007,30 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "basic",
         "execution": {"mode": "sync", "timeout_ms": 60_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["document_id"], "properties": {
-            "document_id": {"type": "string"},
-            "query": {"type": "string"},
-            "focus_topics": {"type": "array", "items": {"type": "string"}},
-            "length": {"type": "string", "enum": ["short", "medium", "long"], "default": "medium"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "status": {"type": "string"},
-            "summary_markdown": {"type": "string"},
-            "key_topics": {"type": "array"},
-            "citations": {"type": "array"},
-            "document_id": {"type": "string"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["document_id"],
+            "properties": {
+                "document_id": {"type": "string"},
+                "query": {"type": "string"},
+                "focus_topics": {"type": "array", "items": {"type": "string"}},
+                "length": {
+                    "type": "string",
+                    "enum": ["short", "medium", "long"],
+                    "default": "medium",
+                },
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "summary_markdown": {"type": "string"},
+                "key_topics": {"type": "array"},
+                "citations": {"type": "array"},
+                "document_id": {"type": "string"},
+            },
+        },
     },
     {
         "slug": "generate_recommendations_v1",
@@ -2335,18 +3042,25 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "basic",
         "execution": {"mode": "sync", "timeout_ms": 60_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["topic"], "properties": {
-            "topic": {"type": "string"},
-            "chiffrage": {"type": "boolean", "default": True},
-            "context_collection": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "status": {"type": "string"},
-            "topic": {"type": "string"},
-            "options": {"type": "array"},
-            "sources": {"type": "array"},
-            "human_validation_required": {"type": "boolean"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["topic"],
+            "properties": {
+                "topic": {"type": "string"},
+                "chiffrage": {"type": "boolean", "default": True},
+                "context_collection": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "topic": {"type": "string"},
+                "options": {"type": "array"},
+                "sources": {"type": "array"},
+                "human_validation_required": {"type": "boolean"},
+            },
+        },
     },
     {
         "slug": "draft_email_v1",
@@ -2358,22 +3072,29 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "basic",
         "execution": {"mode": "sync", "timeout_ms": 60_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["template_kind"], "properties": {
-            "template_kind": {"type": "string"},
-            "target_id": {"type": "string"},
-            "context_refs": {"type": "array", "items": {"type": "string"}},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "status": {"type": "string"},
-            "template_kind": {"type": "string"},
-            "subject": {"type": "string"},
-            "recipient": {"type": "string"},
-            "body_markdown": {"type": "string"},
-            "sources": {"type": "array"},
-            "requires_validation": {"type": "boolean"},
-            "advisory_only": {"type": "boolean"},
-            "target_id": {"type": "string"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["template_kind"],
+            "properties": {
+                "template_kind": {"type": "string"},
+                "target_id": {"type": "string"},
+                "context_refs": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "template_kind": {"type": "string"},
+                "subject": {"type": "string"},
+                "recipient": {"type": "string"},
+                "body_markdown": {"type": "string"},
+                "sources": {"type": "array"},
+                "requires_validation": {"type": "boolean"},
+                "advisory_only": {"type": "boolean"},
+                "target_id": {"type": "string"},
+            },
+        },
     },
     {
         "slug": "causal_drill_v1",
@@ -2385,20 +3106,26 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "basic",
         "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {
-            "from_node": {"type": "string"},
-            "relation": {"type": "string", "default": "caused_by"},
-            "depth": {"type": "integer", "default": 4},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "status": {"type": "string"},
-            "from_node": {"type": "string"},
-            "relation": {"type": "string"},
-            "path": {"type": "array"},
-            "next_focus": {"type": "string"},
-            "explanation": {"type": "string"},
-            "citations": {"type": "array"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "from_node": {"type": "string"},
+                "relation": {"type": "string", "default": "caused_by"},
+                "depth": {"type": "integer", "default": 4},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "from_node": {"type": "string"},
+                "relation": {"type": "string"},
+                "path": {"type": "array"},
+                "next_focus": {"type": "string"},
+                "explanation": {"type": "string"},
+                "citations": {"type": "array"},
+            },
+        },
     },
     {
         "slug": "schedule_meeting_v1",
@@ -2410,19 +3137,26 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "basic",
         "execution": {"mode": "sync", "timeout_ms": 20_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["topic"], "properties": {
-            "topic": {"type": "string"},
-            "participant_role": {"type": "string"},
-            "urgency": {"type": "string"},
-            "duration_min": {"type": "integer", "default": 45},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "status": {"type": "string"},
-            "applied": {"type": "boolean"},
-            "requires_validation": {"type": "boolean"},
-            "proposed_slot": {"type": "object"},
-            "calendar_event_draft_id": {"type": "string"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["topic"],
+            "properties": {
+                "topic": {"type": "string"},
+                "participant_role": {"type": "string"},
+                "urgency": {"type": "string"},
+                "duration_min": {"type": "integer", "default": 45},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "applied": {"type": "boolean"},
+                "requires_validation": {"type": "boolean"},
+                "proposed_slot": {"type": "object"},
+                "calendar_event_draft_id": {"type": "string"},
+            },
+        },
     },
     {
         "slug": "spreadsheet_table_extract_v1",
@@ -2434,21 +3168,27 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {
-            "file_id": {"type": "string"},
-            "file_ids": {"type": "array", "items": {"type": "string"}},
-            "collection_slug": {"type": "string"},
-            "filename_pattern": {"type": "string"},
-            "sheet": {"type": "string"},
-            "header_row": {"type": "integer"},
-            "filters": {"type": "object"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "columns": {"type": "array", "items": {"type": "string"}},
-            "rows": {"type": "array", "items": {"type": "object"}},
-            "row_count": {"type": "integer"},
-            "source_file": {"type": "string"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_id": {"type": "string"},
+                "file_ids": {"type": "array", "items": {"type": "string"}},
+                "collection_slug": {"type": "string"},
+                "filename_pattern": {"type": "string"},
+                "sheet": {"type": "string"},
+                "header_row": {"type": "integer"},
+                "filters": {"type": "object"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "columns": {"type": "array", "items": {"type": "string"}},
+                "rows": {"type": "array", "items": {"type": "object"}},
+                "row_count": {"type": "integer"},
+                "source_file": {"type": "string"},
+            },
+        },
     },
     {
         "slug": "invoice_document_extract_v1",
@@ -2460,30 +3200,42 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
-        "input_schema": {"type": "object", "properties": {
-            "file_id": {"type": "string"},
-            "file_ids": {"type": "array", "items": {"type": "string"}},
-            "collection_slug": {"type": "string"},
-            "filename_pattern": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "invoice_number": {"type": "string"},
-            "invoice_date": {"type": "string"},
-            "po_reference": {"type": "string"},
-            "due_date": {"type": "string"},
-            "vendor": {"type": "string"},
-            "line_items": {"type": "array", "items": {"type": "object", "properties": {
-                "description": {"type": "string"},
-                "qty": {"type": "number"},
-                "unit_price": {"type": "number"},
-                "line_total": {"type": "number"},
-            }}},
-            "subtotal": {"type": "number"},
-            "vat": {"type": "number"},
-            "total_due": {"type": "number"},
-            "currency": {"type": "string"},
-            "source_file": {"type": "string"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_id": {"type": "string"},
+                "file_ids": {"type": "array", "items": {"type": "string"}},
+                "collection_slug": {"type": "string"},
+                "filename_pattern": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "invoice_number": {"type": "string"},
+                "invoice_date": {"type": "string"},
+                "po_reference": {"type": "string"},
+                "due_date": {"type": "string"},
+                "vendor": {"type": "string"},
+                "line_items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "description": {"type": "string"},
+                            "qty": {"type": "number"},
+                            "unit_price": {"type": "number"},
+                            "line_total": {"type": "number"},
+                        },
+                    },
+                },
+                "subtotal": {"type": "number"},
+                "vat": {"type": "number"},
+                "total_due": {"type": "number"},
+                "currency": {"type": "string"},
+                "source_file": {"type": "string"},
+            },
+        },
     },
     {
         "slug": "line_items_reconcile_v1",
@@ -2495,36 +3247,56 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["po_lines", "invoice_lines"], "properties": {
-            "po_lines": {"type": "array", "items": {"type": "object"}},
-            "invoice_lines": {"type": "array", "items": {"type": "object"}},
-            "po_reference": {"type": "string"},
-            "tolerance_pct": {"type": "number", "default": 2.0},
-            "po_field_map": {"type": "object"},
-            "invoice_field_map": {"type": "object"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "po_reference": {"type": "string"},
-            "lines": {"type": "array", "items": {"type": "object", "properties": {
-                "description": {"type": "string"},
-                "po_qty": {"type": "number"},
-                "invoice_qty": {"type": "number"},
-                "qty_variance_pct": {"type": "number"},
-                "po_unit_price": {"type": "number"},
-                "invoice_unit_price": {"type": "number"},
-                "price_variance_pct": {"type": "number"},
-                "status": {"type": "string", "enum": [
-                    "matched", "qty_mismatch", "price_mismatch", "both_mismatch",
-                    "unmatched_invoice_line", "unmatched_po_line",
-                ]},
-            }}},
-            "matched_count": {"type": "integer"},
-            "flagged_count": {"type": "integer"},
-            "po_total": {"type": "number"},
-            "invoice_total": {"type": "number"},
-            "total_variance_pct": {"type": "number"},
-            "tolerance_pct": {"type": "number"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["po_lines", "invoice_lines"],
+            "properties": {
+                "po_lines": {"type": "array", "items": {"type": "object"}},
+                "invoice_lines": {"type": "array", "items": {"type": "object"}},
+                "po_reference": {"type": "string"},
+                "tolerance_pct": {"type": "number", "default": 2.0},
+                "po_field_map": {"type": "object"},
+                "invoice_field_map": {"type": "object"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "po_reference": {"type": "string"},
+                "lines": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "description": {"type": "string"},
+                            "po_qty": {"type": "number"},
+                            "invoice_qty": {"type": "number"},
+                            "qty_variance_pct": {"type": "number"},
+                            "po_unit_price": {"type": "number"},
+                            "invoice_unit_price": {"type": "number"},
+                            "price_variance_pct": {"type": "number"},
+                            "status": {
+                                "type": "string",
+                                "enum": [
+                                    "matched",
+                                    "qty_mismatch",
+                                    "price_mismatch",
+                                    "both_mismatch",
+                                    "unmatched_invoice_line",
+                                    "unmatched_po_line",
+                                ],
+                            },
+                        },
+                    },
+                },
+                "matched_count": {"type": "integer"},
+                "flagged_count": {"type": "integer"},
+                "po_total": {"type": "number"},
+                "invoice_total": {"type": "number"},
+                "total_variance_pct": {"type": "number"},
+                "tolerance_pct": {"type": "number"},
+            },
+        },
     },
     {
         "slug": "reconciliation_report_v1",
@@ -2536,21 +3308,31 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "certification_level": "production",
         "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": True},
         "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["reconciliation"], "properties": {
-            "reconciliation": {"type": "object"},
-            "verdict": {"type": "string", "enum": ["Approved", "Needs Review"]},
-            "invoice_meta": {"type": "object", "properties": {
-                "invoice_number": {"type": "string"},
-                "vendor": {"type": "string"},
-                "invoice_date": {"type": "string"},
-                "total_due": {"type": "number"},
-            }},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "report_text": {"type": "string"},
-            "verdict": {"type": "string"},
-            "flagged_count": {"type": "integer"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["reconciliation"],
+            "properties": {
+                "reconciliation": {"type": "object"},
+                "verdict": {"type": "string", "enum": ["Approved", "Needs Review"]},
+                "invoice_meta": {
+                    "type": "object",
+                    "properties": {
+                        "invoice_number": {"type": "string"},
+                        "vendor": {"type": "string"},
+                        "invoice_date": {"type": "string"},
+                        "total_due": {"type": "number"},
+                    },
+                },
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "report_text": {"type": "string"},
+                "verdict": {"type": "string"},
+                "flagged_count": {"type": "integer"},
+            },
+        },
     },
     {
         "slug": "grounding_check_v1",
@@ -2718,10 +3500,10 @@ SEED_SKILLS: List[Dict[str, Any]] = [
 
 
 # ---- Universal Capabilities -------------------------------------------------
-from app.services.ecommerce_skill_catalog import CLAIM_SKILLS
+
 SEED_SKILLS.extend(CLAIM_SKILLS)
 
-SEED_CAPABILITIES: List[Dict[str, Any]] = [
+SEED_CAPABILITIES: list[dict[str, Any]] = [
     {
         "slug": "workspace_assistant",
         "name": "Workspace Assistant",
@@ -2777,7 +3559,12 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
         "description": "Answers questions over your knowledge base with citations and a verifiable reasoning trail.",
         "input_unit": "question",
         "output_unit": "answer",
-        "skill_slugs": ["llm_rag_answer_v1", "semantic_search_v1", "claim_audit_v1", "audit_log_v1"],
+        "skill_slugs": [
+            "llm_rag_answer_v1",
+            "semantic_search_v1",
+            "claim_audit_v1",
+            "audit_log_v1",
+        ],
         "pricing": {"unit": "per_outcome", "unit_price": 0.05, "currency": "USD"},
         "value_per_outcome": 1.20,
         "confidence_threshold": 0.65,
@@ -2791,7 +3578,11 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
         "description": "Continuously ingests, deduplicates and indexes documents from any source (uploads, SharePoint, web feeds).",
         "input_unit": "document",
         "output_unit": "indexed_chunk",
-        "skill_slugs": ["document_ingestion_v1", "sharepoint_ingestion_v1", "intelligence_batch_v1"],
+        "skill_slugs": [
+            "document_ingestion_v1",
+            "sharepoint_ingestion_v1",
+            "intelligence_batch_v1",
+        ],
         "pricing": {"unit": "per_doc", "unit_price": 0.05, "currency": "USD"},
         "value_per_outcome": 0.40,
         "confidence_threshold": None,
@@ -2895,7 +3686,11 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
         "pricing": {"unit": "per_1000_source_words", "unit_price": 0.82, "currency": "EUR"},
         "value_per_outcome": 4_800.00,
         "confidence_threshold": 0.94,
-        "sla": {"availability": "99.95%", "batch_completion_target_hours": 36, "max_replay_sla_hours": 4},
+        "sla": {
+            "availability": "99.95%",
+            "batch_completion_target_hours": 36,
+            "max_replay_sla_hours": 4,
+        },
         "roi_model": {"type": "lsp_cost_avoidance_plus_cycle_time"},
     },
     {
@@ -2968,6 +3763,7 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
             "polars_transform_v1",
             "dbt_transform_v1",
             "llm_label_dataset_v1",
+            "hf_dataset_import_v1",
         ],
         "pricing": {"unit": "per_transform", "unit_price": 0.01, "currency": "USD"},
         "value_per_outcome": 1.00,
@@ -3093,7 +3889,13 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
         "description": "Produces a daily ministerial brief with agenda, priorities, risks, decisions expected and talking points.",
         "input_unit": "workspace_day",
         "output_unit": "briefing",
-        "skill_slugs": ["ministerial_briefing_v1", "calendar_daily_summary_v1", "action_plan_status_v1", "llm_rag_answer_v1", "audit_log_v1"],
+        "skill_slugs": [
+            "ministerial_briefing_v1",
+            "calendar_daily_summary_v1",
+            "action_plan_status_v1",
+            "llm_rag_answer_v1",
+            "audit_log_v1",
+        ],
         "pricing": {"unit": "per_brief", "unit_price": 0.35, "currency": "USD"},
         "value_per_outcome": 8.00,
         "confidence_threshold": 0.72,
@@ -3160,7 +3962,17 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
         "description": "Explains strategic project health, delay causes, risks and advisory options under human control.",
         "input_unit": "project",
         "output_unit": "risk_explanation",
-        "skill_slugs": ["project_risk_explainer_v1", "scenario_generate_v1", "scenario_compare_v1", "scenario_recommend_v1", "semantic_search_v1", "instruction_draft_v1", "action_plan_create_v1", "action_plan_status_v1", "audit_log_v1"],
+        "skill_slugs": [
+            "project_risk_explainer_v1",
+            "scenario_generate_v1",
+            "scenario_compare_v1",
+            "scenario_recommend_v1",
+            "semantic_search_v1",
+            "instruction_draft_v1",
+            "action_plan_create_v1",
+            "action_plan_status_v1",
+            "audit_log_v1",
+        ],
         "pricing": {"unit": "per_project_review", "unit_price": 0.45, "currency": "USD"},
         "value_per_outcome": 7.00,
         "confidence_threshold": 0.70,
@@ -3202,7 +4014,14 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
         "description": "Displays authorized live visual sources, captures snapshots, creates non-biometric observations and syncs them to Knowledge.",
         "input_unit": "visual_source",
         "output_unit": "visual_observation",
-        "skill_slugs": ["visual_source_read_v1", "visual_snapshot_capture_v1", "visual_snapshot_analyze_v1", "visual_observation_sync_knowledge_v1", "chain_mixed_hah_v1", "audit_log_v1"],
+        "skill_slugs": [
+            "visual_source_read_v1",
+            "visual_snapshot_capture_v1",
+            "visual_snapshot_analyze_v1",
+            "visual_observation_sync_knowledge_v1",
+            "chain_mixed_hah_v1",
+            "audit_log_v1",
+        ],
         "pricing": {"unit": "per_source_day", "unit_price": 0.45, "currency": "USD"},
         "value_per_outcome": 6.50,
         "confidence_threshold": 0.62,
@@ -3240,7 +4059,12 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
         "description": "Voice-first command layer for AYA to brief, focus map/webcam panels and prepare advisory actions.",
         "input_unit": "voice_turn",
         "output_unit": "mission_command",
-        "skill_slugs": ["voice_tandem_oracle_v1", "voice_realtime_session_v1", "llm_rag_answer_v1", "audit_log_v1"],
+        "skill_slugs": [
+            "voice_tandem_oracle_v1",
+            "voice_realtime_session_v1",
+            "llm_rag_answer_v1",
+            "audit_log_v1",
+        ],
         "pricing": {"unit": "per_voice_session", "unit_price": 0.18, "currency": "USD"},
         "value_per_outcome": 5.50,
         "confidence_threshold": 0.68,
@@ -3255,7 +4079,13 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
         "description": "Drafts sourced cabinet instructions that remain advisory and require human validation before any external action.",
         "input_unit": "decision_signal",
         "output_unit": "draft_instruction",
-        "skill_slugs": ["instruction_draft_v1", "draft_response_email_v1", "decision_option_rank_v1", "claim_audit_v1", "audit_log_v1"],
+        "skill_slugs": [
+            "instruction_draft_v1",
+            "draft_response_email_v1",
+            "decision_option_rank_v1",
+            "claim_audit_v1",
+            "audit_log_v1",
+        ],
         "pricing": {"unit": "per_draft", "unit_price": 0.25, "currency": "USD"},
         "value_per_outcome": 4.50,
         "confidence_threshold": 0.75,
@@ -3409,7 +4239,7 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
 # transform PRODUCES a dataset and a training run produces a model, whereas
 # Analysis characterises material in hand. Reusing it would also have made it
 # the catalog's catch-all, which is the shape the taxonomy exists to avoid.
-SKILL_CATEGORIES: Dict[str, str] = {
+SKILL_CATEGORIES: dict[str, str] = {
     "action_plan_cancel_v1": "Automation",
     "action_plan_create_v1": "Automation",
     "action_plan_reschedule_v1": "Automation",
@@ -3451,6 +4281,7 @@ SKILL_CATEGORIES: Dict[str, str] = {
     "knowledge_gap_analysis_v1": "Analysis",
     "llm_rag_answer_v1": "Retrieval",
     "llm_label_dataset_v1": "Data",
+    "hf_dataset_import_v1": "Data",
     "map_command_apply_v1": "Automation",
     "map_layer_read_v1": "Connections",
     "map_recommendation_generate_v1": "Decision Support",
@@ -3542,12 +4373,29 @@ def skill_category(slug: str) -> str | None:
 # The fields the seed owns on a canonical row. Anything else (metrics, an
 # executor bound later) belongs to the platform and is never touched.
 _SEEDED_SKILL_FIELDS = (
-    "name", "description", "type", "provider", "certification_level",
-    "execution", "pricing", "input_schema", "output_schema", "version",
+    "name",
+    "description",
+    "type",
+    "provider",
+    "certification_level",
+    "execution",
+    "pricing",
+    "input_schema",
+    "output_schema",
+    "version",
 )
 _SEEDED_CAPABILITY_FIELDS = (
-    "name", "description", "tier", "industry", "input_unit", "output_unit",
-    "pricing", "value_per_outcome", "confidence_threshold", "sla", "roi_model",
+    "name",
+    "description",
+    "tier",
+    "industry",
+    "input_unit",
+    "output_unit",
+    "pricing",
+    "value_per_outcome",
+    "confidence_threshold",
+    "sla",
+    "roi_model",
 )
 
 
@@ -3557,7 +4405,7 @@ def _as_stored(value: Any) -> Any:
     return json.loads(json.dumps(value)) if isinstance(value, (dict, list, tuple)) else value
 
 
-def _skill_changes(row: Skill, entry: Dict[str, Any]) -> Dict[str, Any]:
+def _skill_changes(row: Skill, entry: dict[str, Any]) -> dict[str, Any]:
     changes = {
         key: _as_stored(entry[key])
         for key in _SEEDED_SKILL_FIELDS
@@ -3571,7 +4419,9 @@ def _skill_changes(row: Skill, entry: Dict[str, Any]) -> Dict[str, Any]:
     return changes
 
 
-def _capability_changes(row: Capability, entry: Dict[str, Any], skill_ids: List[str]) -> Dict[str, Any]:
+def _capability_changes(
+    row: Capability, entry: dict[str, Any], skill_ids: list[str]
+) -> dict[str, Any]:
     changes = {
         key: _as_stored(entry[key])
         for key in _SEEDED_CAPABILITY_FIELDS
@@ -3586,7 +4436,7 @@ def _capability_changes(row: Capability, entry: Dict[str, Any], skill_ids: List[
     return changes
 
 
-def reconcile_catalog(db: DBSession, *, apply: bool) -> Dict[str, Any]:
+def reconcile_catalog(db: DBSession, *, apply: bool) -> dict[str, Any]:
     """Compare the canonical catalog in code with the database, and optionally
     write only what differs.
 
@@ -3602,8 +4452,8 @@ def reconcile_catalog(db: DBSession, *, apply: bool) -> Dict[str, Any]:
     now = datetime.utcnow()
     seed_slugs = [entry["slug"] for entry in SEED_SKILLS]
     rows = {row.slug: row for row in db.query(Skill).filter(Skill.slug.in_(seed_slugs)).all()}
-    skill_ids: Dict[str, str] = {slug: row.id for slug, row in rows.items()}
-    skills: Dict[str, Any] = {"missing": [], "changed": {}, "orphaned": []}
+    skill_ids: dict[str, str] = {slug: row.id for slug, row in rows.items()}
+    skills: dict[str, Any] = {"missing": [], "changed": {}, "orphaned": []}
     for entry in SEED_SKILLS:
         row = rows.get(entry["slug"])
         if row is None:
@@ -3638,14 +4488,17 @@ def reconcile_catalog(db: DBSession, *, apply: bool) -> Dict[str, Any]:
                 row.updated_at = now
     skills["orphaned"] = sorted(
         slug
-        for (slug,) in db.query(Skill.slug).filter(Skill.is_seeded == "Y", ~Skill.slug.in_(seed_slugs)).all()
+        for (slug,) in db.query(Skill.slug)
+        .filter(Skill.is_seeded == "Y", ~Skill.slug.in_(seed_slugs))
+        .all()
     )
 
     capability_slugs = [entry["slug"] for entry in SEED_CAPABILITIES]
     capability_rows = {
-        row.slug: row for row in db.query(Capability).filter(Capability.slug.in_(capability_slugs)).all()
+        row.slug: row
+        for row in db.query(Capability).filter(Capability.slug.in_(capability_slugs)).all()
     }
-    capabilities: Dict[str, Any] = {"missing": [], "changed": {}, "orphaned": []}
+    capabilities: dict[str, Any] = {"missing": [], "changed": {}, "orphaned": []}
     for entry in SEED_CAPABILITIES:
         ids = [skill_ids[slug] for slug in entry["skill_slugs"] if slug in skill_ids]
         row = capability_rows.get(entry["slug"])
@@ -3699,7 +4552,7 @@ def reconcile_catalog(db: DBSession, *, apply: bool) -> Dict[str, Any]:
     }
 
 
-def seed_skills_and_capabilities(db: DBSession) -> Dict[str, int]:
+def seed_skills_and_capabilities(db: DBSession) -> dict[str, int]:
     """Idempotent upsert of the seed registry. Safe to call on every boot.
 
     Only rows that differ are written, so the report counts real changes and an

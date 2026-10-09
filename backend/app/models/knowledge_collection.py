@@ -1,4 +1,5 @@
 """Canonical knowledge collection and worker job ledger."""
+
 from datetime import datetime
 from uuid import uuid4
 
@@ -22,6 +23,7 @@ COLLECTION_STATUSES = ("created", "queued", "ingesting", "embedding", "ready", "
 WORKER_JOB_KINDS = (
     "document_ingest_index",
     "vector_reindex",
+    "rag_reranker_activate",
     "bm25_rebuild",
     "rag_deep_retrieval",
     "sparse_index_rebuild",
@@ -58,6 +60,16 @@ class KnowledgeCollection(Base):
     artifact_prefix = Column(Text, nullable=False)
 
     embedding_model = Column(String(255), nullable=True)
+    embedding_artifact_id = Column(
+        String(36), ForeignKey("hub_artifacts.id", ondelete="RESTRICT"), nullable=True
+    )
+    reranker_artifact_id = Column(
+        String(36), ForeignKey("hub_artifacts.id", ondelete="RESTRICT"), nullable=True
+    )
+    embedding_dimension = Column(Integer, nullable=True)
+    embedding_params = Column(JSON, nullable=True)
+    active_generation = Column(String(36), nullable=True)
+    pending_generation = Column(String(36), nullable=True)
     chunking_method = Column(String(100), nullable=True)
     chunking_params = Column(JSON, nullable=True)
 
@@ -134,7 +146,7 @@ class WorkerJob(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "kind IN ('document_ingest_index', 'vector_reindex', 'bm25_rebuild', 'rag_deep_retrieval', 'sparse_index_rebuild', 'summary_index_rebuild', 'qdrant_sparse_reindex')",
+            "kind IN ('document_ingest_index', 'vector_reindex', 'rag_reranker_activate', 'bm25_rebuild', 'rag_deep_retrieval', 'sparse_index_rebuild', 'summary_index_rebuild', 'qdrant_sparse_reindex')",
             name="ck_worker_jobs_kind",
         ),
         CheckConstraint(
@@ -211,6 +223,8 @@ class KnowledgeCollectionSource(Base):
             "status IN ('queued', 'ingesting', 'indexed', 'ready', 'error', 'deleted', 'deduplicated')",
             name="ck_knowledge_collection_sources_status",
         ),
-        Index("ix_knowledge_collection_sources_workspace_collection", "workspace_id", "collection_id"),
+        Index(
+            "ix_knowledge_collection_sources_workspace_collection", "workspace_id", "collection_id"
+        ),
         Index("ix_knowledge_collection_sources_kind", "workspace_id", "source_kind"),
     )

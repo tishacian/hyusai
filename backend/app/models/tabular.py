@@ -40,7 +40,7 @@ from app.db.base import Base
 DATASET_STATUSES = ("pending", "ingesting", "ready", "failed", "deleted")
 DATASET_TERMINAL_STATUSES = frozenset({"ready", "failed", "deleted"})
 # How the bytes came to exist. Drives the icon and the lineage wording.
-DATASET_SOURCES = ("upload", "transform", "score", "generated", "postgresql")
+DATASET_SOURCES = ("upload", "transform", "score", "generated", "postgresql", "huggingface")
 
 MODEL_TASKS = ("classification", "regression", "forecasting", "clustering")
 # Which declaration in app.services.ml.families trains and serves the row.

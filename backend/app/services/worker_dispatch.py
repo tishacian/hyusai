@@ -1,4 +1,5 @@
 """Dispatch helpers for Agentium worker jobs."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -9,6 +10,8 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.knowledge_collection import WorkerJob
 from app.services.knowledge_collections import set_job_task_id
+from app.services.rag.embedding_generation import run_embedding_reindex
+from app.services.rag.reranker_artifacts import run_reranker_activation
 from app.services.worker_bm25 import run_bm25_rebuild
 from app.services.worker_deep_retrieval import run_deep_retrieval
 from app.services.worker_ingest import run_document_ingest_index
@@ -17,15 +20,40 @@ from app.services.worker_offline_retrieval_artifacts import run_offline_retrieva
 logger = get_logger(__name__)
 
 
-def dispatch_worker_job(db: DBSession, job: WorkerJob, *, allow_inline_fallback: bool = True) -> str | None:
+def dispatch_worker_job(
+    db: DBSession, job: WorkerJob, *, allow_inline_fallback: bool = True
+) -> str | None:
     """Dispatch a WorkerJob and persist the Celery task id when available."""
     offline_kinds = {"sparse_index_rebuild", "summary_index_rebuild", "qdrant_sparse_reindex"}
-    if job.kind in {"document_ingest_index", "bm25_rebuild", "rag_deep_retrieval"} | offline_kinds:
+    artifact_kinds = {"vector_reindex", "rag_reranker_activate"}
+    if (
+        job.kind
+        in {"document_ingest_index", "bm25_rebuild", "rag_deep_retrieval"}
+        | offline_kinds
+        | artifact_kinds
+    ):
         if settings.worker_eager_mode:
             set_job_task_id(db, job.id, f"eager:{job.id}")
             db.commit()
             if job.kind == "document_ingest_index":
                 run_document_ingest_index(job.id)
+            elif job.kind in artifact_kinds:
+                from app.services.rag.embedding_generation import fail_embedding_preparation
+                from app.workers.hub_fetch import materialize_cache
+
+                try:
+                    selection = job.result[
+                        "reindex" if job.kind == "vector_reindex" else "activation"
+                    ]
+                    materialize_cache.run(job.workspace_id, selection["artifact_id"])
+                except Exception:
+                    fail_embedding_preparation(job.id)
+                    raise
+                (
+                    run_embedding_reindex
+                    if job.kind == "vector_reindex"
+                    else run_reranker_activation
+                )(job.id)
             elif job.kind == "bm25_rebuild":
                 run_bm25_rebuild(job.id)
             elif job.kind == "rag_deep_retrieval":
@@ -44,16 +72,43 @@ def dispatch_worker_job(db: DBSession, job: WorkerJob, *, allow_inline_fallback:
 
             if job.kind == "document_ingest_index":
                 task = document_ingest_index
+            elif job.kind == "vector_reindex":
+                from app.workers.tasks import embedding_reindex
+
+                task = embedding_reindex
+            elif job.kind == "rag_reranker_activate":
+                from app.workers.tasks import reranker_activate
+
+                task = reranker_activate
             elif job.kind == "bm25_rebuild":
                 task = bm25_rebuild
             elif job.kind == "rag_deep_retrieval":
                 task = rag_deep_retrieval
             else:
                 task = offline_retrieval_artifact
-            async_result = task.apply_async(
-                args=(job.id,),
-                queue=settings.celery_task_default_queue,
-            )
+            if job.kind in artifact_kinds:
+                from celery import chain
+
+                from app.workers.hub_fetch import materialize_cache
+                from app.workers.tasks import embedding_reindex_preparation_failed
+
+                selection = job.result["reindex" if job.kind == "vector_reindex" else "activation"]
+                prepare = materialize_cache.si(job.workspace_id, selection["artifact_id"]).set(
+                    queue="hub_fetch"
+                )
+                prepare.link_error(
+                    embedding_reindex_preparation_failed.si(job.id).set(
+                        queue=settings.celery_task_default_queue
+                    )
+                )
+                async_result = chain(
+                    prepare, task.si(job.id).set(queue=settings.celery_task_default_queue)
+                ).apply_async()
+            else:
+                async_result = task.apply_async(
+                    args=(job.id,),
+                    queue=settings.celery_task_default_queue,
+                )
             set_job_task_id(db, job.id, async_result.id)
             return async_result.id
         except Exception as exc:
@@ -72,8 +127,12 @@ def dispatch_worker_job(db: DBSession, job: WorkerJob, *, allow_inline_fallback:
                     "dispatch_error": str(exc),
                 }
                 db.query(WorkerJob).filter(
-                    WorkerJob.id == job.id, WorkerJob.status == "queued",
-                ).update({WorkerJob.result: result, WorkerJob.updated_at: datetime.utcnow()}, synchronize_session=False)
+                    WorkerJob.id == job.id,
+                    WorkerJob.status == "queued",
+                ).update(
+                    {WorkerJob.result: result, WorkerJob.updated_at: datetime.utcnow()},
+                    synchronize_session=False,
+                )
                 db.commit()
                 db.refresh(job)
                 logger.warning(
@@ -88,6 +147,10 @@ def dispatch_worker_job(db: DBSession, job: WorkerJob, *, allow_inline_fallback:
             db.commit()
             if job.kind == "document_ingest_index":
                 run_document_ingest_index(job.id)
+            elif job.kind in artifact_kinds:
+                # Cache materialization belongs to hub_fetch; never perform it
+                # in the API process as a broker-failure fallback.
+                raise
             elif job.kind == "bm25_rebuild":
                 run_bm25_rebuild(job.id)
             elif job.kind == "rag_deep_retrieval":

@@ -48,8 +48,12 @@ def _client(db_session, workspace: Workspace) -> TestClient:
     return TestClient(app)
 
 
-def _seed_workspace_user(db_session, workspace: Workspace, *, role: str, role_template: str | None = None) -> User:
-    user = User(id="user-1", username=f"user-{workspace.slug}", email=f"user-{workspace.slug}@example.test")
+def _seed_workspace_user(
+    db_session, workspace: Workspace, *, role: str, role_template: str | None = None
+) -> User:
+    user = User(
+        id="user-1", username=f"user-{workspace.slug}", email=f"user-{workspace.slug}@example.test"
+    )
     db_session.add(user)
     db_session.add(
         WorkspaceMember(
@@ -61,6 +65,29 @@ def _seed_workspace_user(db_session, workspace: Workspace, *, role: str, role_te
     )
     db_session.commit()
     return user
+
+
+def test_collection_model_activation_preserves_named_hub_refusal(db_session, monkeypatch):
+    from app.services.huggingface.errors import HFError
+
+    workspace = Workspace(id="ws-hf-denied", name="HF denied", slug="hf-denied")
+    db_session.add(workspace)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=workspace, name="Manuals")
+    db_session.commit()
+
+    def denied(*args, **kwargs):
+        raise HFError("HF_ACCESS_REVOKED", "The workspace authorization was withdrawn.", 403)
+
+    monkeypatch.setattr("app.services.huggingface.registry.require_artifact", denied)
+    client = _client(db_session, workspace)
+    for suffix in ("embedding/reindex", "reranker"):
+        response = client.post(
+            f"/documents/collections/{collection.id}/{suffix}", json={"artifact_id": "revoked"}
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "HF_ACCESS_REVOKED"
+    assert db_session.query(WorkerJob).filter_by(collection_id=collection.id).count() == 0
 
 
 def test_list_collections_returns_ledger_items(db_session, monkeypatch):
@@ -103,7 +130,9 @@ def test_list_collections_handles_large_workspace_list_without_cross_workspace_l
         )
         collection.document_count = index % 5
         collection.chunk_count = index * 2
-    create_collection(db_session, workspace=other_ws, name="Other Workspace Secret", slug="other-secret")
+    create_collection(
+        db_session, workspace=other_ws, name="Other Workspace Secret", slug="other-secret"
+    )
     db_session.commit()
 
     captured: dict[str, str | None] = {}
@@ -416,7 +445,10 @@ def test_collection_inventory_filters_sorts_and_returns_global_aggregates(db_ses
     assert body["by_kind"] == {"image": 1, "pdf": 2}
     assert body["heavy_sources"] == 1
     assert body["chunk_buckets"][">1000"]["sources"] == 1
-    assert [source["filename"] for source in body["sources"]] == ["manual-large.pdf", "manual-small.pdf"]
+    assert [source["filename"] for source in body["sources"]] == [
+        "manual-large.pdf",
+        "manual-small.pdf",
+    ]
 
     scoped_response = _client(db_session, ws).get(
         f"/documents/collections/{collection.slug}/inventory?project_code=ACJ100"
@@ -582,7 +614,9 @@ def test_list_documents_does_not_return_cross_workspace_ledger_sources(db_sessio
     assert "secret-manual.pdf" not in str(body)
 
 
-def test_document_preview_resolves_source_from_ledger_without_vector_listing(db_session, tmp_path, monkeypatch):
+def test_document_preview_resolves_source_from_ledger_without_vector_listing(
+    db_session, tmp_path, monkeypatch
+):
     monkeypatch.setattr(settings, "object_store_backend", "local")
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
     ws = Workspace(id="ws-ledger-preview", name="Ledger Preview", slug="ledger-preview")
@@ -815,7 +849,11 @@ def test_document_search_skips_dense_unscoped_global_search(db_session, monkeypa
     assert body["results"] == []
     assert body["total"] == 0
     assert body["dense_policy"] == "fast_sparse_direct"
-    assert body["fallback_reason"] in {None, "dense_unscoped_fast_policy", "dense_unscoped_search_skipped"}
+    assert body["fallback_reason"] in {
+        None,
+        "dense_unscoped_fast_policy",
+        "dense_unscoped_search_skipped",
+    }
     assert body["latency_budget"]["candidate_pool_k"] <= 20
     assert body["retrieval_plan"]["guardrails"]["global_chunk_search_allowed"] is False
 
@@ -845,7 +883,9 @@ def test_document_search_dense_scoped_is_vector_only_and_bounded(db_session, mon
                 "filters": filters,
                 "use_hybrid": use_hybrid,
             }
-            return [{"content": "scoped result", "metadata": {"source_kind": "markup"}, "score": 0.8}]
+            return [
+                {"content": "scoped result", "metadata": {"source_kind": "markup"}, "score": 0.8}
+            ]
 
     monkeypatch.setattr(documents, "DocumentService", FakeDocumentService)
 
@@ -1193,9 +1233,7 @@ def test_collection_diagnostics_reports_drift_and_fact_coverage(db_session, monk
 
     monkeypatch.setattr(documents, "DocumentService", FakeDocumentService)
 
-    response = _client(db_session, ws).get(
-        f"/documents/collections/{collection.slug}/diagnostics"
-    )
+    response = _client(db_session, ws).get(f"/documents/collections/{collection.slug}/diagnostics")
 
     assert response.status_code == 200
     body = response.json()
@@ -1208,7 +1246,9 @@ def test_collection_diagnostics_reports_drift_and_fact_coverage(db_session, monk
     assert body["offline_clustering"]["launch_policy"] == "manual_only"
     assert body["offline_clustering"]["auto_run"] is False
     assert body["offline_clustering"]["stores_vectors"] is False
-    assert body["offline_clustering"]["artifact_key"].endswith("/derived/embedding-clusters/latest.json")
+    assert body["offline_clustering"]["artifact_key"].endswith(
+        "/derived/embedding-clusters/latest.json"
+    )
     assert body["feature_status"]["offline_clustering"]["state"] == "not_needed"
 
 
@@ -1216,7 +1256,11 @@ def test_collection_diagnostics_keeps_ledger_visible_when_vector_service_fails(
     db_session,
     monkeypatch,
 ):
-    ws = Workspace(id="ws-diagnostics-vector-fails", name="Diagnostics Vector Fails", slug="diagnostics-vector-fails")
+    ws = Workspace(
+        id="ws-diagnostics-vector-fails",
+        name="Diagnostics Vector Fails",
+        slug="diagnostics-vector-fails",
+    )
     db_session.add(ws)
     db_session.commit()
     collection = create_collection(db_session, workspace=ws, name="Manuals")
@@ -1271,9 +1315,7 @@ def test_collection_diagnostics_keeps_ledger_visible_when_vector_service_fails(
 
     monkeypatch.setattr(documents, "DocumentService", FailingDocumentService)
 
-    response = _client(db_session, ws).get(
-        f"/documents/collections/{collection.slug}/diagnostics"
-    )
+    response = _client(db_session, ws).get(f"/documents/collections/{collection.slug}/diagnostics")
 
     assert response.status_code == 200
     body = response.json()
@@ -1535,7 +1577,9 @@ def test_upload_batch_handles_large_synthetic_batch_with_one_job(
     monkeypatch.setattr(settings, "document_ingest_async_enabled", True)
     monkeypatch.setattr(settings, "object_store_backend", "local")
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
-    ws = Workspace(id="ws-upload-global-large", name="Upload Global Large", slug="upload-global-large")
+    ws = Workspace(
+        id="ws-upload-global-large", name="Upload Global Large", slug="upload-global-large"
+    )
     db_session.add(ws)
     db_session.commit()
     filenames = [f"manual-{index:02d}.txt" for index in range(40)]
@@ -1568,7 +1612,9 @@ def test_upload_batch_handles_large_synthetic_batch_with_one_job(
 
     collection = (
         db_session.query(KnowledgeCollection)
-        .filter(KnowledgeCollection.workspace_id == ws.id, KnowledgeCollection.slug == "large-batch")
+        .filter(
+            KnowledgeCollection.workspace_id == ws.id, KnowledgeCollection.slug == "large-batch"
+        )
         .one()
     )
     assert collection.status == "queued"
@@ -1603,7 +1649,9 @@ def test_upload_batch_rejects_mixed_unsupported_file_without_persisting_batch(
     monkeypatch.setattr(settings, "document_ingest_async_enabled", True)
     monkeypatch.setattr(settings, "object_store_backend", "local")
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
-    ws = Workspace(id="ws-upload-global-mixed", name="Upload Global Mixed", slug="upload-global-mixed")
+    ws = Workspace(
+        id="ws-upload-global-mixed", name="Upload Global Mixed", slug="upload-global-mixed"
+    )
     db_session.add(ws)
     db_session.commit()
 
@@ -1628,7 +1676,9 @@ def test_upload_batch_rejects_mixed_unsupported_file_without_persisting_batch(
     assert "manual.txt" not in detail
     assert (
         db_session.query(KnowledgeCollection)
-        .filter(KnowledgeCollection.workspace_id == ws.id, KnowledgeCollection.slug == "mixed-batch")
+        .filter(
+            KnowledgeCollection.workspace_id == ws.id, KnowledgeCollection.slug == "mixed-batch"
+        )
         .count()
         == 0
     )
@@ -1741,7 +1791,9 @@ def test_collection_document_upload_existing_filename_updates_source_without_man
 ):
     monkeypatch.setattr(settings, "object_store_backend", "local")
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
-    ws = Workspace(id="ws-upload-existing-name", name="Upload Existing Name", slug="upload-existing-name")
+    ws = Workspace(
+        id="ws-upload-existing-name", name="Upload Existing Name", slug="upload-existing-name"
+    )
     db_session.add(ws)
     db_session.commit()
     collection = create_collection(db_session, workspace=ws, name="Manuals")
@@ -1807,7 +1859,9 @@ def test_collection_document_upload_worker_enqueue_failure_is_persisted(
 ):
     monkeypatch.setattr(settings, "object_store_backend", "local")
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
-    ws = Workspace(id="ws-upload-dispatch-fails", name="Upload Dispatch Fails", slug="upload-dispatch-fails")
+    ws = Workspace(
+        id="ws-upload-dispatch-fails", name="Upload Dispatch Fails", slug="upload-dispatch-fails"
+    )
     db_session.add(ws)
     db_session.commit()
     collection = create_collection(db_session, workspace=ws, name="Manuals")
@@ -1835,11 +1889,7 @@ def test_collection_document_upload_worker_enqueue_failure_is_persisted(
         tmp_path / "objects" / collection.artifact_prefix / "original" / "manual.txt"
     ).read_bytes() == b"manual"
 
-    job = (
-        db_session.query(WorkerJob)
-        .filter(WorkerJob.collection_id == collection.id)
-        .one()
-    )
+    job = db_session.query(WorkerJob).filter(WorkerJob.collection_id == collection.id).one()
     assert job.status == "failed"
     assert job.progress == 100
     assert job.error == "broker offline"
@@ -1970,7 +2020,9 @@ def test_collection_detail_exposes_storage_vector_and_bm25_diagnostics(
     assert body["bm25"]["job"]["id"] == bm25_job.id
     assert body["latest_job"]["kind"] == "bm25_rebuild"
 
-    inventory_response = _client(db_session, ws).get(f"/documents/collections/{collection.id}/inventory")
+    inventory_response = _client(db_session, ws).get(
+        f"/documents/collections/{collection.id}/inventory"
+    )
     assert inventory_response.status_code == 200
     inventory = inventory_response.json()
     assert inventory["source_count"] == 1
@@ -1999,7 +2051,9 @@ def test_collection_retrieval_artifact_job_dry_run_does_not_create_job(db_sessio
     assert db_session.query(WorkerJob).filter(WorkerJob.collection_id == collection.id).count() == 0
 
 
-def test_collection_retrieval_artifact_job_large_dry_run_is_read_only(db_session, tmp_path, monkeypatch):
+def test_collection_retrieval_artifact_job_large_dry_run_is_read_only(
+    db_session, tmp_path, monkeypatch
+):
     monkeypatch.setattr(settings, "object_store_backend", "local")
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
     ws = Workspace(id="ws-artifact-large-dry", name="Artifact Large Dry", slug="artifact-large-dry")
@@ -2364,9 +2418,9 @@ def test_delete_collection_removes_ledger_and_store(
     assert not (tmp_path / "objects" / collection.artifact_prefix).exists()
 
 
-
 def _failed_ingest(db_session):
     from datetime import datetime
+
     ws = Workspace(id="ws-ingest-retry", name="Retry", slug="retry")
     db_session.add(ws)
     db_session.commit()
@@ -2384,17 +2438,20 @@ def _failed_ingest(db_session):
 
 def _retry_payload(job):
     from uuid import uuid4
+
     return {"request_id": str(uuid4()), "observed_updated_at": job.updated_at.isoformat()}
 
 
 def test_ingest_retry_preserves_failure_and_is_idempotent(db_session, monkeypatch):
     ws, collection, job = _failed_ingest(db_session)
     calls = []
+
     def dispatch(db, row, *, allow_inline_fallback):
         assert allow_inline_fallback is False
         calls.append(row.id)
         row.celery_task_id = "new-task"
         return "new-task"
+
     monkeypatch.setattr(documents, "dispatch_worker_job", dispatch)
     payload = _retry_payload(job)
     client = _client(db_session, ws)
@@ -2426,12 +2483,18 @@ def test_ingest_retry_preserves_failure_and_is_idempotent(db_session, monkeypatc
 def test_ingest_retry_dispatch_outage_remains_recoverable(db_session, monkeypatch):
     ws, _, job = _failed_ingest(db_session)
     calls = []
+
     def dispatch(db, row, **kwargs):
         calls.append(row.id)
         if len(calls) == 1:
-            row.result = {**row.result, "stage": "dispatch_pending", "dispatch_error": "Broker unavailable"}
+            row.result = {
+                **row.result,
+                "stage": "dispatch_pending",
+                "dispatch_error": "Broker unavailable",
+            }
         else:
             row.celery_task_id = "delivered"
+
     monkeypatch.setattr(documents, "dispatch_worker_job", dispatch)
     client = _client(db_session, ws)
     payload = _retry_payload(job)
@@ -2445,16 +2508,26 @@ def test_ingest_retry_dispatch_outage_remains_recoverable(db_session, monkeypatc
 
 def test_ingest_retry_rejects_stale_foreign_and_non_admin_requests(db_session, monkeypatch):
     ws, _, job = _failed_ingest(db_session)
-    monkeypatch.setattr(documents, "dispatch_worker_job", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("must not dispatch")))
+    monkeypatch.setattr(
+        documents,
+        "dispatch_worker_job",
+        lambda *a, **kw: (_ for _ in ()).throw(AssertionError("must not dispatch")),
+    )
     client = _client(db_session, ws)
     payload = _retry_payload(job)
     stale = {**payload, "observed_updated_at": "2001-01-01T00:00:00"}
-    assert client.post(f"/documents/jobs/{job.id}/retry", json=stale).json()["detail"]["code"] == "INGEST_RETRY_STALE"
+    assert (
+        client.post(f"/documents/jobs/{job.id}/retry", json=stale).json()["detail"]["code"]
+        == "INGEST_RETRY_STALE"
+    )
     other = Workspace(id="other-retry", name="Other", slug="other-retry")
     db_session.add(other)
     db_session.add(WorkspaceMember(user_id="user-1", workspace_id=other.id, role="admin"))
     db_session.commit()
-    assert _client(db_session, other).post(f"/documents/jobs/{job.id}/retry", json=payload).status_code == 404
+    assert (
+        _client(db_session, other).post(f"/documents/jobs/{job.id}/retry", json=payload).status_code
+        == 404
+    )
     member = db_session.query(WorkspaceMember).filter_by(workspace_id=ws.id).one()
     member.role, member.role_template = "member", "workspace_contributor"
     db_session.commit()
@@ -2464,41 +2537,86 @@ def test_ingest_retry_rejects_stale_foreign_and_non_admin_requests(db_session, m
 
 def test_ingest_retry_rejects_terminal_active_and_governed_jobs(db_session, monkeypatch):
     ws, collection, job = _failed_ingest(db_session)
-    monkeypatch.setattr(documents, "dispatch_worker_job", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("must not dispatch")))
+    monkeypatch.setattr(
+        documents,
+        "dispatch_worker_job",
+        lambda *a, **kw: (_ for _ in ()).throw(AssertionError("must not dispatch")),
+    )
     client = _client(db_session, ws)
     for status in ("completed", "cancelled", "running", "queued"):
         job.status = status
         db_session.commit()
-        assert client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job)).json()["detail"]["code"] == "INGEST_RETRY_NOT_FAILED"
+        assert (
+            client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job)).json()[
+                "detail"
+            ]["code"]
+            == "INGEST_RETRY_NOT_FAILED"
+        )
     job.status = "failed"
     job.result = {"ingest_options": {"mode": "incremental", "source_profile": "needlepunch"}}
     db_session.commit()
-    assert client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job)).json()["detail"]["code"] == "INGEST_RETRY_CAMPAIGN_REQUIRED"
+    assert (
+        client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job)).json()["detail"][
+            "code"
+        ]
+        == "INGEST_RETRY_CAMPAIGN_REQUIRED"
+    )
     job.result = {"ingest_options": {"mode": "incremental"}}
     db_session.commit()
-    assert client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job)).json()["detail"]["code"] == "INGEST_RETRY_BASELINE_REQUIRED"
+    assert (
+        client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job)).json()["detail"][
+            "code"
+        ]
+        == "INGEST_RETRY_BASELINE_REQUIRED"
+    )
     job.result = {}
     newer = create_worker_job(db_session, workspace_id=ws.id, collection_id=collection.id)
     db_session.commit()
-    assert client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job)).json()["detail"]["code"] == "INGEST_RETRY_SUPERSEDED"
+    assert (
+        client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job)).json()["detail"][
+            "code"
+        ]
+        == "INGEST_RETRY_SUPERSEDED"
+    )
     newer.status = "completed"
     db_session.commit()
-    assert client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job)).status_code == 409
+    assert (
+        client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job)).status_code == 409
+    )
 
 
 def test_ingest_retry_respects_deposit_rejection_and_promotion_permission(db_session, monkeypatch):
     from fastapi import HTTPException
+
     from app.models.secure_deposit import DepositAccessLink, DepositFile
+
     ws, _, job = _failed_ingest(db_session)
-    link = DepositAccessLink(workspace_id=ws.id, created_by_user_id="user-1", access_id="retry-link", password_hash="unused")
+    link = DepositAccessLink(
+        workspace_id=ws.id,
+        created_by_user_id="user-1",
+        access_id="retry-link",
+        password_hash="unused",
+    )
     db_session.add(link)
     db_session.flush()
-    deposit = DepositFile(workspace_id=ws.id, access_link_id=link.id, filename="source.pdf", object_key="retained", sha256="a" * 64, worker_job_id=job.id, status="rejected")
+    deposit = DepositFile(
+        workspace_id=ws.id,
+        access_link_id=link.id,
+        filename="source.pdf",
+        object_key="retained",
+        sha256="a" * 64,
+        worker_job_id=job.id,
+        status="rejected",
+    )
     db_session.add(deposit)
     db_session.commit()
     calls = []
     monkeypatch.setattr(documents, "enforce_permission", lambda *a, **kw: calls.append(kw))
-    monkeypatch.setattr(documents, "dispatch_worker_job", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("must not dispatch")))
+    monkeypatch.setattr(
+        documents,
+        "dispatch_worker_job",
+        lambda *a, **kw: (_ for _ in ()).throw(AssertionError("must not dispatch")),
+    )
     client = _client(db_session, ws)
     response = client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job))
     assert response.status_code == 409
@@ -2506,36 +2624,56 @@ def test_ingest_retry_respects_deposit_rejection_and_promotion_permission(db_ses
     assert calls[0]["resource_kind"] == "deposit_file" and calls[0]["action"] == "promote"
     deposit.status = "received"
     db_session.commit()
+
     def deny(*a, **kw):
         raise HTTPException(403, "promotion denied")
+
     monkeypatch.setattr(documents, "enforce_permission", deny)
-    assert client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job)).status_code == 403
+    assert (
+        client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job)).status_code == 403
+    )
     assert job.status == "failed"
     assert deposit.worker_job_id == job.id and deposit.status == "received"
 
 
-def test_ingest_retry_real_dispatch_failure_does_not_execute_inline_or_overwrite_worker(db_session, monkeypatch):
+def test_ingest_retry_real_dispatch_failure_does_not_execute_inline_or_overwrite_worker(
+    db_session, monkeypatch
+):
     import sys
+
     from app.services.worker_dispatch import dispatch_worker_job
+
     ws, _, job = _failed_ingest(db_session)
     monkeypatch.setattr(settings, "worker_eager_mode", False)
-    monkeypatch.setattr("app.services.worker_dispatch.run_document_ingest_index", lambda *a: (_ for _ in ()).throw(AssertionError("must not run inline")))
+    monkeypatch.setattr(
+        "app.services.worker_dispatch.run_document_ingest_index",
+        lambda *a: (_ for _ in ()).throw(AssertionError("must not run inline")),
+    )
+
     def reject(**kwargs):
         raise ConnectionError("broker unavailable")
+
     fake_task = SimpleNamespace(apply_async=reject)
-    tasks = SimpleNamespace(document_ingest_index=fake_task, bm25_rebuild=fake_task, rag_deep_retrieval=fake_task, offline_retrieval_artifact=fake_task)
+    tasks = SimpleNamespace(
+        document_ingest_index=fake_task,
+        bm25_rebuild=fake_task,
+        rag_deep_retrieval=fake_task,
+        offline_retrieval_artifact=fake_task,
+    )
     monkeypatch.setitem(sys.modules, "app.workers.tasks", tasks)
     client = _client(db_session, ws)
     response = client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job))
     assert response.status_code == 202
     assert response.json()["status"] == "queued"
     assert response.json()["result"]["dispatch_warning"] == "worker_dispatch_unavailable"
+
     # Lost broker acknowledgement after a worker finished: preserve its evidence.
     def completed_before_ack(**kwargs):
         job.status = "completed"
         job.result = {**job.result, "stage": "ready", "chunk_count": 12}
         db_session.commit()
         raise ConnectionError("ack lost")
+
     fake_task.apply_async = completed_before_ack
     dispatch_worker_job(db_session, job, allow_inline_fallback=False)
     db_session.refresh(job)
@@ -2562,9 +2700,8 @@ def test_a_request_cannot_choose_faiss_on_a_qdrant_deployment(monkeypatch, db_se
     assert _resolve_document_vector_db_type(ws, None) == "qdrant"
     assert _resolve_document_vector_db_type(ws, "qdrant") == "qdrant"
 
-    from fastapi import HTTPException
-
     import pytest
+    from fastapi import HTTPException
 
     with pytest.raises(HTTPException) as refused:
         _resolve_document_vector_db_type(ws, "faiss", destructive=True)

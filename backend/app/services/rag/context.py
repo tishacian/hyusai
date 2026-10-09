@@ -4,6 +4,7 @@ This module isolates the retrieval-only part of the RAG pipeline so it can run
 inline in the chat process or out-of-band in a Celery worker without changing
 the payload consumed by ``OmniRAGAgent``.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -931,13 +932,8 @@ def _enforce_authoritative_document_evidence(
                 if str(metadata.get(key) or "").strip()
             )
         )
-        if (
-            len(declared_collections) > 1
-            or (
-                lane_collection
-                and declared_collections
-                and declared_collections[0] != lane_collection
-            )
+        if len(declared_collections) > 1 or (
+            lane_collection and declared_collections and declared_collections[0] != lane_collection
         ):
             dropped += 1
             continue
@@ -1020,9 +1016,9 @@ def get_retrieval_profile(
             if context_collection not in collections:
                 collections.append(context_collection)
             scope["collection_slugs"] = collections
-            scope[
-                "label"
-            ] = f"{scope.get('label') or scope.get('key') or 'Knowledge'} + Session docs"
+            scope["label"] = (
+                f"{scope.get('label') or scope.get('key') or 'Knowledge'} + Session docs"
+            )
     agent_preferences = request.get("agent_preferences") or {}
     latency_profile = normalize_latency_profile(
         request.get("latency_profile") or agent_preferences.get("latency_profile"),
@@ -1266,11 +1262,7 @@ def _normalised_project_codes(value: Any) -> set[str]:
         values = value
     else:
         values = (value,)
-    return {
-        str(item or "").strip().upper()
-        for item in values
-        if str(item or "").strip()
-    }
+    return {str(item or "").strip().upper() for item in values if str(item or "").strip()}
 
 
 def _matched_resolved_project_scope_codes(
@@ -1300,9 +1292,7 @@ def _matched_resolved_project_scope_codes(
     retrieved_codes: set[str] = set()
     for metadata in metadatas:
         if isinstance(metadata, Mapping):
-            retrieved_codes.update(
-                _normalised_project_codes(metadata.get("project_code"))
-            )
+            retrieved_codes.update(_normalised_project_codes(metadata.get("project_code")))
     return requested_codes.intersection(retrieved_codes)
 
 
@@ -1318,9 +1308,7 @@ def _requested_terms_are_only_project_scope(
     """
 
     project_terms = {
-        term
-        for code in project_codes
-        for term in (code, f"PROJET{code}", f"PROJECT{code}")
+        term for code in project_codes for term in (code, f"PROJET{code}", f"PROJECT{code}")
     }
     return bool(requested_terms) and requested_terms.issubset(project_terms)
 
@@ -1483,7 +1471,9 @@ def _table_analysis_for_profile(
             mode="auto",
             system_id=request.get("system_id"),
             include_evidence=True,
-            denied_collections=(collection_access or retrieval_collection_access(request, db=db)).denied,
+            denied_collections=(
+                collection_access or retrieval_collection_access(request, db=db)
+            ).denied,
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("rag_context: table analysis failed", error=str(exc))
@@ -1514,7 +1504,9 @@ def _document_analysis_for_profile(
             mode="auto",
             system_id=request.get("system_id"),
             include_evidence=True,
-            denied_collections=(collection_access or retrieval_collection_access(request, db=db)).denied,
+            denied_collections=(
+                collection_access or retrieval_collection_access(request, db=db)
+            ).denied,
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("rag_context: document analysis failed", error=str(exc))
@@ -1870,10 +1862,10 @@ def _prepend_table_analysis_context(
         label = row.get("measure") or row.get("row_label") or row.get("column_header") or "value"
         content = (
             "Table analysis evidence: "
-            f'{label} = {value}{unit}; '
+            f"{label} = {value}{unit}; "
             f'file="{row.get("document_filename")}", '
             f'sheet="{row.get("sheet_name")}", cell="{row.get("cell_ref")}". '
-            f'{row.get("content") or ""}'
+            f"{row.get('content') or ''}"
         )
         evidence_chunks.append(content)
         evidence_scores.append(1.2 - (index * 0.01))
@@ -1928,10 +1920,10 @@ def _prepend_document_analysis_context(
             locator.append(str(row.get("section_path")))
         content = (
             "Document analysis evidence: "
-            f'{row.get("semantic_type") or "fact"}; '
+            f"{row.get('semantic_type') or 'fact'}; "
             f'file="{row.get("document_filename")}", '
             f'locator="{", ".join(locator) or "document"}". '
-            f'{row.get("content") or row.get("value_raw") or ""}'
+            f"{row.get('content') or row.get('value_raw') or ''}"
         )
         evidence_chunks.append(content)
         evidence_scores.append(1.15 - (index * 0.01))
@@ -2582,7 +2574,20 @@ def _retrieval_context_cache_key(
         metrics["retrieval_context_cache_hit"] = False
         metrics["retrieval_context_cache_skipped_reason"] = "corpus_version_unknown"
         return None
+    from app.services.rag.embedding_generation import authorized_cache_bindings
+
+    refs = list(profile.get("collections") or [])
+    if profile.get("collection"):
+        refs.append(str(profile["collection"]))
+    try:
+        model_bindings = authorized_cache_bindings(profile.get("workspace_slug"), refs)
+    except Exception:
+        # A revoked model, changed policy, or unavailable registry must never
+        # be bypassed by the context cache. Normal retrieval reports availability.
+        metrics["retrieval_context_cache_skipped_reason"] = "model_authorization_unavailable"
+        return None
     key_payload = {
+        "model_bindings": model_bindings,
         "workspace_id": profile.get("workspace_id"),
         "workspace_slug": profile.get("workspace_slug"),
         "collection": profile.get("collection"),
@@ -2820,11 +2825,16 @@ def _ensure_inventory_evidence_coverage(
 ) -> tuple[list[str], list[float], list[dict[str, Any]], dict[str, Any]]:
     """Keep bounded project evidence after CE/compression evicts useful lists."""
     if not evidence_rows:
-        return chunks, scores, metadatas, {
-            "admission_cap": 0,
-            "inserted": 0,
-            "replaced": 0,
-        }
+        return (
+            chunks,
+            scores,
+            metadatas,
+            {
+                "admission_cap": 0,
+                "inserted": 0,
+                "replaced": 0,
+            },
+        )
 
     limit = max(1, int(synthesis_k or 1))
     # An explicit inventory benefits more from documentary family coverage than
@@ -2860,8 +2870,7 @@ def _ensure_inventory_evidence_coverage(
     spare_rows = [
         row
         for row in evidence_rows
-        if str((row.get("metadata") or {}).get("source_family") or "").lower()
-        == "spare_parts_list"
+        if str((row.get("metadata") or {}).get("source_family") or "").lower() == "spare_parts_list"
     ]
     other_rows = [row for row in evidence_rows if row not in spare_rows]
     attested_categories = {
@@ -2912,12 +2921,8 @@ def _ensure_inventory_evidence_coverage(
     # Evidence is intentionally placed first: inventory completeness must not
     # depend on an LLM attending to a spare-parts list buried after a dozen
     # semantic passages. Threshold-exempt context is never evicted.
-    protected_original = [
-        item for item in original if _is_threshold_exempt_metadata(item[2])
-    ]
-    regular_original = [
-        item for item in original if not _is_threshold_exempt_metadata(item[2])
-    ]
+    protected_original = [item for item in original if _is_threshold_exempt_metadata(item[2])]
+    regular_original = [item for item in original if not _is_threshold_exempt_metadata(item[2])]
     evidence = evidence[: max(0, limit - len(protected_original))]
     evidence_keys = {_chunk_exact_key(content) for content, _score, _metadata in evidence}
     combined: list[tuple[str, float, dict[str, Any]]] = list(evidence)
@@ -2943,11 +2948,16 @@ def _ensure_inventory_evidence_coverage(
     out_scores = [score for _content, score, _metadata in combined[:limit]]
     out_metas = [metadata for _content, _score, metadata in combined[:limit]]
 
-    return out_chunks, out_scores, out_metas, {
-        "admission_cap": evidence_cap,
-        "inserted": inserted,
-        "replaced": replaced,
-    }
+    return (
+        out_chunks,
+        out_scores,
+        out_metas,
+        {
+            "admission_cap": evidence_cap,
+            "inserted": inserted,
+            "replaced": replaced,
+        },
+    )
 
 
 def _safe_build_project_inventory(profile: dict[str, Any], query: str) -> dict[str, Any] | None:
@@ -3083,9 +3093,7 @@ async def _retrieve_rag_context(
         for item in (request.get("authoritative_collections") or [])
         if str(item or "").strip()
     ]
-    requested_authoritative_collections = list(
-        dict.fromkeys(requested_authoritative_collections)
-    )
+    requested_authoritative_collections = list(dict.fromkeys(requested_authoritative_collections))
     # `get_retrieval_profile` already applied the tenant Membrane to the
     # graph-owned list (or an explicitly replacing Context). Reassert only
     # that effective intersection after corpus
@@ -3108,14 +3116,10 @@ async def _retrieve_rag_context(
     # must be disabled under a Builder-authored hard scope instead of silently
     # searching the whole collection.
     table_analysis = (
-        None
-        if authoritative_document_scope
-        else _table_analysis_for_profile(request, profile)
+        None if authoritative_document_scope else _table_analysis_for_profile(request, profile)
     )
     document_analysis = (
-        None
-        if authoritative_document_scope
-        else _document_analysis_for_profile(request, profile)
+        None if authoritative_document_scope else _document_analysis_for_profile(request, profile)
     )
     retrieval_query = query
     collections = profile.get("collections") or [profile["collection"]]
@@ -3228,9 +3232,7 @@ async def _retrieve_rag_context(
         # tried to reintroduce. Derived/v1 behaviour remains unchanged.
         source_policy = request.get("source_policy")
         raw_membrane = (
-            source_policy.get("membrane_spec")
-            if isinstance(source_policy, Mapping)
-            else None
+            source_policy.get("membrane_spec") if isinstance(source_policy, Mapping) else None
         )
         if isinstance(raw_membrane, Mapping) and raw_membrane.get("version") == 2:
             planned_collections = _apply_membrane_inbound_collections(
@@ -3775,9 +3777,7 @@ async def _retrieve_rag_context(
                 collection=str(profile["collection"]),
             )
             authoritative_evidence_dropped += dropped
-            metrics["authoritative_document_evidence_dropped"] = (
-                authoritative_evidence_dropped
-            )
+            metrics["authoritative_document_evidence_dropped"] = authoritative_evidence_dropped
             metrics.update(comparative_diag)
         else:
             metrics.update(
@@ -3858,12 +3858,13 @@ async def _retrieve_rag_context(
             _INVENTORY_EVIDENCE_RETRIEVAL_CUTOFF_SECONDS - retrieval_stage_elapsed,
         )
         if inventory_remaining >= 0.15:
-            inventory_evidence_rows, inventory_evidence_diag = (
-                await _retrieve_single_project_inventory_evidence(
-                    doc_svc,
-                    inventory_evidence_spec,
-                    timeout_seconds=min(1.2, max(0.1, inventory_remaining - 0.05)),
-                )
+            (
+                inventory_evidence_rows,
+                inventory_evidence_diag,
+            ) = await _retrieve_single_project_inventory_evidence(
+                doc_svc,
+                inventory_evidence_spec,
+                timeout_seconds=min(1.2, max(0.1, inventory_remaining - 0.05)),
             )
         else:
             inventory_evidence_diag = {
@@ -3916,6 +3917,8 @@ async def _retrieve_rag_context(
         allow_cross_encoder=bool((profile.get("latency_budget") or {}).get("allow_cross_encoder")),
         top_k=int(profile.get("top_k") or 0),
         is_exempt_metadata=_is_threshold_exempt_metadata,
+        workspace_slug=profile.get("workspace_slug"),
+        collection_ref=profile.get("collection"),
     )
     metrics.update(cross_encoder_diag)
     chunks, scores, metadatas, threshold_metrics = _apply_similarity_threshold(
@@ -4519,6 +4522,7 @@ async def _retrieve_multi_collection_context(
         allow_cross_encoder=bool((profile.get("latency_budget") or {}).get("allow_cross_encoder")),
         top_k=int(profile.get("top_k") or 0),
         is_exempt_metadata=_is_threshold_exempt_metadata,
+        workspace_slug=profile.get("workspace_slug"),
     )
     metrics.update(cross_encoder_diag)
     chunks, scores, metadatas, threshold_metrics = _apply_similarity_threshold(

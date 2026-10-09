@@ -312,7 +312,9 @@ def profile_frame(frame: Any) -> dict[str, Any]:
             # prose from short identifiers without rereading data in the plan.
             import polars as pl
 
-            column_stats["mean_length"] = _json_scalar(series.cast(pl.String).str.len_chars().mean())
+            column_stats["mean_length"] = _json_scalar(
+                series.cast(pl.String).str.len_chars().mean()
+            )
         stats[name] = column_stats
 
     preview = [
@@ -937,6 +939,7 @@ def serialize_dataset(dataset: TabularDataset, *, include_preview: bool = False)
 # A curated list rather than the whole bag: the block also holds the authored
 # statement, and a dataset page is not where a Flow's program is published.
 _PUBLIC_LINEAGE_KEYS = (
+    "huggingface",
     "labeling",
     "label_review",
     "postgresql",

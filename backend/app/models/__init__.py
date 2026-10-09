@@ -1,43 +1,26 @@
 """SQLAlchemy models for the application"""
-from app.models.user import User, Session, Message
-from app.models.workspace import (
-    Workspace,
-    WorkspaceIAMConfig,
-    WorkspaceMember,
-    WorkspaceMemberAppEntitlement,
-)
-from app.models.mfa import MfaChallenge
-from app.models.settings import AppSettings
-from app.models.rag_preset import RagPreset
-from app.models.audit import AuditLog
-from app.models.task import Task
-from app.models.evaluation import EvaluationScore
-from app.models.evaluation_feedback import EvaluationFeedback, FEEDBACK_LABELS
-from app.models.evaluation_preset import EvaluationPreset
-from app.models.canonical_answer import CanonicalAnswer
-from app.models.intelligence import FeedSource, FeedArticle, SemanticTarget, SafetyFilter
-from app.models.sharepoint_sync_job import SharePointSyncJob
-from app.models.secure_deposit import DepositAccessLink, DepositFile
-from app.models.expert_capture import ExpertCaptureEvent, ExpertCaptureSession, KnowledgeUpdateProposal
-from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource, WorkerJob
-from app.models.knowledge_guide import KnowledgeGuide
-from app.models.knowledge_table_fact import KnowledgeTableFact
-from app.models.knowledge_document_fact import KnowledgeDocumentFact
-from app.models.calendar import WorkspaceCalendarEvent
+
 from app.models.action_plan import WorkspaceActionItem
-from app.models.workspace_job import WorkspaceJob
-from app.models.workspace_map import WorkspaceMap, WorkspaceMapLayer, WorkspaceMapZone, WorkspaceMapSignal, WorkspaceMapScore
-from app.models.workspace_visual import WorkspaceVisualCapture, WorkspaceVisualObservation, WorkspaceVisualSource
-from app.models.workspace_macro_indicator import WorkspaceMacroIndicator
-from app.models.meeting_decision import MeetingDecision
-from app.models.client360 import Client360DataSource, Client360Opportunity, Client360MappingRule, Client360MailDraft, Client360ImpactEvent, Client360Campaign
+from app.models.assistant_request import AssistantRequest
+from app.models.audit import AuditLog
+from app.models.calendar import WorkspaceCalendarEvent
+from app.models.canonical_answer import CanonicalAnswer
 
 # Canonical (mental-model) layer.
 from app.models.capability import Capability
-from app.models.skill import Skill
+from app.models.client360 import (
+    Client360Campaign,
+    Client360DataSource,
+    Client360ImpactEvent,
+    Client360MailDraft,
+    Client360MappingRule,
+    Client360Opportunity,
+)
 from app.models.context import Context
-from app.models.policy import ControlPolicy, AdaptivePolicy
-from app.models.system import System
+from app.models.decision import Decision
+from app.models.evaluation import EvaluationScore
+from app.models.evaluation_feedback import FEEDBACK_LABELS, EvaluationFeedback
+from app.models.evaluation_preset import EvaluationPreset
 from app.models.experience import (
     Experience,
     ExperienceDeployment,
@@ -45,10 +28,49 @@ from app.models.experience import (
     ExperienceDraftRevision,
     ExperienceRelease,
 )
+from app.models.expert_capture import (
+    ExpertCaptureEvent,
+    ExpertCaptureSession,
+    KnowledgeUpdateProposal,
+)
+from app.models.huggingface import (
+    HFLicenseAcceptance,
+    HFLicenseException,
+    HFPlatformConfig,
+    HubArtifact,
+    HubArtifactGrant,
+    HubArtifactUsage,
+    HubImportRequest,
+    HubImportReservation,
+)
+from app.models.impact import Impact
+from app.models.intelligence import FeedArticle, FeedSource, SafetyFilter, SemanticTarget
+from app.models.knowledge_collection import (
+    KnowledgeCollection,
+    KnowledgeCollectionSource,
+    WorkerJob,
+)
+from app.models.knowledge_document_fact import KnowledgeDocumentFact
+from app.models.knowledge_guide import KnowledgeGuide
+from app.models.knowledge_table_fact import KnowledgeTableFact
+from app.models.meeting_decision import MeetingDecision
+from app.models.mfa import MfaChallenge
+from app.models.policy import AdaptivePolicy, ControlPolicy
+from app.models.rag_preset import RagPreset
+from app.models.recipe import PythonEnv, RecipeExecution
+from app.models.run import Run, SkillInvocation
+from app.models.run_dispatch_outbox import RunDispatchOutbox
+from app.models.run_inbox import RunInbox
+from app.models.run_schedule import RunSchedule
+from app.models.secure_deposit import DepositAccessLink, DepositFile
+from app.models.settings import AppSettings
+from app.models.sharepoint_sync_job import SharePointSyncJob
+from app.models.skill import Skill
+from app.models.system import System
 from app.models.system_binding import SystemBinding
 from app.models.system_flow_draft import SystemFlowDraft
+from app.models.system_memory import SystemMemory
 from app.models.system_version import SystemVersion
-from app.models.recipe import PythonEnv, RecipeExecution
 from app.models.tabular import (
     MLModel,
     MLModelApiKey,
@@ -56,15 +78,9 @@ from app.models.tabular import (
     MLRuntimeHeartbeat,
     TabularDataset,
 )
-from app.models.run import Run, SkillInvocation
-from app.models.run_schedule import RunSchedule
-from app.models.webhook_hook import WebhookHook
-from app.models.run_inbox import RunInbox
-from app.models.system_memory import SystemMemory
+from app.models.task import Task
 from app.models.trigger_event_claim import TriggerEventClaim
-from app.models.run_dispatch_outbox import RunDispatchOutbox
-from app.models.impact import Impact
-from app.models.decision import Decision
+from app.models.user import Message, Session, User
 from app.models.value_loop import (
     ValueActionExecution,
     ValueLoopOperation,
@@ -72,54 +88,153 @@ from app.models.value_loop import (
     ValueScenario,
     ValueSimulation,
 )
+from app.models.webhook_hook import WebhookHook
+from app.models.workspace import (
+    Workspace,
+    WorkspaceIAMConfig,
+    WorkspaceMember,
+    WorkspaceMemberAppEntitlement,
+)
 from app.models.workspace_app import (
     WorkspaceAppInstallation,
     WorkspaceAppLifecycleStepReceipt,
     WorkspaceAppOperation,
 )
-
-from app.models.assistant_request import AssistantRequest
+from app.models.workspace_job import WorkspaceJob
+from app.models.workspace_macro_indicator import WorkspaceMacroIndicator
+from app.models.workspace_map import (
+    WorkspaceMap,
+    WorkspaceMapLayer,
+    WorkspaceMapScore,
+    WorkspaceMapSignal,
+    WorkspaceMapZone,
+)
+from app.models.workspace_visual import (
+    WorkspaceVisualCapture,
+    WorkspaceVisualObservation,
+    WorkspaceVisualSource,
+)
 
 __all__ = [
     "AssistantRequest",
-    "User", "Session", "Message",
-    "Workspace", "WorkspaceMember", "WorkspaceMemberAppEntitlement", "WorkspaceIAMConfig",
+    "User",
+    "Session",
+    "Message",
+    "Workspace",
+    "WorkspaceMember",
+    "WorkspaceMemberAppEntitlement",
+    "WorkspaceIAMConfig",
     "MfaChallenge",
-    "AppSettings", "RagPreset", "AuditLog",
-    "Task", "EvaluationScore", "EvaluationFeedback", "FEEDBACK_LABELS",
-    "EvaluationPreset", "CanonicalAnswer",
-    "FeedSource", "FeedArticle", "SemanticTarget", "SafetyFilter",
-    "SharePointSyncJob", "ExpertCaptureSession", "KnowledgeUpdateProposal",
-    "DepositAccessLink", "DepositFile",
-    "KnowledgeCollection", "KnowledgeCollectionSource", "WorkerJob",
-    "KnowledgeGuide", "KnowledgeTableFact", "KnowledgeDocumentFact",
-    "WorkspaceCalendarEvent", "WorkspaceActionItem", "WorkspaceJob",
-    "WorkspaceMap", "WorkspaceMapLayer", "WorkspaceMapZone", "WorkspaceMapSignal", "WorkspaceMapScore",
-    "WorkspaceVisualSource", "WorkspaceVisualCapture", "WorkspaceVisualObservation",
-    "WorkspaceMacroIndicator", "MeetingDecision",
-    "Client360DataSource", "Client360Opportunity", "Client360MappingRule", "Client360MailDraft", "Client360ImpactEvent", "Client360Campaign",
+    "AppSettings",
+    "RagPreset",
+    "AuditLog",
+    "Task",
+    "EvaluationScore",
+    "EvaluationFeedback",
+    "FEEDBACK_LABELS",
+    "EvaluationPreset",
+    "CanonicalAnswer",
+    "FeedSource",
+    "FeedArticle",
+    "SemanticTarget",
+    "SafetyFilter",
+    "SharePointSyncJob",
+    "ExpertCaptureSession",
+    "ExpertCaptureEvent",
+    "KnowledgeUpdateProposal",
+    "DepositAccessLink",
+    "DepositFile",
+    "KnowledgeCollection",
+    "KnowledgeCollectionSource",
+    "WorkerJob",
+    "KnowledgeGuide",
+    "KnowledgeTableFact",
+    "KnowledgeDocumentFact",
+    "WorkspaceCalendarEvent",
+    "WorkspaceActionItem",
+    "WorkspaceJob",
+    "HFPlatformConfig",
+    "HFLicenseAcceptance",
+    "HFLicenseException",
+    "HubArtifact",
+    "HubArtifactGrant",
+    "HubArtifactUsage",
+    "HubImportReservation",
+    "HubImportRequest",
+    "WorkspaceMap",
+    "WorkspaceMapLayer",
+    "WorkspaceMapZone",
+    "WorkspaceMapSignal",
+    "WorkspaceMapScore",
+    "WorkspaceVisualSource",
+    "WorkspaceVisualCapture",
+    "WorkspaceVisualObservation",
+    "WorkspaceMacroIndicator",
+    "MeetingDecision",
+    "Client360DataSource",
+    "Client360Opportunity",
+    "Client360MappingRule",
+    "Client360MailDraft",
+    "Client360ImpactEvent",
+    "Client360Campaign",
     # Canonical
-    "Capability", "Skill", "Context", "ControlPolicy", "AdaptivePolicy",
-    "System", "SystemBinding", "Experience", "ExperienceDraftRevision", "ExperienceDraftHistory",
-    "ExperienceRelease", "ExperienceDeployment",
-    "SystemFlowDraft", "SystemVersion", "Run", "SkillInvocation", "RunSchedule", "WebhookHook",
-    "PythonEnv", "RecipeExecution",
-    "TabularDataset", "MLModel", "MLModelApiKey", "MLPrediction", "MLRuntimeHeartbeat",
-    "RunInbox", "SystemMemory", "RunDispatchOutbox", "TriggerEventClaim",
-    "Impact", "Decision",
-    "ValueLoopOperation", "ValueScenario", "ValueSimulation",
-    "ValueActionExecution", "ValueMeasurement",
-    "WorkspaceAppInstallation", "WorkspaceAppOperation",
+    "Capability",
+    "Skill",
+    "Context",
+    "ControlPolicy",
+    "AdaptivePolicy",
+    "System",
+    "SystemBinding",
+    "Experience",
+    "ExperienceDraftRevision",
+    "ExperienceDraftHistory",
+    "ExperienceRelease",
+    "ExperienceDeployment",
+    "SystemFlowDraft",
+    "SystemVersion",
+    "Run",
+    "SkillInvocation",
+    "RunSchedule",
+    "WebhookHook",
+    "PythonEnv",
+    "RecipeExecution",
+    "TabularDataset",
+    "MLModel",
+    "MLModelApiKey",
+    "MLPrediction",
+    "MLRuntimeHeartbeat",
+    "RunInbox",
+    "SystemMemory",
+    "RunDispatchOutbox",
+    "TriggerEventClaim",
+    "Impact",
+    "Decision",
+    "ValueLoopOperation",
+    "ValueScenario",
+    "ValueSimulation",
+    "ValueActionExecution",
+    "ValueMeasurement",
+    "WorkspaceAppInstallation",
+    "WorkspaceAppOperation",
     "WorkspaceAppLifecycleStepReceipt",
+    "AutomationReview",
+    "BrdDocument",
+    "BrdProposal",
+    "ClaimAction",
+    "ClaimTrial",
+    "EvaluationCampaign",
+    "EvaluationSuite",
+    "EvaluationCorrection",
+    "SapWriteIntent",
+    "ValueContract",
 ]
 
 from app.models.automation_review import AutomationReview
-from app.models.evaluation_correction import EvaluationCorrection
-from app.models.evaluation_campaign import EvaluationSuite, EvaluationCampaign
 from app.models.brd_document import BrdDocument
 from app.models.brd_proposal import BrdProposal
-
-from app.models.sap_write_intent import SapWriteIntent
-from app.models.value_contract import ValueContract
 from app.models.claim_action import ClaimAction
 from app.models.claim_trial import ClaimTrial
+from app.models.evaluation_campaign import EvaluationCampaign, EvaluationSuite
+from app.models.evaluation_correction import EvaluationCorrection
+from app.models.sap_write_intent import SapWriteIntent
+from app.models.value_contract import ValueContract

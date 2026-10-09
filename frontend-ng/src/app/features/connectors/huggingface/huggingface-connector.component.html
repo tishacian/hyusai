@@ -1,0 +1,165 @@
+<app-section-header [breadcrumb]="i18n.t('connectors.breadcrumb')" title="Hugging Face" icon="database" [subtitle]="i18n.t('connectors.hf.subtitle')">
+  <ck-back-link [fallback]="{ surface: 'connectors' }" />
+</app-section-header>
+@if (error()) { <div class="hf-alert hf-error" role="alert">{{ error() }}</div> }
+@if (notice()) { <div class="hf-alert" role="status">{{ notice() }}</div> }
+@if (config(); as settings) {
+  <details class="hf-panel">
+    <summary>{{ i18n.t('connectors.hf.connection') }} · {{ settings.connection.source }} · {{ settings.connection.endpoint }}</summary>
+    <p class="hf-muted">{{ i18n.t((platformScope ? platformConfig()?.connection : settings.connection)?.token_set ? 'connectors.hf.token_saved' : 'connectors.hf.token_absent') }}</p>
+    @if (settings.can_configure) {
+      <form (ngSubmit)="saveConnection()" class="hf-stack">
+        @if (settings.can_admin_platform) {
+          <label class="hf-inline"><input type="checkbox" name="platform" [(ngModel)]="platformScope" (ngModelChange)="changeConnectionScope()" [disabled]="busy()" />{{ i18n.t('connectors.hf.platform_scope') }}</label>
+        }
+        <div class="hf-grid">
+          <label>{{ i18n.t('connectors.hf.endpoint') }}<input name="endpoint" type="url" [(ngModel)]="endpoint" required autocomplete="url" /></label>
+          <label>{{ i18n.t('connectors.hf.token') }}<input name="token" type="password" [(ngModel)]="token" [disabled]="clearToken" autocomplete="new-password" /></label>
+        </div>
+        <label class="hf-inline"><input type="checkbox" name="clearToken" [(ngModel)]="clearToken" />{{ i18n.t('connectors.hf.clear_token') }}</label>
+        <div class="hf-actions">
+          <button type="submit" class="ck-btn ck-btn-accent" [disabled]="busy()">{{ i18n.t('connectors.hf.save') }}</button>
+          <button type="button" class="ck-btn" (click)="testConnection()" [disabled]="busy() || platformScope">{{ i18n.t('connectors.hf.test') }}</button>
+        </div>
+      </form>
+    } @else { <p class="hf-muted">{{ i18n.t('connectors.hf.admin_connection') }}</p> }
+    <details><summary>{{ i18n.t('connectors.hf.policy_limits') }}</summary>
+      <pre>{{ {policy: platformScope ? platformConfig()?.policy : settings.policy, limits: settings.limits} | json }}</pre>
+      @if (settings.can_configure) {
+        <form class="hf-stack" (ngSubmit)="savePolicy()">
+          <p class="hf-muted">{{ i18n.t('connectors.hf.policy_help') }}</p>
+          <div class="hf-grid"><label>{{ i18n.t('connectors.hf.license') }}<input name="policyTag" [(ngModel)]="policyTag" required /></label><label>{{ i18n.t('connectors.hf.license_class') }}<select name="policyClass" [(ngModel)]="policyClass"><option value="allowed">{{ i18n.t('connectors.hf.license.allowed') }}</option><option value="acceptance_required">{{ i18n.t('connectors.hf.license.acceptance_required') }}</option><option value="blocked">{{ i18n.t('connectors.hf.license.blocked') }}</option></select></label></div>
+          <button type="submit" class="ck-btn" [disabled]="busy() || !policyTag.trim()">{{ i18n.t('connectors.hf.save_policy') }}</button>
+        </form>
+      }
+      @if (settings.can_admin_platform) {
+        <form class="hf-stack" (ngSubmit)="saveLimit()">
+          <div class="hf-grid"><label>{{ i18n.t('connectors.hf.limit') }}<select name="limitKey" [(ngModel)]="limitKey" (ngModelChange)="limitValue = settings.limits[$event]"><option value="">—</option>@for (limit of settings.limits | keyvalue; track limit.key) { <option [value]="limit.key">{{ limit.key }}</option> }</select></label><label>{{ i18n.t('connectors.hf.limit_value') }}<input type="number" name="limitValue" min="1" step="1" [(ngModel)]="limitValue" required /></label></div>
+          <button type="submit" class="ck-btn" [disabled]="busy() || !limitKey || !limitValue">{{ i18n.t('connectors.hf.save_limit') }}</button>
+        </form>
+      }
+    </details>
+  </details>
+  <section class="hf-panel hf-stack">
+    <h2>{{ i18n.t('connectors.hf.browse') }}</h2>
+    <form (ngSubmit)="search()" class="hf-search">
+      <label>{{ i18n.t('connectors.hf.kind') }}<select name="kind" [(ngModel)]="kind" (ngModelChange)="changeKind()"><option value="model">{{ i18n.t('connectors.hf.models') }}</option><option value="dataset">{{ i18n.t('connectors.hf.datasets') }}</option></select></label>
+      <label class="hf-grow">{{ i18n.t('connectors.hf.query') }}<input name="query" [(ngModel)]="query" /></label>
+      <button type="submit" class="ck-btn ck-btn-accent" [disabled]="searching()">{{ i18n.t(searching() ? 'connectors.hf.searching' : 'connectors.hf.search') }}</button>
+    </form>
+    @if (searched() && !results().length) { <p class="hf-muted">{{ i18n.t('connectors.hf.no_results') }}</p> }
+    <div class="hf-results">
+      @for (result of results(); track result.repo_id || result.id) {
+        <button type="button" class="hf-result" (click)="inspect(result.repo_id || result.id || '', 'main')">
+          <strong>{{ result.repo_id || result.id }}</strong>
+          <span class="hf-muted">{{ result.pipeline_tag }} {{ result.library }} {{ result.license }}</span>
+          @if (result.gated) { <span class="ck-pill">{{ i18n.t('connectors.hf.gated') }}</span> }
+          @if (result.private) { <span class="ck-pill">{{ i18n.t('connectors.hf.private') }}</span> }
+        </button>
+      }
+    </div>
+    <form (ngSubmit)="inspect()" class="hf-search">
+      <label class="hf-grow">{{ i18n.t('connectors.hf.repository') }}<input name="repoId" [(ngModel)]="repoId" placeholder="owner/repository" required /></label>
+      <label>{{ i18n.t('connectors.hf.revision') }}<input name="revision" [(ngModel)]="revision" required /></label>
+      <button type="submit" class="ck-btn" [disabled]="inspecting() || !repoId.trim()">{{ i18n.t(inspecting() ? 'connectors.hf.loading' : 'connectors.hf.inspect') }}</button>
+    </form>
+  </section>
+  @if (repository(); as repo) {
+    <section class="hf-panel hf-stack" aria-live="polite">
+      <h2>{{ repo.metadata.repo_id }}</h2>
+      <p class="hf-sha">{{ repo.metadata.revision }}</p>
+      <div class="hf-actions">
+        <span class="ck-pill">{{ repo.metadata.pipeline_tag || repo.metadata.kind }}</span>
+        @if (repo.metadata.library) { <span class="ck-pill">{{ repo.metadata.library }}</span> }
+        @if (repo.metadata.gated) { <span class="ck-pill">{{ i18n.t('connectors.hf.gated') }}</span> }
+        @if (repo.metadata.private) { <span class="ck-pill">{{ i18n.t('connectors.hf.private') }}</span> }
+      </div>
+      <p>{{ i18n.t('connectors.hf.license') }}: {{ repo.metadata.license || 'unknown' }} · {{ i18n.t('connectors.hf.license.' + repo.license.license_class) }}</p>
+      <details><summary>{{ i18n.t('connectors.hf.license.text') }}</summary><pre class="hf-license">{{ repo.license_text }}</pre></details>
+      @if (repo.license.license_class === 'acceptance_required') {
+        @if (repo.license.accepted) { <p class="hf-muted">{{ i18n.t('connectors.hf.accepted') }} {{ repo.license.accepted_by }} {{ repo.license.accepted_at }}</p> }
+        @else if (settings.can_configure) {
+          <label class="hf-inline"><input type="checkbox" [(ngModel)]="licenseChecked" />{{ i18n.t('connectors.hf.accept_check') }}</label>
+          <button type="button" class="ck-btn" [disabled]="!licenseChecked || !repo.license_text || busy()" (click)="acceptLicense()">{{ i18n.t('connectors.hf.accept') }}</button>
+        } @else { <p class="hf-muted">{{ i18n.t('connectors.hf.admin_license') }}</p> }
+      }
+      @if (repo.license.license_class === 'blocked' && settings.can_admin_platform) {
+        <form (ngSubmit)="grantLicenseException()" class="hf-stack"><label>{{ i18n.t('connectors.hf.exception_reason') }}<input name="exceptionReason" [(ngModel)]="exceptionReason" required /></label><button type="submit" class="ck-btn" [disabled]="busy() || !exceptionReason.trim()">{{ i18n.t('connectors.hf.exception') }}</button></form>
+      }
+      @if (repo.metadata.requires_remote_code) { <p class="hf-error">{{ i18n.t('connectors.hf.remote_code') }}</p> }
+      @if (repo.metadata.security) { <details><summary>{{ i18n.t('connectors.hf.security') }}</summary><pre>{{ repo.metadata.security | json }}</pre></details> }
+      @if (formats().length) {
+        <form (ngSubmit)="importSelection()" class="hf-stack">
+          <div class="hf-grid">
+            <label>{{ i18n.t('connectors.hf.format') }}<select [ngModel]="selectedFormat()" (ngModelChange)="chooseFormat($event)" name="format">@for (format of formats(); track format) { <option [value]="format">{{ format }}</option> }</select></label>
+            @if (repo.metadata.kind === 'model') { <label>{{ i18n.t('connectors.hf.variant') }}<input name="variant" [(ngModel)]="variant" /></label> }
+          </div>
+          @if (selectedFormat() === 'gguf') { <p class="hf-muted">{{ i18n.t('connectors.hf.quant_help') }}</p> }
+          @if (repo.metadata.kind === 'dataset') {
+            <div class="hf-grid">
+              <label>{{ i18n.t('connectors.hf.dataset_config') }}<input name="datasetConfig" [(ngModel)]="datasetConfig" required /></label>
+              <label>{{ i18n.t('connectors.hf.split') }}<input name="split" [(ngModel)]="datasetSplit" required /></label>
+              <label>{{ i18n.t('connectors.hf.columns') }}<input name="columns" [(ngModel)]="columns" /></label>
+              <label>{{ i18n.t('connectors.hf.max_rows') }}<input name="maxRows" type="number" min="1" max="5000000" step="1" [(ngModel)]="maxRows" /></label>
+              <label>{{ i18n.t('connectors.hf.dataset_name') }}<input name="datasetName" [(ngModel)]="datasetName" /></label>
+            </div>
+            <p class="hf-muted">{{ i18n.t('connectors.hf.dataset_help') }}</p>
+            @if (!availableFiles().length) { <p class="hf-error">{{ i18n.t('connectors.hf.dataset_native_required') }}</p> }
+          }
+          <fieldset class="hf-files">
+            <legend>{{ i18n.t('connectors.hf.files') }}</legend>
+            @for (file of availableFiles(); track file.path) {
+              <label class="hf-file"><input type="checkbox" [checked]="selectedFiles().includes(file.path)" (change)="toggleFile(file, $any($event.target).checked)" /><span>{{ file.path }}</span><small>{{ bytes(file.size_bytes) }}</small></label>
+            }
+          </fieldset>
+          <p>{{ i18n.t('connectors.hf.selection') }}: {{ selectedFiles().length }} · {{ bytes(selectedBytes()) }}</p>
+          <p class="hf-muted">{{ i18n.t('connectors.hf.compatibility') }}</p>
+          <button type="submit" class="ck-btn ck-btn-accent" [disabled]="busy() || !canImport()">{{ i18n.t('connectors.hf.import') }}</button>
+          @if (!(repo.metadata.kind === 'model' ? settings.can_import_models : settings.can_import_datasets)) { <p class="hf-muted">{{ i18n.t('connectors.hf.import_permission') }}</p> }
+        </form>
+      } @else { <p class="hf-error">{{ i18n.t('connectors.hf.no_safe_format') }}</p> }
+    </section>
+  }
+  @if (jobs().length) {
+    <section class="hf-panel hf-stack" aria-live="polite">
+      <h2>{{ i18n.t('connectors.hf.imports') }}</h2>
+      @for (job of jobs(); track job.id) {
+        <div><strong>{{ job.id }}</strong><p>{{ job.status }} · {{ job.stage }}</p>
+          @if (!terminal(job)) { <progress max="100" [value]="job.progress || 0" [attr.aria-label]="i18n.t('connectors.hf.progress')"></progress> }
+          @if (jobError(job)) { <p class="hf-error">{{ jobError(job) }}</p> }
+        </div>
+      }
+      <button type="button" class="ck-btn" (click)="pollJobs()">{{ i18n.t('connectors.hf.refresh') }}</button>
+    </section>
+  }
+  <section class="hf-panel hf-stack">
+    <h2>{{ i18n.t('connectors.hf.artifacts') }}</h2>
+    @if (!artifacts().length) { <p class="hf-muted">{{ i18n.t('connectors.hf.no_artifacts') }}</p> }
+    @for (artifact of artifacts(); track artifact.artifact_id) {
+      <article class="hf-artifact">
+        <div><strong>{{ artifact.repo_id }}</strong><p class="hf-sha">{{ artifact.revision }}</p><p>{{ artifact.format }} {{ artifact.variant }} · {{ bytes(artifact.total_bytes) }} · {{ artifact.status }}</p><p class="hf-muted">{{ artifact.license }} · {{ artifact.artifact_id }}</p>
+          @if (artifact.in_catalogue) { <span class="ck-pill">{{ i18n.t('connectors.hf.catalogue') }}</span> }
+          @if (artifact.error_code) { <p class="hf-error">{{ artifact.error_code }}</p> }
+        </div>
+        <div class="hf-actions">
+          @if (settings.can_import_models && artifact.kind === 'model' && artifact.status === 'ready' && artifact.has_access && artifact.format === 'safetensors') {
+            <button type="button" class="ck-btn" (click)="activateArtifact(artifact, 'forecasting')" [disabled]="busy()">{{ i18n.t('connectors.hf.activate_forecast') }}</button>
+            <button type="button" class="ck-btn" (click)="activateArtifact(artifact, 'embedding')" [disabled]="busy()">{{ i18n.t('connectors.hf.activate_embedding') }}</button>
+          }
+          <button type="button" class="ck-btn" (click)="showUsages(artifact)">{{ i18n.t('connectors.hf.usages') }}</button>
+          @if (!artifact.has_access && artifact.status === 'ready' && (artifact.kind === 'model' ? settings.can_import_models : settings.can_import_datasets)) { <button type="button" class="ck-btn" (click)="grantArtifact(artifact)" [disabled]="busy()">{{ i18n.t('connectors.hf.grant') }}</button> }
+          @if (settings.can_configure && artifact.has_access && artifact.status !== 'revoked') { <button type="button" class="ck-btn" (click)="revokeId = artifact.artifact_id; revokeReason = ''">{{ i18n.t('connectors.hf.revoke') }}</button> }
+        </div>
+      </article>
+      @if (revokeId === artifact.artifact_id) {
+        <form (ngSubmit)="revokeGrant()" class="hf-stack">
+          <p>{{ i18n.t('connectors.hf.revoke_help') }}</p>
+          <label>{{ i18n.t('connectors.hf.reason') }}<input name="reason" [(ngModel)]="revokeReason" required /></label>
+          <div class="hf-actions"><button type="submit" class="ck-btn" [disabled]="busy() || !revokeReason.trim()">{{ i18n.t('connectors.hf.confirm_revoke') }}</button><button type="button" class="ck-btn" (click)="revokeId = ''">{{ i18n.t('connectors.hf.cancel') }}</button></div>
+        </form>
+      }
+    }
+    @if (usageDetails(); as detail) { <details open><summary>{{ i18n.t('connectors.hf.usages') }} · {{ detail.artifactId }}</summary><pre>{{ detail.usages | json }}</pre></details> }
+  </section>
+  <app-huggingface-lifecycle [config]="settings" [artifacts]="artifacts()" [restoredJobs]="lifecycleJobs()" (changed)="refreshArtifacts()" />
+} @else if (!error()) { <p role="status">{{ i18n.t('connectors.hf.loading') }}</p> }

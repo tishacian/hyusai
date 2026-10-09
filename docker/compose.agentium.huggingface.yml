@@ -1,0 +1,132 @@
+# Opt-in Hub acquisition and offline ML/RAG runtime. See docs/huggingface-operations.md.
+# Apply after the base and VM overlays; --profile huggingface starts the writer.
+services:
+  agentium-migrate:
+    build:
+      args:
+        INSTALL_HF_RAG: "1"
+  agentium-backend:
+    build:
+      args:
+        INSTALL_HF_RAG: "1"
+    environment:
+      HF_CACHE_DIR: /data/hub-cache
+      HF_BUNDLE_SPOOL_DIR: /data/hub-bundles
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+    volumes:
+      - type: bind
+        source: ${AGENTIUM_HUB_CACHE_PATH:-/srv/agentium-data/hub-cache}
+        target: /data/hub-cache
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${AGENTIUM_HUB_BUNDLES_PATH:-/srv/agentium-data/hub-bundles}
+        target: /data/hub-bundles
+        bind:
+          create_host_path: false
+  agentium-worker-cpu:
+    build:
+      args:
+        INSTALL_HF_RAG: "1"
+    environment:
+      HF_CACHE_DIR: /data/hub-cache
+      HF_BUNDLE_SPOOL_DIR: /data/hub-bundles
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+    volumes:
+      - type: bind
+        source: ${AGENTIUM_HUB_CACHE_PATH:-/srv/agentium-data/hub-cache}
+        target: /data/hub-cache
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${AGENTIUM_HUB_BUNDLES_PATH:-/srv/agentium-data/hub-bundles}
+        target: /data/hub-bundles
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${AGENTIUM_HF_BUNDLE_KEYS_PATH:-/srv/agentium-data/hf-bundle-keys}
+        target: /run/hf-bundle-keys
+        read_only: true
+        bind:
+          create_host_path: false
+  agentium-worker-ml-deep:
+    environment:
+      HF_CACHE_DIR: /data/hub-cache
+    volumes:
+      - type: bind
+        source: ${AGENTIUM_HUB_CACHE_PATH:-/srv/agentium-data/hub-cache}
+        target: /data/hub-cache
+        read_only: true
+        bind:
+          create_host_path: false
+  agentium-worker-ml-deep-serve:
+    environment:
+      HF_CACHE_DIR: /data/hub-cache
+    volumes:
+      - type: bind
+        source: ${AGENTIUM_HUB_CACHE_PATH:-/srv/agentium-data/hub-cache}
+        target: /data/hub-cache
+        read_only: true
+        bind:
+          create_host_path: false
+  agentium-hub-fetch:
+    image: agentium-hub-fetch:${AGENTIUM_IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: ./docker/Dockerfile.agentium-hub-fetch
+      args:
+        AGENTIUM_IMAGE_REVISION: ${AGENTIUM_IMAGE_REVISION:-unknown}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+        PYTHON_BASE_IMAGE: ${AGENTIUM_PYTHON_BASE_IMAGE:-python:3.12-slim}
+        USER_UID: ${AGENTIUM_RUNTIME_UID:-1000}
+        USER_GID: ${AGENTIUM_RUNTIME_GID:-1000}
+    profiles: ["huggingface"]
+    restart: unless-stopped
+    networks:
+      - agentium-net
+    # Separate credentials: never inject the Hub writer into application env.
+    env_file:
+      - ${AGENTIUM_HUB_ENV_FILE:?Set the dedicated Hub worker environment file}
+    environment:
+      AGENTIUM_DISABLE_DOTENV: "1"
+      CELERY_APP: app.workers.celery_hub:celery_hub
+      CELERY_QUEUES: hub_fetch
+      CELERY_CONCURRENCY: ${AGENTIUM_HUB_CONCURRENCY:-2}
+      CELERY_BEAT: "0"
+      HF_CACHE_DIR: /data/hub-cache
+      HF_BUNDLE_SPOOL_DIR: /data/hub-bundles
+      HF_HUB_DISABLE_TELEMETRY: "1"
+    mem_limit: ${AGENTIUM_HUB_MEM_LIMIT:-2g}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - type: bind
+        source: ${AGENTIUM_HUB_CACHE_PATH:-/srv/agentium-data/hub-cache}
+        target: /data/hub-cache
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${AGENTIUM_HUB_BUNDLES_PATH:-/srv/agentium-data/hub-bundles}
+        target: /data/hub-bundles
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${AGENTIUM_OBJECT_STORE_PATH:-/srv/agentium-data/object_store}
+        target: /data/object_store
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${AGENTIUM_HF_BUNDLE_KEYS_PATH:-/srv/agentium-data/hf-bundle-keys}
+        target: /run/hf-bundle-keys
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      agentium-rabbitmq:
+        condition: service_healthy

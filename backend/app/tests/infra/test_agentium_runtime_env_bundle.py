@@ -70,9 +70,7 @@ def _sources(tmp_path: Path, *, alias_application: bool = False) -> dict[str, Pa
         "CELERY_BROKER_URL=amqp://agentium:rabbit-private@127.0.0.1:5672//\n"
         "FAISS_PERSIST_DIRECTORY=" + str(tmp_path / "faiss-db") + "\n"
         "OBJECT_STORE_BACKEND=local\n"
-        "OBJECT_STORE_BASE_PATH="
-        + str(tmp_path / "agentium-data" / "object_store")
-        + "\n"
+        "OBJECT_STORE_BASE_PATH=" + str(tmp_path / "agentium-data" / "object_store") + "\n"
         "OBJECT_STORE_S3_ACCESS_KEY=object-app\n"
         "OBJECT_STORE_S3_BUCKET=agentium-artifacts\n"
         "OBJECT_STORE_S3_ENDPOINT_URL=http://127.0.0.1:9000\n"
@@ -152,6 +150,38 @@ def _freeze(module, sources: dict[str, Path], bundle: Path) -> str:
         deployment_id=DEPLOYMENT_ID,
         source_owner_uid=os.getuid(),
     )
+
+
+def test_optional_hub_role_is_frozen_and_its_writer_is_separated(tmp_path):
+    module = _module()
+    sources = _sources(tmp_path)
+    hub = sources["compose_dir"] / "env/hub.env"
+    application = sources["compose_dir"] / "env/application.env"
+    hub.write_text(
+        application.read_text()
+        + "HF_S3_ACCESS_KEY=hub-writer\nHF_S3_SECRET_KEY=hub-writer-private\n"
+    )
+    hub.chmod(0o600)
+    sources["main"].write_text(
+        sources["main"].read_text() + "AGENTIUM_HUB_ENV_FILE=./env/hub.env\n"
+    )
+    bundle = tmp_path / "deployment/runtime-env"
+    digest = _freeze(module, sources, bundle)
+    manifest = json.loads((bundle / "manifest.json").read_text())
+    assert "hub" in manifest["roles"]
+    assert "hub-writer-private" not in (bundle / "manifest.json").read_text()
+    frozen = module.bundle_role_path(
+        bundle_dir=bundle,
+        role="hub",
+        candidate_sha=SHA,
+        deployment_id=DEPLOYMENT_ID,
+        expected_manifest_sha256=digest,
+    )
+    assert frozen.parent == bundle and "hub-writer-private" in frozen.read_text()
+    assert f"AGENTIUM_HUB_ENV_FILE={frozen}" in (bundle / "compose.effective.env").read_text()
+    hub.write_text(hub.read_text().replace("hub-writer-private", "object-app-private"))
+    with pytest.raises(module.RuntimeEnvBundleError, match="credentials must be distinct"):
+        _freeze(module, sources, tmp_path / "invalid/runtime-env")
 
 
 def _rewrite_manifest(module, bundle: Path, manifest: dict) -> None:
@@ -846,9 +876,7 @@ def test_freeze_binds_systemd_clients_to_protected_host_runtime(
     module = _module()
     sources = _sources(tmp_path)
     systemd = sources["systemd"]
-    systemd.write_text(
-        systemd.read_text(encoding="utf-8").replace(old, new), encoding="utf-8"
-    )
+    systemd.write_text(systemd.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
     systemd.chmod(0o600)
 
     with pytest.raises(module.RuntimeEnvBundleError, match=message):

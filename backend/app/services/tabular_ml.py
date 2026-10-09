@@ -128,9 +128,7 @@ _PROGRESS_FILE = "progress.txt"
 # use for the training split.
 _REPORT_STATE_FILE = "state.joblib"
 
-_HARNESS_PATH = (
-    Path(__file__).resolve().parent.parent / "resources" / "ml_train_harness.py"
-)
+_HARNESS_PATH = Path(__file__).resolve().parent.parent / "resources" / "ml_train_harness.py"
 
 # Machine reasons the harness exits with, mapped to the codes the UI translates.
 _EXIT_CODES = {
@@ -195,10 +193,7 @@ class Algo:
 
     def resolve(self, knobs: Any) -> dict[str, Any]:
         chosen = knobs if isinstance(knobs, dict) else {}
-        return {
-            knob.key: knob.coerce(chosen.get(knob.key, knob.default))
-            for knob in self.knobs
-        }
+        return {knob.key: knob.coerce(chosen.get(knob.key, knob.default)) for knob in self.knobs}
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -297,17 +292,26 @@ ALGOS: tuple[Algo, ...] = (
     ),
 )
 
-ALGOS += (Algo(
-    key="chronos_zero_shot",
-    estimators={FORECASTING: "skforecast.foundation.ForecasterFoundation"},
-    rank=7, tags=("foundation", "zero_shot"), seeded=False,
-),)
+ALGOS += (
+    Algo(
+        key="chronos_zero_shot",
+        estimators={FORECASTING: "skforecast.foundation.ForecasterFoundation"},
+        rank=7,
+        tags=("foundation", "zero_shot"),
+        seeded=False,
+    ),
+)
 
-ALGOS += (Algo(
-    key="kmeans", estimators={CLUSTERING: "sklearn.cluster.KMeans"},
-    knobs=(Knob("n_clusters", "int", 5, 2, 20, 1), Knob("max_iter", "int", 300, 50, 500, 10)),
-    scale=True, rank=8, tags=("baseline", "interpretable"),
-),)
+ALGOS += (
+    Algo(
+        key="kmeans",
+        estimators={CLUSTERING: "sklearn.cluster.KMeans"},
+        knobs=(Knob("n_clusters", "int", 5, 2, 20, 1), Knob("max_iter", "int", 300, 50, 500, 10)),
+        scale=True,
+        rank=8,
+        tags=("baseline", "interpretable"),
+    ),
+)
 
 ALGO_BY_KEY = {algo.key: algo for algo in ALGOS}
 
@@ -317,8 +321,11 @@ def estimator_params(algo: Algo, task: str, knobs: dict[str, Any]) -> dict[str, 
     from app.resources.ml_knob_translation import translate
 
     return translate(
-        algo.key, task, knobs,
-        random_state=int(settings.ml_train_random_state), forest_leaves=FOREST_LEAVES,
+        algo.key,
+        task,
+        knobs,
+        random_state=int(settings.ml_train_random_state),
+        forest_leaves=FOREST_LEAVES,
     )
 
 
@@ -334,8 +341,13 @@ def tuning_configuration(spec: TrainingSpec) -> dict[str, Any] | None:
         metric = "r2"
     else:
         metric = "roc_auc" if classes == 2 else "balanced_accuracy"
-    folds = (spec.spec.get("tuning_folds", 3) if spec.task == FORECASTING
-             else spec.cross_validation if spec.cross_validation >= 2 else 3)
+    folds = (
+        spec.spec.get("tuning_folds", 3)
+        if spec.task == FORECASTING
+        else spec.cross_validation
+        if spec.cross_validation >= 2
+        else 3
+    )
     space = []
     for knob in spec.algo.knobs:
         if knob.kind == "int_list":
@@ -352,29 +364,50 @@ def tuning_configuration(spec: TrainingSpec) -> dict[str, Any] | None:
             entry["choices"] = list(knob.choices) if knob.kind == "enum" else [False, True]
         space.append(entry)
     return {
-        "trials": spec.spec["tuning_trials"], "budget_s": spec.spec["tuning_budget_s"],
-        "metric": metric, "direction": metrics_registry.METRIC_BY_KEY[metric].direction,
+        "trials": spec.spec["tuning_trials"],
+        "budget_s": spec.spec["tuning_budget_s"],
+        "metric": metric,
+        "direction": metrics_registry.METRIC_BY_KEY[metric].direction,
         "folds": folds,
-        "start": dict(spec.knobs), "space": space, "forest_leaves": FOREST_LEAVES,
+        "start": dict(spec.knobs),
+        "space": space,
+        "forest_leaves": FOREST_LEAVES,
     }
 
 
-def _catalog_algo(algo: Algo, db: DBSession | None) -> dict:
+def _catalog_algo(algo: Algo, db: DBSession | None, workspace_id: str | None = None) -> dict:
     payload = algo.payload()
     if algo.key == "chronos_zero_shot":
         from app.services.ml.runtime import model_availability
+
         ready, reason = family_availability(get_family("forecasting_deep"), db)
         asset_ready, asset_reason = model_availability("chronos-2-small", db)
-        payload.update(available=ready and asset_ready, reason=reason or asset_reason,
-                       family="forecasting_deep", model_id="chronos-2-small")
-    elif FORECASTING in payload["tasks"] and not family_availability(get_family(FORECASTING), db)[0]:
+        if workspace_id:
+            from app.services.ml.runtime import model_descriptors
+
+            if any(
+                item.get("kind") == "forecasting"
+                for item in model_descriptors(db, workspace_id=workspace_id).values()
+            ):
+                asset_ready, asset_reason = True, None
+        payload.update(
+            available=ready and asset_ready,
+            reason=reason or asset_reason,
+            family="forecasting_deep",
+            model_id="chronos-2-small",
+        )
+    elif (
+        FORECASTING in payload["tasks"] and not family_availability(get_family(FORECASTING), db)[0]
+    ):
         # A deep worker makes the forecasting task available, but cannot fit
         # the regressors/statistical models routed to the separate TS image.
         payload["tasks"] = [task for task in payload["tasks"] if task != FORECASTING]
     return payload
 
 
-def catalog_payload(db: DBSession | None = None) -> dict[str, Any]:
+def catalog_payload(
+    db: DBSession | None = None, *, workspace_id: str | None = None
+) -> dict[str, Any]:
     """What the training form renders: algorithms, knobs and platform limits.
 
     ``families`` says which tasks each family trains and whether a worker that
@@ -390,7 +423,16 @@ def catalog_payload(db: DBSession | None = None) -> dict[str, Any]:
         available, reason = family_availability(family, db)
         if family.key == "forecasting_deep":
             from app.services.ml.runtime import model_availability
+
             asset_ready, asset_reason = model_availability("chronos-2-small", db)
+            if workspace_id:
+                from app.services.ml.runtime import model_descriptors
+
+                if any(
+                    item.get("kind") == "forecasting"
+                    for item in model_descriptors(db, workspace_id=workspace_id).values()
+                ):
+                    asset_ready, asset_reason = True, None
             available, reason = available and asset_ready, reason or asset_reason
         serve = serving_availability(family, db)[0] if family.serving != "in_process" else None
         family_payload = family.payload(available=available, reason=reason, serve_available=serve)
@@ -401,17 +443,37 @@ def catalog_payload(db: DBSession | None = None) -> dict[str, Any]:
                     field["default"] = min(300, field["max"])
         if family.key == "tabular_deep":
             from app.services.ml.runtime import model_availability
+
             asset_ready, asset_reason = model_availability("multilingual-minilm", db)
+            if workspace_id:
+                from app.services.ml.runtime import model_descriptors
+
+                if any(
+                    item.get("kind") == "embedding"
+                    for item in model_descriptors(db, workspace_id=workspace_id).values()
+                ):
+                    asset_ready, asset_reason = True, None
             family_payload["available"] = available and asset_ready
             if not asset_ready:
                 family_payload["reason"] = asset_reason
+        if family.key in {"forecasting_deep", "tabular_deep"} and workspace_id:
+            from app.services.ml.runtime import model_descriptors
+
+            kind = "forecasting" if family.key == "forecasting_deep" else "embedding"
+            family_payload["foundation_models"] = [
+                item
+                for item in model_descriptors(db, workspace_id=workspace_id).values()
+                if item.get("kind") == kind
+            ]
         families.append(family_payload)
     return {
         "enabled": bool(settings.ml_train_enabled and settings.tabular_data_enabled),
         "tasks": list(all_tasks()),
         "families": families,
         "metrics": ml_metrics.payload(),
-        "algos": [_catalog_algo(algo, db) for algo in sorted(ALGOS, key=lambda a: a.rank)],
+        "algos": [
+            _catalog_algo(algo, db, workspace_id) for algo in sorted(ALGOS, key=lambda a: a.rank)
+        ],
         "limits": {
             "min_rows": int(settings.ml_train_min_rows),
             "max_rows": int(settings.ml_train_max_rows),
@@ -471,8 +533,11 @@ def _distinct(dataset: TabularDataset, column: str) -> int:
 
 def is_text_column(kind: str, profile: dict[str, Any]) -> bool:
     """Use the same text heuristic for the plan and identifier warnings."""
-    return (kind == "string" and int(profile.get("distinct") or 0) > 40
-            and float(profile.get("mean_length") or 0) >= 20)
+    return (
+        kind == "string"
+        and int(profile.get("distinct") or 0) > 40
+        and float(profile.get("mean_length") or 0) >= 20
+    )
 
 
 def infer_task(dataset: TabularDataset, target: str) -> str:
@@ -552,8 +617,11 @@ def validate_training(
     chosen_task = str(task or "").strip() or infer_task(dataset, label)
     lineage = dataset.lineage_json if isinstance(dataset.lineage_json, dict) else {}
     labeling = lineage.get("labeling") if isinstance(lineage.get("labeling"), dict) else {}
-    if (chosen_task == CLASSIFICATION and dataset.produced_by == "llm_label_dataset_v1"
-            and labeling.get("label_column") == label):
+    if (
+        chosen_task == CLASSIFICATION
+        and dataset.produced_by == "llm_label_dataset_v1"
+        and labeling.get("label_column") == label
+    ):
         raise TabularError(
             code="ML_LABEL_REVIEW_REQUIRED",
             message="Confirm the generated labels through human review before training this target.",
@@ -562,9 +630,15 @@ def validate_training(
     family = family_of_task(chosen_task)
     if str(algo or "") == "chronos_zero_shot" and chosen_task == FORECASTING:
         family = get_family("forecasting_deep")
-    if isinstance(spec, dict) and spec.get("text_encoder") == "embedding" and chosen_task in {CLASSIFICATION, REGRESSION}:
+    if (
+        isinstance(spec, dict)
+        and spec.get("text_encoder") == "embedding"
+        and chosen_task in {CLASSIFICATION, REGRESSION}
+    ):
         family = get_family("tabular_deep")
-    if family is None or (family.key not in {"tabular", "tabular_deep"} and family.validator is None):
+    if family is None or (
+        family.key not in {"tabular", "tabular_deep"} and family.validator is None
+    ):
         raise TabularError(
             code="ML_TASK_UNKNOWN",
             message="This is not a task the platform trains: classification, regression, forecasting or clustering.",
@@ -582,18 +656,31 @@ def validate_training(
         )
     if family.key == "forecasting_deep":
         from app.services.ml.runtime import model_availability
-        asset_ready, asset_reason = model_availability("chronos-2-small", db)
+
+        asset_id = (spec or {}).get("artifact_id") or "chronos-2-small"
+        asset_ready, asset_reason = model_availability(
+            asset_id, db, workspace_id=getattr(dataset, "workspace_id", None)
+        )
         if not asset_ready:
-            raise TabularError(code="ML_DEEP_MODEL_MISSING",
-                               message="The local foundation model is not available in the deep runtime.",
-                               status_code=409, details={"model_id": "chronos-2-small", "reason": asset_reason})
-    if (family.key == FORECASTING and isinstance(spec, dict) and spec.get("tuning") == "budget"
-            and spec.get("tuning_budget_s") is None):
+            raise TabularError(
+                code="ML_DEEP_MODEL_MISSING",
+                message="The local foundation model is not available in the deep runtime.",
+                status_code=409,
+                details={"model_id": asset_id, "reason": asset_reason},
+            )
+    if (
+        family.key == FORECASTING
+        and isinstance(spec, dict)
+        and spec.get("tuning") == "budget"
+        and spec.get("tuning_budget_s") is None
+    ):
         spec = {**spec, "tuning_budget_s": min(300, int(0.6 * float(settings.ml_train_timeout_s)))}
     spec_warnings: list[dict[str, Any]] = []
     try:
         problem = family.parse_spec(
-            spec, task=chosen_task if family.key in {"tabular", "tabular_deep"} else None, warnings=spec_warnings
+            spec,
+            task=chosen_task if family.key in {"tabular", "tabular_deep"} else None,
+            warnings=spec_warnings,
         )
     except SpecInvalid as exc:
         raise TabularError(
@@ -602,8 +689,9 @@ def validate_training(
             details={"field": exc.field},
         ) from exc
     review = lineage.get("label_review") if isinstance(lineage.get("label_review"), dict) else {}
-    if (problem.get("distillation_inference_cost_per_1000") is not None
-            and (dataset.produced_by != "llm_label_review_v1" or review.get("label_column") != label)):
+    if problem.get("distillation_inference_cost_per_1000") is not None and (
+        dataset.produced_by != "llm_label_review_v1" or review.get("label_column") != label
+    ):
         raise TabularError(
             code="ML_DISTILLATION_SOURCE_REQUIRED",
             message="Declare inference cost only when training the confirmed target of a reviewed LLM dataset.",
@@ -624,26 +712,54 @@ def validate_training(
         )
     if family.key == "tabular_deep":
         from app.services.ml.runtime import model_availability
-        ready, reason = model_availability("multilingual-minilm", db)
+
+        asset_id = problem.get("artifact_id") or "multilingual-minilm"
+        ready, reason = model_availability(
+            asset_id, db, workspace_id=getattr(dataset, "workspace_id", None)
+        )
         if not ready:
-            raise TabularError(code="ML_DEEP_MODEL_MISSING", message="The local embedding model is unavailable.",
-                               status_code=409, details={"reason": reason, "model_id": "multilingual-minilm"})
+            raise TabularError(
+                code="ML_DEEP_MODEL_MISSING",
+                message="The local embedding model is unavailable.",
+                status_code=409,
+                details={"reason": reason, "model_id": asset_id},
+            )
         columns = problem.get("embedding_columns") or []
-        if not columns or any(kinds.get(col) not in {"text", "categorical", "string"} or col == label for col in columns):
-            raise TabularError(code="ML_SPEC_INVALID", message="Select one text feature column for embeddings.",
-                               details={"field": "embedding_columns"})
+        if not columns or any(
+            kinds.get(col) not in {"text", "categorical", "string"} or col == label
+            for col in columns
+        ):
+            raise TabularError(
+                code="ML_SPEC_INVALID",
+                message="Select one text feature column for embeddings.",
+                details={"field": "embedding_columns"},
+            )
         # The first release bounds repeated transformer fits explicitly.
-        unsupported = [key for key, default in (("tuning", "off"), ("explain", "off"), ("calibration", "off"),
-                                                 ("threshold", "default"), ("intervals", "off"))
-                       if problem.get(key, default) != default]
+        unsupported = [
+            key
+            for key, default in (
+                ("tuning", "off"),
+                ("explain", "off"),
+                ("calibration", "off"),
+                ("threshold", "default"),
+                ("intervals", "off"),
+            )
+            if problem.get(key, default) != default
+        ]
         if unsupported or (cross_validation is not None and int(cross_validation or 0) >= 2):
-            raise TabularError(code="ML_DEEP_OPTION_UNSUPPORTED", message="Embedding models currently use one train/test split without automatic tuning or additional fits.",
-                               details={"field": unsupported[0] if unsupported else "cross_validation"})
+            raise TabularError(
+                code="ML_DEEP_OPTION_UNSUPPORTED",
+                message="Embedding models currently use one train/test split without automatic tuning or additional fits.",
+                details={"field": unsupported[0] if unsupported else "cross_validation"},
+            )
     if problem.get("tuning") == "budget":
-        maximum = 0.6 * min(float(settings.ml_train_timeout_s), float(settings.ml_train_cpu_limit_s))
+        maximum = 0.6 * min(
+            float(settings.ml_train_timeout_s), float(settings.ml_train_cpu_limit_s)
+        )
         if problem["tuning_budget_s"] > maximum:
             raise TabularError(
-                code="ML_SPEC_INVALID", message=f"Tuning budget must not exceed {maximum:g} seconds.",
+                code="ML_SPEC_INVALID",
+                message=f"Tuning budget must not exceed {maximum:g} seconds.",
                 details={"field": "tuning_budget_s", "max": maximum},
             )
     for column in problem.get("fairness_columns", []):
@@ -682,11 +798,7 @@ def validate_training(
                 details={"target": label},
             )
 
-    requested = [
-        str(item).strip()
-        for item in (features or [])
-        if str(item or "").strip()
-    ]
+    requested = [str(item).strip() for item in (features or []) if str(item or "").strip()]
     if requested:
         unknown = [name_ for name_ in requested if name_ not in kinds]
         if unknown:
@@ -704,7 +816,11 @@ def validate_training(
             message="A model needs at least one feature besides its target.",
         )
     if family.key == "tabular_deep" and not set(problem["embedding_columns"]).issubset(selected):
-        raise TabularError(code="ML_SPEC_INVALID", message="Embedding columns must also be selected as features.", details={"field": "embedding_columns"})
+        raise TabularError(
+            code="ML_SPEC_INVALID",
+            message="Embedding columns must also be selected as features.",
+            details={"field": "embedding_columns"},
+        )
     max_features = int(settings.ml_train_max_features)
     if len(selected) > max_features:
         raise TabularError(
@@ -763,8 +879,12 @@ def validate_training(
     # surfaced as a warning rather than silently dropped or refused.
     warnings: list[dict[str, Any]] = spec_warnings
     for name_ in selected:
-        if (kinds.get(name_) == "string" and rows and _distinct(dataset, name_) >= rows
-                and not is_text_column(kinds[name_], (dataset.stats_json or {}).get(name_) or {})):
+        if (
+            kinds.get(name_) == "string"
+            and rows
+            and _distinct(dataset, name_) >= rows
+            and not is_text_column(kinds[name_], (dataset.stats_json or {}).get(name_) or {})
+        ):
             warnings.append({"code": "ML_FEATURE_IDENTIFIER", "feature": name_})
 
     default_name = f"{dataset.name} · {label}"
@@ -799,7 +919,12 @@ def report_state_key(workspace_id: str, model_id: str) -> str:
 
     store = get_object_store()
     return store.key(
-        "workspaces", workspace_id, "ml", "models", model_id, "report",
+        "workspaces",
+        workspace_id,
+        "ml",
+        "models",
+        model_id,
+        "report",
         _REPORT_STATE_FILE,
     )
 
@@ -867,7 +992,7 @@ def download_model_dir(model: MLModel, destination: Path) -> Path:
     destination.mkdir(parents=True, exist_ok=True)
     prefix = model.model_uri.rstrip("/") + "/"
     for key in keys:
-        relative = key[len(prefix):] if key.startswith(prefix) else Path(key).name
+        relative = key[len(prefix) :] if key.startswith(prefix) else Path(key).name
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         store.copy_to_local(key, target)
@@ -896,9 +1021,7 @@ def _lineage_publication(
     return (row[0], row[1]) if row is not None else (None, None)
 
 
-def _lineage_published_slug(
-    db: DBSession, *, workspace_id: str, slug: str
-) -> str | None:
+def _lineage_published_slug(db: DBSession, *, workspace_id: str, slug: str) -> str | None:
     """The Skill slug this lineage is published as, read off any sibling."""
 
     return _lineage_publication(db, workspace_id=workspace_id, slug=slug)[1]
@@ -925,16 +1048,28 @@ def create_model(
     # Publication is a lineage fact stored per row, so a version born after
     # it must inherit it or its card would deny what its siblings report —
     # and a later promotion would find nothing to refresh.
-    published_id, published_slug = _lineage_publication(
-        db, workspace_id=workspace_id, slug=slug
-    )
+    published_id, published_slug = _lineage_publication(db, workspace_id=workspace_id, slug=slug)
     foundation = None
     if spec.family in {"forecasting_deep", "tabular_deep"}:
         from app.services.ml.runtime import model_descriptors
-        asset_id = "chronos-2-small" if spec.family == "forecasting_deep" else "multilingual-minilm"
-        foundation = model_descriptors(db).get(asset_id)
+
+        asset_id = spec.spec.get("artifact_id") or (
+            "chronos-2-small" if spec.family == "forecasting_deep" else "multilingual-minilm"
+        )
+        foundation = model_descriptors(db, workspace_id=workspace_id).get(asset_id)
         if not foundation:
-            raise TabularError(code="ML_DEEP_MODEL_MISSING", message="The foundation model is unavailable.", status_code=409)
+            raise TabularError(
+                code="ML_DEEP_MODEL_MISSING",
+                message="The foundation model is unavailable.",
+                status_code=409,
+            )
+        expected_kind = "forecasting" if spec.family == "forecasting_deep" else "embedding"
+        if foundation.get("kind") != expected_kind:
+            raise TabularError(
+                code="HF_ADAPTER_INCOMPATIBLE",
+                message="The artifact is incompatible with this ML family.",
+                status_code=409,
+            )
         foundation = {**foundation, "model_id": asset_id}
     model = MLModel(
         id=str(uuid4()),
@@ -957,7 +1092,11 @@ def create_model(
             "warnings": list(spec.warnings),
             **({"foundation": foundation} if foundation is not None else {}),
             **({"distillation": distillation} if distillation is not None else {}),
-            **({"tuning": tuning_configuration(spec)} if spec.spec.get("tuning") == "budget" else {}),
+            **(
+                {"tuning": tuning_configuration(spec)}
+                if spec.spec.get("tuning") == "budget"
+                else {}
+            ),
         },
         status="pending",
         status_detail=TRAIN_STEPS[0],
@@ -980,12 +1119,24 @@ def create_model(
     )
     db.add(model)
     db.flush()
+    if foundation and foundation.get("artifact_id"):
+        from app.services.huggingface.registry import register_usage
+
+        register_usage(
+            db,
+            workspace_id,
+            foundation["artifact_id"],
+            "ml",
+            model.id,
+            details={"family": spec.family, "foundation": foundation},
+        )
     return model
 
 
 def _distillation_provenance(db, dataset, task, target):
     if task != CLASSIFICATION or dataset.produced_by not in {
-        "llm_label_dataset_v1", "llm_label_review_v1"
+        "llm_label_dataset_v1",
+        "llm_label_review_v1",
     }:
         return None
     from app.services.llm_label_review import training_provenance
@@ -1278,13 +1429,17 @@ def delete_model(db: DBSession, model: MLModel) -> str:
     from app.services.ml_retraining import stop_model_schedules
 
     stop_model_schedules(db, model)
+    if (model.params_json or {}).get("foundation"):
+        from app.models.huggingface import HubArtifactUsage
+
+        db.query(HubArtifactUsage).filter_by(workspace_id=workspace_id, target_id=model_id).filter(
+            HubArtifactUsage.kind.in_(["ml", "ml_migration"])
+        ).delete(synchronize_session=False)
     db.delete(model)
     db.commit()
 
     remaining = (
-        db.query(MLModel)
-        .filter(MLModel.workspace_id == workspace_id, MLModel.slug == slug)
-        .all()
+        db.query(MLModel).filter(MLModel.workspace_id == workspace_id, MLModel.slug == slug).all()
     )
     survivors = len(remaining)
     if registered:
@@ -1293,9 +1448,7 @@ def delete_model(db: DBSession, model: MLModel) -> str:
             # ``@champion`` that resolves to nothing this deployment can explain.
             ml_registry.forget_model(model_name=registered)
         elif registered_run:
-            ml_registry.retire_version(
-                model_name=registered, run_id=registered_run
-            )
+            ml_registry.retire_version(model_name=registered, run_id=registered_run)
     if remaining:
         # The deleted row may have been the one ``challenger`` named. Re-deriving
         # it from what is left is the only way the alias cannot outlive its
@@ -1360,8 +1513,14 @@ def champion_for(db: DBSession, *, workspace_id: str, slug: str) -> MLModel | No
         return champion
     # Human-approved retrains still require an independent promotion; deleting
     # the previous champion must not make one a fallback serving version.
-    return next((row for row in query.order_by(MLModel.version.desc()).all()
-                 if not (row.params_json or {}).get("retraining_proposal")), None)
+    return next(
+        (
+            row
+            for row in query.order_by(MLModel.version.desc()).all()
+            if not (row.params_json or {}).get("retraining_proposal")
+        ),
+        None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1393,9 +1552,7 @@ def pipeline_provenance(db: DBSession, *, model: MLModel) -> dict[str, Any]:
     """
 
     trained = (
-        db.query(TabularDataset)
-        .filter(TabularDataset.id == model.dataset_id)
-        .first()
+        db.query(TabularDataset).filter(TabularDataset.id == model.dataset_id).first()
         if model.dataset_id
         else None
     )
@@ -1408,9 +1565,7 @@ def pipeline_provenance(db: DBSession, *, model: MLModel) -> dict[str, Any]:
         by_id = {
             row.id: row
             for row in (
-                db.query(TabularDataset)
-                .filter(TabularDataset.id.in_(parent_ids))
-                .all()
+                db.query(TabularDataset).filter(TabularDataset.id.in_(parent_ids)).all()
                 if parent_ids
                 else []
             )
@@ -1422,9 +1577,7 @@ def pipeline_provenance(db: DBSession, *, model: MLModel) -> dict[str, Any]:
                 kind="transform",
                 extra={"engine": engine or trained.source},
             )
-            dataset_chip = (
-                _provenance_chip(parents[0], kind="dataset") if parents else None
-            )
+            dataset_chip = _provenance_chip(parents[0], kind="dataset") if parents else None
         else:
             dataset_chip = _provenance_chip(trained, kind="dataset")
             for parent in parents:
@@ -1510,13 +1663,9 @@ def serialize_model(
         "test_size": model.test_size,
         "cross_validation": model.cross_validation,
         "primary_metric": _primary_metric(model),
-        "artifact_bytes": (
-            int(model.artifact_bytes) if model.artifact_bytes is not None else None
-        ),
+        "artifact_bytes": (int(model.artifact_bytes) if model.artifact_bytes is not None else None),
         "predict_count": int(model.predict_count or 0),
-        "last_predict_at": (
-            model.last_predict_at.isoformat() if model.last_predict_at else None
-        ),
+        "last_predict_at": (model.last_predict_at.isoformat() if model.last_predict_at else None),
         "published_skill_slug": model.published_skill_slug,
         "published_skill_id": model.published_skill_id,
         "run_id": model.run_id,
@@ -1544,9 +1693,7 @@ def serialize_model(
         # which is possible from `primary_metric` alone; carrying their curves
         # and confusion matrices too would be a megabyte per card that nobody
         # draws, since only the open version's charts are on screen.
-        payload["metrics"] = {
-            "scores": list((model.metrics_json or {}).get("scores") or [])
-        }
+        payload["metrics"] = {"scores": list((model.metrics_json or {}).get("scores") or [])}
     return payload
 
 
@@ -1581,9 +1728,7 @@ def model_reference(model: MLModel) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _finalize(
-    model: MLModel, *, status: str, error: str | None = None
-) -> None:
+def _finalize(model: MLModel, *, status: str, error: str | None = None) -> None:
     model.status = status
     model.error = error
     model.status_detail = None
@@ -1594,9 +1739,7 @@ def cancel_requested(db: DBSession, model_id: str) -> bool:
     """Re-read the cooperative cancel flag (the supervisor's stop condition)."""
 
     db.expire_all()
-    return bool(
-        db.query(MLModel.cancel_requested).filter(MLModel.id == model_id).scalar()
-    )
+    return bool(db.query(MLModel.cancel_requested).filter(MLModel.id == model_id).scalar())
 
 
 def mark_step(db: DBSession, model: MLModel, step: str) -> None:
@@ -1652,26 +1795,61 @@ def _write_manifest(
         "report_state_limit_mb": int(settings.ml_train_report_state_limit_mb),
     }
     if manifest["family"] in {"forecasting_deep", "tabular_deep"}:
-        from app.services.ml.local_models import LocalModelError, resolve_model
+        from contextlib import nullcontext
+
+        from app.services.huggingface.adapters import authorized_manifest
+        from app.services.huggingface.cache import ArtifactError, configured_cache
+        from app.services.ml.local_models import (
+            LocalModelError,
+            file_hash,
+            resolve_artifact_model,
+            resolve_model,
+        )
+
         deep_tabular = manifest["family"] == "tabular_deep"
-        try:
-            local = resolve_model("multilingual-minilm" if deep_tabular else "chronos-2-small", kind="embedding" if deep_tabular else "forecasting")
-        except LocalModelError as exc:
-            raise TabularError(code=exc.code, message=str(exc), status_code=409) from exc
         expected = params.get("foundation") or {}
-        if expected.get("fingerprint") != local.fingerprint or expected.get("revision") != local.revision:
-            raise TabularError(code="ML_DEEP_MODEL_CHANGED", message="The foundation model changed since submission.", status_code=409)
-        manifest["foundation"] = {**expected, "path": str(local.path), "files": local.files}
+        artifact_id = expected.get("artifact_id")
+        kind = "embedding" if deep_tabular else "forecasting"
+        try:
+            if artifact_id:
+                source_manifest = authorized_manifest(model.workspace_id, artifact_id, usage=kind)
+                lease = configured_cache().lease(artifact_id, source_manifest)
+            else:
+                lease = nullcontext()
+            with lease:
+                local = (
+                    resolve_artifact_model(artifact_id, kind=kind, manifest=source_manifest)
+                    if artifact_id
+                    else resolve_model(
+                        "multilingual-minilm" if deep_tabular else "chronos-2-small", kind=kind
+                    )
+                )
+                if (
+                    expected.get("fingerprint") != local.fingerprint
+                    or expected.get("revision") != local.revision
+                ):
+                    raise TabularError(
+                        code="ML_DEEP_MODEL_CHANGED",
+                        message="The foundation model changed since submission.",
+                        status_code=409,
+                    )
+                # The child process receives a complete private snapshot. The
+                # cache lease is released only after every copied byte verifies.
+                asset_copy = scratch / ("embedding-source" if deep_tabular else "foundation-source")
+                for name, expected_hash in local.files.items():
+                    destination = asset_copy / name
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(local.path / name, destination)
+                    if file_hash(destination) != expected_hash:
+                        raise TabularError(
+                            code="ML_DEEP_MODEL_CHANGED",
+                            message="The foundation source changed while preparing the fit.",
+                            status_code=409,
+                        )
+                manifest["foundation"] = {**expected, "path": str(asset_copy), "files": local.files}
+        except (LocalModelError, ArtifactError) as exc:
+            raise TabularError(code=exc.code, message=str(exc), status_code=409) from exc
         if deep_tabular:
-            # Fit reads an immutable copy of the exact bytes accepted at submission.
-            from app.services.ml.local_models import file_hash
-            asset_copy = scratch / "embedding-source"
-            for name, expected_hash in local.files.items():
-                destination = asset_copy / name
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(local.path / name, destination)
-                if file_hash(destination) != expected_hash:
-                    raise TabularError(code="ML_DEEP_MODEL_CHANGED", message="The embedding source changed while preparing the fit.", status_code=409)
             manifest["spec"]["_embedding_path"] = str(asset_copy)
             manifest["report_state_limit_mb"] = 0
             manifest["importance_rows"] = min(32, manifest["importance_rows"])
@@ -1769,8 +1947,11 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                     db.refresh(model)
                     return {"id": model_id, "status": model.status}
             except TabularError as exc:
-                _finalize(model, status="cancelled" if exc.code == "ML_RETRAIN_CANCELLED" else "failed",
-                          error=f"{exc.code}: {exc.message}")
+                _finalize(
+                    model,
+                    status="cancelled" if exc.code == "ML_RETRAIN_CANCELLED" else "failed",
+                    error=f"{exc.code}: {exc.message}",
+                )
                 db.commit()
                 return {"id": model_id, "status": model.status}
         if model.status == "training":
@@ -1786,8 +1967,16 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
             db.commit()
             return {"id": model_id, "status": "cancelled"}
         family = get_family(model.family)
-        if family.runtime == "ml-deep" and settings.ml_runtime != "ml-deep" and not settings.worker_eager_mode:
-            _finalize(model, status="failed", error="ML_RUNTIME_MISSING: deep models require the ml-deep runtime")
+        if (
+            family.runtime == "ml-deep"
+            and settings.ml_runtime != "ml-deep"
+            and not settings.worker_eager_mode
+        ):
+            _finalize(
+                model,
+                status="failed",
+                error="ML_RUNTIME_MISSING: deep models require the ml-deep runtime",
+            )
             db.commit()
             return {"id": model_id, "status": "failed"}
         missing = family.missing_modules()
@@ -1807,9 +1996,7 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
         steps = frozenset(family.steps) or _HARNESS_STEPS
 
         dataset = (
-            db.query(TabularDataset)
-            .filter(TabularDataset.id == model.dataset_id)
-            .first()
+            db.query(TabularDataset).filter(TabularDataset.id == model.dataset_id).first()
             if model.dataset_id
             else None
         )
@@ -1862,7 +2049,9 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                 venv_python=interpreter,
                 scratch=scratch,
                 timeout_s=timeout_s,
-                should_cancel=lambda: cancel_requested(db, model_id) or retraining_cancel_requested(db, model),
+                should_cancel=lambda: (
+                    cancel_requested(db, model_id) or retraining_cancel_requested(db, model)
+                ),
                 # The three steps inside the fit are the child's to name, so the
                 # worker republishes them rather than guessing at the boundaries.
                 on_poll=lambda: _publish_progress(db, model, scratch, steps),
@@ -1955,7 +2144,9 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                 )
                 .first()
             )
-            model.is_champion = serving is None and not (model.params_json or {}).get("retraining_proposal")
+            model.is_champion = serving is None and not (model.params_json or {}).get(
+                "retraining_proposal"
+            )
             _register_version(model)
         else:
             _finalize(model, status=status, error=error)
@@ -2025,14 +2216,20 @@ def _register_version(model: MLModel) -> None:
             "agentium.skore_report_state": _report_state_uri(model) or "",
             "agentium.family": model.family or TABULAR.key,
             "agentium.runtime": (model.runtime_json or {}).get("runtime") or "",
-            "agentium.runtime.image_revision": (model.runtime_json or {}).get("image_revision") or "",
+            "agentium.runtime.image_revision": (model.runtime_json or {}).get("image_revision")
+            or "",
             "agentium.runtime.fingerprint": (model.runtime_json or {}).get("fingerprint") or "",
             **{
                 f"agentium.distillation.{key}": str(distillation[key])
                 for key in (
-                    "source_dataset_id", "reviewed_dataset_id", "decision_id", "evaluation",
-                    "llm_cost_basis", "inference_cost_basis",
-                ) if key in distillation
+                    "source_dataset_id",
+                    "reviewed_dataset_id",
+                    "decision_id",
+                    "evaluation",
+                    "llm_cost_basis",
+                    "inference_cost_basis",
+                )
+                if key in distillation
             },
         },
     )
@@ -2042,9 +2239,7 @@ def _register_version(model: MLModel) -> None:
     if model.is_champion:
         # The lineage had nothing serving, so this version is what answers —
         # the alias has to say the same thing the row does.
-        ml_registry.set_alias(
-            model_name=model.mlflow_model_name, version=published["version"]
-        )
+        ml_registry.set_alias(model_name=model.mlflow_model_name, version=published["version"])
 
 
 def _apply_summary(model: MLModel, summary: dict[str, Any]) -> None:
@@ -2069,8 +2264,10 @@ def _apply_summary(model: MLModel, summary: dict[str, Any]) -> None:
         algo = ALGO_BY_KEY[model.algo]
         knobs = algo.resolve(best["knobs"])
         model.params_json = {
-            **(model.params_json or {}), "knobs": knobs,
-            "estimator_params": estimator_params(algo, model.task, knobs), "tuned": True,
+            **(model.params_json or {}),
+            "knobs": knobs,
+            "estimator_params": estimator_params(algo, model.task, knobs),
+            "tuned": True,
         }
     model.metrics_json = metrics
     model.signature_json = dict(summary.get("signature") or {})

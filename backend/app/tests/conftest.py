@@ -4,6 +4,7 @@ An explicitly supplied external DB is accepted only with a destructive-reset
 acknowledgement and a test-shaped database name.  This check runs before any
 application import can bind the engine or clear runtime tables.
 """
+
 from __future__ import annotations
 
 import os
@@ -147,6 +148,13 @@ def db_session():
 
     # Order matters for FK constraints.
     _TRUNCATE_ORDER = [
+        "hub_import_requests",
+        "hub_import_reservations",
+        "hub_artifact_usages",
+        "hub_artifact_grants",
+        "hf_license_exceptions",
+        "hf_license_acceptances",
+        "hf_platform_config",
         "claim_actions",
         "claim_trials",
         "brd_proposals",
@@ -177,6 +185,7 @@ def db_session():
         "knowledge_table_facts",
         "knowledge_guides",
         "knowledge_collections",
+        "hub_artifacts",
         "workspace_map_scores",
         "workspace_map_signals",
         "workspace_map_zones",

@@ -1,4 +1,5 @@
 """Celery application for Agentium worker tasks."""
+
 from __future__ import annotations
 
 from celery import Celery
@@ -26,14 +27,30 @@ celery_app = configure(
         "agentium",
         broker=settings.celery_broker_url,
         backend=settings.celery_result_backend,
-        include=["app.workers.tasks"],
+        include=["app.workers.tasks", "app.workers.hf_datasets"],
     )
 )
 
+celery_app.conf.task_routes = {
+    "agentium.hf_import": {"queue": "hub_fetch"},
+    "agentium.hf_materialize_cache": {"queue": "hub_fetch"},
+    "agentium.hf_cleanup_temporary": {"queue": "hub_fetch"},
+    "agentium.hf_recover": {"queue": "hub_fetch"},
+    "agentium.hf_purge_artifact": {"queue": "hub_fetch"},
+    "agentium.hf_drain_revoked": {"queue": "hub_fetch"},
+    "agentium.hf_bundle_import": {"queue": "hub_fetch"},
+    "agentium.hf_bundle_export": {"queue": "hub_fetch"},
+    "agentium.hf_dataset_materialize": {"queue": settings.celery_task_default_queue},
+}
+
 
 celery_app.conf.beat_schedule = {
+    "hf-import-recovery-60s": {
+        "task": "agentium.hf_recover",
+        "schedule": 60.0,
+        "options": {"queue": "hub_fetch"},
+    },
     "ml-retraining-recovery-60s": {"task": "agentium.ml_retraining_recovery", "schedule": 60.0},
-
     "ml-shadow-recovery-30s": {
         "task": "agentium.ml_shadow_recover",
         "schedule": 30.0,
