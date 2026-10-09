@@ -27,3 +27,15 @@ test('forbidden configuration propagates the server refusal', async () => {
   response.error(new HttpErrorResponse({ status: 403, error: { detail: { code: 'ML_MONITORING_FORBIDDEN' } } }));
   await rejected;
 });
+
+
+test('actuals candidates request ready datasets before the server page limit', async () => {
+  const response = new Subject<unknown>(), requests: unknown[] = [];
+  const injector = Injector.create({providers:[ModelsService, {provide:HttpClient,useValue:{
+    get:(url:string, options:unknown)=>{requests.push({url,options});return response;},
+  }}]});
+  const pending=injector.get(ModelsService).forecastActualDatasets();
+  assert.deepEqual(requests,[{url:'/api/v1/datasets',options:{params:{status:'ready',limit:500}}}]);
+  const ready=[{id:'older-ready-actuals',status:'ready'}];
+  response.next({datasets:ready});response.complete();assert.equal(await pending,ready);
+});
