@@ -66,6 +66,8 @@ import {
   FORECASTING_TASK,
   draftFromSpec,
   forecastSpec,
+  forecastFieldsFor,
+  forecastDraftForFields,
   forecastTuningIssue,
   parseLags,
   withTimeColumn,
@@ -255,6 +257,7 @@ export interface TrainSeed {
                   [columns]="columns()"
                   [target]="target()"
                   [algo]="algoKey()"
+                  [fields]="forecastFields()"
                   [refusal]="refusalFor('spec')"
                   (draftChange)="patchDraft($event)"
                 />
@@ -924,15 +927,15 @@ export class ModelTrainComponent implements OnInit {
   );
 
   protected readonly forecastFields = computed(() =>
-    this.catalog().families?.find((family) => family.key === FORECASTING_TASK)?.spec_fields ?? [],
+    forecastFieldsFor(this.catalog(), this.algoKey()),
   );
   protected readonly tuningIssue = computed(() => forecastTuningIssue(this.draft(), this.algoKey(), this.forecastFields()));
-  protected readonly lagsInvalid = computed(() => parseLags(this.draft().lags) === null);
+  protected readonly lagsInvalid = computed(() =>
+    this.forecastFields().some((field) => field.key === 'lags') && parseLags(this.draft().lags) === null);
 
   /** The ceiling the forecasting family declares for its horizon. */
   protected readonly horizonMax = computed(() => {
-    const family = this.catalog().families?.find((entry) => entry.key === FORECASTING_TASK);
-    return family?.spec_fields.find((field) => field.key === 'horizon')?.max ?? 720;
+    return this.forecastFields().find((field) => field.key === 'horizon')?.max ?? 720;
   });
 
   protected readonly canSubmit = computed(
@@ -1019,6 +1022,7 @@ export class ModelTrainComponent implements OnInit {
   }
 
   protected onAlgoChange(key: string): void {
+    if (this.isForecasting()) this.forecastDraft.set(forecastDraftForFields(this.draft(), forecastFieldsFor(this.catalog(), key)));
     this.algoKey.set(key);
     this.knobOverrides.set({});
     this.schedulePlan();

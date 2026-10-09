@@ -852,6 +852,9 @@ export interface MetricDescriptor {
 
 export interface AlgoDescriptor {
   key: string;
+  family?: string;
+  available?: boolean;
+  reason?: string;
   tasks: ModelTask[];
   estimators: Record<string, string>;
   scale: boolean;
@@ -1478,7 +1481,7 @@ export function algosForTask(
   catalog: ModelCatalog | null | undefined,
   task: ModelTask,
 ): AlgoDescriptor[] {
-  return (catalog?.algos ?? []).filter((algo) => algo.tasks.includes(task));
+  return (catalog?.algos ?? []).filter((algo) => algo.tasks.includes(task) && algo.available !== false);
 }
 
 /**
