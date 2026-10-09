@@ -50,3 +50,6 @@ réconcilier le catalogue pour actualiser les descriptions des deux Skills.
 - 16 parcours navigateur passent : 12 régressions tabulaires et quatre parcours
   de revue des prévisions FR/EN, approbation, lecture seule et refus.
 - La revue indépendante ne relève aucun blocage de provenance, droits ou routage.
+- La qualification d’intégration finale passe 109 tests backend, ainsi que
+  18 tests frontend ciblés. I18n, contrôles UI et navigation passent.
+- Le build production unique passe, avec les avertissements préexistants.
