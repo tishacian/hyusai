@@ -66,7 +66,11 @@ AGENTIUM_HF_BUNDLE_KEYS_PATH=/srv/agentium-data/hf-bundle-keys
 Partir de `docker/env/huggingface-worker.env.example` pour le fichier du
 worker ; le conserver hors Git avec des permissions `0600`. Fournir la base,
 le broker, l'endpoint/bucket MinIO, la clé Fernet identique à celle de l'API
-et une identité S3 dédiée. `AGENTIUM_ENV_FILE` reste l'environnement applicatif
+et une identité S3 dédiée. Le drain et la purge contactent les nœuds de
+service : fournir aussi `LLM_PORTAL_FERNET_KEY`, avec la valeur qui chiffre
+leurs jetons dans l'API (`HANA_CONNECTOR_FERNET_KEY` lorsque la première
+n'y est pas définie). Sans elle, une révocation ne peut pas arrêter un
+déploiement distant. `AGENTIUM_ENV_FILE` reste l'environnement applicatif
 habituel ; il ne doit jamais contenir les secrets du writer Hub.
 
 Le lanceur VM ajoute l'overlay lorsque `AGENTIUM_HUGGINGFACE=1`. Pour un

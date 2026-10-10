@@ -34,6 +34,28 @@ def test_parse_serving_nodes_json():
     assert nodes[0].token == "s3cret"
 
 
+def test_undecryptable_node_token_yields_tokenless_node(monkeypatch):
+    from cryptography.fernet import Fernet
+
+    from app.services.model_plane import workspace_config
+
+    monkeypatch.setenv("LLM_PORTAL_FERNET_KEY", Fernet.generate_key().decode())
+    blob = workspace_config.encrypt_secret("node-token")
+    monkeypatch.setenv("LLM_PORTAL_FERNET_KEY", Fernet.generate_key().decode())
+    workspace = SimpleNamespace(
+        settings={
+            "llm_portal": {
+                "serving_nodes": [
+                    {"name": "gpu", "base_url": "http://node", "token_encrypted": blob}
+                ]
+            }
+        }
+    )
+    assert workspace_config.list_serving_node_configs(workspace) == [
+        {"name": "gpu", "base_url": "http://node", "token": ""}
+    ]
+
+
 def test_auth_headers_align_with_llm_portal():
     headers = serving_nodes_mod._auth_headers("tok-abc")
     assert headers["Authorization"] == "Bearer tok-abc"

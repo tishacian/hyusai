@@ -9,17 +9,18 @@ from __future__ import annotations
 
 import base64
 import json
-import logging
 import os
 from typing import TYPE_CHECKING, Any, Mapping, Optional
 
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.core.logging import get_logger
+
 if TYPE_CHECKING:
     from app.models.workspace import Workspace
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 ENV_MASTER_KEY = "LLM_PORTAL_FERNET_KEY"
 ENV_MASTER_KEY_FALLBACK = "HANA_CONNECTOR_FERNET_KEY"
@@ -83,10 +84,8 @@ def encrypt_secret(plaintext: str) -> str:
     fernet = _fernet_from_env()
     if fernet is None:
         logger.warning(
-            "%s not set; persisting LLM portal secret in PLAINTEXT envelope. "
-            "Set %s before production.",
-            ENV_MASTER_KEY,
-            ENV_MASTER_KEY,
+            "Persisting LLM portal secret in a PLAINTEXT envelope; set the key before production",
+            key=ENV_MASTER_KEY,
         )
         return json.dumps(
             {
