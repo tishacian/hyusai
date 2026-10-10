@@ -23,6 +23,8 @@ _CDN_HOSTS = frozenset(
         "cas-bridge.xethub.hf.co",
     }
 )
+# Regional CloudFront hosts, e.g. us.aws.cdn.hf.co.
+_CDN_SUFFIX = ".cdn.hf.co"
 
 
 def _trusted_download_url(url: str, endpoint: str) -> bool:
@@ -40,13 +42,17 @@ def _trusted_download_url(url: str, endpoint: str) -> bool:
             return False
         if (parsed.scheme, parsed.netloc) == (origin.scheme, origin.netloc):
             return True
-        allowed = set(_CDN_HOSTS) if endpoint == "https://huggingface.co" else set()
+        public_hub = endpoint == "https://huggingface.co"
+        allowed = set(_CDN_HOSTS) if public_hub else set()
         allowed.update(
             host.strip().lower()
             for host in os.getenv("HF_ALLOWED_DOWNLOAD_HOSTS", "").split(",")
             if host.strip()
         )
-        return parsed.port in (None, 443) and parsed.hostname.lower() in allowed
+        host = parsed.hostname.lower()
+        return parsed.port in (None, 443) and (
+            host in allowed or (public_hub and host.endswith(_CDN_SUFFIX))
+        )
     except ValueError:
         return False
 

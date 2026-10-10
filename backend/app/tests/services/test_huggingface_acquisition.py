@@ -154,15 +154,16 @@ def test_recovery_cleans_only_abandoned_temporary_sources(store, tmp_path):
     assert not store.exists("hub/tmp/expired/data")
 
 
-def test_hub_download_strips_token_at_cdn_and_pins_sha():
+@pytest.mark.parametrize(
+    "cdn", ["https://cdn-lfs.huggingface.co/signed", "https://us.aws.cdn.hf.co/signed"]
+)
+def test_hub_download_strips_token_at_cdn_and_pins_sha(cdn):
     requests = []
 
     def respond(request):
         requests.append(request)
         if len(requests) == 1:
-            return httpx.Response(
-                302, headers={"location": "https://cdn-lfs.huggingface.co/signed"}
-            )
+            return httpx.Response(302, headers={"location": cdn})
         return httpx.Response(200, content=b"model")
 
     client = HFClient(Connection(token="private-token"), transport=httpx.MockTransport(respond))
@@ -189,6 +190,8 @@ def test_hub_download_strips_token_at_cdn_and_pins_sha():
         "https://cdn-lfs.huggingface.co.evil.example/model",
         "https://user:pass@cdn-lfs.huggingface.co/file",
         "https://cdn-lfs.huggingface.co:8443/model",
+        "https://cdn.hf.co.evil.example/model",
+        "https://evilcdn.hf.co/model",
     ],
 )
 def test_download_rejects_untrusted_redirect_before_sending_request(url):
