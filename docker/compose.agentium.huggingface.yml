@@ -74,6 +74,7 @@ services:
         bind:
           create_host_path: false
   agentium-hub-fetch:
+    container_name: agentium-hub-fetch
     image: agentium-hub-fetch:${AGENTIUM_IMAGE_TAG:-local}
     build:
       context: ..
