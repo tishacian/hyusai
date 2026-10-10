@@ -14,7 +14,7 @@ importés. Agentium refuse les nœuds incompatibles avant tout transfert.
 | HF-2 | Registre et manifestes v2, import asynchrone, empreintes, quotas réservés, reprise, révocation, dataset et Flow | IAM MinIO et transferts sur la VM |
 | HF-3a | Cache vérifié, activation avec chargement et inférence réels, adaptateurs ML, maintien des manifestes v1 | Image `ml-deep` qualifiée et modèle Chronos sur la VM |
 | HF-3b | Embeddings par collection, réindexation et bascule atomique, rerankers ONNX/torch | Réindexation Qdrant sur les collections de démo |
-| HF-4 | Déploiement idempotent, capacités, provenance, renouvellement des URL, état et arrêt | Implémentation du protocole et recette vLLM/llama.cpp dans le service externe |
+| HF-4 | Déploiement idempotent, capacités, provenance, renouvellement des URL, état et arrêt | Recette réelle passée (vLLM et llama.cpp) ; restent un dépôt gated, une URL expirée en cours de transfert et deux déploiements concurrents ([note HF-4](agentium-huggingface-hf4-handoff.md)) |
 | HF-5 | Bundles signés, import sans Hub, consentement hors ligne, purge après libération | Clés Ed25519, suppression des versions MinIO, libération des copies sur les nœuds |
 
 Les datasets doivent fournir des fichiers Parquet dans le commit demandé.
@@ -137,6 +137,27 @@ pour leur signature doit être joignable depuis les nœuds via réseau privé ou
 proxy dédié, avec le même hôte que dans la signature. Les secrets HF restent
 dans Agentium. Les dépôts privés et gated nécessitent un jeton propre au
 workspace : le jeton plateforme ne sert pas de preuve d'accès pour eux.
+
+### Nœud joint par tunnel SSH
+
+Lorsqu'Agentium ne peut pas joindre le nœud, le service `agentium-tunnel` du
+portail (profil Compose `agentium-tunnel`) ouvre une seule session SSH sortante
+vers la VM :
+
+- `-R 172.18.0.1:18090:admin-backend:8080` publie le contrôle du nœud sur la
+  passerelle du réseau `agentium-net` ; Agentium déclare le nœud avec
+  `base_url` `http://172.18.0.1:18090` et son jeton chiffré ;
+- `-L 0.0.0.0:9000:127.0.0.1:9000` amène MinIO sur le nœud, sous l'alias réseau
+  `agentium-minio` : les URL présignées gardent l'hôte de leur signature.
+
+Sur la VM, l'utilisateur `agentium-tunnel` n'a ni shell ni mot de passe. Un bloc
+`Match User agentium-tunnel`, en fin de `sshd_config`, et les options de sa clé
+limitent la session à ces deux redirections (`PermitListen`, `PermitOpen`,
+`GatewayPorts clientspecified`, `PermitTTY no`, `ForceCommand /bin/false`).
+Valider avec `sshd -t` et comparer `sshd -T` des autres comptes avant le
+rechargement. Le nœud vérifie la clé d'hôte de la VM (`StrictHostKeyChecking`).
+Avec `ARTIFACT_HUB_NETWORK_ACCESS=false`, le nœud n'accède pas au Hub et
+Agentium lui fournit toujours des sources MinIO.
 
 L'endpoint Hub officiel est autorisé par défaut. Ajouter les éventuels Hubs
 d'entreprise à `HF_ALLOWED_ENDPOINTS` dans l'API et les workers concernés.

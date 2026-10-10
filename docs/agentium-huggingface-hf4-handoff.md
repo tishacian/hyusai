@@ -1,9 +1,11 @@
 # HF-4 — note de reprise pour un agent ayant accès aux nœuds LLM
 
-État au 9 octobre 2026 : **implémentation externe inaccessible et non vérifiée**,
-à confirmer ou compléter dans le dépôt des nœuds.
-Cette note répond à la demande de laisser une reprise exploitable lorsque
-le dépôt `omnirag-llm-portal` n'est pas accessible.
+État au 10 octobre 2026 : **protocole implémenté dans `omnirag-llm-portal` et
+recette réelle passée sur aigrid-vm**, à l'exception de trois points listés
+dans [Résultat de la reprise](#résultat-de-la-reprise-9-10-octobre-2026).
+HF-4 n'est pas encore marqué terminé dans la roadmap.
+Les sections suivantes décrivent la demande initiale, rédigée lorsque le dépôt
+`omnirag-llm-portal` n'était pas accessible.
 
 ## Point de départ et blocage
 
@@ -130,3 +132,72 @@ La qualification MinIO réelle reste aussi à faire : l'environnement précéden
 ne pouvait pas télécharger ses images de test. Consigner séparément tests
 locaux, tests d'interopérabilité et recette réelle, avec commits et versions
 des deux services. Ne marquer HF-4 terminé dans la roadmap qu'après cette recette.
+
+## Résultat de la reprise (9-10 octobre 2026)
+
+### Versions
+
+| Service | Branche | Commits |
+| --- | --- | --- |
+| `omnirag-llm-portal` | `initial_version` | `101132a` protocole v1 et runtimes isolés ; `7b49050` tunnel SSH sortant |
+| Agentium | `demo/agentic` | `e20910d2` inférence par le relais authentifié du nœud ; `23f9d3b9`, `aefb83e0`, `75edb545`, `a3bbbf69`, `f5773fff` correctifs trouvés pendant la recette |
+
+Runtimes du nœud : vLLM 0.12.0 (GPU) et llama.cpp `b10524` (CPU). Agentium
+déployé sur la VM de démo en `f5773fff`, avec l'overlay Hugging Face.
+
+### Points d'interopérabilité
+
+- **Transport d'inférence.** Le nœud expose un relais authentifié par
+  déploiement, `/api/v1/artifacts/deployments/{id}/v1`, protégé par son jeton
+  de contrôle. Agentium construit et revérifie cette route
+  (`registration.route_base_url`) ; les runtimes restent sur un réseau Docker
+  interne sans port publié.
+- **Inventaire.** Les instances d'artefact exposent `artifact_id`,
+  `workspace_id`, `deployment_id`, `repo_id`, `revision`, `variant` et
+  `runtime_version` au premier niveau, en plus de `provenance`.
+
+### Tests locaux
+
+- Portail : 20 tests du protocole (`tests/test_artifacts.py`).
+- Agentium : tests des nœuds, du registre, du cycle de vie, des acquisitions et
+  du plan de modèles, complétés par les régressions des correctifs ci-dessous.
+
+### Interopérabilité : client Agentium contre le vrai serveur
+
+Exécutée depuis un poste avec tunnel vers le nœud :
+
+- llama.cpp CPU, 22/22 : refus non authentifiés et capacités insuffisantes,
+  empreinte, taille, fichier manquant, traversée de chemin et redirection
+  interdite sans démarrage, rejeu idempotent et 409, inférence réelle, poids
+  en lecture seule, réseau interne seul, mode hors ligne, aucun jeton HF,
+  aucune sortie réseau, drain, arrêt et reçu de purge rejouable ;
+- vLLM GPU, 14/14 : même cycle ; la mémoire GPU revient à son niveau initial ;
+- résilience, 7/7 : redémarrage du portail pendant la préparation, runtime prêt
+  conservé après redémarrage, drain d'un stream actif avant `stopped`.
+
+### Recette réelle de bout en bout
+
+Exécutée dans le conteneur API d'Agentium sur la VM, à travers les routes
+`/api/v1/huggingface` : base, MinIO, worker `hub-fetch` et nœud réels ; seule
+l'identité Keycloak d'un administrateur est injectée. Le nœud est joint par le
+tunnel décrit dans le [guide d'exploitation](huggingface-operations.md#nœud-joint-par-tunnel-ssh)
+et annonce `hub_network_access: false` : les poids transitent par MinIO.
+
+| Parcours | Résultat |
+| --- | --- |
+| Qwen2.5-0.5B-Instruct, safetensors, vLLM GPU | 13/18 au premier passage : import, MinIO, déploiement, renouvellement d'URL, inférence « Paris », refus après révocation corrects ; drain et purge en échec (clé du jeton de nœud absente de `hub-fetch`, corrigé en `f5773fff`) ; purge relancée ensuite, 5/5 |
+| Qwen2.5-0.5B-Instruct GGUF, llama.cpp CPU | 18/18 : import par `hub-fetch` au commit figé, poids sous `hub/blobs`, transfert MinIO par le tunnel avec renouvellement d'URL pendant la préparation, route via le relais, inférence par le runtime de modèles, révocation du grant (inférence et renouvellement refusés en `HF_ACCESS_REVOKED`), drain automatique jusqu'à `stopped`, révocation plateforme, purge des objets MinIO et de la copie du nœud confirmée |
+
+Correctifs issus de la recette : politique MinIO `hub-fetch` installable,
+nom du conteneur `agentium-hub-fetch` contrôlé par le guard de stockage,
+métadonnées Hub gzip décodées une seule fois, hôtes CDN régionaux
+`*.cdn.hf.co`, et journal structuré dans `workspace_config`.
+
+### Restant avant de marquer HF-4 terminé
+
+1. Dépôt gated via MinIO : demande un jeton Hugging Face propre au workspace.
+2. Expiration effective d'une URL signée pendant un transfert, puis reprise
+   par renouvellement : seul le renouvellement pendant la préparation a été
+   exercé.
+3. Deux déploiements concurrents sur le nœud réel : l'admission sous verrou
+   n'est couverte que par les tests du portail.

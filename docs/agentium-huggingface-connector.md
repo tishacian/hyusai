@@ -3,13 +3,13 @@
 Statut : implémentation Agentium livrée, recette d'environnement restante.
 Les arbitrages du §11 et les contrats ci-dessous restent la référence.
 Le [guide d'exploitation](huggingface-operations.md) détaille les parcours
-livrés, le déploiement et les limites vérifiées. La prise en charge du protocole
-HF-4 par le service externe des nœuds LLM reste à vérifier et, si nécessaire,
-à compléter ; les critères de recette du §12 conditionnent la validation de
-chaque lot sur la VM.
+livrés, le déploiement et les limites vérifiées. Le service externe des nœuds
+LLM implémente le protocole HF-4, et sa recette réelle est passée sur un nœud
+GPU ; trois cas restent à exercer avant de marquer le lot terminé. Les critères
+de recette du §12 conditionnent la validation de chaque lot sur la VM.
 
-La [note de reprise HF-4](agentium-huggingface-hf4-handoff.md) rassemble les
-travaux à effectuer par un agent ayant accès au service des nœuds LLM.
+La [note de reprise HF-4](agentium-huggingface-hf4-handoff.md) consigne les
+versions des deux services, les résultats de recette et les cas restants.
 
 ## 1. Objectif
 
