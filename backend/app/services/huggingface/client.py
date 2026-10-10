@@ -119,9 +119,16 @@ class HFClient:
                                 "The Hub response exceeds the metadata limit.",
                                 413,
                             )
+                    # iter_bytes already decoded the body: keep its encoding
+                    # headers and httpx decodes it a second time.
+                    headers = [
+                        (key, value)
+                        for key, value in response.headers.multi_items()
+                        if key.lower() not in {"content-encoding", "content-length"}
+                    ]
                     return httpx.Response(
                         status,
-                        headers=response.headers,
+                        headers=headers,
                         content=bytes(body),
                         request=response.request,
                     )

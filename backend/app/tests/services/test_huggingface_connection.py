@@ -1,5 +1,6 @@
 """Hub connections, immutable metadata and license gates: no live HTTP."""
 
+import gzip
 import json
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -139,6 +140,19 @@ def test_metadata_uses_resolved_sha_and_distinguishes_git_lfs_hashes():
         "sha256",
     ]
     assert all(request.headers["Authorization"] == "Bearer " + SECRET for request in seen)
+
+
+def test_gzip_metadata_is_decoded_once():
+    def handler(request):
+        if "/revision/" in request.url.path:
+            body = json.dumps({"id": "acme/model", "sha": SHA}).encode()
+            return httpx.Response(
+                200, headers={"Content-Encoding": "gzip"}, content=gzip.compress(body)
+            )
+        return httpx.Response(200, json=[])
+
+    client = HFClient(Connection(), transport=httpx.MockTransport(handler))
+    assert client.repo_info("model", "acme/model", "main")["revision"] == SHA
 
 
 @pytest.mark.parametrize(
