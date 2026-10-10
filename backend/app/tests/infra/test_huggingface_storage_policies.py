@@ -32,6 +32,10 @@ def test_role_policies_preserve_writer_boundary_and_versioned_deletion():
         for resource in row["Resource"]
     )
     assert any("s3:DeleteObjectVersion" in row["Action"] for row in writer)
+    assert all(
+        "s3:ListBucketMultipartUploads" not in row["Action"] or "Condition" not in row
+        for row in writer
+    )
     purge = policies["tabular-purge"]["Statement"]
     assert all(
         "/workspaces/*/tabular/hub-artifacts/*" in resource

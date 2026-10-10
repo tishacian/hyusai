@@ -31,16 +31,19 @@ def policies(bucket: str) -> dict:
 
     location = statement(["s3:GetBucketLocation"], [""])
     list_hub = statement(
-        ["s3:ListBucket", "s3:ListBucketVersions", "s3:ListBucketMultipartUploads"],
+        ["s3:ListBucket", "s3:ListBucketVersions"],
         [""],
         condition={"StringLike": {"s3:prefix": ["hub/", "hub/*"]}},
     )
+    # MinIO rejects s3:prefix on this action; aborting stays limited to hub/*.
+    list_uploads = statement(["s3:ListBucketMultipartUploads"], [""])
     return {
         "hub-fetch": {
             "Version": "2012-10-17",
             "Statement": [
                 location,
                 list_hub,
+                list_uploads,
                 statement(
                     [
                         "s3:GetObject",
