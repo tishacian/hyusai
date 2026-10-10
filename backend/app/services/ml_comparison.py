@@ -33,6 +33,7 @@ deliberate: refusing would make the interesting comparison — a Flow-trained
 version against the baseline it is meant to beat — impossible, and a silent
 answer would be worse than either.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -40,6 +41,7 @@ from typing import Any
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.tabular import MLModel, TabularDataset
+from app.resources.ml_skore_adapter import comparison_metrics
 from app.services.tabular_datasets import TabularError, read_frame
 
 logger = get_logger(__name__)
@@ -63,9 +65,7 @@ def _features(model: MLModel) -> list[str]:
     return [str(name) for name in (model.features or [])]
 
 
-def _pick_dataset(
-    db, *, left: MLModel, right: MLModel
-) -> tuple[TabularDataset, list[str]]:
+def _pick_dataset(db, *, left: MLModel, right: MLModel) -> tuple[TabularDataset, list[str]]:
     """The dataset that can host both models, and the columns it would be missing.
 
     Prefers the *right* (newer) model's dataset, because the split is
@@ -78,11 +78,7 @@ def _pick_dataset(
     for candidate_id in (right.dataset_id, left.dataset_id):
         if not candidate_id:
             continue
-        dataset = (
-            db.query(TabularDataset)
-            .filter(TabularDataset.id == candidate_id)
-            .first()
-        )
+        dataset = db.query(TabularDataset).filter(TabularDataset.id == candidate_id).first()
         if dataset is None or dataset.status != "ready":
             continue
         held = {
@@ -176,8 +172,7 @@ def compare(db, *, left: MLModel, right: MLModel) -> dict[str, Any]:
         raise TabularError(
             code="ML_COMPARE_DIFFERENT_QUESTION",
             message=(
-                "These versions do not answer the same question, so one table "
-                "cannot rank them."
+                "These versions do not answer the same question, so one table cannot rank them."
             ),
             status_code=409,
             details={
@@ -230,13 +225,11 @@ def compare(db, *, left: MLModel, right: MLModel) -> dict[str, Any]:
             names[left.id]: _report(left, holdout, target=target),
             names[right.id]: _report(right, holdout, target=target),
         }
-        table = ComparisonReport(reports).metrics.summarize().frame()
+        rows = comparison_metrics(ComparisonReport(reports).metrics.summarize(), names=names)
     except TabularError:
         raise
     except Exception as exc:  # noqa: BLE001 - one code for "these two do not line up"
-        logger.warning(
-            "ml_comparison: failed", left=left.id, right=right.id, error=str(exc)[:200]
-        )
+        logger.warning("ml_comparison: failed", left=left.id, right=right.id, error=str(exc)[:200])
         raise TabularError(
             code="ML_COMPARE_FAILED",
             message="These two versions could not be scored on the same rows.",
@@ -244,26 +237,12 @@ def compare(db, *, left: MLModel, right: MLModel) -> dict[str, Any]:
             details={"reason": str(exc)[:200]},
         ) from exc
 
-    rows = []
-    for metric in table.index:
-        if str(metric).endswith("_time"):
-            # A predict timing is a property of this machine, not of the model.
-            continue
-        entry = {"key": str(metric)}
-        for model_id, name in names.items():
-            if name in table.columns:
-                value = table.loc[metric, name]
-                entry[model_id] = None if value is None else float(value)
-        rows.append(entry)
-
     warnings: list[dict[str, str]] = []
     for model in (left, right):
         if model.dataset_id and model.dataset_id != dataset.id:
             # Some of these rows may have been in that model's training set, so
             # its column can read better than it would on unseen data.
-            warnings.append(
-                {"code": "TRAINED_ON_ANOTHER_DATASET", "model_id": model.id}
-            )
+            warnings.append({"code": "TRAINED_ON_ANOTHER_DATASET", "model_id": model.id})
         elif float(model.test_size or 0.25) != test_size:
             warnings.append({"code": "DIFFERENT_SPLIT_SIZE", "model_id": model.id})
 
