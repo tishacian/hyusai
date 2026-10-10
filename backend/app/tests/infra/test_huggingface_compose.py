@@ -74,5 +74,7 @@ def test_hub_writer_and_offline_readers_have_separate_mounts_and_credentials(tmp
             assert not mounts["/data/hub-bundles"].get("read_only", False)
     assert services["agentium-hub-fetch"]["environment"]["CELERY_QUEUES"] == "hub_fetch"
     assert services["agentium-hub-fetch"]["environment"]["CELERY_BEAT"] == "0"
+    # The VM storage runtime check inspects the writer by this exact name.
+    assert services["agentium-hub-fetch"]["container_name"] == "agentium-hub-fetch"
     for name in ("agentium-backend", "agentium-migrate", "agentium-worker-cpu"):
         assert services[name]["build"]["args"]["INSTALL_HF_RAG"] == "1"
