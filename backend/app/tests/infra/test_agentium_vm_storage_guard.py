@@ -158,6 +158,9 @@ def _compose_model() -> dict:
     model["services"]["agentium-worker-recipes"] = deepcopy(
         model["services"]["agentium-worker-cpu"]
     )
+    model["services"]["agentium-worker-dataops"] = deepcopy(
+        model["services"]["agentium-worker-cpu"]
+    )
     return model
 
 
@@ -848,7 +851,8 @@ def test_launcher_scrubs_shell_and_gates_only_closed_application_commands() -> N
     assert re.match(
         r"\s*storage_check\s*(?:;|\n)\s*"
         r"compose up -d --no-build --no-deps --pull never "
-        r"agentium-worker-recipes agentium-backend agentium-worker-cpu agentium-frontend\b",
+        r"agentium-worker-recipes agentium-worker-dataops agentium-backend agentium-worker-cpu "
+        r"agentium-frontend\b",
         _shell_case(script, "up"),
     )
     for stateful in ("agentium-pg", "agentium-minio", "agentium-qdrant", "agentium-rabbitmq"):
@@ -907,11 +911,12 @@ def test_launcher_compose_gateway_drops_ambient_storage_pollution(tmp_path: Path
     ]
 
 
-def test_dedicated_recipe_consumer_storage_is_checked_when_present():
+@pytest.mark.parametrize("pool", ["agentium-worker-recipes", "agentium-worker-dataops"])
+def test_dedicated_recipe_consumer_storage_is_checked_when_present(pool):
     module = _module()
     containers = _active_containers()
     recipe = deepcopy(next(row for row in containers if row["Name"] == "/agentium-worker-cpu"))
-    recipe["Name"] = "/agentium-worker-recipes"
+    recipe["Name"] = f"/{pool}"
     containers.append(recipe)
     module.assert_vm_active_storage_mounts(containers)
     next(m for m in recipe["Mounts"] if m["Destination"] == "/data/recipe_envs")["Source"] = (
