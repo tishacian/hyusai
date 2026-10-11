@@ -97,6 +97,10 @@ confiance et versions exactes. Les archives skops sont aussi bornées après
 décompression. La liste de types déclarée par l'artefact n'élargit jamais la
 politique du lecteur. Les exceptions cloudpickle/joblib existantes restent
 explicites et protégées par l'intégrité et la provenance du producteur.
+Le scoring shadow reçoit lui aussi l'ancre du registre et applique ce lecteur,
+avec son plafond propre de 256 Mio vérifié avant toute copie. Les intentions
+shadow historiques sans cette identité sont annulées explicitement ; aucune
+ancre n'est reconstruite à partir des fichiers téléchargés.
 
 La [qualification croisée](evidence/probabl-skops-compatibility.json) ne permet
 **pas** une migration générale 0.14.0 → 0.16.0 : deux exports sur huit passent
@@ -134,6 +138,10 @@ plus stricts. La mémoire du conteneur reste la borne ultime des allocations.
 Le lecteur borne aussi le nombre de threads du profil enregistré par
 `OMP_NUM_THREADS` du worker courant ; un entraînement à deux threads peut ainsi
 être rechargé sur un worker limité à un thread sans élargir cette enveloppe.
+Le profil d'artefact `tabicl-json-safetensors-v2` distingue ce code embarqué :
+les exports pilotes `v1` sont refusés avant chargement et doivent être régénérés,
+même si leurs versions de dépendances correspondent. Les smokes historiques
+restent des preuves de l'ancien environnement, sans admission rétroactive.
 Pas de promotion automatique, de champion de repli, de surveillance planifiée
 ou de réentraînement automatique pour cette famille expérimentale.
 
@@ -183,6 +191,7 @@ TabICL utilisent le runtime optionnel CPU décrit dans la preuve hors réseau.
 | Périmètre | Résultat et portée |
 | --- | --- |
 | Artefacts | 27 tests dans chacun des deux runtimes, puis 11 contrôles complémentaires dans le candidat ; refus avant désérialisation, quotas, chemins, types, versions et cache. |
+| Shadow et profils embarqués | 31 tests de service/API et six tests shadow réels passent après raccordement au lecteur commun ; quatre gardes ciblées artefact/cache vérifient notamment le refus des exports TabICL v1 avant chargement. |
 | Serving existant | 132 succès initiaux ; fixture d'absence d'objet corrigée après durcissement du namespace, puis ses deux cas de refus/absence passent. |
 | Méthodes | 196/196 tests finaux dans le runtime candidat : méthodes/API/rollback, publication, alias, dispatch, droits, revue et retraining ; aucun skip. Les premiers passages 124/54/9 utilisaient le runtime de base. Corpus de 12 missions, sans mesure de productivité. |
 | Préparation | Neuf tests dans chacun des deux runtimes, six roundtrips réels par runtime ; les six tests combinés calibration/seuil/CV/tuning passent. |

@@ -269,6 +269,50 @@ def test_serving_gate_refuses_before_mlflow_deserialization(exported, monkeypatc
     assert not tabular_predict.drop_from_cache(model.id)
 
 
+@pytest.mark.parametrize("task", ["classification", "regression"])
+def test_tabicl_v1_export_is_refused_before_embedded_runtime_load(tmp_path, monkeypatch, task):
+    import shutil
+
+    from app.services import tabular_predict
+    from app.services.huggingface import adapters
+
+    root = tmp_path / "old-export"
+    root.mkdir()
+    (root / "MLmodel").write_text("flavors: {}")
+    artifact = build_artifact_contract(
+        root, family="tabular_foundation", serialization="json+safetensors"
+    )
+    assert artifact["trust_profile"] == "tabicl-json-safetensors-v2"
+    artifact["trust_profile"] = "tabicl-json-safetensors-v1"
+    model = SimpleNamespace(
+        id=f"tabicl-old-profile-{task}",
+        family="tabular_foundation",
+        task=task,
+        status="ready",
+        trained_at=None,
+        updated_at=None,
+        model_uri="model",
+        metrics_json={"artifact": artifact},
+    )
+    monkeypatch.setattr(settings, "ml_predict_enabled", True)
+    monkeypatch.setattr(settings, "ml_runtime", "ml-deep")
+    monkeypatch.setattr(adapters, "require_model_foundation", lambda _: None)
+    monkeypatch.setattr(
+        tabular_predict,
+        "download_model_dir",
+        lambda _, directory: shutil.copytree(root, directory, dirs_exist_ok=True),
+    )
+    monkeypatch.setattr(
+        tabular_predict,
+        "_load_mlflow_model",
+        lambda _: pytest.fail("old bundled code must not load"),
+    )
+    with pytest.raises(TabularError) as refused:
+        tabular_predict.load_pipeline_traced(model)
+    assert refused.value.code == "ML_ARTIFACT_UNVERIFIED"
+    assert not tabular_predict.drop_from_cache(model.id)
+
+
 @pytest.mark.parametrize(
     "escape", ["../outside.joblib", "/tmp/outside.joblib", "https://example.test/model"]
 )

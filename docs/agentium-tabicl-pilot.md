@@ -11,6 +11,12 @@ justifient aucune adoption métier.
 - TabICL **2.2.0**, torch **2.14.0+cpu**, CPU fixé, quatre threads maximum.
   Fit et reconstruction respectent aussi le plafond `OMP_NUM_THREADS` du worker
   (un thread en son absence), même si l'export provient d'un worker plus large.
+  Le profil d'artefact est désormais `tabicl-json-safetensors-v2`. Les exports
+  pilotes `v1` embarquent leur ancien code de reconstruction et sont refusés
+  avant chargement par le lecteur courant (`ML_ARTIFACT_UNVERIFIED`). Ils doivent
+  être régénérés avec ce producteur ; changer seulement leur manifeste ne
+  constitue pas une migration. L'ancien environnement peut être conservé pour
+  reproduire les smokes historiques, sans leur accorder l'admission courante.
 - Un estimateur d'ensemble ; deux profils déclarés : sans cache ou cache en
   mémoire. Aucun cache interne n'est sérialisé. Aucun fine-tuning, tuning libre,
   cross-validation automatique, explication SHAP ou intervalle de prédiction.
