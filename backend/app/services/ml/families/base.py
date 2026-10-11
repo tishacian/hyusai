@@ -32,6 +32,7 @@ from typing import Any, Callable
 from app.core.config import settings
 
 SPEC_FIELD_KINDS = (
+    "label",
     "column",
     "columns",
     "int",
@@ -80,6 +81,10 @@ class SpecField:
 
     def parse(self, value: Any) -> Any:
         kind = self.kind
+        if kind == "label":
+            if not isinstance(value, str) or not value or len(value) > 200:
+                raise SpecInvalid(self.key, "expected a target label of at most 200 characters")
+            return value
         if kind == "artifact":
             import re
 

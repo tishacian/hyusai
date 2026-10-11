@@ -7,7 +7,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { WorkspaceFetchService } from '@app/core/workspace-fetch.service';
 import { WorkspaceViewContext } from '@app/core/workspace-view-context';
-import { HubArtifact, HubConfig, HubJob, hubError } from './huggingface.models';
+import { HubArtifact, HubConfig, HubJob, hubError, hubErrorCode } from './huggingface.models';
 
 interface Deployment { deployment_id: string; artifact_id: string; state: string; node_name?: string; error_code?: string; }
 interface LifecycleJob { job_id: string; status: string; stage?: string; error_code?: string; download_available?: boolean; license?: { tag: string; text: string; digest: string }; }
@@ -30,6 +30,7 @@ export class HuggingfaceLifecycleComponent implements OnChanges, OnDestroy {
   private timer?: ReturnType<typeof setTimeout>;
   private downloadController?: AbortController;
   readonly error = signal('');
+  readonly errorCode = (code: string) => hubErrorCode(code, key => this.i18n.t(key));
   readonly busy = signal(false);
   readonly capabilities = signal<unknown>(null);
   readonly deployments = signal<Deployment[]>([]);
@@ -142,7 +143,7 @@ export class HuggingfaceLifecycleComponent implements OnChanges, OnDestroy {
     try {
       const apply = await action(request.scope);
       if (this.view.isCurrent(request)) apply();
-    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error)); }
+    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error, key => this.i18n.t(key))); }
     finally { if (this.view.isCurrent(request)) this.busy.set(false); }
   }
   private schedule(): void {
@@ -160,7 +161,7 @@ export class HuggingfaceLifecycleComponent implements OnChanges, OnDestroy {
       if (!this.view.isCurrent(request)) return;
       const completed = jobs.some(job => job.status === 'completed' && this.jobs().find(old => old.job_id === job.job_id)?.status !== 'completed');
       this.jobs.set(jobs.map(job => ({ ...this.jobs().find(old => old.job_id === job.job_id), ...job }))); this.deployments.set(deployments); if (completed) this.changed.emit(); this.schedule();
-    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error)); }
+    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error, key => this.i18n.t(key))); }
   }
   async download(job: LifecycleJob): Promise<void> {
     if (!this.config.can_configure || !job.download_available || this.downloadBusy()) return;
@@ -195,7 +196,7 @@ export class HuggingfaceLifecycleComponent implements OnChanges, OnDestroy {
         const anchor = document.createElement('a'); anchor.href = url; anchor.download = `huggingface-${job.job_id}.tar`; anchor.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
-    } catch (error) { if (this.view.isCurrent(request) && !(error instanceof DOMException && error.name === 'AbortError')) this.error.set(hubError(error)); }
+    } catch (error) { if (this.view.isCurrent(request) && !(error instanceof DOMException && error.name === 'AbortError')) this.error.set(hubError(error, key => this.i18n.t(key))); }
     finally { if (this.view.isCurrent(request)) { this.downloadBusy.set(false); this.downloadController = undefined; } }
   }
 }

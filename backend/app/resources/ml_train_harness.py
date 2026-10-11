@@ -32,10 +32,11 @@ Two things, and they are different in kind:
 * ``report_path`` — the skore report's own state, as ``to_dict()`` writes it.
   ``result.json`` is a *reading* of the evaluation, flattened for one card; this
   is the evaluation itself, carrying the split rows and the cached predictions,
-  so ``EstimatorReport.from_dict`` rebuilds it and answers a question we did not
+  so ``EstimatorReport.from_dict`` in a compatible Skore runtime rebuilds it
+  and answers a question we did not
   think to flatten — without refitting and, more importantly, without guessing
   which rows the published numbers came from. Optional by construction: it is
-  skipped above a row ceiling and never fails a fit.
+  skipped above a byte ceiling and never fails a fit.
 
 Every number in that read model comes from **skore**, the evaluation library the
 scikit-learn maintainers write. Not for the name: an ``EstimatorReport`` caches
@@ -65,6 +66,7 @@ ends and the scoring begins — so it appends those step names to
 polled row. A bare code, never a sentence: the surfaces reading it are French and
 English.
 """
+
 from __future__ import annotations
 
 import json
@@ -72,6 +74,7 @@ import math
 import os
 import sys
 import time
+from functools import lru_cache
 from pathlib import Path
 
 # Types the saved pipeline is allowed to reference. The estimator comes from our
@@ -219,12 +222,19 @@ def _conformal_quantiles(pipeline, x_train, y_train, *, folds: int, progress_pat
         raise ValueError("non-finite conformal residuals")
     n = len(residuals)
     return {
-        "method": "cv_conformal_abs", "folds": folds, "residual_rows": n,
+        "method": "cv_conformal_abs",
+        "folds": folds,
+        "residual_rows": n,
         "default_level": 0.9,
         "levels": [
-            {"level": level, "q": float(np.quantile(
-                residuals, min(1.0, math.ceil((n + 1) * level) / n), method="higher"
-            ))}
+            {
+                "level": level,
+                "q": float(
+                    np.quantile(
+                        residuals, min(1.0, math.ceil((n + 1) * level) / n), method="higher"
+                    )
+                ),
+            }
             for level in (0.8, 0.9, 0.95)
         ],
     }
@@ -234,11 +244,17 @@ def _interval_evidence(calibration: dict, predicted, y_test) -> dict:
     import numpy as np
 
     residuals = np.abs(np.asarray(y_test, dtype=float) - np.asarray(predicted, dtype=float))
-    return {**calibration, "levels": [
-        {**entry, "coverage": _number(np.mean(residuals <= entry["q"])),
-         "width": _number(2 * entry["q"])}
-        for entry in calibration["levels"]
-    ]}
+    return {
+        **calibration,
+        "levels": [
+            {
+                **entry,
+                "coverage": _number(np.mean(residuals <= entry["q"])),
+                "width": _number(2 * entry["q"]),
+            }
+            for entry in calibration["levels"]
+        ],
+    }
 
 
 def _number(value) -> float | None:
@@ -256,11 +272,7 @@ def _number(value) -> float | None:
 def _label(value) -> str:
     if value is None:
         return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, float) and value.is_integer():
-        return str(int(value))
-    return str(value)[:120]
+    return _classification_extensions().label_name(value)
 
 
 def _scalar(value):
@@ -331,9 +343,7 @@ def _input_contract(frame, signature_inputs: list[dict]) -> list[dict]:
             "type": str(declared.get("type") or "string"),
             "required": bool(declared.get("required", True)),
         }
-        if pd.api.types.is_numeric_dtype(column) and not pd.api.types.is_bool_dtype(
-            column
-        ):
+        if pd.api.types.is_numeric_dtype(column) and not pd.api.types.is_bool_dtype(column):
             field["kind"] = "number"
             field["min"] = _number(column.min())
             field["max"] = _number(column.max())
@@ -346,23 +356,37 @@ def _input_contract(frame, signature_inputs: list[dict]) -> list[dict]:
             counts = column.astype("object").value_counts(dropna=True)
             if 0 < len(counts) <= _MAX_CHOICES:
                 field["choices"] = [_label(value) for value in counts.index]
-            field["default"] = (
-                _label(counts.index[0]) if len(counts) else None
-            )
+            field["default"] = _label(counts.index[0]) if len(counts) else None
         contract.append(field)
     return contract
 
 
+@lru_cache(maxsize=1)
+def _skore_adapter():
+    # Forecasting loads this harness by path, without app.* on sys.path.
+    import importlib.util
+
+    path = Path(__file__).with_name("ml_skore_adapter.py")
+    spec = importlib.util.spec_from_file_location("ml_skore_adapter", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _summary_table(display) -> dict:
-    """A skore metrics summary as a flat ``{metric: value}`` mapping.
+    """Read one estimator through the shared Skore compatibility boundary."""
+    return _skore_adapter().estimator_metrics(display)
 
-    ``frame()`` is a Series for a lone estimator and a one-column frame when
-    skore decides otherwise; both are the same reading.
-    """
 
-    frame = display.frame()
-    series = frame.iloc[:, 0] if hasattr(frame, "columns") else frame
-    return {str(name): _number(value) for name, value in series.items()}
+@lru_cache(maxsize=1)
+def _evaluation_module():
+    import importlib.util
+
+    path = Path(__file__).with_name("ml_evaluation.py")
+    spec = importlib.util.spec_from_file_location("ml_evaluation", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _pick(table: dict, base: str, positive: str | None) -> float | None:
@@ -382,23 +406,16 @@ def _pick(table: dict, base: str, positive: str | None) -> float | None:
 def _curve(frame, x_column: str, y_column: str, *, limit: int) -> list[dict]:
     """Thin one of skore's tidy curve frames into plottable points."""
 
-    return _thin(
-        frame[x_column].to_numpy(), frame[y_column].to_numpy(), limit
-    )
+    return _thin(frame[x_column].to_numpy(), frame[y_column].to_numpy(), limit)
 
 
-def _classification_metrics(report, classes, *, curve_points: int) -> dict:
-    """The model card's classification read model, entirely from skore.
-
-    ``f1`` and ``balanced_accuracy`` are not in skore's default table, and are
-    not recomputed here either: both are definitions over numbers skore already
-    reported — f1 is the harmonic mean of precision and recall, balanced
-    accuracy is the macro recall — so deriving them keeps one source of truth.
-    """
+def _classification_metrics(report, classes, *, curve_points: int, positive_class=None) -> dict:
+    """Named metrics plus F1 derived per class from Skore's confusion counts."""
 
     labels = list(classes)
     binary = len(labels) == 2
-    positive = _label(labels[-1]) if binary else None
+    positive_value = labels[-1] if positive_class is None and binary else positive_class
+    positive = _label(positive_value) if binary else None
     table = _summary_table(report.metrics.summarize())
 
     matrix = [[0 for _ in labels] for _ in labels]
@@ -411,19 +428,17 @@ def _classification_metrics(report, classes, *, curve_points: int) -> dict:
 
     precision = _pick(table, "precision", positive)
     recall = _pick(table, "recall", positive)
-    f1 = None
-    if precision is not None and recall is not None and (precision + recall) > 0:
-        f1 = _number(2 * precision * recall / (precision + recall))
+    class_f1 = []
+    for at, row in enumerate(matrix):
+        denominator = sum(row) + sum(other[at] for other in matrix)
+        class_f1.append(2 * row[at] / denominator if denominator else 0.0)
+    f1 = _number(class_f1[index[positive]] if binary else sum(class_f1) / len(class_f1))
     # Balanced accuracy is the mean of the per-class recalls, and it is read off
     # the matrix rather than the metric table on purpose: with ``pos_label`` set
     # skore reports the *positive* class's recall under the bare name ``recall``,
     # so averaging what the table offers would report the positive recall twice
     # and call it balanced.
-    per_class = [
-        row[position] / sum(row)
-        for position, row in enumerate(matrix)
-        if sum(row)
-    ]
+    per_class = [row[position] / sum(row) for position, row in enumerate(matrix) if sum(row)]
     balanced = _number(sum(per_class) / len(per_class)) if per_class else None
 
     ordered = [
@@ -436,16 +451,12 @@ def _classification_metrics(report, classes, *, curve_points: int) -> dict:
         ("log_loss", table.get("log_loss")),
         ("brier_score", table.get("brier_score")),
     ]
-    scores = [
-        {"key": key, "value": value} for key, value in ordered if value is not None
-    ]
+    scores = [{"key": key, "value": value} for key, value in ordered if value is not None]
 
     curves: dict = {}
     if binary:
         try:
-            curves["roc"] = _curve(
-                report.metrics.roc().frame(), "fpr", "tpr", limit=curve_points
-            )
+            curves["roc"] = _curve(report.metrics.roc().frame(), "fpr", "tpr", limit=curve_points)
             curves["pr"] = _curve(
                 report.metrics.precision_recall().frame(),
                 "recall",
@@ -491,9 +502,7 @@ def _regression_metrics(report, *, curve_points: int) -> dict:
             None if table.get("mape") is None else _number(table["mape"] * 100),
         ),
     ]
-    scores = [
-        {"key": key, "value": value} for key, value in ordered if value is not None
-    ]
+    scores = [{"key": key, "value": value} for key, value in ordered if value is not None]
 
     errors = report.metrics.prediction_error().frame()
     actual = np.asarray(errors["y_true"], dtype="float64")
@@ -555,9 +564,7 @@ def _trusted_types(model) -> list[str]:
     import skops.io as sio
 
     untrusted = sio.get_untrusted_types(data=sio.dumps(model))
-    rogue = sorted(
-        name for name in untrusted if not str(name).startswith(TRUSTED_MODULE_PREFIXES)
-    )
+    rogue = sorted(name for name in untrusted if not str(name).startswith(TRUSTED_MODULE_PREFIXES))
     if rogue:
         raise RuntimeError(f"untrusted_types: {', '.join(rogue[:6])}")
     return sorted(str(name) for name in untrusted)
@@ -581,8 +588,8 @@ def _resolve_estimator(dotted: str, params: dict):
 def _persist_report(report, path: str | None, *, limit_bytes: int) -> dict | None:
     """Write the report's own state beside the model. ``None`` when it is skipped.
 
-    ``to_dict`` is skore's documented way to persist a report — deliberately not
-    a pickle of the object, so a later skore can still read it. The state carries
+    ``to_dict`` is skore's documented report state. Cross-version reloading is
+    qualified during upgrades, not assumed from this format. The state carries
     the split and the cached predictions, which is exactly the part
     ``result.json`` throws away: with it, a metric nobody asked for at fit time
     can still be computed later on *the rows the card reports on*.
@@ -626,17 +633,22 @@ def _classification_extensions():
     spec.loader.exec_module(module)
     return module
 
+
 def _make_pipeline(estimator_path, params, *, spec=None, seed=42, tuning=False):
     from skrub import StringEncoder, tabular_pipeline
 
     pipeline = tabular_pipeline(_resolve_estimator(estimator_path, params))
+    # Selection belongs to each fit: neither the final test nor a validation
+    # fold may decide which inputs its training pipeline retains. skrub also
+    # preserves constant-with-missing columns, whose missingness can be useful.
+    pipeline.named_steps["tablevectorizer"].set_params(drop_if_constant=True)
     _configure_text_encoder(pipeline, spec, seed)
-    if tuning:
-        # TPE's seed alone cannot reproduce folds whose text SVD is unseeded.
-        # Keep the existing automatic encoder behaviour when tuning is off.
-        vectorizer = pipeline.named_steps.get("tablevectorizer")
-        if vectorizer is not None and isinstance(vectorizer.high_cardinality, StringEncoder):
-            vectorizer.high_cardinality.set_params(random_state=seed)
+    # The run seed covers text SVD in both ordinary fits and tuning. Automatic
+    # encoding still chooses the same encoder, but repeating a fit is now
+    # reproducible instead of depending on the process-global random state.
+    vectorizer = pipeline.named_steps.get("tablevectorizer")
+    if vectorizer is not None and isinstance(vectorizer.high_cardinality, StringEncoder):
+        vectorizer.high_cardinality.set_params(random_state=seed)
     imputer = pipeline.named_steps.get("simpleimputer")
     if imputer is not None:
         imputer.set_params(strategy="median")
@@ -672,11 +684,27 @@ def _tune(manifest, x_train, y_train):
         joblib.dump((config, x_train, y_train), source)
         remaining = budget - (time.monotonic() - started)
         if remaining > 0:
-            env = {**os.environ, **{key: "1" for key in (
-                "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"
-            )}}
-            with subprocess.Popen([sys.executable, str(Path(__file__).with_name("ml_tuning_harness.py")),
-                                   str(source), str(destination)], env=env) as child:
+            env = {
+                **os.environ,
+                **{
+                    key: "1"
+                    for key in (
+                        "OMP_NUM_THREADS",
+                        "OPENBLAS_NUM_THREADS",
+                        "MKL_NUM_THREADS",
+                        "NUMEXPR_NUM_THREADS",
+                    )
+                },
+            }
+            with subprocess.Popen(
+                [
+                    sys.executable,
+                    str(Path(__file__).with_name("ml_tuning_harness.py")),
+                    str(source),
+                    str(destination),
+                ],
+                env=env,
+            ) as child:
                 try:
                     child.wait(timeout=remaining)
                 except subprocess.TimeoutExpired:
@@ -689,19 +717,32 @@ def _tune(manifest, x_train, y_train):
             stopped = True
     if not result:
         baseline = {"knobs": tuning["start"], "score": None, "std": None}
-        result = {"metric": tuning["metric"], "direction": tuning["direction"],
-                  "trials_run": 0, "trials_pruned": 0, "trials_failed": 0,
-                  "folds": tuning["folds"], "budget_s": budget,
-                  "start": baseline, "best": {**baseline, "trial": None}, "trials": [],
-                  "warning": "ML_TUNING_BASELINE_UNAVAILABLE"}
+        result = {
+            "metric": tuning["metric"],
+            "direction": tuning["direction"],
+            "trials_run": 0,
+            "trials_pruned": 0,
+            "trials_failed": 0,
+            "folds": tuning["folds"],
+            "budget_s": budget,
+            "start": baseline,
+            "best": {**baseline, "trial": None},
+            "trials": [],
+            "warning": "ML_TUNING_BASELINE_UNAVAILABLE",
+        }
     result["elapsed_s"] = round(time.monotonic() - started, 3)
     result["stopped_by"] = "budget" if stopped or result["elapsed_s"] >= budget else "trials"
     path = Path(__file__).with_name("ml_knob_translation.py")
     spec = importlib.util.spec_from_file_location("ml_knob_translation", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    params = module.translate(manifest["algo"], manifest["task"], result["best"]["knobs"],
-                              random_state=manifest["random_state"], forest_leaves=tuning["forest_leaves"])
+    params = module.translate(
+        manifest["algo"],
+        manifest["task"],
+        result["best"]["knobs"],
+        random_state=manifest["random_state"],
+        forest_leaves=tuning["forest_leaves"],
+    )
     return params, result
 
 
@@ -737,21 +778,40 @@ def _monitoring_reference(frame, seed):
     return module.build_reference(frame, seed=seed)
 
 
+def _preprocessing_module():
+    import importlib.util
+
+    path = Path(__file__).with_name("ml_preprocessing.py")
+    spec = importlib.util.spec_from_file_location("ml_preprocessing", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _configure_text_encoder(pipeline, spec, seed):
     encoder = (spec or {}).get("text_encoder", "auto")
     if encoder == "embedding":
         import os
 
         from skrub import TextEncoder
+
         os.environ["HF_HUB_OFFLINE"] = "1"
         os.environ["TRANSFORMERS_OFFLINE"] = "1"
         path = (spec or {}).get("_embedding_path")
         if not path or not Path(path).is_dir():
             raise ValueError("ML_DEEP_MODEL_MISSING: a verified local encoder is required")
         columns = (spec or {}).get("embedding_columns") or []
-        encoder = TextEncoder(model_name=path, n_components=int(spec.get("embedding_components", 30)),
-                              device="cpu", batch_size=16, store_weights_in_pickle=True, random_state=seed)
-        pipeline.named_steps["tablevectorizer"].set_params(specific_transformers=[(encoder, columns)], n_jobs=1)
+        encoder = TextEncoder(
+            model_name=path,
+            n_components=int(spec.get("embedding_components", 30)),
+            device="cpu",
+            batch_size=16,
+            store_weights_in_pickle=True,
+            random_state=seed,
+        )
+        pipeline.named_steps["tablevectorizer"].set_params(
+            specific_transformers=[(encoder, columns)], n_jobs=1
+        )
         return
     if encoder != "auto":
         from skrub import MinHashEncoder, StringEncoder
@@ -760,10 +820,13 @@ def _configure_text_encoder(pipeline, spec, seed):
         # reaches the model. Explicit choices only replace high-cardinality text.
         vectorizer = pipeline.named_steps.get("tablevectorizer")
         if vectorizer is not None:
-            vectorizer.set_params(high_cardinality=(
-                StringEncoder(random_state=seed) if encoder == "string"
-                else MinHashEncoder(n_jobs=1)
-            ))
+            vectorizer.set_params(
+                high_cardinality=(
+                    StringEncoder(random_state=seed)
+                    if encoder == "string"
+                    else MinHashEncoder(n_jobs=1)
+                )
+            )
 
 
 def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top down
@@ -816,12 +879,15 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     _progress(progress_path, "reading")
     try:
         frame = pd.read_parquet(data_path, columns=list({*features, target, *fairness_columns}))
+        frame = frame.reset_index(drop=True)
     except Exception as exc:  # noqa: BLE001
         return _fail(5, f"ml_dataset_unreadable: {exc}")
 
     if distillation is not None:
         try:
-            _distillation_extensions().validate(distillation, rows=len(frame), target=target, task=task)
+            _distillation_extensions().validate(
+                distillation, rows=len(frame), target=target, task=task
+            )
         except (KeyError, TypeError, ValueError) as exc:
             return _fail(5, f"ml_distillation_invalid: {exc}")
         # Original teacher labels are a side vector, indexed by physical row.
@@ -829,10 +895,6 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         # and non-contiguous surviving rows keep their original correspondence.
         frame = frame.reset_index(drop=True)
     frame = frame.dropna(subset=[target])
-    if explain_enabled and distillation is None:
-        # Protected columns follow the exact held-out rows, even if the source
-        # parquet carried duplicate index labels or numeric targets are dropped.
-        frame = frame.reset_index(drop=True)
     if len(frame) < min_rows:
         return _fail(
             3,
@@ -848,16 +910,12 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         if pd.api.types.is_integer_dtype(x[column]):
             x[column] = x[column].astype("float64")
 
-    dropped: list[dict] = []
-    for column in list(x.columns):
-        if x[column].nunique(dropna=True) <= 1:
-            dropped.append({"name": str(column), "reason": "constant"})
-            x = x.drop(columns=[column])
     if x.empty or not len(x.columns):
-        return _fail(2, "ml_features_unusable: every feature column is constant")
+        return _fail(2, "ml_features_unusable: no feature columns")
 
     stratify = None
     classes: list = []
+    positive = None
     if task == "classification":
         y = y.astype("object") if y.dtype == object else y
         counts = y.value_counts()
@@ -882,6 +940,10 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             )
         stratify = y
         classes = list(counts.sort_index().index)
+        try:
+            positive = _classification_extensions().positive_label(classes, explain_spec)
+        except ValueError as exc:
+            return _fail(2, f"ml_positive_class_invalid: {exc}")
     else:
         y = pd.to_numeric(y, errors="coerce")
         keep = y.notna()
@@ -897,7 +959,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     from sklearn.model_selection import train_test_split
 
     try:
-        from skrub import tabular_pipeline
+        from skrub import tabular_pipeline  # noqa: F401 - validate runtime availability
     except ImportError as exc:  # pragma: no cover - the app venv has skrub
         return _fail(5, f"skrub_missing: {exc}")
 
@@ -908,13 +970,40 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     except Exception as exc:  # noqa: BLE001
         return _fail(2, f"ml_split_failed: {exc}")
 
+    # Fail clearly on an unusable train, without selecting or dropping any
+    # columns here. The actual selection is learned again inside every fold.
+    if all(x_train[column].nunique(dropna=False) <= 1 for column in x_train):
+        return _fail(2, "ml_features_unusable: every training feature column is constant")
+
+    evaluation = None
+    if manifest.get("evaluation_path"):
+        try:
+            evaluation = _evaluation_module().prepare(
+                frame.loc[x.index],
+                columns=[*features, target],
+                train_indices=x_train.index,
+                test_indices=x_test.index,
+                dataset=manifest.get("dataset"),
+                target=target,
+                seed=seed,
+                test_size=test_size,
+                positive_class=_label(positive) if positive is not None else None,
+            )
+        except Exception as exc:
+            return _fail(5, f"ml_evaluation_provenance_failed: {exc}")
+
     tuning_result = None
     params = manifest.get("params")
     if manifest.get("tuning"):
         params, tuning_result = _tune(manifest, x_train, y_train)
     try:
-        pipeline = _make_pipeline(manifest.get("estimator"), params, spec=manifest.get("spec"),
-                                  seed=seed, tuning=bool(manifest.get("tuning")))
+        pipeline = _make_pipeline(
+            manifest.get("estimator"),
+            params,
+            spec=manifest.get("spec"),
+            seed=seed,
+            tuning=bool(manifest.get("tuning")),
+        )
     except RuntimeError as exc:
         return _fail(5, str(exc))
     estimator = pipeline.steps[-1][1]
@@ -925,16 +1014,31 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     extended_classification = task == "classification" and extension.enabled(extension_spec)
     classification_context = {}
     base_pipeline = clone(pipeline)
+    fit_started = time.monotonic()
     try:
         if extended_classification:
             pipeline, classification_context = extension.fit(
-                pipeline, x_train, y_train, spec=extension_spec, seed=seed, folds=folds,
+                pipeline,
+                x_train,
+                y_train,
+                spec=extension_spec,
+                seed=seed,
+                folds=folds,
                 progress=lambda step: _progress(progress_path, step),
             )
         else:
             pipeline.fit(x_train, y_train)
     except Exception as exc:  # noqa: BLE001 - the algorithm's refusal is the answer
         return _fail(1, f"ml_fit_failed: {type(exc).__name__}: {exc}")
+
+    preprocessing = _preprocessing_module()
+    preprocessing_summary = preprocessing.record_fitted(
+        pipeline,
+        x_train,
+        fit_time_ms=(time.monotonic() - fit_started) * 1000,
+        fit_rows=(classification_context.get("calibration") or {}).get("fit_rows"),
+    )
+    retained_columns, dropped = preprocessing.learned_columns(pipeline)
 
     intervals = None
     if task == "regression" and (manifest.get("spec") or {}).get("intervals") == "conformal":
@@ -964,14 +1068,14 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             pipeline,
             X_test=x_test,
             y_test=y_test,
-            **({"pos_label": classes[-1]} if binary else {}),
+            **({"pos_label": positive} if binary else {}),
         )
     except Exception as exc:  # noqa: BLE001
         return _fail(1, f"ml_report_failed: {type(exc).__name__}: {exc}")
 
     if task == "classification":
         metrics = _classification_metrics(
-            report, classes, curve_points=curve_points
+            report, classes, curve_points=curve_points, positive_class=positive
         )
         scoring = "roc_auc" if binary else "accuracy"
         balance = [
@@ -981,7 +1085,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         metrics["target"] = {
             "name": str(target),
             "classes": [_label(value) for value in classes],
-            "positive": _label(classes[-1]) if len(classes) == 2 else None,
+            "positive": _label(positive) if binary else None,
             "balance": balance,
         }
     else:
@@ -995,17 +1099,31 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         }
 
     if extended_classification:
-        metrics.update(extension.evaluate(pipeline, classification_context, x_test, y_test, number=_number))
+        metrics.update(
+            extension.evaluate(pipeline, classification_context, x_test, y_test, number=_number)
+        )
 
     if distillation is not None:
         metrics["distillation"] = _distillation_extensions().evaluate(
-            distillation, indices=x_test.index, predicted=pipeline.predict(x_test), reviewed=y_test,
+            distillation,
+            indices=x_test.index,
+            predicted=pipeline.predict(x_test),
+            reviewed=y_test,
             inference_cost=extension_spec.get("distillation_inference_cost_per_1000"),
         )
 
     if tuning_result is not None:
         metrics["tuning"] = tuning_result
     metrics["task"] = task
+    metrics["metric_semantics"] = {
+        "schema": 2,
+        "role": "final_test",
+        "positive_class": _label(positive) if binary else None,
+        "averaging": "binary" if binary else "macro" if task == "classification" else None,
+        "f1": "per_class_confusion_counts",
+        "mape_unit": "percent",
+        "cv_std_ddof": 1,
+    }
     metrics["monitoring_reference"] = _monitoring_reference(x_train, seed)
     if intervals is not None:
         metrics["intervals"] = _interval_evidence(intervals, pipeline.predict(x_test), y_test)
@@ -1015,19 +1133,30 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         "test": int(len(x_test)),
     }
     metrics["columns"] = {
-        "used": [str(column) for column in x.columns],
+        "used": retained_columns,
         "dropped": dropped,
     }
-    metrics["importances"] = _importances(
-        report, rows=importance_rows, scoring=scoring, seed=seed
-    )
+    metrics["preprocessing"] = preprocessing_summary
+    metrics["importances"] = [
+        row
+        for row in _importances(report, rows=importance_rows, scoring=scoring, seed=seed)
+        if row["feature"] in retained_columns
+    ]
 
     if folds >= 2 and extended_classification:
         try:
             metrics["cv"] = extension.cross_validation(
-                base_pipeline, x_train, y_train, spec=extension_spec, seed=seed, folds=folds,
-                progress=lambda step: _progress(progress_path, step), number=_number,
-                summarize=lambda report, labels: _classification_metrics(report, labels, curve_points=curve_points),
+                base_pipeline,
+                x_train,
+                y_train,
+                spec=extension_spec,
+                seed=seed,
+                folds=folds,
+                progress=lambda step: _progress(progress_path, step),
+                number=_number,
+                summarize=lambda report, labels: _classification_metrics(
+                    report, labels, curve_points=curve_points, positive_class=positive
+                ),
             )
         except Exception as exc:  # A failed fold is not a failed fit.
             metrics["cv"] = {"folds": folds, "metric": scoring, "error": str(exc)[:200]}
@@ -1048,32 +1177,14 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
                     _fold_splitter(folds, task, y_train), folds, progress_path
                 ),
                 n_jobs=1,
-                **({"pos_label": classes[-1]} if binary else {}),
+                **({"pos_label": positive} if binary else {}),
             )
-            table = folded.metrics.summarize().frame()
-            means = [name for name in table.columns if name.endswith("_mean")]
-            spreads = [name for name in table.columns if name.endswith("_std")]
-            per_metric = []
-            for name in table.index:
-                # Only the keys the card has a label for. skore also reports
-                # timings, and per-class rows when the target is multiclass;
-                # neither belongs in a row of "metric ± spread" chips.
-                if str(name) not in _CARD_METRICS:
-                    continue
-                mean = _number(table.loc[name, means[0]]) if means else None
-                spread = _number(table.loc[name, spreads[0]]) if spreads else None
-                if str(name) == "mape":
-                    # Same unit skew as the single-split table: skore reports a
-                    # ratio, the card's tile reads a percentage.
-                    mean = None if mean is None else _number(mean * 100)
-                    spread = None if spread is None else _number(spread * 100)
-                if mean is not None:
-                    per_metric.append(
-                        {"key": str(name), "mean": mean, "std": spread}
-                    )
-            headline = next(
-                (row for row in per_metric if row["key"] == scoring), None
-            ) or next(iter(per_metric), None)
+            per_metric = _skore_adapter().cross_validation_metrics(
+                folded.metrics.summarize(), keys=_CARD_METRICS
+            )
+            headline = next((row for row in per_metric if row["key"] == scoring), None) or next(
+                iter(per_metric), None
+            )
             metrics["cv"] = {
                 "folds": folds,
                 "metric": scoring,
@@ -1088,19 +1199,47 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         _progress(progress_path, "explaining")
         try:
             metrics["explain"] = _explanation_extensions().pack(
-                pipeline, x_test, y_test, task=task, seed=seed,
+                pipeline,
+                x_test,
+                y_test,
+                task=task,
+                seed=seed,
                 importances=metrics.get("importances") or [],
                 groups=frame.loc[x_test.index, fairness_columns] if fairness_columns else None,
             )
         except Exception as exc:  # Even a worker setup failure must preserve the fit.
             metrics["explain"] = {"error": f"{type(exc).__name__}: {exc}"[:180]}
 
+    # A fresh base estimator on training-only development rows. The final
+    # report stays prefit/test-only and the served model is never modified.
+    import importlib.util
+
+    diagnostics_path = Path(__file__).with_name("ml_diagnostics.py")
+    diagnostics_spec = importlib.util.spec_from_file_location("ml_diagnostics", diagnostics_path)
+    diagnostics = importlib.util.module_from_spec(diagnostics_spec)
+    diagnostics_spec.loader.exec_module(diagnostics)
+    metrics["diagnostics"] = diagnostics.run(
+        base_pipeline,
+        x_train,
+        y_train,
+        config=manifest.get("diagnostics") or {},
+        seed=seed,
+        task=task,
+        positive_class=positive,
+        scratch=Path(result_path).parent,
+    )
+
     # After the metrics, so the state carries the predictions they were read
     # from rather than making the next reader recompute them.
+    if evaluation is not None:
+        try:
+            metrics["evaluation"] = _evaluation_module().write_partition(
+                evaluation, manifest["evaluation_path"]
+            )
+        except Exception as exc:
+            metrics["evaluation"] = {"status": "unavailable", "reason": str(exc)[:200]}
     report_state = (
-        _persist_report(
-            report, report_path, limit_bytes=int(report_limit_mb * 1024 * 1024)
-        )
+        _persist_report(report, report_path, limit_bytes=int(report_limit_mb * 1024 * 1024))
         if report_limit_mb > 0
         else None
     )
@@ -1118,14 +1257,33 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
 
     _progress(progress_path, "saving")
     try:
+        from importlib.metadata import version
+
         embedding = (manifest.get("spec") or {}).get("text_encoder") == "embedding"
         trusted = [] if embedding else _trusted_types(pipeline)
-        requirements = None
+        # This curated pipeline has a known runtime. Explicit producer versions
+        # avoid MLflow spawning another model load to guess dependencies and
+        # keep its exported environment aligned with the artifact contract.
+        requirements = [
+            f"{name}=={version(name)}"
+            for name in ("mlflow", "scikit-learn", "skrub", "skops", "numpy", "scipy", "pandas")
+        ]
         if embedding:
-            from importlib.metadata import version
             requirements = ["--extra-index-url https://download.pytorch.org/whl/cpu"] + [
-                f"{name}=={version(name)}" for name in ("mlflow", "scikit-learn", "skrub", "numpy", "scipy", "pandas",
-                                                       "torch", "transformers", "sentence-transformers", "cloudpickle")]
+                f"{name}=={version(name)}"
+                for name in (
+                    "mlflow",
+                    "scikit-learn",
+                    "skrub",
+                    "numpy",
+                    "scipy",
+                    "pandas",
+                    "torch",
+                    "transformers",
+                    "sentence-transformers",
+                    "cloudpickle",
+                )
+            ]
         mlflow.sklearn.save_model(
             pipeline,
             path=model_dir,
@@ -1135,19 +1293,37 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             serialization_format="cloudpickle" if embedding else "skops",
             pip_requirements=requirements,
         )
+        (Path(model_dir) / "preprocessing.json").write_text(
+            json.dumps(preprocessing_summary, ensure_ascii=False, allow_nan=False),
+            encoding="utf-8",
+        )
+        contract_spec = importlib.util.spec_from_file_location(
+            "ml_artifact_contract", Path(__file__).with_name("ml_artifact_contract.py")
+        )
+        contract_module = importlib.util.module_from_spec(contract_spec)
+        contract_spec.loader.exec_module(contract_module)
+        artifact = contract_module.build_artifact_contract(
+            model_dir,
+            family="tabular_deep" if embedding else "tabular",
+            serialization="cloudpickle" if embedding else "skops",
+            trusted_types=trusted,
+        )
     except Exception as exc:  # noqa: BLE001
         return _fail(4, f"ml_artifact_unwritable: {type(exc).__name__}: {exc}")
 
-    artifact = None
     if embedding:
-        import hashlib
-        bundle = Path(model_dir)
-        files = {str(path.relative_to(bundle)): hashlib.sha256(path.read_bytes()).hexdigest()
-                 for path in bundle.rglob("*") if path.is_file()}
-        artifact = {"serialization": "cloudpickle", "sha256": files["model.pkl"], "files": files}
-        metrics["embedding"] = {key: value for key, value in (manifest.get("foundation") or {}).items() if key not in {"path", "files"}}
-        metrics["embedding"].update(columns=manifest["spec"]["embedding_columns"], components=manifest["spec"]["embedding_components"],
-                                    frozen=True, train_only_reduction=True)
+        artifact["sha256"] = artifact["files"]["model.pkl"]
+        metrics["embedding"] = {
+            key: value
+            for key, value in (manifest.get("foundation") or {}).items()
+            if key not in {"path", "files"}
+        }
+        metrics["embedding"].update(
+            columns=manifest["spec"]["embedding_columns"],
+            components=manifest["spec"]["embedding_components"],
+            frozen=True,
+            train_only_reduction=True,
+        )
     summary = {
         "metrics": metrics,
         "signature": {

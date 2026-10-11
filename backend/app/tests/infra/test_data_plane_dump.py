@@ -79,7 +79,7 @@ esac
 
 # `mc du --json <target>` and `mc mirror --quiet <src> <dst>`, where a target is
 # `dump/<bucket>/<prefix>` and the bucket is a directory on this filesystem.
-FAKE_MC = '''#!/usr/bin/env python3
+FAKE_MC = """#!/usr/bin/env python3
 import json
 import os
 import shutil
@@ -123,7 +123,7 @@ def main(argv: list[str]) -> int:
 
 
 sys.exit(main(sys.argv[1:]))
-'''
+"""
 
 
 def _have(binary: str) -> bool:
@@ -229,7 +229,7 @@ def harness(tmp_path, probe_databases):
     binaries.mkdir()
 
     original = DUMP_SCRIPT.read_text(encoding="utf-8")
-    marker = 'readonly DATA_ROOT=/srv/agentium-data\n'
+    marker = "readonly DATA_ROOT=/srv/agentium-data\n"
     assert marker in original, (
         "the dump script no longer declares DATA_ROOT the way this test "
         "redirects it — update the test rather than the script"
@@ -237,23 +237,23 @@ def harness(tmp_path, probe_databases):
     # Also pinned so the databases and containers this shim answers for stay the
     # ones the script asks about.
     for expected in (
-        'readonly PG_CONTAINER=agentium-pg',
-        'readonly MINIO_CONTAINER=agentium-minio',
-        'readonly BACKEND_CONTAINER=agentium-backend',
-        'readonly REGISTRY_DB=mlflow',
-        'readonly DB=agentium',
-        'readonly DB_USER=agentium',
+        "readonly PG_CONTAINER=agentium-pg",
+        "readonly MINIO_CONTAINER=agentium-minio",
+        "readonly BACKEND_CONTAINER=agentium-backend",
+        "readonly REGISTRY_DB=mlflow",
+        "readonly DB=agentium",
+        "readonly DB_USER=agentium",
     ):
         assert expected in original, expected
     user = _connection().get("PGUSER", "agentium")
     script = tmp_path / "dump.sh"
     script.write_text(
-        original.replace(marker, f'readonly DATA_ROOT={data_root}\n')
-        .replace('readonly DB=agentium\n', f'readonly DB={APP_DB}\n')
-        .replace('readonly DB_USER=agentium\n', f'readonly DB_USER={user}\n')
+        original.replace(marker, f"readonly DATA_ROOT={data_root}\n")
+        .replace("readonly DB=agentium\n", f"readonly DB={APP_DB}\n")
+        .replace("readonly DB_USER=agentium\n", f"readonly DB_USER={user}\n")
         .replace(
-            'readonly REGISTRY_DB=mlflow\n',
-            f'readonly REGISTRY_DB={REGISTRY_DB_FIXTURE}\n',
+            "readonly REGISTRY_DB=mlflow\n",
+            f"readonly REGISTRY_DB={REGISTRY_DB_FIXTURE}\n",
         ),
         encoding="utf-8",
     )
@@ -320,9 +320,7 @@ def _seed_plane(harness, *, with_report_state: bool = True) -> dict[str, str]:
 
 
 def _manifest(harness) -> dict:
-    window = next(
-        (harness["data_root"] / "probe-deployments").iterdir()
-    )
+    window = next((harness["data_root"] / "probe-deployments").iterdir())
     return json.loads((window / "MANIFEST.json").read_text(encoding="utf-8"))
 
 
@@ -477,9 +475,7 @@ def test_a_deployment_without_a_registry_database_is_reported_not_failed(harness
     assert manifest["registry_dump"] is None
     assert manifest["registry_model_versions"] is None
     # And the rest of the window is still a window.
-    assert (
-        harness["data_root"] / "probe-deployments" / f"{_today()}-{SHA}" / ".ready"
-    ).exists()
+    assert (harness["data_root"] / "probe-deployments" / f"{_today()}-{SHA}" / ".ready").exists()
 
 
 def test_a_sha_that_is_not_twelve_hex_characters_is_refused(harness):
@@ -521,7 +517,10 @@ def test_brd_original_is_copied_and_digest_verified(harness, state):
     original = b"retained business requirements"
     key = "workspaces/ws-brd/brd/author/requirements.docx"
     digest = hashlib.sha256(original).hexdigest()
-    _psql(APP_DB, "create table brd_documents (id text, workspace_id text, storage_key text, sha256 text);")
+    _psql(
+        APP_DB,
+        "create table brd_documents (id text, workspace_id text, storage_key text, sha256 text);",
+    )
     _psql(APP_DB, f"insert into brd_documents values ('brd-1', 'ws-brd', '{key}', '{digest}');")
     path = harness["bucket"] / key
     if state != "missing":
@@ -538,3 +537,25 @@ def test_brd_original_is_copied_and_digest_verified(harness, state):
     else:
         assert manifest["registry_artifacts_missing"] == 1
         assert f"{state.upper()} BRD original" in result.stderr
+
+
+@pytest.mark.parametrize("state", ["present", "missing", "corrupt"])
+def test_recorded_evaluation_partition_is_required_in_restore_window(harness, state):
+    import hashlib
+
+    _seed_plane(harness)
+    key = "workspaces/ws-1/ml/models/m-1/report/evaluation.json.gz"
+    original = b"recorded-evaluation-partition"
+    digest = hashlib.sha256(original).hexdigest()
+    payload = json.dumps({"evaluation": {"status": "stored", "key": key, "sha256": digest}})
+    _psql(APP_DB, f"update ml_models set metrics_json = '{payload}'::jsonb where id = 'm-1'")
+    path = harness["bucket"] / key
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if state != "missing":
+        path.write_bytes(original if state == "present" else b"changed")
+    result = _run(harness)
+    window = harness["data_root"] / "probe-deployments" / f"{_today()}-{SHA}"
+    assert (window / ".ready").exists() is (state == "present"), result.stderr
+    manifest = json.loads((window / "MANIFEST.json").read_text())
+    assert manifest["evaluation_partitions"] == 1
+    assert result.returncode == (0 if state == "present" else 1)

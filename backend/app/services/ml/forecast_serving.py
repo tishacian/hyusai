@@ -69,8 +69,10 @@ _load_locks: dict[str, threading.Lock] = {}
 
 
 def _fingerprint(model: Any) -> str:
+    from app.services.ml.artifacts import artifact_fingerprint
+
     artifact = (model.metrics_json or {}).get("artifact") or {}
-    return f"{model.id}:{model.model_uri}:{artifact.get('sha256', '')}"
+    return f"{model.id}:{model.model_uri}:{artifact_fingerprint(artifact)}"
 
 
 def _sha256(path: Path) -> str:
@@ -90,16 +92,21 @@ def _verify(model: Any, directory: Path) -> None:
     """
 
     artifact = (model.metrics_json or {}).get("artifact") or {}
-    if model.family == "forecasting_deep":
-        from app.services.ml.artifacts import verify_bundle
+    from app.services.ml.artifacts import verify_model_bundle
 
+    verify_model_bundle(
+        directory,
+        artifact,
+        family=model.family,
+        max_bytes=int(settings.ml_train_artifact_limit_mb) * 1024 * 1024,
+    )
+    if model.family == "forecasting_deep":
         if artifact.get("code_file") != "ml_foundation_pyfunc.py":
             raise TabularError(
                 code="ML_ARTIFACT_UNVERIFIED",
                 message="The foundation model code is not recognized.",
                 status_code=409,
             )
-        verify_bundle(directory, artifact)
         return
     expected_code = artifact.get("code_sha256")
     expected_artifact = artifact.get("sha256")

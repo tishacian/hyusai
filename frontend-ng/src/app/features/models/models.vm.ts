@@ -126,7 +126,7 @@ export interface ComparisonDto {
   task: ModelTask;
   target: string;
   dataset: { id: string; name: string; slug: string; version: number };
-  split: { rows: number; test_size: number; random_state: number };
+  split: { rows: number; test_size: number; random_state: number | null; verified?: boolean; strategy?: string; role?: string; recorded_seeds?: number[] };
   models: {
     model_id: string;
     column: string;
@@ -135,7 +135,7 @@ export interface ComparisonDto {
     is_champion: boolean;
   }[];
   metrics: ComparisonMetricRow[];
-  warnings: { code: string; model_id: string }[];
+  warnings: { code: string; model_id?: string }[];
 }
 
 export interface CvBlock {
@@ -149,6 +149,11 @@ export interface CvBlock {
 }
 
 export interface MetricsBlock {
+  artifact?: { contract_version?: number; serialization?: string; runtime?: Record<string, string> };
+  preprocessing?: import('./preprocessing-evidence.vm').PreprocessingEvidence;
+  evaluation?: import('./evaluation-evidence.vm').EvaluationProvenance;
+  diagnostics?: import('./evaluation-evidence.vm').DiagnosticsEvidence;
+  metric_semantics?: { schema: number; positive_class?: string | null; averaging?: string | null; cv_std_ddof?: number };
   clustering?: import('./clustering.vm').ClusteringEvidence;
   distillation?: import('./distillation-evidence.vm').DistillationEvidence;
   intervals?: IntervalEvidence;
@@ -295,6 +300,8 @@ export interface PublishedSkillDto {
 export interface ServingBlock {
   enabled: boolean;
   callable: boolean;
+  /** An explicit refusal takes precedence over generic runtime availability. */
+  refusal?: CodedRefusal | null;
   serving_version: number | null;
   serving_model_id: string | null;
   is_serving: boolean;
@@ -817,7 +824,7 @@ export function numericKnobs(algo: AlgoDescriptor | undefined): NumericKnobDescr
 /** A field of a model family's problem definition (time column, horizon, …). */
 export interface SpecFieldDescriptor {
   key: string;
-  kind: 'artifact' | 'column' | 'columns' | 'int' | 'float' | 'enum' | 'bool' | 'int_list' | 'column_roles';
+  kind: 'label' | 'artifact' | 'column' | 'columns' | 'int' | 'float' | 'enum' | 'bool' | 'int_list' | 'column_roles';
   required: boolean;
   default?: unknown;
   min?: number;
@@ -838,6 +845,7 @@ export interface FoundationModelDescriptor {
   fingerprint: string;
   artifact_id?: string;
   runtime?: Record<string, unknown>;
+  task?: ModelTask;
 }
 
 export interface FamilyDescriptor {
@@ -1571,6 +1579,7 @@ export const REFUSAL_CODES = [
   'ML_DEEP_MODEL_INVALID',
   'ML_DEEP_MODEL_CHANGED',
   'ML_DEEP_OPTION_UNSUPPORTED',
+  'ML_TABICL_PROFILE_UNQUALIFIED',
   'ML_LABEL_REVIEW_REQUIRED',
   'ML_LABEL_REVIEW_CHANGED',
   'ML_LABEL_REVIEW_INVALID',
@@ -1626,7 +1635,7 @@ export function refusalField(
 ): 'target' | 'features' | 'algo' | 'dataset' | 'spec' | null {
   // A forecast's refusals are about its problem definition (date column,
   // horizon, covariate roles), which the form renders as one block.
-  if (code === 'ML_SPEC_INVALID' || (code ?? '').startsWith('ML_TS_') || (code ?? '').startsWith('ML_DEEP_')) {
+  if (code === 'ML_SPEC_INVALID' || code === 'ML_TABICL_PROFILE_UNQUALIFIED' || (code ?? '').startsWith('ML_TS_') || (code ?? '').startsWith('ML_DEEP_')) {
     return code === 'ML_TS_ALGO_SHAPE_MISMATCH' ? 'algo' : 'spec';
   }
   switch (code) {
@@ -1671,6 +1680,7 @@ export function refusalField(
  * saw, a key that was revoked, an artifact that will not load.
  */
 export const SERVING_ERROR_CODES = [
+  'ML_TABICL_PROFILE_UNQUALIFIED',
   'ML_RUNTIME_MISSING',
   'ML_INTERVAL_LEVEL_UNKNOWN',
   'ML_PREDICT_DISABLED',
@@ -1707,6 +1717,10 @@ export const SERVING_ERROR_CODES = [
   'ML_FORECAST_TOO_MANY_ROWS',
   'ML_ARTIFACT_TAMPERED',
   'ML_ARTIFACT_UNVERIFIED',
+  'ML_ARTIFACT_LEGACY_UNSUPPORTED',
+  'ML_ARTIFACT_RUNTIME_MISMATCH',
+  'ML_ARTIFACT_UNTRUSTED_TYPES',
+  'ML_ARTIFACT_LIMIT',
   'ML_USE_PREDICT_ROUTE',
   'ML_FAMILY_UNAVAILABLE',
 ] as const;
@@ -1730,6 +1744,8 @@ export const COMPARE_ERROR_CODES = [
   'ML_COMPARE_SPLIT_FAILED',
   'ML_COMPARE_FAILED',
   'ML_COMPARE_NOT_TABULAR',
+  'ML_COMPARE_UNVERIFIED_PARTITION',
+  'ML_COMPARE_DIFFERENT_POSITIVE_CLASS',
 ] as const;
 
 const COMPARE_ERROR_SET: ReadonlySet<string> = new Set(COMPARE_ERROR_CODES);

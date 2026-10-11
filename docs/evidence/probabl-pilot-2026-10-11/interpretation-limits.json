@@ -1,0 +1,29 @@
+{
+  "scope": "Offline direct-model lifecycle; technical qualification only",
+  "includes": [
+    "dataset preparation",
+    "existing bounded tuning when selected",
+    "fit",
+    "first predict",
+    "repeated model.predict on 1/100/1000 rows",
+    "local skops or declarative TabICL JSON+safetensors export",
+    "local autonomous reload",
+    "eviction",
+    "process startup and imports",
+    "descendant CPU accounting"
+  ],
+  "not_measured": [
+    "MLflow wrapper cost",
+    "ObjectStore upload/download cost",
+    "API authorization and RPC overhead",
+    "additional classification predict_proba forward in production",
+    "operator effort",
+    "energy",
+    "monetary price",
+    "client business outcome"
+  ],
+  "deployment_environment": "Shared cloud CPU quota; co-tenant workload uncontrolled; no interactive SLA qualified",
+  "adoption": "Even a statistical/cost threshold match only nominates a candidate for subsequent production and authorized-business-data qualification",
+  "storage": "Disposable local benchmark artifacts do not add an experiment store; production stays on existing ObjectStore/MinIO and MLflow",
+  "stopped_prequalification": "Earlier unqualified run preserved separately with INTERRUPTED.json; final reserve was never opened; 2500 CPU seconds conservatively reserved within the overall ceiling"
+}

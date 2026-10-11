@@ -50,6 +50,15 @@ et le téléchargement passent dans un subprocess soumis au délai choisi,
 avec mémoire virtuelle limitée à 4 GiB et threads numériques limités à deux.
 Sous Linux, la disparition du superviseur tue également son enfant.
 
+Le subprocess reçoit l'ancre `metrics_json.artifact` du registre autorisé. Il
+contrôle l'inventaire total avant téléchargement, borne chaque copie en flux,
+puis applique le contrat commun de lecture (SHA-256, versions et types skops)
+avant de charger MLflow. Le plafond shadow de 256 MiB reste applicable.
+L'ancre participe aussi à l'identité des deux modèles : les intentions
+historiques créées sans elle sont annulées avec `ML_SHADOW_MODEL_CHANGED`, sans
+reconstitution de confiance ni modification des réponses primaires. Les
+prochains appels créent de nouvelles intentions avec le contrat courant.
+
 Les jobs sont gérés uniquement par le service ; les routes génériques de
 création et transition de jobs refusent ce type.
 

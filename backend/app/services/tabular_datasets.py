@@ -384,7 +384,9 @@ def _read_source(path: Path, fmt: str) -> Any:
     )
 
 
-def materialize(dataset: TabularDataset, destination: Path) -> Path:
+def materialize(
+    dataset: TabularDataset, destination: Path, *, max_bytes: int | None = None
+) -> Path:
     """Copy a dataset's Parquet out of the ObjectStore into a scratch file."""
 
     if not dataset.storage_key:
@@ -394,6 +396,8 @@ def materialize(dataset: TabularDataset, destination: Path) -> Path:
             status_code=409,
         )
     store = get_object_store()
+    if max_bytes is not None:
+        return store.copy_to_local(dataset.storage_key, destination, max_bytes=max_bytes)
     return store.copy_to_local(dataset.storage_key, destination)
 
 
@@ -939,6 +943,7 @@ def serialize_dataset(dataset: TabularDataset, *, include_preview: bool = False)
 # A curated list rather than the whole bag: the block also holds the authored
 # statement, and a dataset page is not where a Flow's program is published.
 _PUBLIC_LINEAGE_KEYS = (
+    "enrichment",
     "huggingface",
     "labeling",
     "label_review",

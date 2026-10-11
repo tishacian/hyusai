@@ -2123,6 +2123,7 @@ _DBT_TRANSFORM_SKILL_SLUG = "dbt_transform_v1"
 # Every param a transform node may carry, whatever its engine: the block is
 # projected whole so each wrapper reads only the keys it knows.
 _TRANSFORM_PARAM_KEYS = (
+    "enrichment",
     "sql",
     "code",
     "models",
@@ -2159,6 +2160,7 @@ _TRAIN_PARAM_KEYS = (
     # owned like the target, for the same reason.
     "spec",
     "sources",
+    "methodology",
 )
 _TRAIN_SKILL_SLUGS = frozenset({_ML_TRAIN_SKILL_SLUG})
 

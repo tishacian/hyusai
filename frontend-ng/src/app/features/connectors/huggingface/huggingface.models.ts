@@ -84,18 +84,36 @@ export function isTerminalJob(job: HubJob): boolean {
   return ['succeeded', 'success', 'completed', 'ready', 'failed', 'cancelled', 'canceled'].includes(job.status);
 }
 
-export function hubError(error: unknown): string {
+const HUB_ERROR_KEYS: Record<string, string> = {
+  HF_TABICL_LICENSE_REQUIRED: 'connectors.hf.error.tabicl_license_required',
+  HF_TABICL_LICENSE_INVALID: 'connectors.hf.error.tabicl_license_invalid',
+};
+
+type HubTranslate = (key: string) => string;
+
+export function hubErrorCode(code: string, translate?: HubTranslate): string {
+  const key = HUB_ERROR_KEYS[code];
+  return key && translate ? `${code} · ${translate(key)}` : code;
+}
+
+export function hubError(error: unknown, translate?: HubTranslate): string {
   const candidate = error as { error?: { detail?: unknown }; message?: string };
   const detail = candidate?.error?.detail;
-  if (typeof detail === 'string') return detail;
+  if (typeof detail === 'string') return hubErrorCode(detail, translate);
   if (detail && typeof detail === 'object') {
     const info = detail as { code?: string; message?: string; error?: string };
+    if (info.code && HUB_ERROR_KEYS[info.code] && translate) return hubErrorCode(info.code, translate);
     return [info.code, info.message ?? info.error].filter(Boolean).join(' · ') || 'HF_REQUEST_FAILED';
   }
   return candidate?.message || 'HF_REQUEST_FAILED';
 }
 
-export function jobError(job: HubJob): string {
-  if (typeof job.error === 'string') return job.error;
-  return [job.error?.code || job.result?.error_code, job.error?.message].filter(Boolean).join(' · ');
+export function jobError(job: HubJob, translate?: HubTranslate): string {
+  if (typeof job.error === 'string') {
+    const code = job.result?.error_code || job.error;
+    return HUB_ERROR_KEYS[code] && translate ? hubErrorCode(code, translate) : job.error;
+  }
+  const code = job.error?.code || job.result?.error_code;
+  if (code && HUB_ERROR_KEYS[code] && translate) return hubErrorCode(code, translate);
+  return [code, job.error?.message].filter(Boolean).join(' · ');
 }

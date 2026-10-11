@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
+import { FlowSerializerService, type CanonicalFlowNode } from '@app/core/flow-serializer.service';
 import {
   DBT_MAX_MODELS,
   DBT_TRANSFORM_DEFAULT_MODELS,
@@ -22,6 +22,9 @@ import {
   editorSqlSchema,
   fileWrite,
   isDbtTransformNode,
+  isHistoricalEnrichment,
+  historicalEnrichmentStarter,
+  historicalEnrichmentCopy,
   isPolarsTransformNode,
   isSqlTransformNode,
   isTransformNode,
@@ -821,5 +824,49 @@ test('a preview says which phase it is in, and skips one it will never enter', (
   for (const { key } of transformChecklist('dbt', 'queued')) {
     assert.ok(FLOW_FR[key as keyof typeof FLOW_FR], `missing FR copy for ${key}`);
     assert.ok(FLOW_EN[key as keyof typeof FLOW_EN], `missing EN copy for ${key}`);
+  }
+});
+
+test('historical features edit and preview the graph-owned contract, never stale SQL', () => {
+  const contract = historicalEnrichmentStarter();
+  contract['base'] = { dataset_id: 'orders', version: 2, sha256: 'a'.repeat(64) };
+  contract['history'] = { dataset_id: 'payments', version: 4, sha256: 'b'.repeat(64) };
+  const node = sqlNode({ params: { enrichment: contract, sql: 'SELECT wrong FROM stale', output_name: 'Features' } });
+  const params = readTransformParams(node);
+  assert.equal(transformEngineOf(node), 'sql', 'the existing SQL engine remains the runtime');
+  assert.equal(isHistoricalEnrichment(params, 'sql'), true);
+  assert.deepEqual(JSON.parse(params.program), contract);
+  assert.equal(transformFiles(params, 'sql')[0].name, 'historical-features.json');
+  assert.equal(transformFiles(params, 'sql')[0].language, 'text');
+  assert.equal(preflightTransform(params, 'sql'), null);
+  const changed = { ...contract, max_unmatched_fraction: 0.2 };
+  const write = fileWrite(params, 'sql', 'enrichment', JSON.stringify(changed));
+  assert.deepEqual(write, { path: 'params.enrichment', value: changed });
+  const serializer = new FlowSerializerService();
+  const flow = { source: 'flow' as const, schema_version: 3, nodes: [node], edges: [] };
+  const serialized = JSON.parse(JSON.stringify(serializer.annotateSidecars(serializer.normalize(flow))));
+  const restored = readTransformParams(serializer.normalize(serialized).nodes[0]);
+  assert.deepEqual(restored.enrichment, contract, 'dataset versions, hashes and budgets survive save/reload');
+});
+
+test('malformed enrichment remains visible and refuses instead of running fallback SQL', () => {
+  for (const invalid of [null, false, [], '{broken', { operation: 'unsupported' }]) {
+    const params = readTransformParams(sqlNode({ params: { enrichment: invalid, sql: 'SELECT 1' } }));
+    assert.equal(isHistoricalEnrichment(params, 'sql'), true);
+    assert.equal(preflightTransform(params, 'sql')?.key, 'flow.transform.error.ENRICHMENT_SPEC_INVALID');
+    assert.equal(transformFiles(params, 'sql')[0].id, 'enrichment');
+  }
+  const params = readTransformParams(sqlNode({ params: { enrichment: historicalEnrichmentStarter() } }));
+  assert.deepEqual(fileWrite(params, 'sql', 'enrichment', '{unfinished'), { path: 'params.enrichment', value: '{unfinished' });
+});
+
+test('historical workshop and backend refusals have matching French and English labels', () => {
+  for (const key of Object.values(historicalEnrichmentCopy())) {
+    assert.ok((FLOW_FR as Record<string, string>)[key], key);
+    assert.ok((FLOW_EN as Record<string, string>)[key], key);
+  }
+  for (const code of TRANSFORM_ERROR_CODES.filter((code) => code.startsWith('ENRICHMENT_'))) {
+    assert.ok((FLOW_FR as Record<string, string>)[`flow.transform.error.${code}`], code);
+    assert.ok((FLOW_EN as Record<string, string>)[`flow.transform.error.${code}`], code);
   }
 });

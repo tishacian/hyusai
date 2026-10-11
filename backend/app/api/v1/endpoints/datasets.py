@@ -33,6 +33,7 @@ from app.services.tabular_datasets import (
     serialize_dataset,
     soft_delete,
 )
+from app.services.tabular_enrichment import HistoricalEnrichmentSpec
 
 router = APIRouter()
 
@@ -120,9 +121,7 @@ async def upload_dataset(
     dataset_id = dataset.id
     queued = _dispatch_ingest(dataset_id)
     db.expire_all()
-    refreshed = (
-        db.query(TabularDataset).filter(TabularDataset.id == dataset_id).first()
-    )
+    refreshed = db.query(TabularDataset).filter(TabularDataset.id == dataset_id).first()
     return {
         "dataset": serialize_dataset(refreshed or dataset),
         "queued": queued,
@@ -161,9 +160,7 @@ async def preview_sql_transform(
 
     from app.services.tabular_transforms import preview_sql, resolve_sources, source_catalog
 
-    declared = [
-        entry.model_dump(exclude_none=True) for entry in body.sources
-    ]
+    declared = [entry.model_dump(exclude_none=True) for entry in body.sources]
     try:
         if not str(body.sql or "").strip():
             # No statement yet: the editor still needs the catalog to
@@ -182,6 +179,35 @@ async def preview_sql_transform(
     except TabularError as exc:
         _raise_tabular(exc)
     return {"preview": result, "sources": result["sources"]}
+
+
+class EnrichmentPreviewBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enrichment: HistoricalEnrichmentSpec
+    row_limit: int = Field(default=50, ge=1, le=500)
+
+
+@router.post("/enrichment-preview")
+async def preview_historical_enrichment(
+    body: EnrichmentPreviewBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Validate pinned historical features without creating a dataset or Run."""
+    from app.services.tabular_enrichment import preview_enrichment
+
+    try:
+        return await run_in_threadpool(
+            preview_enrichment,
+            db,
+            workspace_id=workspace.id,
+            spec=body.enrichment,
+            row_limit=body.row_limit,
+        )
+    except TabularError as exc:
+        _raise_tabular(exc)
 
 
 class PolarsPreviewBody(BaseModel):
@@ -328,9 +354,7 @@ async def get_dataset_detail(
     except TabularError as exc:
         _raise_tabular(exc)
     parents = (
-        db.query(TabularDataset)
-        .filter(TabularDataset.id.in_(list(dataset.parent_ids or [])))
-        .all()
+        db.query(TabularDataset).filter(TabularDataset.id.in_(list(dataset.parent_ids or []))).all()
         if dataset.parent_ids
         else []
     )
@@ -346,9 +370,7 @@ async def get_dataset_detail(
         .all()
     )
     descendants = [
-        serialize_dataset(row)
-        for row in children
-        if dataset.id in list(row.parent_ids or [])
+        serialize_dataset(row) for row in children if dataset.id in list(row.parent_ids or [])
     ]
     versions = (
         db.query(TabularDataset)
@@ -404,9 +426,7 @@ async def get_dataset_preview(
                 message="The dataset is still being prepared.",
                 status_code=409,
             )
-        page = await run_in_threadpool(
-            read_page, dataset, offset=offset, limit=limit
-        )
+        page = await run_in_threadpool(read_page, dataset, offset=offset, limit=limit)
     except TabularError as exc:
         _raise_tabular(exc)
     return {
@@ -444,9 +464,7 @@ async def reingest_dataset(
     db.commit()
     queued = _dispatch_ingest(dataset.id)
     db.expire_all()
-    refreshed = (
-        db.query(TabularDataset).filter(TabularDataset.id == dataset_id).first()
-    )
+    refreshed = db.query(TabularDataset).filter(TabularDataset.id == dataset_id).first()
     return {"dataset": serialize_dataset(refreshed or dataset), "queued": queued}
 
 

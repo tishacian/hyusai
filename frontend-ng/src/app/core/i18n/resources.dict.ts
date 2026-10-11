@@ -29,6 +29,7 @@ export const RESOURCES_FR = {
 
   "connectors.hf.activate_forecast": "Valider pour la prévision ML",
   "connectors.hf.activate_embedding": "Valider pour les embeddings ML",
+  "connectors.hf.activate_tabicl": "Valider pour le pilote TabICL local",
 
   "connectors.hf.grant": "Autoriser dans ce workspace",
   "connectors.hf.lifecycle": "Déploiements, bundles et cycle de vie",
@@ -84,6 +85,8 @@ export const RESOURCES_FR = {
   "connectors.hf.repository": "Dépôt",
   "connectors.hf.revision": "Révision, branche ou tag",
   "connectors.hf.loading": "Chargement…",
+  'connectors.hf.error.tabicl_license_required': 'La notice intégrale TabICL manque dans ce bundle. Recréez le bundle avec le fichier license.json vérifié, puis importez et activez ce nouvel artefact.',
+  'connectors.hf.error.tabicl_license_invalid': 'La notice TabICL de ce bundle ne correspond pas à la version intégrale vérifiée. Recréez le bundle avec le fichier license.json conforme, puis importez et activez ce nouvel artefact.',
   "connectors.hf.inspect": "Examiner",
   "connectors.hf.license": "Licence",
   "connectors.hf.license.allowed": "Autorisée",
@@ -864,6 +867,7 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
 
   "connectors.hf.activate_forecast": "Validate for ML forecasting",
   "connectors.hf.activate_embedding": "Validate for ML embeddings",
+  "connectors.hf.activate_tabicl": "Validate for the local TabICL pilot",
 
   "connectors.hf.grant": "Authorize in this workspace",
   "connectors.hf.lifecycle": "Deployments, bundles and lifecycle",
@@ -919,6 +923,8 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
   "connectors.hf.repository": "Repository",
   "connectors.hf.revision": "Revision, branch or tag",
   "connectors.hf.loading": "Loading…",
+  'connectors.hf.error.tabicl_license_required': 'This bundle is missing the complete TabICL license notice. Recreate the bundle with the verified license.json file, then import and activate the new artifact.',
+  'connectors.hf.error.tabicl_license_invalid': 'This bundle’s TabICL license notice does not match the verified complete version. Recreate the bundle with the correct license.json file, then import and activate the new artifact.',
   "connectors.hf.inspect": "Inspect",
   "connectors.hf.license": "License",
   "connectors.hf.license.allowed": "Allowed",

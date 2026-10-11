@@ -1,0 +1,19 @@
+{
+  "package": "tabicl",
+  "version": "2.2.0",
+  "source": {
+    "repository": "https://github.com/soda-inria/tabicl",
+    "revision": "c91f00df184a5097e584cb376f7e699e9f3444c4",
+    "path": "LICENSE",
+    "url": "https://raw.githubusercontent.com/soda-inria/tabicl/c91f00df184a5097e584cb376f7e699e9f3444c4/LICENSE",
+    "sha256": "c959a1db8bc4b2f41c315a9b077c822372a4a84e1a83636bdb962715aaae6874"
+  },
+  "weights": {
+    "repository": "https://huggingface.co/jingang/TabICL",
+    "revision": "4dcd344ece2c00be9e831fdd35bed57b5ad83e19",
+    "license": "BSD-3-Clause",
+    "model_card_url": "https://huggingface.co/jingang/TabICL/raw/4dcd344ece2c00be9e831fdd35bed57b5ad83e19/README.md",
+    "model_card_sha256": "af2a149343cb949f10cca93212d61d67c5be9f7305fbb9c3d7ca1412267a09fd"
+  },
+  "scope": "BSD-3-Clause covers the tabular code and official weights. The complete upstream notice also preserves Apache-2.0 for the forecast module shipped by the package, which this pilot does not use."
+}

@@ -313,6 +313,19 @@ ALGOS += (
     ),
 )
 
+ALGOS += (
+    Algo(
+        key="tabicl_v2",
+        estimators={
+            CLASSIFICATION: "tabicl.TabICLClassifier",
+            REGRESSION: "tabicl.TabICLRegressor",
+        },
+        rank=100,
+        tags=("experimental", "foundation", "local"),
+        seeded=False,
+    ),
+)
+
 ALGO_BY_KEY = {algo.key: algo for algo in ALGOS}
 
 
@@ -320,6 +333,8 @@ def estimator_params(algo: Algo, task: str, knobs: dict[str, Any]) -> dict[str, 
     """The API and search harness share the same catalog-to-estimator contract."""
     from app.resources.ml_knob_translation import translate
 
+    if algo.key == "tabicl_v2":
+        return {}
     return translate(
         algo.key,
         task,
@@ -377,6 +392,30 @@ def tuning_configuration(spec: TrainingSpec) -> dict[str, Any] | None:
 
 def _catalog_algo(algo: Algo, db: DBSession | None, workspace_id: str | None = None) -> dict:
     payload = algo.payload()
+    if algo.key == "tabicl_v2":
+        from app.services.ml.runtime import model_descriptors
+
+        ready, reason = family_availability(get_family("tabular_foundation"), db)
+        allowed = workspace_id in getattr(settings, "ml_tabicl_workspaces", [])
+        assets = [
+            item
+            for item in model_descriptors(db, workspace_id=workspace_id).values()
+            if item.get("kind") == "tabular_foundation"
+        ]
+        payload.update(
+            family="tabular_foundation",
+            experimental=True,
+            available=bool(ready and allowed and assets),
+            reason=reason
+            or (
+                "experimental_workspace_disabled"
+                if not allowed
+                else "model_missing"
+                if not assets
+                else None
+            ),
+        )
+        return payload
     if algo.key == "chronos_zero_shot":
         from app.services.ml.runtime import model_availability
 
@@ -465,6 +504,24 @@ def catalog_payload(
                 for item in model_descriptors(db, workspace_id=workspace_id).values()
                 if item.get("kind") == kind
             ]
+        if family.key == "tabular_foundation":
+            from app.services.ml.runtime import model_descriptors
+
+            assets = [
+                item
+                for item in model_descriptors(db, workspace_id=workspace_id).values()
+                if item.get("kind") == "tabular_foundation"
+            ]
+            allowed = workspace_id in getattr(settings, "ml_tabicl_workspaces", [])
+            family_payload.update(
+                experimental=True,
+                foundation_models=assets,
+                available=bool(available and allowed and assets),
+            )
+            if not family_payload["available"]:
+                family_payload["reason"] = reason or (
+                    "experimental_workspace_disabled" if not allowed else "model_missing"
+                )
         families.append(family_payload)
     return {
         "enabled": bool(settings.ml_train_enabled and settings.tabular_data_enabled),
@@ -628,6 +685,16 @@ def validate_training(
             status_code=409,
         )
     family = family_of_task(chosen_task)
+    if str(algo or "") == "tabicl_v2" and chosen_task in {CLASSIFICATION, REGRESSION}:
+        family = get_family("tabular_foundation")
+        if not getattr(settings, "ml_tabicl_enabled", False) or getattr(
+            dataset, "workspace_id", None
+        ) not in getattr(settings, "ml_tabicl_workspaces", []):
+            raise TabularError(
+                code="ML_FAMILY_UNAVAILABLE",
+                message="The TabICL pilot is not enabled for this workspace.",
+                status_code=409,
+            )
     if str(algo or "") == "chronos_zero_shot" and chosen_task == FORECASTING:
         family = get_family("forecasting_deep")
     if (
@@ -697,6 +764,24 @@ def validate_training(
             message="Declare inference cost only when training the confirmed target of a reviewed LLM dataset.",
             details={"field": "distillation_inference_cost_per_1000"},
         )
+    if family.key == "tabular_foundation":
+        from app.services.ml.families.tabular_foundation import require_qualified_profile
+        from app.services.ml.runtime import model_descriptors
+
+        require_qualified_profile(chosen_task, problem)
+        descriptor = model_descriptors(db, workspace_id=getattr(dataset, "workspace_id", None)).get(
+            problem["artifact_id"]
+        )
+        if (
+            not descriptor
+            or descriptor.get("kind") != "tabular_foundation"
+            or descriptor.get("task") != chosen_task
+        ):
+            raise TabularError(
+                code="ML_DEEP_MODEL_MISSING",
+                message="An activated, workspace-authorized TabICL artifact matching the task is required.",
+                status_code=409,
+            )
     if family.key not in {"tabular", "tabular_deep"}:
         return family.validator(
             dataset,
@@ -929,6 +1014,20 @@ def report_state_key(workspace_id: str, model_id: str) -> str:
     )
 
 
+def evaluation_partition_key(workspace_id: str, model_id: str) -> str:
+    return get_object_store().key(
+        "workspaces", workspace_id, "ml", "models", model_id, "report", "evaluation.json.gz"
+    )
+
+
+def evaluation_partition_uri(model: MLModel) -> str | None:
+    evidence = (model.metrics_json or {}).get("evaluation") or {}
+    expected = evaluation_partition_key(model.workspace_id, model.id)
+    if evidence.get("status") == "stored" and evidence.get("key") == expected:
+        return get_object_store().uri(expected)
+    return None
+
+
 def upload_report_state(local: Path, *, workspace_id: str, model_id: str) -> str | None:
     """Publish the report state if the harness wrote one. Never raises.
 
@@ -975,6 +1074,9 @@ def upload_model_dir(local: Path, *, workspace_id: str, model_id: str) -> tuple[
 def download_model_dir(model: MLModel, destination: Path) -> Path:
     """Materialize a model's MLflow directory locally (serving side)."""
 
+    from app.resources.ml_artifact_contract import MAX_BUNDLE_FILES, safe_relative
+    from app.services.ml.artifacts import validate_inventory
+
     if not model.model_uri:
         raise TabularError(
             code="ML_MODEL_NOT_READY",
@@ -982,6 +1084,22 @@ def download_model_dir(model: MLModel, destination: Path) -> Path:
             status_code=409,
         )
     store = get_object_store()
+    expected_prefix = model_prefix(model.workspace_id, model.id)
+    if model.model_uri.rstrip("/") != expected_prefix:
+        raise TabularError(
+            code="ML_ARTIFACT_UNVERIFIED",
+            message="The model artifact is outside its authorized namespace.",
+            status_code=409,
+        )
+    budget = int(settings.ml_train_artifact_limit_mb) * 1024 * 1024
+    artifact = (model.metrics_json or {}).get("artifact") or {}
+    if artifact.get("contract_version") != 1:
+        raise TabularError(
+            code="ML_ARTIFACT_LEGACY_UNSUPPORTED",
+            message="This legacy artifact requires its producer runtime; no conversion was performed.",
+            status_code=409,
+        )
+    files = validate_inventory(artifact, max_bytes=budget)
     keys = store.list_keys(model.model_uri)
     if not keys:
         raise TabularError(
@@ -991,11 +1109,61 @@ def download_model_dir(model: MLModel, destination: Path) -> Path:
         )
     destination.mkdir(parents=True, exist_ok=True)
     prefix = model.model_uri.rstrip("/") + "/"
+    if (
+        len(keys) > MAX_BUNDLE_FILES
+        or len(keys) != len(set(keys))
+        or any(not key.startswith(prefix) or not safe_relative(key[len(prefix) :]) for key in keys)
+        or {key[len(prefix) :] for key in keys} != set(files)
+    ):
+        raise TabularError(
+            code="ML_ARTIFACT_TAMPERED",
+            message="The object-store inventory differs from the authorized model bundle.",
+            status_code=409,
+        )
+    root = destination.resolve()
+    total = 0
     for key in keys:
-        relative = key[len(prefix) :] if key.startswith(prefix) else Path(key).name
+        relative = key[len(prefix) :]
         target = destination / relative
+        if (
+            target.exists()
+            or target.is_symlink()
+            or not target.resolve().is_relative_to(root)
+            or any(
+                part.is_symlink()
+                for part in target.parents
+                if part != root and part.is_relative_to(root)
+            )
+        ):
+            raise TabularError(
+                code="ML_ARTIFACT_UNVERIFIED",
+                message="The artifact destination is not isolated.",
+                status_code=409,
+            )
+        expected_size = artifact["file_sizes"][relative]
+        remote_size = store.size(key)
+        if remote_size is None or remote_size != expected_size:
+            raise TabularError(
+                code="ML_ARTIFACT_TAMPERED",
+                message="The stored artifact file size differs from its producer's record.",
+                status_code=409,
+            )
         target.parent.mkdir(parents=True, exist_ok=True)
-        store.copy_to_local(key, target)
+        try:
+            store.copy_to_local(key, target, max_bytes=min(expected_size, budget - total))
+        except ValueError as exc:
+            raise TabularError(
+                code="ML_ARTIFACT_LIMIT",
+                message="The artifact exceeded its materialization budget.",
+                status_code=409,
+            ) from exc
+        if target.stat().st_size != expected_size:
+            raise TabularError(
+                code="ML_ARTIFACT_TAMPERED",
+                message="The artifact changed during download.",
+                status_code=409,
+            )
+        total += expected_size
     return destination
 
 
@@ -1050,7 +1218,7 @@ def create_model(
     # and a later promotion would find nothing to refresh.
     published_id, published_slug = _lineage_publication(db, workspace_id=workspace_id, slug=slug)
     foundation = None
-    if spec.family in {"forecasting_deep", "tabular_deep"}:
+    if spec.family in {"forecasting_deep", "tabular_deep", "tabular_foundation"}:
         from app.services.ml.runtime import model_descriptors
 
         asset_id = spec.spec.get("artifact_id") or (
@@ -1063,7 +1231,11 @@ def create_model(
                 message="The foundation model is unavailable.",
                 status_code=409,
             )
-        expected_kind = "forecasting" if spec.family == "forecasting_deep" else "embedding"
+        expected_kind = {
+            "forecasting_deep": "forecasting",
+            "tabular_deep": "embedding",
+            "tabular_foundation": "tabular_foundation",
+        }[spec.family]
         if foundation.get("kind") != expected_kind:
             raise TabularError(
                 code="HF_ADAPTER_INCOMPATIBLE",
@@ -1351,6 +1523,9 @@ def set_champion(db: DBSession, model: MLModel) -> MLModel:
     resolves against.
     """
 
+    from app.services.ml.families.tabular_foundation import require_qualified_model
+
+    require_qualified_model(model)
     if model.status != "ready":
         raise TabularError(
             code="ML_MODEL_NOT_READY",
@@ -1517,7 +1692,8 @@ def champion_for(db: DBSession, *, workspace_id: str, slug: str) -> MLModel | No
         (
             row
             for row in query.order_by(MLModel.version.desc()).all()
-            if not (row.params_json or {}).get("retraining_proposal")
+            if row.family != "tabular_foundation"
+            and not (row.params_json or {}).get("retraining_proposal")
         ),
         None,
     )
@@ -1768,7 +1944,12 @@ def clamp_timeout(value: Any) -> float:
 
 
 def _write_manifest(
-    scratch: Path, model: MLModel, data_path: Path, *, distillation: dict | None = None
+    scratch: Path,
+    model: MLModel,
+    data_path: Path,
+    *,
+    distillation: dict | None = None,
+    dataset: TabularDataset | None = None,
 ) -> Path:
     params = dict(model.params_json or {})
     manifest = {
@@ -1793,8 +1974,23 @@ def _write_manifest(
         "progress_path": str(scratch / _PROGRESS_FILE),
         "report_path": str(scratch / "report" / _REPORT_STATE_FILE),
         "report_state_limit_mb": int(settings.ml_train_report_state_limit_mb),
+        "evaluation_path": str(scratch / "report" / "evaluation.json.gz"),
+        "dataset": {"id": model.dataset_id, "version": dataset.version if dataset else None},
+        "diagnostics": {
+            "enabled": bool(
+                settings.ml_skore_checks_enabled
+                and model.workspace_id in settings.ml_skore_checks_workspaces
+                and (model.family or TABULAR.key) == TABULAR.key
+            ),
+            "budget_s": float(settings.ml_skore_checks_budget_s),
+            "max_rows": int(settings.ml_skore_checks_max_rows),
+        },
     }
-    if manifest["family"] in {"forecasting_deep", "tabular_deep"}:
+    if manifest["family"] == "tabular_foundation":
+        from app.services.huggingface.adapters import require_model_foundation
+
+        require_model_foundation(model)
+    if manifest["family"] in {"forecasting_deep", "tabular_deep", "tabular_foundation"}:
         from contextlib import nullcontext
 
         from app.services.huggingface.adapters import authorized_manifest
@@ -1809,7 +2005,17 @@ def _write_manifest(
         deep_tabular = manifest["family"] == "tabular_deep"
         expected = params.get("foundation") or {}
         artifact_id = expected.get("artifact_id")
-        kind = "embedding" if deep_tabular else "forecasting"
+        kind = {
+            "tabular_deep": "embedding",
+            "forecasting_deep": "forecasting",
+            "tabular_foundation": "tabular_foundation",
+        }[manifest["family"]]
+        if kind == "tabular_foundation" and not artifact_id:
+            raise TabularError(
+                code="HF_ARTIFACT_UNAVAILABLE",
+                message="TabICL requires a workspace grant.",
+                status_code=409,
+            )
         try:
             if artifact_id:
                 source_manifest = authorized_manifest(model.workspace_id, artifact_id, usage=kind)
@@ -2014,6 +2220,8 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
         mark_step(db, model, "reading")
 
         timeout_s = clamp_timeout(settings.ml_train_timeout_s)
+        if family.key == "tabular_foundation":
+            timeout_s = min(600.0, timeout_s)
         scratch = Path(tempfile.mkdtemp(prefix="ml-train-"))
         started = time.monotonic()
         status = "failed"
@@ -2021,8 +2229,10 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
         summary: dict[str, Any] = {}
         run = None
         try:
+            from app.services.ml.families.tabular_foundation import require_qualified_model
             from app.services.ml_retraining import retraining_cancel_requested, verify_training
 
+            require_qualified_model(model)
             verify_training(db, model)
             distillation = _distillation_provenance(db, dataset, model.task, model.target)
             from app.resources.ml_distillation import snapshot
@@ -2035,10 +2245,14 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                     status_code=409,
                 )
             data_path = materialize(dataset, scratch / "data.parquet")
-            manifest_path = _write_manifest(scratch, model, data_path, distillation=distillation)
+            manifest_path = _write_manifest(
+                scratch, model, data_path, distillation=distillation, dataset=dataset
+            )
             result_path = scratch / "result.json"
             interpreter = Path(sys.executable)
             threads = str(int(settings.ml_train_threads))
+            if family.key == "tabular_foundation":
+                threads = str(max(1, min(4, int(threads))))
             run = supervise_harness(
                 [
                     str(interpreter),
@@ -2056,7 +2270,9 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                 # worker republishes them rather than guessing at the boundaries.
                 on_poll=lambda: _publish_progress(db, model, scratch, steps),
                 timeout_error=f"ML_TIMEOUT: exceeded {int(timeout_s)}s",
-                memory_limit_mb=int(settings.ml_train_memory_limit_mb),
+                memory_limit_mb=min(6144, int(settings.ml_train_memory_limit_mb))
+                if family.key == "tabular_foundation"
+                else int(settings.ml_train_memory_limit_mb),
                 cpu_limit_s=int(settings.ml_train_cpu_limit_s),
                 fsize_limit_mb=int(settings.ml_train_artifact_limit_mb),
                 extra_env={
@@ -2100,6 +2316,26 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                         workspace_id=model.workspace_id,
                         model_id=model.id,
                     )
+                    evaluation = (summary.get("metrics") or {}).get("evaluation")
+                    if isinstance(evaluation, dict) and evaluation.get("status") == "recorded":
+                        local = scratch / "report" / "evaluation.json.gz"
+                        key = evaluation_partition_key(model.workspace_id, model.id)
+                        try:
+                            from app.resources.ml_evaluation import MAX_BYTES
+
+                            if not local.is_file() or local.stat().st_size > MAX_BYTES:
+                                raise ValueError("Missing or oversized evaluation artifact")
+                            payload = local.read_bytes()
+                            import hashlib
+
+                            if hashlib.sha256(payload).hexdigest() != evaluation.get("sha256"):
+                                raise ValueError("Evaluation artifact digest mismatch")
+                            get_object_store().write_bytes(key, payload)
+                            evaluation["key"] = key
+                            evaluation["status"] = "stored"
+                        except Exception:
+                            evaluation["status"] = "unavailable"
+                            evaluation["reason"] = "artifact_upload_failed"
         except TabularError as exc:
             status, error = "failed", f"{exc.code}: {exc.message}"
         except Exception as exc:  # noqa: BLE001 - the row is the error channel
@@ -2144,8 +2380,10 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                 )
                 .first()
             )
-            model.is_champion = serving is None and not (model.params_json or {}).get(
-                "retraining_proposal"
+            model.is_champion = (
+                model.family != "tabular_foundation"
+                and serving is None
+                and not (model.params_json or {}).get("retraining_proposal")
             )
             _register_version(model)
         else:
@@ -2214,6 +2452,7 @@ def _register_version(model: MLModel) -> None:
             # reader who has only the registry can still find the rows the
             # published metrics were measured on.
             "agentium.skore_report_state": _report_state_uri(model) or "",
+            "agentium.evaluation_partition": evaluation_partition_uri(model) or "",
             "agentium.family": model.family or TABULAR.key,
             "agentium.runtime": (model.runtime_json or {}).get("runtime") or "",
             "agentium.runtime.image_revision": (model.runtime_json or {}).get("image_revision")

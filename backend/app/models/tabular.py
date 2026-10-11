@@ -44,7 +44,14 @@ DATASET_SOURCES = ("upload", "transform", "score", "generated", "postgresql", "h
 
 MODEL_TASKS = ("classification", "regression", "forecasting", "clustering")
 # Which declaration in app.services.ml.families trains and serves the row.
-MODEL_FAMILIES = ("tabular", "forecasting", "forecasting_deep", "tabular_deep", "clustering")
+MODEL_FAMILIES = (
+    "tabular",
+    "forecasting",
+    "forecasting_deep",
+    "tabular_deep",
+    "clustering",
+    "tabular_foundation",
+)
 MODEL_STATUSES = ("pending", "training", "ready", "failed", "cancelled")
 MODEL_TERMINAL_STATUSES = frozenset({"ready", "failed", "cancelled"})
 

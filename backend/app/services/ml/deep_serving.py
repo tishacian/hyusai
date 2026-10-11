@@ -24,10 +24,20 @@ def answer_for(model_id: str, rows: list[dict], *, explain=False, interval_level
             )
         with SessionLocal() as db:
             model = db.get(MLModel, model_id)
-            if model is None or model.family != "tabular_deep" or model.status != "ready":
+            if (
+                model is None
+                or model.family not in {"tabular_deep", "tabular_foundation"}
+                or model.status != "ready"
+            ):
                 raise TabularError(
                     code="ML_MODEL_NOT_READY",
                     message="The embedding model is not ready.",
+                    status_code=409,
+                )
+            if model.family == "tabular_foundation" and (explain or interval_level is not None):
+                raise TabularError(
+                    code="ML_DEEP_OPTION_UNSUPPORTED",
+                    message="The TabICL pilot does not support explanations or prediction intervals.",
                     status_code=409,
                 )
             from app.services.huggingface.adapters import require_model_foundation

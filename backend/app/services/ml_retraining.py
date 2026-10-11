@@ -136,6 +136,16 @@ def supported(model):
     )
 
 
+def _require_supported(model):
+    if model.family == "tabular_foundation":
+        refuse(
+            "ML_PILOT_AUTOMATION_DISABLED",
+            "The tabular foundation pilot requires explicit experiments; scheduled monitoring and retraining are unavailable.",
+        )
+    if not supported(model):
+        refuse("ML_MONITORING_UNSUPPORTED", "Select a ready tabular or forecasting model.")
+
+
 def configure(db, *, model, workspace, user, body: MonitoringPolicy):
     from app.services.run_engine.execution_contract import canonical_flow_sha256
     from app.services.run_engine.scheduler import validate_cron_expr
@@ -147,8 +157,10 @@ def configure(db, *, model, workspace, user, body: MonitoringPolicy):
             "Workspace administration is required to schedule retraining proposals.",
             403,
         )
-    if body.enabled and (model.status != "ready" or not supported(model)):
-        refuse("ML_MONITORING_UNSUPPORTED", "Select a ready tabular or forecasting model.")
+    if body.enabled:
+        _require_supported(model)
+        if model.status != "ready":
+            refuse("ML_MONITORING_UNSUPPORTED", "Select a ready tabular or forecasting model.")
     if body.interval_minutes not in {60, 360, 1440}:
         refuse(
             "ML_MONITORING_INTERVAL_INVALID", "Choose an hourly, six-hourly or daily schedule.", 422
@@ -287,6 +299,7 @@ def stop_model_schedules(db, model):
 def _active(db, model, run):
     from app.services.run_engine.execution_contract import canonical_flow_sha256
 
+    _require_supported(model)
     policy = policy_for(model)
     workspace = db.get(Workspace, model.workspace_id)
     author = db.get(User, policy.get("configured_by")) if policy.get("configured_by") else None
@@ -747,6 +760,7 @@ def verify_training(db, model):
     proposal_id = (model.params_json or {}).get("retraining_proposal")
     if not proposal_id:
         return
+    _require_supported(model)
     job = db.get(WorkspaceJob, proposal_id)
     if (
         job is None

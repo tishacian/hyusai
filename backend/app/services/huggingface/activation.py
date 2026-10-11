@@ -18,9 +18,9 @@ def request_activation(
     from app.services.huggingface import registry
 
     if (
-        usage not in {"forecasting", "embedding", "reranker"}
+        usage not in {"forecasting", "embedding", "reranker", "tabular_foundation"}
         or runtime not in {"ml", "rag"}
-        or (usage == "forecasting" and runtime != "ml")
+        or (usage in {"forecasting", "tabular_foundation"} and runtime != "ml")
     ):
         raise HFError("HF_ADAPTER_INCOMPATIBLE", "Unsupported adapter/runtime combination.")
     registry.admission_lock(db)
