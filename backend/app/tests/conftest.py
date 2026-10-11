@@ -27,6 +27,13 @@ _TEST_DB = pathlib.Path(tempfile.gettempdir()) / f"pytest_omnirag-{_WORKER}-{os.
 _TEST_REGISTRY_DB = (
     pathlib.Path(tempfile.gettempdir()) / f"pytest_mlflow-{_WORKER}-{os.getpid()}.db"
 )
+# An xdist worker inherits the controller's environment, defaults included:
+# those are the controller's own files, not a caller's choice, so each worker
+# drops them and derives its own.
+for _name in ("DATABASE_URL", "ML_REGISTRY_URI"):
+    _default = os.environ.pop(f"_PYTEST_OMNIRAG_DEFAULT_{_name}", None)
+    if _default is not None and os.environ.get(_name) == _default:
+        del os.environ[_name]
 _CONFIGURED_DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 
@@ -103,8 +110,13 @@ def _assert_p4_broker_is_isolated() -> None:
 
 _assert_external_test_database_is_disposable(_CONFIGURED_DATABASE_URL)
 _assert_p4_broker_is_isolated()
-os.environ.setdefault("DATABASE_URL", f"sqlite:///{_TEST_DB}")
-os.environ.setdefault("ML_REGISTRY_URI", f"sqlite:///{_TEST_REGISTRY_DB}")
+for _name, _default in (
+    ("DATABASE_URL", f"sqlite:///{_TEST_DB}"),
+    ("ML_REGISTRY_URI", f"sqlite:///{_TEST_REGISTRY_DB}"),
+):
+    if _name not in os.environ:
+        os.environ[_name] = _default
+        os.environ[f"_PYTEST_OMNIRAG_DEFAULT_{_name}"] = _default
 # Neutralise side-effects that would otherwise trigger real external calls
 # at import time (Qdrant ping, Redis connect, Azure OpenAI cost meter).
 os.environ.setdefault("QDRANT_URL", "http://localhost:6333")
