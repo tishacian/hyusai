@@ -239,7 +239,15 @@ def test_the_catalog_describes_the_forecasting_family_the_form_will_render(enabl
     assert fields["horizon"]["max"] == settings.ml_ts_max_horizon
     assert fields["series_columns"]["when"] == {"shape": ["panel"]}
     forecasters = {algo["key"] for algo in payload["algos"] if "forecasting" in algo["tasks"]}
-    assert forecasters == {"gradient_boosting", "random_forest", "linear", "ets", "arima", "seasonal_naive"}
+    assert forecasters == {
+        "gradient_boosting",
+        "random_forest",
+        "linear",
+        "ets",
+        "arima",
+        "seasonal_naive",
+        "chronos_zero_shot",
+    }
 
 
 def test_the_spec_frequencies_are_the_ones_the_harness_has_seasons_and_lags_for():
@@ -267,13 +275,31 @@ def test_the_harness_and_its_model_import_nothing_from_the_application():
     resources = Path(tabular_ml.__file__).resolve().parents[1] / "resources"
     for name in ("ml_forecast_harness.py", "ml_forecast_pyfunc.py"):
         tree = ast.parse((resources / name).read_text(encoding="utf-8"))
+        # ``try: from app.resources.x import ...`` / ``except ModuleNotFoundError:
+        # from x import ...`` prefers the packaged copy and falls back on the
+        # sibling file the script runs beside, so it needs no application.
+        guarded = {
+            id(inner)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Try)
+            and any(
+                isinstance(handler.type, ast.Name)
+                and handler.type.id in {"ImportError", "ModuleNotFoundError"}
+                for handler in node.handlers
+            )
+            for statement in node.body
+            for inner in ast.walk(statement)
+        }
         imported = {
-            node.module if isinstance(node, ast.ImportFrom) else alias.name
+            (node.module if isinstance(node, ast.ImportFrom) else alias.name, id(node) in guarded)
             for node in ast.walk(tree)
             if isinstance(node, (ast.Import, ast.ImportFrom))
             for alias in node.names
         }
-        assert not [module for module in imported if module and module.startswith("app")], name
+        assert not [m for m, ok in imported if m and m.startswith("app") and not ok], name
+        for module, _ in imported:
+            if module and module.startswith("app.resources."):
+                assert (resources / f"{module.rsplit('.', 1)[1]}.py").is_file(), module
 
 
 def test_the_api_never_loads_a_forecast_as_a_row_model(monkeypatch):
@@ -285,7 +311,7 @@ def test_the_api_never_loads_a_forecast_as_a_row_model(monkeypatch):
     from app.services import tabular_predict
 
     monkeypatch.setattr(settings, "ml_predict_enabled", True)
-    row = SimpleNamespace(id="m1", status="ready", family="forecasting")
+    row = SimpleNamespace(id="m1", status="ready", family="forecasting", task="forecasting")
     with pytest.raises(TabularError) as caught:
         tabular_predict.load_pipeline_traced(row)
     assert caught.value.code == "ML_USE_FORECAST_ROUTE"
@@ -313,13 +339,13 @@ def test_a_tabular_model_is_sent_back_to_predict_and_a_silent_family_is_refused(
     from app.services.ml import forecast_serving
 
     monkeypatch.setattr(settings, "ml_predict_enabled", True)
-    tabular = SimpleNamespace(id="t", family="tabular", status="ready", version=1)
+    tabular = SimpleNamespace(id="t", family="tabular", task="classification", status="ready", version=1)
     monkeypatch.setattr(tabular_predict, "serving_version", lambda db, model, version=None: model)
     with pytest.raises(TabularError) as caught:
         forecast_serving.request_forecast(None, tabular)
     assert caught.value.code == "ML_USE_PREDICT_ROUTE"
 
-    forecast = SimpleNamespace(id="f", family="forecasting", status="ready", version=1)
+    forecast = SimpleNamespace(id="f", family="forecasting", task="forecasting", status="ready", version=1)
     monkeypatch.setattr(settings, "worker_eager_mode", False)
     with pytest.raises(TabularError) as caught:
         forecast_serving.request_forecast(None, forecast, horizon=3)
@@ -362,7 +388,7 @@ def test_a_forecast_node_pointed_at_a_tabular_model_is_sent_to_the_scoring_node(
     from app.services import tabular_predict
     from app.services.ml import forecast_serving
 
-    tabular = SimpleNamespace(id="t", family="tabular", status="ready", version=1)
+    tabular = SimpleNamespace(id="t", family="tabular", task="classification", status="ready", version=1)
     monkeypatch.setattr(tabular_predict, "serving_version", lambda db, model, version=None: model)
     with pytest.raises(TabularError) as caught:
         forecast_serving.submit_forecast_dataset(None, model=tabular, workspace_id="w")
