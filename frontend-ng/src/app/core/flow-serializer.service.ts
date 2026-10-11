@@ -69,6 +69,7 @@ export type NodeKind =
   | 'subflow'   // Nested execution of another System.
   | 'source'    // Flow input (from trigger).
   | 'asset'     // Declarative data source (e.g. a knowledge collection).
+  | 'secret'    // Grants a registry secret (by reference) to wired tasks.
   | 'sink';     // Flow output.
 
 /**
@@ -1651,7 +1652,7 @@ export class FlowSerializerService {
       // `asset` is a declarative data source (structurally like `source`):
       // it binds no skill and never runs, so it is skipped silently rather
       // than reported as an advanced, client-simulated kind.
-      if (kind === 'source' || kind === 'sink' || kind === 'asset') continue;
+      if (kind === 'source' || kind === 'sink' || kind === 'asset' || kind === 'secret') continue;
       if (kind !== 'task') {
         skipped.push(kind);
         continue;

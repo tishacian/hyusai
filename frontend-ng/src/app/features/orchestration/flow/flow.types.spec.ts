@@ -178,3 +178,11 @@ test('Retrieval taxonomy is persisted as a shared canonical config marker', () =
   assert.equal(node.config?.['skill_category'], 'Retrieval');
   assert.equal(node.config?.['skill_slug'], 'opaque_vendor_operation_v3');
 });
+
+test('the Secret palette item seeds a reference-only config', () => {
+  const item = DEFAULT_PALETTE.find((entry) => entry.kind === 'secret');
+  assert.ok(item);
+  const node = paletteItemToNode(item);
+  assert.equal(node.kind, 'secret');
+  assert.deepEqual(node.config, { secret_ref: '', bindings: {} });
+});

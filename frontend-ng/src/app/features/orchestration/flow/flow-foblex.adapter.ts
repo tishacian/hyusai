@@ -100,9 +100,9 @@ function connectorViews(
 /** Build the Foblex node view (connectors + position) for a canonical node. */
 export function toNodeView(node: CanonicalFlowNode): FlowNodeView {
   const kind = node.kind ?? 'task';
-  // `source` and `asset` are pure inputs: they emit but never consume, so
-  // neither renders a default inbound connector.
-  const inputless = kind === 'source' || kind === 'asset';
+  // `source`, `asset` and `secret` are pure inputs: they emit but never
+  // consume, so none renders a default inbound connector.
+  const inputless = kind === 'source' || kind === 'asset' || kind === 'secret';
   let outputs = connectorViews(node.id, node.outputs, 'out', kind !== 'sink');
   if (
     (kind === 'task' || kind === 'retry') &&

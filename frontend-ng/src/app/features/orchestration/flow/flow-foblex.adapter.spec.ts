@@ -231,3 +231,11 @@ test('a routed task error creates and renders a real error edge', () => {
   assert.equal(connection.kind, 'error');
   assert.equal(connection.source, 'task::out::error');
 });
+
+test('a secret node emits grants but never renders an inbound connector', () => {
+  const [view] = toNodeViews([
+    { id: 'key', type: 'secret', kind: 'secret', label: 'Secret', position: { x: 0, y: 0 } },
+  ]);
+  assert.equal(view.inputs.length, 0);
+  assert.equal(view.outputs.length, 1);
+});

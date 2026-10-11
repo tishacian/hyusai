@@ -101,6 +101,8 @@ from .run_contracts import (
     validate_sink_output,
     validation_mode,
 )
+from .secret_grants import SECRET_NODE_KIND, granted_slots
+from .secret_grants import redact as redact_secrets
 from .variable_pool import (
     VariablePool,
     VariableResolutionError,
@@ -451,17 +453,17 @@ class WalkerState:
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            "node_outputs": self.node_outputs,
+            "node_outputs": redact_secrets(self.node_outputs),
             "done": sorted(self.done),
             "pending_counts": self.pending_counts,
             "dead_edges": [list(e) for e in self.dead_edges],
-            "ctx": self.ctx,
+            "ctx": redact_secrets(self.ctx),
             "invocation_ids": list(self.invocation_ids),
             "accumulated_ms": self.accumulated_ms,
             "total_cost": self.total_cost,
             "debug_mode": self.debug_mode,
             "breakpoints": sorted(self.breakpoints),
-            "pool": self.pool.to_dict(),
+            "pool": redact_secrets(self.pool.to_dict()),
             "subflow_children": dict(self.subflow_children),
             "membrane_egress_approved": self.membrane_egress_approved,
         }
@@ -2366,7 +2368,10 @@ async def _execute_node(
     gating_edges = [
         e
         for e in in_edges
-        if not (graph.nodes.get(e.source) is not None and graph.nodes[e.source].kind == "asset")
+        if not (
+            graph.nodes.get(e.source) is not None
+            and graph.nodes[e.source].kind in ("asset", SECRET_NODE_KIND)
+        )
     ]
     if gating_edges and all(
         (e.source, e.target, e.branch_label) in state.dead_edges for e in gating_edges
@@ -2610,6 +2615,12 @@ async def _execute_node(
 
         if node.kind == "subflow":
             result = await _run_subflow(db, run, node, state, control=control, upstream=node_input)
+            return result
+
+        if node.kind == SECRET_NODE_KIND:
+            # Grants travel through ``skill_ctx["secrets"]`` (engine), never the
+            # pool: only the granted slot names are published.
+            result = {"output": {"granted": granted_slots(node.config)}}
             return result
 
         if node.kind == "asset":
@@ -4513,19 +4524,27 @@ _SECRET_SUFFIXES = tuple(f"_{key}" for key in _SECRET_KEYS)
 
 
 def _without_secret_values(value: Any) -> Any:
-    """Copy JSON-like runtime config while dropping credential fields."""
+    """Copy JSON-like runtime config while dropping credential fields.
+
+    ``SecretValue`` objects and values revealed through flow secret grants are
+    masked as well.
+    """
+    return redact_secrets(_drop_secret_keys(value))
+
+
+def _drop_secret_keys(value: Any) -> Any:
     if isinstance(value, dict):
         clean: dict[str, Any] = {}
         for key, item in value.items():
             name = str(key).strip().lower()
             if name in _SECRET_KEYS or name.endswith(_SECRET_SUFFIXES):
                 continue
-            clean[str(key)] = _without_secret_values(item)
+            clean[str(key)] = _drop_secret_keys(item)
         return clean
     if isinstance(value, list):
-        return [_without_secret_values(item) for item in value]
+        return [_drop_secret_keys(item) for item in value]
     if isinstance(value, tuple):
-        return [_without_secret_values(item) for item in value]
+        return [_drop_secret_keys(item) for item in value]
     return value
 
 
@@ -4544,6 +4563,9 @@ def _merge_predecessor_outputs(
             src_node = graph.nodes.get(edge.source)
             if src_node is not None and src_node.kind == "asset":
                 continue
+        src = graph.nodes.get(edge.source)
+        if src is not None and src.kind == SECRET_NODE_KIND:
+            continue
         if edge.source not in state.node_outputs:
             continue
         upstream = state.node_outputs[edge.source]
@@ -4749,6 +4771,7 @@ def _summarise_node_execution(
 def _append_checkpoint(db: DBSession, run: Run, entry: dict[str, Any]) -> None:
     cps = list(run.checkpoints or [])
     entry.setdefault("t", datetime.utcnow().isoformat())
+    entry = redact_secrets(entry)
     cps.append(entry)
     run.checkpoints = cps
     db.commit()

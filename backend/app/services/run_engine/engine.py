@@ -82,6 +82,9 @@ from .execution_contract import (
     resolve_flow_execution,
     resolve_run_flow_execution,
 )
+from .secret_grants import CTX_KEY as SECRETS_CTX_KEY
+from .secret_grants import build_grants as build_secret_grants
+from .secret_grants import redact as redact_secrets
 from .streaming import flush_token_sink, make_token_sink
 
 logger = get_logger(__name__)
@@ -954,7 +957,7 @@ async def _execute_task_node(
         resolve_skill_model_execution,
     )
 
-    skill_input = (
+    skill_input = redact_secrets(
         dict(resolved_input)
         if resolved_input is not None
         else _build_skill_input(slug, run.input_ref or {}, last_output, ctx)
@@ -1116,6 +1119,7 @@ async def _execute_task_node(
     skill_ctx.pop("_provider_usage_v1", None)
     skill_ctx.pop("_model_response_usage", None)
     skill_ctx.pop("_agent_loop_decision_evidence", None)
+    skill_ctx.pop(SECRETS_CTX_KEY, None)
 
     def check_model_attempt(execution):
         # A prior dispatch may have spent tokens even when it timed out. Put
@@ -1168,6 +1172,14 @@ async def _execute_task_node(
 
         # Server-owned context: caller input cannot forge a source binding.
         skill_ctx["_flow_data_sources"] = bound_data_sources(run.flow_snapshot, node_id)
+        skill_ctx[SECRETS_CTX_KEY] = build_secret_grants(
+            db,
+            run.flow_snapshot,
+            node_id=node_id,
+            run_id=run.id,
+            workspace_id=run.workspace_id,
+            system_id=run.system_id or ctx.get("system_id"),
+        )
         if model_resolution_error is not None:
             raise model_resolution_error
         # A workspace-defined Skill carries its runtime on its own row, so the
@@ -1200,7 +1212,7 @@ async def _execute_task_node(
         # A Skill output is arbitrary JSON.  Falsy values (``False``, ``0``
         # and ``""``) are valid contract outputs and must not be rewritten to
         # an empty object before the DAG validates or publishes them.
-        invocation.output_ref = output if output is not None else {}
+        invocation.output_ref = redact_secrets(output) if output is not None else {}
         invocation.status = "completed"
     except asyncio.CancelledError:
         invocation.status = "cancelled"
@@ -1220,8 +1232,9 @@ async def _execute_task_node(
         logger.info("run_engine: skill unimplemented", run_id=run.id, skill=slug)
     except Exception as exc:  # noqa: BLE001
         invocation.status = "failed"
-        invocation.error = str(exc)[:500]
-        logger.warning("run_engine: skill failed", run_id=run.id, skill=slug, error=str(exc))
+        error = redact_secrets(str(exc))
+        invocation.error = error[:500]
+        logger.warning("run_engine: skill failed", run_id=run.id, skill=slug, error=error)
     finally:
         # Drain whatever small residual burst is still in the sink's
         # coalescing buffer so the SSE client sees the tail of the

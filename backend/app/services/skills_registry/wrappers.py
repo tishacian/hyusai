@@ -76,6 +76,18 @@ def _provider_usage_scope(ctx: dict[str, Any]) -> dict[str, Any]:
     return accumulator
 
 
+def ctx_secret(ctx: Optional[dict[str, Any]], slot: str):
+    """Secret granted to this invocation by a flow ``secret`` node, or ``None``.
+
+    Returns a ``SecretValue``; call ``reveal()`` only where the clear value is
+    consumed (header, connection) and never put it in the skill output.
+    """
+    grants = (ctx or {}).get("secrets")
+    if grants is None or slot not in grants:
+        return None
+    return grants.get(slot)
+
+
 def _usage_candidate(payload: Any) -> Any:
     """Return the nearest explicit provider usage container, if present."""
 

@@ -349,6 +349,8 @@ export const FLOW_FR = {
   'flow.node.kind.source': 'DÉCLENCHEUR',
   'flow.node.kind.sink': 'SORTIE',
   'flow.node.kind.asset': 'DONNÉES',
+  'flow.node.kind.secret': 'SECRET',
+  'flow.node.secret.empty_ref': 'Aucun secret choisi',
   'flow.node.kind.decision': 'DÉCISION',
   'flow.node.kind.fork': 'DIVISION',
   'flow.node.kind.join': 'FUSION',
@@ -490,6 +492,16 @@ export const FLOW_FR = {
     'Ce nœud Données ne désigne aucune collection de connaissances. Ouvrez-le et choisissez la collection à lire.',
   'flow.checklist.code.asset_binding_mismatch':
     'Ce nœud Données et l’étape qui le lit ne désignent pas la même collection. Alignez-les sur une seule collection.',
+  'flow.checklist.code.secret_ref_invalid':
+    'Ce nœud Secret n’a pas de référence valide. Choisissez un secret de la forme secret://….',
+  'flow.checklist.code.secret_unbound':
+    'Ce nœud Secret n’accorde aucun emplacement. Reliez-le à une étape et nommez l’emplacement à remplir.',
+  'flow.checklist.code.secret_unknown':
+    'Ce nœud Secret désigne un secret introuvable ou désactivé dans ce périmètre.',
+  'flow.checklist.code.secret_scope_violation':
+    'Ce nœud Secret utilise un secret qui appartient à un autre système ou espace de travail.',
+  'flow.checklist.code.secret_slot_unknown':
+    'L’étape reliée ne déclare pas cet emplacement de secret. Choisissez un emplacement qu’elle attend.',
   'flow.checklist.code.retrieval_scope_node_invalid':
     'Seule une étape de recherche peut porter un périmètre de recherche. Déplacez le périmètre sur l’étape de recherche, ou retirez-le.',
   'flow.checklist.code.retrieval_collections_invalid':
@@ -622,6 +634,12 @@ export const FLOW_FR = {
   'flow.inspector.decision.default.none': 'Aucune — échouer si rien ne correspond',
   'flow.inspector.decision.invalid_label': '(nom invalide)',
   'flow.inspector.section.asset': 'Collection de connaissances',
+  'flow.inspector.section.secret': 'Secret',
+  'flow.inspector.secret.ref': 'Référence du secret',
+  'flow.inspector.secret.hint': 'La valeur n’est jamais copiée dans le Flow : chaque étape reliée la lit à l’exécution, uniquement pour l’emplacement accordé.',
+  'flow.inspector.secret.slot': 'Emplacement pour « {name} »',
+  'flow.inspector.secret.slot.placeholder': 'api_key',
+  'flow.inspector.secret.no_targets': 'Reliez ce nœud à une étape pour lui accorder le secret.',
   'flow.inspector.asset.collection': 'Collection',
   'flow.inspector.asset.collection.none': '— Sélectionner une collection —',
   'flow.inspector.asset.slug': 'Identifiant de collection',
@@ -1763,6 +1781,7 @@ export const FLOW_FR = {
   // sont jamais mappées ici. Voir flow-palette.component.ts.
   'flow.palette.desc.source': 'Entrée / objectif du Flow',
   'flow.palette.desc.source.collection': 'Collection de connaissances comme source de données',
+  'flow.palette.desc.secret': 'Accorde un secret du registre aux étapes reliées',
   'flow.palette.desc.source.sftp_arrival':
     'Déclencheur à l’arrivée de fichiers (clôture de staging / réconciliation)',
   'flow.palette.desc.source.deposit_promoted':
@@ -2134,6 +2153,8 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.node.kind.source': 'TRIGGER',
   'flow.node.kind.sink': 'OUTPUT',
   'flow.node.kind.asset': 'DATA',
+  'flow.node.kind.secret': 'SECRET',
+  'flow.node.secret.empty_ref': 'No secret selected',
   'flow.node.kind.decision': 'DECISION',
   'flow.node.kind.fork': 'SPLIT',
   'flow.node.kind.join': 'MERGE',
@@ -2272,6 +2293,16 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
     'This Data node names no knowledge collection. Open it and choose the collection to read.',
   'flow.checklist.code.asset_binding_mismatch':
     'This Data node and the step reading it name different collections. Align them on one collection.',
+  'flow.checklist.code.secret_ref_invalid':
+    'This Secret node has no valid reference. Pick a secret of the form secret://….',
+  'flow.checklist.code.secret_unbound':
+    'This Secret node grants no slot. Wire it to a step and name the slot to fill.',
+  'flow.checklist.code.secret_unknown':
+    'This Secret node points to a secret that is missing or disabled in this scope.',
+  'flow.checklist.code.secret_scope_violation':
+    'This Secret node uses a secret owned by another System or workspace.',
+  'flow.checklist.code.secret_slot_unknown':
+    'The wired step does not declare this secret slot. Pick a slot it expects.',
   'flow.checklist.code.retrieval_scope_node_invalid':
     'Only a search step can carry a search scope. Move the scope onto the search step, or remove it.',
   'flow.checklist.code.retrieval_collections_invalid':
@@ -2401,6 +2432,12 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.inspector.decision.default.none': 'None — fail when nothing matches',
   'flow.inspector.decision.invalid_label': '(invalid label)',
   'flow.inspector.section.asset': 'Knowledge collection',
+  'flow.inspector.section.secret': 'Secret',
+  'flow.inspector.secret.ref': 'Secret reference',
+  'flow.inspector.secret.hint': 'The value is never copied into the Flow: each wired step reads it at run time, only for its granted slot.',
+  'flow.inspector.secret.slot': 'Slot for “{name}”',
+  'flow.inspector.secret.slot.placeholder': 'api_key',
+  'flow.inspector.secret.no_targets': 'Wire this node to a step to grant it the secret.',
   'flow.inspector.asset.collection': 'Collection',
   'flow.inspector.asset.collection.none': '— Select a collection —',
   'flow.inspector.asset.slug': 'Collection identifier',
@@ -3521,6 +3558,7 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   // here. See flow-palette.component.ts.
   'flow.palette.desc.source': 'Flow input / objective',
   'flow.palette.desc.source.collection': 'Knowledge collection as a data source',
+  'flow.palette.desc.secret': 'Grants a registry secret to the wired steps',
   'flow.palette.desc.source.sftp_arrival':
     'File-arrival trigger (staging close / reconciliation)',
   'flow.palette.desc.source.deposit_promoted':

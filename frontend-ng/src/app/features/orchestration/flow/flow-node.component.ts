@@ -132,6 +132,8 @@ interface RuntimeBadge {
       <div class="ck-flow-node__title">
         @if (kind() === 'asset') {
           <app-icon name="database" [size]="13" class="ck-flow-node__title-icon" />
+        } @else if (kind() === 'secret') {
+          <app-icon name="shield" [size]="13" class="ck-flow-node__title-icon" />
         }
         {{ label() }}
       </div>
@@ -306,6 +308,12 @@ export class FlowNodeComponent {
     if (typeof explicit === 'string' && explicit.trim()) return explicit.trim();
     const runtime = cfg['runtime_ref'] ?? data['runtime_ref'];
     if (typeof runtime === 'string' && runtime.trim()) return runtime.trim();
+    if (node.kind === 'secret') {
+      const ref = cfg['secret_ref'];
+      return typeof ref === 'string' && ref.trim()
+        ? ref.trim()
+        : this.i18n.t('flow.node.secret.empty_ref');
+    }
     const skill = cfg['skill_slug'];
     if (typeof skill === 'string' && skill.trim() && (node.kind ?? 'task') !== 'agent_loop') {
       return skill.trim();
@@ -337,6 +345,7 @@ export class FlowNodeComponent {
       case 'retry':
         return 'amber';
       case 'hitl':
+      case 'secret':
         return 'rose';
       default:
         break;
