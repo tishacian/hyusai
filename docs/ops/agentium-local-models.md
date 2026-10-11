@@ -18,6 +18,27 @@ The cloud routing default is unchanged, and so is the Python fallback
 `ollama_default_model` (`qwen3:8b`), which applies only when no mode file
 sets `OLLAMA_DEFAULT_MODEL`.
 
+Embeddings fail closed, as every embedding provider does: with
+`EMBEDDING_PROVIDER=ollama`, an empty `OLLAMA_BASE_URL`, a failed
+`/api/embed` call or a vector whose width differs from
+`EMBEDDING_DIMENSION` raises `RAG_EMBEDDING_UNAVAILABLE`. Nothing falls back
+to another provider or to hash vectors, because that would change the vector
+space of a collection without reindexing it. Switching a running install
+from OpenAI (1536) to Ollama (768) therefore means reindexing, or a fresh
+Qdrant volume.
+
+## Scope
+
+These modes are for local installs and a lab cluster. On `omnirag-demo`,
+`scripts/agentium-vm-deploy.sh` never passes `local-models`, `gpu-models`,
+`compose.agentium.local.yml` or `compose.agentium.local-mac.yml`, so the VM
+keeps its cloud routing; the storage check renders the same profiles as
+before. The other opt-in overlays (`AGENTIUM_ML_TS`, `AGENTIUM_ML_DEEP`,
+`AGENTIUM_HUGGINGFACE`, `AGENTIUM_OPENBAO`) are independent of the model
+mode. In the chart, `ollama.enabled` and `vllm.enabled` combine the same
+way with `mlTs`, `mlDeep`, `huggingface` and `openbao`
+(`docs/ops/agentium-kubernetes.md`).
+
 ## Default chat model
 
 The three local modes serve one family, Qwen3.5-4B. The 9B sibling scores
