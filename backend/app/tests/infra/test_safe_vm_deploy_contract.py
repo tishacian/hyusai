@@ -149,7 +149,7 @@ def test_safe_deploy_is_sha_bound_locked_and_persists_only_on_data_disk() -> Non
     assert 'LOCK_PATH="$STATE_ROOT/$LOCK_NAME"' in script
     assert "AGENTIUM_SAFE_DEPLOY_LOCK" not in script
     assert 'exec 9<"$STATE_ROOT"' in script
-    assert 'stat -Lc \'%d:%i\' "/proc/$$/fd/9"' in script
+    assert "stat -Lc '%d:%i' \"/proc/$$/fd/9\"" in script
     assert "flock -n 9" in script
     assert 'exec 9>"$LOCK_PATH"' not in script
     assert 'exec 8<>"$LOCK_PATH"' in script
@@ -269,9 +269,7 @@ def test_safe_deploy_locks_before_deployment_child_and_preserves_frozen_reexec()
     state_create = calls.index('ensure_private_child_dir "$DATA_ROOT" deployments 1')
     state_lock = calls.index("flock -n 9")
     compatibility_lock = calls.index("flock -n 8")
-    deployment_create = calls.index(
-        'ensure_private_child_dir "$STATE_ROOT" "$DEPLOYMENT_ID" 1'
-    )
+    deployment_create = calls.index('ensure_private_child_dir "$STATE_ROOT" "$DEPLOYMENT_ID" 1')
     frozen_write = calls.index('git -C "$REPO_DIR" show')
     frozen_exec = calls.index('exec "$FROZEN_ORCHESTRATOR"')
 
@@ -359,7 +357,10 @@ def test_release_a_operator_gate_is_frozen_sha_bound_and_required_before_metadat
     assert "config/agentium/release-a-evidence-authorities.v1.json" in completed
     assert '"verify-final-frozen"' in completed
     assert 'final.get("authority_keyring_sha256")!=keyring_digest' in completed
-    assert 'final.get("binding_manifest_sha256")!=hashlib.sha256(binding_body).hexdigest()' in completed
+    assert (
+        'final.get("binding_manifest_sha256")!=hashlib.sha256(binding_body).hexdigest()'
+        in completed
+    )
     assert '"external_provenance_set_sha256"' in completed
     assert "release-a-candidate-oci-receipt.json" in completed
     assert "release-a-runtime-oci-receipt.json" in completed
@@ -373,8 +374,10 @@ def test_release_a_operator_gate_is_frozen_sha_bound_and_required_before_metadat
     assert 'sftp_restart.get("Name")' in completed
     assert "!=matched_sftp_restart" in completed
     assert "Release A forward terminal authorization differs" in completed
-    assert 'forward_authorization_body!=expected_authorization_body' in completed
-    assert 'authorization_sha256={hashlib.sha256(forward_authorization_body).hexdigest()}' in completed
+    assert "forward_authorization_body!=expected_authorization_body" in completed
+    assert (
+        "authorization_sha256={hashlib.sha256(forward_authorization_body).hexdigest()}" in completed
+    )
     assert "Release A historical Keycloak runtime state cardinality differs" in completed
     assert "Release A historical Keycloak control-plane contract differs" in completed
     assert 'keycloak.get("Id")!=matched_keycloak_contract["container_id"]' in completed
@@ -383,12 +386,12 @@ def test_release_a_operator_gate_is_frozen_sha_bound_and_required_before_metadat
     assert "!=matched_keycloak_restart" in completed
     assert 'row.get("HostIp")!="127.0.0.1"' in completed
     assert 'set(rows).issubset({"8080/tcp","8443/tcp","9000/tcp"})' in completed
-    assert 'value not in (None,[])' in completed
+    assert "value not in (None,[])" in completed
     assert "contains another published endpoint" in completed
     assert "matching Release A SFTP runtime identity was invalidated" in completed
-    assert completed.index('sftp_invalidation_path=path/"sftp-runtime-identity-invalidation.json"') < completed.index(
-        'if private_bytes(path/"phase").decode("ascii").strip()!="completed"'
-    )
+    assert completed.index(
+        'sftp_invalidation_path=path/"sftp-runtime-identity-invalidation.json"'
+    ) < completed.index('if private_bytes(path/"phase").decode("ascii").strip()!="completed"')
     assert 'metadata.get("docker_engine_id")!=engine_id' in completed
     assert "verify-live" in completed
     assert 'container.get("Image")!=expected["image_id"]' in completed
@@ -477,9 +480,7 @@ def test_release_b_accepts_only_byte_bound_completed_release_a_journal(
     expected_sftp_error: str,
 ) -> None:
     script = SAFE_DEPLOY.read_text(encoding="utf-8")
-    verifier = _embedded_python(
-        _shell_function(script, "assert_completed_release_a_transaction")
-    )
+    verifier = _embedded_python(_shell_function(script, "assert_completed_release_a_transaction"))
     engine_id = "engine-local-1234"
     hostname = "agentium.test"
     source_repo = tmp_path / "release-a-source"
@@ -624,9 +625,7 @@ print("passed")
     attestation.write_text(json.dumps(attestation_payload), encoding="utf-8")
     attestation.chmod(0o600)
     preconditions_evidence_payload = {"result": "passed"}
-    preconditions_evidence_bytes = json.dumps(preconditions_evidence_payload).encode(
-        "utf-8"
-    )
+    preconditions_evidence_bytes = json.dumps(preconditions_evidence_payload).encode("utf-8")
     external_evidence = deployment / "external-final-evidence"
     external_evidence.mkdir(mode=0o700)
     proof = external_evidence / "proof.bin"
@@ -637,9 +636,7 @@ print("passed")
         {
             "claim": f"canonical-{index:02d}",
             "source": "release_a_journal",
-            "artifact_sha256": hashlib.sha256(
-                f"canonical-{index}".encode()
-            ).hexdigest(),
+            "artifact_sha256": hashlib.sha256(f"canonical-{index}".encode()).hexdigest(),
         }
         for index in range(23)
     ] + [
@@ -672,9 +669,7 @@ print("passed")
     binding_manifest_path = deployment / "release-a-final-evidence-bindings.json"
     binding_manifest_path.write_text(json.dumps(binding_manifest), encoding="utf-8")
     binding_manifest_path.chmod(0o600)
-    binding_manifest_sha256 = hashlib.sha256(
-        binding_manifest_path.read_bytes()
-    ).hexdigest()
+    binding_manifest_sha256 = hashlib.sha256(binding_manifest_path.read_bytes()).hexdigest()
     final_evidence_receipt = {
         "schema_version": 1,
         "kind": "agentium-release-a-final-evidence-receipt",
@@ -686,9 +681,7 @@ print("passed")
         "sftp_release_sha": sftp_sha,
         "hostname_sha256": hostname_sha256,
         "attestation_sha256": hashlib.sha256(attestation.read_bytes()).hexdigest(),
-        "preconditions_receipt_sha256": hashlib.sha256(
-            preconditions_evidence_bytes
-        ).hexdigest(),
+        "preconditions_receipt_sha256": hashlib.sha256(preconditions_evidence_bytes).hexdigest(),
         "preconditions_sha256": "d" * 64,
         "evidence_file_count": 24,
         "evidence_digest_count": 24,
@@ -782,9 +775,7 @@ print("passed")
         "host_key": {
             "algorithm": "ssh-ed25519",
             "fingerprint": host_key_fingerprint,
-            "fingerprint_sha256": hashlib.sha256(
-                host_key_fingerprint.encode("ascii")
-            ).hexdigest(),
+            "fingerprint_sha256": hashlib.sha256(host_key_fingerprint.encode("ascii")).hexdigest(),
             "present": True,
             "nonempty": True,
             "regular_file": True,
@@ -860,9 +851,7 @@ print("passed")
         "release-a-final-evidence-receipt.json": final_evidence_receipt,
         "release-a-manifest-verification-receipt.json": {"result": "passed"},
         "release-a-preconditions-receipt.json": {"result": "passed"},
-        "release-a-preconditions-evidence-receipt.json": (
-            preconditions_evidence_payload
-        ),
+        "release-a-preconditions-evidence-receipt.json": (preconditions_evidence_payload),
         "release-a-candidate-oci-receipt.json": candidate_receipt,
         "sftp-validation-runtime-ready.json": runtime_ready,
         "sftp-postgres-ledger-receipt.json": sftp_ledger,
@@ -914,30 +903,16 @@ print("passed")
         "result": "passed",
         "deployment_id": deployment.name,
         "release_a_sha": release_sha,
-        "release_a_attestation_receipt_sha256": digests[
-            "release-a-verification-receipt.json"
-        ],
-        "final_evidence_receipt_sha256": digests[
-            "release-a-final-evidence-receipt.json"
-        ],
-        "manifest_receipt_sha256": digests[
-            "release-a-manifest-verification-receipt.json"
-        ],
-        "preconditions_receipt_sha256": digests[
-            "release-a-preconditions-receipt.json"
-        ],
+        "release_a_attestation_receipt_sha256": digests["release-a-verification-receipt.json"],
+        "final_evidence_receipt_sha256": digests["release-a-final-evidence-receipt.json"],
+        "manifest_receipt_sha256": digests["release-a-manifest-verification-receipt.json"],
+        "preconditions_receipt_sha256": digests["release-a-preconditions-receipt.json"],
         "preconditions_evidence_receipt_sha256": digests[
             "release-a-preconditions-evidence-receipt.json"
         ],
-        "runtime_oci_receipt_sha256": digests[
-            "release-a-runtime-oci-receipt.json"
-        ],
-        "sftp_runtime_ready_receipt_sha256": digests[
-            "sftp-validation-runtime-ready.json"
-        ],
-        "sftp_postgres_ledger_receipt_sha256": digests[
-            "sftp-postgres-ledger-receipt.json"
-        ],
+        "runtime_oci_receipt_sha256": digests["release-a-runtime-oci-receipt.json"],
+        "sftp_runtime_ready_receipt_sha256": digests["sftp-validation-runtime-ready.json"],
+        "sftp_postgres_ledger_receipt_sha256": digests["sftp-postgres-ledger-receipt.json"],
         "completed_at": "2026-07-22T20:00:00Z",
     }
     completion_path = deployment / "release-a-transaction-receipt.json"
@@ -1073,8 +1048,7 @@ print("passed")
     substituted_authorization = json.loads(original_authorization)
     substituted_authorization["purpose"] = "rollback-terminal-open"
     forward_authorization.write_text(
-        json.dumps(substituted_authorization, separators=(",", ":"), sort_keys=True)
-        + "\n",
+        json.dumps(substituted_authorization, separators=(",", ":"), sort_keys=True) + "\n",
         encoding="utf-8",
     )
     forward_authorization.chmod(0o600)
@@ -1124,17 +1098,13 @@ print("passed")
         sftp_invalidation.chmod(0o600)
         refused_invalidated_completion = run_verifier()
         assert refused_invalidated_completion.returncode != 0
-        assert (
-            "SFTP runtime identity was invalidated"
-            in refused_invalidated_completion.stderr
-        )
+        assert "SFTP runtime identity was invalidated" in refused_invalidated_completion.stderr
         phase.write_text("opening_forward\n", encoding="ascii")
         phase.chmod(0o600)
         refused_invalidated_nonterminal_phase = run_verifier()
         assert refused_invalidated_nonterminal_phase.returncode != 0
         assert (
-            "SFTP runtime identity was invalidated"
-            in refused_invalidated_nonterminal_phase.stderr
+            "SFTP runtime identity was invalidated" in refused_invalidated_nonterminal_phase.stderr
         )
         phase.write_text("completed\n", encoding="ascii")
         phase.chmod(0o600)
@@ -1193,16 +1163,12 @@ print("passed")
                 "Id": expected["container_id"],
                 "Image": expected["image_id"],
                 "State": state,
-                "Config": {
-                    "Labels": {"org.opencontainers.image.revision": release_sha}
-                },
+                "Config": {"Labels": {"org.opencontainers.image.revision": release_sha}},
                 "HostConfig": {},
                 "NetworkSettings": {},
             }
             live_images[str(expected["image_id"])] = {
-                "Config": {
-                    "Labels": {"org.opencontainers.image.revision": release_sha}
-                }
+                "Config": {"Labels": {"org.opencontainers.image.revision": release_sha}}
             }
         live_containers["agentium-sftp"] = {
             "Id": sftp_container_id,
@@ -1213,18 +1179,14 @@ print("passed")
                 "StartedAt": sftp_started_at,
                 "Health": {"Status": "healthy"},
             },
-            "HostConfig": {
-                "RestartPolicy": {"Name": "unless-stopped", "MaximumRetryCount": 0}
-            },
+            "HostConfig": {"RestartPolicy": {"Name": "unless-stopped", "MaximumRetryCount": 0}},
             "Config": {},
             "NetworkSettings": {},
         }
         live_images[sftp_image_id] = {
             "Config": {"Labels": {"org.opencontainers.image.revision": sftp_sha}}
         }
-        keycloak_binding = [
-            {"HostIp": "127.0.0.1", "HostPort": str(keycloak_port)}
-        ]
+        keycloak_binding = [{"HostIp": "127.0.0.1", "HostPort": str(keycloak_port)}]
         live_containers["agentium-kc"] = {
             "Id": keycloak_container_id,
             "Image": keycloak_image_id,
@@ -1370,8 +1332,7 @@ else:
             completion_path.read_bytes()
         ).hexdigest()
         forward_authorization.write_text(
-            json.dumps(authorization_payload, separators=(",", ":"), sort_keys=True)
-            + "\n",
+            json.dumps(authorization_payload, separators=(",", ":"), sort_keys=True) + "\n",
             encoding="utf-8",
         )
         forward_authorization.chmod(0o600)
@@ -1383,8 +1344,7 @@ else:
                     f"deployment_id={deployment.name}",
                     f"release_a_sha={release_sha}",
                     "terminal_phase=completed",
-                    "receipt_sha256="
-                    + hashlib.sha256(completion_path.read_bytes()).hexdigest(),
+                    "receipt_sha256=" + hashlib.sha256(completion_path.read_bytes()).hexdigest(),
                     "authorization_sha256="
                     + hashlib.sha256(forward_authorization.read_bytes()).hexdigest(),
                 )
@@ -1393,6 +1353,7 @@ else:
             encoding="ascii",
         )
         forward_marker.chmod(0o600)
+
     completion_v2 = dict(completion)
     completion_v2["schema_version"] = 2
     completion_path.write_text(json.dumps(completion_v2), encoding="utf-8")
@@ -1437,9 +1398,7 @@ else:
     for key in sftp_mutation_path[:-1]:
         mutation_target = mutation_target[key]
     mutation_target[sftp_mutation_path[-1]] = sftp_mutation_value
-    sftp_receipt_path.write_text(
-        json.dumps(substituted_sftp_receipt), encoding="utf-8"
-    )
+    sftp_receipt_path.write_text(json.dumps(substituted_sftp_receipt), encoding="utf-8")
     sftp_receipt_path.chmod(0o600)
     rebound_completion = dict(completion)
     rebound_completion[sftp_completion_key] = hashlib.sha256(
@@ -1615,7 +1574,9 @@ def test_workspace_targets_are_resolved_by_canonical_markers_before_metadata() -
     assert 'row["family"] == "generic"' in render
     assert 'row["profile"] == "octocity_institutional_v1"' in render
     assert 'row["assistant"] == "octave_executive"' in render
-    assert 'sorted(target["workspace_id"] for target in selected.values()) != expected_ids' in render
+    assert (
+        'sorted(target["workspace_id"] for target in selected.values()) != expected_ids' in render
+    )
     assert 'len({target["workspace_id"] for target in selected.values()}) != 4' in render
     assert 'len({target["workspace_slug"] for target in selected.values()}) != 4' in render
     assert 'selected["showcase"]["workspace_slug"]' in render
@@ -2087,7 +2048,7 @@ def test_sftp_firewall_partial_failure_is_monotone_and_forces_ro_fallback(
     assert "bootstrap_stop_sftp_writers" in fallback
     assert "container_restart_policy agentium-sftp" in fallback
     assert "systemctl is-active --quiet agentium-sftp.service" in fallback
-    assert '== *,ro,*' in fallback
+    assert "== *,ro,*" in fallback
 
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -2151,9 +2112,9 @@ def test_sigkill_opening_resume_bootstrap_recloses_before_early_validation(
     bootstrap = _shell_function(script, "bootstrap_opening_reclosure")
     stop_all = _shell_function(script, "bootstrap_stop_all_writers")
     stop_sftp = _shell_function(script, "bootstrap_stop_sftp_writers")
-    startup = script.split(
-        "unset AGENTIUM_QDRANT_EFFECTIVE_API_KEY", 1
-    )[1].split("\non_error() {", 1)[0]
+    startup = script.split("unset AGENTIUM_QDRANT_EFFECTIVE_API_KEY", 1)[1].split(
+        "\non_error() {", 1
+    )[0]
 
     assert startup.index("trap 'bootstrap_on_error $?' ERR") < startup.index(
         "assert_local_docker_socket"
@@ -2161,18 +2122,14 @@ def test_sigkill_opening_resume_bootstrap_recloses_before_early_validation(
     assert startup.index("trap 'bootstrap_on_exit $?' EXIT") < startup.index(
         "assert_local_docker_socket"
     )
-    assert startup.index("trap 'exit 143' TERM") < startup.index(
-        "assert_local_docker_socket"
-    )
+    assert startup.index("trap 'exit 143' TERM") < startup.index("assert_local_docker_socket")
     assert startup.index("bootstrap_opening_reclosure\n") < startup.index(
         "assert_local_docker_socket"
     )
     assert startup.index("bootstrap_opening_reclosure\n") < startup.index(
         "validate_operator_inputs"
     )
-    assert startup.index("validate_operator_inputs") < startup.index(
-        "assert_local_docker_socket"
-    )
+    assert startup.index("validate_operator_inputs") < startup.index("assert_local_docker_socket")
     assert "bootstrap_close_sftp_ingress_monotone" in bootstrap
     assert "bootstrap_stop_all_writers" in bootstrap
     writer_inventory = (
@@ -2180,9 +2137,7 @@ def test_sigkill_opening_resume_bootstrap_recloses_before_early_validation(
         "agentium-livekit agentium-livekit-agent agentium-kc"
     )
     assert writer_inventory in stop_all
-    assert stop_all.index("bootstrap_stop_sftp_writers") < stop_all.index(
-        writer_inventory
-    )
+    assert stop_all.index("bootstrap_stop_sftp_writers") < stop_all.index(writer_inventory)
     assert "docker update --restart=no" in stop_all
     assert "docker stop --time 15" in stop_all
     assert "systemctl stop agentium-backend.service" in stop_all
@@ -2240,9 +2195,7 @@ def test_sftp_ingress_gate_survives_validation_and_is_removed_only_on_release() 
     ingress_release = _shell_function(script, "open_sftp_ingress_after_attestation")
     recovery = _shell_function(script, "recover_pre_migration_failure")
     rollback_reopen = _shell_function(script, "reconcile_rollback_opening")
-    rollback_release = _shell_function(
-        script, "release_rollback_sftp_ingress_with_attestation"
-    )
+    rollback_release = _shell_function(script, "release_rollback_sftp_ingress_with_attestation")
 
     assert finalize.index("restore_auxiliary_runtime_state") < finalize.index(
         "release_sftp_ingress_with_attestation"
@@ -2296,7 +2249,7 @@ def test_release_b_gate_uses_the_real_helper_with_canonical_opening_phases(
     helper.chmod(0o700)
     deployment_id = "release-b-gate-functional"
     (deployment / "metadata.tsv").write_text(
-        f"deployment_id\t{deployment_id}\n" f"candidate_sha\t{'a' * 40}\n",
+        f"deployment_id\t{deployment_id}\ncandidate_sha\t{'a' * 40}\n",
         encoding="ascii",
     )
     phase_file = deployment / "phase"
@@ -2369,16 +2322,16 @@ def test_rollback_closed_proof_is_captured_after_a_301_second_auxiliary_delay() 
 set -Eeuo pipefail
 clock=0
 captured=-1
-EXPECTED_SHA={'b' * 40}
+EXPECTED_SHA={"b" * 40}
 DEPLOY_DIR=/private/release-b-functional
 die() {{ printf 'XX  %s\\n' "$*" >&2; exit 1; }}
 phase() {{ printf '%s\\n' rollback_opening; }}
-git() {{ printf '%s\\n' {'a' * 40}; }}
+git() {{ printf '%s\\n' {"a" * 40}; }}
 metadata() {{
   case "$1" in
-    previous_sha) printf '%s\\n' {'a' * 40} ;;
+    previous_sha) printf '%s\\n' {"a" * 40} ;;
     previous_database_revision) printf '%s\\n' revision-a ;;
-    sftp_release_sha) printf '%s\\n' {'c' * 40} ;;
+    sftp_release_sha) printf '%s\\n' {"c" * 40} ;;
   esac
 }}
 current_database_revision() {{ printf '%s\\n' revision-a; }}
@@ -2411,9 +2364,7 @@ reconcile_rollback_opening() {{
 }}
 reconcile_rollback_opening
 """
-    result = subprocess.run(
-        ["bash", "-c", harness], check=False, capture_output=True, text=True
-    )
+    result = subprocess.run(["bash", "-c", harness], check=False, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == [
         "captured=301",
@@ -2599,7 +2550,7 @@ def test_candidate_reopen_is_pinned_to_exact_canary_image_ids() -> None:
         script
     )
     assert 'PROVENANCE_FILE="$DEPLOY_DIR/proofs/provenance.json"' in script
-    assert 'set(payload) != expected_top' in provenance
+    assert "set(payload) != expected_top" in provenance
     assert 'payload.get("outcome") != "passed"' in provenance
     assert 'row.get("revision") != expected_sha' in provenance
     assert "candidate provenance changed while read" in provenance
@@ -2607,9 +2558,7 @@ def test_candidate_reopen_is_pinned_to_exact_canary_image_ids() -> None:
     assert "assert_candidate_provenance_matches_override" in freeze
     assert 're.fullmatch(r"    image: (sha256:[0-9a-f]{64})"' in override_rows
     assert '"agentium-backend", "agentium-frontend", "agentium-worker-cpu"' in override_rows
-    assert 'AGENTIUM_COMPOSE_CANDIDATE_IMAGE_OVERRIDE="$CANDIDATE_IMAGE_OVERRIDE"' in (
-        compose
-    )
+    assert 'AGENTIUM_COMPOSE_CANDIDATE_IMAGE_OVERRIDE="$CANDIDATE_IMAGE_OVERRIDE"' in (compose)
     assert 'arguments.extend(["-f", candidate_override])' in compose
     for body in (backend, worker):
         assert "assert_candidate_tags_match_provenance" in body
@@ -2624,15 +2573,11 @@ def test_candidate_reopen_is_pinned_to_exact_canary_image_ids() -> None:
     assert finalize.index("freeze_candidate_image_override") < finalize.index(
         "set_phase opening_forward"
     )
-    assert finalize.rindex("assert_all_candidate_runtime_images") < finalize.index(
-        "gate exit"
-    )
+    assert finalize.rindex("assert_all_candidate_runtime_images") < finalize.index("gate exit")
     assert reconcile.index("assert_candidate_image_override_contract") < reconcile.index(
         "restore_candidate_backend_writer"
     )
-    assert reconcile.rindex("assert_all_candidate_runtime_images") < reconcile.index(
-        "gate exit"
-    )
+    assert reconcile.rindex("assert_all_candidate_runtime_images") < reconcile.index("gate exit")
 
 
 def test_rollback_reopen_is_pinned_and_sftp_is_attested_before_any_public_gate() -> None:
@@ -2644,9 +2589,7 @@ def test_rollback_reopen_is_pinned_and_sftp_is_attested_before_any_public_gate()
     auxiliary = _shell_function(script, "restore_auxiliary_runtime_state")
     complete = _shell_function(script, "complete_rollback_after_restore")
     reopen = _shell_function(script, "reconcile_rollback_opening")
-    sftp_release = _shell_function(
-        script, "release_rollback_sftp_ingress_with_attestation"
-    )
+    sftp_release = _shell_function(script, "release_rollback_sftp_ingress_with_attestation")
 
     assert 'ROLLBACK_IMAGE_OVERRIDE="$DEPLOY_DIR/compose.agentium.rollback-images.yml"' in script
     assert "capture_rollback_image_override" in prepare
@@ -2741,9 +2684,7 @@ def test_candidate_provenance_parser_rejects_substituted_or_unsafe_images(
         },
         "maintenance": {},
         "writer_exclusion": {},
-        "checks": {
-            "all": {"passed": True, "expected": "passed", "observed": "passed"}
-        },
+        "checks": {"all": {"passed": True, "expected": "passed", "observed": "passed"}},
     }
     proof = tmp_path / "provenance.json"
 
@@ -2806,9 +2747,7 @@ def test_public_recovery_drains_and_stops_every_writer_before_secure_deposit_ro(
     assert boundary.index("agentium-backend agentium-worker-cpu") < boundary.index(
         "assert_rabbitmq_empty"
     )
-    assert boundary.index("assert_rabbitmq_empty") < boundary.index(
-        "assert_postgres_quiescent"
-    )
+    assert boundary.index("assert_rabbitmq_empty") < boundary.index("assert_postgres_quiescent")
     assert boundary.index("assert_postgres_quiescent") < boundary.index(
         "set_secure_deposit_mode ro"
     )
@@ -3066,15 +3005,17 @@ def test_candidate_alembic_uses_a_postgresql_only_crash_safe_boundary() -> None:
     for command in ("alembic:upgrade:head", "alembic:current", "alembic:heads"):
         assert command in allowed
     assert 'run_candidate_database_tool "$@"' in migration
-    assert 'dst=/safe-inputs/$target,readonly' in parse_inputs
+    assert "dst=/safe-inputs/$target,readonly" in parse_inputs
     assert '[[ "$source" == "$DEPLOY_DIR"/*' in parse_inputs
     assert '== "600:$(id -u):1"' in parse_inputs
 
     assert migrate.count("open_candidate_migration_boundary") == 1
     assert migrate.count("run_candidate_migration alembic") == 3
-    assert migrate.index("run_candidate_migration alembic upgrade head") < migrate.index(
-        "run_candidate_migration alembic current"
-    ) < migrate.index("run_candidate_migration alembic heads")
+    assert (
+        migrate.index("run_candidate_migration alembic upgrade head")
+        < migrate.index("run_candidate_migration alembic current")
+        < migrate.index("run_candidate_migration alembic heads")
+    )
     assert migrate.index("run_candidate_migration alembic heads") < migrate.index(
         "cleanup_current_candidate_migration_boundary"
     )
@@ -3111,7 +3052,10 @@ def test_live_writer_audit_has_only_postgresql_livekit_and_minimal_secrets() -> 
     assert "compose" not in wrapper + run + command
     assert "agentium-net" not in wrapper + run + command + opened
     assert "docker network create --driver bridge --internal" in opened
-    assert 'docker network connect --alias agentium-pg "$LIVE_WRITER_AUDIT_NETWORK" agentium-pg' in opened
+    assert (
+        'docker network connect --alias agentium-pg "$LIVE_WRITER_AUDIT_NETWORK" agentium-pg'
+        in opened
+    )
     assert (
         'docker network connect --alias agentium-livekit "$LIVE_WRITER_AUDIT_NETWORK" agentium-livekit'
         in opened
@@ -3145,9 +3089,9 @@ def test_live_writer_audit_has_only_postgresql_livekit_and_minimal_secrets() -> 
     assert "dst=/run/secrets/live-writer-audit.json,readonly" in run
     assert "--cap-drop ALL" in run
     assert "--security-opt no-new-privileges:true" in run
-    assert 'set(payload) != expected' in run
+    assert "set(payload) != expected" in run
     assert '"AGENTIUM_DISABLE_DOTENV": "1"' in run
-    assert 'os.execvpe(sys.argv[1], sys.argv[1:], environment)' in run
+    assert "os.execvpe(sys.argv[1], sys.argv[1:], environment)" in run
     assert "open_live_writer_audit_boundary" in command
     assert "cleanup_current_candidate_oneoffs" in command
     assert "cleanup_current_live_writer_audit_boundary" in command
