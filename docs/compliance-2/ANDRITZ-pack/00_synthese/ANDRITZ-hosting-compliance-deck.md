@@ -55,7 +55,7 @@
 - **Storage:** **Cinder CSI** (`csi-cinder-high-speed`) for persistent volumes
 - **Ingress & TLS:** **Istio** + **cert-manager** (TLS 1.2 / 1.3)
 - **Identity:** **Keycloak 26** (OIDC); **federation to your IdP** (SAML/OIDC) supported
-- **Secrets:** **HashiCorp Vault** in-cluster
+- **Secrets:** **OpenBao** (API compatible Vault), optional
 - **Data plane:** **PostgreSQL**, **MinIO** (object storage on cluster PV), message bus and time-series as deployed per environment
 
 # Application path (simplified)
@@ -115,7 +115,7 @@
 
 | Pillar | Implementation (high level) |
 |--------|--------------------------------|
-| **Confidentiality** | TLS 1.2/1.3 in transit; encryption at rest for snapshots/backups; Vault for secrets; tenant isolation |
+| **Confidentiality** | TLS 1.2/1.3 in transit; encryption at rest for snapshots/backups; OpenBao (API compatible Vault, optional) for secrets; tenant isolation |
 | **Integrity** | Signed commits, checksums on backups, append-only style logging where applicable |
 | **Availability** | Redundant Kubernetes design; OVH-managed control plane; **BCP/DR** documents in pack |
 | **Resilience** | Tested restores (quarterly); documented RTO/RPO targets in PCA for the reference environment |
@@ -136,7 +136,7 @@
 
 - **Access:** Keycloak RBAC, strong password policy, MFA for admins, optional SSO to your IdP
 - **Network:** Istio ingress, internal mTLS patterns, egress restrictions via Kubernetes **NetworkPolicy**
-- **Secrets:** centralised in **Vault** with audit trail
+- **Secrets:** centralised in **OpenBao** (API compatible Vault), optional, with audit trail
 - **Vulnerability management:** continuous scanning in CI; monthly patch cadence; CIS-style container checks
 - **Logging & monitoring:** cluster and application logs, health checks, alerting
 - **Incidents:** documented path in PAS; breach notification chain **Datategy → you → regulator** as required by law

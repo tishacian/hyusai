@@ -118,7 +118,7 @@ Chaque utilisateur est identifié par un identifiant unique et un mot de passe f
 
 Les mots de passe sont personnels et confidentiels, ils ne sont donc pas stockés par les équipes techniques Datategy.
 
-Les mots de passe sont stockés dans une base sécurisée et chiffrée par un coffre-fort Hashicorp Vault.
+Les mots de passe sont stockés dans une base sécurisée et chiffrée par un coffre-fort OpenBao (API compatible Vault), optionnel.
 
 ### Gestion des droits d’accès
 
