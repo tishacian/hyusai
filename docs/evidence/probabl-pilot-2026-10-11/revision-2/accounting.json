@@ -1,0 +1,20 @@
+{
+  "case_status_counts": {
+    "development": {
+      "evaluated": 97,
+      "failed": 2,
+      "not_qualified": 9
+    },
+    "final": {
+      "evaluated": 12
+    }
+  },
+  "charged_cpu_seconds": 10623.551623000001,
+  "development_and_final_measured_cpu_seconds": 2552.412277,
+  "development_measured_cpu_seconds": 2301.649524,
+  "global_budget_cpu_seconds": 43200,
+  "p5_integration_diagnostics_conservative_reserve_cpu_seconds": 3600,
+  "prior_interrupted_campaigns_reserved_cpu_seconds": 4471.139346000001,
+  "remaining_cpu_seconds": 32576.448376999997,
+  "reserved_cpu_seconds_not_a_model_measure": 8071.139346000001
+}

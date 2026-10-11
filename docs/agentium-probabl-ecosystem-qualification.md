@@ -21,7 +21,7 @@ livraison sur des données publiques ou synthétiques, pas un magasin opération
 | P3 | skrub 0.11.0 ; constantes sélectionnées sur le train et chaque fold ; seed explicite pour auto/string ; transformations ajustées décrites dans le modèle et en FR/EN. |
 | P4 | Agrégats historiques dans le nœud SQL existant, aperçu contrôlé, versions/empreintes des deux tables et lignée du résultat. |
 | P5 | Famille `tabular_foundation` expérimentale : TabICL 2.2.0 CPU, conversion contrôlée, import signé, grants existants, rechargement autonome et révocation sur cache chaud. |
-| P6 | Runner de comparaison borné, réseau interdit par seccomp, appariement et sélection sur développement, test final accessible seulement après gel. Résultat conservé séparément des possibilités techniques du pilote. |
+| P6 | Comparaison terminée : 97 cas de développement évalués, deux échecs et neuf exclusions ; 12 cas finaux évalués sur quatre tâches. Aucun seuil combiné qualité/coût ou de frugalité atteint ; deux réserves finales restées fermées. |
 | P7 | Surfaces Studio/Flow et connecteur FR/EN, contrôles de non-régression, configuration désactivée pour TabICL et procédure de retour arrière. Images VM et canari restent une étape de livraison distincte. |
 
 ## Méthodes et mental model
@@ -158,6 +158,7 @@ peut disparaître dans un processus frais ; sa cause numérique interne n'est
 pas isolée. Aucun seuil n'a été assoupli et aucune correction spéculative n'est
 revendiquée. Le développement révisé a ensuite constaté un échec de parité du
 profil avec cache sur `linear-regression-demo/dev-1`, sans dépassement de budget.
+Un second échec de même nature est conservé sur `friedman-mixed-demo/dev-2`.
 Le cache ne constitue donc pas une correction qualifiée. L'admission produit
 refuse toute régression pour ce pilote ; les résultats expérimentaux des autres
 tâches restent conservés sans rétablir cette admission. La classification
@@ -188,6 +189,47 @@ Les tailles comparées sont celles des exports directs mesurés ; elles excluent
 aussi la nouvelle notice signée transmise par le packaging produit.
 Énergie, prix et ROI restent indisponibles.
 
+## Décision comparative P6
+
+La [campagne révisée complète](evidence/probabl-pilot-2026-10-11/revision-2/README.md)
+conserve les 108 lignes de développement : **97 évaluées, deux échecs de parité
+avec cache et neuf exclusions prévues**. La sélection exige les trois partitions
+réussies ; les réserves finales des tâches linéaire et Friedman restent donc
+fermées. Les quatre autres tâches sélectionnent le profil TabICL avec cache.
+Leurs **12 cas finaux passent** (dummy, référence classique et TabICL par tâche).
+
+**Aucun cas ne justifie une promotion selon les critères définis.** Les quatre
+comparaisons échouent aux seuils combinés qualité/coût et à ceux de frugalité.
+Le stockage augmente dans les quatre cas ; la tâche de retards échoue aussi à
+la garde de rappel des classes. Le pilote reste désactivé par défaut et sa
+régression refusée, y compris lorsqu'une autre tâche de régression a réussi
+son test technique final. Aucune activation métier ne découle de ces mesures.
+
+| Tâche finale | Référence classique | TabICL avec cache | Gain et IC 95 % apparié | Rapport CPU projeté |
+| --- | --- | --- | --- | ---: |
+| Breast Cancer | Linéaire, F1 macro 0,97158 | 0,98115 | +0,96 point [0 ; 2,94] | 3,56× |
+| Iris | Linéaire, F1 macro 0,96658 | 0,96658 | 0 point [0 ; 0] | 3,02× |
+| Retards synthétiques | HistGradientBoosting, F1 macro 0,54978 | 0,48320 | −6,66 points [−19,13 ; 0,40] | 2,52× |
+| Régression linéaire | Réserve fermée | Non évalué | Échec de parité au développement | — |
+| Friedman | Réserve fermée | Non évalué | Échec de parité au développement | — |
+| Coûts synthétiques | Linéaire, MAE 1,89031 | 1,84152 | Réduction de MAE +2,58 % [−1,52 ; 6,42] | 6,65× |
+
+Un F1 plus élevé ou une MAE plus basse est préférable. Les intervalles sont
+calculés par tâche sur 2 000 bootstrap appariés, stratifiés pour la classification,
+sans garantie simultanée sur les six tâches. Le rapport CPU projette le cycle
+direct du modèle et **100 requêtes de 100 lignes** ; sa portée et les éléments
+exclus sont précisés ci-dessus. Aucun score agrégé entre F1 et MAE n'est calculé.
+Les rapports de coût sont des estimations ponctuelles sur un hôte partagé ;
+deux répétitions de latence ne donnent pas un intervalle de confiance sur ces coûts.
+
+Le développement et le final v2 mesurent **2 552,41 secondes de cœur**. Avec les
+réserves antérieures distinctes de **8 071,14 secondes**, l'imputation atteint
+**10 623,55 / 43 200 secondes**. Cette réserve conservatrice n'est pas une mesure
+de consommation du modèle. Le code numérique gelé est celui du commit
+`054d2596`, empreinte `8637ffcbced79aba7a5f8f44c61efb72fbef5503627e8ddbf7f59618efde0c4f`.
+Les corrections ultérieures d'admission, de shadow et de transport de notice
+ne modifient aucun des six fichiers gelés du protocole.
+
 ## Vérifications locales
 
 Les suites ci-dessous se recouvrent : leurs nombres ne doivent pas être
@@ -207,9 +249,10 @@ TabICL utilisent le runtime optionnel CPU décrit dans la preuve hors réseau.
 | Enrichissement | 29/29 tests de service dans le runtime candidat, contrôles API de replay et de droits, 59 tests frontend ciblés ; les parcours navigateur FR et EN passent. |
 | TabICL | Premiers contrôles : 19 tests du pilote et 13 tests du runtime existant, deux vrais roundtrips MLflow et deux smokes hors réseau avec retrait de la copie source ; vrais rechargements cache avec passage de deux à un thread. Après retrait de toute régression : 23 tests serveur ciblés et deux tests HTTP vérifient le refus avant job, chargement, promotion ou publication. Ces smokes historiques ne rétablissent pas l'admission de la régression. |
 | Notice et import TabICL | 38 tests passent sur pilote complet, notice, activation et import offline ; six cas ONNX optionnels sautés. Le transport signé → ObjectStore → cache → export autonome conserve la notice après retrait des sources, sans entraînement de poids factices. |
+| Protocole comparatif | 13 tests passent : empreintes/partitions, exclusions irrévocables, sélection finale, budgets des processus descendants, vrai refus réseau seccomp et projection du coût complet. Les preuves des 108 cas de développement et 12 cas finaux sont conservées. |
 | Régression transverse | 239 succès, six skips ONNX optionnels et cinq anciens contrats de tests à actualiser au premier passage ; après correction, les suites catalogue/familles (60 tests) et contraintes d'images (neuf tests) passent. |
 | Admission HTTP | Le vrai schéma FastAPI accepte `tabular_foundation` pour ML et refuse les activations RAG/dataset ; test ciblé réussi. |
-| Navigateur | 21 scénarios distincts modèles/Skore et deux d'enrichissement passent. Les six scénarios TabICL FR/EN Studio/Flow ont été rejoués sur le dernier build, dont les nouveaux refus de régression sans cache. Un timeout initial sous compilation concurrente n'est pas reproduit, sans changer les délais ni les assertions. |
+| Navigateur | 25/25 scénarios modèles/Skore passent sur le build final (2,9 minutes), dont dix cas TabICL FR/EN Studio/Flow/Play et les refus avec ou sans cache ; aucun timeout au dernier passage. Les deux parcours d'enrichissement ont été qualifiés précédemment. Un timeout initial sous compilation concurrente n'est pas reproduit, sans changer les délais ni les assertions. |
 | Build | Compilation Angular de production réussie avec deux workers ; avertissements existants sur les dépendances CommonJS et les templates, aucune erreur de compilation. |
 | Tests unitaires frontend | 2 113/2 113 tests passent dans la campagne complète, sans skip ; 123 tests ciblés après la première garde de profil, puis 127 tests des options, contrats de modèle et connecteur après retrait de toute régression et traduction des refus de notice. |
 | Qualité statique | Contrôles i18n, navigation et chrome ; Ruff, format, conformité produit, secrets et contrôles de fichiers pre-commit réussis. |
