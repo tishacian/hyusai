@@ -96,8 +96,8 @@ class WorkspaceStub {
       nextEpoch: this.epoch + 1,
     };
     for (const resetter of [...this.resetters]) resetter(transition);
-    this.scopeSlug = transition.nextSlug;
-    this.reportedSlug = transition.nextSlug;
+    this.scopeSlug = transition.nextSlug!;
+    this.reportedSlug = transition.nextSlug!;
     this.epoch = transition.nextEpoch;
   }
 
