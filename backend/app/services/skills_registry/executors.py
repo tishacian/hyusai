@@ -29,6 +29,7 @@ from typing import Any, Callable
 
 from jsonschema import Draft202012Validator
 
+from app.services.skill_effects import EXPLICIT_DATA_WRITE_SKILLS
 from app.services.skills_registry.binding import (
     SkillBindingError,
     SkillCallable,
@@ -95,32 +96,53 @@ def _seeded_callable(slug: Any, *, path: str) -> SkillCallable:
 def _bind_registry_call(params: Mapping[str, Any]) -> SkillCallable:
     """Invoke a seeded wrapper with parameters the run cannot override."""
 
-    inner = _seeded_callable(params.get("skill_slug"), path="params.skill_slug")
+    target = str(params.get("skill_slug") or "").strip()
+    if target in EXPLICIT_DATA_WRITE_SKILLS:
+        raise SkillBindingError(
+            code="executor_target_requires_flow_node",
+            message="This data-plane write requires its explicit authorized Flow node; registry aliases cannot supply graph-owned configuration.",
+        )
+    inner = _seeded_callable(target, path="params.skill_slug")
     frozen = dict(params.get("frozen_input") or {})
     pinned_collection = None
     if params.get("skill_slug") == "semantic_search_v1":
-        collections = {str(frozen[key]).strip() for key in ("collection", "collection_name", "context_collection") if frozen.get(key)}
+        collections = {
+            str(frozen[key]).strip()
+            for key in ("collection", "collection_name", "context_collection")
+            if frozen.get(key)
+        }
         if len(collections) > 1:
-            raise SkillBindingError(code="executor_collection_conflict", message="Frozen retrieval collection aliases must agree.")
+            raise SkillBindingError(
+                code="executor_collection_conflict",
+                message="Frozen retrieval collection aliases must agree.",
+            )
         pinned_collection = next(iter(collections), None)
 
-    async def _run(
-        payload: dict[str, Any], ctx: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    async def _run(payload: dict[str, Any], ctx: dict[str, Any] | None = None) -> dict[str, Any]:
         # Frozen last: the authored configuration is the contract, so a run must
         # not be able to substitute its own value for a pinned one.
         if pinned_collection:
             contract = dict((ctx or {}).get("retrieval_contract") or {})
             declared = contract.get("collection") or contract.get("primary_collection")
-            scopes = [source.get("authoritative_collections") for source in (payload, ctx or {}, contract)]
-            excluded = any(isinstance(scope, list) and pinned_collection not in scope for scope in scopes)
+            scopes = [
+                source.get("authoritative_collections") for source in (payload, ctx or {}, contract)
+            ]
+            excluded = any(
+                isinstance(scope, list) and pinned_collection not in scope for scope in scopes
+            )
             if excluded or (declared and declared != pinned_collection):
-                raise SkillBindingError(code="executor_collection_outside_contract",
-                    message="The pinned retrieval tool conflicts with the System collection contract.")
+                raise SkillBindingError(
+                    code="executor_collection_outside_contract",
+                    message="The pinned retrieval tool conflicts with the System collection contract.",
+                )
             # Preserve narrower System controls and forbid a search widening on
             # an empty result. The native retriever enforces this contract.
-            contract.update(asset_binding="authoritative", collection=pinned_collection,
-                empty_bound_collection="abstain", allow_workspace_fallback=False)
+            contract.update(
+                asset_binding="authoritative",
+                collection=pinned_collection,
+                empty_bound_collection="abstain",
+                allow_workspace_fallback=False,
+            )
             ctx = {**(ctx or {}), "retrieval_contract": contract}
         return await inner({**payload, **frozen}, ctx)
 
@@ -169,9 +191,7 @@ def _bind_prompt_template(params: Mapping[str, Any]) -> SkillCallable:
     inner = _seeded_callable(slug, path="params.provider")
     template = str(params.get("template") or "")
 
-    async def _run(
-        payload: dict[str, Any], ctx: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    async def _run(payload: dict[str, Any], ctx: dict[str, Any] | None = None) -> dict[str, Any]:
         request = {"prompt": _render_template(template, payload)}
         # The engine resolves input > binding > System > workspace before its
         # membrane gate. Keep input schemas untouched: an author-pinned model
@@ -242,9 +262,7 @@ def validate_executor_binding(binding: Any) -> dict[str, Any]:
         raise SkillBindingError(
             code="executor_kind_unknown",
             message=(
-                "executor.kind must be one of: "
-                + ", ".join(sorted(VERIFIED_EXECUTORS))
-                + "."
+                "executor.kind must be one of: " + ", ".join(sorted(VERIFIED_EXECUTORS)) + "."
             ),
         )
     raw_params = binding.get("params")

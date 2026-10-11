@@ -29,6 +29,7 @@ export const RESOURCES_FR = {
 
   "connectors.hf.activate_forecast": "Valider pour la prévision ML",
   "connectors.hf.activate_embedding": "Valider pour les embeddings ML",
+  "connectors.hf.activate_tabicl": "Valider pour le pilote TabICL local",
 
   "connectors.hf.grant": "Autoriser dans ce workspace",
   "connectors.hf.lifecycle": "Déploiements, bundles et cycle de vie",
@@ -806,6 +807,7 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
 
   "connectors.hf.activate_forecast": "Validate for ML forecasting",
   "connectors.hf.activate_embedding": "Validate for ML embeddings",
+  "connectors.hf.activate_tabicl": "Validate for the local TabICL pilot",
 
   "connectors.hf.grant": "Authorize in this workspace",
   "connectors.hf.lifecycle": "Deployments, bundles and lifecycle",

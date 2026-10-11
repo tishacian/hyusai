@@ -33,6 +33,11 @@ MODULES = {
     "sentence_transformers.sentence_transformer.modules.normalize.Normalize",
 }
 REQUIREMENTS = {
+    "tabular_foundation": {
+        "tabicl": ("2.2.0", "2.2.1"),
+        "torch": ("2.14", "2.15"),
+        "safetensors": ("0.8", "0.9"),
+    },
     "embedding": {
         "sentence-transformers": ("3.0", "7"),
         "transformers": ("4.41", "6"),
@@ -103,6 +108,22 @@ def validate_layout(snapshot: Snapshot, usage: str) -> dict[str, Any]:
         or not all(isinstance(a, str) for a in architectures)
     ):
         _invalid("The architecture must be explicitly declared.")
+    if usage == "tabular_foundation":
+        from app.resources.ml_tabicl_runtime import validate_weights
+
+        if snapshot.manifest.get("format") != "safetensors" or architectures != ["OmniragTabICLv2"]:
+            _invalid("TabICL requires the qualified converted safetensors format.")
+        _weights(snapshot)
+        try:
+            tabicl_config = validate_weights(snapshot.path)
+        except ValueError as exc:
+            _invalid(str(exc))
+        return {
+            "usage": usage,
+            "engine": "tabular_foundation",
+            "architectures": architectures,
+            "task": tabicl_config["task"],
+        }
     if usage == "forecasting":
         if (
             set(architectures) != {"Chronos2Model"}
@@ -444,6 +465,20 @@ class ArtifactReranker:
 
 def require_model_foundation(model, db=None) -> None:
     """Derived ML exports and explicitly migrated v1 exports retain grant checks."""
+    if model.family == "tabular_foundation":
+        from app.core.config import settings
+        from app.services.tabular_datasets import TabularError
+        from app.services.tabular_predict import drop_from_cache
+
+        if not getattr(settings, "ml_tabicl_enabled", False) or model.workspace_id not in getattr(
+            settings, "ml_tabicl_workspaces", []
+        ):
+            drop_from_cache(model.id)
+            raise TabularError(
+                code="ML_FAMILY_UNAVAILABLE",
+                message="TabICL pilot is disabled for this workspace.",
+                status_code=409,
+            )
     foundation = (getattr(model, "params_json", None) or {}).get("foundation") or {}
     artifact_id = foundation.get("artifact_id")
     if not artifact_id and foundation.get("model_id"):
@@ -458,6 +493,16 @@ def require_model_foundation(model, db=None) -> None:
         else:
             migration = migration_for(db, model)
             artifact_id = migration.artifact_id if migration else None
+    if model.family == "tabular_foundation" and not artifact_id:
+        from app.services.tabular_datasets import TabularError
+        from app.services.tabular_predict import drop_from_cache
+
+        drop_from_cache(model.id)
+        raise TabularError(
+            code="HF_ARTIFACT_UNAVAILABLE",
+            message="TabICL requires a workspace artifact grant.",
+            status_code=409,
+        )
     if artifact_id:
         from app.services.tabular_datasets import TabularError
 
@@ -465,10 +510,17 @@ def require_model_foundation(model, db=None) -> None:
             authorized_manifest(
                 model.workspace_id,
                 artifact_id,
-                usage="forecasting" if model.family == "forecasting_deep" else "embedding",
+                usage={
+                    "forecasting_deep": "forecasting",
+                    "tabular_deep": "embedding",
+                    "tabular_foundation": "tabular_foundation",
+                }.get(model.family, "embedding"),
                 db=db,
             )
         except ValueError as exc:
+            from app.services.tabular_predict import drop_from_cache
+
+            drop_from_cache(model.id)
             raise TabularError(
                 code=getattr(exc, "code", "HF_ARTIFACT_UNAVAILABLE"),
                 message=str(exc),
@@ -483,6 +535,32 @@ def validate_local_artifact(workspace_id: str, artifact_id: str, usage: str, *, 
     stack. The report can be stored on an artifact usage, not its immutable
     provenance manifest, and activation must keep the workspace authorization.
     """
+    if usage == "tabular_foundation":
+        import numpy as np
+        import pandas as pd
+
+        from app.resources.ml_tabicl_runtime import build_estimator, validate_weights
+
+        manifest = authorized_manifest(workspace_id, artifact_id, usage=usage, db=db)
+        with configured_cache().lease(artifact_id, manifest) as snapshot:
+            contract = validate_layout(snapshot, usage)
+            runtime = runtime_versions(contract["engine"])
+            task = validate_weights(snapshot.path)["task"]
+            model = build_estimator(task, snapshot.path)
+            X = pd.DataFrame({"a": np.arange(20, dtype=float), "b": np.arange(20, dtype=float) % 3})
+            y = np.arange(20) % 2 if task == "classification" else np.arange(20, dtype=float)
+            model.fit(X, y)
+            if not np.isfinite(model.predict(X.iloc[:2])).all():
+                _invalid("TabICL activation inference returned nonfinite predictions.")
+            return {
+                "artifact_id": artifact_id,
+                "usage": usage,
+                "validation": "loaded_and_inferred",
+                "runtime": runtime,
+                "engine": contract["engine"],
+                "fingerprint": snapshot.fingerprint,
+                "task": task,
+            }
     if usage == "embedding":
         model = ArtifactEmbedder(workspace_id=workspace_id, artifact_id=artifact_id, db=db)
         try:

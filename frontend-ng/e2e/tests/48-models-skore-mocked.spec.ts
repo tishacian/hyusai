@@ -15,6 +15,10 @@ async function setup(page: Page, locale: string, status = 'completed') {
     dataset_id: dataset.id, status: 'ready', is_champion: true, test_size: .25, cross_validation: 0,
     classes: ['North', 'South'], params: { knobs: {} }, spec: {},
     metrics: { ...fixture.classification_metrics,
+      ...(status === 'legacy' ? {} : {artifact: {contract_version: 1}}),
+      preprocessing: { schema: 1, status: 'available', learning_scope: 'training_folds', input_count: 2, retained_count: 1, excluded_count: 1, output_count: 1,
+        columns: [ { name: 'visits', input_dtype: 'float64', kind: 'numeric', transformers: ['sklearn.impute.SimpleImputer'], output_count: 1, excluded: false, reason: null },
+          { name: 'fixed', input_dtype: 'float64', kind: 'numeric', transformers: [], output_count: 0, excluded: true, reason: 'constant' } ] },
       evaluation: { schema: 1, status: 'stored', role: 'final_test', fingerprint: 'a'.repeat(64), rows: { total: 800, train: 600, test: 200 }, duplicate_overlap: 1 },
       metric_semantics: { schema: 2, positive_class: 'North', averaging: 'binary' },
       diagnostics: { schema: 1, engine: 'skore', version: '0.27.0', role: 'development', scope: 'development_base_estimator', served_model: false, status,
@@ -59,6 +63,12 @@ test.describe('Skore evaluation evidence', () => {
       const evidence = page.getByTestId('evaluation-evidence');
       await expect(evidence).toBeVisible();
       await expect(evidence).toContainText('North');
+      const preparation = page.getByTestId('preprocessing-evidence');
+      await expect(preparation).toBeVisible();
+      await expect(preparation).toContainText('SimpleImputer');
+      await expect(preparation).toContainText(locale === 'fr' ? 'Constante à l’entraînement' : 'Constant in training data');
+      await expect(preparation.getByTestId('preprocessing-counts')).toContainText(locale === 'fr' ? '2 colonnes reçues' : '2 input columns');
+      await expect(page.getByTestId('artifact-contract')).toContainText(locale === 'fr' ? 'Contrat de lecture enregistré' : 'Reader contract recorded');
       await expect(evidence.locator('[data-check-section="skipped"]')).toHaveCount(1);
       await expect(evidence.locator('[data-check-section="error"]')).toHaveCount(1);
       await evidence.getByRole('button', { name: locale === 'fr' ? 'Examiner les pistes d’amélioration' : 'Review improvement hypotheses' }).click();
@@ -75,5 +85,11 @@ test.describe('Skore evaluation evidence', () => {
     await page.goto('/models/skore-model');
     await expect(page.getByTestId('diagnostic-status')).toContainText('Budget');
     await expect(page.getByTestId('evaluation-evidence').getByRole('button')).toHaveCount(0);
+  });
+  test('legacy artifacts require their original runtime without inventing verification', async ({ page }) => {
+    await setup(page, 'fr', 'legacy');
+    await page.goto('/models/skore-model');
+    await expect(page.getByTestId('artifact-contract')).toContainText('Ancien artefact sans contrat');
+    await expect(page.getByTestId('artifact-contract')).toContainText('environnement d’origine');
   });
 });

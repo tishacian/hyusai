@@ -149,6 +149,8 @@ export interface CvBlock {
 }
 
 export interface MetricsBlock {
+  artifact?: { contract_version?: number; serialization?: string; runtime?: Record<string, string> };
+  preprocessing?: import('./preprocessing-evidence.vm').PreprocessingEvidence;
   evaluation?: import('./evaluation-evidence.vm').EvaluationProvenance;
   diagnostics?: import('./evaluation-evidence.vm').DiagnosticsEvidence;
   metric_semantics?: { schema: number; positive_class?: string | null; averaging?: string | null; cv_std_ddof?: number };
@@ -841,6 +843,7 @@ export interface FoundationModelDescriptor {
   fingerprint: string;
   artifact_id?: string;
   runtime?: Record<string, unknown>;
+  task?: ModelTask;
 }
 
 export interface FamilyDescriptor {
@@ -1710,6 +1713,10 @@ export const SERVING_ERROR_CODES = [
   'ML_FORECAST_TOO_MANY_ROWS',
   'ML_ARTIFACT_TAMPERED',
   'ML_ARTIFACT_UNVERIFIED',
+  'ML_ARTIFACT_LEGACY_UNSUPPORTED',
+  'ML_ARTIFACT_RUNTIME_MISMATCH',
+  'ML_ARTIFACT_UNTRUSTED_TYPES',
+  'ML_ARTIFACT_LIMIT',
   'ML_USE_PREDICT_ROUTE',
   'ML_FAMILY_UNAVAILABLE',
 ] as const;

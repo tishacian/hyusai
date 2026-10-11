@@ -1,4 +1,5 @@
 """Canonical artifact store for RAG originals, ingested text and derived files."""
+
 from __future__ import annotations
 
 import shutil
@@ -135,12 +136,39 @@ class ObjectStore:
         with self._fsspec().open(self._remote_key(clean), "rb") as src:
             return src.read()
 
-    def copy_to_local(self, key: str, destination: Path) -> Path:
+    def copy_to_local(self, key: str, destination: Path, *, max_bytes: int | None = None) -> Path:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        if self.backend == "local":
+        if max_bytes is not None:
+            if type(max_bytes) is not int or max_bytes < 0:
+                raise ValueError("The materialization byte budget must be a nonnegative integer")
+            # Serving uses a bounded stream, even if a remote size changed
+            # between the inventory check and the actual read.
+            source = (
+                self._local_path(key).open("rb")
+                if self.backend == "local"
+                else self._fsspec().open(self._remote_key(key), "rb")
+            )
+            created = False
+            try:
+                with source as src, destination.open("xb") as dst:
+                    created = True
+                    remaining = max_bytes
+                    while block := src.read(min(1024 * 1024, remaining + 1)):
+                        if len(block) > remaining:
+                            raise ValueError("Object exceeds the materialization byte budget")
+                        dst.write(block)
+                        remaining -= len(block)
+            except BaseException:
+                if created:
+                    destination.unlink(missing_ok=True)
+                raise
+        elif self.backend == "local":
             shutil.copy2(self._local_path(key), destination)
         else:
-            with self._fsspec().open(self._remote_key(key), "rb") as src, destination.open("wb") as dst:
+            with (
+                self._fsspec().open(self._remote_key(key), "rb") as src,
+                destination.open("wb") as dst,
+            ):
                 shutil.copyfileobj(src, dst)
         return destination
 
@@ -170,7 +198,9 @@ class ObjectStore:
             return []
         raw: Iterable[str] = fs.find(remote_prefix)
         bucket = f"{settings.object_store_s3_bucket}/" if self.backend == "s3" else ""
-        return sorted(str(p)[len(bucket):] if bucket and str(p).startswith(bucket) else str(p) for p in raw)
+        return sorted(
+            str(p)[len(bucket) :] if bucket and str(p).startswith(bucket) else str(p) for p in raw
+        )
 
     def size(self, key: str) -> int | None:
         clean = _clean_key(key)

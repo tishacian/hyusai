@@ -17,7 +17,7 @@ from app.tests.services.test_huggingface_runtime import manifest_for, tiny_onnx_
 
 
 @pytest.fixture
-def ready(db_session, tmp_path, monkeypatch):
+def ready(db_session, tmp_path, monkeypatch, request):
     from app.services.huggingface import cache as cache_module
 
     workspace = Workspace(
@@ -25,7 +25,11 @@ def ready(db_session, tmp_path, monkeypatch):
     )
     user = User(id=str(uuid4()), username="adapter-" + uuid4().hex, role="admin")
     db_session.add_all([workspace, user])
-    files = tiny_onnx_files()
+    files = (
+        {"model.onnx": b"admission-only-fixture"}
+        if getattr(request, "param", None) == "admission"
+        else tiny_onnx_files()
+    )
     identity = str(uuid4())
     manifest = manifest_for(files, artifact_id=identity, format="onnx")
     cache = ArtifactCache(tmp_path, min_free_bytes=0)
@@ -177,3 +181,34 @@ def test_actor_demotion_during_probe_prevents_publication(ready, monkeypatch):
     result = activation.run_activation(job.id)
     assert result["status"] == "failed" and result["error_code"] == "WORKSPACE_PERMISSION_DENIED"
     assert not db.query(HubArtifactUsage).filter_by(artifact_id=artifact.id).first()
+
+
+@pytest.mark.parametrize("ready", ["admission"], indirect=True)
+def test_tabicl_activation_uses_http_contract_and_ml_worker_only(ready):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.v1.endpoints import huggingface_activation as endpoint
+    from app.core.auth import get_current_user, get_current_workspace
+    from app.db.base import get_db
+
+    db, workspace, user, artifact, _ = ready
+    app = FastAPI()
+    app.include_router(endpoint.router)
+    app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[get_current_workspace] = lambda: workspace
+    app.dependency_overrides[get_db] = lambda: db
+    client = TestClient(app)
+    path = f"/artifacts/{artifact.id}/activate"
+    accepted = client.post(path, json={"usage": "tabular_foundation"})
+    assert accepted.status_code == 200, accepted.text
+    job = db.get(activation.WorkspaceJob, accepted.json()["job"]["id"])
+    assert job.input_ref["runtime"] == "ml"
+    incompatible = client.post(path, json={"usage": "tabular_foundation", "runtime": "rag"})
+    assert incompatible.status_code == 400, incompatible.text
+    assert "HF_ADAPTER_INCOMPATIBLE" in incompatible.text
+    artifact.kind = "dataset"
+    db.commit()
+    refused = client.post(path, json={"usage": "tabular_foundation"})
+    assert refused.status_code == 409, refused.text
+    assert "HF_INCOMPATIBLE_USAGE" in refused.text

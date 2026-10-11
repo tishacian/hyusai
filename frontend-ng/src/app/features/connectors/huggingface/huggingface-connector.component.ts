@@ -139,7 +139,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
     finally { if (this.view.isCurrent(request)) this.busy.set(false); }
   }
 
-  async activateArtifact(artifact: HubArtifact, usage: 'forecasting' | 'embedding'): Promise<void> {
+  async activateArtifact(artifact: HubArtifact, usage: 'forecasting' | 'embedding' | 'tabular_foundation'): Promise<void> {
     if (!this.config()?.can_import_models || artifact.status !== 'ready' || !artifact.has_access || this.busy()) return;
     const request = this.view.captureRequest();
     this.busy.set(true); this.error.set('');

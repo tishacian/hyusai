@@ -162,15 +162,19 @@ def test_giskard_venv_only_overrides_what_giskard_pins_differently():
     """Every app pin the venv does not override must be the app's own version.
 
     The venv inherits the system site-packages, so a package pinned identically
-    is reused rather than reinstalled; the override set is exactly the packages
-    Giskard needs at another version. Keeping that set small and explicit keeps
-    the RAGET interpreter close to the one the rest of the worker runs.
+    is reused rather than reinstalled. Differences are limited to Giskard's
+    dependencies and the versions kept from its separate RAGET qualification.
+    An application ML upgrade must not silently migrate that interpreter too.
     """
     app = _constraints("app")
     giskard = _constraints("giskard")
     assert set(app) <= set(giskard), "the Giskard venv would miss a package the app installs"
+    # P1/P3 qualify new versions for training/serving only. Keep RAGET on its
+    # existing qualified versions until its own image/runtime qualification.
+    retained_giskard = {"skops": "0.14.0", "skrub": "0.10.1"}
     overridden = {name for name in app if giskard[name] != app[name]}
     assert overridden <= {
+        *retained_giskard,
         "faiss-cpu",
         "fsspec",
         "importlib-metadata",
@@ -181,7 +185,11 @@ def test_giskard_venv_only_overrides_what_giskard_pins_differently():
         "s3fs",
         "scipy",
     }, f"Giskard now overrides more of the app stack: {sorted(overridden)}"
-    for name in ("torch", "torchvision", "transformers", "scikit-learn", "skops", "mlflow"):
+    for name, qualified_version in retained_giskard.items():
+        assert giskard[name] == qualified_version, (
+            f"Giskard {name} changed without a separate RAGET qualification"
+        )
+    for name in ("torch", "torchvision", "transformers", "scikit-learn", "mlflow"):
         assert giskard[name] == app[name], f"Giskard venv must reuse the system {name}"
 
 

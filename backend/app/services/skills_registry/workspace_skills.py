@@ -46,6 +46,23 @@ def workspace_skill_callable(
     """
 
     if not is_workspace_skill_slug(slug):
+        # Methodology seeds also carry a release asset in their published
+        # contract. Dispatching their live registry wrapper would discard that
+        # pin and silently apply a new method after a deployment.
+        from app.services.ml_methodology import METHOD_SKILLS
+
+        if slug in METHOD_SKILLS and frozen_executor is not None:
+            params = frozen_executor.get("params") or {}
+            if (
+                frozen_executor.get("kind") != "registry_call"
+                or params.get("skill_slug") != slug
+                or not isinstance((params.get("frozen_input") or {}).get("_method"), Mapping)
+            ):
+                raise SkillBindingError(
+                    code="methodology_binding_invalid",
+                    message="A published method must bind its own frozen release.",
+                )
+            return bind_executor(frozen_executor)
         return None
     identity = parse_workspace_skill_slug(slug)
     if identity is None:

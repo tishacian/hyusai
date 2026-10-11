@@ -8,8 +8,16 @@ from app.services.ml.families.forecasting import FORECASTING_FAMILY
 from app.services.ml.families.forecasting_deep import FORECASTING_DEEP
 from app.services.ml.families.tabular import TABULAR
 from app.services.ml.families.tabular_deep import TABULAR_DEEP
+from app.services.ml.families.tabular_foundation import TABULAR_FOUNDATION
 
-FAMILIES: tuple[Family, ...] = (TABULAR, FORECASTING_FAMILY, FORECASTING_DEEP, TABULAR_DEEP, CLUSTERING_FAMILY)
+FAMILIES: tuple[Family, ...] = (
+    TABULAR,
+    FORECASTING_FAMILY,
+    FORECASTING_DEEP,
+    TABULAR_DEEP,
+    TABULAR_FOUNDATION,
+    CLUSTERING_FAMILY,
+)
 FAMILY_BY_KEY = {family.key: family for family in FAMILIES}
 
 

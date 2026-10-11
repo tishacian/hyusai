@@ -90,6 +90,8 @@ import {
 } from './flow-recipe.vm';
 import {
   TRANSFORM_ENGINES,
+  historicalEnrichmentCopy,
+  isHistoricalEnrichment,
   isTransformNode,
   programSummary,
   publishedProgram,
@@ -1468,7 +1470,9 @@ export class FlowInspectorComponent {
 
   /** Dictionary keys of the node's engine, so one section serves both. */
   transformCopy(n: CanonicalFlowNode) {
-    return TRANSFORM_ENGINES[transformEngineOf(n) ?? 'sql'].copy;
+    const engine = transformEngineOf(n) ?? 'sql';
+    return isHistoricalEnrichment(readTransformParams(n), engine)
+      ? historicalEnrichmentCopy() : TRANSFORM_ENGINES[engine].copy;
   }
 
   transformParams(n: CanonicalFlowNode): TransformParams {

@@ -40,6 +40,8 @@ KEY_PACKAGES = (
     "pyarrow",
     "skforecast",
     "torch",
+    "tabicl",
+    "safetensors",
     "transformers",
     "chronos-forecasting",
     "sentence-transformers",
@@ -115,6 +117,8 @@ def family_availability(
 
     if not (settings.ml_train_enabled and settings.tabular_data_enabled):
         return False, "disabled"
+    if family.key == "tabular_foundation" and not getattr(settings, "ml_tabicl_enabled", False):
+        return False, "experimental_disabled"
     if settings.worker_eager_mode:
         missing = family.missing_modules()
         return (False, "runtime_missing") if missing else (True, None)
@@ -138,6 +142,8 @@ def serving_availability(
         return True, None
     if not settings.ml_predict_enabled:
         return False, "disabled"
+    if family.key == "tabular_foundation" and not getattr(settings, "ml_tabicl_enabled", False):
+        return False, "experimental_disabled"
     if settings.worker_eager_mode:
         missing = family.missing_modules()
         return (False, "runtime_missing") if missing else (True, None)
@@ -208,6 +214,7 @@ def model_descriptors(
                 if artifact_id != model_id or descriptor.get("kind") not in {
                     "forecasting",
                     "embedding",
+                    "tabular_foundation",
                 }:
                     continue
             elif (
@@ -224,6 +231,10 @@ def model_descriptors(
             if len(public) == 5 and public["model_id"] == model_id:
                 if artifact_id:
                     public.update(artifact_id=artifact_id, runtime=descriptor.get("runtime", {}))
+                    if descriptor.get("kind") == "tabular_foundation":
+                        if descriptor.get("task") not in {"classification", "regression"}:
+                            continue
+                        public["task"] = descriptor["task"]
                 candidates.setdefault(model_id, []).append(public)
     result = {}
     for model_id, descriptors in candidates.items():

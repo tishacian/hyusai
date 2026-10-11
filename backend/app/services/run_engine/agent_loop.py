@@ -6,19 +6,18 @@ mandate view (allowlist ∩ membrane ∩ privilege tier ∩ side-effect class).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import math
+from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Optional
 
 from app.services.membrane.enforcement import evaluate_capability
 from app.services.membrane.spec import resolve_membrane_spec
+from app.services.skill_effects import EXPLICIT_DATA_WRITE_SKILLS
 
 DECIDE_SKILL = "decide_next_v1"
 SEARCH_SKILL = "skill_search_v1"
 
-EXIT_VALUES = frozenset(
-    {None, "complete", "blocked", "ask_human", "budget", "policy_block"}
-)
+EXIT_VALUES = frozenset({None, "complete", "blocked", "ask_human", "budget", "policy_block"})
 PRIVILEGE_TIERS = frozenset({"recommend", "act", "act_with_approval"})
 DEFAULT_CONFIDENCE_FLOOR = 0.55
 DEFAULT_MAX_TURNS = 6
@@ -31,23 +30,26 @@ MAX_PURPOSE = 240
 
 # Skills that mutate an external or ledger-visible system of record.
 # Unlisted slugs default to read / recommend.
-WRITE_SKILLS = frozenset(
-    {
-        "audit_log_v1",
-        "document_ingestion_v1",
-        "rpa_dispatch_v1",
-        "calendar_create_event_v1",
-        "calendar_update_event_v1",
-        "calendar_cancel_event_v1",
-        "action_plan_create_v1",
-        "action_plan_cancel_v1",
-        "action_plan_reschedule_v1",
-        "sharepoint_ingestion_v1",
-        "sap_reject_pr_v1",
-        "sap_create_po_v1",
-        "sap_handle_rejection_v1",
-        "ecommerce_resolution_simulate_v1",
-    }
+WRITE_SKILLS = (
+    frozenset(
+        {
+            "audit_log_v1",
+            "document_ingestion_v1",
+            "rpa_dispatch_v1",
+            "calendar_create_event_v1",
+            "calendar_update_event_v1",
+            "calendar_cancel_event_v1",
+            "action_plan_create_v1",
+            "action_plan_cancel_v1",
+            "action_plan_reschedule_v1",
+            "sharepoint_ingestion_v1",
+            "sap_reject_pr_v1",
+            "sap_create_po_v1",
+            "sap_handle_rejection_v1",
+            "ecommerce_resolution_simulate_v1",
+        }
+    )
+    | EXPLICIT_DATA_WRITE_SKILLS
 )
 
 SKILL_PURPOSES: dict[str, str] = {
@@ -59,6 +61,9 @@ SKILL_PURPOSES: dict[str, str] = {
     "ecommerce_resolution_simulate_v1": "Record a simulated action after human approval and live rechecks",
     "azure_llm_v1": "Classify or draft with a hosted LLM",
     "audit_log_v1": "Write a structured audit ledger entry",
+    "ml_problem_frame_v1": "Frame a prediction objective and its authorized dataset version without training",
+    "ml_experiment_plan_v1": "Propose a bounded Flow with a frozen baseline, metric and development protocol",
+    "ml_evaluation_review_v1": "Review development diagnostics without using final-test scores",
     "semantic_search_v1": "Retrieve grounded evidence",
     "rpa_dispatch_v1": "Dispatch a privileged directory / RPA job",
     "mcp_call_v1": "Call one tool on a workspace MCP server",
@@ -180,12 +185,27 @@ def _decision_trace_value(field: str, value: Any, allowed: set[str]) -> Any:
             return value
         reason = "invalid_type"
     else:
-        if type(value) is int and value.bit_length() <= 64 or type(value) is float and math.isfinite(value):
+        if (
+            type(value) is int
+            and value.bit_length() <= 64
+            or type(value) is float
+            and math.isfinite(value)
+        ):
             return value
         reason = "invalid_number"
-    value_type = ("null" if value is None else "boolean" if isinstance(value, bool) else
-                  "string" if isinstance(value, str) else "object" if isinstance(value, Mapping) else
-                  "array" if isinstance(value, (list, tuple)) else "number")
+    value_type = (
+        "null"
+        if value is None
+        else "boolean"
+        if isinstance(value, bool)
+        else "string"
+        if isinstance(value, str)
+        else "object"
+        if isinstance(value, Mapping)
+        else "array"
+        if isinstance(value, (list, tuple))
+        else "number"
+    )
     return {"omitted_type": value_type, "reason": reason}
 
 
@@ -203,14 +223,22 @@ def coerce_decide_output(
     reasons: list[str] = []
     fields = ("next_skill", "confidence", "needs_human", "exit", "done")
     if evidence is not None:
-        evidence.update(schema_version=1,
-                        raw={key: _decision_trace_value(key, payload[key], allowed) for key in fields if key in payload},
-                        confidence_floor=_decision_trace_value("confidence", confidence_floor, allowed),
-                        normalization_reasons=reasons)
+        evidence.update(
+            schema_version=1,
+            raw={
+                key: _decision_trace_value(key, payload[key], allowed)
+                for key in fields
+                if key in payload
+            },
+            confidence_floor=_decision_trace_value("confidence", confidence_floor, allowed),
+            normalization_reasons=reasons,
+        )
 
     def result(output: dict[str, Any]) -> dict[str, Any]:
         if evidence is not None:
-            evidence["effective"] = {key: _decision_trace_value(key, output[key], allowed) for key in fields}
+            evidence["effective"] = {
+                key: _decision_trace_value(key, output[key], allowed) for key in fields
+            }
         return output
 
     next_skill = payload.get("next_skill")
@@ -226,7 +254,10 @@ def coerce_decide_output(
     human_prompt = payload.get("human_prompt")
     human_text = str(human_prompt).strip() if isinstance(human_prompt, str) else None
     done = bool(payload.get("done"))
-    if confidence != payload.get("confidence") or type(payload.get("confidence")) not in (int, float):
+    if confidence != payload.get("confidence") or type(payload.get("confidence")) not in (
+        int,
+        float,
+    ):
         reasons.append("confidence_normalized")
     if payload.get("needs_human") is True or exit_norm == "ask_human":
         reasons.append("model_requested_human")
@@ -235,22 +266,29 @@ def coerce_decide_output(
 
     if next_slug is not None and next_slug not in allowed:
         reasons.append("skill_outside_allowlist")
-        return result({
-            "next_skill": None,
-            "rationale": rationale or f"Skill {next_slug!r} is outside the allowlist.",
-            "confidence": confidence,
-            "needs_human": False,
-            "human_prompt": None,
-            "exit": "policy_block",
-            "done": False,
-        })
+        return result(
+            {
+                "next_skill": None,
+                "rationale": rationale or f"Skill {next_slug!r} is outside the allowlist.",
+                "confidence": confidence,
+                "needs_human": False,
+                "human_prompt": None,
+                "exit": "policy_block",
+                "done": False,
+            }
+        )
 
-    if confidence < confidence_floor and not needs_human and exit_norm not in {
-        "blocked",
-        "policy_block",
-        "budget",
-        "complete",
-    }:
+    if (
+        confidence < confidence_floor
+        and not needs_human
+        and exit_norm
+        not in {
+            "blocked",
+            "policy_block",
+            "budget",
+            "complete",
+        }
+    ):
         needs_human = True
         reasons.append("confidence_below_floor")
 
@@ -259,15 +297,17 @@ def coerce_decide_output(
     if needs_human:
         exit_norm = exit_norm or "ask_human"
 
-    return result({
-        "next_skill": next_slug,
-        "rationale": rationale,
-        "confidence": confidence,
-        "needs_human": needs_human,
-        "human_prompt": human_text if needs_human else None,
-        "exit": exit_norm,
-        "done": done,
-    })
+    return result(
+        {
+            "next_skill": next_slug,
+            "rationale": rationale,
+            "confidence": confidence,
+            "needs_human": needs_human,
+            "human_prompt": human_text if needs_human else None,
+            "exit": exit_norm,
+            "done": done,
+        }
+    )
 
 
 def retrieval_evidence_view(output: dict[str, Any]) -> dict[str, Any]:
@@ -280,21 +320,31 @@ def retrieval_evidence_view(output: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(results, list) or any(not isinstance(row, dict) for row in results):
         return output
     preserved_retrieval_keys = {
-        "retrieval_role", "retrieval_evidence_coverage", "retrieval_evidence_terms_missing",
+        "retrieval_role",
+        "retrieval_evidence_coverage",
+        "retrieval_evidence_terms_missing",
         "retrieval_exact_match_missing",
     }
     statistic_keys = {
-        "document_word_count", "document_character_count", "document_line_count",
-        "document_paragraph_count", "document_token_count", "document_extracted_keywords",
-        "document_has_front_matter", "file_size",
+        "document_word_count",
+        "document_character_count",
+        "document_line_count",
+        "document_paragraph_count",
+        "document_token_count",
+        "document_extracted_keywords",
+        "document_has_front_matter",
+        "file_size",
     }
     rows = []
     for row in results:
         metadata = row.get("metadata")
         if isinstance(metadata, dict):
             metadata = {
-                key: value for key, value in metadata.items()
-                if key != "content" and key not in statistic_keys and (
+                key: value
+                for key, value in metadata.items()
+                if key != "content"
+                and key not in statistic_keys
+                and (
                     key in preserved_retrieval_keys
                     or not key.startswith(("retrieval_", "sparse_", "dense_", "fusion_", "qdrant_"))
                 )
@@ -306,7 +356,9 @@ def retrieval_evidence_view(output: dict[str, Any]) -> dict[str, Any]:
         **{key: value for key, value in output.items() if key != "retrieval_decision_trace"},
         "results": rows,
         "evidence_view": {
-            "version": 1, "passages_retained": len(rows), "passages_omitted": 0,
+            "version": 1,
+            "passages_retained": len(rows),
+            "passages_omitted": 0,
             "passage_text_changed": False,
             "omitted": "search diagnostics, document statistics and metadata.content; full output remains in the linked invocation",
         },
@@ -382,6 +434,9 @@ def compile_mandate_view(
     from the allowlist, or blocked by the membrane, stays out whatever it says.
     """
 
+    from app.core.config import settings
+    from app.services.ml_methodology import METHOD_SKILLS
+
     tier = coerce_privilege_tier(privilege_tier)
     slugs = coerce_allowlist(list(allowlist))
     spec = resolve_membrane_spec(control=control)
@@ -391,6 +446,10 @@ def compile_mandate_view(
     extra = {str(item) for item in extra_blocked}
     for slug in slugs:
         if slug in extra:
+            continue
+        if not settings.ml_methodology_enabled and slug in (
+            METHOD_SKILLS | {"ml_evaluation_review_v1"}
+        ):
             continue
         gate = evaluate_capability(spec, skill=slug)
         if not gate.allowed:
@@ -465,7 +524,10 @@ def evaluate_done_when(
     }
     for check in checks:
         token = check.lower()
-        if token in observed or any(part.strip() and part.strip() in ok_skills for part in token.replace(" or ", "|").split("|")):
+        if token in observed or any(
+            part.strip() and part.strip() in ok_skills
+            for part in token.replace(" or ", "|").split("|")
+        ):
             continue
         # Named golden checks can also be raw observation flags.
         if any(isinstance(row, Mapping) and row.get(check) is True for row in observations):

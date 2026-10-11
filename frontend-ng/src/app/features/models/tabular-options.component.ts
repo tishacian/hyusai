@@ -21,6 +21,9 @@ import { shownSpecFields, specColumns, specValues } from './tabular-options.vm';
           @if (values()['text_encoder'] === 'embedding') {
             <p class="ck-hint" data-testid="embedding-scope">{{ i18n.t('models.embedding.scope') }}</p>
           }
+          @if (values()['kv_cache'] !== undefined) {
+            <p class="ck-hint" data-testid="foundation-scope">{{ i18n.t('models.foundation.scope') }}</p>
+          }
           @for (field of visibleFields(); track field.key) {
             <div class="ck-field" [attr.data-spec-field]="field.key">
               <label class="ck-label" [for]="'tabular-' + field.key">{{ label(field.key) }}</label>
@@ -30,7 +33,7 @@ import { shownSpecFields, specColumns, specValues } from './tabular-options.vm';
                 }
                 @case ('artifact') {
                   <select class="ck-input" [id]="'tabular-' + field.key" [ngModel]="values()[field.key] ?? ''" (ngModelChange)="patch(field, $event)">
-                    <option value="">{{ i18n.t('models.spec.artifact_default') }}</option>
+                    <option value="">{{ i18n.t(field.required ? 'models.spec.artifact_required' : 'models.spec.artifact_default') }}</option>
                     @if (values()[field.key] && !artifactKnown(field, values()[field.key])) { <option [value]="values()[field.key]">{{ i18n.t('models.spec.artifact_unavailable', { id: artifactId(values()[field.key]) }) }}</option> }
                     @for (model of field.artifact_choices ?? []; track model.artifact_id) {
                       <option [value]="model.artifact_id">{{ model.upstream_id }} · {{ model.revision }}</option>

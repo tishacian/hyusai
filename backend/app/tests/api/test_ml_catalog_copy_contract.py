@@ -18,6 +18,7 @@ keeps the check free of a node toolchain.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -28,15 +29,7 @@ from app.services.ml.families import FAMILIES, all_tasks
 from app.services.tabular_ml import ALGOS, TASKS, catalog_payload
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-DICT = (
-    REPO_ROOT
-    / "frontend-ng"
-    / "src"
-    / "app"
-    / "core"
-    / "i18n"
-    / "models.dict.ts"
-)
+DICT = REPO_ROOT / "frontend-ng" / "src" / "app" / "core" / "i18n" / "models.dict.ts"
 
 # Both dictionaries use flat object literals with single- or double-quoted keys;
 # FR/EN parity inside the file is already enforced at compile time by
@@ -94,7 +87,8 @@ def test_dictionary_parser_accepts_both_quote_styles_without_mismatched_quotes()
   'models.task.invalid": 'Mismatched',
 """
     assert {match.group("key") for match in _KEY.finditer(source)} == {
-        "models.task.first", "models.task.second",
+        "models.task.first",
+        "models.task.second",
     }
 
 
@@ -111,9 +105,17 @@ def _family_refusal_codes() -> set[str]:
         if family.validator is None:
             continue
         source = Path(family.validator.__code__.co_filename).read_text(encoding="utf-8")
-        # The same module declares its harness's exit codes: those are run
-        # failures, phrased under models.error, not form refusals.
-        codes |= set(_CODE.findall(source)) - set(family.exit_codes.values())
+        # Only raised codes are form refusals. The same module may append
+        # advisory warnings or declare harness exits with different UI copy.
+        for raised in ast.walk(ast.parse(source)):
+            if isinstance(raised, ast.Raise) and raised.exc is not None:
+                codes.update(
+                    node.value
+                    for node in ast.walk(raised.exc)
+                    if isinstance(node, ast.Constant)
+                    and isinstance(node.value, str)
+                    and re.fullmatch(r"ML_[A-Z_]+", node.value)
+                )
     return codes
 
 
@@ -170,15 +172,18 @@ def test_every_family_metric_and_unavailability_reason_has_copy():
 
 def test_every_refusal_and_failure_code_has_copy():
     keys = _dictionary_keys()
-    expected = {f"models.refusal.{code.lower()}" for code in (*_REFUSAL_CODES, *_family_refusal_codes())}
+    expected = {
+        f"models.refusal.{code.lower()}" for code in (*_REFUSAL_CODES, *_family_refusal_codes())
+    }
     expected |= {f"models.error.{code.lower()}" for code in _TRAINING_ERROR_CODES}
     # A family's harness names its own exits (a series with gaps, too little
     # history), and the worker writes them into the row like any other failure.
-    expected |= {f"models.error.{code.lower()}" for family in FAMILIES for code in family.exit_codes.values()}
+    expected |= {
+        f"models.error.{code.lower()}" for family in FAMILIES for code in family.exit_codes.values()
+    }
     missing = sorted(expected - keys)
     assert not missing, (
-        "these codes reach the UI as coded refusals and would be shown raw: "
-        f"{missing}"
+        f"these codes reach the UI as coded refusals and would be shown raw: {missing}"
     )
 
 
@@ -193,7 +198,9 @@ def test_every_spec_field_and_choice_a_family_declares_has_copy():
         for field in family.spec_fields:
             expected |= {f"models.spec.{field.key}", f"models.spec.{field.key}.hint"}
             if field.kind in {"enum", "column_roles"}:
-                expected |= {f"models.spec.{field.key}.{choice.lower()}" for choice in field.choices}
+                expected |= {
+                    f"models.spec.{field.key}.{choice.lower()}" for choice in field.choices
+                }
     missing = sorted(expected - keys)
     assert not missing, f"rendered as raw identifiers: {missing}"
 
@@ -202,16 +209,19 @@ def test_the_frontend_lists_every_refusal_and_failure_a_family_can_produce():
     """The view-model only phrases codes it lists; an unlisted one is shown as
     the server's English sentence in the middle of a French form."""
 
-    source = (REPO_ROOT / "frontend-ng" / "src" / "app" / "features" / "models" / "models.vm.ts").read_text(
-        encoding="utf-8"
-    )
+    source = (
+        REPO_ROOT / "frontend-ng" / "src" / "app" / "features" / "models" / "models.vm.ts"
+    ).read_text(encoding="utf-8")
     refusals = source[source.index("export const REFUSAL_CODES") :]
     refusals = refusals[: refusals.index("] as const")]
     errors = source[source.index("export const TRAINING_ERROR_CODES") :]
     errors = errors[: errors.index("] as const")]
     missing = sorted(code for code in _family_refusal_codes() if f"'{code}'" not in refusals)
     missing += sorted(
-        code for family in FAMILIES for code in family.exit_codes.values() if f"'{code}'" not in errors
+        code
+        for family in FAMILIES
+        for code in family.exit_codes.values()
+        if f"'{code}'" not in errors
     )
     assert not missing, f"codes the studio would not phrase: {missing}"
 
@@ -220,7 +230,15 @@ def test_the_catalog_payload_is_shaped_the_way_the_form_reads_it():
     """A guard on the contract the studio's view-model is typed against."""
 
     payload = catalog_payload()
-    assert set(payload) >= {"enabled", "tasks", "algos", "limits", "defaults", "families", "metrics"}
+    assert set(payload) >= {
+        "enabled",
+        "tasks",
+        "algos",
+        "limits",
+        "defaults",
+        "families",
+        "metrics",
+    }
     assert payload["tasks"] == list(all_tasks())
     assert set(TASKS) <= set(payload["tasks"])
     for family in payload["families"]:
@@ -239,7 +257,9 @@ def test_the_catalog_payload_is_shaped_the_way_the_form_reads_it():
         "max_classes",
         "timeout_s",
     }
-    forecast_available = next(family["available"] for family in payload["families"] if family["key"] == "forecasting")
+    forecast_available = next(
+        family["available"] for family in payload["families"] if family["key"] == "forecasting"
+    )
     for algo in payload["algos"]:
         expected_fields = {"key", "tasks", "estimators", "scale", "tags", "knobs"}
         expected_tasks = set(algo["estimators"])
@@ -247,6 +267,12 @@ def test_the_catalog_payload_is_shaped_the_way_the_form_reads_it():
             expected_fields |= {"available", "reason", "family", "model_id"}
             assert algo["family"] == "forecasting_deep" and algo["model_id"] == "chronos-2-small"
             assert isinstance(algo["available"], bool)
+        elif algo["key"] == "tabicl_v2":
+            expected_fields |= {"available", "reason", "family", "experimental"}
+            assert algo["family"] == "tabular_foundation"
+            assert algo["experimental"] is True
+            assert algo["available"] is False, "the pilot must default to unavailable"
+            assert algo["knobs"] == []
         elif not forecast_available:
             expected_tasks.discard("forecasting")
         assert set(algo) == expected_fields
@@ -276,9 +302,9 @@ def test_every_code_a_forecast_call_can_answer_with_is_phrased_by_the_playground
     keys = _dictionary_keys()
     missing = sorted(code for code in codes if f"models.serving.error.{code.lower()}" not in keys)
     assert not missing, f"forecast refusals without copy: {missing}"
-    view_model = (REPO_ROOT / "frontend-ng" / "src" / "app" / "features" / "models" / "models.vm.ts").read_text(
-        encoding="utf-8"
-    )
+    view_model = (
+        REPO_ROOT / "frontend-ng" / "src" / "app" / "features" / "models" / "models.vm.ts"
+    ).read_text(encoding="utf-8")
     serving = view_model[view_model.index("export const SERVING_ERROR_CODES") :]
     serving = serving[: serving.index("] as const")]
     unlisted = sorted(code for code in codes if f"'{code}'" not in serving)

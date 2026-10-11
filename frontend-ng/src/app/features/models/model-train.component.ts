@@ -76,7 +76,7 @@ import {
 import { clusteringColumns } from './clustering.vm';
 import { ForecastSpecComponent } from './forecast-spec.component';
 import { TabularOptionsComponent } from './tabular-options.component';
-import { tabularFields, tabularSpec, embeddingIssue } from './tabular-options.vm';
+import { tabularFields, tabularSpec, embeddingIssue, foundationIssue } from './tabular-options.vm';
 
 /** How long the form waits before asking the server what a choice implies. */
 const PLAN_DEBOUNCE_MS = 220;
@@ -814,10 +814,11 @@ export class ModelTrainComponent implements OnInit {
   private readonly forecastDraft = signal<ForecastDraft>({ ...DEFAULT_FORECAST_DRAFT, exog: {} });
   private readonly knobOverrides = signal<Record<string, number>>({});
   protected readonly tabularDraft = signal<Record<string, unknown>>({});
-  protected readonly tabularFields = computed(() => tabularFields(this.catalog(), this.effectiveTask(), this.tabularDraft()));
+  protected readonly tabularFields = computed(() => tabularFields(this.catalog(), this.effectiveTask(), this.tabularDraft(), this.algoKey()));
 
   protected readonly embeddingSelected = computed(() => !this.isForecasting() && this.tabularDraft()['text_encoder'] === 'embedding');
   protected readonly embeddingIssue = computed(() => this.isForecasting() ? null :
+    foundationIssue(this.catalog(), this.algoKey(), this.tabularDraft(), this.crossValidation(), this.effectiveTask()) ??
     embeddingIssue(this.catalog(), tabularSpec(this.tabularFields(), this.tabularDraft(), this.effectiveTask()), this.crossValidation(), this.selectedFeatures()));
 
   private planGeneration = 0;

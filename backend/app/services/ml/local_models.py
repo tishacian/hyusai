@@ -42,6 +42,7 @@ class LocalModel:
     files: dict[str, str]
     artifact_id: str | None = None
     runtime: dict | None = None
+    task: str | None = None
 
     def public(self) -> dict[str, Any]:
         return {
@@ -50,6 +51,7 @@ class LocalModel:
             "revision": self.revision,
             "upstream_id": self.upstream_id,
             "fingerprint": self.fingerprint,
+            **({"task": self.task} if self.task is not None else {}),
             **(
                 {"artifact_id": self.artifact_id, "runtime": self.runtime}
                 if self.artifact_id
@@ -260,6 +262,7 @@ def resolve_artifact_model(
         {name: entry["sha256"] for name, entry in source["files"].items()},
         artifact_id=artifact_id,
         runtime=runtime,
+        task=contract.get("task"),
     )
 
 
@@ -276,7 +279,7 @@ def _verified_artifact_descriptors(root: str, stamp: tuple) -> dict[str, dict]:
     for path in cache.root.iterdir():
         if not path.is_dir() or path.name.startswith("."):
             continue
-        for kind in ("forecasting", "embedding"):
+        for kind in ("forecasting", "embedding", "tabular_foundation"):
             try:
                 with cache.lease(path.name):
                     result[path.name] = resolve_artifact_model(

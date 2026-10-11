@@ -503,9 +503,10 @@ def test_deleting_a_model_forgets_its_resident_pipeline(db_session, model):
 def test_an_artifact_that_is_not_in_the_store_is_a_coded_refusal(
     db_session, workspace, churn_artifact
 ):
+    from app.services.object_store import get_object_store
+
     row = _register(db_session, workspace, churn_artifact)
-    row.model_uri = "workspaces/nope/ml/models/nope/model"
-    db_session.commit()
+    get_object_store().delete_prefix(row.model_uri)
 
     with pytest.raises(TabularError) as raised:
         tabular_predict.load_pipeline(row)

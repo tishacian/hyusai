@@ -749,6 +749,13 @@ def compile_execution_contract(
 ) -> dict[str, Any]:
     """Compile immutable ingress/node/output schemas for one accepted Flow."""
     from app.services.flow_data_sources import data_source_issues, describe_issue
+    from app.services.ml_methodology import validate_methodology_flow
+    from app.services.tabular_datasets import TabularError
+
+    try:
+        validate_methodology_flow(dict(flow))
+    except TabularError as exc:
+        raise FlowContractError(code=exc.code.lower(), message=exc.message, path="nodes") from exc
 
     source_issues = data_source_issues(flow)
     if source_issues:
@@ -950,11 +957,19 @@ def compile_execution_contract(
                     message="Template overrides require a workspace-owned authored Skill.",
                     path=f"nodes/{node_id}/config/prompt_template_override",
                 )
-            if isinstance(skill.executor, Mapping):
+            from app.services.ml_methodology import freeze_method_in_binding, frozen_method_executor
+
+            methodology_executor = frozen_method_executor(skill.slug)
+            if isinstance(skill.executor, Mapping) or methodology_executor is not None:
                 from app.services.flow_node_overrides import override_executor
 
                 try:
-                    frozen_executor = override_executor(dict(skill.executor), config)
+                    frozen_executor = override_executor(
+                        methodology_executor or dict(skill.executor), config
+                    )
+                    # Workspace aliases of the same method must freeze its
+                    # release too, not resolve tomorrow's template at runtime.
+                    frozen_executor = freeze_method_in_binding(frozen_executor)
                 except ValueError as exc:
                     raise FlowContractError(
                         code="node_override_invalid",
