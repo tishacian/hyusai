@@ -2438,7 +2438,9 @@ async def _sql_transform_v1(
 
     def _run() -> dict[str, Any]:
         with SessionLocal() as db:
-            if "enrichment" in transform:
+            # The DAG projects every transform key, so a plain SQL node
+            # carries ``enrichment: None``.
+            if transform.get("enrichment") is not None:
                 from app.services.tabular_enrichment import run_enrichment_transform
 
                 return run_enrichment_transform(
