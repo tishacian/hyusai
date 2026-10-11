@@ -3754,10 +3754,23 @@ def _decrypt_smtp_password(blob: str) -> str:
     raise ValueError(f"Unknown SMTP password envelope keys={sorted(envelope)}")
 
 
-def _smtp_stored_password(smtp: dict[str, Any]) -> str:
+def _smtp_stored_password(smtp: dict[str, Any], workspace: Any = None) -> str:
+    from app.services.secrets.compat import read_secret_field
+    from app.services.secrets.registry import SecretConsumer
+
     blob = smtp.get("password_encrypted")
     if blob:
-        return _decrypt_smtp_password(str(blob))
+        return (
+            read_secret_field(
+                blob,
+                legacy=_decrypt_smtp_password,
+                consumer=SecretConsumer(
+                    "connector", "client360_smtp", workspace_id=getattr(workspace, "id", None)
+                ),
+                owner=workspace,
+            )
+            or ""
+        )
     return _safe_text(smtp.get("password"))
 
 
@@ -3767,6 +3780,10 @@ def reencrypt_workspace_smtp_password(settings: Any) -> tuple[dict[str, Any], bo
     mail = dict(_as_dict(current.get("client360_pdr_mail")))
     smtp = dict(_as_dict(mail.get("smtp")))
     if not smtp:
+        return current, False
+    from app.services.secrets.compat import is_ref
+
+    if is_ref(smtp.get("password_encrypted")) and not _safe_text(smtp.get("password")):
         return current, False
     blob = str(smtp.get("password_encrypted") or "")
     leftover = _safe_text(smtp.get("password"))
@@ -3833,7 +3850,7 @@ def _resolve_client360_smtp_config(
     if smtp:
         if not _safe_bool(smtp.get("enabled"), True):
             return None, "smtp_disabled", smtp
-        password = _smtp_stored_password(smtp) or _password_from_env(
+        password = _smtp_stored_password(smtp, workspace) or _password_from_env(
             smtp.get("password_env_var")
         )
         cfg = SmtpDeliveryConfig(
@@ -3885,7 +3902,8 @@ def client360_mail_settings_payload(workspace: Workspace) -> dict[str, Any]:
     smtp = _client360_smtp_settings(workspace)
     cfg, disabled_reason, _raw = _resolve_client360_smtp_config(workspace)
     password_configured = bool(
-        _smtp_stored_password(smtp) or _password_from_env(smtp.get("password_env_var"))
+        _smtp_stored_password(smtp, workspace)
+        or _password_from_env(smtp.get("password_env_var"))
     )
     if not smtp:
         password_configured = bool(settings.smtp_password)
@@ -3920,6 +3938,23 @@ def patch_client360_mail_settings(
     workspace: Workspace,
     patch: dict[str, Any],
 ) -> dict[str, Any]:
+    if patch.get("password_encrypted") is not None:
+        raise ValueError("password_encrypted is write-only; set password")
+    password = _safe_text(patch.get("password"))
+    sealed_password: Any = None
+    if password:
+        from app.services.secrets.compat import write_secret_field
+
+        # Stored before taking the row lock: the registry commits the session.
+        sealed_password = write_secret_field(
+            db,
+            password,
+            scope="workspace",
+            name="client360-smtp-password",
+            legacy=_encrypt_smtp_password,
+            kind="password",
+            workspace_id=getattr(workspace, "id", None),
+        )
     workspace = lock_workspace_for_app_entitlement_mutation(db, workspace.id)
     workspace_settings = dict(getattr(workspace, "settings", None) or {})
     mail_settings = dict(_as_dict(workspace_settings.get("client360_pdr_mail")))
@@ -3939,11 +3974,8 @@ def patch_client360_mail_settings(
     for key in allowed:
         if key in patch and patch[key] is not None:
             smtp[key] = patch[key]
-    if patch.get("password_encrypted") is not None:
-        raise ValueError("password_encrypted is write-only; set password")
-    password = _safe_text(patch.get("password"))
     if password:
-        smtp["password_encrypted"] = _encrypt_smtp_password(password)
+        smtp["password_encrypted"] = sealed_password
         smtp.pop("password", None)
     elif patch.get("clear_password"):
         smtp.pop("password", None)

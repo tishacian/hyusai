@@ -28,6 +28,9 @@ import httpx
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.services.secrets.compat import is_ref, read_secret_field, write_secret_field
+from app.services.secrets.registry import SecretConsumer
+
 if TYPE_CHECKING:
     from app.models.workspace import Workspace
 
@@ -162,6 +165,8 @@ def reencrypt_workspace_rpa_token(settings: Any) -> tuple[dict[str, Any], bool]:
     current = dict(settings) if isinstance(settings, Mapping) else {}
     connectors = dict(current.get("connectors") or {}) if isinstance(current.get("connectors"), Mapping) else {}
     stored = dict(connectors.get(CONNECTOR_KEY) or {}) if isinstance(connectors.get(CONNECTOR_KEY), Mapping) else {}
+    if is_ref(stored.get("auth_token_encrypted")):
+        return current, False
     blob = str(stored.get("auth_token_encrypted") or "")
     sealed = reencrypt_auth_token_blob(blob)
     if sealed == blob:
@@ -192,7 +197,7 @@ def get_config(workspace: "Workspace", *, include_secrets: bool = False) -> dict
     """
     stored = _connectors(workspace).get(CONNECTOR_KEY)
     stored = dict(stored) if isinstance(stored, Mapping) else {}
-    token_blob = str(stored.get("auth_token_encrypted") or "")
+    token_blob = stored.get("auth_token_encrypted") or ""
     token_set = bool(token_blob) or bool(os.environ.get(ENV_FALLBACK_TOKEN))
     base_url = str(stored.get("base_url") or "").rstrip("/")
     job_mapping = _normalize_job_mapping(stored.get("job_mapping"))
@@ -207,7 +212,17 @@ def get_config(workspace: "Workspace", *, include_secrets: bool = False) -> dict
     if include_secrets:
         token = ""
         if token_blob:
-            token = _decrypt_secret(token_blob)
+            token = (
+                read_secret_field(
+                    token_blob,
+                    legacy=_decrypt_secret,
+                    consumer=SecretConsumer(
+                        "connector", CONNECTOR_KEY, workspace_id=getattr(workspace, "id", None)
+                    ),
+                    owner=workspace,
+                )
+                or ""
+            )
         if not token:
             token = os.environ.get(ENV_FALLBACK_TOKEN) or ""
         config["auth_token"] = token
@@ -244,7 +259,15 @@ def set_config(db: DBSession, workspace: "Workspace", payload: Mapping[str, Any]
 
     auth_token = payload.get("auth_token")
     if auth_token is not None and str(auth_token) != "":
-        stored["auth_token_encrypted"] = _encrypt_secret(str(auth_token))
+        stored["auth_token_encrypted"] = write_secret_field(
+            db,
+            str(auth_token),
+            scope="workspace",
+            name="rpa-bridge-auth-token",
+            legacy=_encrypt_secret,
+            kind="token",
+            workspace_id=getattr(workspace, "id", None),
+        )
     elif current.get("auth_token_encrypted"):
         stored["auth_token_encrypted"] = current["auth_token_encrypted"]
 

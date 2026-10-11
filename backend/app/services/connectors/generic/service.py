@@ -31,6 +31,13 @@ from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.services.audit_logger import emit_audit_event
+from app.services.secrets.compat import (
+    kind_for,
+    read_secret_field,
+    secret_name,
+    write_secret_field,
+)
+from app.services.secrets.registry import SecretConsumer
 
 if TYPE_CHECKING:
     from app.models.workspace import Workspace
@@ -160,15 +167,26 @@ def get_config(
         "testable": connector_id in _TESTERS,
     }
     if include_secrets:
-        decrypt = _decrypt_secret
         if connector_id == "huggingface":
-            from app.services.huggingface.connection import decrypt_token
+            from app.services.huggingface.connection import read_token
 
-            decrypt = decrypt_token
+            def decrypt(stored: Any) -> str | None:
+                return read_token(stored, workspace=workspace)
+
+        else:
+
+            def decrypt(stored: Any) -> str | None:
+                return read_secret_field(
+                    stored,
+                    legacy=_decrypt_secret,
+                    consumer=SecretConsumer(
+                        "connector", connector_id, workspace_id=getattr(workspace, "id", None)
+                    ),
+                    owner=workspace,
+                )
+
         config["secrets"] = {
-            key: decrypt(str(stored_secrets[key]))
-            for key in spec.secrets
-            if stored_secrets.get(key)
+            key: decrypt(stored_secrets[key]) for key in spec.secrets if stored_secrets.get(key)
         }
     return config
 
@@ -221,11 +239,23 @@ def set_config(
         if text:
             plain[key] = text
     secrets = _mapping(current.get("secrets"))
-    encrypt = _encrypt_secret
+
+    def encrypt(key: str, text: str) -> Any:
+        return write_secret_field(
+            db,
+            text,
+            scope="workspace",
+            name=secret_name(connector_id, key),
+            legacy=_encrypt_secret,
+            actor=actor,
+            kind=kind_for(key),
+            workspace_id=workspace.id,
+        )
+
     if connector_id == "huggingface":
         from app.services.huggingface.connection import (
             DEFAULT_ENDPOINT,
-            encrypt_token,
+            store_token,
             validate_endpoint,
         )
         from app.services.huggingface.errors import HFError
@@ -240,12 +270,14 @@ def set_config(
                 "HF_TOKEN_ENDPOINT_CHANGED",
                 "Replace the token or clear the connection before changing its Hub endpoint.",
             )
-        encrypt = encrypt_token
+        def encrypt(key: str, text: str) -> Any:
+            return store_token(db, text, actor=actor, workspace_id=workspace.id)
+
     replaced: list[str] = []
     for key in spec.secrets:
         text = _text(key, values.get(key))
         if text.strip():
-            secrets[key] = encrypt(text)
+            secrets[key] = encrypt(key, text)
             replaced.append(key)
 
     entries[connector_id] = {"values": plain, "secrets": secrets}

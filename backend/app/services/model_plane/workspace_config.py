@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.logging import get_logger
+from app.services.secrets.compat import read_secret_field, secret_name, write_secret_field
+from app.services.secrets.registry import SecretConsumer
 
 if TYPE_CHECKING:
     from app.models.workspace import Workspace
@@ -123,6 +125,33 @@ def decrypt_secret(blob: str) -> str:
     return fernet.decrypt(ciphertext.encode("ascii")).decode("utf-8")
 
 
+def _read(workspace: "Workspace", stored: Any, consumer_id: str) -> str:
+    return (
+        read_secret_field(
+            stored,
+            legacy=decrypt_secret,
+            consumer=SecretConsumer(
+                "model_plane", consumer_id, workspace_id=getattr(workspace, "id", None)
+            ),
+            owner=workspace if hasattr(workspace, "_sa_instance_state") else None,
+        )
+        or ""
+    )
+
+
+def _store(db: DBSession, workspace: "Workspace", value: str, *parts: str, kind: str) -> Any:
+    real = hasattr(workspace, "_sa_instance_state")
+    return write_secret_field(
+        db if real else None,
+        value,
+        scope="workspace",
+        name=secret_name(*parts),
+        legacy=encrypt_secret,
+        kind=kind,
+        workspace_id=getattr(workspace, "id", None),
+    )
+
+
 def _persist(db: DBSession, workspace: "Workspace", portal: dict[str, Any]) -> dict[str, Any]:
     settings = dict(workspace.settings or {})
     settings[SETTINGS_KEY] = portal
@@ -194,7 +223,7 @@ def get_decrypted_api_key(workspace: "Workspace", provider: str) -> Optional[str
     if not enc:
         return None
     try:
-        return decrypt_secret(str(enc)) or None
+        return _read(workspace, enc, f"cloud:{provider}") or None
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to decrypt workspace LLM key", provider=provider, error=str(exc))
         return None
@@ -236,7 +265,7 @@ def list_serving_node_configs(workspace: "Workspace") -> list[dict[str, Any]]:
         enc = item.get("token_encrypted")
         if enc:
             try:
-                token = decrypt_secret(str(enc))
+                token = _read(workspace, enc, f"node:{name}")
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Failed to decrypt serving node token", name=name, error=str(exc))
         nodes.append({"name": name, "base_url": base_url, "token": token})
@@ -377,7 +406,9 @@ def set_cloud_credential(
     if clear_api_key:
         entry.pop("api_key_encrypted", None)
     elif api_key is not None and str(api_key).strip():
-        entry["api_key_encrypted"] = encrypt_secret(str(api_key).strip())
+        entry["api_key_encrypted"] = _store(
+            db, workspace, str(api_key).strip(), "llm", key, "api-key", kind="api_key"
+        )
 
     if key in _ENDPOINT_PROVIDERS:
         if endpoint is not None:
@@ -423,7 +454,9 @@ def upsert_serving_node(
                 "token_encrypted": item.get("token_encrypted"),
             }
             if token is not None and str(token).strip():
-                row["token_encrypted"] = encrypt_secret(str(token).strip())
+                row["token_encrypted"] = _store(
+                    db, workspace, str(token).strip(), "nodes", node_name, "token", kind="token"
+                )
             new_nodes.append(row)
             updated = True
         else:
@@ -431,7 +464,9 @@ def upsert_serving_node(
     if not updated:
         row = {"name": node_name, "base_url": url}
         if token is not None and str(token).strip():
-            row["token_encrypted"] = encrypt_secret(str(token).strip())
+            row["token_encrypted"] = _store(
+                db, workspace, str(token).strip(), "nodes", node_name, "token", kind="token"
+            )
         new_nodes.append(row)
     portal["serving_nodes"] = new_nodes
     return _persist(db, workspace, portal)

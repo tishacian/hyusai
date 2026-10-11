@@ -21,6 +21,9 @@ from typing import TYPE_CHECKING, Any, Mapping, Optional
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.services.secrets.compat import read_secret_field, write_secret_field
+from app.services.secrets.registry import SecretConsumer
+
 if TYPE_CHECKING:
     from app.models.workspace import Workspace
 
@@ -133,7 +136,7 @@ def get_config(workspace: "Workspace", *, include_secrets: bool = False) -> dict
     """
     stored = _connectors(workspace).get(CONNECTOR_KEY)
     stored = dict(stored) if isinstance(stored, Mapping) else {}
-    password_blob = str(stored.get("password_encrypted") or "")
+    password_blob = stored.get("password_encrypted") or ""
     password_set = bool(password_blob) or bool(os.environ.get(ENV_FALLBACK_PASSWORD))
     config: dict[str, Any] = {
         "host": str(stored.get("host") or ""),
@@ -146,7 +149,17 @@ def get_config(workspace: "Workspace", *, include_secrets: bool = False) -> dict
     if include_secrets:
         password = ""
         if password_blob:
-            password = _decrypt_secret(password_blob)
+            password = (
+                read_secret_field(
+                    password_blob,
+                    legacy=_decrypt_secret,
+                    consumer=SecretConsumer(
+                        "connector", CONNECTOR_KEY, workspace_id=getattr(workspace, "id", None)
+                    ),
+                    owner=workspace,
+                )
+                or ""
+            )
         if not password:
             password = os.environ.get(ENV_FALLBACK_PASSWORD) or ""
         config["password"] = password
@@ -178,7 +191,15 @@ def set_config(db: DBSession, workspace: "Workspace", payload: Mapping[str, Any]
     }
     password = payload.get("password")
     if password is not None and str(password) != "":
-        stored["password_encrypted"] = _encrypt_secret(str(password))
+        stored["password_encrypted"] = write_secret_field(
+            db,
+            str(password),
+            scope="workspace",
+            name="sap-hana-password",
+            legacy=_encrypt_secret,
+            kind="password",
+            workspace_id=getattr(workspace, "id", None),
+        )
     elif current.get("password_encrypted"):
         stored["password_encrypted"] = current["password_encrypted"]
 
