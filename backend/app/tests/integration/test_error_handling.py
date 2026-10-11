@@ -1,12 +1,13 @@
 """Error handling and edge case tests"""
-import pytest
 import asyncio
-import tempfile
 import os
+import tempfile
+
+import pytest
+
 from app.services.rag.document_service import DocumentService
 
-
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("require_embedder")]
 
 
 @pytest.mark.asyncio
