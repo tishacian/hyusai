@@ -1,0 +1,91 @@
+{{- if .Values.huggingface.enabled }}
+{{/*
+The Hub writer, agentium-hub-fetch in docker/compose.agentium.huggingface.yml.
+It never loads the application Secret: it takes the database and broker URLs
+and the registry key by reference, and everything else from its own Secret.
+It is the only process allowed to reach the Hub, so it is not offline.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentium-hub-fetch
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: hub-fetch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: hub-fetch
+  template:
+    metadata:
+      labels:
+        {{- include "agentium.labels" . | nindent 8 }}
+        app.kubernetes.io/component: hub-fetch
+    spec:
+      {{- include "agentium.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ .Values.runtime.uid }}
+        runAsGroup: {{ .Values.runtime.gid }}
+        fsGroup: {{ .Values.runtime.gid }}
+      containers:
+        - name: hub-fetch
+          image: {{ .Values.image.hubFetch | quote }}
+          {{- with .Values.resources.hubFetch }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "agentium.fullname" . }}-config
+            - secretRef:
+                name: {{ .Values.huggingface.hubFetch.existingSecret }}
+            {{- include "agentium.openbaoEnvFrom" (list . "hubFetch") | nindent 12 }}
+          env:
+            {{- include "agentium.dbBrokerEnv" . | nindent 12 }}
+            {{- include "agentium.secretRegistryEnv" . | nindent 12 }}
+            {{- include "agentium.openbaoEnv" (list .) | nindent 12 }}
+            {{- include "agentium.hfSigningEnv" (list .) | nindent 12 }}
+            - name: CELERY_APP
+              value: app.workers.celery_hub:celery_hub
+            - name: CELERY_QUEUES
+              value: hub_fetch
+            - name: CELERY_CONCURRENCY
+              value: {{ .Values.huggingface.hubFetch.concurrency | quote }}
+            # One Beat only, in the CPU worker.
+            - name: CELERY_BEAT
+              value: "0"
+          volumeMounts:
+            {{- include "agentium.hfVolumeMounts" (list . "hubFetch") | nindent 12 }}
+      volumes:
+        {{- include "agentium.hfVolumes" (list . "hubFetch") | nindent 8 }}
+{{- range $name := list "cache" "bundles" }}
+{{- $volume := index $.Values.huggingface $name }}
+{{- if not $volume.existingClaim }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ ternary (include "agentium.hubCacheClaim" $) (include "agentium.hubBundlesClaim" $) (eq $name "cache") }}
+  labels:
+    {{- include "agentium.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ printf "hub-%s" $name }}
+  annotations:
+    # Verified Hub objects and private bundles: an uninstall must not drop them.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: ["ReadWriteMany"]
+  storageClassName: {{ $volume.storageClass | quote }}
+  resources:
+    requests:
+      storage: {{ $volume.size }}
+{{- end }}
+{{- end }}
+{{- end }}

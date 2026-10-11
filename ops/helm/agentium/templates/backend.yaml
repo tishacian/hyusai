@@ -35,13 +35,22 @@ spec:
                 name: {{ include "agentium.fullname" . }}-config
             - secretRef:
                 name: {{ include "agentium.secretName" . }}
+            {{- include "agentium.openbaoEnvFrom" (list . "backend") | nindent 12 }}
           env:
             {{- include "agentium.appSecretEnv" . | nindent 12 }}
+            {{- include "agentium.openbaoEnv" (list .) | nindent 12 }}
+            {{- if .Values.huggingface.enabled }}
+            {{- include "agentium.hfOfflineEnv" . | nindent 12 }}
+            {{- end }}
             - name: AGENTIUM_BACKEND_WORKERS
               value: {{ .Values.backend.workers | quote }}
             {{- with .Values.backend.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+          {{- if .Values.huggingface.enabled }}
+          volumeMounts:
+            {{- include "agentium.hfVolumeMounts" (list . "backend") | nindent 12 }}
+          {{- end }}
           livenessProbe:
             httpGet:
               path: /health/live
@@ -52,6 +61,12 @@ spec:
               path: /health/live
               port: http
             initialDelaySeconds: 10
+      {{- if .Values.huggingface.enabled }}
+      securityContext:
+        fsGroup: {{ .Values.runtime.gid }}
+      volumes:
+        {{- include "agentium.hfVolumes" (list . "backend") | nindent 8 }}
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

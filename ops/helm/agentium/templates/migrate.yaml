@@ -50,6 +50,8 @@ spec:
                 name: {{ include "agentium.fullname" . }}-config
             - secretRef:
                 name: {{ include "agentium.secretName" . }}
+            {{- include "agentium.openbaoEnvFrom" (list . "backend") | nindent 12 }}
           env:
             {{- include "agentium.appSecretEnv" . | nindent 12 }}
+            {{- include "agentium.openbaoEnv" (list .) | nindent 12 }}
 {{- end }}
