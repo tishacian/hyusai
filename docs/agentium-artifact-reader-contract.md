@@ -24,6 +24,11 @@ Le lecteur contrôle, avant `mlflow.pyfunc.load_model` :
 L'identité du cache de serving inclut le contrat complet : une modification
 administrative des métadonnées invalide la copie déjà chargée.
 
+Le profil fondation tabulaire courant est `tabicl-json-safetensors-v2` : il
+qualifie le code embarqué de reconstruction qui respecte le plafond de threads
+du lecteur. Les exports pilotes `v1` sont refusés avant chargement et doivent
+être régénérés ; leurs versions de dépendances identiques ne suffisent pas.
+
 | Famille | Format | Portée du contrôle |
 | --- | --- | --- |
 | Tabulaire classique / clustering | skops | Inventaire, intégrité, versions, types autorisés et archive bornée. |

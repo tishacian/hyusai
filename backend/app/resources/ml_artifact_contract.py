@@ -23,7 +23,9 @@ PROFILES = {
     ("forecasting", "skops"): "forecast-skops-v1",
     ("forecasting", "joblib"): "forecast-joblib-v1",
     ("forecasting_deep", "json"): "foundation-json-v1",
-    ("tabular_foundation", "json+safetensors"): "tabicl-json-safetensors-v1",
+    # v2 requires the bundled adapter to honor the reader's CPU envelope.
+    # v1 embedded an older runtime that could restore a larger thread pool.
+    ("tabular_foundation", "json+safetensors"): "tabicl-json-safetensors-v2",
 }
 
 
