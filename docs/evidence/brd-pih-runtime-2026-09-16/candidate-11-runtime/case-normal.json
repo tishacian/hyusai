@@ -1,0 +1,48 @@
+{
+  "case_id": "case-normal",
+  "run_id": "9887eef9-2495-4e75-8573-fb2e09d53fa4",
+  "output": {
+    "completion": "Title: PIH SPARK-089 Regrade Request \u2013 Documentary Summary (For Review Only)\n\n1) Transaction overview\n- Scope: Documentary summary for approvers based solely on supplied materials.\n- Safety notice: This draft is not an approval, rejection, or recommendation.\n\n2) Requested changes (facts only)\n- Current title: Analyst I\n- Current grade: G6\n- Proposed title: Senior Analyst\n- Proposed grade: G7\n- Effective date: 2024-11-01\n\n3) Supporting citations (exact quotes from source)\n- Current title: \"Job title: Analyst I.\"\n- Current grade: \"Grade: G6.\"\n- Proposed title: \"Change job title to Senior Analyst.\"\n- Proposed grade: \"Proposed Grade: G7.\"\n- Effective date: \"Target effective date: 2024-11-01.\"\n\n4) Missing information (for clarification, do not infer)\n- None identified based on requested fields (current title, current grade, proposed title, proposed grade, effective date).\n\n5) Conformance to guardrails\n- Stated only supplied facts; no invented content.\n- No HR decision made; no approval/rejection/recommendation language included."
+  },
+  "assertions": {
+    "verdict": "passed",
+    "assertions": [
+      {
+        "id": "contains-current-title",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "contains-current-grade",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "contains-proposed-title",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "contains-proposed-grade",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "contains-effective-date",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "contains-citations-section",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "disclaimer-present",
+        "passed": true,
+        "path_found": true
+      }
+    ]
+  },
+  "review": "harness_acceptance_not_human"
+}

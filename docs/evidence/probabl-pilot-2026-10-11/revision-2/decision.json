@@ -1,0 +1,104 @@
+{
+  "adoption": "experimental",
+  "aggregate_metric": null,
+  "business_value": "not_evaluated",
+  "carbon": "not_measured",
+  "energy": "not_measured",
+  "independent_product_admission": {
+    "classification": "Experimental manual pilot only; no automatic promotion or global activation.",
+    "regression": "All TabICL regression profiles are refused by product services/UI after cached-profile parity failure in development; any per-task statistical/cost eligibility below cannot override this restriction."
+  },
+  "money": "not_measured",
+  "tasks": [
+    {
+      "adoption": "experimental_pending_authorized_business_case_and_target_hardware",
+      "class_recall_guard_met": true,
+      "compute_frugality_threshold_met": false,
+      "full_cycle_cpu_ratio": 3.5558519461271576,
+      "interval": {
+        "confidence": 0.95,
+        "gain": 0.009567910393627144,
+        "lower": 0.0,
+        "method": "paired_stratified_iid_percentile_bootstrap",
+        "repetitions": 2000,
+        "status": "evaluated",
+        "unit": "absolute_f1_macro",
+        "upper": 0.029379656090473327
+      },
+      "statistical_quality_threshold_met": false,
+      "status": "evaluated",
+      "storage_nonincreasing": false,
+      "task": "breast-cancer"
+    },
+    {
+      "adoption": "experimental_pending_authorized_business_case_and_target_hardware",
+      "class_recall_guard_met": true,
+      "compute_frugality_threshold_met": false,
+      "full_cycle_cpu_ratio": 3.0226651241511298,
+      "interval": {
+        "confidence": 0.95,
+        "gain": 0.0,
+        "lower": 0.0,
+        "method": "paired_stratified_iid_percentile_bootstrap",
+        "repetitions": 2000,
+        "status": "evaluated",
+        "unit": "absolute_f1_macro",
+        "upper": 0.0
+      },
+      "statistical_quality_threshold_met": false,
+      "status": "evaluated",
+      "storage_nonincreasing": false,
+      "task": "iris-multiclass"
+    },
+    {
+      "adoption": "experimental_pending_authorized_business_case_and_target_hardware",
+      "class_recall_guard_met": false,
+      "compute_frugality_threshold_met": false,
+      "full_cycle_cpu_ratio": 2.5224526779194423,
+      "interval": {
+        "confidence": 0.95,
+        "gain": -0.06657941541662477,
+        "lower": -0.1912750322997417,
+        "method": "paired_stratified_iid_percentile_bootstrap",
+        "repetitions": 2000,
+        "status": "evaluated",
+        "unit": "absolute_f1_macro",
+        "upper": 0.004037467700258368
+      },
+      "statistical_quality_threshold_met": false,
+      "status": "evaluated",
+      "storage_nonincreasing": false,
+      "task": "delivery-late-imbalanced-demo"
+    },
+    {
+      "reason": "complete_paired_final_required",
+      "status": "not_evaluated",
+      "task": "linear-regression-demo"
+    },
+    {
+      "reason": "complete_paired_final_required",
+      "status": "not_evaluated",
+      "task": "friedman-mixed-demo"
+    },
+    {
+      "adoption": "experimental_pending_authorized_business_case_and_target_hardware",
+      "class_recall_guard_met": true,
+      "compute_frugality_threshold_met": false,
+      "full_cycle_cpu_ratio": 6.646418424126348,
+      "interval": {
+        "confidence": 0.95,
+        "gain": 0.025811488136924132,
+        "lower": -0.015244448454201453,
+        "method": "paired_iid_percentile_bootstrap",
+        "repetitions": 2000,
+        "status": "evaluated",
+        "unit": "relative_mae_reduction",
+        "upper": 0.06417267054818065
+      },
+      "statistical_quality_threshold_met": false,
+      "status": "evaluated",
+      "storage_nonincreasing": false,
+      "task": "delivery-cost-mixed-demo"
+    }
+  ]
+}

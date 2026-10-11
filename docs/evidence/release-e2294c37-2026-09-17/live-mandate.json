@@ -1,0 +1,42 @@
+{
+  "revision": "e2294c37e79a17457fc078ae09c4201b3e4eaad5",
+  "system_id": "141db166-2d4d-42df-bee3-6b65e556ca46",
+  "system_url": "https://agentium.papai.ai/systems/141db166-2d4d-42df-bee3-6b65e556ca46?workspace=agentium-showcase&lens=build&facet=context",
+  "old_version": "195dc365-e482-4124-ac57-826c6b6e5042",
+  "new_version": "51302d8d-7255-4c2a-a598-f3b8f31ac98f",
+  "old_run_id": "e4b1fceb-6401-4097-a6e3-07052506a87e",
+  "new_run_id": "48624aca-504d-4450-b6c8-85a66b4fb05f",
+  "old_proof_unchanged": true,
+  "new_run_frozen_duration_ms": 30000,
+  "prior_run_retains_frozen_budget_usd": 0.2,
+  "unmeasured_cost_stopped_execution": true,
+  "stale_write_refused": true,
+  "draft_isolated": true,
+  "policy_only_diff": true,
+  "validation": {
+    "valid": true,
+    "checks": [
+      {
+        "code": "mandate_schema",
+        "status": "passed"
+      },
+      {
+        "code": "workspace_resources",
+        "status": "passed"
+      },
+      {
+        "code": "flow_contract",
+        "status": "passed"
+      },
+      {
+        "code": "provider_availability",
+        "status": "not_run"
+      },
+      {
+        "code": "runtime_tests",
+        "status": "not_run"
+      }
+    ]
+  },
+  "scope": "Synthetic source-to-sink Flow; no model/provider campaign or external tool effect."
+}

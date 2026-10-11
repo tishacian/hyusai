@@ -1,0 +1,245 @@
+import { inject } from '@angular/core';
+import { Route, Router, Routes } from '@angular/router';
+import { authGuard } from './core/auth.guard';
+import {
+  CLIENT_APPLICATION_ROUTES,
+  CLIENT_APPLICATION_SHELL_ROUTES,
+} from './core/client-application-routes';
+import { loginGuard } from './core/login.guard';
+import { navigationProfileGuard } from './core/navigation-profile.guard';
+import { workspaceHydrationGuard } from './core/workspace-hydration.guard';
+import { WORKSPACE_EPOCH, workspaceEpochResolver } from './core/workspace-route-reuse.strategy';
+import { workspaceSwitchGuard } from './core/workspace-switch.guard';
+import { WorkspaceService } from './core/workspace.service';
+import { workspaceAppAdminGuard } from './features/governance/workspace-app-admin.guard';
+import { experienceV1Guard } from './features/experience/experience.guard';
+
+function workspaceSettingsRedirect() {
+  const workspace = inject(WorkspaceService);
+  const slug = workspace.currentSlug() || workspace.current()?.slug;
+  if (slug) {
+    return inject(Router).parseUrl(`/workspace/${encodeURIComponent(slug)}/settings`);
+  }
+  return inject(Router).parseUrl('/workspace');
+}
+export const routes: Routes = [
+  {
+    path: 'help/:guideId',
+    canActivate: [authGuard, workspaceHydrationGuard],
+    loadComponent: () => import('./features/help/help-guide.component').then(m => m.HelpGuideComponent),
+  },
+  {
+    path: 'auth',
+    canActivate: [loginGuard],
+    loadChildren: () =>
+      import('./features/auth/auth.routes').then((m) => m.authRoutes),
+  },
+  {
+    path: 'deposit/:accessId',
+    loadComponent: () =>
+      import('./features/deposit/deposit-portal.component').then((m) => m.DepositPortalComponent),
+  },
+  // White-labelled customer applications own the whole page, so they are
+  // mounted outside the Agentium shell: business stakeholders see the
+  // customer's brand only, never the platform title bar, side rail or
+  // workspace switcher. core/client-application-routes.ts lists them.
+  ...CLIENT_APPLICATION_ROUTES.map(
+    (app): Route => ({
+      path: app.path,
+      canActivate: [authGuard, workspaceHydrationGuard],
+      loadChildren: app.loadChildren,
+    }),
+  ),
+  {
+    // Business launcher: no cockpit chrome. Same hydration + flag gate as /create.
+    path: 'work',
+    canActivate: [authGuard, workspaceHydrationGuard, experienceV1Guard],
+    loadChildren: () =>
+      import('./features/experience/work/work.routes').then((m) => m.workRoutes),
+  },
+  {
+    path: '',
+    canActivate: [authGuard, workspaceSwitchGuard],
+    canActivateChild: [navigationProfileGuard],
+    // A workspace switch may land on the current URL: the shell guard must
+    // still run, and the epoch it resolves is what recreates the page.
+    runGuardsAndResolvers: 'always',
+    resolve: { [WORKSPACE_EPOCH]: workspaceEpochResolver },
+    loadComponent: () =>
+      import('./features/layout/shell.component').then((m) => m.ShellComponent),
+    children: [
+      { path: '', pathMatch: 'full', loadComponent: () => import('./features/layout/home-entry.component').then(m => m.HomeEntryComponent) },
+      {
+        path: 'workspace-app-unavailable',
+        loadComponent: () =>
+          import('./features/workspace-app-runtime/workspace-app-unavailable.component').then(
+            (m) => m.WorkspaceAppUnavailableComponent,
+          ),
+      },
+      {
+        path: 'workspace-app-repair',
+        canActivate: [workspaceAppAdminGuard],
+        loadComponent: () =>
+          import('./features/governance/workspace-app-lifecycle.component').then(
+            (m) => m.WorkspaceAppLifecycleComponent,
+          ),
+      },
+      {
+        path: 'hypervisor/mission-room',
+        loadChildren: () =>
+          import('./features/mission-room/mission-room.routes').then((m) => m.missionRoomRoutes),
+      },
+      {
+        path: 'hypervisor',
+        loadComponent: () => {
+          const workspace = inject(WorkspaceService);
+          return workspace.hypervisorV2Enabled()
+            ? import('./features/hypervisor/v2/hypervisor-v2.component').then(
+              (m) => m.HypervisorV2Component,
+            )
+            : import('./features/hypervisor/hypervisor.component').then(
+              (m) => m.HypervisorComponent,
+            );
+        },
+      },
+      {
+        path: 'steering',
+        loadComponent: () =>
+          import('./features/steering/steering.component').then((m) => m.SteeringComponent),
+      },
+      {
+        path: 'steering/contexts',
+        loadComponent: () =>
+          import('./features/contexts/contexts-page.component').then((m) => m.ContextsPageComponent),
+      },
+      {
+        path: 'steering/review-queue',
+        loadComponent: () =>
+          import('./features/steering/review-queue.component').then(
+            (m) => m.SteeringReviewQueueComponent,
+          ),
+      },
+      {
+        path: 'steering/contexts/:id',
+        loadComponent: () =>
+          import('./features/contexts/context-view.component').then((m) => m.ContextViewComponent),
+      },
+      {
+        path: 'create',
+        loadChildren: () =>
+          import('./features/experience/experience.routes').then((m) => m.experienceRoutes),
+      },
+      {
+        path: 'capabilities',
+        loadChildren: () =>
+          import('./features/capabilities/capabilities.routes').then((m) => m.capabilitiesRoutes),
+      },
+      {
+        path: 'skills',
+        loadChildren: () =>
+          import('./features/skills/skills.routes').then((m) => m.skillsRoutes),
+      },
+      {
+        path: 'systems',
+        loadChildren: () =>
+          import('./features/systems/systems.routes').then((m) => m.systemsRoutes),
+      },
+      {
+        path: 'knowledge',
+        loadChildren: () =>
+          import('./features/knowledge/knowledge.routes').then((m) => m.knowledgeRoutes),
+      },
+      {
+        path: 'data',
+        loadChildren: () => import('./features/data/data.routes').then((m) => m.dataRoutes),
+      },
+      {
+        path: 'models',
+        loadChildren: () =>
+          import('./features/models/models.routes').then((m) => m.modelsRoutes),
+      },
+      {
+        path: 'governance',
+        loadChildren: () =>
+          import('./features/governance/governance.routes').then((m) => m.governanceRoutes),
+      },
+      {
+        path: 'observability',
+        loadChildren: () =>
+          import('./features/observability/observability.routes').then((m) => m.observabilityRoutes),
+      },
+      {
+        path: 'runs',
+        loadChildren: () =>
+          import('./features/runs/runs.routes').then((m) => m.runsRoutes),
+      },
+      {
+        path: 'intelligence',
+        loadChildren: () =>
+          import('./features/intelligence/intelligence.routes').then((m) => m.intelligenceRoutes),
+      },
+      {
+        path: 'orchestration',
+        loadChildren: () =>
+          import('./features/orchestration/orchestration.routes').then((m) => m.orchestrationRoutes),
+      },
+      {
+        path: 'chat',
+        loadComponent: () =>
+          import('./features/chat/chat-workspace.component').then((m) => m.ChatWorkspaceComponent),
+      },
+      {
+        path: 'conversations',
+        loadChildren: () =>
+          import('./features/chat/conversations.routes').then((m) => m.conversationsRoutes),
+      },
+      ...CLIENT_APPLICATION_SHELL_ROUTES,
+      {
+        path: 'workspace',
+        loadChildren: () =>
+          import('./features/workspace/workspace.routes').then((m) => m.workspaceRoutes),
+      },
+      {
+        path: 'account',
+        loadChildren: () =>
+          import('./features/account/account.routes').then((m) => m.accountRoutes),
+      },
+      {
+        path: 'presets',
+        loadChildren: () =>
+          import('./features/presets/presets.routes').then((m) => m.presetsRoutes),
+      },
+      {
+        path: 'settings',
+        redirectTo: workspaceSettingsRedirect,
+        pathMatch: 'full',
+      },
+      {
+        path: 'settings/legacy',
+        loadChildren: () =>
+          import('./features/settings/settings.routes').then((m) => m.settingsRoutes),
+      },
+      {
+        path: 'tasks',
+        loadChildren: () =>
+          import('./features/tasks/tasks.routes').then((m) => m.tasksRoutes),
+      },
+      {
+        path: 'resources',
+        loadChildren: () =>
+          import('./features/resources/resources.routes').then((m) => m.resourcesRoutes),
+      },
+      {
+        path: 'connectors',
+        loadChildren: () =>
+          import('./features/connectors/connectors.routes').then((m) => m.connectorsRoutes),
+      },
+      {
+        path: 'apps',
+        loadChildren: () =>
+          import('./features/apps/apps.routes').then((m) => m.appsRoutes),
+      },
+    ],
+  },
+  { path: '**', redirectTo: '' },
+];

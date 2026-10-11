@@ -1,0 +1,312 @@
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  Input,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ApiService, type CapturePinnedView, type CaptureSessionDocument } from '@app/core/api.service';
+import { GlyphComponent } from '@app/shared/cockpit';
+import {
+  DocumentPreviewComponent,
+  type DocumentPreviewViewChange,
+} from '@app/shared/document-preview/document-preview.component';
+import { CaptureEngine } from './capture-engine';
+import { ViewTileComponent } from './view-tile.component';
+import { documentToPinnedView, viewTitle } from './capture-presentation';
+
+/**
+ * La Scène (Phase 2 / D3) — one active piece "EN SCÈNE" (enlarged) plus a
+ * horizontal film strip of the other pinned pieces. The focused view is what
+ * the deictic pointing references (it feeds the engine's `visual_context`).
+ * Clicking a strip thumbnail brings it on scene.
+ */
+@Component({
+  selector: 'app-la-scene',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [GlyphComponent, ViewTileComponent, DocumentPreviewComponent],
+  template: `
+    <section
+      class="ck-surface"
+      style="border-radius:8px; padding:16px 16px 12px; display:flex; flex-direction:column; gap:12px; min-height:200px;"
+    >
+      <div style="display:flex; align-items:center; gap:8px; position:relative;">
+        <ck-glyph name="layers" [size]="13" color="var(--ck-fg-3)" />
+        <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
+          {{ i18n.t('capture.scene.title', { count: engine.scene().length }) }}
+        </span>
+        <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+          @if (active(); as a) {
+            @if (previewUrlFor(a)) {
+              <button
+                type="button"
+                class="ck-mono"
+                (click)="openPreview(a)"
+                [title]="i18n.t('capture.scene.view_large')"
+                style="border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); cursor:pointer; font-size:10px; border-radius:var(--ck-radius-sm); padding:3px 7px; display:inline-flex; align-items:center; gap:4px;"
+                [style.fontSize]="wide ? '11.5px' : '10px'"
+                [style.padding]="wide ? '5px 10px' : '3px 7px'"
+              >
+                <ck-glyph name="layers" [size]="wide ? 12 : 10" color="currentColor" /> {{ i18n.t('capture.scene.view') }}
+              </button>
+            }
+            <button
+              type="button"
+              class="ck-mono"
+              (click)="engine.markActiveView()"
+              [title]="i18n.t('capture.scene.mark_hint')"
+              style="border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); cursor:pointer; font-size:10px; border-radius:var(--ck-radius-sm); padding:3px 7px; display:inline-flex; align-items:center; gap:4px;"
+              [style.fontSize]="wide ? '11.5px' : '10px'"
+              [style.padding]="wide ? '5px 10px' : '3px 7px'"
+            >
+              <ck-glyph name="crosshair" [size]="wide ? 12 : 10" color="currentColor" /> {{ i18n.t('capture.scene.mark') }}
+            </button>
+            <button
+              type="button"
+              class="ck-mono"
+              (click)="engine.unpinView(a.key)"
+              [title]="i18n.t('capture.scene.remove_hint')"
+              style="border:none; background:transparent; color:var(--ck-fg-4); cursor:pointer; font-size:10px; display:inline-flex; align-items:center; gap:4px;"
+              [style.fontSize]="wide ? '11.5px' : '10px'"
+            >
+              <ck-glyph name="x" [size]="wide ? 12 : 10" color="currentColor" /> {{ i18n.t('capture.scene.remove') }}
+            </button>
+          }
+          <label
+            class="ck-mono"
+            [title]="i18n.t('capture.scene.add_hint')"
+            style="border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); cursor:pointer; font-size:10px; border-radius:var(--ck-radius-sm); padding:3px 7px; display:inline-flex; align-items:center; gap:4px;"
+            [style.opacity]="uploading() ? 0.6 : 1"
+            [style.fontSize]="wide ? '11.5px' : '10px'"
+            [style.padding]="wide ? '5px 10px' : '3px 7px'"
+          >
+            <ck-glyph name="bolt" [size]="wide ? 12 : 10" color="currentColor" /> {{ uploading() ? i18n.t('capture.scene.adding') : i18n.t('capture.scene.add') }}
+            <input type="file" multiple (change)="onUpload($event)" [disabled]="uploading()" style="display:none;" />
+          </label>
+          @if (pinnable().length > 0) {
+            <button
+              type="button"
+              class="ck-mono"
+              (click)="picking.set(!picking())"
+              style="border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); cursor:pointer; font-size:10px; border-radius:var(--ck-radius-sm); padding:3px 7px; display:inline-flex; align-items:center; gap:4px;"
+              [style.fontSize]="wide ? '11.5px' : '10px'"
+              [style.padding]="wide ? '5px 10px' : '3px 7px'"
+            >
+              <ck-glyph name="layers" [size]="wide ? 12 : 10" color="currentColor" /> {{ i18n.t('capture.pin.pin') }}
+            </button>
+          }
+        </div>
+        @if (picking()) {
+          <div
+            class="ck-scroll"
+            style="position:absolute; top:calc(100% + 4px); right:0; z-index:20; min-width:200px; max-height:220px; overflow-y:auto; padding:4px; background:var(--ck-bg-panel-hi); border:1px solid var(--ck-stroke-3); border-radius:var(--ck-radius-md); box-shadow:var(--ck-shadow-card);"
+          >
+            @for (doc of pinnable(); track doc.document_id || doc.filename || $index) {
+              <button
+                type="button"
+                (click)="pin(doc)"
+                style="display:flex; align-items:center; gap:8px; width:100%; text-align:left; padding:7px 9px; border:none; background:transparent; border-radius:var(--ck-radius-sm); cursor:pointer; color:var(--ck-fg-2);"
+              >
+                <ck-glyph name="ledger" [size]="13" color="var(--ck-fg-4)" />
+                <span class="ck-mono" style="font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                  {{ doc.filename || doc.title || 'document' }}
+                </span>
+              </button>
+            }
+          </div>
+        }
+      </div>
+
+      @if (active(); as a) {
+        @if (previewUrlFor(a); as url) {
+          <!-- Real document "en scène" (inline preview). The page the expert
+               navigates to is fed back to the engine so deixis + marking bind to
+               the shown page — no more empty decorative placeholder. -->
+          <div
+            style="position:relative; border-radius:var(--ck-radius-md); overflow:hidden; border:1px solid var(--ck-stroke-2);"
+          >
+            <app-document-preview
+              [inline]="true"
+              [previewUrl]="url"
+              [page]="a.page ?? null"
+              [heightPx]="previewHeight()"
+              (viewChanged)="onViewChanged($event)"
+            />
+          </div>
+        } @else {
+          <div style="display:flex; justify-content:center;">
+            <div style="width:100%; max-width:320px;">
+              <app-capture-view-tile [view]="a" size="xl" [active]="true" [clickable]="false" />
+            </div>
+          </div>
+        }
+      } @else {
+        <div
+          style="min-height:120px; border:1px dashed var(--ck-stroke-3); border-radius:var(--ck-radius-md); display:grid; place-items:center; color:var(--ck-fg-5); font-size:12px; text-align:center; padding:12px;"
+        >
+          {{ i18n.t('capture.scene.empty') }}
+        </div>
+      }
+
+      @if (engine.scene().length > 0) {
+        <div class="ck-scroll" style="display:flex; gap:8px; overflow-x:auto; padding-bottom:4px;">
+          @for (piece of engine.scene(); track piece.key) {
+            <div style="flex:none;" [style.width.px]="wide ? 136 : 112">
+              <app-capture-view-tile
+                [view]="piece"
+                size="sm"
+                [previewUrl]="previewUrlFor(piece)"
+                [page]="piece.page ?? null"
+                [active]="piece.key === engine.activeViewKey()"
+                [dim]="piece.key !== engine.activeViewKey()"
+                [clickable]="true"
+                (picked)="engine.focusView(piece.key)"
+              />
+            </div>
+          }
+        </div>
+      }
+    </section>
+
+    <!-- Full-screen modal: page navigation here must sync back to the engine
+         too, otherwise a mark taken after browsing in the modal references the
+         page the pin had BEFORE the modal was opened. -->
+    <app-document-preview
+      [open]="previewOpen()"
+      [previewUrl]="previewUrl()"
+      [title]="previewTitle()"
+      [subtitle]="i18n.t('capture.scene.piece_shown')"
+      [page]="previewPage()"
+      (viewChanged)="onViewChanged($event)"
+      (closed)="previewOpen.set(false)"
+    />
+  `,
+})
+export class LaSceneComponent {
+  readonly i18n = inject(I18nService);
+
+  /**
+   * Mode large (fil layout 'documents') — purely presentational: taller
+   * viewport-based preview, bigger strip tiles and management affordances.
+   */
+  @Input() wide = false;
+
+  protected readonly engine = inject(CaptureEngine);
+  private readonly api = inject(ApiService);
+  private readonly destroyRef = inject(DestroyRef);
+  protected readonly active = this.engine.activeView;
+  protected readonly picking = signal(false);
+  protected readonly uploading = signal(false);
+
+  /** Viewport height as a signal so the wide preview follows window resizes. */
+  private readonly viewportHeight = signal(
+    typeof window !== 'undefined' ? window.innerHeight : 900,
+  );
+
+  constructor() {
+    if (typeof window !== 'undefined') {
+      const onResize = () => this.viewportHeight.set(window.innerHeight);
+      window.addEventListener('resize', onResize);
+      this.destroyRef.onDestroy(() => window.removeEventListener('resize', onResize));
+    }
+  }
+
+  /**
+   * Inline preview height: fixed 480px in the right column; in mode large the
+   * preview owns the center column, so size it from the viewport (header +
+   * status bar + strip ≈ 420px of chrome), never below the compact height.
+   */
+  protected previewHeight(): number {
+    if (!this.wide) return 480;
+    return Math.max(480, Math.round(this.viewportHeight() - 420));
+  }
+
+  // ---- real document preview (rich-preview modal, auth-aware) -------------
+  protected readonly previewOpen = signal(false);
+  protected readonly previewUrl = signal<string | null>(null);
+  protected readonly previewTitle = signal('');
+  protected readonly previewPage = signal<number | null>(null);
+
+  /**
+   * Build the auth-aware `rich-preview` URL for a pinned piece (the modal fetches
+   * it via HttpClient so the bearer token rides along). Falls back to the
+   * session-level collection when the piece itself carries none.
+   */
+  protected previewUrlFor(view: CapturePinnedView): string | null {
+    const documentId = view.document_id;
+    const collection = view.collection ?? this.engine.documentsCollection();
+    if (!documentId || !collection) return null;
+    let url =
+      `${this.api.base}/documents/${encodeURIComponent(documentId)}/rich-preview` +
+      `?collection_name=${encodeURIComponent(collection)}`;
+    if (view.filename) url += `&filename=${encodeURIComponent(view.filename)}`;
+    return url;
+  }
+
+  protected openPreview(view: CapturePinnedView): void {
+    const url = this.previewUrlFor(view);
+    if (!url) return;
+    this.previewUrl.set(url);
+    this.previewTitle.set(viewTitle(view, this.i18n.t('capture.piece.fallback')));
+    this.previewPage.set(view.page ?? null);
+    this.previewOpen.set(true);
+  }
+
+  /**
+   * The inline "en scène" preview reports which page is on screen; stamp it on
+   * the focused piece so "Marquer dans le fil" and voice deixis reference the
+   * page the expert is actually showing.
+   */
+  protected onViewChanged(change: DocumentPreviewViewChange): void {
+    this.engine.setActiveViewPage(change.page);
+  }
+
+  /** Documents attached to the session that aren't already on scene. */
+  protected readonly pinnable = computed<CaptureSessionDocument[]>(() => {
+    const pinnedKeys = new Set(this.engine.scene().map((p) => p.key));
+    return this.engine
+      .documents()
+      .filter((doc) => !pinnedKeys.has(documentToPinnedView(doc).key));
+  });
+
+  protected pin(doc: CaptureSessionDocument): void {
+    this.engine.pinView(documentToPinnedView(doc));
+    this.picking.set(false);
+  }
+
+  /**
+   * Upload pieces **during** the session (not only at plan time): the freshly
+   * added documents are auto-pinned to La Scène so the expert can point at them
+   * right away.
+   */
+  protected onUpload(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const files = input.files;
+    const sessionId = this.engine.sessionId();
+    if (!files || !files.length || !sessionId) return;
+    const beforeKeys = new Set(this.engine.documents().map((d) => documentToPinnedView(d).key));
+    this.uploading.set(true);
+    this.api
+      .uploadCaptureDocuments(sessionId, files)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: async () => {
+          await this.engine.loadDocuments();
+          for (const doc of this.engine.documents()) {
+            const view = documentToPinnedView(doc);
+            if (!beforeKeys.has(view.key)) this.engine.pinView(view);
+          }
+          this.uploading.set(false);
+          input.value = '';
+        },
+        error: () => {
+          this.uploading.set(false);
+        },
+      });
+  }
+}

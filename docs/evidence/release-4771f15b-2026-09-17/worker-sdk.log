@@ -1,0 +1,7 @@
+/app/backend/scripts/qualify_giskard_raget.py:44: DeprecationWarning: set_default_client is deprecated: https://docs.giskard.ai/en/latest/open_source/setting_up/index.html
+  set_default_client(judge)
+/app/backend/scripts/qualify_giskard_raget.py:46: DeprecationWarning: set_default_embedding is deprecated, check documentation to setup llm: https://docs.giskard.ai/en/latest/open_source/setting_up/index.html
+  set_default_embedding(FixtureEmbedding())
+Asking questions to the agent:   0%|          | 0/3 [00:00<?, ?it/s]Asking questions to the agent: 100%|██████████| 3/3 [00:00<00:00, 30615.36it/s]
+CorrectnessMetric evaluation:   0%|          | 0/3 [00:00<?, ?it/s]CorrectnessMetric evaluation: 100%|██████████| 3/3 [00:00<00:00, 9348.37it/s]
+{"sdk": "2.19.2", "python_scope": "isolated_optional_environment", "cases": 3, "judge_calls": 4, "models": "mocked", "provider_live_run": "NOT RUN", "qatestset": "PASS", "knowledge_base": "PASS", "rag_report": "PASS", "canonical_reference_serialization": "PASS"}

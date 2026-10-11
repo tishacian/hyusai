@@ -1,0 +1,228 @@
+{
+  "id": "andritz_spl_hard_intents_v1",
+  "description": "Hard-intent cases: ambiguous partial identifiers matching several projects, comparative questions spanning 2+ documents, analytical multi-hop questions, and exclusion cases (forbidden_sources). Mixed FR/EN/DE. All sources verified against the live andritz__andritz-notices-techniques-spl-pilot Qdrant collection. expected_prompt_type annotates the ground-truth reasoning type for the Bayesian classifier eval (see scripts/golden_classifier_eval.py); it does NOT gate the retrieval scoring. hi_007 is an imperative retrieval command with no reasoning marker -> prompt_type_ambiguous (excluded from strict accuracy).",
+  "cases": [
+    {
+      "id": "hi_001_ambiguous_parts_manual",
+      "query": "Ou se trouve le parts manual ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "LAV400",
+        "ESW200",
+        "PAX100",
+        "BAN400",
+        "GRA100",
+        "LEN100",
+        "MET100",
+        "MAX100"
+      ],
+      "expected_evidence_terms": [
+        "parts manual"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "fr",
+      "min_expected_sources": 2,
+      "expected_prompt_type": "factual"
+    },
+    {
+      "id": "hi_002_ambiguous_kd724_partial_ref",
+      "query": "Quels projets utilisent la pompe KD724 ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "_comment_inventory": "transversal_inventory case: the additive project_code facet enumerates every project whose chunks mention the discriminating term ['kd724']. Verified live 2026-06-24 via retrieve_rag_context (balanced, andritz workspace, single collection): total_projects=136, top buckets (by chunk_count) include BHX100/AKI500/TEK100. min_total_projects=100 is a conservative floor (well below 136); must_include pins the high-count head buckets that merging across collections can only reinforce. KUT100 legitimately appears for the bare KD724 term (so it is NOT excluded here, unlike the precise URACA-KD724-G query); MOG400 is absent. dense_policy stayed 'fast_scoped_dense' (NOT catalogue_inventory) so forbidden_route is orthogonal and KEPT. answer_profile arms the facet in the live runner (harness-only).",
+      "expected_sources": [
+        "KD724"
+      ],
+      "expected_evidence_terms": [
+        "KD724"
+      ],
+      "expected_intent": "content_search",
+      "answer_profile": "transversal_inventory",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "fr",
+      "expected_distinct_documents": 2,
+      "expected_prompt_type": "factual",
+      "expected_inventory": {
+        "min_total_projects": 100,
+        "must_include_projects": ["BHX100", "AKI500", "TEK100"],
+        "must_exclude_projects": ["MOG400"]
+      }
+    },
+    {
+      "id": "hi_003_compare_continental_pollrich_aki300",
+      "query": "What is the difference between the CONTINENTAL GVJS and POLLRICH GVJ1 vacuum set blowers on AKI300?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "_comment_sources": "Both blowers are documented within the AKI300 dryer/vacuum-set pages (A__AKI300__...accueil-Dryer.html); the component model names live in CONTENT, not in filenames. expected_sources gates on the retrievable AKI300 scope; the two-sided requirement is enforced by expected_evidence_terms (CONTINENTAL + POLLRICH).",
+      "expected_sources": [
+        "AKI300"
+      ],
+      "expected_evidence_terms": [
+        "CONTINENTAL",
+        "POLLRICH"
+      ],
+      "expected_intent": "comparative",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "en",
+      "min_expected_sources": 1,
+      "expected_prompt_type": "comparative"
+    },
+    {
+      "id": "hi_004_compare_g150_s120_drives",
+      "query": "Quelles differences de parametres de mise en service entre les variateurs SINAMICS G150 et SINAMICS S120 ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "_comment_sources": "The SINAMICS S120 commissioning manual is retrievable by filename (E__EXX200__...SINAMICS S120 Mise en route...). expected_sources gates on the SINAMICS family label; the two-sided requirement (both drives) is enforced by expected_evidence_terms (G150 + S120).",
+      "expected_sources": [
+        "SINAMICS"
+      ],
+      "expected_evidence_terms": [
+        "G150",
+        "S120"
+      ],
+      "expected_intent": "comparative",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "fr",
+      "min_expected_sources": 1,
+      "expected_prompt_type": "comparative"
+    },
+    {
+      "id": "hi_005_analytical_php_pressure_drop",
+      "query": "Pourquoi la pression chute-t-elle sur le groupe haute pression PHP et quel document consulter ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "high pressure set"
+      ],
+      "expected_evidence_terms": [
+        "PHP"
+      ],
+      "expected_intent": "analytical",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "fr",
+      "expected_prompt_type": "causal",
+      "acceptable_prompt_types": [
+        "analytical"
+      ]
+    },
+    {
+      "id": "hi_006_german_simotics_akk200",
+      "query": "Wo finde ich die SIMOTICS Betriebsanleitung auf Deutsch fuer das Projekt AKK200?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "Operating Instructions SIMOTICS de"
+      ],
+      "expected_evidence_terms": [
+        "SIMOTICS",
+        "AKK200"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "de",
+      "expected_prompt_type": "factual"
+    },
+    {
+      "id": "hi_007_exclusion_excelle_not_dutch",
+      "query": "Excelle S5PP6TT card operator manual in English please, not the Dutch Gebruikershandleiding.",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "TTN22073J"
+      ],
+      "expected_evidence_terms": [
+        "Excelle",
+        "S5PP6TT"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "en",
+      "forbidden_sources": [
+        "TTN22074J"
+      ],
+      "prompt_type_ambiguous": true,
+      "acceptable_prompt_types": [
+        "factual",
+        "analytical"
+      ]
+    },
+    {
+      "id": "hi_008_compare_wilo_drain_nolh_bex200",
+      "query": "Compare the Wilo Drain SP and the Wilo NOLH pump manuals available for BEX200.",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "_comment_sources": "The Wilo pump documentation is indexed under part-number filenames (702435420_F_EN_000.pdf) in the REN100 hydroentanglement diagrams, NOT under BEX200 — the model names live in CONTENT. Verified: without comparative decomposition the primary query surfaces none of the Wilo content (drain/nolh absent); with decomposition both surface. expected_sources gates on the Wilo doc, expected_evidence_terms (Drain + NOLH) enforces both pumps. This case therefore only passes when both entities are recalled.",
+      "expected_sources": [
+        "702435420"
+      ],
+      "expected_evidence_terms": [
+        "Drain",
+        "NOLH"
+      ],
+      "expected_intent": "comparative",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "en",
+      "min_expected_sources": 1,
+      "expected_prompt_type": "comparative"
+    },
+    {
+      "id": "hi_009_ambiguous_lh2_identifier",
+      "query": "What does document LH2 0113 cover and which machines reference it?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "LH2 0113"
+      ],
+      "expected_evidence_terms": [
+        "LH2"
+      ],
+      "expected_intent": "content_search",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "en",
+      "expected_distinct_documents": 2,
+      "expected_prompt_type": "factual",
+      "acceptable_prompt_types": [
+        "analytical"
+      ]
+    },
+    {
+      "id": "hi_010_analytical_wilo_rexa_vacuum_lot100",
+      "query": "Sur LOT100, quelle pompe BP WILO equipe le vacuum set et ou est sa notice d'exploitation ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "pompe BP WILO"
+      ],
+      "expected_evidence_terms": [
+        "LOT100",
+        "WILO"
+      ],
+      "expected_intent": "analytical",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "fr",
+      "expected_prompt_type": "factual",
+      "acceptable_prompt_types": [
+        "analytical"
+      ]
+    },
+    {
+      "id": "hi_011_ambiguous_etachrom_bc_multiproject",
+      "query": "Ou trouver la notice etachrom bc du circuit HP ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "etachrom bc"
+      ],
+      "expected_evidence_terms": [
+        "etachrom"
+      ],
+      "expected_intent": "content_search",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "fr",
+      "expected_distinct_documents": 2,
+      "expected_prompt_type": "factual"
+    }
+  ]
+}

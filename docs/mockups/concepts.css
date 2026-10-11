@@ -1,0 +1,68 @@
+/* ============================================
+   AGENTIUM — Concept Overlays
+   A: Instrument Panel (default tokens)
+   B: Living Organism (glows, curves, ambient pulse)
+   C: Architectural (monochrome, editorial, sharper)
+   D: Spatial OS (radical — deeper black, neon grid)
+   ============================================ */
+
+/* — Concept A is the baseline (tokens.css) — */
+
+/* — Concept B: LIVING ORGANISM — softer, glowy, biological — */
+[data-concept="B"] {
+  --bg-base:    #080a12;
+  --bg-panel:   #0d1120;
+  --bg-panel-hi:#121728;
+  --bg-inset:   #0a0d18;
+  --signal-cool: #a78bfa;
+  --signal-violet: #f0abfc;
+  --signal-pos: #22d3ee;
+  --stroke-hot: rgba(167,139,250,0.35);
+  --radius-md: 14px;
+  --radius-lg: 18px;
+}
+[data-concept="B"] body { background: radial-gradient(ellipse at 30% 20%, #12152a, var(--bg-base) 60%); }
+[data-concept="B"] .live-dot { box-shadow: 0 0 14px currentColor, 0 0 30px currentColor; }
+
+/* — Concept C: ARCHITECTURAL — editorial, sharp, monochrome — */
+[data-concept="C"] {
+  --bg-base:    #0a0a0a;
+  --bg-panel:   #111111;
+  --bg-panel-hi:#161616;
+  --bg-inset:   #0d0d0d;
+  --signal-cool: #ffffff;
+  --signal-violet: #d4d4d4;
+  --signal-pos: #a3e635;
+  --signal-neg: #ff4500;
+  --stroke-1: rgba(255,255,255,0.06);
+  --stroke-2: rgba(255,255,255,0.12);
+  --stroke-3: rgba(255,255,255,0.22);
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-sm: 0px;
+  --radius-xl: 0px;
+  --glow-cool: none;
+}
+[data-concept="C"] .mono { letter-spacing: 0.06em !important; }
+
+/* — Concept D: SPATIAL OS — radical, deep black, phosphor green grid — */
+[data-concept="D"] {
+  --bg-base:    #020307;
+  --bg-panel:   #05080d;
+  --bg-panel-hi:#0a0f14;
+  --bg-inset:   #030609;
+  --signal-cool: #7dd3fc;
+  --signal-violet: #c4f542;
+  --signal-pos: #c4f542;
+  --stroke-1: rgba(196,245,66,0.06);
+  --stroke-2: rgba(196,245,66,0.12);
+  --stroke-3: rgba(196,245,66,0.22);
+  --stroke-hot: rgba(196,245,66,0.45);
+  --glow-cool: 0 0 28px rgba(196,245,66,0.35);
+  --glow-pos:  0 0 28px rgba(196,245,66,0.35);
+}
+[data-concept="D"] body { background:
+  radial-gradient(circle at 20% 30%, rgba(196,245,66,0.04), transparent 50%),
+  radial-gradient(circle at 80% 70%, rgba(125,211,252,0.04), transparent 50%),
+  var(--bg-base);
+}

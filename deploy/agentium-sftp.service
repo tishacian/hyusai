@@ -1,0 +1,20 @@
+[Unit]
+Description=Agentium Secure Deposit SFTP server
+After=network-online.target agentium-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/omnirag/backend
+EnvironmentFile=/home/ubuntu/omnirag/backend/.env
+ExecStart=/home/ubuntu/omnirag/venv/bin/python -m app.cli.secure_deposit_sftp
+Restart=on-failure
+RestartSec=3
+StandardOutput=append:/home/ubuntu/omnirag/sftp.log
+StandardError=append:/home/ubuntu/omnirag/sftp.log
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

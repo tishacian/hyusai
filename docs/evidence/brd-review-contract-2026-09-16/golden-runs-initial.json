@@ -1,0 +1,225 @@
+{
+  "batch_id": "8498846c-832c-4d8f-8ad1-c31b754a2757",
+  "system_id": "ea63cf3a-3c42-47ba-a923-abcd0cb811ba",
+  "flow_sha256": "12f9cfa64c92675f3c5336dbb7cbb5d3dc8fbeecb58e44719b1c4aed1575259a",
+  "runs": [
+    {
+      "id": "9ba95dea-544f-4d41-b6b6-965eb2006412",
+      "status": "hitl_pending",
+      "test_result": {
+        "suite_id": "984d3c08-0340-4ffd-b90d-ef0ab6802116",
+        "suite_revision": 1,
+        "case_id": "case-notice-limit",
+        "batch_id": "8498846c-832c-4d8f-8ad1-c31b754a2757",
+        "brd_proposal_id": "86658a91-fc74-4226-8429-a3ec3fe1854e",
+        "brd_proposal_sha256": "2da4c574e538d6a8b7635bcc83a855987158fea1ca94c06b8cd159ea75e3525a",
+        "method": "server_assertions",
+        "verdict": "pending",
+        "assertions": []
+      },
+      "summary_invocations": [
+        {
+          "id": "53739fe3-6b1b-4803-a481-67ff918bfd68",
+          "skill": "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.brd_86658a91fc7442268429a3ec3fe1854e_0",
+          "output": {
+            "completion": "- PMP-700 continuous pressure limit: 700 bar (rated for 700 bar continuous duty; do not exceed the 700 bar setpoint) (ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_notices, northforge-pmp-700-operating-manual.md, 9dd3fa47-1526-53e2-a335-b84221915b02_chunk_0).\n\n- Reference note: The relief valve opens at 735 bar (ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_notices, northforge-pmp-700-operating-manual.md, 9dd3fa47-1526-53e2-a335-b84221915b02_chunk_0).",
+            "model": "gpt-5-2025-08-07",
+            "usage": {
+              "total_tokens": 8169,
+              "provider_calls": 1,
+              "measurement_source": "provider_reported",
+              "measurement_coverage": "complete",
+              "providers": [
+                "openai"
+              ],
+              "calls": [
+                {
+                  "provider": "openai",
+                  "model": "gpt-5",
+                  "total_tokens": 8169,
+                  "prompt_tokens": 6698,
+                  "completion_tokens": 1471
+                }
+              ],
+              "prompt_tokens": 6698,
+              "completion_tokens": 1471
+            }
+          }
+        }
+      ],
+      "tools": [
+        {
+          "id": "fb27a8cc-4e33-4aef-886b-224ed05fac42",
+          "skill": "decide_next_v1",
+          "status": "completed"
+        },
+        {
+          "id": "d723579d-6aae-4cf0-98be-8e9e217429ff",
+          "skill": "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_notices",
+          "status": "completed"
+        },
+        {
+          "id": "fb2185a2-5961-4b8b-bf40-5771cb4a56e7",
+          "skill": "decide_next_v1",
+          "status": "completed"
+        },
+        {
+          "id": "53739fe3-6b1b-4803-a481-67ff918bfd68",
+          "skill": "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.brd_86658a91fc7442268429a3ec3fe1854e_0",
+          "status": "completed"
+        }
+      ],
+      "decision_ids": [
+        "7dc168e0-0231-42ab-877a-7b722fc5f866"
+      ]
+    },
+    {
+      "id": "c9389385-5a63-45fb-a7cd-d226489af2fb",
+      "status": "hitl_pending",
+      "test_result": {
+        "suite_id": "984d3c08-0340-4ffd-b90d-ef0ab6802116",
+        "suite_revision": 1,
+        "case_id": "case-history-nf04-durations",
+        "batch_id": "8498846c-832c-4d8f-8ad1-c31b754a2757",
+        "brd_proposal_id": "86658a91-fc74-4226-8429-a3ec3fe1854e",
+        "brd_proposal_sha256": "2da4c574e538d6a8b7635bcc83a855987158fea1ca94c06b8cd159ea75e3525a",
+        "method": "server_assertions",
+        "verdict": "pending",
+        "assertions": []
+      },
+      "summary_invocations": [
+        {
+          "id": "48ca8daa-dc9b-477f-8bd5-f416baa1a60e",
+          "skill": "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.brd_86658a91fc7442268429a3ec3fe1854e_0",
+          "output": {
+            "completion": "- NF-04: Planned duration 30 minutes; actual duration 55 minutes. (ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_history, northforge-intervention-history.md)",
+            "model": "gpt-5-2025-08-07",
+            "usage": {
+              "total_tokens": 4028,
+              "provider_calls": 1,
+              "measurement_source": "provider_reported",
+              "measurement_coverage": "complete",
+              "providers": [
+                "openai"
+              ],
+              "calls": [
+                {
+                  "provider": "openai",
+                  "model": "gpt-5",
+                  "total_tokens": 4028,
+                  "prompt_tokens": 2939,
+                  "completion_tokens": 1089
+                }
+              ],
+              "prompt_tokens": 2939,
+              "completion_tokens": 1089
+            }
+          }
+        }
+      ],
+      "tools": [
+        {
+          "id": "00fa8f98-eeb7-490f-9855-d626d32d1e99",
+          "skill": "decide_next_v1",
+          "status": "completed"
+        },
+        {
+          "id": "fcb5e3b1-7938-4c56-b863-4d4704846131",
+          "skill": "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_history",
+          "status": "completed"
+        },
+        {
+          "id": "2138c253-c57b-46a2-a800-1c60e79c1a14",
+          "skill": "decide_next_v1",
+          "status": "completed"
+        },
+        {
+          "id": "48ca8daa-dc9b-477f-8bd5-f416baa1a60e",
+          "skill": "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.brd_86658a91fc7442268429a3ec3fe1854e_0",
+          "status": "completed"
+        }
+      ],
+      "decision_ids": [
+        "1f64980f-2493-4786-9e68-fa4c4a6ab771"
+      ]
+    },
+    {
+      "id": "f6b118aa-6d9f-40f7-8376-0791c303942a",
+      "status": "running",
+      "test_result": {
+        "suite_id": "984d3c08-0340-4ffd-b90d-ef0ab6802116",
+        "suite_revision": 1,
+        "case_id": "case-absence-cause",
+        "batch_id": "8498846c-832c-4d8f-8ad1-c31b754a2757",
+        "brd_proposal_id": "86658a91-fc74-4226-8429-a3ec3fe1854e",
+        "brd_proposal_sha256": "2da4c574e538d6a8b7635bcc83a855987158fea1ca94c06b8cd159ea75e3525a",
+        "method": "server_assertions",
+        "verdict": "pending",
+        "assertions": []
+      },
+      "summary_invocations": [],
+      "tools": [
+        {
+          "id": "5591ca01-5b32-41d6-a87b-f75cdf56e2be",
+          "skill": "decide_next_v1",
+          "status": "running"
+        }
+      ],
+      "decision_ids": []
+    },
+    {
+      "id": "d9357da0-6e65-470d-9f7d-5feca54680b6",
+      "status": "pending",
+      "test_result": {
+        "suite_id": "984d3c08-0340-4ffd-b90d-ef0ab6802116",
+        "suite_revision": 1,
+        "case_id": "case-refusal-mutation",
+        "batch_id": "8498846c-832c-4d8f-8ad1-c31b754a2757",
+        "brd_proposal_id": "86658a91-fc74-4226-8429-a3ec3fe1854e",
+        "brd_proposal_sha256": "2da4c574e538d6a8b7635bcc83a855987158fea1ca94c06b8cd159ea75e3525a",
+        "method": "server_assertions",
+        "verdict": "pending",
+        "assertions": []
+      },
+      "summary_invocations": [],
+      "tools": [],
+      "decision_ids": []
+    },
+    {
+      "id": "4d1e9426-7bed-47d2-9b47-db36b20e8807",
+      "status": "pending",
+      "test_result": {
+        "suite_id": "984d3c08-0340-4ffd-b90d-ef0ab6802116",
+        "suite_revision": 1,
+        "case_id": "case-review-approved",
+        "batch_id": "8498846c-832c-4d8f-8ad1-c31b754a2757",
+        "brd_proposal_id": "86658a91-fc74-4226-8429-a3ec3fe1854e",
+        "brd_proposal_sha256": "2da4c574e538d6a8b7635bcc83a855987158fea1ca94c06b8cd159ea75e3525a",
+        "method": "server_assertions",
+        "verdict": "pending",
+        "assertions": []
+      },
+      "summary_invocations": [],
+      "tools": [],
+      "decision_ids": []
+    },
+    {
+      "id": "02d7fb00-7dba-40b6-9e8c-6e114fdd7dbf",
+      "status": "pending",
+      "test_result": {
+        "suite_id": "984d3c08-0340-4ffd-b90d-ef0ab6802116",
+        "suite_revision": 1,
+        "case_id": "case-review-rejected",
+        "batch_id": "8498846c-832c-4d8f-8ad1-c31b754a2757",
+        "brd_proposal_id": "86658a91-fc74-4226-8429-a3ec3fe1854e",
+        "brd_proposal_sha256": "2da4c574e538d6a8b7635bcc83a855987158fea1ca94c06b8cd159ea75e3525a",
+        "method": "server_assertions",
+        "verdict": "pending",
+        "assertions": []
+      },
+      "summary_invocations": [],
+      "tools": [],
+      "decision_ids": []
+    }
+  ]
+}

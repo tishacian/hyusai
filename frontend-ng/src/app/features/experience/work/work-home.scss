@@ -1,0 +1,474 @@
+/*
+ * L33 — Work home « À faire ». Tokens v2: sentence case, sans labels, mono only
+ * for identifiers. The one motion is the home's entrance (fade + 8 px, 200 ms).
+ */
+
+.xp-work-home {
+  padding-top: 40px;
+}
+
+.xp-home {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 32px;
+  align-items: start;
+}
+
+.xp-home-ready {
+  animation: xp-home-enter 200ms var(--ck-ease-out) both;
+}
+
+@keyframes xp-home-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xp-home-ready {
+    animation: none;
+  }
+}
+
+@media (min-width: 1100px) {
+  .xp-home {
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 40px;
+  }
+}
+
+.xp-home-primary {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
+}
+
+.xp-home-head h1 {
+  margin: 6px 0 10px;
+  font-size: clamp(30px, 4vw, 44px);
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.xp-home-eyebrow {
+  margin: 0;
+  color: var(--ck-fg-3);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.xp-home-lede {
+  margin: 0;
+  max-width: 68ch;
+  color: var(--ck-fg-3);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* Tiles ------------------------------------------------------------------ */
+
+.xp-home-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.xp-home-tiles > li {
+  display: flex;
+}
+
+.xp-home-tile {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 132px;
+  padding: 20px;
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: var(--ck-radius-lg);
+  background: var(--ck-bg-panel);
+  color: var(--ck-fg-1);
+  text-decoration: none;
+}
+
+a.xp-home-tile:hover {
+  border-color: var(--ck-stroke-hot);
+}
+
+.xp-home-tile-count {
+  font-size: 40px;
+  font-weight: 650;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.xp-home-tile-label {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.xp-home-tile-note {
+  margin-top: auto;
+  padding-top: 12px;
+  color: var(--ck-fg-3);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.xp-home-tile-lead {
+  border-color: transparent;
+  background: var(--ck-cta-bg);
+  color: var(--ck-cta-fg);
+}
+
+a.xp-home-tile-lead:hover {
+  border-color: transparent;
+  background: var(--ck-cta-bg-hover, var(--ck-cta-bg));
+}
+
+.xp-home-tile-lead .xp-home-tile-note {
+  color: var(--ck-cta-fg);
+}
+
+.xp-home-tile:focus-visible,
+.xp-home-action:focus-visible,
+.xp-home-id:focus-visible,
+.xp-home-inline-link:focus-visible {
+  outline: 2px solid var(--ck-signal-cool);
+  outline-offset: 2px;
+}
+
+/* Panels ----------------------------------------------------------------- */
+
+.xp-home-panel {
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: var(--ck-radius-lg);
+  background: var(--ck-bg-panel);
+}
+
+.xp-home-panel h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.xp-home-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+}
+
+.xp-home-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 16px 20px;
+  border-top: 1px solid var(--ck-stroke-2);
+  color: var(--ck-fg-3);
+  font-size: 14px;
+}
+
+.xp-home-note p {
+  margin: 0;
+}
+
+/* Queue ------------------------------------------------------------------ */
+
+.xp-home-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.xp-home-item {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr) auto minmax(72px, auto);
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--ck-stroke-2);
+}
+
+.xp-home-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ck-fg-3);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.xp-home-glyph {
+  flex: 0 0 auto;
+  color: var(--ck-fg-3);
+}
+
+.xp-home-item-body {
+  min-width: 0;
+}
+
+.xp-home-item-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.xp-home-meta {
+  margin: 4px 0 0;
+  color: var(--ck-fg-3);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.xp-home-id {
+  font-family: var(--ck-font-mono);
+  font-size: 12px;
+}
+
+.xp-home-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: var(--ck-status-warn-bg);
+  color: var(--ck-status-warn-fg);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  justify-self: start;
+}
+
+.xp-home-chip[data-kind='result'] {
+  background: var(--ck-status-info-bg);
+  color: var(--ck-status-info-fg);
+}
+
+.xp-home-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 32px;
+  padding: 0 4px;
+  color: var(--ck-signal-cool);
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+  justify-self: end;
+}
+
+.xp-home-action:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.xp-home-more {
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .xp-home-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 12px;
+  }
+
+  .xp-home-type {
+    grid-column: 1 / -1;
+  }
+
+  .xp-home-item-body {
+    grid-column: 1 / -1;
+  }
+
+  .xp-home-action {
+    justify-self: end;
+  }
+}
+
+/* Rail ------------------------------------------------------------------- */
+
+.xp-home-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.xp-home-agents {
+  padding: 18px 20px 8px;
+}
+
+.xp-home-rail-sub {
+  margin: 2px 0 8px;
+  color: var(--ck-fg-3);
+  font-size: 13px;
+}
+
+.xp-home-work {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.xp-home-work > li {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px 0;
+  border-top: 1px solid var(--ck-stroke-2);
+}
+
+.xp-home-ring {
+  margin-top: 1px;
+  color: var(--ck-signal-cool);
+}
+
+.xp-home-work-body {
+  min-width: 0;
+}
+
+.xp-home-work-name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.xp-home-ref {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0 0;
+  color: var(--ck-fg-3);
+  font-size: 13px;
+}
+
+.xp-home-ref .xp-home-id {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  color: var(--ck-signal-cool);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.xp-home-ref .xp-home-id:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.xp-home-empty {
+  padding: 14px 0 12px;
+  border-top: 1px solid var(--ck-stroke-2);
+  color: var(--ck-fg-3);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.xp-home-empty p {
+  margin: 0 0 8px;
+}
+
+.xp-home-empty-title {
+  color: var(--ck-fg-1);
+  font-weight: 600;
+}
+
+.xp-home-inline-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  color: var(--ck-signal-cool);
+  font-weight: 600;
+}
+
+/* All applications ------------------------------------------------------- */
+
+.xp-home-apps-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 16px;
+  margin: 12px 0 16px;
+}
+
+.xp-home-apps-head h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.xp-home-apps-head h2:focus {
+  outline: none;
+}
+
+.xp-home-apps-head h2:focus-visible {
+  outline: 2px solid var(--ck-signal-cool);
+  outline-offset: 4px;
+}
+
+.xp-home-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 12px;
+  color: var(--ck-fg-2);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.xp-home-section-title > sup {
+  color: var(--ck-signal-cool);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.xp-work-card h4,
+.xp-work-automation-card h4 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* Automations sit in the catalogue like apps: same grid, same card. */
+.xp-work-automation {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.xp-work-automation-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: var(--ck-radius-lg);
+  background: var(--ck-bg-panel);
+  color: inherit;
+  text-decoration: none;
+}
+
+.xp-work-automation-card:hover {
+  border-color: var(--ck-stroke-hot);
+}
+
+.xp-work-automation-card p {
+  margin: 0;
+  color: var(--ck-fg-3);
+  font-size: 13px;
+  line-height: 1.45;
+}

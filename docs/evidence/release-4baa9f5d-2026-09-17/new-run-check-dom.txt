@@ -1,0 +1,96 @@
+- link "Skip to main content":
+  - /url: "#main-content"
+- banner:
+  - generic: Agentium
+  - generic: OS · v0.4.0
+  - navigation:
+    - button "Portfolio"
+    - button "Operational Analysis"
+    - button "Run · 5369c2b1-539…"
+    - button "python_recipe_v1"
+  - link "Work ↗":
+    - /url: /work
+  - generic "Diagnostics"
+  - button "Chat":
+    - generic: Chat
+  - 'button "Theme: Dark · click → System"':
+  - button "Workspace · Agentium Showcase":
+    - generic: AS
+    - generic: Agentium Showcase
+  - button "Account · thibaud.ishacian@datategy.net":
+    - generic: TI
+- complementary:
+  - navigation "Primary navigation":
+    - link "Impact":
+      - /url: /hypervisor
+      - generic: Impact
+    - link "Create":
+      - /url: /runs/5369c2b1-5396-4238-906f-80826da0c9ef/invocations/7a22fa3a-051d-4a4c-8068-4febe369d7a4?lens=build&systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+      - generic: Create
+    - link "Monitor":
+      - /url: /runs/5369c2b1-5396-4238-906f-80826da0c9ef/invocations/7a22fa3a-051d-4a4c-8068-4febe369d7a4?lens=operate&systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+      - generic: Monitor
+    - link "Improve":
+      - /url: /runs/5369c2b1-5396-4238-906f-80826da0c9ef/invocations/7a22fa3a-051d-4a4c-8068-4febe369d7a4?lens=steer&systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+      - generic: Improve
+    - link "Administer":
+      - /url: /runs/5369c2b1-5396-4238-906f-80826da0c9ef/invocations/7a22fa3a-051d-4a4c-8068-4febe369d7a4?lens=govern&systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+      - generic: Administer
+  - button "Jump to…":
+    - generic: Jump to…
+- complementary "Summary":
+  - generic: Summary
+  - generic: Operate
+  - navigation:
+    - link "Runs":
+      - /url: /runs
+      - generic: Runs
+    - link "Observability":
+      - /url: /observability
+      - generic: Observability
+    - link "Intelligence":
+      - /url: /intelligence
+      - generic: Intelligence
+    - link "Missions":
+      - /url: /tasks
+      - generic: Missions
+    - generic: In Operational Analysis
+    - link "Overview":
+      - /url: /systems/15b05919-c93b-4648-8581-8a41cbe2fae6?lens=operate&facet=overview
+      - generic: Overview
+    - link "Runs":
+      - /url: /systems/15b05919-c93b-4648-8581-8a41cbe2fae6?lens=operate&facet=runs
+      - generic: Runs
+    - link "Design":
+      - /url: /systems/15b05919-c93b-4648-8581-8a41cbe2fae6?lens=operate&facet=design
+      - generic: Design
+    - link "Context":
+      - /url: /systems/15b05919-c93b-4648-8581-8a41cbe2fae6?lens=operate&facet=context
+      - generic: Context
+- main:
+  - generic: Runs · Skill invocation · VIEWED FROM Operate
+  - heading "python_recipe_v1" [active] [level=1]
+  - generic: One concrete execution of a catalog Skill inside a Run.
+  - link "Back to Run":
+    - /url: /runs/5369c2b1-5396-4238-906f-80826da0c9ef?systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+  - link "Open catalog Skill":
+    - /url: /skills/python_recipe_v1?systemId=15b05919-c93b-4648-8581-8a41cbe2fae6&runId=5369c2b1-5396-4238-906f-80826da0c9ef
+  - generic "Status":
+    - generic: Status
+    - generic: Completed
+  - generic "Latency":
+    - generic: Latency
+    - generic: 1019 ms
+  - heading "Invocation audit" [level=2]
+  - generic: "{ \"input_ref\": { \"answer\": \"Explication chiffrée du retard opérationnel (exclusivement à partir des données fournies):\\n- 4 commandes traitées [1].\\n- Temps planifié total: 120 min; temps réel: 155 min; dépassement: 35 min, soit +29,2 % par rapport au plan (35/120) [1].\\n- 3 commandes en retard (sur 4), soit 75 % des commandes [1].\\n- Plus grand dépassement par commande: NF-04 avec 25 min, ce qui représente ≈71 % du dépassement total (25/35) [1].\\n- Dépassement restant cumulé sur les autres commandes: 10 min (35 − 25) [1].\\n\\nConclusion opérationnelle:\\n- Le dépassement global de 35 min provient majoritairement d’une seule commande, NF-04 (25 min), qui concentre l’essentiel du retard agrégé, tandis que le solde de 10 min est réparti sur les autres ordres [1].\\n\\nProchaine investigation (une seule):\\n- Analyser en priorité l’ordre NF-04 pour ventiler précisément ses 25 min de dépassement par étapes (préparation, exécution, changement, contrôle) et identifier la ou les phases contributrices [1].\", \"citations\": [ { \"index\": 1, \"id\": null, \"source_id\": null, \"document\": \"source 1\", \"title\": \"source 1\", \"filename\": \"source 1\", \"document_id\": null, \"collection\": null, \"page\": null, \"snippet\": \"Synthetic NorthForge exercise; no customer data or verified savings. {\\\"orders\\\": 4, \\\"planned_minutes\\\": 120, \\\"actual_minutes\\\": 155, \\\"overrun_minutes\\\": 35, \\\"late_orders\\\": 3, \\\"largest_overrun_order\\\": \\\"NF-04\\\", \\\"largest_overrun_minutes\\\": 25}\", \"score\": null } ], \"decision_steps\": [], \"meta\": { \"retrieval\": { \"raw_chunks_retrieved\": 1, \"source\": \"join_context\", \"stage_timings\": {} }, \"inventory_coverage_review\": { \"status\": \"not_armed\", \"reason\": \"not_inventory\" } }, \"usage\": { \"total_tokens\": 2202, \"provider_calls\": 1, \"measurement_source\": \"provider_reported\", \"measurement_coverage\": \"complete\", \"providers\": [ \"openai\" ], \"calls\": [ { \"provider\": \"openai\", \"model\": \"gpt-5\", \"total_tokens\": 2202, \"prompt_tokens\": 328, \"completion_tokens\": 1874 } ], \"prompt_tokens\": 328, \"completion_tokens\": 1874 }, \"stats\": { \"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25 }, \"_recipe\": { \"code\": \"def main(inputs):\\n stats = inputs.get(\\\"stats\\\") or {}\\n answer = inputs.get(\\\"answer\\\")\\n if stats != {'orders': 4, 'planned_minutes': 120, 'actual_minutes': 155, 'overrun_minutes': 35, 'late_orders': 3, 'largest_overrun_order': 'NF-04', 'largest_overrun_minutes': 25}:\\n raise ValueError(\\\"The fixed NorthForge fixture no longer matches the expected result; inspect the Python inputs and version before changing the reference\\\")\\n if not isinstance(answer, str) or not answer.strip():\\n raise ValueError(\\\"The model returned no explanation\\\")\\n return {\\\"stats\\\": stats, \\\"answer\\\": answer, \\\"numerical_reference_passed\\\": True,\\n \\\"human_validated\\\": False, \\\"economic_impact\\\": None, \\\"showcase_seed\\\": True}\\n\", \"requirements_text\": null, \"index_url\": null, \"extra_index_urls\": null, \"timeout_s\": 30, \"sources\": null, \"node_id\": \"check\" } }, \"output_ref\": { \"stats\": { \"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25 }, \"answer\": \"Explication chiffrée du retard opérationnel (exclusivement à partir des données fournies):\\n- 4 commandes traitées [1].\\n- Temps planifié total: 120 min; temps réel: 155 min; dépassement: 35 min, soit +29,2 % par rapport au plan (35/120) [1].\\n- 3 commandes en retard (sur 4), soit 75 % des commandes [1].\\n- Plus grand dépassement par commande: NF-04 avec 25 min, ce qui représente ≈71 % du dépassement total (25/35) [1].\\n- Dépassement restant cumulé sur les autres commandes: 10 min (35 − 25) [1].\\n\\nConclusion opérationnelle:\\n- Le dépassement global de 35 min provient majoritairement d’une seule commande, NF-04 (25 min), qui concentre l’essentiel du retard agrégé, tandis que le solde de 10 min est réparti sur les autres ordres [1].\\n\\nProchaine investigation (une seule):\\n- Analyser en priorité l’ordre NF-04 pour ventiler précisément ses 25 min de dépassement par étapes (préparation, exécution, changement, contrôle) et identifier la ou les phases contributrices [1].\", \"numerical_reference_passed\": true, \"human_validated\": false, \"economic_impact\": null, \"showcase_seed\": true }, \"metrics\": { \"cost_evidence\": { \"schema_version\": 1, \"state\": \"calculated\", \"method\": \"catalog_unit_price\", \"source\": \"skill_catalog:2d48c95e-d295-4058-b1c6-498f37e958a1:pricing\", \"pricing_sha256\": \"180d622b84036120f8983343008002bc2238a477f008c40316b1a6e9ed22b494\", \"currency\": \"USD\", \"unit\": \"per_execution\", \"quantity\": 1 } }, \"trace\": { \"node_id\": \"check\", \"membrane_attempt_kind\": \"task\", \"membrane_attempt_index\": 1, \"effective_model\": null } }"
+- contentinfo:
+  - generic: System operational
+  - generic: Zone · Operate · Depth 5/5
+  - generic: ⌘K
+  - text: Command
+  - generic "⌘Z zoom out (Portfolio › Capability › System › Run › Skill)":
+    - generic: ⌘Z
+    - text: Zoom
+  - generic: v0.4.0 · build 1
+- status: Agentium
+- document

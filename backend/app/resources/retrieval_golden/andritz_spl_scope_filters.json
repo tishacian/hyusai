@@ -1,0 +1,40 @@
+{
+  "description": "Metadata-filtered retrieval: project_code payload filters must scope evidence to the requested project and never leak a sibling project.",
+  "cases": [
+    {
+      "id": "sf_001_project_filter_akk200",
+      "language": "fr",
+      "query": "Liste des pièces de rechange",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "retrieval_filters": {"project_code": "AKK200"},
+      "expected_sources": ["Spare Parts List AKK200_Ind A.pdf"],
+      "expected_evidence_terms": ["AKK200"],
+      "forbidden_sources": ["spare part list ACO150.pdf", "spare part list ACO140 ind a.pdf"],
+      "expected_intent": "source_lookup",
+      "latency_profile": "balanced"
+    },
+    {
+      "id": "sf_002_cross_project_guard",
+      "language": "fr",
+      "query": "Liste de garniture du projet ACO150",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": ["spare part list ACO150.pdf"],
+      "expected_evidence_terms": ["ACO150"],
+      "forbidden_sources": ["Spare Parts List AKK200_Ind A.pdf", "Spare Parts List_BBA120.pdf"],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced"
+    },
+    {
+      "id": "sf_003_source_kind_filter_html",
+      "language": "fr",
+      "query": "Procédure de maintenance de la filtration",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "retrieval_filters": {"source_kind": "html"},
+      "expected_sources": ["Filtration_maintenance.html"],
+      "expected_evidence_terms": ["filtration", "maintenance"],
+      "expected_intent": "procedure",
+      "latency_profile": "balanced"
+    }
+  ]
+}

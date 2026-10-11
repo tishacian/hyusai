@@ -1,0 +1,117 @@
+
+> agentium@0.1.0 build:prod
+> ng build -c production
+
+❯ Building...
+✔ Building...
+Initial chunk files | Names                       |  Raw size | Estimated transfer size
+chunk-6BKN2G6R.js   | -                           | 202.60 kB |                60.58 kB
+chunk-GG3N5UEQ.js   | -                           | 177.23 kB |                52.27 kB
+styles-7QXGOFFM.css | styles                      | 146.65 kB |                21.68 kB
+chunk-UWT7NFU7.js   | -                           |  73.91 kB |                18.43 kB
+chunk-K4BD2NRO.js   | -                           |  51.56 kB |                13.04 kB
+main-NHNYGPG5.js    | main                        |  39.96 kB |                11.14 kB
+chunk-UPLAFIYP.js   | -                           |  38.20 kB |                 9.08 kB
+chunk-JPR4A5NR.js   | -                           |  28.34 kB |                 6.55 kB
+chunk-RBI5ATBC.js   | -                           |  27.73 kB |                 7.93 kB
+chunk-GMRUJMAC.js   | -                           |  19.67 kB |                 4.21 kB
+chunk-W37SHSKV.js   | -                           |  17.75 kB |                 5.24 kB
+chunk-IEJFEKYB.js   | -                           |  15.02 kB |                 4.89 kB
+chunk-KFTO7K5U.js   | -                           |  13.01 kB |                 4.09 kB
+chunk-UHNIJH2P.js   | -                           |  10.31 kB |                 3.07 kB
+chunk-E7HNGM7L.js   | -                           |   8.26 kB |                 1.93 kB
+chunk-7YPENLDY.js   | -                           |   6.98 kB |                 2.39 kB
+chunk-Q3UZQNM3.js   | -                           |   6.67 kB |                 2.22 kB
+chunk-WL6IPA6O.js   | -                           |   4.64 kB |                 1.64 kB
+chunk-DUKSTT3K.js   | -                           |   3.98 kB |                 1.05 kB
+chunk-GDCQZXZO.js   | -                           |   3.34 kB |                 1.37 kB
+chunk-32K6ZYBT.js   | -                           |   2.64 kB |                 1.01 kB
+chunk-A7ALHFQ2.js   | -                           |   2.18 kB |               783 bytes
+chunk-HZ6M6AS2.js   | -                           |   1.32 kB |               570 bytes
+chunk-7N2V4OE3.js   | -                           |   1.30 kB |               569 bytes
+chunk-YWZ7RP53.js   | -                           |   1.17 kB |               394 bytes
+chunk-YK3BXUEX.js   | -                           |   1.11 kB |               529 bytes
+chunk-CQROBI5F.js   | -                           |   1.10 kB |               453 bytes
+chunk-C2OACA7Z.js   | -                           | 944 bytes |               944 bytes
+chunk-EWO654RX.js   | -                           | 898 bytes |               898 bytes
+chunk-NHB3R4W2.js   | -                           | 547 bytes |               547 bytes
+chunk-4PK6IUXO.js   | -                           | 461 bytes |               461 bytes
+chunk-KTDHJJS7.js   | -                           | 446 bytes |               446 bytes
+chunk-K6NUOTK3.js   | -                           | 228 bytes |               228 bytes
+
+                    | Initial total               | 910.16 kB |               240.65 kB
+
+Lazy chunk files    | Names                       |  Raw size | Estimated transfer size
+chunk-SNPAJ2ZJ.js   | -                           |   1.30 MB |               229.60 kB
+chunk-W7STP5NS.js   | flow-builder-component      |   1.09 MB |               203.38 kB
+chunk-AA4SLM6R.js   | -                           | 939.35 kB |               122.74 kB
+chunk-N4JKCZXZ.js   | livekit-client-esm          | 523.05 kB |               114.02 kB
+chunk-7FRUAII7.js   | knowledge-capture-component | 387.77 kB |                67.47 kB
+chunk-53LO4BYW.js   | -                           | 353.96 kB |                65.63 kB
+chunk-EDYMMNIV.js   | capture-fil-shell-component | 274.50 kB |                48.40 kB
+chunk-L74VLKXK.js   | -                           | 200.91 kB |                56.61 kB
+chunk-QWYDNCL6.js   | editor-component            | 197.73 kB |                31.26 kB
+chunk-535V5AUF.js   | shell-component             | 194.67 kB |                36.33 kB
+chunk-CI3WYRTT.js   | system-view-component       | 184.41 kB |                37.40 kB
+chunk-CUYPQ3QR.js   | hypervisor-v2-component     | 181.98 kB |                35.71 kB
+chunk-KX25NEXA.js   | -                           | 136.43 kB |                33.17 kB
+chunk-TDFFALXU.js   | client360-page-component    | 127.65 kB |                23.09 kB
+chunk-K4QDDWF6.js   | work-shell-component        | 120.67 kB |                20.28 kB
+...and 204 more lazy chunks files. Use "--verbose" to show all the files.
+
+Application bundle generation complete. [33.457 seconds] - 2026-09-30T08:16:18.010Z
+
+▲ [WARNING] NG8113: RouterLink is not used within the template of AdoptionPageComponent [plugin angular-compiler]
+
+    src/app/features/experience/work/adoption-journey.component.ts:357:38:
+      357 │ ...AdoptionJourneyComponent, RouterLink, WorkBarComponent, WorkAp...
+          ╵                              ~~~~~~~~~~
+
+
+▲ [WARNING] NG8113: RouterLink is not used within the template of WorkAutomationComponent [plugin angular-compiler]
+
+    src/app/features/experience/work/work-automation.component.ts:17:12:
+      17 │   imports: [RouterLink, WorkBarComponent, WorkAppHeaderComponent],
+         ╵             ~~~~~~~~~~
+
+
+▲ [WARNING] NG8102: The left side of this nullish coalescing operation does not include 'null' or 'undefined' in its type, therefore the '??' operator can be safely removed. [plugin angular-compiler]
+
+    src/app/features/experience/work/work-shell.component.ts:211:33:
+      211 │                         [value]="reasons()[run.id] ?? ''"
+          ╵                                  ~~~~~~~~~~~~~~~~~~~~~~~
+
+
+▲ [WARNING] NG8107: The left side of this optional chain operation does not include 'null' or 'undefined' in its type, therefore the '?.' operator can be replaced with the '.' operator. [plugin angular-compiler]
+
+    src/app/features/observability/quality-evidence-charts.component.ts:18:74:
+      18 │ ...point.y" [attr.r]="selected()?.id===point.row.id?9:6" class="po...
+         ╵                                   ~~
+
+
+▲ [WARNING] NG8107: The left side of this optional chain operation does not include 'null' or 'undefined' in its type, therefore the '?.' operator can be replaced with the '.' operator. [plugin angular-compiler]
+
+    src/app/features/observability/quality-evidence-charts.component.ts:26:102:
+      26 │ ...l" [class.active]="selected()?.id===row.id" [class.absent]="val...
+         ╵                                   ~~
+
+
+▲ [WARNING] bundle initial exceeded maximum budget. Budget 500.00 kB was not met by 410.17 kB with a total of 910.16 kB.
+
+
+▲ [WARNING] angular:styles/component:css;1e2e3b700aa2f54453b2632f5e084fc81ed7fac6739fe264b0fab0435c42b79b;/Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-ux-l3/frontend-ng/src/app/features/chat/chat-panel.component.ts exceeded maximum budget. Budget 24.00 kB was not met by 12.80 kB with a total of 36.80 kB.
+
+
+▲ [WARNING] src/app/features/experience/work/work.scss exceeded maximum budget. Budget 24.00 kB was not met by 7.97 kB with a total of 31.97 kB.
+
+
+▲ [WARNING] src/app/features/experience/studio/studio.scss exceeded maximum budget. Budget 24.00 kB was not met by 1.78 kB with a total of 25.78 kB.
+
+
+▲ [WARNING] Module 'dagre' used by 'node_modules/@foblex/flow-dagre-layout/fesm2022/foblex-flow-dagre-layout.mjs' is not ESM
+
+  CommonJS or AMD dependencies can cause optimization bailouts.
+  For more information see: https://angular.dev/tools/cli/build#configuring-commonjs-dependencies
+
+
+Output location: /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-ux-l3/frontend-ng/dist/agentium

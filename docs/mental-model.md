@@ -1,0 +1,4764 @@
+# Agentium — Mental Model
+
+_Single source of truth for Agentium's product vision, canonical entities, runtime semantics, and repository compliance claims. Formal delivery states are computed from the governed manifest below._
+
+---
+
+<!-- BEGIN GENERATED: AGENTIUM PRODUCT COMPLIANCE -->
+## Computed Agentium compliance state
+
+_This block is generated from `config/agentium/product-compliance.v1.json`. Run `python3 scripts/agentium_compliance.py`; manual formal delivery badges are rejected outside generated zones._
+
+| Lot | Contract claim | Repository state |
+|---:|---|---|
+| 0 | `LOT0-BASELINE-CONTRACT` — Workspace experience baseline is explicit and regression-tested | 🟠 Static verified |
+| 1 | `LOT1-STABILITY-CONTRACT` — Workspace navigation remains stable across retries, rails and switches | 🟡 Partial |
+| 2 | `LOT2-WORKSPACE-EXPERIENCE-RESOLVER` — Workspace experience resolver is flagged, shadowed and fail-closed | 🟠 Static verified |
+| 3 | `LOT3-COCKPIT-AXES` — Cockpit lenses preserve object identity and hierarchy | 🟠 Static verified |
+| 4 | `LOT4-SHOWCASE-CANARY-DISCOVERY` — Showcase canary discovers the live graph instead of a fixed slug | 🟠 Static verified |
+| 4 | `LOT4-BUSINESS-SHELL-MISSION-EXTENSION` — Andritz shell and Mission Room are resolver-owned extensions | 🟠 Static verified |
+| 4 | `LOT4-SENTINEL-OCTOCITY-ISOLATION` — Sentinel and Octocity keep isolated branding and action packs | 🟠 Static verified |
+| 4 | `LOT4-ANDRITZ-APP-ENTITLEMENTS` — Andritz app entitlements are explicit and fully backfilled | 🟠 Static verified |
+| 5 | `LOT5-WORKSPACE-BLUEPRINT-V2` — Workspace Blueprint v2 migrates portable experience safely | 🟡 Partial |
+| 5 | `LOT5-SURFACE-CATALOG-COVERAGE` — API catalog coverage uses the production router as oracle | 🟠 Static verified |
+| 5 | `LOT5-CANONICAL-CONTRACTS` — Canonical workspace contracts replace implicit tenant branching progressively | 🟡 Partial |
+| 5 | `LOT5-COMPLIANCE-GOVERNANCE` — Product claims are computed and external evidence cannot self-promote | 🟠 Static verified |
+| 6 | `LOT6-NAV-ONE-SCALE-PER-AXIS` — Cockpit navigation uses one scale per axis | 🟡 Partial |
+| 6 | `LOT6-SYSTEM360-PERSPECTIVES` — One marked System exposes four distinct, evidence-backed perspectives | 🟠 Static verified |
+| 6 | `LOT6-P4-DURABLE-SUBFLOWS` — Durable Celery subflows preserve delegated Run identity | 🟠 Static verified |
+| 7 | `LOT7-OBJECT-GRAPH-PROJECTIONS` — Capability, Run and SkillInvocation expose governed object perspectives | 🟡 Partial |
+| 7 | `LOT7-AUTHORIZATION-ROLLOUT` — Action-level authorization advances through compat, shadow and enforce | 🟠 Static verified |
+| 7 | `LOT7-MEMBRANE-MEASUREMENTS` — Membrane budgets distinguish measured zero from unavailable telemetry | 🟠 Static verified |
+| 7 | `LOT7-ANDRITZ-MEMBRANE-SHADOW` — Andritz Membrane v2 shadow preparation is append-only and reversible | 🟠 Static verified |
+| 8 | `LOT8-AUTHORITATIVE-VALUE-LOOP` — System value scenarios follow one governed evidence lifecycle | 🟡 Partial |
+| 9 | `LOT9-WORKSPACE-APP-LIFECYCLE` — Workspace Apps use content-addressed lifecycle and runtime authority | 🟠 Static verified |
+| 9 | `LOT9-IMMUTABLE-SUPPLY-CHAIN` — Release contract binds source, images and semantic evidence by digest | 🟠 Static verified |
+
+These are static repository states. JSON passed to the static generator cannot promote them; higher formal states exist only in the immutable report produced by the authenticated CI collector. See [`docs/agentium-compliance-matrix.md`](agentium-compliance-matrix.md).
+<!-- END GENERATED: AGENTIUM PRODUCT COMPLIANCE -->
+
+---
+
+## Post-realignment delivery log — 2026-04-21
+
+The realignment plan (`docs/agentium-realignment-plan.md`) landed across five waves and 26 tickets. The following table is the historical implementation review; its delivery claims are not runner- or deployment-attested:
+
+| Area | Mental model section | Before | After |
+|------|----------------------|--------|-------|
+| Canonical `Outcome` (cost/value/confidence/efficiency) with `value_source` hybrid (auto-derive + operator override) | §22.3 | 🟡 Partial | ◻️ Implementation claim — non attesté |
+| Decision state machine `proposed → accepted → rejected → applied` with enactment patch | §23.5–§23.6 | 🟡 Partial | ◻️ Implementation claim — non attesté |
+| Hypervisor Act — Accept/Reject/Apply feeds policy patch on `Capability` / `ControlPolicy` / `AdaptivePolicy` | §23.6 | 🟡 Partial | ◻️ Implementation claim — non attesté |
+| `ControlPlaneVector` 4 axes (`resource`, `velocity`, `autonomy`, `risk_tolerance`) used by `simulate`, `what-if`, Steering, Hypervisor | §18.2, §36 | 🟡 Partial | ◻️ Implementation claim — non attesté |
+| Universal Impact Preview (<300ms) on every policy lever | §36 | 🔵 Planned | ◻️ Implementation claim — non attesté |
+| Runtime health 4-state (`bound` / `stub` / `unbound` / `catalog_only`) unified across Skills, RAG presets, Builder | §9, §30 | 🟡 Partial | ◻️ Implementation claim — non attesté |
+| Semantic zoom context shared across Capability → System → Run with persistent breadcrumb | §12, §37 | 🟡 Partial | ◻️ Implementation claim — non attesté |
+| Builder restored to 6 steps (Objective → Capability → Skills → Context → Policy → Launch) with unbound-skill gate | §29 | 🟡 Partial | ◻️ Implementation claim — non attesté |
+| RAG presets (`Auto` / `Semantic` / `Hybrid` / `HAH` / `OmniRAG`) gated by `/skills/runtime-health` | §16 | 🟡 Partial | ◻️ Implementation claim — non attesté |
+| Title-bar live telemetry from `/telemetry/live` with neutral idle state | §38 | 🟡 Partial | ◻️ Implementation claim — non attesté |
+| `execution_mode` first-class on `System` (`real_time_decision` / `batch_processing` / `event_driven_automation` / `continuous_monitoring` / `human_augmented`) with `execution_profile` SLA | §20.6 | 🔵 Planned | ◻️ Implementation claim — non attesté |
+| Workspace modes `builder` / `operator` / `executive` / `demo` / `portfolio`; `portfolio` is persisted but intentionally absent from the UI selector | §34, §38 | 🔵 Planned | ◻️ Implementation claim — non attesté |
+| Resources / Apps / Connectors honest catalog-only labelling (no fake wiring) | §30 | 🟡 Partial | ◻️ Implementation claim — non attesté |
+| Governance audit — actor / kind filters, CSV export, pagination, read-only RBAC banner | §33 | 🟡 Partial | ◻️ Implementation claim — non attesté |
+| Persona-aware help tooltips (`<ck-help>` + `/help-content` registry, 17 IDs covering Hypervisor / Steering / Builder / Runs / Workspace) | §38 | 🔵 Planned | ◻️ Implementation claim — non attesté |
+| Deprecation headers on `/agents` and `/traces` (`X-Deprecated: true`, `X-Canonical-Alternative: /systems` or `/runs`) | §0.2 | 🟡 Partial | ◻️ Implementation claim — non attesté |
+
+### Remaining 🟡 / 🔵 concepts (explicitly out of scope for this wave)
+
+- Dynamic RBAC with custom roles (§33) — read-only built-in roles are present in code; full CRUD is deferred.
+- Marketplace / certification / billing (§35) — ledger Tier 4.
+- Card-transformation polymorph, Focus Mode, radial steering (§36.4) — ledger Tier 2.
+- Backend connector runtime for Apps (§30) — catalog-only with "Request wiring" CTA.
+- papAI interop bridge (§40) — ledger Tier 5.
+
+---
+
+## How to read this document
+
+This document fuses two layers:
+
+1. **Vision** — the full 41-section product spec archived at `docs/archive/mental-model-draft-2026-04-21.md`. Every conceptual paragraph is preserved verbatim, in its original order.
+2. **Reality** — historical implementation annotations from `v0.4.0` audit waves A–F. They remain useful pointers, but are not formal attestations. The generated compliance block and its matrix are the machine-checked repository view.
+
+### Status legend
+
+| Badge | Meaning |
+|-------|---------|
+| ◻️ **Implementation claim — non attesté** | Historical implementation claim retained for readability; not proof of a runner result or deployment. |
+| 🟡 **Partial** | Concept present in code but incomplete (stub, scaffold, missing UI, or missing persistence). |
+| 🔵 **Planned** | Conceptual only. No backend/UI implementation yet. |
+| ⚠️ **Legacy** | Implemented, but deprecated in favor of a canonical path. Retained behind `X-Deprecated` header or compat route. |
+
+Many `## N.` headings carry a historical implementation annotation. Inline callouts of the form:
+
+> **◻️ Implementation claim — non attesté (example)** — `backend/app/models/system.py`, `/systems`, `frontend-ng/src/app/features/systems/system-view.component.ts`
+
+map the prose to candidate artifacts. Where the text describes an unbuilt concept, a callout begins with **🔵 Vision** or **🟡 Gap**. Formal delivery states come only from the compliance generator plus external runner and deployment attestations.
+
+### Companion docs
+
+- `docs/agentium-probabl-ecosystem-roadmap.md` — planned integration of Probabl methodology, skrub preparation, a bounded TabICL pilot, and skops artifact consolidation through canonical Systems, Skills and Flows.
+- `docs/skills-runtime.md` — canonical slug → module mapping with four-state status (`bound | stub | unbound | catalog_only`).
+- `docs/deck-product-review.md` — Marp slide deck that narrates the same model for the product team.
+- `docs/agentium-hypervisor-decision-strategy.md` — C-level / métier briefing (FR); `.en.md` English twin; `.fr.docx` / `.en.docx`.
+- `docs/agentium-hypervisor-user-stories.md` — Hypervisor user stories in the papAI format, Agentium objects; `.en.md`; COMEX MVP `agentium-hypervisor-mvp-comex.md`.
+- `docs/deck-agentium-decision-adoption.md` — Marp deck (FR); `.en.md` English twin; `.fr.pptx` / `.en.pptx`.
+- `CHANGELOG.md` — per-wave delivery log (Wave A through Wave F).
+
+---
+
+## 0. Executive summary (canonical implementation snapshot — non attesté)
+
+> **◻️ Implementation claim — non attesté (historical v0.4.0)** — this section replaces the previous concise `mental-model.md`.
+
+Agentium is an **operating system for intelligent systems**: you declare an **objective**, bind it to **capabilities** and **skills**, and let the runtime produce measurable, governed, continuously optimized **decisions**.
+
+### 0.0 Product interaction and value
+
+This interaction rule guides new product decisions and supersedes historical
+positioning that excludes conversation from the product.
+
+Agentium lets cross-functional teams create, orchestrate, monitor, consume and
+industrialize AI Systems aligned with business capabilities. A business
+application and a conversation are first-class ways to use and control these
+Systems. Work serves the task; Cockpit exposes construction, operation,
+improvement, impact and administration.
+
+The conversation has an explicit scope of one or more authorized Systems in
+one workspace. It uses the same execution services, published policies, tool
+permissions and evidence as a graphical action. Required human approval stays
+an explicit human decision. This interface does not add a separate execution
+model or memory shared between tenants.
+
+Success is a verifiable outcome followed by operational or economic improvement.
+Technical health indicators support diagnosis; they are not the permanent
+substitute for the business objective. Declared value, projected benefit,
+operational measurement and verified economic impact must remain distinguishable.
+Hours saved or money gained require a defined counterfactual/baseline, comparable
+units and periods, and attributable outcome evidence. A successful Run, a model
+score or an editable status cannot attest those benefits.
+
+Implementation scope and outstanding evidence are recorded in
+[the adoption delivery contract](agentium-adoption-roadmap.md). Its current
+structured objectives cover five operational metrics. The existing value loop
+owns economic measurements; the adoption change does not claim a complete
+economic-goal editor or verified client ROI.
+
+### 0.1 Canonical entities (persisted in Postgres)
+
+```
+System        objective, capability_id, flow_definition,
+              execution_mode, execution_profile, coordination_pattern,
+              default_prompt_type, default_model,
+              retrieval_mode_default, status
+Capability    blueprint (input/output contract, required skills,
+              default flow)
+Skill         slug, version, type, cost_per_call, latency,
+              runtime status (bound | stub | unbound | catalog_only)
+Context       data_refs, memory, history, environment, constraints
+ControlPolicy max_cost, max_latency, HITL threshold, allowed_models
+AdaptivePolicy scope, target_id, triggers, allowed_actions,
+              constraints, enabled
+Run           system_id, status, input_ref, outcome,
+              cost, latency, confidence, skill_invocations[]
+Decision      scope, target_id, kind, status, rationale,
+              impact_estimate, approved_by
+Impact        aggregated cost / value / ROI per capability & system
+```
+
+### 0.2 Canonical API surface
+
+| Route | Purpose |
+|-------|---------|
+| `/catalog/endpoints`, `/catalog/surfaces` | Machine-readable Agentium surface catalog (UI route ↔ API ↔ mental object ↔ stability status) |
+| `/blueprints/workspace/*` | Workspace Blueprint export/import: structure and configuration without members, secrets, files or vectors |
+| `/mission-room/*` | Government Mission Room workspace app: navigation, cockpit, briefing, timeline, decisions, search, map and advisory draft actions |
+| `/systems`, `/systems/:id`, `/systems/:id/runs` | CRUD + execution |
+| `/capabilities`, `/capabilities/:id` | Business-level catalog |
+| `/skills`, `/skills/runtime-health`, `/skills/:slug` | Registry + four-state health |
+| `/runs`, `/runs/:id` | Canonical run surface (replaces `/traces`) |
+| `/contexts`, `/contexts/:id` | First-class context objects |
+| `/control-plane/policies` | Control policies CRUD |
+| `/control-plane/adaptive` (+ `/toggle`) | Adaptive policies CRUD, scoped |
+| `/control-plane/simulate` | Simulate a policy change |
+| `/hypervisor/aggregate` | Portfolio ROI / cost / value |
+| `/hypervisor/what-if` | Portfolio levers (resource, velocity, autonomy, risk_tolerance) |
+| `/hypervisor/decisions`, `/hypervisor/decisions/:id` | Decisions feed |
+| `/reasoning/templates` | Reasoning prompt catalog |
+| `/models` | LLM registry (Ollama + Azure) |
+| `/chat` | SSE-streamed chat against a System |
+| `/documents/*` | Upload, search, canonical collection ledger, async ingestion jobs, preview |
+| `/knowledge-capture/*` | Expert Knowledge Capture workbench: plans, sessions, events, proposals, retrieval prefetch |
+| `/voice/*` | STT/TTS and streaming voice session runtime |
+| `/iam/*` | Workspace IAM matrix, config, member role templates and dry-run evaluation |
+| `/sftp/*` | Secure Deposit administration, staging queue, preview/download/promotion |
+| `/deposit-links/*` | Public external deposit portal API, password/session protected |
+| `/evaluation/*` | Radar, history, claim audit |
+| `/audit` | Governance log |
+| `/intelligence`, `/tasks`, `/metrics`, `/presets` | Ops and configuration surfaces |
+
+Compatibility and deprecated routes remain active but must be catalogued:
+`/agents` → `/systems`, `/traces` → `/runs`, `/settings` → `/presets`,
+plus legacy document collection routes retained for older callers. New
+surfaces must appear in `/catalog/endpoints` before shipping.
+
+### 0.3 Canonical skills runtime
+
+| Slug | Status | Module |
+|------|--------|--------|
+| `llm_rag_answer_v1` | ✅ bound | `backend/app/services/rag/rag_service.py` |
+| `semantic_search_v1` | ✅ bound | `backend/app/services/rag/pipeline_retrieval.py` |
+| `document_ingestion_v1` | ✅ bound | `backend/app/services/rag/document_service.py` |
+| `chain_naive_v1` | ✅ bound | `backend/app/services/rag/chains/naive.py` |
+| `chain_hybrid_v1` (HAH) | ✅ bound | `backend/app/services/rag/chains/hybrid.py` |
+| `chain_mixed_hah_v1` (CHAH) | ✅ bound | `backend/app/services/rag/chains/mixed_hah.py` |
+| `eval_radar_v1` | ✅ bound | `backend/app/services/evaluation/judge.py` |
+| `claim_audit_v1` | ✅ bound | `backend/app/services/evaluation/judge.py` |
+| `intelligence_batch_v1` | ✅ bound | `backend/app/services/intelligence/batch.py` |
+| `ministerial_briefing_v1`, `news_signal_synthesis_v1` | ✅ bound | `backend/app/services/mission_room.py` |
+| `project_risk_explainer_v1`, `territorial_signal_map_v1` | ✅ bound | `backend/app/services/mission_room.py` |
+| `instruction_draft_v1` | ✅ bound | `backend/app/services/mission_room.py` |
+| `audit_log_v1` | ✅ bound | `backend/app/services/skills_registry/wrappers.py` |
+| `ollama_llm_v1`, `azure_llm_v1` | ✅ bound | `backend/app/services/llm/*` |
+| `sharepoint_ingestion_v1` | 🟡 stub | schemas present, ingestion not wired |
+| `voice_transcribe_v1`, `voice_tts_v1` | ✅ bound | `backend/app/services/voice_runtime.py` |
+| `knowledge_gap_analysis_v1`, `expert_interview_plan_v1` | ✅ bound | `backend/app/services/knowledge_capture.py` |
+| `expert_answer_evaluator_v1`, `capture_structuring_v1` | ✅ bound | `backend/app/services/knowledge_capture.py` |
+
+See `docs/skills-runtime.md` for full contract.
+
+### 0.4 Canonical UI routes (Angular 20, zoneless)
+
+```
+/hypervisor              Balance sheet + what-if (4 levers) + decisions feed
+/hypervisor/mission-room/:view Demo Government Mission Room workspace app (VIGIE / SENTINEL-CI)
+/steering                Control policies + adaptive policies + simulate
+/steering/contexts       First-class context manager
+/capabilities            Business catalog (+ drill-down /capabilities/:id)
+/skills                  Runtime registry with four-state health badges
+/systems                 List, drill-down /systems/:id, builder /systems/new
+/runs                    Canonical run list + /runs/:runId decision trail
+/observability           Health, events, SLO
+/governance/audit        Structured audit log
+/governance/access       Roles & permissions
+/governance/blueprints   Workspace Blueprint export/import
+/orchestration           Custom chain editor (🟡 scaffold)
+/knowledge               Document ingestion, collections, previews
+/intelligence            Scheduled batch insights
+/tasks                   HITL review queue (🟡 partial)
+/resources               Model pinning, provider credentials
+/apps                    Connectors & SaaS apps (🟡 catalog only)
+```
+
+Global chrome: ⌘K command palette ✅, ⌘Z / ⇧⌘Z semantic zoom ✅, theme `light | dark | system` ✅, custom SVG glyph set ✅ (sanitizer-safe).
+
+### 0.5 Invariants (enforced in code)
+
+1. **Every Run has a canonical decision trail.** The legacy `trace` concept is gone; `skill_invocations[]` is the single source of execution evidence.
+2. **Every Skill declares its runtime status.** `bound | stub | unbound | catalog_only` is returned by `/skills/runtime-health` and rendered in the UI — no silent stubs or fake runtime binding.
+3. **Every System carries its defaults.** `default_prompt_type`, `default_model`, `retrieval_mode_default` are persisted fields, consumed by `run_engine` and RAG skill wrappers.
+4. **Every adaptive policy is scoped.** `scope ∈ {portfolio, capability, system}` + `target_id` — no dangling global toggles.
+5. **Every deprecated endpoint advertises itself.** `/agents`, `/traces` respond with `X-Deprecated: true` and a redirect hint.
+
+---
+
+---
+
+## 1. Vision · ◻️ Implementation claim — non attesté (vocabulary), 🟡 Partial (papAI convergence)
+
+Agentium is not an agent builder.
+
+Agentium is an **operating system for intelligent systems**, designed to transform business objectives into measurable outcomes through orchestrated, observable and optimizable AI systems.
+
+An **Experience** (labelled *Application métier* in the UI) does not weaken that
+positioning. It is the governed usage contract of one or more published Systems:
+pages, certified components, semantic bindings, audience, language, theme and an
+immutable release. It cannot create hidden execution authority, install arbitrary
+code or bypass the System / Flow / policy lifecycle.
+
+It is the **agentic counterpart of papAI**:
+
+- papAI = orchestration of data, models and workflows
+- Agentium = orchestration of intelligence, reasoning and decision systems
+
+Agentium is designed as a **standalone product**, but shares the same architectural philosophy as papAI to enable a future convergence into a unified platform.
+
+> **◻️ Implementation claim — non attesté (historical v0.4.0)** — Agentium runs as a standalone product with its own frontend (`frontend-ng/`), backend (`backend/app/`), and deployment (`omnirag-demo` VM, `agentium.papai.ai`).
+>
+> **🔵 Vision** — Convergence with papAI (shared object model, unified catalog). Not yet wired. See §17 for the detailed phase plan.
+
+---
+
+## 2. Core Paradigm Shift · ◻️ Implementation claim — non attesté
+
+### From Tools to Systems
+
+Traditional platforms:
+
+- Build workflows
+- Configure models
+- Execute pipelines
+
+Agentium:
+
+- Defines objectives
+- Composes capabilities
+- Runs autonomous systems
+- Measures value
+
+---
+
+### From Features to Value Loops
+
+Agentium is built around a **closed-loop system**:
+
+Objective → System → Execution → Measurement → Optimization
+
+This loop is the **core mental model** and must be visible in the product at all times.
+
+> **◻️ Implementation claim — non attesté (historical v0.4.0)** — the loop is materialized end-to-end:
+> `System Builder` (`/systems/new`) → `Run trigger` (`POST /systems/:id/runs`) → `Run view` (`/runs/:runId`) with decision trail → `Impact` aggregation (`/impact`) → `Hypervisor what-if` (`/hypervisor/what-if`) closes the loop back to allocation decisions.
+
+---
+
+## 3. Core Concepts (Product Language) · ◻️ Implementation claim — non attesté
+
+Agentium introduces a structured, layered vocabulary:
+
+### System (central concept)
+
+A System is a self-contained unit that:
+
+- Receives an objective
+- Uses capabilities
+- Executes tasks
+- Produces measurable outcomes
+
+```
+System = Objective + Flow + Skills + Knowledge + Runs + Impact
+```
+
+> **◻️ Implementation claim — non attesté** — `backend/app/models/system.py`, request/response contracts in `backend/app/api/v1/endpoints/systems.py`, shared enums in `backend/app/schemas/canonical.py`, UI `/systems/:id`.
+
+---
+
+### Capability
+
+A Capability is a **business-level function**:
+
+- "Contract Risk Detection"
+- "Document Understanding"
+- "Delay Prediction"
+- "Expert Knowledge Capture"
+
+Capabilities are what the business buys and understands.
+
+`Expert Knowledge Capture` is the voice-ready capability for preserving
+expert reasoning. It uses a workspace `Context` / Knowledge scope to
+identify gaps, prepares a time-boxed interview plan, evaluates expert
+answers during the session, and emits a human-reviewed knowledge update
+proposal before ingestion. Its first runtime is a robust cascade
+`recording → STT → RAG/plan/evaluator → segmented TTS`; GPU realtime
+providers are isolated behind `VoiceRuntimeProvider` until user tests
+prove a net gain in fluency without losing precision or auditability.
+
+> **◻️ Implementation claim — non attesté** — `backend/app/models/capability.py`, `/capabilities` route with drill-down. Pricing / ROI model fields exist in the schema but are not yet billed (see §22).
+
+---
+
+### Skill
+
+A Skill is a **cognitive primitive**:
+
+- Typed input/output
+- Cost
+- Latency
+- Metrics
+- Version
+
+Examples:
+
+- OCR
+- NER
+- Classification
+- Scoring
+- LLM reasoning
+
+Skills are the **atomic units of intelligence**.
+
+> **◻️ Implementation claim — non attesté** — `backend/app/services/skills_registry/`, `/skills` route with four-state health. See §0.3 for the canonical list.
+
+---
+
+### Flow
+
+A Flow is a **composition of Skills**.
+
+It represents how intelligence is structured, but is abstracted from most users.
+
+> **🟡 Partial** — `flow_definition` JSONB column exists on `System`, but the **custom chain editor** at `/orchestration` is scaffold only. The System Builder wizard composes flows implicitly via capability selection.
+
+---
+
+### Run
+
+A Run is a **real execution instance** of a System.
+
+> **◻️ Implementation claim — non attesté** — canonical surface at `/runs` and `/runs/:runId`. Replaces legacy `/traces`.
+
+---
+
+### Impact
+
+Impact is the **measured value produced**:
+
+- Time saved
+- Cost reduction
+- Risk avoided
+- Revenue generated
+
+> **◻️ Implementation claim — non attesté** — `/impact` aggregate, portfolio view in Hypervisor. Value estimation remains **configurable** (user-supplied ROI model per capability), not inferred.
+
+---
+
+## 4. Layered Abstraction Model · ◻️ Implementation claim — non attesté
+
+Agentium is built on progressive disclosure. A genuine end user starts one layer
+before the platform vocabulary:
+
+### Layer 0 — Work / Experience (end-user default)
+- Tasks and forms
+- Answers and business results
+- Approvals
+- Business applications
+
+### Layer 1 — Business (default)
+- Systems
+- Capabilities
+- Impact (ROI)
+
+### Layer 2 — Operational
+- Runs
+- Performance
+- Errors
+- Usage
+
+### Layer 3 — Technical
+- Skills
+- Flows
+- Models
+- Tools
+
+Layer 0 is the default for a business user. Layer 1 is the default for a business
+owner or author in the Cockpit. The UI must **never force complexity**, but always
+allow authorised users to reach it without losing application, page or release
+context.
+
+> **◻️ Implementation claim — non attesté** — the semantic zoom shortcut `⌘Z` / `⇧⌘Z` uses `frontend-ng/src/app/core/zoom-context.service.ts` to move across layers while preserving context. Default entry is Layer 1 (Hypervisor → Systems).
+
+---
+
+## 5. UX Principles · ◻️ Implementation claim — non attesté (core), 🟡 Partial (continuous canvas)
+
+### 5.1 Objective-First
+
+The entry point is always:
+
+> "What do you want to achieve?"
+
+Not:
+- Create agent
+- Configure workflow
+
+> **◻️ Implementation claim — non attesté** — System Builder wizard step 1 is literally an "Objective" field, not a flow canvas.
+
+---
+
+### 5.2 System-Centric intelligence, Experience-Centric usage
+
+The Cockpit revolves around Systems, not features. Work revolves around the task the
+user must accomplish, not the engine that performs it.
+
+Users interact with:
+- Systems
+- Runs
+- Impact
+
+Not:
+- nodes
+- prompts
+- pipelines
+
+An end user on `/work/:slug` does not need to learn System, Run, Skill or Flow.
+An authorised author can follow the contextual bridge back to the exact
+Experience draft, component and SystemBinding. The underlying object graph stays
+System-centric and measurable.
+
+> **◻️ Implementation claim — non attesté** — the cockpit side rail orders routes as `Hypervisor → Systems → Runs → Capabilities → Skills → Steering → Knowledge → …`, privileging systems over primitives.
+
+---
+
+### 5.3 Continuous Canvas
+
+The interface should feel like a **continuous system surface**, not a set of pages.
+
+- No fragmentation
+- Context preserved
+- Zoom-based navigation
+
+> **🟡 Partial** — ⌘Z zoom preserves context across layers, and the breadcrumb is persistent. True "one-surface" interaction (no route changes) is not yet implemented.
+
+---
+
+### 5.4 Progressive Complexity
+
+- Default = simple
+- Advanced = available
+
+Pattern:
+- hover → insight
+- click → expand
+- focus → deep dive
+
+> **◻️ Implementation claim — non attesté** — every System card shows KPI summary on default, click opens Overview tab, further tabs (Design / Runs / Intelligence / Settings) are advanced views.
+
+---
+
+### 5.5 Visible Intelligence
+
+Agents are not black boxes.
+
+Minimal "thinking stream":
+
+- Retrieving knowledge
+- Running analysis
+- Generating output
+
+No technical overload.
+
+> **◻️ Implementation claim — non attesté** — chat uses SSE streaming with a "reasoning trail" panel that renders `decision_step` events. See `frontend-ng/src/app/features/chat/chat-panel.component.ts`.
+
+---
+
+### 5.6 System as a Living Entity
+
+Each system has:
+- Status (Live / Idle / Error)
+- Recent activity
+- Evolution over time
+
+This creates trust and engagement.
+
+> **◻️ Implementation claim — non attesté** — System list cards show live status, last run age, and a 7-day spark strip. Hybrid A+B cockpit styling adds subtle radial gradients / glows to reinforce "living organism" feel.
+
+---
+
+## 5bis. Navigation Model — three questions, three controls · ◻️ Implementation claim — non attesté (Lot 6 v5)
+
+Agentium's navigation is **cognitive-first**: each control answers one question
+about the same world. Navigating changes **perspective**, never context.
+
+### 5bis.1 Three questions, three controls
+
+| Question | Control | Carried by the URL |
+| --- | --- | --- |
+| *Why am I here?* → **Zone** (Hypervisor · Create · Operate · Steer · Govern) | rail | `?lens=` on an object; otherwise the path's home zone |
+| *Where am I?* → **Object** (Portfolio › Capability › System › Run › Skill) | breadcrumb (the only object ladder) | `path` |
+| *How am I looking?* → **Facet** | `ck-tabs` | `?facet=` always |
+
+The mini-rail is the **zone summary** (its surfaces, fixed 208 px). From a
+proven System it also shows the branch **Dans {System}** = that System's
+facets (`?facet=`, `replaceUrl`). It never lists the four object types as a
+second ladder.
+
+A filtered zone list (`/runs?systemId=X`) is a **chip**, not ancestry. The
+breadcrumb stays at Portfolio. There is no back-link on a list.
+
+### 5bis.2 Spaces
+
+Work is not a sixth zone. An Experience can bind several Systems, so forcing
+it into the object chain would invent a false parent.
+
+| Space | Audience | Routes | Rule |
+| --- | --- | --- | --- |
+| Work | Business users | `/work`, `/work/:slug` | Application shell; no Cockpit chrome |
+| Cockpit | Authors, operators, governors | `/create`, `/systems`, `/runs`, … | Three controls above |
+
+`Work ↔ Cockpit` is an RBAC **link** (« Work ↗ », « Ouvrir dans Work »,
+« Cockpit »), never a visual toggle. The technical id of Create stays `build`.
+Both spaces share workspace identity, canonical object ids, audit history and
+deep links.
+
+Inside Work, a **Studio** is the human surface of one application's agent: the
+person watches the run, decides at its gates and talks to the agent (the NAWA
+*Agent Studio* on `/work/pr-to-po`). It is a client of the server `Run`, never a
+second runtime. The lexicon — `frontend-ng/src/app/core/i18n.lexicon.ts`, enforced
+by `check:i18n` — keeps these three words apart and retires **Desk** and
+**Board**, which named the Studio during the PR to PO build-up. The stable form
+is [`agentium-reference.md`](./agentium-reference.md) §2.
+
+### 5bis.3 Canonical hierarchy
+
+```
+Portfolio › Capability › System › Run › Skill
+```
+
+- **System** is the living asset.
+- **Run** is one execution instance of that System.
+- **Skill** on the breadcrumb is the invocation under that Run (catalog Skills live in Create).
+
+⌘Z zooms out one proven level. ⇧⌘Z is not a navigation shortcut (no
+deterministic zoom-in without choosing an object).
+
+An Experience is deliberately absent from this chain. `ExperienceBinding` is a
+many-to-many edge from a released UI action to the exact published System
+ingress and contract hash. In the Cockpit, an `ExperienceContext` chip may sit beside
+the canonical breadcrumb; it never rewrites it as `App › System`.
+
+### 5bis.4 Zone = lens
+
+The rail does not move the object. It changes the projection (`?lens=`). The
+object header eyebrow repeats it in text: `{TYPE} · VU DEPUIS {ZONE}`.
+
+| Zone | Intent | What you see |
+| --- | --- | --- |
+| Hypervisor | Decide | Balance sheet, outcomes, what-if |
+| Create (`lens=build`) | Build | Applications métier, Systems, Knowledge |
+| Operate | Run | Runtime, runs, missions |
+| Steer | Optimize | Levers, policies, simulations |
+| Govern | Control | Audit, access, settings |
+
+Builder mode hides Hypervisor and Steer; home and the Portfolio node are `/create`.
+
+### 5bis.5 Facets and filters
+
+Tabs exist only under a selected object. They are representations of that
+object. `OBJECT_FACETS` is the single source for `?facet=`, `ck-tabs`, and the
+sommaire branch.
+
+1. The object header never changes when the facet changes.
+2. Facet and lens use `replaceUrl`. Object or zone-home use push.
+3. Descendants of a System are its facets (`/systems/X?facet=runs`), not a
+   scoped global list. The bridge « Voir dans Runs → » opens `/runs?systemId=X`
+   with a visible chip.
+4. `?tab=` / `?focus=` / `?scope=` are resolved aliases, then retired.
+
+Panels (`<ck-panel>`) stay transient: debug, logs, and settings are never tabs.
+
+### 5bis.6 Speed
+
+`⌘K` opens the palette. It accelerates the hierarchy; it does not replace it.
+
+### 5bis.7 Summary
+
+```
+┌─ Breadcrumb (object) ────────────────────────────────────┐
+│ Portfolio › Capability A › System X                      │
+└──────────────────────────────────────────────────────────┘
+┌─ Rail (zone) ───────────┐  ┌─ Sommaire (zone surfaces) ─┐
+│ Hypervisor              │  │ SOMMAIRE · Opérer          │
+│ Créer                   │  │ ● Runs                     │
+│ Opérer  ●               │  │ ○ Observability            │
+│ Piloter                 │  │ Dans System X              │
+│ Gouverner               │  │   Overview · Runs · …      │
+└─────────────────────────┘  └────────────────────────────┘
+┌─ Object header ──────────────────────────────────────────┐
+│ SYSTEM · System X · VU DEPUIS OPÉRER                     │
+└──────────────────────────────────────────────────────────┘
+┌─ Tabs (facets, ?facet=) ─────────────────────────────────┐
+│ Overview │ Runs │ Skills │ Knowledge │ Flow              │
+└──────────────────────────────────────────────────────────┘
+```
+
+> **◻️ Implementation claim — non attesté** — 5bis.1–5bis.7 (Lot 6 grammar v5).
+> **🟡 Partial** — lens-aware *data* projection still densest on `system-view`.
+
+---
+
+## 6. Value as First-Class Citizen · 🟡 Partial
+
+### Metrics are Product, not Logs
+
+Agentium surfaces:
+
+#### Business level
+- ROI
+- Time saved
+- Cost per task
+
+#### Operational level
+- Latency
+- Success rate
+- Cost/run
+
+#### Technical level
+- Model metrics
+- Token usage
+
+> **◻️ Implementation claim — non attesté (operational + technical)** — Run records persist cost, latency, success, token counts. `/observability` surfaces SLO.
+>
+> **🟡 Gap (business)** — ROI and time saved require an operator-supplied value model per capability. Presently configurable in Capability detail but not enforced or auto-derived.
+
+---
+
+### Pricing Model
+
+Agentium is priced on **Capabilities**, not tokens.
+
+```
+Price = Volume × Capability Unit Price
+```
+
+Example:
+- 0.20€ per contract analyzed
+
+> **🔵 Vision** — no billing subsystem exists. `pricing_unit` and `unit_price` fields exist on `Capability`, but there is no metering / invoicing service.
+
+---
+
+### ROI Loop
+
+Every run contributes to:
+
+- cost tracking
+- value estimation
+- ROI computation
+
+> **🟡 Partial** — cost tracking ✅, value estimation 🟡 (configurable), ROI computation ✅ (in Hypervisor aggregate, derived from persisted `cost_internal` and operator-declared `revenue_allocated` / `estimated_value`).
+
+---
+
+## 7. Hypervisor — Strategic Layer · ◻️ Implementation claim — non attesté
+
+The Hypervisor is not a dashboard.
+
+It is a **decision cockpit**.
+
+---
+
+### Functions
+
+- Aggregate ROI across systems
+- Compare capabilities
+- Suggest optimizations
+- Enable actions
+
+---
+
+### Decision Loop
+
+Observe → Understand → Decide → Act → Measure
+
+---
+
+### Example
+
+```
+Capability: Contract Risk Detection
+
+Cost: 3k€
+Value: 25k€
+ROI: +733%
+
+→ Recommendation: Scale usage
+→ Action: Increase budget
+```
+
+> **◻️ Historical claim — legacy preview retired** — `/hypervisor` route delivered:
+> - `/hypervisor/aggregate` — portfolio ROI with per-capability & per-system breakdown.
+> - `/hypervisor/what-if` — now route-compatible but explicitly returns `not_configured`; it no longer manufactures projected deltas.
+> - `/hypervisor/decisions` (+ `/:id`) — paginated feed of recommendations with filter + detail drawer. UI: `frontend-ng/src/app/features/hypervisor/hypervisor.component.ts`.
+>
+> **◻️ Implementation claim — preuve runtime non attestée** — Decision accept/reject remain available. The generic Hypervisor `apply` actuator is retired and returns `LEGACY_DECISION_ACTUATOR_DISABLED`; it cannot mutate policy or System state. The sole authoritative actuator is the System value loop described in §44.
+
+---
+
+## 8. Capability Catalog · 🟡 Partial
+
+Structured in 3 layers:
+
+### Universal
+- Document understanding
+- Risk detection
+- Forecasting
+
+### Industry
+- Fraud detection
+- Maintenance prediction
+
+### Client-specific
+- Custom business logic
+
+> **◻️ Implementation claim — non attesté** — `/capabilities` lists a flat catalog with drill-down, seeded with universal capabilities.
+>
+> **🟡 Gap** — the 3-layer taxonomy (Universal / Industry / Client) is not yet enforced. Capabilities carry a `scope` field but the UI does not filter by layer. No marketplace / installation flow.
+
+---
+
+## 9. Skill Certification · 🟡 Partial
+
+Each skill is evaluated on:
+
+- Quality
+- Performance
+- Safety
+- Business impact
+
+---
+
+### Certification Levels
+
+- Basic
+- Production-ready
+- Enterprise-certified
+
+---
+
+This creates:
+- trust
+- marketplace potential
+- differentiation
+
+> **◻️ Implementation claim — non attesté (runtime status)** / **🟡 Partial (certification)** — the four-state runtime vocabulary (`bound | stub | unbound | catalog_only`) is exposed by `/skills/runtime-health` and represented in the Skills UI. The formal **certification level** (Basic / Production-ready / Enterprise-certified) remains conceptual operationally: a `certification_level` column exists on `Skill`, but no certification pipeline evaluates it.
+
+---
+
+## 10. Strategic Positioning · ◻️ Implementation claim — non attesté (narrative)
+
+Agentium sits between:
+
+- n8n (automation)
+- Dify (AI builder)
+- Dataiku (data platform)
+
+But defines a new category:
+
+> **Skill-based Agentic Operating System**
+
+---
+
+## 11. Relationship with papAI · 🔵 Planned
+
+### Today
+- Agentium = standalone agentic platform
+- papAI = orchestration & data platform
+
+### Tomorrow
+- Unified platform:
+  - papAI → data + ML + orchestration
+  - Agentium → intelligence + systems + ROI
+
+> **🔵 Vision** — Agentium runs standalone today. No cross-product API integration yet.
+
+---
+
+## 12. Core Differentiators · ◻️ Implementation claim — non attesté (1,2), 🟡 (3,4,5,6)
+
+1. Objective-driven UX  ✅
+2. Skill-based architecture  ✅
+3. Capability-based pricing  🟡 (model exists, billing absent)
+4. Built-in ROI measurement  🟡 (metrics exist, value model configurable)
+5. Closed-loop optimization  🟡 (what-if levers present in code, enactment partial)
+6. Hypervisor decision layer  ✅
+
+---
+
+## 13. Final Positioning · ◻️ Implementation claim — non attesté (narrative)
+
+Agentium is not:
+- a workflow builder
+- an LLM interface
+- an agent playground
+
+Agentium is:
+
+> **a system that turns business objectives into measurable, governed, and continuously optimized outcomes**
+
+---
+
+## 14. Key Product Statement · ◻️ Implementation claim — non attesté (narrative)
+
+> You don't build agents.
+> You compose intelligence into systems that generate measurable value.
+
+---
+
+## 15. API & Data Model · ◻️ Implementation claim — non attesté
+
+Agentium's internal architecture is designed to reflect its conceptual model.
+
+### Core Objects
+
+#### System
+
+```
+System {
+  id
+  name
+  objective
+  capabilities[]
+  flow_id
+  status
+  roi_metrics
+  created_at
+}
+```
+
+> **◻️ Implementation claim — non attesté** — `backend/app/models/system.py` adds `default_prompt_type`, `default_model`, `retrieval_mode_default` (see migration `005_system_defaults`). `capability_id` is singular in the implementation (one primary capability) — multi-capability systems are represented via child Runs / skills.
+
+---
+
+#### Capability
+
+```
+Capability {
+  id
+  name
+  description
+  input_schema
+  output_schema
+  skill_ids[]
+  pricing_unit
+  roi_model
+}
+```
+
+> **◻️ Implementation claim — non attesté** — `backend/app/models/capability.py`.
+
+---
+
+#### Skill
+
+```
+Skill {
+  id
+  name
+  type
+  version
+  input_schema
+  output_schema
+  cost_per_call
+  latency
+  metrics
+  certification_level
+}
+```
+
+> **◻️ Implementation claim — non attesté (registry)** / **🟡 Partial (certification_level unused)**.
+
+---
+
+#### Flow
+
+```
+Flow {
+  id
+  name
+  skill_graph
+  execution_mode
+}
+```
+
+> **🟡 Partial** — Flow is embedded as `flow_definition` JSON on System, not a standalone entity. Editor at `/orchestration` is scaffold.
+
+---
+
+#### Run
+
+```
+Run {
+  id
+  system_id
+  input_payload
+  output_payload
+  cost
+  latency
+  success
+  timestamp
+}
+```
+
+> **◻️ Implementation claim — non attesté** — plus `skill_invocations[]` child rows forming the decision trail.
+
+---
+
+#### Impact
+
+```
+Impact {
+  system_id
+  total_cost
+  total_value
+  roi
+  time_saved
+  error_reduction
+}
+```
+
+> **◻️ Implementation claim — non attesté (aggregate)** — derived in `/impact` endpoint from Runs + capability value model.
+
+---
+
+### API Structure
+
+#### Core (internal)
+
+```
+/systems
+/capabilities
+/skills
+/flows
+/runs
+/impact
+```
+
+> **◻️ Implementation claim — non attesté** (except `/flows` which is not yet split from `/systems`).
+
+---
+
+#### Business-facing (external)
+
+```
+/analyze-contract
+/predict-delay
+/process-document
+```
+
+> **🔵 Vision** — no business-facing capability endpoints yet. Capabilities are invoked through the generic `POST /systems/:id/runs` contract.
+
+---
+
+### Design Principles
+
+- Core vocabulary is **stable and versioned**
+- External endpoints are **business-oriented and flexible**
+- All objects are **traceable and auditable**
+
+> **◻️ Implementation claim — non attesté** — all mutations are audit-logged (`/audit`) with actor, target, diff.
+
+---
+
+## 16. UX Mapping (Concept → Screens) · ◻️ Implementation claim — non attesté
+
+Agentium's UI directly reflects its mental model.
+
+---
+
+### Systems
+
+**Screen:** Systems List / System Detail
+
+- List of Systems with:
+  - Status
+  - ROI
+  - Last run
+- Entry point for most users
+
+> **◻️ Implementation claim — non attesté** — `/systems` list, `/systems/:id` detail.
+
+---
+
+### System Detail
+
+Tabs or layered views:
+
+- Overview → business KPIs
+- Design → flow + skills
+- Runs → execution history
+- Intelligence → metrics
+- Settings → governance
+
+> **◻️ Implementation claim — non attesté** — all five tabs present in `system-view.component.ts`. Design tab currently renders a read-only flow preview; editing is deferred to the System Builder wizard.
+
+---
+
+### Capability Catalog
+
+**Screen:** Capability Marketplace
+
+- Browse by:
+  - Universal
+  - Industry
+  - Client
+- Each capability shows:
+  - Description
+  - ROI potential
+  - Required inputs
+
+> **🟡 Partial** — flat catalog present in code; 3-layer browsing + ROI-preview not yet.
+
+---
+
+### Skill Registry
+
+**Screen:** Skill Library
+
+- Visible in advanced mode
+- Includes:
+  - Certification
+  - Performance metrics
+  - Versioning
+
+> **◻️ Implementation claim — non attesté** — `/skills` with runtime health, version, module binding, metrics summary.
+
+---
+
+### Runs
+
+**Screen:** Execution Timeline
+
+- Each run shows:
+  - Status
+  - Cost
+  - Output
+  - Steps executed
+
+> **◻️ Implementation claim — non attesté** — `/runs`, `/runs/:runId` with skill invocation trail.
+
+---
+
+### Hypervisor
+
+**Screen:** Strategic Cockpit
+
+- Portfolio view:
+  - ROI per capability
+  - Cost vs value
+- Recommendations:
+  - Scale / stop / optimize
+- Actions:
+  - Allocate budget
+  - Deploy systems
+
+> **◻️ Implementation claim — non attesté** — the strategic view, recommendations, Decision transitions and enactment code paths exist. End-to-end action behavior remains unverified by the current compliance runner evidence.
+
+---
+
+### UX Principles Applied
+
+- Same concept names across all screens ✅
+- Progressive disclosure (Business → Operational → Technical) ✅
+- Real-time feedback wherever possible 🟡 (see §31)
+
+---
+
+## 17. Migration Strategy — papAI ↔ Agentium · 🔵 Planned
+
+Agentium is designed to converge with papAI without breaking existing paradigms.
+
+---
+
+### Mapping Concepts
+
+| papAI | Agentium |
+|------|----------|
+| Workflow | Flow |
+| Model | Skill |
+| Dataset | Knowledge |
+| Pipeline | System |
+| Endpoint | Capability |
+| Job | Run |
+
+---
+
+### Phase 1 — Coexistence
+
+- Agentium runs as standalone
+- papAI handles:
+  - Data
+  - ML
+  - Orchestration
+- Agentium handles:
+  - Agents
+  - Capabilities
+  - ROI
+
+> **◻️ Implementation claim — non attesté** — we are currently in Phase 1.
+
+---
+
+### Phase 2 — Interoperability
+
+- Systems can call papAI workflows
+- papAI workflows can call Agentium systems
+- Shared:
+  - Authentication
+  - Governance
+  - Logging
+
+> **🔵 Planned** — no cross-platform calls.
+
+---
+
+### Phase 3 — Convergence
+
+Unified platform:
+
+```
+papAI = Data + ML + Orchestration
+Agentium = Intelligence + Systems + ROI
+```
+
+---
+
+### Technical Convergence
+
+- Shared object model (System / Skill / Capability)
+- Unified catalog
+- Unified monitoring (Hypervisor)
+
+---
+
+### Strategic Goal
+
+> Create a single platform where:
+- Data is processed
+- Intelligence is composed
+- Value is measured
+- Decisions are made
+
+---
+
+### Key Constraint
+
+- Never break existing papAI workflows
+- Always provide mapping layers
+
+---
+
+### Final Outcome
+
+A unified system where:
+
+> papAI manages computation
+> Agentium manages intelligence
+> Hypervisor manages decisions
+
+---
+
+## 18. Execution & Runtime Model · ◻️ Implementation claim — non attesté (core), 🟡 (adaptation loop)
+
+Agentium's conceptual model must be grounded in a concrete execution model to ensure scalability, reliability and alignment with papAI orchestration.
+
+---
+
+### 18.1 Runtime Philosophy
+
+Agentium does not execute isolated calls.
+
+It executes **Systems as continuous intelligent processes**.
+
+Each System follows an execution loop:
+
+```
+Plan → Act → Observe → Evaluate → Adapt
+```
+
+> **◻️ Implementation claim — non attesté** — `backend/app/services/run_engine/` orchestrates `plan → act → observe → evaluate`. The `adapt` stage is 🟡 (AdaptivePolicy triggers exist, closed-loop re-planning is limited to skill/model switch).
+
+---
+
+### 18.2 System Execution Lifecycle
+
+#### 1. Initialization
+
+- Objective is defined
+- Required capabilities are resolved
+- Flow is compiled into executable graph
+- Dependencies (skills, knowledge, tools) are validated
+
+> **◻️ Implementation claim — non attesté** — `run_engine.initialize()` validates skills via `skills_registry`.
+
+---
+
+#### 2. Planning Phase
+
+The system determines:
+- Which skills to invoke
+- In what order or structure
+- With what context
+
+This can be:
+- Static (predefined flow)
+- Dynamic (LLM-driven planning)
+
+> **◻️ Implementation claim — non attesté (static)** — `flow_definition` on System drives invocation order.
+>
+> **🟡 Partial (dynamic)** — LLM-driven planning exists for RAG chain choice (HAH / CHAH routing) but not for arbitrary skill graphs.
+
+---
+
+#### 3. Execution Phase
+
+- Skills are invoked according to the flow
+- Each skill execution produces:
+  - output
+  - cost
+  - latency
+  - status
+
+Execution modes:
+- Sequential ✅
+- Parallel 🟡 (supported in-chain for CHAH fan-out, not generic)
+- Conditional ✅ (via flow branches)
+- Event-driven 🔵
+
+---
+
+#### 4. Observation Phase
+
+System collects:
+- intermediate outputs
+- errors
+- metrics
+
+This feeds:
+- monitoring
+- explainability
+- adaptation
+
+> **◻️ Implementation claim — non attesté** — every `SkillInvocation` row persists input_ref, output, status, cost, latency, confidence.
+
+---
+
+#### 5. Evaluation Phase
+
+System evaluates:
+- quality of output
+- success criteria
+- guardrails compliance
+
+Possible outcomes:
+- success
+- retry
+- fallback
+- escalation (HITL)
+
+> **🟡 Partial** — `eval_radar_v1` and `claim_audit_v1` skills evaluate quality when invoked. Automatic escalation to HITL is **not** wired — `tasks` queue exists but is not auto-populated by quality failures.
+
+---
+
+#### 6. Adaptation Phase
+
+System can:
+- adjust flow
+- switch skills
+- re-run steps
+- trigger alternative paths
+
+> **🟡 Partial** — AdaptivePolicy rules allow `switch_skill`, `fallback_model`, `hitl_escalation`. Re-plan flow is 🔵.
+
+---
+
+### 18.3 Skill Execution Contract
+
+Each skill follows a strict contract:
+
+```
+SkillExecution {
+  input
+  output
+  status
+  cost
+  latency
+  metrics
+}
+```
+
+---
+
+### Guarantees
+
+- Deterministic I/O schema
+- Measurable execution
+- Traceability per invocation
+
+> **◻️ Implementation claim — non attesté** — registry schemas and callable bindings live in `backend/app/services/skills_registry/seed.py` and `backend/app/services/skills_registry/wrappers.py`; invocation evidence is persisted by `SkillInvocation` in `backend/app/models/run.py`.
+
+---
+
+### 18.4 Orchestration Layer
+
+Agentium delegates heavy orchestration to an execution layer:
+
+- papAI workflows (Spark, batch, pipelines)
+- Async workers (Celery, queues)
+- Event-driven triggers
+
+---
+
+### Integration Pattern
+
+```
+Agentium System
+    ↓
+Flow Execution Engine
+    ↓
+Skill Calls / papAI Workflows / External APIs
+```
+
+> **🟡 Partial** — async execution is handled by FastAPI `BackgroundTasks` + Postgres-backed checkpoints. No Celery or papAI workflow bridge yet.
+
+---
+
+### 18.5 Error Handling & Resilience
+
+Agentium must handle:
+
+- transient failures → retry
+- deterministic failures → fallback
+- critical failures → escalation
+
+---
+
+### Retry Strategy
+
+- exponential backoff
+- max attempts
+- alternative skill selection
+
+> **🟡 Partial** — retries on transient LLM failures are implemented at the LLM provider layer (`ollama_llm_v1`, `azure_llm_v1`). Declarative per-skill retry policy (see §19.4) is 🔵.
+
+---
+
+### 18.6 Checkpointing
+
+To support long-running systems:
+
+- intermediate states are persisted
+- system can resume from checkpoint
+- partial recomputation is possible
+
+---
+
+### Example
+
+```
+Run interrupted at step 3
+→ Resume from step 3
+→ No full recompute
+```
+
+> **🟡 Partial** — `skill_invocations` form de-facto checkpoints; resume from a specific invocation is **not** implemented. Re-run is always full re-run.
+
+---
+
+### 18.7 Multi-Agent Coordination
+
+Agentium supports multiple coordination patterns:
+
+---
+
+#### Sequential
+
+```
+Agent A → Agent B → Agent C
+```
+
+---
+
+#### Parallel
+
+```
+Agent A
+   ↘
+    → Merge → Output
+   ↗
+Agent B
+```
+
+---
+
+#### Hierarchical
+
+```
+Supervisor Agent
+   ├── Worker Agent 1
+   ├── Worker Agent 2
+```
+
+---
+
+#### Federated
+
+```
+System A ↔ System B ↔ System C
+```
+
+> **◻️ Implementation claim — non attesté** — sequential & parallel within a flow.
+> **🟡 Partial** — hierarchical (one System delegating to another) is modeled via `sub_system_id` on `SkillInvocation` but not yet exposed in the builder.
+> **🔵 Planned** — federated (System-to-System across tenants).
+
+---
+
+### 18.8 Performance & Scaling
+
+Agentium must support:
+
+- horizontal scaling of runs
+- parallel skill execution
+- distributed processing via papAI
+
+---
+
+### Optimization Levers
+
+- caching skill outputs
+- batching requests
+- adaptive routing (model / skill selection)
+
+> **🟡 Partial** — horizontal scaling via uvicorn workers; caching / batching 🔵.
+
+---
+
+### 18.9 Observability
+
+Execution is fully observable:
+
+- per run
+- per skill
+- per system
+
+---
+
+### Metrics Collected
+
+- cost
+- latency
+- success rate
+- retries
+- drift indicators
+
+> **◻️ Implementation claim — non attesté (cost, latency, success)** / **🟡 (retries, drift)**.
+
+---
+
+### 18.10 Alignment with papAI
+
+papAI acts as:
+
+- compute layer
+- data layer
+- orchestration backbone
+
+Agentium acts as:
+
+- reasoning layer
+- system abstraction
+- ROI layer
+
+---
+
+### Final Model
+
+```
+Agentium (System Intelligence)
+        ↓
+papAI (Execution & Data)
+        ↓
+Infrastructure (Compute, Storage, APIs)
+```
+
+---
+
+### Key Insight
+
+Agentium does not replace orchestration.
+
+It **elevates orchestration into intelligent, adaptive and value-driven systems**.
+
+---
+
+## 19. Concrete Runtime Definitions · 🟡 Partial
+
+This section turns the execution model into an explicit product and engineering specification.
+
+---
+
+### 19.1 Runtime Orchestration Modes
+
+Agentium supports three native execution modes.
+
+#### Synchronous Runtime
+
+Used for short, bounded, request-response interactions.
+
+Characteristics:
+- single request lifecycle
+- immediate response expected
+- low orchestration depth
+- no long blocking human step
+- strict timeout and SLA
+
+Typical use cases:
+- short RAG answer
+- classification
+- lightweight scoring
+- contract clause extraction on a single file
+
+Contract:
+- a `Run` is still created
+- execution must complete within the sync SLA
+- no unbounded planning loop is allowed
+
+> **◻️ Implementation claim — non attesté** — chat and single-shot skill invocations are sync via `/systems/:id/runs` with `mode=sync`.
+
+---
+
+#### Asynchronous Runtime
+
+Used for long-running, batch, high-cost, or resumable systems.
+
+Characteristics:
+- durable run state
+- worker-based execution
+- resumable from checkpoints
+- retry and fallback support
+- optional HITL pauses
+
+Typical use cases:
+- batch document analysis
+- narration pipelines
+- translation review flows
+- multi-agent investigations
+
+Contract:
+- every async execution has a persistent `run_id`
+- state transitions are auditable
+- partial recomputation must be possible
+
+> **🟡 Partial** — async runs via FastAPI `BackgroundTasks` ✅; resumable checkpoints 🔵; HITL pauses 🟡 (the `Task` queue exists but pause-resume semantics are not wired into the run engine).
+
+---
+
+#### Event-Driven Runtime
+
+Used for reactive systems triggered by external or internal events.
+
+Characteristics:
+- event subscription or webhook trigger
+- automatic run creation
+- correlation between source event and execution
+- replay-safe and idempotent behavior
+
+Typical triggers:
+- new file in SFTP
+- new document in GED or SharePoint
+- webhook from CRM or ERP
+- threshold exceeded in Hypervisor
+- model drift alert
+
+Contract:
+- each event produces a correlated `Run`
+- duplicate events must not create duplicate side effects
+- replay must be supported when possible
+
+> **🔵 Planned** — no trigger engine yet. Intelligence scheduler is the only time-based trigger (cron-like).
+
+---
+
+### 19.2 Canonical Agent Loop
+
+Every adaptive system follows the same runtime loop:
+
+```text
+Plan → Act → Observe → Evaluate → Adapt
+```
+
+#### Plan
+
+The system turns an objective into an executable strategy.
+
+Produces:
+- selected capability
+- selected skills
+- execution ordering
+- resource budget
+- stopping conditions
+
+Planning can be:
+- static
+- dynamic
+- hybrid
+
+---
+
+#### Act
+
+The system invokes skills, tools, APIs, knowledge retrieval, or sub-systems.
+
+Each action must emit:
+- input reference
+- output
+- status
+- latency
+- cost
+- metrics
+
+---
+
+#### Observe
+
+The system captures execution evidence.
+
+Observed signals:
+- intermediate outputs
+- confidence
+- errors
+- cost progression
+- time progression
+- guardrail flags
+
+---
+
+#### Evaluate
+
+The system compares observed results with success criteria.
+
+Possible decisions:
+- continue
+- retry
+- fallback
+- escalate
+- finish
+
+---
+
+#### Adapt
+
+The system updates its execution strategy.
+
+Possible adaptations:
+- switch skill
+- change model
+- alter flow path
+- reduce cost tier
+- invoke HITL
+
+> **◻️ Implementation claim — non attesté (Plan / Act / Observe)** / **🟡 (Evaluate, Adapt)** — see §18.2 status.
+
+---
+
+### 19.3 Skill Invocation Contract
+
+A Skill is not a loose tool call. It is a typed, metered and versioned execution primitive.
+
+#### Skill Definition Contract
+
+```json
+{
+  "skill_id": "ocr_layout_v2",
+  "version": "2.1.0",
+  "type": "perception.v1",
+  "input_schema": {},
+  "output_schema": {},
+  "execution": {
+    "mode": "sync",
+    "timeout_ms": 15000,
+    "retryable": true,
+    "idempotent": true
+  },
+  "pricing": {
+    "unit": "page",
+    "base_cost": 0.01
+  },
+  "metrics": {
+    "quality": ["confidence", "accuracy"],
+    "operational": ["latency_ms", "cost"]
+  },
+  "certification_level": "production-ready"
+}
+```
+
+---
+
+#### Skill Execution Record
+
+```json
+{
+  "invocation_id": "inv_123",
+  "skill_id": "ocr_layout_v2",
+  "system_id": "sys_contract_risk",
+  "run_id": "run_456",
+  "input_ref": "blob://doc_001/page_3",
+  "output": {},
+  "status": "success",
+  "cost": 0.01,
+  "latency_ms": 928,
+  "metrics": {
+    "confidence": 0.94
+  },
+  "trace": {
+    "started_at": "...",
+    "ended_at": "...",
+    "attempt": 1
+  }
+}
+```
+
+---
+
+#### Mandatory Guarantees
+
+Every production skill must guarantee:
+- typed input/output
+- explicit version
+- measurable cost
+- measurable latency
+- auditable execution
+- standard status model
+- retry policy declaration
+
+> **◻️ Implementation claim — non attesté** — the `SkillInvocation` model in `backend/app/models/run.py` closely matches this record.
+> **🟡 Gap** — `retry policy declaration` at the skill level is not yet enforced; retries live at the LLM provider layer.
+
+---
+
+### 19.4 Error Handling and Retry Grammar
+
+Failures are part of the runtime. Agentium standardizes them.
+
+#### Failure Classes
+
+##### Transient Failure
+- timeout
+- temporary API outage
+- rate limit
+
+Policy:
+- automatic retry
+- exponential backoff
+- jitter
+- max attempts
+
+---
+
+##### Deterministic Failure
+- invalid schema
+- unsupported input
+- corrupted document
+
+Policy:
+- no blind retry
+- fail fast
+- optional alternative path
+
+---
+
+##### Quality Failure
+- low confidence
+- incomplete output
+- weak retrieval
+- guardrail soft fail
+
+Policy:
+- retry with alternative skill or model
+- evaluator pass
+- optional human review
+
+---
+
+##### Critical Failure
+- safety breach
+- severe compliance issue
+- hard guardrail failure
+
+Policy:
+- stop immediately
+- alert
+- escalation
+
+---
+
+#### Canonical Retry Policy
+
+```yaml
+RetryPolicy:
+  transient:
+    max_attempts: 3
+    strategy: exponential_backoff
+    jitter: true
+  quality:
+    max_attempts: 1
+    allow_fallback: true
+  deterministic:
+    retry: false
+  critical:
+    retry: false
+    escalate: true
+```
+
+> **🔵 Planned** — failure classification is ad-hoc today. A declarative `RetryPolicy` per skill + a failure classifier in `run_engine` is the next natural step.
+
+---
+
+### 19.5 Checkpointing Model
+
+Checkpointing is mandatory for long-running or high-cost systems.
+
+#### What is checkpointed
+- current step
+- completed skill list
+- partial outputs
+- accumulated cost
+- accumulated latency
+- execution context
+- chosen flow path
+
+---
+
+#### Checkpoint Record
+
+```json
+{
+  "checkpoint_id": "cp_789",
+  "run_id": "run_456",
+  "step": "risk_scoring",
+  "state": {
+    "completed_skills": ["ocr_layout_v2", "clause_extraction_v1"],
+    "partial_outputs": {},
+    "cost_so_far": 0.11
+  },
+  "resume_token": "..."
+}
+```
+
+---
+
+#### Resume Rules
+- resume from last valid checkpoint
+- avoid full recomputation by default
+- preserve cost traceability
+- preserve skill version traceability
+
+> **🔵 Planned** — `skill_invocations` act as implicit checkpoints (we know what succeeded), but there is no `resume_token` or resume endpoint.
+
+---
+
+### 19.6 Multi-Agent Coordination Patterns
+
+Agentium supports a limited but explicit set of coordination patterns.
+
+#### Sequential Pattern
+
+```text
+Agent A → Agent B → Agent C
+```
+
+Use when:
+- steps are strictly dependent
+- output must be progressively refined
+
+---
+
+#### Parallel Pattern
+
+```text
+           → Agent B →
+Agent A →                 → Merge
+           → Agent C →
+```
+
+Use when:
+- multiple sources or analyses can run independently
+- merge logic is well defined
+
+---
+
+#### Router Pattern
+
+```text
+Input → Router Agent → Legal Agent | Finance Agent | Technical Agent
+```
+
+Use when:
+- different domains require different systems or skills
+- knowledge bases are separated
+- cost-aware routing matters
+
+---
+
+#### Hierarchical Pattern
+
+```text
+Supervisor Agent
+ ├── Worker Agent 1
+ ├── Worker Agent 2
+ └── Worker Agent 3
+```
+
+Use when:
+- one lead agent plans and coordinates
+- workers are specialized
+- evaluation and synthesis are centralized
+
+---
+
+#### Evaluator Pattern
+
+```text
+Producer Agent → Evaluator Agent → Accept | Retry | Escalate
+```
+
+Use when:
+- output quality is critical
+- a second pass is required before publication
+
+---
+
+#### HITL Pattern
+
+```text
+System → Human Review → Resume System
+```
+
+Use when:
+- confidence is low
+- decision risk is high
+- regulatory validation is required
+
+> **◻️ Implementation claim — non attesté** — Sequential, Parallel (within chain_mixed_hah_v1), Evaluator (claim_audit_v1 can gate outputs).
+> **🟡 Partial** — Router (`chain_hybrid_v1` routes between dense/sparse/keyword), Hierarchical.
+> **🔵 Planned** — HITL pattern wired into run engine state machine.
+
+---
+
+### 19.7 Runtime-to-Pricing Consistency
+
+The runtime and pricing model must remain aligned.
+
+#### Internal Cost Model
+
+Internal runtime cost is computed from:
+- skill invocations
+- retries
+- tool calls
+- orchestration overhead
+- storage and checkpointing
+- optional HITL
+
+```math
+Internal\ Cost = \sum SkillInvocations + \sum ToolCalls + Orchestration + Retries + HITL
+```
+
+> **◻️ Implementation claim — non attesté** — `Run.cost_internal` is aggregated from `skill_invocations.cost`.
+
+---
+
+#### External Pricing Model
+
+The client is not charged on raw runtime complexity.
+
+The client buys a Capability unit:
+- per contract analyzed
+- per document processed
+- per prediction generated
+- per dossier reviewed
+
+```math
+Capability\ Revenue = Volume \times UnitPrice
+```
+
+> **🔵 Planned** — no billing.
+
+---
+
+#### ROI Model
+
+```math
+ROI = \frac{ValueGenerated - InternalCost}{InternalCost}
+```
+
+> **🟡 Partial** — computed in Hypervisor aggregate; `ValueGenerated` is operator-supplied.
+
+---
+
+#### Product Rule
+
+- client buys a **Capability**
+- runtime executes a **System**
+- system invokes **Skills**
+- Hypervisor pilots **Impact**
+
+This is the non-negotiable chain of coherence.
+
+---
+
+### 19.8 Canonical Objects for Execution and Pricing
+
+#### System
+
+```yaml
+System:
+  id: sys_contract_risk
+  objective: Detect contract risk
+  capability: contract_risk_detection
+  execution_mode: batch_processing
+  execution_profile:
+    sla_profile:
+      max_runtime_s: 300
+  coordination_pattern: hierarchical
+  pricing_mode: per_capability_unit
+  roi_model: legal_review_time_saved
+```
+
+> **◻️ Implementation claim — non attesté** — `execution_mode`, JSON `execution_profile` and `coordination_pattern` are persisted on `System` and accepted by the Systems API. `pricing_mode` is still not a first-class field; the YAML key above remains a target pricing contract rather than a persisted column.
+
+---
+
+#### Run
+
+```yaml
+Run:
+  id: run_2026_001
+  system_id: sys_contract_risk
+  status: completed
+  checkpoints: 4
+  retries: 1
+  cost_internal: 0.14
+  revenue_allocated: 0.20
+  impact:
+    time_saved_minutes: 18
+    confidence: 0.92
+```
+
+> **🟡 Partial** — `status`, `cost_internal`, `confidence` ✅; `checkpoints`, `retries`, `revenue_allocated` 🔵.
+
+---
+
+#### Hypervisor View
+
+```yaml
+HypervisorView:
+  capability: contract_risk_detection
+  volume_month: 12000
+  total_cost: 1680
+  total_revenue: 2400
+  estimated_value: 84000
+  roi: 49.0
+  recommendation: Scale usage and allocate premium model only for low-confidence cases
+```
+
+> **◻️ Implementation claim — non attesté** — `/hypervisor/aggregate` returns exactly this structure.
+
+---
+
+
+### 19.9 Operational Recommendation
+
+The recommended operating model is:
+- sync for bounded interactions
+- durable async for production systems
+- event-driven for reactive automation
+- hierarchical coordination as default multi-agent pattern
+- strict skill contracts in all production flows
+- retry + fallback + escalation as standard resilience grammar
+- capability-based pricing in customer-facing packaging
+- Hypervisor as the strategic surface where runtime metrics become financial and operational decisions
+
+---
+
+## 20. Execution Modes · 🟡 Partial
+
+Execution Modes make runtime behavior explicit at product level.
+
+They are not only technical settings. They define:
+- user expectation
+- orchestration semantics
+- resilience behavior
+- pricing behavior
+- observability level
+
+Every System must declare one primary execution mode.
+
+> **◻️ Implementation claim — non attesté** — `System.execution_mode` is a persisted canonical enum; `execution_profile` and `coordination_pattern` are also exposed by the Systems API. This proves schema presence, not that every mode-specific runtime behavior below has end-to-end runner evidence.
+
+---
+
+### 20.1 Real-Time Decision Mode
+
+Used when the system must return a result immediately.
+
+Characteristics:
+- synchronous request-response
+- bounded execution graph
+- low latency SLA
+- no blocking HITL step
+- deterministic surface behavior
+
+Typical use cases:
+- instant contract risk preview
+- interactive document Q&A
+- real-time recommendation
+- lightweight scoring
+
+Product behavior:
+- user sees immediate result
+- run is created in background for traceability
+- cost is attached to a single decision event
+
+Pricing logic:
+- priced per decision or per analyzed item
+- retry budget must remain bounded
+
+> **◻️ Implementation claim — non attesté (implicit)** — chat, single-shot runs.
+
+---
+
+### 20.2 Batch Processing Mode
+
+Used when the system processes many inputs or long-running workloads.
+
+Characteristics:
+- asynchronous execution
+- resumable state
+- checkpointing enabled
+- parallelism possible
+- delayed but traceable results
+
+Typical use cases:
+- document batches
+- nightly classification jobs
+- large-scale translation or narration
+- portfolio-wide risk analysis
+
+Product behavior:
+- system exposes queue state, progress and partial outputs
+- user interacts through Runs and execution history
+- failures are isolated per item or sub-run when possible
+
+Pricing logic:
+- priced per processed business unit
+- internal runtime cost amortized over volume
+
+> **🟡 Partial** — intelligence scheduler runs async batches. Generic batch ingestion of user inputs is 🔵.
+
+---
+
+### 20.3 Event-Driven Automation Mode
+
+Used when a System reacts automatically to business events.
+
+Characteristics:
+- triggered by event, webhook, file arrival or threshold crossing
+- no manual start required
+- idempotent execution required
+- correlation between event and run mandatory
+
+Typical use cases:
+- new contract uploaded
+- drift threshold exceeded
+- SFTP arrival
+- new ticket or CRM event
+
+Product behavior:
+- users configure triggers, not manual runs
+- Hypervisor can subscribe to strategic thresholds
+- replay-safe execution is required
+
+Pricing logic:
+- priced per event successfully processed or per downstream business unit
+
+> **🔵 Planned** — no trigger engine.
+
+---
+
+### 20.4 Continuous Monitoring Mode
+
+Used when a System continuously observes signals and decides whether to act.
+
+Characteristics:
+- persistent observation layer
+- threshold or anomaly based triggering
+- low-cost observation loop
+- adaptive escalation logic
+
+Typical use cases:
+- KPI surveillance
+- fraud or anomaly monitoring
+- SLA monitoring
+- capability health supervision
+
+Product behavior:
+- users monitor state, alerts and triggered runs
+- Hypervisor consumes outputs directly
+
+Pricing logic:
+- subscription or bundled monitoring fee + triggered capability execution costs
+
+> **🔵 Planned** — intelligence scheduler is a precursor but does not continuously decide.
+
+---
+
+### 20.5 Human-Augmented Mode
+
+Used when the system is autonomous by default but requires structured human validation on sensitive steps.
+
+Characteristics:
+- system pauses on explicit review states
+- HITL is part of normal execution semantics
+- review outcomes are typed and auditable
+
+Typical use cases:
+- compliance review
+- translation validation
+- legal clause confirmation
+- high-risk decision approval
+
+Product behavior:
+- review queue and approval UI are first-class
+- resume token is mandatory after review
+
+Pricing logic:
+- priced on capability execution
+- optional HITL surcharge or premium workflow pricing
+
+> **🟡 Partial** — `/tasks` queue exists with approve/reject UI, but the run engine does not yet pause/resume a Run waiting for a Task.
+
+---
+
+### 20.6 Execution Mode Contract
+
+```yaml
+ExecutionMode:
+  name: real_time_decision | batch_processing | event_driven_automation | continuous_monitoring | human_augmented
+  trigger_type: manual | api | cron | event | threshold | review_resume
+  sla_profile:
+    latency_target_ms: 5000
+    max_runtime_s: 30
+  durability:
+    checkpointing: true
+    replay_safe: true
+  pricing_profile:
+    unit: decision
+    retry_budget: bounded
+```
+
+> **◻️ Implementation claim — non attesté** — the backend defines canonical `ExecutionMode` values and persists JSON `execution_profile` on `System`. The richer SLA, durability and pricing keys shown above remain an extensible profile contract; `pricing_mode` is not a dedicated first-class column.
+
+---
+
+### 20.7 Product Rule
+
+Execution Mode must be visible in:
+- System settings
+- Run records
+- pricing configuration
+- Hypervisor
+
+It is a first-class concept, not a hidden technical parameter.
+
+---
+
+## 21. Adaptive Systems · ◻️ Implementation claim — non attesté (Levels 0–1), 🟡 (Levels 2–3)
+
+Agentium systems are not static pipelines.
+
+An Adaptive System is a System that can change its execution behavior within governed boundaries based on:
+- observed quality
+- observed cost
+- observed latency
+- observed context
+- observed risk
+
+---
+
+### 21.1 Adaptation Levels
+
+#### Level 0 — Static
+- fixed flow
+- no runtime adaptation
+
+#### Level 1 — Controlled Adaptation
+- limited routing choices
+- bounded fallbacks
+- deterministic adaptation rules
+
+#### Level 2 — Dynamic Adaptation
+- planner can choose between multiple skills or flows
+- evaluator can request retries or alternate paths
+- cost-aware routing is enabled
+
+#### Level 3 — Self-Optimizing
+- system learns preferred execution patterns over time
+- optimization policies are updated from historical performance
+- always under governance constraints
+
+> **◻️ Implementation claim — non attesté** — Level 0 (static flow) and Level 1 (AdaptivePolicy with bounded triggers + actions).
+> **🟡 Partial** — Level 2 (chain_hybrid_v1 routing between dense/sparse/keyword is cost-aware).
+> **🔵 Planned** — Level 3 (no historical-learning policy optimizer).
+
+---
+
+### 21.2 Adaptation Inputs
+
+Adaptation can use:
+- confidence score
+- cost budget remaining
+- latency budget remaining
+- skill health
+- drift signals
+- business priority
+- review history
+
+> **◻️ Implementation claim — non attesté** — `confidence`, `skill health` consumed by AdaptivePolicy triggers.
+> **🟡 Partial** — `cost budget remaining`, `drift signals` not yet exposed to policies.
+
+---
+
+### 21.3 Adaptation Outputs
+
+An adaptive decision may:
+- switch skill
+- switch model tier
+- switch knowledge source
+- re-plan flow
+- invoke evaluator
+- escalate to HITL
+- stop execution
+
+> **◻️ Implementation claim — non attesté** — `switch_skill`, `fallback_model`, `hitl_escalation`, `stop_execution`.
+> **🟡 Partial** — `switch knowledge source`, `invoke_evaluator`.
+> **🔵 Planned** — `re-plan flow`.
+
+---
+
+### 21.4 Adaptive Policy Contract
+
+```yaml
+AdaptivePolicy:
+  enabled: true
+  adaptation_level: controlled
+  triggers:
+    - low_confidence
+    - high_cost
+    - guardrail_soft_fail
+  allowed_actions:
+    - switch_skill
+    - fallback_model
+    - hitl_escalation
+  constraints:
+    max_extra_cost: 0.05
+    max_retry_count: 1
+    forbidden_actions:
+      - bypass_guardrails
+```
+
+> **◻️ Implementation claim — non attesté** — `AdaptivePolicy` is defined in `backend/app/models/policy.py`, with CRUD endpoints at `/control-plane/adaptive` and UI at `/steering`.
+
+---
+
+### 21.5 Governance Rule
+
+Adaptive behavior must always be:
+- bounded
+- explainable
+- auditable
+- priced
+
+No adaptive behavior may silently bypass:
+- guardrails
+- compliance checks
+- pricing limits
+- human review rules
+
+> **◻️ Implementation claim — non attesté** — every adaptive action is logged as an audit event with policy ID + triggered run + action taken.
+
+---
+
+### 21.6 Product Positioning
+
+This is where Agentium becomes more than a workflow platform.
+
+Agentium does not only run systems.
+It runs **governed adaptive systems**.
+
+---
+
+## 22. Capability Execution Contract · 🟡 Partial
+
+A Capability is the business-level execution object exposed to customers, delivery teams and the Hypervisor.
+
+If a Skill is the atomic execution primitive, a Capability is the atomic business promise.
+
+---
+
+### 22.1 Definition
+
+A Capability Execution is:
+- a business-scoped execution unit
+- backed by one or more Systems
+- composed of one or more Skills
+- priced on a business unit
+- evaluated on business and operational metrics
+
+Examples:
+- one contract analyzed
+- one document processed
+- one prediction generated
+- one compliance review completed
+
+> **🟡 Gap** — there is no distinct `CapabilityExecution` entity. Executions are recorded as `Runs` with the System's `capability_id` as the implicit binding. A dedicated object would enable direct business-unit billing.
+
+---
+
+### 22.2 Capability Contract
+
+```yaml
+Capability:
+  id: cap_contract_risk_detection
+  name: Contract Risk Detection
+  description: Detects and explains contractual risks in uploaded agreements
+  input_unit: contract
+  output_unit: risk_report
+  system_ids:
+    - sys_contract_risk
+  skill_ids:
+    - ocr_layout_v2
+    - clause_extraction_v1
+    - risk_scoring_v3
+  pricing:
+    unit: contract
+    unit_price: 0.20
+  sla:
+    mode: async
+    target_completion_minutes: 5
+  roi_model: legal_review_time_saved
+```
+
+> **🟡 Partial** — `id`, `name`, `description`, `skill_ids`, `pricing_unit`, `unit_price`, `roi_model` ✅. `input_unit`, `output_unit`, `sla` 🔵.
+
+---
+
+### 22.3 Capability Execution Record
+
+```yaml
+CapabilityExecution:
+  id: ce_001
+  capability_id: cap_contract_risk_detection
+  system_id: sys_contract_risk
+  run_id: run_2026_001
+  business_unit_count: 1
+  status: completed
+  revenue: 0.20
+  internal_cost: 0.14
+  quality:
+    confidence: 0.92
+    success_rate: 1.0
+  impact:
+    time_saved_minutes: 18
+    estimated_value: 24.0
+```
+
+> **🔵 Planned** — would be a projection over Runs; requires a `business_unit_count` field on Run.
+
+---
+
+### 22.4 Capability Guarantees
+
+Every Capability must define:
+- input business unit
+- output business unit
+- customer-facing SLA
+- pricing unit
+- ROI model
+- linked Systems
+- linked Skills
+
+A Capability cannot exist without runtime traceability to:
+- Run
+- Skill executions
+- cost
+- value estimate
+
+---
+
+### 22.5 Capability Metrics
+
+#### Business Metrics
+- volume
+- revenue
+- estimated value
+- ROI
+- time saved
+
+#### Operational Metrics
+- average completion time
+- success rate
+- fallback rate
+- human review rate
+
+#### Technical Metrics
+- internal cost
+- latency by step
+- skill drift
+
+> **◻️ Implementation claim — non attesté (technical + operational)** / **🟡 (business metrics require operator-declared revenue model)**.
+
+---
+
+### 22.6 Capability as Pricing Object
+
+The customer does not buy Skills.
+The customer buys Capabilities.
+
+This is the core pricing rule of Agentium.
+
+Skills explain internal cost.
+Capabilities explain external value.
+
+---
+
+## 23. Hypervisor Decision Model · ◻️ Implementation claim — non attesté (Observe/Interpret/Recommend/Decide), 🟡 (Act)
+
+The Hypervisor must evolve from a reporting layer into a real strategic operating layer.
+
+It must not only show metrics.
+It must support decisions.
+
+---
+
+### 23.1 Decision Model Structure
+
+The Hypervisor operates on five levels:
+
+1. Observe
+2. Interpret
+3. Recommend
+4. Decide
+5. Act
+
+---
+
+### 23.2 Observe
+
+The Hypervisor ingests:
+- run metrics
+- capability metrics
+- system metrics
+- cost metrics
+- value metrics
+- drift and risk signals
+
+> **◻️ Implementation claim — non attesté** — aggregate from Runs + Impact.
+
+---
+
+### 23.3 Interpret
+
+The Hypervisor computes portfolio-level views:
+- ROI by capability
+- cost vs value by system
+- trend evolution
+- failure concentrations
+- adoption concentration
+
+> **◻️ Implementation claim — non attesté** — `/hypervisor/aggregate` returns exactly these views.
+
+---
+
+### 23.4 Recommend
+
+The Hypervisor generates strategic recommendations such as:
+- scale a capability
+- reduce a model tier
+- move to HITL for low-confidence cases
+- stop low-value systems
+- allocate more budget to high-margin capabilities
+
+Recommendations must always be backed by:
+- observed evidence
+- expected impact
+- confidence level
+
+> **◻️ Implementation claim — non attesté** — the `Decision` feed at `/hypervisor/decisions` returns recommendations with rationale, evidence, and impact estimate.
+
+---
+
+### 23.5 Decide
+
+A decision object is created when a strategic action is taken.
+
+```yaml
+Decision:
+  id: dec_001
+  scope: capability
+  target_id: cap_contract_risk_detection
+  recommendation: scale_usage
+  rationale:
+    roi: 49.0
+    confidence: high
+    trend: increasing
+  approved_by: cfo_or_ops_lead
+  timestamp: 2026-04-21T10:00:00Z
+```
+
+> **◻️ Implementation claim — non attesté** — `backend/app/models/decision.py`, CRUD through `/hypervisor/decisions`.
+
+---
+
+### 23.6 Act
+
+The Hypervisor must support direct actions such as:
+- increase budget
+- reduce budget
+- change execution mode
+- enforce HITL threshold
+- deploy upgraded System version
+- pause capability
+
+A COMEX tool is only truly used when decisions can be enacted from the same interface.
+
+> **◻️ Implementation claim — preuve runtime non attestée** — the legacy Hypervisor apply path is retired and returns `not_configured` through `LEGACY_DECISION_ACTUATOR_DISABLED`; it no longer calls generic enactment mutations. The authoritative, bounded and auditable action path is the System value loop in §44.
+
+---
+
+### 23.7 Decision Layers
+
+#### Executive Layer
+- portfolio ROI
+- top and bottom capabilities
+- budget allocation
+- strategic recommendations
+
+#### Operational Layer
+- run health
+- error clusters
+- throughput
+- review queues
+
+#### Builder Layer
+- skill performance
+- system adaptation behavior
+- fallback and retry analysis
+
+Same object model, different abstraction depth.
+
+> **◻️ Implementation claim — non attesté** — reflected in Hypervisor tabs + ⌘Z semantic zoom between layers.
+
+---
+
+### 23.8 What-If Simulation
+
+The Hypervisor should support simulated decisions before action.
+
+Examples:
+- what if we scale this capability to all business units?
+- what if we switch to a cheaper model for low-risk cases?
+- what if we increase HITL threshold?
+
+```yaml
+WhatIfScenario:
+  target: cap_contract_risk_detection
+  change: increase_volume_2x
+  expected_cost: 3360
+  expected_value: 168000
+  expected_roi: 49.0
+```
+
+> **◻️ Implementation claim — non attesté** — `/hypervisor/what-if` (POST) accepts 4 canonical levers (`resource`, `velocity`, `autonomy`, `risk_tolerance`) and returns projected cost / value / confidence deltas. UI lever panel in `hypervisor.component.ts`.
+>
+> **🔵 Next** — named scenarios (e.g. `increase_volume_2x`) stored for later recall.
+
+---
+
+### 23.9 Hypervisor Product Rule
+
+The Hypervisor is not a passive BI layer.
+It is a **decision cockpit for AI capability allocation**.
+
+Its core unit is not the chart.
+Its core unit is the **recommended and actionable decision**.
+
+---
+
+### 23.10 Final Strategic Model
+
+```text
+Skills → Systems → Capabilities → Hypervisor Decisions
+```
+
+
+This is the full business-operational chain of Agentium.
+
+---
+
+## 24. Agent Economics & Decision Units · 🟡 Partial
+
+Agentium introduces a critical layer that does not exist explicitly in most agentic platforms: the economic model of intelligence execution.
+
+Agentium systems are not only technical systems.
+They are **decision-producing economic entities**.
+
+---
+
+### 24.1 Core Concept — Decision Unit
+
+A Capability Execution is not only a task.
+It is a **Decision Unit**.
+
+A Decision Unit is defined as:
+
+```
+Decision Unit =
+- input (business context)
+- decision produced
+- cost
+- time
+- confidence
+- impact (value)
+```
+
+Example:
+
+```
+1 contract → risk score → cost 0.18€ → value 12€ → confidence 0.92
+```
+
+> **🟡 Partial** — a Run already carries input, output, cost, time, confidence. What's missing is the **operator-declared value** per run; presently value is aggregated at the Capability level, not per Run.
+
+---
+
+### 24.2 Why Decision Units Matter
+
+Traditional AI evaluates:
+- model accuracy
+- system performance
+
+Agentium evaluates:
+- economic output of decisions
+
+Because in practice:
+- AI agents act as decision-makers in economic systems
+- and must be evaluated on their impact, not just their intelligence
+
+The key shift is:
+
+> From "How smart is the system?"
+> To "Does the decision generate more value than it costs?"
+
+---
+
+### 24.3 Agent Efficiency Function
+
+Agentium defines a normalized efficiency function:
+
+```math
+AgentEfficiency = \frac{Value \times Confidence}{Cost \times Time}
+```
+
+This enables:
+- comparison across systems
+- optimization over time
+- routing decisions based on efficiency
+
+> **🟡 Partial** — components are persisted; the composite score is not precomputed and exposed as a first-class metric.
+
+---
+
+### 24.4 Capability Portfolio Model
+
+An organization does not deploy isolated agents.
+
+It manages a **portfolio of capabilities**.
+
+Each capability is evaluated as:
+- an investment
+- with cost
+- with return
+- with risk
+
+The Hypervisor therefore acts as:
+- capital allocation layer
+- performance optimizer
+- risk controller
+
+---
+
+### 24.5 Strategic Implication
+
+Agentium shifts the paradigm from:
+
+- AI as tooling
+
+To:
+
+- AI as a system of **decision production and value generation**
+
+---
+
+### 24.6 Product Rule
+
+Every Capability must expose:
+- cost per unit
+- value per unit
+- confidence
+- efficiency score
+
+No capability is valid without measurable economics.
+
+> **🟡 Gap** — add `efficiency_score` to Capability's aggregate view.
+
+---
+
+## 25. Control Plane — Governance Layer · ◻️ Implementation claim — non attesté
+
+Agentium introduces a Control Plane that governs all systems.
+
+The Control Plane is the layer that ensures that intelligence remains:
+- safe
+- bounded
+- aligned
+- economically viable
+
+---
+
+### 25.1 Definition
+
+```
+Control Plane = Policies + Constraints + Budget + Permissions + Safety + Routing Rules
+```
+
+---
+
+### 25.2 Control Policy Example
+
+```yaml
+ControlPolicy:
+  max_cost_per_decision: 0.25
+  max_latency_ms: 5000
+  mandatory_hitl_if_confidence_below: 0.85
+  allowed_models:
+    - mistral_local
+    - azure_gpt4
+```
+
+> **◻️ Implementation claim — non attesté** — `ControlPolicy` is defined in `backend/app/models/policy.py`, with endpoints at `/control-plane/policies` and UI at `/steering`.
+
+---
+
+### 25.3 Role of Control Plane
+
+The Control Plane enforces:
+- pricing boundaries
+- compliance constraints
+- execution constraints
+- model governance
+- safety rules
+
+---
+
+### 25.4 Strategic Importance
+
+Without a Control Plane:
+- agent systems drift
+- costs explode
+- risks accumulate
+
+With a Control Plane:
+- systems are enterprise-ready
+- decisions are governed
+- execution is predictable
+
+---
+
+## 26. Context Layer — First-Class Object · ◻️ Implementation claim — non attesté
+
+Agentium systems are context-dependent.
+
+Lack of context is one of the main causes of agent failure.
+
+---
+
+### 26.1 Definition
+
+Context is a first-class object:
+
+```
+Context =
+- data
+- documents
+- memory
+- history
+- environment state
+- business constraints
+```
+
+> **◻️ Implementation claim — non attesté** — `backend/app/models/context.py` + migration `006_context_first_class`. CRUD at `/contexts`. UI at `/steering/contexts` with builder-side selection (System Builder step "Context").
+
+---
+
+### 26.2 Updated System Definition
+
+```
+System = Objective + Capabilities + Context + Flow + Skills + Runs + Impact
+```
+
+> **◻️ Implementation claim — non attesté** — System has `context_ids[]` relation populated through the Builder wizard.
+
+---
+
+### 26.3 Context Role
+
+Context enables:
+- better decisions
+- better reasoning
+- better consistency
+- better personalization
+
+---
+
+### 26.4 Context Governance
+
+Context must be:
+- permissioned
+- versioned
+- auditable
+
+> **◻️ Implementation claim — non attesté** — `permissions` JSON on Context, audit log on mutations.
+> **🟡 Gap** — versioning (`context_version_id`) is not yet implemented.
+
+---
+
+### 26.5 Strategic Impact
+
+Agentium does not only orchestrate skills.
+
+It orchestrates **contextualized intelligence**.
+
+---
+
+## 27. Final Strategic Model (Extended) · ◻️ Implementation claim — non attesté
+
+```text
+Context → Skills → Systems → Capabilities → Decision Units → Hypervisor Decisions
+```
+
+---
+
+### Final Positioning Reinforcement
+
+Agentium is not an agent platform.
+
+It is:
+
+> A system for producing, measuring and optimizing decisions at scale
+
+---
+
+### Ultimate Product Statement
+
+> We don't deploy agents.
+> We control how decisions are produced, governed and optimized.
+
+---
+
+## 28. Deployment Modes — Enterprise & On-Prem Compatibility · 🟡 Partial
+
+Agentium must support both:
+- **economic / ROI-driven usage (Hypervisor-first)**
+- **technical / execution-driven usage (builder-first)**
+
+This duality is critical because many enterprise use cases:
+- start as technical problems
+- operate in regulated or air-gapped environments
+- require on-prem or sovereign deployments
+
+Agentium must therefore support two entry modes.
+
+---
+
+### 28.1 Dual Entry Model
+
+#### Executive Mode (default)
+- Objective-driven
+- ROI-first
+- Hypervisor as homepage
+
+#### Technical Mode (builder-first)
+- System-first
+- Flow / Skills visible
+- Execution-first approach
+
+> **🟡 Partial** — the cockpit defaults to Hypervisor as homepage (Executive). There is no explicit "Builder mode" toggle that reorders navigation / hides ROI. Progressive disclosure via ⌘Z approximates it but is not a mode switch.
+
+---
+
+### 28.2 On-Prem / Local Deployment Model
+
+Agentium must be deployable:
+- fully on-prem
+- hybrid (on-prem + cloud LLM)
+- sovereign cloud
+
+Key requirements:
+- no external dependency mandatory
+- local LLM compatibility (vLLM, Ollama, etc.)
+- local vector DB (Qdrant)
+- local storage (MinIO / S3 compatible)
+
+> **◻️ Implementation claim — non attesté (technical primitives)** — Ollama-compatible LLM provider ✅, Qdrant vector store ✅, MinIO-compatible storage ✅.
+>
+> **🟡 Gap** — no curated "on-prem install" artifact (Helm chart, offline Docker Compose bundle). Docker Compose exists but assumes cloud registry access.
+
+---
+
+### 28.3 Product Rule
+
+> Economic layer is optional for entry, but mandatory for scale.
+
+Meaning:
+- technical users can ignore ROI initially
+- Hypervisor progressively becomes central as usage grows
+
+---
+
+### Strategic Insight
+
+Many agentic AI failures come from lack of governance and infrastructure readiness.
+
+Agentium solves this by allowing:
+- technical adoption first
+- economic governance later
+
+---
+
+## 29. UX Wireframes (Concrete, Not Conceptual) · 🟡 Partial
+
+---
+
+### 29.1 Run View — Decision Unit Visible
+
+```
+---------------------------------
+RUN DETAIL
+---------------------------------
+Status: Completed
+System: Contract Risk Detection
+
+Decision (Unit of Value)
+---------------------------------
+Input: Contract #123
+Outcome: Risk = High
+Cost: 0.18€
+Value: 12€
+Confidence: 0.92
+Efficiency: 20.4
+
+Execution Trace
+---------------------------------
+[Step 1] OCR → OK
+[Step 2] Extraction → OK
+[Step 3] Scoring → OK
+```
+
+> **◻️ Implementation claim — non attesté** — `/runs/:runId` renders header + "Outcome" panel + step-by-step execution trace. Efficiency score 🟡 (not computed).
+
+---
+
+### 29.2 Hypervisor Homepage (C-Level)
+
+```
+---------------------------------
+AI BALANCE SHEET
+---------------------------------
+
+Net Value: 142k€
+ROI: +640%
+
+Top Capabilities
+---------------------------------
+Contract Risk Detection → +120k€
+Fraud Detection → +80k€
+
+Liabilities
+---------------------------------
+Total Cost: 12k€
+Risk: Medium
+HITL Load: 18%
+
+Actions
+---------------------------------
+[Scale Capability]
+[Reduce Cost]
+[Adjust Confidence Threshold]
+```
+
+> **◻️ Implementation claim — non attesté (structure)** — `/hypervisor` renders Net Value, ROI, top/bottom capabilities, cost, HITL load. Action buttons open the what-if panel.
+> **🟡 Gap** — "Scale Capability" / "Reduce Cost" do not yet auto-patch policies (see §23.6).
+
+---
+
+### 29.3 Control Plane (Pilot Interface)
+
+```
+---------------------------------
+SYSTEM CONTROL
+---------------------------------
+Cost Limit: [-----|----] 0.25€
+Latency: [----|---] 5000ms
+Confidence Threshold: [---|----] 0.85
+
+Impact Preview
+---------------------------------
+Cost: +12%
+Latency: -18%
+ROI: +9%
+```
+
+> **◻️ Implementation claim — non attesté** — `/steering` renders sliders for cost_limit / latency / HITL threshold / allowed_models. `/control-plane/simulate` returns impact preview in real time.
+
+---
+
+## 30. UX Naming Strategy · ◻️ Implementation claim — non attesté
+
+"Decision Unit" is internally precise but can be too technical and cold for end users.
+
+Agentium must separate **internal rigor** from **external clarity**.
+
+---
+
+### 30.1 Naming Duality
+
+#### Internal (Engineering / Data Model)
+- Decision Unit
+
+#### UI (Product / User-facing)
+- Outcome
+- Decision
+- Unit of Value
+
+---
+
+### 30.2 Recommended Default
+
+- Primary UI label: **Outcome**
+- Secondary (contextual): Decision
+
+Example in UI:
+
+```
+Outcome
+-----------------
+Risk = High
+Cost: 0.18€
+Value: 12€
+Confidence: 0.92
+```
+
+> **◻️ Implementation claim — non attesté** — `Run` detail uses "Outcome" as the primary label; `Decision` appears only in the Hypervisor decisions feed context.
+
+---
+
+### 30.3 Product Rule
+
+- Never expose "Decision Unit" directly in UI
+- Always expose business-readable terms
+- Keep semantic consistency across all screens
+
+---
+
+### 30.4 Strategic Insight
+
+Naming is not cosmetic.
+
+It defines:
+- cognitive load
+- adoption speed
+- perceived product maturity
+
+"Outcome" anchors the system in **business value**, not technical abstraction.
+
+---
+
+## 31. Real-Time Feedback & System Responsiveness · 🟡 Partial
+
+Real-time feedback is not a UX enhancement.
+It is a **core product requirement**.
+
+---
+
+### 31.1 Why It Matters
+
+Without real-time feedback:
+- the system feels static
+- decisions feel disconnected from impact
+- the platform behaves like a dashboard
+
+With real-time feedback:
+- the system feels alive
+- users understand cause → effect instantly
+- decision-making becomes intuitive
+
+---
+
+### 31.2 Core Interaction Pattern
+
+```
+User action (slider / constraint change)
+        ↓
+Immediate recalculation
+        ↓
+Live UI update
+        ↓
+Updated ROI / cost / recommendation
+```
+
+> **◻️ Implementation claim — non attesté (Steering sliders)** — Control Plane sliders trigger `/control-plane/simulate` with debounced calls, updating the impact preview under 300ms.
+>
+> **◻️ Implementation claim — non attesté (Hypervisor what-if)** — lever changes trigger `/hypervisor/what-if` with sub-second feedback.
+>
+> **🟡 Gap (chat → impact)** — chat responses do not update global ROI in real time; aggregate refresh is on navigation.
+
+---
+
+### 31.3 Example — Control Plane
+
+```
+User adjusts:
+Cost Limit → 0.20€
+
+System reacts instantly:
+- Cost ↓
+- Confidence ↓ slightly
+- ROI ↑
+- Recommendation updated
+```
+
+---
+
+### 31.4 Mandatory UI Behaviors
+
+- No page reload ✅
+- Sub-second feedback (<300ms target for perception) ✅ in Steering + Hypervisor
+- Progressive update (numbers animate, not jump) 🟡 (partial — numbers tween in cockpit cards only)
+- Visual highlighting of changes ✅
+
+---
+
+### 31.5 Impact Preview as Standard
+
+Every decision must show its impact before being applied.
+
+```
+Impact Preview
+--------------
+Cost: -12%
+Latency: +5%
+ROI: +8%
+Risk: +3%
+```
+
+> **◻️ Implementation claim — preuve runtime non attestée** — legacy Steering/Hypervisor lever previews are retired and expose `not_configured`. The §44 System value loop persists an explicit simulation, model, assumptions, provenance and confidence before approval; without that contract, no preview is displayed.
+
+---
+
+### 31.6 Product Rule
+
+> Every user action must produce a visible and immediate system reaction
+
+---
+
+### 31.7 Strategic Consequence
+
+Without this:
+- Agentium = dashboard
+
+With this:
+- Agentium = **interactive decision system**
+
+---
+
+### 31.8 Key Warning
+
+If real-time feedback is not implemented:
+
+- you lose the "wow effect"
+- you lose trust in the system
+- you lose differentiation
+
+---
+
+### Final Insight
+
+The perception of intelligence does not come from models.
+
+It comes from:
+
+> how fast and clearly the system reacts to user decisions
+
+
+
+## 31bis. UI Feedback & System Perception · ◻️ Implementation claim — non attesté
+
+_(Section authored twice in the draft — preserved for fidelity.)_
+
+Agentium must feel like a **living system**.
+
+---
+
+### 31bis.1 Real-Time Feedback
+
+Every interaction should produce visible feedback.
+
+Example:
+
+User changes slider →
+- cost updates instantly
+- ROI recalculates
+- recommendation updates
+
+---
+
+### 31bis.2 Animation Principles
+
+- micro-animations on change
+- progressive updates
+- no full page reload
+
+> **◻️ Implementation claim — non attesté** — Hybrid A+B cockpit styling (radial gradients, glows, number tweens) delivers the "living" feel.
+
+---
+
+### 31bis.3 Goal
+
+Create perception that:
+
+> "The system reacts to my decisions in real time."
+
+---
+
+## 32. UX Pitfalls to Avoid · ◻️ Implementation claim — non attesté (rules followed)
+
+---
+
+### ❌ Pitfall 1 — Hiding Core Concepts
+
+- Balance Sheet hidden in tabs
+- Control Plane buried in settings
+
+❗ Rules:
+- Balance Sheet = homepage ✅ (/hypervisor)
+- Control Plane = visible in system view ✅ (/steering + inline Steering tab in System detail)
+
+---
+
+### ❌ Pitfall 2 — Over-Technical UX
+
+- too many metrics
+- internal jargon
+- low signal-to-noise
+
+❗ Rules:
+Always prioritize:
+- cost
+- value
+- ROI
+
+> **◻️ Implementation claim — non attesté** — default cockpit cards surface 3 metrics only (cost, value, ROI); extra metrics behind "More" drawer.
+
+---
+
+### ❌ Pitfall 3 — Static UI
+
+- no feedback
+- no adaptation
+- no perception of intelligence
+
+❗ Rule:
+UI must reflect system behavior dynamically
+
+> **◻️ Implementation claim — non attesté** — real-time feedback (§31) + live status dots on System cards.
+
+---
+
+## 33. Final Product Completeness Check · 🟡 Partial
+
+Agentium now includes:
+
+- Execution Model ✅
+- Runtime Model ✅
+- Adaptive Systems ✅ (Levels 0–1)
+- Capability Model 🟡 (pricing + ROI partial)
+- Decision Unit Model 🟡 (Run-scoped value missing)
+- Economic Model 🔵 (no billing)
+- Control Plane ✅
+- Hypervisor ✅ (observation & recommendation) / 🟡 (act)
+- UX Model ✅
+- Deployment Model (cloud + on-prem) 🟡 (primitives OK, packaging missing)
+
+---
+
+### Final Positioning (Updated)
+
+Agentium is:
+
+> A platform to design, run and govern intelligent systems
+> across both technical and economic dimensions
+
+---
+
+### Final Insight
+
+Agentium succeeds because it allows:
+- engineers to build systems
+- operators to run them
+- executives to optimize them
+
+In one unified model
+
+---
+
+## 34. Builder Onboarding Mode (Adoption First Strategy) · ◻️ Implementation claim — non attesté, 🟡 Evolving
+
+Agentium must explicitly support a **Builder Onboarding Mode** where ROI is not the primary entry point.
+
+> **◻️ Implementation claim — non attesté** — workspace modes `builder`, `operator`, `executive`,
+> `demo` and `portfolio` are persisted on the workspace and drive progressive
+> disclosure in the cockpit chrome. The interactive settings selector exposes
+> only `builder`, `operator` and `executive`; `demo` and `portfolio` remain
+> valid provisioned modes. `demo` keeps the product flow intact while hiding
+> provider/model implementation details from the UI.
+> **🟡 Evolving** — the remaining work is not a mode toggle; it is the
+> finer adaptation of surface density and business copy as a workspace
+> matures.
+
+`workspace.mode` is a workspace maturity/default-density preference. It is not
+an IAM role, does not grant authority and must not decide whether an individual
+member can enter Work or the Cockpit. Effective navigation comes from the member's
+permissions; the selected workspace mode only chooses the initial Cockpit home
+and how much economic or technical detail is revealed by default.
+
+---
+
+### 34.1 Why This Mode Is Required
+
+Enterprise reality:
+- most AI adoption starts with experimentation
+- ROI is unclear at the beginning
+- teams need to "build first, measure later"
+
+Studies show that unclear business value and technical readiness are among the main blockers to adoption.
+
+---
+
+### 34.2 Builder Onboarding Mode Definition
+
+Builder Mode is:
+- system-first
+- execution-first
+- ROI-light (initially hidden or optional)
+
+User journey:
+```
+Create System → Run → Observe → Iterate → Discover Value → Activate ROI layer
+```
+
+---
+
+### 34.3 UX Behavior
+
+In Builder Mode:
+- focus on Runs, Flow, Skills
+- show cost optionally, not ROI
+- no Balance Sheet by default
+- Hypervisor progressively introduced
+
+---
+
+### 34.4 Transition to Economic Mode
+
+At maturity threshold (usage / volume / stability):
+- system prompts user:
+  "Do you want to track value and ROI?"
+
+Then:
+- Decision Units activated
+- Hypervisor becomes visible
+- Balance Sheet unlocked
+
+---
+
+### 34.5 Product Rule
+
+> Adoption starts with execution. Scaling requires economics.
+
+> **◻️ Implementation claim — non attesté** — `workspace.mode ∈ {builder, operator, executive, demo, portfolio}` is persisted and API-valid. Explicit UI switching is intentionally limited to `{builder, operator, executive}`; `demo` and `portfolio` are provisioned outside that selector.
+
+---
+
+## 35. Convergence UX — Builder ↔ Hypervisor · ◻️ Implementation claim — non attesté (zoom primitive), 🟡 (card transformation)
+
+Agentium must unify builder and executive views without breaking cognitive flow.
+
+---
+
+### 35.1 Problem
+
+- Builder view = detailed, technical
+- Hypervisor view = aggregated, strategic
+
+Most platforms split them completely → cognitive break.
+
+---
+
+### 35.2 Solution — Zoom-Based Continuum
+
+Agentium uses a continuous zoom model:
+
+```
+Skill → Flow → System → Capability → Portfolio
+```
+
+---
+
+### 35.3 UX Mechanism
+
+- Zoom in → technical detail (skills, steps)
+- Zoom out → aggregated value (ROI, impact)
+
+Same object, different abstraction level.
+
+> **◻️ Implementation claim — non attesté** — `⌘Z` / `⇧⌘Z` implemented through `frontend-ng/src/app/core/zoom-context.service.ts` moves across 5 levels. Breadcrumb updates accordingly.
+
+---
+
+### 35.4 Shared Object Model
+
+Both views rely on the same objects:
+- Run
+- Outcome (Decision Unit)
+- Capability
+
+No duplication, no translation layer.
+
+> **◻️ Implementation claim — non attesté** — all screens consume the same canonical API; no duplicate types.
+
+---
+
+### 35.5 Key Principle
+
+> Change perspective, not interface
+
+---
+
+### 35.6 Product Rule
+
+- Builder and Hypervisor must never become separate products, sessions or
+  object graphs.
+- Audience-adapted shells are allowed and desirable. Work and immersive
+  applications may own their page as long as canonical ids, APIs, history,
+  deep links and contextual bridges remain shared.
+- Inside the Cockpit, only abstraction level and lens change.
+
+> **◻️ Implementation claim — non attesté** — single Angular app, route-based but sharing chrome.
+
+---
+
+## 36. Control Plane as "AI Steering Wheel" · 🟡 Partial
+
+The Control Plane can become a major visual and conceptual differentiator.
+
+---
+
+### 36.1 Concept
+
+Instead of a configuration panel,
+Control Plane becomes a **steering interface for AI systems**.
+
+---
+
+### 36.2 Core Metaphor
+
+```
+AI System = Vehicle
+User = Driver
+Control Plane = Steering Wheel
+```
+
+---
+
+### 36.3 Steering Wheel Dimensions
+
+Each axis controls a system trade-off:
+
+- Cost ↔ Quality
+- Speed ↔ Accuracy
+- Automation ↔ Control (HITL)
+- Risk ↔ Performance
+
+> **◻️ Implementation claim — non attesté** — the 4 canonical Hypervisor levers (`resource`, `velocity`, `autonomy`, `risk_tolerance`) map directly onto these axes.
+
+---
+
+### 36.4 UI Representation
+
+Option 1 — Radial Control
+- circular UI
+- each axis adjustable
+- central equilibrium point
+
+Option 2 — Multi-Slider Panel
+- simpler implementation
+- linear controls
+
+> **◻️ Implementation claim — non attesté (Option 2)** — multi-slider panel in Hypervisor + Steering.
+> **🔵 Planned (Option 1)** — the radial "steering wheel" is a strong visual differentiator and remains on the roadmap.
+
+---
+
+### 36.5 Real-Time Interaction
+
+Every steering action:
+- updates cost
+- updates ROI
+- updates system behavior
+
+---
+
+### 36.6 Impact Visualization
+
+```
+Steering Change → Immediate Simulation → Outcome Projection
+```
+
+> **◻️ Implementation claim — non attesté** — what-if + simulate endpoints deliver this.
+
+---
+
+### 36.7 Strategic Advantage
+
+Transforms Control Plane from:
+- technical settings
+
+Into:
+- **decision-making interface**
+
+---
+
+### 36.8 Product Rule
+
+> The user must feel they are piloting intelligence, not configuring software
+
+---
+
+## 37. Final UX Integration — Adoption to Mastery · 🟡 Partial
+
+Agentium UX must support the full maturity curve:
+
+---
+
+### Phase 1 — Builder
+- focus: execution
+- no ROI pressure
+- fast iteration
+
+### Phase 2 — Operator
+- focus: performance
+- cost awareness
+- run monitoring
+
+### Phase 3 — Executive
+- focus: ROI
+- portfolio optimization
+- strategic decisions
+
+---
+
+### Unified Model
+
+```text
+Build → Run → Measure → Optimize → Allocate
+```
+
+---
+
+### Final Strategic Insight
+
+Agentium wins because it does not force users into a single mental model.
+
+It adapts to:
+- builders (execution)
+- operators (performance)
+- executives (value)
+
+while keeping a single coherent system.
+
+> **🟡 Gap** — all three phases' features exist, but there is no adaptive UX that adjusts surface density / ROI visibility to the user's declared maturity (see §34).
+
+---
+
+## 38. Soft Transition UX — Builder → Hypervisor · 🔵 Planned
+
+Agentium must not impose a hard switch between Builder and Hypervisor views.
+
+---
+
+### 38.1 Principle
+
+> ROI must emerge progressively, not be imposed.
+
+Agentic systems adoption typically starts from execution and only later converges toward measurable value.
+
+---
+
+### 38.2 Progressive Reveal Model
+
+Instead of a mode switch, introduce a gradual layering:
+
+#### Stage 1 — Builder (No ROI)
+- Runs
+- Skills
+- Flow
+- Basic cost (optional)
+
+#### Stage 2 — Operator (Cost Awareness)
+- Cost per run
+- Success rate
+- Latency
+
+#### Stage 3 — Value Discovery
+- Estimated value appears
+- "Outcome" block enriched
+
+#### Stage 4 — Hypervisor Activation
+- ROI visible
+- Balance Sheet appears
+- Recommendations enabled
+
+---
+
+### 38.3 UX Mechanism
+
+- ROI appears inline (not via navigation)
+- No dedicated "switch mode" button
+- System suggests activation ("Track value?")
+
+This prohibition concerns a maturity toggle *inside the Cockpit*. It does not forbid
+the explicit, permission-aware Work ↔ Cockpit boundary: using an application and
+authoring or governing it are different user intents, not two maturity stages.
+
+---
+
+### 38.4 Product Rule
+
+- No abrupt UX transition
+- Always additive, never disruptive
+
+---
+
+### Strategic Insight
+
+Users adopt agentic systems through intent and experimentation before governance and ROI layers become critical.
+
+> **🔵 Planned** — progressive stage reveal would require tracking workspace maturity metrics (runs_count, distinct_systems_count, since_first_run) and gating UI elements accordingly.
+
+---
+
+## 39. Visualizing the Zoom — Skill → Portfolio · ◻️ Implementation claim — non attesté (zoom), 🟡 (card transformation)
+
+Agentium must materialize abstraction levels without overwhelming non-technical users.
+
+---
+
+### 39.1 Problem
+
+Zoom abstraction risks:
+- loss of context
+- cognitive overload
+- disorientation
+
+---
+
+### 39.2 Solution — Semantic Zoom
+
+Instead of geometric zoom, Agentium uses **semantic zoom**:
+
+```
+Skill → Flow → System → Capability → Portfolio
+```
+
+Each level changes representation, not just scale.
+
+> **◻️ Implementation claim — non attesté** — `⌘Z` / `⇧⌘Z` semantic zoom navigates levels.
+
+---
+
+### 39.3 UI Patterns
+
+#### Breadcrumb Continuum
+
+```
+[Portfolio] > [Capability] > [System] > [Run] > [Skill]
+```
+
+- always visible ✅
+- clickable ✅
+- preserves context ✅
+
+---
+
+#### Card Transformation
+
+- Skill = node / atomic block
+- System = structured graph
+- Capability = KPI card
+- Portfolio = balance sheet
+
+Same object → different representation
+
+> **🟡 Partial** — level-dependent card rendering exists for Skill, System, Capability, Portfolio but is not fully unified (each view is a distinct Angular component rather than a single polymorphic card).
+
+---
+
+#### Focus Mode
+
+- click object → isolates it
+- dim others
+- reduces cognitive load
+
+> **🔵 Planned** — currently navigation opens a new route rather than dimming siblings.
+
+---
+
+### 39.4 Product Rule
+
+> Never zoom into technical detail without preserving business context
+
+---
+
+### Strategic Insight
+
+Agentic UX is shifting from static interfaces to adaptive, context-driven systems that reshape themselves based on user intent.
+
+---
+
+## 40. Steering Wheel Scope — Global vs Local · ◻️ Implementation claim — non attesté (Global, Capability), 🟡 (Run-level)
+
+The Control Plane must exist at multiple levels.
+
+---
+
+### 40.1 Problem
+
+- Global only → too abstract
+- Local only → no strategic control
+
+---
+
+### 40.2 Solution — Multi-Level Steering Model
+
+#### Global Steering (System / Portfolio)
+- budget allocation
+- global cost constraints
+- model policy
+- risk level
+
+Used by:
+- C-level
+- Ops
+
+> **◻️ Implementation claim — non attesté** — Hypervisor what-if + portfolio-scoped AdaptivePolicies.
+
+---
+
+#### Capability-Level Steering
+- pricing optimization
+- model tier routing
+- HITL thresholds
+
+Used by:
+- product / delivery
+
+> **◻️ Implementation claim — non attesté** — ControlPolicy + AdaptivePolicy with `scope=capability` and `target_id`.
+
+---
+
+#### Run-Level Steering
+- retry decisions
+- override execution
+- manual validation
+
+Used by:
+- operators
+
+> **🟡 Partial** — run cancel exists. Mid-run override / manual step validation is not yet exposed.
+
+---
+
+### 40.3 UX Representation
+
+- Global: Hypervisor cockpit ✅
+- Capability: inline control panel ✅ (Capability detail page)
+- Run: contextual action panel 🟡 (Run detail shows actions but limited)
+
+---
+
+### 40.4 Product Rule
+
+> Steering must exist at all levels, but be visible only where relevant
+
+---
+
+### 40.5 Default Behavior
+
+- start with global steering (simple) ✅
+- progressively expose local controls 🟡
+
+---
+
+### Strategic Insight
+
+Effective agentic systems require balancing autonomy and control across layers, not centralizing everything in a single control point.
+
+---
+
+## 41. Final UX Maturity Model (Extended) · 🟡 Partial
+
+Agentium must support three progressive UX dimensions:
+
+---
+
+### Dimension 1 — Abstraction
+
+Skill → System → Capability → Portfolio
+
+> **◻️ Implementation claim — non attesté** (via ⌘Z).
+
+---
+
+### Dimension 2 — Value Visibility
+
+Cost → Performance → Value → ROI → Allocation
+
+> **◻️ Implementation claim — non attesté (Cost, Performance, ROI)** / **🟡 (progressive reveal per §38)**.
+
+---
+
+### Dimension 3 — Control
+
+Local → Capability → System → Portfolio
+
+> **◻️ Implementation claim — non attesté** (multi-scope policies, §40).
+
+---
+
+### Final Model
+
+```text
+Execute → Observe → Understand → Value → Control → Optimize
+```
+
+---
+
+### Ultimate Insight
+
+The power of Agentium comes from aligning:
+- abstraction
+- value visibility
+- control
+
+into a single coherent experience.
+
+---
+
+---
+
+## 42. Correction experte en chat (expert fiche) · ◻️ Implementation claim — non attesté (flag-gated, OFF by default)
+
+A reviewer reading a chat answer can correct or complete it inline. The
+correction does **not** edit the live answer and is **not** published directly:
+it becomes a `pending_review` proposal in the existing Knowledge Capture review
+queue, and only a second reviewer's accept → publish turns it into an indexed
+**expert fiche** that is then strongly boosted at retrieval time.
+
+> **◻️ Implementation claim — non attesté (`demo/agentic`)** — backend + API + UI wired end-to-end, but
+> gated behind flags that are **OFF by default** (see OPS note in §42.5). No
+> workspace is enabled until an operator opts in. The review step itself is now
+> a per-workspace toggle that can auto-publish + hard-pin validated fiches —
+> see **§42.6** (kept fully reactivable).
+
+### 42.1 Inline correction flow
+
+```mermaid
+flowchart TD
+  expert["Reviewer (REVIEW_ROLES) reads a chat answer"] --> cta["Inline CTA Corriger / Compléter"]
+  cta --> compose["Compact composer: text OR microphone"]
+  compose -->|"voice"| rec["MediaRecorder webm"]
+  rec --> transcribe["POST /voice/transcribe (workspace provider)"]
+  transcribe --> draft["Editable transcript in the composer"]
+  compose -->|"text"| draft
+  draft --> ep["POST /knowledge-capture/chat-correction (+ audio_base64 / audio_ref)"]
+  ep --> prop["Lightweight ExpertCaptureSession + KnowledgeUpdateProposal (pending_review)"]
+  prop --> queue["Existing KC review queue (/knowledge-capture/proposals)"]
+  queue --> review["Second reviewer: accept → publish (existing flow)"]
+  review --> ingest["Ingestion with metadata source_type=expert_fiche"]
+  ingest --> coll["Publication collection (configurable)"]
+  coll --> scope["Included in the active scope when the flag is ON"]
+  scope --> rank["Strong ranking boost (no override)"]
+  rank --> answer["Future answers prefer the validated fiche"]
+```
+
+- **Capture is 1-shot (text or voice).** The reviewer either types the
+  correction or push-to-talks: the audio is recorded client-side, transcribed
+  through the existing `POST /voice/transcribe` (workspace voice provider), and
+  the returned text fills the composer where it stays **editable** before
+  submission. If transcription fails the composer still accepts typed text
+  (graceful degradation).
+- **No direct publication.** The endpoint creates a lightweight
+  `ExpertCaptureSession` (`status="chat_correction"`) plus a
+  `KnowledgeUpdateProposal` (`status="pending_review"`) pre-filled with the
+  reformulated correction, the original question, and the cited sources. It then
+  reuses the existing review queue — a different reviewer must `accept` then
+  `publish` (no new publication path).
+- The toast confirms *"correction sent for review"* with a link to the queue —
+  never *"fiche published"*, since validation is required.
+
+> **◻️ Implementation claim — non attesté** — CTA + composer + voice in
+> `frontend-ng/src/app/features/chat/chat-panel.component.ts` (gated on
+> capability + `chat_correct` permission + the workspace flag);
+> `submitChatCorrection` in `frontend-ng/src/app/core/api.service.ts` (sends raw
+> `audio_base64`, no `data:` prefix). Endpoint
+> `POST /knowledge-capture/chat-correction` and
+> `create_chat_correction_proposal(...)` /
+> `publish_proposal_to_knowledge(...)` in
+> `backend/app/services/knowledge_capture.py`.
+
+### 42.2 Strong ranking boost (not an override)
+
+Once a fiche is published, retrieval applies a **strong but additive** ranking
+boost to results whose ingest metadata carries `source_type == "expert_fiche"`
+(or `origin == "chat_correction"`). This is deliberately **not** a hard override
+and injects **no explicit contradiction** ("the doc says X, the expert corrected
+to Y" is never prepended): the fiche simply outranks near-tie stale docs on the
+same topic. The boost weight (`rag_expert_fiche_boost`, default `18`) is much
+stronger than the generic provenance tiebreaker (capped at `6`) but remains a
+ranking signal, not a filter.
+
+- Applied in **both** rerankers in
+  `backend/app/services/rag/retrieval_policy.py`:
+  `rerank_results_with_policy` (dict results) and `rerank_aligned_with_policy`
+  (the chat-path aligned chunks/scores/metadatas), keyed by
+  `is_expert_fiche_metadata(...)`.
+- Diagnostics: each boosted result is stamped with
+  `metadata["expert_fiche_boost_applied"] = True` for observability.
+- The OFF path is **byte-for-byte unchanged** — when
+  `rag_expert_fiche_boost_enabled` is `False` the boost weight is read as `0`
+  and the fiche markers are ignored entirely.
+
+> **◻️ Implementation claim — non attesté** — `rag_expert_fiche_boost_enabled` / `rag_expert_fiche_boost`
+> in `backend/app/core/config.py`; scope inclusion via
+> `_include_expert_fiche_collection` in `backend/app/services/rag/context.py`
+> (gated by `source_policy.expert_fiche_correction_enabled`).
+
+### 42.3 Configurable target collection
+
+The fiche destination is resolved by `resolve_expert_fiche_collection(workspace,
+source_policy)` (`backend/app/services/rag/knowledge_scopes.py`):
+
+1. `source_policy["expert_fiche_collection"]` when set to a valid slug — point
+   it at the workspace's **existing capture publication collection** to make the
+   two share storage.
+2. otherwise the per-workspace default `f"{workspace.slug}-expert-fiche"`
+   (sanitized to a valid collection slug).
+3. a constant `expert-fiche` fallback when no usable workspace slug exists.
+
+When the per-workspace flag is ON, that same slug is appended (dedup-preserving)
+to the active scope's `collection_slugs` so freshly validated fiches are visible
+to retrieval without any scope reconfiguration.
+
+### 42.4 RBAC + audio retention
+
+- **RBAC** — the endpoint is reserved to `REVIEW_ROLES`
+  (reviewer / admin / owner) through a new IAM rule
+  `PermissionRule("knowledge_proposal", "chat_correct", REVIEW_ROLES)` in
+  `backend/app/services/iam/manifest.py`. The `expert_knowledge_capture`
+  capability must also be active. `/voice/transcribe` stays guarded by
+  `voice_read` (which REVIEW_ROLES already hold).
+- **Audio retention** — when audio is submitted, the raw bytes are written to
+  the object store under
+  `workspaces/<id>/expert-fiche-captures/<collection>/<uuid>/audio.<ext>` and the
+  resulting `audio_ref` is recorded on the proposal metadata and on a voice
+  `ExpertCaptureEvent` (`source="voice"`, `text_raw`=raw transcript,
+  `text_amended`=edited text) for audit/replay.
+
+### 42.5 OPS note — feature flags (default OFF)
+
+The feature is governed by **two independent flags, both OFF by default**:
+
+| Flag | Scope | Default | Authoritative location |
+|------|-------|---------|------------------------|
+| `rag_expert_fiche_boost_enabled` (+ weight `rag_expert_fiche_boost`) | Global kill-switch for the ranking boost | `False` | `backend/app/core/config.py` (env/settings) |
+| `rag_expert_fiche_pin_enabled` | Global kill-switch for the **hard pin** (and the answer posture) | `False` (VM env: `RAG_EXPERT_FICHE_PIN_ENABLED=true`) | `backend/app/core/config.py` (env/settings) |
+| `kc_expert_review_required` | Global default for the review gate | `True` | `backend/app/core/config.py` (env `KC_EXPERT_REVIEW_REQUIRED`) |
+| `expert_review_required` | **Per-workspace** review gate override (False → auto-publish) | absent → global default `True` | workspace `settings.source_policy` **and** the chat System `settings.source_policy` |
+| `expert_fiche_correction_enabled` (+ optional `expert_fiche_collection`) | Per-workspace: enables the CTA, scope inclusion and the publish path | absent → `False` | the **workspace chat System's `settings.source_policy`** |
+
+To enable the feature for a workspace (e.g. Andritz) for the demo, set
+`expert_fiche_correction_enabled: true` (and optionally `expert_fiche_collection`)
+on the **workspace chat System's `settings.source_policy`** — this is the
+location the backend reads authoritatively (`_resolve_chat_source_policy`, which
+mirrors how `/chat` folds in the source policy). Then flip
+`rag_expert_fiche_boost_enabled` on globally so the validated fiche actually
+outranks stale docs. With both OFF (the default) the capture endpoint returns
+`403` and the reranker path is byte-for-byte identical to before.
+
+> **⚠️ Integration note** — the chat frontend currently reads the
+> `expert_fiche_correction_enabled` flag from `workspace.settings.source_policy`
+> (then `workspace.settings.chat.source_policy`), which is **not** the
+> backend-authoritative location (the chat System settings). The frontend gate is
+> intentionally null-tolerant (it only hides the CTA when the flag is explicitly
+> `false`), so setting the flag on the chat System settings is sufficient for the
+> demo: the CTA still renders for REVIEW_ROLES and the backend allows the
+> submission. Setting the flag **only** on `workspace.settings` would show the
+> CTA but every submission would `403`. See the testing report for the
+> recommended defensive fallback.
+
+### 42.6 Disabling the review workflow (per-workspace, kept reactivable)
+
+The review/validation step is now a **per-workspace toggle**
+`source_policy.expert_review_required` (layered like
+`expert_fiche_correction_enabled`), with global default
+`settings.kc_expert_review_required = True`. The review code is **kept intact**
+and simply short-circuited when the flag is OFF. Resolver:
+`is_expert_review_required(source_policy)` in
+`backend/app/services/knowledge_capture.py` (returns the per-workspace value
+when present, else the global default).
+
+- **Auto-validation (review OFF).** When `expert_review_required` is `False`:
+  - `submit_chat_correction` auto-accepts (`reviewer="auto"`) and immediately
+    `publish_proposal_to_knowledge(...)`, returning `status="published"`. On
+    ingestion failure it degrades gracefully — the proposal is preserved (the
+    correction is never lost) and a `pending_review` status is reported.
+  - `create_capture_proposal` does the same for system captures (resolving the
+    flag from `workspace.settings.source_policy` — captures have no chat
+    System), guarded by `proposal.status == "pending_review"` to prevent a
+    double-publish.
+  - Review ON keeps the previous `pending_review` behaviour byte-for-byte.
+- **Default provenance at publish.** `publish_proposal_to_knowledge` now stamps
+  `source_type = metadata.get("source_type") or "expert_fiche"`: every capture
+  publication is an expert fiche and becomes eligible for the pin/boost. With
+  the pin/boost flags OFF this changes no ranking.
+- **Hard pin (`rag_expert_fiche_pin_enabled`, default OFF).** On top of the
+  additive boost, when enabled both rerankers
+  (`rerank_results_with_policy` / `rerank_aligned_with_policy`) add a leading
+  `is_fiche` (1/0) sort key **before** `policy_score`, so any validated fiche
+  among the already-retrieved candidates is ordered **ahead** of regular docs
+  regardless of score (relative order otherwise preserved), and the
+  fiche-present case is excluded from the early-return. Pinned rows are stamped
+  `metadata["expert_fiche_pinned"] = True`. OFF is byte-for-byte identical (the
+  sort key reverts to `(policy_score, raw_score, -index)`). Recall of the fiche
+  still relies on `_include_expert_fiche_collection` (scope inclusion).
+- **Answer posture — source conflict / ambiguity with expert priority (3 cases).**
+  The user-facing answer must surface disagreement instead of silently picking a
+  value:
+  - **Case 1 — documents disagree, no expert fiche.** The industrial answer
+    policy (`answer_policy_prompt`, always rendered into the prompt) instructs the
+    model to lead with the most precise value, then explicitly flag the
+    disagreement and name each conflicting value with its source
+    (e.g. *"≈ X selon [1], mais [2] indique Y pour la même configuration — à
+    vérifier"*). This is unconditional (not flag-gated).
+  - **Case 2 — a validated expert fiche is present.** Gated by
+    `rag_expert_fiche_pin_enabled` (so the fiche is pinned and labelled
+    `[n] … (Fiche experte — validée)`) via `has_expert_fiche` in
+    `_build_rag_user_prompt`: the answer is given **expert-first** ("la réponse
+    est … (source : expert …)"), states it comes from an expert, and flags any
+    differing document as **obsolète / à faire vérifier**. This **reverses** the
+    earlier "treat the fiche as reference truth, do not narrate the
+    contradiction" posture.
+  - **Case 3 — several expert fiches disagree.** They carry equal weight, so the
+    prompt tells the model not to pick one arbitrarily and to fall back to the
+    case-1 ambiguity handling (signal the disagreement between experts, cite each
+    value with its source).
+  - The "too thin **or contradictory** … name the gap" invitation is kept for
+    every turn. With no fiche (or the flag OFF) no expert-priority text is added;
+    the case-1 conflict instruction is present for all turns.
+- **Conversational acknowledgement.** After a chat correction the endpoint adds
+  a sober assistant message to the thread — *"J'ai bien pris en compte votre
+  correction : <synthèse thématique très courte>"* — **without** reformulating
+  the original answer. The short theme comes from
+  `summarize_chat_correction_theme(...)` (a cheap, timeout-bounded LLM call with
+  a **deterministic fallback** derived from the question/correction, so it never
+  hangs/fails when no LLM is configured). When a chat `session_id` is present it
+  is persisted as `Message(role="assistant", meta_data={"kind":
+  "expert_correction_ack", …})` so the trace survives a reload; the response
+  also returns `status`, `acknowledgement`, `ack_message_id` and `summary` for
+  immediate display.
+
+> **Ops / rollout.** Set `RAG_EXPERT_FICHE_PIN_ENABLED=true` in the VM env and
+> leave `KC_EXPERT_REVIEW_REQUIRED` at its default `True`; the per-workspace
+> `expert_review_required=false` (plus `expert_fiche_correction_enabled=true`)
+> override does the disabling. Migration
+> `042_andritz_disable_review` applies both flags to the Andritz
+> workspace settings **and** its always-on chat System settings (idempotent).
+
+---
+
+## 43. Lot 7 — Projections du graphe objet et autorisation progressive · ◻️ Contrat d’implémentation — preuve runtime non attestée
+
+Cette section fixe le modèle produit du Lot 7 après la clôture de P4. Elle ne
+déclare aucun état formel : le bloc généré en tête de document et les artefacts
+du collecteur de conformité restent les seules autorités sur le niveau de
+preuve atteint.
+
+### 43.1 Capability, Run et SkillInvocation restent trois objets distincts
+
+Les quatre lenses objet (`build`, `operate`, `steer`, `govern`) s’étendent dans
+l’ordre `Capability → Run → SkillInvocation`. Un `Skill` du catalogue décrit un
+composant de conception ; une `SkillInvocation` décrit son exécution réelle
+sous un `Run`. Ils ne partagent ni identifiant, ni route canonique, ni preuve
+d’exécution.
+
+Chaque projecteur doit conserver l’identité, le header et les facettes entre
+les lenses, isoler strictement le workspace et qualifier les absences de donnée
+sans fabriquer de valeur. Son activation dépend à la fois d’un flag et d’un
+gate serveur ordonné, lié au System canari découvert par marqueur. Un flag seul
+n’est jamais une autorité suffisante.
+
+Pour une activation finalisée, le runtime recalcule le digest du reçu, recharge
+l'`AuditLog` exact et exige l'égalité de son type, acteur et détails. Il
+reconfronte aussi l'identité runner persistée aux ancres OIDC courantes et au
+SHA servi. Un audit altéré, une preuve transplantée ou une rotation d'ancres
+qui ne reconnaît plus le producteur ferme la projection.
+
+La composition exécutable d’un System passe par un resolver tenant unique. Il
+valide Capability, Skills et AdaptivePolicy à la création, à l’import Blueprint,
+au déclenchement API ou événementiel, au scheduler et dans les moteurs
+séquentiel/DAG, reprises comprises. Une référence globale n’est visible que si
+le catalogue du workspace l’autorise explicitement ; une référence hors tenant
+ou devenue invisible échoue avant la création d’un Run ou d’une invocation.
+
+### 43.2 L’autorisation progresse par action et par workspace
+
+Le decision plane compare la décision historique et la décision candidate aux
+frontières explicites. `compat` conserve la décision historique, `shadow`
+observe les écarts sans changer l’expérience et `enforce` rend la décision
+candidate autoritaire uniquement pour le groupe d’actions attesté.
+
+Client360 résout son autorité depuis un unique System actif et sa Capability
+canonique. Un préflight en lecture seule lie cette autorité, la configuration
+IAM et le SHA runtime avant toute bascule. Une autorité absente ou ambiguë
+échoue fermée ; un rôle affiché côté frontend n’est jamais une permission.
+
+Les gardes structurels restent des plafonds que le decision plane ne peut pas
+élargir. En particulier, le HITL du System Agentic managed conserve son
+exigence admin/owner : `run.approve` peut la restreindre après promotion, mais
+un reviewer autorisé par le manifeste ne peut jamais la contourner.
+
+Blueprint v2 transporte l’identité de Context et System par clés opaques
+stables, ainsi que leurs liaisons bidirectionnelles et les scopes de presets.
+Les noms ne sont qu’un chemin de compatibilité pour les anciens exports : ils
+ne sont adoptés que s’ils sont uniques, sinon l’import échoue sans deviner.
+
+Un mismatch shadow intentionnel n’est explicable que par une review
+content-addressée, créée par un administrateur de policy authentifié et
+persistée dans l’audit du workspace. Elle couvre l’intégralité des observations
+en écart d’un manifeste exhaustif, avec action et motif. Le collecteur et le
+promoteur rechargent la review et reconstruisent chaque ligne depuis
+`AuditLog` ; une agrégation libre ou une review partielle n’a aucune autorité.
+
+Une configuration `enforce` n'est pas non plus une autorité autoportée. Sa
+promotion écrit un reçu serveur `lot7.authorization.enforce_promoted` dont le
+document content-addressé lie la promotion exacte, le groupe d'actions et la
+source shadow. L'attestation conserve seulement `audit_id` et `artifact_ref`.
+Le decision plane recharge ce reçu dans le même workspace, reconstruit les
+observations et la review éventuelle depuis le ledger, puis reconfronte le
+runner aux ancres OIDC courantes. Toute absence, transplantation ou dérive
+rend le mode `invalid_enforce` et ferme la frontière.
+La promotion rejoue cette validation avant commit ; un reçu que le ledger ne
+peut pas relire annule atomiquement la policy et son attestation.
+
+### 43.3 Une absence de télémétrie n’est pas un zéro
+
+Les budgets coût, tokens et latence transportent une couverture explicite. Les
+usages provider réellement rapportés alimentent le ledger ; une mesure absente,
+partielle ou indisponible reste distincte d’un zéro contractuel. Les retries,
+loops et descendants délégués appartiennent au même périmètre de mesure et un
+enfant sans ledger crée un gap explicite.
+
+### 43.4 Andritz reste une préparation shadow réversible
+
+Le Lot 7 ne fait pas passer Andritz en `enforce`. Le contrat statique couvre la
+découverte par famille canonique, le dry-run, la création append-only d’une
+policy shadow, une nouvelle SystemVersion de transition et un rollback
+drift-checked vers la policy source préservée.
+
+La mutation de préparation exige également que le statut DB autoritaire du
+rollout Showcase Lot 6 soit `ready=true` ; sa preuve content-addressée est
+reportée puis persistée. Ce prérequis forward-only n’est jamais consulté par le
+rollback, qui doit rester disponible même si Showcase se dégrade.
+
+Ce contrat ne constitue pas une preuve de non-régression métier. Les gardes
+Andritz, le golden retrieval, le shell à trois applications et les contrôles
+d’isolation Sentinel/Octocity restent des gates opérationnels séparés avant
+toute activation Andritz.
+
+### 43.5 Règle de preuve et de rollout
+
+P4 reste un prérequis clos et n’est pas rouvert par ce lot. Chaque type d’objet
+avance séparément : analyse statique, exécution des tests, vérification sur
+l’environnement cible, preuve comportementale, puis validation sans coaching
+par des utilisateurs représentatifs. Une étape ne déduit jamais la suivante.
+
+Avant la finalisation de chaque probation, une observation pilote structurée
+doit couvrir sans coaching les quatre questions Build, Operate, Steer et
+Govern en 60 secondes au plus chacune, avec succès, confiance d’au moins 4/5
+et zéro confusion critique. Elle est liée au SHA, au lease, au workspace et
+aux trois objets, puis persistée par adresse de contenu. Ce gate pilote ne vaut
+pas campagne `user_validated`.
+
+Le gate utilisateur formel couvre au minimum cinq participants représentant
+les profils builder, operator, decision owner, governor et transverse. Chacune
+des quatre questions Build/Operate/Steer/Govern requiert au moins quatre succès,
+la confiance moyenne doit être au moins 4/5 et aucune confusion critique
+d’identité ou de lens n’est acceptée. Le collecteur authentifié recalcule ces
+seuils ; un libellé libre `passed` n’est pas une preuve.
+
+Le rollback des projections suit l’ordre inverse
+`SkillInvocation → Run → Capability`. Les policies et SystemVersions restent
+append-only ; seule l’autorité active est restaurée.
+
+---
+
+## 44. Lot 8 — Boucle de valeur autoritaire · ◻️ Contrat d’implémentation — preuve runtime non attestée
+
+La boucle System suit un seul cycle :
+
+`Outcome → Decision → Simulate → Approve → Act → Measure`
+
+Une simulation conserve son modèle, ses hypothèses, sa provenance et sa
+confiance ; elle ne devient jamais une mesure. Le forecast est calculé depuis
+le patch canonique et une borne explicitement déclarée par champ. Le patch, son
+digest et la borne retenue sont persistés ; un modèle absent ou ambigu échoue
+avec `SIMULATION_NOT_CONFIGURED`, sans fallback générique. Steer ne projette
+que des simulations persistées. L’action est idempotente,
+permissionnée par le decision plane, admise par une Membrane v2 en mode
+`enforce`, puis auditée. Sans actuator réel et borné, Steer rend
+`not_configured` au lieu d’afficher un levier décoratif. Une mesure ne peut être
+créée qu’après l’action et depuis un Run postérieur appartenant au même System.
+Le Run observé doit porter le snapshot serveur exact du ControlPolicy exécuté ;
+la dérive de policy, de Membrane ou d'actuator échoue fermée. Une valeur
+opérateur écrite par le canari lui-même n'est jamais une provenance de mesure.
+La baseline exige elle aussi un Run frais et indépendant, dont la provenance
+serveur est exactement `runtime_auto` ; seed, canari et opérateur sont refusés.
+Le collecteur recharge le Run et vérifie que son exécution appartient à la
+fenêtre de preuve. Cette provenance est écrite par engine, DAG/agentic ou chat
+classique à la complétion avec l'audit exact
+`run.outcome.runtime_auto.recorded`. Le reçu lie Run, tenant, System,
+ControlPolicy exécuté, flow, révision runtime, acteur, instant et hash de la
+valeur ; le JSON embarqué seul, un Run legacy ou un audit transplanté n'a aucune
+autorité. Un échec d'audit annule la complétion.
+
+L'approbation persiste également le snapshot canonique complet de la simulation
+et son SHA-256. Act recalcule modèle, hypothèses, projection, recommandation,
+provenance et confiance avant tout effet ; une mutation post-approbation ou un
+reçu legacy sans pin échoue fermé. Le frontend ne propose une baseline que si
+le backend la déclare explicitement éligible.
+
+Une valeur opérateur peut compter comme mesure post-action seulement si son
+reçu v2 `{audit_id, artifact_ref}` est lié à l'`AuditLog` exact
+`run.outcome.operator_override.recorded` du même workspace. Valeur précédente,
+valeur courante et note restent absentes de l'audit : leurs hashes incluent
+`audit_id`, `run_id` et le champ. Le runtime recharge l'audit en base et
+reconfronte son acteur, son horodatage, ses détails, le digest du reçu et les
+hashes du Run courant. Toute absence, altération ou transplantation ferme la
+provenance. L'override, son reçu et l'audit sont atomiques ; un échec d'audit
+rollback l'ensemble. Cette mécanique ne rend jamais un Outcome opérateur
+éligible comme baseline.
+
+Le backend expose la lifecycle System-scopée, Hypervisor agrège sans confondre
+portfolio et System, et Steer porte la projection locale. Les mutations
+reprennent le verrou tenant et rafraîchissent le membership avant tout verrou
+métier afin qu’une révocation concurrente ne puisse pas utiliser une autorité
+ORM périmée.
+Le service conserve ensuite un ordre global
+`Workspace → System → ControlPolicy → ValueScenario`, rafraîchit chaque ligne
+autoritaire et revalide gate, Membrane, actuator et policy avant tout reçu ou
+effet. Un rejeu idempotent déjà terminé peut relire son reçu après une dérive ;
+il ne rejoue jamais l'action. La transition append-only du ControlPolicy lie
+désormais l'`audit_id` et le `request_sha256` de l'ActionExecution et revalide
+audit, acteur, scénario, Decision, instant et états avant/après : une transition
+JSON plausible ne peut pas prolonger le gate.
+
+Steer n'ouvre l'actuator que depuis le contrat backend complet
+`value_loop_enabled`, affiche la raison lorsque cette autorité n'est plus
+valide et conserve le parcours à six étapes. Hypervisor compte les Capabilities
+depuis leur agrégat propre, jamais depuis `runs_count`.
+
+L’affichage et les APIs ne dépendent pas du booléen brut. Le marqueur
+structurel désigne uniquement l'unique cible temporaire de préparation et de
+preuve du workspace. L’activation durable appartient ensuite au System : elle
+est liée à son `system_id`, aux références SHA-256, à son audit exact et au SHA
+runtime courant. Le marqueur peut alors être déplacé vers le prochain System
+sans révoquer les activations déjà attestées. Un changement de runtime sans
+nouvelle preuve rend chaque gate concerné faux. Le rollout reste explicite,
+réversible, ciblable par `--system-id` et limité à un workspace ; Andritz n’est
+pas inclus implicitement.
+À chaque accès, le runtime recharge les cinq records de la boucle, le reçu
+`AuditLog` exact de l'activation et les ancres OIDC courantes. La fenêtre de
+canari possède elle aussi son reçu serveur exact et une seule fenêtre peut être
+ouverte par workspace ; aucune forme JSON valide ne remplace ces autorités
+persistées. La désactivation d'un System conserve le flag du workspace tant
+qu'un autre System possède encore une activation ou une preuve valide.
+La fenêtre de canari et l’activation exigent aussi le mode Authorization v2
+exact `enforce`, avec attestations valides pour les lectures System, Run et
+Decision, l’exécution System, l’administration ControlPolicy et toutes les
+actions `value_scenario`. Une action en `compat`, `shadow` ou
+`invalid_enforce` ferme également le gate runtime.
+Une fenêtre de canari auditée et limitée à deux heures rompt le cycle initial
+entre gate et production de preuve, sans promouvoir de claim. Playwright y
+produit une observation expurgée ; seul le collecteur serveur protégé peut la
+lier au digest du JUnit Playwright original, aux cinq records et au vrai Run
+post-action pour fabriquer le contrat d’activation. L'apply exige le même job
+GitLab OIDC protégé que le producteur de la preuve, lié à l'issuer, au projet,
+à la ref, au SHA, au pipeline et au job. Un JSON conforme rejoué localement n'a
+aucune autorité. `not_measured` reste toujours non promotable.
+
+La migration `074_relational_integrity` preflight tout drift avant DDL, puis
+ferme par clés composites le lignage tenant/System/scénario entre simulations,
+actions, mesures, Runs et ControlPolicies ; le lien cyclique vers la simulation
+approuvée est différé au commit. La révision `075_simulation_approval_pin`
+ajoute le snapshot et son digest sans fabriquer de preuve legacy ; la révision
+`076_decision_scenario_lineage` lie Decision au triplet exact
+workspace/scénario/System, interdit le contournement NULL et refuse un downgrade
+qui retirerait une autorité active. Le seed Showcase ne réécrit aucune version :
+chaque réconciliation effective crée une nouvelle `SystemVersion`
+`showcase_seed_reconcile`, un audit limité aux noms de champs, conserve les
+faits existants et reste idempotent. Il n'active aucun gate et préserve les
+autorités de rollout déjà présentes.
+
+Le présent état du dépôt n'apporte que des preuves statiques. L'exécution
+PostgreSQL réelle de 074–076, le job GitLab protégé avec artefacts OCI et preuve
+d'environnement, le canari Playwright authentifié et la validation utilisateur
+restent absents.
+
+---
+
+## 45. Lot 9 — Workspace App Platform · ◻️ Contrat d’implémentation — preuve runtime non attestée
+
+Une Workspace App est choisie par le triplet immuable
+`app_id + version SemVer + manifest_digest`. Le manifeste fermé décrit
+compatibilité de famille/profil, routes, surfaces, shell, branding, action
+packs, entitlements, migrations et backfills. Un lockfile versionné fige le
+digest de chaque version publiée : toute modification du contenu exige une
+nouvelle version.
+
+La lifecycle `install → upgrade → rollback → uninstall` utilise un plan
+content-addressé, une clé d’idempotence tenant-scopée, le verrou Workspace et un
+audit obligatoire dans la même transaction. Elle refuse les conflits de
+famille, profil, groupe exclusif, route ou shell. Blueprint v2 transporte les
+installations exactes et évalue leur compatibilité contre l’expérience
+prospective ; expérience et apps sont annulées ensemble en cas d’échec.
+Après commit, la compensation n'est plus une simple indication du plan : une
+route dédiée dérive l'unique opération inverse depuis le reçu source, exige son
+digest exact, verrouille l'installation, refuse tout drift et écrit le reçu
+inverse et son audit atomiquement. Le client ne peut fournir ni version, ni
+configuration, ni manifeste de remplacement.
+
+Les préfixes API sont aussi des frontières d'autorité. La lifecycle refuse au
+plan comme au replan verrouillé toute égalité ou relation parent/enfant sur une
+frontière `/`, et le runtime revalide l'ensemble installé. Les siblings
+seulement lexicaux, comme `/chat` et `/chatbot`, restent distincts. Un conflit
+échoue avec `api_prefix_conflict` avant mutation ou reçu.
+
+Andritz conserve exactement trois applications : Chat, Client360 et Knowledge
+Capture. FSE Reports est une surface de Knowledge Capture avec sa route, son
+entitlement et son API historiques. Mission Room reste une extension ; ses
+variantes générique, Sentinel et Octocity sont mutuellement exclusives. Le
+catalogue public, le branding, les assistants et les action packs sont filtrés
+par famille et profil structurels, jamais par slug ou nom.
+
+Le flag `workspace_app_platform_v1` est OFF tant que le backfill et le preflight
+ne sont pas validés. L'activation directe est interdite : le protocole est
+`bootstrap → preflight → collect → stage → post-canary → collect → finalize`.
+`stage` ouvre une probation bornée ; expiration, drift ou échec du post-canary
+imposent `abort`. Les writes `stage` et `finalize` exigent chacun le même job
+GitLab OIDC protégé que la preuve consommée, et l'attestation lie le digest du
+JUnit Playwright original, le SHA runtime, le workspace, la probation et la
+liste exacte des installations/configurations.
+
+Le marqueur `settings.experience.workspace_app_platform_canary = "v1"` est
+server-owned : le PATCH générique ne peut ni le forger, ni le remplacer, ni le
+supprimer et son omission le préserve. Chaque probation et activation recharge
+son `AuditLog` exact et revalide le runner persisté contre les ancres OIDC
+courantes ; une preuve seulement plausible ou devenue non fiable échoue
+fermée.
+
+Les canaris preflight et post-activation dérivent désormais le shell installé
+`standard|business|immersive` et sa frontière d'entrée, sans slug, app ou
+entitlement métier fixé. Le collecteur puis le rollout re-dérivent
+`runtime_shell`, `entry_policy` et `declared_entitlement_count` depuis le
+runtime. Business exige un entitlement primaire réellement exercé ; standard
+et immersive rendent cette vérification non applicable et refusent tout
+entitlement qu'ils ne sauraient enforce.
+
+Une fois l’autorité active, bootstrap, portes d’entrée, shell, Mission Room et
+action packs viennent uniquement des installations dont le digest est reconnu.
+Un état invalide échoue fermé sans retour aux settings legacy : le frontend
+rend un shell `workspace_app_unavailable` sans application, cockpit ni Mission
+Room, avec une console de réparation réservée aux admins. Chaque résolution
+reconfronte le SHA servi et le hash de l'ensemble
+`{app_id, version, manifest_digest, configuration}` à l'attestation. Tant que
+l'autorité est active, une nouvelle mutation lifecycle est refusée ; la
+séquence obligatoire est `deactivate → lifecycle/Blueprint → nouvelle preuve
+staged`. Le rollback désactive le flag et conserve l’état additif.
+
+Les manifestes actuels déclarent leurs prérequis de migrations et backfills,
+mais la lifecycle générique n'orchestrera une future migration métier d'upgrade
+qu'après ajout d'étapes ordonnées, de receipts et de compensation. Ce point
+reste explicitement hors du claim courant.
+
+La migration `074_relational_integrity` lie chaque opération Workspace App à
+l'installation exacte du même workspace et de la même app, puis chaque reçu
+d'étape à cette lignée. Son preflight refuse tout DDL en présence de drift et
+elle impose aussi l'unicité des clés Blueprint globales de Systems et Contexts.
+La lifecycle et le runtime introspectent ces contraintes exactes avant de
+prendre autorité ; publier une garde uniquement déclarative dans un manifeste
+ne suffit pas. Blueprint peut restaurer une version plus ancienne dans un autre
+workspace seulement à partir du manifeste verrouillé et de la configuration
+canonique contenus dans son contrat v2, sans relâcher le rollback public.
+
+La supply chain cible trois images backend/frontend/worker construites une fois,
+testées et sélectionnées par digest. Son schéma v2 exige, pour chaque image, une
+signature Cosign et deux attestations DSSE Cosign : SBOM CycloneDX/SPDX et
+provenance SLSA v1. Leur unique sujet OCI, predicate type, payload
+content-addressé, issuer et identité doivent tous correspondre exactement.
+Les SBOM doivent être peuplés et liés au composant ; la provenance lie le dépôt
+HTTPS, la ref, la révision résolue, le builder, l'invocation et le byproduct
+SBOM. Un reçu de déploiement est obligatoire et reconfronte les trois images
+aux build-info réellement servis, au SHA, à l'environnement et à l'identité de
+déploiement ; un compteur de builds auto-déclaré n'est jamais une preuve.
+Le mode offline est seulement structurel et sémantique : il ne prétend pas
+vérifier cryptographiquement les signatures enregistrées. Le mode live doit
+être demandé explicitement et lance neuf commandes Cosign, trois signatures et
+six attestations, toutes sur les digests et ancres attendus.
+
+L'audit courant ne contient encore ni exécution PostgreSQL réelle de 074, ni
+interrogation registry ou vérification Cosign réelle, ni artefacts GitLab/OCI et
+preuve d'environnement, ni Playwright authentifié, ni validation utilisateur.
+Aucun claim des Lots 7 à 9 ne dépasse donc la preuve statique calculée par la
+matrice.
+
+---
+
+## 46. Experience Platform — governed System Apps · ◻️ Implementation claim — non attesté
+
+Experience ajoute une couche de présentation gouvernée au-dessus des Systems,
+sans devenir un website builder ou un quatrième moteur d'exécution.
+
+```text
+ExperienceDraft (mutable, revisionné)
+  → Ready check
+  → ExperienceRelease (immuable)
+  → ExperienceDeployment (pilot | live, audience)
+  → /work/:slug
+```
+
+La publication et la mise en ligne sont deux autorités séparées. Une release
+fige le document, les versions et hashes de contrats SystemBinding, l'accès,
+les langues, le thème et la version du renderer certifié. Un déploiement est un
+pointeur atomique par canal ; un rollback repointe une release antérieure et ne
+réécrit jamais son contenu.
+
+### 46.1 Contrat d'exécution
+
+Chaque action d'une release est résolue exclusivement dans son
+`bindings_snapshot`. L'invocation utilise la `SystemVersion`, le Flow SHA,
+l'ingress et les schemas figés par cette release. Retargeter ou supprimer le
+SystemBinding mutable ne peut donc ni modifier ni casser une application déjà
+en service. Le serveur revalide workspace, audience, canal, release et composant ;
+le client ne choisit jamais une autorité plus récente.
+
+Un membre éligible au canal Pilot voit Pilot avant Live afin que les deux
+versions puissent réellement coexister. Les autres membres ne voient que le
+canal Live auquel leur rôle ou groupe donne accès. Le catalogue `/work` est
+filtré côté serveur ; masquer une carte dans le navigateur n'est pas un contrôle
+d'accès.
+
+### 46.2 Contrat no-code
+
+L'éditeur d'Experience du Cockpit est majoritairement no-code : pages et composants certifiés, layouts
+contraints, formulaires issus du schéma d'ingress, liaisons sémantiques de
+données et d'actions, états loading / empty / error / denied, langues, thème,
+audience, preview et publication. Un auteur travaille dans trois zones
+synchronisées : outline, DOM responsive, inspecteur ; Data, Actions, Tests et
+Journal restent dans un tiroir de profondeur.
+
+`Avancé` expose le JSON/YAML, les expressions, versions, hashes, payloads de
+test, policies, logs et source package du **même brouillon**. Ce n'est ni un
+builder parallèle ni une perte de capacité. Le code custom passe par le
+lifecycle WorkspaceAppPackage attesté ; il ne peut être injecté dans une
+Experience pour contourner la supply chain.
+
+### 46.3 Accessible by construction
+
+- Le catalogue n'accepte que des composants certifiés avec landmarks, noms,
+  erreurs, focus, reflow et reduced motion définis.
+- L'outline est l'équivalent clavier et lecteur d'écran du canvas ; tout ajout,
+  déplacement, liaison et suppression pointer possède une commande sémantique.
+- L'ordre DOM est l'ordre visuel. Un drag a une commande « déplacer avant /
+  après », un graphe a une outline, un graphique a une table.
+- Les dialogs gèrent focus initial, trap, Escape, arrière-plan inerte et retour
+  au déclencheur. Les popovers interactifs ne prennent pas `role=tooltip`.
+- Le mode avancé reste soumis au même contrat ; une exception est gouvernée,
+  visible et bornée, jamais silencieuse.
+
+### 46.4 Terminologie canonique
+
+| Type interne | Label produit | Verbe de lifecycle |
+| --- | --- | --- |
+| `Experience` | Application métier | créer / publier / déployer |
+| `SystemBinding` | Liaison | relier / mettre à jour explicitement |
+| `WorkspaceAppPackage` | Package d'application | installer / mettre à niveau |
+| `Integration` | Intégration | connecter / autoriser |
+
+`/apps` ne doit donc plus employer « Applications métier » pour des
+connecteurs. Une Experience n'est pas placée au-dessus de System dans le
+breadcrumb ; son contexte est adjacent et sa relation est many-to-many.
+
+---
+
+## Appendix A — Gap ledger (what to build next)
+
+Aggregated from the status annotations above, sorted by product impact.
+
+### Tier 1 — Highest leverage
+
+1. **Behaviorally attest the authoritative System value loop.** The legacy Hypervisor apply actuator is retired; produce runner-bound proof for `Outcome → Decision → Simulate → Approve → Act → Measure`, including the bounded ControlPolicy transition and post-action measurement (§44).
+2. **First-class pricing contract.** `execution_mode`, `execution_profile` and `coordination_pattern` already exist; `pricing_mode` still needs a canonical persisted home and mode-aware metering semantics (§20.6).
+3. **Per-Run value declaration + efficiency score.** Turns §24's Decision Unit from conceptual to operational.
+
+### Tier 2 — Strong UX differentiators
+
+4. **Adaptive maturity coach for Builder / Operator / Executive modes** (§34, §38) — modes are persisted and statically evidenced; next gap is automatic surface-density guidance as a workspace matures.
+5. **Radial steering wheel** (§36.4 Option 1) — strong visual differentiator.
+6. **Full card-transformation semantic zoom** (§39.3) — unified polymorphic card per object across zoom levels.
+
+### Tier 3 — Enterprise & scale
+
+7. **Declarative retry policies per skill** (§19.4) + failure classifier in run engine.
+8. **Checkpoint resume tokens** (§19.5, §18.6) — resume long runs without full recompute.
+9. **Event-driven runtime** (§19.1, §20.3) — webhook / file / threshold triggers.
+10. **On-prem install bundle** (§28.2) — offline Docker Compose + Helm chart, curated local model set.
+
+### Tier 4 — Economic layer
+
+11. **Billing subsystem** (§6 Pricing, §22.6) — metering, invoicing, quotas.
+12. **Skill certification pipeline** (§9) — formal Basic / Production-ready / Enterprise-certified gate.
+13. **3-layer capability marketplace** (§8, §16) — Universal / Industry / Client with install flow.
+
+### Tier 5 — Convergence
+
+14. **papAI interop** (§17 Phase 2) — bidirectional workflow ↔ system calls.
+
+---
+
+## Appendix B — Source documents
+
+- `docs/archive/mental-model-draft-2026-04-21.md` — the pristine 3326-line vision document, preserved unedited for historical reference.
+- `docs/skills-runtime.md` — canonical skill slug → module mapping with four-state status.
+- `docs/deck-product-review.md` — Marp slide deck version of this model for product team reviews.
+- `CHANGELOG.md` — per-wave (A–F) delivery log that populated the status annotations above.
+
+---
+
+_Last reconciled: 2026-08-14 (Lots 7–9 plus Experience Platform contract). Update this document when either the vision or the repository implementation state changes — never let them drift._

@@ -1,0 +1,303 @@
+"""Which interpreter fits a model, and which model-family runtimes are listening.
+
+Two facts the plane needs once families train in images of their own:
+
+* **what fitted a row** — the runtime name, the image revision and a digest of
+  every installed package, stored on the row (``runtime_json``) and on its
+  MLflow run, so "the image that trains has the stack of the one that serves"
+  is checked against a record rather than assumed;
+* **whether anyone can train a family right now** — an image other than the
+  general worker announces itself in ``ml_runtime_heartbeats``; the catalog
+  offers a family only while one of its workers was seen recently.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import os
+import platform
+import socket
+from datetime import datetime, timedelta
+from functools import lru_cache
+from typing import Any
+
+from app.core.config import settings
+from app.services.ml.families.base import Family
+
+GENERAL_RUNTIME = "worker"
+# The versions a model artifact's loading depends on, recorded by name. The
+# digest covers everything else.
+KEY_PACKAGES = (
+    "numpy",
+    "scipy",
+    "pandas",
+    "scikit-learn",
+    "skrub",
+    "skore",
+    "skops",
+    "mlflow",
+    "joblib",
+    "pyarrow",
+    "skforecast",
+    "torch",
+    "tabicl",
+    "safetensors",
+    "transformers",
+    "chronos-forecasting",
+    "sentence-transformers",
+)
+
+
+@lru_cache(maxsize=1)
+def runtime_fingerprint() -> dict[str, Any]:
+    """This interpreter's identity; computed once per process."""
+
+    from importlib import metadata
+
+    installed = sorted(
+        {
+            f"{(dist.metadata['Name'] or '').lower()}=={dist.version}"
+            for dist in metadata.distributions()
+            if dist.metadata["Name"]
+        }
+    )
+    packages = {}
+    for name in KEY_PACKAGES:
+        try:
+            packages[name] = metadata.version(name)
+        except metadata.PackageNotFoundError:
+            continue
+    return {
+        "runtime": settings.ml_runtime,
+        "image_revision": os.environ.get("AGENTIUM_IMAGE_REVISION") or None,
+        "python": platform.python_version(),
+        "fingerprint": hashlib.sha256("\n".join(installed).encode()).hexdigest(),
+        "packages": packages,
+    }
+
+
+def beat(
+    db: Any, *, queues: list[str], hostname: str | None = None, now: datetime | None = None
+) -> None:
+    """Upsert this worker's heartbeat row (the caller commits)."""
+
+    from app.models.tabular import MLRuntimeHeartbeat
+
+    now = now or datetime.utcnow()
+    host = (hostname or socket.gethostname())[:200]
+    identity = runtime_fingerprint()
+    row = db.get(MLRuntimeHeartbeat, (settings.ml_runtime[:40], host))
+    if row is None:
+        row = MLRuntimeHeartbeat(runtime=settings.ml_runtime[:40], hostname=host, started_at=now)
+        db.add(row)
+    row.queues = sorted(set(queues))
+    row.image_revision = (identity["image_revision"] or "")[:80] or None
+    row.fingerprint = identity["fingerprint"]
+    row.packages_json = dict(identity["packages"])
+    if settings.ml_runtime == "ml-deep":
+        from app.services.ml.local_models import artifact_model_descriptors, local_model_descriptors
+
+        row.packages_json = {
+            **row.packages_json,
+            "agentium_models": {**local_model_descriptors(), **artifact_model_descriptors()},
+        }
+    row.seen_at = now
+
+
+def family_availability(
+    family: Family, db: Any = None, *, now: datetime | None = None
+) -> tuple[bool, str | None]:
+    """Whether a training request for this family can be served, and why not.
+
+    The general worker runs on every deployment and has always trained the
+    tabular family, so a family on it is available without a heartbeat — a
+    missed beat must never hide the models that already work. Any other
+    runtime has to have been seen on the family's queue within the TTL.
+    """
+
+    if not (settings.ml_train_enabled and settings.tabular_data_enabled):
+        return False, "disabled"
+    if family.key == "tabular_foundation" and not getattr(settings, "ml_tabicl_enabled", False):
+        return False, "experimental_disabled"
+    if settings.worker_eager_mode:
+        missing = family.missing_modules()
+        return (False, "runtime_missing") if missing else (True, None)
+    if family.runtime == GENERAL_RUNTIME:
+        return True, None
+    return _heard_on(family.runtime, family.train_queue(), db, now)
+
+
+def serving_availability(
+    family: Family, db: Any = None, *, now: datetime | None = None
+) -> tuple[bool, str | None]:
+    """Whether a model of this family can answer now, and why not.
+
+    A family served in the API process answers whenever serving is on. A
+    remote one needs a worker of its runtime heard on its serving queue: the
+    API waits for that worker's answer, and waiting on a queue nobody consumes
+    is a timeout dressed up as a request.
+    """
+
+    if family.serving == "in_process":
+        return True, None
+    if not settings.ml_predict_enabled:
+        return False, "disabled"
+    if family.key == "tabular_foundation" and not getattr(settings, "ml_tabicl_enabled", False):
+        return False, "experimental_disabled"
+    if settings.worker_eager_mode:
+        missing = family.missing_modules()
+        return (False, "runtime_missing") if missing else (True, None)
+    return _heard_on(family.runtime, family.serve_queue(), db, now)
+
+
+def _heard_on(runtime: str, queue: str, db: Any, now: datetime | None) -> tuple[bool, str | None]:
+    if db is None or not queue:
+        return False, "no_worker"
+    from app.models.tabular import MLRuntimeHeartbeat
+
+    cutoff = (now or datetime.utcnow()) - timedelta(
+        seconds=float(settings.ml_runtime_heartbeat_ttl_s)
+    )
+    rows = (
+        db.query(MLRuntimeHeartbeat)
+        .filter(MLRuntimeHeartbeat.runtime == runtime, MLRuntimeHeartbeat.seen_at >= cutoff)
+        .all()
+    )
+    if any(queue in (row.queues or []) for row in rows):
+        return True, None
+    return False, "no_worker"
+
+
+def model_descriptors(
+    db: Any = None, *, now: datetime | None = None, workspace_id: str | None = None
+) -> dict[str, dict[str, Any]]:
+    """Allowlisted model provenance from live deep training workers, no paths.
+
+    Conflicting revisions on one queue are unavailable: Celery can deliver a
+    fit to any consumer, so the catalogue cannot promise either revision.
+    """
+    from app.services.ml.local_models import MODEL_SPECS, local_model_descriptors
+
+    if settings.worker_eager_mode:
+        from app.services.ml.local_models import artifact_model_descriptors
+
+        return _authorized_descriptors(
+            {**local_model_descriptors(), **artifact_model_descriptors()}, db, workspace_id
+        )
+    if db is None:
+        return {}
+    from app.models.tabular import MLRuntimeHeartbeat
+
+    cutoff = (now or datetime.utcnow()) - timedelta(
+        seconds=float(settings.ml_runtime_heartbeat_ttl_s)
+    )
+    rows = (
+        db.query(MLRuntimeHeartbeat)
+        .filter(
+            MLRuntimeHeartbeat.runtime == "ml-deep",
+            MLRuntimeHeartbeat.seen_at >= cutoff,
+        )
+        .all()
+    )
+    candidates: dict[str, list[dict[str, str]]] = {}
+    workers = [row for row in rows if settings.celery_ml_deep_queue in (row.queues or [])]
+    for row in workers:
+        descriptors = (row.packages_json or {}).get("agentium_models", {})
+        if not isinstance(descriptors, dict):
+            continue
+        for model_id, descriptor in descriptors.items():
+            spec = MODEL_SPECS.get(model_id)
+            if not isinstance(descriptor, dict):
+                continue
+            artifact_id = descriptor.get("artifact_id")
+            if artifact_id:
+                if artifact_id != model_id or descriptor.get("kind") not in {
+                    "forecasting",
+                    "embedding",
+                    "tabular_foundation",
+                }:
+                    continue
+            elif (
+                not spec
+                or descriptor.get("kind") != spec["kind"]
+                or descriptor.get("upstream_id") != spec["upstream_id"]
+            ):
+                continue
+            public = {
+                key: descriptor[key]
+                for key in ("model_id", "kind", "revision", "upstream_id", "fingerprint")
+                if isinstance(descriptor.get(key), str)
+            }
+            if len(public) == 5 and public["model_id"] == model_id:
+                if artifact_id:
+                    public.update(artifact_id=artifact_id, runtime=descriptor.get("runtime", {}))
+                    if descriptor.get("kind") == "tabular_foundation":
+                        if descriptor.get("task") not in {"classification", "regression"}:
+                            continue
+                        public["task"] = descriptor["task"]
+                candidates.setdefault(model_id, []).append(public)
+    result = {}
+    for model_id, descriptors in candidates.items():
+        if len(descriptors) == len(workers) and all(item == descriptors[0] for item in descriptors):
+            result[model_id] = descriptors[0]
+    return _authorized_descriptors(result, db, workspace_id)
+
+
+def _authorized_descriptors(descriptors, db, workspace_id):
+    result = {}
+    for model_id, descriptor in descriptors.items():
+        if not descriptor.get("artifact_id"):
+            result[model_id] = descriptor
+        elif workspace_id and db is not None:
+            from app.services.huggingface.registry import require_artifact
+
+            try:
+                require_artifact(
+                    db, workspace_id, descriptor["artifact_id"], usage=descriptor["kind"]
+                )
+            except ValueError:
+                continue
+            from app.models.huggingface import HubArtifactUsage
+
+            activation = (
+                db.query(HubArtifactUsage)
+                .filter_by(
+                    workspace_id=workspace_id, kind="adapter", target_id=model_id, status="active"
+                )
+                .first()
+            )
+            probe = (
+                (activation.details_json or {})
+                .get("validations", {})
+                .get(f"{descriptor['kind']}:ml")
+                if activation
+                else None
+            )
+            if (
+                not probe
+                or probe.get("validation") != "loaded_and_inferred"
+                or probe.get("fingerprint") != descriptor.get("fingerprint")
+                or probe.get("runtime") != descriptor.get("runtime")
+            ):
+                continue
+            result[model_id] = descriptor
+    return result
+
+
+def model_availability(
+    model_id: str, db: Any = None, *, now: datetime | None = None, workspace_id: str | None = None
+) -> tuple[bool, str | None]:
+    """Only a live training queue with consistent verified local weights offers a model."""
+    from app.services.ml.local_models import MODEL_SPECS
+
+    if model_id not in MODEL_SPECS and not workspace_id:
+        return False, "model_unknown"
+    if not (settings.ml_train_enabled and settings.tabular_data_enabled):
+        return False, "disabled"
+    if not settings.worker_eager_mode:
+        available, reason = _heard_on("ml-deep", settings.celery_ml_deep_queue, db, now)
+        if not available:
+            return False, reason
+    if model_id not in model_descriptors(db, now=now, workspace_id=workspace_id):
+        return False, "model_missing"
+    return True, None

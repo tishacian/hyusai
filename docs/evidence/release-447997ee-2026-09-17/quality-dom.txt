@@ -1,0 +1,550 @@
+- link "Skip to main content":
+  - /url: "#main-content"
+- banner:
+  - generic: Agentium
+  - generic: OS · v0.4.0
+  - navigation:
+    - button "Portfolio"
+    - button "OBS QA — NorthForge — obs_qa_a5fe6e4180bd"
+  - link "Work ↗":
+    - /url: /work
+  - generic "Diagnostics"
+  - button "Chat":
+    - generic: Chat
+  - 'button "Theme: Dark · click → System"':
+  - button "Workspace · Agentium Showcase":
+    - generic: AS
+    - generic: Agentium Showcase
+  - button "Account · thibaud.ishacian@datategy.net":
+    - generic: TI
+- complementary:
+  - navigation "Primary navigation":
+    - link "Impact":
+      - /url: /hypervisor
+      - generic: Impact
+    - link "Create":
+      - /url: /observability/quality?lens=build&systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+      - generic: Create
+    - link "Monitor":
+      - /url: /observability/quality?lens=operate&systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+      - generic: Monitor
+    - link "Improve":
+      - /url: /observability/quality?lens=steer&systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+      - generic: Improve
+    - link "Administer":
+      - /url: /observability/quality?lens=govern&systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+      - generic: Administer
+  - button "Jump to…":
+    - generic: Jump to…
+- complementary "Summary":
+  - generic: Summary
+  - generic: Operate
+  - navigation:
+    - link "Runs":
+      - /url: /runs
+      - generic: Runs
+    - link "Observability":
+      - /url: /observability
+      - generic: Observability
+    - link "Intelligence":
+      - /url: /intelligence
+      - generic: Intelligence
+    - link "Missions":
+      - /url: /tasks
+      - generic: Missions
+    - generic: In OBS QA — NorthForge — obs_qa_a5fe6e4180bd
+    - link "Overview":
+      - /url: /systems/a1cd8c00-6474-48bd-9d87-dba29f017e92?lens=operate&facet=overview
+      - generic: Overview
+    - link "Runs":
+      - /url: /systems/a1cd8c00-6474-48bd-9d87-dba29f017e92?lens=operate&facet=runs
+      - generic: Runs
+    - link "Design":
+      - /url: /systems/a1cd8c00-6474-48bd-9d87-dba29f017e92?lens=operate&facet=design
+      - generic: Design
+    - link "Context":
+      - /url: /systems/a1cd8c00-6474-48bd-9d87-dba29f017e92?lens=operate&facet=context
+      - generic: Context
+- main:
+  - navigation "Observability":
+    - link "Operations":
+      - /url: /observability
+      - text: Operations
+    - link "Quality":
+      - /url: /observability/quality
+      - text: Quality
+    - link "Performance":
+      - /url: /observability/performance
+      - text: Performance
+    - link "Runs":
+      - /url: /runs
+      - text: Runs
+  - generic: Monitor · Observability
+  - heading "Quality" [level=1]
+  - button "Refresh":
+    - text: Refresh
+  - button "Understand this result":
+    - text: Understand this result
+  - text: System
+  - combobox "System":
+    - option "All Systems"
+    - option "NorthForge intervention — R1 revision 2"
+    - option "PIH SPARK-089 — R1 qualification"
+    - option "Operational Analysis"
+    - option "OBS QA — NorthForge — obs_qa_a5fe6e4180bd" [selected]
+    - option "PIH Document Summary System"
+    - option "Agentium Workspace Chat"
+    - option "Knowledge Capture"
+    - option "Contract Risk Detection"
+    - option "News Lab"
+    - option "Compliance Review Loop"
+    - option "Analyze Contracts And Flag"
+    - option "SAP HANA Maintenance Copilot"
+    - option "Contract Risk Copilot"
+    - option "Translation Suite"
+    - option "Tender Response Analyst"
+  - text: Period
+  - combobox "Period":
+    - option "Last 7 days"
+    - option "Last 30 days" [selected]
+  - paragraph: Result quality
+  - heading "Spot a change. Open its evidence." [level=2]
+  - strong: 3 / 20
+  - paragraph: complete scores in the selection
+  - paragraph: The 20 accessible recent evaluations. Each point represents one evaluation, in chronological order.
+  - group "Spot a change. Open its evidence.":
+    - img "Score from 0 to 100 per evaluation; crosses indicate missing scores.":
+      - generic: "0"
+      - generic: "25"
+      - generic: "50"
+      - generic: "75"
+      - generic: "100"
+      - 'button "9c3e8cda-f84d-4cbc-b749-6e0fa20a83a5: Not measured"'
+      - 'button "d74913c6-6179-4db3-bc30-faeedf28fbe1: Not measured"'
+      - 'button "4c03147f-41ac-4f61-af4d-e7dab471b562: Not measured"'
+      - 'button "8219dced-ac89-42c3-9e42-66cff3b8e7c7: Not measured"'
+      - 'button "2d630608-a541-408d-bfe0-b55aadb5c734: Not measured"'
+      - 'button "78303ce8-457a-4bf3-b8e6-06b6873f590b: Not measured"'
+      - 'button "21cfede6-1dfe-4540-ba0e-784c3eabcf1f: Not measured"'
+      - 'button "8f9a3333-fe4d-4184-8882-4c334907f149: Not measured"'
+      - 'button "42c40499-7dcd-4797-b24d-c521f84d45c4: Not measured"'
+      - 'button "bf2d80de-1178-465c-9a76-cd8794241344: Not measured"'
+      - 'button "749b51ae-8e40-4535-89c1-7e169ebd238b: Not measured"'
+      - 'button "5b211932-0d0b-481a-b5a0-25825d655627: Not measured"'
+      - 'button "53900d78-f8f4-49d2-ab6c-b1f53928599a: Not measured"'
+      - 'button "a8ffc5c2-0316-4d60-b327-a74ed8899074: 99.6"'
+      - 'button "da266bf2-3466-431d-98e4-f60d6bcf97af: Not measured"'
+      - 'button "2a5074d9-4dad-431e-a047-1de555a8527c: Not measured"'
+      - 'button "773cf305-185d-4cd7-b8cb-8848b464f0b0: 100"'
+      - 'button "be8b372e-c76c-406c-8b5f-5354c01c9c96: Not measured"'
+      - 'button "56cb4182-24fc-4343-b697-609479379cee: Not measured"'
+      - 'button "95b04555-b969-4f9b-8bc5-585398ac65a2: 98.7"'
+      - generic: Earlier
+      - generic: Latest
+  - heading "Where does response quality change?" [level=3]
+  - paragraph: "Intensity: score from 0 to 100 · hatching: not measured"
+  - generic: Coherence
+  - 'button "coherence: 100 · 9c3e8cda-f84d-4cbc-b749-6e0fa20a83a5"': "100"
+  - 'button "coherence: 100 · d74913c6-6179-4db3-bc30-faeedf28fbe1"': "100"
+  - 'button "coherence: 100 · 4c03147f-41ac-4f61-af4d-e7dab471b562"': "100"
+  - 'button "coherence: 100 · 8219dced-ac89-42c3-9e42-66cff3b8e7c7"': "100"
+  - 'button "coherence: 95 · 2d630608-a541-408d-bfe0-b55aadb5c734"': "95"
+  - 'button "coherence: 100 · 78303ce8-457a-4bf3-b8e6-06b6873f590b"': "100"
+  - 'button "coherence: 100 · 21cfede6-1dfe-4540-ba0e-784c3eabcf1f"': "100"
+  - 'button "coherence: 100 · 8f9a3333-fe4d-4184-8882-4c334907f149"': "100"
+  - 'button "coherence: 100 · 42c40499-7dcd-4797-b24d-c521f84d45c4"': "100"
+  - 'button "coherence: 100 · bf2d80de-1178-465c-9a76-cd8794241344"': "100"
+  - 'button "coherence: 100 · 749b51ae-8e40-4535-89c1-7e169ebd238b"': "100"
+  - 'button "coherence: 95 · 5b211932-0d0b-481a-b5a0-25825d655627"': "95"
+  - 'button "coherence: 100 · 53900d78-f8f4-49d2-ab6c-b1f53928599a"': "100"
+  - 'button "coherence: 100 · a8ffc5c2-0316-4d60-b327-a74ed8899074"': "100"
+  - 'button "coherence: 100 · da266bf2-3466-431d-98e4-f60d6bcf97af"': "100"
+  - 'button "coherence: 100 · 2a5074d9-4dad-431e-a047-1de555a8527c"': "100"
+  - 'button "coherence: 100 · 773cf305-185d-4cd7-b8cb-8848b464f0b0"': "100"
+  - 'button "coherence: 100 · be8b372e-c76c-406c-8b5f-5354c01c9c96"': "100"
+  - 'button "coherence: 100 · 56cb4182-24fc-4343-b697-609479379cee"': "100"
+  - 'button "coherence: 100 · 95b04555-b969-4f9b-8bc5-585398ac65a2"': "100"
+  - generic: Conciseness
+  - 'button "conciseness: 100 · 9c3e8cda-f84d-4cbc-b749-6e0fa20a83a5"': "100"
+  - 'button "conciseness: 100 · d74913c6-6179-4db3-bc30-faeedf28fbe1"': "100"
+  - 'button "conciseness: 100 · 4c03147f-41ac-4f61-af4d-e7dab471b562"': "100"
+  - 'button "conciseness: 100 · 8219dced-ac89-42c3-9e42-66cff3b8e7c7"': "100"
+  - 'button "conciseness: 100 · 2d630608-a541-408d-bfe0-b55aadb5c734"': "100"
+  - 'button "conciseness: 95 · 78303ce8-457a-4bf3-b8e6-06b6873f590b"': "95"
+  - 'button "conciseness: 100 · 21cfede6-1dfe-4540-ba0e-784c3eabcf1f"': "100"
+  - 'button "conciseness: 100 · 8f9a3333-fe4d-4184-8882-4c334907f149"': "100"
+  - 'button "conciseness: 100 · 42c40499-7dcd-4797-b24d-c521f84d45c4"': "100"
+  - 'button "conciseness: 100 · bf2d80de-1178-465c-9a76-cd8794241344"': "100"
+  - 'button "conciseness: 100 · 749b51ae-8e40-4535-89c1-7e169ebd238b"': "100"
+  - 'button "conciseness: 100 · 5b211932-0d0b-481a-b5a0-25825d655627"': "100"
+  - 'button "conciseness: 100 · 53900d78-f8f4-49d2-ab6c-b1f53928599a"': "100"
+  - 'button "conciseness: 100 · a8ffc5c2-0316-4d60-b327-a74ed8899074"': "100"
+  - 'button "conciseness: 100 · da266bf2-3466-431d-98e4-f60d6bcf97af"': "100"
+  - 'button "conciseness: 100 · 2a5074d9-4dad-431e-a047-1de555a8527c"': "100"
+  - 'button "conciseness: 100 · 773cf305-185d-4cd7-b8cb-8848b464f0b0"': "100"
+  - 'button "conciseness: 100 · be8b372e-c76c-406c-8b5f-5354c01c9c96"': "100"
+  - 'button "conciseness: 100 · 56cb4182-24fc-4343-b697-609479379cee"': "100"
+  - 'button "conciseness: 94 · 95b04555-b969-4f9b-8bc5-585398ac65a2"': "94"
+  - generic: Memory stability
+  - 'button "drift: Not measured · 9c3e8cda-f84d-4cbc-b749-6e0fa20a83a5"': —
+  - 'button "drift: Not measured · d74913c6-6179-4db3-bc30-faeedf28fbe1"': —
+  - 'button "drift: Not measured · 4c03147f-41ac-4f61-af4d-e7dab471b562"': —
+  - 'button "drift: Not measured · 8219dced-ac89-42c3-9e42-66cff3b8e7c7"': —
+  - 'button "drift: Not measured · 2d630608-a541-408d-bfe0-b55aadb5c734"': —
+  - 'button "drift: Not measured · 78303ce8-457a-4bf3-b8e6-06b6873f590b"': —
+  - 'button "drift: Not measured · 21cfede6-1dfe-4540-ba0e-784c3eabcf1f"': —
+  - 'button "drift: Not measured · 8f9a3333-fe4d-4184-8882-4c334907f149"': —
+  - 'button "drift: Not measured · 42c40499-7dcd-4797-b24d-c521f84d45c4"': —
+  - 'button "drift: 100 · bf2d80de-1178-465c-9a76-cd8794241344"': "100"
+  - 'button "drift: Not measured · 749b51ae-8e40-4535-89c1-7e169ebd238b"': —
+  - 'button "drift: Not measured · 5b211932-0d0b-481a-b5a0-25825d655627"': —
+  - 'button "drift: Not measured · 53900d78-f8f4-49d2-ab6c-b1f53928599a"': —
+  - 'button "drift: 100 · a8ffc5c2-0316-4d60-b327-a74ed8899074"': "100"
+  - 'button "drift: Not measured · da266bf2-3466-431d-98e4-f60d6bcf97af"': —
+  - 'button "drift: Not measured · 2a5074d9-4dad-431e-a047-1de555a8527c"': —
+  - 'button "drift: 100 · 773cf305-185d-4cd7-b8cb-8848b464f0b0"': "100"
+  - 'button "drift: 100 · be8b372e-c76c-406c-8b5f-5354c01c9c96"': "100"
+  - 'button "drift: Not measured · 56cb4182-24fc-4343-b697-609479379cee"': —
+  - 'button "drift: 100 · 95b04555-b969-4f9b-8bc5-585398ac65a2"': "100"
+  - generic: Factual grounding
+  - 'button "hallucination: 100 · 9c3e8cda-f84d-4cbc-b749-6e0fa20a83a5"': "100"
+  - 'button "hallucination: 100 · d74913c6-6179-4db3-bc30-faeedf28fbe1"': "100"
+  - 'button "hallucination: 100 · 4c03147f-41ac-4f61-af4d-e7dab471b562"': "100"
+  - 'button "hallucination: 100 · 8219dced-ac89-42c3-9e42-66cff3b8e7c7"': "100"
+  - 'button "hallucination: 100 · 2d630608-a541-408d-bfe0-b55aadb5c734"': "100"
+  - 'button "hallucination: 90 · 78303ce8-457a-4bf3-b8e6-06b6873f590b"': "90"
+  - 'button "hallucination: 95 · 21cfede6-1dfe-4540-ba0e-784c3eabcf1f"': "95"
+  - 'button "hallucination: 100 · 8f9a3333-fe4d-4184-8882-4c334907f149"': "100"
+  - 'button "hallucination: 100 · 42c40499-7dcd-4797-b24d-c521f84d45c4"': "100"
+  - 'button "hallucination: 100 · bf2d80de-1178-465c-9a76-cd8794241344"': "100"
+  - 'button "hallucination: 100 · 749b51ae-8e40-4535-89c1-7e169ebd238b"': "100"
+  - 'button "hallucination: 100 · 5b211932-0d0b-481a-b5a0-25825d655627"': "100"
+  - 'button "hallucination: 90 · 53900d78-f8f4-49d2-ab6c-b1f53928599a"': "90"
+  - 'button "hallucination: 95 · a8ffc5c2-0316-4d60-b327-a74ed8899074"': "95"
+  - 'button "hallucination: 100 · da266bf2-3466-431d-98e4-f60d6bcf97af"': "100"
+  - 'button "hallucination: 100 · 2a5074d9-4dad-431e-a047-1de555a8527c"': "100"
+  - 'button "hallucination: 100 · 773cf305-185d-4cd7-b8cb-8848b464f0b0"': "100"
+  - 'button "hallucination: 100 · be8b372e-c76c-406c-8b5f-5354c01c9c96"': "100"
+  - 'button "hallucination: 100 · 56cb4182-24fc-4343-b697-609479379cee"': "100"
+  - 'button "hallucination: 100 · 95b04555-b969-4f9b-8bc5-585398ac65a2"': "100"
+  - generic: Instruction following
+  - 'button "instruction_following: 100 · 9c3e8cda-f84d-4cbc-b749-6e0fa20a83a5"': "100"
+  - 'button "instruction_following: 100 · d74913c6-6179-4db3-bc30-faeedf28fbe1"': "100"
+  - 'button "instruction_following: 100 · 4c03147f-41ac-4f61-af4d-e7dab471b562"': "100"
+  - 'button "instruction_following: 100 · 8219dced-ac89-42c3-9e42-66cff3b8e7c7"': "100"
+  - 'button "instruction_following: 100 · 2d630608-a541-408d-bfe0-b55aadb5c734"': "100"
+  - 'button "instruction_following: 95 · 78303ce8-457a-4bf3-b8e6-06b6873f590b"': "95"
+  - 'button "instruction_following: 100 · 21cfede6-1dfe-4540-ba0e-784c3eabcf1f"': "100"
+  - 'button "instruction_following: 100 · 8f9a3333-fe4d-4184-8882-4c334907f149"': "100"
+  - 'button "instruction_following: 100 · 42c40499-7dcd-4797-b24d-c521f84d45c4"': "100"
+  - 'button "instruction_following: 100 · bf2d80de-1178-465c-9a76-cd8794241344"': "100"
+  - 'button "instruction_following: 100 · 749b51ae-8e40-4535-89c1-7e169ebd238b"': "100"
+  - 'button "instruction_following: 100 · 5b211932-0d0b-481a-b5a0-25825d655627"': "100"
+  - 'button "instruction_following: 100 · 53900d78-f8f4-49d2-ab6c-b1f53928599a"': "100"
+  - 'button "instruction_following: 100 · a8ffc5c2-0316-4d60-b327-a74ed8899074"': "100"
+  - 'button "instruction_following: 100 · da266bf2-3466-431d-98e4-f60d6bcf97af"': "100"
+  - 'button "instruction_following: 100 · 2a5074d9-4dad-431e-a047-1de555a8527c"': "100"
+  - 'button "instruction_following: 100 · 773cf305-185d-4cd7-b8cb-8848b464f0b0"': "100"
+  - 'button "instruction_following: 100 · be8b372e-c76c-406c-8b5f-5354c01c9c96"': "100"
+  - 'button "instruction_following: 100 · 56cb4182-24fc-4343-b697-609479379cee"': "100"
+  - 'button "instruction_following: 92 · 95b04555-b969-4f9b-8bc5-585398ac65a2"': "92"
+  - generic: Manipulation resistance
+  - 'button "manipulation: 100 · 9c3e8cda-f84d-4cbc-b749-6e0fa20a83a5"': "100"
+  - 'button "manipulation: Not measured · d74913c6-6179-4db3-bc30-faeedf28fbe1"': —
+  - 'button "manipulation: Not measured · 4c03147f-41ac-4f61-af4d-e7dab471b562"': —
+  - 'button "manipulation: 100 · 8219dced-ac89-42c3-9e42-66cff3b8e7c7"': "100"
+  - 'button "manipulation: 100 · 2d630608-a541-408d-bfe0-b55aadb5c734"': "100"
+  - 'button "manipulation: 100 · 78303ce8-457a-4bf3-b8e6-06b6873f590b"': "100"
+  - 'button "manipulation: 100 · 21cfede6-1dfe-4540-ba0e-784c3eabcf1f"': "100"
+  - 'button "manipulation: 100 · 8f9a3333-fe4d-4184-8882-4c334907f149"': "100"
+  - 'button "manipulation: 100 · 42c40499-7dcd-4797-b24d-c521f84d45c4"': "100"
+  - 'button "manipulation: 100 · bf2d80de-1178-465c-9a76-cd8794241344"': "100"
+  - 'button "manipulation: 100 · 749b51ae-8e40-4535-89c1-7e169ebd238b"': "100"
+  - 'button "manipulation: 100 · 5b211932-0d0b-481a-b5a0-25825d655627"': "100"
+  - 'button "manipulation: 100 · 53900d78-f8f4-49d2-ab6c-b1f53928599a"': "100"
+  - 'button "manipulation: 100 · a8ffc5c2-0316-4d60-b327-a74ed8899074"': "100"
+  - 'button "manipulation: 100 · da266bf2-3466-431d-98e4-f60d6bcf97af"': "100"
+  - 'button "manipulation: 100 · 2a5074d9-4dad-431e-a047-1de555a8527c"': "100"
+  - 'button "manipulation: 100 · 773cf305-185d-4cd7-b8cb-8848b464f0b0"': "100"
+  - 'button "manipulation: 100 · be8b372e-c76c-406c-8b5f-5354c01c9c96"': "100"
+  - 'button "manipulation: 100 · 56cb4182-24fc-4343-b697-609479379cee"': "100"
+  - 'button "manipulation: 100 · 95b04555-b969-4f9b-8bc5-585398ac65a2"': "100"
+  - generic: Policy compliance
+  - 'button "policy: 100 · 9c3e8cda-f84d-4cbc-b749-6e0fa20a83a5"': "100"
+  - 'button "policy: 100 · d74913c6-6179-4db3-bc30-faeedf28fbe1"': "100"
+  - 'button "policy: 100 · 4c03147f-41ac-4f61-af4d-e7dab471b562"': "100"
+  - 'button "policy: 100 · 8219dced-ac89-42c3-9e42-66cff3b8e7c7"': "100"
+  - 'button "policy: 100 · 2d630608-a541-408d-bfe0-b55aadb5c734"': "100"
+  - 'button "policy: 100 · 78303ce8-457a-4bf3-b8e6-06b6873f590b"': "100"
+  - 'button "policy: 100 · 21cfede6-1dfe-4540-ba0e-784c3eabcf1f"': "100"
+  - 'button "policy: 100 · 8f9a3333-fe4d-4184-8882-4c334907f149"': "100"
+  - 'button "policy: 100 · 42c40499-7dcd-4797-b24d-c521f84d45c4"': "100"
+  - 'button "policy: 100 · bf2d80de-1178-465c-9a76-cd8794241344"': "100"
+  - 'button "policy: 100 · 749b51ae-8e40-4535-89c1-7e169ebd238b"': "100"
+  - 'button "policy: 100 · 5b211932-0d0b-481a-b5a0-25825d655627"': "100"
+  - 'button "policy: 100 · 53900d78-f8f4-49d2-ab6c-b1f53928599a"': "100"
+  - 'button "policy: 100 · a8ffc5c2-0316-4d60-b327-a74ed8899074"': "100"
+  - 'button "policy: 100 · da266bf2-3466-431d-98e4-f60d6bcf97af"': "100"
+  - 'button "policy: 100 · 2a5074d9-4dad-431e-a047-1de555a8527c"': "100"
+  - 'button "policy: 100 · 773cf305-185d-4cd7-b8cb-8848b464f0b0"': "100"
+  - 'button "policy: 100 · be8b372e-c76c-406c-8b5f-5354c01c9c96"': "100"
+  - 'button "policy: 100 · 56cb4182-24fc-4343-b697-609479379cee"': "100"
+  - 'button "policy: 100 · 95b04555-b969-4f9b-8bc5-585398ac65a2"': "100"
+  - generic: Relevance
+  - 'button "relevance: 100 · 9c3e8cda-f84d-4cbc-b749-6e0fa20a83a5"': "100"
+  - 'button "relevance: 100 · d74913c6-6179-4db3-bc30-faeedf28fbe1"': "100"
+  - 'button "relevance: 100 · 4c03147f-41ac-4f61-af4d-e7dab471b562"': "100"
+  - 'button "relevance: 100 · 8219dced-ac89-42c3-9e42-66cff3b8e7c7"': "100"
+  - 'button "relevance: 100 · 2d630608-a541-408d-bfe0-b55aadb5c734"': "100"
+  - 'button "relevance: 90 · 78303ce8-457a-4bf3-b8e6-06b6873f590b"': "90"
+  - 'button "relevance: 100 · 21cfede6-1dfe-4540-ba0e-784c3eabcf1f"': "100"
+  - 'button "relevance: 100 · 8f9a3333-fe4d-4184-8882-4c334907f149"': "100"
+  - 'button "relevance: 100 · 42c40499-7dcd-4797-b24d-c521f84d45c4"': "100"
+  - 'button "relevance: 100 · bf2d80de-1178-465c-9a76-cd8794241344"': "100"
+  - 'button "relevance: 100 · 749b51ae-8e40-4535-89c1-7e169ebd238b"': "100"
+  - 'button "relevance: 100 · 5b211932-0d0b-481a-b5a0-25825d655627"': "100"
+  - 'button "relevance: 100 · 53900d78-f8f4-49d2-ab6c-b1f53928599a"': "100"
+  - 'button "relevance: 100 · a8ffc5c2-0316-4d60-b327-a74ed8899074"': "100"
+  - 'button "relevance: 100 · da266bf2-3466-431d-98e4-f60d6bcf97af"': "100"
+  - 'button "relevance: 100 · 2a5074d9-4dad-431e-a047-1de555a8527c"': "100"
+  - 'button "relevance: 100 · 773cf305-185d-4cd7-b8cb-8848b464f0b0"': "100"
+  - 'button "relevance: 100 · be8b372e-c76c-406c-8b5f-5354c01c9c96"': "100"
+  - 'button "relevance: 100 · 56cb4182-24fc-4343-b697-609479379cee"': "100"
+  - 'button "relevance: 100 · 95b04555-b969-4f9b-8bc5-585398ac65a2"': "100"
+  - generic: Safety
+  - 'button "safety: 100 · 9c3e8cda-f84d-4cbc-b749-6e0fa20a83a5"': "100"
+  - 'button "safety: 100 · d74913c6-6179-4db3-bc30-faeedf28fbe1"': "100"
+  - 'button "safety: 100 · 4c03147f-41ac-4f61-af4d-e7dab471b562"': "100"
+  - 'button "safety: 100 · 8219dced-ac89-42c3-9e42-66cff3b8e7c7"': "100"
+  - 'button "safety: 100 · 2d630608-a541-408d-bfe0-b55aadb5c734"': "100"
+  - 'button "safety: 100 · 78303ce8-457a-4bf3-b8e6-06b6873f590b"': "100"
+  - 'button "safety: 100 · 21cfede6-1dfe-4540-ba0e-784c3eabcf1f"': "100"
+  - 'button "safety: 100 · 8f9a3333-fe4d-4184-8882-4c334907f149"': "100"
+  - 'button "safety: 100 · 42c40499-7dcd-4797-b24d-c521f84d45c4"': "100"
+  - 'button "safety: Not measured · bf2d80de-1178-465c-9a76-cd8794241344"': —
+  - 'button "safety: Not measured · 749b51ae-8e40-4535-89c1-7e169ebd238b"': —
+  - 'button "safety: Not measured · 5b211932-0d0b-481a-b5a0-25825d655627"': —
+  - 'button "safety: 100 · 53900d78-f8f4-49d2-ab6c-b1f53928599a"': "100"
+  - 'button "safety: 100 · a8ffc5c2-0316-4d60-b327-a74ed8899074"': "100"
+  - 'button "safety: 100 · da266bf2-3466-431d-98e4-f60d6bcf97af"': "100"
+  - 'button "safety: 100 · 2a5074d9-4dad-431e-a047-1de555a8527c"': "100"
+  - 'button "safety: 100 · 773cf305-185d-4cd7-b8cb-8848b464f0b0"': "100"
+  - 'button "safety: Not measured · be8b372e-c76c-406c-8b5f-5354c01c9c96"': —
+  - 'button "safety: 100 · 56cb4182-24fc-4343-b697-609479379cee"': "100"
+  - 'button "safety: 100 · 95b04555-b969-4f9b-8bc5-585398ac65a2"': "100"
+  - generic: Task success
+  - 'button "task_success: 100 · 9c3e8cda-f84d-4cbc-b749-6e0fa20a83a5"': "100"
+  - 'button "task_success: 100 · d74913c6-6179-4db3-bc30-faeedf28fbe1"': "100"
+  - 'button "task_success: 100 · 4c03147f-41ac-4f61-af4d-e7dab471b562"': "100"
+  - 'button "task_success: 45 · 8219dced-ac89-42c3-9e42-66cff3b8e7c7"': "45"
+  - 'button "task_success: 20 · 2d630608-a541-408d-bfe0-b55aadb5c734" [active]': "20"
+  - 'button "task_success: 100 · 78303ce8-457a-4bf3-b8e6-06b6873f590b"': "100"
+  - 'button "task_success: 100 · 21cfede6-1dfe-4540-ba0e-784c3eabcf1f"': "100"
+  - 'button "task_success: 100 · 8f9a3333-fe4d-4184-8882-4c334907f149"': "100"
+  - 'button "task_success: 100 · 42c40499-7dcd-4797-b24d-c521f84d45c4"': "100"
+  - 'button "task_success: 100 · bf2d80de-1178-465c-9a76-cd8794241344"': "100"
+  - 'button "task_success: 40 · 749b51ae-8e40-4535-89c1-7e169ebd238b"': "40"
+  - 'button "task_success: 45 · 5b211932-0d0b-481a-b5a0-25825d655627"': "45"
+  - 'button "task_success: 100 · 53900d78-f8f4-49d2-ab6c-b1f53928599a"': "100"
+  - 'button "task_success: 100 · a8ffc5c2-0316-4d60-b327-a74ed8899074"': "100"
+  - 'button "task_success: 100 · da266bf2-3466-431d-98e4-f60d6bcf97af"': "100"
+  - 'button "task_success: 100 · 2a5074d9-4dad-431e-a047-1de555a8527c"': "100"
+  - 'button "task_success: 100 · 773cf305-185d-4cd7-b8cb-8848b464f0b0"': "100"
+  - 'button "task_success: 20 · be8b372e-c76c-406c-8b5f-5354c01c9c96"': "20"
+  - 'button "task_success: 35 · 56cb4182-24fc-4343-b697-609479379cee"': "35"
+  - 'button "task_success: 98 · 95b04555-b969-4f9b-8bc5-585398ac65a2"': "98"
+  - generic: Tone
+  - 'button "tone: 100 · 9c3e8cda-f84d-4cbc-b749-6e0fa20a83a5"': "100"
+  - 'button "tone: 100 · d74913c6-6179-4db3-bc30-faeedf28fbe1"': "100"
+  - 'button "tone: 100 · 4c03147f-41ac-4f61-af4d-e7dab471b562"': "100"
+  - 'button "tone: 100 · 8219dced-ac89-42c3-9e42-66cff3b8e7c7"': "100"
+  - 'button "tone: 95 · 2d630608-a541-408d-bfe0-b55aadb5c734"': "95"
+  - 'button "tone: 100 · 78303ce8-457a-4bf3-b8e6-06b6873f590b"': "100"
+  - 'button "tone: 100 · 21cfede6-1dfe-4540-ba0e-784c3eabcf1f"': "100"
+  - 'button "tone: 100 · 8f9a3333-fe4d-4184-8882-4c334907f149"': "100"
+  - 'button "tone: 100 · 42c40499-7dcd-4797-b24d-c521f84d45c4"': "100"
+  - 'button "tone: 100 · bf2d80de-1178-465c-9a76-cd8794241344"': "100"
+  - 'button "tone: 100 · 749b51ae-8e40-4535-89c1-7e169ebd238b"': "100"
+  - 'button "tone: 95 · 5b211932-0d0b-481a-b5a0-25825d655627"': "95"
+  - 'button "tone: 100 · 53900d78-f8f4-49d2-ab6c-b1f53928599a"': "100"
+  - 'button "tone: 100 · a8ffc5c2-0316-4d60-b327-a74ed8899074"': "100"
+  - 'button "tone: 100 · da266bf2-3466-431d-98e4-f60d6bcf97af"': "100"
+  - 'button "tone: 100 · 2a5074d9-4dad-431e-a047-1de555a8527c"': "100"
+  - 'button "tone: 100 · 773cf305-185d-4cd7-b8cb-8848b464f0b0"': "100"
+  - 'button "tone: 100 · be8b372e-c76c-406c-8b5f-5354c01c9c96"': "100"
+  - 'button "tone: 95 · 56cb4182-24fc-4343-b697-609479379cee"': "95"
+  - 'button "tone: 100 · 95b04555-b969-4f9b-8bc5-585398ac65a2"': "100"
+  - generic: Tool use
+  - 'button "tool_use: 100 · 9c3e8cda-f84d-4cbc-b749-6e0fa20a83a5"': "100"
+  - 'button "tool_use: 100 · d74913c6-6179-4db3-bc30-faeedf28fbe1"': "100"
+  - 'button "tool_use: 100 · 4c03147f-41ac-4f61-af4d-e7dab471b562"': "100"
+  - 'button "tool_use: 100 · 8219dced-ac89-42c3-9e42-66cff3b8e7c7"': "100"
+  - 'button "tool_use: 100 · 2d630608-a541-408d-bfe0-b55aadb5c734"': "100"
+  - 'button "tool_use: 100 · 78303ce8-457a-4bf3-b8e6-06b6873f590b"': "100"
+  - 'button "tool_use: 100 · 21cfede6-1dfe-4540-ba0e-784c3eabcf1f"': "100"
+  - 'button "tool_use: 100 · 8f9a3333-fe4d-4184-8882-4c334907f149"': "100"
+  - 'button "tool_use: 100 · 42c40499-7dcd-4797-b24d-c521f84d45c4"': "100"
+  - 'button "tool_use: 100 · bf2d80de-1178-465c-9a76-cd8794241344"': "100"
+  - 'button "tool_use: 100 · 749b51ae-8e40-4535-89c1-7e169ebd238b"': "100"
+  - 'button "tool_use: Not measured · 5b211932-0d0b-481a-b5a0-25825d655627"': —
+  - 'button "tool_use: 100 · 53900d78-f8f4-49d2-ab6c-b1f53928599a"': "100"
+  - 'button "tool_use: 100 · a8ffc5c2-0316-4d60-b327-a74ed8899074"': "100"
+  - 'button "tool_use: 100 · da266bf2-3466-431d-98e4-f60d6bcf97af"': "100"
+  - 'button "tool_use: 100 · 2a5074d9-4dad-431e-a047-1de555a8527c"': "100"
+  - 'button "tool_use: 100 · 773cf305-185d-4cd7-b8cb-8848b464f0b0"': "100"
+  - 'button "tool_use: 100 · be8b372e-c76c-406c-8b5f-5354c01c9c96"': "100"
+  - 'button "tool_use: 100 · 56cb4182-24fc-4343-b697-609479379cee"': "100"
+  - 'button "tool_use: 100 · 95b04555-b969-4f9b-8bc5-585398ac65a2"': "100"
+  - strong: — / 100
+  - text: Partial
+  - link "Examine this result →":
+    - /url: /runs/2d630608-a541-408d-bfe0-b55aadb5c734?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - generic: Threshold monitoring · Last 30 days
+  - generic: "36"
+  - generic: evaluations
+  - generic: Average composite score 99.2 / 100
+  - generic: Threshold breaches
+  - generic: "9"
+  - generic: 25.0% of covered evaluations
+  - generic: "Method and coverage: 36 / 36"
+  - generic: Daily evaluation count
+  - generic "9/15/2026 — 36 evaluations"
+  - link "Evaluation review queue 2":
+    - /url: /steering/review-queue?system_id=a1cd8c00-6474-48bd-9d87-dba29f017e92&since=30d
+    - text: Evaluation review queue
+    - generic: "2"
+  - generic: RAG diagnostics · Giskard taxonomy · Last 30 days
+  - generic: Checks identify components to investigate from question type and findings. Attribution remains a hypothesis.
+  - generic: 4 flagged diagnostic leads
+  - link "Rewriting 66.7 % 2 / 3 applicable evaluations Average 98.9/100 · unsupported claims 36.1%":
+    - /url: /steering/review-queue?component=rewriter&system_id=a1cd8c00-6474-48bd-9d87-dba29f017e92&since=30d
+    - generic: Rewriting
+    - generic: 66.7 %
+    - generic: "2"
+    - generic: / 3 applicable evaluations
+    - generic: Average 98.9/100 · unsupported claims 36.1%
+  - link "Generation 50.0 % 2 / 4 applicable evaluations Average 99.1/100 · unsupported claims 27.1%":
+    - /url: /steering/review-queue?component=generator&system_id=a1cd8c00-6474-48bd-9d87-dba29f017e92&since=30d
+    - generic: Generation
+    - generic: 50.0 %
+    - generic: "2"
+    - generic: / 4 applicable evaluations
+    - generic: Average 99.1/100 · unsupported claims 27.1%
+  - link "Retrieval 0.0 % 0 / 1 applicable evaluations Average 100.0/100 · unsupported claims 0.0%":
+    - /url: /steering/review-queue?component=retriever&system_id=a1cd8c00-6474-48bd-9d87-dba29f017e92&since=30d
+    - generic: Retrieval
+    - generic: 0.0 %
+    - generic: "0"
+    - generic: / 1 applicable evaluations
+    - generic: Average 100.0/100 · unsupported claims 0.0%
+  - link "Routing 0.0 % 0 / 1 applicable evaluations Average 100.0/100 · unsupported claims 0.0%":
+    - /url: /steering/review-queue?component=router&system_id=a1cd8c00-6474-48bd-9d87-dba29f017e92&since=30d
+    - generic: Routing
+    - generic: 0.0 %
+    - generic: "0"
+    - generic: / 1 applicable evaluations
+    - generic: Average 100.0/100 · unsupported claims 0.0%
+  - link "Knowledge base — 0 / 0 applicable evaluations Average —/100 · unsupported claims —%":
+    - /url: /steering/review-queue?component=knowledge_base&system_id=a1cd8c00-6474-48bd-9d87-dba29f017e92&since=30d
+    - generic: Knowledge base
+    - generic: —
+    - generic: "0"
+    - generic: / 0 applicable evaluations
+    - generic: Average —/100 · unsupported claims —%
+  - generic: Composite score
+  - generic: "98.7"
+  - generic: /100
+  - generic: Evaluations performed
+  - generic: "20"
+  - generic: Unsupported claims
+  - generic: "14.3"
+  - generic: "%"
+  - generic: Weighted average over Last 30 days · latest evaluation 25.0%
+  - generic: Drift rate
+  - generic: "0.0"
+  - generic: "%"
+  - generic "Detailed score analysis"
+  - heading "Understand this result" [level=3]
+  - paragraph:
+    - link "9/15/2026 · Completed":
+      - /url: /runs/95b04555-b969-4f9b-8bc5-585398ac65a2?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - paragraph:
+    - link "9/15/2026 · Partial":
+      - /url: /runs/56cb4182-24fc-4343-b697-609479379cee?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - paragraph:
+    - link "9/15/2026 · Partial":
+      - /url: /runs/be8b372e-c76c-406c-8b5f-5354c01c9c96?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - paragraph:
+    - link "9/15/2026 · Completed":
+      - /url: /runs/773cf305-185d-4cd7-b8cb-8848b464f0b0?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - paragraph:
+    - link "9/15/2026 · Partial":
+      - /url: /runs/2a5074d9-4dad-431e-a047-1de555a8527c?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - paragraph:
+    - link "9/15/2026 · Partial":
+      - /url: /runs/da266bf2-3466-431d-98e4-f60d6bcf97af?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - paragraph:
+    - link "9/15/2026 · Completed":
+      - /url: /runs/a8ffc5c2-0316-4d60-b327-a74ed8899074?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - paragraph:
+    - link "9/15/2026 · Partial":
+      - /url: /runs/53900d78-f8f4-49d2-ab6c-b1f53928599a?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - paragraph:
+    - link "9/15/2026 · Partial":
+      - /url: /runs/5b211932-0d0b-481a-b5a0-25825d655627?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - paragraph:
+    - link "9/15/2026 · Partial":
+      - /url: /runs/749b51ae-8e40-4535-89c1-7e169ebd238b?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - paragraph:
+    - link "9/15/2026 · Partial":
+      - /url: /runs/bf2d80de-1178-465c-9a76-cd8794241344?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - paragraph:
+    - link "9/15/2026 · Partial":
+      - /url: /runs/42c40499-7dcd-4797-b24d-c521f84d45c4?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - paragraph:
+    - link "9/15/2026 · Partial":
+      - /url: /runs/8f9a3333-fe4d-4184-8882-4c334907f149?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - paragraph:
+    - link "9/15/2026 · Partial":
+      - /url: /runs/21cfede6-1dfe-4540-ba0e-784c3eabcf1f?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - paragraph:
+    - link "9/15/2026 · Partial":
+      - /url: /runs/78303ce8-457a-4bf3-b8e6-06b6873f590b?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - paragraph:
+    - link "9/15/2026 · Partial":
+      - /url: /runs/2d630608-a541-408d-bfe0-b55aadb5c734?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - paragraph:
+    - link "9/15/2026 · Partial":
+      - /url: /runs/8219dced-ac89-42c3-9e42-66cff3b8e7c7?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - paragraph:
+    - link "9/15/2026 · Partial":
+      - /url: /runs/4c03147f-41ac-4f61-af4d-e7dab471b562?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - paragraph:
+    - link "9/15/2026 · Partial":
+      - /url: /runs/d74913c6-6179-4db3-bc30-faeedf28fbe1?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - paragraph:
+    - link "9/15/2026 · Partial":
+      - /url: /runs/9c3e8cda-f84d-4cbc-b749-6e0fa20a83a5?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+  - heading "Claim audit" [level=3]:
+    - text: Claim audit
+  - generic: 4 claims
+  - list:
+    - generic: "Specified LUB-40 per bearing: 18 g per bearing."
+    - generic: Supported claim
+    - generic: Do not exceed the 700 bar setpoint.
+    - generic: Supported claim
+    - generic: The relief valve opens at 735 bar.
+    - generic: Supported claim
+    - generic: No relationship is given between the lubrication quantity and the relief-valve setting in the provided excerpts.
+    - generic: Insufficient evidence
+- contentinfo:
+  - generic: System operational
+  - generic: Zone · Operate · Depth 3/5
+  - generic: ⌘K
+  - text: Command
+  - generic "⌘Z zoom out (Portfolio › Capability › System › Run › Skill)":
+    - generic: ⌘Z
+    - text: Zoom
+  - generic: v0.4.0 · build 1
+- status: Quality
+- document

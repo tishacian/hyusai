@@ -1,0 +1,53 @@
+import { Routes } from '@angular/router';
+
+export const workspaceRoutes: Routes = [
+  {
+    path: '',
+    pathMatch: 'full',
+    loadComponent: () =>
+      import('./workspace-redirect.component').then((m) => m.WorkspaceRedirectComponent),
+  },
+  {
+    path: ':slug/chat',
+    loadComponent: () =>
+      import('../chat/chat-focus.component').then((m) => m.ChatFocusComponent),
+  },
+  {
+    path: ':slug',
+    loadComponent: () =>
+      import('./workspace-shell.component').then((m) => m.WorkspaceShellComponent),
+    children: [
+      { path: '', redirectTo: 'settings', pathMatch: 'full' },
+      {
+        path: 'settings',
+        loadComponent: () =>
+          import('./general.component').then((m) => m.WorkspaceGeneralComponent),
+      },
+      {
+        path: 'chat-knowledge',
+        loadComponent: () =>
+          import('./chat-knowledge-settings.component').then((m) => m.ChatKnowledgeSettingsComponent),
+      },
+      {
+        path: 'secrets',
+        loadComponent: () =>
+          import('./secrets.component').then((m) => m.WorkspaceSecretsComponent),
+      },
+      {
+        path: 'members',
+        loadComponent: () =>
+          import('./members.component').then((m) => m.WorkspaceMembersComponent),
+      },
+      {
+        path: 'access',
+        loadComponent: () =>
+          import('../governance/access-roles.component').then((m) => m.AccessRolesComponent),
+      },
+      {
+        path: 'danger',
+        loadComponent: () =>
+          import('./danger.component').then((m) => m.WorkspaceDangerComponent),
+      },
+    ],
+  },
+];

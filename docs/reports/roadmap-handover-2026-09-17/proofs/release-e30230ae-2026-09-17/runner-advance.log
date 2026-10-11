@@ -1,0 +1,65 @@
+/tmp/agentium-brd-input-e302.bundle: OK
+The bundle contains this ref:
+e30230aea3f58518bbe2219a5b2dbbdd757bab2f refs/heads/demo/agentic
+The bundle requires this ref:
+1e374c3c1b71a70d88d1ffcee7fb8688ee28c2a6
+The bundle uses this hash algorithm: sha1
+/tmp/agentium-brd-input-e302.bundle is okay
+From /tmp/agentium-brd-input-e302.bundle
+ * branch              demo/agentic -> FETCH_HEAD
+Updating 1e374c3c..e30230ae
+Fast-forward
+ backend/app/services/rag/corpus_planner.py         |    6 +-
+ .../app/services/skills_registry/brd_generation.py |   64 +-
+ backend/app/tests/api/test_brd_live_provider.py    |   34 +-
+ backend/app/tests/services/test_brd_generation.py  |   50 +
+ .../app/tests/services/test_rag_context_worker.py  |   16 +
+ .../brd-input-separation-2026-09-17/README.md      |   63 +
+ .../backend-final.log                              |  181 +++
+ .../brd-input-separation-2026-09-17/build.log      |  108 ++
+ .../brd-input-separation-2026-09-17/chrome.log     |    5 +
+ .../frontend-tests.log                             | 1527 ++++++++++++++++++++
+ .../generated-candidate.json                       |  685 +++++++++
+ .../generation-comparison.json                     |  492 +++++++
+ .../brd-input-separation-2026-09-17/i18n.log       |    5 +
+ .../live-runtime.json                              | 1001 +++++++++++++
+ .../brd-input-separation-2026-09-17/nav.log        |    5 +
+ docs/evidence/brd-tool-proof-2026-09-17/README.md  |    4 +-
+ .../evidence/release-1e374c3c-2026-09-17/README.md |   75 +
+ .../release-1e374c3c-2026-09-17/advance.log        |   81 ++
+ .../release-1e374c3c-2026-09-17/build-vm.log       |    9 +
+ .../release-1e374c3c-2026-09-17/canaries.log       |   19 +
+ .../generation-job.json                            | 1087 ++++++++++++++
+ .../release-1e374c3c-2026-09-17/health-ready.log   |    6 +
+ .../live-ledger-proof.json                         |    1 +
+ .../release-1e374c3c-2026-09-17/pre-switch.log     |    3 +
+ .../public-verification.log                        |    3 +
+ .../release-1e374c3c-2026-09-17/runtime-health.log |    7 +
+ .../release-1e374c3c-2026-09-17/switch.log         |   14 +
+ docs/ops/agentium-r0-closure.md                    |   10 +-
+ docs/ops/agentium-safe-vm-deployment.md            |   12 +
+ docs/ops/brd-system-roadmap-progress.md            |   21 +-
+ 30 files changed, 5571 insertions(+), 23 deletions(-)
+ create mode 100644 docs/evidence/brd-input-separation-2026-09-17/README.md
+ create mode 100644 docs/evidence/brd-input-separation-2026-09-17/backend-final.log
+ create mode 100644 docs/evidence/brd-input-separation-2026-09-17/build.log
+ create mode 100644 docs/evidence/brd-input-separation-2026-09-17/chrome.log
+ create mode 100644 docs/evidence/brd-input-separation-2026-09-17/frontend-tests.log
+ create mode 100644 docs/evidence/brd-input-separation-2026-09-17/generated-candidate.json
+ create mode 100644 docs/evidence/brd-input-separation-2026-09-17/generation-comparison.json
+ create mode 100644 docs/evidence/brd-input-separation-2026-09-17/i18n.log
+ create mode 100644 docs/evidence/brd-input-separation-2026-09-17/live-runtime.json
+ create mode 100644 docs/evidence/brd-input-separation-2026-09-17/nav.log
+ create mode 100644 docs/evidence/release-1e374c3c-2026-09-17/README.md
+ create mode 100644 docs/evidence/release-1e374c3c-2026-09-17/advance.log
+ create mode 100644 docs/evidence/release-1e374c3c-2026-09-17/build-vm.log
+ create mode 100644 docs/evidence/release-1e374c3c-2026-09-17/canaries.log
+ create mode 100644 docs/evidence/release-1e374c3c-2026-09-17/generation-job.json
+ create mode 100644 docs/evidence/release-1e374c3c-2026-09-17/health-ready.log
+ create mode 100644 docs/evidence/release-1e374c3c-2026-09-17/live-ledger-proof.json
+ create mode 100644 docs/evidence/release-1e374c3c-2026-09-17/pre-switch.log
+ create mode 100644 docs/evidence/release-1e374c3c-2026-09-17/public-verification.log
+ create mode 100644 docs/evidence/release-1e374c3c-2026-09-17/runtime-health.log
+ create mode 100644 docs/evidence/release-1e374c3c-2026-09-17/switch.log
+e30230aea3f58518bbe2219a5b2dbbdd757bab2f
+?? .agentium-source-sha

@@ -1,0 +1,131 @@
+{
+  "canonical_rag_mode": "chah",
+  "collections": [
+    "itsd-knowledge"
+  ],
+  "context_reused": false,
+  "edges": [
+    {
+      "from": "flow.ms63o9wc.1",
+      "from_port": "goal",
+      "kind": "data",
+      "to": "flow.ms63ovku.2"
+    },
+    {
+      "from": "flow.ms63ovku.2",
+      "from_port": "completion",
+      "kind": "data",
+      "to": "flow.ms63zmlh.3",
+      "to_port": "in"
+    }
+  ],
+  "extended": false,
+  "nodes": [
+    {
+      "config": {},
+      "data": {
+        "description": "Flow input / objective"
+      },
+      "id": "flow.ms63o9wc.1",
+      "inputs": [],
+      "kind": "source",
+      "label": "Inbound request",
+      "outputs": [
+        {
+          "name": "goal",
+          "schema": "string"
+        }
+      ],
+      "position": {
+        "x": 127,
+        "y": 96
+      },
+      "type": "source"
+    },
+    {
+      "config": {
+        "inputs_map": {},
+        "outputs_map": {},
+        "params": {
+          "model": "gpt-4o-mini",
+          "prompt": "you are nawa WE, the it service desk workspace engine. You handle shared mailbox creation intake. Exctract these fields : mailbox_name, purpose, initial_members, requester_name, line_manager_named. Output exactly this json shape : {\"mailbox_name\":null, \"purpose\": null, \"initial_members\": []}"
+        },
+        "runtime_ref": "skill:azure_llm_v1",
+        "skill_id": "28bae4f3-7cd9-45da-9ebc-b7e8b9f4e476",
+        "skill_slug": "azure_llm_v1"
+      },
+      "data": {
+        "description": "LLM call routed through Azure OpenAI.",
+        "runtime_status": "bound"
+      },
+      "id": "flow.ms63ovku.2",
+      "inputs": [],
+      "kind": "task",
+      "label": "Azure OpenAI LLM",
+      "outputs": [
+        {
+          "name": "completion",
+          "schema": "string"
+        }
+      ],
+      "position": {
+        "x": 380,
+        "y": 98
+      },
+      "type": "skill"
+    },
+    {
+      "config": {
+        "branches": [
+          {
+            "condition": "line_manager_approved == True",
+            "label": "yes"
+          },
+          {
+            "condition": "line_manager_approved != True",
+            "label": "no"
+          }
+        ],
+        "default_branch": "yes"
+      },
+      "data": {
+        "description": "Line manager?"
+      },
+      "id": "flow.ms63zmlh.3",
+      "inputs": [
+        {
+          "name": "in",
+          "schema": "object"
+        }
+      ],
+      "kind": "decision",
+      "label": "Decision",
+      "outputs": [
+        {
+          "name": "yes",
+          "schema": "object"
+        },
+        {
+          "name": "no",
+          "schema": "object"
+        }
+      ],
+      "position": {
+        "x": 736,
+        "y": -11
+      },
+      "type": "decision"
+    }
+  ],
+  "policy": {
+    "confidence_threshold": 0.7,
+    "enable_audit": true,
+    "max_cost": 0.7,
+    "max_latency_ms": 8000,
+    "require_citations": true,
+    "temperature": 0.3
+  },
+  "rag_mode": "OmniRAG",
+  "schema_version": 3,
+  "source": "form"
+}

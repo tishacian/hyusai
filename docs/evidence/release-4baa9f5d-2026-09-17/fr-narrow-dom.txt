@@ -1,0 +1,213 @@
+- link "Aller au contenu principal":
+  - /url: "#main-content"
+- banner:
+  - generic: Agentium
+  - generic: OS · v0.4.0
+  - link "Work ↗":
+    - /url: /work
+  - generic "Diagnostics":
+  - button "Chat":
+  - 'button "Thème : Sombre · cliquer → Système"':
+  - button "Workspace · Agentium Showcase":
+    - generic: AS
+  - button "Compte · thibaud.ishacian@datategy.net":
+    - generic: TI
+- complementary:
+  - navigation "Navigation principale":
+    - link "Impact Décider · bilan, résultats, what-if":
+      - /url: /hypervisor
+      - generic: Impact
+      - generic: Décider · bilan, résultats, what-if
+    - link "Créer Applications métier, Systems, Knowledge":
+      - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3?lens=build&systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+      - generic: Créer
+      - generic: Applications métier, Systems, Knowledge
+    - link "Suivre Runtime · exécutions, missions":
+      - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3?lens=operate&systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+      - generic: Suivre
+      - generic: Runtime · exécutions, missions
+    - link "Améliorer Optimiser les résultats · leviers, politiques":
+      - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3?lens=steer&systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+      - generic: Améliorer
+      - generic: Optimiser les résultats · leviers, politiques
+    - link "Administrer Contrôle · audit, apps, ressources, presets":
+      - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3?lens=govern&systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+      - generic: Administrer
+      - generic: Contrôle · audit, apps, ressources, presets
+  - button "Aller à… ⌘K palette":
+    - generic: Aller à…
+    - generic: ⌘K palette
+- complementary "Sommaire":
+  - navigation:
+    - link "Exécutions":
+      - /url: /runs
+      - generic: Exécutions
+    - link "Observabilité":
+      - /url: /observability
+      - generic: Observabilité
+    - link "Veille":
+      - /url: /intelligence
+      - generic: Veille
+    - link "Missions":
+      - /url: /tasks
+      - generic: Missions
+    - generic: Dans Operational Analysis
+    - link "Aperçu":
+      - /url: /systems/15b05919-c93b-4648-8581-8a41cbe2fae6?lens=operate&facet=overview
+      - generic: Aperçu
+    - link "Exécutions":
+      - /url: /systems/15b05919-c93b-4648-8581-8a41cbe2fae6?lens=operate&facet=runs
+      - generic: Exécutions
+    - link "Conception":
+      - /url: /systems/15b05919-c93b-4648-8581-8a41cbe2fae6?lens=operate&facet=design
+      - generic: Conception
+    - link "Contexte":
+      - /url: /systems/15b05919-c93b-4648-8581-8a41cbe2fae6?lens=operate&facet=context
+      - generic: Contexte
+- main [active]:
+  - generic: Mesurer · Exécutions
+  - heading "Exécution 9b73e4e5-083…" [level=1]
+  - generic: Terminé
+  - paragraph: "Déclencheur : manual · Système : 15b05919-c93b-4648-8581-8a41cbe2fae6 · Démarré : 17 Sept 2026, 00:41:02"
+  - link "← Operational Analysis":
+    - /url: /systems/15b05919-c93b-4648-8581-8a41cbe2fae6?lens=operate
+  - link "Ouvrir le Système":
+    - /url: /systems/15b05919-c93b-4648-8581-8a41cbe2fae6?lens=operate
+    - text: Ouvrir le Système
+  - button "Actualiser":
+    - text: Actualiser
+  - button "Relancer":
+    - text: Relancer
+  - region "Comprendre ce résultat":
+    - heading "Comprendre ce résultat" [level=2]
+    - button "Évaluer ce résultat"
+    - generic: "Exécution: Terminé"
+    - generic: "Contrôle automatique: Non exécuté"
+    - generic: "Décision humaine : voir les décisions du Run"
+    - paragraph: Les entrées ou le résultat conservés ne permettent pas ce contrôle.
+    - generic "Détails techniques"
+    - heading "Réponse examinée" [level=3]
+    - paragraph: Aucune réponse examinée conservée.
+    - heading "Affirmations examinées" [level=3]
+    - paragraph: Aucune affirmation examinée ; la conformité reste indéterminée.
+    - complementary:
+      - heading "Passage justificatif" [level=3]
+      - paragraph: Aucun passage vérifiable associé à cette affirmation.
+      - generic "Méthode et couverture"
+    - heading "Déroulement des opérations" [level=3]
+    - text: Horodatages enregistrés · opérations parallèles conservées
+    - generic: 0 s
+    - generic: 32,91 s
+    - link "python_recipe_v1":
+      - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3/invocations/85f2d30b-0d54-4f76-9a5d-3fbae3b0fe73?systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+    - generic "Terminé"
+    - generic: 2,12 s
+    - link "llm_rag_answer_v1":
+      - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3/invocations/0458182b-530c-4876-945a-529ec947ff85?systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+    - generic "Terminé"
+    - generic: 29,67 s
+    - link "python_recipe_v1":
+      - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3/invocations/65e3acad-3c06-46b2-893b-8139d706851b?systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+    - generic "Terminé"
+    - generic: 1,04 s
+  - generic: Terminé
+  - generic: Exécution · 9b73e4e5
+  - generic: · manual
+  - generic: 33.05 s
+  - generic: Décision
+  - generic: —
+  - generic: Confiance
+  - generic: —
+  - generic: Valeur estimée
+  - generic: —
+  - generic: Valeur non renseignée
+  - generic: Coût enregistré
+  - generic: 0,012 $US
+  - generic: Couverture et facturation non vérifiées
+  - generic: Rendement
+  - generic: —
+  - generic "Registre des skills · 3"
+  - list:
+    - generic: python_recipe_v1
+    - generic: 2104 ms
+    - text: 0,00 $US
+    - generic: Calculé
+    - generic: llm_rag_answer_v1
+    - generic: 29659 ms
+    - text: 0,012 $US
+    - generic: Calculé
+    - generic: python_recipe_v1
+    - generic: 1026 ms
+    - text: 0,00 $US
+    - generic: Calculé
+  - generic: Source de la valeur
+  - generic: Non définie
+  - button "Aide sur Override Outcome.value": "?"
+  - button "Corriger la valeur":
+    - text: Corriger la valeur
+  - heading "Trace de skills" [level=2]
+  - generic: 3 étapes
+  - list:
+    - generic: "1"
+    - link "python_recipe_v1":
+      - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3/invocations/85f2d30b-0d54-4f76-9a5d-3fbae3b0fe73?systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+    - generic: Terminé
+    - generic: 2.10s
+    - generic: 0,00 $US · Calculé
+    - generic: 17 Sept 2026, 00:41:02
+    - generic "Audit de l'invocation"
+    - generic: "2"
+    - link "llm_rag_answer_v1":
+      - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3/invocations/0458182b-530c-4876-945a-529ec947ff85?systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+    - generic: Terminé
+    - generic: 29.66s
+    - generic: 0,012 $US · Calculé
+    - generic: 17 Sept 2026, 00:41:05
+    - term: Fournisseur effectif
+    - definition: openai
+    - term: Modèle
+    - definition: gpt-5-2025-08-07
+    - term: Origine de la connexion
+    - definition: Configuration du déploiement
+    - term: Origine du choix de modèle
+    - definition: Défaut du déploiement
+    - generic "Audit de l'invocation"
+    - generic: "3"
+    - link "python_recipe_v1":
+      - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3/invocations/65e3acad-3c06-46b2-893b-8139d706851b?systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+    - generic: Terminé
+    - generic: 1.03s
+    - generic: 0,00 $US · Calculé
+    - generic: 17 Sept 2026, 00:41:34
+    - generic "Audit de l'invocation"
+  - heading "Entrée" [level=2]
+  - generic: "{ \"execution\": { \"flow_sha256\": \"f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d\", \"runtime_mode\": \"dag_overlay\", \"runtime_mode_reason\": null, \"execution_surface\": \"published_manual\", \"published_flow_version_id\": \"e997f4e4-3b51-4eef-9481-389f3a9afae4\", \"ingress_id\": \"src\", \"ingress_selection_version\": 1, \"snapshot_at\": \"2026-09-17T00:41:02.789693Z\", \"runtime_revision\": \"4771f15b2d54051f7b7611e74ae446cad44bc70d\", \"control_policy\": { \"schema_version\": 1, \"state\": \"not_configured\" }, \"system_id\": \"15b05919-c93b-4648-8581-8a41cbe2fae6\" }, \"_ingress\": { \"ingress_id\": \"src\", \"source_node_id\": \"src\", \"kind\": \"manual\", \"adapter\": { \"surface\": \"experience\", \"origin\": \"experience:operational-analysis\", \"experience_id\": \"f286295a-ebef-44d2-a4a3-d0dbf04c866f\", \"experience_slug\": \"operational-analysis\", \"experience_release_id\": \"9f8ad33f-41bc-4ccb-a043-d26e5241d779\", \"experience_deployment_id\": \"e6d39e68-2eec-41db-b331-9e2ba71b36b1\", \"channel\": \"live\", \"binding_key\": \"showcase.operational.analyze\", \"page_id\": \"analysis\", \"component_id\": \"analyze\", \"request_sha256\": \"e615a5cc3779118bf3768ec8edb5a8a99520bed9eaad0d84f7332088ae4121f5\" } }, \"workspace_id\": \"e2ed9e40-5fa6-4e32-8948-3e1220134fd3\", \"workspace_slug\": \"agentium-showcase\", \"user_id\": \"06a2e190-ae2d-4365-b4f3-9952401f531d\", \"retrieval_contract\": {} }"
+  - heading "Résultat" [level=2]
+  - generic: "{ \"decision\": null, \"confidence\": null, \"value_estimated\": 0, \"cost_internal\": 0.012, \"revenue_allocated\": null, \"efficiency\": 0, \"value_source\": \"unset\", \"operator_value_note\": null, \"measurement_provenance\": null, \"baseline_eligible\": false, \"baseline_ineligible_reason\": \"baseline_run_is_synthetic_demo\" }"
+  - heading "Points de contrôle" [level=2]
+  - generic: "13"
+  - list:
+    - listitem: "{ \"kind\": \"ingress_accepted\", \"t\": \"2026-09-17T00:41:02.367861\", \"ingress_id\": \"src\", \"ingress_kind\": \"manual\", \"published_flow_version_id\": \"e997f4e4-3b51-4eef-9481-389f3a9afae4\", \"flow_sha256\": \"f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d\" }"
+    - listitem: "{ \"kind\": \"run_start\", \"nodes\": 5, \"debug_mode\": null, \"breakpoints\": [], \"ingress_source_node_id\": \"src\", \"inactive_ingress_source_node_ids\": [], \"t\": \"2026-09-17T00:41:02.843636\" }"
+    - listitem: "{ \"kind\": \"node_start\", \"t\": \"2026-09-17T00:41:02.855159\", \"node_id\": \"src\", \"node_kind\": \"source\", \"label\": \"Synthetic work orders\", \"skill_slug\": null }"
+    - listitem: "{ \"kind\": \"node_end\", \"t\": \"2026-09-17T00:41:02.863559\", \"node_id\": \"src\", \"node_kind\": \"source\" }"
+    - listitem: "{ \"kind\": \"node_start\", \"t\": \"2026-09-17T00:41:02.870981\", \"node_id\": \"calculate\", \"node_kind\": \"task\", \"label\": \"Calculate with Python / Polars\", \"skill_slug\": \"python_recipe_v1\" }"
+    - listitem: "{ \"kind\": \"node_end\", \"t\": \"2026-09-17T00:41:05.073420\", \"node_id\": \"calculate\", \"node_kind\": \"task\", \"skill_slug\": \"python_recipe_v1\", \"status\": \"completed\", \"latency_ms\": 2103.952305391431, \"cost\": 0 }"
+    - listitem: "{ \"kind\": \"node_start\", \"t\": \"2026-09-17T00:41:05.089912\", \"node_id\": \"explain\", \"node_kind\": \"task\", \"label\": \"Explain the computed evidence\", \"skill_slug\": \"llm_rag_answer_v1\" }"
+    - listitem: "{ \"kind\": \"node_end\", \"t\": \"2026-09-17T00:41:34.789507\", \"node_id\": \"explain\", \"node_kind\": \"task\", \"skill_slug\": \"llm_rag_answer_v1\", \"status\": \"completed\", \"latency_ms\": 29658.877194859087, \"cost\": 0.012 }"
+    - listitem: "{ \"kind\": \"node_start\", \"t\": \"2026-09-17T00:41:34.801268\", \"node_id\": \"check\", \"node_kind\": \"task\", \"label\": \"Check against the numerical reference\", \"skill_slug\": \"python_recipe_v1\" }"
+    - listitem: "{ \"kind\": \"node_end\", \"t\": \"2026-09-17T00:41:35.861020\", \"node_id\": \"check\", \"node_kind\": \"task\", \"skill_slug\": \"python_recipe_v1\", \"status\": \"completed\", \"latency_ms\": 1025.5368035286665, \"cost\": 0 }"
+    - listitem: "{ \"kind\": \"node_start\", \"t\": \"2026-09-17T00:41:35.871405\", \"node_id\": \"sink\", \"node_kind\": \"sink\", \"label\": \"Inspect result and evidence\", \"skill_slug\": null }"
+    - listitem: "{ \"kind\": \"node_end\", \"t\": \"2026-09-17T00:41:35.879456\", \"node_id\": \"sink\", \"node_kind\": \"sink\" }"
+    - listitem: "{ \"kind\": \"run_end\", \"status\": \"completed\", \"nodes_executed\": 5, \"t\": \"2026-09-17T00:41:36.141653\" }"
+- contentinfo:
+  - generic: Système opérationnel
+  - generic: Zone · Opérer · Profondeur 4/5
+  - generic: ⌘K
+  - text: Commande
+  - generic "⌘Z dézoomer (Portefeuille › Capability › Système › Exécution › Skill)":
+    - generic: ⌘Z
+    - text: Zoom
+  - generic: v0.4.0 · build 1
+- status: Run 9b73e4e5-083…
+- document

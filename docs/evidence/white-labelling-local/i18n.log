@@ -1,0 +1,5 @@
+
+> agentium@0.1.0 check:i18n
+> node scripts/check-i18n.mjs
+
+i18n OK — 7551 keys across 21 domains, 33 navigation keys, 220 templates and 261 code files scanned, 24 lexicon rules enforced.

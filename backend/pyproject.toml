@@ -1,0 +1,79 @@
+[tool.poetry]
+name = "omnirag-a*"
+version = "0.1.0"
+description = "Advanced Multi-Model RAG/Agentic AI Application"
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.104.0"
+uvicorn = {extras = ["standard"], version = "^0.24.0"}
+pydantic = "^2.5.0"
+pydantic-settings = "^2.1.0"
+jsonschema = "^4.23.0"
+email-validator = "^2.0.0"
+python-multipart = "^0.0.9"
+argon2-cffi = "^23.1.0"
+asyncssh = "^2.14.0"
+ollama = "^0.1.0"
+httpx = "^0.25.0"
+feedparser = "^6.0.11"
+aiohttp = "^3.9.0"
+openai = ">=2.0.0"
+openpyxl = ">=3.1.0"
+# Reads the Business Requirements template on POST /skills/import/business-requirements.
+python-docx = "^1.1.0"
+pytesseract = ">=0.3.13"
+structlog = "^24.1.0"
+python-dotenv = "^1.0.0"
+sqlalchemy = "^2.0.0"
+alembic = "^1.12.0"
+celery = {extras = ["amqp"], version = "^5.5.0"}
+redis = "^5.0.0"
+chromadb = "^0.4.0"
+qdrant-client = ">=1.12.0,<1.14.0"
+fsspec = ">=2024.6.0"
+s3fs = ">=2024.6.0"
+sentence-transformers = "^2.2.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-asyncio = "^0.21.0"
+pytest-mock = "^3.12.0"
+ruff = "^0.1.0"
+mypy = "^1.7.0"
+black = "^23.12.0"
+
+[tool.poetry.group.build.dependencies]
+weasyprint = "^62.3"
+markdown = "^3.5"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
+testpaths = ["app/tests"]
+markers = [
+    "integration: tests that require external services (e.g. Qdrant on localhost)",
+    "postgresql: tests that require PostgreSQL row-lock semantics",
+    "rabbitmq: tests that require a real RabbitMQ broker",
+    "slow: tests that fit a real estimator (deselect with -m 'not slow')",
+]

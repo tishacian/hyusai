@@ -1,0 +1,30 @@
+Agentium {{ .Chart.Version }} rendered for release {{ .Release.Name }}.
+
+Ingress host: {{ .Values.ingress.host }}
+  /health/live → agentium-backend
+  /            → agentium-frontend
+  /api         → agentium-backend
+  /kc          → agentium-kc
+  hidden-path  → 404 (ingress-nginx snippet; see docs/ops/ingress-proxy-contract.md)
+
+Secret: {{ include "agentium.secretName" . }}
+  (createSecret={{ .Values.createSecret }}; loaded whole by application pods)
+{{- if .Values.minio.enabled }}
+MinIO root secret: {{ include "agentium.minioRootSecretName" . }}
+{{- end }}
+Secret registry: default backend {{ .Values.secretRegistry.defaultBackend }}, key {{ .Values.secretRegistry.fernetKey.key }} from {{ default (include "agentium.secretName" .) .Values.secretRegistry.fernetKey.secretName }}
+{{- if .Values.openbao.enabled }}
+OpenBao: {{ include "agentium.openbaoAddr" . }}{{ if .Values.openbao.server.enabled }} (in-cluster; initialise once, see docs/ops/agentium-kubernetes.md){{ end }}
+{{- end }}
+{{- if .Values.huggingface.enabled }}
+Hugging Face: hub-fetch reads {{ .Values.huggingface.hubFetch.existingSecret }} only
+{{- end }}
+{{- if or .Values.mlTs.enabled .Values.mlDeep.enabled }}
+Model-family workers:{{ if .Values.mlTs.enabled }} ml-ts{{ end }}{{ if .Values.mlDeep.enabled }} ml-deep{{ end }}
+{{- end }}
+{{- if not .Values.keycloak.bootstrapAdmin.email }}
+Keycloak realm has no user: set keycloak.bootstrapAdmin.email at first install.
+{{- end }}
+
+This chart is the Compose equivalent, not a running cluster. Image tags
+must be digest- or SHA-addressed before any shared environment.

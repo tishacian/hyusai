@@ -1,0 +1,348 @@
+<section class="mission-control">
+  <header class="mc-topbar">
+    <div class="mc-brand">
+      <span class="live-dot"></span>
+      <strong>SENTINEL-CI</strong>
+      <small>Mission Control</small>
+    </div>
+    <div class="mc-status">
+      <span>LIVE</span>
+      <b>{{ scenario().title || 'Crise nationale' }}</b>
+      <i [class]="postureTone(scenario().level)">{{ scenario().score || posture().score || 0 }}%</i>
+    </div>
+    <div class="mc-clock">
+      <span>Africa/Abidjan</span>
+      <strong>{{ abidjanClock() }}</strong>
+    </div>
+    <button type="button" class="aya-voice" (click)="requestVoice()">
+      <ck-glyph name="bolt" [size]="14" />
+      <span>Parler a {{ assistantName }}</span>
+    </button>
+  </header>
+
+  <aside class="mc-layers">
+    <div class="panel-title">
+      <span>Filtres executifs</span>
+      <b>{{ compactMissionFilters().length }}</b>
+    </div>
+    <article class="left-scenario">
+      <span>Scenario actif</span>
+      <strong>{{ scenario().title || 'Crise nationale' }}</strong>
+      <p>{{ decisionSentence().text }}</p>
+    </article>
+    <div class="filter-stack">
+      @for (filter of compactMissionFilters(); track filter.label) {
+        <button type="button" class="filter-chip" (click)="applyMissionFilter(filter)">
+          <span>
+            <strong>{{ filter.label }}</strong>
+            <small>{{ filter.detail }}</small>
+          </span>
+          <b>{{ filter.value }}</b>
+        </button>
+      }
+    </div>
+    <div class="terrain-switch" role="group" aria-label="Mode flux terrain">
+      <button type="button" [class.active]="isTerrainMode('webcams')" (click)="setTerrainMode('webcams')">
+        Webcams
+      </button>
+      <button type="button" [class.active]="isTerrainMode('maritime')" (click)="setTerrainMode('maritime')">
+        Maritime
+      </button>
+    </div>
+    @if (primaryVisualSource(); as source) {
+      <article class="visual-location-card">
+        <span>Vue active</span>
+        <strong>{{ visualLocationLabel(source) }}</strong>
+        <p>{{ visualStreamBadge(source) }}</p>
+        <button type="button" (click)="selectVisualSource(source)">
+          <ck-glyph name="crosshair" [size]="12" />
+          <span>Positionner sur carte</span>
+        </button>
+      </article>
+    }
+    <div class="source-stack">
+      <span>Sources qualifiees</span>
+      <strong>{{ monitor?.source_freshness?.news || 'Presse locale, CEDEAO, Afrique, Monde' }}</strong>
+      <strong>{{ monitor?.source_freshness?.visual || 'Flux visuels publics habilites' }}</strong>
+    </div>
+  </aside>
+
+  <main class="mc-stage">
+    <div class="stage-head">
+      <div>
+        <span class="eyebrow">Global situation · Cote d'Ivoire</span>
+        <h2>{{ monitor?.title || 'Mission Control Room' }}</h2>
+      </div>
+      <button type="button" class="compact-command" (click)="focusAbidjan()">
+        <ck-glyph name="crosshair" [size]="13" />
+        <span>Focus Abidjan</span>
+      </button>
+    </div>
+    <div class="decision-banner" [class.open]="decisionBannerOpen()">
+      <button type="button" (click)="toggleDecisionBanner()">
+        <span>{{ decisionSentence().label || 'Sentence du jour' }}</span>
+        <strong>{{ decisionBannerOpen() ? decisionSentence().text : 'Priorite VPM · ' + (decisionSentence().deadline || 'aujourd’hui') }}</strong>
+        <small>{{ decisionBannerOpen() ? (decisionSentence().deadline + ' · ' + (decisionSentence().generated_by || assistantName)) : 'ouvrir' }}</small>
+      </button>
+    </div>
+    <app-workspace-map
+      class="mission-map"
+      [zones]="monitor?.zones || []"
+      [map]="monitor?.map || missionMap?.map || null"
+      [mapSystem]="monitor?.map_system || missionMap?.map_system || null"
+      [mapState]="monitorMapState()"
+      [selectedZoneId]="selectedZone?.id || null"
+      [vessels]="vessels"
+      [highlightedVesselMmsi]="selectedVesselMmsi()"
+      (zoneSelected)="handleZoneSelected($event)"
+      (evidenceAction)="handleMapEvidenceAction($event)"
+      (vesselSelected)="handleVesselSelected($event)"
+      (mapBackgroundClick)="clearVesselSelection()"
+    />
+  </main>
+
+  <aside class="mc-insights">
+    <section class="insight-panel evidence-panel">
+      <div class="panel-title">
+        <span>Preuve active</span>
+        <b>{{ activeEvidence().score || 0 }}</b>
+      </div>
+      <h3>{{ activeEvidence().title || 'Preuve active' }}</h3>
+      <p>{{ activeEvidence().location || scenario().focus_zone || 'Cote d’Ivoire' }}</p>
+      <div class="evidence-grid">
+        @for (line of activeEvidenceRows(); track line.label) {
+          <article>
+            <span>{{ line.label }}</span>
+            <strong>{{ line.value }}</strong>
+          </article>
+        }
+      </div>
+      <div class="evidence-ref-row">
+        @for (ref of activeEvidenceRefs() | slice: 0:3; track ref.id || ref.label) {
+          <span>{{ ref.label || ref.id }}</span>
+        }
+      </div>
+      <div class="evidence-actions">
+        <button type="button" (click)="sendActiveEvidenceToAya()">Envoyer a {{ assistantName }}</button>
+        <button type="button" (click)="prepareActiveEvidenceArbitrage()">Preparer arbitrage</button>
+      </div>
+    </section>
+
+    <section class="insight-panel">
+      <div class="panel-title">
+        <span>Signaux correles</span>
+        <b>{{ crossSignals().length }}</b>
+      </div>
+      @for (signal of crossSignals() | slice: 0:3; track signal.id) {
+        <button type="button" class="signal-row" [class]="postureTone(signal.severity)" (click)="focusSignal(signal)">
+          <i></i>
+          <span>
+            <strong>{{ signal.label }}</strong>
+            <small>{{ signal.summary }}</small>
+          </span>
+          <b>{{ signal.score }}</b>
+        </button>
+      }
+    </section>
+
+    <section class="insight-panel posture-panel">
+      <div class="panel-title">
+        <span>Strategic Posture</span>
+        <b>{{ postureLabel() }}</b>
+      </div>
+      <div class="posture-orb" [class]="postureTone(posture().label)">
+        <strong>{{ posture().score || 0 }}</strong>
+        <span>{{ posture().label || 'monitoring' }}</span>
+      </div>
+      <div class="driver-list">
+        @for (driver of posture().drivers || []; track driver.kind) {
+          <span>{{ driver.label }} · {{ driver.score }}</span>
+        }
+      </div>
+    </section>
+  </aside>
+
+  <section class="mc-bottom">
+    <article class="dock-panel webcam-dock">
+      <div class="panel-title webcam-title">
+        <span>Flux terrain</span>
+        <div>
+          @if (isTerrainMode('maritime')) {
+            <button type="button" (click)="focusMaritimeEvidence()">Localiser</button>
+            <a [href]="maritimeIntelligence()?.source_url" target="_blank" rel="noopener">MarineTraffic</a>
+          } @else {
+            <button type="button" (click)="focusPrimaryVisualSource()">Localiser</button>
+            @if (primaryVisualSource(); as source) {
+              <button type="button" (click)="openExpandedVisualSource(source)">Agrandir</button>
+            }
+          }
+          <button type="button" (click)="sendActiveEvidenceToAya()">Envoyer a {{ assistantName }}</button>
+          <b>{{ isTerrainMode('maritime') ? maritimeEvents().length : ((sourceHealth().active_sources || 0) + '/' + (sourceHealth().total_sources || 0)) }}</b>
+        </div>
+      </div>
+      @if (isTerrainMode('maritime')) {
+        <div class="maritime-grid">
+          <article class="maritime-brief-card">
+            <span>Maritime / douanes</span>
+            <strong>{{ maritimeEvidence().title }}</strong>
+            <p>{{ maritimeEvidence().observation }}</p>
+            <div>
+              <small>Action</small>
+              <b>{{ maritimeEvidence().recommended_action }}</b>
+            </div>
+          </article>
+          <div class="maritime-events">
+            @for (event of maritimeEvents() | slice: 0:3; track event.id) {
+              <button type="button" (click)="focusMaritimeEvidence()">
+                <span></span>
+                <b>{{ event.title }}</b>
+                <small>{{ event.location }} · {{ event.decision_deadline }}</small>
+              </button>
+            }
+          </div>
+          <div class="maritime-sources">
+            @for (feed of maritimeIntelligence()?.feeds || []; track feed.url) {
+              <a [href]="feed.url" target="_blank" rel="noopener">
+                <strong>{{ feed.name }}</strong>
+                <small>{{ feed.source_type }} · {{ feed.category }}</small>
+              </a>
+            }
+          </div>
+          @if (activePortWebcam(); as webcam) {
+            <figure class="maritime-webcam-card" aria-label="Webcam APM Apapa">
+              @if (portWebcamPreviewUrl(webcam); as previewUrl) {
+                <img
+                  [src]="previewUrl"
+                  [alt]="'Image webcam publique - ' + (webcam.name || webcam.id)"
+                  (error)="markVisualPreviewFailed(webcam.id || webcam.source_id)"
+                />
+              } @else {
+                <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Flux en attente</span></div>
+              }
+              <figcaption>
+                <span>Webcam port</span>
+                <strong>{{ webcam.name || webcam.id }}</strong>
+                <small>{{ webcam.label_disclaimer || webcam.attribution || 'APM Apapa' }}</small>
+              </figcaption>
+            </figure>
+          }
+        </div>
+      } @else {
+        <div class="webcam-grid">
+          <div class="camera-live-stack">
+            <figure class="camera-frame">
+              @if (primaryVisualSource(); as source) {
+                @if (webcamPreviewUrl(source); as previewUrl) {
+                  <img [src]="previewUrl" [alt]="'Image webcam publique - ' + source.name" (error)="markVisualPreviewFailed(source.id)" />
+                } @else if (visualEmbedUrl(source); as embedUrl) {
+                  <iframe
+                    [src]="embedUrl"
+                    [title]="'Flux live - ' + source.name"
+                    allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+                    referrerpolicy="no-referrer-when-downgrade"
+                    allowfullscreen
+                  ></iframe>
+                } @else if (latestVisualCapture(); as capture) {
+                  @if (visualCaptureImage(capture.id); as imageUrl) {
+                    <img [src]="imageUrl" alt="Derniere capture visuelle institutionnelle" />
+                  } @else {
+                    <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Flux en attente</span></div>
+                  }
+                } @else {
+                  <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Flux en attente</span></div>
+                }
+                <figcaption>
+                  <strong>{{ source.name }}</strong>
+                  <span>{{ visualLocationLabel(source) }}</span>
+                  <small>{{ visualSourceDetail(source) }}</small>
+                </figcaption>
+              } @else {
+                <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Aucune webcam active</span></div>
+              }
+            </figure>
+            @if (primaryVisualSource(); as source) {
+              <div class="visual-brief">
+                @for (line of visualSituationBrief(source); track line.label) {
+                  <article>
+                    <span>{{ line.label }}</span>
+                    <strong>{{ line.value }}</strong>
+                  </article>
+                }
+              </div>
+            }
+          </div>
+          <div class="webcam-sources">
+            @for (source of visualSources() | slice: 0:6; track source.id) {
+              <button type="button" [class.active]="isVisualSourceSelected(source)" [class.demo-port]="isDemoPortWebcam(source)" (click)="selectVisualSource(source)">
+                <span></span>
+                <b>{{ source.name }}</b>
+                @if (demoPortBadge(source); as badge) {
+                  <em class="demo-port-badge">{{ badge }}</em>
+                }
+                <small>{{ visualLocationLabel(source) }}</small>
+              </button>
+            }
+            @if (primaryVisualSource(); as source) {
+              <button type="button" class="capture-command" (click)="visualCapture.emit(source)">
+                <ck-glyph name="focus" [size]="13" />
+                <span>Capture snapshot</span>
+              </button>
+            }
+          </div>
+        </div>
+      }
+    </article>
+  </section>
+
+  @if (expandedVisualSource(); as source) {
+    <div class="camera-expand-backdrop" (click)="closeExpandedVisualSource()">
+      <article class="camera-expand-panel" (click)="$event.stopPropagation()">
+        <header>
+          <span>Live webcam</span>
+          <strong>{{ source.name }}</strong>
+          <button type="button" (click)="closeExpandedVisualSource()">Fermer</button>
+        </header>
+        <figure class="camera-expanded-frame">
+          @if (webcamPreviewUrl(source); as previewUrl) {
+            <img [src]="previewUrl" [alt]="'Image webcam publique agrandie - ' + source.name" (error)="markVisualPreviewFailed(source.id)" />
+          } @else if (visualEmbedUrl(source); as embedUrl) {
+            <iframe
+              [src]="embedUrl"
+              [title]="'Flux live agrandi - ' + source.name"
+              allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+              referrerpolicy="no-referrer-when-downgrade"
+              allowfullscreen
+            ></iframe>
+          } @else {
+            <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Flux en attente</span></div>
+          }
+        </figure>
+        <div class="visual-brief expanded">
+          @for (line of visualSituationBrief(source); track line.label) {
+            <article>
+              <span>{{ line.label }}</span>
+              <strong>{{ line.value }}</strong>
+            </article>
+          }
+        </div>
+        <div class="visual-intelligence-note">
+          <article>
+            <span>Transcription</span>
+            <strong>{{ visualTranscriptionValue() }}</strong>
+            <small>{{ visualIntelligenceBrief()?.transcription?.reason }}</small>
+          </article>
+          <article>
+            <span>Qualite source</span>
+            <strong>{{ visualSourceQualityLabel(source) }}</strong>
+            <small>{{ visualSourceQualityDetail(source) }}</small>
+          </article>
+          <article>
+            <span>Valeur briefing / AYA</span>
+            <strong>{{ visualIntelligenceBrief()?.question_answered || visualBriefingValue() }}</strong>
+            <small>{{ visualIntelligenceBrief()?.recommended_next_step }}</small>
+          </article>
+        </div>
+      </article>
+    </div>
+  }
+</section>

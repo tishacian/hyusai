@@ -1,0 +1,60 @@
+{
+  "case_id": "case-normal",
+  "run_id": "54d262cf-11df-431e-a286-a54ef58b16b3",
+  "output": {
+    "draft": "1) Current vs Proposed\n- Current Title: Data Analyst II\n- Current Grade: P2\n- Proposed Title: Senior Data Analyst\n- Proposed Grade: P3\n- Effective Date: 2025-01-15\n\n2) Supporting evidence (verbatim excerpts)\n- Evidence for Current Title: \"- Title: Data Analyst II\"\n- Evidence for Current Grade: \"- Grade: P2\"\n- Evidence for Proposed Title: \"- Title: Senior Data Analyst\"\n- Evidence for Proposed Grade: \"- Grade: P3\"\n- Evidence for Effective Date: \"Requested effective date: 2025-01-15\"\n\n3) Other Notable Facts (only if explicitly present)\n- \"Rationale: Increased scope managing two analytics workstreams and mentoring junior analysts.\"\n- \"Note: This packet is for review only and does not by itself authorize changes.\"\n\n4) Missing information\n- None"
+  },
+  "assertions": {
+    "verdict": "passed",
+    "assertions": [
+      {
+        "id": "no-hr-decision-approve",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "no-hr-decision-reject",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "no-hr-decision-recommend",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "contains-current-title",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "contains-current-grade",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "contains-proposed-title",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "contains-proposed-grade",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "contains-effective-date",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "quotes-in-source-check",
+        "passed": true,
+        "path_found": true,
+        "quotes_examined": 7,
+        "quotes_not_found": 0
+      }
+    ]
+  },
+  "review": "harness_acceptance_not_human"
+}

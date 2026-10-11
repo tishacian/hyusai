@@ -1,0 +1,33 @@
+{
+  "case_id": "case-missing-field",
+  "run_id": "29d91d3f-e698-4207-8039-55da49e2f97b",
+  "output": {
+    "completion": "Title: PIH SPARK-089 Regrade Request \u2013 Documentary Summary (For Review Only)\n\n1) Transaction overview\n- Scope: Documentary summary for approvers based solely on supplied materials.\n- Safety notice: This draft is not an approval, rejection, or recommendation.\n\n2) Requested changes (facts only)\n- Current title: Analyst I\n- Current grade: G6\n- Proposed title: Senior Analyst\n- Proposed grade: MISSING\n- Effective date: MISSING\n\n3) Supporting citations (exact quotes from source)\n- Current title: \"Current title = Analyst I\"\n- Current grade: \"Current Grade = G6.\"\n- Proposed title: \"Proposed title = Senior Analyst.\"\n- Proposed grade: Missing-evidence: proposed_grade\n- Effective date: Missing-evidence: effective_date\n\n4) Missing information (for clarification, do not infer)\n- Proposed grade\n- Effective date\n\n5) Conformance to guardrails\n- Stated only supplied facts; no invented content.\n- No HR decision made; no approval/rejection/recommendation language included."
+  },
+  "assertions": {
+    "verdict": "passed",
+    "assertions": [
+      {
+        "id": "flags-missing-proposed-grade",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "missing-info-section-exists",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "mentions-missing-proposed-grade-explicitly",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "no-fabricated-citation",
+        "passed": true,
+        "path_found": true
+      }
+    ]
+  },
+  "review": "harness_acceptance_not_human"
+}

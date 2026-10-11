@@ -1,0 +1,905 @@
+import { A11yModule } from '@angular/cdk/a11y';
+import { HttpClient } from '@angular/common/http';
+import { NgTemplateOutlet } from '@angular/common';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, ViewEncapsulation, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
+import { Subscription } from 'rxjs';
+
+import { NgxExtendedPdfViewerModule, NgxExtendedPdfViewerService, pdfDefaultOptions } from 'ngx-extended-pdf-viewer';
+
+import { I18nService } from '@app/core/i18n.service';
+import { IconComponent } from '@app/shared/ui/icon.component';
+import { HIGHLIGHT_ANCHOR_ID, cellMatchesNeedle, escapeText, highlightPlainText, markRangeInDom, normalizeNeedleForCells, pdfFindPhrase, pdfFindSegments } from './highlight-text.util';
+
+// pdf.js runtime assets are copied to /assets/pdfjs by angular.json. ngx only
+// treats an assetsFolder containing "://" as absolute — a bare "assets/pdfjs"
+// becomes "./assets/pdfjs", resolved against the CURRENT route, so it 404s on
+// deep routes (e.g. /chat) and the worker/viewer never load (blank viewer).
+// An absolute URL built from document.baseURI is route- and baseHref-safe.
+pdfDefaultOptions.assetsFolder =
+  typeof document !== 'undefined' ? new URL('assets/pdfjs', document.baseURI).href : 'assets/pdfjs';
+
+interface RichDocumentPreview {
+  kind: 'text' | 'html' | 'spreadsheet' | 'image' | 'pdf' | 'binary';
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  download_url: string;
+  content?: string;
+  rows?: string[][];
+  sheet_name?: string;
+  row_start?: number;
+  column_start?: number;
+  columns?: string[];
+  cell_range?: string | null;
+  selection?: { row_start: number; row_end: number; column_start: number; column_end: number } | null;
+  selection_truncated?: boolean;
+  truncated?: boolean;
+  reason?: string;
+}
+
+export interface DocumentPreviewViewChange {
+  kind: 'text' | 'html' | 'spreadsheet' | 'image' | 'pdf' | 'binary';
+  filename: string;
+  page: number | null;
+}
+
+const RICH_PREVIEW_CACHE_LIMIT = 50;
+
+@Component({
+  selector: 'app-document-preview',
+  standalone: true,
+  imports: [A11yModule, IconComponent, NgTemplateOutlet, NgxExtendedPdfViewerModule],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  // Global so the highlight rules reach <mark> nodes injected via innerHTML.
+  encapsulation: ViewEncapsulation.None,
+  styles: [
+    `
+      .omnirag-hl {
+        background: rgba(250, 204, 21, 0.92);
+        color: #111827;
+        border-radius: 2px;
+        padding: 0 0.1em;
+        box-shadow: 0 0 0 1px rgba(202, 138, 4, 0.55);
+        scroll-margin: 25vh;
+      }
+      /* Contained (L36 Work sources): the find mark takes the theme highlight, not pdf.js magenta. */
+      .omnirag-preview-contained ngx-extended-pdf-viewer .textLayer .highlight,
+      .omnirag-preview-contained ngx-extended-pdf-viewer .textLayer .highlight.color0 {
+        --highlight-bg-color: color-mix(in oklab, var(--ck-primary) 28%, transparent);
+        --highlight-selected-bg-color: color-mix(in oklab, var(--ck-primary) 28%, transparent);
+        background-color: color-mix(in oklab, var(--ck-primary) 28%, transparent) !important;
+      }
+      /* Reader (L36): the cited page at reading size, in a dialog over Work. */
+      .dp-reader-backdrop { animation: dp-reader-fade 180ms var(--ck-ease-out) both; }
+      section.dp-reader-dialog {
+        display: flex;
+        flex-direction: column;
+        background: var(--ck-bg-panel) !important;
+        color: var(--ck-fg-1);
+        border: 1px solid var(--ck-stroke-2);
+        animation: dp-reader-in 180ms var(--ck-ease-out) both;
+      }
+      @keyframes dp-reader-fade { from { opacity: 0; } }
+      @keyframes dp-reader-in { from { opacity: 0; transform: scale(0.98); } }
+      @media (prefers-reduced-motion: reduce) {
+        .dp-reader-backdrop, section.dp-reader-dialog { animation: none; }
+      }
+      /* A phone: a full-screen sheet. */
+      @media (max-width: 640px) {
+        .dp-reader-backdrop { padding: 0 !important; }
+        section.dp-reader-dialog { width: 100vw; max-width: none; height: 100dvh; max-height: none; border-radius: 0; border: 0; }
+        /* Title on its own line, then pages and actions side by side (wins over the base rules). */
+        section.dp-reader-dialog .dp-reader-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+        section.dp-reader-dialog .dp-reader-titles { display: contents; }
+        section.dp-reader-dialog .dp-reader-title { grid-column: 1 / -1; }
+      }
+      .dp-reader-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px 16px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--ck-stroke-2);
+      }
+      .dp-reader-titles { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-width: 0; }
+      .dp-reader-title { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.35; color: var(--ck-fg-1); overflow-wrap: anywhere; }
+      .dp-reader-pages { display: inline-flex; align-items: center; gap: 6px; }
+      .dp-reader-count { min-width: 7.5em; text-align: center; font-size: 13px; color: var(--ck-fg-2); font-variant-numeric: tabular-nums; }
+      .dp-reader-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+      .dp-reader-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-width: 32px;
+        min-height: 32px;
+        padding: 0 10px;
+        border: 1px solid var(--ck-stroke-2);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--ck-fg-1);
+        font: 600 13px/1.2 var(--ck-font-sans);
+        cursor: pointer;
+      }
+      .dp-reader-btn.dp-reader-icon { padding: 0; }
+      .dp-reader-btn:hover:not([aria-disabled='true']):not(:disabled) { border-color: var(--ck-stroke-hot); }
+      .dp-reader-btn[aria-disabled='true'], .dp-reader-btn:disabled { opacity: .45; cursor: default; }
+      .dp-reader-btn:focus-visible { outline: 2px solid var(--ck-primary); outline-offset: 2px; }
+      .omnirag-cell-hl {
+        outline: 2px solid rgba(250, 204, 21, 0.95);
+        outline-offset: -2px;
+        background: rgba(250, 204, 21, 0.22) !important;
+        scroll-margin: 25vh;
+      }
+    `,
+  ],
+  template: `
+    @if (inline()) {
+      @if (thumbnail()) {
+        <!-- Thumbnail: neutral light frame — dark modal chrome clashes with white PDF pages. -->
+        <div style="overflow:hidden; background:var(--ck-bg-inset, #e8ecf0);">
+          <ng-container *ngTemplateOutlet="shell"></ng-container>
+        </div>
+      } @else {
+        <div class="rounded-lg overflow-hidden bg-gray-950 text-white ring-1 ring-white/10" [class.omnirag-preview-contained]="contained()" style="background:var(--ck-bg-panel, #030712)">
+          <ng-container *ngTemplateOutlet="shell"></ng-container>
+        </div>
+      }
+    } @else if (open()) {
+      <div class="fixed inset-0 z-[80] bg-black/55 backdrop-blur-sm flex items-center justify-center p-4" [class.dp-reader-backdrop]="reader()">
+        <section role="dialog" aria-modal="true"
+          [attr.aria-label]="reader() ? null : (title() || i18n.t('common.preview.title'))"
+          [attr.aria-labelledby]="reader() ? readerHeadingId : null"
+          [class.dp-reader-dialog]="reader()"
+          [class.omnirag-preview-contained]="reader()"
+          [attr.data-testid]="reader() ? 'document-reader' : null"
+          cdkTrapFocus [cdkTrapFocusAutoCapture]="true"
+          (keydown.escape)="$event.stopPropagation(); closed.emit()"
+          class="w-full max-w-5xl max-h-[88vh] rounded-lg overflow-hidden bg-gray-950 text-white ring-1 ring-white/10 shadow-2xl" style="background:var(--ck-bg-panel, #030712)">
+          <ng-container *ngTemplateOutlet="shell"></ng-container>
+        </section>
+      </div>
+    }
+
+    <ng-template #shell>
+          @if (!inline() && reader()) {
+            <header class="dp-reader-head">
+              <div class="dp-reader-titles">
+                <h2 class="dp-reader-title" [id]="readerHeadingId">{{ title() || i18n.t('common.preview.title') }}</h2>
+                @if (preview()?.kind === 'pdf' && pageCount() > 1) {
+                  <div class="dp-reader-pages">
+                    <button
+                      type="button"
+                      class="dp-reader-btn dp-reader-icon"
+                      [attr.aria-label]="i18n.t('common.preview.previous_page')"
+                      [title]="i18n.t('common.preview.previous_page')"
+                      [attr.aria-disabled]="readerPage() <= 1 ? 'true' : null"
+                      (click)="goPage(-1)"
+                    ><app-icon name="chevron-left" [size]="16" /></button>
+                    <span class="dp-reader-count" aria-live="polite">{{ i18n.t('common.preview.page_of', { page: readerPage(), total: pageCount() }) }}</span>
+                    <button
+                      type="button"
+                      class="dp-reader-btn dp-reader-icon"
+                      [attr.aria-label]="i18n.t('common.preview.next_page')"
+                      [title]="i18n.t('common.preview.next_page')"
+                      [attr.aria-disabled]="readerPage() >= pageCount() ? 'true' : null"
+                      (click)="goPage(1)"
+                    ><app-icon name="chevron-right" [size]="16" /></button>
+                  </div>
+                }
+              </div>
+              <div class="dp-reader-actions">
+                @if (previewUrl()) {
+                  <button type="button" class="dp-reader-btn" [disabled]="openingExternal() || !preview()" (click)="openExternal()">
+                    <app-icon [name]="openingExternal() ? 'loader-2' : 'external-link'" [size]="14" [class.animate-spin]="openingExternal()" />
+                    {{ i18n.t('common.preview.open') }}
+                  </button>
+                }
+                <button type="button" class="dp-reader-btn" (click)="closed.emit()">
+                  <app-icon name="x" [size]="16" />
+                  {{ i18n.t('common.close') }}
+                </button>
+              </div>
+            </header>
+          } @else if (!inline()) {
+            <header class="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
+              <div class="min-w-0">
+                <p class="text-[10px] uppercase tracking-[0.18em] text-cyan-300" style="color:var(--ck-fg-2, #67e8f9)">{{ subtitle() || 'Document' }}</p>
+                <h2 class="mt-0.5 truncate text-sm font-semibold">{{ title() || i18n.t('common.preview.title') }}</h2>
+                @if (normalizedPage(); as pageNo) {
+                  <p class="mt-0.5 text-[10px] font-mono text-gray-400">Page {{ pageNo }}</p>
+                }
+              </div>
+              <div class="flex items-center gap-2">
+                @if (previewUrl()) {
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+                    [disabled]="openingExternal() || !preview()"
+                    (click)="openExternal()"
+                  >
+                    <app-icon [name]="openingExternal() ? 'loader-2' : 'external-link'" [size]="13" [class.animate-spin]="openingExternal()" />
+                    {{ i18n.t('common.preview.open') }}
+                  </button>
+                }
+                <button
+                  type="button"
+                  class="inline-flex items-center justify-center rounded p-2 text-gray-300 hover:bg-white/10 hover:text-white"
+                  (click)="closed.emit()"
+                  [attr.aria-label]="i18n.t('common.preview.close')"
+                >
+                  <app-icon name="x" [size]="16" />
+                </button>
+              </div>
+            </header>
+          }
+          <div
+            #scrollHost
+            [class.bg-gray-900]="!thumbnail()"
+            [class.overflow-auto]="!thumbnail()"
+            [class.overflow-hidden]="thumbnail()"
+            [style.height]="bodyHeight()"
+            [style.pointerEvents]="thumbnail() ? 'none' : null"
+            [style.background]="thumbnail() ? 'var(--ck-bg-inset, #e8ecf0)' : 'var(--ck-bg-panel, #111827)'"
+          >
+            @if (loading()) {
+              <div
+                class="flex h-full items-center justify-center"
+                [class.gap-2]="!thumbnail()"
+                [class.text-sm]="!thumbnail()"
+                [class.text-gray-300]="!thumbnail()"
+              >
+                <app-icon name="loader-2" [size]="thumbnail() ? 14 : 16" class="animate-spin text-cyan-300" />
+                @if (!thumbnail()) {
+                  {{ i18n.t('common.preview.loading') }}
+                }
+              </div>
+            } @else if (error()) {
+              <div class="flex h-full items-center justify-center p-6 text-center">
+                <div class="max-w-md rounded bg-red-500/10 p-4 text-sm text-red-100 ring-1 ring-red-500/20">
+                  {{ error() }}
+                </div>
+              </div>
+            } @else if (preview(); as doc) {
+              @if (htmlDoc(); as html) {
+                <div class="relative h-full">
+                  @if (doc.truncated) {
+                    <span class="absolute right-3 top-3 z-10 rounded bg-yellow-500/90 px-2 py-0.5 text-[10px] font-semibold text-black shadow ring-1 ring-yellow-600/40">{{ i18n.t('common.preview.truncated') }}</span>
+                  }
+                  <iframe
+                    class="block h-full w-full bg-white"
+                    [attr.sandbox]="html.sandbox"
+                    [srcdoc]="html.srcdoc"
+                    [title]="i18n.t('common.preview.title')"
+                  ></iframe>
+                </div>
+              } @else if (doc.kind === 'text') {
+                <pre class="min-h-full whitespace-pre-wrap p-4 font-mono text-xs leading-relaxed text-gray-100" [innerHTML]="textHtml()"></pre>
+              } @else if (doc.kind === 'spreadsheet') {
+                <div class="p-4">
+                  <div class="mb-3 flex flex-wrap items-center gap-2 text-xs text-gray-400">
+                    <span>{{ doc.sheet_name || i18n.t('common.preview.worksheet') }}</span>
+                    @if (doc.cell_range) { <span class="font-mono">{{ doc.cell_range }}</span> }
+                    @if (doc.selection_truncated) {
+                      <span>{{ i18n.t('common.preview.selection_partial') }}</span>
+                    }
+                    @if (doc.truncated) {
+                      <span class="rounded bg-yellow-500/10 px-2 py-0.5 text-yellow-100 ring-1 ring-yellow-500/20" style="color:var(--ck-fg-2, #fef9c3)">{{ i18n.t('common.preview.sheet_window') }}</span>
+                    }
+                  </div>
+                  <div class="overflow-auto rounded bg-black/20 ring-1 ring-white/10">
+                    <table class="min-w-full border-collapse text-left text-xs text-gray-100">
+                      @if (doc.columns?.length) {
+                        <thead><tr>
+                          <th scope="col" class="px-3 py-2">{{ i18n.t('common.preview.row') }}</th>
+                          @for (column of doc.columns; track column) {
+                            <th scope="col" class="px-3 py-2 font-mono">{{ column }}</th>
+                          }
+                        </tr></thead>
+                      }
+                      <tbody>
+                        @for (row of doc.rows || []; track $index; let ri = $index) {
+                          <tr class="border-b border-white/10 last:border-b-0">
+                            @if (doc.columns?.length) {
+                              <th scope="row" class="px-3 py-2 font-mono">{{ (doc.row_start || 1) + ri }}</th>
+                            }
+                            @for (cell of row; track $index) {
+                              <td
+                                class="max-w-[320px] border-r border-white/10 px-3 py-2 align-top last:border-r-0"
+                                [class.omnirag-cell-hl]="sheetHl().hits.has(ri + ':' + $index)"
+                                [attr.id]="sheetHl().first === ri + ':' + $index ? hlAnchorId : null"
+                              >{{ cell }}</td>
+                            }
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              } @else if (doc.kind === 'image') {
+                @if (objectUrl()) {
+                  <div class="flex h-full items-center justify-center p-4">
+                    <img [src]="objectUrl()!" [alt]="doc.filename" class="max-h-full max-w-full object-contain" />
+                  </div>
+                } @else {
+                  <ng-container *ngTemplateOutlet="mediaPending"></ng-container>
+                }
+              } @else if (doc.kind === 'pdf') {
+                @if (objectUrl(); as pdfUrl) {
+                  <ngx-extended-pdf-viewer
+                    [src]="pdfUrl"
+                    [page]="reader() ? readerPage() : (normalizedPage() || 1)"
+                    [textLayer]="!thumbnail()"
+                    [height]="bodyHeight()"
+                    [showToolbar]="!thumbnail() && toolbar()"
+                    [zoom]="viewerZoom()"
+                    [backgroundColor]="thumbnail() ? '#e8ecf0' : (pageBackground() || '#0b1220')"
+                    [showSidebarButton]="false"
+                    [showOpenFileButton]="false"
+                    [showPrintButton]="false"
+                    [showDownloadButton]="false"
+                    [showPropertiesButton]="false"
+                    [showSecondaryToolbarButton]="false"
+                    [showEditorButtons]="false"
+                    [showStampEditor]="false"
+                    [showDrawEditor]="false"
+                    [showTextEditor]="false"
+                    [showHighlightEditor]="false"
+                    (pdfLoaded)="onPdfLoaded()"
+                    (pagesLoaded)="pageCount.set($event.pagesCount)"
+                    (pageChange)="onPdfPageChange($event)"
+                    (textLayerRendered)="onPdfTextLayer()"
+                  />
+                } @else {
+                  <ng-container *ngTemplateOutlet="mediaPending"></ng-container>
+                }
+              } @else {
+                <div class="flex h-full items-center justify-center p-6 text-center">
+                  <div class="max-w-md rounded bg-white/5 p-4 text-sm text-gray-300 ring-1 ring-white/10">
+                    {{ i18n.t('common.preview.unsupported') }}
+                  </div>
+                </div>
+              }
+            } @else {
+              <div class="flex h-64 items-center justify-center text-sm text-gray-400">
+                {{ i18n.t('common.preview.empty') }}
+              </div>
+            }
+          </div>
+    </ng-template>
+
+    <ng-template #mediaPending>
+      <div class="flex h-full items-center justify-center p-6 text-center">
+        @if (mediaLoading()) {
+          <div class="max-w-md rounded bg-white/5 p-4 text-sm text-gray-300 ring-1 ring-white/10">
+            <app-icon name="loader-2" [size]="18" class="mx-auto mb-3 animate-spin text-cyan-300" />
+            {{ i18n.t('common.preview.loading') }}
+          </div>
+        } @else if (mediaError()) {
+          <div class="max-w-md rounded bg-yellow-500/10 p-4 text-sm text-yellow-100 ring-1 ring-yellow-500/20">
+            {{ mediaError() }}
+          </div>
+        } @else {
+          <div class="max-w-md rounded bg-white/5 p-4 text-sm text-gray-300 ring-1 ring-white/10">
+            {{ i18n.t('common.preview.preparing') }}
+          </div>
+        }
+      </div>
+    </ng-template>
+  `,
+})
+export class DocumentPreviewComponent {
+  readonly i18n = inject(I18nService);
+  private static readonly previewCache = new Map<string, RichDocumentPreview>();
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly http = inject(HttpClient);
+  private readonly sanitizer = inject(DomSanitizer);
+  private readonly pdfFind = inject(NgxExtendedPdfViewerService);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private loadSeq = 0;
+  private currentPreviewUrl: string | null = null;
+  private previewRequestSub: Subscription | null = null;
+  private mediaRequestSub: Subscription | null = null;
+  private pdfReady = false;
+  private pdfLastFind = '';
+
+  readonly open = input(false);
+  /**
+   * Embed the preview in place (no modal overlay/chrome) — used by La Scène to
+   * show the live document "en scène". When inline, the preview loads whenever a
+   * `previewUrl` is present, independent of `open`.
+   */
+  readonly inline = input(false);
+  /**
+   * Thumbnail mode (implies inline): a chromeless, non-interactive rendering of
+   * the target page fitted to the box — used by La Scène film-strip tiles to
+   * show a real document preview instead of a decorative placeholder.
+   */
+  readonly thumbnail = input(false);
+  /** Body height in px for inline mode; modal keeps its 72vh viewport. */
+  readonly heightPx = input<number | null>(null);
+  readonly previewUrl = input<string | null>(null);
+  readonly title = input('');
+  readonly subtitle = input('');
+  readonly page = input<number | null>(null);
+  /** Chunk/snippet text to locate and highlight inside the rendered preview. */
+  readonly highlight = input<string | null>(null);
+  /** Inline embeds may drop the PDF toolbar (the host offers its own « open » action). */
+  readonly toolbar = input(true);
+  /** Colour behind PDF pages; defaults to the dark viewer backdrop. */
+  readonly pageBackground = input<string | null>(null);
+  /**
+   * Embedded in a scrolling panel (L36 Work sources): reaching the highlight
+   * scrolls the preview only, never the panel or the page around it.
+   */
+  readonly contained = input(false);
+  /**
+   * Reader dialog (L36 Work sources): the modal at reading size, titled by
+   * the document and page, with a visible « Fermer », previous / next page,
+   * theme tokens and a full-screen sheet on a phone.
+   */
+  readonly reader = input(false);
+  private static readerSeq = 0;
+  readonly readerHeadingId = `dp-reader-title-${++DocumentPreviewComponent.readerSeq}`;
+  readonly pageCount = signal(0);
+  readonly readerPage = signal(1);
+  /** A phone reads the page at actual size (panning sideways), not shrunk to unreadable text. */
+  private readonly narrowReader = typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 640px)').matches;
+  readonly viewerZoom = computed(() => {
+    if (this.thumbnail()) return 'page-fit';
+    if (this.reader() && !this.inline()) return this.narrowReader ? 'page-actual' : 'page-width';
+    return this.contained() ? 'page-width' : 'auto';
+  });
+  readonly closed = output<void>();
+  readonly viewChanged = output<DocumentPreviewViewChange>();
+
+  /** Exposed to the template for the spreadsheet scroll anchor. */
+  readonly hlAnchorId = HIGHLIGHT_ANCHOR_ID;
+  private readonly scrollHost = viewChild<ElementRef<HTMLElement>>('scrollHost');
+
+  readonly loading = signal(false);
+  readonly openingExternal = signal(false);
+  readonly error = signal<string | null>(null);
+  readonly mediaLoading = signal(false);
+  readonly mediaError = signal<string | null>(null);
+  readonly preview = signal<RichDocumentPreview | null>(null);
+  readonly objectUrl = signal<string | null>(null);
+
+  /** Scroll-host / pdf viewer height: fixed px inline, 72vh in the modal. */
+  readonly bodyHeight = computed(() => {
+    if (this.reader() && !this.inline()) return this.narrowReader ? 'calc(100dvh - 112px)' : 'min(78vh, calc(100dvh - 150px))';
+    const px = this.heightPx();
+    return px && px > 0 ? `${px}px` : '72vh';
+  });
+
+  readonly normalizedPage = computed(() => {
+    const raw = this.page();
+    if (raw === null || raw === undefined) return null;
+    const value = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  });
+
+  /** Escaped text content for the ``text`` preview, with the chunk marked. */
+  readonly textHtml = computed<SafeHtml>(() => {
+    const doc = this.preview();
+    const content = doc?.kind === 'text' ? doc.content || '' : '';
+    const marked = highlightPlainText(content, this.highlight());
+    return this.sanitizer.bypassSecurityTrustHtml(marked ?? escapeText(content));
+  });
+
+  /** srcdoc + sandbox for the HTML preview, with the chunk marked + scrolled to. */
+  readonly htmlDoc = computed<{ srcdoc: SafeHtml; sandbox: string } | null>(() => {
+    const doc = this.preview();
+    if (!doc || !this.isHtmlPreview(doc)) return null;
+    const built = this.buildHtmlSrcdoc(doc, this.highlight());
+    return {
+      srcdoc: this.sanitizer.bypassSecurityTrustHtml(built.html),
+      sandbox: built.scripted ? 'allow-scripts' : '',
+    };
+  });
+
+  /** Spreadsheet cells (``row:col`` keys) that match the chunk, plus the first hit. */
+  readonly sheetHl = computed<{ hits: Set<string>; first: string | null }>(() => {
+    const doc = this.preview();
+    const needle = normalizeNeedleForCells(this.highlight());
+    const hits = new Set<string>();
+    let first: string | null = null;
+    if (doc?.kind === 'spreadsheet' && (doc.selection || needle)) {
+      const rows = doc.rows || [];
+      for (let r = 0; r < rows.length; r++) {
+        const row = rows[r] || [];
+        for (let c = 0; c < row.length; c++) {
+          const absoluteRow = (doc.row_start || 1) + r;
+          const absoluteColumn = (doc.column_start || 1) + c;
+          const selected = doc.selection
+            ? absoluteRow >= doc.selection.row_start && absoluteRow <= doc.selection.row_end &&
+              absoluteColumn >= doc.selection.column_start && absoluteColumn <= doc.selection.column_end
+            : cellMatchesNeedle(row[c], needle);
+          if (selected) {
+            const key = r + ':' + c;
+            hits.add(key);
+            if (!first) first = key;
+          }
+        }
+      }
+    }
+    return { hits, first };
+  });
+
+  readonly displayName = computed(() => this.preview()?.filename || this.title() || 'document');
+
+  constructor() {
+    this.destroyRef.onDestroy(() => this.clearPreview());
+    effect(() => {
+      const url = this.previewUrl();
+      this.normalizedPage();
+      this.highlight();
+      const visible = this.open() || this.inline();
+      if (!visible || !url) {
+        this.clearPreview();
+        return;
+      }
+      this.loadPreview(url);
+    });
+    // Reader: opens on the cited page.
+    effect(() => {
+      const cited = this.normalizedPage();
+      untracked(() => this.readerPage.set(cited || 1));
+    });
+    // Scroll the highlighted passage into view once the preview DOM is painted.
+    // (HTML previews self-scroll from inside their sandboxed iframe instead.)
+    effect(() => {
+      this.textHtml();
+      this.htmlDoc();
+      this.objectUrl();
+      const sheetHit = this.sheetHl().first;
+      if ((this.open() || this.inline()) && (this.preview() || sheetHit)) {
+        setTimeout(() => this.scrollToHighlight(), 80);
+      }
+    });
+    // Re-run the PDF find when the highlight changes on an ALREADY-loaded
+    // document (e.g. review: switching between two sources of the same doc) —
+    // loadPreview early-returns on same URL, so this is the only refresh path.
+    effect(() => {
+      const phrase = this.highlight();
+      if (this.pdfReady && phrase) {
+        this.pdfLastFind = '';
+        this.runPdfFind();
+      }
+    });
+  }
+
+  private scrollToHighlight(): void {
+    const host = this.scrollHost()?.nativeElement;
+    if (!host) return;
+    const target = host.querySelector('#' + HIGHLIGHT_ANCHOR_ID) as HTMLElement | null;
+    if (target && this.contained()) {
+      const offset = target.getBoundingClientRect().top - host.getBoundingClientRect().top + host.scrollTop;
+      host.scrollTo({ top: Math.max(0, offset - host.clientHeight / 2), behavior: 'smooth' });
+      return;
+    }
+    target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+
+  /** pdf.js has parsed the document — page nav is honoured, kick off the find. */
+  onPdfLoaded(): void {
+    this.pdfReady = true;
+    this.pdfLastFind = '';
+    this.runPdfFind();
+    // Announce the effective landing page immediately (default 1): consumers
+    // sync the active pin / visual context from `viewChanged`, and without this
+    // a mark on an unnavigated PDF carries `page: null`.
+    const doc = this.preview();
+    if (doc) {
+      this.viewChanged.emit({
+        kind: doc.kind,
+        filename: doc.filename,
+        page: this.normalizedPage() || 1,
+      });
+    }
+  }
+
+  /** A page text layer is ready — (re)run the find so the highlight overlay shows. */
+  onPdfTextLayer(): void {
+    if (this.pdfReady) this.runPdfFind();
+  }
+
+  /**
+   * Highlight the chunk inside the PDF via the pdf.js find controller. It both
+   * marks every occurrence and scrolls the first one into view. Guarded by the
+   * last phrase so repeated text-layer renders don't re-trigger the same search.
+   */
+  private runPdfFind(): void {
+    if (!this.pdfReady) return;
+    // Work sources (contained / reader) mark the whole passage, piece by piece.
+    const whole = this.contained() || this.reader();
+    const segments = whole ? pdfFindSegments(this.highlight()) : [];
+    const phrase = whole ? segments.join(' ') : pdfFindPhrase(this.highlight());
+    if (!phrase || phrase === this.pdfLastFind) return;
+    this.pdfLastFind = phrase;
+    setTimeout(() => {
+      try {
+        // Contained: the page is already the cited one; marking must not scroll the page around it.
+        const query: string | string[] = whole && segments.length > 1 ? [...segments] : phrase;
+        this.pdfFind.find(query as string, { highlightAll: true, matchCase: false, findMultiple: false, dontScrollIntoView: this.contained() });
+        // A phone reader shows the start of the passage, not the centre of its line.
+        if (this.reader() && this.narrowReader) for (const delay of [300, 800, 1600]) setTimeout(() => this.alignFindStart(), delay);
+      } catch {
+        /* viewer not ready yet — a later textLayerRendered will retry */
+        this.pdfLastFind = '';
+      }
+    }, 120);
+  }
+
+  private makeNonce(): string {
+    const c = (globalThis as { crypto?: Crypto }).crypto;
+    if (c?.randomUUID) return c.randomUUID().replace(/-/g, '');
+    if (c?.getRandomValues) {
+      const bytes = c.getRandomValues(new Uint8Array(16));
+      return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    }
+    return 'hl' + this.loadSeq.toString(36);
+  }
+
+  openExternal(): void {
+    const doc = this.preview();
+    if (!doc?.download_url) return;
+    this.openingExternal.set(true);
+    this.http
+      .get(this.withDisposition(doc.download_url, 'inline'), { responseType: 'blob' })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (blob) => {
+          const objectUrl = URL.createObjectURL(blob);
+          const targetUrl = doc.kind === 'pdf' ? this.pdfObjectUrl(objectUrl) : objectUrl;
+          window.open(targetUrl, '_blank', 'noopener,noreferrer');
+          window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+          this.openingExternal.set(false);
+        },
+        error: () => {
+          this.openingExternal.set(false);
+          this.error.set(this.i18n.t('common.preview.open_failed', { name: this.displayName() }));
+        },
+      });
+  }
+
+  private loadPreview(url: string): void {
+    // Same-URL early return — EXCEPT when the previous attempt left the binary
+    // body missing (failed blob fetch): retry instead of showing a dead viewer.
+    if (this.currentPreviewUrl === url && (this.loading() || this.preview())) {
+      const kind = this.preview()?.kind;
+      const needsBlob = kind === 'pdf' || kind === 'image';
+      const blobMissing = needsBlob && !this.objectUrl() && !this.mediaLoading();
+      if (!blobMissing && !this.mediaError()) return;
+    }
+    const seq = ++this.loadSeq;
+    this.currentPreviewUrl = url;
+    this.pdfReady = false;
+    this.pdfLastFind = '';
+    this.revokeObjectUrl();
+    this.cancelInFlightRequests();
+    this.loading.set(true);
+    this.error.set(null);
+    this.mediaLoading.set(false);
+    this.mediaError.set(null);
+    this.preview.set(null);
+    const cached = DocumentPreviewComponent.previewCache.get(url);
+    if (cached) {
+      this.preview.set(cached);
+      this.loading.set(false);
+      if (cached.kind === 'image' || cached.kind === 'pdf') {
+        this.loadPreviewBlob(cached, seq);
+      }
+      return;
+    }
+    this.previewRequestSub = this.http
+      .get<RichDocumentPreview>(url)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (preview) => {
+          if (seq !== this.loadSeq) return;
+          this.rememberPreview(url, preview);
+          this.preview.set(preview);
+          this.loading.set(false);
+          if (preview.kind === 'image' || preview.kind === 'pdf') {
+            this.loadPreviewBlob(preview, seq);
+          }
+        },
+        error: (err) => {
+          if (seq !== this.loadSeq) return;
+          this.loading.set(false);
+          this.error.set(this.errorMessage(err));
+        },
+      });
+  }
+
+  private loadPreviewBlob(preview: RichDocumentPreview, seq: number): void {
+    this.mediaRequestSub?.unsubscribe();
+    this.mediaLoading.set(true);
+    this.mediaError.set(null);
+    this.mediaRequestSub = this.http
+      .get(this.withDisposition(preview.download_url, 'inline'), { responseType: 'blob' })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (blob) => {
+          if (seq !== this.loadSeq) return;
+          const url = URL.createObjectURL(blob);
+          this.objectUrl.set(url);
+          this.mediaLoading.set(false);
+        },
+        error: (err) => {
+          if (seq !== this.loadSeq) return;
+          this.mediaLoading.set(false);
+          this.mediaError.set(this.errorMessage(err));
+        },
+      });
+  }
+
+  private clearPreview(): void {
+    ++this.loadSeq;
+    this.currentPreviewUrl = null;
+    this.pdfReady = false;
+    this.pdfLastFind = '';
+    this.cancelInFlightRequests();
+    this.loading.set(false);
+    this.mediaLoading.set(false);
+    this.openingExternal.set(false);
+    this.error.set(null);
+    this.mediaError.set(null);
+    this.preview.set(null);
+    this.revokeObjectUrl();
+  }
+
+  private cancelInFlightRequests(): void {
+    this.previewRequestSub?.unsubscribe();
+    this.previewRequestSub = null;
+    this.mediaRequestSub?.unsubscribe();
+    this.mediaRequestSub = null;
+  }
+
+  private revokeObjectUrl(): void {
+    const url = this.objectUrl();
+    if (url) URL.revokeObjectURL(url);
+    this.objectUrl.set(null);
+  }
+
+  private rememberPreview(url: string, preview: RichDocumentPreview): void {
+    DocumentPreviewComponent.previewCache.set(url, preview);
+    if (DocumentPreviewComponent.previewCache.size <= RICH_PREVIEW_CACHE_LIMIT) return;
+    const oldest = DocumentPreviewComponent.previewCache.keys().next().value as string | undefined;
+    if (oldest) DocumentPreviewComponent.previewCache.delete(oldest);
+  }
+
+  private isHtmlPreview(doc: RichDocumentPreview): boolean {
+    if (doc.kind === 'html') return !!doc.content;
+    const filename = (doc.filename || '').toLowerCase();
+    const contentType = (doc.content_type || '').toLowerCase();
+    return (
+      doc.kind === 'text' &&
+      !!doc.content &&
+      (contentType.includes('html') || filename.endsWith('.html') || filename.endsWith('.htm'))
+    );
+  }
+
+  private cspContent(scriptSrc: string): string {
+    return `default-src 'none'; img-src data: blob: http: https:; style-src 'unsafe-inline'; font-src data:; script-src ${scriptSrc}; connect-src 'none';`;
+  }
+
+  private htmlChrome(scriptSrc: string): string {
+    return `
+      <meta charset="utf-8">
+      <meta http-equiv="Content-Security-Policy" content="${this.cspContent(scriptSrc)}">
+      <style>
+        html, body { margin: 0; min-height: 100%; background: #f8fafc; color: #111827; font: 14px/1.55 Arial, Helvetica, sans-serif; }
+        body { padding: 24px; box-sizing: border-box; }
+        table { border-collapse: collapse; max-width: 100%; margin: 16px 0; background: white; }
+        caption { padding: 8px 0; font-weight: 700; text-align: left; }
+        th, td { border: 1px solid #cbd5e1; padding: 6px 8px; vertical-align: top; }
+        th { background: #e2e8f0; font-weight: 700; }
+        h1, h2, h3, h4 { color: #0f172a; line-height: 1.2; }
+        a { color: #0369a1; }
+        img { max-width: 100%; height: auto; }
+        p { margin: 0 0 12px; }
+        mark.omnirag-hl { background: #fde68a; color: #111827; border-radius: 2px; padding: 0 0.1em; box-shadow: 0 0 0 2px #fde68a; scroll-margin: 25vh; }
+      </style>
+    `;
+  }
+
+  private wrapHtml(raw: string, scriptSrc: string): string {
+    const chrome = this.htmlChrome(scriptSrc);
+    if (/<html[\s>]/i.test(raw)) {
+      if (/<head[\s>]/i.test(raw)) {
+        return raw.replace(/<head([^>]*)>/i, `<head$1>${chrome}`);
+      }
+      return raw.replace(/<html([^>]*)>/i, `<html$1><head>${chrome}</head>`);
+    }
+    return `<!doctype html><html><head>${chrome}</head><body>${raw}</body></html>`;
+  }
+
+  /**
+   * Build the sandboxed HTML srcdoc. With no highlight (or no match) the
+   * document stays fully locked down (``script-src 'none'``). When the chunk is
+   * located we mark it, relax the CSP to a single nonce so ONLY our scroll
+   * script may run (the document's own scripts still cannot), and report
+   * ``scripted`` so the caller can grant the iframe ``allow-scripts``.
+   */
+  private buildHtmlSrcdoc(doc: RichDocumentPreview, highlight: string | null): { html: string; scripted: boolean } {
+    const raw = doc.content || '';
+    const locked = this.wrapHtml(raw, "'none'");
+    if (!highlight) return { html: locked, scripted: false };
+
+    try {
+      const parsed = new DOMParser().parseFromString(locked, 'text/html');
+      const body = parsed.body;
+      if (!body || !markRangeInDom(body, highlight, parsed)) {
+        return { html: locked, scripted: false };
+      }
+      const nonce = this.makeNonce();
+      const meta = parsed.querySelector('meta[http-equiv="Content-Security-Policy" i]');
+      meta?.setAttribute('content', this.cspContent(`'nonce-${nonce}'`));
+      const script = parsed.createElement('script');
+      script.setAttribute('nonce', nonce);
+      script.textContent = `(function(){function g(){var e=document.getElementById('${HIGHLIGHT_ANCHOR_ID}');if(e){e.scrollIntoView({block:'center'});}}if(document.readyState!=='loading'){g();}else{document.addEventListener('DOMContentLoaded',g);}})();`;
+      body.appendChild(script);
+      return { html: '<!doctype html>' + parsed.documentElement.outerHTML, scripted: true };
+    } catch {
+      return { html: locked, scripted: false };
+    }
+  }
+
+  private withDisposition(url: string, disposition: 'inline' | 'attachment'): string {
+    const separator = url.includes('?') ? '&' : '?';
+    return url.includes('disposition=') ? url : `${url}${separator}disposition=${disposition}`;
+  }
+
+  private pdfObjectUrl(url: string): string {
+    const page = this.normalizedPage();
+    return page ? `${url}#page=${page}` : url;
+  }
+
+  /** Reader on a phone: scroll sideways to where the marked passage starts. */
+  private alignFindStart(): void {
+    const root = this.host.nativeElement;
+    const container = root.querySelector<HTMLElement>('#viewerContainer');
+    // The first mark in reading order is where the passage starts.
+    const mark = root.querySelector<HTMLElement>('.textLayer .highlight');
+    if (!container || !mark) return;
+    const offset = mark.getBoundingClientRect().left - container.getBoundingClientRect().left;
+    container.scrollLeft = Math.max(0, container.scrollLeft + offset - 16);
+  }
+
+  /** Reader: previous / next page, within the document. */
+  goPage(delta: number): void {
+    const next = this.readerPage() + delta;
+    if (next < 1 || (this.pageCount() && next > this.pageCount())) return;
+    this.readerPage.set(next);
+  }
+
+  protected onPdfPageChange(page: unknown): void {
+    const doc = this.preview();
+    if (!doc) return;
+    const shown = typeof page === 'number' ? page : Number.parseInt(String((page as { pageNumber?: unknown })?.pageNumber ?? page), 10);
+    if (this.reader() && Number.isFinite(shown) && shown > 0) this.readerPage.set(shown);
+    const pageNo =
+      typeof page === 'number'
+        ? page
+        : Number.parseInt(String((page as { pageNumber?: unknown })?.pageNumber ?? page), 10);
+    this.viewChanged.emit({
+      kind: doc.kind,
+      filename: doc.filename,
+      page: Number.isFinite(pageNo) && pageNo > 0 ? pageNo : this.normalizedPage(),
+    });
+  }
+
+  private errorMessage(err: unknown): string {
+    const detail = (err as { error?: { detail?: unknown } })?.error?.detail;
+    if (detail === 'Referenced worksheet not found' || detail === 'Referenced cells are outside the source worksheet') {
+      return this.i18n.t('common.preview.locator_missing');
+    }
+    if (typeof detail === 'string') return detail;
+    return this.i18n.t('common.preview.load_failed', { name: this.displayName() });
+  }
+}

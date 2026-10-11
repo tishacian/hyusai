@@ -1,0 +1,53 @@
+{
+  "case_id": "case-normal-1",
+  "run_id": "0de08cc7-51d9-467a-8df2-70f72d147bb3",
+  "output": {
+    "completion": "Title: PIH SPARK-089 Regrade Request \u2014 Documentary Summary\n\n1) Key Facts\n- Current title: Analyst [evidence: \"- Title: Analyst\"]\n- Current grade: G7 [evidence: \"- Grade: G7\"]\n- Proposed title: Senior Analyst [evidence: \"- Title: Senior Analyst\"]\n- Proposed grade: G8 [evidence: \"- Grade: G8\"]\n- Effective date: 2025-01-01 [evidence: \"- Effective date: 2025-01-01\"]\n\n2) Citations (verbatim)\n\"- Title: Analyst\"\n\"- Grade: G7\"\n\"- Title: Senior Analyst\"\n\"- Grade: G8\"\n\"- Effective date: 2025-01-01\"\n\n3) Missing Information\n- None\n\n4) Compliance Note\n- No HR approval, rejection, or recommendation is made."
+  },
+  "assertions": {
+    "verdict": "failed",
+    "assertions": [
+      {
+        "id": "a1-fact-current-title",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "a2-fact-proposed-title",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "a3-fact-current-grade",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "a4-fact-proposed-grade",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "a5-fact-effective-date",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "a6-citation-quote",
+        "passed": false,
+        "path_found": true
+      },
+      {
+        "id": "a7-prohibition-explicit",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "a8-no-hr-decision-phrase",
+        "passed": true,
+        "path_found": true
+      }
+    ]
+  },
+  "review": "harness_acceptance_not_human"
+}

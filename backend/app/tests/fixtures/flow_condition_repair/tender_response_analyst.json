@@ -1,0 +1,51 @@
+{
+  "edges": [
+    {
+      "from": "src",
+      "to": "route"
+    },
+    {
+      "branch_label": "draft",
+      "from": "route",
+      "kind": "branch",
+      "to": "draft"
+    },
+    {
+      "from": "draft",
+      "to": "sink"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "src",
+      "kind": "source"
+    },
+    {
+      "config": {
+        "branches": [
+          {
+            "condition": "true",
+            "label": "draft"
+          },
+          {
+            "condition": "false",
+            "label": "escalate"
+          }
+        ],
+        "default_branch": "draft"
+      },
+      "id": "route",
+      "kind": "decision"
+    },
+    {
+      "config": {},
+      "id": "draft",
+      "kind": "task"
+    },
+    {
+      "id": "sink",
+      "kind": "sink"
+    }
+  ],
+  "schema_version": 2
+}

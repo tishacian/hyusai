@@ -2,7 +2,7 @@
 
 The files here are responsible for creating a docker image and deploying it on our servers (using kubernetes) or locally (using docker).
 
-## Build and run OmniRAG
+## Build and run OmniRAG monolith (old version)
 
 For any local building / deployment, you need to [**install docker**](https://www.docker.com/products/docker-desktop/) on your machine, and launch it.
 
@@ -17,3 +17,70 @@ For any local building / deployment, you need to [**install docker**](https://ww
 4. Run your image using `docker run -p 8509:8509 --env-file <path-to-your-env-file> <your-image-tag>`
     - If you run the image on GPU, add `--gpus all` before your image tag.
     - If you want to mount a volume to share data (like VDBs) with your container, add `-v <data-folder-path> <destination-folder-path>` before you image tag.<br/>For example, if I want to provide my vector store folder located at `~/home/dev/vector_store/`, I will add `-v ~/home/dev/vector_store/ /app/vector_store/`
+
+## Build and run Papai-LLM locally
+
+0. Make sure your docker daemon is up.
+1. Configure your pip index url in `./docker/.env` for build time.
+2. Tune your environment configurations if needed using the example .env files in the `./docker/test_env_files/` folder.
+3. Start all the required services using the `docker-composer.yml` file :
+    - `docker compose up --build` (you might need to `export DOCKER_BUILDKIT=1` to use replicas)
+4. To stop the services, you can run:
+    - `docker compose down` for simple stop
+    - `docker compose down -v` for stop with data volumes removal
+
+## Run Agentium canonical stack
+
+Agentium's production-oriented Compose stack is separate from the legacy
+Papai-LLM stack:
+
+```bash
+cd docker
+docker compose -f compose.agentium.yml config
+```
+
+The base file is production-oriented and fails closed onto the pre-created
+external volumes `agentium_minio_block` and `agentium_qdrant_block`. It must
+not silently create root-local state. For an intentional local development
+stack, opt in explicitly:
+
+```bash
+docker compose \
+  -f compose.agentium.yml \
+  -f compose.agentium.local-storage.yml \
+  up -d agentium-rabbitmq agentium-backend agentium-worker-cpu
+```
+
+Never add the local-storage overlay on a VM. Local model modes are mutually
+exclusive and still switchable from the model portal. The contract is
+`docs/ops/agentium-local-models.md`.
+
+Container mode (Linux Ollama, CPU inside Docker on a Mac):
+
+```bash
+docker compose \
+  -f compose.agentium.yml \
+  -f compose.agentium.local-storage.yml \
+  -f compose.agentium.local.yml \
+  up -d
+```
+
+Mac GPU mode (Ollama 0.34+ on macOS, Metal; GGUF uses llama.cpp, safetensors
+uses MLX). Pull the models on the host first with `./ollama-host-models.sh`.
+
+```bash
+docker compose \
+  -f compose.agentium.yml \
+  -f compose.agentium.local-storage.yml \
+  -f compose.agentium.local-mac.yml \
+  up -d
+```
+
+vLLM is the `gpu-models` profile and needs an NVIDIA GPU. It does not replace
+the routing default.
+
+Use `AGENTIUM_ENV_FILE` to point
+to a non-committed env file. On the demo VM, use
+`scripts/agentium-vm-deploy.sh storage-check` and follow
+`docs/ops/agentium-safe-vm-deployment.md`; `migrate` and `up` run that
+read-only gate automatically.

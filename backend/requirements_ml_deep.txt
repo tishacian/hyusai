@@ -1,0 +1,7 @@
+# Optional local foundation and text encoders. torch comes from TORCH_INDEX_URL
+# in Dockerfile.agentium-ml-deep before these packages are resolved.
+transformers>=4.41,<6
+chronos-forecasting>=2.0,<3
+sentence-transformers>=3.0,<7
+# Qualified offline adapter pins the checkpoint loader contract explicitly.
+tabicl==2.2.0

@@ -1,0 +1,329 @@
+{
+  "request": {
+    "query": "Indique les dur\u00e9es pr\u00e9vues et r\u00e9alis\u00e9es pour NF-04, avec les sources.",
+    "context_collection": "agentium-showcase-intervention-history",
+    "top_k": 5,
+    "latency_profile": "balanced"
+  },
+  "output": {
+    "results": [
+      {
+        "content": "# NorthForge \u2014 synthetic intervention history\n\nSource: the fixed Showcase Operational Analysis dataset. These records contain durations only. Equipment, actions performed, causes, technician identities and intervention dates were not supplied. Do not infer those details or associate an order with the PMP-700. For totals or exhaustive comparisons, use the canonical SQL/Polars Flow.\n\n NF-01 Planned duration: 30 minutes. Actual duration: 40 minutes. Cause: not supplied. Equipment: not supplied.\n\n NF-02 Planned duration: 40 minutes. Actual duration: 35 minutes. Cause: not supplied. Equipment: not supplied.\n\n NF-03 Planned duration: 20 minutes. Actual duration: 25 minutes. Cause: not supplied. Equipment: not supplied.\n\n NF-04 Planned duration: 30 minutes. Actual duration: 55 minutes. Cause: not supplied. Equipment: not supplied.",
+        "score": 1.0,
+        "metadata": {
+          "document_id": "503f8bb1-0d46-54ab-9f9b-d0ac83572de6",
+          "document_filename": "northforge-intervention-history.md",
+          "chunk_index": 0,
+          "content": "# NorthForge \u2014 synthetic intervention history\n\nSource: the fixed Showcase Operational Analysis dataset. These records contain durations only. Equipment, actions performed, causes, technician identities and intervention dates were not supplied. Do not infer those details or associate an order with the PMP-700. For totals or exhaustive comparisons, use the canonical SQL/Polars Flow.\n\n NF-01 Planned duration: 30 minutes. Actual duration: 40 minutes. Cause: not supplied. Equipment: not supplied.\n\n NF-02 Planned duration: 40 minutes. Actual duration: 35 minutes. Cause: not supplied. Equipment: not supplied.\n\n NF-03 Planned duration: 20 minutes. Actual duration: 25 minutes. Cause: not supplied. Equipment: not supplied.\n\n NF-04 Planned duration: 30 minutes. Actual duration: 55 minutes. Cause: not supplied. Equipment: not supplied.",
+          "start_char": 0,
+          "end_char": 835,
+          "document_type": "md",
+          "file_size": 846,
+          "created_at": "2026-09-16T12:28:25.730521",
+          "modified_at": "2026-09-16T12:28:25.730521",
+          "extension": "md",
+          "document_encoding": "utf-8",
+          "document_word_count": 116,
+          "document_character_count": 844,
+          "document_line_count": 27,
+          "document_paragraph_count": 6,
+          "document_extracted_keywords": [
+            "actual duration",
+            "duration",
+            "duration minutes",
+            "equipment",
+            "minutes",
+            "minutes actual",
+            "not",
+            "not supplied",
+            "planned duration",
+            "supplied"
+          ],
+          "document_has_front_matter": false,
+          "document_token_count": 180,
+          "content_sha256": "478a8791fa7266d38f04e3a0a1051e1f2606bad3197a37232933aef466225943",
+          "collection_slug": "agentium-showcase-intervention-history",
+          "collection": "agentium-showcase-intervention-history",
+          "source_kind": "text",
+          "status": "ready",
+          "sparse_schema_version": "metadata_v1",
+          "retrieval_identifiers": [
+            "503f8bb10d4654ab9f9bd0ac83572de6",
+            "503f8bb10d46",
+            "54ab9f9b",
+            "northforgeinterventionhistorymd"
+          ],
+          "retrieval_terms": [
+            "northforge",
+            "intervention",
+            "history",
+            "md",
+            "northforgeinterventionhistorymd",
+            "text"
+          ],
+          "qdrant_group_by": "document_id",
+          "qdrant_group_size": 1,
+          "sparse_backend": "qdrant_sparse",
+          "sparse_status": "ok",
+          "sparse_fusion": "server_rrf",
+          "sparse_results": 1,
+          "dense_elapsed_ms": 1296,
+          "sparse_elapsed_ms": 1296,
+          "retrieval_elapsed_ms": 1297,
+          "retrieval_deadline_seconds": 15.656608959659934,
+          "fusion_path": "server_rrf",
+          "retrieval_lexical_score": 18,
+          "retrieval_exact_terms_matched": [
+            "NF04"
+          ],
+          "retrieval_document_types_matched": [],
+          "retrieval_exact_match_missing": false,
+          "retrieval_evidence_terms": [
+            "Indique",
+            "dur\u00e9es",
+            "pr\u00e9vues",
+            "r\u00e9alis\u00e9es",
+            "NF-04",
+            "Indique dur\u00e9es",
+            "dur\u00e9es pr\u00e9vues",
+            "pr\u00e9vues r\u00e9alis\u00e9es",
+            "r\u00e9alis\u00e9es NF-04"
+          ],
+          "retrieval_evidence_terms_matched": [
+            "NF-04"
+          ],
+          "retrieval_evidence_terms_missing": [
+            "Indique",
+            "dur\u00e9es",
+            "pr\u00e9vues",
+            "r\u00e9alis\u00e9es",
+            "Indique dur\u00e9es",
+            "dur\u00e9es pr\u00e9vues",
+            "pr\u00e9vues r\u00e9alis\u00e9es",
+            "r\u00e9alis\u00e9es NF-04"
+          ],
+          "retrieval_evidence_coverage": 0.1111111111111111,
+          "retrieval_policy_score": 23,
+          "collection_name": "agentium-showcase-intervention-history",
+          "cross_encoder_score": 0.0003
+        }
+      }
+    ],
+    "project_inventory": null,
+    "pipeline": "hybrid",
+    "label": "hybrid_rrf",
+    "reason": "Standard DocumentService.search",
+    "detail": "use_hybrid=True top_k=40 candidate_k=40 exact_metadata_hits=0 exact_table_hits=0; sparse=ok:qdrant_sparse",
+    "retrieval_scope": {
+      "collections": [
+        "agentium-showcase-intervention-history"
+      ],
+      "filters": {},
+      "intent": "content_search",
+      "dense": false,
+      "source_count": 1,
+      "chunk_count": 1,
+      "confidence": 0.0,
+      "reason": "No strong metadata scope inferred; using bounded semantic retrieval.",
+      "corpus_version": "2026-09-16 12:28:47.574280",
+      "soft_scope_filters": {},
+      "soft_scope_collections": [],
+      "recall_floor_collections": [],
+      "recall_floor_top_n": 0,
+      "planner_ms": 16
+    },
+    "scope_confidence": 0.0,
+    "scope_reason": "No strong metadata scope inferred; using bounded semantic retrieval.",
+    "dense_policy": "standard",
+    "fallback_reason": null,
+    "latency_budget": {
+      "profile": "balanced",
+      "retrieval_profile": "chat",
+      "allow_cross_encoder": true,
+      "deadline_seconds": 16.0,
+      "top_k": 5,
+      "candidate_pool_k": 40
+    },
+    "collections_touched": [
+      "agentium-showcase-intervention-history"
+    ],
+    "retrieval_decision_trace": {
+      "version": 1,
+      "trace_id": "1a889f22-ced6-44a5-bf31-a22fef8e39b8",
+      "summary": "hybrid selected for content_search query under balanced latency profile: No strong metadata scope inferred; using bounded semantic retrieval.",
+      "query_type": "content_search",
+      "latency_profile": "balanced",
+      "retrieval_profile": "chat",
+      "selected_route": "hybrid",
+      "route_reason": "No strong metadata scope inferred; using bounded semantic retrieval.",
+      "tradeoff": "Balanced latency with source recall and reranking quality controls.",
+      "collection_scope": {
+        "collection": "agentium-showcase-intervention-history",
+        "collections": [
+          "agentium-showcase-intervention-history"
+        ],
+        "filters": {},
+        "intent": "content_search",
+        "dense": false,
+        "source_count": 1,
+        "chunk_count": 1,
+        "confidence": 0.0,
+        "reason": "No strong metadata scope inferred; using bounded semantic retrieval."
+      },
+      "layers": [
+        {
+          "key": "inventory",
+          "enabled": false,
+          "status": "skipped",
+          "reason": "dense corpus guardrail and scope discovery",
+          "budget_ms": 500
+        },
+        {
+          "key": "facts",
+          "enabled": false,
+          "status": "skipped",
+          "reason": "small corpus can retrieve chunks directly",
+          "budget_ms": 1200
+        },
+        {
+          "key": "summaries",
+          "enabled": false,
+          "status": "skipped",
+          "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+          "budget_ms": 2500,
+          "top_k": 40
+        },
+        {
+          "key": "dense_qdrant",
+          "enabled": true,
+          "status": "enabled",
+          "reason": "global dense retrieval skipped on dense unscoped corpus",
+          "budget_ms": 3500,
+          "top_k": 40
+        },
+        {
+          "key": "sparse",
+          "enabled": false,
+          "status": "skipped",
+          "reason": "legacy hybrid allowed for non-dense corpus",
+          "budget_ms": 2500,
+          "top_k": 40
+        },
+        {
+          "key": "hah_chah",
+          "enabled": true,
+          "status": "enabled",
+          "reason": "budget-aware layered HAH/C-HAH enabled",
+          "budget_ms": 16000,
+          "top_k": 40
+        },
+        {
+          "key": "rerank",
+          "enabled": true,
+          "status": "enabled",
+          "reason": "normalize/fuse/rerank only the bounded candidate pool",
+          "budget_ms": 1200,
+          "top_k": 16
+        },
+        {
+          "key": "deep_async",
+          "enabled": false,
+          "status": "skipped",
+          "reason": "not needed for this interactive plan",
+          "budget_ms": 120000
+        }
+      ],
+      "quality_controls": {
+        "sparse_status": "ok",
+        "sparse_backend": "qdrant_sparse",
+        "cross_encoder_status": "applied",
+        "cross_encoder_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        "cross_encoder_ms": 142,
+        "score_threshold_applied": false,
+        "dense_policy": "standard",
+        "dense_only": false,
+        "retrieval_policy": {
+          "enabled": false,
+          "blocks": 0,
+          "aliases": 0,
+          "protected_terms": 0,
+          "facets": 0,
+          "source_family_rules": 0,
+          "lexical_document_types": 0,
+          "lexical_metadata_fields": 20,
+          "require_project_code_match": false,
+          "clarification_required": false
+        }
+      },
+      "fallbacks": [],
+      "deep_search": {
+        "recommended": false,
+        "launched": false
+      },
+      "answer_shaping": {},
+      "timings": {
+        "planner_ms": 16,
+        "qdrant_ms": 1296,
+        "sparse_ms": 1296,
+        "retrieval_ms": 1297,
+        "rerank_ms": 150,
+        "context_build_ms": 0,
+        "total_ms": 5740
+      },
+      "candidate_counts": {
+        "source_count": 1,
+        "chunk_count": 1,
+        "candidate_pool_k": 40,
+        "synthesis_k": 16,
+        "source_display_k": 8,
+        "raw_chunks_retrieved": 1,
+        "document_chunks_retrieved": 1,
+        "chunks_retrieved": 1,
+        "duplicates_removed": 0,
+        "sparse_results": 1,
+        "exact_metadata_hits": 0
+      },
+      "selected_sources": [
+        {
+          "label": "northforge-intervention-history.md",
+          "document_id": "503f8bb1-0d46-54ab-9f9b-d0ac83572de6",
+          "score": 1.0
+        }
+      ],
+      "trace_source": "runtime"
+    },
+    "raw_chunks_retrieved": 1,
+    "document_chunks_retrieved": 1,
+    "stage_timings": {
+      "planner_ms": 16,
+      "inventory_ms": null,
+      "embedding_ms": null,
+      "qdrant_ms": 1296,
+      "sparse_ms": 1296,
+      "retrieval_ms": 1297,
+      "rerank_ms": 150,
+      "context_build_ms": 0,
+      "table_facts_ms": null,
+      "llm_ms": null,
+      "total_ms": 5740
+    },
+    "usage": {
+      "total_tokens": 20,
+      "provider_calls": 1,
+      "measurement_source": "provider_reported",
+      "measurement_coverage": "complete",
+      "providers": [
+        "openai"
+      ],
+      "calls": [
+        {
+          "provider": "openai",
+          "model": "text-embedding-3-small",
+          "total_tokens": 20,
+          "prompt_tokens": 20
+        }
+      ],
+      "prompt_tokens": 20
+    }
+  }
+}

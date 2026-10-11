@@ -1,0 +1,5 @@
+
+> agentium@0.1.0 check:ui-chrome
+> node scripts/check-ui-chrome.mjs
+
+Agentium UI chrome guard OK.

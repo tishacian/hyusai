@@ -1,0 +1,500 @@
+.xp-rt {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* A page is twelve tracks wide so a block can ask for a half, a third or a
+   quarter of a row and still land on a track boundary. `minmax(0, …)` rather
+   than a bare `1fr`: a table wider than the page must stay inside its own
+   horizontal scroller instead of stretching the track that holds it. */
+.xp-rt-page {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* The title, the page description and any block that declares no width take
+   the row to themselves — the single column every published document was
+   written against. */
+.xp-rt-page > * {
+  grid-column: span 12;
+}
+
+.xp-rt-page > .xp-rt-node[data-span='half'] {
+  grid-column: span 6;
+}
+
+.xp-rt-page > .xp-rt-node[data-span='third'] {
+  grid-column: span 4;
+}
+
+.xp-rt-page > .xp-rt-node[data-span='quarter'] {
+  grid-column: span 3;
+}
+
+/* Where the cockpit collapses its own multi-column panels: below it a third of
+   a row is narrower than the figures a tile is there to show. */
+@media (max-width: 900px) {
+  .xp-rt-page > .xp-rt-node[data-span] {
+    grid-column: span 12;
+  }
+}
+
+.xp-rt-node {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.xp-rt-page.xp-rt-compact,
+.xp-rt-node.xp-rt-compact .xp-rt-block {
+  gap: 6px;
+}
+
+.xp-rt-page.xp-rt-compact .xp-rt-block,
+.xp-rt-node.xp-rt-compact .xp-rt-block {
+  padding: 8px;
+}
+
+.xp-rt-page.xp-rt-compact .xp-rt-node.xp-rt-comfortable .xp-rt-block {
+  padding: 14px;
+}
+
+.xp-rt-node.xp-rt-accent .xp-rt-block {
+  border-left: 3px solid var(--xp-accent);
+}
+
+.xp-rt-page > h2 {
+  margin: 0;
+  font-family: var(--ck-font-sans);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ck-fg-1);
+}
+
+.xp-rt-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  background: var(--ck-bg-panel);
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: 8px;
+}
+
+.xp-rt-block h3,
+.xp-rt-head {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ck-fg-1);
+}
+
+.xp-rt-sub {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ck-fg-3);
+}
+
+.xp-rt-link {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ck-signal-cool);
+  text-decoration: none;
+}
+
+.xp-rt-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.xp-rt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.xp-rt-field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ck-fg-2);
+}
+
+.xp-rt-field input,
+.xp-rt-field select,
+.xp-rt-field textarea {
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px solid var(--ck-stroke-3);
+  border-radius: 4px;
+  background: var(--ck-bg-inset);
+  color: var(--ck-fg-1);
+  font-family: var(--ck-font-sans);
+  font-size: 13px;
+}
+
+.xp-rt-field input[aria-invalid='true'],
+.xp-rt-field select[aria-invalid='true'] {
+  border-color: var(--ck-status-neg-fg);
+}
+
+.xp-rt-err,
+.xp-rt-hint {
+  margin: 0;
+  font-size: 11px;
+}
+
+.xp-rt-err {
+  color: var(--ck-status-neg-fg);
+}
+
+.xp-rt-hint {
+  color: var(--ck-fg-4);
+}
+
+.xp-rt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.xp-rt-btn {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--xp-accent, var(--xp-app-accent, var(--ck-signal-cool)));
+  color: var(--xp-on-accent, var(--ck-on-signal, #0b1220));
+  font-family: var(--ck-font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.xp-rt-btn:focus-visible,
+.xp-rt-field input:focus-visible,
+.xp-rt-field select:focus-visible,
+.xp-rt-link:focus-visible,
+.xp-rt-node[tabindex='-1']:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--xp-app-accent, var(--ck-signal-cool)) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.xp-rt-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.xp-rt-btn-ghost {
+  background: transparent;
+  color: var(--ck-fg-2);
+  border: 1px solid var(--ck-stroke-3);
+}
+
+.xp-rt-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.xp-rt-table-scroll:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--xp-app-accent, var(--ck-signal-cool)) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.xp-rt-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.xp-rt-table th,
+.xp-rt-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--ck-stroke-2);
+  color: var(--ck-fg-2);
+  max-width: 24rem;
+  overflow-wrap: anywhere;
+}
+
+.xp-rt-table th {
+  color: var(--ck-fg-4);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.xp-rt-kv {
+  display: grid;
+  grid-template-columns: minmax(80px, 140px) 1fr;
+  gap: 6px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.xp-rt-kv dt {
+  color: var(--ck-fg-4);
+}
+
+.xp-rt-kv dd {
+  margin: 0;
+  color: var(--ck-fg-1);
+  overflow-wrap: anywhere;
+}
+
+.xp-rt-result-value {
+  margin: 0;
+  color: var(--ck-fg-1);
+  overflow-wrap: anywhere;
+}
+
+.xp-rt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.xp-rt-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--ck-stroke-1);
+  font-size: 13px;
+  color: var(--ck-fg-2);
+}
+
+.xp-rt-fallback {
+  border-color: var(--ck-status-warn-line);
+  background: var(--ck-status-warn-bg);
+}
+
+/* A canvas needs a box: chart.js sizes itself to its parent, and a donut
+   squashed flat misreports every share it draws. */
+.xp-rt-chart-arc {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+}
+
+/* The total, written through the hole in the ring. Centred on the arcs rather
+   than on the box, because the legend sits under them and would drag the
+   figure off the middle of the circle it belongs to. The legend's height is
+   the `padding-bottom` below; `pointer-events: none` keeps the hub from eating
+   the hover that reveals a slice's tooltip. */
+.xp-rt-chart-arc__hub {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding-bottom: 42px;
+  pointer-events: none;
+}
+
+.xp-rt-chart-arc__total {
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ck-fg-1);
+}
+
+.xp-rt-chart-arc__caption {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ck-fg-4);
+}
+
+/* ---------------------------------------------------------------------------
+   Ranked bars
+   ---------------------------------------------------------------------------
+   Read at a glance by someone deciding where to spend money, which is a longer
+   distance than the data plane's `ck-bar-list` is drawn for. Every bar carries
+   its own `--xp-bar` (the series decides the ramp) and `--xp-bar-order` (its
+   place in the sweep).
+   --------------------------------------------------------------------------- */
+.xp-rt-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.xp-rt-bars__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.xp-rt-bars__label {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ck-fg-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xp-rt-bars__figure {
+  display: flex;
+  flex-shrink: 0;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.xp-rt-bars__value {
+  font-size: 15px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: var(--ck-fg-1);
+}
+
+/* The share is the supporting fact, so it is sized and coloured as one: the
+   count is what the eye lands on. */
+.xp-rt-bars__share {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ck-fg-4);
+}
+
+.xp-rt-bars__track {
+  position: relative;
+  height: 14px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ck-fg-5) 12%, transparent);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 18%);
+}
+
+/* The fill is its own colour twice — translucent at the origin, solid at the
+   tip — so a bar has direction and does not read as a flat rectangle. The glow
+   is what makes it sit *on* the track rather than in it. */
+.xp-rt-bars__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  display: block;
+  min-width: 6px;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--xp-bar, var(--ck-accent)) 45%, transparent),
+      var(--xp-bar, var(--ck-accent))
+    );
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--xp-bar, var(--ck-accent)) 22%, transparent),
+    0 2px 12px color-mix(in srgb, var(--xp-bar, var(--ck-accent)) 30%, transparent);
+  transform-origin: left center;
+  transition: filter 160ms ease;
+  animation: xp-rt-bar-sweep 720ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(var(--xp-bar-order, 0) * 80ms);
+}
+
+/* A negative value is a different fact from a small one, and no ramp position
+   should be able to dress it up as a good number. */
+.xp-rt-bars__fill[data-negative='true'] {
+  --xp-bar: var(--ck-signal-neg);
+}
+
+/* The highlight that travels the bar as it grows, then settles as the sheen
+   along its top edge. Decorative, so it is a pseudo-element and never text. */
+.xp-rt-bars__fill::after {
+  position: absolute;
+  content: '';
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgb(255 255 255 / 22%), transparent 62%);
+}
+
+.xp-rt-bars__row:hover .xp-rt-bars__fill {
+  filter: brightness(1.12) saturate(1.06);
+}
+
+@keyframes xp-rt-bar-sweep {
+  from {
+    opacity: 0.35;
+    transform: scaleX(0);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+/* The global reduce-motion rule collapses animation *duration* but not delay,
+   which on a staggered sweep leaves the later bars blank for a beat. The bars
+   carry their real width already, so dropping the animation entirely lands
+   them where they belong on the first frame. */
+@media (prefers-reduced-motion: reduce) {
+  .xp-rt-bars__fill {
+    animation: none;
+  }
+}
+
+.xp-rt-kpi {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--xp-accent, var(--ck-fg-1));
+}
+
+.xp-rt-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--ck-stroke-hot);
+  border-radius: 6px;
+  background: var(--ck-status-info-bg);
+}
+
+.xp-rt-query {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.xp-rt-preview-note {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--ck-status-preview-line);
+  background: var(--ck-status-preview-bg);
+  color: var(--ck-status-preview-fg);
+  font-size: 12px;
+}
+
+.xp-rt-field input[type='file'] {
+  padding: 4px;
+}
+
+.xp-rt-timeseries-select { display: flex; gap: 10px; align-items: center; font-size: 12px; margin-bottom: 12px; }
+.xp-rt-timeseries-select select { color: var(--ck-fg-1); background: var(--ck-bg-panel); border: 1px solid var(--ck-stroke-2); border-radius: 4px; max-width: 100%; padding: 5px 8px; }
+.xp-rt-timeseries-table { margin-top: 12px; font-size: 12px; }
+.xp-rt-timeseries-table summary { color: var(--ck-fg-2); cursor: pointer; }
+.xp-rt-timeseries-table .xp-rt-table-scroll { overflow: auto; max-height: 240px; }
+
+/* A command keeps its intrinsic width; fields and result cards retain the row. */
+:host(xp-rt-action) .xp-rt-btn {
+  align-self: flex-start;
+  max-width: 100%;
+  white-space: normal;
+}

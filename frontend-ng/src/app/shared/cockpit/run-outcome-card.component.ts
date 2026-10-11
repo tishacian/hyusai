@@ -1,0 +1,274 @@
+import { ChangeDetectionStrategy, Component, Input, computed, inject, signal } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
+import { MicroBarComponent } from './micro-bar.component';
+import { StatReadoutComponent } from './stat-readout.component';
+import { TagComponent } from './tag.component';
+import { formatYieldPercent } from './yield-format';
+import { formatSkillCost } from '@app/features/skills/skill-cost';
+import { invocationCost } from './run-cost';
+import type { Outcome, Run, SkillInvocation } from '@app/core/canonical-api.service';
+
+/**
+ * Canonical Run Outcome card — the block that turns a raw Run into
+ * the decision-grade summary the Hypervisor and the System view live on:
+ *
+ *   DECISION   CONFIDENCE  VALUE  COST  EFFICIENCY
+ *
+ * Rendered as cockpit readouts (mono ALL-CAPS labels, tabular numerics,
+ * semantic colours) with the skill invocation ledger rolled up below.
+ */
+@Component({
+  selector: 'ck-run-outcome-card',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [MicroBarComponent, StatReadoutComponent, TagComponent],
+  template: `
+    <div class="ck-surface rounded-md" style="padding: 16px 18px; display:flex; flex-direction:column; gap:14px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <ck-tag [tone]="statusTone()" variant="soft">{{ statusLabel() }}</ck-tag>
+          <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
+            {{ i18n.t('runs.outcome.run') }} · {{ shortId() }}
+          </span>
+          @if (run.trigger) {
+            <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
+              · {{ run.trigger }}
+            </span>
+          }
+        </div>
+        <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-3);">
+          {{ durationLabel() }}
+        </span>
+      </div>
+
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 120px), 1fr)); gap:18px;">
+        <ck-stat-readout
+          [label]="i18n.t('runs.outcome.decision')"
+          [value]="decisionLabel()"
+          [tone]="decisionTone()"
+          [size]="18"
+        />
+        <ck-stat-readout
+          [label]="i18n.t('runs.outcome.confidence')"
+          [value]="percentage(outcome.confidence)"
+          [tone]="confidenceTone()"
+          [size]="18"
+        />
+        <ck-stat-readout
+          [label]="i18n.t(outcome.value_source === 'operator' ? 'runs.outcome.declared_value' : 'runs.outcome.estimated_value')"
+          [value]="currency(value())"
+          [delta]="i18n.t(value() === null ? 'runs.outcome.value_absent' : 'runs.outcome.not_verified_savings')"
+          tone="neutral"
+          [size]="18"
+        />
+        <ck-stat-readout
+          [label]="i18n.t('runs.outcome.recorded_cost')"
+          [value]="formatCost(outcome.cost_internal)"
+          [delta]="i18n.t('runs.outcome.cost_coverage_unknown')"
+          deltaTone="neutral"
+          tone="cool"
+          [size]="18"
+        />
+        <ck-stat-readout
+          [label]="i18n.t('runs.outcome.efficiency')"
+          [value]="efficiencyLabel(efficiency())"
+          [tone]="efficiencyTone()"
+          [size]="18"
+        />
+      </div>
+
+      @if (confidence() !== null) {
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="ck-mono" style="font-size:9px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4); min-width:78px;">{{ i18n.t('runs.outcome.confidence') }}</span>
+          <ck-micro-bar
+            [value]="confidenceRatio() * 100"
+            [max]="100"
+            [width]="160"
+            [tone]="confidenceTone() === 'neg' ? 'neg' : confidenceTone() === 'warn' ? 'warn' : 'pos'"
+            [glow]="true"
+          />
+          <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-3);">
+            {{ percentage(outcome.confidence) }}
+          </span>
+        </div>
+      }
+
+      @if (run.skill_invocations && run.skill_invocations.length > 0) {
+        <details [open]="expanded()">
+          <summary
+            (click)="toggleExpanded($event)"
+            class="ck-mono"
+            style="cursor:pointer; font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-3); list-style:none;"
+          >
+            {{ i18n.t('runs.outcome.skill_ledger') }} · {{ run.skill_invocations.length }}
+          </summary>
+          <ul style="margin-top:10px; display:flex; flex-direction:column; gap:4px; list-style:none; padding:0;">
+            @for (inv of run.skill_invocations; track inv.id || inv.skill_slug || $index) {
+              <li
+                style="display:grid; grid-template-columns: 20px minmax(0, 1fr) 60px 70px; gap:12px; align-items:center; padding:6px 8px; border-radius:4px; background:var(--ck-bg-inset);"
+              >
+                <span
+                  [style.backgroundColor]="invocationDot(inv)"
+                  style="width:6px; height:6px; border-radius:999px; justify-self:center;"
+                ></span>
+                <span class="ck-mono" style="font-size:11px; color:var(--ck-fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                  {{ inv.skill_slug || inv.skill_id || '—' }}
+                </span>
+                <span class="ck-mono ck-tnum" style="font-size:10px; color:var(--ck-fg-3); text-align:right;">
+                  {{ inv.latency_ms != null ? roundedLatency(inv.latency_ms) + ' ms' : '—' }}
+                </span>
+                <span class="ck-mono ck-tnum" style="font-size:10px; color:var(--ck-fg-3); text-align:right;">
+                  {{ invocationCost(inv, i18n.locale()).value }}
+                  <span style="display:block;">{{ i18n.t(invocationCost(inv, i18n.locale()).labelKey) }}</span>
+                </span>
+              </li>
+            }
+          </ul>
+        </details>
+      }
+
+      @if (run.error) {
+        <div
+          class="ck-mono"
+          style="font-size:11px; color:var(--ck-status-neg-fg); background:var(--ck-status-neg-bg); padding:8px 10px; border-radius:4px;"
+        >
+          {{ i18n.t('runs.outcome.error').toUpperCase() }} · {{ run.error }}
+        </div>
+      }
+    </div>
+  `,
+})
+export class RunOutcomeCardComponent {
+  private readonly currentRun = signal<Run | null>(null);
+  @Input({ required: true }) set run(value: Run) { this.currentRun.set(value); }
+  get run(): Run { return this.currentRun()!; }
+
+  protected readonly i18n = inject(I18nService);
+
+  protected readonly expanded = signal(false);
+  protected readonly invocationCost = invocationCost;
+  protected readonly roundedLatency = Math.round;
+  protected readonly value = computed(() => {
+    const value = this.outcome.value_estimated;
+    return ['auto', 'operator'].includes(this.outcome.value_source ?? '')
+      && value != null && Number.isFinite(value) ? value : null;
+  });
+  protected readonly confidence = computed(() => {
+    const value = this.outcome.confidence;
+    return value != null && Number.isFinite(value) && value >= 0 && value <= 1 ? value : null;
+  });
+  protected readonly efficiency = computed(() => {
+    const cost = this.outcome.cost_internal;
+    return this.value() !== null && cost != null && Number.isFinite(cost) && cost > 0
+      ? this.outcome.efficiency : null;
+  });
+
+  get outcome(): Outcome {
+    return this.run?.outcome ?? {};
+  }
+
+  toggleExpanded(ev: Event) {
+    ev.preventDefault();
+    this.expanded.update((v) => !v);
+  }
+
+  protected shortId = computed(() => (this.run?.id ?? '').slice(0, 8));
+
+  protected durationLabel = computed(() => {
+    const d = this.run?.duration_ms;
+    if (d == null || !Number.isFinite(d) || d < 0) return '—';
+    if (d < 1000) return `${Math.round(d)} ms`;
+    return `${(d / 1000).toFixed(2)} s`;
+  });
+
+  protected decisionLabel = computed(() => {
+    const d = this.outcome?.decision;
+    if (!d) return this.run?.status === 'failed' ? this.i18n.t('runs.outcome.blocked').toUpperCase() : '—';
+    return String(d).toUpperCase();
+  });
+
+  /**
+   * Translate the run status chip, falling back to the raw API value when the
+   * backend grows a status the dictionary hasn't caught up with.
+   */
+  protected statusLabel(): string {
+    const status = this.run?.status || 'pending';
+    const key = `runs.status.${status}`;
+    const label = this.i18n.t(key);
+    return label === key ? status : label;
+  }
+
+  protected decisionTone = computed(() => {
+    const d = (this.outcome?.decision || '').toLowerCase();
+    if (this.run?.status === 'failed') return 'neg' as const;
+    if (!d) return 'neutral' as const;
+    if (['approve', 'approved', 'accept', 'ok', 'success', 'completed'].includes(d)) return 'pos' as const;
+    if (['reject', 'rejected', 'block', 'blocked', 'deny'].includes(d)) return 'neg' as const;
+    if (['review', 'hitl', 'escalate', 'flag', 'warn'].includes(d)) return 'warn' as const;
+    return 'cool' as const;
+  });
+
+  protected confidenceTone = computed(() => {
+    const c = this.confidence();
+    if (c == null) return 'neutral' as const;
+    if (c >= 0.8) return 'pos' as const;
+    if (c >= 0.6) return 'cool' as const;
+    if (c >= 0.4) return 'warn' as const;
+    return 'neg' as const;
+  });
+
+  protected confidenceRatio = computed(() => {
+    const c = this.confidence();
+    if (c == null) return 0;
+    return Math.max(0, Math.min(1, c));
+  });
+
+  protected efficiencyTone = computed(() => {
+    const e = this.efficiency();
+    if (e == null || !Number.isFinite(e)) return 'neutral' as const;
+    if (e >= 1.5) return 'pos' as const;
+    if (e >= 1) return 'cool' as const;
+    if (e >= 0.5) return 'warn' as const;
+    return 'neg' as const;
+  });
+
+  protected statusTone = computed(() => {
+    switch (this.run?.status) {
+      case 'completed': return 'pos' as const;
+      case 'failed':    return 'neg' as const;
+      case 'running':   return 'cool' as const;
+      case 'pending':   return 'neutral' as const;
+      case 'cancelled': return 'warn' as const;
+      default:          return 'neutral' as const;
+    }
+  });
+
+  protected percentage(value: number | null | undefined): string {
+    if (value == null || !Number.isFinite(value) || value < 0 || value > 1) return '—';
+    return `${Math.round(value * 100)}%`;
+  }
+
+  protected efficiencyLabel(value: number | null | undefined): string {
+    return formatYieldPercent(value);
+  }
+
+  protected currency(value: number | null | undefined): string {
+    if (value == null || !Number.isFinite(value)) return '—';
+    const formatted = this.formatCost(Math.abs(value));
+    if (value < 0 && formatted.startsWith('< ')) return `> −${formatted.slice(2)}`;
+    return value < 0 && formatted !== '—' ? `−${formatted}` : formatted;
+  }
+
+  protected formatCost(value: number | null | undefined): string {
+    return formatSkillCost(value, this.outcome.currency ?? 'USD', this.i18n.locale());
+  }
+
+  protected invocationDot(inv: SkillInvocation): string {
+    switch (inv.status) {
+      case 'completed': return 'var(--ck-signal-pos)';
+      case 'failed':    return 'var(--ck-signal-neg)';
+      case 'running':   return 'var(--ck-signal-cool)';
+      default:          return 'var(--ck-fg-4)';
+    }
+  }
+}

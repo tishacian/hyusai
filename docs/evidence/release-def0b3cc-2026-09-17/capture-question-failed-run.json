@@ -1,0 +1,2622 @@
+{
+  "id": "26d9d307-a7fe-4093-9ad9-68aa80b02a9c",
+  "system_id": "28a35abd-b16a-4f05-8ede-057639796e62",
+  "capability_id": "0d3714e2-16c5-4741-ba0c-fed4a3201d60",
+  "status": "completed",
+  "trigger": "chat",
+  "started_at": "2026-09-17T03:38:19.925103",
+  "completed_at": "2026-09-17T03:38:28.837749",
+  "duration_ms": 8919.825077056885,
+  "input_ref": {
+    "query": "Pour la recette synthétique R2INV4479, quelle est la pression nominale après correction ? Cite le passage source."
+  },
+  "output_ref": {
+    "response": "No relevant information is available in the provided context to determine the corrected nominal pressure for recipe R2INV4479. The retrieved source only contains an inventory summary without recipe details or pressure values [1].",
+    "sources": [
+      {
+        "id": "chunk-0",
+        "type": "collection_inventory",
+        "title": "Inventaire Knowledge collection",
+        "snippet": "Inventaire Knowledge collection.\nTotal sources: 1.\nSources matching system scope: 1.\nTotal indexed chunks: 1.\nTypologie par source_kind: text: 1.\nTypologie par extension: md: 1.\nStatuts: ready: 1.\n\nCo",
+        "relevance_score": 1.0,
+        "filename": "knowledge-collection-inventory",
+        "collection": "agentium-showcase-expert-fiche, qa-capture-inventory-4479",
+        "collection_name": "agentium-showcase-expert-fiche, qa-capture-inventory-4479"
+      }
+    ],
+    "reasoning_trace": null,
+    "rag_context": {
+      "chunks": [
+        "Inventaire Knowledge collection.\nTotal sources: 1.\nSources matching system scope: 1.\nTotal indexed chunks: 1.\nTypologie par source_kind: text: 1.\nTypologie par extension: md: 1.\nStatuts: ready: 1.\n\nCollections:\n- agentium-showcase-expert-fiche: 0 source(s), 0 chunk(s), 0 matching source(s), statut created.\n  Scope filters: document_filename=['capture-9d3500c7.md'].\n- qa-capture-inventory-4479: 1 source(s), 1 chunk(s), 1 matching source(s), statut ready.\n  Scope filters: document_filename=['capture-9d3500c7.md'].\n  - capture-9d3500c7.md | text | md | ready | 1 chunks | 485 bytes"
+      ],
+      "scores": [
+        1.0
+      ],
+      "metadatas": [
+        {
+          "source_type": "collection_inventory",
+          "semantic_type": "collection_inventory",
+          "title": "Inventaire Knowledge collection",
+          "document_filename": "knowledge-collection-inventory",
+          "collection": "agentium-showcase-expert-fiche, qa-capture-inventory-4479",
+          "collection_name": "agentium-showcase-expert-fiche, qa-capture-inventory-4479",
+          "citation_label": "Inventaire Knowledge collection"
+        }
+      ],
+      "pipeline": "collection_inventory",
+      "label": "Selected context",
+      "reason": "Inventory/cardinality query answered from KnowledgeCollectionSource ledger",
+      "detail": "2 collection(s); 1 source(s); 1 chunk(s)",
+      "mode_label": "collection_inventory",
+      "mode_reason": "Source inventory request",
+      "use_hybrid": false,
+      "top_k": 5,
+      "candidate_pool_k": 20,
+      "synthesis_k": 12,
+      "source_display_k": 8,
+      "query": "Pour la recette synthétique R2INV4479, quelle est la pression nominale après correction ? Cite le passage source.",
+      "retrieval_query": "Pour la recette synthétique R2INV4479, quelle est la pression nominale après correction ? Cite le passage source.",
+      "retrieval_policy": {
+        "enabled": false,
+        "prompt": ""
+      },
+      "retrieval_constraints": {},
+      "clarification": null,
+      "collection": "qa-capture-inventory-4479",
+      "collections": [
+        "qa-capture-inventory-4479",
+        "agentium-showcase-expert-fiche"
+      ],
+      "knowledge_scope": "context_9600097085",
+      "scope_label": "Selected context",
+      "vector_db": "qdrant",
+      "workspace_slug": "agentium-showcase",
+      "inventory": {
+        "total_sources": 1,
+        "total_chunks": 1,
+        "collections": [
+          {
+            "collection_id": "246283f9-e517-41a9-93b7-d35b872c4ebc",
+            "collection_slug": "agentium-showcase-expert-fiche",
+            "collection_name": "NorthForge Expert Fiches (Showcase)",
+            "status": "created",
+            "source_count": 0,
+            "sources_total": 0,
+            "document_count": 0,
+            "chunk_count": 0,
+            "by_kind": {},
+            "by_extension": {},
+            "by_status": {},
+            "top_sources": [],
+            "chunk_buckets": {
+              "0": {
+                "sources": 0,
+                "chunks": 0
+              },
+              "1-5": {
+                "sources": 0,
+                "chunks": 0
+              },
+              "6-50": {
+                "sources": 0,
+                "chunks": 0
+              },
+              "51-200": {
+                "sources": 0,
+                "chunks": 0
+              },
+              "201-1000": {
+                "sources": 0,
+                "chunks": 0
+              },
+              ">1000": {
+                "sources": 0,
+                "chunks": 0
+              }
+            },
+            "chunk_percentiles": {
+              "p50": 0,
+              "p90": 0,
+              "p95": 0,
+              "p99": 0
+            },
+            "zero_chunk_sources": 0,
+            "error_sources": 0,
+            "heavy_sources": 0,
+            "source_filters": {
+              "q": "",
+              "source_kind": "",
+              "extension": "",
+              "status": "",
+              "project_code": "",
+              "archive_name": "",
+              "document_id": [],
+              "document_filename": [
+                "capture-9d3500c7.md"
+              ],
+              "language": "",
+              "sort": "chunk_count",
+              "sort_dir": "desc"
+            },
+            "sources": [],
+            "sources_offset": 0,
+            "sources_limit": 80,
+            "sources_returned": 0,
+            "sources_has_more": false
+          },
+          {
+            "collection_id": "932bd100-ff22-48ef-b8ec-afbefd5119bc",
+            "collection_slug": "qa-capture-inventory-4479",
+            "collection_name": "Synthetic Capture inventory QA 4479",
+            "status": "ready",
+            "source_count": 1,
+            "sources_total": 1,
+            "document_count": 1,
+            "chunk_count": 1,
+            "by_kind": {
+              "text": 1
+            },
+            "by_extension": {
+              "md": 1
+            },
+            "by_status": {
+              "ready": 1
+            },
+            "top_sources": [
+              {
+                "id": "ab08a4bb-1e78-40f8-83b1-0bf406498680",
+                "filename": "capture-9d3500c7.md",
+                "source_kind": "text",
+                "extension": "md",
+                "chunk_count": 1,
+                "status": "ready",
+                "metadata": {
+                  "source": "expert_capture_session",
+                  "capture_session_id": "9d3500c7-c2b1-40ad-bc27-77f94a928ebc",
+                  "proposal_id": "7ecda58e-ddfd-470c-93d8-89c64735ef2e",
+                  "publication_category": "technique",
+                  "publication_destination": "qa-capture-inventory-4479",
+                  "publication_final_title": "QA Capture R2INV4479",
+                  "publication_filename": "capture-9d3500c7.md",
+                  "collection_slug": "qa-capture-inventory-4479",
+                  "expert_name": "thibaud.ishacian@datategy.net",
+                  "captured_by_user_id": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+                  "open_questions_count": 5,
+                  "source_type": "expert_fiche",
+                  "document_id": "091af258-47b3-56db-967f-123de591fc6f",
+                  "content_sha256": "3af8cd5ef38c68af9740e1c3a10b6c93409490376bf18921da652d8b04dff432"
+                }
+              }
+            ],
+            "chunk_buckets": {
+              "0": {
+                "sources": 0,
+                "chunks": 0
+              },
+              "1-5": {
+                "sources": 1,
+                "chunks": 1
+              },
+              "6-50": {
+                "sources": 0,
+                "chunks": 0
+              },
+              "51-200": {
+                "sources": 0,
+                "chunks": 0
+              },
+              "201-1000": {
+                "sources": 0,
+                "chunks": 0
+              },
+              ">1000": {
+                "sources": 0,
+                "chunks": 0
+              }
+            },
+            "chunk_percentiles": {
+              "p50": 1,
+              "p90": 1,
+              "p95": 1,
+              "p99": 1
+            },
+            "zero_chunk_sources": 0,
+            "error_sources": 0,
+            "heavy_sources": 0,
+            "source_filters": {
+              "q": "",
+              "source_kind": "",
+              "extension": "",
+              "status": "",
+              "project_code": "",
+              "archive_name": "",
+              "document_id": [],
+              "document_filename": [
+                "capture-9d3500c7.md"
+              ],
+              "language": "",
+              "sort": "chunk_count",
+              "sort_dir": "desc"
+            },
+            "sources": [
+              {
+                "id": "ab08a4bb-1e78-40f8-83b1-0bf406498680",
+                "filename": "capture-9d3500c7.md",
+                "source_kind": "text",
+                "extension": "md",
+                "mime_type": "text/markdown",
+                "origin": "capture_publication",
+                "size_bytes": 485,
+                "chunk_count": 1,
+                "status": "ready",
+                "indexed_at": "2026-09-17T00:19:57.349265",
+                "last_error": null,
+                "metadata": {
+                  "source": "expert_capture_session",
+                  "capture_session_id": "9d3500c7-c2b1-40ad-bc27-77f94a928ebc",
+                  "proposal_id": "7ecda58e-ddfd-470c-93d8-89c64735ef2e",
+                  "publication_category": "technique",
+                  "publication_destination": "qa-capture-inventory-4479",
+                  "publication_final_title": "QA Capture R2INV4479",
+                  "publication_filename": "capture-9d3500c7.md",
+                  "collection_slug": "qa-capture-inventory-4479",
+                  "expert_name": "thibaud.ishacian@datategy.net",
+                  "captured_by_user_id": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+                  "open_questions_count": 5,
+                  "source_type": "expert_fiche",
+                  "document_id": "091af258-47b3-56db-967f-123de591fc6f",
+                  "content_sha256": "3af8cd5ef38c68af9740e1c3a10b6c93409490376bf18921da652d8b04dff432"
+                }
+              }
+            ],
+            "sources_offset": 0,
+            "sources_limit": 80,
+            "sources_returned": 1,
+            "sources_has_more": false
+          }
+        ]
+      },
+      "metrics": {
+        "query": "Pour la recette synthétique R2INV4479, quelle est la pression nominale après correction ? Cite le passage source.",
+        "retrieval_query": "Pour la recette synthétique R2INV4479, quelle est la pression nominale après correction ? Cite le passage source.",
+        "duration_ms": 99,
+        "chunks_retrieved": 1,
+        "scope": "context_9600097085",
+        "scope_label": "Selected context",
+        "collections_touched": [
+          "agentium-showcase-expert-fiche",
+          "qa-capture-inventory-4479"
+        ],
+        "collection": "qa-capture-inventory-4479",
+        "collections": [
+          "qa-capture-inventory-4479",
+          "agentium-showcase-expert-fiche"
+        ],
+        "vector_db": "qdrant",
+        "profile": "chat",
+        "retrieval_profile": "chat",
+        "retrieval_profile_contract": {
+          "name": "chat",
+          "latency_profile": "balanced",
+          "max_top_k": 12,
+          "max_source_display_k": 24,
+          "max_synthesis_k": 24,
+          "max_candidate_pool_k": 80,
+          "deadline_seconds": null,
+          "force_mode": null,
+          "allow_hah_chah": true,
+          "allow_cross_encoder": true
+        },
+        "top_k": 5,
+        "candidate_pool_k": 20,
+        "synthesis_k": 12,
+        "source_display_k": 8,
+        "fallback": false,
+        "fallback_reason": null,
+        "knowledge_guides": 0,
+        "query_expanded_with_guides": false,
+        "knowledge_guide_hint_chars": 0,
+        "retrieval_policy": {
+          "enabled": false,
+          "blocks": 0,
+          "aliases": 0,
+          "protected_terms": 0,
+          "facets": 0,
+          "source_family_rules": 0,
+          "lexical_document_types": 0,
+          "lexical_metadata_fields": 20,
+          "require_project_code_match": false,
+          "clarification_required": false
+        },
+        "retrieval_policy_enabled": false,
+        "retrieval_policy_clarification": false,
+        "retrieval_constraints": {},
+        "latency_profile": "fast",
+        "latency_budget": {
+          "profile": "fast",
+          "retrieval_profile": "chat",
+          "allow_cross_encoder": true,
+          "deadline_seconds": 8.0,
+          "top_k": 5,
+          "candidate_pool_k": 20
+        },
+        "retrieval_scope": {
+          "collections": [
+            "qa-capture-inventory-4479"
+          ],
+          "filters": {
+            "document_filename": [
+              "capture-9d3500c7.md"
+            ]
+          },
+          "intent": "source_lookup",
+          "dense": false,
+          "source_count": 1,
+          "chunk_count": 1,
+          "confidence": 0.889,
+          "reason": "ledger source scope matched 1 candidate document(s)",
+          "corpus_version": "2026-09-17 00:19:57.362578",
+          "soft_scope_filters": {},
+          "soft_scope_collections": [],
+          "recall_floor_collections": [],
+          "recall_floor_top_n": 0,
+          "planner_ms": 40
+        },
+        "retrieval_plan": {
+          "profile": "fast",
+          "intent": "source_lookup",
+          "dense_policy": "standard",
+          "deadline_ms": 8000,
+          "top_k": 5,
+          "candidate_pool_k": 20,
+          "synthesis_k": 12,
+          "max_variants": 3,
+          "max_candidates": 20,
+          "coarse_to_fine": false,
+          "layers": {
+            "inventory": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "dense corpus guardrail and scope discovery",
+              "budget_ms": 500
+            },
+            "facts": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "small corpus can retrieve chunks directly",
+              "budget_ms": 1200
+            },
+            "summaries": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+              "budget_ms": 2500,
+              "top_k": 20
+            },
+            "dense_qdrant": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "payload-filtered dense chunk retrieval",
+              "budget_ms": 3500,
+              "top_k": 20
+            },
+            "sparse": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "legacy hybrid allowed for non-dense corpus",
+              "budget_ms": 2500,
+              "top_k": 20
+            },
+            "hah_chah": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "budget-aware layered HAH/C-HAH enabled",
+              "budget_ms": 8000,
+              "top_k": 20
+            },
+            "rerank": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "normalize/fuse/rerank only the bounded candidate pool",
+              "budget_ms": 1200,
+              "top_k": 12
+            },
+            "deep_async": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "not needed for this interactive plan",
+              "budget_ms": 120000
+            }
+          },
+          "guardrails": {
+            "allow_legacy_hybrid": true,
+            "global_chunk_search_allowed": true,
+            "scoped_chunk_search_allowed": true,
+            "user_scope_required": false
+          }
+        },
+        "scope_confidence": 0.889,
+        "scope_reason": "ledger source scope matched 1 candidate document(s)",
+        "dense_policy": "standard",
+        "deep_retrieval_recommended": false,
+        "soft_scope_filters": {},
+        "soft_scope_collections": [],
+        "recall_floor_collections": [],
+        "recall_floor_top_n": 0,
+        "expert_fiche_collection": "agentium-showcase-expert-fiche",
+        "expert_fiche_collection_included": true,
+        "inventory_ms": 13,
+        "document_chunks_retrieved": 0,
+        "raw_chunks_retrieved": 0,
+        "inventory_sources": 1,
+        "inventory_filtered_sources": 1,
+        "inventory_chunks": 1,
+        "pipeline": "collection_inventory",
+        "mode_label": "collection_inventory",
+        "no_context": false,
+        "selected_sources": [
+          {
+            "rank": 1,
+            "source": "knowledge-collection-inventory",
+            "document_id": null,
+            "document_filename": "knowledge-collection-inventory",
+            "source_family": null,
+            "project_code": null,
+            "score": 1.0,
+            "snippet": "Inventaire Knowledge collection. Total sources: 1. Sources matching system scope: 1. Total indexed chunks: 1. Typologie par source_kind: text: 1. Typologie par extension: md: 1. Statuts: ready: 1. Collections: - agentium-showcase-expert-fic"
+          }
+        ],
+        "retrieval_trace": {
+          "trace_id": "5a32226b-1d8c-4946-9484-fa9be0923cd0",
+          "planner": {
+            "intent": "source_lookup",
+            "dense": false,
+            "dense_policy": "standard"
+          },
+          "scope": {
+            "collections": [
+              "qa-capture-inventory-4479"
+            ],
+            "filters": {
+              "document_filename": [
+                "capture-9d3500c7.md"
+              ]
+            },
+            "intent": "source_lookup",
+            "dense": false,
+            "source_count": 1,
+            "chunk_count": 1,
+            "confidence": 0.889,
+            "reason": "ledger source scope matched 1 candidate document(s)",
+            "corpus_version": "2026-09-17 00:19:57.362578",
+            "soft_scope_filters": {},
+            "soft_scope_collections": [],
+            "recall_floor_collections": [],
+            "recall_floor_top_n": 0,
+            "planner_ms": 40
+          },
+          "policy": {
+            "profile": "fast",
+            "intent": "source_lookup",
+            "dense_policy": "standard",
+            "deadline_ms": 8000,
+            "top_k": 5,
+            "candidate_pool_k": 20,
+            "synthesis_k": 12,
+            "max_variants": 3,
+            "max_candidates": 20,
+            "coarse_to_fine": false,
+            "layers": {
+              "inventory": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "dense corpus guardrail and scope discovery",
+                "budget_ms": 500
+              },
+              "facts": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "small corpus can retrieve chunks directly",
+                "budget_ms": 1200
+              },
+              "summaries": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+                "budget_ms": 2500,
+                "top_k": 20
+              },
+              "dense_qdrant": {
+                "enabled": true,
+                "status": "enabled",
+                "reason": "payload-filtered dense chunk retrieval",
+                "budget_ms": 3500,
+                "top_k": 20
+              },
+              "sparse": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "legacy hybrid allowed for non-dense corpus",
+                "budget_ms": 2500,
+                "top_k": 20
+              },
+              "hah_chah": {
+                "enabled": true,
+                "status": "enabled",
+                "reason": "budget-aware layered HAH/C-HAH enabled",
+                "budget_ms": 8000,
+                "top_k": 20
+              },
+              "rerank": {
+                "enabled": true,
+                "status": "enabled",
+                "reason": "normalize/fuse/rerank only the bounded candidate pool",
+                "budget_ms": 1200,
+                "top_k": 12
+              },
+              "deep_async": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "not needed for this interactive plan",
+                "budget_ms": 120000
+              }
+            },
+            "guardrails": {
+              "allow_legacy_hybrid": true,
+              "global_chunk_search_allowed": true,
+              "scoped_chunk_search_allowed": true,
+              "user_scope_required": false
+            }
+          },
+          "layers": {
+            "inventory": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "dense corpus guardrail and scope discovery",
+              "budget_ms": 500
+            },
+            "facts": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "small corpus can retrieve chunks directly",
+              "budget_ms": 1200
+            },
+            "summaries": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+              "budget_ms": 2500,
+              "top_k": 20
+            },
+            "dense_qdrant": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "payload-filtered dense chunk retrieval",
+              "budget_ms": 3500,
+              "top_k": 20
+            },
+            "sparse": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "legacy hybrid allowed for non-dense corpus",
+              "budget_ms": 2500,
+              "top_k": 20
+            },
+            "hah_chah": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "budget-aware layered HAH/C-HAH enabled",
+              "budget_ms": 8000,
+              "top_k": 20
+            },
+            "rerank": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "normalize/fuse/rerank only the bounded candidate pool",
+              "budget_ms": 1200,
+              "top_k": 12
+            },
+            "deep_async": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "not needed for this interactive plan",
+              "budget_ms": 120000
+            }
+          },
+          "selected_sources": [
+            {
+              "rank": 1,
+              "source": "knowledge-collection-inventory",
+              "document_id": null,
+              "document_filename": "knowledge-collection-inventory",
+              "source_family": null,
+              "project_code": null,
+              "score": 1.0,
+              "snippet": "Inventaire Knowledge collection. Total sources: 1. Sources matching system scope: 1. Total indexed chunks: 1. Typologie par source_kind: text: 1. Typologie par extension: md: 1. Statuts: ready: 1. Collections: - agentium-showcase-expert-fic"
+            }
+          ],
+          "failures": [],
+          "timings": {
+            "planner_ms": 40,
+            "inventory_ms": 13,
+            "embedding_ms": null,
+            "qdrant_ms": null,
+            "sparse_ms": null,
+            "retrieval_ms": null,
+            "rerank_ms": null,
+            "context_build_ms": null,
+            "table_facts_ms": null,
+            "llm_ms": null,
+            "total_ms": 99
+          },
+          "candidate_counts": {
+            "source_count": 1,
+            "chunk_count": 1,
+            "candidate_pool_k": 20,
+            "synthesis_k": 12,
+            "source_display_k": 8,
+            "raw_chunks_retrieved": 0,
+            "document_chunks_retrieved": 0,
+            "chunks_retrieved": 1,
+            "duplicates_removed": null,
+            "sparse_results": null,
+            "exact_metadata_hits": null,
+            "exact_table_hits": null
+          }
+        },
+        "planner_ms": 40,
+        "qdrant_ms": null,
+        "sparse_ms": null,
+        "retrieval_ms": null,
+        "stage_timings": {
+          "planner_ms": 40,
+          "inventory_ms": 13,
+          "embedding_ms": null,
+          "qdrant_ms": null,
+          "sparse_ms": null,
+          "retrieval_ms": null,
+          "rerank_ms": null,
+          "context_build_ms": null,
+          "table_facts_ms": null,
+          "llm_ms": 3728,
+          "total_ms": 3827
+        },
+        "candidate_counts": {
+          "source_count": 1,
+          "chunk_count": 1,
+          "candidate_pool_k": 20,
+          "synthesis_k": 12,
+          "source_display_k": 8,
+          "raw_chunks_retrieved": 0,
+          "document_chunks_retrieved": 0,
+          "chunks_retrieved": 1,
+          "duplicates_removed": null,
+          "sparse_results": null,
+          "exact_metadata_hits": null,
+          "exact_table_hits": null
+        },
+        "embedding_provider": "openai",
+        "embedding_model": "text-embedding-3-small",
+        "retrieval_decision_trace": {
+          "version": 1,
+          "trace_id": "15cf419b-224c-4fc2-a686-2a03128f0102",
+          "summary": "collection_inventory selected for source_lookup query under fast latency profile: ledger source scope matched 1 candidate document(s)",
+          "query_type": "source_lookup",
+          "latency_profile": "fast",
+          "retrieval_profile": "chat",
+          "selected_route": "collection_inventory",
+          "route_reason": "ledger source scope matched 1 candidate document(s)",
+          "tradeoff": "Used inventory/coarse evidence to avoid an expensive global scan.",
+          "collection_scope": {
+            "collection": "qa-capture-inventory-4479",
+            "collections": [
+              "agentium-showcase-expert-fiche",
+              "qa-capture-inventory-4479"
+            ],
+            "filters": {
+              "document_filename": [
+                "capture-9d3500c7.md"
+              ]
+            },
+            "intent": "source_lookup",
+            "dense": false,
+            "source_count": 1,
+            "chunk_count": 1,
+            "confidence": 0.889,
+            "reason": "ledger source scope matched 1 candidate document(s)"
+          },
+          "layers": [
+            {
+              "key": "inventory",
+              "enabled": false,
+              "status": "skipped",
+              "reason": "dense corpus guardrail and scope discovery",
+              "budget_ms": 500
+            },
+            {
+              "key": "facts",
+              "enabled": false,
+              "status": "skipped",
+              "reason": "small corpus can retrieve chunks directly",
+              "budget_ms": 1200
+            },
+            {
+              "key": "summaries",
+              "enabled": false,
+              "status": "skipped",
+              "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+              "budget_ms": 2500,
+              "top_k": 20
+            },
+            {
+              "key": "dense_qdrant",
+              "enabled": true,
+              "status": "enabled",
+              "reason": "payload-filtered dense chunk retrieval",
+              "budget_ms": 3500,
+              "top_k": 20
+            },
+            {
+              "key": "sparse",
+              "enabled": false,
+              "status": "skipped",
+              "reason": "legacy hybrid allowed for non-dense corpus",
+              "budget_ms": 2500,
+              "top_k": 20
+            },
+            {
+              "key": "hah_chah",
+              "enabled": true,
+              "status": "enabled",
+              "reason": "budget-aware layered HAH/C-HAH enabled",
+              "budget_ms": 8000,
+              "top_k": 20
+            },
+            {
+              "key": "rerank",
+              "enabled": true,
+              "status": "enabled",
+              "reason": "normalize/fuse/rerank only the bounded candidate pool",
+              "budget_ms": 1200,
+              "top_k": 12
+            },
+            {
+              "key": "deep_async",
+              "enabled": false,
+              "status": "skipped",
+              "reason": "not needed for this interactive plan",
+              "budget_ms": 120000
+            }
+          ],
+          "quality_controls": {
+            "dense_policy": "standard",
+            "retrieval_policy": {
+              "enabled": false,
+              "blocks": 0,
+              "aliases": 0,
+              "protected_terms": 0,
+              "facets": 0,
+              "source_family_rules": 0,
+              "lexical_document_types": 0,
+              "lexical_metadata_fields": 20,
+              "require_project_code_match": false,
+              "clarification_required": false
+            }
+          },
+          "fallbacks": [],
+          "deep_search": {
+            "recommended": false,
+            "launched": false
+          },
+          "answer_shaping": {},
+          "timings": {
+            "planner_ms": 40,
+            "inventory_ms": 13,
+            "total_ms": 99
+          },
+          "candidate_counts": {
+            "source_count": 1,
+            "chunk_count": 1,
+            "candidate_pool_k": 20,
+            "synthesis_k": 12,
+            "source_display_k": 8,
+            "raw_chunks_retrieved": 0,
+            "document_chunks_retrieved": 0,
+            "chunks_retrieved": 1
+          },
+          "selected_sources": [
+            {
+              "label": "knowledge-collection-inventory",
+              "score": 1.0
+            }
+          ],
+          "trace_source": "runtime"
+        },
+        "retrieval_context_cache_hit": false,
+        "embedding_provider_usage_scope": "canonical_request_v1",
+        "embedding_provider_calls": 0,
+        "task_id": null,
+        "llm_ms": 3728
+      },
+      "retrieval_decision_trace": {
+        "version": 1,
+        "trace_id": "15cf419b-224c-4fc2-a686-2a03128f0102",
+        "summary": "collection_inventory selected for source_lookup query under fast latency profile: ledger source scope matched 1 candidate document(s)",
+        "query_type": "source_lookup",
+        "latency_profile": "fast",
+        "retrieval_profile": "chat",
+        "selected_route": "collection_inventory",
+        "route_reason": "ledger source scope matched 1 candidate document(s)",
+        "tradeoff": "Used inventory/coarse evidence to avoid an expensive global scan.",
+        "collection_scope": {
+          "collection": "qa-capture-inventory-4479",
+          "collections": [
+            "agentium-showcase-expert-fiche",
+            "qa-capture-inventory-4479"
+          ],
+          "filters": {
+            "document_filename": [
+              "capture-9d3500c7.md"
+            ]
+          },
+          "intent": "source_lookup",
+          "dense": false,
+          "source_count": 1,
+          "chunk_count": 1,
+          "confidence": 0.889,
+          "reason": "ledger source scope matched 1 candidate document(s)"
+        },
+        "layers": [
+          {
+            "key": "inventory",
+            "enabled": false,
+            "status": "skipped",
+            "reason": "dense corpus guardrail and scope discovery",
+            "budget_ms": 500
+          },
+          {
+            "key": "facts",
+            "enabled": false,
+            "status": "skipped",
+            "reason": "small corpus can retrieve chunks directly",
+            "budget_ms": 1200
+          },
+          {
+            "key": "summaries",
+            "enabled": false,
+            "status": "skipped",
+            "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+            "budget_ms": 2500,
+            "top_k": 20
+          },
+          {
+            "key": "dense_qdrant",
+            "enabled": true,
+            "status": "enabled",
+            "reason": "payload-filtered dense chunk retrieval",
+            "budget_ms": 3500,
+            "top_k": 20
+          },
+          {
+            "key": "sparse",
+            "enabled": false,
+            "status": "skipped",
+            "reason": "legacy hybrid allowed for non-dense corpus",
+            "budget_ms": 2500,
+            "top_k": 20
+          },
+          {
+            "key": "hah_chah",
+            "enabled": true,
+            "status": "enabled",
+            "reason": "budget-aware layered HAH/C-HAH enabled",
+            "budget_ms": 8000,
+            "top_k": 20
+          },
+          {
+            "key": "rerank",
+            "enabled": true,
+            "status": "enabled",
+            "reason": "normalize/fuse/rerank only the bounded candidate pool",
+            "budget_ms": 1200,
+            "top_k": 12
+          },
+          {
+            "key": "deep_async",
+            "enabled": false,
+            "status": "skipped",
+            "reason": "not needed for this interactive plan",
+            "budget_ms": 120000
+          }
+        ],
+        "quality_controls": {
+          "dense_policy": "standard",
+          "retrieval_policy": {
+            "enabled": false,
+            "blocks": 0,
+            "aliases": 0,
+            "protected_terms": 0,
+            "facets": 0,
+            "source_family_rules": 0,
+            "lexical_document_types": 0,
+            "lexical_metadata_fields": 20,
+            "require_project_code_match": false,
+            "clarification_required": false
+          }
+        },
+        "fallbacks": [],
+        "deep_search": {
+          "recommended": false,
+          "launched": false
+        },
+        "answer_shaping": {},
+        "timings": {
+          "planner_ms": 40,
+          "inventory_ms": 13,
+          "total_ms": 99
+        },
+        "candidate_counts": {
+          "source_count": 1,
+          "chunk_count": 1,
+          "candidate_pool_k": 20,
+          "synthesis_k": 12,
+          "source_display_k": 8,
+          "raw_chunks_retrieved": 0,
+          "document_chunks_retrieved": 0,
+          "chunks_retrieved": 1
+        },
+        "selected_sources": [
+          {
+            "label": "knowledge-collection-inventory",
+            "score": 1.0
+          }
+        ],
+        "trace_source": "runtime"
+      },
+      "retrieval_scope": {
+        "collections": [
+          "qa-capture-inventory-4479"
+        ],
+        "filters": {
+          "document_filename": [
+            "capture-9d3500c7.md"
+          ]
+        },
+        "intent": "source_lookup",
+        "dense": false,
+        "source_count": 1,
+        "chunk_count": 1,
+        "confidence": 0.889,
+        "reason": "ledger source scope matched 1 candidate document(s)",
+        "corpus_version": "2026-09-17 00:19:57.362578",
+        "soft_scope_filters": {},
+        "soft_scope_collections": [],
+        "recall_floor_collections": [],
+        "recall_floor_top_n": 0,
+        "planner_ms": 40
+      },
+      "retrieval_plan": {
+        "profile": "fast",
+        "intent": "source_lookup",
+        "dense_policy": "standard",
+        "deadline_ms": 8000,
+        "top_k": 5,
+        "candidate_pool_k": 20,
+        "synthesis_k": 12,
+        "max_variants": 3,
+        "max_candidates": 20,
+        "coarse_to_fine": false,
+        "layers": {
+          "inventory": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "dense corpus guardrail and scope discovery",
+            "budget_ms": 500
+          },
+          "facts": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "small corpus can retrieve chunks directly",
+            "budget_ms": 1200
+          },
+          "summaries": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+            "budget_ms": 2500,
+            "top_k": 20
+          },
+          "dense_qdrant": {
+            "enabled": true,
+            "status": "enabled",
+            "reason": "payload-filtered dense chunk retrieval",
+            "budget_ms": 3500,
+            "top_k": 20
+          },
+          "sparse": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "legacy hybrid allowed for non-dense corpus",
+            "budget_ms": 2500,
+            "top_k": 20
+          },
+          "hah_chah": {
+            "enabled": true,
+            "status": "enabled",
+            "reason": "budget-aware layered HAH/C-HAH enabled",
+            "budget_ms": 8000,
+            "top_k": 20
+          },
+          "rerank": {
+            "enabled": true,
+            "status": "enabled",
+            "reason": "normalize/fuse/rerank only the bounded candidate pool",
+            "budget_ms": 1200,
+            "top_k": 12
+          },
+          "deep_async": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "not needed for this interactive plan",
+            "budget_ms": 120000
+          }
+        },
+        "guardrails": {
+          "allow_legacy_hybrid": true,
+          "global_chunk_search_allowed": true,
+          "scoped_chunk_search_allowed": true,
+          "user_scope_required": false
+        }
+      },
+      "scope_confidence": 0.889,
+      "scope_reason": "ledger source scope matched 1 candidate document(s)",
+      "dense_policy": "standard",
+      "fallback_reason": null,
+      "latency_budget": {
+        "profile": "fast",
+        "retrieval_profile": "chat",
+        "allow_cross_encoder": true,
+        "deadline_seconds": 8.0,
+        "top_k": 5,
+        "candidate_pool_k": 20
+      },
+      "retrieval_profile": "chat",
+      "retrieval_trace": {
+        "trace_id": "5a32226b-1d8c-4946-9484-fa9be0923cd0",
+        "planner": {
+          "intent": "source_lookup",
+          "dense": false,
+          "dense_policy": "standard"
+        },
+        "scope": {
+          "collections": [
+            "qa-capture-inventory-4479"
+          ],
+          "filters": {
+            "document_filename": [
+              "capture-9d3500c7.md"
+            ]
+          },
+          "intent": "source_lookup",
+          "dense": false,
+          "source_count": 1,
+          "chunk_count": 1,
+          "confidence": 0.889,
+          "reason": "ledger source scope matched 1 candidate document(s)",
+          "corpus_version": "2026-09-17 00:19:57.362578",
+          "soft_scope_filters": {},
+          "soft_scope_collections": [],
+          "recall_floor_collections": [],
+          "recall_floor_top_n": 0,
+          "planner_ms": 40
+        },
+        "policy": {
+          "profile": "fast",
+          "intent": "source_lookup",
+          "dense_policy": "standard",
+          "deadline_ms": 8000,
+          "top_k": 5,
+          "candidate_pool_k": 20,
+          "synthesis_k": 12,
+          "max_variants": 3,
+          "max_candidates": 20,
+          "coarse_to_fine": false,
+          "layers": {
+            "inventory": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "dense corpus guardrail and scope discovery",
+              "budget_ms": 500
+            },
+            "facts": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "small corpus can retrieve chunks directly",
+              "budget_ms": 1200
+            },
+            "summaries": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+              "budget_ms": 2500,
+              "top_k": 20
+            },
+            "dense_qdrant": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "payload-filtered dense chunk retrieval",
+              "budget_ms": 3500,
+              "top_k": 20
+            },
+            "sparse": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "legacy hybrid allowed for non-dense corpus",
+              "budget_ms": 2500,
+              "top_k": 20
+            },
+            "hah_chah": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "budget-aware layered HAH/C-HAH enabled",
+              "budget_ms": 8000,
+              "top_k": 20
+            },
+            "rerank": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "normalize/fuse/rerank only the bounded candidate pool",
+              "budget_ms": 1200,
+              "top_k": 12
+            },
+            "deep_async": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "not needed for this interactive plan",
+              "budget_ms": 120000
+            }
+          },
+          "guardrails": {
+            "allow_legacy_hybrid": true,
+            "global_chunk_search_allowed": true,
+            "scoped_chunk_search_allowed": true,
+            "user_scope_required": false
+          }
+        },
+        "layers": {
+          "inventory": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "dense corpus guardrail and scope discovery",
+            "budget_ms": 500
+          },
+          "facts": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "small corpus can retrieve chunks directly",
+            "budget_ms": 1200
+          },
+          "summaries": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+            "budget_ms": 2500,
+            "top_k": 20
+          },
+          "dense_qdrant": {
+            "enabled": true,
+            "status": "enabled",
+            "reason": "payload-filtered dense chunk retrieval",
+            "budget_ms": 3500,
+            "top_k": 20
+          },
+          "sparse": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "legacy hybrid allowed for non-dense corpus",
+            "budget_ms": 2500,
+            "top_k": 20
+          },
+          "hah_chah": {
+            "enabled": true,
+            "status": "enabled",
+            "reason": "budget-aware layered HAH/C-HAH enabled",
+            "budget_ms": 8000,
+            "top_k": 20
+          },
+          "rerank": {
+            "enabled": true,
+            "status": "enabled",
+            "reason": "normalize/fuse/rerank only the bounded candidate pool",
+            "budget_ms": 1200,
+            "top_k": 12
+          },
+          "deep_async": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "not needed for this interactive plan",
+            "budget_ms": 120000
+          }
+        },
+        "selected_sources": [
+          {
+            "rank": 1,
+            "source": "knowledge-collection-inventory",
+            "document_id": null,
+            "document_filename": "knowledge-collection-inventory",
+            "source_family": null,
+            "project_code": null,
+            "score": 1.0,
+            "snippet": "Inventaire Knowledge collection. Total sources: 1. Sources matching system scope: 1. Total indexed chunks: 1. Typologie par source_kind: text: 1. Typologie par extension: md: 1. Statuts: ready: 1. Collections: - agentium-showcase-expert-fic"
+          }
+        ],
+        "failures": [],
+        "timings": {
+          "planner_ms": 40,
+          "inventory_ms": 13,
+          "embedding_ms": null,
+          "qdrant_ms": null,
+          "sparse_ms": null,
+          "retrieval_ms": null,
+          "rerank_ms": null,
+          "context_build_ms": null,
+          "table_facts_ms": null,
+          "llm_ms": null,
+          "total_ms": 99
+        },
+        "candidate_counts": {
+          "source_count": 1,
+          "chunk_count": 1,
+          "candidate_pool_k": 20,
+          "synthesis_k": 12,
+          "source_display_k": 8,
+          "raw_chunks_retrieved": 0,
+          "document_chunks_retrieved": 0,
+          "chunks_retrieved": 1,
+          "duplicates_removed": null,
+          "sparse_results": null,
+          "exact_metadata_hits": null,
+          "exact_table_hits": null
+        }
+      },
+      "deep_retrieval_recommended": false,
+      "collections_touched": [
+        "agentium-showcase-expert-fiche",
+        "qa-capture-inventory-4479"
+      ],
+      "collection_errors": []
+    },
+    "retrieval_metrics": {
+      "collection": "qa-capture-inventory-4479",
+      "collections": [
+        "qa-capture-inventory-4479",
+        "agentium-showcase-expert-fiche"
+      ],
+      "scope": "context_9600097085",
+      "scope_label": "Selected context",
+      "collections_touched": [
+        "agentium-showcase-expert-fiche",
+        "qa-capture-inventory-4479"
+      ],
+      "vector_db": "qdrant",
+      "top_k": 5,
+      "candidate_pool_k": 20,
+      "synthesis_k": 12,
+      "source_display_k": 8,
+      "retrieval_profile": "chat",
+      "latency_profile": "fast",
+      "latency_budget": {
+        "profile": "fast",
+        "retrieval_profile": "chat",
+        "allow_cross_encoder": true,
+        "deadline_seconds": 8.0,
+        "top_k": 5,
+        "candidate_pool_k": 20
+      },
+      "pipeline": "collection_inventory",
+      "requested_mode": "auto",
+      "planner_preview_mode": "planner_pending",
+      "task_id": null,
+      "grounding_mode": "strict",
+      "grounding_policy": {
+        "requested_mode": "balanced",
+        "mode": "strict",
+        "inherited_from": "request",
+        "reason": "documentary_question_requires_sources",
+        "allow_foundational_fallback": false,
+        "source_requirement": "workspace_required",
+        "assistant_profile": "showcase_advisor",
+        "workspace_slug": "agentium-showcase",
+        "fallback_disclaimer": "Business interpretation to confirm: indexed sources stay authoritative and any documented value must be verified in the source notice.",
+        "strict_guard": "business_interpretation",
+        "allowed_modes": [
+          "balanced",
+          "strict"
+        ]
+      },
+      "query": "Pour la recette synthétique R2INV4479, quelle est la pression nominale après correction ? Cite le passage source.",
+      "retrieval_query": "Pour la recette synthétique R2INV4479, quelle est la pression nominale après correction ? Cite le passage source.",
+      "duration_ms": 99,
+      "chunks_retrieved": 1,
+      "profile": "chat",
+      "retrieval_profile_contract": {
+        "name": "chat",
+        "latency_profile": "balanced",
+        "max_top_k": 12,
+        "max_source_display_k": 24,
+        "max_synthesis_k": 24,
+        "max_candidate_pool_k": 80,
+        "deadline_seconds": null,
+        "force_mode": null,
+        "allow_hah_chah": true,
+        "allow_cross_encoder": true
+      },
+      "fallback": false,
+      "fallback_reason": null,
+      "knowledge_guides": 0,
+      "query_expanded_with_guides": false,
+      "knowledge_guide_hint_chars": 0,
+      "retrieval_policy": {
+        "enabled": false,
+        "blocks": 0,
+        "aliases": 0,
+        "protected_terms": 0,
+        "facets": 0,
+        "source_family_rules": 0,
+        "lexical_document_types": 0,
+        "lexical_metadata_fields": 20,
+        "require_project_code_match": false,
+        "clarification_required": false
+      },
+      "retrieval_policy_enabled": false,
+      "retrieval_policy_clarification": false,
+      "retrieval_constraints": {},
+      "retrieval_scope": {
+        "collections": [
+          "qa-capture-inventory-4479"
+        ],
+        "filters": {
+          "document_filename": [
+            "capture-9d3500c7.md"
+          ]
+        },
+        "intent": "source_lookup",
+        "dense": false,
+        "source_count": 1,
+        "chunk_count": 1,
+        "confidence": 0.889,
+        "reason": "ledger source scope matched 1 candidate document(s)",
+        "corpus_version": "2026-09-17 00:19:57.362578",
+        "soft_scope_filters": {},
+        "soft_scope_collections": [],
+        "recall_floor_collections": [],
+        "recall_floor_top_n": 0,
+        "planner_ms": 40
+      },
+      "retrieval_plan": {
+        "profile": "fast",
+        "intent": "source_lookup",
+        "dense_policy": "standard",
+        "deadline_ms": 8000,
+        "top_k": 5,
+        "candidate_pool_k": 20,
+        "synthesis_k": 12,
+        "max_variants": 3,
+        "max_candidates": 20,
+        "coarse_to_fine": false,
+        "layers": {
+          "inventory": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "dense corpus guardrail and scope discovery",
+            "budget_ms": 500
+          },
+          "facts": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "small corpus can retrieve chunks directly",
+            "budget_ms": 1200
+          },
+          "summaries": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+            "budget_ms": 2500,
+            "top_k": 20
+          },
+          "dense_qdrant": {
+            "enabled": true,
+            "status": "enabled",
+            "reason": "payload-filtered dense chunk retrieval",
+            "budget_ms": 3500,
+            "top_k": 20
+          },
+          "sparse": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "legacy hybrid allowed for non-dense corpus",
+            "budget_ms": 2500,
+            "top_k": 20
+          },
+          "hah_chah": {
+            "enabled": true,
+            "status": "enabled",
+            "reason": "budget-aware layered HAH/C-HAH enabled",
+            "budget_ms": 8000,
+            "top_k": 20
+          },
+          "rerank": {
+            "enabled": true,
+            "status": "enabled",
+            "reason": "normalize/fuse/rerank only the bounded candidate pool",
+            "budget_ms": 1200,
+            "top_k": 12
+          },
+          "deep_async": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "not needed for this interactive plan",
+            "budget_ms": 120000
+          }
+        },
+        "guardrails": {
+          "allow_legacy_hybrid": true,
+          "global_chunk_search_allowed": true,
+          "scoped_chunk_search_allowed": true,
+          "user_scope_required": false
+        }
+      },
+      "scope_confidence": 0.889,
+      "scope_reason": "ledger source scope matched 1 candidate document(s)",
+      "dense_policy": "standard",
+      "deep_retrieval_recommended": false,
+      "soft_scope_filters": {},
+      "soft_scope_collections": [],
+      "recall_floor_collections": [],
+      "recall_floor_top_n": 0,
+      "expert_fiche_collection": "agentium-showcase-expert-fiche",
+      "expert_fiche_collection_included": true,
+      "inventory_ms": 13,
+      "document_chunks_retrieved": 0,
+      "raw_chunks_retrieved": 0,
+      "inventory_sources": 1,
+      "inventory_filtered_sources": 1,
+      "inventory_chunks": 1,
+      "mode_label": "collection_inventory",
+      "no_context": false,
+      "selected_sources": [
+        {
+          "rank": 1,
+          "source": "knowledge-collection-inventory",
+          "document_id": null,
+          "document_filename": "knowledge-collection-inventory",
+          "source_family": null,
+          "project_code": null,
+          "score": 1.0,
+          "snippet": "Inventaire Knowledge collection. Total sources: 1. Sources matching system scope: 1. Total indexed chunks: 1. Typologie par source_kind: text: 1. Typologie par extension: md: 1. Statuts: ready: 1. Collections: - agentium-showcase-expert-fic"
+        }
+      ],
+      "retrieval_trace": {
+        "trace_id": "5a32226b-1d8c-4946-9484-fa9be0923cd0",
+        "planner": {
+          "intent": "source_lookup",
+          "dense": false,
+          "dense_policy": "standard"
+        },
+        "scope": {
+          "collections": [
+            "qa-capture-inventory-4479"
+          ],
+          "filters": {
+            "document_filename": [
+              "capture-9d3500c7.md"
+            ]
+          },
+          "intent": "source_lookup",
+          "dense": false,
+          "source_count": 1,
+          "chunk_count": 1,
+          "confidence": 0.889,
+          "reason": "ledger source scope matched 1 candidate document(s)",
+          "corpus_version": "2026-09-17 00:19:57.362578",
+          "soft_scope_filters": {},
+          "soft_scope_collections": [],
+          "recall_floor_collections": [],
+          "recall_floor_top_n": 0,
+          "planner_ms": 40
+        },
+        "policy": {
+          "profile": "fast",
+          "intent": "source_lookup",
+          "dense_policy": "standard",
+          "deadline_ms": 8000,
+          "top_k": 5,
+          "candidate_pool_k": 20,
+          "synthesis_k": 12,
+          "max_variants": 3,
+          "max_candidates": 20,
+          "coarse_to_fine": false,
+          "layers": {
+            "inventory": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "dense corpus guardrail and scope discovery",
+              "budget_ms": 500
+            },
+            "facts": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "small corpus can retrieve chunks directly",
+              "budget_ms": 1200
+            },
+            "summaries": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+              "budget_ms": 2500,
+              "top_k": 20
+            },
+            "dense_qdrant": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "payload-filtered dense chunk retrieval",
+              "budget_ms": 3500,
+              "top_k": 20
+            },
+            "sparse": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "legacy hybrid allowed for non-dense corpus",
+              "budget_ms": 2500,
+              "top_k": 20
+            },
+            "hah_chah": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "budget-aware layered HAH/C-HAH enabled",
+              "budget_ms": 8000,
+              "top_k": 20
+            },
+            "rerank": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "normalize/fuse/rerank only the bounded candidate pool",
+              "budget_ms": 1200,
+              "top_k": 12
+            },
+            "deep_async": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "not needed for this interactive plan",
+              "budget_ms": 120000
+            }
+          },
+          "guardrails": {
+            "allow_legacy_hybrid": true,
+            "global_chunk_search_allowed": true,
+            "scoped_chunk_search_allowed": true,
+            "user_scope_required": false
+          }
+        },
+        "layers": {
+          "inventory": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "dense corpus guardrail and scope discovery",
+            "budget_ms": 500
+          },
+          "facts": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "small corpus can retrieve chunks directly",
+            "budget_ms": 1200
+          },
+          "summaries": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+            "budget_ms": 2500,
+            "top_k": 20
+          },
+          "dense_qdrant": {
+            "enabled": true,
+            "status": "enabled",
+            "reason": "payload-filtered dense chunk retrieval",
+            "budget_ms": 3500,
+            "top_k": 20
+          },
+          "sparse": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "legacy hybrid allowed for non-dense corpus",
+            "budget_ms": 2500,
+            "top_k": 20
+          },
+          "hah_chah": {
+            "enabled": true,
+            "status": "enabled",
+            "reason": "budget-aware layered HAH/C-HAH enabled",
+            "budget_ms": 8000,
+            "top_k": 20
+          },
+          "rerank": {
+            "enabled": true,
+            "status": "enabled",
+            "reason": "normalize/fuse/rerank only the bounded candidate pool",
+            "budget_ms": 1200,
+            "top_k": 12
+          },
+          "deep_async": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "not needed for this interactive plan",
+            "budget_ms": 120000
+          }
+        },
+        "selected_sources": [
+          {
+            "rank": 1,
+            "source": "knowledge-collection-inventory",
+            "document_id": null,
+            "document_filename": "knowledge-collection-inventory",
+            "source_family": null,
+            "project_code": null,
+            "score": 1.0,
+            "snippet": "Inventaire Knowledge collection. Total sources: 1. Sources matching system scope: 1. Total indexed chunks: 1. Typologie par source_kind: text: 1. Typologie par extension: md: 1. Statuts: ready: 1. Collections: - agentium-showcase-expert-fic"
+          }
+        ],
+        "failures": [],
+        "timings": {
+          "planner_ms": 40,
+          "inventory_ms": 13,
+          "embedding_ms": null,
+          "qdrant_ms": null,
+          "sparse_ms": null,
+          "retrieval_ms": null,
+          "rerank_ms": null,
+          "context_build_ms": null,
+          "table_facts_ms": null,
+          "llm_ms": null,
+          "total_ms": 99
+        },
+        "candidate_counts": {
+          "source_count": 1,
+          "chunk_count": 1,
+          "candidate_pool_k": 20,
+          "synthesis_k": 12,
+          "source_display_k": 8,
+          "raw_chunks_retrieved": 0,
+          "document_chunks_retrieved": 0,
+          "chunks_retrieved": 1,
+          "duplicates_removed": null,
+          "sparse_results": null,
+          "exact_metadata_hits": null,
+          "exact_table_hits": null
+        }
+      },
+      "planner_ms": 40,
+      "qdrant_ms": null,
+      "sparse_ms": null,
+      "retrieval_ms": null,
+      "stage_timings": {
+        "planner_ms": 40,
+        "inventory_ms": 13,
+        "embedding_ms": null,
+        "qdrant_ms": null,
+        "sparse_ms": null,
+        "retrieval_ms": null,
+        "rerank_ms": null,
+        "context_build_ms": null,
+        "table_facts_ms": null,
+        "llm_ms": 3728,
+        "total_ms": 3827
+      },
+      "candidate_counts": {
+        "source_count": 1,
+        "chunk_count": 1,
+        "candidate_pool_k": 20,
+        "synthesis_k": 12,
+        "source_display_k": 8,
+        "raw_chunks_retrieved": 0,
+        "document_chunks_retrieved": 0,
+        "chunks_retrieved": 1,
+        "duplicates_removed": null,
+        "sparse_results": null,
+        "exact_metadata_hits": null,
+        "exact_table_hits": null
+      },
+      "embedding_provider": "openai",
+      "embedding_model": "text-embedding-3-small",
+      "retrieval_decision_trace": {
+        "version": 1,
+        "trace_id": "15cf419b-224c-4fc2-a686-2a03128f0102",
+        "summary": "collection_inventory selected for source_lookup query under fast latency profile: ledger source scope matched 1 candidate document(s)",
+        "query_type": "source_lookup",
+        "latency_profile": "fast",
+        "retrieval_profile": "chat",
+        "selected_route": "collection_inventory",
+        "route_reason": "ledger source scope matched 1 candidate document(s)",
+        "tradeoff": "Used inventory/coarse evidence to avoid an expensive global scan.",
+        "collection_scope": {
+          "collection": "qa-capture-inventory-4479",
+          "collections": [
+            "agentium-showcase-expert-fiche",
+            "qa-capture-inventory-4479"
+          ],
+          "filters": {
+            "document_filename": [
+              "capture-9d3500c7.md"
+            ]
+          },
+          "intent": "source_lookup",
+          "dense": false,
+          "source_count": 1,
+          "chunk_count": 1,
+          "confidence": 0.889,
+          "reason": "ledger source scope matched 1 candidate document(s)"
+        },
+        "layers": [
+          {
+            "key": "inventory",
+            "enabled": false,
+            "status": "skipped",
+            "reason": "dense corpus guardrail and scope discovery",
+            "budget_ms": 500
+          },
+          {
+            "key": "facts",
+            "enabled": false,
+            "status": "skipped",
+            "reason": "small corpus can retrieve chunks directly",
+            "budget_ms": 1200
+          },
+          {
+            "key": "summaries",
+            "enabled": false,
+            "status": "skipped",
+            "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+            "budget_ms": 2500,
+            "top_k": 20
+          },
+          {
+            "key": "dense_qdrant",
+            "enabled": true,
+            "status": "enabled",
+            "reason": "payload-filtered dense chunk retrieval",
+            "budget_ms": 3500,
+            "top_k": 20
+          },
+          {
+            "key": "sparse",
+            "enabled": false,
+            "status": "skipped",
+            "reason": "legacy hybrid allowed for non-dense corpus",
+            "budget_ms": 2500,
+            "top_k": 20
+          },
+          {
+            "key": "hah_chah",
+            "enabled": true,
+            "status": "enabled",
+            "reason": "budget-aware layered HAH/C-HAH enabled",
+            "budget_ms": 8000,
+            "top_k": 20
+          },
+          {
+            "key": "rerank",
+            "enabled": true,
+            "status": "enabled",
+            "reason": "normalize/fuse/rerank only the bounded candidate pool",
+            "budget_ms": 1200,
+            "top_k": 12
+          },
+          {
+            "key": "deep_async",
+            "enabled": false,
+            "status": "skipped",
+            "reason": "not needed for this interactive plan",
+            "budget_ms": 120000
+          }
+        ],
+        "quality_controls": {
+          "dense_policy": "standard",
+          "retrieval_policy": {
+            "enabled": false,
+            "blocks": 0,
+            "aliases": 0,
+            "protected_terms": 0,
+            "facets": 0,
+            "source_family_rules": 0,
+            "lexical_document_types": 0,
+            "lexical_metadata_fields": 20,
+            "require_project_code_match": false,
+            "clarification_required": false
+          }
+        },
+        "fallbacks": [],
+        "deep_search": {
+          "recommended": false,
+          "launched": false
+        },
+        "answer_shaping": {},
+        "timings": {
+          "planner_ms": 40,
+          "inventory_ms": 13,
+          "total_ms": 99
+        },
+        "candidate_counts": {
+          "source_count": 1,
+          "chunk_count": 1,
+          "candidate_pool_k": 20,
+          "synthesis_k": 12,
+          "source_display_k": 8,
+          "raw_chunks_retrieved": 0,
+          "document_chunks_retrieved": 0,
+          "chunks_retrieved": 1
+        },
+        "selected_sources": [
+          {
+            "label": "knowledge-collection-inventory",
+            "score": 1.0
+          }
+        ],
+        "trace_source": "runtime"
+      },
+      "retrieval_context_cache_hit": false,
+      "embedding_provider_usage_scope": "canonical_request_v1",
+      "embedding_provider_calls": 0,
+      "llm_ms": 3728
+    },
+    "retrieval_worker_task_id": null,
+    "retrieval_fallback": null,
+    "fallback_reason": null,
+    "knowledge_scope": "agentium-showcase-notices",
+    "context_id": "ded0894c-054f-4227-893a-508c76d491ea",
+    "context_mode": "replace",
+    "assistant_profile": "showcase_advisor",
+    "response_language": "en",
+    "answer_profile": "precise_fact",
+    "answer_profile_decision": {
+      "profile": "precise_fact",
+      "reason": "default_answer_profile",
+      "requires_exhaustive_retrieval": false
+    },
+    "answer_policy_applied": true,
+    "answer_policy_violations": [],
+    "collections_touched": [
+      "agentium-showcase-expert-fiche",
+      "qa-capture-inventory-4479"
+    ],
+    "retrieval_scope": {
+      "collections": [
+        "qa-capture-inventory-4479"
+      ],
+      "filters": {
+        "document_filename": [
+          "capture-9d3500c7.md"
+        ]
+      },
+      "intent": "source_lookup",
+      "dense": false,
+      "source_count": 1,
+      "chunk_count": 1,
+      "confidence": 0.889,
+      "reason": "ledger source scope matched 1 candidate document(s)",
+      "corpus_version": "2026-09-17 00:19:57.362578",
+      "soft_scope_filters": {},
+      "soft_scope_collections": [],
+      "recall_floor_collections": [],
+      "recall_floor_top_n": 0,
+      "planner_ms": 40
+    },
+    "retrieval_plan": {
+      "profile": "fast",
+      "intent": "source_lookup",
+      "dense_policy": "standard",
+      "deadline_ms": 8000,
+      "top_k": 5,
+      "candidate_pool_k": 20,
+      "synthesis_k": 12,
+      "max_variants": 3,
+      "max_candidates": 20,
+      "coarse_to_fine": false,
+      "layers": {
+        "inventory": {
+          "enabled": false,
+          "status": "skipped",
+          "reason": "dense corpus guardrail and scope discovery",
+          "budget_ms": 500
+        },
+        "facts": {
+          "enabled": false,
+          "status": "skipped",
+          "reason": "small corpus can retrieve chunks directly",
+          "budget_ms": 1200
+        },
+        "summaries": {
+          "enabled": false,
+          "status": "skipped",
+          "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+          "budget_ms": 2500,
+          "top_k": 20
+        },
+        "dense_qdrant": {
+          "enabled": true,
+          "status": "enabled",
+          "reason": "payload-filtered dense chunk retrieval",
+          "budget_ms": 3500,
+          "top_k": 20
+        },
+        "sparse": {
+          "enabled": false,
+          "status": "skipped",
+          "reason": "legacy hybrid allowed for non-dense corpus",
+          "budget_ms": 2500,
+          "top_k": 20
+        },
+        "hah_chah": {
+          "enabled": true,
+          "status": "enabled",
+          "reason": "budget-aware layered HAH/C-HAH enabled",
+          "budget_ms": 8000,
+          "top_k": 20
+        },
+        "rerank": {
+          "enabled": true,
+          "status": "enabled",
+          "reason": "normalize/fuse/rerank only the bounded candidate pool",
+          "budget_ms": 1200,
+          "top_k": 12
+        },
+        "deep_async": {
+          "enabled": false,
+          "status": "skipped",
+          "reason": "not needed for this interactive plan",
+          "budget_ms": 120000
+        }
+      },
+      "guardrails": {
+        "allow_legacy_hybrid": true,
+        "global_chunk_search_allowed": true,
+        "scoped_chunk_search_allowed": true,
+        "user_scope_required": false
+      }
+    },
+    "scope_confidence": 0.889,
+    "scope_reason": "ledger source scope matched 1 candidate document(s)",
+    "dense_policy": "standard",
+    "dense_only": null,
+    "sparse_status": null,
+    "sparse_backend": null,
+    "sparse_fallback_reason": null,
+    "retrieval_profile": "chat",
+    "latency_budget": {
+      "profile": "fast",
+      "retrieval_profile": "chat",
+      "allow_cross_encoder": true,
+      "deadline_seconds": 8.0,
+      "top_k": 5,
+      "candidate_pool_k": 20
+    },
+    "score_threshold_applied": null,
+    "deep_retrieval_recommended": false,
+    "deep_job_id": null,
+    "deep_poll_url": null,
+    "deep_status": null,
+    "grounding_mode": "strict",
+    "grounding_policy": {
+      "requested_mode": "balanced",
+      "mode": "strict",
+      "inherited_from": "request",
+      "reason": "documentary_question_requires_sources",
+      "allow_foundational_fallback": false,
+      "source_requirement": "workspace_required",
+      "assistant_profile": "showcase_advisor",
+      "workspace_slug": "agentium-showcase",
+      "fallback_disclaimer": "Business interpretation to confirm: indexed sources stay authoritative and any documented value must be verified in the source notice.",
+      "strict_guard": "business_interpretation",
+      "allowed_modes": [
+        "balanced",
+        "strict"
+      ]
+    },
+    "retrieval_decision_trace": {
+      "version": 1,
+      "trace_id": "15cf419b-224c-4fc2-a686-2a03128f0102",
+      "summary": "collection_inventory selected for source_lookup query under fast latency profile: ledger source scope matched 1 candidate document(s)",
+      "query_type": "source_lookup",
+      "latency_profile": "fast",
+      "retrieval_profile": "chat",
+      "selected_route": "collection_inventory",
+      "route_reason": "ledger source scope matched 1 candidate document(s)",
+      "tradeoff": "Used inventory/coarse evidence to avoid an expensive global scan.",
+      "collection_scope": {
+        "collection": "qa-capture-inventory-4479",
+        "collections": [
+          "agentium-showcase-expert-fiche",
+          "qa-capture-inventory-4479"
+        ],
+        "filters": {
+          "document_filename": [
+            "capture-9d3500c7.md"
+          ]
+        },
+        "intent": "source_lookup",
+        "dense": false,
+        "source_count": 1,
+        "chunk_count": 1,
+        "confidence": 0.889,
+        "reason": "ledger source scope matched 1 candidate document(s)"
+      },
+      "layers": [
+        {
+          "key": "inventory",
+          "enabled": false,
+          "status": "skipped",
+          "reason": "dense corpus guardrail and scope discovery",
+          "budget_ms": 500
+        },
+        {
+          "key": "facts",
+          "enabled": false,
+          "status": "skipped",
+          "reason": "small corpus can retrieve chunks directly",
+          "budget_ms": 1200
+        },
+        {
+          "key": "summaries",
+          "enabled": false,
+          "status": "skipped",
+          "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+          "budget_ms": 2500,
+          "top_k": 20
+        },
+        {
+          "key": "dense_qdrant",
+          "enabled": true,
+          "status": "enabled",
+          "reason": "payload-filtered dense chunk retrieval",
+          "budget_ms": 3500,
+          "top_k": 20
+        },
+        {
+          "key": "sparse",
+          "enabled": false,
+          "status": "skipped",
+          "reason": "legacy hybrid allowed for non-dense corpus",
+          "budget_ms": 2500,
+          "top_k": 20
+        },
+        {
+          "key": "hah_chah",
+          "enabled": true,
+          "status": "enabled",
+          "reason": "budget-aware layered HAH/C-HAH enabled",
+          "budget_ms": 8000,
+          "top_k": 20
+        },
+        {
+          "key": "rerank",
+          "enabled": true,
+          "status": "enabled",
+          "reason": "normalize/fuse/rerank only the bounded candidate pool",
+          "budget_ms": 1200,
+          "top_k": 12
+        },
+        {
+          "key": "deep_async",
+          "enabled": false,
+          "status": "skipped",
+          "reason": "not needed for this interactive plan",
+          "budget_ms": 120000
+        }
+      ],
+      "quality_controls": {
+        "dense_policy": "standard",
+        "retrieval_policy": {
+          "enabled": false,
+          "blocks": 0,
+          "aliases": 0,
+          "protected_terms": 0,
+          "facets": 0,
+          "source_family_rules": 0,
+          "lexical_document_types": 0,
+          "lexical_metadata_fields": 20,
+          "require_project_code_match": false,
+          "clarification_required": false
+        }
+      },
+      "fallbacks": [],
+      "deep_search": {
+        "recommended": false,
+        "launched": false
+      },
+      "answer_shaping": {},
+      "timings": {
+        "planner_ms": 40,
+        "inventory_ms": 13,
+        "total_ms": 99
+      },
+      "candidate_counts": {
+        "source_count": 1,
+        "chunk_count": 1,
+        "candidate_pool_k": 20,
+        "synthesis_k": 12,
+        "source_display_k": 8,
+        "raw_chunks_retrieved": 0,
+        "document_chunks_retrieved": 0,
+        "chunks_retrieved": 1
+      },
+      "selected_sources": [
+        {
+          "label": "knowledge-collection-inventory",
+          "score": 1.0
+        }
+      ],
+      "trace_source": "runtime"
+    },
+    "latency_profile": "fast",
+    "stage_timings": {
+      "planner_ms": 40,
+      "inventory_ms": 13,
+      "embedding_ms": null,
+      "qdrant_ms": null,
+      "sparse_ms": null,
+      "retrieval_ms": null,
+      "rerank_ms": null,
+      "context_build_ms": null,
+      "table_facts_ms": null,
+      "llm_ms": 3728,
+      "total_ms": 3827
+    },
+    "duration_ms": 99,
+    "retrieval_latency_profile": "fast",
+    "retrieval_latency_scope": "direct_chat"
+  },
+  "outcome": {
+    "decision": null,
+    "confidence": 0.86,
+    "value_estimated": 1.395,
+    "cost_internal": 0.0129,
+    "revenue_allocated": null,
+    "efficiency": 38.485,
+    "value_source": "auto",
+    "operator_value_note": null,
+    "measurement_provenance": null,
+    "baseline_eligible": false,
+    "baseline_ineligible_reason": "baseline_runtime_provenance_unavailable"
+  },
+  "retries": 0,
+  "error": null,
+  "checkpoints": [],
+  "test_result": null,
+  "waiting_subflows": {},
+  "result_held": false,
+  "flow_evidence": {
+    "flow_version_id": null,
+    "flow_snapshot_sha256": null,
+    "execution_snapshot_at": null,
+    "runtime_revision": null
+  },
+  "invocations": [
+    {
+      "id": "c39eea5f-037a-454a-9276-452b124542d9",
+      "skill_slug": "semantic_search_v1",
+      "status": "completed",
+      "started_at": "2026-09-17T03:38:19.925103",
+      "completed_at": "2026-09-17T03:38:22.601051",
+      "latency_ms": 2675.9475231170654,
+      "cost": 0.0008,
+      "input_ref": {
+        "run_trigger": "chat"
+      },
+      "output_ref": {
+        "confidence": 0.86,
+        "source_count": 1,
+        "retrieval_observability": {
+          "retrieval_profile": "chat",
+          "latency_profile": "fast",
+          "retrieval_latency_profile": "fast",
+          "retrieval_latency_scope": "direct_chat",
+          "retrieval_decision_trace": {
+            "version": 1,
+            "trace_id": "15cf419b-224c-4fc2-a686-2a03128f0102",
+            "summary": "collection_inventory selected for source_lookup query under fast latency profile: ledger source scope matched 1 candidate document(s)",
+            "query_type": "source_lookup",
+            "latency_profile": "fast",
+            "retrieval_profile": "chat",
+            "selected_route": "collection_inventory",
+            "route_reason": "ledger source scope matched 1 candidate document(s)",
+            "tradeoff": "Used inventory/coarse evidence to avoid an expensive global scan.",
+            "collection_scope": {
+              "collection": "qa-capture-inventory-4479",
+              "collections": [
+                "agentium-showcase-expert-fiche",
+                "qa-capture-inventory-4479"
+              ],
+              "filters": {
+                "document_filename": [
+                  "capture-9d3500c7.md"
+                ]
+              },
+              "intent": "source_lookup",
+              "dense": false,
+              "source_count": 1,
+              "chunk_count": 1,
+              "confidence": 0.889,
+              "reason": "ledger source scope matched 1 candidate document(s)"
+            },
+            "layers": [
+              {
+                "key": "inventory",
+                "enabled": false,
+                "status": "skipped",
+                "reason": "dense corpus guardrail and scope discovery",
+                "budget_ms": 500
+              },
+              {
+                "key": "facts",
+                "enabled": false,
+                "status": "skipped",
+                "reason": "small corpus can retrieve chunks directly",
+                "budget_ms": 1200
+              },
+              {
+                "key": "summaries",
+                "enabled": false,
+                "status": "skipped",
+                "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+                "budget_ms": 2500,
+                "top_k": 20
+              },
+              {
+                "key": "dense_qdrant",
+                "enabled": true,
+                "status": "enabled",
+                "reason": "payload-filtered dense chunk retrieval",
+                "budget_ms": 3500,
+                "top_k": 20
+              },
+              {
+                "key": "sparse",
+                "enabled": false,
+                "status": "skipped",
+                "reason": "legacy hybrid allowed for non-dense corpus",
+                "budget_ms": 2500,
+                "top_k": 20
+              },
+              {
+                "key": "hah_chah",
+                "enabled": true,
+                "status": "enabled",
+                "reason": "budget-aware layered HAH/C-HAH enabled",
+                "budget_ms": 8000,
+                "top_k": 20
+              },
+              {
+                "key": "rerank",
+                "enabled": true,
+                "status": "enabled",
+                "reason": "normalize/fuse/rerank only the bounded candidate pool",
+                "budget_ms": 1200,
+                "top_k": 12
+              },
+              {
+                "key": "deep_async",
+                "enabled": false,
+                "status": "skipped",
+                "reason": "not needed for this interactive plan",
+                "budget_ms": 120000
+              }
+            ],
+            "quality_controls": {
+              "dense_policy": "standard",
+              "retrieval_policy": {
+                "enabled": false,
+                "blocks": 0,
+                "aliases": 0,
+                "protected_terms": 0,
+                "facets": 0,
+                "source_family_rules": 0,
+                "lexical_document_types": 0,
+                "lexical_metadata_fields": 20,
+                "require_project_code_match": false,
+                "clarification_required": false
+              }
+            },
+            "fallbacks": [],
+            "deep_search": {
+              "recommended": false,
+              "launched": false
+            },
+            "answer_shaping": {},
+            "timings": {
+              "planner_ms": 40,
+              "inventory_ms": 13,
+              "total_ms": 99
+            },
+            "candidate_counts": {
+              "source_count": 1,
+              "chunk_count": 1,
+              "candidate_pool_k": 20,
+              "synthesis_k": 12,
+              "source_display_k": 8,
+              "raw_chunks_retrieved": 0,
+              "document_chunks_retrieved": 0,
+              "chunks_retrieved": 1
+            },
+            "selected_sources": [
+              {
+                "label": "knowledge-collection-inventory",
+                "score": 1.0
+              }
+            ],
+            "trace_source": "runtime"
+          },
+          "dense_policy": "standard",
+          "stage_timings": {
+            "planner_ms": 40,
+            "inventory_ms": 13,
+            "embedding_ms": null,
+            "qdrant_ms": null,
+            "sparse_ms": null,
+            "retrieval_ms": null,
+            "rerank_ms": null,
+            "context_build_ms": null,
+            "table_facts_ms": null,
+            "llm_ms": 3728,
+            "total_ms": 3827
+          },
+          "duration_ms": 99
+        }
+      },
+      "metrics": {
+        "retrieval_profile": "chat",
+        "latency_profile": "fast",
+        "retrieval_latency_profile": "fast",
+        "retrieval_latency_scope": "direct_chat",
+        "retrieval_decision_trace": {
+          "version": 1,
+          "trace_id": "15cf419b-224c-4fc2-a686-2a03128f0102",
+          "summary": "collection_inventory selected for source_lookup query under fast latency profile: ledger source scope matched 1 candidate document(s)",
+          "query_type": "source_lookup",
+          "latency_profile": "fast",
+          "retrieval_profile": "chat",
+          "selected_route": "collection_inventory",
+          "route_reason": "ledger source scope matched 1 candidate document(s)",
+          "tradeoff": "Used inventory/coarse evidence to avoid an expensive global scan.",
+          "collection_scope": {
+            "collection": "qa-capture-inventory-4479",
+            "collections": [
+              "agentium-showcase-expert-fiche",
+              "qa-capture-inventory-4479"
+            ],
+            "filters": {
+              "document_filename": [
+                "capture-9d3500c7.md"
+              ]
+            },
+            "intent": "source_lookup",
+            "dense": false,
+            "source_count": 1,
+            "chunk_count": 1,
+            "confidence": 0.889,
+            "reason": "ledger source scope matched 1 candidate document(s)"
+          },
+          "layers": [
+            {
+              "key": "inventory",
+              "enabled": false,
+              "status": "skipped",
+              "reason": "dense corpus guardrail and scope discovery",
+              "budget_ms": 500
+            },
+            {
+              "key": "facts",
+              "enabled": false,
+              "status": "skipped",
+              "reason": "small corpus can retrieve chunks directly",
+              "budget_ms": 1200
+            },
+            {
+              "key": "summaries",
+              "enabled": false,
+              "status": "skipped",
+              "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+              "budget_ms": 2500,
+              "top_k": 20
+            },
+            {
+              "key": "dense_qdrant",
+              "enabled": true,
+              "status": "enabled",
+              "reason": "payload-filtered dense chunk retrieval",
+              "budget_ms": 3500,
+              "top_k": 20
+            },
+            {
+              "key": "sparse",
+              "enabled": false,
+              "status": "skipped",
+              "reason": "legacy hybrid allowed for non-dense corpus",
+              "budget_ms": 2500,
+              "top_k": 20
+            },
+            {
+              "key": "hah_chah",
+              "enabled": true,
+              "status": "enabled",
+              "reason": "budget-aware layered HAH/C-HAH enabled",
+              "budget_ms": 8000,
+              "top_k": 20
+            },
+            {
+              "key": "rerank",
+              "enabled": true,
+              "status": "enabled",
+              "reason": "normalize/fuse/rerank only the bounded candidate pool",
+              "budget_ms": 1200,
+              "top_k": 12
+            },
+            {
+              "key": "deep_async",
+              "enabled": false,
+              "status": "skipped",
+              "reason": "not needed for this interactive plan",
+              "budget_ms": 120000
+            }
+          ],
+          "quality_controls": {
+            "dense_policy": "standard",
+            "retrieval_policy": {
+              "enabled": false,
+              "blocks": 0,
+              "aliases": 0,
+              "protected_terms": 0,
+              "facets": 0,
+              "source_family_rules": 0,
+              "lexical_document_types": 0,
+              "lexical_metadata_fields": 20,
+              "require_project_code_match": false,
+              "clarification_required": false
+            }
+          },
+          "fallbacks": [],
+          "deep_search": {
+            "recommended": false,
+            "launched": false
+          },
+          "answer_shaping": {},
+          "timings": {
+            "planner_ms": 40,
+            "inventory_ms": 13,
+            "total_ms": 99
+          },
+          "candidate_counts": {
+            "source_count": 1,
+            "chunk_count": 1,
+            "candidate_pool_k": 20,
+            "synthesis_k": 12,
+            "source_display_k": 8,
+            "raw_chunks_retrieved": 0,
+            "document_chunks_retrieved": 0,
+            "chunks_retrieved": 1
+          },
+          "selected_sources": [
+            {
+              "label": "knowledge-collection-inventory",
+              "score": 1.0
+            }
+          ],
+          "trace_source": "runtime"
+        },
+        "dense_policy": "standard",
+        "stage_timings": {
+          "planner_ms": 40,
+          "inventory_ms": 13,
+          "embedding_ms": null,
+          "qdrant_ms": null,
+          "sparse_ms": null,
+          "retrieval_ms": null,
+          "rerank_ms": null,
+          "context_build_ms": null,
+          "table_facts_ms": null,
+          "llm_ms": 3728,
+          "total_ms": 3827
+        },
+        "duration_ms": 99,
+        "cost_evidence": {
+          "schema_version": 1,
+          "state": "calculated",
+          "method": "catalog_unit_price",
+          "source": "skill_catalog:c13071be-0ae9-4c63-be55-b4cb8169bc35:pricing",
+          "pricing_sha256": "afedb2c9bdfec23b1918b63865f20d04040b384ccdc8b09e7871c922569458b5",
+          "currency": "USD",
+          "unit": "per_call",
+          "quantity": 1.0
+        }
+      },
+      "trace": {},
+      "error": null,
+      "execution_evidence": {
+        "resolution": "resolved",
+        "execution_snapshot_sha256": "5631ce00dd8faa018c61e799ddfbd9a32c41786468981b3a234dd872874b5d46"
+      }
+    },
+    {
+      "id": "ed8ecbed-1030-487c-8a30-ec8ceade4603",
+      "skill_slug": "llm_rag_answer_v1",
+      "status": "completed",
+      "started_at": "2026-09-17T03:38:22.601051",
+      "completed_at": "2026-09-17T03:38:27.506955",
+      "latency_ms": 4905.903792381287,
+      "cost": 0.012,
+      "input_ref": {
+        "run_trigger": "chat"
+      },
+      "output_ref": {
+        "confidence": 0.86,
+        "response": "completed",
+        "answer_profile": "precise_fact",
+        "answer_profile_decision": {
+          "profile": "precise_fact",
+          "reason": "default_answer_profile",
+          "requires_exhaustive_retrieval": false
+        },
+        "answer_policy_applied": true,
+        "answer_policy_violations": []
+      },
+      "metrics": {
+        "cost_evidence": {
+          "schema_version": 1,
+          "state": "calculated",
+          "method": "catalog_unit_price",
+          "source": "skill_catalog:e2339094-4c59-43b3-a5d0-334263663d30:pricing",
+          "pricing_sha256": "96449c474e090f20047d146f048f27f77f63e332c615546b264896b7c66dadbc",
+          "currency": "USD",
+          "unit": "per_call",
+          "quantity": 1.0
+        }
+      },
+      "trace": {},
+      "error": null,
+      "execution_evidence": {
+        "resolution": "resolved",
+        "execution_snapshot_sha256": "b737350d5d0c9e35fbeda8d5cb64331a58fe546b4e3c0b0d653adb18095bdf22"
+      }
+    },
+    {
+      "id": "bbbcc65e-e7bf-4795-9fbd-59c9e800cb50",
+      "skill_slug": "audit_log_v1",
+      "status": "completed",
+      "started_at": "2026-09-17T03:38:27.506955",
+      "completed_at": "2026-09-17T03:38:27.952946",
+      "latency_ms": 445.99125385284424,
+      "cost": 0.0001,
+      "input_ref": {
+        "run_trigger": "chat"
+      },
+      "output_ref": {
+        "ledger": "chat_run"
+      },
+      "metrics": {
+        "cost_evidence": {
+          "schema_version": 1,
+          "state": "calculated",
+          "method": "catalog_unit_price",
+          "source": "skill_catalog:5f75443c-fb50-4a4c-bb4f-7831c86101c8:pricing",
+          "pricing_sha256": "3d2adad2775490e113a852d7ca9a612c3a36eb50589df16150398778a567b6bb",
+          "currency": "USD",
+          "unit": "per_call",
+          "quantity": 1.0
+        }
+      },
+      "trace": {},
+      "error": null,
+      "execution_evidence": {
+        "resolution": "resolved",
+        "execution_snapshot_sha256": "c82c5260cb9fdb630147308236c6639c4a7edc49e36d572ea2b22a986b4d6fbb"
+      }
+    }
+  ]
+}

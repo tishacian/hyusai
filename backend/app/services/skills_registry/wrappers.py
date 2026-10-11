@@ -1,0 +1,7686 @@
+"""Callable wrappers for canonical Skills.
+
+Each wrapper translates a typed canonical-skill input into a real call
+against the existing OmniRAG service layer. Wrappers are intentionally
+thin — they never introduce new business logic.
+
+Runtime status (returned by `bound_slugs()`) is tri-state:
+ - ``bound``     : an actual implementation module is resolvable and will be invoked.
+ - ``stub``      : a placeholder that logs + returns a degraded payload (no hard-fail).
+ - ``unbound``   : no wrapper declared for that slug (`resolve()` refuses it).
+
+The check happens lazily on first use, cached in
+``_RESOLVED_STATUS`` so the admin `/skills/runtime-health` endpoint is
+cheap to call. Imports of the underlying services stay lazy to avoid
+pulling heavy deps at registry introspection time.
+"""
+
+from __future__ import annotations
+
+import base64
+import importlib
+import re
+import uuid
+from datetime import datetime
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, Mapping, Optional
+
+from app.core.logging import get_logger
+from app.services.evaluation.judge import (
+    contractual_zero_token_usage,
+    get_judge_service,
+    new_provider_usage_accumulator,
+    normalize_provider_usage,
+    provider_usage_evidence,
+    record_provider_usage,
+)
+from app.services.rag.project_references import (
+    extract_query_project_codes,
+    numeric_project_candidates,
+    using_workspace_id_project_scheme,
+)
+from app.services.skills_registry.binding import (
+    SkillBindingError,
+    SkillCallable,
+    is_workspace_skill_slug,
+)
+from app.tenants import family_hook
+
+logger = get_logger(__name__)
+
+
+# workspace_id -> slug cache (process-lifetime). The run_engine ctx
+# (``_build_initial_ctx``) carries ``workspace_id`` but NOT ``workspace_slug``,
+# yet retrieval needs the slug to build the tenant-scoped physical Qdrant
+# collection name (``VectorDBFactory.scoped_name`` -> ``{slug}__{collection}``).
+# Without it every DAG retrieval targets a non-existent un-prefixed collection
+# (0 chunks, embedding never reached). We resolve the slug from the id once and
+# memoise it. Only successful lookups are cached so a transient failure retries.
+_WORKSPACE_SLUG_CACHE: dict[str, str] = {}
+_PROVIDER_USAGE_CTX_KEY = "_provider_usage_v1"
+
+
+def _start_provider_usage_scope(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Start one invocation-local provider usage scope in the ephemeral ctx."""
+
+    accumulator = new_provider_usage_accumulator()
+    ctx[_PROVIDER_USAGE_CTX_KEY] = accumulator
+    return accumulator
+
+
+def _provider_usage_scope(ctx: dict[str, Any]) -> dict[str, Any]:
+    accumulator = ctx.get(_PROVIDER_USAGE_CTX_KEY)
+    if not isinstance(accumulator, dict):
+        accumulator = _start_provider_usage_scope(ctx)
+    return accumulator
+
+
+def ctx_secret(ctx: Optional[dict[str, Any]], slot: str):
+    """Secret granted to this invocation by a flow ``secret`` node, or ``None``.
+
+    Returns a ``SecretValue``; call ``reveal()`` only where the clear value is
+    consumed (header, connection) and never put it in the skill output.
+    """
+    grants = (ctx or {}).get("secrets")
+    if grants is None or slot not in grants:
+        return None
+    return grants.get(slot)
+
+
+def _usage_candidate(payload: Any) -> Any:
+    """Return the nearest explicit provider usage container, if present."""
+
+    if not isinstance(payload, dict):
+        return payload
+    if normalize_provider_usage(payload) is not None:
+        return payload
+    metrics = payload.get("metrics")
+    if isinstance(metrics, dict) and normalize_provider_usage(metrics) is not None:
+        return metrics
+    meta = payload.get("meta")
+    if isinstance(meta, dict) and normalize_provider_usage(meta) is not None:
+        return meta
+    return payload
+
+
+def _provider_usage_contract(payload: Any) -> dict[str, Any] | None:
+    """Locate canonical complete/partial provider evidence without mirroring it."""
+
+    if not isinstance(payload, dict):
+        return None
+    for candidate in (
+        payload,
+        payload.get("metrics"),
+        payload.get("meta"),
+    ):
+        if not isinstance(candidate, dict):
+            continue
+        if normalize_provider_usage(candidate) is not None or isinstance(
+            candidate.get("provider_usage"), dict
+        ):
+            return candidate
+    return None
+
+
+def _record_provider_usage_contract(
+    accumulator: dict[str, Any],
+    contract: dict[str, Any],
+    *,
+    provider: str,
+    model: str,
+) -> bool:
+    """Append every evidenced call, preserving incomplete coverage exactly."""
+
+    complete = contract.get("usage")
+    if isinstance(complete, dict):
+        calls = complete.get("calls")
+        if isinstance(calls, list) and calls:
+            for call in calls:
+                if not isinstance(call, dict):
+                    continue
+                record_provider_usage(
+                    accumulator,
+                    call,
+                    provider=str(call.get("provider") or provider),
+                    model=str(call.get("model") or model),
+                )
+            return True
+        if normalize_provider_usage(contract) is not None:
+            record_provider_usage(
+                accumulator,
+                contract,
+                provider=provider,
+                model=model,
+            )
+            return True
+
+    partial = contract.get("provider_usage")
+    if isinstance(partial, dict):
+        calls = partial.get("calls")
+        if isinstance(calls, list) and calls:
+            for call in calls:
+                if not isinstance(call, dict):
+                    continue
+                reported_payload = (
+                    {"total_tokens": call.get("reported_total")}
+                    if call.get("reported") is True and call.get("reported_total") is not None
+                    else None
+                )
+                record_provider_usage(
+                    accumulator,
+                    reported_payload,
+                    provider=str(call.get("provider") or provider),
+                    model=str(call.get("model") or model),
+                )
+            return True
+    return False
+
+
+def _without_direct_meta_usage(meta: Any) -> dict[str, Any]:
+    """Move direct token evidence to the canonical top-level contract."""
+
+    cleaned = dict(meta) if isinstance(meta, dict) else {}
+    cleaned.pop("usage", None)
+    cleaned.pop("token_usage", None)
+    return cleaned
+
+
+def _retrieval_token_path(
+    accumulator: dict[str, Any],
+    result: dict[str, Any],
+) -> bool:
+    """Record retrieval usage and return whether its path is non-token.
+
+    Local sentence-transformer, cross-encoder and hash paths cannot call a
+    token-billed provider.  Remote/unknown embedding paths are deliberately
+    unreported unless the retrieval service exposes real usage counters.
+    """
+
+    metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+    provider = str(metrics.get("embedding_provider") or "retrieval")
+    model = str(metrics.get("embedding_model") or "unknown")
+    contract = _provider_usage_contract(result)
+    if contract is not None and _record_provider_usage_contract(
+        accumulator,
+        contract,
+        provider=provider,
+        model=model,
+    ):
+        return False
+    normalized_provider = provider.strip().lower()
+    canonical_zero_calls = (
+        metrics.get("embedding_provider_usage_scope") == "canonical_request_v1"
+        and metrics.get("embedding_provider_calls") == 0
+    )
+    if (
+        canonical_zero_calls
+        or metrics.get("retrieval_context_cache_hit") is True
+        or normalized_provider
+        in {
+            "local",
+            "hash",
+            "sentence-transformers",
+            "sentence_transformers",
+        }
+    ):
+        return True
+    record_provider_usage(
+        accumulator,
+        None,
+        provider=normalized_provider or "unknown_retrieval_provider",
+        model=model,
+    )
+    return False
+
+
+def _resolve_workspace_slug(payload: dict[str, Any], ctx: dict[str, Any]) -> Optional[str]:
+    """Resolve the workspace slug, falling back to a DB lookup by id.
+
+    Parity with the classic ``/chat`` path which always sets ``workspace_slug``.
+    The fallback only fires when the slug is absent but the id is present (the
+    run_engine DAG case), so callers that already pass a slug are untouched.
+    """
+    slug = ctx.get("workspace_slug") or payload.get("workspace_slug")
+    if slug:
+        return str(slug)
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    if not workspace_id:
+        return None
+    cached = _WORKSPACE_SLUG_CACHE.get(workspace_id)
+    if cached is not None:
+        return cached
+    try:
+        from app.db.base import SessionLocal
+        from app.models.workspace import Workspace
+
+        db = SessionLocal()
+        try:
+            ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+            resolved = getattr(ws, "slug", None) if ws else None
+        finally:
+            db.close()
+    except Exception as exc:  # noqa: BLE001 — never crash retrieval on a slug lookup
+        logger.warning(
+            "skills_registry: workspace slug lookup failed",
+            workspace_id=workspace_id,
+            error=str(exc),
+        )
+        return None
+    if resolved:
+        _WORKSPACE_SLUG_CACHE[workspace_id] = resolved
+    return resolved
+
+
+def _model_name(*candidates: Any) -> Optional[str]:
+    """The first candidate that is actually the *name* of a model.
+
+    ``model`` is one of the most collided-on keys on the wire. The DAG walker
+    merges an upstream node's output flat into the next node's payload, and
+    several nodes answer with a block under that key describing which model
+    answered: ``ml_batch_score_v1`` emits ``{"model": {"model_id": ..., "slug":
+    ..., "version": ...}}``. So an LLM node placed downstream of a scoring node
+    reads a *dict* out of the key it takes its model name from, and in overlay
+    mode that beats the node's own configured value. What follows is not a
+    readable failure — the provider is handed an object where it expects a
+    string and answers "could not parse the JSON body of your request", and the
+    node blames the prompt.
+
+    An object is never a model name, so it is not a candidate: fall through to
+    the next one, which is the run's default. Selecting *which* version of a
+    trained model answers is what ``ml_predict_v1``'s own pin is for.
+    """
+
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+        if candidate is not None and not isinstance(candidate, str):
+            logger.warning(
+                "skills_registry: ignoring a non-string model on the wire",
+                type=type(candidate).__name__,
+                keys=sorted(candidate)[:8] if isinstance(candidate, dict) else None,
+            )
+    return None
+
+
+def _rag_runtime_kwargs(payload: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {}
+    for key in ("top_k", "candidate_pool_k", "synthesis_k", "source_display_k"):
+        value = payload.get(key)
+        if value is not None:
+            kwargs[key] = value
+    latency_profile = payload.get("latency_profile") or ctx.get("latency_profile")
+    if latency_profile:
+        kwargs["latency_profile"] = latency_profile
+    retrieval_profile = payload.get("retrieval_profile") or ctx.get("retrieval_profile")
+    if retrieval_profile:
+        kwargs["retrieval_profile"] = retrieval_profile
+    if payload.get("deep_retrieval") is not None:
+        kwargs["deep_retrieval"] = bool(payload.get("deep_retrieval"))
+    retrieval_filters = payload.get("retrieval_filters")
+    if isinstance(retrieval_filters, dict):
+        kwargs["retrieval_filters"] = retrieval_filters
+    authoritative_collections = payload.get("authoritative_collections")
+    if isinstance(authoritative_collections, list):
+        normalized = list(
+            dict.fromkeys(
+                str(item).strip()
+                for item in authoritative_collections[:32]
+                if isinstance(item, str) and item.strip()
+            )
+        )
+        if normalized:
+            kwargs["authoritative_collections"] = normalized
+    if payload.get("authoritative_document_scope") is True:
+        kwargs["authoritative_document_scope"] = True
+        if "authoritative_document_refs" in payload:
+            raw_refs = payload.get("authoritative_document_refs")
+            allowed_collections = set(kwargs.get("authoritative_collections") or [])
+            normalized_refs: dict[str, list[str]] = {}
+            total_refs = 0
+            ref_items = raw_refs.items() if isinstance(raw_refs, dict) else ()
+            for raw_collection, raw_document_ids in ref_items:
+                collection = str(raw_collection or "").strip()
+                if (
+                    not collection
+                    or (allowed_collections and collection not in allowed_collections)
+                    or not isinstance(raw_document_ids, list)
+                ):
+                    continue
+                document_ids = list(
+                    dict.fromkeys(
+                        str(item).strip()
+                        for item in raw_document_ids
+                        if isinstance(item, str) and item.strip()
+                    )
+                )
+                remaining = max(0, 1000 - total_refs)
+                if document_ids and remaining:
+                    normalized_refs[collection] = document_ids[:remaining]
+                    total_refs += len(normalized_refs[collection])
+                if total_refs >= 1000:
+                    break
+            # Presence is security-significant. Forward an explicit empty map so
+            # the RAG boundary can distinguish malformed/new input from a legacy
+            # snapshot that genuinely omitted pair refs.
+            kwargs["authoritative_document_refs"] = normalized_refs
+    knowledge_scope = payload.get("knowledge_scope") or ctx.get("knowledge_scope")
+    if knowledge_scope:
+        kwargs["knowledge_scope"] = knowledge_scope
+    source_policy = payload.get("source_policy") or ctx.get("source_policy")
+    if isinstance(source_policy, dict):
+        kwargs["source_policy"] = source_policy
+    context_collection = (
+        payload.get("collection")
+        or payload.get("collection_name")
+        or payload.get("context_collection")
+        or ctx.get("collection")
+        or ctx.get("collection_name")
+        or ctx.get("context_collection")
+    )
+    if context_collection:
+        kwargs["context_collection"] = context_collection
+    return kwargs
+
+
+# ---------------------------------------------------------------------------
+# Fallbacks
+# ---------------------------------------------------------------------------
+async def _stub(payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    """Degraded placeholder for skills whose runtime is not yet available."""
+    logger.info("skills_registry: stub invocation", payload_keys=list(payload.keys()))
+    return {
+        "status": "degraded",
+        "warning": "runtime_unavailable",
+        "input_echo": payload,
+    }
+
+
+async def _translation_showcase_stub(
+    payload: dict[str, Any],
+    ctx: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Structured simulation for showcase Translation Suite stages.
+
+    The real project-mt runtime is intentionally not invoked from Agentium
+    showcase seeds. This preserves the canonical skill contract and run
+    engine behavior while keeping the demo deterministic and sovereign.
+    """
+    ctx = ctx or {}
+    skill_slug = str(payload.get("skill_slug") or ctx.get("skill_slug") or "translation_stage")
+    verdict = str(payload.get("expected_verdict") or payload.get("verdict") or "ACCEPT_4D")
+    agent_identity = (
+        payload.get("agent_identity") or ctx.get("agent_identity") or "agent.translation.showcase"
+    )
+    logger.info(
+        "translation_showcase_stub: simulated stage",
+        skill_slug=skill_slug,
+        verdict=verdict,
+        agent_identity=agent_identity,
+    )
+    return {
+        "status": "simulated",
+        "showcase_seed": True,
+        "skill_slug": skill_slug,
+        "verdict": verdict,
+        "agent_identity": agent_identity,
+        "sovereignty": {
+            "external_llm_egress": False,
+            "model_versions_frozen": True,
+            "tenant_scope": ctx.get("workspace_id") or payload.get("workspace_id"),
+        },
+        "metrics": {
+            "deterministic": True,
+            "prompt_tokens": payload.get("prompt_tokens", 0),
+            "completion_tokens": payload.get("completion_tokens", 0),
+        },
+        "input_echo": payload,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Concrete wrappers
+# ---------------------------------------------------------------------------
+async def _chat_trivial_bypass_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.chat_trivial_bypass import maybe_trivial_bypass
+
+    bypass = maybe_trivial_bypass(str(payload.get("query") or ""))
+    if not bypass:
+        return {"bypassed": False, "answer": "", "reason": None}
+    return {
+        "bypassed": True,
+        "answer": bypass.content,
+        "reason": bypass.reason,
+        "meta": bypass.metadata(),
+    }
+
+
+async def _llm_rag_answer_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    # Preserve an explicitly supplied empty dict: provider usage is accumulated
+    # in this invocation-local context before being projected to the ledger.
+    ctx = ctx if isinstance(ctx, dict) else {}
+    usage_accumulator = _start_provider_usage_scope(ctx)
+    query = str(payload.get("query") or "")
+
+    # CONSUME pre-retrieved context when the caller supplies a ``context`` list
+    # (the agentic DAG wires ``context <= join.retrieval.results``). This makes
+    # task.generate answer FROM the chunks the rest of the graph evaluates,
+    # instead of launching a second, independent (and historically empty)
+    # retrieval. Other callers (rag_service, mission_room, …) never pass a
+    # ``context`` list and keep the orchestrator retrieval path below unchanged.
+    context_value = payload.get("context")
+    if isinstance(context_value, (list, tuple)):
+        passages = _context_passages(context_value)
+        lang_target = payload.get("lang_target")
+        if not passages:
+            # Join produced nothing — abstain honestly, NEVER re-retrieve into
+            # the void or free-generate (that is what produced hallucinations).
+            return {
+                "answer": _no_context_message(lang_target),
+                "citations": [],
+                "decision_steps": [],
+                "meta": {
+                    "retrieval": {
+                        "raw_chunks_retrieved": 0,
+                        "source": "join_context",
+                        "no_context": True,
+                    }
+                },
+                **contractual_zero_token_usage("llm_rag_answer:no_context_abstention"),
+            }
+        passages = _select_inventory_synthesis_passages(
+            query,
+            payload.get("answer_profile"),
+            passages,
+        )
+        model = _model_name(payload.get("model"), ctx.get("default_model"))
+        prompt = _build_grounded_answer_prompt(
+            query,
+            passages,
+            lang_target,
+            payload.get("answer_profile"),
+            family=_ctx_workspace_family(ctx),
+        )
+        answer_text = ""
+        try:
+            answer_text = await _route_llm_complete(prompt, model, ctx)
+        except Exception as exc:  # noqa: BLE001 — degrade to abstention, never crash the DAG
+            logger.warning("llm_rag_answer_v1: grounded synthesis failed", error=str(exc))
+            answer_text = _no_context_message(lang_target)
+        answer_text, coverage_review = await _review_inventory_answer_coverage(
+            query=query,
+            passages=passages,
+            draft=answer_text,
+            model=model,
+            ctx=ctx,
+            lang_target=lang_target,
+        )
+        output = {
+            "answer": answer_text,
+            "citations": _citations_from_passages(passages),
+            "decision_steps": [],
+            "meta": {
+                "retrieval": {
+                    "raw_chunks_retrieved": len(passages),
+                    "source": "join_context",
+                    "stage_timings": {},
+                },
+                "inventory_coverage_review": coverage_review,
+            },
+        }
+        output.update(provider_usage_evidence(usage_accumulator))
+        return output
+
+    # No supplied context -> classic orchestrator retrieval (unchanged contract),
+    # now with the tenant slug resolved so it never targets a phantom collection.
+    from app.services.collection_access import request_identity_for_context
+    from app.services.rag.rag_service import answer
+
+    result = await answer(
+        query=query,
+        context_id=payload.get("context_id"),
+        workspace_id=ctx.get("workspace_id"),
+        session_id=payload.get("session_id"),
+        rag_mode_override=(
+            payload.get("rag_pipeline_mode")
+            or payload.get("rag_mode_override")
+            or ctx.get("retrieval_mode_default")
+        ),
+        prompt_type=payload.get("prompt_type") or ctx.get("default_prompt_type"),
+        model=_model_name(payload.get("model"), ctx.get("default_model")),
+        provider=payload.get("provider"),
+        workspace_slug=_resolve_workspace_slug(payload, ctx),
+        **_rag_runtime_kwargs(payload, ctx),
+        # Forward the run-engine sink so the orchestrator's text
+        # chunks are rebroadcast as SSE token_delta events in real
+        # time (Vague D / D2). Non-streaming callers simply don't pass
+        # the sink and observe no behavioural change.
+        token_sink=ctx.get("token_sink"),
+        collection_identity=request_identity_for_context(ctx),
+    )
+    # The classic orchestrator is a separate generation facade.  It currently
+    # exposes no usage; if it starts doing so, consume the real counters.  Until
+    # then this provider call remains unavailable instead of being estimated
+    # from answer length.
+    record_provider_usage(
+        usage_accumulator,
+        _usage_candidate(result),
+        provider=str(payload.get("provider") or "orchestrator"),
+        model=_model_name(payload.get("model"), ctx.get("default_model")) or "unknown",
+    )
+    output = {
+        "answer": result.get("answer", ""),
+        "citations": result.get("citations", []),
+        "decision_steps": result.get("decision_steps", []),
+        "meta": _without_direct_meta_usage(result.get("meta", {})),
+    }
+    output.update(provider_usage_evidence(usage_accumulator))
+    return output
+
+
+async def _semantic_search_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.collection_access import (
+        request_identity_for_context,
+        strip_client_retrieval_keys,
+    )
+    from app.services.rag.context import apply_retrieval_profile_to_request, retrieve_rag_context
+
+    ctx = ctx or {}
+    usage_accumulator = new_provider_usage_accumulator()
+    non_token_retrieval_paths = 0
+    runtime_kwargs = _rag_runtime_kwargs(payload, ctx)
+    retrieval_contract = (
+        ctx.get("retrieval_contract") if isinstance(ctx.get("retrieval_contract"), dict) else {}
+    )
+    authoritative_collection = None
+    if retrieval_contract.get("asset_binding") == "authoritative":
+        declared = retrieval_contract.get("collection") or retrieval_contract.get(
+            "primary_collection"
+        )
+        if str(declared or "").strip():
+            authoritative_collection = str(declared).strip()
+            requested_collection = runtime_kwargs.get("context_collection")
+            if requested_collection and requested_collection != authoritative_collection:
+                logger.warning(
+                    "semantic_search_v1: overriding collection outside retrieval contract",
+                    requested=requested_collection,
+                    authoritative=authoritative_collection,
+                    workspace_id=ctx.get("workspace_id"),
+                )
+            # The System contract is stronger than the flow asset-binding flag
+            # and than any payload supplied by an upstream node.
+            runtime_kwargs["context_collection"] = authoritative_collection
+            runtime_kwargs.pop("knowledge_scope", None)
+    allow_workspace_fallback = (
+        retrieval_contract.get("empty_bound_collection") != "abstain"
+        and retrieval_contract.get("allow_workspace_fallback", True) is not False
+    )
+    # Phase 2 (p2-binding): an authoritative asset->collection binding scopes
+    # retrieval to a single collection (``context_collection``). If that bound
+    # collection resolves to empty/unknown we MUST fall back to workspace scope
+    # rather than return a SILENTLY EMPTY retrieval (grounding lesson 2026-06-26,
+    # docs/chat-recherche-agentic-grounding-audit-2026-06-26.md). We detect the
+    # bound collection here and, on a zero-chunk primary result, retry without it.
+    # This safety net is flag-INDEPENDENT (it reacts to context_collection, which
+    # the DAG only injects when the flag is ON), so callers with no collection are
+    # byte-identical to before.
+    bound_collection = runtime_kwargs.get("context_collection")
+
+    def _build_request(*, with_collection: bool) -> dict[str, Any]:
+        kwargs = dict(runtime_kwargs)
+        if not with_collection:
+            kwargs.pop("context_collection", None)
+        request = {
+            "query": payload["query"],
+            "workspace_id": ctx.get("workspace_id") or payload.get("workspace_id"),
+            # Resolve the tenant slug (DAG ctx omits it) so retrieval hits the
+            # real ``{slug}__{collection}`` Qdrant collection instead of a phantom
+            # un-prefixed one (root cause of raw_chunks_retrieved=0 in the A/B).
+            "workspace_slug": _resolve_workspace_slug(payload, ctx),
+            "capability_id": ctx.get("capability_id") or payload.get("capability_id"),
+            "system_id": ctx.get("system_id") or payload.get("system_id"),
+            "knowledge_scope": (
+                None
+                if authoritative_collection
+                else payload.get("knowledge_scope") or ctx.get("knowledge_scope")
+            ),
+            "context_mode": "replace" if authoritative_collection else payload.get("context_mode"),
+            "authoritative_collections": (
+                [authoritative_collection] if authoritative_collection else None
+            ),
+            "rag_pipeline_mode": payload.get("mode") or payload.get("rag_pipeline_mode") or "auto",
+            # top_k / latency_profile / retrieval_profile / budgets flow from the
+            # plan via runtime_kwargs; default to the balanced lane (never hardcode
+            # fast) so factual lookups get a real candidate pool, matching classic.
+            **kwargs,
+        }
+        # A persisted System retrieval contract is stronger than a node-local
+        # Builder scope. Re-assert it after ``kwargs`` so payload data can never
+        # widen the governed collection boundary.
+        if authoritative_collection:
+            request["authoritative_collections"] = [authoritative_collection]
+        run_input = ctx.get("input") if isinstance(ctx.get("input"), dict) else {}
+        history = payload.get("conversation_history") or run_input.get("conversation_history")
+        salient = payload.get("salient_entities") or run_input.get("salient_entities")
+        if isinstance(history, list) and history:
+            request["context"] = {"conversation_history": history}
+            if isinstance(salient, dict) and salient:
+                request["context"]["salient_entities"] = salient
+        request.setdefault("latency_profile", "balanced")
+        # RECALL PARITY (fix 2026-06-26): backfill the full lane budget triple
+        # (top_k/synthesis_k/candidate_pool_k/source_display_k) so a lone top_k pin
+        # does not collapse synthesis_k/candidate_pool_k (which starved the DAG to ~6
+        # ctx vs classic ~12 and made it miss carrier chunks). When nothing is
+        # pinned, the lane sets all budgets = chat._apply_retrieval_budget_policy.
+        # Explicit payload values (plan overrides) win via setdefault.
+        lane = str(request.get("latency_profile") or "balanced").lower()
+        for budget_key, budget_value in _LANE_BUDGETS.get(lane, _LANE_BUDGETS["balanced"]).items():
+            request.setdefault(budget_key, budget_value)
+        # TRANSVERSAL-INVENTORY PARITY (fix 2026-06-26): "which projects use X"
+        # questions need the exhaustive project_code FACET (classic arms it via
+        # answer_profile=transversal_inventory), not a handful of deep chunks.
+        # retrieve_rag_context only builds the facet when this profile is set AND
+        # query_targets_projects(query) — so arming it here is a no-op for ordinary
+        # queries and reaches classic parity for inventory ones.
+        if _is_inventory_query(str(payload.get("query") or "")) and not request.get(
+            "answer_profile"
+        ):
+            request["answer_profile"] = "transversal_inventory"
+        request = {key: value for key, value in request.items() if value is not None}
+        # A run reads with its launching user's collection rights; a run no
+        # user launched reads open collections and those granted to its System.
+        identity = request_identity_for_context(ctx)
+        strip_client_retrieval_keys(request)
+        if identity:
+            request["collection_identity"] = identity
+        apply_retrieval_profile_to_request(request)
+        return request
+
+    request = _build_request(with_collection=True)
+    result = await retrieve_rag_context(request)
+    non_token_retrieval_paths += int(_retrieval_token_path(usage_accumulator, result))
+    chunks = list(result.get("chunks") or [])
+    if bound_collection and not chunks and allow_workspace_fallback:
+        logger.warning(
+            "semantic_search_v1: authoritative asset collection returned no context; "
+            "falling back to workspace scope (grounding safety net)",
+            collection=bound_collection,
+            workspace_id=request.get("workspace_id"),
+            query=str(payload.get("query") or "")[:120],
+        )
+        request = _build_request(with_collection=False)
+        result = await retrieve_rag_context(request)
+        non_token_retrieval_paths += int(_retrieval_token_path(usage_accumulator, result))
+        chunks = list(result.get("chunks") or [])
+    scores = list(result.get("scores") or [])
+    metadatas = list(result.get("metadatas") or [])
+    metrics = dict(result.get("metrics") or {})
+    reported_collections_raw = metrics.get("collections_touched") or metrics.get("collections")
+    if isinstance(reported_collections_raw, str):
+        reported_collections = [reported_collections_raw]
+    elif isinstance(reported_collections_raw, (list, tuple, set)):
+        reported_collections = [
+            str(item).strip() for item in reported_collections_raw if str(item).strip()
+        ]
+    else:
+        reported_collections = []
+    contradictory_collection_proof = bool(
+        authoritative_collection
+        and any(item != authoritative_collection for item in reported_collections)
+    )
+    results = []
+    for index, content in enumerate(chunks):
+        metadata = (
+            dict(metadatas[index])
+            if index < len(metadatas) and isinstance(metadatas[index], dict)
+            else {}
+        )
+        if (
+            authoritative_collection
+            and not contradictory_collection_proof
+            and not any(
+                metadata.get(key) for key in ("collection", "collection_name", "collection_slug")
+            )
+        ):
+            metadata["collection"] = authoritative_collection
+        results.append(
+            {
+                "content": content,
+                "score": scores[index] if index < len(scores) else None,
+                "metadata": metadata,
+            }
+        )
+    # Surface the exhaustive enumeration as the TOP authoritative passage so the
+    # grounded synthesis lists the projects (the few retrieved chunks otherwise
+    # only describe the equipment, not where it is deployed).
+    inventory = result.get("project_inventory") if isinstance(result, dict) else None
+    inv_passage = _project_inventory_passage(inventory)
+    if inv_passage:
+        results.insert(0, inv_passage)
+    output = {
+        "results": results,
+        "project_inventory": inventory,
+        "pipeline": result.get("pipeline"),
+        "label": result.get("label"),
+        "reason": result.get("reason"),
+        "detail": result.get("detail"),
+        "retrieval_scope": metrics.get("retrieval_scope") or result.get("retrieval_scope"),
+        "scope_confidence": metrics.get("scope_confidence"),
+        "scope_reason": metrics.get("scope_reason"),
+        "dense_policy": metrics.get("dense_policy"),
+        "fallback_reason": metrics.get("fallback_reason"),
+        "latency_budget": metrics.get("latency_budget"),
+        # Preserve contradictory backend proof verbatim so the chat adapter's
+        # egress gate can block it.  Only infer the authoritative collection
+        # when the backend emitted no collection telemetry at all.
+        "collections_touched": reported_collections
+        or ([authoritative_collection] if authoritative_collection and chunks else []),
+        "retrieval_decision_trace": metrics.get("retrieval_decision_trace"),
+        # Observable grounding proof — non-zero once workspace_slug is wired.
+        "raw_chunks_retrieved": (
+            metrics.get("raw_chunks_retrieved")
+            if metrics.get("raw_chunks_retrieved") is not None
+            else len(chunks)
+        ),
+        "document_chunks_retrieved": metrics.get("document_chunks_retrieved"),
+        "stage_timings": metrics.get("stage_timings"),
+        **_cited_passage(results),
+    }
+    calls = usage_accumulator.get("calls") or []
+    if calls:
+        output.update(provider_usage_evidence(usage_accumulator))
+    elif non_token_retrieval_paths:
+        output.update(
+            contractual_zero_token_usage("semantic_search:retrieval_without_provider_call")
+        )
+    else:
+        # Defensive: an unknown retrieval implementation is not proof of zero.
+        output.update(provider_usage_evidence(usage_accumulator))
+    return output
+
+
+def _cited_passage(results: list[Any]) -> dict[str, str]:
+    """The first hit as the passage the reader can check, and where it came from."""
+    first = results[0] if results and isinstance(results[0], dict) else {}
+    meta = first.get("metadata") if isinstance(first.get("metadata"), dict) else {}
+    source = ""
+    for key in ("document_id", "source", "filename", "document_filename", "title"):
+        value = meta.get(key)
+        if isinstance(value, str) and value.strip():
+            source = value.strip()
+            break
+    content = first.get("content")
+    return {"passage": content if isinstance(content, str) else "", "source": source}
+
+
+def _merge_multi_hop_searches(
+    searches: list[dict[str, Any]], *, limit: int
+) -> list[dict[str, Any]]:
+    """RRF-merge + dedupe several ``semantic_search_v1`` result sets.
+
+    Reuses ``comparative_retrieval.merge_comparative_results`` (RRF over rank
+    position, content-collapsed) so a chunk found by multiple sub-queries ranks
+    higher and is never duplicated. Rows keep the uniform
+    ``{content, score, metadata}`` shape of ``semantic_search_v1.results`` so the
+    lane is interchangeable with a single-lane retrieve at the join.
+    """
+    from app.services.rag.comparative_retrieval import (
+        _SubResult,
+        merge_comparative_results,
+    )
+
+    def _split(res: dict[str, Any]) -> tuple[list[str], list[float], list[dict[str, Any]]]:
+        chunks: list[str] = []
+        scores: list[float] = []
+        metas: list[dict[str, Any]] = []
+        for row in (res or {}).get("results") or []:
+            if isinstance(row, dict):
+                content = row.get("content") or row.get("text") or row.get("snippet") or ""
+            elif isinstance(row, str):
+                content = row
+            else:
+                content = ""
+            content = str(content or "").strip()
+            if not content:
+                continue
+            chunks.append(content)
+            score = row.get("score") if isinstance(row, dict) else None
+            try:
+                scores.append(float(score) if score is not None else 0.0)
+            except (TypeError, ValueError):
+                scores.append(0.0)
+            metas.append(dict(row.get("metadata") or {}) if isinstance(row, dict) else {})
+        return chunks, scores, metas
+
+    if not searches:
+        return []
+    primary = _split(searches[0])
+    subs: list[Any] = []
+    for index, res in enumerate(searches[1:], start=1):
+        chunks, scores, metas = _split(res)
+        subs.append(
+            _SubResult(entity=f"hop_{index}", chunks=chunks, scores=scores, metadatas=metas)
+        )
+    chunks, scores, metas, _diag = merge_comparative_results(primary, subs, limit=limit)
+    return [
+        {"content": chunks[i], "score": scores[i], "metadata": metas[i]} for i in range(len(chunks))
+    ]
+
+
+async def _multi_hop_retrieve_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Parallel multi-hop retrieval over decomposed sub-queries (Phase 4).
+
+    Consumes ``plan.thinking.sub_queries`` and runs one ``semantic_search_v1``
+    per (deduped) sub-query PLUS the main query, in parallel via
+    ``asyncio.gather``, then merges/dedupes the hits (RRF, reusing
+    ``comparative_retrieval``) into the SAME output shape as
+    ``semantic_search_v1`` (``results[]`` + ``raw_chunks_retrieved``) so it drops
+    into ``join.retrieval`` as an interchangeable lane. When ``sub_queries`` is
+    empty it degrades to a single search of the main query.  A failing hop does
+    not crash the DAG, but it keeps a stable technical failure marker so an
+    all-hop backend outage cannot be misclassified as a grounded empty corpus.
+    """
+    import asyncio
+
+    ctx = ctx or {}
+    query = str(payload.get("query") or "").strip()
+    raw_subs = payload.get("sub_queries")
+    subs = (
+        [s.strip() for s in raw_subs if isinstance(s, str) and s.strip()]
+        if isinstance(raw_subs, list)
+        else []
+    )
+
+    # Anchor with the main query so we never under-retrieve vs a single pass,
+    # then dedupe (case-insensitive) preserving order.
+    seen: set[str] = set()
+    queries: list[str] = []
+    for candidate in [query, *subs]:
+        key = candidate.lower()
+        if candidate and key not in seen:
+            seen.add(key)
+            queries.append(candidate)
+    if not queries:
+        return {"results": [], "raw_chunks_retrieved": 0, "sub_queries": [], "hop_count": 0}
+
+    # Per-lane budgets / scope shared across every hop (resolved from the plan).
+    base = {
+        key: payload.get(key)
+        for key in (
+            "knowledge_scope",
+            "latency_profile",
+            "retrieval_profile",
+            "top_k",
+            "synthesis_k",
+            "candidate_pool_k",
+            "deep_retrieval",
+            "rag_pipeline_mode",
+            "retrieval_filters",
+            "authoritative_collections",
+            "authoritative_document_scope",
+            "authoritative_document_refs",
+            "collection",
+            "collection_name",
+            "context_collection",
+            "context_mode",
+            "source_policy",
+        )
+        if payload.get(key) is not None
+    }
+
+    async def _one(sub_query: str) -> dict[str, Any]:
+        try:
+            return await _semantic_search_v1({**base, "query": sub_query}, ctx)
+        except Exception as exc:  # noqa: BLE001 — one bad hop must not sink the lane
+            logger.warning("multi_hop_retrieve_v1: sub-query search failed", error=str(exc))
+            return {
+                "results": [],
+                "raw_chunks_retrieved": 0,
+                "collections_touched": [],
+                "fallback_reason": "retrieval_backend_error",
+            }
+
+    searches = list(await asyncio.gather(*[_one(q) for q in queries]))
+
+    limit = 0
+    for key in ("synthesis_k", "candidate_pool_k"):
+        try:
+            limit = max(limit, int(payload.get(key)) if payload.get(key) is not None else 0)
+        except (TypeError, ValueError):
+            continue
+    if limit <= 0:
+        limit = _LANE_BUDGETS["balanced"]["synthesis_k"]
+
+    results = _merge_multi_hop_searches(searches, limit=limit)
+    raw_total = 0
+    collections_touched: list[str] = []
+    failure_reasons: list[str] = []
+    for res in searches:
+        try:
+            raw_total += int(res.get("raw_chunks_retrieved") or 0)
+        except (TypeError, ValueError):
+            pass
+        for collection in res.get("collections_touched") or []:
+            value = str(collection or "").strip()
+            if value and value not in collections_touched:
+                collections_touched.append(value)
+        reason = str(res.get("fallback_reason") or "").strip()
+        if reason and reason not in failure_reasons:
+            failure_reasons.append(reason)
+
+    output = {
+        "results": results,
+        "raw_chunks_retrieved": raw_total or len(results),
+        "sub_queries": queries[1:],
+        "hop_count": len(queries),
+        "collections_touched": collections_touched,
+    }
+    if failure_reasons:
+        output["fallback_reason"] = (
+            "retrieval_backend_error"
+            if not results and raw_total == 0
+            else "partial_retrieval_backend_error"
+        )
+    return output
+
+
+async def _document_ingestion_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.rag.document_service import DocumentService
+
+    ctx = ctx or {}
+    doc_svc = DocumentService(workspace_slug=ctx.get("workspace_slug"))
+    file_path = payload.get("file_path") or payload.get("filename")
+    if not file_path:
+        raise ValueError("document_ingestion_v1: 'file_path' or 'filename' required")
+    result = await doc_svc.ingest_document(file_path)
+    return {
+        "doc_id": result.get("document_id"),
+        "chunks": result.get("chunks_processed", 0),
+        "status": result.get("status"),
+    }
+
+
+async def _eval_radar_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.evaluation.judge import get_judge_service
+
+    judge = get_judge_service()
+    evaluation = await judge.evaluate(
+        query=payload.get("query", ""),
+        response=payload["answer"],
+        system_prompt=payload.get("system_prompt", ""),
+        context_chunks=payload.get("context_chunks"),
+        turn_number=payload.get("turn_number", 1),
+        workspace=(ctx or {}).get("_model_workspace"),
+        model_context=ctx,
+    )
+    output = {
+        "status": evaluation.get("status"),
+        "axes": evaluation.get("scores", {}),
+        "overall": evaluation.get("composite_score"),
+        "hallucination_rate": evaluation.get("hallucination_rate"),
+        "drift_rate": evaluation.get("drift_rate"),
+        "note": evaluation.get("overall_note"),
+    }
+    if isinstance(evaluation.get("usage"), dict):
+        output["usage"] = dict(evaluation["usage"])
+    elif isinstance(evaluation.get("provider_usage"), dict):
+        output["provider_usage"] = dict(evaluation["provider_usage"])
+    return output
+
+
+async def _claim_audit_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.evaluation.judge import get_judge_service
+
+    judge = get_judge_service()
+    evaluation = await judge.evaluate(
+        query=payload.get("query", ""),
+        response=payload["answer"],
+        system_prompt=payload.get("system_prompt", ""),
+        context_chunks=payload.get("citations"),
+        turn_number=payload.get("turn_number", 1),
+        workspace=(ctx or {}).get("_model_workspace"),
+        model_context=ctx,
+    )
+    audit = evaluation.get("claim_audit") or {}
+    claims = audit.get("claims", [])
+    supported = audit.get("supported", 0)
+    total = len(claims)
+    verdict = (
+        "indeterminate"
+        if not total or evaluation.get("status") == "failed"
+        else "supported"
+        if supported / total >= 0.8
+        else "partial"
+        if supported
+        else "unsupported"
+    )
+    output = {
+        "status": evaluation.get("status"),
+        "claims": claims,
+        "verdict": verdict,
+        "supported": supported,
+        "unsupported": audit.get("unsupported", 0),
+    }
+    # JudgeService owns provider-neutral token normalisation.  A missing
+    # provider counter remains ``provider_usage: unavailable`` and therefore
+    # cannot turn into a false zero in the SkillInvocation ledger.
+    if isinstance(evaluation.get("usage"), dict):
+        output["usage"] = dict(evaluation["usage"])
+    elif isinstance(evaluation.get("provider_usage"), dict):
+        output["provider_usage"] = dict(evaluation["provider_usage"])
+    return output
+
+
+async def _intelligence_batch_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Run the intelligence batch for the workspace the skill runs for.
+
+    The workspace comes from the run context only: a batch without one would
+    read every workspace's feeds and targets, and a workspace named in the
+    payload is caller input, not the tenant boundary.
+    """
+    from app.db.base import SessionLocal
+    from app.models.workspace import Workspace
+    from app.services.intelligence.batch import get_dashboard_data, run_batch
+    from app.services.intelligence.knowledge_sync import sync_intelligence_to_knowledge
+
+    ctx = ctx or {}
+    workspace_id = ctx.get("workspace_id")
+    if not workspace_id:
+        raise ValueError("intelligence_batch_v1 requires the workspace it runs for")
+    ingested = 0
+    errors = 0
+    events: list[str] = []
+    knowledge_sync: dict[str, Any] = {"status": "skipped"}
+    target_id = payload.get("target_id") or (payload.get("feed_ids") or [None])[0]
+    async for event in run_batch(
+        target_id=target_id,
+        workspace_id=workspace_id,
+    ):
+        kind = event.get("type") or event.get("status")
+        if kind:
+            events.append(str(kind))
+        if event.get("type") == "article_stored":
+            ingested += 1
+        if event.get("type") in {"error", "batch_error"} or event.get("status") == "error":
+            errors += 1
+
+    db = SessionLocal()
+    try:
+        workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+        if workspace:
+            dashboard = get_dashboard_data(db, workspace_id=workspace.id)
+            knowledge_sync = await sync_intelligence_to_knowledge(
+                db,
+                workspace,
+                dashboard_payload=dashboard,
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "intelligence_batch_v1.knowledge_sync_failed",
+            workspace_id=workspace_id,
+            error=str(exc),
+        )
+        knowledge_sync = {"status": "error", "error": str(exc)}
+    finally:
+        db.close()
+    return {
+        "ingested": ingested,
+        "errors": errors,
+        "events": events,
+        "knowledge_sync": knowledge_sync,
+    }
+
+
+def _workspace_from_context(payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None) -> Any:
+    ctx = ctx or {}
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id") or "demo-workspace"
+    workspace_slug = ctx.get("workspace_slug") or payload.get("workspace_slug") or "workspace"
+    workspace_name = payload.get("workspace_name") or workspace_slug
+    return SimpleNamespace(id=workspace_id, slug=workspace_slug, name=workspace_name)
+
+
+async def _ministerial_briefing_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.mission_room import briefing_payload
+
+    workspace = _workspace_from_context(payload, ctx)
+    briefing = briefing_payload(workspace)
+    return {
+        "briefing": briefing,
+        "sources": briefing.get("sources", []),
+        "status": "ready",
+    }
+
+
+async def _news_signal_synthesis_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.mission_room import news_payload
+
+    workspace = _workspace_from_context(payload, ctx)
+    news = news_payload(workspace)
+    return {
+        "summary": news.get("summary"),
+        "signals": news.get("signals", []),
+        "sources": news.get("sources", []),
+    }
+
+
+async def _project_risk_explainer_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.mission_room import projects_payload
+
+    workspace = _workspace_from_context(payload, ctx)
+    projects = projects_payload(workspace)
+    project_id = payload.get("project_id") or payload.get("target_id")
+    project = next(
+        (item for item in projects.get("projects", []) if item.get("id") == project_id),
+        (projects.get("projects") or [None])[0],
+    )
+    if not project:
+        return {"status": "no_project", "project": None, "explanation": {}, "sources": []}
+    return {
+        "project": project,
+        "explanation": {
+            "cause": project.get("cause"),
+            "risk": project.get("risk"),
+            "options": project.get("options", []),
+            "advisory_only": True,
+        },
+        "sources": project.get("sources", []),
+    }
+
+
+async def _territorial_signal_map_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.mission_room import map_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        return map_payload(workspace, db=db)
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _scenario_generate_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.scenario_engine import generate_scenarios
+
+    return {
+        "options": generate_scenarios(
+            target_kind=str(payload.get("target_kind") or "cabinet"),
+            target_id=str(payload.get("target_id") or ""),
+            risk_level=str(payload.get("risk_level") or "medium"),
+            source_refs=list(payload.get("source_refs") or []),
+            agenda_pressure=int(payload.get("agenda_pressure") or 0),
+            signal_strength=int(payload.get("signal_strength") or 50),
+            context=dict(payload.get("context") or {}),
+        )
+    }
+
+
+async def _scenario_compare_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.scenario_engine import compare_scenarios
+
+    return compare_scenarios(list(payload.get("options") or []))
+
+
+async def _scenario_recommend_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.scenario_engine import recommend_scenario
+
+    return recommend_scenario(
+        target_kind=str(payload.get("target_kind") or "cabinet"),
+        target_id=str(payload.get("target_id") or ""),
+        risk_level=str(payload.get("risk_level") or "medium"),
+        source_refs=list(payload.get("source_refs") or []),
+        agenda_pressure=int(payload.get("agenda_pressure") or 0),
+        signal_strength=int(payload.get("signal_strength") or 50),
+        context=dict(payload.get("context") or {}),
+    )
+
+
+async def _instruction_draft_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.mission_room import draft_instruction_payload
+
+    ctx = ctx or {}
+    workspace = _workspace_from_context(payload, ctx)
+    actor = ctx.get("actor") or payload.get("actor") or "system:instruction_draft_v1"
+    return draft_instruction_payload(
+        workspace=workspace,
+        actor=str(actor),
+        target_id=payload.get("target_id") or payload.get("project_id") or "proj-health-north",
+        target_type=payload.get("target_type") or "project",
+        instruction_type=payload.get("instruction_type") or "dircab_instruction",
+        db=ctx.get("db"),
+    )
+
+
+def _calendar_db_and_workspace(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> tuple[Any, Any]:
+    from app.db.base import SessionLocal
+    from app.models.workspace import Workspace
+
+    ctx = ctx or {}
+    db = ctx.get("db")
+    owns_db = False
+    if db is None:
+        db = SessionLocal()
+        owns_db = True
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    workspace_slug = ctx.get("workspace_slug") or payload.get("workspace_slug")
+    query = db.query(Workspace)
+    workspace = None
+    if workspace_id:
+        workspace = query.filter(Workspace.id == workspace_id).first()
+    if workspace is None and workspace_slug:
+        workspace = query.filter(Workspace.slug == workspace_slug).first()
+    if workspace is None:
+        if owns_db:
+            db.close()
+        raise ValueError("calendar skill requires workspace_id or workspace_slug")
+    return db, workspace
+
+
+async def _calendar_read_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.workspace_calendar import list_events, serialize_event
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        events = list_events(db, workspace, status=payload.get("status"))
+        return {
+            "events": [serialize_event(event, workspace=workspace) for event in events],
+            "workspace_id": workspace.id,
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+def _hana_rows_as_context(columns: list[Any], rows: list[Any]) -> list[dict[str, Any]]:
+    """Format HANA result rows as llm_rag_answer_v1-compatible passages."""
+    col_names = [str(c) for c in (columns or [])]
+    passages: list[dict[str, Any]] = []
+    for row in rows or []:
+        if not isinstance(row, (list, tuple)):
+            continue
+        parts = []
+        for idx, value in enumerate(row):
+            key = col_names[idx] if idx < len(col_names) else f"c{idx}"
+            parts.append(f"{key}={value}")
+        content = " | ".join(parts).strip()
+        if not content:
+            continue
+        passages.append(
+            {
+                "content": content,
+                "metadata": {"source": "sap_hana", "source_family": "hana_query"},
+                "score": 1.0,
+            }
+        )
+    return passages
+
+
+async def _sap_hana_query_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.connectors.hana import service as hana_service
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        if not hana_service.is_workspace_enabled(workspace):
+            raise ValueError("SAP HANA connector is not enabled for this workspace")
+        config = hana_service.get_config(workspace, include_secrets=True)
+        max_rows = payload.get("max_rows")
+        result = hana_service.run_query(
+            config,
+            sql=str(payload.get("sql") or ""),
+            params=payload.get("params"),
+            max_rows=int(max_rows) if max_rows is not None else 200,
+            allow_writes=bool(payload.get("allow_writes")),
+        )
+        # Chainable to llm_rag_answer_v1 via inputs_map.context ← task.hana.context
+        result["context"] = _hana_rows_as_context(
+            list(result.get("columns") or []),
+            list(result.get("rows") or []),
+        )
+        return result
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _rpa_dispatch_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.connectors.rpa import service as rpa_service
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        if not rpa_service.is_workspace_enabled(workspace):
+            raise ValueError("RPA Bridge connector is not enabled for this workspace")
+        config = rpa_service.get_config(workspace, include_secrets=True)
+        if not config.get("configured"):
+            raise ValueError("RPA Bridge connector is not configured (base_url / auth token)")
+        timeout_s = payload.get("timeout_s")
+        poll_interval_s = payload.get("poll_interval_s")
+        input_payload = payload.get("input")
+        if input_payload is not None and not isinstance(input_payload, dict):
+            raise ValueError("input must be an object")
+        return rpa_service.dispatch_and_poll(
+            config,
+            job_key=str(payload.get("job_key") or ""),
+            input_payload=input_payload,
+            callback_url=(str(payload["callback_url"]) if payload.get("callback_url") else None),
+            timeout_s=float(timeout_s) if timeout_s is not None else 30.0,
+            poll_interval_s=float(poll_interval_s) if poll_interval_s is not None else 0.5,
+        )
+    finally:
+        if owns_db:
+            db.close()
+
+
+_MCP_NAMED_FORBIDDEN = frozenset({"tool", "sql", "server_id", "_side_effect"})
+#: Keys ``_mcp_trace`` appends to every MCP node output. In overlay io-mode the
+#: walker merges the upstream output into the next payload, so a named skill
+#: downstream of another MCP node sees them — they are provenance, never an
+#: instruction, and must not trip the free-tool refusal.
+_MCP_TRACE_KEYS = frozenset(
+    {"ok", "server_id", "tool", "contract_tool", "credential_source", "duration_ms"}
+)
+
+
+def _named_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Refuse a free tool / SQL / server on a named skill; drop upstream trace."""
+    cleaned = dict(payload or {})
+    if "contract_tool" in cleaned and "credential_source" in cleaned:
+        for key in _MCP_TRACE_KEYS:
+            cleaned.pop(key, None)
+    if _MCP_NAMED_FORBIDDEN & set(cleaned):
+        raise ValueError("named MCP skills do not accept tool, sql, or server_id")
+    return cleaned
+
+
+def _mcp_write_ctx(ctx: Optional[dict[str, Any]]) -> tuple[str, str | None]:
+    """Actor and run for the write ledger — a run-engine skill signs as its run."""
+    ctx = ctx or {}
+    run_id = str(ctx.get("run_id") or "") or None
+    actor = str(ctx.get("actor") or ctx.get("user_email") or "")
+    if not actor:
+        actor = f"run:{run_id}" if run_id else "system"
+    return actor, run_id
+
+
+def _mcp_write(
+    payload: dict[str, Any],
+    ctx: Optional[dict[str, Any]],
+    *,
+    server_id: str,
+    tool: str,
+    arguments: Mapping[str, Any],
+    sealed_block: str = "",
+    commit: bool = False,
+    attended: bool = False,
+    decided_by: str | None = None,
+    audit_context: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Every skill-side SAP write rides the same gate as the HTTP invoke route.
+
+    ``attended`` is the proof that a person decided this write: a settled
+    approval Decision of the run, not a label in the payload. A gate settled
+    by ``system:gate_ttl``, a scheduler run, an automatic branch, a free
+    ``mcp_call_v1`` or a flow snapshot that never learnt ``decided_by`` all
+    come through with ``attended=False`` and stay sealed whatever the
+    workspace flag says. It is the default. The ledger signs a live write with
+    ``decided_by`` and keeps the run as ``run_actor``.
+    """
+    from app.services.connectors.mcp import intents as mcp_intents
+    from app.services.connectors.mcp import service as mcp_service
+    from app.services.connectors.mcp import write as mcp_write
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        if not mcp_service.is_workspace_enabled(workspace):
+            raise ValueError("mcp_unconfigured: MCP connector is not enabled for this workspace")
+        unsealed = mcp_write.workspace_write_unsealed(workspace)
+        run_actor, run_id = _mcp_write_ctx(ctx)
+        context = dict(audit_context or {})
+        intent = None
+        if unsealed and attended and tool in _PO_CREATE_TOOLS and context.get("pr_id"):
+            # One create per PR item: claim it before SAP is called, so a second
+            # approval of the same item meets this row instead of SAP.
+            claim = mcp_intents.begin_create(
+                db,
+                workspace,
+                pr_id=str(context["pr_id"]),
+                pr_item=str(context.get("pr_item") or ""),
+                run_id=run_id,
+                decision_id=context.get("decision_id"),
+                decided_by=decided_by,
+                server_id=server_id,
+                tool=tool,
+            )
+            if claim.refusal is not None:
+                refused = mcp_write.compose_write_refused(
+                    server_id=server_id, tool=tool, arguments=arguments, **claim.refusal
+                )
+                from app.services.audit_logger import emit_audit_event
+
+                emit_audit_event(
+                    workspace_id=str(workspace.id),
+                    event_type="mcp.write.refused",
+                    actor=str(decided_by or run_actor),
+                    details={
+                        "server_id": server_id,
+                        "tool": tool,
+                        "reason": claim.refusal["reason"],
+                        "intent_id": claim.refusal.get("intent_id"),
+                        "po_number": claim.refusal.get("po_number"),
+                        "run_id": run_id,
+                        **{k: v for k, v in context.items() if v not in (None, "")},
+                    },
+                )
+                return refused
+            intent = claim.intent
+            context["intent_id"] = intent.id
+            if tool == mcp_write.BAPI_CREATE and mcp_intents.reconciliation_enabled(workspace):
+                arguments = mcp_intents.with_reference(arguments, intent.reference)
+        blocked = payload.get("disabled_tools")
+        try:
+            server = (
+                mcp_service.resolve_server(workspace, server_id) if unsealed and attended else None
+            )
+            out = _mcp_write_call(
+                mcp_write,
+                server,
+                commit=commit,
+                server_id=server_id,
+                tool=tool,
+                arguments=arguments,
+                unsealed=unsealed,
+                blocked=blocked,
+                sealed_block=sealed_block,
+                attended=attended,
+            )
+        except Exception as exc:
+            if intent is not None:
+                mcp_intents.fail(db, intent, exc)
+            raise
+        if intent is not None:
+            mcp_intents.settle(db, intent, out)
+            out["intent_id"] = intent.id
+        mcp_write.audit_write(
+            str(workspace.id),
+            actor=str(decided_by) if attended and decided_by else run_actor,
+            server_id=server_id,
+            out=out,
+            run_id=run_id,
+            run_actor=run_actor,
+            context=context,
+        )
+        return out
+    finally:
+        if owns_db:
+            db.close()
+
+
+_PO_CREATE_TOOLS = frozenset({"BAPI_PO_CREATE1", "post_A_PurchaseOrder"})
+
+
+def _mcp_write_call(
+    mcp_write: Any,
+    server: Any,
+    *,
+    commit: bool,
+    server_id: str,
+    tool: str,
+    arguments: Mapping[str, Any],
+    unsealed: bool,
+    blocked: Any,
+    sealed_block: str,
+    attended: bool,
+) -> dict[str, Any]:
+    if commit:
+        return mcp_write.create_and_commit_po(
+            server,
+            server_id=server_id,
+            arguments=arguments,
+            unsealed=unsealed,
+            blocked_tools=blocked,
+            sealed_block=sealed_block or mcp_write.FLAG_OFF_BLOCK,
+            attended=attended,
+        )
+    return mcp_write.invoke_write_tool(
+        server,
+        server_id=server_id,
+        tool=tool,
+        arguments=arguments,
+        unsealed=unsealed,
+        blocked_tools=blocked,
+        sealed_block=sealed_block or mcp_write.FLAG_OFF_BLOCK,
+        attended=attended,
+    )
+
+
+_ACCEPTED_DECISION = frozenset({"accepted", "applied"})
+_REJECTED_DECISION = frozenset({"rejected"})
+
+
+def _gate_decision(
+    payload: Mapping[str, Any],
+    ctx: Optional[dict[str, Any]],
+    *,
+    statuses: frozenset[str],
+) -> Any:
+    """The settled approval Decision that authorises this write, or None.
+
+    The DAG hands the HITL node's ``decided_by`` to the write, but a label in a
+    payload proves nothing: whoever authors a Flow can map or default it. The
+    write is attended only when this run carries an approval Decision settled
+    the expected way, confirmed by a signed-in person, by that same person.
+    TTL expiry and the watchdog never confirm, so they stay sealed.
+    """
+
+    from app.models.decision import Decision
+    from app.services.connectors.mcp.write import human_decided
+
+    decided_by = str(payload.get("decided_by") or "").strip()
+    run_id = str((ctx or {}).get("run_id") or "").strip()
+    if not human_decided(decided_by) or not run_id:
+        return None
+    db, workspace = _calendar_db_and_workspace(dict(payload), ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        return (
+            db.query(Decision)
+            .filter(
+                Decision.workspace_id == workspace.id,
+                Decision.scope == "run",
+                Decision.target_id == run_id,
+                Decision.kind == "hitl_approval",
+                Decision.status.in_(sorted(statuses)),
+                Decision.human_confirmed_by.isnot(None),
+                Decision.approved_by == decided_by,
+            )
+            .order_by(Decision.approved_at.desc())
+            .first()
+        )
+    finally:
+        if owns_db:
+            db.close()
+
+
+def _gated_write(
+    payload: Mapping[str, Any],
+    ctx: Optional[dict[str, Any]],
+    *,
+    statuses: frozenset[str],
+    pr_id: str,
+    pr_item: str,
+) -> dict[str, Any]:
+    """``attended``, ``decided_by`` and the ledger context of a gated write."""
+
+    decision = _gate_decision(payload, ctx, statuses=statuses)
+    return {
+        "attended": decision is not None,
+        "decided_by": str(payload.get("decided_by") or "").strip() or None,
+        "audit_context": {
+            "pr_id": pr_id,
+            "pr_item": pr_item,
+            "decision_id": getattr(decision, "id", None),
+        },
+    }
+
+
+_MCP_WRITE_VERDICT_KEYS = (
+    "sealed",
+    "called",
+    "blocked",
+    "reason",
+    "detail",
+    "outcome",
+    "needs_reconciliation",
+    "intent_id",
+    "error",
+    "sap_block",
+    "sap_ok",
+    "po_number",
+    "rolled_back",
+    "committed",
+    "messages",
+    "calls",
+    "testrun",
+)
+
+
+def _mcp_write_trace(out: dict[str, Any]) -> dict[str, Any]:
+    """Node output for a write: the trace plus the gate's verdict, top-level."""
+    traced = _mcp_trace(out)
+    for key in _MCP_WRITE_VERDICT_KEYS:
+        if key in out:
+            traced[key] = out[key]
+    traced.setdefault("testrun", False)
+    return traced
+
+
+def _mcp_trace(result: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(result.get("result") or {}) if isinstance(result.get("result"), dict) else {}
+    payload["ok"] = bool(result.get("ok", True))
+    payload["server_id"] = result.get("server_id")
+    payload["tool"] = result.get("tool")
+    payload["contract_tool"] = result.get("contract_tool")
+    payload["credential_source"] = result.get("credential_source")
+    payload["duration_ms"] = result.get("duration_ms")
+    return payload
+
+
+async def _mcp_invoke(
+    payload: dict[str, Any],
+    ctx: Optional[dict[str, Any]],
+    *,
+    server_id: str,
+    contract_tool: str,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    from app.services.connectors.mcp import client as mcp_client
+    from app.services.connectors.mcp import service as mcp_service
+    from app.services.connectors.mcp.errors import McpError
+    from app.services.connectors.mcp.preview import classify_kind
+
+    if arguments.get("_side_effect") is not None:
+        raise ValueError("arguments._side_effect is not allowed; the write-set is code")
+    # A free tool name that is not a read is a write: it goes through the one
+    # gate (allow-list, TESTRUN ban, flag, rollback, ledger) — never straight
+    # to the transport. No approval gate stands behind a free call, so it is
+    # never attended and stays sealed: a live write takes the dedicated skill
+    # behind a HITL node.
+    if classify_kind(contract_tool) != "read":
+        return _mcp_write_trace(
+            _mcp_write(
+                payload,
+                ctx,
+                server_id=server_id,
+                tool=contract_tool,
+                arguments=arguments,
+                attended=False,
+            )
+        )
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        if not mcp_service.is_workspace_enabled(workspace):
+            raise ValueError("mcp_unconfigured: MCP connector is not enabled for this workspace")
+        server = mcp_service.resolve_server(workspace, server_id)
+        try:
+            result = mcp_client.call_tool(
+                server,
+                contract_tool=contract_tool,
+                arguments=arguments,
+            )
+        except McpError:
+            raise
+        return _mcp_trace(result)
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _mcp_call_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    if payload.get("_side_effect") is not None:
+        raise ValueError("arguments._side_effect is not allowed; the write-set is code")
+    arguments = payload.get("arguments")
+    if arguments is not None and not isinstance(arguments, dict):
+        raise ValueError("arguments must be an object")
+    args = dict(arguments or {})
+    return await _mcp_invoke(
+        payload,
+        ctx,
+        server_id=str(payload.get("server_id") or ""),
+        contract_tool=str(payload.get("tool") or ""),
+        arguments=args,
+    )
+
+
+def _named_mcp_server(payload: dict[str, Any], ctx: Optional[dict[str, Any]], server_id: str):
+    from app.services.connectors.mcp import service as mcp_service
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    if not mcp_service.is_workspace_enabled(workspace):
+        if owns_db:
+            db.close()
+        raise ValueError("mcp_unconfigured: MCP connector is not enabled for this workspace")
+    server = mcp_service.resolve_server(workspace, server_id)
+    return db, workspace, server, owns_db
+
+
+async def _sap_list_approved_prs_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    payload = _named_payload(payload)
+    from app.services.connectors.mcp.read import (
+        APPROVED_PR_SELECT,
+        listed_tool_names,
+        pick_approved_pr_tool,
+        read_rows,
+        select_fields,
+    )
+
+    db, _workspace, server, owns_db = _named_mcp_server(payload, ctx, "sap")
+    try:
+        tool, arguments = pick_approved_pr_tool(listed_tool_names(server))
+        # Typed read: the agent decides from these rows, so it gets every
+        # selected field on every row — never a preview's column cap.
+        called = read_rows(
+            server, tool=tool, arguments=arguments, fields=select_fields(APPROVED_PR_SELECT)
+        )
+        records = called.pop("records")
+        return _mcp_trace(
+            {
+                **called,
+                "contract_tool": tool,
+                "result": {"prs": records, "count": len(records)},
+            }
+        )
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _sap_check_budget_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    payload = _named_payload(payload)
+    from app.services.connectors.mcp.errors import McpError, McpToolUnknown
+    from app.services.connectors.mcp.read import (
+        ACCT_SELECT,
+        budget_ok_from_payload,
+        listed_tool_names,
+        pick_acct_tool,
+        pick_budget_tool,
+        read_rows,
+        select_fields,
+    )
+
+    pr_id = str(payload.get("pr_id") or "")
+    db, _workspace, server, owns_db = _named_mcp_server(payload, ctx, "sap")
+    try:
+        names = listed_tool_names(server)
+        tool, arguments = pick_budget_tool(names, pr_id=pr_id)
+        called = read_rows(server, tool=tool, arguments=arguments)
+        raw = called.get("result")
+        if isinstance(raw, dict) and "budget_ok" in raw:
+            budget_ok = bool(raw.get("budget_ok"))
+            reason = str(raw.get("reason") or ("ok" if budget_ok else "budget"))
+        else:
+            budget_ok, reason = budget_ok_from_payload(raw)
+        fund = ""
+        funds_center = ""
+        acct: list[dict[str, Any]] = []
+        try:
+            acct_tool, acct_args = pick_acct_tool(names, pr_id=pr_id)
+            acct = read_rows(
+                server, tool=acct_tool, arguments=acct_args, fields=select_fields(ACCT_SELECT)
+            )["records"]
+            if acct:
+                fund = str(acct[0].get("Fund") or "")
+                funds_center = str(acct[0].get("FundsCenter") or "")
+        except (McpToolUnknown, McpError, ValueError):
+            acct = []
+        return _mcp_trace(
+            {
+                **called,
+                "contract_tool": tool,
+                "result": {
+                    "pr_id": pr_id,
+                    "budget_ok": budget_ok,
+                    "reason": reason,
+                    "Fund": fund,
+                    "FundsCenter": funds_center,
+                    "acct": acct,
+                },
+            }
+        )
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _sap_get_justification_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    payload = _named_payload(payload)
+    from app.services.connectors.mcp import service as mcp_service
+    from app.services.connectors.mcp.errors import McpError
+    from app.services.connectors.mcp.read import DEFAULT_PR_ITEM, call_justification
+
+    pr_id = str(payload.get("pr_id") or "")
+    item = str(payload.get("PurchaseRequisitionItem") or "").strip() or DEFAULT_PR_ITEM
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        if not mcp_service.is_workspace_enabled(workspace):
+            raise ValueError("mcp_unconfigured: MCP connector is not enabled for this workspace")
+        server = mcp_service.resolve_server(workspace, "sap")
+        try:
+            result = call_justification(server, pr_id=pr_id, item=item)
+        except McpError:
+            raise
+        return _mcp_trace(result)
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _sap_reject_pr_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    payload = _named_payload(payload)
+    from app.services.connectors.mcp.read import (
+        DEFAULT_PR_ITEM,
+        LIVE_DISCARD,
+        discard_arguments,
+    )
+
+    pr_id = str(payload.get("pr_id") or "")
+    item = str(payload.get("PurchaseRequisitionItem") or "").strip() or DEFAULT_PR_ITEM
+    # Budget said no before any human saw the requisition: the discard goes
+    # through the gate for the envelope and the ledger, but it never leaves
+    # the platform — an unattended write stays sealed.
+    return _mcp_write_trace(
+        _mcp_write(
+            payload,
+            ctx,
+            server_id="sap",
+            tool=LIVE_DISCARD,
+            arguments=discard_arguments(pr_id, item),
+            attended=False,
+        )
+    )
+
+
+async def _hikma_list_pos_by_type_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    payload = _named_payload(payload)
+    from app.services.connectors.mcp.errors import McpError, McpToolUnknown
+    from app.services.connectors.mcp.read import (
+        LIVE_PO_HEADER,
+        PO_HEADER_CAP,
+        PO_HEADER_SELECT,
+        PO_ITEM_SELECT,
+        listed_tool_names,
+        pick_po_header_tool,
+        pick_po_item_tool,
+        pick_recent_pos_tool,
+        read_rows,
+        select_fields,
+    )
+
+    material_group = str(payload.get("MaterialGroup") or payload.get("pr_type") or "")
+    pr_type = str(payload.get("pr_type") or "")
+    pr = payload.get("pr") if isinstance(payload.get("pr"), dict) else {}
+    plant = str(payload.get("Plant") or pr.get("Plant") or "")
+    db, _workspace, server, owns_db = _named_mcp_server(payload, ctx, "hikma")
+    try:
+        names = listed_tool_names(server)
+        if pr_type.strip().upper() == "ZNPR" and plant and LIVE_PO_HEADER in names:
+            tool, arguments = pick_recent_pos_tool(names, plant=plant)
+            fields = select_fields(PO_HEADER_SELECT)
+        else:
+            tool, arguments = pick_po_item_tool(
+                names, material_group=material_group, pr_type=pr_type
+            )
+            fields = select_fields(PO_ITEM_SELECT)
+        called = read_rows(server, tool=tool, arguments=arguments, fields=fields)
+        items = called.pop("records")
+        raw = called.get("result")
+        if isinstance(raw, dict) and isinstance(raw.get("pos"), list):
+            # Fixture shape: the rows come already named ``pos``.
+            return _mcp_trace(
+                {
+                    **called,
+                    "contract_tool": tool,
+                    "result": {"pos": items, "MaterialGroup": material_group, "pr_type": pr_type},
+                }
+            )
+        if tool == LIVE_PO_HEADER:
+            return _mcp_trace(
+                {
+                    **called,
+                    "contract_tool": tool,
+                    "result": {
+                        "pos": items,
+                        "MaterialGroup": material_group,
+                        "pr_type": pr_type,
+                        "Plant": plant,
+                    },
+                }
+            )
+        po_ids: list[str] = []
+        for row in items:
+            number = str(row.get("PurchaseOrder") or "").strip()
+            if number and number not in po_ids:
+                po_ids.append(number)
+        headers: list[dict[str, Any]] = []
+        try:
+            for po_id in po_ids[:PO_HEADER_CAP]:
+                header_tool, header_args = pick_po_header_tool(names, po_id=po_id)
+                headers.extend(
+                    read_rows(
+                        server,
+                        tool=header_tool,
+                        arguments=header_args,
+                        fields=select_fields(PO_HEADER_SELECT),
+                    )["records"]
+                )
+        except (McpToolUnknown, McpError, ValueError):
+            headers = []
+        return _mcp_trace(
+            {
+                **called,
+                "contract_tool": tool,
+                "result": {
+                    "pos": headers or items,
+                    "items": items,
+                    "MaterialGroup": material_group,
+                    "pr_type": pr_type,
+                },
+            }
+        )
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _sap_create_po_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    payload = _named_payload(payload)
+    from app.services.connectors.mcp.poc import build_bapi_po_payload
+    from app.services.connectors.mcp.read import (
+        BAPI_SERVER_ID,
+        DEFAULT_PR_ITEM,
+        HIKMA_CREATE_BLOCK,
+        LIVE_CREATE_PO,
+        SAP_CREATE_BLOCK,
+        create_po_request_body,
+    )
+
+    pr = payload.get("pr") if isinstance(payload.get("pr"), dict) else {}
+    proposed = payload.get("proposed_po") if isinstance(payload.get("proposed_po"), dict) else {}
+    pr_id = str(payload.get("pr_id") or pr.get("pr_id") or pr.get("PurchaseRequisition") or "")
+    item = (
+        str(
+            payload.get("PurchaseRequisitionItem") or pr.get("PurchaseRequisitionItem") or ""
+        ).strip()
+        or DEFAULT_PR_ITEM
+    )
+    pr_type = (
+        str(
+            payload.get("pr_type")
+            or pr.get("PurchaseRequisitionType")
+            or pr.get("pr_type")
+            or proposed.get("pr_type")
+            or ""
+        )
+        .strip()
+        .upper()
+    )
+    if pr_type == "ZNPR":
+        # ZNPR → ZLPO through the BAPI trio. Create then commit in one gate
+        # call; a blocked or failed step rolls back and the envelope says so.
+        return _mcp_write_trace(
+            _mcp_write(
+                payload,
+                ctx,
+                server_id=BAPI_SERVER_ID,
+                tool="BAPI_PO_CREATE1",
+                arguments=build_bapi_po_payload(
+                    pr_id=pr_id,
+                    pr_item=item,
+                    supplier=str(payload.get("supplier") or proposed.get("supplier") or ""),
+                    plant=str(
+                        pr.get("Plant") or proposed.get("plant") or payload.get("Plant") or "1000"
+                    ),
+                    currency=str(
+                        pr.get("PurReqnItemCurrency")
+                        or pr.get("currency")
+                        or proposed.get("currency")
+                        or "QAR"
+                    ),
+                    net_price=str(pr.get("PurchaseRequisitionPrice") or "0.00"),
+                    delivery_date=str(pr.get("DeliveryDate") or ""),
+                    purch_group=str(
+                        payload.get("purch_group") or proposed.get("purch_group") or ""
+                    ),
+                    payment_terms=str(
+                        payload.get("payment_terms") or proposed.get("payment_terms") or ""
+                    ),
+                    incoterms=str(payload.get("incoterms") or proposed.get("incoterms") or "DDP"),
+                ),
+                sealed_block=SAP_CREATE_BLOCK,
+                commit=True,
+                **_gated_write(
+                    payload, ctx, statuses=_ACCEPTED_DECISION, pr_id=pr_id, pr_item=item
+                ),
+            )
+        )
+    body = create_po_request_body(
+        pr_id=pr_id,
+        item=item,
+        supplier=str(payload.get("supplier") or ""),
+        material=str(pr.get("Material") or ""),
+        plant=str(pr.get("Plant") or "1000"),
+        quantity=str(pr.get("RequestedQuantity") or payload.get("amount") or "1"),
+        unit=str(pr.get("BaseUnit") or "EA"),
+        net_price=str(pr.get("PurchaseRequisitionPrice") or "0.00"),
+        currency=str(pr.get("PurReqnItemCurrency") or pr.get("currency") or "QAR"),
+        purchase_order_type="NB",
+    )
+    # NB has no number range on client 300: SAP itself refuses the OData post.
+    # The gate still applies so the refusal is SAP's own, on the ledger.
+    return _mcp_write_trace(
+        _mcp_write(
+            payload,
+            ctx,
+            server_id="hikma",
+            tool=LIVE_CREATE_PO,
+            arguments={"requestBody": body},
+            sealed_block=HIKMA_CREATE_BLOCK,
+            **_gated_write(payload, ctx, statuses=_ACCEPTED_DECISION, pr_id=pr_id, pr_item=item),
+        )
+    )
+
+
+async def _sap_handle_rejection_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    payload = _named_payload(payload)
+    from app.services.connectors.mcp.read import (
+        DEFAULT_PR_ITEM,
+        LIVE_DISCARD,
+        discard_arguments,
+    )
+
+    pr_id = str(payload.get("pr_id") or "")
+    item = str(payload.get("PurchaseRequisitionItem") or "").strip() or DEFAULT_PR_ITEM
+    # Rejected at the gate: same reversible discard, same gate. Only a person's
+    # rejection reaches SAP — a TTL expiry (``system:gate_ttl``) stays sealed.
+    return _mcp_write_trace(
+        _mcp_write(
+            payload,
+            ctx,
+            server_id="sap",
+            tool=LIVE_DISCARD,
+            arguments=discard_arguments(pr_id, item),
+            **_gated_write(payload, ctx, statuses=_REJECTED_DECISION, pr_id=pr_id, pr_item=item),
+        )
+    )
+
+
+async def _await_managed_execution(
+    execution_id: str, *, deadline: float
+) -> tuple[str | None, dict[str, Any] | None, str | None, str | None]:
+    """Poll one ``RecipeExecution`` to terminal; returns its evidence.
+
+    Shared by every node whose work is settled by the worker plane on a managed
+    venv (Python recipes, Polars transforms): the walker never executes author
+    code itself, it only follows the row. On the outer deadline or on run
+    cancellation the cooperative cancel flag is flipped so the worker kills the
+    subprocess instead of leaking it.
+    """
+
+    import asyncio
+    import time as time_mod
+
+    from app.db.base import SessionLocal
+    from app.models.recipe import RECIPE_EXECUTION_TERMINAL_STATUSES, RecipeExecution
+    from app.services import recipe_executions as recipe_exec
+
+    def _cancel() -> None:
+        with SessionLocal() as db:
+            row = db.query(RecipeExecution).filter(RecipeExecution.id == execution_id).first()
+            if row is not None:
+                recipe_exec.request_cancel(db, row)
+
+    try:
+        while True:
+            await asyncio.sleep(1.0)
+            with SessionLocal() as db:
+                row = db.query(RecipeExecution).filter(RecipeExecution.id == execution_id).first()
+                if row is None:
+                    raise RuntimeError("recipe_execution_missing")
+                if row.status in RECIPE_EXECUTION_TERMINAL_STATUSES:
+                    return (
+                        row.status,
+                        row.output_json if isinstance(row.output_json, dict) else None,
+                        row.error,
+                        row.stderr_tail,
+                    )
+            if time_mod.monotonic() > deadline:
+                _cancel()
+                raise RuntimeError("recipe_wait_deadline_expired")
+    except asyncio.CancelledError:
+        # Run cancelled while we wait: flip the cooperative flag so the worker
+        # kills the subprocess, then let the walker settle.
+        _cancel()
+        raise
+
+
+def _recipe_source_envelopes(workspace_id: str, declared: Any) -> dict[str, dict[str, Any]]:
+    """Read the tables a recipe node pinned, keyed by the author's view name.
+
+    The recipe plane is a sandbox with no database and no object store, so a
+    dataset reference is worthless inside it. Reading the rows here — in the
+    wrapper, which does have both — is what makes a recipe able to compute on a
+    table at all, and it mirrors the pin the SQL, Polars and dbt nodes already
+    carry so that "read a dataset" means the same thing on every node kind.
+
+    Only the pinned tables are read, never the dataset envelopes an upstream
+    transform happens to emit: the other engines can afford to be generous
+    because they hand a frame to a query planner, whereas here every row
+    becomes JSON on the wire and in the execution record. Declaring the table
+    is therefore also declaring the cost.
+
+    Each view carries the model that produced it when the table was scored, so
+    a script that reports a figure can also name the version behind it without
+    a second lookup it has no way to make.
+    """
+
+    from app.db.base import SessionLocal
+    from app.services.tabular_datasets import (
+        dataset_reference,
+        model_provenance,
+        read_rows,
+    )
+    from app.services.tabular_transforms import resolve_sources
+
+    # Pair by position rather than by the author's spelling: the resolver
+    # slugifies view names and de-duplicates collisions, so the key a script
+    # reads is not always the string its author typed, while the order of the
+    # pinned list survives intact.
+    pinned = [
+        entry
+        for entry in declared
+        if isinstance(entry, dict)
+        and (entry.get("dataset_id") or entry.get("dataset_slug") or entry.get("slug"))
+    ]
+
+    envelopes: dict[str, dict[str, Any]] = {}
+    with SessionLocal() as db:
+        resolved = resolve_sources(db, workspace_id=workspace_id, declared=pinned)
+        for entry, source in zip(pinned, resolved):
+            columns = entry.get("columns")
+            row_limit = entry.get("limit")
+            envelopes[source.view] = {
+                "rows": read_rows(
+                    source.dataset,
+                    columns=(
+                        [str(item) for item in columns]
+                        if isinstance(columns, list) and columns
+                        else None
+                    ),
+                    limit=(
+                        row_limit
+                        if isinstance(row_limit, int) and not isinstance(row_limit, bool)
+                        else None
+                    ),
+                ),
+                "dataset": dataset_reference(source.dataset),
+                "model": model_provenance(db, source.dataset),
+            }
+    return envelopes
+
+
+async def _python_recipe_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Dispatch an author-written Python script to the Celery recipe plane.
+
+    The wrapper computes nothing itself: it reads whatever tables the node
+    pinned, resolves the content-addressed venv row, creates a
+    ``RecipeExecution``, enqueues ``agentium.recipe_execute`` and polls the row
+    (~1s) until terminal. The graph-owned ``_recipe`` block is injected by the
+    DAG walker (:func:`app.services.run_engine.dag._apply_recipe_node_config`);
+    caller input can never smuggle code or a table in. Fail-closed on every
+    invalid shape and while ``recipe_execution_enabled`` is off.
+    """
+    import asyncio
+    import time as time_mod
+
+    from app.core.config import settings as app_settings
+    from app.db.base import SessionLocal
+    from app.services import recipe_executions as recipe_exec
+    from app.services.recipe_envs import RecipeError, resolve_env, spec_from_params
+    from app.services.tabular_datasets import TabularError
+
+    ctx = ctx or {}
+    recipe = payload.get("_recipe")
+    if not isinstance(recipe, dict):
+        raise ValueError(
+            "recipe_config_missing: this Skill only runs as a Flow node "
+            "carrying its graph-owned recipe configuration"
+        )
+    if not app_settings.recipe_execution_enabled:
+        raise ValueError("recipe_execution_disabled")
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    if not workspace_id:
+        raise ValueError("recipe_workspace_required")
+
+    try:
+        code = recipe_exec.validate_code(recipe.get("code"))
+        spec = spec_from_params(recipe)
+    except RecipeError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+    timeout_s = recipe_exec.clamp_timeout(recipe.get("timeout_s"))
+    inputs = {key: value for key, value in payload.items() if key != "_recipe"}
+
+    sources = recipe.get("sources")
+    if isinstance(sources, list) and sources:
+        try:
+            inputs.update(
+                await asyncio.to_thread(_recipe_source_envelopes, str(workspace_id), sources)
+            )
+        except TabularError as exc:
+            raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+    with SessionLocal() as db:
+        env = resolve_env(db, workspace_id=str(workspace_id), spec=spec)
+        env_ready = env.status == "ready"
+        execution = recipe_exec.create_execution(
+            db,
+            workspace_id=str(workspace_id),
+            env=env,
+            code=code,
+            inputs=inputs,
+            timeout_s=timeout_s,
+            run_id=ctx.get("run_id"),
+            node_id=str(recipe.get("node_id") or "") or None,
+        )
+        db.commit()
+        execution_id = execution.id
+        recipe_exec.dispatch_execution(db, execution, code=code)
+
+    # Wait budget: script timeout + env build allowance (first run only)
+    # + queue/dispatch buffer. The Celery side enforces its own hard limits;
+    # this outer deadline only protects the walker from a stuck plane.
+    deadline = (
+        time_mod.monotonic()
+        + timeout_s
+        + (0.0 if env_ready else float(app_settings.recipe_env_build_timeout_s))
+        + 30.0
+    )
+    status, output, error, stderr_tail = await _await_managed_execution(
+        execution_id, deadline=deadline
+    )
+
+    if status == "succeeded":
+        return dict(output or {})
+    detail = (error or "").strip()
+    tail_lines = (stderr_tail or "").strip().splitlines()
+    suffix = f" — {tail_lines[-1][:200]}" if tail_lines else ""
+    raise RuntimeError(f"recipe_execution_{status}: {detail}{suffix}"[:480])
+
+
+async def _system_run_read_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Hand a graph the result another System already produced.
+
+    A read, never an execution: the caller wants the conclusion that was
+    reached, and re-running the producer would substitute a different one for
+    it. Scoped to the calling workspace and to a System named by the graph, so
+    the surface a payload can reach is the surface an author declared.
+
+    A System that has never finished a Run answers ``found: false`` rather than
+    raising: the consumer is usually a page, and a page renders an absence.
+    """
+
+    import asyncio
+
+    from app.db.base import SessionLocal
+    from app.services.system_runs import SystemRunReadError, latest_completed_output
+
+    ctx = ctx or {}
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    if not workspace_id:
+        raise ValueError("system_run_workspace_required")
+
+    system_id = payload.get("system_id")
+    system_name = payload.get("system_name")
+
+    def _read() -> dict[str, Any]:
+        with SessionLocal() as db:
+            return latest_completed_output(
+                db,
+                workspace_id=str(workspace_id),
+                system_id=str(system_id) if system_id else None,
+                system_name=str(system_name) if system_name else None,
+            )
+
+    try:
+        return {"system_run": await asyncio.to_thread(_read)}
+    except SystemRunReadError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+
+async def _sql_transform_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Run the node's graph-owned SQL over its dataset inputs (duckdb, in-process).
+
+    The statement and the output name are authoritative graph configuration
+    injected as ``_transform`` by the DAG walker
+    (:func:`app.services.run_engine.dag._apply_transform_node_config`), so
+    caller input can never rewrite the query. Inputs are resolved by reference
+    from the payload (upstream dataset envelopes) and from the pins declared on
+    the node.
+
+    Execution is offloaded to a thread: duckdb is synchronous and CPU-bound, and
+    the walker's event loop still has other nodes to settle.
+    """
+    import asyncio
+
+    from app.db.base import SessionLocal
+    from app.services.tabular_datasets import TabularError
+    from app.services.tabular_transforms import run_sql_transform
+
+    ctx = ctx or {}
+    transform = payload.get("_transform")
+    if not isinstance(transform, dict):
+        raise ValueError(
+            "transform_config_missing: this Skill only runs as a Flow node "
+            "carrying its graph-owned SQL configuration"
+        )
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    if not workspace_id:
+        raise ValueError("transform_workspace_required")
+
+    inputs = {key: value for key, value in payload.items() if not key.startswith("_")}
+    sources = transform.get("sources")
+
+    def _run() -> dict[str, Any]:
+        with SessionLocal() as db:
+            # The DAG projects every transform key, so a plain SQL node
+            # carries ``enrichment: None``.
+            if transform.get("enrichment") is not None:
+                from app.services.tabular_enrichment import run_enrichment_transform
+
+                return run_enrichment_transform(
+                    db,
+                    workspace_id=str(workspace_id),
+                    spec=transform["enrichment"],
+                    output_name=str(transform.get("output_name") or "historical features"),
+                    run_id=ctx.get("run_id"),
+                    node_id=str(transform.get("node_id") or "") or None,
+                )
+            return run_sql_transform(
+                db,
+                workspace_id=str(workspace_id),
+                sql=transform.get("sql"),
+                output_name=str(transform.get("output_name") or "sql result"),
+                declared=sources if isinstance(sources, list) else None,
+                payload=inputs,
+                run_id=ctx.get("run_id"),
+                node_id=str(transform.get("node_id") or "") or None,
+            )
+
+    try:
+        return await asyncio.to_thread(_run)
+    except TabularError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+
+async def _polars_transform_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Dispatch the node's graph-owned Polars script to the worker plane.
+
+    Same injection contract as the SQL node (``_transform`` comes from the DAG
+    walker, never from caller input), but the execution posture is the recipe
+    one: author-written Python only ever runs on a managed venv interpreter, in
+    the container that mounts the venv store. So this wrapper stages a
+    ``RecipeExecution``, enqueues ``agentium.tabular_polars_execute`` and polls
+    the row until terminal, exactly like ``python_recipe_v1``.
+    """
+    import time as time_mod
+
+    from app.core.config import settings as app_settings
+    from app.db.base import SessionLocal
+    from app.models.recipe import RECIPE_EXECUTION_TERMINAL_STATUSES, RecipeExecution
+    from app.services.tabular_datasets import TabularError
+    from app.services.tabular_polars import clamp_timeout, submit_polars_run
+
+    ctx = ctx or {}
+    transform = payload.get("_transform")
+    if not isinstance(transform, dict):
+        raise ValueError(
+            "transform_config_missing: this Skill only runs as a Flow node "
+            "carrying its graph-owned transform configuration"
+        )
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    if not workspace_id:
+        raise ValueError("transform_workspace_required")
+
+    inputs = {key: value for key, value in payload.items() if not key.startswith("_")}
+    sources = transform.get("sources")
+    timeout_s = clamp_timeout(transform.get("timeout_s"))
+
+    try:
+        with SessionLocal() as db:
+            execution, _ = submit_polars_run(
+                db,
+                workspace_id=str(workspace_id),
+                code=transform.get("code"),
+                requirements_text=transform.get("requirements_text"),
+                declared=sources if isinstance(sources, list) else None,
+                payload=inputs,
+                output_name=str(transform.get("output_name") or "polars result"),
+                persist=True,
+                timeout_s=timeout_s,
+                run_id=ctx.get("run_id"),
+                node_id=str(transform.get("node_id") or "") or None,
+            )
+            execution_id = execution.id
+            already_settled = execution.status in RECIPE_EXECUTION_TERMINAL_STATUSES
+    except TabularError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+    if already_settled:
+        # Eager mode (dev/tests) settled the row inside the dispatch call.
+        with SessionLocal() as db:
+            row = db.query(RecipeExecution).filter(RecipeExecution.id == execution_id).first()
+            status, output, error, stderr_tail = (
+                row.status,
+                row.output_json if isinstance(row.output_json, dict) else None,
+                row.error,
+                row.stderr_tail,
+            )
+    else:
+        # Wait budget: script timeout + a first-run env build allowance + a
+        # queue buffer. The worker enforces its own hard limits; this outer
+        # deadline only protects the walker from a stuck plane.
+        deadline = (
+            time_mod.monotonic() + timeout_s + float(app_settings.recipe_env_build_timeout_s) + 30.0
+        )
+        status, output, error, stderr_tail = await _await_managed_execution(
+            execution_id, deadline=deadline
+        )
+
+    if status == "succeeded":
+        return dict(output or {})
+    detail = (error or "").strip()
+    tail_lines = (stderr_tail or "").strip().splitlines()
+    suffix = f" — {tail_lines[-1][:200]}" if tail_lines else ""
+    raise RuntimeError(f"polars_transform_{status}: {detail}{suffix}"[:480])
+
+
+async def _dbt_transform_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Dispatch the node's graph-owned dbt project to the worker plane.
+
+    Same injection contract and same execution posture as the Polars node — the
+    project comes from ``_transform``, never from caller input, and it runs on a
+    managed venv interpreter in the container that mounts the venv store. The
+    one difference is what a failure means: a build whose data tests refused the
+    result raises rather than publishing, so a downstream node never receives a
+    dataset the project itself declared unfit.
+    """
+    import time as time_mod
+
+    from app.core.config import settings as app_settings
+    from app.db.base import SessionLocal
+    from app.models.recipe import RECIPE_EXECUTION_TERMINAL_STATUSES, RecipeExecution
+    from app.services.tabular_datasets import TabularError
+    from app.services.tabular_dbt import clamp_timeout, submit_dbt_run
+
+    ctx = ctx or {}
+    transform = payload.get("_transform")
+    if not isinstance(transform, dict):
+        raise ValueError(
+            "transform_config_missing: this Skill only runs as a Flow node "
+            "carrying its graph-owned transform configuration"
+        )
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    if not workspace_id:
+        raise ValueError("transform_workspace_required")
+
+    inputs = {key: value for key, value in payload.items() if not key.startswith("_")}
+    sources = transform.get("sources")
+    timeout_s = clamp_timeout(transform.get("timeout_s"))
+
+    try:
+        with SessionLocal() as db:
+            execution, _ = submit_dbt_run(
+                db,
+                workspace_id=str(workspace_id),
+                models=transform.get("models"),
+                tests_yml=transform.get("tests_yml"),
+                output_model=transform.get("output_model"),
+                output_models=transform.get("output_models"),
+                requirements_text=transform.get("requirements_text"),
+                declared=sources if isinstance(sources, list) else None,
+                payload=inputs,
+                output_name=str(transform.get("output_name") or "dbt result"),
+                persist=True,
+                timeout_s=timeout_s,
+                run_id=ctx.get("run_id"),
+                node_id=str(transform.get("node_id") or "") or None,
+            )
+            execution_id = execution.id
+            already_settled = execution.status in RECIPE_EXECUTION_TERMINAL_STATUSES
+    except TabularError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+    if already_settled:
+        # Eager mode (dev/tests) settled the row inside the dispatch call.
+        with SessionLocal() as db:
+            row = db.query(RecipeExecution).filter(RecipeExecution.id == execution_id).first()
+            status, output, error, stderr_tail = (
+                row.status,
+                row.output_json if isinstance(row.output_json, dict) else None,
+                row.error,
+                row.stderr_tail,
+            )
+    else:
+        # A dbt project pays a compile pass before its first model runs, so the
+        # outer budget is the node timeout plus a first-run env build allowance.
+        deadline = (
+            time_mod.monotonic() + timeout_s + float(app_settings.recipe_env_build_timeout_s) + 30.0
+        )
+        status, output, error, stderr_tail = await _await_managed_execution(
+            execution_id, deadline=deadline
+        )
+
+    if status == "succeeded":
+        return dict(output or {})
+    detail = (error or "").strip()
+    tail_lines = (stderr_tail or "").strip().splitlines()
+    suffix = f" — {tail_lines[-1][:200]}" if tail_lines else ""
+    raise RuntimeError(f"dbt_transform_{status}: {detail}{suffix}"[:480])
+
+
+async def _hf_dataset_import_v1(payload, ctx=None):
+    from app.services.huggingface.datasets import flow_import
+
+    return await flow_import(payload, ctx)
+
+
+async def _llm_label_dataset_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Label a workspace dataset using only the node's graph-owned settings."""
+    if not ctx or not ctx.get("workspace_id"):
+        raise ValueError("label_workspace_required")
+    block = payload.get("_label")
+    if not isinstance(block, dict):
+        raise ValueError(
+            "label_config_missing: this Skill requires its graph-owned Flow configuration"
+        )
+
+    from app.services.llm_dataset_labeling import label_dataset
+
+    inputs = {key: value for key, value in payload.items() if not key.startswith("_")}
+    # An explicit author pin takes precedence over a wired dataset envelope.
+    dataset_ref = _pinned_dataset_ref(block) or _first_dataset_ref(inputs)
+    return await label_dataset({"config": block, "dataset_ref": dataset_ref}, ctx)
+
+
+async def _ml_methodology(payload, ctx, *, planning):
+    import asyncio
+
+    from app.db.base import SessionLocal
+    from app.services.ml_methodology import experiment_plan, problem_frame
+    from app.services.tabular_datasets import TabularError
+
+    if not ctx or not ctx.get("workspace_id"):
+        raise ValueError("ML_METHOD_WORKSPACE_REQUIRED")
+    method = payload.get("_method")
+    inputs = {key: value for key, value in payload.items() if key != "_method"}
+
+    def execute():
+        with SessionLocal() as db:
+            try:
+                service = experiment_plan if planning else problem_frame
+                return service(db, workspace_id=ctx["workspace_id"], payload=inputs, method=method)
+            except TabularError as exc:
+                raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+    return await asyncio.to_thread(execute)
+
+
+async def _ml_problem_frame_v1(payload, ctx=None):
+    return await _ml_methodology(payload, ctx, planning=False)
+
+
+async def _ml_experiment_plan_v1(payload, ctx=None):
+    return await _ml_methodology(payload, ctx, planning=True)
+
+
+async def _ml_evaluation_review_v1(payload, ctx=None):
+    import asyncio
+
+    from app.db.base import SessionLocal
+    from app.services.ml_evaluation_review import review
+    from app.services.tabular_datasets import TabularError
+
+    # Workspace comes from the authorized execution context, never the payload.
+    if not ctx or not ctx.get("workspace_id"):
+        raise ValueError("ML_EVALUATION_WORKSPACE_REQUIRED")
+
+    def execute():
+        with SessionLocal() as db:
+            try:
+                return review(
+                    db, model_id=payload.get("model_id"), workspace_id=ctx["workspace_id"]
+                )
+            except TabularError as exc:
+                raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+    return await asyncio.to_thread(execute)
+
+
+async def _ml_monitor_model_v1(payload, ctx=None):
+    import asyncio
+
+    from app.db.base import SessionLocal
+    from app.services.ml_retraining import monitor_cycle
+    from app.services.tabular_datasets import TabularError
+
+    block = payload.get("_ml_monitor")
+    if not isinstance(block, dict) or not ctx or not ctx.get("run_id"):
+        raise ValueError("ML_MONITORING_BINDING_INVALID: use the scheduled monitoring Flow")
+
+    def execute():
+        with SessionLocal() as db:
+            try:
+                return monitor_cycle(db, model_id=block.get("model_id"), run_id=ctx["run_id"])
+            except TabularError as exc:
+                raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+    return await asyncio.to_thread(execute)
+
+
+async def _ml_retrain_model_v1(payload, ctx=None):
+    import asyncio
+    import time
+
+    from app.core.config import settings
+    from app.db.base import SessionLocal
+    from app.models.tabular import MLModel
+    from app.services.ml_retraining import recover_retraining, stage_retraining
+    from app.services.tabular_datasets import TabularError
+    from app.services.tabular_ml import training_summary
+
+    if not ctx or not ctx.get("run_id"):
+        raise ValueError("ML_RETRAIN_HUMAN_REQUIRED: use the confirmed monitoring Flow")
+
+    def stage():
+        with SessionLocal() as db:
+            try:
+                return stage_retraining(
+                    db,
+                    proposal_id=payload.get("proposal_id"),
+                    decision_id=payload.get("decision_id"),
+                    run_id=ctx["run_id"],
+                )
+            except TabularError as exc:
+                raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+    model_id = await asyncio.to_thread(stage)
+    await asyncio.to_thread(recover_retraining)
+    deadline = time.monotonic() + settings.ml_train_timeout_s + 60
+
+    def read():
+        with SessionLocal() as db:
+            row = db.get(MLModel, model_id)
+            return (row.status, training_summary(row), row.error) if row else ("missing", {}, None)
+
+    while time.monotonic() < deadline:
+        status, summary, error = await asyncio.to_thread(read)
+        if status == "ready":
+            await asyncio.to_thread(recover_retraining)
+            return summary
+        if status in {"failed", "cancelled", "missing"}:
+            await asyncio.to_thread(recover_retraining)
+            raise ValueError(f"ML_RETRAIN_{status.upper()}: {error or status}")
+        await asyncio.sleep(0.5)
+    raise ValueError(
+        "ML_RETRAIN_PENDING: training continues in the worker; inspect the staged model"
+    )
+
+
+async def _ml_train_sklearn_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Fit the node's graph-owned model spec on its upstream dataset.
+
+    Same injection contract as the transform nodes — the target, the features
+    and the algorithm come from ``_train``, never from caller input — and the
+    same transport reason for polling a row rather than computing here: a fit is
+    minutes of CPU in a killable subprocess, which belongs to the worker plane.
+
+    The block it returns is a model *reference*, not a model: downstream nodes
+    (and the predict node in particular) resolve the id, and the canvas badges
+    read the metric straight off it.
+    """
+    import asyncio
+    import time as time_mod
+
+    from app.core.config import settings as app_settings
+    from app.db.base import SessionLocal
+    from app.models.tabular import MODEL_TERMINAL_STATUSES, MLModel
+    from app.services.tabular_datasets import TabularError
+    from app.services.tabular_ml import submit_training, training_summary
+
+    ctx = ctx or {}
+    train = payload.get("_train")
+    if not isinstance(train, dict):
+        raise ValueError(
+            "train_config_missing: this Skill only runs as a Flow node carrying "
+            "its graph-owned training configuration"
+        )
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    if not workspace_id:
+        raise ValueError("train_workspace_required")
+    if not app_settings.ml_train_enabled:
+        raise ValueError("ML_TRAIN_DISABLED: model training is off on this instance")
+
+    inputs = {key: value for key, value in payload.items() if not key.startswith("_")}
+    # A pin wins over the wire, because a training node pinned to a dataset is
+    # the author saying "this one", and an upstream envelope is a default.
+    dataset_ref = _pinned_dataset_ref(train) or _first_dataset_ref(inputs)
+    if dataset_ref is None:
+        raise ValueError(
+            "ML_NO_DATASET: connect a dataset upstream or pin one on the node before training"
+        )
+
+    def _submit() -> str:
+        with SessionLocal() as db:
+            from app.services.ml_methodology import validate_training_method
+
+            method_flow = None
+            if train.get("methodology") is not None:
+                from app.models.run import Run
+
+                method_run = db.get(Run, ctx.get("run_id")) if ctx.get("run_id") else None
+                if method_run is None or method_run.workspace_id != str(workspace_id):
+                    raise TabularError(
+                        code="ML_METHOD_FLOW_REQUIRED",
+                        message="Method training requires its authorized Flow Run.",
+                    )
+                method_flow = method_run.flow_snapshot
+            validate_training_method(
+                db,
+                workspace_id=str(workspace_id),
+                train=train,
+                dataset_ref=dataset_ref,
+                flow=method_flow,
+            )
+            model = submit_training(
+                db,
+                workspace_id=str(workspace_id),
+                dataset_ref=dataset_ref,
+                task=train.get("task"),
+                target=train.get("target"),
+                features=train.get("features"),
+                algo=train.get("algo"),
+                knobs=train.get("knobs"),
+                test_size=train.get("test_size"),
+                cross_validation=train.get("cross_validation"),
+                spec=train.get("spec"),
+                name=train.get("model_name"),
+                run_id=ctx.get("run_id"),
+                node_id=str(train.get("node_id") or "") or None,
+            )
+            return model.id
+
+    try:
+        # Dispatch is synchronous DB work, and in eager mode it is the whole
+        # fit: either way it must not block the walker's loop.
+        model_id = await asyncio.to_thread(_submit)
+    except TabularError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+    deadline = time_mod.monotonic() + float(app_settings.ml_train_timeout_s) + 60.0
+
+    def _cancel() -> None:
+        from app.services.tabular_ml import request_cancel
+
+        with SessionLocal() as db:
+            row = db.query(MLModel).filter(MLModel.id == model_id).first()
+            if row is not None:
+                request_cancel(db, row)
+
+    def _read() -> tuple[str, dict[str, Any], str | None]:
+        with SessionLocal() as db:
+            row = db.query(MLModel).filter(MLModel.id == model_id).first()
+            if row is None:
+                raise RuntimeError("ml_model_missing")
+            return row.status, training_summary(row), row.error
+
+    try:
+        while True:
+            status, summary, error = await asyncio.to_thread(_read)
+            if status in MODEL_TERMINAL_STATUSES:
+                break
+            if time_mod.monotonic() > deadline:
+                await asyncio.to_thread(_cancel)
+                raise RuntimeError("ml_train_deadline_expired")
+            await asyncio.sleep(2.0)
+    except asyncio.CancelledError:
+        # Run cancelled while we wait: flip the cooperative flag so the worker
+        # kills the fit instead of leaking it, then let the walker settle.
+        await asyncio.to_thread(_cancel)
+        raise
+
+    if status == "ready":
+        return summary
+    raise RuntimeError(f"ml_train_{status}: {(error or '').strip()}"[:480])
+
+
+def _predict_spec(payload: dict[str, Any], ctx: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """The model reference and workspace both serving skills run under.
+
+    The model, the version pin and the output name always come from
+    ``_predict`` — graph configuration on a node, frozen executor parameters on a
+    published Skill — and never from the ingress payload, so neither a caller nor
+    an LLM can redirect a prediction at a different model.
+    """
+
+    from app.core.config import settings as app_settings
+
+    spec = payload.get("_predict")
+    if not isinstance(spec, dict):
+        raise ValueError(
+            "predict_config_missing: this Skill only runs as a Flow node or a "
+            "published model, both of which carry their model reference"
+        )
+    workspace_id = (
+        ctx.get("workspace_id") or spec.get("workspace_id") or payload.get("workspace_id")
+    )
+    if not workspace_id:
+        raise ValueError("predict_workspace_required")
+    if not app_settings.ml_predict_enabled:
+        raise ValueError("ML_PREDICT_DISABLED: prediction is off on this instance")
+    return spec, str(workspace_id)
+
+
+def _resolve_model(db, spec: dict[str, Any], workspace_id: str):
+    """The configured model row, by id when pinned and by lineage otherwise."""
+
+    from app.models.tabular import MLModel
+
+    query = db.query(MLModel).filter(MLModel.workspace_id == workspace_id)
+    model_id = str(spec.get("model_id") or "").strip()
+    if model_id:
+        row = query.filter(MLModel.id == model_id).first()
+        if row is not None:
+            return row
+    slug = str(spec.get("model_slug") or "").strip()
+    if slug:
+        row = (
+            query.filter(MLModel.slug == slug, MLModel.status == "ready")
+            .order_by(MLModel.is_champion.desc(), MLModel.version.desc())
+            .first()
+        )
+        if row is not None:
+            return row
+    raise ValueError("ML_MODEL_NOT_FOUND: pick the model this node predicts with")
+
+
+async def _ml_predict_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Answer one record: the Skill a published model runs as.
+
+    Feature values arrive either under ``rows`` (a Flow node wiring named
+    fields) or as the payload itself (an agent calling the published Skill,
+    whose input schema *is* the model's contract).
+
+    Runs in a thread rather than on the walker's loop: a fitted pipeline's
+    ``predict`` is C code that does not yield, so scoring on the event loop
+    would stall every other node in the run.
+    """
+    import asyncio
+
+    from app.db.base import SessionLocal
+    from app.services.tabular_datasets import TabularError
+    from app.services.tabular_predict import predict_rows
+
+    ctx = ctx or {}
+    spec, workspace_id = _predict_spec(payload, ctx)
+    inputs = {key: value for key, value in payload.items() if not key.startswith("_")}
+    rows = inputs.pop("rows", None)
+    if rows is None and inputs:
+        rows = [inputs]
+
+    def _run() -> dict[str, Any]:
+        with SessionLocal() as db:
+            model = _resolve_model(db, spec, workspace_id)
+            answer = predict_rows(
+                db,
+                model,
+                rows,
+                version=spec.get("pinned_version"),
+                caller="flow",
+                explain=bool(spec.get("explain")),
+            )
+            # A one-row call is flattened so a downstream node (or an agent
+            # reading a tool result) does not have to index into a list to find
+            # the only answer there was.
+            if len(answer.get("predictions") or []) == 1:
+                return {**answer, **answer["predictions"][0]}
+            return answer
+
+    try:
+        return await asyncio.to_thread(_run)
+    except TabularError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+
+async def _ml_batch_score_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Score the upstream dataset into a new versioned one.
+
+    Separate from ``ml_predict_v1`` because they are different shapes on the
+    canvas, not different options of one node: this one takes a dataset port and
+    emits a dataset envelope, which is what lets a downstream transform or an
+    LLM summary node consume the scores.
+    """
+    import asyncio
+
+    from app.db.base import SessionLocal
+    from app.services.tabular_datasets import TabularError, resolve_dataset_ref
+    from app.services.tabular_predict import score_dataset
+
+    ctx = ctx or {}
+    spec, workspace_id = _predict_spec(payload, ctx)
+    inputs = {key: value for key, value in payload.items() if not key.startswith("_")}
+    # Same precedence as the training node: an explicit pin is the author's
+    # decision, the wire is the default.
+    dataset_ref = _pinned_dataset_ref(spec) or _first_dataset_ref(inputs)
+    if dataset_ref is None:
+        raise ValueError(
+            "ML_SCORE_DATASET_REQUIRED: wire a dataset into this node, or pin "
+            "one on it, before scoring"
+        )
+
+    def _run() -> dict[str, Any]:
+        with SessionLocal() as db:
+            model = _resolve_model(db, spec, workspace_id)
+            dataset = resolve_dataset_ref(db, workspace_id=workspace_id, ref=dataset_ref)
+            return score_dataset(
+                db,
+                model=model,
+                dataset=dataset,
+                output_name=str(spec.get("output_name") or "") or None,
+                version=spec.get("pinned_version"),
+                run_id=ctx.get("run_id"),
+                node_id=str(spec.get("node_id") or "") or None,
+            )
+
+    try:
+        return await asyncio.to_thread(_run)
+    except TabularError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+
+async def _ml_forecast_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Forecast every series of a trained model into a new versioned dataset.
+
+    The serving node of the forecasting family. Its model, horizon and interval
+    level come from ``_forecast`` (graph configuration), never from the wire.
+    The forecast itself is computed by the ml-ts worker — the only image that
+    can load it — into a dataset row this node reserves and then polls, the way
+    a training node polls its model: nothing waits on a task result.
+
+    A dataset on the wire is read only as *future values* (the covariates the
+    model needs over the horizon), and only when the model takes some or the
+    node pins one: an upstream training node's reference names its training
+    table, which is not the future.
+
+    It emits the dataset envelope plus the peaks per series — when each series
+    tops out and how high its interval goes — so an alert or a summary node
+    downstream reads the answer without opening the table.
+    """
+    import asyncio
+    import time as time_mod
+
+    from app.core.config import settings as app_settings
+    from app.db.base import SessionLocal
+    from app.models.tabular import TabularDataset
+    from app.services.ml.forecast_serving import submit_forecast_dataset
+    from app.services.tabular_datasets import (
+        TabularError,
+        dataset_reference,
+        fail_frame,
+        resolve_dataset_ref,
+    )
+
+    ctx = ctx or {}
+    spec = payload.get("_forecast")
+    if not isinstance(spec, dict):
+        raise ValueError(
+            "forecast_config_missing: this Skill only runs as a Flow node carrying "
+            "its model and horizon"
+        )
+    workspace_id = (
+        ctx.get("workspace_id") or spec.get("workspace_id") or payload.get("workspace_id")
+    )
+    if not workspace_id:
+        raise ValueError("forecast_workspace_required")
+    if not app_settings.ml_predict_enabled:
+        raise ValueError("ML_PREDICT_DISABLED: prediction is off on this instance")
+    inputs = {key: value for key, value in payload.items() if not key.startswith("_")}
+    pinned = _pinned_dataset_ref(spec)
+
+    def _submit() -> str:
+        with SessionLocal() as db:
+            model = _resolve_model(db, spec, str(workspace_id))
+            takes_future = any(
+                isinstance(field, dict) and field.get("role") == "future"
+                for field in (model.signature_json or {}).get("inputs") or []
+            )
+            wired = _first_dataset_ref(inputs)
+            if wired is not None and wired.get("model_id"):
+                wired = None
+            ref = pinned or (wired if takes_future else None)
+            future = (
+                resolve_dataset_ref(db, workspace_id=str(workspace_id), ref=ref) if ref else None
+            )
+            output = submit_forecast_dataset(
+                db,
+                model=model,
+                workspace_id=str(workspace_id),
+                horizon=spec.get("horizon"),
+                level=spec.get("interval_level"),
+                future=future,
+                output_name=str(spec.get("output_name") or "") or None,
+                version=spec.get("pinned_version"),
+                run_id=ctx.get("run_id"),
+                node_id=str(spec.get("node_id") or "") or None,
+            )
+            return output.id
+
+    try:
+        output_id = await asyncio.to_thread(_submit)
+    except TabularError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+    deadline = time_mod.monotonic() + float(app_settings.ml_forecast_batch_timeout_s)
+
+    def _read() -> tuple[str, str | None, dict[str, Any], dict[str, Any]]:
+        with SessionLocal() as db:
+            row = db.query(TabularDataset).filter(TabularDataset.id == output_id).first()
+            if row is None:
+                raise RuntimeError("ml_forecast_dataset_missing")
+            return row.status, row.error, dataset_reference(row), dict(row.lineage_json or {})
+
+    def _expire() -> None:
+        with SessionLocal() as db:
+            row = db.query(TabularDataset).filter(TabularDataset.id == output_id).first()
+            if row is not None and row.status == "ingesting":
+                fail_frame(
+                    db,
+                    row,
+                    "ML_FORECAST_TIMEOUT: no forecasting worker settled this dataset in time",
+                )
+
+    while True:
+        status, error, reference, lineage = await asyncio.to_thread(_read)
+        if status in ("ready", "failed", "deleted"):
+            break
+        if time_mod.monotonic() > deadline:
+            await asyncio.to_thread(_expire)
+            raise RuntimeError("ml_forecast_deadline_expired")
+        await asyncio.sleep(1.0)
+
+    if status != "ready":
+        raise RuntimeError(f"ml_forecast_{status}: {(error or '').strip()}"[:480])
+    return {
+        **reference,
+        "model": lineage.get("model") or {},
+        "forecast": {
+            "horizon": lineage.get("horizon"),
+            "interval_level": lineage.get("interval_level"),
+            "frequency": lineage.get("frequency"),
+            "series": lineage.get("series"),
+            "peaks": lineage.get("peaks") or [],
+        },
+        "duration_ms": lineage.get("duration_ms"),
+    }
+
+
+def _pinned_dataset_ref(block: dict[str, Any]) -> dict[str, Any] | None:
+    """The dataset a model node pins in its graph-owned block, if it pins one.
+
+    Both spellings of a lineage pin are accepted for the same reason
+    ``resolve_dataset_ref`` accepts both: the transform surfaces write
+    ``dataset_slug``, the run envelopes carry ``slug``, and a node whose pin was
+    silently ignored would train on whatever the wire happened to hand it — a
+    wrong answer that looks like a working run.
+    """
+
+    sources = block.get("sources")
+    for entry in sources if isinstance(sources, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("dataset_id") or entry.get("slug") or entry.get("dataset_slug"):
+            return entry
+    return None
+
+
+def _first_dataset_ref(payload: dict[str, Any]) -> dict[str, Any] | None:
+    """The first dataset envelope an upstream node put on the wire, if any."""
+
+    if payload.get("dataset_id") or payload.get("dataset_slug"):
+        return payload
+    for key, value in payload.items():
+        if key.startswith("_"):
+            continue
+        if isinstance(value, dict) and (value.get("dataset_id") or value.get("slug")):
+            return value
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict) and item.get("dataset_id"):
+                    return item
+    return None
+
+
+async def _calendar_create_event_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.workspace_calendar import calendar_write_policy, create_event, serialize_event
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        start_at = datetime.fromisoformat(str(payload["start_at"]).replace("Z", "+00:00")).replace(
+            tzinfo=None
+        )
+        end_at = (
+            datetime.fromisoformat(str(payload["end_at"]).replace("Z", "+00:00")).replace(
+                tzinfo=None
+            )
+            if payload.get("end_at")
+            else None
+        )
+        if calendar_write_policy(workspace) == "approval_required":
+            return {"status": "proposal", "applied": False, "proposal": payload}
+        event = create_event(
+            db,
+            workspace,
+            None,
+            title=str(payload["title"]),
+            start_at=start_at,
+            end_at=end_at,
+            location=str(payload.get("location") or ""),
+            description=str(payload.get("description") or ""),
+            participants=list(payload.get("participants") or []),
+            priority=str(payload.get("priority") or "medium"),
+            metadata={"created_from": "skill", "skill_slug": "calendar_create_event_v1"},
+        )
+        db.commit()
+        return {
+            "status": "applied",
+            "applied": True,
+            "event": serialize_event(event, workspace=workspace),
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _calendar_update_event_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.workspace_calendar import calendar_write_policy, serialize_event, update_event
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        if calendar_write_policy(workspace) == "approval_required":
+            return {"status": "proposal", "applied": False, "proposal": payload}
+        updates = dict(payload.get("updates") or {})
+        for key in (
+            "title",
+            "description",
+            "location",
+            "participants",
+            "priority",
+            "status",
+            "start_at",
+            "end_at",
+        ):
+            if key in payload and key not in updates:
+                updates[key] = payload[key]
+        event = update_event(db, workspace, None, str(payload["event_id"]), updates=updates)
+        db.commit()
+        return {
+            "status": "applied",
+            "applied": True,
+            "event": serialize_event(event, workspace=workspace),
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _calendar_cancel_event_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.workspace_calendar import calendar_write_policy, cancel_event, serialize_event
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        if calendar_write_policy(workspace) == "approval_required":
+            return {"status": "proposal", "applied": False, "proposal": payload}
+        event = cancel_event(
+            db,
+            workspace,
+            None,
+            str(payload["event_id"]),
+            reason=str(payload.get("reason") or "skill"),
+        )
+        db.commit()
+        return {
+            "status": "applied",
+            "applied": True,
+            "event": serialize_event(event, workspace=workspace),
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _calendar_daily_summary_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from datetime import date as dt_date
+
+    from app.services.workspace_calendar import summary_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        day = dt_date.fromisoformat(str(payload["day"])) if payload.get("day") else None
+        return summary_payload(db, workspace, day=day)
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _action_plan_create_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.action_plans import (
+        action_planner_write_policy,
+        create_action_item,
+        serialize_action_item,
+    )
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        if action_planner_write_policy(workspace) == "approval_required":
+            return {"status": "proposal", "applied": False, "proposal": payload}
+        item = create_action_item(
+            db,
+            workspace,
+            None,
+            title=str(payload["title"]),
+            description=str(payload.get("description") or ""),
+            target_kind=str(payload.get("target_kind") or "cabinet"),
+            target_id=str(payload.get("target_id") or ""),
+            target_label=str(payload.get("target_label") or ""),
+            priority=str(payload.get("priority") or "medium"),
+            due_at=payload.get("due_at"),
+            owner_label=str(payload.get("owner_label") or "Cabinet"),
+            source_kind=str(payload.get("source_kind") or "skill"),
+            source_id=str(payload.get("source_id") or ""),
+            metadata={"created_from": "skill", "skill_slug": "action_plan_create_v1"},
+        )
+        db.commit()
+        return {"status": "applied", "applied": True, "item": serialize_action_item(item)}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _action_plan_reschedule_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.action_plans import (
+        action_planner_write_policy,
+        serialize_action_item,
+        update_action_item,
+    )
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        if action_planner_write_policy(workspace) == "approval_required":
+            return {"status": "proposal", "applied": False, "proposal": payload}
+        item = update_action_item(
+            db,
+            workspace,
+            None,
+            str(payload["item_id"]),
+            {"due_at": payload.get("due_at"), "status": "planned"},
+        )
+        db.commit()
+        return {"status": "applied", "applied": True, "item": serialize_action_item(item)}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _action_plan_status_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.action_plans import list_action_items, serialize_action_item, summary_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        rows = list_action_items(
+            db,
+            workspace,
+            status=payload.get("status"),
+            include_cancelled=bool(payload.get("include_cancelled", True)),
+        )
+        return {
+            "items": [serialize_action_item(row) for row in rows],
+            "summary": summary_payload(db, workspace),
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _action_plan_cancel_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.action_plans import (
+        action_planner_write_policy,
+        cancel_action_item,
+        serialize_action_item,
+    )
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        if action_planner_write_policy(workspace) == "approval_required":
+            return {"status": "proposal", "applied": False, "proposal": payload}
+        item = cancel_action_item(
+            db,
+            workspace,
+            None,
+            str(payload["item_id"]),
+            reason=str(payload.get("reason") or "skill"),
+        )
+        db.commit()
+        return {"status": "applied", "applied": True, "item": serialize_action_item(item)}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _time_context_set_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.demo_time_context import demo_time_context_defaults
+    from app.services.iam.app_entitlements import (
+        lock_workspace_for_app_entitlement_mutation,
+    )
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        workspace = lock_workspace_for_app_entitlement_mutation(db, workspace.id)
+        settings = dict(workspace.settings or {})
+        defaults = demo_time_context_defaults(workspace)
+        mode = str(payload.get("mode") or defaults["mode"])
+        settings["demo_time_context"] = {
+            "mode": mode,
+            "current_date": str(
+                payload.get("current_date") or payload.get("date") or defaults["current_date"]
+            ),
+            "current_time": str(
+                payload.get("current_time") or defaults.get("current_time") or "10:30:00"
+            ),
+            "label": str(payload.get("label") or defaults["label"]),
+            "timezone": str(payload.get("timezone") or defaults["timezone"]),
+            "lock_fixed": bool(
+                payload.get("lock_fixed") or payload.get("locked") or mode.lower() == "fixed"
+            ),
+        }
+        workspace.settings = settings
+        db.add(workspace)
+        db.commit()
+        return {
+            "status": "applied",
+            "applied": True,
+            "demo_time_context": settings["demo_time_context"],
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _briefing_priorities_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.mission_room import ATTENTION_REQUIRED, cockpit_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        cockpit = cockpit_payload(workspace, db=db)
+        priorities = []
+        for item in (cockpit.get("attention_required") or ATTENTION_REQUIRED)[:3]:
+            priorities.append(
+                {
+                    "id": item.get("id"),
+                    "title": item.get("title"),
+                    "summary": item.get("sentence") or item.get("summary"),
+                    "deadline": item.get("deadline"),
+                    "tone": item.get("tone"),
+                    "sources": item.get("source_refs") or item.get("sources") or [],
+                }
+            )
+        return {
+            "status": "ready",
+            "priorities": priorities,
+            "cockpit": {"decision_sentence": cockpit.get("decision_sentence")},
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+def _ctx_workspace_family(ctx: Optional[dict[str, Any]]) -> str:
+    """The stamped family of the workspace a skill runs for.
+
+    The run engine puts it in ``ctx``. A caller that did not (a direct
+    invocation from an action or a service) gets it read once from the
+    workspace row and cached in ``ctx``, so a family adapter never silently
+    falls back to generic because of how the skill was reached.
+    """
+
+    from app.services.workspace_features import workspace_family
+
+    if not isinstance(ctx, dict):
+        return "generic"
+    family = ctx.get("workspace_family")
+    if isinstance(family, str) and family:
+        return family
+    workspace_id = ctx.get("workspace_id")
+    if not workspace_id:
+        return "generic"
+    from app.models.workspace import Workspace
+
+    db = ctx.get("db")
+    owns_db = db is None
+    if owns_db:
+        from app.db.base import SessionLocal
+
+        db = SessionLocal()
+    try:
+        settings = db.query(Workspace.settings).filter(Workspace.id == workspace_id).scalar()
+    except Exception:  # noqa: BLE001 - resolution failure means no adapter
+        settings = None
+    finally:
+        if owns_db:
+            db.close()
+    family = workspace_family(SimpleNamespace(settings=settings))
+    ctx["workspace_family"] = family
+    return family
+
+
+_DEMO_SKILL_UNAVAILABLE = {
+    "status": "unavailable",
+    "error": "demo_skill_outside_its_family",
+    "detail": (
+        "This skill returns a scripted demonstration for another workspace family "
+        "and has no generic implementation."
+    ),
+}
+
+
+async def _family_demo_skill(
+    name: str, payload: dict[str, Any], ctx: Optional[dict[str, Any]]
+) -> dict[str, Any]:
+    """Run a family's scripted demo skill, or refuse for any other workspace.
+
+    These catalogue entries read as generic ("Draft Email") but only a demo
+    family provides an implementation; elsewhere they answered with that
+    family's scenario content. They now say plainly that they are unavailable.
+    """
+
+    implementation = family_hook(_ctx_workspace_family(ctx), "demo_skills", name)
+    if implementation is None:
+        return dict(_DEMO_SKILL_UNAVAILABLE)
+    return await implementation(payload, ctx)
+
+
+async def _summarize_long_document_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    return await _family_demo_skill("summarize_long_document", payload, ctx)
+
+
+async def _generate_recommendations_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    return await _family_demo_skill("generate_recommendations", payload, ctx)
+
+
+async def _draft_email_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    return await _family_demo_skill("draft_email", payload, ctx)
+
+
+async def _causal_drill_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Drill the evidence graph following ``caused_by`` from ``last_focus``.
+
+    Used by ``aya.explain_why`` (Phase A). Returns a path with citations
+    so the chat answer can chain "pourquoi -> pourquoi" with sources.
+    """
+    from app.models.workspace import Workspace
+    from app.services.mission_room import evidence_graph_trace
+
+    ctx = ctx or {}
+    db = ctx.get("db")
+    workspace_id = ctx.get("workspace_id")
+    from_node = str(payload.get("from_node") or payload.get("last_focus") or "zone-nord")
+    relation = str(payload.get("relation") or "caused_by")
+    depth = int(payload.get("depth") or 4)
+
+    if not db or not workspace_id:
+        return {"status": "error", "reason": "missing_workspace_context", "path": []}
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not workspace:
+        return {"status": "error", "reason": "workspace_not_found", "path": []}
+
+    trace = evidence_graph_trace(
+        workspace, from_node=from_node, relation=relation, depth=depth, db=db
+    )
+    path = trace.get("path") or []
+    next_step = path[1] if len(path) > 1 else None
+    next_node = (next_step or {}).get("node") or {}
+    first_edge = ((path[0] if path else {}) or {}).get("edge") or {}
+    return {
+        "status": "ready",
+        "from_node": from_node,
+        "relation": relation,
+        "depth": depth,
+        "path": path,
+        "next_focus": next_node.get("id") or from_node,
+        "next_surface": next_node.get("next_surface") or {},
+        "explanation": first_edge.get("explanation"),
+        "narrative_short": next_node.get("narrative_short"),
+        "citations": [
+            {"source_id": str(ref), "kind": "evidence_ref"}
+            for ref in (next_node.get("evidence_refs") or [])
+        ],
+    }
+
+
+async def _schedule_meeting_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.demo_time_context import resolve_demo_date
+    from app.services.workspace_calendar import summary_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        day = resolve_demo_date(workspace)
+        cal = summary_payload(db, workspace, day=day)
+        windows = cal.get("free_slots") or cal.get("available_windows") or []
+        slot = (
+            windows[0]
+            if windows
+            else {"start": f"{day.isoformat()}T16:30:00", "end": f"{day.isoformat()}T17:15:00"}
+        )
+        draft_id = f"draft-{uuid.uuid4().hex[:12]}"
+        proposed = {
+            "date": day.isoformat(),
+            "time": str(slot.get("start", "")).split("T")[-1][:5]
+            if isinstance(slot.get("start"), str)
+            else "16:30",
+            "location": "Ministere de l'Economie — Plateau",
+            "duration_min": int(payload.get("duration_min") or 45),
+            "participants": ["Vice Premier Ministre", "Ministre de l'Economie", "AYA"],
+            "topic": payload.get("topic") or "Diversification cacao",
+        }
+        return {
+            "status": "proposal",
+            "applied": False,
+            "requires_validation": True,
+            "proposed_slot": proposed,
+            "calendar_event_draft_id": draft_id,
+            "proposal": proposed,
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _territorial_action_window_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.mission_room import map_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        body = map_payload(workspace, db=db)
+        target_id = payload.get("target_id") or payload.get("zone_id")
+        windows = body.get("recommended_windows") or []
+        if target_id:
+            windows = [
+                window for window in windows if window.get("target_id") == target_id
+            ] or windows
+        return {"status": "ready", "recommended_windows": windows, "map": body.get("map")}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _map_layer_read_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.workspace_maps import mission_room_map_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        map_row = _workspace_map_for_skill(db, workspace, payload)
+        return mission_room_map_payload(db, workspace, map_row=map_row)
+    finally:
+        if owns_db:
+            db.close()
+
+
+def _workspace_map_for_skill(db: Any, workspace: Any, payload: dict[str, Any]) -> Any:
+    """Resolve an explicit map reference or the workspace's seeded map.
+
+    The default must remain workspace-aware: Octocity owns a distinct fixture
+    and must never inherit the Sentinel map slug merely because a skill caller
+    omitted ``map_slug``.
+    """
+    from app.services.workspace_maps import ensure_workspace_map_seed, get_workspace_map
+
+    seeded_map = ensure_workspace_map_seed(db, workspace)
+    map_ref = payload.get("map_slug") or payload.get("map_id")
+    if map_ref is None:
+        return seeded_map
+    return get_workspace_map(db, workspace, str(map_ref))
+
+
+async def _map_zone_score_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.workspace_jobs import create_workspace_job, serialize_job
+    from app.services.workspace_maps import score_map_zones
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        map_row = _workspace_map_for_skill(db, workspace, payload)
+        job = create_workspace_job(
+            db,
+            workspace,
+            None,
+            kind="map_zone_scoring",
+            title=f"Scoring carte · {map_row.name}",
+            input_ref={"map_id": map_row.id, "slug": map_row.slug},
+            status="queued",
+        )
+        result = score_map_zones(db, workspace, map_row, job=job)
+        db.commit()
+        return {"job": serialize_job(job), "result": result}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _map_signal_attach_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from uuid import uuid4
+
+    from app.models.workspace_map import WorkspaceMapSignal, WorkspaceMapZone
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        map_row = _workspace_map_for_skill(db, workspace, payload)
+        zone = (
+            db.query(WorkspaceMapZone)
+            .filter(
+                WorkspaceMapZone.map_id == map_row.id,
+                WorkspaceMapZone.zone_key == str(payload["zone_key"]),
+            )
+            .first()
+        )
+        if not zone:
+            return {"status": "not_found", "warning": "map_zone_not_found"}
+        signal = WorkspaceMapSignal(
+            id=str(uuid4()),
+            map_id=map_row.id,
+            zone_id=zone.id,
+            source_kind=str(payload.get("source_kind") or "skill"),
+            source_id=str(payload.get("source_id") or ""),
+            title=str(payload["title"]),
+            summary=str(payload.get("summary") or ""),
+            weight=int(payload.get("weight") or 10),
+            confidence=float(payload.get("confidence") or 0.65),
+            occurred_at=datetime.utcnow(),
+            meta_data=dict(payload.get("metadata") or {}),
+        )
+        db.add(signal)
+        db.commit()
+        return {
+            "status": "attached",
+            "map_id": map_row.id,
+            "map_slug": map_row.slug,
+            "signal": {"id": signal.id, "zone_key": zone.zone_key, "title": signal.title},
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _map_recommendation_generate_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.workspace_maps import mission_room_map_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        map_row = _workspace_map_for_skill(db, workspace, payload)
+        body = mission_room_map_payload(db, workspace, map_row=map_row)
+        recommendations = []
+        for zone in body.get("zones") or []:
+            recommendations.extend(zone.get("scenario_options") or [])
+        return {
+            "recommendations": recommendations,
+            "score_summary": body.get("score_summary") or {},
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _map_command_apply_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.workspace_maps import build_map_command
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        map_row = _workspace_map_for_skill(db, workspace, payload)
+        command = build_map_command(
+            db,
+            workspace,
+            map_id_or_slug=map_row.id,
+            intent=str(payload.get("intent") or "focus_zone"),
+            target=payload.get("target"),
+            layers=payload.get("layers"),
+            basemap=payload.get("basemap"),
+            camera=payload.get("camera"),
+            annotation=payload.get("annotation"),
+        )
+        db.commit()
+        return {"status": "ready", **command}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _source_registry_refresh_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.mission_room import cockpit_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        cockpit = cockpit_payload(workspace, db=db)
+        return {
+            "status": "ready",
+            "source_health": cockpit.get("source_freshness") or {},
+            "layers": cockpit.get("monitoring_layers") or [],
+            "decision_posture": cockpit.get("decision_posture") or {},
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _osint_signal_prioritize_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.mission_room import news_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        news = news_payload(workspace, db=db)
+        return {
+            "status": "ready",
+            "priorities": news.get("executive_alerts") or news.get("signals") or [],
+            "geographic_tiers": news.get("geographic_priority") or news.get("geo_sections") or [],
+            "source_health": news.get("source_health") or {},
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _rumor_origin_trace_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.mission_room import news_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        news = news_payload(workspace, db=db)
+        trace = (news.get("social_listening") or {}).get("rumor_origins") or []
+        rumor = trace[0] if trace else (news.get("rumor_trace") or {})
+        return {
+            "status": "ready",
+            "trace": rumor,
+            "social_listening": news.get("social_listening") or {},
+            "advisory_only": True,
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _evidence_graph_build_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.mission_room import evidence_graph_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        return evidence_graph_payload(workspace, db=db)
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _situation_posture_score_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.mission_room import cockpit_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        cockpit = cockpit_payload(workspace, db=db)
+        posture = cockpit.get("decision_posture") or {}
+        return {
+            "status": "ready",
+            "score": posture.get("score"),
+            "label": posture.get("label"),
+            "axes": posture.get("axes") or [],
+            "modes": posture.get("modes") or [],
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _maritime_snapshot_read_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.workspace_maps import ensure_workspace_map_seed, mission_room_map_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        ensure_workspace_map_seed(db, workspace)
+        mapped = mission_room_map_payload(db, workspace)
+        map_system = mapped.get("map_system") or {}
+        return {
+            "status": "ready",
+            "maritime_snapshot": map_system.get("maritime_snapshot") or {},
+            "source_health": (map_system.get("source_health") or {}),
+            "ports": (map_system.get("maritime_snapshot") or {}).get("ports") or [],
+            "events": (map_system.get("maritime_snapshot") or {}).get("events") or [],
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _decision_option_rank_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.mission_room import decisions_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        decisions = decisions_payload(workspace, db=db)
+        options = list(payload.get("options") or decisions.get("scenario_options") or [])
+        ranked = sorted(
+            options,
+            key=lambda item: (
+                int(item.get("recommended_score") or item.get("score") or item.get("impact") or 0),
+                int(item.get("confidence") or 0),
+            ),
+            reverse=True,
+        )
+        return {
+            "status": "ready",
+            "recommended": ranked[0] if ranked else None,
+            "alternatives": ranked[1:],
+            "human_validation_required": True,
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _draft_response_email_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.mission_room import draft_instruction_payload
+
+    ctx = ctx or {}
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not ctx.get("db")
+    try:
+        return draft_instruction_payload(
+            workspace=workspace,
+            actor=str(ctx.get("actor") or payload.get("actor") or "system:draft_response_email_v1"),
+            target_id=str(payload.get("target_id") or "package-rumeur-emoi"),
+            target_type=str(payload.get("target_type") or "communication_email"),
+            instruction_type=str(payload.get("instruction_type") or "response_email"),
+            db=db,
+        )
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _visual_source_read_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.visual_intelligence import dashboard_payload, ensure_visual_intelligence_seed
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        ensure_visual_intelligence_seed(db, workspace)
+        return dashboard_payload(db, workspace)
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _visual_snapshot_capture_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.visual_intelligence import (
+        dispatch_visual_capture_job,
+        ensure_visual_intelligence_seed,
+        get_source,
+        list_sources,
+        queue_visual_capture,
+    )
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        ensure_visual_intelligence_seed(db, workspace)
+        source_id = payload.get("source_id")
+        source = (
+            get_source(db, workspace, str(source_id))
+            if source_id
+            else (list_sources(db, workspace)[0])
+        )
+        job = queue_visual_capture(db, workspace, source)
+        db.commit()
+        task_id = dispatch_visual_capture_job(db, workspace, job, source)
+        db.commit()
+        return {"job_id": job.id, "status": job.status, "task_id": task_id}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _visual_snapshot_analyze_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.models.workspace_visual import WorkspaceVisualObservation
+    from app.services.visual_intelligence import serialize_observation
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        capture_id = str(payload.get("capture_id") or "")
+        observation = (
+            db.query(WorkspaceVisualObservation)
+            .filter(
+                WorkspaceVisualObservation.workspace_id == workspace.id,
+                WorkspaceVisualObservation.capture_id == capture_id,
+            )
+            .order_by(WorkspaceVisualObservation.created_at.desc())
+            .first()
+        )
+        if not observation:
+            return {"status": "not_found", "warning": "visual_observation_not_found"}
+        return {"status": "ready", "observation": serialize_observation(observation)}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _visual_observation_sync_knowledge_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.models.workspace_visual import WorkspaceVisualObservation
+    from app.services.visual_intelligence import (
+        VISUAL_COLLECTION_SLUG,
+        sync_observation_to_knowledge,
+    )
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        observation_id = str(payload.get("observation_id") or "")
+        observation = (
+            db.query(WorkspaceVisualObservation)
+            .filter(
+                WorkspaceVisualObservation.workspace_id == workspace.id,
+                WorkspaceVisualObservation.id == observation_id,
+            )
+            .first()
+        )
+        if not observation:
+            return {"status": "not_found", "warning": "visual_observation_not_found"}
+        object_key = sync_observation_to_knowledge(db, workspace, observation)
+        db.commit()
+        return {"status": "synced", "collection": VISUAL_COLLECTION_SLUG, "object_key": object_key}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _sharepoint_ingestion_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    # Real ingestion goes through the OAuth/MSAL flow in
+    # `app.services.connectors.sharepoint_otp.ingester`. Triggering that
+    # flow from a background skill still needs a tenant-scoped token
+    # context, which is not currently passed in. Until the builder
+    # surfaces that, we return a structured degraded response rather
+    # than crash the run.
+    logger.info(
+        "sharepoint_ingestion_v1: degraded (missing tenant token context)",
+        site_url=payload.get("site_url"),
+    )
+    return {
+        "files": 0,
+        "skipped": 0,
+        "status": "degraded",
+        "warning": "sharepoint_token_context_unavailable",
+    }
+
+
+async def _voice_transcribe_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.voice_runtime import get_voice_runtime_provider
+
+    provider = get_voice_runtime_provider((payload.get("provider") or "cascade_openai"))
+    audio_bytes = _audio_bytes_from_payload(payload)
+    result = await provider.transcribe(
+        audio_bytes,
+        filename=payload.get("filename") or "recording.webm",
+        content_type=payload.get("content_type") or "audio/webm",
+        language=payload.get("language") or payload.get("input_language") or "fr",
+    )
+    return {
+        "transcript": result.get("transcript") or result.get("text", ""),
+        "text": result.get("text", ""),
+        "model": result.get("model"),
+        "provider": result.get("provider"),
+        "fallback": result.get("fallback", False),
+    }
+
+
+async def _voice_tts_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.voice_runtime import get_voice_runtime_provider
+
+    provider = get_voice_runtime_provider((payload.get("provider") or "cascade_openai"))
+    result = await provider.synthesize_bytes(
+        payload["text"],
+        voice=payload.get("voice"),
+        instructions=payload.get("instructions"),
+    )
+    return {
+        "audio_url": None,
+        "audio_base64": result.get("audio_base64"),
+        "content_type": result.get("content_type"),
+        "model": result.get("model"),
+        "provider": result.get("provider"),
+        "bytes": result.get("bytes"),
+    }
+
+
+async def _voice_realtime_session_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.voice_runtime import (
+        build_openai_realtime_session,
+        list_voice_runtime_providers,
+        resolve_voice_runtime_slug,
+    )
+
+    ctx = ctx or {}
+    provider = resolve_voice_runtime_slug(payload.get("provider") or ctx.get("voice_provider"))
+    model = _model_name(payload.get("model"))
+    session = build_openai_realtime_session(
+        model=model,
+        voice=payload.get("voice") or "marin",
+        instructions=payload.get("instructions"),
+        input_language=payload.get("language") or payload.get("input_language"),
+        output_language=payload.get("output_language"),
+        capability=payload.get("capability") or "voice2voice_interaction",
+        metadata={"transport": payload.get("transport") or "backend_ws"},
+    )
+    catalog = list_voice_runtime_providers()
+    provider_meta = next(
+        (item for item in catalog.get("providers", []) if item.get("slug") == provider), None
+    )
+    return {
+        "provider": provider,
+        "model": model,
+        "transport": payload.get("transport") or "backend_ws",
+        "session": session if provider == "openai_realtime" else None,
+        "capabilities": (provider_meta or {}).get("capabilities", {}),
+        "fallback_policy": payload.get("fallback_policy") or "cascade_openai",
+        "events": catalog.get("events", []),
+    }
+
+
+async def _voice_realtime_transcribe_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.voice_runtime import get_voice_runtime_provider
+
+    provider = get_voice_runtime_provider(payload.get("provider") or "cascade_openai")
+    audio_bytes = _audio_bytes_from_payload(payload)
+    result = await provider.transcribe(
+        audio_bytes,
+        filename=payload.get("filename") or "recording.webm",
+        content_type=payload.get("content_type") or "audio/webm",
+        language=payload.get("language") or payload.get("input_language") or "fr",
+    )
+    text = result.get("text") or result.get("transcript") or ""
+    return {
+        "transcript": text,
+        "text": text,
+        "text_events": [
+            {"type": "text.partial", "text": text, "provider": result.get("provider")},
+            {"type": "text.final", "text": text, "provider": result.get("provider")},
+        ],
+        "model": result.get("model"),
+        "provider": result.get("provider"),
+        "requested_provider": result.get("requested_provider") or payload.get("provider"),
+        "fallback": result.get("fallback", False),
+        "fallback_reason": result.get("fallback_reason"),
+    }
+
+
+async def _voice_realtime_speak_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.voice_runtime import get_voice_runtime_provider
+
+    provider = get_voice_runtime_provider(payload.get("provider") or "cascade_openai")
+    result = await provider.synthesize_bytes(
+        payload["text"],
+        voice=payload.get("voice"),
+        instructions=payload.get("instructions"),
+    )
+    return {
+        "audio_base64": result.get("audio_base64"),
+        "content_type": result.get("content_type"),
+        "model": result.get("model"),
+        "provider": result.get("provider"),
+        "requested_provider": result.get("requested_provider") or payload.get("provider"),
+        "bytes": result.get("bytes"),
+        "fallback": result.get("fallback", False),
+        "events": [
+            {"type": "audio.out", "bytes": result.get("bytes"), "provider": result.get("provider")}
+        ],
+    }
+
+
+async def _voice_realtime_translate_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.voice_runtime import get_voice_runtime_provider
+
+    provider = get_voice_runtime_provider(payload.get("provider") or "openai_realtime")
+    if not provider.capabilities.get("translation"):
+        return {
+            "status": "degraded",
+            "warning": "provider_capability_unsupported",
+            "provider": provider.slug,
+            "source_text": payload.get("text") or "",
+            "translated_text": payload.get("text") or "",
+        }
+    return {
+        "status": "deferred",
+        "provider": provider.slug,
+        "model": _model_name(payload.get("model")),
+        "source_language": payload.get("source_language") or payload.get("language"),
+        "target_language": payload.get("target_language") or payload.get("output_language"),
+        "events": ["translation.partial", "translation.final"],
+    }
+
+
+async def _voice_oracle_turn_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.knowledge_capture import evaluate_expert_answer
+
+    evaluation = evaluate_expert_answer(
+        answer=payload.get("answer") or payload.get("text") or "",
+        question=payload.get("question"),
+        gap=payload.get("gap"),
+    )
+    verdict = evaluation.get("verdict")
+    action = "next_prompt" if verdict != "sufficient" else "capture_fact"
+    return {
+        "action": action,
+        "evaluation": evaluation,
+        "events": [{"type": "oracle.action", "action": action, "verdict": verdict}],
+    }
+
+
+async def _voice_tandem_oracle_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.voice_tandem_oracle import VoiceTandemOracle
+
+    ctx = ctx or {}
+    oracle = VoiceTandemOracle(min_interval_ms=0, min_delta_chars=0)
+    turn_id = str(payload.get("turn_id") or ctx.get("turn_id") or "flow-turn")
+    duration_ms = int(payload.get("duration_ms") or 0)
+    events: list[dict[str, Any]] = []
+    partial_text = payload.get("partial_text") or payload.get("text")
+    if partial_text:
+        events.extend(
+            oracle.observe_partial(
+                str(partial_text),
+                turn_id=turn_id,
+                input_state={
+                    "transcript_state": "partial",
+                    "provider": payload.get("provider"),
+                    "transport": payload.get("transport") or "backend_ws",
+                },
+                output_state={"oracle_state": "thinking"},
+                duration_ms=duration_ms,
+                force=True,
+            )
+        )
+    final_text = payload.get("final_text") or (
+        payload.get("text") if payload.get("is_final") else None
+    )
+    if final_text:
+        events.extend(
+            oracle.commit_final(
+                str(final_text),
+                turn_id=turn_id,
+                evaluation=payload.get("evaluation")
+                if isinstance(payload.get("evaluation"), dict)
+                else None,
+                next_prompt=payload.get("next_prompt"),
+                sources=payload.get("sources")
+                if isinstance(payload.get("sources"), list)
+                else None,
+                duration_ms=duration_ms,
+            )
+        )
+    return {
+        "mode": "tandem_oracle",
+        "committed": any(event.get("type") == "oracle.commit" for event in events),
+        "events": events,
+        "provider": payload.get("provider"),
+        "transport": payload.get("transport") or "backend_ws",
+        "fallback_policy": payload.get("fallback_policy"),
+    }
+
+
+def _audio_bytes_from_payload(payload: dict[str, Any]) -> bytes:
+    if payload.get("audio_bytes"):
+        raw = payload["audio_bytes"]
+        if isinstance(raw, bytes):
+            return raw
+        if isinstance(raw, str):
+            return raw.encode("latin1")
+        return bytes(raw)
+    if payload.get("audio_base64"):
+        return base64.b64decode(payload["audio_base64"])
+    audio_ref = payload.get("audio_ref")
+    if audio_ref:
+        path = Path(audio_ref)
+        if not path.exists() or not path.is_file():
+            raise ValueError("voice_transcribe_v1: audio_ref does not resolve to a local file")
+        return path.read_bytes()
+    raise ValueError(
+        "voice_transcribe_v1: one of audio_bytes, audio_base64 or audio_ref is required"
+    )
+
+
+async def _knowledge_gap_analysis_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.knowledge_capture import build_knowledge_gaps
+
+    return {
+        "gaps": build_knowledge_gaps(
+            objective=payload["objective"],
+            expert_profile=payload.get("expert_profile"),
+            context_snapshot=payload.get("context") or {},
+            knowledge_refs=payload.get("knowledge_refs") or [],
+        )
+    }
+
+
+async def _expert_interview_plan_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.knowledge_capture import build_interview_plan
+
+    return {
+        "plan": build_interview_plan(
+            objective=payload["objective"],
+            expert_profile=payload.get("expert_profile"),
+            duration_minutes=int(payload.get("duration_minutes") or 20),
+            gaps=payload.get("gaps") or [],
+            context_snapshot=payload.get("context") or {},
+        )
+    }
+
+
+async def _expert_answer_evaluator_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.knowledge_capture import evaluate_expert_answer
+
+    return evaluate_expert_answer(
+        answer=payload["answer"],
+        question=payload.get("question"),
+        gap=payload.get("gap"),
+    )
+
+
+async def _capture_structuring_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    # The persisted endpoint uses `structure_capture_payload` on an ORM
+    # session. The skill contract also supports already-serialized session
+    # payloads for DAG/runtime callers.
+    session = payload["session"]
+    transcript = session.get("transcript") or []
+    evaluations = session.get("evaluations") or []
+    captured_facts = session.get("captured_facts") or [
+        {
+            "id": f"fact-{turn.get('id')}",
+            "text": turn.get("text", ""),
+            "source": "expert_session",
+            "confidence": next(
+                (ev.get("score") for ev in evaluations if ev.get("turn_id") == turn.get("id")),
+                0.5,
+            ),
+            "needs_review": True,
+        }
+        for turn in transcript
+        if turn.get("speaker") == "expert"
+    ]
+    proposal = {
+        "session_id": session.get("id"),
+        "title": session.get("title"),
+        "objective": session.get("objective"),
+        "captured_facts": captured_facts,
+        "open_questions": [
+            {
+                "gap_id": ev.get("gap_id"),
+                "reason": ev.get("verdict"),
+                "follow_up": ev.get("follow_up"),
+            }
+            for ev in evaluations
+            if ev.get("verdict") != "sufficient"
+        ],
+        "transcript": transcript,
+        "review": {"required": True},
+    }
+    return {"proposal": proposal}
+
+
+async def _audit_log_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Persist a compliance event through the shared audit writer.
+
+    Uses ``emit_audit_event`` — the same path ``chain.version.created`` and
+    ``system.updated`` take — so the row lands where the governance screens
+    read it (``GET /api/v1/audit``, which filters strictly on
+    ``workspace_id``) rather than merely in the database.
+
+    This skill never reports success it did not achieve. It raises when the
+    row cannot be written, and it raises when there is no workspace to
+    attribute the record to: an audit entry nobody can read is not an audit
+    entry, and reporting ``recorded`` for one is the same lie as reporting it
+    for a write that never happened. Raising is loud without being fatal — the
+    walker marks the node failed in the trace and carries on, so a ledger
+    outage costs a red node, not the run.
+    """
+    from app.services.audit_logger import emit_audit_event
+
+    ctx = ctx or {}
+    event_type = str(payload.get("event_type") or "").strip()
+    if not event_type:
+        raise ValueError("audit_log_v1 requires an event_type")
+    details = payload.get("details")
+    if details is not None and not isinstance(details, dict):
+        raise ValueError("audit_log_v1 details must be an object")
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    if not workspace_id:
+        raise ValueError("audit_log_v1 cannot record an event with no workspace to attribute it to")
+
+    event_id = emit_audit_event(
+        workspace_id=str(workspace_id),
+        event_type=event_type,
+        actor=str(payload.get("actor") or ctx.get("actor") or ctx.get("user_id") or "system"),
+        details=details or {},
+        trace_id=ctx.get("run_id"),
+        agent_id=ctx.get("system_id"),
+        severity=str(payload.get("severity") or "info"),
+    )
+    if event_id is None:
+        raise RuntimeError(f"audit ledger write failed for event_type={event_type!r}")
+
+    logger.info(
+        "audit_log_v1: event recorded",
+        event_id=event_id,
+        event_type=event_type,
+        workspace_id=workspace_id,
+        ts=datetime.utcnow().isoformat(),
+    )
+    return {
+        "id": event_id,
+        "status": "recorded",
+        # This implementation only writes a structured logger event.  It has
+        # no generation, embedding or other token-provider branch, so an
+        # explicit measured zero is contractually true for the executed path.
+        **contractual_zero_token_usage("audit_log:structured_logger_only"),
+    }
+
+
+async def _ollama_llm_v1(payload, ctx=None):
+    return await _configured_llm_call("ollama", payload, ctx)
+
+
+async def _azure_llm_v1(payload, ctx=None):
+    # Historical label: frozen bindings retain public OpenAI and environment
+    # credentials. New Azure bindings must explicitly say azure_openai.
+    return await _configured_llm_call("azure", payload, ctx)
+
+
+async def _configured_llm_call(provider, payload, ctx=None):
+    from app.services.model_plane.execution import (
+        ModelExecution,
+        complete_model,
+        resolve_model_execution,
+    )
+
+    ctx = ctx if ctx is not None else {}
+    execution = ctx.get("_model_execution")
+    if not isinstance(execution, ModelExecution):
+        execution = resolve_model_execution(
+            ctx.get("_model_workspace"),
+            provider=provider,
+            model=_model_name(payload.get("model")),
+            legacy_defaults=provider in {"azure", "ollama"},
+            model_source="legacy_default" if provider == "ollama" else "input",
+        )
+    options = {}
+    if provider == "workspace":
+        # Only the calling service supplies these private controls, never the
+        # business payload. Keep ctx itself so the engine sees every attempt.
+        if "_model_generation_options" in ctx:
+            options["generation_options"] = ctx["_model_generation_options"]
+        if "_model_stream" in ctx:
+            options["stream"] = ctx["_model_stream"]
+    options.setdefault("stream", provider != "ollama")
+    output = await complete_model(execution, payload["prompt"], ctx, **options)
+    output.pop("model_execution", None)  # Canonical trace, never a new business-output property.
+    if provider == "ollama":
+        return {"completion": output["completion"], "model": execution.model}
+    if provider == "azure":
+        if output.get("streamed"):
+            return {"completion": output["completion"], "model": execution.model, "streamed": True}
+        return {
+            "completion": output["completion"],
+            "model": output["model"],
+            "usage": ctx.get("_model_response_usage", {}),
+        }
+    return output
+
+
+async def _openai_llm_v1(payload, ctx=None):
+    return await _configured_llm_call("openai", payload, ctx)
+
+
+async def _azure_openai_llm_v1(payload, ctx=None):
+    return await _configured_llm_call("azure_openai", payload, ctx)
+
+
+async def _workspace_llm_v1(payload, ctx=None):
+    instruction = str(payload.get("instruction") or "").strip()
+    body = str(
+        payload.get("prompt") or payload.get("transcript") or payload.get("query") or ""
+    ).strip()
+    if instruction and body:
+        payload = {**payload, "prompt": f"{instruction}\n\n{body}"}
+    elif body and not str(payload.get("prompt") or "").strip():
+        payload = {**payload, "prompt": body}
+    return await _configured_llm_call("workspace", payload, ctx)
+
+
+async def _chain_naive_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.rag.chains import answer_naive
+
+    ctx = ctx or {}
+    return await answer_naive(
+        query=payload["query"],
+        context_id=payload.get("context_id"),
+        workspace_id=ctx.get("workspace_id"),
+        workspace_slug=ctx.get("workspace_slug") or payload.get("workspace_slug"),
+        **_rag_runtime_kwargs(payload, ctx),
+    )
+
+
+async def _chain_hybrid_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.rag.chains import answer_hybrid
+
+    ctx = ctx or {}
+    return await answer_hybrid(
+        query=payload["query"],
+        context_id=payload.get("context_id"),
+        workspace_id=ctx.get("workspace_id"),
+        workspace_slug=ctx.get("workspace_slug") or payload.get("workspace_slug"),
+        **_rag_runtime_kwargs(payload, ctx),
+    )
+
+
+async def _chain_mixed_hah_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.rag.chains import answer_mixed_hah
+
+    ctx = ctx or {}
+    return await answer_mixed_hah(
+        query=payload["query"],
+        context_id=payload.get("context_id"),
+        workspace_id=ctx.get("workspace_id"),
+        workspace_slug=ctx.get("workspace_slug") or payload.get("workspace_slug"),
+        **_rag_runtime_kwargs(payload, ctx),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Provider-neutral chat-agentic skills (chat_agentic_thinking_v1 DAG)
+#
+# These three wrappers back the `andritz_chat_agentic_v3` flow. They are
+# PROVIDER-NEUTRAL by contract: the LLM ones resolve their client through
+# ``ModelRouter.get_client({"provider","model"})`` and NEVER instantiate a
+# provider client directly (no ``OpenAIClient``/``OllamaClient`` here). The
+# effective model comes from the node payload ``model`` (= ``system.default_model``)
+# else the router default. I/O contracts are frozen in
+# ``docs/chat-agentic-thinking-spec.md`` §7 and mirror the node ports of the
+# artifact, so downstream ``inputs_map`` VariableRefs resolve.
+# ---------------------------------------------------------------------------
+_KNOWN_PROVIDERS = {
+    "huggingface",
+    "azure_openai",
+    "ollama",
+    "openai",
+    "azure",
+    "anthropic",
+    "vllm",
+    "openrouter",
+    "gemini",
+    "llamacpp",
+    "lmstudio",
+    "lmdeploy",
+    "sglang",
+}
+
+_PLAN_ENUMS = {
+    "action": ("answer", "clarify", "reject_oos"),
+    "mode": ("fast", "balanced", "deep"),
+    "latency_profile": ("fast", "balanced", "deep"),
+    "retrieval_profile": ("oracle_fast", "chat", "deep_async"),
+    "rag_pipeline_mode": ("chah", "auto"),
+}
+
+# Per-lane retrieval BUDGETS — must match the classic path
+# (``chat._apply_retrieval_budget_policy``) so arm B reaches the SAME candidate
+# pool / synthesis budget as the deterministic ``/chat`` arm (recall-parity fix
+# 2026-06-26). A lone ``top_k`` pin makes ``get_retrieval_profile`` treat the
+# request as a user pin and COLLAPSE synthesis_k/candidate_pool_k down to top_k
+# (DAG returned ~6 ctx vs classic ~12, and missed carrier chunks). Carrying the
+# full triple keeps explicit_budget=True so the pool is never collapsed.
+_LANE_BUDGETS = {
+    "fast": {"top_k": 5, "source_display_k": 5, "synthesis_k": 12, "candidate_pool_k": 20},
+    "balanced": {"top_k": 8, "source_display_k": 8, "synthesis_k": 16, "candidate_pool_k": 40},
+    "deep": {"top_k": 8, "source_display_k": 8, "synthesis_k": 24, "candidate_pool_k": 80},
+}
+
+# Per-mode retrieval defaults — the planner exposes the ``retrieval`` object the
+# retrieve_* nodes consume via inputs_map (bug P0 #1). Kept coherent with
+# ``mode`` AND with the classic lane budgets above so the deep branch carries
+# deep_retrieval=True + the full deep budget downstream.
+_RETRIEVAL_BY_MODE = {
+    "fast": {
+        "latency_profile": "fast",
+        "retrieval_profile": "oracle_fast",
+        "top_k": 5,
+        "synthesis_k": 12,
+        "candidate_pool_k": 20,
+        "rag_pipeline_mode": "chah",
+        "deep_retrieval": False,
+    },
+    "balanced": {
+        "latency_profile": "balanced",
+        "retrieval_profile": "chat",
+        "top_k": 8,
+        "synthesis_k": 16,
+        "candidate_pool_k": 40,
+        "rag_pipeline_mode": "chah",
+        "deep_retrieval": False,
+    },
+    "deep": {
+        "latency_profile": "deep",
+        "retrieval_profile": "deep_async",
+        "top_k": 8,
+        "synthesis_k": 24,
+        "candidate_pool_k": 80,
+        "rag_pipeline_mode": "chah",
+        "deep_retrieval": True,
+    },
+}
+
+# A single-project equipment inventory now has its own bounded recall floor in
+# ``rag.context``. Keep enough synthesis slots for its six diversified evidence
+# rows, while avoiding the 80-candidate/deep cross-encoder lane that repeatedly
+# exhausted the 40 s interactive membrane after recall was already complete.
+_SINGLE_PROJECT_INVENTORY_RETRIEVAL = {
+    **_RETRIEVAL_BY_MODE["balanced"],
+    "synthesis_k": 18,
+}
+
+_SELF_CORRECT_ACTIONS = ("escalate_deep", "translate", "declare_partial")
+
+# Inventory / cross-project / enumeration questions need the DEEP lane to
+# aggregate across documents (the planner under-routes them to balanced, fix
+# 2026-06-26): "quels projets…", "liste…", "tous les projets", "sur quels", etc.
+_INVENTORY_RE = re.compile(
+    r"\b(quels?\s+projets?|which\s+projects?|sur\s+quels?|tous\s+les\s+projets?|"
+    r"welche\s+projekte|liste[- ]?(?:moi|nous)?|lister|list\s+all|énumère|enumere|"
+    r"across\s+projects?|cross[- ]project|combien\s+de)\b",
+    re.IGNORECASE,
+)
+
+
+def _known_entity_re(family: str) -> re.Pattern[str] | None:
+    """A family's named machines, systems and brands that guarantee a question
+    is in its corpus, used to gate a false ``reject_oos``. They are not project
+    codes but are in-corpus, so the planner must never reject them (fix
+    2026-06-26). A family without such a list, and every generic workspace,
+    has none: another customer's brands must not override its planner.
+    """
+
+    return family_hook(family, "corpus_anchors", "KNOWN_ENTITY_RE", None)
+
+
+def _is_inventory_query(query: str) -> bool:
+    return bool(_INVENTORY_RE.search(query or ""))
+
+
+def _project_inventory_passage(inventory: Any) -> Optional[dict[str, Any]]:
+    """Turn the project_code facet into a top authoritative context passage.
+
+    ``retrieve_rag_context`` attaches the exhaustive cross-project enumeration
+    (shape from ``project_inventory.build_project_inventory``) for transversal
+    inventory questions. Surfaced as the #1 passage so the grounded synthesis
+    LISTS the projects (parity with the classic transversal_inventory answer).
+    """
+    if not isinstance(inventory, dict):
+        return None
+    projects = inventory.get("projects") or []
+    codes = [
+        str(p.get("project_code"))
+        for p in projects
+        if isinstance(p, dict) and p.get("project_code")
+    ]
+    if not codes:
+        return None
+    terms = ", ".join(str(t) for t in (inventory.get("terms") or []) if t) or "cet equipement"
+    total = inventory.get("total_projects") or len(codes)
+    suffix = " (liste tronquee)" if inventory.get("truncated") else ""
+    enumeration = (
+        f"Inventaire transversal (facette project_code, source autoritative) — "
+        f"projets utilisant {terms} : {total} projet(s) au total{suffix} : "
+        + ", ".join(codes)
+        + "."
+    )
+    return {
+        "content": enumeration,
+        "score": 999.0,
+        "metadata": {"source": "project_inventory_facet", "kind": "transversal_inventory"},
+    }
+
+
+def _authoritative_query_project_codes(
+    query: str,
+    payload: dict[str, Any],
+    ctx: dict[str, Any],
+) -> set[str]:
+    """Validate bare numeric5 candidates against the bound source ledger.
+
+    The lookup is intentionally collection-exact and never falls back to every
+    collection in the workspace. It only answers the early Agentic clarify/OOS
+    gate; the corpus planner remains the owner of the eventual retrieval filter.
+    """
+
+    candidates = set(numeric_project_candidates(query))
+    if not candidates:
+        return set()
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    contract = (
+        ctx.get("retrieval_contract") if isinstance(ctx.get("retrieval_contract"), dict) else {}
+    )
+    collection_ref = (
+        contract.get("collection")
+        or contract.get("primary_collection")
+        or ctx.get("context_collection")
+        or payload.get("context_collection")
+    )
+    if not workspace_id or not str(collection_ref or "").strip():
+        return set()
+
+    try:
+        from app.db.base import SessionLocal
+        from app.models.knowledge_collection import (
+            KnowledgeCollection,
+            KnowledgeCollectionSource,
+        )
+
+        db = SessionLocal()
+        try:
+            project_value = KnowledgeCollectionSource.source_metadata["project_code"].as_string()
+            rows = (
+                db.query(project_value)
+                .join(
+                    KnowledgeCollection,
+                    KnowledgeCollectionSource.collection_id == KnowledgeCollection.id,
+                )
+                .filter(
+                    KnowledgeCollection.workspace_id == workspace_id,
+                    (
+                        (KnowledgeCollection.slug == str(collection_ref))
+                        | (KnowledgeCollection.id == str(collection_ref))
+                    ),
+                    KnowledgeCollection.status == "ready",
+                    KnowledgeCollectionSource.status.in_(("ready", "indexed", "deduplicated")),
+                    project_value.in_(sorted(candidates)),
+                )
+                .distinct()
+                .limit(len(candidates))
+                .all()
+            )
+        finally:
+            db.close()
+    except Exception as exc:  # noqa: BLE001 - an unavailable facet fails closed.
+        logger.warning(
+            "skills_registry: authoritative project-code lookup failed",
+            workspace_id=workspace_id,
+            collection=str(collection_ref),
+            error=str(exc),
+        )
+        return set()
+    return {
+        str(row[0] or "").strip().upper()
+        for row in rows
+        if str(row[0] or "").strip().upper() in candidates
+    }
+
+
+def _has_known_corpus_anchor(
+    query: str,
+    *,
+    known_project_codes: set[str] | None = None,
+    family: str = "generic",
+) -> bool:
+    """True when the query names a known project/machine/system in the corpus."""
+    q = query or ""
+    entities = _known_entity_re(family)
+    return bool(
+        extract_query_project_codes(q, known_codes=known_project_codes)
+        or _SPECIAL_CORPUS_REFERENCE_RE.search(q)
+        or (entities is not None and entities.search(q))
+    )
+
+
+# Equipment references that are valid corpus anchors but not project identities.
+# Project identity itself is owned by ``project_references``.
+_SPECIAL_CORPUS_REFERENCE_RE = re.compile(r"\b(?:D\.\d{2,3}|CU\d{3}[A-Z]?-?\d?)\b")
+_QUESTION_WORD_RE = re.compile(
+    r"\b(quel|quelle|comment|pourquoi|where|how|what|why|wo|wie|was|warum)\b", re.IGNORECASE
+)
+# Schema-example phrases the planner must never echo back as a real scope/plan.
+_PLACEHOLDER_SCOPES = {
+    "perimetre de recherche",
+    "périmètre de recherche",
+    "perimetre cible",
+    "scope_hint",
+    "the concrete search scope",
+    "search scope",
+    "si action=clarify",
+    "...",
+}
+
+
+def _is_placeholder_text(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    if not text:
+        return False
+    return text in _PLACEHOLDER_SCOPES or text.startswith(("<", "the concrete search"))
+
+
+def _assess_clarify_gate(
+    query: str,
+    *,
+    has_history: bool,
+    known_project_codes: set[str] | None = None,
+) -> dict[str, Any]:
+    """Deterministic sufficiency check — should a clarify actually be allowed?
+
+    Mirrors ``agentic_chat_spike.assess_sufficiency``: clarify is only justified
+    when the request is genuinely ambiguous AND carries no anchor (project code,
+    explicit question on a named subject, or conversational history).
+    """
+    q = (query or "").strip()
+    has_project = bool(
+        extract_query_project_codes(q, known_codes=known_project_codes)
+        or _SPECIAL_CORPUS_REFERENCE_RE.search(q)
+    )
+    has_question = bool(_QUESTION_WORD_RE.search(q)) or "?" in q
+    word_count = len(q.split())
+    # Ambiguous = very short / no question framing AND no anchoring signal.
+    ambiguous = not has_project and not has_history and (word_count <= 3 or not has_question)
+    return {"has_project_code": has_project, "ambiguous": ambiguous, "allow_clarify": ambiguous}
+
+
+def _resolve_model_preferences(model: Optional[str]) -> dict[str, Any]:
+    """Map a (possibly provider-prefixed) model string to ModelRouter prefs.
+
+    Provider-neutral: produces ``{"provider","model"}`` for
+    ``ModelRouter.get_client`` without ever touching a client. Honours an
+    explicit ``provider:model`` / ``provider/model`` prefix, otherwise infers
+    OpenAI for the gpt/o-series and falls back to the configured default
+    provider (Ollama-friendly for on-prem).
+    """
+    from app.core.config import settings
+
+    default_provider = getattr(settings, "default_provider", None) or "ollama"
+    raw = (model or "").strip()
+    if not raw:
+        return {
+            "provider": default_provider,
+            "model": getattr(settings, "default_model", None) or "",
+        }
+    for sep in (":", "/"):
+        if sep in raw:
+            head, tail = raw.split(sep, 1)
+            head_l = head.lower()
+            # serving_<node>_<id> keys from model_plane local registration
+            if (head_l in _KNOWN_PROVIDERS or head_l.startswith("serving_")) and tail.strip():
+                provider = "openai" if head_l == "azure" else head_l
+                return {"provider": provider, "model": tail.strip()}
+    low = raw.lower()
+    if low.startswith(("gpt", "o1", "o3", "o4", "chatgpt", "text-", "davinci")):
+        return {"provider": "openai", "model": raw}
+    return {"provider": default_provider, "model": raw}
+
+
+async def _route_llm_complete(
+    prompt: str,
+    model: Optional[str],
+    ctx: dict[str, Any],
+    *,
+    generation_options: Optional[dict[str, Any]] = None,
+) -> str:
+    """Single-shot completion resolved through ``ModelRouter`` (provider-neutral).
+
+    Normalises the heterogeneous client return shapes (OpenAI ``content`` vs
+    Ollama ``response`` vs ``completion``) into a plain string.
+    """
+    from app.services.model_router import ModelRouter
+
+    chosen = model or (ctx or {}).get("default_model")
+    prefs = _resolve_model_preferences(chosen)
+    if (ctx or {}).get("_model_workspace") is not None:
+        from app.services.model_plane.execution import (
+            ModelExecutionError,
+            complete_model,
+            resolve_model_execution,
+            routable_runtime_providers,
+        )
+
+        if prefs["provider"] not in routable_runtime_providers(ctx["_model_workspace"]) | {
+            "anthropic"
+        }:
+            raise ModelExecutionError(
+                "This provider has no workspace-scoped text runtime. Choose a supported provider."
+            )
+
+        # Only the server supplies this workspace object and the policy guard.
+        execution = resolve_model_execution(
+            ctx["_model_workspace"],
+            provider=prefs["provider"] if chosen else "workspace",
+            model=prefs["model"] if chosen else None,
+            model_source="input" if model else "system",
+        )
+        output = await complete_model(
+            execution, prompt, ctx, generation_options=generation_options, stream=False
+        )
+        return str(output["completion"]).strip()
+    cache_owner = ctx if isinstance(ctx, dict) else {}
+    client_cache = cache_owner.get("_resolved_model_client_cache")
+    if not isinstance(client_cache, dict):
+        client_cache = {}
+        cache_owner["_resolved_model_client_cache"] = client_cache
+    cache_key = f"{prefs.get('provider')}\x00{prefs.get('model')}"
+    client = client_cache.get(cache_key)
+    if client is None:
+        router = ModelRouter()
+        client = await router.get_client(prefs)
+        # Skill context is an ephemeral shallow copy and is never persisted;
+        # reusing the just-validated client avoids a second remote health probe
+        # when a bounded answer audit immediately follows generation.
+        client_cache[cache_key] = client
+    options = dict(generation_options or {})
+    try:
+        from app.services.model_clients.ollama_client import OllamaClient
+
+        is_ollama = isinstance(client, OllamaClient)
+    except Exception:  # noqa: BLE001 - optional provider-specific translation.
+        is_ollama = False
+    if is_ollama and options:
+        ollama_options = dict(options.pop("options", {}) or {})
+        if options.get("max_tokens") is not None:
+            ollama_options["num_predict"] = options.pop("max_tokens")
+        if options.get("temperature") is not None:
+            ollama_options["temperature"] = options.pop("temperature")
+        if ollama_options:
+            options["options"] = ollama_options
+    usage_accumulator = _provider_usage_scope(cache_owner)
+    try:
+        result = await client.generate(model=prefs["model"], prompt=prompt, **options)
+    except Exception:
+        # A transport failure can happen after provider-side work.  With no
+        # counters, that call is deliberately unavailable rather than zero.
+        record_provider_usage(
+            usage_accumulator,
+            None,
+            provider=str(prefs.get("provider") or "unknown"),
+            model=str(prefs.get("model") or "unknown"),
+        )
+        raise
+    record_provider_usage(
+        usage_accumulator,
+        result,
+        provider=str(prefs.get("provider") or "unknown"),
+        model=str(prefs.get("model") or "unknown"),
+    )
+    if isinstance(result, dict):
+        return str(
+            result.get("content") or result.get("response") or result.get("completion") or ""
+        ).strip()
+    return str(result or "").strip()
+
+
+def _loads_lenient_json(text: str) -> Optional[dict[str, Any]]:
+    """Best-effort JSON-object recovery from an LLM completion.
+
+    Tolerates ```json fences, surrounding prose and trailing commas by
+    isolating the outermost ``{...}`` span. Returns ``None`` when nothing
+    parses so callers fall back to safe defaults.
+    """
+    import json
+    import re
+
+    if not text:
+        return None
+    candidate = text.strip()
+    if "```" in candidate:
+        fence = re.search(r"```(?:json)?\s*(.*?)```", candidate, re.DOTALL | re.IGNORECASE)
+        if fence:
+            candidate = fence.group(1).strip()
+    start, end = candidate.find("{"), candidate.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        candidate = candidate[start : end + 1]
+    for attempt in (candidate, re.sub(r",\s*([}\]])", r"\1", candidate)):
+        try:
+            parsed = json.loads(attempt)
+        except Exception:  # noqa: BLE001
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def _coerce_enum(value: Any, allowed: tuple[str, ...], default: str) -> str:
+    text = str(value or "").strip().lower()
+    return text if text in allowed else default
+
+
+def _coerce_chunk_texts(raw: Any) -> list[str]:
+    """Flatten retrieval results / citations into plain context strings."""
+    out: list[str] = []
+    if isinstance(raw, str):
+        return [raw] if raw.strip() else []
+    if not isinstance(raw, (list, tuple)):
+        return out
+    for item in raw:
+        if isinstance(item, str):
+            if item.strip():
+                out.append(item)
+        elif isinstance(item, dict):
+            text = (
+                item.get("content") or item.get("text") or item.get("snippet") or item.get("chunk")
+            )
+            if isinstance(text, str) and text.strip():
+                out.append(text)
+    return out
+
+
+def _context_passages(raw: Any) -> list[dict[str, Any]]:
+    """Normalise ``semantic_search_v1.results`` into citeable passages.
+
+    Each passage is ``{content, metadata, score}``. Strings are accepted too
+    (metadata-less). Empty / blank entries are dropped so an empty join is
+    distinguishable from a populated one (drives the abstain-vs-answer split).
+    """
+    out: list[dict[str, Any]] = []
+    if not isinstance(raw, (list, tuple)):
+        return out
+    for item in raw:
+        if isinstance(item, str):
+            if item.strip():
+                out.append({"content": item.strip(), "metadata": {}, "score": None})
+        elif isinstance(item, dict):
+            text = (
+                item.get("content")
+                or item.get("text")
+                or item.get("snippet")
+                or item.get("chunk")
+                or item.get("page_content")
+            )
+            if isinstance(text, str) and text.strip():
+                metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+                out.append(
+                    {"content": text.strip(), "metadata": metadata, "score": item.get("score")}
+                )
+    return out
+
+
+def _select_inventory_synthesis_passages(
+    query: str,
+    answer_profile: Any,
+    passages: list[dict[str, Any]],
+    *,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Bound explicit inventory synthesis after retrieval has established recall.
+
+    The project inventory lane places up to eight diversified, citeable evidence
+    chunks first. Sending every parent/semantic expansion after those rows made
+    the single synthesis call exceed the interactive membrane even though no
+    additional equipment family was being discovered. Keep all inventory
+    evidence, retrieval guardrails and guide/artifact context plus the first
+    complementary canonical passages. If the evidence lane did not arm or
+    failed, preserve the full canonical context unchanged. ``answer_profile``
+    is deliberately not an activation gate: the planner may label the same
+    mono-project inventory differently, while the deterministic query shape is
+    the stable contract shared with retrieval.
+    """
+    _ = answer_profile
+    if not _is_single_project_equipment_inventory_query(query):
+        return passages
+    evidence = [
+        passage
+        for passage in passages
+        if bool((passage.get("metadata") or {}).get("inventory_evidence"))
+    ]
+    if not evidence:
+        return passages
+
+    protected_source_types = {
+        "knowledge_guide",
+        "summary_artifact",
+        "table_analysis",
+        "document_analysis",
+        "collection_inventory",
+        "dense_coarse_guardrail",
+    }
+    protected_semantic_types = {
+        *protected_source_types,
+        "exact_match_guardrail",
+    }
+    protected = []
+    for passage in passages:
+        metadata = passage.get("metadata") or {}
+        source_type = str(metadata.get("source_type") or metadata.get("type") or "").lower()
+        semantic_type = str(metadata.get("semantic_type") or "").lower()
+        if source_type in protected_source_types or semantic_type in protected_semantic_types:
+            protected.append(passage)
+
+    base_limit = min(max(int(limit or 10), 1), 12)
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def append_unique(passage: dict[str, Any]) -> None:
+        content = " ".join(str(passage.get("content") or "").split())
+        if not content:
+            return
+        key = content[:8000]
+        if key in seen:
+            return
+        seen.add(key)
+        selected.append(passage)
+
+    for passage in [*evidence, *protected]:
+        append_unique(passage)
+    bounded_limit = max(base_limit, len(selected))
+    for passage in passages:
+        append_unique(passage)
+        if len(selected) >= bounded_limit:
+            break
+    return selected
+
+
+_INVENTORY_COVERAGE_TIMEOUT_SECONDS = 10.0
+_INVENTORY_COVERAGE_TOTAL_EVIDENCE_CHARS = 18000
+_INVENTORY_COVERAGE_POST_AUDIT_RESERVE_SECONDS = 5.0
+_INVENTORY_COVERAGE_MIN_CALL_BUDGET_SECONDS = 1.5
+_INVENTORY_COVERAGE_LABEL_RE = re.compile(r"^[\wÀ-ÿ .,/()&+:'’\-]{2,120}$")
+
+
+def _bounded_inventory_evidence_excerpt(content: str, limit: int) -> str:
+    """Return a literal prefix ending on a source record boundary.
+
+    A clipped token or unfinished final record must never become selectable
+    evidence. Very long unstructured records are omitted rather than exposed
+    partially to the semantic reviewer.
+    """
+    bounded_limit = max(int(limit or 0), 0)
+    if bounded_limit <= 0:
+        return ""
+    if len(content) <= bounded_limit:
+        return content
+    prefix = content[:bounded_limit]
+    boundary = 0
+    for position, char in enumerate(prefix):
+        if char in "\n\r\f;|":
+            boundary = position + 1
+        elif char in ".!?" and (position + 1 == len(content) or content[position + 1].isspace()):
+            boundary = position + 1
+    return prefix[:boundary].rstrip() if boundary > 0 else ""
+
+
+def _inventory_coverage_evidence_blocks(
+    passages: list[dict[str, Any]],
+) -> tuple[str, dict[str, dict[str, Any]]]:
+    """Render admitted evidence behind stable server-owned references."""
+    remaining = _INVENTORY_COVERAGE_TOTAL_EVIDENCE_CHARS
+    blocks: list[str] = []
+    evidence_by_ref: dict[str, dict[str, Any]] = {}
+    for index, passage in enumerate(passages, start=1):
+        metadata = passage.get("metadata") or {}
+        if metadata.get("inventory_evidence") is not True or remaining <= 0:
+            continue
+        source_family = str(metadata.get("source_family") or "").strip().lower()
+        per_passage_limit = 8000 if source_family == "spare_parts_list" else 2200
+        content = str(passage.get("content") or "").strip()
+        if not content:
+            continue
+        excerpt = _bounded_inventory_evidence_excerpt(
+            content,
+            min(per_passage_limit, remaining),
+        )
+        if not excerpt:
+            continue
+        remaining -= len(excerpt)
+        scope = _passage_scope_hint(metadata)
+        source = _passage_source_label(metadata, index)
+        evidence_ref = f"E{index}"
+        header = (
+            f"[{evidence_ref} -> citation {index}] ({source}; {scope})"
+            if scope
+            else f"[{evidence_ref} -> citation {index}] ({source})"
+        )
+        evidence_by_ref[evidence_ref] = {
+            "content": excerpt,
+            "metadata": metadata,
+            "citation_index": index,
+        }
+        blocks.append(f"{header}\n{excerpt}")
+    return "\n\n".join(blocks), evidence_by_ref
+
+
+def _build_inventory_coverage_review_prompt(
+    *,
+    query: str,
+    project_code: str,
+    requested_category: str,
+    evidence_text: str,
+    draft: str,
+    lang_target: Any,
+) -> str:
+    """Build a semantic omission audit with no equipment taxonomy in code."""
+    return (
+        "Tu es le controleur de couverture d'une reponse d'inventaire industriel. "
+        "Tu ne fais aucune nouvelle recherche et tu ne connais aucun catalogue metier en dur.\n"
+        f"Projet exact demande: {project_code}.\n"
+        f"Categorie demandee, extraite de la question: {requested_category}.\n"
+        f"Langue de sortie: {lang_target or 'fr'}.\n\n"
+        "Compare le brouillon aux preuves admises. Les documents peuvent contenir beaucoup "
+        "d'autres categories: IGNORE-LES toutes. Ne controle que la categorie demandee, ses "
+        "traductions evidentes et ses variantes singulier/pluriel.\n"
+        "Propose une omission uniquement si un item, type, modele ou libelle documentaire "
+        "localement associe a cette categorie est explicitement present dans la preuve et absent "
+        "du brouillon. Ignore codes article, prix, quantites, composants auxiliaires et details "
+        "non demandes. Ne deduis aucun role d'entreprise ni aucune installation.\n"
+        "Chaque bloc de preuve porte une reference stable comme [E2]. Pour chaque omission "
+        "certaine, retourne uniquement (1) cette evidence_ref sans crochets et (2) un label "
+        "source exact et concis, copie dans CE MEME bloc. Le serveur reconstruira lui-meme "
+        "la citation et sa section: ne recopie pas de support_quote, ne choisis pas de section "
+        "et n'invente aucune qualification. Ne repete rien deja rendu, meme groupe ou abrege. "
+        "En cas de doute, status=complete.\n\n"
+        "Reponds en JSON STRICT, sans texte autour, selon ce schema:\n"
+        '{"status":"complete|missing","requested_category":"categorie",'
+        '"additions":[{"evidence_ref":"E2","label":"span exact de ce bloc"}]}\n\n'
+        f"Question:\n{query}\n\nBrouillon:\n{draft}\n\nPreuves admises:\n{evidence_text}\n"
+    )
+
+
+def _inventory_section_markers(answer: str) -> tuple[Optional[int], Optional[int]]:
+    """Locate the exact Markdown contract, never ordinary numbered list rows."""
+    first_match = re.search(r"(?m)^\s{0,3}###\s+\(1\)(?:\s|$)", answer)
+    if first_match is None:
+        return None, None
+    second_match = re.search(
+        r"(?m)^\s{0,3}###\s+\(2\)(?:\s|$)",
+        answer[first_match.end() :],
+    )
+    if second_match is None:
+        return first_match.start(), None
+    return first_match.start(), first_match.end() + second_match.start()
+
+
+def _normalized_inventory_span(value: Any) -> str:
+    return " ".join(str(value or "").casefold().split())
+
+
+def _normalized_inventory_lines(value: Any) -> str:
+    """Normalize intra-line spacing while preserving source record boundaries."""
+    return "\n".join(" ".join(line.casefold().split()) for line in str(value or "").splitlines())
+
+
+def _inventory_term_stems(value: Any) -> set[str]:
+    import unicodedata
+
+    folded = "".join(
+        char
+        for char in unicodedata.normalize("NFD", str(value or "").casefold())
+        if unicodedata.category(char) != "Mn"
+    )
+    stems: set[str] = set()
+    for token in re.findall(r"[a-z0-9]+", folded):
+        candidates = {token}
+        # Keep every conservative candidate. In particular, French/English
+        # plurals such as pompes/pompe, valves/valve and buses/buse must meet
+        # their singular evidence instead of being over-stemmed to pomp/valv/bus.
+        if len(token) > 3 and token.endswith(("s", "x")):
+            candidates.add(token[:-1])
+        if len(token) > 4 and token.endswith("es"):
+            candidates.add(token[:-2])
+        stems.update(candidate for candidate in candidates if len(candidate) >= 2)
+    return stems
+
+
+def _inventory_label_is_present(label: str, text: str) -> bool:
+    """Check a rendered label with Unicode word boundaries, not substrings."""
+    normalized_label = _normalized_inventory_span(label)
+    normalized_text = _normalized_inventory_span(text)
+    if not normalized_label or not normalized_text:
+        return False
+    return bool(
+        re.search(
+            rf"(?<!\w){re.escape(normalized_label)}(?!\w)",
+            normalized_text,
+        )
+    )
+
+
+def _inventory_local_label_contexts(source_record: str, label: str) -> list[str]:
+    """Return bounded source clauses for every exact label occurrence."""
+    normalized_record = _normalized_inventory_lines(source_record)
+    normalized_label = _normalized_inventory_span(label)
+    if not normalized_label:
+        return []
+    contexts: list[str] = []
+    for match in re.finditer(
+        rf"(?<!\w){re.escape(normalized_label)}(?!\w)",
+        normalized_record,
+    ):
+        label_at, label_end = match.span()
+        left = max(
+            normalized_record.rfind(separator, 0, label_at)
+            for separator in ("\n", ".", ",", ";", ":", "/", "!", "?", "|")
+        )
+        right_candidates = [
+            position
+            for separator in ("\n", ".", ",", ";", ":", "/", "!", "?", "|")
+            if (position := normalized_record.find(separator, label_end)) >= 0
+        ]
+        right = min(right_candidates) if right_candidates else len(normalized_record)
+        local_start = max(left + 1, label_at - 180)
+        local_end = min(right, label_end + 180)
+        contexts.append(normalized_record[local_start:local_end])
+    return contexts
+
+
+_INVENTORY_EVIDENCE_REF_RE = re.compile(r"^E[1-9][0-9]*$")
+
+
+def _normalized_inventory_evidence_ref(value: Any) -> str:
+    reference = str(value or "").strip().upper()
+    return reference if _INVENTORY_EVIDENCE_REF_RE.fullmatch(reference) else ""
+
+
+def _inventory_exact_source_label(label: str, source_record: str) -> str:
+    """Resolve a reviewer-selected label to the exact source-cased span."""
+    parts = [part for part in re.split(r"\s+", str(label or "").strip()) if part]
+    if not parts:
+        return ""
+    pattern = r"\s+".join(re.escape(part) for part in parts)
+    match = re.search(rf"(?<!\w){pattern}(?!\w)", source_record, flags=re.IGNORECASE)
+    if match is None:
+        return ""
+    return " ".join(match.group(0).split())
+
+
+def _validated_inventory_coverage_additions(
+    parsed: dict[str, Any],
+    *,
+    draft: str,
+    evidence_by_ref: dict[str, dict[str, Any]],
+    project_code: str,
+    requested_category: str,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Accept only server-resolved source spans; reviewer prose is never rendered."""
+    if str(parsed.get("status") or "").strip().lower() != "missing":
+        return [], []
+    raw_additions = parsed.get("additions")
+    if not isinstance(raw_additions, list):
+        return [], ["invalid_additions"]
+
+    accepted: list[dict[str, Any]] = []
+    rejected: list[str] = []
+    seen_labels: set[str] = set()
+    expected_project_code = str(project_code or "").strip().upper()
+    for raw in raw_additions[:8]:
+        if not isinstance(raw, dict):
+            rejected.append("invalid_row")
+            continue
+        raw_label = str(raw.get("label") or "")
+        label = " ".join(raw_label.split())
+        if "evidence_ref" not in raw:
+            rejected.append("missing_evidence_ref")
+            continue
+        evidence_ref = _normalized_inventory_evidence_ref(raw.get("evidence_ref"))
+        if not evidence_ref:
+            rejected.append("invalid_evidence_ref")
+            continue
+        evidence = evidence_by_ref.get(evidence_ref)
+        if evidence is None:
+            rejected.append("unknown_evidence_ref")
+            continue
+        try:
+            citation_index = int(evidence.get("citation_index"))
+        except (TypeError, ValueError):
+            citation_index = 0
+        source_record = str(evidence.get("content") or "")
+        if evidence_ref != f"E{citation_index}":
+            rejected.append("evidence_citation_mismatch")
+            continue
+        if (
+            citation_index <= 0
+            or not _INVENTORY_COVERAGE_LABEL_RE.fullmatch(label)
+            or not 1 <= len(source_record) <= 8000
+            or any(ord(char) < 32 or ord(char) == 127 for char in raw_label)
+            or "http://" in label.lower()
+            or "https://" in label.lower()
+        ):
+            rejected.append("invalid_shape")
+            continue
+        metadata = evidence.get("metadata") or {}
+        if metadata.get("inventory_evidence") is not True:
+            rejected.append("non_inventory_evidence")
+            continue
+        if str(metadata.get("project_code") or "").strip().upper() != expected_project_code:
+            rejected.append("project_mismatch")
+            continue
+        source_label = _inventory_exact_source_label(label, source_record)
+        if not source_label:
+            rejected.append("label_not_literal")
+            continue
+        normalized_label = _normalized_inventory_span(source_label)
+        if _inventory_label_is_present(source_label, draft) or normalized_label in seen_labels:
+            rejected.append("already_present")
+            continue
+
+        match_terms = metadata.get("inventory_match_terms")
+        if isinstance(match_terms, (list, tuple, set)):
+            category_terms = [str(term) for term in match_terms if str(term).strip()]
+        else:
+            category_terms = []
+        category_terms.append(requested_category)
+        category_stems = set().union(*(_inventory_term_stems(term) for term in category_terms))
+        local_contexts = _inventory_local_label_contexts(source_record, source_label)
+        # This guard proves literal provenance and category locality, not a
+        # hard-coded equipment taxonomy. Semantic membership deliberately
+        # remains the generic reviewer's task.
+        category_contexts = [
+            context for context in local_contexts if category_stems & _inventory_term_stems(context)
+        ]
+        label_stems = _inventory_term_stems(source_label)
+        if not category_contexts:
+            rejected.append("category_not_local")
+            continue
+        if label_stems and label_stems <= category_stems:
+            rejected.append("category_label_not_item")
+            continue
+
+        source_family = str(metadata.get("source_family") or "").strip().lower()
+        project_grounded = bool(
+            source_family == "spare_parts_list"
+            or metadata.get("inventory_family_attested_by_spare") is True
+        )
+        target_section = 1 if project_grounded else 2
+        accepted.append(
+            {
+                "section": target_section,
+                "label": source_label,
+                "citation_index": citation_index,
+            }
+        )
+        seen_labels.add(normalized_label)
+    return accepted, rejected
+
+
+def _apply_inventory_coverage_review(
+    draft: str,
+    parsed: dict[str, Any],
+    *,
+    evidence_by_ref: dict[str, dict[str, Any]],
+    project_code: str,
+    requested_category: str,
+    lang_target: Any,
+) -> tuple[str, dict[str, Any]]:
+    """Render validated labels only; preserve the original answer byte-for-byte otherwise."""
+    status = str(parsed.get("status") or "").strip().lower()
+    if status == "complete":
+        return draft, {"status": "complete", "accepted": 0, "rejected": []}
+    additions, rejected = _validated_inventory_coverage_additions(
+        parsed,
+        draft=draft,
+        evidence_by_ref=evidence_by_ref,
+        project_code=project_code,
+        requested_category=requested_category,
+    )
+    if not additions:
+        return draft, {"status": "rejected", "accepted": 0, "rejected": rejected}
+    first_at, second_at = _inventory_section_markers(draft)
+    if first_at is None or second_at is None:
+        return draft, {
+            "status": "rejected",
+            "accepted": 0,
+            "rejected": [*rejected, "missing_section_contract"],
+        }
+    language = str(lang_target or "fr").strip().lower()[:2]
+    section_1: list[str] = []
+    section_2: list[str] = []
+    for addition in additions:
+        label = addition["label"]
+        citation = addition["citation_index"]
+        if language == "en":
+            detail = (
+                "explicitly documented for the project"
+                if addition["section"] == 1
+                else "documented in the corpus without proof of installation"
+            )
+        else:
+            detail = (
+                "explicitement documenté pour le projet"
+                if addition["section"] == 1
+                else "documenté dans le corpus sans preuve d’installation"
+            )
+        line = f"- **{label}** — {detail} [{citation}]."
+        (section_1 if addition["section"] == 1 else section_2).append(line)
+    updated = draft[:second_at].rstrip()
+    if section_1:
+        updated += "\n\n" + "\n".join(section_1)
+    second_block = draft[second_at:].lstrip()
+    if section_2:
+        heading_end = second_block.find("\n")
+        if heading_end < 0:
+            second_block = second_block.rstrip() + "\n\n" + "\n".join(section_2)
+        else:
+            heading = second_block[:heading_end].rstrip()
+            body = second_block[heading_end + 1 :].lstrip()
+            second_block = heading + "\n\n" + "\n".join(section_2)
+            if body:
+                second_block += "\n\n" + body
+    updated += "\n\n" + second_block
+    return updated, {
+        "status": "corrected",
+        "accepted": len(additions),
+        "rejected": rejected,
+    }
+
+
+async def _review_inventory_answer_coverage(
+    *,
+    query: str,
+    passages: list[dict[str, Any]],
+    draft: Any,
+    model: Optional[str],
+    ctx: dict[str, Any],
+    lang_target: Any,
+) -> tuple[str, dict[str, Any]]:
+    """Run one bounded semantic audit over already-admitted evidence."""
+    rendered_draft = str(draft or "").strip()
+    if not rendered_draft or _is_abstention(rendered_draft):
+        return rendered_draft, {"status": "not_armed", "reason": "non_substantive_draft"}
+    try:
+        from app.services.rag.single_project_inventory_intent import (
+            parse_single_project_inventory_intent,
+        )
+
+        intent = parse_single_project_inventory_intent(query)
+    except Exception as exc:  # noqa: BLE001 - optional audit must fail soft.
+        logger.warning("inventory coverage: intent parser unavailable", error=str(exc))
+        return rendered_draft, {"status": "not_armed", "reason": "intent_unavailable"}
+    if intent is None:
+        return rendered_draft, {"status": "not_armed", "reason": "not_inventory"}
+    evidence_text, evidence_by_ref = _inventory_coverage_evidence_blocks(passages)
+    if not evidence_text:
+        return rendered_draft, {"status": "not_armed", "reason": "no_inventory_evidence"}
+    prompt = _build_inventory_coverage_review_prompt(
+        query=query,
+        project_code=intent.project_code,
+        requested_category=intent.category,
+        evidence_text=evidence_text,
+        draft=rendered_draft,
+        lang_target=lang_target,
+    )
+    import asyncio
+    import time
+
+    timeout_seconds = _INVENTORY_COVERAGE_TIMEOUT_SECONDS
+    try:
+        run_deadline = float(ctx.get("_run_deadline_monotonic"))
+    except (TypeError, ValueError):
+        run_deadline = 0.0
+    if run_deadline > 0:
+        remaining = run_deadline - time.monotonic()
+        call_budget = remaining - _INVENTORY_COVERAGE_POST_AUDIT_RESERVE_SECONDS
+        if call_budget < _INVENTORY_COVERAGE_MIN_CALL_BUDGET_SECONDS:
+            return rendered_draft, {
+                "status": "not_armed",
+                "reason": "insufficient_runtime_budget",
+            }
+        timeout_seconds = min(timeout_seconds, call_budget)
+
+    try:
+        completion = await asyncio.wait_for(
+            _route_llm_complete(
+                prompt,
+                model,
+                ctx,
+                generation_options={"max_tokens": 700, "temperature": 0.0},
+            ),
+            timeout=timeout_seconds,
+        )
+    except (TimeoutError, asyncio.TimeoutError):
+        return rendered_draft, {"status": "timeout"}
+    except Exception as exc:  # noqa: BLE001 - keep the grounded draft on audit failure.
+        logger.warning("inventory coverage: review failed", error=str(exc))
+        return rendered_draft, {"status": "error"}
+    parsed = _loads_lenient_json(completion)
+    if parsed is None:
+        return rendered_draft, {"status": "invalid_json"}
+    return _apply_inventory_coverage_review(
+        rendered_draft,
+        parsed,
+        evidence_by_ref=evidence_by_ref,
+        project_code=intent.project_code,
+        requested_category=intent.category,
+        lang_target=lang_target,
+    )
+
+
+def _passage_source_label(metadata: dict[str, Any], index: int) -> str:
+    md = metadata or {}
+    return str(
+        md.get("document_filename")
+        or md.get("filename")
+        or md.get("source")
+        or md.get("document_id")
+        or f"source {index}"
+    )
+
+
+def _passage_scope_hint(metadata: dict[str, Any]) -> str:
+    """Expose only documentary scope metadata useful to grounded synthesis."""
+    md = metadata or {}
+    fields = (
+        ("project", md.get("project_code")),
+        ("source_family", md.get("source_family")),
+        ("document_type", md.get("document_type") or md.get("source_kind")),
+        ("inventory_evidence", "true" if md.get("inventory_evidence") else None),
+        ("equipment_family", md.get("inventory_equipment_family")),
+        ("functional_category", md.get("inventory_functional_category")),
+        (
+            "family_attested_by_spare",
+            "true"
+            if md.get("inventory_family_attested_by_spare")
+            else "false"
+            if "inventory_family_attested_by_spare" in md
+            else None,
+        ),
+    )
+    hints: list[str] = []
+    for label, value in fields:
+        if isinstance(value, list | tuple | set):
+            rendered = ", ".join(str(item).strip() for item in value if str(item).strip())
+        elif isinstance(value, str | int | float):
+            rendered = str(value).strip()
+        else:
+            rendered = ""
+        if rendered:
+            hints.append(f"{label}={rendered[:160]}")
+    return "; ".join(hints)
+
+
+def _citations_from_passages(passages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build citation rows from passage metadata (chunk_id / document / score)."""
+    citations: list[dict[str, Any]] = []
+    for index, passage in enumerate(passages, start=1):
+        md = passage.get("metadata") or {}
+        label = _passage_source_label(md, index)
+        document_id = md.get("document_id") or md.get("doc_id")
+        filename = md.get("document_filename") or md.get("filename") or label
+        collection = md.get("collection") or md.get("collection_name") or md.get("collection_slug")
+        citations.append(
+            {
+                "index": index,
+                "id": md.get("chunk_id") or md.get("id") or md.get("point_id"),
+                "source_id": md.get("chunk_id") or md.get("id") or md.get("point_id"),
+                "document": label,
+                "title": md.get("document_title") or md.get("title") or filename,
+                "filename": filename,
+                "document_id": document_id,
+                "collection": collection,
+                "page": md.get("page") or md.get("page_number"),
+                "snippet": str(passage.get("content") or "")[:1000],
+                "score": passage.get("score"),
+            }
+        )
+    return citations
+
+
+_GENERIC_GROUNDED_ANSWER_PREAMBLE = (
+    "Tu es un assistant specialise dans des reponses factuelles, precises et "
+    "completes. Reponds a la question en t'appuyant sur les extraits de contexte "
+    "ci-dessous, issus des documents de ce workspace. Ces extraits peuvent etre "
+    "dans une autre langue et contenir des tableaux HTML : EXTRAIS les valeurs "
+    "chiffrees, references et specifications pertinentes meme lorsqu'elles "
+    "figurent dans un tableau ou dans une autre langue, et traduis-les si besoin. "
+)
+
+
+def _build_grounded_answer_prompt(
+    query: str,
+    passages: list[dict[str, Any]],
+    lang_target: Optional[str],
+    answer_profile: Optional[str],
+    *,
+    family: str = "generic",
+) -> str:
+    """Grounded synthesis prompt: extract a complete factual answer from passages.
+
+    Mirrors the classic synthesis framing (system_prompts FACTUAL: "clear factual
+    response ... accuracy and completeness") instead of an abstention-first stance.
+    The previous wording ("answer STRICTLY ... say so if absent") made the model
+    over-cautious: it abstained on AKK200 even though the carrier chunk (German/
+    English HTML table "Arbeitsbreite 0,3 m / Produktionsgeschwindigkeit 10-20
+    m/min") was the top-ranked passage. The corpus mixes FR/EN/DE and HTML tables,
+    so the prompt must explicitly invite cross-language table extraction while
+    still forbidding fabrication.
+    """
+    profile_contract = _grounded_profile_contract(query, answer_profile)
+    blocks = []
+    for index, passage in enumerate(passages, start=1):
+        metadata = passage.get("metadata") or {}
+        src = _passage_source_label(metadata, index)
+        scope_hint = _passage_scope_hint(metadata) if profile_contract else ""
+        source_header = f"{src}; {scope_hint}" if scope_hint else src
+        # Keep enough of each passage to preserve spec tables. Inventory
+        # evidence is bounded separately because a source spare-parts chunk can
+        # contain several pump sections across a page break.
+        is_authoritative_inventory = bool(
+            metadata.get("inventory_evidence")
+            and str(metadata.get("source_family") or "").lower() == "spare_parts_list"
+        )
+        passage_limit = 8000 if is_authoritative_inventory else 4000
+        blocks.append(
+            f"[{index}] ({source_header})\n{str(passage.get('content') or '')[:passage_limit]}"
+        )
+    context_text = "\n\n".join(blocks)
+    # The persona and corpus framing are the family's; the rules below are not.
+    preamble = family_hook(
+        family, "chat_prompts", "GROUNDED_ANSWER_PREAMBLE", _GENERIC_GROUNDED_ANSWER_PREAMBLE
+    )
+    return (
+        f"{preamble}"
+        "Cite chaque fait avec son repere [n]. N'invente JAMAIS une valeur absente "
+        "du contexte. N'ajoute aucun equipement, type, modele ou usage par analogie "
+        "avec des installations similaires : un item non explicitement atteste par "
+        "un extrait doit etre omis, pas presente comme plausible. Si une donnee "
+        "precise est reellement introuvable, dis-le "
+        "brievement mais fournis tout de meme les elements pertinents disponibles.\n"
+        f"{profile_contract}"
+        f"Langue de reponse: {lang_target or 'fr'}. Style attendu: {answer_profile or 'technical'}.\n\n"
+        f"Contexte:\n{context_text}\n\n"
+        f"Question: {query}\n\nReponse sourcee:"
+    )
+
+
+_NO_CONTEXT_MESSAGES = {
+    "fr": "Aucune source indexee dans le perimetre disponible ne permet de repondre a cette question.",
+    "en": "No indexed source in the available scope supports an answer to this question.",
+    "de": "Keine indexierte Quelle im verfuegbaren Bereich beantwortet diese Frage.",
+}
+
+
+def _no_context_message(lang_target: Optional[str]) -> str:
+    lang = str(lang_target or "fr").strip().lower()[:2]
+    return _NO_CONTEXT_MESSAGES.get(lang, _NO_CONTEXT_MESSAGES["fr"])
+
+
+# Phrases that signal an abstention (no grounded content). Used so self-correct
+# never DOWNGRADES a substantive grounded draft into an abstention (the deep
+# re-retrieval can lose carrier chunks the first pass had — observed on AKK200).
+_ABSTENTION_MARKERS = (
+    "aucune source",
+    "ne contient pas",
+    "ne permet pas de repondre",
+    "ne mentionne pas",
+    "no indexed source",
+    "does not contain",
+    "keine indexierte quelle",
+)
+
+
+def _is_abstention(text: Any) -> bool:
+    raw = str(text or "").strip()
+    if not raw:
+        return True
+    import unicodedata
+
+    folded = "".join(
+        c for c in unicodedata.normalize("NFD", raw.lower()) if unicodedata.category(c) != "Mn"
+    )
+    return any(marker in folded for marker in _ABSTENTION_MARKERS)
+
+
+def _merge_passages(
+    primary: list[dict[str, Any]], extra: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Union two passage lists, de-duplicating on content (primary kept first).
+
+    ``escalate_deep`` re-retrieves on the DEEP lane, whose wider query expansion
+    can drop a carrier chunk the original (balanced) pass surfaced. Merging keeps
+    the original context so a re-ground never loses ground it already had.
+    """
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for passage in list(primary) + list(extra):
+        content = str(passage.get("content") or "").strip()
+        if not content:
+            continue
+        key = content[:160]
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(passage)
+    return merged
+
+
+_GENERIC_PLAN_PERSONA = "Tu es le planificateur d'un agent de chat documentaire. "
+_GENERIC_PLAN_IDENTIFIER_EXAMPLES = (
+    "(ex: un code projet, une reference produit, un identifiant de document)"
+)
+_GENERIC_PLAN_DOMAIN = "le domaine et les sources de ce workspace"
+
+
+def _build_plan_prompt(query: str, history: Any, *, family: str = "generic") -> str:
+    persona = family_hook(family, "chat_prompts", "PLAN_PERSONA", _GENERIC_PLAN_PERSONA)
+    examples = family_hook(
+        family, "chat_prompts", "PLAN_IDENTIFIER_EXAMPLES", _GENERIC_PLAN_IDENTIFIER_EXAMPLES
+    )
+    domain = family_hook(family, "chat_prompts", "PLAN_DOMAIN", _GENERIC_PLAN_DOMAIN)
+    history_lines = ""
+    if isinstance(history, (list, tuple)) and history:
+        rendered = []
+        for turn in list(history)[-6:]:
+            if isinstance(turn, dict):
+                role = turn.get("role") or turn.get("speaker") or "user"
+                content = turn.get("content") or turn.get("text") or ""
+                rendered.append(f"{role}: {content}")
+            elif isinstance(turn, str):
+                rendered.append(turn)
+        history_lines = "\n".join(rendered)
+    return (
+        f"{persona}Analyse la requete "
+        "et l'historique, puis reponds en JSON STRICT (aucun texte hors JSON), avec ces cles:\n"
+        '{"action": one of answer|clarify|reject_oos, "mode": one of fast|balanced|deep, '
+        '"answer_profile": short label, "scope_hint": the CONCRETE search scope '
+        "(codes projet, equipements, documents cites dans la requete), "
+        '"clarifying_question": only if action=clarify, "oos_reason": only if action=reject_oos, '
+        '"lang_target": ISO code, "confidence": 0..1, '
+        '"retrieval": {"latency_profile": fast|balanced|deep, '
+        '"retrieval_profile": oracle_fast|chat|deep_async, "top_k": int, '
+        '"rag_pipeline_mode": chah|auto, "deep_retrieval": bool}, '
+        '"sub_queries": [liste de 2 a 4 sous-questions autonomes]}\n'
+        "Regles STRICTES:\n"
+        "- action=answer par defaut, et OBLIGATOIREMENT answer des qu'un code projet / "
+        f"identifiant machine / reference est present {examples}.\n"
+        "- action=clarify UNIQUEMENT si la requete est reellement ambigue ET sans aucun "
+        "ancrage (ni code projet, ni identifiant, ni contexte d'historique).\n"
+        f"- action=reject_oos UNIQUEMENT si la requete n'a AUCUN rapport avec {domain}. "
+        "NE JAMAIS rejeter sur la base de la LANGUE (une question valide en allemand/anglais "
+        "reste valide). NE JAMAIS rejeter si un equipement/systeme/projet connu est cite.\n"
+        "- mode=deep OBLIGATOIRE pour les questions transversales / inventaire / enumeration "
+        "multi-projets ('quels projets utilisent...', 'liste...', 'sur quels projets', "
+        "agregation cross-projet) ; mode=fast pour un fait ponctuel trivial ; sinon balanced. "
+        "'retrieval' coherent avec 'mode'.\n"
+        "- scope_hint doit etre derive de la requete reelle ; ne JAMAIS recopier les libelles "
+        "d'exemple de ce schema.\n"
+        "- sub_queries : UNIQUEMENT pour un answer_profile comparaison / multi_hop / transversal "
+        "(question a plusieurs facettes / plusieurs entites), decompose alors la requete en 2 a 4 "
+        "sous-questions AUTONOMES et distinctes (une par entite/facette, reprenant les identifiants "
+        "exacts) ; sinon renvoie une liste VIDE []. Ne jamais recopier la requete telle quelle.\n\n"
+        f"Historique:\n{history_lines or '(aucun)'}\n\n"
+        f"Requete: {query}\n\nJSON:"
+    )
+
+
+# Answer profiles that warrant decomposing the query into parallel sub-queries
+# (Phase 4 multi-hop). Cross-project inventory/enumeration is deliberately
+# EXCLUDED: it keeps its dedicated deep lane + project_code facet (a
+# decomposition would drop the exhaustive cross-project enumeration).
+_MULTIHOP_PROFILE_TOKENS = (
+    "comparison",
+    "comparative",
+    "compare",
+    "multi_hop",
+    "multihop",
+    "multi-hop",
+    "transversal",
+)
+
+# The interactive Agentic chat has a hard 40 s end-to-end budget.  A single,
+# explicit project lookup does not need an LLM to decide between the retrieval
+# lanes: the deterministic answer-profile resolver has already established that
+# it is a summary / precise fact / equipment lookup.  Keeping this gate narrow
+# avoids the planner round-trip. A mono-project equipment inventory uses the
+# bounded evidence floor; comparisons, analyses, procedures, cross-project
+# inventories and follow-ups remain on the full planner.
+_SIMPLE_PROJECT_PROFILE_REASONS = {
+    "project_summary_query",
+    "precise_fact_query",
+    "equipment_detail_query",
+}
+_COMPLEX_PROJECT_QUERY_RE = re.compile(
+    r"\b(compare|comparaison|compar[ea]|diff[ée]rences?|versus|vs\.?|"
+    r"pourquoi|why|warum|comment|how|wie|si|if|wenn|"
+    r"analy[sz]e|analyse[rz]?|expliqu[ea]|explain|erkl[äa]r|"
+    r"causes?|cons[ée]quences?|risques?|risk|hypoth[eè]se|hypothetical|sc[ée]nario|"
+    r"proc[ée]dure|procedure|diagnostic|troubleshoot|d[ée]pannage|"
+    r"pr[ée]cautions?|maintenance|entretien|s[ée]curit[ée]|safety|installation|"
+    r"mise\s+en\s+service|commissioning|r[ée]paration|repair)\b|"
+    r"\ben\s+profondeur\b|\bdeep\s+(?:analysis|dive)\b|\b[ée]tape\s+par\s+[ée]tape\b",
+    re.IGNORECASE,
+)
+
+
+def _grounded_profile_contract(query: str, answer_profile: str | None) -> str:
+    """Return narrow synthesis rules for explicitly list-shaped equipment asks.
+
+    ``equipment_detail`` also covers ordinary datasheet questions, where an
+    exhaustive scan would add unrelated neighbouring equipment.  Apply this
+    contract only when the user explicitly asks for an inventory/enumeration;
+    profile labels containing ``inventory`` remain supported for planner- or
+    workspace-defined variants.
+    """
+    from app.services.rag.single_project_inventory_intent import (
+        parse_single_project_inventory_intent,
+    )
+
+    profile = str(answer_profile or "").strip().lower()
+    text = str(query or "")
+    intent = parse_single_project_inventory_intent(text)
+    is_inventory = "inventory" in profile or (profile == "equipment_detail" and intent is not None)
+    if not is_inventory:
+        return ""
+    requested_equipment = intent.category if intent is not None else "equipements demandes"
+    return (
+        "CONTROLE D'INVENTAIRE OBLIGATOIRE : avant de rediger, construis en silence "
+        "l'union de TOUS les libelles d'equipements rencontres, passage par passage "
+        "et ligne par ligne. Dans chaque source_family=spare_parts_list, traite chaque "
+        f"bloc ou en-tete correspondant a la famille demandee ({requested_equipment}), "
+        "y compris ses formes singulier/pluriel, ses traductions et les blocs situes "
+        "apres un saut de page, et "
+        "recense en silence tous les identifiants des lignes de maintenance, pieces "
+        "de rechange et equipements complets. Ne t'arrete jamais au premier bloc. "
+        "Pour cette question d'inventaire, parcours TOUS les extraits avant de "
+        "rediger. Enumere chaque equipement, type, modele et reference de modele "
+        "directement "
+        "atteste par au moins un extrait pertinent, en fusionnant uniquement les "
+        "doublons certains, et cite chaque item. Ne privilegie pas seulement les "
+        "premiers extraits.\n"
+        "Structure obligatoirement la reponse en deux sections dont les titres Markdown "
+        "commencent exactement par '### (1)' et '### (2)'. Distingue en (1) tous "
+        "les items rattaches au projet ou au perimetre "
+        "demande par le contenu, le libelle de source ou ses metadonnees, et (2) les "
+        "modeles seulement decrits dans une notice generique ou fournisseur presente "
+        "dans le dossier, en les enumerant eux aussi. Un "
+        "manuel generique ne prouve jamais a lui seul que le modele est installe "
+        "sur le projet.\n"
+        "FORMAT COMPACT OBLIGATOIRE : si la question demande seulement quels "
+        "equipements sont presents, groupe les variantes d'une meme famille sur une "
+        "ligne et ne recopie pas les codes article, prix, moteurs ou details de pieces "
+        "de rechange, sauf si la question les demande explicitement.\n"
+        "CONTROLE FINAL DE COUVERTURE : pour chaque extrait marque "
+        "inventory_evidence=true hors source_family=spare_parts_list, verifie le "
+        "couple nom de fichier / equipment_family. Si ce libelle designe bien la "
+        "famille d'equipements demandee et qu'il est repete dans le contenu, il doit "
+        "apparaitre une fois dans l'une des deux sections, meme si l'extrait est une "
+        "page de titre, un glossaire ou une introduction. Place-le en section (1) "
+        "seulement si son rattachement au projet est atteste; sinon place-le en "
+        "section (2) avec la reserve documentaire. Ignore les libelles de navigation, "
+        "de dossier ou de schema qui ne sont pas eux-memes un equipement demande. "
+        "Lorsqu'un extrait associe explicitement un constructeur ou une marque a un "
+        "modele, un groupe ou une reference de l'equipement demande, conserve le nom "
+        "du constructeur avec ce modele; ne supprime pas cet identifiant et ne le "
+        "deduis jamais par analogie. Un nom propre d'entreprise repete dans un libelle "
+        "de la forme 'NOM ref. no.' au voisinage immediat du modele doit au minimum "
+        "etre conserve avec lui comme identifiant documentaire; ce libelle seul ne "
+        "suffit pas a qualifier le role de cette entreprise comme constructeur. "
+        "Termine chaque ligne factuelle par au moins un repere de source [n].\n"
+        "Ne conclus jamais qu'il n'existe aucun autre item si un autre extrait en "
+        "nomme un. Si les extraits ne prouvent pas l'exhaustivite du projet, presente "
+        "le resultat comme la liste documentee dans les extraits, sans le qualifier "
+        "d'exhaustif.\n"
+    )
+
+
+_EXHAUSTIVE_PROJECT_QUERY_RE = re.compile(
+    r"\b(exhausti(?:f|ve)|complet(?:e|s)?|tous|toutes|all|liste[rz]?|list|inventaire)\b",
+    re.IGNORECASE,
+)
+_CROSS_PROJECT_TARGET_RE = re.compile(
+    r"\b(projets|projects|dossiers)\b|\b(quels?|which)\s+(?:projet|project|dossier)\b",
+    re.IGNORECASE,
+)
+_GERMAN_QUERY_RE = re.compile(
+    r"\b(welche[rsn]?|was|wie|warum|zusammenfass(?:en|ung)|projekt|pumpen?|"
+    r"wartung|vorsichtsma(?:ss|ß)nahmen|beschreibe|nenne)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_single_project_equipment_inventory_query(query: str) -> bool:
+    from app.services.rag.single_project_inventory_intent import (
+        parse_single_project_inventory_intent,
+    )
+
+    return parse_single_project_inventory_intent(query or "") is not None
+
+
+def _deterministic_single_project_plan(
+    query: str,
+    *,
+    has_history: bool,
+    ctx: dict[str, Any],
+    known_project_codes: set[str] | None = None,
+) -> Optional[dict[str, Any]]:
+    """Return a deterministic lane plan for a conservative project lookup.
+
+    The response language is taken from the server-owned chat Run input.  When
+    it is absent (for example a generic Systems API invocation), the LLM planner
+    remains authoritative.  German is also left to the multilingual planner
+    because the public chat language contract currently only normalises FR/EN.
+    """
+    if has_history:
+        return None
+
+    run_input = ctx.get("input") if isinstance(ctx.get("input"), dict) else {}
+    response_language = str(run_input.get("response_language") or "").lower()
+    if response_language not in {"fr", "en"} or _GERMAN_QUERY_RE.search(query):
+        return None
+
+    from app.services.rag.single_project_inventory_intent import (
+        parse_single_project_inventory_intent,
+    )
+
+    inventory_intent = parse_single_project_inventory_intent(query)
+    equipment_inventory = inventory_intent is not None
+    if inventory_intent is not None:
+        # The generic parser owns both category and scope for this lane. Legacy
+        # complexity words such as safety/repair/diagnostic may be part of a
+        # perfectly valid requested category and must not veto it.
+        project_code = inventory_intent.project_code
+    else:
+        project_codes = set(extract_query_project_codes(query, known_codes=known_project_codes))
+        if (
+            len(project_codes) != 1
+            or _COMPLEX_PROJECT_QUERY_RE.search(query)
+            or _CROSS_PROJECT_TARGET_RE.search(query)
+            or _EXHAUSTIVE_PROJECT_QUERY_RE.search(query)
+        ):
+            return None
+        project_code = next(iter(project_codes))
+
+    # Reuse the same deterministic classifier as classic chat; do not invent a
+    # second intent taxonomy in the Agentic wrapper.
+    from app.services.industrial_answer_profile import resolve_answer_profile
+
+    profile = resolve_answer_profile(query, include_agentic_profiles=True)
+    if not equipment_inventory and profile.reason not in _SIMPLE_PROJECT_PROFILE_REASONS:
+        return None
+
+    mode = "balanced"
+    retrieval = dict(_SINGLE_PROJECT_INVENTORY_RETRIEVAL) if equipment_inventory else None
+    plan_payload: dict[str, Any] = {
+        "action": "answer",
+        "mode": mode,
+        "answer_profile": "equipment_detail" if equipment_inventory else profile.profile,
+        "scope_hint": project_code,
+        "lang_target": response_language,
+        "confidence": 1.0,
+    }
+    if retrieval is not None:
+        plan_payload["retrieval"] = retrieval
+    return _coerce_plan(
+        plan_payload,
+        query,
+        has_history=False,
+        known_project_codes=known_project_codes,
+    )
+
+
+def _profile_is_multihop(answer_profile: Any, query: str) -> bool:
+    """Whether the plan should decompose into sub-queries for this profile.
+
+    Gated on the answer_profile label, minus inventory questions (which own the
+    deep + transversal_inventory facet lane and must not be split).
+    """
+    if _is_inventory_query(query):
+        return False
+    profile = str(answer_profile or "").lower()
+    return any(token in profile for token in _MULTIHOP_PROFILE_TOKENS)
+
+
+def _derive_comparative_sub_queries(query: str) -> list[str]:
+    """Fallback decomposition reusing the classic comparative splitter.
+
+    When the planner does not emit usable ``sub_queries`` for a comparison
+    profile, recover the two compared entities lexically (FR/EN/DE patterns) so
+    each entity still gets its own retrieval pass. Never raises.
+    """
+    try:
+        from app.services.rag.comparative_retrieval import parse_comparative_entities
+
+        entities = parse_comparative_entities(query)
+    except Exception:  # noqa: BLE001 — decomposition must never break the plan.
+        return []
+    if not entities:
+        return []
+    return [entity for entity in entities if isinstance(entity, str) and entity.strip()]
+
+
+def _coerce_sub_queries(parsed: dict[str, Any], query: str, answer_profile: str) -> list[str]:
+    """Coerce the planner's ``sub_queries`` into a clean 0/2-4 item list.
+
+    Contract: populated (2-4 deduped, non-echo sub-questions) only when the
+    answer_profile is comparison/multi_hop/transversal; empty otherwise. Robust
+    to garbage (non-list, non-string entries) -> defaults to an empty list.
+    """
+    if not _profile_is_multihop(answer_profile, query):
+        return []
+    raw = parsed.get("sub_queries")
+    subs: list[str] = []
+    if isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, str) and item.strip():
+                subs.append(" ".join(item.split()))
+    query_norm = " ".join(str(query or "").lower().split())
+    seen: set[str] = set()
+    cleaned: list[str] = []
+    for sub in subs:
+        key = sub.lower()
+        if key in seen or key == query_norm:
+            continue
+        seen.add(key)
+        cleaned.append(sub)
+    # Fallback: a comparison profile with too few usable sub-queries recovers the
+    # compared entities lexically so decomposition still happens.
+    if len(cleaned) < 2:
+        for sub in _derive_comparative_sub_queries(query):
+            key = sub.lower()
+            if key in seen or key == query_norm:
+                continue
+            seen.add(key)
+            cleaned.append(sub)
+    return cleaned[:4]
+
+
+_GENERIC_OUT_OF_SCOPE_REASON = "Hors du perimetre de ce workspace."
+
+
+def _coerce_plan(
+    parsed: dict[str, Any],
+    query: str,
+    *,
+    has_history: bool = False,
+    known_project_codes: set[str] | None = None,
+    family: str = "generic",
+) -> dict[str, Any]:
+    """Coerce a (possibly partial/garbage) plan dict into the frozen contract.
+
+    GATES (2026-06-26):
+      * ``clarify`` (C3): reject placeholder scopes and demote to ``answer`` when
+        the request is answerable (project code / not genuinely ambiguous).
+      * ``reject_oos`` (fix): NEVER reject on language and never when the query
+        names a known project/machine/system (QMS-12, URACA, AKK200…) — demote
+        to ``answer`` so retrieval gets a chance (a late context gate at
+        decision.deliver is the runtime backstop).
+      * inventory/transversal routing (fix): cross-project / enumeration
+        questions are forced to the ``deep`` lane (full deep budget) — the
+        planner under-routes them to balanced and misses the aggregated list.
+    """
+    parsed = parsed if isinstance(parsed, dict) else {}
+    mode = _coerce_enum(parsed.get("mode"), _PLAN_ENUMS["mode"], "balanced")
+    action = _coerce_enum(parsed.get("action"), _PLAN_ENUMS["action"], "answer")
+
+    # Inventory / transversal questions need the deep lane to aggregate across
+    # documents — deterministic upgrade (the LLM under-routes them to balanced).
+    single_project_inventory = _is_single_project_equipment_inventory_query(query)
+    inventory = _is_inventory_query(query) and not single_project_inventory
+    if single_project_inventory:
+        mode = "balanced"
+    if inventory:
+        mode = "deep"
+
+    retrieval_defaults = dict(_RETRIEVAL_BY_MODE[mode])
+    raw_retrieval = parsed.get("retrieval") if isinstance(parsed.get("retrieval"), dict) else {}
+    retrieval = {
+        "latency_profile": _coerce_enum(
+            raw_retrieval.get("latency_profile"),
+            _PLAN_ENUMS["latency_profile"],
+            retrieval_defaults["latency_profile"],
+        ),
+        "retrieval_profile": _coerce_enum(
+            raw_retrieval.get("retrieval_profile"),
+            _PLAN_ENUMS["retrieval_profile"],
+            retrieval_defaults["retrieval_profile"],
+        ),
+        "rag_pipeline_mode": _coerce_enum(
+            raw_retrieval.get("rag_pipeline_mode"),
+            _PLAN_ENUMS["rag_pipeline_mode"],
+            retrieval_defaults["rag_pipeline_mode"],
+        ),
+        "deep_retrieval": bool(
+            raw_retrieval.get("deep_retrieval", retrieval_defaults["deep_retrieval"])
+        ),
+    }
+
+    def _coerce_budget(key: str) -> int:
+        try:
+            value = int(raw_retrieval.get(key) or retrieval_defaults[key])
+        except (TypeError, ValueError):
+            value = retrieval_defaults[key]
+        return max(1, min(200, value))
+
+    retrieval["top_k"] = max(1, min(50, _coerce_budget("top_k")))
+    retrieval["synthesis_k"] = _coerce_budget("synthesis_k")
+    retrieval["candidate_pool_k"] = _coerce_budget("candidate_pool_k")
+
+    # Force the deep lane fields when inventory was detected (the LLM may have
+    # emitted a balanced ``retrieval`` block that would otherwise win).
+    if inventory:
+        deep = _RETRIEVAL_BY_MODE["deep"]
+        retrieval["latency_profile"] = "deep"
+        retrieval["retrieval_profile"] = "deep_async"
+        retrieval["deep_retrieval"] = True
+        retrieval["top_k"] = max(retrieval["top_k"], deep["top_k"])
+        retrieval["synthesis_k"] = max(retrieval["synthesis_k"], deep["synthesis_k"])
+        retrieval["candidate_pool_k"] = max(retrieval["candidate_pool_k"], deep["candidate_pool_k"])
+    elif single_project_inventory:
+        # This invariant must also hold for follow-ups and LLM-planned runs, not
+        # only the no-history deterministic shortcut.
+        retrieval = dict(_SINGLE_PROJECT_INVENTORY_RETRIEVAL)
+
+    try:
+        confidence = float(parsed.get("confidence"))
+    except (TypeError, ValueError):
+        confidence = 0.6
+    confidence = max(0.0, min(1.0, confidence))
+
+    def _as_str(key: str, default: str = "") -> str:
+        value = parsed.get(key)
+        return value.strip() if isinstance(value, str) and value.strip() else default
+
+    # Reject schema-placeholder scope hints so retrieval scope is never polluted
+    # by the literal "perimetre de recherche" the planner copies from the prompt.
+    scope_hint = _as_str("scope_hint", "")
+    if _is_placeholder_text(scope_hint):
+        scope_hint = ""
+
+    clarifying_question = _as_str("clarifying_question", "")
+    if _is_placeholder_text(clarifying_question):
+        clarifying_question = ""
+
+    # OOS gate: never reject a query that names a known project/machine/system
+    # (or matches a project code) — the planner over-rejects valid questions
+    # (notably in German). Demote to answer; retrieval + the deliver context
+    # gate decide the rest.
+    if action == "reject_oos" and _has_known_corpus_anchor(
+        query,
+        known_project_codes=known_project_codes,
+        family=family,
+    ):
+        action = "answer"
+
+    # C3 gate: only honour clarify when the request is genuinely ambiguous.
+    if action == "clarify":
+        gate = _assess_clarify_gate(
+            query,
+            has_history=has_history,
+            known_project_codes=known_project_codes,
+        )
+        if gate["has_project_code"] or not gate["allow_clarify"] or not clarifying_question:
+            action = "answer"
+            clarifying_question = ""
+    if action == "clarify" and not clarifying_question:
+        clarifying_question = "Pouvez-vous preciser le projet ou l'equipement concerne ?"
+
+    # oos_reason only survives when the action is still reject_oos (a demoted
+    # reject_oos must not leak a stale refusal reason into an answer plan).
+    oos_reason = (
+        _as_str(
+            "oos_reason",
+            family_hook(
+                family, "chat_prompts", "OUT_OF_SCOPE_REASON", _GENERIC_OUT_OF_SCOPE_REASON
+            ),
+        )
+        if action == "reject_oos"
+        else ""
+    )
+
+    answer_profile = _as_str("answer_profile", "technical")
+    # Multi-hop decomposition (Phase 4): 2-4 sub-queries for comparison /
+    # multi_hop / transversal profiles, empty list otherwise. A clarify /
+    # reject_oos plan never decomposes (there is no answer to ground).
+    sub_queries = _coerce_sub_queries(parsed, query, answer_profile) if action == "answer" else []
+
+    return {
+        "action": action,
+        "mode": mode,
+        "answer_profile": answer_profile,
+        "scope_hint": scope_hint,
+        "clarifying_question": clarifying_question,
+        "oos_reason": oos_reason,
+        "lang_target": _as_str("lang_target", "fr"),
+        "confidence": round(confidence, 4),
+        "retrieval": retrieval,
+        "sub_queries": sub_queries,
+    }
+
+
+async def _decide_next_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """JSON-only next-skill choice inside a mandate-filtered catalog."""
+
+    from app.services.run_engine.agent_loop import (
+        DEFAULT_CONFIDENCE_FLOOR,
+        build_decide_prompt,
+        coerce_decide_output,
+    )
+
+    ctx = ctx if ctx is not None else {}
+    visible = payload.get("visible_skills") or ctx.get("visible_skills") or []
+    floor = payload.get("confidence_floor")
+    try:
+        confidence_floor = float(floor) if floor is not None else DEFAULT_CONFIDENCE_FLOOR
+    except (TypeError, ValueError):
+        confidence_floor = DEFAULT_CONFIDENCE_FLOOR
+
+    def normalize(raw, failure=None):
+        evidence = {}
+        output = coerce_decide_output(
+            raw, visible, confidence_floor=confidence_floor, evidence=evidence
+        )
+        if failure:
+            evidence["normalization_reasons"].insert(0, failure)
+        ctx["_agent_loop_decision_evidence"] = evidence
+        return output
+
+    prompt = build_decide_prompt(
+        goal=payload.get("goal") or ctx.get("goal") or {},
+        observations=list(payload.get("observations") or ctx.get("observations") or []),
+        visible_skills=list(visible),
+        budget=payload.get("budget") or ctx.get("budget") or {},
+    )
+    model = _model_name(payload.get("model"), ctx.get("default_model"))
+    completion = ""
+    try:
+        completion = await _route_llm_complete(prompt, model, ctx)
+    except Exception as exc:  # noqa: BLE001 — fail-closed, never raise into the walker
+        logger.warning("decide_next_v1: model call failed, blocking", error=str(exc))
+        return normalize({}, "llm_failure")
+    parsed = _loads_lenient_json(completion)
+    if parsed is None:
+        return normalize({}, "json_parse_failure")
+    return normalize(parsed)
+
+
+async def _skill_search_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Search only the mandate-visible skill catalog."""
+
+    from app.services.run_engine.agent_loop import compile_mandate_view, skill_search
+
+    ctx = ctx or {}
+    allowlist = payload.get("skill_allowlist") or ctx.get("skill_allowlist") or []
+    mandate = compile_mandate_view(
+        allowlist,
+        privilege_tier=payload.get("privilege_tier") or ctx.get("privilege_tier") or "recommend",
+    )
+    try:
+        limit = int(payload.get("limit") or 8)
+    except (TypeError, ValueError):
+        limit = 8
+    hits = skill_search(str(payload.get("query") or ""), mandate, limit=limit)
+    return {"skills": hits, "count": len(hits)}
+
+
+async def _chat_agentic_plan_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Provider-neutral agentic planner (LLM via ModelRouter).
+
+    OUT (frozen §7): ``{action, mode, answer_profile, scope_hint,
+    clarifying_question, oos_reason, lang_target, confidence,
+    retrieval:{latency_profile, retrieval_profile, top_k, rag_pipeline_mode,
+    deep_retrieval}, sub_queries:[str]}``. ``sub_queries`` carries 2-4 decomposed
+    sub-questions for comparison/multi_hop/transversal profiles (empty otherwise;
+    Phase 4). Robust to non-JSON model output -> safe defaults (action=answer,
+    mode=balanced, sub_queries=[]).
+    """
+    ctx = ctx or {}
+    query = str(payload.get("query") or "")
+    history = payload.get("conversation_history")
+    has_history = bool(isinstance(history, (list, tuple)) and history)
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    with using_workspace_id_project_scheme(str(workspace_id) if workspace_id else None):
+        return await _chat_agentic_plan_v1_ungated(
+            payload,
+            ctx,
+            query=query,
+            history=history,
+            has_history=has_history,
+        )
+
+
+async def _chat_agentic_plan_v1_ungated(
+    payload: dict[str, Any],
+    ctx: dict[str, Any],
+    *,
+    query: str,
+    history: Any,
+    has_history: bool,
+) -> dict[str, Any]:
+    known_project_codes = _authoritative_query_project_codes(query, payload, ctx)
+    deterministic_plan = _deterministic_single_project_plan(
+        query,
+        has_history=has_history,
+        ctx=ctx,
+        known_project_codes=known_project_codes,
+    )
+    if deterministic_plan is not None:
+        return deterministic_plan
+    model = _model_name(payload.get("model"), ctx.get("default_model"))
+    family = _ctx_workspace_family(ctx)
+    prompt = _build_plan_prompt(query, history, family=family)
+    completion = ""
+    try:
+        completion = await _route_llm_complete(prompt, model, ctx)
+    except Exception as exc:  # noqa: BLE001 — never crash the DAG on a model hiccup
+        logger.warning(
+            "chat_agentic_plan_v1: model call failed, using safe defaults", error=str(exc)
+        )
+    return _coerce_plan(
+        _loads_lenient_json(completion) or {},
+        query,
+        has_history=has_history,
+        known_project_codes=known_project_codes,
+        family=family,
+    )
+
+
+_GENERIC_SELF_CORRECT_PERSONA = (
+    "Tu es le reacteur d'auto-correction (1 passe) d'un agent de chat documentaire.\n"
+)
+_GENERIC_SELF_CORRECT_ESCALATE_GUIDANCE = (
+    "Approfondis et re-ancre la reponse sur les sources du workspace ; "
+    "supprime toute affirmation non etayee."
+)
+
+
+def _build_self_correct_prompt(
+    query: str,
+    draft: str,
+    action: str,
+    composite: Any,
+    hallucination_rate: Any,
+    *,
+    family: str = "generic",
+) -> str:
+    guidance = {
+        "escalate_deep": family_hook(
+            family,
+            "chat_prompts",
+            "SELF_CORRECT_ESCALATE_GUIDANCE",
+            _GENERIC_SELF_CORRECT_ESCALATE_GUIDANCE,
+        ),
+        "translate": "Reformule la reponse dans la langue cible attendue de l'utilisateur, sans changer le fond.",
+        "declare_partial": "Conserve uniquement ce qui est etaye, et declare explicitement les limites / l'incertitude restante.",
+    }[action]
+    return (
+        f"{family_hook(family, 'chat_prompts', 'SELF_CORRECT_PERSONA', _GENERIC_SELF_CORRECT_PERSONA)}"
+        f"Action de reparation choisie: {action}. Consigne: {guidance}\n"
+        f"Signaux qualite — composite(0-100)={composite} ; hallucination_rate(0-1)={hallucination_rate}.\n"
+        "Re-genere une MEILLEURE reponse et reponds en JSON STRICT (aucun texte hors JSON):\n"
+        '{"answer":"reponse corrigee","action_taken":"' + action + '"}\n\n'
+        f"Question: {query}\n\nBrouillon a corriger:\n{draft}\n\nJSON:"
+    )
+
+
+def _pick_self_correct_action(
+    mode: str,
+    composite: Any,
+    hallucination_rate: Any,
+    *,
+    draft_is_abstention: bool = False,
+) -> str:
+    """Deterministic repair-action choice from the verdict signals.
+
+    IMPORTANT (parity fix 2026-06-26): ``hallucination_rate`` is NOT a usable
+    trigger here. ``response_eval`` derives it as ``1 - factuality`` from an
+    EMBEDDING similarity, which sits structurally ~0.3-0.5 even for clean
+    grounded answers — gating on ``halluc > 0.15`` fired escalate_deep on EVERY
+    run (latency aborts + lossy deep swaps that turned good answers into
+    abstentions). We escalate ONLY when the draft is itself an abstention (the
+    first pass found nothing usable, so a deeper retrieval is worth a try) or
+    when the composite quality floor is genuinely breached. Otherwise we keep
+    the grounded draft (``declare_partial``), matching the classic path that
+    does not self-correct grounded answers.
+    """
+    try:
+        comp = float(composite) if composite is not None else None
+    except (TypeError, ValueError):
+        comp = None
+    if draft_is_abstention:
+        return "escalate_deep"
+    if comp is not None and comp < 50 and mode != "deep":
+        return "escalate_deep"
+    return "declare_partial"
+
+
+async def _chat_self_correct_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Provider-neutral bounded self-correction reactor (LLM via ModelRouter).
+
+    Picks ONE action (escalate_deep|translate|declare_partial) and returns the
+    frozen §7 shape ``{answer, citations, action_taken}``.
+
+    KEY ANTI-HALLUCINATION RULE (C2): ``escalate_deep`` actually RE-RETRIEVES
+    (deep lane, original query, no narrowing) and re-grounds the answer on the
+    NEW context — or abstains if retrieval is still empty. It NEVER free-generates
+    a "better" answer from the draft alone (that turned honest abstentions into
+    confident fabrications). ``translate``/``declare_partial`` only transform the
+    existing grounded draft; they introduce no new facts.
+    """
+    ctx = ctx or {}
+    draft = str(payload.get("draft_answer") or payload.get("answer") or "")
+    query = str(payload.get("query") or "")
+    mode = _coerce_enum(payload.get("mode"), _PLAN_ENUMS["mode"], "balanced")
+    citations = payload.get("citations") if isinstance(payload.get("citations"), list) else []
+    composite = payload.get("composite")
+    hallucination_rate = payload.get("hallucination_rate")
+    lang_target = payload.get("lang_target")
+    answer_profile = payload.get("answer_profile")
+    scope_hint = payload.get("scope_hint")
+    model = _model_name(payload.get("model"), ctx.get("default_model"))
+    # Original (pre-correction) retrieval context, wired from join.retrieval.
+    # Kept so a deep re-retrieval can MERGE (never lose) carrier chunks the
+    # first pass already surfaced.
+    original_passages = _context_passages(payload.get("context"))
+    draft_is_abstention = _is_abstention(draft)
+
+    action = _pick_self_correct_action(
+        mode, composite, hallucination_rate, draft_is_abstention=draft_is_abstention
+    )
+
+    if action == "escalate_deep":
+        # Re-run retrieval on the DEEP lane (original query, no rewrite/narrowing)
+        # then re-ground on the MERGED context — never fabricate, never downgrade.
+        try:
+            search = await _semantic_search_v1(
+                {
+                    "query": query,
+                    "knowledge_scope": scope_hint,
+                    "latency_profile": "deep",
+                    "retrieval_profile": "deep_async",
+                    "deep_retrieval": True,
+                    # top_k / synthesis_k / candidate_pool_k are backfilled from
+                    # _LANE_BUDGETS["deep"] inside _semantic_search_v1 so the
+                    # re-retrieval truly uses the FULL deep budget (not a
+                    # collapsed lone-top_k pool).
+                },
+                ctx,
+            )
+            deep_passages = _context_passages(search.get("results"))
+        except Exception as exc:  # noqa: BLE001 — re-retrieval must never crash the DAG
+            logger.warning("chat_self_correct_v1: deep re-retrieval failed", error=str(exc))
+            deep_passages = []
+        # Merge so the deep lane can only ADD recall, never drop the carrier
+        # chunks the original (balanced) pass already had.
+        passages = _merge_passages(original_passages, deep_passages)
+        if not passages:
+            # Truly nothing anywhere — honest abstention beats a fabrication.
+            return {
+                "answer": _no_context_message(lang_target),
+                "citations": [],
+                "action_taken": "declare_partial",
+            }
+        grounded = await _llm_rag_answer_v1(
+            {
+                "query": query,
+                "context": [
+                    {
+                        "content": p["content"],
+                        "metadata": p.get("metadata") or {},
+                        "score": p.get("score"),
+                    }
+                    for p in passages
+                ],
+                "lang_target": lang_target,
+                "answer_profile": answer_profile,
+                "model": model,
+            },
+            ctx,
+        )
+        regrounded = grounded.get("answer") or ""
+        # NEVER downgrade: if the re-ground abstains but we already had a
+        # substantive grounded draft, keep the draft (and its citations).
+        if _is_abstention(regrounded) and not draft_is_abstention:
+            return {
+                "answer": draft,
+                "citations": citations,
+                "action_taken": "declare_partial",
+            }
+        return {
+            "answer": regrounded or _no_context_message(lang_target),
+            "citations": grounded.get("citations") or [],
+            "action_taken": "escalate_deep",
+        }
+
+    # translate / declare_partial — bounded transform of the EXISTING draft only.
+    prompt = _build_self_correct_prompt(
+        query, draft, action, composite, hallucination_rate, family=_ctx_workspace_family(ctx)
+    )
+    answer = draft
+    try:
+        completion = await _route_llm_complete(prompt, model, ctx)
+        parsed = _loads_lenient_json(completion)
+        if parsed:
+            candidate = parsed.get("answer")
+            if isinstance(candidate, str) and candidate.strip():
+                answer = candidate.strip()
+            action = _coerce_enum(parsed.get("action_taken"), _SELF_CORRECT_ACTIONS, action)
+        elif completion.strip():
+            # Model returned prose rather than JSON — still a valid transform.
+            answer = completion.strip()
+    except Exception as exc:  # noqa: BLE001 — degrade to the draft + a partial flag
+        logger.warning("chat_self_correct_v1: model call failed, declaring partial", error=str(exc))
+        action = "declare_partial"
+    return {
+        "answer": answer,
+        "citations": citations,
+        "action_taken": _coerce_enum(action, _SELF_CORRECT_ACTIONS, "declare_partial"),
+    }
+
+
+async def _response_eval_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Wrapper around ``ResponseEvaluator`` — SOURCE UNIQUE of the 0-100 composite.
+
+    OUT (frozen §7): ``{composite (0-100), hallucination_rate (0-1),
+    context_count (int), hhem, factuality, coherence}``. Reuses the existing
+    embedding evaluator (same call as the inline use in procurement_agent
+    ~1731-1768); no new metric is invented. The composite is the evaluator's
+    interpretable quality axes (relevance/factuality/coherence) averaged ×100,
+    and ``hallucination_rate`` is the complement of factuality (the evaluator
+    emits neither a single composite nor a hallucination field).
+    """
+    from app.services.metrics.evaluator import ResponseEvaluator
+
+    answer = str(payload.get("answer") or "")
+    query = str(payload.get("query") or "")
+    raw_context = payload.get("context_chunks")
+    if raw_context is None:
+        raw_context = payload.get("context")
+    if raw_context is None:
+        raw_context = payload.get("citations") or []
+    chunk_texts = _coerce_chunk_texts(raw_context)
+
+    metrics = await ResponseEvaluator().evaluate(
+        query=query, response=answer, source_chunks=chunk_texts
+    )
+    relevance = float(metrics.get("relevance") or 0.0)
+    factuality = float(metrics.get("factuality") or 0.0)
+    coherence = float(metrics.get("coherence") or 0.0)
+    hhem = float(metrics.get("hhem") or 0.0)
+
+    composite = round(((relevance + factuality + coherence) / 3.0) * 100.0, 2)
+    hallucination_rate = round(max(0.0, min(1.0, 1.0 - factuality)), 4)
+    return {
+        "composite": composite,
+        "hallucination_rate": hallucination_rate,
+        "context_count": len(chunk_texts),
+        "hhem": round(hhem, 4),
+        "factuality": round(factuality, 4),
+        "coherence": round(coherence, 4),
+    }
+
+
+async def _grounding_check_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Refuse a claim whose source id is absent from the retrieved evidence.
+
+    This is deliberately lexical and deterministic: it does not guess semantic
+    support. The upstream retriever owns recall; this gate owns the contract
+    that every published claim is bound to one of the passages actually read.
+    """
+    draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
+    claims = draft.get("claims") if isinstance(draft.get("claims"), list) else []
+    evidence = payload.get("evidence") if isinstance(payload.get("evidence"), list) else []
+    source_ids = {
+        str(item.get("id") or item.get("source_id") or "")
+        for item in evidence
+        if isinstance(item, dict)
+    }
+    source_ids.discard("")
+
+    violations: list[dict[str, Any]] = []
+    for index, claim in enumerate(claims):
+        if not isinstance(claim, dict):
+            claim = {}
+        source_id = str(claim.get("source_id") or "")
+        if not source_id or source_id not in source_ids:
+            violations.append(
+                {"claim_index": index, "code": "missing_source", "source_id": source_id}
+            )
+    return {"accepted": not violations, "violations": violations}
+
+
+def _typed_evaluation_answers(
+    questions: list[dict[str, Any]], *, composite: float | None, hallucination: float | None
+) -> dict[str, dict[str, Any]]:
+    answers: dict[str, dict[str, Any]] = {}
+    for question in questions:
+        key = str(question.get("key") or "")
+        if not key or key in answers:
+            continue
+        kind = str(question.get("type") or "score")
+        score = composite if composite is not None else 0.0
+        if kind == "choice":
+            choices = question.get("choices") if isinstance(question.get("choices"), list) else []
+            choices = [str(value) for value in choices if str(value).strip()]
+            if len(choices) < 2:
+                continue
+            threshold = float(question.get("threshold") or 70.0)
+            value = choices[0] if score >= threshold else choices[1]
+            answers[key] = {"value": value, "score": round(score, 2)}
+        elif kind == "probability":
+            probability = 1.0 - (hallucination if hallucination is not None else 1.0)
+            answers[key] = {
+                "value": round(max(0.0, min(1.0, probability)), 4),
+                "score": round(max(0.0, min(1.0, probability)), 4),
+            }
+        else:
+            minimum = float(question.get("minimum") or 0.0)
+            maximum = float(question.get("maximum") or 100.0)
+            span = max(0.0, maximum - minimum)
+            bounded = minimum + (max(0.0, min(100.0, score)) / 100.0) * span
+            answers[key] = {"value": round(bounded, 2), "score": round(bounded, 2)}
+    return answers
+
+
+async def _evaluate_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Run the native judge mid-flow and expose typed, routable verdicts."""
+    ctx = ctx or {}
+    workspace = None
+    if ctx.get("workspace_id"):
+        from app.db.base import SessionLocal
+        from app.models.workspace import Workspace as WorkspaceModel
+
+        lookup_session = SessionLocal()
+        try:
+            workspace = lookup_session.get(WorkspaceModel, str(ctx["workspace_id"]))
+        finally:
+            lookup_session.close()
+
+    result = await get_judge_service().evaluate(
+        query=str(payload.get("query") or ""),
+        response=str(payload.get("response") or ""),
+        context_chunks=[
+            str(chunk) for chunk in (payload.get("context_chunks") or []) if str(chunk).strip()
+        ],
+        workspace=workspace,
+        model_context=ctx,
+    )
+    questions = payload.get("questions") if isinstance(payload.get("questions"), list) else []
+    answers = _typed_evaluation_answers(
+        [item for item in questions if isinstance(item, dict)],
+        composite=result.get("composite_score"),
+        hallucination=result.get("hallucination_rate"),
+    )
+    output = {
+        "answers": answers,
+        "composite_score": result.get("composite_score"),
+        "hallucination_rate": result.get("hallucination_rate"),
+        "status": str(result.get("status") or "partial"),
+        "claim_audit": result.get("claim_audit") or {},
+        "judge_evaluation_id": result.get("id"),
+    }
+
+    run_id = ctx.get("run_id")
+    if run_id:
+        from app.db.base import SessionLocal
+        from app.models.evaluation import EvaluationScore
+        from app.models.run import Run
+
+        session = SessionLocal()
+        try:
+            run = session.get(Run, str(run_id))
+            if run is not None:
+                row = EvaluationScore(
+                    id=str(uuid.uuid4()),
+                    workspace_id=run.workspace_id,
+                    run_id=run.id,
+                    session_id=run.id,
+                    agent_id=run.system_id,
+                    turn_number=1,
+                    query=str(payload.get("query") or "")[:2000] or None,
+                    scores=result.get("scores") or {},
+                    composite_score=float(result.get("composite_score") or 0.0),
+                    hallucination_rate=float(result.get("hallucination_rate") or 0.0),
+                    drift_rate=result.get("drift_rate"),
+                    question_type=result.get("question_type"),
+                    failed_components=result.get("failed_components") or [],
+                    topic=result.get("topic"),
+                    claim_audit=result.get("claim_audit") or {},
+                    metadata_={
+                        **(result.get("metadata") or {}),
+                        "source": "evaluate_v1",
+                        "typed_answers": answers,
+                    },
+                    created_at=datetime.utcnow(),
+                )
+                session.add(row)
+                session.flush()
+                run.evaluation_scores = {
+                    "evaluation_id": row.id,
+                    "source": "evaluate_v1",
+                    "status": output["status"],
+                    "scores": row.scores,
+                    "composite_score": row.composite_score,
+                    "hallucination_rate": row.hallucination_rate,
+                    "answers": answers,
+                    "evaluated_at": row.created_at.isoformat(),
+                }
+                session.commit()
+                output["evaluation_id"] = row.id
+        finally:
+            session.close()
+    return output
+
+
+async def _publish_email_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Send email only after a settled human gate and only to members."""
+    import html as html_lib
+
+    from app.models.user import User
+    from app.models.workspace import WorkspaceMember
+    from app.services.email import send_email
+
+    recipients = [
+        str(value).strip().lower()
+        for value in (payload.get("recipients") or [])
+        if str(value).strip()
+    ]
+    if not recipients:
+        raise ValueError("publish_email_v1: at least one recipient is required")
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        member_emails = {
+            str(email).strip().lower()
+            for (email,) in db.query(User.email)
+            .join(WorkspaceMember, WorkspaceMember.user_id == User.id)
+            .filter(
+                WorkspaceMember.workspace_id == workspace.id,
+                User.email.in_(recipients),
+            )
+            .all()
+        }
+    finally:
+        if owns_db:
+            db.close()
+    unknown = sorted(set(recipients) - member_emails)
+    if unknown:
+        raise ValueError("publish_email_v1: recipient is not a workspace member")
+
+    subject = str(payload.get("subject") or "").strip()
+    body = str(payload.get("body_text") or "")
+    if not subject or not body:
+        raise ValueError("publish_email_v1: subject and body_text are required")
+    if not (ctx or {}).get("hitl_approved"):
+        return {"status": "held", "sent": False, "recipients": recipients}
+
+    html = html_lib.escape(body).replace("\n", "<br>")
+    for recipient in recipients:
+        delivered = await send_email(recipient, subject, html, body)
+        if not delivered:
+            raise ValueError("publish_email_v1: email_delivery_failed")
+    return {"status": "sent", "sent": True, "recipients": recipients}
+
+
+async def _role_agent_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Run one role prompt and return only its JSON object."""
+    import json as json_lib
+
+    role = str(payload.get("role") or "").strip()
+    instruction = str(payload.get("instruction") or "").strip()
+    body = str(payload.get("body") or payload.get("prompt") or payload.get("transcript") or "")
+    contract = (
+        payload.get("output_contract") if isinstance(payload.get("output_contract"), dict) else {}
+    )
+    if not role or not instruction:
+        raise ValueError("role_agent_v1: role and instruction are required")
+
+    prompt = "\n\n".join(
+        [
+            f"Role: {role}",
+            f"Instruction: {instruction}",
+            f"Input:\n{body}" if body else "",
+            "Return one JSON object, no prose and no code fence, matching this contract:",
+            json_lib.dumps(contract, sort_keys=True, separators=(",", ":")),
+        ]
+    ).strip()
+    result = await _workspace_llm_v1({"prompt": prompt}, ctx)
+    completion = str(result.get("completion") or "").strip()
+    if completion.startswith("```"):
+        completion = completion[completion.find("{") : completion.rfind("}") + 1]
+    try:
+        parsed = json_lib.loads(completion)
+    except json_lib.JSONDecodeError as exc:
+        raise ValueError("role_agent_v1: model did not return JSON") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("role_agent_v1: model output must be a JSON object")
+    return parsed
+
+
+# ---------------------------------------------------------------------------
+# Line-item reconciliation suite (spreadsheet/invoice extract, reconcile, report)
+# ---------------------------------------------------------------------------
+def _file_reference_payload(payload: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
+    """Backfill file references from the run input when the node has no binding.
+
+    The ingress payload (``deposit.promoted`` event, manual run, cron) carries
+    ``file_ids`` / ``collection_slug``; letting the extractors read them from
+    ``ctx["input"]`` means the same graph serves all three ingress without an
+    explicit ``inputs_map`` on every node. Explicit payload keys always win.
+    """
+    merged: dict[str, Any] = {}
+    run_input = ctx.get("input")
+    if isinstance(run_input, dict):
+        for key in ("file_ids", "file_id", "collection_slug", "filename_pattern"):
+            if run_input.get(key) not in (None, "", []):
+                merged[key] = run_input[key]
+    for key, value in payload.items():
+        if value not in (None, "", []):
+            merged[key] = value
+    return merged
+
+
+async def _spreadsheet_table_extract_v1(
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    from app.db.base import SessionLocal
+    from app.services.reconciliation import extract_spreadsheet_table
+    from app.services.skills_registry.file_resolution import resolve_skill_file
+
+    ctx = ctx or {}
+    db = ctx.get("db")
+    owns_db = db is None
+    if owns_db:
+        db = SessionLocal()
+    try:
+        resolved = resolve_skill_file(
+            db,
+            workspace_id=str(ctx.get("workspace_id") or payload.get("workspace_id") or ""),
+            payload=_file_reference_payload(payload, ctx),
+            extensions=(".xlsx", ".xlsm"),
+        )
+    finally:
+        if owns_db:
+            db.close()
+    result = extract_spreadsheet_table(
+        resolved.data,
+        sheet=payload.get("sheet"),
+        header_row=payload.get("header_row"),
+        filters=payload.get("filters") if isinstance(payload.get("filters"), dict) else None,
+    )
+    result["source_file"] = resolved.filename
+    return result
+
+
+async def _invoice_document_extract_v1(
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    from app.db.base import SessionLocal
+    from app.services.reconciliation import extract_invoice_fields, extract_pdf_text
+    from app.services.skills_registry.file_resolution import resolve_skill_file
+
+    ctx = ctx or {}
+    db = ctx.get("db")
+    owns_db = db is None
+    if owns_db:
+        db = SessionLocal()
+    try:
+        resolved = resolve_skill_file(
+            db,
+            workspace_id=str(ctx.get("workspace_id") or payload.get("workspace_id") or ""),
+            payload=_file_reference_payload(payload, ctx),
+            extensions=(".pdf",),
+        )
+    finally:
+        if owns_db:
+            db.close()
+    result = extract_invoice_fields(extract_pdf_text(resolved.data))
+    result["source_file"] = resolved.filename
+    return result
+
+
+async def _line_items_reconcile_v1(
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    from app.services.reconciliation import reconcile_line_items
+
+    po_lines = payload.get("po_lines")
+    invoice_lines = payload.get("invoice_lines")
+    if not isinstance(po_lines, list) or not isinstance(invoice_lines, list):
+        raise ValueError(
+            "line_items_reconcile_v1: 'po_lines' and 'invoice_lines' arrays are required"
+        )
+    try:
+        tolerance_pct = float(payload.get("tolerance_pct") or 2.0)
+    except (TypeError, ValueError):
+        tolerance_pct = 2.0
+    return reconcile_line_items(
+        po_lines,
+        invoice_lines,
+        po_reference=payload.get("po_reference"),
+        tolerance_pct=tolerance_pct,
+        po_field_map=payload.get("po_field_map")
+        if isinstance(payload.get("po_field_map"), dict)
+        else None,
+        invoice_field_map=payload.get("invoice_field_map")
+        if isinstance(payload.get("invoice_field_map"), dict)
+        else None,
+    )
+
+
+async def _reconciliation_report_v1(
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    from app.services.reconciliation import render_reconciliation_report
+
+    reconciliation = payload.get("reconciliation")
+    if not isinstance(reconciliation, dict):
+        raise ValueError("reconciliation_report_v1: 'reconciliation' object is required")
+    verdict = str(payload.get("verdict") or "").strip()
+    if verdict not in ("Approved", "Needs Review"):
+        verdict = "Approved" if not reconciliation.get("flagged_count") else "Needs Review"
+    report_text = render_reconciliation_report(
+        reconciliation,
+        verdict,
+        payload.get("invoice_meta") if isinstance(payload.get("invoice_meta"), dict) else None,
+    )
+    return {
+        "report_text": report_text,
+        "verdict": verdict,
+        "flagged_count": int(reconciliation.get("flagged_count") or 0),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Registry
+# ---------------------------------------------------------------------------
+# (slug -> (callable, expected_module_path|None, status_hint))
+# ``expected_module_path`` is the module whose import must succeed for
+# the wrapper to be considered `bound`. A ``None`` path means the
+# wrapper is self-contained (loggers, stubs, in-process helpers).
+_REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
+    "llm_rag_answer_v1": (_llm_rag_answer_v1, "app.services.rag.rag_service", "bound"),
+    "semantic_search_v1": (_semantic_search_v1, "app.services.rag.context", "bound"),
+    "multi_hop_retrieve_v1": (
+        _multi_hop_retrieve_v1,
+        "app.services.rag.comparative_retrieval",
+        "bound",
+    ),
+    "chat_trivial_bypass_v1": (_chat_trivial_bypass_v1, None, "bound"),
+    "chat_grounding_policy_v1": (_stub, None, "stub"),
+    "chat_action_resolver_v1": (_stub, None, "stub"),
+    "document_ingestion_v1": (_document_ingestion_v1, "app.services.rag.document_service", "bound"),
+    "eval_radar_v1": (_eval_radar_v1, "app.services.evaluation.judge", "bound"),
+    "claim_audit_v1": (_claim_audit_v1, "app.services.evaluation.judge", "bound"),
+    "intelligence_batch_v1": (_intelligence_batch_v1, "app.services.intelligence.batch", "bound"),
+    "ministerial_briefing_v1": (_ministerial_briefing_v1, "app.services.mission_room", "bound"),
+    "news_signal_synthesis_v1": (_news_signal_synthesis_v1, "app.services.mission_room", "bound"),
+    "project_risk_explainer_v1": (_project_risk_explainer_v1, "app.services.mission_room", "bound"),
+    "territorial_signal_map_v1": (_territorial_signal_map_v1, "app.services.mission_room", "bound"),
+    "instruction_draft_v1": (_instruction_draft_v1, "app.services.mission_room", "bound"),
+    "scenario_generate_v1": (_scenario_generate_v1, "app.services.scenario_engine", "bound"),
+    "scenario_compare_v1": (_scenario_compare_v1, "app.services.scenario_engine", "bound"),
+    "scenario_recommend_v1": (_scenario_recommend_v1, "app.services.scenario_engine", "bound"),
+    "calendar_read_v1": (_calendar_read_v1, "app.services.workspace_calendar", "bound"),
+    "sap_hana_query_v1": (
+        _sap_hana_query_v1,
+        "app.services.connectors.hana.service",
+        "bound",
+    ),
+    "rpa_dispatch_v1": (
+        _rpa_dispatch_v1,
+        "app.services.connectors.rpa.service",
+        "bound",
+    ),
+    "mcp_call_v1": (
+        _mcp_call_v1,
+        "app.services.connectors.mcp.client",
+        "bound",
+    ),
+    "sap_list_approved_prs_v1": (
+        _sap_list_approved_prs_v1,
+        "app.services.connectors.mcp.client",
+        "bound",
+    ),
+    "sap_check_budget_v1": (
+        _sap_check_budget_v1,
+        "app.services.connectors.mcp.client",
+        "bound",
+    ),
+    "sap_get_justification_v1": (
+        _sap_get_justification_v1,
+        "app.services.connectors.mcp.client",
+        "bound",
+    ),
+    "sap_reject_pr_v1": (
+        _sap_reject_pr_v1,
+        "app.services.connectors.mcp.client",
+        "bound",
+    ),
+    "hikma_list_pos_by_type_v1": (
+        _hikma_list_pos_by_type_v1,
+        "app.services.connectors.mcp.client",
+        "bound",
+    ),
+    "sap_create_po_v1": (
+        _sap_create_po_v1,
+        "app.services.connectors.mcp.client",
+        "bound",
+    ),
+    "sap_handle_rejection_v1": (
+        _sap_handle_rejection_v1,
+        "app.services.connectors.mcp.client",
+        "bound",
+    ),
+    "python_recipe_v1": (
+        _python_recipe_v1,
+        "app.services.recipe_executions",
+        "bound",
+    ),
+    "system_run_read_v1": (
+        _system_run_read_v1,
+        "app.services.system_runs",
+        "bound",
+    ),
+    "sql_transform_v1": (
+        _sql_transform_v1,
+        "app.services.tabular_transforms",
+        "bound",
+    ),
+    "polars_transform_v1": (
+        _polars_transform_v1,
+        "app.services.tabular_polars",
+        "bound",
+    ),
+    "dbt_transform_v1": (
+        _dbt_transform_v1,
+        "app.services.tabular_dbt",
+        "bound",
+    ),
+    "hf_dataset_import_v1": (
+        _hf_dataset_import_v1,
+        "app.services.huggingface.datasets",
+        "bound",
+    ),
+    "llm_label_dataset_v1": (
+        _llm_label_dataset_v1,
+        "app.services.llm_dataset_labeling",
+        "bound",
+    ),
+    "ml_train_sklearn_v1": (
+        _ml_train_sklearn_v1,
+        "app.services.tabular_ml",
+        "bound",
+    ),
+    "ml_monitor_model_v1": (_ml_monitor_model_v1, "app.services.ml_retraining", "bound"),
+    "ml_evaluation_review_v1": (
+        _ml_evaluation_review_v1,
+        "app.services.ml_evaluation_review",
+        "bound",
+    ),
+    "ml_problem_frame_v1": (_ml_problem_frame_v1, "app.services.ml_methodology", "bound"),
+    "ml_experiment_plan_v1": (_ml_experiment_plan_v1, "app.services.ml_methodology", "bound"),
+    "ml_retrain_model_v1": (_ml_retrain_model_v1, "app.services.ml_retraining", "bound"),
+    "ml_predict_v1": (
+        _ml_predict_v1,
+        "app.services.tabular_predict",
+        "bound",
+    ),
+    "ml_batch_score_v1": (
+        _ml_batch_score_v1,
+        "app.services.tabular_predict",
+        "bound",
+    ),
+    "ml_forecast_v1": (
+        _ml_forecast_v1,
+        "app.services.ml.forecast_serving",
+        "bound",
+    ),
+    "calendar_create_event_v1": (
+        _calendar_create_event_v1,
+        "app.services.workspace_calendar",
+        "bound",
+    ),
+    "calendar_update_event_v1": (
+        _calendar_update_event_v1,
+        "app.services.workspace_calendar",
+        "bound",
+    ),
+    "calendar_cancel_event_v1": (
+        _calendar_cancel_event_v1,
+        "app.services.workspace_calendar",
+        "bound",
+    ),
+    "calendar_daily_summary_v1": (
+        _calendar_daily_summary_v1,
+        "app.services.workspace_calendar",
+        "bound",
+    ),
+    "action_plan_create_v1": (_action_plan_create_v1, "app.services.action_plans", "bound"),
+    "action_plan_reschedule_v1": (_action_plan_reschedule_v1, "app.services.action_plans", "bound"),
+    "action_plan_status_v1": (_action_plan_status_v1, "app.services.action_plans", "bound"),
+    "action_plan_cancel_v1": (_action_plan_cancel_v1, "app.services.action_plans", "bound"),
+    "time_context_set_v1": (_time_context_set_v1, "app.services.demo_time_context", "bound"),
+    "briefing_priorities_v1": (_briefing_priorities_v1, "app.services.mission_room", "bound"),
+    "summarize_long_document_v1": (
+        _summarize_long_document_v1,
+        "app.services.mission_room",
+        "bound",
+    ),
+    "generate_recommendations_v1": (
+        _generate_recommendations_v1,
+        "app.services.mission_room",
+        "bound",
+    ),
+    "draft_email_v1": (_draft_email_v1, "app.services.mission_room", "bound"),
+    "causal_drill_v1": (_causal_drill_v1, "app.services.mission_room", "bound"),
+    "schedule_meeting_v1": (_schedule_meeting_v1, "app.services.workspace_calendar", "bound"),
+    "territorial_action_window_v1": (
+        _territorial_action_window_v1,
+        "app.services.mission_room",
+        "bound",
+    ),
+    "map_layer_read_v1": (_map_layer_read_v1, "app.services.workspace_maps", "bound"),
+    "map_zone_score_v1": (_map_zone_score_v1, "app.services.workspace_maps", "bound"),
+    "map_signal_attach_v1": (_map_signal_attach_v1, "app.services.workspace_maps", "bound"),
+    "map_recommendation_generate_v1": (
+        _map_recommendation_generate_v1,
+        "app.services.workspace_maps",
+        "bound",
+    ),
+    "map_command_apply_v1": (_map_command_apply_v1, "app.services.workspace_maps", "bound"),
+    "source_registry_refresh_v1": (
+        _source_registry_refresh_v1,
+        "app.services.mission_room",
+        "bound",
+    ),
+    "osint_signal_prioritize_v1": (
+        _osint_signal_prioritize_v1,
+        "app.services.mission_room",
+        "bound",
+    ),
+    "rumor_origin_trace_v1": (_rumor_origin_trace_v1, "app.services.mission_room", "bound"),
+    "evidence_graph_build_v1": (_evidence_graph_build_v1, "app.services.mission_room", "bound"),
+    "situation_posture_score_v1": (
+        _situation_posture_score_v1,
+        "app.services.mission_room",
+        "bound",
+    ),
+    "maritime_snapshot_read_v1": (
+        _maritime_snapshot_read_v1,
+        "app.services.workspace_maps",
+        "bound",
+    ),
+    "decision_option_rank_v1": (_decision_option_rank_v1, "app.services.mission_room", "bound"),
+    "draft_response_email_v1": (_draft_response_email_v1, "app.services.mission_room", "bound"),
+    "visual_source_read_v1": (_visual_source_read_v1, "app.services.visual_intelligence", "bound"),
+    "visual_snapshot_capture_v1": (
+        _visual_snapshot_capture_v1,
+        "app.services.visual_intelligence",
+        "bound",
+    ),
+    "visual_snapshot_analyze_v1": (
+        _visual_snapshot_analyze_v1,
+        "app.services.visual_intelligence",
+        "bound",
+    ),
+    "visual_observation_sync_knowledge_v1": (
+        _visual_observation_sync_knowledge_v1,
+        "app.services.visual_intelligence",
+        "bound",
+    ),
+    "sharepoint_ingestion_v1": (_sharepoint_ingestion_v1, None, "stub"),
+    "translation_archive_ingest_v1": (_translation_showcase_stub, None, "stub"),
+    "translation_memory_retrieve_v1": (_translation_showcase_stub, None, "stub"),
+    "translation_label_index_resolve_v1": (_translation_showcase_stub, None, "stub"),
+    "translation_pivot_normalize_v1": (_translation_showcase_stub, None, "stub"),
+    "translation_fanout_v1": (_translation_showcase_stub, None, "stub"),
+    "translation_j2450_qa_v1": (_translation_showcase_stub, None, "stub"),
+    "translation_post_guard_v1": (_translation_showcase_stub, None, "stub"),
+    "translation_cdt_gate_v1": (_translation_showcase_stub, None, "stub"),
+    "translation_package_delivery_v1": (_translation_showcase_stub, None, "stub"),
+    "voice_transcribe_v1": (_voice_transcribe_v1, "app.services.voice_runtime", "bound"),
+    "voice_tts_v1": (_voice_tts_v1, "app.services.voice_runtime", "bound"),
+    "voice_realtime_session_v1": (
+        _voice_realtime_session_v1,
+        "app.services.voice_runtime",
+        "bound",
+    ),
+    "voice_realtime_transcribe_v1": (
+        _voice_realtime_transcribe_v1,
+        "app.services.voice_runtime",
+        "bound",
+    ),
+    "voice_realtime_speak_v1": (_voice_realtime_speak_v1, "app.services.voice_runtime", "bound"),
+    "voice_realtime_translate_v1": (
+        _voice_realtime_translate_v1,
+        "app.services.voice_runtime",
+        "bound",
+    ),
+    "voice_oracle_turn_v1": (_voice_oracle_turn_v1, "app.services.knowledge_capture", "bound"),
+    "voice_tandem_oracle_v1": (
+        _voice_tandem_oracle_v1,
+        "app.services.voice_tandem_oracle",
+        "bound",
+    ),
+    "knowledge_gap_analysis_v1": (
+        _knowledge_gap_analysis_v1,
+        "app.services.knowledge_capture",
+        "bound",
+    ),
+    "expert_interview_plan_v1": (
+        _expert_interview_plan_v1,
+        "app.services.knowledge_capture",
+        "bound",
+    ),
+    "expert_answer_evaluator_v1": (
+        _expert_answer_evaluator_v1,
+        "app.services.knowledge_capture",
+        "bound",
+    ),
+    "capture_structuring_v1": (_capture_structuring_v1, "app.services.knowledge_capture", "bound"),
+    "audit_log_v1": (_audit_log_v1, None, "bound"),
+    "ollama_llm_v1": (_ollama_llm_v1, "app.services.model_clients.ollama_client", "bound"),
+    "azure_llm_v1": (_azure_llm_v1, "app.services.model_clients.openai_client", "bound"),
+    "openai_llm_v1": (_openai_llm_v1, "app.services.model_clients.openai_client", "bound"),
+    "azure_openai_llm_v1": (
+        _azure_openai_llm_v1,
+        "app.services.model_clients.azure_openai_client",
+        "bound",
+    ),
+    "workspace_llm_v1": (_workspace_llm_v1, "app.services.model_plane.execution", "bound"),
+    "chain_naive_v1": (_chain_naive_v1, "app.services.rag.chains.naive", "bound"),
+    "chain_hybrid_v1": (_chain_hybrid_v1, "app.services.rag.chains.hybrid", "bound"),
+    "chain_mixed_hah_v1": (_chain_mixed_hah_v1, "app.services.rag.chains.mixed_hah", "bound"),
+    "decide_next_v1": (_decide_next_v1, "app.services.model_router", "bound"),
+    "skill_search_v1": (_skill_search_v1, None, "bound"),
+    "chat_agentic_plan_v1": (_chat_agentic_plan_v1, "app.services.model_router", "bound"),
+    "chat_self_correct_v1": (_chat_self_correct_v1, "app.services.model_router", "bound"),
+    "response_eval_v1": (_response_eval_v1, "app.services.metrics.evaluator", "bound"),
+    "grounding_check_v1": (_grounding_check_v1, None, "bound"),
+    "evaluate_v1": (_evaluate_v1, "app.services.evaluation.judge", "bound"),
+    "publish_email_v1": (_publish_email_v1, "app.services.email", "bound"),
+    "role_agent_v1": (_role_agent_v1, "app.services.model_plane.execution", "bound"),
+    "spreadsheet_table_extract_v1": (
+        _spreadsheet_table_extract_v1,
+        "app.services.reconciliation",
+        "bound",
+    ),
+    "invoice_document_extract_v1": (
+        _invoice_document_extract_v1,
+        "app.services.reconciliation",
+        "bound",
+    ),
+    "line_items_reconcile_v1": (
+        _line_items_reconcile_v1,
+        "app.services.reconciliation",
+        "bound",
+    ),
+    "reconciliation_report_v1": (
+        _reconciliation_report_v1,
+        "app.services.reconciliation",
+        "bound",
+    ),
+}
+
+
+def _claim_tool(mode: str):
+    async def call(payload, ctx=None):
+        from app.services.ecommerce_claims import invoke
+
+        return await invoke(mode, payload, ctx)
+
+    return call
+
+
+async def _ecommerce_sla_features_v1(payload, ctx=None):
+    from app.services.ecommerce_triage import invoke
+
+    return await invoke(payload, ctx)
+
+
+async def _ecommerce_sla_dataset_v1(payload, ctx=None):
+    from app.services.ecommerce_triage import invoke
+
+    return await invoke(payload, ctx, batch=True)
+
+
+_REGISTRY["ecommerce_sla_features_v1"] = (
+    _ecommerce_sla_features_v1,
+    "app.services.ecommerce_triage",
+    "bound",
+)
+_REGISTRY["ecommerce_sla_dataset_v1"] = (
+    _ecommerce_sla_dataset_v1,
+    "app.services.ecommerce_triage",
+    "bound",
+)
+
+
+async def _ecommerce_sav_dataset_v1(payload, ctx=None):
+    from app.services.ecommerce_composition import invoke_dataset
+
+    return await invoke_dataset(payload, ctx)
+
+
+async def _ecommerce_sav_context_v1(payload, ctx=None):
+    from app.services.ecommerce_composition import invoke_context
+
+    return await invoke_context(payload, ctx)
+
+
+_REGISTRY["ecommerce_sav_dataset_v1"] = (
+    _ecommerce_sav_dataset_v1,
+    "app.services.ecommerce_composition",
+    "bound",
+)
+_REGISTRY["ecommerce_sav_context_v1"] = (
+    _ecommerce_sav_context_v1,
+    "app.services.ecommerce_composition",
+    "bound",
+)
+
+
+_REGISTRY.update(
+    {
+        slug: (_claim_tool(mode), "app.services.ecommerce_claims", "bound")
+        for mode, slug in {
+            "snapshot": "postgresql_claim_snapshot_v1",
+            "policy": "ecommerce_policy_evidence_v1",
+            "delivery": "ecommerce_delivery_evidence_v1",
+            "refund": "ecommerce_refund_evidence_v1",
+            "propose": "ecommerce_resolution_propose_v1",
+            "simulate": "ecommerce_resolution_simulate_v1",
+        }.items()
+    }
+)
+
+_RESOLVED_STATUS: dict[str, str] = {}
+
+
+def resolve(slug: str) -> SkillCallable:
+    """Return the runtime callable bound to a seeded skill slug.
+
+    Fail-closed, in two different ways because the two mistakes differ.
+    Resolution used to hand back a callable that raised only once awaited, so
+    the failure surfaced as a node the walker had already committed to running.
+
+    An unknown seeded slug raises ``NotImplementedError``: nothing was ever
+    declared for it, which the walker records as a skipped node. A
+    workspace-namespaced slug raises instead, because reaching here means a
+    caller skipped executor resolution entirely — its runtime binding lives on
+    the Skill row (cf. :func:`app.services.skills_registry.executors.bind_executor`)
+    and treating that as "not declared" would turn a dispatch bug into a quietly
+    skipped node.
+    """
+    if is_workspace_skill_slug(slug):
+        raise SkillBindingError(
+            code="workspace_skill_requires_executor",
+            message=(
+                f"{slug} is a workspace-defined Skill and has no registry wrapper; "
+                "it must be resolved through its verified executor binding."
+            ),
+        )
+    entry = _REGISTRY.get(slug)
+    if entry is None:
+        raise NotImplementedError(
+            f"No runtime wrapper is bound to {slug!r}. Add it to `_REGISTRY` in "
+            "`skills_registry/wrappers.py` or mark it as a stub."
+        )
+    return entry[0]
+
+
+def runtime_status(slug: str) -> str:
+    """Return ``bound`` | ``stub`` | ``unbound`` for a slug.
+
+    Evaluates the dependency import on first call so we catch missing
+    modules without forcing eager imports at startup.
+    """
+    if slug in _RESOLVED_STATUS:
+        return _RESOLVED_STATUS[slug]
+    entry = _REGISTRY.get(slug)
+    if entry is None:
+        _RESOLVED_STATUS[slug] = "unbound"
+        return "unbound"
+    _, module_path, hint = entry
+    if module_path is None:
+        _RESOLVED_STATUS[slug] = hint
+        return hint
+    try:
+        importlib.import_module(module_path)
+        _RESOLVED_STATUS[slug] = "bound"
+        return "bound"
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "skills_registry: dependency import failed — marking stub",
+            slug=slug,
+            module=module_path,
+            error=str(exc),
+        )
+        _RESOLVED_STATUS[slug] = "stub"
+        return "stub"
+
+
+def bound_slugs() -> dict[str, str]:
+    """Return `{slug: status}` for every registered skill (tri-state)."""
+    return {slug: runtime_status(slug) for slug in _REGISTRY}
+
+
+def registry_snapshot() -> dict[str, dict[str, Any]]:
+    """Richer report for admin / observability endpoints."""
+    snap: dict[str, dict[str, Any]] = {}
+    for slug, (_fn, module_path, hint) in _REGISTRY.items():
+        snap[slug] = {
+            "status": runtime_status(slug),
+            "declared_status": hint,
+            "module": module_path,
+        }
+    return snap

@@ -1,0 +1,591 @@
+"""API surface for /datasets."""
+
+from __future__ import annotations
+
+import io
+from uuid import uuid4
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from app.api.v1.endpoints import datasets as datasets_api
+from app.core.config import settings
+from app.models.tabular import TabularDataset
+from app.models.user import User
+from app.models.workspace import Workspace
+
+pl = pytest.importorskip("polars")
+
+CSV = (
+    "customer_id,tenure_months,monthly_charges,contract,churn\n"
+    "C1,12,45.5,monthly,true\n"
+    "C2,36,80.25,yearly,false\n"
+)
+
+
+@pytest.fixture()
+def workspace(db_session) -> Workspace:
+    ws = Workspace(
+        id=str(uuid4()),
+        name="Datasets API",
+        slug=f"datasets-api-{uuid4().hex[:8]}",
+        settings={},
+    )
+    db_session.add(ws)
+    db_session.commit()
+    return ws
+
+
+@pytest.fixture()
+def user(db_session) -> User:
+    token = uuid4().hex[:8]
+    row = User(
+        id=str(uuid4()),
+        username=f"datasets-{token}",
+        email=f"datasets-{token}@example.invalid",
+        role="user",
+    )
+    db_session.add(row)
+    db_session.commit()
+    return row
+
+
+@pytest.fixture()
+def client(db_session, workspace, user, tmp_path, monkeypatch) -> TestClient:
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))
+    # Eager mode keeps the ingest inline so the API test observes the settled row.
+    monkeypatch.setattr(settings, "worker_eager_mode", True)
+    app = FastAPI()
+    app.include_router(datasets_api.router, prefix="/datasets")
+    app.dependency_overrides[datasets_api.get_current_workspace] = lambda: workspace
+    app.dependency_overrides[datasets_api.get_current_user] = lambda: user
+    app.dependency_overrides[datasets_api.get_db] = lambda: db_session
+    return TestClient(app)
+
+
+def _upload(client, *, name="Churn export", filename="churn.csv", payload=None):
+    return client.post(
+        "/datasets/upload",
+        files={
+            "file": (filename, io.BytesIO(payload or CSV.encode()), "text/csv"),
+        },
+        data={"name": name},
+    )
+
+
+def test_upload_ingests_and_exposes_the_settled_dataset(client):
+    response = _upload(client)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["queued"] is False  # eager mode ran it inline
+    dataset = body["dataset"]
+    assert dataset["status"] == "ready"
+    assert dataset["row_count"] == 2 and dataset["column_count"] == 5
+    assert dataset["source"] == "upload"
+    assert {col["name"] for col in dataset["schema"]} == {
+        "customer_id",
+        "tenure_months",
+        "monthly_charges",
+        "contract",
+        "churn",
+    }
+    # List payloads stay light: no preview rows, no per-column profile.
+    assert "preview" not in dataset
+
+
+def test_detail_returns_preview_stats_versions_and_lineage(client, db_session, workspace):
+    first = _upload(client).json()["dataset"]
+    second = _upload(client).json()["dataset"]
+
+    response = client.get(f"/datasets/{second['id']}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["dataset"]["preview"]
+    assert body["dataset"]["stats"]["contract"]["top_values"]
+    # Same name uploaded twice ⇒ two versions of one logical table.
+    assert [row["version"] for row in body["versions"]] == [2, 1]
+    assert body["lineage"] == {"parents": [], "children": []}
+    assert body["used_by"] == {"models": [], "systems": []}
+    assert first["slug"] == second["slug"]
+
+
+def test_detail_lists_models_and_systems_that_use_the_dataset(
+    client, db_session, workspace
+):
+    """L20b « Utilisé par »: models trained here, and the System that authored it."""
+
+    from uuid import uuid4
+
+    from app.models.system import System
+    from app.models.tabular import MLModel, TabularDataset
+
+    dataset = _upload(client).json()["dataset"]
+    system = System(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name="Qualité commandes",
+        objective="",
+    )
+    db_session.add(system)
+    db_session.flush()
+    row = db_session.query(TabularDataset).filter(TabularDataset.id == dataset["id"]).one()
+    row.system_id = system.id
+    db_session.add(
+        MLModel(
+            id=str(uuid4()),
+            workspace_id=workspace.id,
+            name="Prévision retards",
+            slug="prevision-retards",
+            version=3,
+            task="classification",
+            algo="gradient_boosting",
+            target="en_retard",
+            features=["delai"],
+            status="ready",
+            is_champion=True,
+            dataset_id=dataset["id"],
+            system_id=system.id,
+        )
+    )
+    db_session.commit()
+
+    body = client.get(f"/datasets/{dataset['id']}").json()
+    assert [model["slug"] for model in body["used_by"]["models"]] == ["prevision-retards"]
+    assert body["used_by"]["models"][0]["is_champion"] is True
+    assert body["used_by"]["systems"] == [{"id": system.id, "name": "Qualité commandes"}]
+
+
+def test_a_reader_can_page_past_the_rows_the_ingest_cached(client, db_session, workspace):
+    """The cache answers the page load; the Parquet answers "show me more"."""
+
+    from app.services.tabular_datasets import register_frame
+
+    wide = register_frame(
+        db_session,
+        workspace_id=workspace.id,
+        name="Cell KPIs",
+        frame=pl.DataFrame({"i": list(range(120)), "kpi": [n / 4 for n in range(120)]}),
+    )
+    db_session.commit()
+
+    first = client.get(f"/datasets/{wide.id}/preview", params={"limit": 10})
+    later = client.get(f"/datasets/{wide.id}/preview", params={"offset": 100, "limit": 10})
+
+    assert first.status_code == 200 and later.status_code == 200
+    head, tail = first.json(), later.json()
+    assert [row["i"] for row in head["rows"]] == list(range(10))
+    # Row 100 is a fact the fifty cached rows cannot answer, and this reads it.
+    assert [row["i"] for row in tail["rows"]] == list(range(100, 110))
+    assert tail["total"] == 120 and tail["offset"] == 100
+    # The window carries the schema, so a caller can render it without the detail.
+    assert [col["name"] for col in tail["schema"]] == ["i", "kpi"]
+
+
+def test_paging_one_step_too_far_is_an_empty_page_not_an_error(
+    client, db_session, workspace
+):
+    from app.services.tabular_datasets import register_frame
+
+    small = register_frame(
+        db_session,
+        workspace_id=workspace.id,
+        name="Two rows",
+        frame=pl.DataFrame({"i": [1, 2]}),
+    )
+    db_session.commit()
+
+    response = client.get(f"/datasets/{small.id}/preview", params={"offset": 50})
+
+    assert response.status_code == 200
+    assert response.json()["rows"] == []
+    assert response.json()["total"] == 2
+
+
+def test_a_page_cannot_be_asked_to_hold_the_whole_table(client, db_session, workspace):
+    """The read happens in the web process, so the window has a ceiling."""
+
+    from app.services.tabular_datasets import register_frame
+
+    rows = register_frame(
+        db_session,
+        workspace_id=workspace.id,
+        name="Ceiling",
+        frame=pl.DataFrame({"i": list(range(20))}),
+    )
+    db_session.commit()
+
+    response = client.get(f"/datasets/{rows.id}/preview", params={"limit": 100_000})
+
+    assert response.status_code == 200
+    assert response.json()["limit"] == settings.tabular_preview_page_max
+
+
+def test_paging_an_unsettled_dataset_says_so_instead_of_reading_nothing(client):
+    broken = _upload(client, filename="broken.csv", payload=b"a,b\n1,2\n3,4,5\n")
+    dataset_id = broken.json()["dataset"]["id"]
+
+    response = client.get(f"/datasets/{dataset_id}/preview")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "DATASET_NOT_READY"
+
+
+def test_detail_walks_the_lineage_both_ways(client, db_session, workspace):
+    from app.services.tabular_datasets import register_frame
+
+    parent = _upload(client).json()["dataset"]
+    child = register_frame(
+        db_session,
+        workspace_id=workspace.id,
+        name="Churn features",
+        frame=pl.DataFrame({"customer_id": ["C1"], "risk": [0.8]}),
+        produced_by="sql_transform_v1",
+        parent_ids=[parent["id"]],
+    )
+    db_session.commit()
+
+    upstream = client.get(f"/datasets/{child.id}").json()
+    downstream = client.get(f"/datasets/{parent['id']}").json()
+
+    assert [row["id"] for row in upstream["lineage"]["parents"]] == [parent["id"]]
+    assert [row["id"] for row in downstream["lineage"]["children"]] == [child.id]
+
+
+def test_list_is_workspace_scoped_and_hides_retired_rows(
+    client, db_session, workspace
+):
+    mine = _upload(client).json()["dataset"]
+    other_ws = Workspace(
+        id=str(uuid4()), name="Other", slug=f"other-{uuid4().hex[:8]}", settings={}
+    )
+    db_session.add(other_ws)
+    db_session.commit()
+    db_session.add(
+        TabularDataset(
+            id=str(uuid4()),
+            workspace_id=other_ws.id,
+            name="Foreign",
+            slug="foreign",
+            version=1,
+            source="upload",
+            status="ready",
+        )
+    )
+    db_session.commit()
+
+    listed = client.get("/datasets").json()
+    assert [row["id"] for row in listed["datasets"]] == [mine["id"]]
+    assert listed["feature"]["enabled"] is True
+
+    assert client.delete(f"/datasets/{mine['id']}").json()["dataset"]["status"] == (
+        "deleted"
+    )
+    assert client.get("/datasets").json()["datasets"] == []
+    # A retired dataset is gone from reads too, not just from the list.
+    assert client.get(f"/datasets/{mine['id']}").status_code == 404
+
+
+def test_unknown_and_cross_workspace_reads_are_404_with_a_code(client, db_session):
+    response = client.get(f"/datasets/{uuid4()}")
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "DATASET_NOT_FOUND"
+
+
+def test_upload_rejects_unsupported_formats_with_a_readable_code(client):
+    response = client.post(
+        "/datasets/upload",
+        files={"file": ("holiday.png", io.BytesIO(b"\x89PNG"), "image/png")},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "DATASET_FORMAT_UNSUPPORTED"
+
+
+def test_reingest_retries_a_failed_parse_without_a_new_upload(client, db_session):
+    broken = _upload(client, filename="broken.csv", payload=b"a,b\n1,2\n3,4,5\n")
+    dataset_id = broken.json()["dataset"]["id"]
+    assert broken.json()["dataset"]["status"] == "failed"
+
+    response = client.post(f"/datasets/{dataset_id}/reingest")
+
+    assert response.status_code == 200
+    # Still broken (same bytes), but the retry path works and reports a reason.
+    assert response.json()["dataset"]["status"] == "failed"
+    assert response.json()["dataset"]["error"]
+
+
+def test_sql_preview_returns_rows_stats_and_the_editor_source_catalog(client):
+    dataset = _upload(client).json()["dataset"]
+
+    response = client.post(
+        "/datasets/sql-preview",
+        json={
+            "sql": "SELECT contract, count(*) AS n FROM input GROUP BY 1 ORDER BY 1",
+            "sources": [{"view": "input", "dataset_id": dataset["id"]}],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["preview"]["row_count"] == 2
+    assert [col["name"] for col in body["preview"]["schema"]] == ["contract", "n"]
+    assert body["preview"]["duration_ms"] >= 0
+    # The catalog is what the editor autocompletes from.
+    assert body["sources"][0]["view"] == "input"
+    assert {col["name"] for col in body["sources"][0]["columns"]} >= {"contract"}
+
+
+def test_sql_preview_answers_with_the_catalog_before_a_statement_is_written(client):
+    """An empty editor still needs to know what it can autocomplete."""
+
+    dataset = _upload(client).json()["dataset"]
+
+    response = client.post(
+        "/datasets/sql-preview",
+        json={"sql": "", "sources": [{"dataset_id": dataset["id"]}]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["preview"] is None
+    assert response.json()["sources"][0]["rows"] == 2
+
+
+def test_sql_preview_surfaces_a_refusal_as_a_coded_error(client):
+    dataset = _upload(client).json()["dataset"]
+
+    response = client.post(
+        "/datasets/sql-preview",
+        json={
+            "sql": "DROP TABLE input",
+            "sources": [{"dataset_id": dataset["id"]}],
+        },
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["code"] == "SQL_FORBIDDEN_KEYWORD"
+    assert "DROP" in detail["message"]
+
+
+def test_sql_preview_without_a_source_says_what_to_do(client):
+    response = client.post("/datasets/sql-preview", json={"sql": "SELECT 1"})
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "TRANSFORM_NO_INPUT"
+
+
+def test_polars_preview_answers_with_the_catalog_before_a_script_is_written(client):
+    """The Python editor completes on `inputs[...]`, so it needs the frames."""
+
+    dataset = _upload(client).json()["dataset"]
+
+    response = client.post(
+        "/datasets/polars-preview",
+        json={"code": "", "sources": [{"dataset_id": dataset["id"]}]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["execution"] is None
+    assert response.json()["sources"][0]["rows"] == 2
+
+
+def test_polars_preview_dispatches_a_tracked_run_instead_of_answering_inline(
+    client, db_session, monkeypatch
+):
+    """Author-written Python only ever runs where the venv store is mounted, so
+    the API hands back a row to follow, not a result."""
+
+    dataset = _upload(client).json()["dataset"]
+    monkeypatch.setattr(settings, "worker_eager_mode", False)
+    monkeypatch.setattr(settings, "recipe_execution_enabled", True)
+    from app.workers.celery_app import celery_app
+
+    sent: list[tuple[str, tuple]] = []
+
+    class _Result:
+        id = "task-1"
+
+    monkeypatch.setattr(
+        celery_app,
+        "send_task",
+        lambda name, **kwargs: (sent.append((name, kwargs.get("args"))), _Result())[1],
+    )
+
+    response = client.post(
+        "/datasets/polars-preview",
+        json={
+            "code": "def transform(inputs):\n    return inputs['input']\n",
+            "sources": [{"view": "input", "dataset_id": dataset["id"]}],
+            "row_limit": 25,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["execution"]["status"] == "queued"
+    assert body["sources"][0]["view"] == "input"
+    assert sent and sent[0][0] == "agentium.tabular_polars_execute"
+    assert sent[0][1][0] == body["execution"]["id"]
+
+
+def test_polars_preview_refuses_a_disabled_plane_with_a_coded_error(
+    client, monkeypatch
+):
+    monkeypatch.setattr(settings, "recipe_execution_enabled", False)
+    dataset = _upload(client).json()["dataset"]
+
+    response = client.post(
+        "/datasets/polars-preview",
+        json={
+            "code": "def transform(inputs):\n    return inputs['input']\n",
+            "sources": [{"dataset_id": dataset["id"]}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "POLARS_EXECUTION_DISABLED"
+
+
+def test_polars_preview_without_a_source_says_what_to_do(client):
+    response = client.post(
+        "/datasets/polars-preview",
+        json={"code": "def transform(inputs):\n    return inputs['input']\n"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "TRANSFORM_NO_INPUT"
+
+
+def test_dbt_preview_answers_with_the_catalog_before_a_model_is_written(client):
+    """An empty project is the state of a freshly dropped node; the editor still
+    needs the relations its `source()` calls can address."""
+
+    dataset = _upload(client).json()["dataset"]
+
+    response = client.post(
+        "/datasets/dbt-preview",
+        json={
+            "models": [{"name": "stg_input", "sql": "   "}],
+            "sources": [{"dataset_id": dataset["id"]}],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["execution"] is None
+    assert response.json()["sources"][0]["rows"] == 2
+
+
+def test_dbt_preview_dispatches_a_tracked_run_instead_of_answering_inline(
+    client, db_session, monkeypatch
+):
+    """A dbt project compiles Jinja and runs adapter macros, so it executes
+    where the venv store is mounted: the API hands back a row to follow."""
+
+    dataset = _upload(client).json()["dataset"]
+    monkeypatch.setattr(settings, "worker_eager_mode", False)
+    monkeypatch.setattr(settings, "recipe_execution_enabled", True)
+    from app.workers.celery_app import celery_app
+
+    sent: list[tuple[str, tuple]] = []
+
+    class _Result:
+        id = "task-2"
+
+    monkeypatch.setattr(
+        celery_app,
+        "send_task",
+        lambda name, **kwargs: (sent.append((name, kwargs.get("args"))), _Result())[1],
+    )
+
+    response = client.post(
+        "/datasets/dbt-preview",
+        json={
+            "models": [
+                {"name": "stg_input", "sql": "select * from {{ source('inputs','input') }}"},
+                {"name": "mart_input", "sql": "select * from {{ ref('stg_input') }}"},
+            ],
+            "tests_yml": "version: 2\n",
+            "sources": [{"view": "input", "dataset_id": dataset["id"]}],
+            "row_limit": 25,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["execution"]["status"] == "queued"
+    assert body["sources"][0]["view"] == "input"
+    assert sent and sent[0][0] == "agentium.tabular_dbt_execute"
+    # The project rides on the row, not on the broker payload.
+    assert sent[0][1] == (body["execution"]["id"],)
+
+
+def test_dbt_preview_refuses_a_misnamed_model_before_queueing_anything(client):
+    dataset = _upload(client).json()["dataset"]
+
+    response = client.post(
+        "/datasets/dbt-preview",
+        json={
+            "models": [{"name": "Mart Value", "sql": "select 1 as a"}],
+            "sources": [{"dataset_id": dataset["id"]}],
+        },
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["code"] == "DBT_MODEL_NAME_INVALID"
+    assert "Mart Value" in detail["message"]
+
+
+def test_dbt_preview_refuses_a_disabled_plane_with_a_coded_error(client, monkeypatch):
+    monkeypatch.setattr(settings, "recipe_execution_enabled", False)
+    dataset = _upload(client).json()["dataset"]
+
+    response = client.post(
+        "/datasets/dbt-preview",
+        json={
+            "models": [{"name": "mart", "sql": "select 1 as a"}],
+            "sources": [{"dataset_id": dataset["id"]}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "DBT_EXECUTION_DISABLED"
+
+
+def test_dbt_preview_without_a_source_says_what_to_do(client):
+    response = client.post(
+        "/datasets/dbt-preview",
+        json={"models": [{"name": "mart", "sql": "select 1 as a"}]},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "TRANSFORM_NO_INPUT"
+
+
+def test_queued_ingest_dispatches_to_the_worker_plane(
+    client, db_session, monkeypatch
+):
+    """Non-eager deployments must hand the parse to Celery, not block the API."""
+
+    monkeypatch.setattr(settings, "worker_eager_mode", False)
+    from app.workers.celery_app import celery_app
+
+    sent: list[tuple[str, tuple]] = []
+    monkeypatch.setattr(
+        celery_app,
+        "send_task",
+        lambda name, **kwargs: sent.append((name, kwargs.get("args"))),
+    )
+
+    body = _upload(client).json()
+
+    assert body["queued"] is True
+    assert body["dataset"]["status"] == "pending"
+    # The author sees a step, never a mute spinner.
+    assert body["dataset"]["status_detail"]
+    assert sent and sent[0][0] == "agentium.dataset_ingest"
+    assert sent[0][1] == (body["dataset"]["id"],)

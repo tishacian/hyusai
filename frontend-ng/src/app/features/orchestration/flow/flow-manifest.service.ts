@@ -1,0 +1,157 @@
+/**
+ * `FlowManifestService` — the READ-only bridge between the backend runtime
+ * manifest (`GET /systems/{id}/flow-manifest`) and the Flow Builder UI.
+ *
+ * Phase 2 (manifest inspector) needs two things the CanonicalFlow pivot does
+ * NOT carry, because they are *derived* server-side from the live skill
+ * registry rather than stored in `flow_definition`:
+ *   - per-node `editable_fields` (typed parameter descriptors), and
+ *   - per-node `runtime_status` / `operational` (the "configured?" verdict).
+ *
+ * Keeping this in a `providedIn: 'root'` singleton lets BOTH consumers share
+ * one fetch without touching the store, the canvas, or the shell:
+ *   - the inspector's manifest-fields child reads `unitFor(nodeId)`, and
+ *   - the canvas node component reads `statusFor(nodeId)` for its badge.
+ *
+ * It deliberately holds NO graph state — the FlowStore stays the single
+ * source of truth for the graph. The manifest is a transient, system-scoped
+ * sidecar that never gets written back into the canonical model (so a freshly
+ * loaded flow is never spuriously marked dirty).
+ */
+import { Injectable, computed, inject, signal } from '@angular/core';
+import { Subscription } from 'rxjs';
+import {
+  CanonicalApiService,
+  type FlowExecutionRuntimeMode,
+  type FlowManifestUnit,
+  type FlowRuntimeManifest,
+} from '@app/core/canonical-api.service';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { I18nService } from '@app/core/i18n.service';
+
+export interface NodeRuntimeStatus {
+  /** bound | stub | unbound | manifest_only | catalog_only (backend verbatim). */
+  status: string;
+  /** Backend's "this node actually drives a live surface" verdict. */
+  operational: boolean;
+}
+
+/** Engine mode → the dictionary key naming it in plain words. The raw engine
+ * mode stays available as the `data-mode` attribute and the badge title. */
+const RUNTIME_MODE_KEYS: Record<FlowExecutionRuntimeMode, string> = {
+  dag_strict: 'flow.runtime.mode.dag_strict',
+  dag_overlay: 'flow.runtime.mode.dag_overlay',
+  sequential_legacy: 'flow.runtime.mode.sequential_legacy',
+};
+
+/** Read the server dispatcher verdict without guessing from client graph
+ * shape. `execution_mode` is accepted only when canonical `runtime_mode` is
+ * absent, for compatibility with the short-lived historical response. */
+export function manifestRuntimeMode(
+  manifest: FlowRuntimeManifest | null | undefined,
+): FlowExecutionRuntimeMode | null {
+  const raw = manifest?.runtime_mode ?? manifest?.execution_mode;
+  return raw === 'dag_strict' || raw === 'dag_overlay' || raw === 'sequential_legacy'
+    ? raw
+    : null;
+}
+
+export function runtimeModeKey(mode: FlowExecutionRuntimeMode | null): string {
+  return mode ? RUNTIME_MODE_KEYS[mode] : 'flow.runtime.mode.unknown';
+}
+
+@Injectable({ providedIn: 'root' })
+export class FlowManifestService {
+  private readonly canonical = inject(CanonicalApiService);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly i18n = inject(I18nService);
+
+  private readonly _manifest = signal<FlowRuntimeManifest | null>(null);
+  private readonly _systemId = signal<string | null>(null);
+  /** systemId already fetched / in-flight — dedups the N node callers. */
+  private requestedSystemId: string | null = null;
+  private request: Subscription | null = null;
+
+  readonly manifest = this._manifest.asReadonly();
+  readonly systemId = this._systemId.asReadonly();
+  readonly runtimeMode = computed(() => manifestRuntimeMode(this._manifest()));
+  readonly runtimeModeLabel = computed(() => this.i18n.t(runtimeModeKey(this.runtimeMode())));
+
+  constructor() {
+    this.workspace.registerContextReset(() => this.clear());
+  }
+
+  private clear(): void {
+    this.request?.unsubscribe();
+    this.request = null;
+    this.requestedSystemId = null;
+    this._systemId.set(null);
+    this._manifest.set(null);
+  }
+
+  private readonly unitsById = computed<Map<string, FlowManifestUnit>>(() => {
+    const map = new Map<string, FlowManifestUnit>();
+    for (const unit of this._manifest()?.unit_catalog ?? []) {
+      if (unit?.id) map.set(unit.id, unit);
+    }
+    return map;
+  });
+
+  /**
+   * Fetch the manifest for `systemId` exactly once. Safe to call from every
+   * node + the inspector — only the first call hits the wire.
+   *
+   * Any change of requested system, including to the scratchpad's `null`,
+   * first drops the state this singleton holds. The manifest is a
+   * system-scoped sidecar: surfacing the previous System's runtime contract
+   * next to another graph — or next to the scratchpad, which has none — would
+   * be a lie the user has no way to detect.
+   */
+  ensureLoaded(systemId: string | null): void {
+    if (this.requestedSystemId === systemId) return;
+    this.clear();
+    if (!systemId) return;
+    this.requestedSystemId = systemId;
+    this._systemId.set(systemId);
+    this.fetch(systemId);
+  }
+
+  /**
+   * Force a re-fetch of the CURRENT system's manifest, bypassing the
+   * `ensureLoaded` dedup. Call after a successful save: persisting the flow
+   * can change `runtime_status` / `operational` / `editable_fields` (a node
+   * just got a skill bound, a param now resolves), so node badges and the
+   * inspector's "Configured?" verdict would otherwise stay stale until the
+   * user navigates away and back. No-op for the scratchpad (no system loaded).
+   */
+  reload(): void {
+    const systemId = this.requestedSystemId;
+    if (!systemId) return;
+    this.fetch(systemId);
+  }
+
+  private fetch(systemId: string): void {
+    const scope = this.workspace.captureRequestScope();
+    this.request?.unsubscribe();
+    this.request = this.canonical.getSystemFlowManifest(systemId).subscribe((manifest) => {
+      // Guard against a system switch landing before this response.
+      if (
+        this.requestedSystemId === systemId &&
+        this.workspace.isRequestScopeCurrent(scope)
+      ) {
+        this._manifest.set(manifest);
+      }
+    });
+  }
+
+  unitFor(nodeId: string | null | undefined): FlowManifestUnit | null {
+    if (!nodeId) return null;
+    return this.unitsById().get(nodeId) ?? null;
+  }
+
+  statusFor(nodeId: string | null | undefined): NodeRuntimeStatus | null {
+    const unit = this.unitFor(nodeId);
+    if (!unit?.runtime_status) return null;
+    return { status: unit.runtime_status, operational: Boolean(unit.operational) };
+  }
+}

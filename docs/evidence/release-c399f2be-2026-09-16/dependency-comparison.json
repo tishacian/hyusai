@@ -1,0 +1,31 @@
+{
+  "backend": {
+    "previous_package_count": 211,
+    "candidate_package_count": 211,
+    "changed_or_missing": {},
+    "added": {}
+  },
+  "worker": {
+    "previous_package_count": 253,
+    "candidate_package_count": 250,
+    "changed_or_missing": {
+      "httpcore2": {
+        "previous": "2.12.0",
+        "candidate": null
+      },
+      "httpx2": {
+        "previous": "2.12.0",
+        "candidate": null
+      },
+      "truststore": {
+        "previous": "0.10.4",
+        "candidate": null
+      }
+    },
+    "added": {}
+  },
+  "assessment": {
+    "backend": "Identical package set and versions.",
+    "worker": "All retained package versions are identical. Three previously orphaned packages are absent: httpx2, its httpcore2 and truststore dependencies. Previous worker pip metadata reports no package requiring httpx2; repository application code does not import this group. Fresh worker pip check and offline Giskard qualification passed. Constraints select versions, not an install-all manifest."
+  }
+}

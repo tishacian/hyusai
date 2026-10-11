@@ -1,0 +1,1 @@
+{"phase": "prepared", "session_id": "9d3500c7-c2b1-40ad-bc27-77f94a928ebc", "proposal_id": "7ecda58e-ddfd-470c-93d8-89c64735ef2e", "checks": {"unrelated_context_absent": true, "inventory_absent": true, "corrected_value_in_report": true, "old_value_absent_from_report": true, "synthetic_marker_in_report": true, "review_status": "pending_review"}}

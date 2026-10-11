@@ -1,0 +1,27 @@
+{
+  "authorities": [
+    {
+      "issuer": "agentium-ovh-backup-provider-v1",
+      "producer": "backup_provider",
+      "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAu/xwzHohesQy9q8dyoZW\nCMeHLf/8N5bMH6s5Ko82Yxw2ZwVdiVZPWPn8yVn06mKVySrBGwQkarT60PR5+u78\nVKGHO9ezuAu9K+vlLi/RUrqBXFDc1TNArhu4y2ABrZ9cOKLJwJULHVfZJcH3McLj\nnWGZhlrxVaerfSE+bMOGybIgWECjH/K6nj/T5lkNxW2zLlikDrJLA7lNxb++n9dM\nRh6xk6OzuScn1r42h3b3EVqWAg9sQXjcgaZpXtwIDECn2Q2lCibT+mnjsovpFVv8\nL76NQH4DDiauIQzBGjIF9McDdmCa67wrsQv76iyKSl28ZZHhCyzUU9XoaZ77APAB\nD07OWeVM6on5pj7mq+5lv/6ytDuIaP/RXqLImdfpEmvo8u0fUnWoTHSJZVjAwPnE\nqaHt3I9Ny9rGffqa+7Lk59UEDgjbhXQ1cJATpA5/pDoeEdvvp4kBGIH2zJRHpKAT\nAAMxvBA1SFbXZ/poO2eBYvtPox0cI+cmmjHbPWYzNj1DAgMBAAE=\n-----END PUBLIC KEY-----\n",
+      "public_key_sha256": "7ca02c0dfaac495595b2c471d3d87ddbe2a92c90fa1dd40812870f0ba636bb11",
+      "signature_algorithm": "rsa-pkcs1v15-sha256"
+    },
+    {
+      "issuer": "carakai-protected-runner-v1",
+      "producer": "protected_runner",
+      "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEA5wj7LiQasbbXQS1VBU1M\nGi834oWuoKpgdZ5NdGC8KgOzWo2x/ajqIxUvhosZDxQ1RGu9n0etkRgia24DpwnD\nAkOvhmXOl6cxp/ZQkpmTOWNG5u+DlLtTqkBQSrz4+2uNb5J3AnssGlkIWnLkE1UY\nP3fIkARMiGRk7poDPx+reM087dAz7xAVggjTuEPlXtNGgRke9NWMW9ABHL0Cnjpj\n4/o14U0k/gDifyT31p2lRj95JQNVV87dYEYS3hOIlisczKDu6OM5fY7BzbB1NsUK\nXefrQwK05Hmcgkw6/wjpDfrD09WLRzRXpfqHM8deo+nnGYMZTWB5qats3+pOSFlB\necVoo9qcH8PcfOcpPPNVwKa9RmwcgsAH0+Z63viiZVeC7PPmnRrJsMcwp4IOya53\n6bOiRdTOZBmP0XwMk2zG36AsA3meRsEv6Cnj7n3BOU08v0b8zn0bFZdlVjd/6ELi\niN6tjRXQ8OSVdUB8qPjNWDpmWXxnQ1ZktGSX0ekG9MrRAgMBAAE=\n-----END PUBLIC KEY-----\n",
+      "public_key_sha256": "4b2becbda0d83839976524fa24752ef7f967590033159e40c8b6ae97abe791e3",
+      "signature_algorithm": "rsa-pkcs1v15-sha256"
+    },
+    {
+      "issuer": "agentium-vm-host-collector-v1",
+      "producer": "release_a_host_collector",
+      "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAsVvxTG7C/kQbi7Dm+zAk\n3bxSHl34/xPSk1SbmTDfuLdr29im31m9RdUERlhqmi78eToBcUm9SPnpx3bw+a1N\ny0fTb9cJ9iSYAnB7vg3wdbe6UYrSfqm2QAY3vZ62BkAbHncd4m0z8eMz8PNP7rtg\noSklJ3dYchjVZbRYtGrGwyYSaWQ97lmGKAd6Pggbq/iB0J9/fjl7H+SExyIsX5eP\nZN4Ej7zWPUbzY+LfghOZPPTdn6CTNaq2+4wCQte/6YfStb1oZP48r7gxl0v3Nth6\nHxScU62Zumb/CMQzy/70zR0W5uYI57GuVqmr6E5ZHeCWLJP9CyPSIgSMCzTHZxc8\nTpEtgPpFF0zWAB+4tI0GMOuVpwiiZ89WmsH15tIuWtjb6S7EKJ1DLCKXN8tmPnaG\nOXCVt/bNQknwYU2PulqVpZkC2uVhU4OgJ4rWXZL7XeiKgPCU5VmLeh/VHgyJcNAQ\n7LQSNhkKrBOUGtUv1CTV3jBba1YuAzHrlug0zQqexHLZAgMBAAE=\n-----END PUBLIC KEY-----\n",
+      "public_key_sha256": "2cb3f45a70ba9f24238d0d0dbc013e49ebf03a4cc418aa76ccb1ee0935c8f154",
+      "signature_algorithm": "rsa-pkcs1v15-sha256"
+    }
+  ],
+  "kind": "agentium-release-a-evidence-authority-keyring",
+  "schema_version": 1
+}

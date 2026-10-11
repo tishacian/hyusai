@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "commit_sha": "cfa3f616050bb5f75c9a3709219b52939e7ec0bd",
+  "outcome": "passed",
+  "claims": {
+    "LOT6-SYSTEM360-PERSPECTIVES": "passed"
+  },
+  "ci": {
+    "server_url": "",
+    "project_id": "",
+    "pipeline_id": "",
+    "job_id": "",
+    "job_url": "",
+    "commit_sha": "",
+    "ref": "",
+    "ref_protected": ""
+  },
+  "checks": {
+    "build_revision": true,
+    "unique_marker_discovery": true,
+    "four_distinct_projections": true,
+    "invariant_identity_header_breadcrumb_tabs": true,
+    "ui_value_matches_api_per_lens": true,
+    "deep_link_reload_history_and_facet": true,
+    "workspace_switch_purges_object": true,
+    "explicit_missing_state": true,
+    "explicit_restricted_state": true,
+    "frontend_console_clean": true
+  },
+  "build_info": {
+    "backend": {
+      "service": "backend",
+      "revision": "cfa3f616050bb5f75c9a3709219b52939e7ec0bd",
+      "revision_verified": true,
+      "version": "1.0.0-demo"
+    },
+    "frontend": {
+      "service": "frontend",
+      "revision": "cfa3f616050bb5f75c9a3709219b52939e7ec0bd",
+      "revision_verified": true
+    }
+  },
+  "kind": "runner",
+  "runner": "playwright",
+  "suite": "frontend-ng/e2e/tests/11-system360-canary.spec.ts"
+}

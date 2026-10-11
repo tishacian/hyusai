@@ -1,19 +1,19 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Created on Fri Feb 14 16:45:10 2025
 
 @author: kennethezukwoke
 """
 
-import sys
-import logging
-from datetime import datetime
-from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Tuple
-from src.globalvariables import ReasoningType
+from __future__ import annotations
 
-# --
+import logging
+import sys
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any
+
+from src.system_prompts.types import SystemPromptTypes
+
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
@@ -28,7 +28,7 @@ class Message:
     role: str  # 'user' or 'assistant'
     content: str
     timestamp: datetime = field(default_factory=datetime.now)
-    metadata: Dict = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -36,10 +36,10 @@ class ConversationMemoryBuffer:
     """Manages conversation history with a fixed-size buffer of recent messages"""
 
     max_turns: int = 2  # last 2 conversation
-    messages: List[Message] = field(default_factory=list)
+    messages: list[Message] = field(default_factory=list)
 
     def add_message(
-        self, role: str, content: str, metadata: Optional[Dict] = None
+        self, role: str, content: str, metadata: dict[str, Any] | None = None
     ) -> None:
         """Manages conversation history with a fixed-size buffer of recent messages
         Add a new message to the conversation history
@@ -50,9 +50,7 @@ class ConversationMemoryBuffer:
             metadata (Dict, optional): Additional metadata for the message
         """
         try:
-            message = Message(
-                role=role, content=content, metadata=metadata or {}
-            )
+            message = Message(role=role, content=content, metadata=metadata or {})
             self.messages.append(message)
 
             # -- maintain buffer size by removing older messages if needed
@@ -65,7 +63,7 @@ class ConversationMemoryBuffer:
         except Exception as e:
             logging.error(f"Error adding message to buffer: {e}")
 
-    def get_recent_context(self, num_turns: Optional[int] = None) -> str:
+    def get_recent_context(self, num_turns: int | None = None) -> str:
         """
         Format recent conversation for LLM
 
@@ -89,7 +87,7 @@ class ConversationMemoryBuffer:
             logging.error(f"Error getting conversation context: {e}")
             return ""
 
-    def get_last_exchange(self) -> Tuple[Optional[str], Optional[str]]:
+    def get_last_exchange(self) -> tuple[str | None, str | None]:
         """
         Most recent user-assistant exchange
 
@@ -122,16 +120,19 @@ class ConversationMemoryBuffer:
         logging.info("Conversation buffer cleared")
 
     def get_context_with_reasoning(
-        self, reasoning_type: "ReasoningType"
+        self, system_prompt_type: SystemPromptTypes | str
     ) -> str:
-        """
-        Context with reasoning template
+        """Context with reasoning template
 
-         Parameters:
-             reasoning_type (ReasoningType): The type of reasoning to apply
+        Parameters
+        ----------
+        system_prompt_type : SystemPromptTypes | str
+            The type of reasoning to apply
 
-         Returns:
-             str: Formatted context with reasoning template
+        Returns
+        -------
+        str
+            Formatted context with reasoning template
         """
         try:
             recent_context = self.get_recent_context()
@@ -140,16 +141,14 @@ class ConversationMemoryBuffer:
 
             # -- mapping reasoning types to cotext prefix
             reasoning_prefixes = {
-                "ReasoningType.FACTUAL": "Previous factual discussion:\n",
-                "ReasoningType.ANALYTICAL": "Prior analysis context:\n",
-                "ReasoningType.COMPARATIVE": "Previous comparison points:\n",
-                "ReasoningType.CAUSAL": "Earlier cause-effect discussion:\n",
-                "ReasoningType.HYPOTHETICAL": "Previous hypothetical scenarios:\n",
+                SystemPromptTypes.FACTUAL: "Previous factual discussion:\n",
+                SystemPromptTypes.ANALYTICAL: "Prior analysis context:\n",
+                SystemPromptTypes.COMPARATIVE: "Previous comparison points:\n",
+                SystemPromptTypes.CAUSAL: "Earlier cause-effect discussion:\n",
+                SystemPromptTypes.HYPOTHETICAL: "Previous hypothetical scenarios:\n",
+                SystemPromptTypes.TRIVIAL: "Previous conversation history:\n",
             }
-
-            prefix = reasoning_prefixes.get(
-                str(reasoning_type), "Previous context:\n"
-            )
+            prefix = reasoning_prefixes.get(system_prompt_type, "Previous context:\n")
             return f"{prefix}{recent_context}"
 
         except Exception as e:

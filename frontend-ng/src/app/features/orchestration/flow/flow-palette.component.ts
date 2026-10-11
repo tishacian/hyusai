@@ -1,0 +1,730 @@
+/**
+ * `<app-flow-palette>` — the PALETTE HOST boundary.
+ *
+ * The palette answers "what goes here", not "what exists". Three surfaces,
+ * one row shape, one search field:
+ *
+ *   - **Contextual** (`[context]`): extending from a node offers only what
+ *     type-checks against the originating port, ranked. `No type-compatible
+ *     node` is the empty case, and "show everything" is one click away.
+ *   - **Search** — the shell command-palette motif (ranked, ↑/↓/↵), which on
+ *     79-plus entries beats scrolling a 232 px column.
+ *   - **Browse**, in the canonical layer order: Capabilities first (layer 1),
+ *     the Skills of one Capability on drill-in, the whole registry under
+ *     Advanced (layer 3) with its sections collapsed.
+ *
+ * Entries this workspace cannot use are never droppable; they exist so an
+ * empty result can state the rule that excluded them.
+ *
+ * It still only emits `add`; the builder shell calls `store.addNode` with
+ * `paletteItemToNode(item)`, which materializes the binding. The
+ * `[flowPaletteExtra]` content seam is preserved for future projection.
+ */
+import { NgTemplateOutlet } from '@angular/common';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
+import { RouterLink } from '@angular/router';
+import { agentiumSurfaceRoute } from '@app/core/navigation.catalog';
+import { IconComponent } from '@app/shared/ui/icon.component';
+import { I18nService } from '@app/core/i18n.service';
+import { FlowCatalogService } from './flow-catalog.service';
+import { FlowDataSourcesService } from './flow-data-sources.service';
+import { isPaletteItemConnectable } from './flow-preconnect';
+import {
+  buildCapabilityGroups,
+  buildSkillPaletteSections,
+  explainVisibilityReason,
+  mostUsedItems,
+  paletteItemDetail,
+  paletteItemSlug,
+  paletteItemUsage,
+  searchPaletteItems,
+  summariseUnavailable,
+  UNCARRIED_CAPABILITY_SLUG,
+  type PaletteCapabilityGroup,
+  type PaletteInsertContext,
+} from './flow-palette.vm';
+import type { PaletteItem, SkillPaletteSection } from './flow.types';
+
+/** Ranked lists stay short on purpose: past this, refining the query is
+ * faster than reading further. The remainder is announced, never hidden. */
+const RANKED_LIMIT = 12;
+const MOST_USED_LIMIT = 5;
+
+@Component({
+  selector: 'app-flow-palette',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [IconComponent, NgTemplateOutlet, RouterLink],
+  styleUrl: './flow-palette.component.scss',
+  template: `
+    <ng-template
+      #row
+      let-item
+      let-active="active"
+      let-optionId="optionId"
+      let-comboboxOption="comboboxOption"
+    >
+      <button
+        type="button"
+        class="ck-flow-palette__row"
+        [class.is-active]="active"
+        [class.is-unavailable]="!!item.unavailableReason"
+        [attr.data-tone]="item.tone"
+        [disabled]="!!item.unavailableReason"
+        [title]="detail(item)"
+        [id]="optionId || null"
+        [attr.role]="comboboxOption ? 'option' : null"
+        [attr.aria-selected]="comboboxOption ? !!active : null"
+        [attr.tabindex]="comboboxOption ? -1 : null"
+        (click)="onPick(item)"
+      >
+        <app-icon class="ck-flow-palette__row-icon" [name]="item.icon" [size]="13" />
+        <span class="ck-flow-palette__row-name">{{ itemName(item) }}</span>
+        <span class="ck-flow-palette__row-intent">{{ intent(item) }}</span>
+        @if (isInFlow(item)) {
+          <span class="ck-flow-palette__row-flag" [title]="i18n.t('flow.palette.row.in_flow.hint')">{{
+            i18n.t('flow.palette.row.in_flow')
+          }}</span>
+        }
+        @if (usage(item); as calls) {
+          <span
+            class="ck-flow-palette__row-usage"
+            [attr.aria-label]="i18n.t('flow.palette.row.usage', { count: calls })"
+            >{{ calls }}</span
+          >
+        }
+        @if (hazard(item); as status) {
+          <span
+            class="ck-flow-palette__row-dot"
+            [attr.data-status]="status"
+            [attr.aria-label]="i18n.t('flow.palette.row.runtime', { status })"
+          ></span>
+        }
+      </button>
+    </ng-template>
+
+    <div class="ck-flow-palette" role="group" [attr.aria-label]="i18n.t('flow.palette.aria')">
+      <div class="ck-flow-palette__heading">
+        <h2 class="ck-flow-palette__label">
+          <app-icon name="boxes" set="phosphor" [size]="12" /> {{ headingLabel() }}
+        </h2>
+        <span
+          class="ck-flow-palette__count"
+          [attr.aria-label]="i18n.t('flow.palette.heading.count', { name: headingLabel() })"
+        >
+          {{ headingCount() }}
+        </span>
+      </div>
+
+      @if (context(); as ctx) {
+        <div class="ck-flow-palette__context" role="status">
+          <span>
+            {{ i18n.t('flow.palette.context.connects') }}
+            <strong>{{ ctx.originLabel }}</strong>
+            @if (ctx.originPort) {
+              · <code>{{ ctx.originPort }}</code>
+            }
+            @if (ctx.schema) {
+              (<code>{{ ctx.schema }}</code>)
+            }
+          </span>
+          <button type="button" (click)="clearContext.emit()">
+            {{ i18n.t('flow.palette.context.clear') }}
+          </button>
+        </div>
+      }
+
+      <label class="ck-flow-palette__search">
+        <app-icon name="search" [size]="12" />
+        <input
+          type="search"
+          class="ck-flow-palette__search-input"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-haspopup="listbox"
+          [placeholder]="searchPlaceholder()"
+          [attr.aria-label]="searchPlaceholder()"
+          [attr.aria-expanded]="rankedMode()"
+          [attr.aria-controls]="rankedMode() ? 'flow-palette-search-results' : null"
+          [attr.aria-activedescendant]="activeOptionId()"
+          [attr.aria-describedby]="rankedMode() ? 'flow-palette-search-status' : null"
+          [value]="query()"
+          (input)="onQuery($event)"
+          (keydown)="onSearchKey($event)"
+        />
+      </label>
+
+      @if (simpleMode()) {
+        <div class="ck-flow-palette__body">
+          @if (rankedMode()) {
+            @for (item of rankedItems(); track itemKey(item); let i = $index) {
+              <ng-container
+                *ngTemplateOutlet="
+                  row;
+                  context: {
+                    $implicit: item,
+                    active: i === activeIndex(),
+                    optionId: optionId(item, i),
+                    comboboxOption: true,
+                  }
+                "
+              />
+            } @empty {
+              <p class="ck-flow-palette__empty" role="status">{{ rankedEmptyMessage() }}</p>
+            }
+          } @else {
+            @for (item of items(); track itemKey(item)) {
+              <ng-container *ngTemplateOutlet="row; context: { $implicit: item }" />
+            }
+          }
+        </div>
+      } @else {
+      @if (!simpleMode() && !rankedMode() && !openGroup() && level() !== 'advanced') {
+        <section class="ck-flow-palette__body" data-testid="flow-sources-palette">
+          <h3 class="ck-flow-palette__section-heading"><button type="button" class="ck-flow-palette__section-toggle" [attr.aria-expanded]="sourcesExpanded()" aria-controls="flow-palette-sources-panel" (click)="sourcesExpanded.set(!sourcesExpanded())"><app-icon [name]="sourcesExpanded() ? 'chevron-down' : 'chevron-right'" [size]="11" /><span>{{ i18n.t('flow.sources.palette') }}</span><span class="ck-flow-palette__count">{{ sources.items().length }}</span></button></h3>
+          @if (sourcesExpanded()) {
+            <div id="flow-palette-sources-panel">
+              @for (item of sources.items(); track itemKey(item)) {
+                <ng-container *ngTemplateOutlet="row; context: { $implicit: item }" />
+              }
+            </div>
+          }
+          @if (sources.state() === 'loading' || sources.collectionState() === 'loading') {
+            <p class="ck-flow-palette__empty" role="status">{{ i18n.t('flow.sources.loading') }}</p>
+          } @else if (sources.state() === 'error' || sources.collectionState() === 'error') {
+            <div class="ck-flow-palette__catalog-error" role="alert"><span>{{ i18n.t('flow.sources.catalog_error') }}</span><button type="button" (click)="sources.retry()">{{ i18n.t('flow.sources.retry') }}</button></div>
+          } @else if (!sources.items().length) {
+            <p class="ck-flow-palette__empty">{{ i18n.t('flow.sources.empty') }}</p>
+          }
+        </section>
+      }
+      @if (catalog.state() === 'loading') {
+        <p class="ck-flow-palette__empty" role="status">
+          {{ i18n.t('flow.palette.catalog.loading') }}
+        </p>
+      } @else if (catalog.state() === 'error') {
+        <div class="ck-flow-palette__catalog-error" role="alert">
+          <span>{{ i18n.t('flow.palette.catalog.error') }}</span>
+          <button type="button" (click)="catalog.retry()">
+            {{ i18n.t('flow.palette.catalog.retry') }}
+          </button>
+        </div>
+      } @else {
+        <div class="ck-flow-palette__body">
+          @if (rankedMode()) {
+            <span id="flow-palette-search-status" class="ck-flow-palette__sr-only" role="status" aria-live="polite">
+              {{ i18n.t('flow.palette.search.results', { count: rankedItems().length }) }}
+            </span>
+            <div
+              id="flow-palette-search-results"
+              class="ck-flow-palette__ranked"
+              role="listbox"
+              [attr.aria-label]="i18n.t('flow.palette.search.results.aria')"
+            >
+              @for (item of rankedItems(); track itemKey(item); let i = $index) {
+                <ng-container
+                  *ngTemplateOutlet="
+                    row;
+                    context: {
+                      $implicit: item,
+                      active: i === activeIndex(),
+                      optionId: optionId(item, i),
+                      comboboxOption: true,
+                    }
+                  "
+                />
+              } @empty {
+                <p class="ck-flow-palette__empty" role="status">{{ rankedEmptyMessage() }}</p>
+                @if (context()) {
+                  <button type="button" class="ck-flow-palette__link" (click)="clearContext.emit()">
+                    {{ i18n.t('flow.palette.empty.show_all') }}
+                  </button>
+                }
+              }
+            </div>
+            @if (rankedOverflow() > 0) {
+              <p class="ck-flow-palette__more">
+                {{ i18n.t('flow.palette.overflow', { count: rankedOverflow() }) }}
+              </p>
+            }
+            @if (query() && unavailableMatches().length > 0) {
+              <div class="ck-flow-palette__hatch">
+                <p class="ck-flow-palette__hatch-why">
+                  {{
+                    unavailableMatches().length === 1
+                      ? i18n.t('flow.palette.unavailable.one')
+                      : i18n.t('flow.palette.unavailable.many', {
+                          count: unavailableMatches().length,
+                        })
+                  }}
+                </p>
+                @for (item of unavailableMatches().slice(0, 5); track itemKey(item)) {
+                  <ng-container *ngTemplateOutlet="row; context: { $implicit: item }" />
+                }
+                <a class="ck-flow-palette__link" [routerLink]="curationRoute">
+                  {{ i18n.t('flow.palette.unavailable.link') }}
+                </a>
+              </div>
+            }
+          } @else if (openGroup(); as group) {
+            <button type="button" class="ck-flow-palette__back" (click)="closeCapability()">
+              <app-icon name="chevron-left" [size]="11" /> {{ i18n.t('flow.palette.back') }}
+            </button>
+            @if (groupHint(group)) {
+              <p class="ck-flow-palette__group-hint">{{ groupHint(group) }}</p>
+            }
+            @for (item of group.items; track itemKey(item)) {
+              <ng-container *ngTemplateOutlet="row; context: { $implicit: item }" />
+            }
+          } @else if (level() === 'advanced') {
+            <button type="button" class="ck-flow-palette__back" (click)="level.set('capabilities')">
+              <app-icon name="chevron-left" [size]="11" /> {{ i18n.t('flow.palette.back') }}
+            </button>
+            @for (section of categorySections(); track section.category) {
+              <h3 class="ck-flow-palette__section-heading" [id]="sectionHeadingId(section.category)">
+                <button
+                  type="button"
+                  class="ck-flow-palette__section-toggle"
+                  [attr.aria-expanded]="isSectionExpanded(section.category)"
+                  [attr.aria-controls]="sectionPanelId(section.category)"
+                  (click)="toggleSection(section.category)"
+                >
+                  <app-icon
+                    [name]="
+                      isSectionExpanded(section.category) ? 'chevron-down' : 'chevron-right'
+                    "
+                    [size]="11"
+                  />
+                  <span>{{ section.category }}</span>
+                  <span class="ck-flow-palette__count">{{ section.items.length }}</span>
+                </button>
+              </h3>
+              @if (isSectionExpanded(section.category)) {
+                <div
+                  class="ck-flow-palette__list"
+                  role="region"
+                  [id]="sectionPanelId(section.category)"
+                  [attr.aria-labelledby]="sectionHeadingId(section.category)"
+                >
+                  @for (item of section.items; track itemKey(item)) {
+                    <ng-container *ngTemplateOutlet="row; context: { $implicit: item }" />
+                  }
+                </div>
+              }
+            } @empty {
+              <p class="ck-flow-palette__empty" role="status">
+                {{ i18n.t('flow.palette.section.empty.skills') }}
+              </p>
+            }
+            @if (catalog.filteredItems().length > 0) {
+              <div class="ck-flow-palette__hatch">
+                <button
+                  type="button"
+                  class="ck-flow-palette__hatch-toggle"
+                  [attr.aria-expanded]="showUnavailable()"
+                  (click)="showUnavailable.set(!showUnavailable())"
+                >
+                  <app-icon
+                    [name]="showUnavailable() ? 'chevron-down' : 'chevron-right'"
+                    [size]="11"
+                  />
+                  {{
+                    i18n.t('flow.palette.unavailable.toggle', {
+                      count: catalog.filteredItems().length,
+                    })
+                  }}
+                </button>
+                @if (showUnavailable()) {
+                  <p class="ck-flow-palette__hatch-why">{{ unavailableExplanation() }}</p>
+                  @for (item of catalog.filteredItems(); track itemKey(item)) {
+                    <ng-container *ngTemplateOutlet="row; context: { $implicit: item }" />
+                  }
+                  <a class="ck-flow-palette__link" [routerLink]="curationRoute">
+                    {{ i18n.t('flow.palette.unavailable.link') }}
+                  </a>
+                }
+              </div>
+            }
+          } @else {
+            @if (mostUsed().length > 0) {
+              <h3 class="ck-flow-palette__section-heading ck-flow-palette__section-heading--plain">
+                {{ i18n.t('flow.palette.section.most_used') }}
+              </h3>
+              @for (item of mostUsed(); track itemKey(item)) {
+                <ng-container *ngTemplateOutlet="row; context: { $implicit: item }" />
+              }
+            }
+
+            <h3 class="ck-flow-palette__section-heading ck-flow-palette__section-heading--plain">
+              {{ i18n.t('flow.palette.section.capabilities') }}
+            </h3>
+            @for (group of capabilityGroups(); track group.slug) {
+              <button
+                type="button"
+                class="ck-flow-palette__row ck-flow-palette__row--group"
+                [title]="groupHint(group) || groupName(group)"
+                (click)="openCapability(group.slug)"
+              >
+                <app-icon class="ck-flow-palette__row-icon" name="boxes" set="phosphor" [size]="13" />
+                <span class="ck-flow-palette__row-name">{{ groupName(group) }}</span>
+                <span class="ck-flow-palette__row-intent">{{ groupHint(group) }}</span>
+                <span class="ck-flow-palette__count">{{ group.items.length }}</span>
+                <app-icon name="chevron-right" [size]="11" />
+              </button>
+            } @empty {
+              <p class="ck-flow-palette__empty" role="status">
+                {{ i18n.t('flow.palette.section.empty.capabilities') }}
+              </p>
+            }
+
+            <h3 class="ck-flow-palette__section-heading">
+              <button
+                type="button"
+                class="ck-flow-palette__section-toggle"
+                [attr.aria-expanded]="structureExpanded()"
+                aria-controls="flow-palette-structure-panel"
+                (click)="toggleStructure()"
+              >
+                <app-icon
+                  [name]="structureExpanded() ? 'chevron-down' : 'chevron-right'"
+                  [size]="11"
+                />
+                <span>{{ i18n.t('flow.palette.section.structure') }}</span>
+                <span class="ck-flow-palette__count">{{ items().length }}</span>
+              </button>
+            </h3>
+            @if (structureExpanded()) {
+              <div class="ck-flow-palette__list" id="flow-palette-structure-panel">
+                @for (item of items(); track item.type) {
+                  <ng-container *ngTemplateOutlet="row; context: { $implicit: item }" />
+                }
+              </div>
+            }
+
+            <button
+              type="button"
+              class="ck-flow-palette__advanced"
+              (click)="level.set('advanced')"
+            >
+              <span>{{ i18n.t('flow.palette.advanced') }}</span>
+              <span class="ck-flow-palette__count">{{ catalog.skillItems().length }}</span>
+            </button>
+          }
+        </div>
+      }
+      }
+
+      <!-- P3 SEAM: extra groups may still project here. -->
+      <ng-content select="[flowPaletteExtra]" />
+    </div>
+  `,
+})
+export class FlowPaletteComponent {
+  protected readonly sources = inject(FlowDataSourcesService);
+  protected readonly sourcesExpanded = signal(false);
+  protected readonly catalog = inject(FlowCatalogService);
+  readonly i18n = inject(I18nService);
+
+  /** Structural primitives, supplied by the shell (`DEFAULT_PALETTE`). */
+  readonly items = input<PaletteItem[]>([]);
+  /** Set while an insertion extends an existing node: the palette then offers
+   * only entries that connect, and the shell wires the edge on add. */
+  readonly context = input<PaletteInsertContext | null>(null);
+  /** Skill slugs already bound in the open Flow — the "used in this flow"
+   * half of the usage signal. */
+  readonly flowSkillSlugs = input<readonly string[]>([]);
+  /** An empty graph has exactly one sensible next move, so the structural
+   * primitives open themselves rather than hiding behind a disclosure. */
+  readonly nodeCount = input(0);
+  /** Automation-first mode: the shell supplies the four visible primitives. */
+  readonly simpleMode = input(false);
+
+  readonly add = output<PaletteItem>();
+  readonly clearContext = output<void>();
+
+  protected readonly curationRoute = `${agentiumSurfaceRoute('capabilities')}/curation`;
+
+  protected readonly query = signal('');
+  protected readonly level = signal<'capabilities' | 'advanced'>('capabilities');
+  protected readonly activeIndex = signal(0);
+  protected readonly showUnavailable = signal(false);
+  private readonly openCapabilitySlug = signal<string | null>(null);
+  private readonly structureOverride = signal<boolean | null>(null);
+  private readonly expandedSections = signal<ReadonlySet<SkillPaletteSection>>(new Set());
+
+  /** Primitives and Skills are one searchable catalog: a Decision and a
+   * summariser are both answers to "what goes here". */
+  private readonly allItems = computed<PaletteItem[]>(() => [
+    ...this.items(),
+    ...(this.simpleMode() ? [] : this.sources.items()),
+    ...(this.simpleMode() ? [] : this.catalog.skillItems()),
+  ]);
+
+  private readonly connectable = computed<PaletteItem[]>(() => {
+    const ctx = this.context();
+    if (!ctx) return this.allItems();
+    return this.allItems().filter((item) =>
+      isPaletteItemConnectable(item, ctx.side, ctx.schema),
+    );
+  });
+
+  /** Both the contextual surface and a query produce one ranked list. */
+  protected readonly rankedMode = computed(() => !!this.context() || !!this.query().trim());
+
+  private readonly ranked = computed<PaletteItem[]>(() => {
+    const query = this.query().trim();
+    const pool = this.connectable();
+    if (!query) return [...pool].sort(this.byRelevance);
+    return searchPaletteItems(pool, query);
+  });
+
+  protected readonly rankedItems = computed(() => this.ranked().slice(0, RANKED_LIMIT));
+  protected readonly rankedOverflow = computed(() =>
+    Math.max(0, this.ranked().length - RANKED_LIMIT),
+  );
+  protected readonly activeOptionId = computed(() => {
+    if (!this.rankedMode()) return null;
+    const index = this.activeIndex();
+    const item = this.rankedItems()[index];
+    return item ? this.optionId(item, index) : null;
+  });
+
+  /** Registry rows matching the query that this workspace cannot use. The
+   * reason travels with the row, so a dead end explains itself. */
+  protected readonly unavailableMatches = computed<PaletteItem[]>(() => {
+    const query = this.query().trim();
+    if (!query) return [];
+    return searchPaletteItems(this.catalog.filteredItems(), query);
+  });
+
+  protected readonly capabilityGroups = computed<PaletteCapabilityGroup[]>(() =>
+    buildCapabilityGroups(this.catalog.skillItems(), this.catalog.capabilities()),
+  );
+
+  protected readonly openGroup = computed<PaletteCapabilityGroup | null>(() => {
+    if (this.rankedMode()) return null;
+    const slug = this.openCapabilitySlug();
+    if (!slug) return null;
+    return this.capabilityGroups().find((group) => group.slug === slug) ?? null;
+  });
+
+  protected readonly categorySections = computed(() =>
+    buildSkillPaletteSections(this.catalog.skillItems()),
+  );
+
+  protected readonly mostUsed = computed(() =>
+    mostUsedItems(this.catalog.skillItems(), MOST_USED_LIMIT),
+  );
+
+  private readonly flowSlugs = computed(() => new Set(this.flowSkillSlugs()));
+
+  constructor() {
+    // Any change of surface re-anchors keyboard selection to the first row.
+    effect(() => {
+      this.rankedItems();
+      this.activeIndex.set(0);
+    });
+  }
+
+  protected headingLabel(): string {
+    if (this.context()) return this.i18n.t('flow.palette.heading.context');
+    if (this.query().trim()) return this.i18n.t('flow.palette.heading.matches');
+    const group = this.openGroup();
+    if (group) return this.groupName(group);
+    return this.i18n.t(
+      this.level() === 'advanced' ? 'flow.palette.heading.all' : 'flow.palette.heading.add',
+    );
+  }
+
+  protected headingCount(): string {
+    if (this.simpleMode()) return String(this.items().length);
+    if (this.rankedMode()) return String(this.ranked().length);
+    const group = this.openGroup();
+    if (group) return String(group.items.length);
+    return this.level() === 'advanced'
+      ? String(this.catalog.skillItems().length)
+      : String(this.capabilityGroups().length);
+  }
+
+  protected searchPlaceholder(): string {
+    return this.i18n.t(
+      this.context() ? 'flow.palette.search.context' : 'flow.palette.search',
+    );
+  }
+
+  protected rankedEmptyMessage(): string {
+    if (this.context()) return this.i18n.t('flow.palette.empty.context');
+    return this.i18n.t('flow.palette.empty.query', { query: this.query() });
+  }
+
+  protected unavailableExplanation(): string {
+    const summary = summariseUnavailable(
+      this.catalog.filteredItems(),
+      this.catalog.summary().industriesConfigured,
+    );
+    return summary ? `${summary}.` : '';
+  }
+
+  protected onQuery(event: Event): void {
+    this.query.set((event.target as HTMLInputElement).value);
+  }
+
+  protected onSearchKey(event: KeyboardEvent): void {
+    if (!this.rankedMode()) return;
+    const items = this.rankedItems();
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      this.activeIndex.update((index) => Math.max(0, Math.min(items.length - 1, index + 1)));
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      this.activeIndex.update((index) => Math.max(0, index - 1));
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      this.activeIndex.set(0);
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      this.activeIndex.set(Math.max(0, items.length - 1));
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      const item = items[this.activeIndex()];
+      if (item) this.onPick(item);
+    } else if (event.key === 'Escape' && this.query()) {
+      event.preventDefault();
+      this.query.set('');
+    }
+  }
+
+  protected onPick(item: PaletteItem): void {
+    if (item.unavailableReason) return;
+    this.add.emit(item);
+  }
+
+  protected openCapability(slug: string): void {
+    this.openCapabilitySlug.set(slug);
+  }
+
+  protected closeCapability(): void {
+    this.openCapabilitySlug.set(null);
+  }
+
+  protected structureExpanded(): boolean {
+    return this.structureOverride() ?? this.nodeCount() === 0;
+  }
+
+  protected toggleStructure(): void {
+    this.structureOverride.set(!this.structureExpanded());
+  }
+
+  /** Collapsed by default: nine expanded sections is the inventory the palette
+   * stopped being. */
+  protected isSectionExpanded(category: SkillPaletteSection): boolean {
+    return this.expandedSections().has(category);
+  }
+
+  protected toggleSection(category: SkillPaletteSection): void {
+    this.expandedSections.update((current) => {
+      const next = new Set(current);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  }
+
+  protected sectionHeadingId(category: SkillPaletteSection): string {
+    return `flow-palette-${category.toLowerCase().replace(/\s+/g, '-')}-heading`;
+  }
+
+  protected sectionPanelId(category: SkillPaletteSection): string {
+    return `flow-palette-${category.toLowerCase().replace(/\s+/g, '-')}-panel`;
+  }
+
+  protected itemKey(item: PaletteItem): string {
+    return `${item.type}:${paletteItemSlug(item)}`;
+  }
+
+  protected optionId(item: PaletteItem, index: number): string {
+    const key = this.itemKey(item).replace(/[^a-zA-Z0-9_-]+/g, '-');
+    return `flow-palette-option-${index}-${key}`;
+  }
+
+  protected detail(item: PaletteItem): string {
+    return paletteItemDetail(item, this.describe(item));
+  }
+
+  /** One line: name plus intention. An unusable row states its lever instead. */
+  protected intent(item: PaletteItem): string {
+    if (item.unavailableReason) {
+      return explainVisibilityReason(
+        item.unavailableReason,
+        item.unavailableKey,
+        this.catalog.summary().industriesConfigured,
+      );
+    }
+    const slug = paletteItemSlug(item);
+    const description = this.describe(item);
+    return description && description !== slug ? description : '';
+  }
+
+  /** Structural primitive descriptions are chrome: resolve them by `type`
+   * (`flow.palette.desc.<type>`, dots kept), falling back to the raw
+   * description — which is what every catalog Skill (type `skill`, no key
+   * declared) keeps, because its copy is data, not chrome. */
+  private describe(item: PaletteItem): string {
+    if (item.kind === 'asset' && (item.config?.['connector_id'] || item.config?.['collection_slug'])) {
+      return this.i18n.t(item.type === 'source.connector' ? 'flow.sources.configured_reference' : 'flow.sources.collection');
+    }
+    const key = `flow.palette.desc.${item.type}`;
+    const label = this.i18n.t(key);
+    return label === key ? item.description : label;
+  }
+
+  /** Structural labels are chrome (`flow.palette.label.<type>`); catalog
+   *  skill names stay data and keep the raw `item.label`. */
+  protected itemName(item: PaletteItem): string {
+    if (item.kind === 'asset' && (item.config?.['connector_id'] || item.config?.['collection_slug'])) return item.label;
+    const key = `flow.palette.label.${item.type}`;
+    const label = this.i18n.t(key);
+    return label === key ? item.label : label;
+  }
+
+  /** The VM's sentinel "uncarried" bucket is chrome; real Capability names
+   * and descriptions are backend data and render as-is. */
+  protected groupName(group: PaletteCapabilityGroup): string {
+    return group.slug === UNCARRIED_CAPABILITY_SLUG
+      ? this.i18n.t('flow.palette.uncarried.name')
+      : group.name;
+  }
+
+  protected groupHint(group: PaletteCapabilityGroup): string {
+    return group.slug === UNCARRIED_CAPABILITY_SLUG
+      ? this.i18n.t('flow.palette.uncarried.hint')
+      : group.hint;
+  }
+
+  protected isInFlow(item: PaletteItem): boolean {
+    const slug = item.config?.['skill_slug'];
+    return typeof slug === 'string' && this.flowSlugs().has(slug);
+  }
+
+  protected usage(item: PaletteItem): number {
+    return paletteItemUsage(item);
+  }
+
+  /** A dot only when the runtime state is a trap. Silence means bound. */
+  protected hazard(item: PaletteItem): string | null {
+    const status = item.runtimeStatus;
+    return status && status !== 'bound' ? status.replace(/_/g, ' ') : null;
+  }
+
+  private readonly byRelevance = (a: PaletteItem, b: PaletteItem): number =>
+    paletteItemUsage(b) - paletteItemUsage(a) || a.label.localeCompare(b.label);
+}

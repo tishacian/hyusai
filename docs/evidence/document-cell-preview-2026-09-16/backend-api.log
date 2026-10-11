@@ -1,0 +1,8 @@
+...........                                                              [100%]
+=============================== warnings summary ===============================
+app/tests/api/test_documents_preview_chunks.py: 56 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag/backend/.venv/lib/python3.14/site-packages/sqlalchemy/sql/schema.py:3624: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+11 passed, 56 warnings in 1.70s

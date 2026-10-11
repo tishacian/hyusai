@@ -1,0 +1,3342 @@
+{
+  "sha": "d05e84b15c53e9a12dc92a9cab6f765be648fead",
+  "kind": "synthetic API qualification; not voice or human acceptance",
+  "inventory": {
+    "collection_id": "932bd100-ff22-48ef-b8ec-afbefd5119bc",
+    "collection_slug": "qa-capture-inventory-4479",
+    "collection_name": "Synthetic Capture inventory QA 4479",
+    "status": "ready",
+    "source_count": 1,
+    "sources_total": 1,
+    "document_count": 1,
+    "chunk_count": 1,
+    "by_kind": {
+      "text": 1
+    },
+    "by_extension": {
+      "md": 1
+    },
+    "by_status": {
+      "ready": 1
+    },
+    "top_sources": [
+      {
+        "id": "ab08a4bb-1e78-40f8-83b1-0bf406498680",
+        "filename": "capture-9d3500c7.md",
+        "source_kind": "text",
+        "extension": "md",
+        "chunk_count": 1,
+        "status": "ready",
+        "metadata": {
+          "source": "expert_capture_session",
+          "capture_session_id": "9d3500c7-c2b1-40ad-bc27-77f94a928ebc",
+          "proposal_id": "7ecda58e-ddfd-470c-93d8-89c64735ef2e",
+          "publication_category": "technique",
+          "publication_destination": "qa-capture-inventory-4479",
+          "publication_final_title": "QA Capture R2INV4479",
+          "publication_filename": "capture-9d3500c7.md",
+          "collection_slug": "qa-capture-inventory-4479",
+          "expert_name": "thibaud.ishacian@datategy.net",
+          "captured_by_user_id": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+          "open_questions_count": 5,
+          "source_type": "expert_fiche",
+          "document_id": "091af258-47b3-56db-967f-123de591fc6f",
+          "content_sha256": "3af8cd5ef38c68af9740e1c3a10b6c93409490376bf18921da652d8b04dff432"
+        }
+      }
+    ],
+    "chunk_buckets": {
+      "0": {
+        "sources": 0,
+        "chunks": 0
+      },
+      "1-5": {
+        "sources": 1,
+        "chunks": 1
+      },
+      "6-50": {
+        "sources": 0,
+        "chunks": 0
+      },
+      "51-200": {
+        "sources": 0,
+        "chunks": 0
+      },
+      "201-1000": {
+        "sources": 0,
+        "chunks": 0
+      },
+      ">1000": {
+        "sources": 0,
+        "chunks": 0
+      }
+    },
+    "chunk_percentiles": {
+      "p50": 1,
+      "p90": 1,
+      "p95": 1,
+      "p99": 1
+    },
+    "zero_chunk_sources": 0,
+    "error_sources": 0,
+    "heavy_sources": 0,
+    "source_filters": {
+      "q": "",
+      "source_kind": "",
+      "extension": "",
+      "status": "",
+      "project_code": "",
+      "archive_name": "",
+      "document_id": [],
+      "document_filename": [],
+      "language": "",
+      "sort": "filename",
+      "sort_dir": "asc"
+    },
+    "sources": [
+      {
+        "id": "ab08a4bb-1e78-40f8-83b1-0bf406498680",
+        "filename": "capture-9d3500c7.md",
+        "source_kind": "text",
+        "extension": "md",
+        "mime_type": "text/markdown",
+        "origin": "capture_publication",
+        "size_bytes": 485,
+        "chunk_count": 1,
+        "status": "ready",
+        "indexed_at": "2026-09-17T00:19:57.349265",
+        "last_error": null,
+        "metadata": {
+          "source": "expert_capture_session",
+          "capture_session_id": "9d3500c7-c2b1-40ad-bc27-77f94a928ebc",
+          "proposal_id": "7ecda58e-ddfd-470c-93d8-89c64735ef2e",
+          "publication_category": "technique",
+          "publication_destination": "qa-capture-inventory-4479",
+          "publication_final_title": "QA Capture R2INV4479",
+          "publication_filename": "capture-9d3500c7.md",
+          "collection_slug": "qa-capture-inventory-4479",
+          "expert_name": "thibaud.ishacian@datategy.net",
+          "captured_by_user_id": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+          "open_questions_count": 5,
+          "source_type": "expert_fiche",
+          "document_id": "091af258-47b3-56db-967f-123de591fc6f",
+          "content_sha256": "3af8cd5ef38c68af9740e1c3a10b6c93409490376bf18921da652d8b04dff432"
+        }
+      }
+    ],
+    "sources_offset": 0,
+    "sources_limit": null,
+    "sources_returned": 1,
+    "sources_has_more": false
+  },
+  "context_started": 1789619590.6459649,
+  "context": {
+    "id": "4667e744-dea5-4847-862f-b0d981617035",
+    "system_id": null,
+    "name": "QA Capture synthesis handoff d05e84b1",
+    "version": 1,
+    "data_refs": [],
+    "memory_refs": [],
+    "history_refs": [],
+    "environment_state": {
+      "collection": "qa-capture-inventory-4479"
+    },
+    "business_constraints": {},
+    "permissions": {},
+    "ephemeral": true,
+    "ttl_expires_at": "2026-09-18T04:33:10.784391",
+    "created_at": "2026-09-17T04:33:10.790045"
+  },
+  "answer_started": 1789619590.807118,
+  "answer": {
+    "id": null,
+    "run_id": "8ec6ee27-76b1-4ace-b051-2b05c2596f28",
+    "content": "6 bar (source : fiche experte validée [1]).\n\nExtrait: « La correction de la recette concerne la recette synthétique R2INV4479. - La pression nominale est fixée à 6 bar. » [1]",
+    "reasoning_trace": null,
+    "sources": [
+      {
+        "id": "chunk-0",
+        "type": "expert_fiche",
+        "title": "QA Capture R2INV4479",
+        "snippet": "# QA Capture continuity R2INV4479\n\nObjectif : Recette technique synthétique du passage Capture vers une connaissance publiée. Ne pas utiliser comme consigne réelle.\n\n Correction de la recette La corre",
+        "relevance_score": 0.03278688524590164,
+        "document_id": "091af258-47b3-56db-967f-123de591fc6f",
+        "filename": "capture-9d3500c7.md",
+        "collection": "qa-capture-inventory-4479",
+        "collection_name": "qa-capture-inventory-4479",
+        "keywords": [
+          "capture",
+          "correction",
+          "de",
+          "de la",
+          "est"
+        ]
+      }
+    ],
+    "retrieval_scope": {
+      "collections": [
+        "qa-capture-inventory-4479"
+      ],
+      "filters": {
+        "document_filename": [
+          "capture-9d3500c7.md"
+        ]
+      },
+      "intent": "content_search",
+      "dense": false,
+      "source_count": 1,
+      "chunk_count": 1,
+      "confidence": 0.889,
+      "reason": "ledger source scope matched 1 candidate document(s)",
+      "corpus_version": "2026-09-17 00:19:57.362578",
+      "soft_scope_filters": {},
+      "soft_scope_collections": [],
+      "recall_floor_collections": [],
+      "recall_floor_top_n": 0,
+      "planner_ms": 53
+    },
+    "retrieval_plan": {
+      "profile": "balanced",
+      "intent": "content_search",
+      "dense_policy": "standard",
+      "deadline_ms": 16000,
+      "top_k": 8,
+      "candidate_pool_k": 48,
+      "synthesis_k": 16,
+      "max_variants": 3,
+      "max_candidates": 48,
+      "coarse_to_fine": false,
+      "layers": {
+        "inventory": {
+          "enabled": false,
+          "status": "skipped",
+          "reason": "dense corpus guardrail and scope discovery",
+          "budget_ms": 500
+        },
+        "facts": {
+          "enabled": false,
+          "status": "skipped",
+          "reason": "small corpus can retrieve chunks directly",
+          "budget_ms": 1200
+        },
+        "summaries": {
+          "enabled": false,
+          "status": "skipped",
+          "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+          "budget_ms": 2500,
+          "top_k": 48
+        },
+        "dense_qdrant": {
+          "enabled": true,
+          "status": "enabled",
+          "reason": "payload-filtered dense chunk retrieval",
+          "budget_ms": 3500,
+          "top_k": 48
+        },
+        "sparse": {
+          "enabled": false,
+          "status": "skipped",
+          "reason": "legacy hybrid allowed for non-dense corpus",
+          "budget_ms": 2500,
+          "top_k": 48
+        },
+        "hah_chah": {
+          "enabled": true,
+          "status": "enabled",
+          "reason": "budget-aware layered HAH/C-HAH enabled",
+          "budget_ms": 16000,
+          "top_k": 48
+        },
+        "rerank": {
+          "enabled": true,
+          "status": "enabled",
+          "reason": "normalize/fuse/rerank only the bounded candidate pool",
+          "budget_ms": 1200,
+          "top_k": 16
+        },
+        "deep_async": {
+          "enabled": false,
+          "status": "skipped",
+          "reason": "not needed for this interactive plan",
+          "budget_ms": 120000
+        }
+      },
+      "guardrails": {
+        "allow_legacy_hybrid": true,
+        "global_chunk_search_allowed": true,
+        "scoped_chunk_search_allowed": true,
+        "user_scope_required": false
+      }
+    },
+    "scope_confidence": 0.889,
+    "scope_reason": "ledger source scope matched 1 candidate document(s)",
+    "dense_policy": "standard",
+    "dense_only": false,
+    "sparse_status": "ok",
+    "sparse_backend": "qdrant_sparse",
+    "sparse_fallback_reason": null,
+    "retrieval_profile": "chat",
+    "retrieval_fallback": null,
+    "fallback_reason": null,
+    "latency_budget": {
+      "profile": "balanced",
+      "retrieval_profile": "chat",
+      "allow_cross_encoder": true,
+      "deadline_seconds": 16.0,
+      "top_k": 8,
+      "candidate_pool_k": 48
+    },
+    "score_threshold_applied": false,
+    "deep_retrieval_recommended": false,
+    "deep_job_id": null,
+    "deep_poll_url": null,
+    "deep_status": null,
+    "deep_job": null,
+    "answer_profile": "precise_fact",
+    "answer_policy_applied": true,
+    "answer_policy_violations": [],
+    "retrieval_decision_trace": {
+      "version": 1,
+      "trace_id": "0a5add04-0b14-40e2-a0f9-f8db1f444516",
+      "summary": "chah_backend selected for content_search query under balanced latency profile: ledger source scope matched 1 candidate document(s)",
+      "query_type": "content_search",
+      "latency_profile": "balanced",
+      "retrieval_profile": "chat",
+      "selected_route": "chah_backend",
+      "route_reason": "ledger source scope matched 1 candidate document(s)",
+      "tradeoff": "Balanced latency with source recall and reranking quality controls.",
+      "collection_scope": {
+        "collection": "qa-capture-inventory-4479",
+        "collections": [
+          "qa-capture-inventory-4479"
+        ],
+        "filters": {
+          "document_filename": [
+            "capture-9d3500c7.md"
+          ]
+        },
+        "intent": "content_search",
+        "dense": false,
+        "source_count": 1,
+        "chunk_count": 1,
+        "confidence": 0.889,
+        "reason": "ledger source scope matched 1 candidate document(s)"
+      },
+      "layers": [
+        {
+          "key": "inventory",
+          "enabled": false,
+          "status": "skipped",
+          "reason": "dense corpus guardrail and scope discovery",
+          "budget_ms": 500
+        },
+        {
+          "key": "facts",
+          "enabled": false,
+          "status": "skipped",
+          "reason": "small corpus can retrieve chunks directly",
+          "budget_ms": 1200
+        },
+        {
+          "key": "summaries",
+          "enabled": false,
+          "status": "skipped",
+          "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+          "budget_ms": 2500,
+          "top_k": 48
+        },
+        {
+          "key": "dense_qdrant",
+          "enabled": true,
+          "status": "enabled",
+          "reason": "payload-filtered dense chunk retrieval",
+          "budget_ms": 3500,
+          "top_k": 48
+        },
+        {
+          "key": "sparse",
+          "enabled": false,
+          "status": "skipped",
+          "reason": "legacy hybrid allowed for non-dense corpus",
+          "budget_ms": 2500,
+          "top_k": 48
+        },
+        {
+          "key": "hah_chah",
+          "enabled": true,
+          "status": "enabled",
+          "reason": "budget-aware layered HAH/C-HAH enabled",
+          "budget_ms": 16000,
+          "top_k": 48
+        },
+        {
+          "key": "rerank",
+          "enabled": true,
+          "status": "enabled",
+          "reason": "normalize/fuse/rerank only the bounded candidate pool",
+          "budget_ms": 1200,
+          "top_k": 16
+        },
+        {
+          "key": "deep_async",
+          "enabled": false,
+          "status": "skipped",
+          "reason": "not needed for this interactive plan",
+          "budget_ms": 120000
+        }
+      ],
+      "quality_controls": {
+        "sparse_status": "ok",
+        "sparse_backend": "qdrant_sparse",
+        "cross_encoder_status": "applied",
+        "cross_encoder_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        "cross_encoder_ms": 100,
+        "score_threshold_applied": false,
+        "dense_policy": "standard",
+        "dense_only": false,
+        "retrieval_policy": {
+          "enabled": false,
+          "blocks": 0,
+          "aliases": 0,
+          "protected_terms": 0,
+          "facets": 0,
+          "source_family_rules": 0,
+          "lexical_document_types": 0,
+          "lexical_metadata_fields": 20,
+          "require_project_code_match": false,
+          "clarification_required": false
+        }
+      },
+      "fallbacks": [],
+      "deep_search": {
+        "recommended": false,
+        "launched": false
+      },
+      "answer_shaping": {},
+      "timings": {
+        "planner_ms": 53,
+        "qdrant_ms": 2008,
+        "sparse_ms": 349,
+        "retrieval_ms": 2008,
+        "rerank_ms": 109,
+        "context_build_ms": 0,
+        "table_facts_ms": 0,
+        "total_ms": 2213
+      },
+      "candidate_counts": {
+        "source_count": 1,
+        "chunk_count": 1,
+        "candidate_pool_k": 48,
+        "synthesis_k": 16,
+        "source_display_k": 8,
+        "raw_chunks_retrieved": 1,
+        "document_chunks_retrieved": 1,
+        "chunks_retrieved": 1,
+        "duplicates_removed": 0,
+        "sparse_results": 1,
+        "exact_table_hits": 0
+      },
+      "selected_sources": [
+        {
+          "label": "capture-9d3500c7.md",
+          "document_id": "091af258-47b3-56db-967f-123de591fc6f",
+          "score": 0.03278688524590164
+        }
+      ],
+      "trace_source": "runtime"
+    },
+    "latency_profile": "balanced",
+    "stage_timings": {
+      "planner_ms": 53,
+      "inventory_ms": null,
+      "embedding_ms": null,
+      "qdrant_ms": 2008,
+      "sparse_ms": 349,
+      "retrieval_ms": 2008,
+      "rerank_ms": 109,
+      "context_build_ms": 0,
+      "table_facts_ms": 0,
+      "llm_ms": 3874,
+      "total_ms": 6087
+    },
+    "duration_ms": 2213,
+    "retrieval_elapsed_ms": 2008,
+    "cross_encoder_status": "applied",
+    "cross_encoder_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    "cross_encoder_ms": 100,
+    "cross_encoder_scored": 1,
+    "cross_encoder_filtered": 0,
+    "cross_encoder_threshold": 0.2,
+    "retrieval_latency_profile": "balanced",
+    "retrieval_latency_scope": "direct_chat",
+    "status": "completed"
+  },
+  "run": {
+    "id": "8ec6ee27-76b1-4ace-b051-2b05c2596f28",
+    "system_id": "28a35abd-b16a-4f05-8ede-057639796e62",
+    "capability_id": "0d3714e2-16c5-4741-ba0c-fed4a3201d60",
+    "status": "completed",
+    "trigger": "chat",
+    "started_at": "2026-09-17T04:33:11.025613",
+    "completed_at": "2026-09-17T04:33:20.570664",
+    "duration_ms": 9551.934480667114,
+    "input_ref": {
+      "query": "Pour la recette synthétique R2INV4479, quelle est la pression nominale après correction ? Cite le passage source."
+    },
+    "output_ref": {
+      "response": "6 bar (source : fiche experte validée [1]).\n\nExtrait: « La correction de la recette concerne la recette synthétique R2INV4479. - La pression nominale est fixée à 6 bar. » [1]",
+      "sources": [
+        {
+          "id": "chunk-0",
+          "type": "expert_fiche",
+          "title": "QA Capture R2INV4479",
+          "snippet": "# QA Capture continuity R2INV4479\n\nObjectif : Recette technique synthétique du passage Capture vers une connaissance publiée. Ne pas utiliser comme consigne réelle.\n\n Correction de la recette La corre",
+          "relevance_score": 0.03278688524590164,
+          "document_id": "091af258-47b3-56db-967f-123de591fc6f",
+          "filename": "capture-9d3500c7.md",
+          "collection": "qa-capture-inventory-4479",
+          "collection_name": "qa-capture-inventory-4479",
+          "keywords": [
+            "capture",
+            "correction",
+            "de",
+            "de la",
+            "est"
+          ]
+        }
+      ],
+      "reasoning_trace": null,
+      "rag_context": {
+        "chunks": [
+          "# QA Capture continuity R2INV4479\n\nObjectif : Recette technique synthétique du passage Capture vers une connaissance publiée. Ne pas utiliser comme consigne réelle.\n\n Correction de la recette La correction de la recette concerne la recette synthétique R2INV4479. \n\n- La pression nominale est fixée à 6 bar. - Il est important de noter que cette donnée est fictive et sert uniquement à tester la correction avant publication. - Aucune intervention réelle n'est autorisée."
+        ],
+        "scores": [
+          0.03278688524590164
+        ],
+        "metadatas": [
+          {
+            "document_id": "091af258-47b3-56db-967f-123de591fc6f",
+            "document_filename": "capture-9d3500c7.md",
+            "chunk_index": 0,
+            "content": "# QA Capture continuity R2INV4479\n\nObjectif : Recette technique synthétique du passage Capture vers une connaissance publiée. Ne pas utiliser comme consigne réelle.\n\n Correction de la recette La correction de la recette concerne la recette synthétique R2INV4479. \n\n- La pression nominale est fixée à 6 bar. - Il est important de noter que cette donnée est fictive et sert uniquement à tester la correction avant publication. - Aucune intervention réelle n'est autorisée.",
+            "start_char": 0,
+            "end_char": 470,
+            "document_type": "md",
+            "file_size": 485,
+            "created_at": "2026-09-17T00:19:51.457535",
+            "modified_at": "2026-09-17T00:19:51.457535",
+            "extension": "md",
+            "document_encoding": "utf-8",
+            "document_word_count": 73,
+            "document_character_count": 475,
+            "document_line_count": 10,
+            "document_paragraph_count": 4,
+            "document_extracted_keywords": [
+              "capture",
+              "correction",
+              "de",
+              "de la",
+              "est",
+              "la",
+              "la correction",
+              "la recette",
+              "recette",
+              "réelle"
+            ],
+            "document_has_front_matter": false,
+            "document_token_count": 99,
+            "source": "expert_capture_session",
+            "capture_session_id": "9d3500c7-c2b1-40ad-bc27-77f94a928ebc",
+            "proposal_id": "7ecda58e-ddfd-470c-93d8-89c64735ef2e",
+            "publication_category": "technique",
+            "publication_destination": "qa-capture-inventory-4479",
+            "publication_final_title": "QA Capture R2INV4479",
+            "publication_filename": "capture-9d3500c7.md",
+            "collection_slug": "qa-capture-inventory-4479",
+            "expert_name": "thibaud.ishacian@datategy.net",
+            "captured_by_user_id": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+            "open_questions_count": 5,
+            "source_type": "expert_fiche",
+            "collection": "qa-capture-inventory-4479",
+            "source_kind": "text",
+            "status": "ready",
+            "sparse_schema_version": "metadata_v1",
+            "retrieval_identifiers": [
+              "091af25847b356db967f123de591fc6f",
+              "091af25847b3",
+              "56db967f",
+              "capture9d3500c7md",
+              "capture 9d3500c7md",
+              "capture-9d3500c7md",
+              "capture_9d3500c7md",
+              "capture.9d3500c7md",
+              "capture9d3500c7",
+              "capture 9d3500c7",
+              "capture-9d3500c7",
+              "capture_9d3500c7",
+              "capture.9d3500c7"
+            ],
+            "retrieval_terms": [
+              "capture",
+              "9d3500c7",
+              "md",
+              "capture9d3500c7md",
+              "capture 9d3500c7md",
+              "capture-9d3500c7md",
+              "capture_9d3500c7md",
+              "capture.9d3500c7md",
+              "expert",
+              "session",
+              "expertcapturesession",
+              "text"
+            ],
+            "qdrant_group_by": "document_id",
+            "qdrant_group_size": 1,
+            "dense_score": 0.7217344,
+            "sparse_backend": "qdrant_sparse",
+            "sparse_status": "ok",
+            "sparse_results": 1,
+            "dense_elapsed_ms": 2008,
+            "sparse_elapsed_ms": 349,
+            "retrieval_elapsed_ms": 2008,
+            "retrieval_deadline_seconds": 15.993360242806375,
+            "fusion_method": "weighted_rrf",
+            "fusion_dense_weight": 0.8,
+            "fusion_sparse_weight": 0.2,
+            "fusion_reason": "long_or_interrogative",
+            "fusion_path": "client_weighted",
+            "retrieval_lexical_score": 6,
+            "retrieval_exact_terms_matched": [],
+            "retrieval_document_types_matched": [],
+            "retrieval_exact_match_missing": false,
+            "retrieval_evidence_terms": [
+              "recette",
+              "synthétique",
+              "R2INV4479",
+              "pression",
+              "nominale",
+              "après",
+              "correction",
+              "Cite",
+              "passage",
+              "recette synthétique",
+              "synthétique R2INV4479",
+              "R2INV4479 pression",
+              "pression nominale",
+              "nominale après"
+            ],
+            "retrieval_evidence_terms_matched": [
+              "recette",
+              "synthétique",
+              "R2INV4479",
+              "pression",
+              "nominale",
+              "correction",
+              "passage",
+              "recette synthétique",
+              "synthétique R2INV4479",
+              "pression nominale"
+            ],
+            "retrieval_evidence_terms_missing": [
+              "après",
+              "Cite",
+              "R2INV4479 pression",
+              "nominale après"
+            ],
+            "retrieval_evidence_coverage": 0.7142857142857143,
+            "expert_fiche_boost_applied": true,
+            "expert_fiche_pinned": true,
+            "retrieval_policy_score": 78,
+            "collection_name": "qa-capture-inventory-4479",
+            "cross_encoder_score": 0.999
+          }
+        ],
+        "pipeline": "chah_backend",
+        "label": "C-HAH (backend)",
+        "reason": "Parallel budget-aware layered retrieval over query variants + RRF merge",
+        "detail": "Parallel layered searches: 2/2 query variant(s); RRF candidate merge top_48; exact_metadata_hits=0; exact_table_hits=0 → 1 chunks. Variants: ['Pour la recette synthétique R2INV4479, quelle est la pression nominale après correction ? Cite le passage source.', 'Pour la recette synthétique R2INV4479, quelle est la pression nominale après corr; sparse=ok:qdrant_sparse",
+        "mode_label": "chah_backend",
+        "mode_reason": "C-HAH backend pipeline: budgeted query variants over scoped layers + RRF merge.",
+        "use_hybrid": true,
+        "top_k": 8,
+        "candidate_pool_k": 48,
+        "synthesis_k": 16,
+        "source_display_k": 8,
+        "query": "Pour la recette synthétique R2INV4479, quelle est la pression nominale après correction ? Cite le passage source.",
+        "retrieval_query": "Pour la recette synthétique R2INV4479, quelle est la pression nominale après correction ? Cite le passage source.",
+        "retrieval_policy": {
+          "enabled": false,
+          "blocks": 0,
+          "aliases": 0,
+          "protected_terms": 0,
+          "facets": 0,
+          "source_family_rules": 0,
+          "lexical_document_types": 0,
+          "lexical_metadata_fields": 20,
+          "require_project_code_match": false,
+          "clarification_required": false,
+          "prompt": ""
+        },
+        "retrieval_constraints": {
+          "required_terms": [],
+          "matched_terms": [],
+          "missing_terms": [],
+          "filtered_chunks_removed": 0,
+          "enforced": false
+        },
+        "clarification": null,
+        "collection": "qa-capture-inventory-4479",
+        "collections": [
+          "qa-capture-inventory-4479"
+        ],
+        "knowledge_scope": "context_e717020302",
+        "table_analysis": {
+          "intent": "lookup",
+          "plan": {
+            "intent": "lookup",
+            "collections": [
+              "context_e717020302"
+            ],
+            "terms": [
+              "recette",
+              "synthétique",
+              "r2inv4479",
+              "pression",
+              "nominale",
+              "après",
+              "correction",
+              "cite",
+              "passage",
+              "source."
+            ],
+            "filters": {},
+            "profile_source": "global_default",
+            "scope": null
+          },
+          "answer_payload": {
+            "status": "no_evidence",
+            "text": "No matching table facts were found."
+          },
+          "evidence_rows": [],
+          "excluded_rows": [],
+          "warnings": [
+            "no_table_fact_match"
+          ],
+          "effective_profile": {
+            "key": "generic",
+            "label": "Generic table analysis",
+            "source": "global_default"
+          }
+        },
+        "document_analysis": null,
+        "scope_label": "Selected context",
+        "vector_db": "qdrant",
+        "workspace_slug": "agentium-showcase",
+        "metrics": {
+          "query": "Pour la recette synthétique R2INV4479, quelle est la pression nominale après correction ? Cite le passage source.",
+          "retrieval_query": "Pour la recette synthétique R2INV4479, quelle est la pression nominale après correction ? Cite le passage source.",
+          "duration_ms": 2213,
+          "chunks_retrieved": 1,
+          "scope": "context_e717020302",
+          "scope_label": "Selected context",
+          "collections_touched": [
+            "qa-capture-inventory-4479"
+          ],
+          "collection": "qa-capture-inventory-4479",
+          "collections": [
+            "qa-capture-inventory-4479"
+          ],
+          "vector_db": "qdrant",
+          "profile": "chat",
+          "retrieval_profile": "chat",
+          "retrieval_profile_contract": {
+            "name": "chat",
+            "latency_profile": "balanced",
+            "max_top_k": 12,
+            "max_source_display_k": 24,
+            "max_synthesis_k": 24,
+            "max_candidate_pool_k": 80,
+            "deadline_seconds": null,
+            "force_mode": null,
+            "allow_hah_chah": true,
+            "allow_cross_encoder": true
+          },
+          "top_k": 8,
+          "candidate_pool_k": 48,
+          "synthesis_k": 16,
+          "source_display_k": 8,
+          "fallback": false,
+          "fallback_reason": null,
+          "knowledge_guides": 0,
+          "query_expanded_with_guides": false,
+          "knowledge_guide_hint_chars": 0,
+          "retrieval_policy": {
+            "enabled": false,
+            "blocks": 0,
+            "aliases": 0,
+            "protected_terms": 0,
+            "facets": 0,
+            "source_family_rules": 0,
+            "lexical_document_types": 0,
+            "lexical_metadata_fields": 20,
+            "require_project_code_match": false,
+            "clarification_required": false
+          },
+          "retrieval_policy_enabled": false,
+          "retrieval_policy_clarification": false,
+          "retrieval_constraints": {
+            "required_terms": [],
+            "matched_terms": [],
+            "missing_terms": [],
+            "filtered_chunks_removed": 0,
+            "enforced": false
+          },
+          "latency_profile": "balanced",
+          "latency_budget": {
+            "profile": "balanced",
+            "retrieval_profile": "chat",
+            "allow_cross_encoder": true,
+            "deadline_seconds": 16.0,
+            "top_k": 8,
+            "candidate_pool_k": 48
+          },
+          "retrieval_scope": {
+            "collections": [
+              "qa-capture-inventory-4479"
+            ],
+            "filters": {
+              "document_filename": [
+                "capture-9d3500c7.md"
+              ]
+            },
+            "intent": "content_search",
+            "dense": false,
+            "source_count": 1,
+            "chunk_count": 1,
+            "confidence": 0.889,
+            "reason": "ledger source scope matched 1 candidate document(s)",
+            "corpus_version": "2026-09-17 00:19:57.362578",
+            "soft_scope_filters": {},
+            "soft_scope_collections": [],
+            "recall_floor_collections": [],
+            "recall_floor_top_n": 0,
+            "planner_ms": 53
+          },
+          "retrieval_plan": {
+            "profile": "balanced",
+            "intent": "content_search",
+            "dense_policy": "standard",
+            "deadline_ms": 16000,
+            "top_k": 8,
+            "candidate_pool_k": 48,
+            "synthesis_k": 16,
+            "max_variants": 3,
+            "max_candidates": 48,
+            "coarse_to_fine": false,
+            "layers": {
+              "inventory": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "dense corpus guardrail and scope discovery",
+                "budget_ms": 500
+              },
+              "facts": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "small corpus can retrieve chunks directly",
+                "budget_ms": 1200
+              },
+              "summaries": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+                "budget_ms": 2500,
+                "top_k": 48
+              },
+              "dense_qdrant": {
+                "enabled": true,
+                "status": "enabled",
+                "reason": "payload-filtered dense chunk retrieval",
+                "budget_ms": 3500,
+                "top_k": 48
+              },
+              "sparse": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "legacy hybrid allowed for non-dense corpus",
+                "budget_ms": 2500,
+                "top_k": 48
+              },
+              "hah_chah": {
+                "enabled": true,
+                "status": "enabled",
+                "reason": "budget-aware layered HAH/C-HAH enabled",
+                "budget_ms": 16000,
+                "top_k": 48
+              },
+              "rerank": {
+                "enabled": true,
+                "status": "enabled",
+                "reason": "normalize/fuse/rerank only the bounded candidate pool",
+                "budget_ms": 1200,
+                "top_k": 16
+              },
+              "deep_async": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "not needed for this interactive plan",
+                "budget_ms": 120000
+              }
+            },
+            "guardrails": {
+              "allow_legacy_hybrid": true,
+              "global_chunk_search_allowed": true,
+              "scoped_chunk_search_allowed": true,
+              "user_scope_required": false
+            }
+          },
+          "scope_confidence": 0.889,
+          "scope_reason": "ledger source scope matched 1 candidate document(s)",
+          "dense_policy": "standard",
+          "deep_retrieval_recommended": false,
+          "soft_scope_filters": {},
+          "soft_scope_collections": [],
+          "recall_floor_collections": [],
+          "recall_floor_top_n": 0,
+          "expert_fiche_collection": null,
+          "expert_fiche_collection_included": false,
+          "authoritative_document_evidence_dropped": 0,
+          "cross_encoder_status": "applied",
+          "cross_encoder_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+          "cross_encoder_ms": 100,
+          "cross_encoder_scored": 1,
+          "cross_encoder_filtered": 0,
+          "cross_encoder_threshold": 0.2,
+          "compression_status": "proportional",
+          "compression_kept": 1,
+          "compression_dropped": 0,
+          "compression_ratio_effective": 1.0,
+          "compression_score_floor": 0.35,
+          "retrieval_elapsed_ms": 2008,
+          "dense_elapsed_ms": 2008,
+          "sparse_elapsed_ms": 349,
+          "rerank_ms": 109,
+          "context_build_ms": 0,
+          "document_chunks_retrieved": 1,
+          "parent_context_evidence": 0,
+          "raw_chunks_retrieved": 1,
+          "duplicates_removed": 0,
+          "summary_artifact_evidence": 0,
+          "summary_artifact_status": null,
+          "summary_artifact_path": null,
+          "table_analysis_evidence": 0,
+          "document_analysis_evidence": 0,
+          "exact_match_guardrail_inserted": false,
+          "membrane_inbound": null,
+          "score_threshold": 0.2,
+          "score_threshold_applied": false,
+          "score_threshold_filtered": 0,
+          "score_threshold_skipped_reason": "non_vector_score_scale",
+          "document_diversity_applied": false,
+          "document_diversity_groups": 1,
+          "document_diversity_limit": 1,
+          "mmr_status": "disabled",
+          "pipeline": "chah_backend",
+          "mode_label": "chah_backend",
+          "dense_only": false,
+          "no_context": false,
+          "sparse_backend": "qdrant_sparse",
+          "sparse_status": "ok",
+          "sparse_results": 1,
+          "retrieval_deadline_seconds": 15.993360242806375,
+          "fusion_path": "client_weighted",
+          "fusion_method": "weighted_rrf",
+          "fusion_dense_weight": 0.8,
+          "fusion_sparse_weight": 0.2,
+          "fusion_reason": "long_or_interrogative",
+          "exact_table_attempted": true,
+          "exact_table_hits": 0,
+          "exact_table_elapsed_ms": 0,
+          "selected_sources": [
+            {
+              "rank": 1,
+              "source": "091af258-47b3-56db-967f-123de591fc6f",
+              "document_id": "091af258-47b3-56db-967f-123de591fc6f",
+              "document_filename": "capture-9d3500c7.md",
+              "source_family": null,
+              "project_code": null,
+              "score": 0.03278688524590164,
+              "snippet": "# QA Capture continuity R2INV4479 Objectif : Recette technique synthétique du passage Capture vers une connaissance publiée. Ne pas utiliser comme consigne réelle. Correction de la recette La correction de la recette concerne la recette syn"
+            }
+          ],
+          "retrieval_trace": {
+            "trace_id": "6f45ec78-b9e1-43b5-81c1-46db3fd5d856",
+            "planner": {
+              "intent": "content_search",
+              "dense": false,
+              "dense_policy": "standard"
+            },
+            "scope": {
+              "collections": [
+                "qa-capture-inventory-4479"
+              ],
+              "filters": {
+                "document_filename": [
+                  "capture-9d3500c7.md"
+                ]
+              },
+              "intent": "content_search",
+              "dense": false,
+              "source_count": 1,
+              "chunk_count": 1,
+              "confidence": 0.889,
+              "reason": "ledger source scope matched 1 candidate document(s)",
+              "corpus_version": "2026-09-17 00:19:57.362578",
+              "soft_scope_filters": {},
+              "soft_scope_collections": [],
+              "recall_floor_collections": [],
+              "recall_floor_top_n": 0,
+              "planner_ms": 53
+            },
+            "policy": {
+              "profile": "balanced",
+              "intent": "content_search",
+              "dense_policy": "standard",
+              "deadline_ms": 16000,
+              "top_k": 8,
+              "candidate_pool_k": 48,
+              "synthesis_k": 16,
+              "max_variants": 3,
+              "max_candidates": 48,
+              "coarse_to_fine": false,
+              "layers": {
+                "inventory": {
+                  "enabled": false,
+                  "status": "skipped",
+                  "reason": "dense corpus guardrail and scope discovery",
+                  "budget_ms": 500
+                },
+                "facts": {
+                  "enabled": false,
+                  "status": "skipped",
+                  "reason": "small corpus can retrieve chunks directly",
+                  "budget_ms": 1200
+                },
+                "summaries": {
+                  "enabled": false,
+                  "status": "skipped",
+                  "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+                  "budget_ms": 2500,
+                  "top_k": 48
+                },
+                "dense_qdrant": {
+                  "enabled": true,
+                  "status": "enabled",
+                  "reason": "payload-filtered dense chunk retrieval",
+                  "budget_ms": 3500,
+                  "top_k": 48
+                },
+                "sparse": {
+                  "enabled": false,
+                  "status": "skipped",
+                  "reason": "legacy hybrid allowed for non-dense corpus",
+                  "budget_ms": 2500,
+                  "top_k": 48
+                },
+                "hah_chah": {
+                  "enabled": true,
+                  "status": "enabled",
+                  "reason": "budget-aware layered HAH/C-HAH enabled",
+                  "budget_ms": 16000,
+                  "top_k": 48
+                },
+                "rerank": {
+                  "enabled": true,
+                  "status": "enabled",
+                  "reason": "normalize/fuse/rerank only the bounded candidate pool",
+                  "budget_ms": 1200,
+                  "top_k": 16
+                },
+                "deep_async": {
+                  "enabled": false,
+                  "status": "skipped",
+                  "reason": "not needed for this interactive plan",
+                  "budget_ms": 120000
+                }
+              },
+              "guardrails": {
+                "allow_legacy_hybrid": true,
+                "global_chunk_search_allowed": true,
+                "scoped_chunk_search_allowed": true,
+                "user_scope_required": false
+              }
+            },
+            "layers": {
+              "inventory": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "dense corpus guardrail and scope discovery",
+                "budget_ms": 500
+              },
+              "facts": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "small corpus can retrieve chunks directly",
+                "budget_ms": 1200
+              },
+              "summaries": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+                "budget_ms": 2500,
+                "top_k": 48
+              },
+              "dense_qdrant": {
+                "enabled": true,
+                "status": "enabled",
+                "reason": "payload-filtered dense chunk retrieval",
+                "budget_ms": 3500,
+                "top_k": 48
+              },
+              "sparse": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "legacy hybrid allowed for non-dense corpus",
+                "budget_ms": 2500,
+                "top_k": 48
+              },
+              "hah_chah": {
+                "enabled": true,
+                "status": "enabled",
+                "reason": "budget-aware layered HAH/C-HAH enabled",
+                "budget_ms": 16000,
+                "top_k": 48
+              },
+              "rerank": {
+                "enabled": true,
+                "status": "enabled",
+                "reason": "normalize/fuse/rerank only the bounded candidate pool",
+                "budget_ms": 1200,
+                "top_k": 16
+              },
+              "deep_async": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "not needed for this interactive plan",
+                "budget_ms": 120000
+              }
+            },
+            "selected_sources": [
+              {
+                "rank": 1,
+                "source": "091af258-47b3-56db-967f-123de591fc6f",
+                "document_id": "091af258-47b3-56db-967f-123de591fc6f",
+                "document_filename": "capture-9d3500c7.md",
+                "source_family": null,
+                "project_code": null,
+                "score": 0.03278688524590164,
+                "snippet": "# QA Capture continuity R2INV4479 Objectif : Recette technique synthétique du passage Capture vers une connaissance publiée. Ne pas utiliser comme consigne réelle. Correction de la recette La correction de la recette concerne la recette syn"
+              }
+            ],
+            "failures": [],
+            "timings": {
+              "planner_ms": 53,
+              "inventory_ms": null,
+              "embedding_ms": null,
+              "qdrant_ms": 2008,
+              "sparse_ms": 349,
+              "retrieval_ms": 2008,
+              "rerank_ms": 109,
+              "context_build_ms": 0,
+              "table_facts_ms": 0,
+              "llm_ms": null,
+              "total_ms": 2213
+            },
+            "candidate_counts": {
+              "source_count": 1,
+              "chunk_count": 1,
+              "candidate_pool_k": 48,
+              "synthesis_k": 16,
+              "source_display_k": 8,
+              "raw_chunks_retrieved": 1,
+              "document_chunks_retrieved": 1,
+              "chunks_retrieved": 1,
+              "duplicates_removed": 0,
+              "sparse_results": 1,
+              "exact_metadata_hits": null,
+              "exact_table_hits": 0
+            }
+          },
+          "planner_ms": 53,
+          "qdrant_ms": 2008,
+          "sparse_ms": 349,
+          "retrieval_ms": 2008,
+          "stage_timings": {
+            "planner_ms": 53,
+            "inventory_ms": null,
+            "embedding_ms": null,
+            "qdrant_ms": 2008,
+            "sparse_ms": 349,
+            "retrieval_ms": 2008,
+            "rerank_ms": 109,
+            "context_build_ms": 0,
+            "table_facts_ms": 0,
+            "llm_ms": 3874,
+            "total_ms": 6087
+          },
+          "candidate_counts": {
+            "source_count": 1,
+            "chunk_count": 1,
+            "candidate_pool_k": 48,
+            "synthesis_k": 16,
+            "source_display_k": 8,
+            "raw_chunks_retrieved": 1,
+            "document_chunks_retrieved": 1,
+            "chunks_retrieved": 1,
+            "duplicates_removed": 0,
+            "sparse_results": 1,
+            "exact_metadata_hits": null,
+            "exact_table_hits": 0
+          },
+          "embedding_provider": "openai",
+          "embedding_model": "text-embedding-3-small",
+          "retrieval_decision_trace": {
+            "version": 1,
+            "trace_id": "0a5add04-0b14-40e2-a0f9-f8db1f444516",
+            "summary": "chah_backend selected for content_search query under balanced latency profile: ledger source scope matched 1 candidate document(s)",
+            "query_type": "content_search",
+            "latency_profile": "balanced",
+            "retrieval_profile": "chat",
+            "selected_route": "chah_backend",
+            "route_reason": "ledger source scope matched 1 candidate document(s)",
+            "tradeoff": "Balanced latency with source recall and reranking quality controls.",
+            "collection_scope": {
+              "collection": "qa-capture-inventory-4479",
+              "collections": [
+                "qa-capture-inventory-4479"
+              ],
+              "filters": {
+                "document_filename": [
+                  "capture-9d3500c7.md"
+                ]
+              },
+              "intent": "content_search",
+              "dense": false,
+              "source_count": 1,
+              "chunk_count": 1,
+              "confidence": 0.889,
+              "reason": "ledger source scope matched 1 candidate document(s)"
+            },
+            "layers": [
+              {
+                "key": "inventory",
+                "enabled": false,
+                "status": "skipped",
+                "reason": "dense corpus guardrail and scope discovery",
+                "budget_ms": 500
+              },
+              {
+                "key": "facts",
+                "enabled": false,
+                "status": "skipped",
+                "reason": "small corpus can retrieve chunks directly",
+                "budget_ms": 1200
+              },
+              {
+                "key": "summaries",
+                "enabled": false,
+                "status": "skipped",
+                "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+                "budget_ms": 2500,
+                "top_k": 48
+              },
+              {
+                "key": "dense_qdrant",
+                "enabled": true,
+                "status": "enabled",
+                "reason": "payload-filtered dense chunk retrieval",
+                "budget_ms": 3500,
+                "top_k": 48
+              },
+              {
+                "key": "sparse",
+                "enabled": false,
+                "status": "skipped",
+                "reason": "legacy hybrid allowed for non-dense corpus",
+                "budget_ms": 2500,
+                "top_k": 48
+              },
+              {
+                "key": "hah_chah",
+                "enabled": true,
+                "status": "enabled",
+                "reason": "budget-aware layered HAH/C-HAH enabled",
+                "budget_ms": 16000,
+                "top_k": 48
+              },
+              {
+                "key": "rerank",
+                "enabled": true,
+                "status": "enabled",
+                "reason": "normalize/fuse/rerank only the bounded candidate pool",
+                "budget_ms": 1200,
+                "top_k": 16
+              },
+              {
+                "key": "deep_async",
+                "enabled": false,
+                "status": "skipped",
+                "reason": "not needed for this interactive plan",
+                "budget_ms": 120000
+              }
+            ],
+            "quality_controls": {
+              "sparse_status": "ok",
+              "sparse_backend": "qdrant_sparse",
+              "cross_encoder_status": "applied",
+              "cross_encoder_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+              "cross_encoder_ms": 100,
+              "score_threshold_applied": false,
+              "dense_policy": "standard",
+              "dense_only": false,
+              "retrieval_policy": {
+                "enabled": false,
+                "blocks": 0,
+                "aliases": 0,
+                "protected_terms": 0,
+                "facets": 0,
+                "source_family_rules": 0,
+                "lexical_document_types": 0,
+                "lexical_metadata_fields": 20,
+                "require_project_code_match": false,
+                "clarification_required": false
+              }
+            },
+            "fallbacks": [],
+            "deep_search": {
+              "recommended": false,
+              "launched": false
+            },
+            "answer_shaping": {},
+            "timings": {
+              "planner_ms": 53,
+              "qdrant_ms": 2008,
+              "sparse_ms": 349,
+              "retrieval_ms": 2008,
+              "rerank_ms": 109,
+              "context_build_ms": 0,
+              "table_facts_ms": 0,
+              "total_ms": 2213
+            },
+            "candidate_counts": {
+              "source_count": 1,
+              "chunk_count": 1,
+              "candidate_pool_k": 48,
+              "synthesis_k": 16,
+              "source_display_k": 8,
+              "raw_chunks_retrieved": 1,
+              "document_chunks_retrieved": 1,
+              "chunks_retrieved": 1,
+              "duplicates_removed": 0,
+              "sparse_results": 1,
+              "exact_table_hits": 0
+            },
+            "selected_sources": [
+              {
+                "label": "capture-9d3500c7.md",
+                "document_id": "091af258-47b3-56db-967f-123de591fc6f",
+                "score": 0.03278688524590164
+              }
+            ],
+            "trace_source": "runtime"
+          },
+          "retrieval_context_cache_hit": false,
+          "embedding_provider_usage_scope": "canonical_request_v1",
+          "embedding_provider_calls": 2,
+          "usage": {
+            "total_tokens": 49,
+            "provider_calls": 2,
+            "measurement_source": "provider_reported",
+            "measurement_coverage": "complete",
+            "providers": [
+              "openai"
+            ],
+            "calls": [
+              {
+                "provider": "openai",
+                "model": "text-embedding-3-small",
+                "total_tokens": 28,
+                "prompt_tokens": 28
+              },
+              {
+                "provider": "openai",
+                "model": "text-embedding-3-small",
+                "total_tokens": 21,
+                "prompt_tokens": 21
+              }
+            ],
+            "prompt_tokens": 49
+          },
+          "task_id": null,
+          "llm_ms": 3874
+        },
+        "retrieval_decision_trace": {
+          "version": 1,
+          "trace_id": "0a5add04-0b14-40e2-a0f9-f8db1f444516",
+          "summary": "chah_backend selected for content_search query under balanced latency profile: ledger source scope matched 1 candidate document(s)",
+          "query_type": "content_search",
+          "latency_profile": "balanced",
+          "retrieval_profile": "chat",
+          "selected_route": "chah_backend",
+          "route_reason": "ledger source scope matched 1 candidate document(s)",
+          "tradeoff": "Balanced latency with source recall and reranking quality controls.",
+          "collection_scope": {
+            "collection": "qa-capture-inventory-4479",
+            "collections": [
+              "qa-capture-inventory-4479"
+            ],
+            "filters": {
+              "document_filename": [
+                "capture-9d3500c7.md"
+              ]
+            },
+            "intent": "content_search",
+            "dense": false,
+            "source_count": 1,
+            "chunk_count": 1,
+            "confidence": 0.889,
+            "reason": "ledger source scope matched 1 candidate document(s)"
+          },
+          "layers": [
+            {
+              "key": "inventory",
+              "enabled": false,
+              "status": "skipped",
+              "reason": "dense corpus guardrail and scope discovery",
+              "budget_ms": 500
+            },
+            {
+              "key": "facts",
+              "enabled": false,
+              "status": "skipped",
+              "reason": "small corpus can retrieve chunks directly",
+              "budget_ms": 1200
+            },
+            {
+              "key": "summaries",
+              "enabled": false,
+              "status": "skipped",
+              "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+              "budget_ms": 2500,
+              "top_k": 48
+            },
+            {
+              "key": "dense_qdrant",
+              "enabled": true,
+              "status": "enabled",
+              "reason": "payload-filtered dense chunk retrieval",
+              "budget_ms": 3500,
+              "top_k": 48
+            },
+            {
+              "key": "sparse",
+              "enabled": false,
+              "status": "skipped",
+              "reason": "legacy hybrid allowed for non-dense corpus",
+              "budget_ms": 2500,
+              "top_k": 48
+            },
+            {
+              "key": "hah_chah",
+              "enabled": true,
+              "status": "enabled",
+              "reason": "budget-aware layered HAH/C-HAH enabled",
+              "budget_ms": 16000,
+              "top_k": 48
+            },
+            {
+              "key": "rerank",
+              "enabled": true,
+              "status": "enabled",
+              "reason": "normalize/fuse/rerank only the bounded candidate pool",
+              "budget_ms": 1200,
+              "top_k": 16
+            },
+            {
+              "key": "deep_async",
+              "enabled": false,
+              "status": "skipped",
+              "reason": "not needed for this interactive plan",
+              "budget_ms": 120000
+            }
+          ],
+          "quality_controls": {
+            "sparse_status": "ok",
+            "sparse_backend": "qdrant_sparse",
+            "cross_encoder_status": "applied",
+            "cross_encoder_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+            "cross_encoder_ms": 100,
+            "score_threshold_applied": false,
+            "dense_policy": "standard",
+            "dense_only": false,
+            "retrieval_policy": {
+              "enabled": false,
+              "blocks": 0,
+              "aliases": 0,
+              "protected_terms": 0,
+              "facets": 0,
+              "source_family_rules": 0,
+              "lexical_document_types": 0,
+              "lexical_metadata_fields": 20,
+              "require_project_code_match": false,
+              "clarification_required": false
+            }
+          },
+          "fallbacks": [],
+          "deep_search": {
+            "recommended": false,
+            "launched": false
+          },
+          "answer_shaping": {},
+          "timings": {
+            "planner_ms": 53,
+            "qdrant_ms": 2008,
+            "sparse_ms": 349,
+            "retrieval_ms": 2008,
+            "rerank_ms": 109,
+            "context_build_ms": 0,
+            "table_facts_ms": 0,
+            "total_ms": 2213
+          },
+          "candidate_counts": {
+            "source_count": 1,
+            "chunk_count": 1,
+            "candidate_pool_k": 48,
+            "synthesis_k": 16,
+            "source_display_k": 8,
+            "raw_chunks_retrieved": 1,
+            "document_chunks_retrieved": 1,
+            "chunks_retrieved": 1,
+            "duplicates_removed": 0,
+            "sparse_results": 1,
+            "exact_table_hits": 0
+          },
+          "selected_sources": [
+            {
+              "label": "capture-9d3500c7.md",
+              "document_id": "091af258-47b3-56db-967f-123de591fc6f",
+              "score": 0.03278688524590164
+            }
+          ],
+          "trace_source": "runtime"
+        },
+        "retrieval_scope": {
+          "collections": [
+            "qa-capture-inventory-4479"
+          ],
+          "filters": {
+            "document_filename": [
+              "capture-9d3500c7.md"
+            ]
+          },
+          "intent": "content_search",
+          "dense": false,
+          "source_count": 1,
+          "chunk_count": 1,
+          "confidence": 0.889,
+          "reason": "ledger source scope matched 1 candidate document(s)",
+          "corpus_version": "2026-09-17 00:19:57.362578",
+          "soft_scope_filters": {},
+          "soft_scope_collections": [],
+          "recall_floor_collections": [],
+          "recall_floor_top_n": 0,
+          "planner_ms": 53
+        },
+        "retrieval_plan": {
+          "profile": "balanced",
+          "intent": "content_search",
+          "dense_policy": "standard",
+          "deadline_ms": 16000,
+          "top_k": 8,
+          "candidate_pool_k": 48,
+          "synthesis_k": 16,
+          "max_variants": 3,
+          "max_candidates": 48,
+          "coarse_to_fine": false,
+          "layers": {
+            "inventory": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "dense corpus guardrail and scope discovery",
+              "budget_ms": 500
+            },
+            "facts": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "small corpus can retrieve chunks directly",
+              "budget_ms": 1200
+            },
+            "summaries": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+              "budget_ms": 2500,
+              "top_k": 48
+            },
+            "dense_qdrant": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "payload-filtered dense chunk retrieval",
+              "budget_ms": 3500,
+              "top_k": 48
+            },
+            "sparse": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "legacy hybrid allowed for non-dense corpus",
+              "budget_ms": 2500,
+              "top_k": 48
+            },
+            "hah_chah": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "budget-aware layered HAH/C-HAH enabled",
+              "budget_ms": 16000,
+              "top_k": 48
+            },
+            "rerank": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "normalize/fuse/rerank only the bounded candidate pool",
+              "budget_ms": 1200,
+              "top_k": 16
+            },
+            "deep_async": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "not needed for this interactive plan",
+              "budget_ms": 120000
+            }
+          },
+          "guardrails": {
+            "allow_legacy_hybrid": true,
+            "global_chunk_search_allowed": true,
+            "scoped_chunk_search_allowed": true,
+            "user_scope_required": false
+          }
+        },
+        "scope_confidence": 0.889,
+        "scope_reason": "ledger source scope matched 1 candidate document(s)",
+        "dense_policy": "standard",
+        "fallback_reason": null,
+        "latency_budget": {
+          "profile": "balanced",
+          "retrieval_profile": "chat",
+          "allow_cross_encoder": true,
+          "deadline_seconds": 16.0,
+          "top_k": 8,
+          "candidate_pool_k": 48
+        },
+        "retrieval_profile": "chat",
+        "retrieval_trace": {
+          "trace_id": "6f45ec78-b9e1-43b5-81c1-46db3fd5d856",
+          "planner": {
+            "intent": "content_search",
+            "dense": false,
+            "dense_policy": "standard"
+          },
+          "scope": {
+            "collections": [
+              "qa-capture-inventory-4479"
+            ],
+            "filters": {
+              "document_filename": [
+                "capture-9d3500c7.md"
+              ]
+            },
+            "intent": "content_search",
+            "dense": false,
+            "source_count": 1,
+            "chunk_count": 1,
+            "confidence": 0.889,
+            "reason": "ledger source scope matched 1 candidate document(s)",
+            "corpus_version": "2026-09-17 00:19:57.362578",
+            "soft_scope_filters": {},
+            "soft_scope_collections": [],
+            "recall_floor_collections": [],
+            "recall_floor_top_n": 0,
+            "planner_ms": 53
+          },
+          "policy": {
+            "profile": "balanced",
+            "intent": "content_search",
+            "dense_policy": "standard",
+            "deadline_ms": 16000,
+            "top_k": 8,
+            "candidate_pool_k": 48,
+            "synthesis_k": 16,
+            "max_variants": 3,
+            "max_candidates": 48,
+            "coarse_to_fine": false,
+            "layers": {
+              "inventory": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "dense corpus guardrail and scope discovery",
+                "budget_ms": 500
+              },
+              "facts": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "small corpus can retrieve chunks directly",
+                "budget_ms": 1200
+              },
+              "summaries": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+                "budget_ms": 2500,
+                "top_k": 48
+              },
+              "dense_qdrant": {
+                "enabled": true,
+                "status": "enabled",
+                "reason": "payload-filtered dense chunk retrieval",
+                "budget_ms": 3500,
+                "top_k": 48
+              },
+              "sparse": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "legacy hybrid allowed for non-dense corpus",
+                "budget_ms": 2500,
+                "top_k": 48
+              },
+              "hah_chah": {
+                "enabled": true,
+                "status": "enabled",
+                "reason": "budget-aware layered HAH/C-HAH enabled",
+                "budget_ms": 16000,
+                "top_k": 48
+              },
+              "rerank": {
+                "enabled": true,
+                "status": "enabled",
+                "reason": "normalize/fuse/rerank only the bounded candidate pool",
+                "budget_ms": 1200,
+                "top_k": 16
+              },
+              "deep_async": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "not needed for this interactive plan",
+                "budget_ms": 120000
+              }
+            },
+            "guardrails": {
+              "allow_legacy_hybrid": true,
+              "global_chunk_search_allowed": true,
+              "scoped_chunk_search_allowed": true,
+              "user_scope_required": false
+            }
+          },
+          "layers": {
+            "inventory": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "dense corpus guardrail and scope discovery",
+              "budget_ms": 500
+            },
+            "facts": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "small corpus can retrieve chunks directly",
+              "budget_ms": 1200
+            },
+            "summaries": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+              "budget_ms": 2500,
+              "top_k": 48
+            },
+            "dense_qdrant": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "payload-filtered dense chunk retrieval",
+              "budget_ms": 3500,
+              "top_k": 48
+            },
+            "sparse": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "legacy hybrid allowed for non-dense corpus",
+              "budget_ms": 2500,
+              "top_k": 48
+            },
+            "hah_chah": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "budget-aware layered HAH/C-HAH enabled",
+              "budget_ms": 16000,
+              "top_k": 48
+            },
+            "rerank": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "normalize/fuse/rerank only the bounded candidate pool",
+              "budget_ms": 1200,
+              "top_k": 16
+            },
+            "deep_async": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "not needed for this interactive plan",
+              "budget_ms": 120000
+            }
+          },
+          "selected_sources": [
+            {
+              "rank": 1,
+              "source": "091af258-47b3-56db-967f-123de591fc6f",
+              "document_id": "091af258-47b3-56db-967f-123de591fc6f",
+              "document_filename": "capture-9d3500c7.md",
+              "source_family": null,
+              "project_code": null,
+              "score": 0.03278688524590164,
+              "snippet": "# QA Capture continuity R2INV4479 Objectif : Recette technique synthétique du passage Capture vers une connaissance publiée. Ne pas utiliser comme consigne réelle. Correction de la recette La correction de la recette concerne la recette syn"
+            }
+          ],
+          "failures": [],
+          "timings": {
+            "planner_ms": 53,
+            "inventory_ms": null,
+            "embedding_ms": null,
+            "qdrant_ms": 2008,
+            "sparse_ms": 349,
+            "retrieval_ms": 2008,
+            "rerank_ms": 109,
+            "context_build_ms": 0,
+            "table_facts_ms": 0,
+            "llm_ms": null,
+            "total_ms": 2213
+          },
+          "candidate_counts": {
+            "source_count": 1,
+            "chunk_count": 1,
+            "candidate_pool_k": 48,
+            "synthesis_k": 16,
+            "source_display_k": 8,
+            "raw_chunks_retrieved": 1,
+            "document_chunks_retrieved": 1,
+            "chunks_retrieved": 1,
+            "duplicates_removed": 0,
+            "sparse_results": 1,
+            "exact_metadata_hits": null,
+            "exact_table_hits": 0
+          }
+        },
+        "deep_retrieval_recommended": false,
+        "collections_touched": [
+          "qa-capture-inventory-4479"
+        ],
+        "collection_errors": []
+      },
+      "retrieval_metrics": {
+        "collection": "qa-capture-inventory-4479",
+        "collections": [
+          "qa-capture-inventory-4479"
+        ],
+        "scope": "context_e717020302",
+        "scope_label": "Selected context",
+        "collections_touched": [
+          "qa-capture-inventory-4479"
+        ],
+        "vector_db": "qdrant",
+        "top_k": 8,
+        "candidate_pool_k": 48,
+        "synthesis_k": 16,
+        "source_display_k": 8,
+        "retrieval_profile": "chat",
+        "latency_profile": "balanced",
+        "latency_budget": {
+          "profile": "balanced",
+          "retrieval_profile": "chat",
+          "allow_cross_encoder": true,
+          "deadline_seconds": 16.0,
+          "top_k": 8,
+          "candidate_pool_k": 48
+        },
+        "pipeline": "chah_backend",
+        "requested_mode": "chah",
+        "planner_preview_mode": "planner_pending",
+        "task_id": null,
+        "grounding_mode": "strict",
+        "grounding_policy": {
+          "requested_mode": "balanced",
+          "mode": "strict",
+          "inherited_from": "request",
+          "reason": "documentary_question_requires_sources",
+          "allow_foundational_fallback": false,
+          "source_requirement": "workspace_required",
+          "assistant_profile": "showcase_advisor",
+          "workspace_slug": "agentium-showcase",
+          "fallback_disclaimer": "Business interpretation to confirm: indexed sources stay authoritative and any documented value must be verified in the source notice.",
+          "strict_guard": "business_interpretation",
+          "allowed_modes": [
+            "balanced",
+            "strict"
+          ]
+        },
+        "query": "Pour la recette synthétique R2INV4479, quelle est la pression nominale après correction ? Cite le passage source.",
+        "retrieval_query": "Pour la recette synthétique R2INV4479, quelle est la pression nominale après correction ? Cite le passage source.",
+        "duration_ms": 2213,
+        "chunks_retrieved": 1,
+        "profile": "chat",
+        "retrieval_profile_contract": {
+          "name": "chat",
+          "latency_profile": "balanced",
+          "max_top_k": 12,
+          "max_source_display_k": 24,
+          "max_synthesis_k": 24,
+          "max_candidate_pool_k": 80,
+          "deadline_seconds": null,
+          "force_mode": null,
+          "allow_hah_chah": true,
+          "allow_cross_encoder": true
+        },
+        "fallback": false,
+        "fallback_reason": null,
+        "knowledge_guides": 0,
+        "query_expanded_with_guides": false,
+        "knowledge_guide_hint_chars": 0,
+        "retrieval_policy": {
+          "enabled": false,
+          "blocks": 0,
+          "aliases": 0,
+          "protected_terms": 0,
+          "facets": 0,
+          "source_family_rules": 0,
+          "lexical_document_types": 0,
+          "lexical_metadata_fields": 20,
+          "require_project_code_match": false,
+          "clarification_required": false
+        },
+        "retrieval_policy_enabled": false,
+        "retrieval_policy_clarification": false,
+        "retrieval_constraints": {
+          "required_terms": [],
+          "matched_terms": [],
+          "missing_terms": [],
+          "filtered_chunks_removed": 0,
+          "enforced": false
+        },
+        "retrieval_scope": {
+          "collections": [
+            "qa-capture-inventory-4479"
+          ],
+          "filters": {
+            "document_filename": [
+              "capture-9d3500c7.md"
+            ]
+          },
+          "intent": "content_search",
+          "dense": false,
+          "source_count": 1,
+          "chunk_count": 1,
+          "confidence": 0.889,
+          "reason": "ledger source scope matched 1 candidate document(s)",
+          "corpus_version": "2026-09-17 00:19:57.362578",
+          "soft_scope_filters": {},
+          "soft_scope_collections": [],
+          "recall_floor_collections": [],
+          "recall_floor_top_n": 0,
+          "planner_ms": 53
+        },
+        "retrieval_plan": {
+          "profile": "balanced",
+          "intent": "content_search",
+          "dense_policy": "standard",
+          "deadline_ms": 16000,
+          "top_k": 8,
+          "candidate_pool_k": 48,
+          "synthesis_k": 16,
+          "max_variants": 3,
+          "max_candidates": 48,
+          "coarse_to_fine": false,
+          "layers": {
+            "inventory": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "dense corpus guardrail and scope discovery",
+              "budget_ms": 500
+            },
+            "facts": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "small corpus can retrieve chunks directly",
+              "budget_ms": 1200
+            },
+            "summaries": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+              "budget_ms": 2500,
+              "top_k": 48
+            },
+            "dense_qdrant": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "payload-filtered dense chunk retrieval",
+              "budget_ms": 3500,
+              "top_k": 48
+            },
+            "sparse": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "legacy hybrid allowed for non-dense corpus",
+              "budget_ms": 2500,
+              "top_k": 48
+            },
+            "hah_chah": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "budget-aware layered HAH/C-HAH enabled",
+              "budget_ms": 16000,
+              "top_k": 48
+            },
+            "rerank": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "normalize/fuse/rerank only the bounded candidate pool",
+              "budget_ms": 1200,
+              "top_k": 16
+            },
+            "deep_async": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "not needed for this interactive plan",
+              "budget_ms": 120000
+            }
+          },
+          "guardrails": {
+            "allow_legacy_hybrid": true,
+            "global_chunk_search_allowed": true,
+            "scoped_chunk_search_allowed": true,
+            "user_scope_required": false
+          }
+        },
+        "scope_confidence": 0.889,
+        "scope_reason": "ledger source scope matched 1 candidate document(s)",
+        "dense_policy": "standard",
+        "deep_retrieval_recommended": false,
+        "soft_scope_filters": {},
+        "soft_scope_collections": [],
+        "recall_floor_collections": [],
+        "recall_floor_top_n": 0,
+        "expert_fiche_collection": null,
+        "expert_fiche_collection_included": false,
+        "authoritative_document_evidence_dropped": 0,
+        "cross_encoder_status": "applied",
+        "cross_encoder_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        "cross_encoder_ms": 100,
+        "cross_encoder_scored": 1,
+        "cross_encoder_filtered": 0,
+        "cross_encoder_threshold": 0.2,
+        "compression_status": "proportional",
+        "compression_kept": 1,
+        "compression_dropped": 0,
+        "compression_ratio_effective": 1.0,
+        "compression_score_floor": 0.35,
+        "retrieval_elapsed_ms": 2008,
+        "dense_elapsed_ms": 2008,
+        "sparse_elapsed_ms": 349,
+        "rerank_ms": 109,
+        "context_build_ms": 0,
+        "document_chunks_retrieved": 1,
+        "parent_context_evidence": 0,
+        "raw_chunks_retrieved": 1,
+        "duplicates_removed": 0,
+        "summary_artifact_evidence": 0,
+        "summary_artifact_status": null,
+        "summary_artifact_path": null,
+        "table_analysis_evidence": 0,
+        "document_analysis_evidence": 0,
+        "exact_match_guardrail_inserted": false,
+        "membrane_inbound": null,
+        "score_threshold": 0.2,
+        "score_threshold_applied": false,
+        "score_threshold_filtered": 0,
+        "score_threshold_skipped_reason": "non_vector_score_scale",
+        "document_diversity_applied": false,
+        "document_diversity_groups": 1,
+        "document_diversity_limit": 1,
+        "mmr_status": "disabled",
+        "mode_label": "chah_backend",
+        "dense_only": false,
+        "no_context": false,
+        "sparse_backend": "qdrant_sparse",
+        "sparse_status": "ok",
+        "sparse_results": 1,
+        "retrieval_deadline_seconds": 15.993360242806375,
+        "fusion_path": "client_weighted",
+        "fusion_method": "weighted_rrf",
+        "fusion_dense_weight": 0.8,
+        "fusion_sparse_weight": 0.2,
+        "fusion_reason": "long_or_interrogative",
+        "exact_table_attempted": true,
+        "exact_table_hits": 0,
+        "exact_table_elapsed_ms": 0,
+        "selected_sources": [
+          {
+            "rank": 1,
+            "source": "091af258-47b3-56db-967f-123de591fc6f",
+            "document_id": "091af258-47b3-56db-967f-123de591fc6f",
+            "document_filename": "capture-9d3500c7.md",
+            "source_family": null,
+            "project_code": null,
+            "score": 0.03278688524590164,
+            "snippet": "# QA Capture continuity R2INV4479 Objectif : Recette technique synthétique du passage Capture vers une connaissance publiée. Ne pas utiliser comme consigne réelle. Correction de la recette La correction de la recette concerne la recette syn"
+          }
+        ],
+        "retrieval_trace": {
+          "trace_id": "6f45ec78-b9e1-43b5-81c1-46db3fd5d856",
+          "planner": {
+            "intent": "content_search",
+            "dense": false,
+            "dense_policy": "standard"
+          },
+          "scope": {
+            "collections": [
+              "qa-capture-inventory-4479"
+            ],
+            "filters": {
+              "document_filename": [
+                "capture-9d3500c7.md"
+              ]
+            },
+            "intent": "content_search",
+            "dense": false,
+            "source_count": 1,
+            "chunk_count": 1,
+            "confidence": 0.889,
+            "reason": "ledger source scope matched 1 candidate document(s)",
+            "corpus_version": "2026-09-17 00:19:57.362578",
+            "soft_scope_filters": {},
+            "soft_scope_collections": [],
+            "recall_floor_collections": [],
+            "recall_floor_top_n": 0,
+            "planner_ms": 53
+          },
+          "policy": {
+            "profile": "balanced",
+            "intent": "content_search",
+            "dense_policy": "standard",
+            "deadline_ms": 16000,
+            "top_k": 8,
+            "candidate_pool_k": 48,
+            "synthesis_k": 16,
+            "max_variants": 3,
+            "max_candidates": 48,
+            "coarse_to_fine": false,
+            "layers": {
+              "inventory": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "dense corpus guardrail and scope discovery",
+                "budget_ms": 500
+              },
+              "facts": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "small corpus can retrieve chunks directly",
+                "budget_ms": 1200
+              },
+              "summaries": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+                "budget_ms": 2500,
+                "top_k": 48
+              },
+              "dense_qdrant": {
+                "enabled": true,
+                "status": "enabled",
+                "reason": "payload-filtered dense chunk retrieval",
+                "budget_ms": 3500,
+                "top_k": 48
+              },
+              "sparse": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "legacy hybrid allowed for non-dense corpus",
+                "budget_ms": 2500,
+                "top_k": 48
+              },
+              "hah_chah": {
+                "enabled": true,
+                "status": "enabled",
+                "reason": "budget-aware layered HAH/C-HAH enabled",
+                "budget_ms": 16000,
+                "top_k": 48
+              },
+              "rerank": {
+                "enabled": true,
+                "status": "enabled",
+                "reason": "normalize/fuse/rerank only the bounded candidate pool",
+                "budget_ms": 1200,
+                "top_k": 16
+              },
+              "deep_async": {
+                "enabled": false,
+                "status": "skipped",
+                "reason": "not needed for this interactive plan",
+                "budget_ms": 120000
+              }
+            },
+            "guardrails": {
+              "allow_legacy_hybrid": true,
+              "global_chunk_search_allowed": true,
+              "scoped_chunk_search_allowed": true,
+              "user_scope_required": false
+            }
+          },
+          "layers": {
+            "inventory": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "dense corpus guardrail and scope discovery",
+              "budget_ms": 500
+            },
+            "facts": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "small corpus can retrieve chunks directly",
+              "budget_ms": 1200
+            },
+            "summaries": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+              "budget_ms": 2500,
+              "top_k": 48
+            },
+            "dense_qdrant": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "payload-filtered dense chunk retrieval",
+              "budget_ms": 3500,
+              "top_k": 48
+            },
+            "sparse": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "legacy hybrid allowed for non-dense corpus",
+              "budget_ms": 2500,
+              "top_k": 48
+            },
+            "hah_chah": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "budget-aware layered HAH/C-HAH enabled",
+              "budget_ms": 16000,
+              "top_k": 48
+            },
+            "rerank": {
+              "enabled": true,
+              "status": "enabled",
+              "reason": "normalize/fuse/rerank only the bounded candidate pool",
+              "budget_ms": 1200,
+              "top_k": 16
+            },
+            "deep_async": {
+              "enabled": false,
+              "status": "skipped",
+              "reason": "not needed for this interactive plan",
+              "budget_ms": 120000
+            }
+          },
+          "selected_sources": [
+            {
+              "rank": 1,
+              "source": "091af258-47b3-56db-967f-123de591fc6f",
+              "document_id": "091af258-47b3-56db-967f-123de591fc6f",
+              "document_filename": "capture-9d3500c7.md",
+              "source_family": null,
+              "project_code": null,
+              "score": 0.03278688524590164,
+              "snippet": "# QA Capture continuity R2INV4479 Objectif : Recette technique synthétique du passage Capture vers une connaissance publiée. Ne pas utiliser comme consigne réelle. Correction de la recette La correction de la recette concerne la recette syn"
+            }
+          ],
+          "failures": [],
+          "timings": {
+            "planner_ms": 53,
+            "inventory_ms": null,
+            "embedding_ms": null,
+            "qdrant_ms": 2008,
+            "sparse_ms": 349,
+            "retrieval_ms": 2008,
+            "rerank_ms": 109,
+            "context_build_ms": 0,
+            "table_facts_ms": 0,
+            "llm_ms": null,
+            "total_ms": 2213
+          },
+          "candidate_counts": {
+            "source_count": 1,
+            "chunk_count": 1,
+            "candidate_pool_k": 48,
+            "synthesis_k": 16,
+            "source_display_k": 8,
+            "raw_chunks_retrieved": 1,
+            "document_chunks_retrieved": 1,
+            "chunks_retrieved": 1,
+            "duplicates_removed": 0,
+            "sparse_results": 1,
+            "exact_metadata_hits": null,
+            "exact_table_hits": 0
+          }
+        },
+        "planner_ms": 53,
+        "qdrant_ms": 2008,
+        "sparse_ms": 349,
+        "retrieval_ms": 2008,
+        "stage_timings": {
+          "planner_ms": 53,
+          "inventory_ms": null,
+          "embedding_ms": null,
+          "qdrant_ms": 2008,
+          "sparse_ms": 349,
+          "retrieval_ms": 2008,
+          "rerank_ms": 109,
+          "context_build_ms": 0,
+          "table_facts_ms": 0,
+          "llm_ms": 3874,
+          "total_ms": 6087
+        },
+        "candidate_counts": {
+          "source_count": 1,
+          "chunk_count": 1,
+          "candidate_pool_k": 48,
+          "synthesis_k": 16,
+          "source_display_k": 8,
+          "raw_chunks_retrieved": 1,
+          "document_chunks_retrieved": 1,
+          "chunks_retrieved": 1,
+          "duplicates_removed": 0,
+          "sparse_results": 1,
+          "exact_metadata_hits": null,
+          "exact_table_hits": 0
+        },
+        "embedding_provider": "openai",
+        "embedding_model": "text-embedding-3-small",
+        "retrieval_decision_trace": {
+          "version": 1,
+          "trace_id": "0a5add04-0b14-40e2-a0f9-f8db1f444516",
+          "summary": "chah_backend selected for content_search query under balanced latency profile: ledger source scope matched 1 candidate document(s)",
+          "query_type": "content_search",
+          "latency_profile": "balanced",
+          "retrieval_profile": "chat",
+          "selected_route": "chah_backend",
+          "route_reason": "ledger source scope matched 1 candidate document(s)",
+          "tradeoff": "Balanced latency with source recall and reranking quality controls.",
+          "collection_scope": {
+            "collection": "qa-capture-inventory-4479",
+            "collections": [
+              "qa-capture-inventory-4479"
+            ],
+            "filters": {
+              "document_filename": [
+                "capture-9d3500c7.md"
+              ]
+            },
+            "intent": "content_search",
+            "dense": false,
+            "source_count": 1,
+            "chunk_count": 1,
+            "confidence": 0.889,
+            "reason": "ledger source scope matched 1 candidate document(s)"
+          },
+          "layers": [
+            {
+              "key": "inventory",
+              "enabled": false,
+              "status": "skipped",
+              "reason": "dense corpus guardrail and scope discovery",
+              "budget_ms": 500
+            },
+            {
+              "key": "facts",
+              "enabled": false,
+              "status": "skipped",
+              "reason": "small corpus can retrieve chunks directly",
+              "budget_ms": 1200
+            },
+            {
+              "key": "summaries",
+              "enabled": false,
+              "status": "skipped",
+              "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+              "budget_ms": 2500,
+              "top_k": 48
+            },
+            {
+              "key": "dense_qdrant",
+              "enabled": true,
+              "status": "enabled",
+              "reason": "payload-filtered dense chunk retrieval",
+              "budget_ms": 3500,
+              "top_k": 48
+            },
+            {
+              "key": "sparse",
+              "enabled": false,
+              "status": "skipped",
+              "reason": "legacy hybrid allowed for non-dense corpus",
+              "budget_ms": 2500,
+              "top_k": 48
+            },
+            {
+              "key": "hah_chah",
+              "enabled": true,
+              "status": "enabled",
+              "reason": "budget-aware layered HAH/C-HAH enabled",
+              "budget_ms": 16000,
+              "top_k": 48
+            },
+            {
+              "key": "rerank",
+              "enabled": true,
+              "status": "enabled",
+              "reason": "normalize/fuse/rerank only the bounded candidate pool",
+              "budget_ms": 1200,
+              "top_k": 16
+            },
+            {
+              "key": "deep_async",
+              "enabled": false,
+              "status": "skipped",
+              "reason": "not needed for this interactive plan",
+              "budget_ms": 120000
+            }
+          ],
+          "quality_controls": {
+            "sparse_status": "ok",
+            "sparse_backend": "qdrant_sparse",
+            "cross_encoder_status": "applied",
+            "cross_encoder_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+            "cross_encoder_ms": 100,
+            "score_threshold_applied": false,
+            "dense_policy": "standard",
+            "dense_only": false,
+            "retrieval_policy": {
+              "enabled": false,
+              "blocks": 0,
+              "aliases": 0,
+              "protected_terms": 0,
+              "facets": 0,
+              "source_family_rules": 0,
+              "lexical_document_types": 0,
+              "lexical_metadata_fields": 20,
+              "require_project_code_match": false,
+              "clarification_required": false
+            }
+          },
+          "fallbacks": [],
+          "deep_search": {
+            "recommended": false,
+            "launched": false
+          },
+          "answer_shaping": {},
+          "timings": {
+            "planner_ms": 53,
+            "qdrant_ms": 2008,
+            "sparse_ms": 349,
+            "retrieval_ms": 2008,
+            "rerank_ms": 109,
+            "context_build_ms": 0,
+            "table_facts_ms": 0,
+            "total_ms": 2213
+          },
+          "candidate_counts": {
+            "source_count": 1,
+            "chunk_count": 1,
+            "candidate_pool_k": 48,
+            "synthesis_k": 16,
+            "source_display_k": 8,
+            "raw_chunks_retrieved": 1,
+            "document_chunks_retrieved": 1,
+            "chunks_retrieved": 1,
+            "duplicates_removed": 0,
+            "sparse_results": 1,
+            "exact_table_hits": 0
+          },
+          "selected_sources": [
+            {
+              "label": "capture-9d3500c7.md",
+              "document_id": "091af258-47b3-56db-967f-123de591fc6f",
+              "score": 0.03278688524590164
+            }
+          ],
+          "trace_source": "runtime"
+        },
+        "retrieval_context_cache_hit": false,
+        "embedding_provider_usage_scope": "canonical_request_v1",
+        "embedding_provider_calls": 2,
+        "usage": {
+          "total_tokens": 49,
+          "provider_calls": 2,
+          "measurement_source": "provider_reported",
+          "measurement_coverage": "complete",
+          "providers": [
+            "openai"
+          ],
+          "calls": [
+            {
+              "provider": "openai",
+              "model": "text-embedding-3-small",
+              "total_tokens": 28,
+              "prompt_tokens": 28
+            },
+            {
+              "provider": "openai",
+              "model": "text-embedding-3-small",
+              "total_tokens": 21,
+              "prompt_tokens": 21
+            }
+          ],
+          "prompt_tokens": 49
+        },
+        "llm_ms": 3874
+      },
+      "retrieval_worker_task_id": null,
+      "retrieval_fallback": null,
+      "fallback_reason": null,
+      "knowledge_scope": "agentium-showcase-notices",
+      "context_id": "4667e744-dea5-4847-862f-b0d981617035",
+      "context_mode": "replace",
+      "assistant_profile": "showcase_advisor",
+      "response_language": "en",
+      "answer_profile": "precise_fact",
+      "answer_profile_decision": {
+        "profile": "precise_fact",
+        "reason": "default_answer_profile",
+        "requires_exhaustive_retrieval": false
+      },
+      "answer_policy_applied": true,
+      "answer_policy_violations": [],
+      "collections_touched": [
+        "qa-capture-inventory-4479"
+      ],
+      "retrieval_scope": {
+        "collections": [
+          "qa-capture-inventory-4479"
+        ],
+        "filters": {
+          "document_filename": [
+            "capture-9d3500c7.md"
+          ]
+        },
+        "intent": "content_search",
+        "dense": false,
+        "source_count": 1,
+        "chunk_count": 1,
+        "confidence": 0.889,
+        "reason": "ledger source scope matched 1 candidate document(s)",
+        "corpus_version": "2026-09-17 00:19:57.362578",
+        "soft_scope_filters": {},
+        "soft_scope_collections": [],
+        "recall_floor_collections": [],
+        "recall_floor_top_n": 0,
+        "planner_ms": 53
+      },
+      "retrieval_plan": {
+        "profile": "balanced",
+        "intent": "content_search",
+        "dense_policy": "standard",
+        "deadline_ms": 16000,
+        "top_k": 8,
+        "candidate_pool_k": 48,
+        "synthesis_k": 16,
+        "max_variants": 3,
+        "max_candidates": 48,
+        "coarse_to_fine": false,
+        "layers": {
+          "inventory": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "dense corpus guardrail and scope discovery",
+            "budget_ms": 500
+          },
+          "facts": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "small corpus can retrieve chunks directly",
+            "budget_ms": 1200
+          },
+          "summaries": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+            "budget_ms": 2500,
+            "top_k": 48
+          },
+          "dense_qdrant": {
+            "enabled": true,
+            "status": "enabled",
+            "reason": "payload-filtered dense chunk retrieval",
+            "budget_ms": 3500,
+            "top_k": 48
+          },
+          "sparse": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "legacy hybrid allowed for non-dense corpus",
+            "budget_ms": 2500,
+            "top_k": 48
+          },
+          "hah_chah": {
+            "enabled": true,
+            "status": "enabled",
+            "reason": "budget-aware layered HAH/C-HAH enabled",
+            "budget_ms": 16000,
+            "top_k": 48
+          },
+          "rerank": {
+            "enabled": true,
+            "status": "enabled",
+            "reason": "normalize/fuse/rerank only the bounded candidate pool",
+            "budget_ms": 1200,
+            "top_k": 16
+          },
+          "deep_async": {
+            "enabled": false,
+            "status": "skipped",
+            "reason": "not needed for this interactive plan",
+            "budget_ms": 120000
+          }
+        },
+        "guardrails": {
+          "allow_legacy_hybrid": true,
+          "global_chunk_search_allowed": true,
+          "scoped_chunk_search_allowed": true,
+          "user_scope_required": false
+        }
+      },
+      "scope_confidence": 0.889,
+      "scope_reason": "ledger source scope matched 1 candidate document(s)",
+      "dense_policy": "standard",
+      "dense_only": false,
+      "sparse_status": "ok",
+      "sparse_backend": "qdrant_sparse",
+      "sparse_fallback_reason": null,
+      "retrieval_profile": "chat",
+      "latency_budget": {
+        "profile": "balanced",
+        "retrieval_profile": "chat",
+        "allow_cross_encoder": true,
+        "deadline_seconds": 16.0,
+        "top_k": 8,
+        "candidate_pool_k": 48
+      },
+      "score_threshold_applied": false,
+      "deep_retrieval_recommended": false,
+      "deep_job_id": null,
+      "deep_poll_url": null,
+      "deep_status": null,
+      "grounding_mode": "strict",
+      "grounding_policy": {
+        "requested_mode": "balanced",
+        "mode": "strict",
+        "inherited_from": "request",
+        "reason": "documentary_question_requires_sources",
+        "allow_foundational_fallback": false,
+        "source_requirement": "workspace_required",
+        "assistant_profile": "showcase_advisor",
+        "workspace_slug": "agentium-showcase",
+        "fallback_disclaimer": "Business interpretation to confirm: indexed sources stay authoritative and any documented value must be verified in the source notice.",
+        "strict_guard": "business_interpretation",
+        "allowed_modes": [
+          "balanced",
+          "strict"
+        ]
+      },
+      "retrieval_decision_trace": {
+        "version": 1,
+        "trace_id": "0a5add04-0b14-40e2-a0f9-f8db1f444516",
+        "summary": "chah_backend selected for content_search query under balanced latency profile: ledger source scope matched 1 candidate document(s)",
+        "query_type": "content_search",
+        "latency_profile": "balanced",
+        "retrieval_profile": "chat",
+        "selected_route": "chah_backend",
+        "route_reason": "ledger source scope matched 1 candidate document(s)",
+        "tradeoff": "Balanced latency with source recall and reranking quality controls.",
+        "collection_scope": {
+          "collection": "qa-capture-inventory-4479",
+          "collections": [
+            "qa-capture-inventory-4479"
+          ],
+          "filters": {
+            "document_filename": [
+              "capture-9d3500c7.md"
+            ]
+          },
+          "intent": "content_search",
+          "dense": false,
+          "source_count": 1,
+          "chunk_count": 1,
+          "confidence": 0.889,
+          "reason": "ledger source scope matched 1 candidate document(s)"
+        },
+        "layers": [
+          {
+            "key": "inventory",
+            "enabled": false,
+            "status": "skipped",
+            "reason": "dense corpus guardrail and scope discovery",
+            "budget_ms": 500
+          },
+          {
+            "key": "facts",
+            "enabled": false,
+            "status": "skipped",
+            "reason": "small corpus can retrieve chunks directly",
+            "budget_ms": 1200
+          },
+          {
+            "key": "summaries",
+            "enabled": false,
+            "status": "skipped",
+            "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+            "budget_ms": 2500,
+            "top_k": 48
+          },
+          {
+            "key": "dense_qdrant",
+            "enabled": true,
+            "status": "enabled",
+            "reason": "payload-filtered dense chunk retrieval",
+            "budget_ms": 3500,
+            "top_k": 48
+          },
+          {
+            "key": "sparse",
+            "enabled": false,
+            "status": "skipped",
+            "reason": "legacy hybrid allowed for non-dense corpus",
+            "budget_ms": 2500,
+            "top_k": 48
+          },
+          {
+            "key": "hah_chah",
+            "enabled": true,
+            "status": "enabled",
+            "reason": "budget-aware layered HAH/C-HAH enabled",
+            "budget_ms": 16000,
+            "top_k": 48
+          },
+          {
+            "key": "rerank",
+            "enabled": true,
+            "status": "enabled",
+            "reason": "normalize/fuse/rerank only the bounded candidate pool",
+            "budget_ms": 1200,
+            "top_k": 16
+          },
+          {
+            "key": "deep_async",
+            "enabled": false,
+            "status": "skipped",
+            "reason": "not needed for this interactive plan",
+            "budget_ms": 120000
+          }
+        ],
+        "quality_controls": {
+          "sparse_status": "ok",
+          "sparse_backend": "qdrant_sparse",
+          "cross_encoder_status": "applied",
+          "cross_encoder_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+          "cross_encoder_ms": 100,
+          "score_threshold_applied": false,
+          "dense_policy": "standard",
+          "dense_only": false,
+          "retrieval_policy": {
+            "enabled": false,
+            "blocks": 0,
+            "aliases": 0,
+            "protected_terms": 0,
+            "facets": 0,
+            "source_family_rules": 0,
+            "lexical_document_types": 0,
+            "lexical_metadata_fields": 20,
+            "require_project_code_match": false,
+            "clarification_required": false
+          }
+        },
+        "fallbacks": [],
+        "deep_search": {
+          "recommended": false,
+          "launched": false
+        },
+        "answer_shaping": {},
+        "timings": {
+          "planner_ms": 53,
+          "qdrant_ms": 2008,
+          "sparse_ms": 349,
+          "retrieval_ms": 2008,
+          "rerank_ms": 109,
+          "context_build_ms": 0,
+          "table_facts_ms": 0,
+          "total_ms": 2213
+        },
+        "candidate_counts": {
+          "source_count": 1,
+          "chunk_count": 1,
+          "candidate_pool_k": 48,
+          "synthesis_k": 16,
+          "source_display_k": 8,
+          "raw_chunks_retrieved": 1,
+          "document_chunks_retrieved": 1,
+          "chunks_retrieved": 1,
+          "duplicates_removed": 0,
+          "sparse_results": 1,
+          "exact_table_hits": 0
+        },
+        "selected_sources": [
+          {
+            "label": "capture-9d3500c7.md",
+            "document_id": "091af258-47b3-56db-967f-123de591fc6f",
+            "score": 0.03278688524590164
+          }
+        ],
+        "trace_source": "runtime"
+      },
+      "latency_profile": "balanced",
+      "stage_timings": {
+        "planner_ms": 53,
+        "inventory_ms": null,
+        "embedding_ms": null,
+        "qdrant_ms": 2008,
+        "sparse_ms": 349,
+        "retrieval_ms": 2008,
+        "rerank_ms": 109,
+        "context_build_ms": 0,
+        "table_facts_ms": 0,
+        "llm_ms": 3874,
+        "total_ms": 6087
+      },
+      "duration_ms": 2213,
+      "retrieval_elapsed_ms": 2008,
+      "cross_encoder_status": "applied",
+      "cross_encoder_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+      "cross_encoder_ms": 100,
+      "cross_encoder_scored": 1,
+      "cross_encoder_filtered": 0,
+      "cross_encoder_threshold": 0.2,
+      "retrieval_latency_profile": "balanced",
+      "retrieval_latency_scope": "direct_chat"
+    },
+    "outcome": {
+      "decision": null,
+      "confidence": 0.86,
+      "value_estimated": 1.395,
+      "cost_internal": 0.0129,
+      "revenue_allocated": null,
+      "efficiency": 36.813,
+      "value_source": "auto",
+      "operator_value_note": null,
+      "measurement_provenance": null,
+      "baseline_eligible": false,
+      "baseline_ineligible_reason": "baseline_runtime_provenance_unavailable"
+    },
+    "retries": 0,
+    "error": null,
+    "checkpoints": [],
+    "test_result": null,
+    "waiting_subflows": {},
+    "result_held": false,
+    "flow_evidence": {
+      "flow_version_id": null,
+      "flow_snapshot_sha256": null,
+      "execution_snapshot_at": null,
+      "runtime_revision": null
+    },
+    "invocations": [
+      {
+        "id": "21b77342-cca4-4ee2-aedb-15dfd2202032",
+        "skill_slug": "semantic_search_v1",
+        "status": "completed",
+        "started_at": "2026-09-17T04:33:11.025613",
+        "completed_at": "2026-09-17T04:33:13.891193",
+        "latency_ms": 2865.5803442001343,
+        "cost": 0.0008,
+        "input_ref": {
+          "run_trigger": "chat"
+        },
+        "output_ref": {
+          "confidence": 0.86,
+          "source_count": 1,
+          "retrieval_observability": {
+            "retrieval_profile": "chat",
+            "latency_profile": "balanced",
+            "retrieval_latency_profile": "balanced",
+            "retrieval_latency_scope": "direct_chat",
+            "retrieval_decision_trace": {
+              "version": 1,
+              "trace_id": "0a5add04-0b14-40e2-a0f9-f8db1f444516",
+              "summary": "chah_backend selected for content_search query under balanced latency profile: ledger source scope matched 1 candidate document(s)",
+              "query_type": "content_search",
+              "latency_profile": "balanced",
+              "retrieval_profile": "chat",
+              "selected_route": "chah_backend",
+              "route_reason": "ledger source scope matched 1 candidate document(s)",
+              "tradeoff": "Balanced latency with source recall and reranking quality controls.",
+              "collection_scope": {
+                "collection": "qa-capture-inventory-4479",
+                "collections": [
+                  "qa-capture-inventory-4479"
+                ],
+                "filters": {
+                  "document_filename": [
+                    "capture-9d3500c7.md"
+                  ]
+                },
+                "intent": "content_search",
+                "dense": false,
+                "source_count": 1,
+                "chunk_count": 1,
+                "confidence": 0.889,
+                "reason": "ledger source scope matched 1 candidate document(s)"
+              },
+              "layers": [
+                {
+                  "key": "inventory",
+                  "enabled": false,
+                  "status": "skipped",
+                  "reason": "dense corpus guardrail and scope discovery",
+                  "budget_ms": 500
+                },
+                {
+                  "key": "facts",
+                  "enabled": false,
+                  "status": "skipped",
+                  "reason": "small corpus can retrieve chunks directly",
+                  "budget_ms": 1200
+                },
+                {
+                  "key": "summaries",
+                  "enabled": false,
+                  "status": "skipped",
+                  "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+                  "budget_ms": 2500,
+                  "top_k": 48
+                },
+                {
+                  "key": "dense_qdrant",
+                  "enabled": true,
+                  "status": "enabled",
+                  "reason": "payload-filtered dense chunk retrieval",
+                  "budget_ms": 3500,
+                  "top_k": 48
+                },
+                {
+                  "key": "sparse",
+                  "enabled": false,
+                  "status": "skipped",
+                  "reason": "legacy hybrid allowed for non-dense corpus",
+                  "budget_ms": 2500,
+                  "top_k": 48
+                },
+                {
+                  "key": "hah_chah",
+                  "enabled": true,
+                  "status": "enabled",
+                  "reason": "budget-aware layered HAH/C-HAH enabled",
+                  "budget_ms": 16000,
+                  "top_k": 48
+                },
+                {
+                  "key": "rerank",
+                  "enabled": true,
+                  "status": "enabled",
+                  "reason": "normalize/fuse/rerank only the bounded candidate pool",
+                  "budget_ms": 1200,
+                  "top_k": 16
+                },
+                {
+                  "key": "deep_async",
+                  "enabled": false,
+                  "status": "skipped",
+                  "reason": "not needed for this interactive plan",
+                  "budget_ms": 120000
+                }
+              ],
+              "quality_controls": {
+                "sparse_status": "ok",
+                "sparse_backend": "qdrant_sparse",
+                "cross_encoder_status": "applied",
+                "cross_encoder_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+                "cross_encoder_ms": 100,
+                "score_threshold_applied": false,
+                "dense_policy": "standard",
+                "dense_only": false,
+                "retrieval_policy": {
+                  "enabled": false,
+                  "blocks": 0,
+                  "aliases": 0,
+                  "protected_terms": 0,
+                  "facets": 0,
+                  "source_family_rules": 0,
+                  "lexical_document_types": 0,
+                  "lexical_metadata_fields": 20,
+                  "require_project_code_match": false,
+                  "clarification_required": false
+                }
+              },
+              "fallbacks": [],
+              "deep_search": {
+                "recommended": false,
+                "launched": false
+              },
+              "answer_shaping": {},
+              "timings": {
+                "planner_ms": 53,
+                "qdrant_ms": 2008,
+                "sparse_ms": 349,
+                "retrieval_ms": 2008,
+                "rerank_ms": 109,
+                "context_build_ms": 0,
+                "table_facts_ms": 0,
+                "total_ms": 2213
+              },
+              "candidate_counts": {
+                "source_count": 1,
+                "chunk_count": 1,
+                "candidate_pool_k": 48,
+                "synthesis_k": 16,
+                "source_display_k": 8,
+                "raw_chunks_retrieved": 1,
+                "document_chunks_retrieved": 1,
+                "chunks_retrieved": 1,
+                "duplicates_removed": 0,
+                "sparse_results": 1,
+                "exact_table_hits": 0
+              },
+              "selected_sources": [
+                {
+                  "label": "capture-9d3500c7.md",
+                  "document_id": "091af258-47b3-56db-967f-123de591fc6f",
+                  "score": 0.03278688524590164
+                }
+              ],
+              "trace_source": "runtime"
+            },
+            "dense_policy": "standard",
+            "dense_only": false,
+            "sparse_status": "ok",
+            "sparse_backend": "qdrant_sparse",
+            "cross_encoder_status": "applied",
+            "cross_encoder_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+            "cross_encoder_ms": 100,
+            "cross_encoder_scored": 1,
+            "cross_encoder_filtered": 0,
+            "cross_encoder_threshold": 0.2,
+            "stage_timings": {
+              "planner_ms": 53,
+              "inventory_ms": null,
+              "embedding_ms": null,
+              "qdrant_ms": 2008,
+              "sparse_ms": 349,
+              "retrieval_ms": 2008,
+              "rerank_ms": 109,
+              "context_build_ms": 0,
+              "table_facts_ms": 0,
+              "llm_ms": 3874,
+              "total_ms": 6087
+            },
+            "duration_ms": 2213,
+            "retrieval_elapsed_ms": 2008
+          }
+        },
+        "metrics": {
+          "retrieval_profile": "chat",
+          "latency_profile": "balanced",
+          "retrieval_latency_profile": "balanced",
+          "retrieval_latency_scope": "direct_chat",
+          "retrieval_decision_trace": {
+            "version": 1,
+            "trace_id": "0a5add04-0b14-40e2-a0f9-f8db1f444516",
+            "summary": "chah_backend selected for content_search query under balanced latency profile: ledger source scope matched 1 candidate document(s)",
+            "query_type": "content_search",
+            "latency_profile": "balanced",
+            "retrieval_profile": "chat",
+            "selected_route": "chah_backend",
+            "route_reason": "ledger source scope matched 1 candidate document(s)",
+            "tradeoff": "Balanced latency with source recall and reranking quality controls.",
+            "collection_scope": {
+              "collection": "qa-capture-inventory-4479",
+              "collections": [
+                "qa-capture-inventory-4479"
+              ],
+              "filters": {
+                "document_filename": [
+                  "capture-9d3500c7.md"
+                ]
+              },
+              "intent": "content_search",
+              "dense": false,
+              "source_count": 1,
+              "chunk_count": 1,
+              "confidence": 0.889,
+              "reason": "ledger source scope matched 1 candidate document(s)"
+            },
+            "layers": [
+              {
+                "key": "inventory",
+                "enabled": false,
+                "status": "skipped",
+                "reason": "dense corpus guardrail and scope discovery",
+                "budget_ms": 500
+              },
+              {
+                "key": "facts",
+                "enabled": false,
+                "status": "skipped",
+                "reason": "small corpus can retrieve chunks directly",
+                "budget_ms": 1200
+              },
+              {
+                "key": "summaries",
+                "enabled": false,
+                "status": "skipped",
+                "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+                "budget_ms": 2500,
+                "top_k": 48
+              },
+              {
+                "key": "dense_qdrant",
+                "enabled": true,
+                "status": "enabled",
+                "reason": "payload-filtered dense chunk retrieval",
+                "budget_ms": 3500,
+                "top_k": 48
+              },
+              {
+                "key": "sparse",
+                "enabled": false,
+                "status": "skipped",
+                "reason": "legacy hybrid allowed for non-dense corpus",
+                "budget_ms": 2500,
+                "top_k": 48
+              },
+              {
+                "key": "hah_chah",
+                "enabled": true,
+                "status": "enabled",
+                "reason": "budget-aware layered HAH/C-HAH enabled",
+                "budget_ms": 16000,
+                "top_k": 48
+              },
+              {
+                "key": "rerank",
+                "enabled": true,
+                "status": "enabled",
+                "reason": "normalize/fuse/rerank only the bounded candidate pool",
+                "budget_ms": 1200,
+                "top_k": 16
+              },
+              {
+                "key": "deep_async",
+                "enabled": false,
+                "status": "skipped",
+                "reason": "not needed for this interactive plan",
+                "budget_ms": 120000
+              }
+            ],
+            "quality_controls": {
+              "sparse_status": "ok",
+              "sparse_backend": "qdrant_sparse",
+              "cross_encoder_status": "applied",
+              "cross_encoder_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+              "cross_encoder_ms": 100,
+              "score_threshold_applied": false,
+              "dense_policy": "standard",
+              "dense_only": false,
+              "retrieval_policy": {
+                "enabled": false,
+                "blocks": 0,
+                "aliases": 0,
+                "protected_terms": 0,
+                "facets": 0,
+                "source_family_rules": 0,
+                "lexical_document_types": 0,
+                "lexical_metadata_fields": 20,
+                "require_project_code_match": false,
+                "clarification_required": false
+              }
+            },
+            "fallbacks": [],
+            "deep_search": {
+              "recommended": false,
+              "launched": false
+            },
+            "answer_shaping": {},
+            "timings": {
+              "planner_ms": 53,
+              "qdrant_ms": 2008,
+              "sparse_ms": 349,
+              "retrieval_ms": 2008,
+              "rerank_ms": 109,
+              "context_build_ms": 0,
+              "table_facts_ms": 0,
+              "total_ms": 2213
+            },
+            "candidate_counts": {
+              "source_count": 1,
+              "chunk_count": 1,
+              "candidate_pool_k": 48,
+              "synthesis_k": 16,
+              "source_display_k": 8,
+              "raw_chunks_retrieved": 1,
+              "document_chunks_retrieved": 1,
+              "chunks_retrieved": 1,
+              "duplicates_removed": 0,
+              "sparse_results": 1,
+              "exact_table_hits": 0
+            },
+            "selected_sources": [
+              {
+                "label": "capture-9d3500c7.md",
+                "document_id": "091af258-47b3-56db-967f-123de591fc6f",
+                "score": 0.03278688524590164
+              }
+            ],
+            "trace_source": "runtime"
+          },
+          "dense_policy": "standard",
+          "dense_only": false,
+          "sparse_status": "ok",
+          "sparse_backend": "qdrant_sparse",
+          "cross_encoder_status": "applied",
+          "cross_encoder_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+          "cross_encoder_ms": 100,
+          "cross_encoder_scored": 1,
+          "cross_encoder_filtered": 0,
+          "cross_encoder_threshold": 0.2,
+          "stage_timings": {
+            "planner_ms": 53,
+            "inventory_ms": null,
+            "embedding_ms": null,
+            "qdrant_ms": 2008,
+            "sparse_ms": 349,
+            "retrieval_ms": 2008,
+            "rerank_ms": 109,
+            "context_build_ms": 0,
+            "table_facts_ms": 0,
+            "llm_ms": 3874,
+            "total_ms": 6087
+          },
+          "duration_ms": 2213,
+          "retrieval_elapsed_ms": 2008,
+          "cost_evidence": {
+            "schema_version": 1,
+            "state": "calculated",
+            "method": "catalog_unit_price",
+            "source": "skill_catalog:c13071be-0ae9-4c63-be55-b4cb8169bc35:pricing",
+            "pricing_sha256": "afedb2c9bdfec23b1918b63865f20d04040b384ccdc8b09e7871c922569458b5",
+            "currency": "USD",
+            "unit": "per_call",
+            "quantity": 1.0
+          }
+        },
+        "trace": {},
+        "error": null,
+        "execution_evidence": {
+          "resolution": "resolved",
+          "execution_snapshot_sha256": "5631ce00dd8faa018c61e799ddfbd9a32c41786468981b3a234dd872874b5d46"
+        }
+      },
+      {
+        "id": "ea2a5276-7e64-4b8c-8423-7cb41f72bc7e",
+        "skill_slug": "llm_rag_answer_v1",
+        "status": "completed",
+        "started_at": "2026-09-17T04:33:13.891193",
+        "completed_at": "2026-09-17T04:33:19.144757",
+        "latency_ms": 5253.563964366913,
+        "cost": 0.012,
+        "input_ref": {
+          "run_trigger": "chat"
+        },
+        "output_ref": {
+          "confidence": 0.86,
+          "response": "completed",
+          "answer_profile": "precise_fact",
+          "answer_profile_decision": {
+            "profile": "precise_fact",
+            "reason": "default_answer_profile",
+            "requires_exhaustive_retrieval": false
+          },
+          "answer_policy_applied": true,
+          "answer_policy_violations": []
+        },
+        "metrics": {
+          "cost_evidence": {
+            "schema_version": 1,
+            "state": "calculated",
+            "method": "catalog_unit_price",
+            "source": "skill_catalog:e2339094-4c59-43b3-a5d0-334263663d30:pricing",
+            "pricing_sha256": "96449c474e090f20047d146f048f27f77f63e332c615546b264896b7c66dadbc",
+            "currency": "USD",
+            "unit": "per_call",
+            "quantity": 1.0
+          }
+        },
+        "trace": {},
+        "error": null,
+        "execution_evidence": {
+          "resolution": "resolved",
+          "execution_snapshot_sha256": "b737350d5d0c9e35fbeda8d5cb64331a58fe546b4e3c0b0d653adb18095bdf22"
+        }
+      },
+      {
+        "id": "759bcb90-425d-4f6d-8c18-75452050291a",
+        "skill_slug": "audit_log_v1",
+        "status": "completed",
+        "started_at": "2026-09-17T04:33:19.144757",
+        "completed_at": "2026-09-17T04:33:19.622354",
+        "latency_ms": 477.5967240333557,
+        "cost": 0.0001,
+        "input_ref": {
+          "run_trigger": "chat"
+        },
+        "output_ref": {
+          "ledger": "chat_run"
+        },
+        "metrics": {
+          "cost_evidence": {
+            "schema_version": 1,
+            "state": "calculated",
+            "method": "catalog_unit_price",
+            "source": "skill_catalog:5f75443c-fb50-4a4c-bb4f-7831c86101c8:pricing",
+            "pricing_sha256": "3d2adad2775490e113a852d7ca9a612c3a36eb50589df16150398778a567b6bb",
+            "currency": "USD",
+            "unit": "per_call",
+            "quantity": 1.0
+          }
+        },
+        "trace": {},
+        "error": null,
+        "execution_evidence": {
+          "resolution": "resolved",
+          "execution_snapshot_sha256": "c82c5260cb9fdb630147308236c6639c4a7edc49e36d572ea2b22a986b4d6fbb"
+        }
+      }
+    ]
+  },
+  "checks": {
+    "corrected_value": true,
+    "exact_source": true,
+    "run_completed": true,
+    "only_selected_collection": true
+  }
+}

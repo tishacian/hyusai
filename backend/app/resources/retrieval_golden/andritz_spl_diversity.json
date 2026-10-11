@@ -1,0 +1,186 @@
+{
+  "id": "andritz_spl_diversity_v2",
+  "description": "Redundancy-heavy queries where the corpus indexes the same manual under many projects. Diversity is gated by expected_distinct_content (distinct CONTENT documents after stripping the project/archive filename prefix, via _content_key), NOT expected_distinct_documents — the latter counts per-project copies of one manual as distinct and is therefore vacuous on this corpus (kept at 0 here; distinct_documents is still reported for diagnostics). Thresholds calibrated on live measurements (2026-06-15, balanced profile): single-manual queries (g150 operating instructions, LH2 0113) expect 1; queries where the corpus genuinely offers 3+ distinct relevant manuals expect 3. Baseline (MMR on) passes 7/10: div_002 and div_006 surface only 2 distinct contents (real diversity shortfall), div_008 misses its expected source. An A/B MMR on/off shows no pass-rate gap and near-identical per-case distinct_content (round-robin keys on document_id, MMR on embeddings — neither separates per-project copies meaningfully here).",
+  "cases": [
+    {
+      "id": "div_001_g150_operating_instructions_multiproject",
+      "query": "Where can I find the G150 speed controller operating instructions?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "g150 operating instructions"
+      ],
+      "expected_evidence_terms": [
+        "G150",
+        "operating instructions"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "en",
+      "expected_distinct_documents": 0,
+      "expected_distinct_content": 1
+    },
+    {
+      "id": "div_002_printable_parts_manual_multiproject",
+      "query": "Montre-moi les parts manuals disponibles en version imprimable.",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "printable version parts manual"
+      ],
+      "expected_evidence_terms": [
+        "parts manual"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "fr",
+      "expected_distinct_documents": 0,
+      "expected_distinct_content": 3
+    },
+    {
+      "id": "div_003_vacuum_set_blower_manuals",
+      "query": "Which manuals cover the vacuum set blowers of the hydroentanglement unit?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "Vacuum set"
+      ],
+      "expected_evidence_terms": [
+        "vacuum"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "en",
+      "expected_distinct_documents": 0,
+      "expected_distinct_content": 3
+    },
+    {
+      "id": "div_004_excelle_s5pp6tt_card_operator_manuals",
+      "query": "I need the Excelle S5PP6TT card operator manual.",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "Excelle S5PP6TT"
+      ],
+      "expected_evidence_terms": [
+        "Excelle",
+        "S5PP6TT"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "en",
+      "expected_distinct_documents": 0,
+      "expected_distinct_content": 3
+    },
+    {
+      "id": "div_005_high_pressure_set_inverter_docs",
+      "query": "Comment regler le variateur du groupe haute pression PHP de l'unite d'hydroentanglement ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "high pressure set"
+      ],
+      "expected_evidence_terms": [
+        "PHP"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "fr",
+      "expected_distinct_documents": 0,
+      "expected_distinct_content": 3
+    },
+    {
+      "id": "div_006_cu250s2_vector_control_units",
+      "query": "Where is the CU250S-2 vector control unit manual referenced?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "CU250S 2"
+      ],
+      "expected_evidence_terms": [
+        "CU250S"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "en",
+      "expected_distinct_documents": 0,
+      "expected_distinct_content": 3
+    },
+    {
+      "id": "div_007_qualiscan_qms12_betriebsanleitungen",
+      "query": "Wo sind die Betriebsanleitungen fuer den Qualiscan QMS-12?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "QMS 12 Qualiscan"
+      ],
+      "expected_evidence_terms": [
+        "Qualiscan"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "de",
+      "expected_distinct_documents": 0,
+      "expected_distinct_content": 3
+    },
+    {
+      "id": "div_008_sinamics_s120_s150_list_manuals",
+      "query": "Find the SINAMICS S120 S150 list manual for the carding unit.",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "S120 S150 List Manual"
+      ],
+      "expected_evidence_terms": [
+        "S120",
+        "S150"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "en",
+      "expected_distinct_documents": 0,
+      "expected_distinct_content": 2
+    },
+    {
+      "id": "div_009_uraca_kd724_chapters_multiproject",
+      "query": "Sur quels projets retrouve-t-on la documentation des pompes URACA KD724-G ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "_comment_inventory": "transversal_inventory case: the additive project_code facet (project_inventory.py) enumerates the projects whose chunks match the AND of the discriminating terms ['documentation','uraca','kd724g']. Verified live 2026-06-24 via retrieve_rag_context (balanced, andritz workspace, single collection): total_projects=3 -> exactly {TEK100, COL100, PHP02}; the Turkish URACA false positives KUT100/MOG400 are correctly absent. dense_policy stayed 'fast_scoped_dense' (NOT catalogue_inventory) so forbidden_route is orthogonal and KEPT. answer_profile arms the facet in the live runner (harness-only; does not affect intent/dense_policy). min_total_projects is a conservative floor (= the exact live count).",
+      "expected_sources": [
+        "KD724"
+      ],
+      "expected_evidence_terms": [
+        "KD724"
+      ],
+      "expected_intent": "source_lookup",
+      "answer_profile": "transversal_inventory",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "fr",
+      "expected_distinct_documents": 0,
+      "expected_distinct_content": 3,
+      "expected_inventory": {
+        "min_total_projects": 3,
+        "must_include_projects": ["TEK100", "COL100", "PHP02"],
+        "must_exclude_projects": ["KUT100", "MOG400"]
+      }
+    },
+    {
+      "id": "div_010_lh2_list_manual_vacuum_drive",
+      "query": "Which sections reference the LH2 0113 list manual?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "LH2 0113"
+      ],
+      "expected_evidence_terms": [
+        "LH2"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "en",
+      "expected_distinct_documents": 0,
+      "expected_distinct_content": 1
+    }
+  ]
+}

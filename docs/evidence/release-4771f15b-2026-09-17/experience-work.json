@@ -1,0 +1,23 @@
+{
+  "schema_version": 2,
+  "kind": "experience_work_canary",
+  "claim": "US-8-WORK-LAUNCHER",
+  "outcome": "passed",
+  "tested_revision": "4771f15b2d54051f7b7611e74ae446cad44bc70d",
+  "generated_at": "2026-09-17T00:41:04.848Z",
+  "target": {
+    "workspace_sha256": "45113274648b2c89b422c9971105fc5d7e3794e92f1f6fe6c9b458df91bc2411"
+  },
+  "checks": {
+    "experience_v1": true,
+    "work_surface": "launcher",
+    "no_side_rail": true,
+    "no_engine_jargon": true,
+    "main_landmark": true,
+    "accessibility_matrix": 12,
+    "wcag_aa_axe": true,
+    "reduced_motion": true,
+    "reflow_320_css_px": true,
+    "work_to_studio": "passed"
+  }
+}

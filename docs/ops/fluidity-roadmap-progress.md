@@ -1,0 +1,27 @@
+# Fluidité — état de livraison
+
+Image en production : `f852f9a7be53f9901706f7211893bbb381b847bd` (`revision_verified: true`).
+Rollback image : `5831d9bfc277`.
+
+Ces pourcentages sont des estimations de complétude par critère de sortie, pas une mesure automatique. Les portes automation-first ne ferment pas F1–F6.
+
+## Portes automation-first
+
+- Porte 0 — environ 80 %. Le run SPARK-365 `8591bc37` sur `d4a75119` n’a pas produit de minutes. Sur `5eabc862`, un nouveau brouillon Trigger → Agent → Output (`0c7393e2`, run `b8d02ddb`, skill `workspace_llm_v1`) a produit des minutes. Le compte connecté est `workspace_owner` sur chacun des workspaces qu’il peut ouvrir : nawa, andritz, agentium-showcase, sentinel-ci, octocity-mission-room, test et test2. Nawa compte aussi 3 `workspace_contributor` et 2 `workspace_admin`. Deux contributeurs sont `active` et ont déjà une connexion ; le troisième est `pending` et n’a jamais ouvert de session. Aucun n’est un compte de test. Leurs trois Systems sur Nawa sont « Company Policy Qa Demo », « QA » et « QA2 », pas des minutes. Aucun autre workspace n’a non plus de minutes créées par un membre. Depuis `df19f4a0`, `iam_enforced` est `false` explicite sur Nawa et `true` sur Andritz. Un membre peut toujours créer et lancer un System sur Nawa. La session ouverte n’est pas la leur : aucun contributeur n’a été connecté pour cette release. La porte reste ouverte.
+- Porte 1 — fermée sur les noms visibles. Sur `ae35157b`, Run et Publish (ou Application une fois publié) portent le même nom accessible. Workbench, Server draft et Test draft sont absents.
+- Porte 2 — fermée sur le scope défini. Retrieval cité, écriture SAP scellée, pause humaine, file de décision.
+- Boucle d’édition — critère de sortie couvert, revu sur les données de l’image `1d27134c`. Le brouillon de `0c7393e2` a toujours retrieve, approval, sap_write et l’arête `decided_by`. Il reste en brouillon, publication version 1. Le run `498fff50` est encore en pause. L’écriture `sap_create_po_v1` est `sealed: true`, `called: false`, raison `unattended`.
+- Porte 3 — le produit est en place. Work et Hypervisor montrent l’automation publiée. L’absence de convention et d’écart reste affichée tant qu’aucun tarif métier n’est déclaré. Ce manque n’est pas une vague de développement.
+
+## F1–F6
+
+- F1 — relu sur `1d27134c`. Le chat du système publié liste ce système avec les autres. Le pilote affiche « Same proof: present. ». Épingler passe le bouton à Unpin ; après rechargement, Unpin et la même preuve sont toujours là (`df04a96a`). Le thème fait sombre → clair → système, puis revient à sombre. La flèche gauche élargit le panneau de 592 à 624 px, puis la flèche droite le ramène à 592. Le glisser élargit le panneau de 560 à 600 px, puis le ramène à 592. À 390 px de large, la poignée disparaît et le panneau tient dans l’écran (354 px) au lieu des 592 stockés ; à 1280 px la poignée revient. Plein écran passe le panneau de 592 à 1244 px, puis le réduit à 592 sans changer la largeur stockée. Un second onglet sur `/systems` lit le même thème sombre et la même largeur 592. L’épingle est dans la session de l’onglet, pas dans le second. L’usage répété au fil des jours n’est pas une preuve de session.
+- F2 — fermée sur `1d27134c`, automation `0c7393e2`. Les six contrôles sont prêts : modèle `workspace_llm_v1`, fournisseur `openai`, source, indexation, droits, exécutant. L’indexation est prête parce que Nawa a déjà des chunks (`documents`, `itsd-knowledge`, `po-invoice-recon-demo`). L’exécutant est prêt parce que Celery a répondu. Le panneau dit Prêt.
+- F3 — fermée sur `5831d9bf`, Flow de `SPARK-089 summary` (`cd696462`). La note « The proposed grade is still missing. » reste sur le run `95f2e6e5`, et le document `e2d7e8ce` est toujours lié. La relecture liste les blocs, y compris `t_extract`. Confirmer sans correction est refusé. La description de `t_synth` est devenue « Summarize titles, current grades and proposed grades. » (révision 3). Le brouillon a été relancé (`003706b9`, `hitl_pending`, non approuvé). Le panneau dit « The later result ran the corrected draft. » La session est en anglais : c’est la phrase « Le résultat suivant a exécuté le brouillon corrigé. »
+- F4 — revu sur l’image courante. La version 6 de « Subscriber base — cleaned » n’a pas de preuve. La version 7 est `completed` (`01732a0d`). « Published minutes awaiting a person » version 1 a une preuve et attend une personne (`827e12b7`, `hitl_pending`).
+- F5 — sur le Flow de `df04a96a`, le point « Subscriber base — cleaned · 6 » dit « This point has no result. » Le point version 7 dit « Result: completed ». Le hash du graphique est inchangé.
+- F6 — sur le même Flow, « Same proof: present. Write sealed, not called. », « No value convention is declared. », « No measured gap. », preuve du run `827e12b7`. Work et le pilote disent la même preuve. L’API dit présente, scellée, non appelée, une source.
+
+## Trace connue
+
+Le 22 septembre 2026 à 11:09:30Z, pendant les lectures Hypervisor du canari Showcase, le backend a journalisé `Task exception was never retrieved` : `httpx2.AsyncClient.aclose` lève `RuntimeError: Event loop is closed`. La pile reste dans `httpx2` / `httpcore2` / `anyio`. Aucune frame applicative. Les requêtes autour restent en 200, et les conteneurs restent healthy. Ce n’est pas un zéro exception sur la fenêtre. Le correctif n’est pas identifié sans un client applicatif à fermer.

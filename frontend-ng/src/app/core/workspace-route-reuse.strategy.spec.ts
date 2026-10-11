@@ -1,0 +1,113 @@
+import '@angular/compiler';
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import {
+  ActivatedRouteSnapshot,
+  Route,
+  convertToParamMap,
+} from '@angular/router';
+import { WORKSPACE_EPOCH, WorkspaceRouteReuseStrategy } from './workspace-route-reuse.strategy';
+
+function snapshot(routeConfig: Route | null, params: Record<string, string>): ActivatedRouteSnapshot {
+  return {
+    routeConfig,
+    paramMap: convertToParamMap(params),
+  } as ActivatedRouteSnapshot;
+}
+
+test('workspace Chat is not reused when the deep-link slug changes', () => {
+  const strategy = new WorkspaceRouteReuseStrategy();
+  const routeConfig: Route = { path: ':slug/chat' };
+
+  assert.equal(
+    strategy.shouldReuseRoute(
+      snapshot(routeConfig, { slug: 'sentinel-ci' }),
+      snapshot(routeConfig, { slug: 'andritz' }),
+    ),
+    false,
+  );
+});
+
+test('workspace Chat remains reusable inside the same workspace', () => {
+  const strategy = new WorkspaceRouteReuseStrategy();
+  const routeConfig: Route = { path: ':slug/chat' };
+
+  assert.equal(
+    strategy.shouldReuseRoute(
+      snapshot(routeConfig, { slug: 'andritz' }),
+      snapshot(routeConfig, { slug: 'andritz' }),
+    ),
+    true,
+  );
+});
+
+test('workspace shell is recreated from workspace A settings to workspace B settings', () => {
+  const strategy = new WorkspaceRouteReuseStrategy();
+  const workspaceRouteConfig: Route = { path: ':slug' };
+
+  assert.equal(
+    strategy.shouldReuseRoute(
+      snapshot(workspaceRouteConfig, { slug: 'sentinel-ci' }),
+      snapshot(workspaceRouteConfig, { slug: 'andritz' }),
+    ),
+    false,
+  );
+});
+
+test('hierarchy detail components are recreated when their route-owned id changes', () => {
+  const strategy = new WorkspaceRouteReuseStrategy();
+  const routeConfig: Route = { path: ':systemId' };
+
+  assert.equal(
+    strategy.shouldReuseRoute(
+      snapshot(routeConfig, { systemId: 'system-b' }),
+      snapshot(routeConfig, { systemId: 'system-a' }),
+    ),
+    false,
+  );
+});
+
+test('Experience Studio editor is recreated when its application id changes', () => {
+  const strategy = new WorkspaceRouteReuseStrategy();
+  const routeConfig: Route = { path: 'apps/:id' };
+
+  assert.equal(
+    strategy.shouldReuseRoute(
+      snapshot(routeConfig, { id: 'app-b' }),
+      snapshot(routeConfig, { id: 'app-a' }),
+    ),
+    false,
+  );
+  assert.equal(
+    strategy.shouldReuseRoute(
+      snapshot(routeConfig, { id: 'app-a' }),
+      snapshot(routeConfig, { id: 'app-a' }),
+    ),
+    true,
+  );
+});
+
+test('the same route is not reused from one workspace epoch to the next', () => {
+  const strategy = new WorkspaceRouteReuseStrategy();
+  const routeConfig: Route = { path: 'hypervisor' };
+  const underShell = (epoch: number) => ({
+    ...snapshot(routeConfig, {}),
+    parent: { data: { [WORKSPACE_EPOCH]: epoch } },
+  }) as unknown as ActivatedRouteSnapshot;
+
+  assert.equal(strategy.shouldReuseRoute(underShell(4), underShell(3)), false);
+  assert.equal(strategy.shouldReuseRoute(underShell(4), underShell(4)), true);
+});
+
+test('unrelated parameterized routes keep Angular default reuse semantics', () => {
+  const strategy = new WorkspaceRouteReuseStrategy();
+  const routeConfig: Route = { path: ':presetId' };
+
+  assert.equal(
+    strategy.shouldReuseRoute(
+      snapshot(routeConfig, { presetId: 'preset-b' }),
+      snapshot(routeConfig, { presetId: 'preset-a' }),
+    ),
+    true,
+  );
+});

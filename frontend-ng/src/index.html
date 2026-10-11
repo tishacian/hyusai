@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8">
+  <title>Agentium</title>
+  <base href="/">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0A0D11">
+  <meta name="description" content="Agentium — the professional AI orchestration platform">
+  <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@600&display=swap"
+    media="print"
+    onload="this.media='all'"
+  >
+  <noscript>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@600&display=swap"
+    >
+  </noscript>
+  <script>
+    // Runs before Angular bootstraps to avoid any FOUC: it must reach the same
+    // verdict as ThemeService.resolveStoredThemeMode, including the fold of the
+    // pre-unification `agentium_business_theme` key. Reads only — the service
+    // owns writing the unified preference and dropping the legacy key.
+    (function () {
+      var mode = 'system';
+      try {
+        var valid = { system: 1, light: 1, dark: 1 };
+        var stored = localStorage.getItem('agentium_theme');
+        var legacy = localStorage.getItem('agentium_business_theme');
+        stored = valid[stored] ? stored : null;
+        legacy = valid[legacy] ? legacy : null;
+        mode = (stored && !(stored === 'dark' && legacy)) ? stored : (legacy || stored || 'system');
+      } catch (e) {
+        // Ignore quota/privacy errors.
+      }
+      var dark = mode === 'dark' ||
+        (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      var root = document.documentElement;
+      root.classList.toggle('dark', dark);
+      root.setAttribute('data-theme', dark ? 'dark' : 'light');
+    })();
+  </script>
+</head>
+<body class="font-sans antialiased">
+  <app-root></app-root>
+</body>
+</html>

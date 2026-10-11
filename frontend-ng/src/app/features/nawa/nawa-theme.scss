@@ -1,0 +1,321 @@
+/**
+ * NAWA WE brand tokens — scoped to the Nawa feature only (L18 / Tokens v2).
+ *
+ * Surfaces, type and primary follow Cockpit Tokens v2. The customer logo is the
+ * only brand-distinct asset; the black plaque behind it stays until a
+ * light-letter wordmark is supplied. Custom properties live on the host so
+ * nothing leaks into the Agentium cockpit theme.
+ */
+:host {
+  --nawa-bg: #0d1116;
+  --nawa-surface: #121820;
+  --nawa-surface-2: #182029;
+  --nawa-line: rgba(255, 255, 255, 0.14);
+  --nawa-line-strong: rgba(255, 255, 255, 0.28);
+  --nawa-fg: #f2f5f8;
+  --nawa-fg-dim: #a0a9b5;
+  --nawa-fg-faint: #a0a9b5;
+  --nawa-accent: #1fb8cc;
+  --nawa-accent-bright: #199fb1;
+  --nawa-accent-soft: rgba(31, 184, 204, 0.16);
+  --nawa-accent-line: rgba(31, 184, 204, 0.28);
+  --nawa-on-accent: #0a0d11;
+  --nawa-live: #34d399;
+  --nawa-live-soft: rgba(52, 211, 153, 0.1);
+  --nawa-live-line: rgba(52, 211, 153, 0.28);
+  --nawa-warn: #f5b84a;
+  --nawa-radius: 10px;
+  --nawa-radius-badge: 4px;
+  --nawa-radius-control: 6px;
+  --nawa-display: var(--ck-font-display, 'Space Grotesk', 'IBM Plex Sans', sans-serif);
+  --nawa-sans: var(--ck-font-sans, 'IBM Plex Sans', -apple-system, 'Helvetica Neue', system-ui, sans-serif);
+  --nawa-mono: var(--ck-font-mono, 'IBM Plex Mono', ui-monospace, 'SF Mono', monospace);
+  --nawa-dur: 120ms;
+
+  display: block;
+  // The app is mounted outside the shell, so nothing above it carries a
+  // definite height: the brand background has to claim the viewport itself.
+  min-height: 100dvh;
+  background: var(--nawa-bg);
+  color: var(--nawa-fg);
+  font-family: var(--nawa-sans);
+  font-size: 13px;
+}
+
+/**
+ * Light palette — Tokens v2 clair, no brick. The host `data-theme` mirrors the
+ * global preference; only these tokens rewrite.
+ */
+:host([data-theme='light']) {
+  --nawa-bg: #f2f4f6;
+  --nawa-surface: #f8f9fa;
+  --nawa-surface-2: #fcfcfd;
+  --nawa-line: rgba(21, 26, 33, 0.1);
+  --nawa-line-strong: rgba(21, 26, 33, 0.18);
+  --nawa-fg: #151a21;
+  --nawa-fg-dim: #525c69;
+  --nawa-fg-faint: #525c69;
+  --nawa-accent: #0a7483;
+  --nawa-accent-bright: #08606c;
+  --nawa-accent-soft: rgba(10, 116, 131, 0.1);
+  --nawa-accent-line: rgba(10, 116, 131, 0.4);
+  --nawa-on-accent: #f8fafb;
+  --nawa-live: #0c6e4c;
+  --nawa-live-soft: rgba(12, 110, 76, 0.1);
+  --nawa-live-line: rgba(12, 110, 76, 0.28);
+  --nawa-warn: #845000;
+}
+
+// ---- creator banner (authors only) ---------------------------------------
+.nawa-creator-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--nawa-line);
+  background: var(--nawa-surface);
+  color: var(--nawa-fg-dim);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.nawa-creator-banner-copy {
+  margin: 0;
+  min-width: 0;
+}
+
+.nawa-creator-banner-copy strong {
+  color: var(--nawa-fg);
+  font-weight: 600;
+}
+
+.nawa-creator-banner-links {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.nawa-creator-banner-links a {
+  color: var(--nawa-accent);
+  text-decoration: none;
+  font-weight: 600;
+  border-radius: var(--nawa-radius-control);
+  padding: 4px 8px;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  transition: color var(--nawa-dur) ease, background var(--nawa-dur) ease;
+}
+
+.nawa-creator-banner-links a:hover {
+  color: var(--nawa-fg);
+  background: var(--nawa-surface-2);
+}
+
+.nawa-creator-banner-sep {
+  color: var(--nawa-fg-faint);
+  user-select: none;
+}
+
+// ---- brand header --------------------------------------------------------
+.nawa-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 24px;
+  background: var(--nawa-bg);
+  border-bottom: 1px solid var(--nawa-line);
+}
+
+// The customer shipped the wordmark as a JPEG on opaque black. Keep the black
+// plaque in both themes until a light-letter asset is supplied.
+.nawa-logo {
+  display: block;
+  height: 34px;
+  width: auto;
+  background: #000000;
+}
+
+.nawa-header-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.nawa-title {
+  margin: 0;
+  font-family: var(--nawa-display);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.nawa-subtitle {
+  color: var(--nawa-fg-dim);
+  font: 400 12px/1.35 var(--nawa-sans);
+}
+
+.nawa-header-spacer { flex: 1 1 auto; }
+
+.nawa-header-meta {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.nawa-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: right;
+}
+
+.nawa-metric-value {
+  font-family: var(--nawa-display);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--nawa-fg);
+}
+
+.nawa-metric-label {
+  color: var(--nawa-fg-faint);
+  font: 400 12px/1.35 var(--nawa-sans);
+}
+
+// ---- shared primitives ---------------------------------------------------
+.nawa-body {
+  padding: 24px;
+}
+
+.nawa-card {
+  border: 1px solid var(--nawa-line);
+  border-radius: var(--nawa-radius);
+  background: var(--nawa-surface);
+}
+
+.nawa-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--nawa-radius-badge);
+  border: 1px solid var(--nawa-line-strong);
+  color: var(--nawa-fg-dim);
+  font: 600 12px/1 var(--nawa-sans);
+  white-space: nowrap;
+}
+
+.nawa-badge-live {
+  border-color: var(--nawa-live-line);
+  background: var(--nawa-live-soft);
+  color: var(--nawa-live);
+}
+
+.nawa-badge-live::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: var(--nawa-radius-badge);
+  background: currentColor;
+}
+
+.nawa-badge-pattern {
+  border-style: dashed;
+  color: var(--nawa-fg);
+}
+
+.nawa-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 16px;
+  border-radius: var(--nawa-radius-control);
+  border: 1px solid var(--nawa-accent);
+  background: var(--nawa-accent);
+  color: var(--nawa-on-accent);
+  font-family: var(--nawa-sans);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--nawa-dur) ease, border-color var(--nawa-dur) ease, transform var(--nawa-dur) ease;
+}
+
+.nawa-button:hover:not(:disabled) {
+  background: var(--nawa-accent-bright);
+  border-color: var(--nawa-accent-bright);
+}
+
+.nawa-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.nawa-button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.nawa-button-ghost {
+  background: transparent;
+  border-color: var(--nawa-line-strong);
+  color: var(--nawa-fg);
+}
+
+.nawa-button-ghost:hover:not(:disabled) {
+  background: var(--nawa-surface-2);
+  border-color: var(--nawa-accent-line);
+  color: var(--nawa-fg);
+}
+
+.nawa-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 11px;
+  border-radius: var(--nawa-radius-control);
+  border: 1px solid var(--nawa-line-strong);
+  color: var(--nawa-fg-dim);
+  font-family: var(--nawa-sans);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: border-color var(--nawa-dur) ease, color var(--nawa-dur) ease, background var(--nawa-dur) ease, transform var(--nawa-dur) ease;
+}
+
+.nawa-link:hover {
+  border-color: var(--nawa-accent-line);
+  color: var(--nawa-fg);
+  background: var(--nawa-surface-2);
+}
+
+.nawa-link:active {
+  transform: scale(0.97);
+}
+
+.nawa-note {
+  color: var(--nawa-fg-faint);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nawa-button,
+  .nawa-link,
+  .nawa-creator-banner-links a {
+    transition: none;
+  }
+
+  .nawa-button:active:not(:disabled),
+  .nawa-link:active {
+    transform: none;
+  }
+}

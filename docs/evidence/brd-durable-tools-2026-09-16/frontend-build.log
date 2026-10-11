@@ -1,0 +1,108 @@
+
+> agentium@0.1.0 build:prod
+> ng build -c production
+
+❯ Building...
+✔ Building...
+Initial chunk files | Names                                |  Raw size | Estimated transfer size
+chunk-RT7RQIVN.js   | -                                    | 202.60 kB |                60.66 kB
+chunk-JSLNC25Q.js   | -                                    | 176.80 kB |                52.16 kB
+styles-S6CERU4C.css | styles                               | 145.05 kB |                21.67 kB
+chunk-5N6WR5IU.js   | -                                    |  73.90 kB |                18.40 kB
+chunk-XHMERG4E.js   | -                                    |  51.56 kB |                12.96 kB
+chunk-REHG5FW2.js   | -                                    |  40.61 kB |                 9.40 kB
+chunk-YNYVBZOO.js   | -                                    |  27.97 kB |                 7.96 kB
+chunk-6ZS6GMDY.js   | -                                    |  25.59 kB |                 5.90 kB
+main-SUDXOLZK.js    | main                                 |  24.97 kB |                 7.54 kB
+chunk-E6S2PHWM.js   | -                                    |  19.67 kB |                 4.23 kB
+chunk-QXEZZRNK.js   | -                                    |  17.75 kB |                 5.25 kB
+chunk-X4SFQOOL.js   | -                                    |  17.13 kB |                 5.43 kB
+chunk-QPZCKTFF.js   | -                                    |  13.01 kB |                 4.08 kB
+chunk-MYSVD7HX.js   | -                                    |  10.71 kB |                 3.00 kB
+chunk-ITRFPXKT.js   | -                                    |  10.20 kB |                 3.05 kB
+chunk-TTGSNPRY.js   | -                                    |   8.26 kB |                 1.93 kB
+chunk-MLX23HCS.js   | -                                    |   6.98 kB |                 2.34 kB
+chunk-CYTBT45Q.js   | -                                    |   3.98 kB |                 1.05 kB
+chunk-EH7KEZXP.js   | -                                    |   3.34 kB |                 1.37 kB
+chunk-HNTO3775.js   | -                                    |   1.58 kB |               600 bytes
+chunk-VB56BUGO.js   | -                                    |   1.38 kB |               602 bytes
+chunk-G2SKGCK3.js   | -                                    |   1.30 kB |               569 bytes
+chunk-5GVSPS4X.js   | -                                    |   1.17 kB |               394 bytes
+chunk-YRV2JM72.js   | -                                    |   1.10 kB |               471 bytes
+chunk-GGG6YZO3.js   | -                                    | 800 bytes |               800 bytes
+chunk-U4HMTVCJ.js   | -                                    | 547 bytes |               547 bytes
+chunk-MWBHXDWD.js   | -                                    | 461 bytes |               461 bytes
+chunk-KTDHJJS7.js   | -                                    | 446 bytes |               446 bytes
+
+                    | Initial total                        | 888.86 kB |               233.28 kB
+
+Lazy chunk files    | Names                                |  Raw size | Estimated transfer size
+chunk-L2YWJS5M.js   | -                                    |   1.07 MB |               192.70 kB
+chunk-HHYMMTFC.js   | flow-builder-component               |   1.05 MB |               197.83 kB
+chunk-5X43FOUX.js   | maplibre-gl                          |   1.04 MB |               231.15 kB
+chunk-QFYE5GME.js   | -                                    | 929.65 kB |               120.84 kB
+chunk-PULQP232.js   | livekit-client-esm                   | 523.05 kB |               113.89 kB
+chunk-MANRRI6O.js   | mission-room-provider-host-component | 411.34 kB |                71.60 kB
+chunk-SJBNBFGZ.js   | -                                    | 406.02 kB |               100.66 kB
+chunk-LVQ4WNBF.js   | knowledge-capture-component          | 387.00 kB |                67.28 kB
+chunk-7MOYYFOE.js   | -                                    | 272.88 kB |                49.77 kB
+chunk-LRAHSHBT.js   | capture-fil-shell-component          | 272.17 kB |                47.96 kB
+chunk-SMBFJVD2.js   | -                                    | 211.94 kB |                49.66 kB
+chunk-4MF5JBJI.js   | -                                    | 200.91 kB |                56.58 kB
+chunk-M4KM7VPO.js   | editor-component                     | 188.65 kB |                30.16 kB
+chunk-C26KCLSZ.js   | index                                | 159.25 kB |                35.47 kB
+chunk-6UTESKFN.js   | -                                    | 156.76 kB |                37.80 kB
+...and 205 more lazy chunks files. Use "--verbose" to show all the files.
+
+Application bundle generation complete. [83.969 seconds] - 2026-09-16T17:29:46.111Z
+
+▲ [WARNING] NG8107: The left side of this optional chain operation does not include 'null' or 'undefined' in its type, therefore the '?.' operator can be replaced with the '.' operator. [plugin angular-compiler]
+
+    src/app/features/mission-room/vp-map-preview.component.ts:268:63:
+      268 │ ...  {{ vessels.length }}/{{ vesselsResponse.vessels?.length || 0 }}
+          ╵                                                       ~~~~~~
+
+
+▲ [WARNING] NG8107: The left side of this optional chain operation does not include 'null' or 'undefined' in its type, therefore the '?.' operator can be replaced with the '.' operator. [plugin angular-compiler]
+
+    src/app/features/observability/quality-evidence-charts.component.ts:18:74:
+      18 │ ...point.y" [attr.r]="selected()?.id===point.row.id?9:6" class="po...
+         ╵                                   ~~
+
+
+▲ [WARNING] NG8107: The left side of this optional chain operation does not include 'null' or 'undefined' in its type, therefore the '?.' operator can be replaced with the '.' operator. [plugin angular-compiler]
+
+    src/app/features/observability/quality-evidence-charts.component.ts:26:102:
+      26 │ ...l" [class.active]="selected()?.id===row.id" [class.absent]="val...
+         ╵                                   ~~
+
+
+▲ [WARNING] bundle initial exceeded maximum budget. Budget 500.00 kB was not met by 388.86 kB with a total of 888.86 kB.
+
+
+▲ [WARNING] angular:styles/component:css;4be1915ab9b3ca0e39cb5ece6234fe1aad8f08fc0a7ad22b9e5e14e33dc042c2;/Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/frontend-ng/src/app/features/chat/chat-panel.component.ts exceeded maximum budget. Budget 24.00 kB was not met by 4.75 kB with a total of 28.75 kB.
+
+
+▲ [WARNING] angular:styles/component:css;47012a13bd38476ceac9cce34114efc0f041815268bd4a462f4509aa8c474c89;/Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/frontend-ng/src/app/features/mission-room/mission-room.component.ts exceeded maximum budget. Budget 24.00 kB was not met by 23.97 kB with a total of 47.97 kB.
+
+
+▲ [WARNING] Module 'maplibre-gl' used by 'src/app/features/mission-room/workspace-map.component.ts' is not ESM
+
+  CommonJS or AMD dependencies can cause optimization bailouts.
+  For more information see: https://angular.dev/tools/cli/build#configuring-commonjs-dependencies
+
+
+▲ [WARNING] Module 'dagre' used by '../../omnirag/frontend-ng/node_modules/@foblex/flow-dagre-layout/fesm2022/foblex-flow-dagre-layout.mjs' is not ESM
+
+  CommonJS or AMD dependencies can cause optimization bailouts.
+  For more information see: https://angular.dev/tools/cli/build#configuring-commonjs-dependencies
+
+
+▲ [WARNING] Module 'earcut' used by '../../omnirag/frontend-ng/node_modules/@deck.gl/layers/dist/solid-polygon-layer/polygon.js' is not ESM
+
+  CommonJS or AMD dependencies can cause optimization bailouts.
+  For more information see: https://angular.dev/tools/cli/build#configuring-commonjs-dependencies
+
+
+Output location: /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/frontend-ng/dist/agentium
+

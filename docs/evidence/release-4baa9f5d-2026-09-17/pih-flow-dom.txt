@@ -1,0 +1,264 @@
+- link "Skip to main content":
+  - /url: "#main-content"
+- banner:
+  - generic: Agentium
+  - generic: OS · v0.4.0
+  - navigation:
+    - button "Portfolio"
+    - button "PIH Document Summary"
+    - button "PIH Document Summary System"
+  - link "Work ↗":
+    - /url: /work
+  - generic "Diagnostics"
+  - button "Chat":
+    - generic: Chat
+  - 'button "Theme: Dark · click → System"':
+  - button "Workspace · Agentium Showcase":
+    - generic: AS
+    - generic: Agentium Showcase
+  - button "Account · thibaud.ishacian@datategy.net":
+    - generic: TI
+- complementary:
+  - navigation "Primary navigation":
+    - link "Impact":
+      - /url: /hypervisor
+      - generic: Impact
+    - link "Create":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57/flow?lens=build&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Create
+    - link "Monitor":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57/flow?lens=operate&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Monitor
+    - link "Improve":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57/flow?lens=steer&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Improve
+    - link "Administer":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57/flow?lens=govern&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Administer
+  - button "Jump to…":
+    - generic: Jump to…
+- complementary "Summary":
+  - generic: Summary
+  - generic: Create
+  - navigation:
+    - link "Business application":
+      - /url: /create/apps
+      - generic: Business application
+    - link "Systems":
+      - /url: /systems
+      - generic: Systems
+    - link "Capabilities":
+      - /url: /capabilities
+      - generic: Capabilities
+    - link "Skills":
+      - /url: /skills
+      - generic: Skills
+    - link "Knowledge":
+      - /url: /knowledge
+      - generic: Knowledge
+    - link "Data & Models":
+      - /url: /data
+      - generic: Data & Models
+    - link "Flow builder":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57/flow?capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Flow builder
+    - generic: In PIH Document Summary System
+    - link "Overview":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57/flow?facet=overview&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Overview
+    - link "Runs":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57/flow?facet=runs&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Runs
+    - link "Design":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57/flow?facet=design&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Design
+    - link "Context":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57/flow?facet=context&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Context
+- main:
+  - link "← PIH Document Summary":
+    - /url: /capabilities/8dd69fb7-e54b-4b01-9607-a2684cd1a742
+  - generic: /
+  - link "PIH Document Summary System":
+    - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+  - generic: /
+  - generic: Flow builder
+  - heading "PIH Document Summary System Help about Flow" [active] [level=1]:
+    - text: PIH Document Summary System
+    - button "Help about Flow": "?"
+  - toolbar "Flow tools":
+    - generic: 3 nodes
+    - status "All changes saved.":
+      - generic: Saved
+    - button "Help about Published": "?"
+    - button "Toggle node palette" [pressed]:
+    - button "Toggle node inspector" [disabled]:
+    - button "Undo" [disabled]:
+    - button "Redo" [disabled]:
+    - button "Fit to view":
+    - button "Save flow":
+    - button "Review and publish server draft":
+    - button "Operate":
+    - button "More actions":
+  - status:
+    - strong:
+      - text: Server draft r3
+      - button "Help about Draft": "?"
+    - generic: Test draft runs this saved revision. The operator runner and the entry point keep serving Published v1 until you publish explicitly.
+  - group "Node palette":
+    - heading "Add node" [level=3]:
+      - text: Add node
+    - generic "Add node count": "23"
+    - combobox "Search or describe a step…"
+    - heading "Used in this workspace" [level=4]
+    - button "RAG Answer Retrieval-augmented answer with citations. When a 'context' array is supplied (e.g. join.retrieval.results) it synthesises grounded FROM those chunks without a second retrieval; otherwise it runs the orchestrator retrieval (tenant slug resolved). 83 runs in this workspace":
+      - generic: RAG Answer
+      - generic: Retrieval-augmented answer with citations. When a 'context' array is supplied (e.g. join.retrieval.results) it synthesises grounded FROM those chunks without a second retrieval; otherwise it runs the orchestrator retrieval (tenant slug resolved).
+      - generic "83 runs in this workspace": "83"
+    - button "Python Recipe Runs an author-written Python script (main(inputs) -> dict) in a managed, content-addressed virtual environment on the async worker plane, with per-execution status tracking and cancellation. The workspace datasets pinned on the node arrive in inputs as rows, with the model that scored them when there was one. 78 runs in this workspace":
+      - generic: Python Recipe
+      - generic: Runs an author-written Python script (main(inputs) -> dict) in a managed, content-addressed virtual environment on the async worker plane, with per-execution status tracking and cancellation. The workspace datasets pinned on the node arrive in inputs as rows, with the model that scored them when there was one.
+      - generic "78 runs in this workspace": "78"
+    - button "OBS QA — NorthForge evidence Dedicated synthetic technical qualification; not a client Skill 36 runs in this workspace":
+      - generic: OBS QA — NorthForge evidence
+      - generic: Dedicated synthetic technical qualification; not a client Skill
+      - generic "36 runs in this workspace": "36"
+    - button "Semantic Search Budget-aware sparse+dense search over the knowledge base. 28 runs in this workspace":
+      - generic: Semantic Search
+      - generic: Budget-aware sparse+dense search over the knowledge base.
+      - generic "28 runs in this workspace": "28"
+    - button "Audit Log Persists a typed audit event for compliance and replay. 27 runs in this workspace":
+      - generic: Audit Log
+      - generic: Persists a typed audit event for compliance and replay.
+      - generic "27 runs in this workspace": "27"
+    - heading "Capabilities" [level=4]
+    - button "Workspace Assistant Always-on workspace chat system for sourced answers, fast retrieval, Deep Search escalation, actions and audit trails. 15":
+      - generic: Workspace Assistant
+      - generic: Always-on workspace chat system for sourced answers, fast retrieval, Deep Search escalation, actions and audit trails.
+      - generic: "15"
+    - 'button "Workspace Assistant Synthetic C-level video capability for Agentium Workspace Chat: governed design, runtime execution, observable outcomes and executive value tracking. 8"':
+      - generic: Workspace Assistant
+      - generic: "Synthetic C-level video capability for Agentium Workspace Chat: governed design, runtime execution, observable outcomes and executive value tracking."
+      - generic: "8"
+    - button "Contract Risk Detection Review commercial contracts for risky clauses and unsupported claims. 4":
+      - generic: Contract Risk Detection
+      - generic: Review commercial contracts for risky clauses and unsupported claims.
+      - generic: "4"
+    - button "Intelligent Q&A Answers questions over your knowledge base with citations and a verifiable reasoning trail. 4":
+      - generic: Intelligent Q&A
+      - generic: Answers questions over your knowledge base with citations and a verifiable reasoning trail.
+      - generic: "4"
+    - button "Tender Response Acceleration Generate grounded tender answers from reusable company evidence. 3":
+      - generic: Tender Response Acceleration
+      - generic: Generate grounded tender answers from reusable company evidence.
+      - generic: "3"
+    - 'button "Tender Response Acceleration Synthetic C-level video capability for Tender Response Analyst: governed design, runtime execution, observable outcomes and executive value tracking. 3"':
+      - generic: Tender Response Acceleration
+      - generic: "Synthetic C-level video capability for Tender Response Analyst: governed design, runtime execution, observable outcomes and executive value tracking."
+      - generic: "3"
+    - button "Contract Risk Detection Review commercial contracts for risky clauses and unsupported claims. 3":
+      - generic: Contract Risk Detection
+      - generic: Review commercial contracts for risky clauses and unsupported claims.
+      - generic: "3"
+    - button "SAP HANA Maintenance Orders Query open/released PIH maintenance orders from SAP HANA Cloud and synthesize a short operator brief. 2":
+      - generic: SAP HANA Maintenance Orders
+      - generic: Query open/released PIH maintenance orders from SAP HANA Cloud and synthesize a short operator brief.
+      - generic: "2"
+    - button "Voice Assistant Transcribe a question, retrieve an answer, speak it back. End-to-end voice loop. 7":
+      - generic: Voice Assistant
+      - generic: Transcribe a question, retrieve an answer, speak it back. End-to-end voice loop.
+      - generic: "7"
+    - button "Python Recipes Author-written Python recipes executed as Flow nodes in managed, content-addressed environments on the async worker plane, with per-execution status tracking and cancellation. A recipe reads the workspace datasets pinned on its node and the results other Systems have already produced, and returns the structure its author declares. 2":
+      - generic: Python Recipes
+      - generic: Author-written Python recipes executed as Flow nodes in managed, content-addressed environments on the async worker plane, with per-execution status tracking and cancellation. A recipe reads the workspace datasets pinned on its node and the results other Systems have already produced, and returns the structure its author declares.
+      - generic: "2"
+    - button "Expert Knowledge Capture Prepares and runs guided expert interviews that resolve knowledge gaps and produce reviewable knowledge-base updates. 13":
+      - generic: Expert Knowledge Capture
+      - generic: Prepares and runs guided expert interviews that resolve knowledge gaps and produce reviewable knowledge-base updates.
+      - generic: "13"
+    - button "Translation Suite Run sovereign DITA translation batches with replay, agent QA, RBAC and audit-ready delivery gates. 10":
+      - generic: Translation Suite
+      - generic: Run sovereign DITA translation batches with replay, agent QA, RBAC and audit-ready delivery gates.
+      - generic: "10"
+    - 'button "Translation Suite Synthetic C-level video capability for Translation Suite: governed design, runtime execution, observable outcomes and executive value tracking. 10"':
+      - generic: Translation Suite
+      - generic: "Synthetic C-level video capability for Translation Suite: governed design, runtime execution, observable outcomes and executive value tracking."
+      - generic: "10"
+    - button "Compliance Review Loop Route sensitive answers through HITL and evaluation feedback. 3":
+      - generic: Compliance Review Loop
+      - generic: Route sensitive answers through HITL and evaluation feedback.
+      - generic: "3"
+    - 'button "Compliance Review Loop Synthetic C-level video capability for Compliance Review Loop: governed design, runtime execution, observable outcomes and executive value tracking. 3"':
+      - generic: Compliance Review Loop
+      - generic: "Synthetic C-level video capability for Compliance Review Loop: governed design, runtime execution, observable outcomes and executive value tracking."
+      - generic: "3"
+    - button "Document Reconciliation Extracts line items from spreadsheets and text documents, reconciles them against the reference set within a tolerance and issues a deterministic variance report. 5":
+      - generic: Document Reconciliation
+      - generic: Extracts line items from spreadsheets and text documents, reconciles them against the reference set within a tolerance and issues a deterministic variance report.
+      - generic: "5"
+    - button "Voice2Voice Interaction Provider-neutral realtime voice loop for chat, capture and custom systems, with cascade fallback and auditable events. 9":
+      - generic: Voice2Voice Interaction
+      - generic: Provider-neutral realtime voice loop for chat, capture and custom systems, with cascade fallback and auditable events.
+      - generic: "9"
+    - button "Answer Quality Audit Continuously evaluates answer quality (groundedness, relevance, safety) and alerts on regressions. 2":
+      - generic: Answer Quality Audit
+      - generic: Continuously evaluates answer quality (groundedness, relevance, safety) and alerts on regressions.
+      - generic: "2"
+    - button "PIH Document Summary Summarize a synthetic job-regrade request with source references for a human reviewer. 1":
+      - generic: PIH Document Summary
+      - generic: Summarize a synthetic job-regrade request with source references for a human reviewer.
+      - generic: "1"
+    - button "Knowledge Curation Continuously ingests, deduplicates and indexes documents from any source (uploads, SharePoint, web feeds). 3":
+      - generic: Knowledge Curation
+      - generic: Continuously ingests, deduplicates and indexes documents from any source (uploads, SharePoint, web feeds).
+      - generic: "3"
+    - 'button "Tabular Models No-code supervised learning over workspace datasets: skrub decides the preprocessing per column, the estimator comes from a curated scikit-learn catalog, and every run computes its own metrics, curves and feature importances. Models are saved in the MLflow format and versioned as a lineage with one serving champion, and that champion is what answers a prediction — over a whole dataset or one record at a time. 3"':
+      - generic: Tabular Models
+      - generic: "No-code supervised learning over workspace datasets: skrub decides the preprocessing per column, the estimator comes from a curated scikit-learn catalog, and every run computes its own metrics, curves and feature importances. Models are saved in the MLflow format and versioned as a lineage with one serving champion, and that champion is what answers a prediction — over a whole dataset or one record at a time."
+      - generic: "3"
+    - 'button "Tabular Transforms Tabular transformations over workspace datasets: read-only SQL executed with duckdb over Parquet, an author-written Polars script, or a dbt project whose data tests gate publication. All run on isolated managed environments and persist versioned datasets carrying their lineage. 3"':
+      - generic: Tabular Transforms
+      - generic: "Tabular transformations over workspace datasets: read-only SQL executed with duckdb over Parquet, an author-written Polars script, or a dbt project whose data tests gate publication. All run on isolated managed environments and persist versioned datasets carrying their lineage."
+      - generic: "3"
+    - button "No capability Visible here without a capability carrying them 9":
+      - generic: No capability
+      - generic: Visible here without a capability carrying them
+      - generic: "9"
+    - heading "Structure 13" [level=4]:
+      - button "Structure 13":
+        - generic: Structure
+        - generic: "13"
+    - button "Advanced — the whole registry 62":
+      - generic: Advanced — the whole registry
+      - generic: "62"
+  - group "Flow view mode":
+    - button "Canvas" [pressed]
+    - button "Accessible outline"
+  - region "Canvas":
+    - generic: TRIGGER
+    - button "Delete node Transaction excerpts":
+    - generic: Transaction excerpts
+    - generic "transaction_type"
+    - generic "document_text"
+    - generic: SKILL
+    - button "Delete node PIH Document Summary Demo":
+    - generic: PIH Document Summary Demo
+    - generic: skill:ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.demo_pih_spark089_summary
+    - generic "transaction_type"
+    - generic "document_text"
+    - generic "completion"
+    - generic: OUTPUT
+    - button "Delete node Factual summary":
+    - generic: Factual summary
+    - generic "completion"
+- contentinfo:
+  - generic: System operational
+  - generic: Zone · Create · Depth 3/5
+  - generic: ⌘K
+  - text: Command
+  - generic "⌘Z zoom out (Portfolio › Capability › System › Run › Skill)":
+    - generic: ⌘Z
+    - text: Zoom
+  - generic: v0.4.0 · build 1
+- status: "?"
+- document
