@@ -1,3 +1,4 @@
+{{- include "agentium.validate" . }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -5,8 +6,9 @@ metadata:
   labels:
     {{- include "agentium.labels" . | nindent 4 }}
 data:
-  AGENTIUM_DISABLE_DOTENV: {{ .Values.config.AGENTIUM_DISABLE_DOTENV | quote }}
-  STARTUP_RECONCILIATION: {{ .Values.config.STARTUP_RECONCILIATION | quote }}
+  {{- range $key, $value := .Values.config }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
   AGENTIUM_BACKEND_WORKERS: {{ .Values.backend.workers | quote }}
   CELERY_QUEUES: {{ .Values.worker.queues | quote }}
   CELERY_CONCURRENCY: {{ .Values.worker.concurrency | quote }}
@@ -34,6 +36,17 @@ data:
   # pod never need to share a filesystem. Reads materialise a local copy.
   SECURE_DEPOSIT_STORAGE_BACKEND: object_store
   SECURE_DEPOSIT_STORAGE_DIR: /tmp/secure-deposit
+  SECRET_REGISTRY_DEFAULT_BACKEND: {{ .Values.secretRegistry.defaultBackend | quote }}
+  {{- if .Values.huggingface.enabled }}
+  HF_CACHE_DIR: /data/hub-cache
+  HF_BUNDLE_SPOOL_DIR: /data/hub-bundles
+  HF_HUB_DISABLE_TELEMETRY: "1"
+  HF_ALLOWED_ENDPOINTS: {{ .Values.huggingface.allowedEndpoints | quote }}
+  HF_BUNDLE_TRUST_KEYS_JSON: {{ .Values.huggingface.trustKeysJson | quote }}
+  {{- range $key, $value := .Values.huggingface.limits }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  {{- end }}
   {{- if .Values.ollama.enabled }}
   OLLAMA_BASE_URL: http://agentium-ollama:11434
   DEFAULT_PROVIDER: ollama

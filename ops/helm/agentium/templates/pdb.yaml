@@ -13,7 +13,8 @@ also why suspending an environment must scale before it drains.
       "qdrant" $root.Values.qdrant.enabled
       "minio" $root.Values.minio.enabled
       "rabbitmq" $root.Values.rabbitmq.enabled
-      "ollama" $root.Values.ollama.enabled }}
+      "ollama" $root.Values.ollama.enabled
+      "openbao" (and $root.Values.openbao.enabled $root.Values.openbao.server.enabled) }}
 {{- if and $enabled $root.Values.podDisruptionBudget.enabled }}
 ---
 apiVersion: policy/v1
