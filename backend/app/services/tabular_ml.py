@@ -1523,6 +1523,9 @@ def set_champion(db: DBSession, model: MLModel) -> MLModel:
     resolves against.
     """
 
+    from app.services.ml.families.tabular_foundation import require_qualified_model
+
+    require_qualified_model(model)
     if model.status != "ready":
         raise TabularError(
             code="ML_MODEL_NOT_READY",
@@ -2226,8 +2229,10 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
         summary: dict[str, Any] = {}
         run = None
         try:
+            from app.services.ml.families.tabular_foundation import require_qualified_model
             from app.services.ml_retraining import retraining_cancel_requested, verify_training
 
+            require_qualified_model(model)
             verify_training(db, model)
             distillation = _distillation_provenance(db, dataset, model.task, model.target)
             from app.resources.ml_distillation import snapshot

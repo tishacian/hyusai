@@ -19,6 +19,8 @@ repos:
       - id: forbid-submodules
       - id: check-merge-conflict
       - id: end-of-file-fixer
+        # Preserve the upstream notice bytes verified by the recorded SHA-256.
+        exclude: ^backend/app/resources/tabicl/LICENSE$
       - id: fix-byte-order-marker
   - repo: https://github.com/syntaqx/git-hooks
     rev: "v0.0.18"

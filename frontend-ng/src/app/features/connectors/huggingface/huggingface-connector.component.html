@@ -139,7 +139,7 @@
       <article class="hf-artifact">
         <div><strong>{{ artifact.repo_id }}</strong><p class="hf-sha">{{ artifact.revision }}</p><p>{{ artifact.format }} {{ artifact.variant }} · {{ bytes(artifact.total_bytes) }} · {{ artifact.status }}</p><p class="hf-muted">{{ artifact.license }} · {{ artifact.artifact_id }}</p>
           @if (artifact.in_catalogue) { <span class="ck-pill">{{ i18n.t('connectors.hf.catalogue') }}</span> }
-          @if (artifact.error_code) { <p class="hf-error">{{ artifact.error_code }}</p> }
+          @if (artifact.error_code) { <p class="hf-error">{{ errorCode(artifact.error_code) }}</p> }
         </div>
         <div class="hf-actions">
           @if (settings.can_import_models && artifact.kind === 'model' && artifact.status === 'ready' && artifact.has_access && artifact.format === 'safetensors') {

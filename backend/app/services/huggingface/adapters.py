@@ -109,10 +109,27 @@ def validate_layout(snapshot: Snapshot, usage: str) -> dict[str, Any]:
     ):
         _invalid("The architecture must be explicitly declared.")
     if usage == "tabular_foundation":
+        from app.resources.ml_tabicl_notice import MAX_NOTICE_BYTES, NOTICE_NAME, validate_notice
         from app.resources.ml_tabicl_runtime import validate_weights
 
         if snapshot.manifest.get("format") != "safetensors" or architectures != ["HyusaiTabICLv2"]:
             _invalid("TabICL requires the qualified converted safetensors format.")
+        if NOTICE_NAME not in files:
+            raise ArtifactError(
+                "HF_TABICL_LICENSE_REQUIRED",
+                "Repackage and import the TabICL weights with their pinned license notice.",
+            )
+        notice_path = snapshot.path / NOTICE_NAME
+        try:
+            if (
+                notice_path.is_symlink()
+                or not notice_path.is_file()
+                or notice_path.stat().st_size > MAX_NOTICE_BYTES
+            ):
+                raise ValueError("Invalid TabICL license file")
+            validate_notice(json.loads(notice_path.read_text(encoding="utf-8")))
+        except (ValueError, OSError) as exc:
+            raise ArtifactError("HF_TABICL_LICENSE_INVALID", str(exc)) from exc
         _weights(snapshot)
         try:
             tabicl_config = validate_weights(snapshot.path)
@@ -554,8 +571,10 @@ def validate_local_artifact(workspace_id: str, artifact_id: str, usage: str, *, 
             contract = validate_layout(snapshot, usage)
             runtime = runtime_versions(contract["engine"])
             task = validate_weights(snapshot.path)["task"]
-            # Exercise a service-admitted profile; plain regression failed P6 parity.
-            model = build_estimator(task, snapshot.path, kv_cache=task == "regression")
+            from app.services.ml.families.tabular_foundation import require_qualified_profile
+
+            require_qualified_profile(task, {})
+            model = build_estimator(task, snapshot.path)
             X = pd.DataFrame({"a": np.arange(20, dtype=float), "b": np.arange(20, dtype=float) % 3})
             y = np.arange(20) % 2 if task == "classification" else np.arange(20, dtype=float)
             model.fit(X, y)

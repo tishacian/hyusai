@@ -11,7 +11,7 @@ import { CkBackLinkComponent } from '@app/shared/cockpit';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import {
   HubArtifact, HubConfig, HubFile, HubFormat, HubImport, HubJob, HubKind, HubRepository, HubSearchResult,
-  LicenseClass, defaultSelection, filesForFormat, hasWeights, hubError, isTerminalJob, jobError,
+  LicenseClass, defaultSelection, filesForFormat, hasWeights, hubError, hubErrorCode, isTerminalJob, jobError,
 } from './huggingface.models';
 
 @Component({
@@ -114,7 +114,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
       const config = await firstValueFrom(this.api.get<Pick<HubConfig, 'connection' | 'policy' | 'limits'>>('/huggingface/platform/config', undefined, request.scope));
       if (!this.view.isCurrent(request) || !this.platformScope) return;
       this.platformConfig.set(config); this.endpoint = config.connection.endpoint;
-    } catch (error) { if (this.view.isCurrent(request)) { this.error.set(hubError(error)); this.platformScope = false; } }
+    } catch (error) { if (this.view.isCurrent(request)) { this.error.set(hubError(error, key => this.i18n.t(key))); this.platformScope = false; } }
     finally { if (this.view.isCurrent(request)) this.busy.set(false); }
   }
 
@@ -123,7 +123,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
     try {
       const result = await firstValueFrom(this.api.get<{ artifacts: HubArtifact[] }>('/huggingface/artifacts', undefined, request.scope));
       if (this.view.isCurrent(request)) this.artifacts.set(result.artifacts);
-    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error)); }
+    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error, key => this.i18n.t(key))); }
   }
 
   async grantArtifact(artifact: HubArtifact): Promise<void> {
@@ -135,7 +135,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
       if (!this.view.isCurrent(request)) return;
       this.artifacts.update(items => items.map(item => item.artifact_id === artifact.artifact_id ? result.artifact : item));
       this.jobs.update(items => [result.job, ...items.filter(job => job.id !== result.job.id)]); this.schedulePoll();
-    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error)); }
+    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error, key => this.i18n.t(key))); }
     finally { if (this.view.isCurrent(request)) this.busy.set(false); }
   }
 
@@ -147,7 +147,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
       const result = await firstValueFrom(this.api.post<{ job: HubJob }>(`/huggingface/artifacts/${encodeURIComponent(artifact.artifact_id)}/activate`, { usage, runtime: 'ml' }, request.scope));
       if (!this.view.isCurrent(request)) return;
       this.jobs.update(items => [result.job, ...items.filter(job => job.id !== result.job.id)]); this.schedulePoll();
-    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error)); }
+    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error, key => this.i18n.t(key))); }
     finally { if (this.view.isCurrent(request)) this.busy.set(false); }
   }
 
@@ -164,7 +164,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
       this.config.set(config); this.endpoint = config.connection.endpoint; this.artifacts.set(list.artifacts);
       this.jobs.set(jobs.jobs.filter(job => !job.kind || ['hf_import', 'hf_adapter_activate'].includes(job.kind)));
       this.lifecycleJobs.set(jobs.jobs.filter(job => ['hf_bundle_import', 'hf_bundle_export', 'hf_purge'].includes(job.kind ?? ''))); this.schedulePoll();
-    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error)); }
+    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error, key => this.i18n.t(key))); }
   }
 
   async savePolicy(): Promise<void> {
@@ -179,7 +179,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
       if (!this.view.isCurrent(request)) return;
       this.config.set(config); this.notice.set(this.i18n.t('connectors.hf.saved')); this.repository.set(null);
       if (this.platformScope) await this.changeConnectionScope();
-    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error)); }
+    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error, key => this.i18n.t(key))); }
     finally { if (this.view.isCurrent(request)) this.busy.set(false); }
   }
 
@@ -191,7 +191,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
       await firstValueFrom(this.api.put('/huggingface/platform/limits', { [this.limitKey]: this.limitValue }, request.scope));
       const config = await firstValueFrom(this.api.get<HubConfig>('/huggingface/config', undefined, request.scope));
       if (this.view.isCurrent(request)) { this.config.set(config); this.notice.set(this.i18n.t('connectors.hf.saved')); }
-    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error)); }
+    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error, key => this.i18n.t(key))); }
     finally { if (this.view.isCurrent(request)) this.busy.set(false); }
   }
 
@@ -203,7 +203,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
     try {
       await firstValueFrom(this.api.post('/huggingface/licenses/exception', { kind: repo.metadata.kind, repo_id: repo.metadata.repo_id, revision: repo.metadata.revision, reason: this.exceptionReason.trim() }, request.scope));
       if (this.view.isCurrent(request)) { this.exceptionReason = ''; await this.inspect(repo.metadata.repo_id, repo.metadata.revision); }
-    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error)); }
+    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error, key => this.i18n.t(key))); }
     finally { if (this.view.isCurrent(request)) this.busy.set(false); }
   }
 
@@ -222,7 +222,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
       const config = await firstValueFrom(this.api.get<HubConfig>('/huggingface/config', undefined, request.scope));
       if (!this.view.isCurrent(request)) return;
       this.config.set(config); this.notice.set(this.i18n.t('connectors.hf.saved'));
-    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error)); }
+    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error, key => this.i18n.t(key))); }
     finally { if (this.view.isCurrent(request)) this.busy.set(false); }
   }
 
@@ -235,7 +235,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
       if (!this.view.isCurrent(request)) return;
       if (result.ok === false || result.success === false) this.error.set(result.message || this.i18n.t('connectors.hf.test_failed'));
       else this.notice.set(this.i18n.t('connectors.hf.test_ok'));
-    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error)); }
+    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error, key => this.i18n.t(key))); }
     finally { if (this.view.isCurrent(request)) this.busy.set(false); }
   }
 
@@ -253,7 +253,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
       const list = await firstValueFrom(this.api.get<{ results: HubSearchResult[] }>('/huggingface/search', { kind: this.kind, query: this.query.trim() }, request.scope));
       if (!this.view.isCurrent(request) || version !== this.searchVersion) return;
       this.results.set(list.results); this.searched.set(true);
-    } catch (error) { if (this.view.isCurrent(request) && version === this.searchVersion) this.error.set(hubError(error)); }
+    } catch (error) { if (this.view.isCurrent(request) && version === this.searchVersion) this.error.set(hubError(error, key => this.i18n.t(key))); }
     finally { if (this.view.isCurrent(request) && version === this.searchVersion) this.searching.set(false); }
   }
 
@@ -268,7 +268,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
       const repository = await firstValueFrom(this.api.get<HubRepository>('/huggingface/repository', { kind: this.kind, repo_id: repoId.trim(), revision: revision.trim() || 'main' }, request.scope));
       if (!this.view.isCurrent(request) || version !== this.repositoryVersion) return;
       this.repository.set(repository); this.chooseFormat(this.formats()[0] || 'safetensors');
-    } catch (error) { if (this.view.isCurrent(request) && version === this.repositoryVersion) this.error.set(hubError(error)); }
+    } catch (error) { if (this.view.isCurrent(request) && version === this.repositoryVersion) this.error.set(hubError(error, key => this.i18n.t(key))); }
     finally { if (this.view.isCurrent(request) && version === this.repositoryVersion) this.inspecting.set(false); }
   }
 
@@ -290,7 +290,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
       if (!this.view.isCurrent(request) || this.repository() !== repo) return;
       // Refresh server policy: successful acceptance alone cannot loosen a newer policy.
       await this.inspect(repo.metadata.repo_id, repo.metadata.revision);
-    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error)); }
+    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error, key => this.i18n.t(key))); }
     finally { if (this.view.isCurrent(request)) this.busy.set(false); }
   }
 
@@ -317,7 +317,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
       this.artifacts.update(items => [result.artifact, ...items.filter(a => a.artifact_id !== result.artifact.artifact_id)]);
       this.jobs.update(items => [result.job, ...items.filter(j => j.id !== result.job.id)]);
       this.schedulePoll();
-    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error)); }
+    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error, key => this.i18n.t(key))); }
     finally { if (this.view.isCurrent(request)) this.busy.set(false); }
   }
 
@@ -340,7 +340,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
       }
       this.schedulePoll();
     } catch (error) {
-      if (this.view.isCurrent(request)) this.error.set(hubError(error));
+      if (this.view.isCurrent(request)) this.error.set(hubError(error, key => this.i18n.t(key)));
       // Leave a manual retry on connectivity failures instead of hiding a polling loop.
     }
   }
@@ -355,7 +355,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
       this.revokeId = ''; this.revokeReason = '';
       const list = await firstValueFrom(this.api.get<{ artifacts: HubArtifact[] }>('/huggingface/artifacts', undefined, request.scope));
       if (this.view.isCurrent(request)) this.artifacts.set(list.artifacts);
-    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error)); }
+    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error, key => this.i18n.t(key))); }
     finally { if (this.view.isCurrent(request)) this.busy.set(false); }
   }
 
@@ -364,10 +364,11 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
     try {
       const result = await firstValueFrom(this.api.get<{ usages: unknown[] }>(`/huggingface/artifacts/${encodeURIComponent(artifact.artifact_id)}/usages`, undefined, request.scope));
       if (this.view.isCurrent(request)) this.usageDetails.set({ artifactId: artifact.artifact_id, usages: result.usages });
-    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error)); }
+    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error, key => this.i18n.t(key))); }
   }
 
-  readonly jobError = jobError;
+  readonly jobError = (job: HubJob) => jobError(job, key => this.i18n.t(key));
+  readonly errorCode = (code: string) => hubErrorCode(code, key => this.i18n.t(key));
   readonly terminal = isTerminalJob;
   bytes(value: number): string {
     if (!value) return '0 B';

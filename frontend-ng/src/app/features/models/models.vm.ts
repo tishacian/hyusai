@@ -300,6 +300,8 @@ export interface PublishedSkillDto {
 export interface ServingBlock {
   enabled: boolean;
   callable: boolean;
+  /** An explicit refusal takes precedence over generic runtime availability. */
+  refusal?: CodedRefusal | null;
   serving_version: number | null;
   serving_model_id: string | null;
   is_serving: boolean;
