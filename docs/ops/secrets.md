@@ -21,6 +21,17 @@ with placeholders — never production secrets.
 | **OpenAI API key** | Backend LLM calls, judge service, voice API | `backend/.env` (`OPENAI_API_KEY`) | 90 j or on abuse alert | `platform.openai.com/api-keys` → rotate → update `backend/.env` → restart |
 | **Fernet key** (`SHAREPOINT_CONNECTOR_FERNET_KEY`) | Encrypt SharePoint session captures at rest | `backend/.env` | **Never rotate** — rotation invalidates every stored session, forcing operators to re-capture OTP. Only regenerate if a key compromise is suspected. | `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
 | **JWT signing keys** (Keycloak realm) | Token signing for `papai-org` realm | Keycloak DB | On suspected compromise | Admin console → Realm settings → Keys → Re-generate + Archive old |
+| **Secret registry key** (`SECRET_REGISTRY_FERNET_KEY`) | Encrypts `db`-backend secrets of the registry (connector tokens, SMTP, flow secrets) | Runtime env bundle | **Never rotate in place** — every `secret_versions.ciphertext` depends on it. Falls back to `CONNECTOR_SECRETS_FERNET_KEY` when unset. | Generate like the Fernet key above; see [agentium-secret-registry.md](../agentium-secret-registry.md) |
+| **OpenBao unseal key** (`openbao-unseal.key`) | Static auto-unseal of `agentium-openbao` (`AGENTIUM_OPENBAO=1`) | `<deployment>/runtime-env/` (0400) | Never — snapshots are sealed with it | Created by `agentium-vm-deploy.sh openbao-prepare`; copy off-VM to the vault |
+| **OpenBao recovery key** (`openbao-recovery.env`) | `bao operator generate-root` for reconfiguration and restore | `<deployment>/runtime-env/` (0600) | On suspected compromise | Created by `openbao-init`; copy off-VM to the vault |
+| **OpenBao AppRole credentials** (`openbao-{backend,worker,hub-fetch,snapshot}.env`) | Backend/migrate, workers, Hub downloader (read-only on `<scope>/<owner>/nodes/*`: serving-node and HF tokens), snapshot cron | `<deployment>/runtime-env/` (0600) | 180 j | Regenerate root token, `agentium_openbao_bootstrap.py configure` |
+
+Application secrets (connector tokens, API keys, SMTP passwords of
+connectors, flow secrets) no longer belong in `.env`: they live in the
+**secret registry** and configurations hold `secret://…` references. See
+[agentium-secret-registry.md](../agentium-secret-registry.md) for the model,
+the connector migration script and OpenBao operations (deploy order,
+snapshot/restore, unseal key limitation).
 
 ## Vault conventions
 
@@ -40,9 +51,17 @@ agentium-prod/
 │   └── api-key            (value + rotated_at + usage_limit_usd)
 ├── smtp-ovh/
 │   └── noreply-pw         (value + rotated_at)
-└── fernet/
-    └── sharepoint-key     (value + generated_at + "DO NOT ROTATE LIGHTLY")
+├── fernet/
+│   ├── sharepoint-key     (value + generated_at + "DO NOT ROTATE LIGHTLY")
+│   └── secret-registry    (value + generated_at + "DO NOT ROTATE LIGHTLY")
+└── openbao/
+    ├── unseal-key         (value + generated_at + "required to restore snapshots")
+    └── recovery-key       (value + generated_at)
 ```
+
+The OpenBao unseal and recovery keys sit on the VM next to the raft data
+(single-host limitation, no external KMS). The vault copy is what makes a
+restore possible after losing the VM; keep it apart from the snapshots.
 
 Each record carries a `rotated_at` date. Anyone looking at the vault
 3 months after the fact should be able to answer "is this stale?" in
@@ -188,6 +207,8 @@ whatever the person could have seen.
 
 - [`keycloak-admin.md`](./keycloak-admin.md) — master admin rotation
 - [`email-deliverability.md`](./email-deliverability.md) — SMTP, DKIM, DMARC
+- [`../agentium-secret-registry.md`](../agentium-secret-registry.md) — secret
+  registry, flow `secret` node, connector migration, OpenBao
 - `deploy/rotate-keycloak-admin.sh` — master admin CLI
 - `deploy/redeploy-keycloak.sh` — rebuilds `agentium-kc` with current env
   (filters out `KC_BOOTSTRAP_ADMIN_*` since Vague E / E0)

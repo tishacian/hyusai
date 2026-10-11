@@ -55,7 +55,7 @@ La plateforme est conteneurisée et déployée via Ansible (réf. `OPS/ansible/e
 | **Réseau** | VPC privé OVH, ingress unique via Istio Gateway + Load Balancer OVH |
 | **Terminaison TLS** | cert-manager + Let's Encrypt (TLS 1.2 / 1.3, RSA 2048, SHA-256) |
 | **Identité** | Keycloak 26 (OIDC), fédération SAML/OIDC vers IdP ANDRITZ possible |
-| **Secrets** | HashiCorp Vault (in-cluster) |
+| **Secrets** | OpenBao (API compatible Vault), optionnel |
 | **Domaine de production** | `<tenant>.papai.ai` (DNS Datategy) — sous-domaine dédié ANDRITZ négociable |
 | **Sauvegardes** | Snapshots quotidiens chiffrés (Datategy) ; rétention chaude 7 j, hebdo 1 mois, mensuelle 12 mois (cf. PAS §Sauvegarde) |
 | **Service LLM (LLMaaS)** | Moteur d'inférence **vLLM** auto-hébergé dans le cluster, endpoint OpenAI-compatible privé ; alternative **llama.cpp** pour modèles quantifiés CPU/GPU mixte |
@@ -101,7 +101,7 @@ La plateforme est conteneurisée et déployée via Ansible (réf. `OPS/ansible/e
                           ▼                      ▼
                    ┌──────────────────────────────────┐
                    │  Couche données (PV Cinder OVH)  │
-                   │  • PostgreSQL  • MinIO  • Vault  │
+                   │  • PostgreSQL  • MinIO  • OpenBao│
                    │  • RabbitMQ    • IoTDB           │
                    └──────────────────────────────────┘
                                   │
@@ -246,11 +246,11 @@ Les mesures physiques sont **intégralement portées par OVHcloud** sur les data
 | **A.8.15** Journalisation | Logs applicatifs centralisés (stdout pods + Loki/ELK selon config) ; logs Keycloak ; logs API K8s ; rétention min. 6 mois. |
 | **A.8.16** Surveillance | Monitoring temps réel (CPU/RAM/IO, alertes mail) ; supervision Istio ; healthchecks K8s. |
 | **A.8.17** Synchronisation horloges | NTP du cluster MKS aligné OVH NTP. |
-| **A.8.18** Utilisation de programmes utilitaires privilégiés | Restreints aux opérateurs Datategy ; tracés dans Vault audit log. |
+| **A.8.18** Utilisation de programmes utilitaires privilégiés | Restreints aux opérateurs Datategy ; tracés dans le journal d’audit OpenBao (API compatible Vault, optionnel). |
 | **A.8.19** Installation logiciel sur systèmes opérationnels | Tout déploiement passe par Ansible + GitOps ; pas d'installation manuelle. |
 | **A.8.20–8.22** Sécurité réseau | Istio mTLS in-cluster ; NetworkPolicies par namespace ; ségrégation ingress/egress. |
 | **A.8.23** Filtrage web | Egress filtering au niveau cluster + niveau OVH (gateway). |
-| **A.8.24** Cryptographie | TLS 1.2/1.3 en transit ; AES-256 sur snapshots OVH ; Vault pour secrets ; certs RSA 2048 SHA-256 (cf. PAS §Cryptographie). |
+| **A.8.24** Cryptographie | TLS 1.2/1.3 en transit ; AES-256 sur snapshots OVH ; OpenBao (API compatible Vault), optionnel, pour les secrets ; certs RSA 2048 SHA-256 (cf. PAS §Cryptographie). |
 | **A.8.25–8.27** Cycle de vie développement | CI/CD GitLab : tests unitaires, qualité code, scan sécu, scan licence ; environnements dev/staging/prod isolés. |
 | **A.8.28** Codage sécurisé | Bonnes pratiques OWASP Top 10 (cf. PAS §Sécurité logicielle) ; revue de code obligatoire. |
 | **A.8.29** Tests sécurité | Pentest annuel tiers ; tests automatisés en CI (SAST). |
@@ -276,10 +276,10 @@ Les mesures physiques sont **intégralement portées par OVHcloud** sur les data
 
 | Catégorie | Mesure |
 |-----------|--------|
-| Confidentialité | TLS 1.2/1.3 en transit ; chiffrement AES-256 au repos (snapshots, backups) ; secrets Vault chiffrés (transit + repos) ; isolation tenant. |
+| Confidentialité | TLS 1.2/1.3 en transit ; chiffrement AES-256 au repos (snapshots, backups) ; secrets chiffrés (OpenBao, API compatible Vault, optionnel) (transit + repos) ; isolation tenant. |
 | Intégrité | Signatures de commits, checksums sur backups, journalisation immuable (logs append-only). |
 | Disponibilité | Cluster K8s redondé ; MKS avec control plane managé OVH ; sauvegardes testées trimestriellement ; PCA RTO 6 h / RPO 12 h. |
-| Traçabilité | Logs Keycloak (authentification), logs API K8s, audit Vault, audit applicatif papAI. |
+| Traçabilité | Logs Keycloak (authentification), logs API K8s, audit OpenBao (optionnel), audit applicatif papAI. |
 | Pseudonymisation / anonymisation | Possible au niveau applicatif selon cas d'usage ANDRITZ. |
 | Tests réguliers | Pentest annuel ; tests restauration trimestriels ; revue PSSI annuelle. |
 
