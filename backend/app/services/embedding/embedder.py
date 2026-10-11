@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
 
+import httpx
 import numpy as np
 
 from app.core.config import settings
@@ -131,6 +132,20 @@ class Embedder:
                 raise EmbeddingUnavailable(
                     "The configured OpenAI embedding provider is unavailable."
                 ) from exc
+
+        if settings.embedding_provider == "ollama":
+            base = (settings.ollama_base_url or "").rstrip("/")
+            if not base:
+                raise EmbeddingUnavailable(
+                    "The configured Ollama embedding endpoint is unavailable."
+                )
+            self._ollama_base = base
+            self.provider = "ollama"
+            if settings.embedding_dimension > 0:
+                self._dimension = settings.embedding_dimension
+            logger.info("Using Ollama embeddings", model=self.model_name, base_url=base)
+            return
+
         try:
             from sentence_transformers import SentenceTransformer
 
@@ -168,6 +183,8 @@ class Embedder:
     async def embed_batch(self, texts: list[str]) -> np.ndarray:
         if self._client:
             return await self._openai_embed(texts)
+        if getattr(self, "_ollama_base", None):
+            return await self._ollama_embed(texts)
         if self._local_model:
             return await self._local_embed(texts)
         raise EmbeddingUnavailable("The selected embedding model is unavailable.")
@@ -283,6 +300,41 @@ class Embedder:
     def _estimate_tokens(text: str) -> int:
         content = str(text or "")
         return max(1, max(len(content) // 3, len(content.split())))
+
+    async def _ollama_embed(self, texts: list[str]) -> np.ndarray:
+        if not texts:
+            return np.empty((0, self.get_dimension()), dtype=np.float32)
+
+        url = f"{self._ollama_base}/api/embed"
+        model = self.model_name
+
+        def _call() -> list[list[float]]:
+            with httpx.Client(timeout=120.0) as client:
+                response = client.post(url, json={"model": model, "input": texts})
+                response.raise_for_status()
+                payload = response.json()
+            vectors = payload.get("embeddings")
+            if not isinstance(vectors, list) or len(vectors) != len(texts):
+                raise RuntimeError("Ollama embed response has no embeddings")
+            return vectors
+
+        try:
+            loop = asyncio.get_running_loop()
+            vectors = await loop.run_in_executor(None, _call)
+        except Exception as exc:
+            raise EmbeddingUnavailable(
+                "The selected embedding provider failed to produce a vector."
+            ) from exc
+
+        widths = {len(vector) for vector in vectors}
+        expected = self._dimension
+        if len(widths) != 1 or 0 in widths or (expected and widths != {expected}):
+            raise EmbeddingUnavailable(
+                "The selected embedding provider returned vectors of the wrong width."
+            )
+        if expected is None:
+            self._dimension = widths.pop()
+        return np.array(vectors, dtype=np.float32)
 
     async def _local_embed(self, texts: list[str]) -> np.ndarray:
         loop = asyncio.get_event_loop()

@@ -1,0 +1,262 @@
+#!/usr/bin/env bash
+# Prove the Kubernetes scaffold renders. This is not a cluster or a release.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$ROOT"
+
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+
+command -v helm >/dev/null || fail "helm is required"
+command -v terraform >/dev/null || fail "terraform is required"
+command -v ansible-playbook >/dev/null || fail "ansible-playbook is required"
+
+assert_no_local_images() {
+  local file="$1"
+  if grep -E '^[[:space:]]+(frontend|backend|worker):[[:space:]].*:(local|latest)[[:space:]]*$' "$file"; then
+    fail "$file must not pin :local or :latest"
+  fi
+}
+
+assert_no_passwords() {
+  local file="$1"
+  if grep -Ei 'password|change-me|secret_key' "$file"; then
+    fail "$file must not contain secret material"
+  fi
+}
+
+helm lint "$ROOT/ops/helm/agentium"
+
+helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+  > /tmp/agentium-helm.yaml
+grep -q 'name: DATABASE_URL' /tmp/agentium-helm.yaml \
+  || fail "backend must receive DATABASE_URL, not a host the process never reads"
+grep -q 'name: CELERY_BROKER_URL' /tmp/agentium-helm.yaml \
+  || fail "workers must receive CELERY_BROKER_URL"
+grep -q 'KEYCLOAK_URL:' /tmp/agentium-helm.yaml \
+  || fail "pods must receive KEYCLOAK_URL"
+grep -q 'CELERY_QUEUES: "cpu,recipes"' /tmp/agentium-helm.yaml \
+  || fail "the only worker must also listen on the recipes queue"
+grep -q -- '--import-realm' /tmp/agentium-helm.yaml \
+  || fail "keycloak must import the realm its readiness probe requests"
+cmp -s "$ROOT/backend/keycloak/realm-export.json" \
+  "$ROOT/ops/helm/agentium/files/realm-export.json" \
+  || fail "chart realm export drifted from backend/keycloak/realm-export.json"
+for app in backend worker migrate p4-maintenance; do
+  if helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+       --show-only "templates/${app}.yaml" | grep -q 'MINIO_ROOT_PASSWORD'; then
+    fail "$app must not receive the MinIO root password"
+  fi
+  # The application Secret is loaded whole: API keys and client secrets reach
+  # the pods that way, not through a list someone has to keep in sync.
+  helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+    -f "$ROOT/ops/helm/agentium/values-lab-ovh.yaml" \
+    --show-only "templates/${app}.yaml" \
+    | grep -A1 -- '- secretRef:' | grep -q 'name: agentium-lab$' \
+    || fail "$app must load the whole application Secret through envFrom"
+done
+# The generated root password sits in a Secret of its own, and only MinIO and
+# its init Job read it.
+helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+  --show-only templates/secret.yaml \
+  | awk '/^  name: /{name=$2} /MINIO_ROOT_PASSWORD:/{print name}' \
+  | grep -qv -- '-minio-root$' \
+  && fail "the MinIO root password must not sit in the application Secret"
+for app in minio minio-init; do
+  helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+    -f "$ROOT/ops/helm/agentium/values-lab-ovh.yaml" \
+    --show-only "templates/${app}.yaml" | grep -q 'name: agentium-lab-minio-root' \
+    || fail "$app must read the MinIO root password from minio.existingRootSecret"
+done
+if helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+     -f "$ROOT/ops/helm/agentium/values-lab-ovh.yaml" \
+     --set minio.existingRootSecret= >/dev/null 2>&1; then
+  fail "without a generated Secret, a missing minio.existingRootSecret must be refused"
+fi
+
+# The chart imports a realm derived from the development one, never the
+# development accounts or its placeholder client secret.
+for denied in alice-demo bob-demo change-me-in-production '"users"'; do
+  if grep -qF -- "$denied" /tmp/agentium-helm.yaml; then
+    fail "the imported realm must not carry $denied"
+  fi
+done
+# shellcheck disable=SC2016 # a literal Keycloak placeholder, not a shell variable
+grep -qF '"secret": "${AGENTIUM_REALM_CLIENT_SECRET}"' /tmp/agentium-helm.yaml \
+  || fail "the realm client secret must come from the application Secret"
+grep -qF '"http://agentium.example/*"' /tmp/agentium-helm.yaml \
+  || fail "the realm redirect URIs must follow ingress.host"
+grep -q 'name: KC_DB$' /tmp/agentium-helm.yaml \
+  || fail "keycloak must persist to Postgres, or every restart loses its users"
+helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+  --set keycloak.bootstrapAdmin.email=ops@example.test \
+  > /tmp/agentium-helm-bootstrap.yaml
+grep -qF '"username": "ops@example.test"' /tmp/agentium-helm-bootstrap.yaml \
+  || fail "bootstrapAdmin.email must create the first organization admin"
+# shellcheck disable=SC2016 # a literal Keycloak placeholder, not a shell variable
+grep -qF '"value": "${AGENTIUM_BOOTSTRAP_ADMIN_PASSWORD}"' /tmp/agentium-helm-bootstrap.yaml \
+  || fail "the bootstrap admin password must come from the application Secret"
+
+# Admin kubeconfig and the plan stay inside the pipeline. Project members
+# must not be able to download them.
+access_none="$(grep -c 'access: none' "$ROOT/.gitlab/ci/agentium-k8s.yml" || true)"
+[ "$access_none" -ge 2 ] || fail "tfplan and kubeconfig artifacts must set access: none"
+
+grep -q 'name: agentium-backend' /tmp/agentium-helm.yaml || fail "backend missing from helm template"
+grep -q 'name: agentium-frontend' /tmp/agentium-helm.yaml || fail "frontend missing from helm template"
+grep -q 'name: agentium-worker' /tmp/agentium-helm.yaml || fail "worker missing from helm template"
+grep -q 'kind: Ingress' /tmp/agentium-helm.yaml || fail "ingress missing from helm template"
+grep -q 'path: /health/live' /tmp/agentium-helm.yaml || fail "ingress /health/live missing"
+grep -q 'wait-postgres' /tmp/agentium-helm.yaml || fail "migrate must wait for Postgres"
+grep -q 'post-install' /tmp/agentium-helm.yaml || fail "migrate hook must be post-install, not pre-upgrade"
+grep -q 'server-snippet' /tmp/agentium-helm.yaml || fail "hidden-path ingress snippet missing"
+
+# One rendered "image:" line per container, one "cpu:" line per container's
+# request block. A container added without requests breaks the equality, so
+# the QoS hole cannot come back unnoticed.
+tpl_containers="$(grep -cE '^ +image: ' /tmp/agentium-helm.yaml || true)"
+tpl_sized="$(grep -cE '^ +cpu: ' /tmp/agentium-helm.yaml || true)"
+[ "$tpl_containers" -gt 0 ] || fail "helm template rendered no container"
+[ "$tpl_containers" = "$tpl_sized" ] \
+  || fail "every container must declare cpu and memory requests ($tpl_sized/$tpl_containers)"
+# Single-replica stateful services must refuse a voluntary eviction.
+tpl_pdbs="$(grep -c 'kind: PodDisruptionBudget' /tmp/agentium-helm.yaml || true)"
+[ "$tpl_pdbs" = "4" ] \
+  || fail "postgres, qdrant, minio and rabbitmq each need a PodDisruptionBudget (got $tpl_pdbs)"
+for svc in postgres qdrant minio rabbitmq; do
+  helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+    --show-only "templates/$svc.yaml" | grep -q 'livenessProbe:' \
+    || fail "$svc must declare a liveness probe"
+done
+if grep -qE '^resources: \{\}' "$ROOT/ops/helm/agentium/values.yaml"; then
+  fail "values.yaml must not ship a resources key no template consumes"
+fi
+
+# The artifact store is S3, so no pod mounts a shared filesystem for it. The
+# emptyDirs that used to stand in for one were never written to anyway: the
+# chart set no storage path, so the application used its relative defaults.
+grep -q 'OBJECT_STORE_BACKEND: "s3"' /tmp/agentium-helm.yaml \
+  || fail "the chart must configure the S3 artifact store"
+grep -q 'OBJECT_STORE_S3_ENDPOINT_URL' /tmp/agentium-helm.yaml \
+  || fail "the S3 endpoint must be configured"
+for target in /data/object_store /data/faiss_db /data/secure_deposit; do
+  if grep -q "mountPath: $target" /tmp/agentium-helm.yaml; then
+    fail "$target must not be mounted: it cannot be shared ReadWriteOnce"
+  fi
+done
+grep -q 'mountPath: /data/recipe_envs' /tmp/agentium-helm.yaml \
+  || fail "the worker still needs its node-local recipe env cache"
+grep -q 'ephemeral-storage' /tmp/agentium-helm.yaml \
+  || fail "the worker must reserve room for that cache on the node"
+grep -q 'minio-init' /tmp/agentium-helm.yaml \
+  || fail "nothing creates the bucket and the scoped application user"
+if helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+     --set objectStore.backend=local >/dev/null 2>&1; then
+  fail "a local artifact store must be refused, not silently configured"
+fi
+if grep -q 'name: agentium-ollama' /tmp/agentium-helm.yaml; then
+  fail "default chart must not start Ollama"
+fi
+if grep -q 'DEFAULT_PROVIDER: ollama' /tmp/agentium-helm.yaml; then
+  fail "default chart must keep the cloud routing default"
+fi
+
+helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+  --set ollama.enabled=true \
+  > /tmp/agentium-helm-ollama.yaml
+grep -q 'name: agentium-ollama' /tmp/agentium-helm-ollama.yaml || fail "ollama service missing when enabled"
+grep -q 'nomic-embed-text' /tmp/agentium-helm-ollama.yaml || fail "ollama embed model missing"
+grep -q 'DEFAULT_PROVIDER: ollama' /tmp/agentium-helm-ollama.yaml || fail "local chart must default chat to ollama"
+grep -q 'EMBEDDING_PROVIDER: ollama' /tmp/agentium-helm-ollama.yaml || fail "local chart must default embeddings to ollama"
+
+helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+  --set vllm.enabled=true \
+  > /tmp/agentium-helm-vllm.yaml
+grep -q 'name: agentium-vllm' /tmp/agentium-helm-vllm.yaml || fail "vllm service missing when enabled"
+grep -q 'nvidia.com/gpu' /tmp/agentium-helm-vllm.yaml || fail "vllm must request a GPU"
+if grep -q 'DEFAULT_PROVIDER: vllm' /tmp/agentium-helm-vllm.yaml; then
+  fail "enabling vllm must not replace the routing default"
+fi
+
+helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+  -f "$ROOT/ops/helm/agentium/values-lab-ovh.yaml" \
+  > /tmp/agentium-helm-lab-ovh.yaml
+grep -q 'name: agentium-lab' /tmp/agentium-helm-lab-ovh.yaml || fail "lab-ovh must use existingSecret agentium-lab"
+if grep -q '^kind: Secret$' /tmp/agentium-helm-lab-ovh.yaml; then
+  fail "lab-ovh must not create a Secret"
+fi
+grep -q 'storageClassName: "csi-cinder-high-speed"' /tmp/agentium-helm-lab-ovh.yaml \
+  || fail "lab-ovh must set OVH CSI storage class"
+grep -q 'ingressClassName: "nginx"' /tmp/agentium-helm-lab-ovh.yaml || fail "lab-ovh ingress class"
+assert_no_local_images "$ROOT/ops/helm/agentium/values-lab-ovh.yaml"
+assert_no_passwords "$ROOT/ops/helm/agentium/values-lab-ovh.yaml"
+
+helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+  -f "$ROOT/ops/helm/agentium/values-lab-aks.yaml" \
+  > /tmp/agentium-helm-lab-aks.yaml
+grep -q 'name: agentium-lab' /tmp/agentium-helm-lab-aks.yaml || fail "lab-aks must use existingSecret"
+if grep -q '^kind: Secret$' /tmp/agentium-helm-lab-aks.yaml; then
+  fail "lab-aks must not create a Secret"
+fi
+grep -q 'storageClassName: "managed-csi"' /tmp/agentium-helm-lab-aks.yaml \
+  || fail "lab-aks must set Azure CSI storage class"
+assert_no_local_images "$ROOT/ops/helm/agentium/values-lab-aks.yaml"
+assert_no_passwords "$ROOT/ops/helm/agentium/values-lab-aks.yaml"
+
+terraform fmt -check -recursive "$ROOT/ops/terraform" "$ROOT/ops/instance"
+
+validate_tf() {
+  local dir="$1"
+  terraform -chdir="$dir" init -backend=false -input=false >/tmp/tf-init.log
+  terraform -chdir="$dir" validate
+}
+
+validate_tf "$ROOT/ops/terraform/modules/cluster-ovh-mks"
+validate_tf "$ROOT/ops/terraform/modules/cluster-aks"
+validate_tf "$ROOT/ops/terraform/envs/lab-ovh"
+validate_tf "$ROOT/ops/terraform/envs/lab-aks"
+# The OpenStack fallback is fmt-checked above; validate it too, and
+# require the backend so no Terraform in this repo keeps local state.
+validate_tf "$ROOT/ops/instance"
+grep -q 'backend "http" {}' "$ROOT/ops/instance/versions.tf" \
+  || fail "ops/instance must keep remote, lockable state"
+validate_tf "$ROOT/ops/instance"
+
+DIGEST_A="$(printf 'a%.0s' {1..64})"
+DIGEST_B="$(printf 'b%.0s' {1..64})"
+DIGEST_C="$(printf 'c%.0s' {1..64})"
+cat > /tmp/values-ci-images.yaml <<EOF
+image:
+  pullPolicy: IfNotPresent
+  frontend: registry.example/agentium-frontend@sha256:${DIGEST_A}
+  backend: registry.example/agentium-backend@sha256:${DIGEST_B}
+  worker: registry.example/agentium-worker@sha256:${DIGEST_C}
+EOF
+helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+  -f "$ROOT/ops/helm/agentium/values-lab-ovh.yaml" \
+  -f /tmp/values-ci-images.yaml \
+  > /tmp/agentium-helm-ci.yaml
+grep -q "agentium-frontend@sha256:${DIGEST_A}" /tmp/agentium-helm-ci.yaml \
+  || fail "CI digest overlay must win over :local"
+if grep -q 'agentium-frontend:local' /tmp/agentium-helm-ci.yaml; then
+  fail "CI overlay left a :local frontend image"
+fi
+grep -q 'name: agentium-lab' /tmp/agentium-helm-ci.yaml || fail "CI render must keep existingSecret"
+
+# Every job that reaches the lab must stay behind the one switch. Without
+# this, landing the track on demo/agentic would deploy on the next push.
+CI_K8S="$ROOT/.gitlab/ci/agentium-k8s.yml"
+gated="$(grep -c 'AGENTIUM_LAB_ENABLED == "true"' "$CI_K8S" || true)"
+reaching="$(grep -cE "^ +- if: '.*(OVH_APPLICATION_KEY|AGENTIUM_LAB_REGISTRY|AGENTIUM_LAB_INGRESS_URL)" "$CI_K8S" || true)"
+[ "$gated" -ge 6 ] || fail "lab jobs must stay behind AGENTIUM_LAB_ENABLED"
+[ "$gated" -eq "$reaching" ] \
+  || fail "a lab-reaching rule is missing the AGENTIUM_LAB_ENABLED gate"
+grep -q 'rules: \*ops-k8s-rules-ops-tree' "$CI_K8S" \
+  || fail "validate must stay on without the switch"
+
+export ANSIBLE_CONFIG="$ROOT/ops/ansible/ansible.cfg"
+ansible-playbook --syntax-check "$ROOT/ops/ansible/playbooks/provision-cluster.yml"
+ansible-playbook --syntax-check -i "$ROOT/ops/ansible/inventories/ci" \
+  "$ROOT/ops/ansible/playbooks/deploy-agentium.yml"
+
+printf 'ops scaffold ok\n'

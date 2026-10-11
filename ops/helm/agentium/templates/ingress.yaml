@@ -1,0 +1,59 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "agentium.fullname" . }}
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- if .Values.ingress.hiddenPathGuard }}
+    nginx.ingress.kubernetes.io/server-snippet: |
+      location ~ ^(?!/kc/)(?!/\.well-known/acme-challenge/)(?:.*/)?\. {
+        return 404;
+      }
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- toYaml .Values.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /health/live
+            pathType: Exact
+            backend:
+              service:
+                name: agentium-backend
+                port:
+                  name: http
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: agentium-backend
+                port:
+                  name: http
+          - path: /kc
+            pathType: Prefix
+            backend:
+              service:
+                name: agentium-kc
+                port:
+                  name: http
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: agentium-frontend
+                port:
+                  name: http
+{{- end }}

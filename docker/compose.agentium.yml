@@ -627,6 +627,68 @@ services:
       retries: 10
       start_period: 60s
 
+  # Linux Ollama. Off unless the local-models profile or
+  # compose.agentium.local.yml is used. On a Mac this container sees the ARM
+  # CPU only. The M4 GPU path is compose.agentium.local-mac.yml (host Ollama).
+  # vLLM stays on gpu-models and wants an NVIDIA GPU.
+  agentium-ollama:
+    image: ollama/ollama:0.34.2
+    container_name: agentium-ollama
+    profiles: ["local-models"]
+    restart: unless-stopped
+    networks:
+      - agentium-net
+    ports:
+      - "127.0.0.1:${AGENTIUM_OLLAMA_HOST_PORT:-11434}:11434"
+    volumes:
+      - agentium_ollama:/root/.ollama
+    environment:
+      AGENTIUM_OLLAMA_CHAT_MODEL: ${AGENTIUM_OLLAMA_CHAT_MODEL:-qwen3.5:4b}
+      AGENTIUM_OLLAMA_EMBED_MODEL: ${AGENTIUM_OLLAMA_EMBED_MODEL:-nomic-embed-text}
+    entrypoint: ["/bin/sh", "/ollama-serve.sh"]
+    configs:
+      - source: ollama_serve
+        target: /ollama-serve.sh
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "ollama show \"$$AGENTIUM_OLLAMA_CHAT_MODEL\" >/dev/null && ollama show \"$$AGENTIUM_OLLAMA_EMBED_MODEL\" >/dev/null",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 300s
+
+  agentium-vllm:
+    image: vllm/vllm-openai:v0.19.1
+    container_name: agentium-vllm
+    profiles: ["gpu-models"]
+    restart: unless-stopped
+    networks:
+      - agentium-net
+    ports:
+      - "127.0.0.1:${AGENTIUM_VLLM_HOST_PORT:-8002}:8000"
+    ipc: host
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+    command:
+      - --model
+      - ${AGENTIUM_VLLM_MODEL:-Qwen/Qwen3.5-4B}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 300s
+
   agentium-qdrant:
     image: qdrant/qdrant:v1.12.5-unprivileged
     container_name: qdrant
@@ -658,6 +720,10 @@ services:
       retries: 6
       start_period: 15s
 
+configs:
+  ollama_serve:
+    file: ./ollama-serve.sh
+
 networks:
   agentium-net:
     external: true
@@ -674,6 +740,8 @@ volumes:
     # Production fails closed onto the pre-created bind-backed volume. Local
     # root-disk storage is available only through compose.agentium.local-storage.yml.
     name: ${AGENTIUM_QDRANT_VOLUME:-agentium_qdrant_block}
+  agentium_ollama:
+    name: agentium_ollama
   agentium_minio:
     # Never create a fresh MinIO volume on the production root filesystem.
     # The explicit local/dev overlay is the only supported local-volume path.

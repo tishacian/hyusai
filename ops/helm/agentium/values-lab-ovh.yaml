@@ -1,0 +1,39 @@
+# OVH MKS lab. Does not create a Secret. Images come from the CI overlay
+# values-ci-images.yaml (digest refs), not from this file.
+# Deploy with values.yaml + this file + that overlay.
+createSecret: false
+existingSecret: agentium-lab
+
+storageClass: csi-cinder-high-speed
+
+image:
+  pullPolicy: Always
+
+ingress:
+  enabled: true
+  className: nginx
+  host: lab-agentium.example
+  hiddenPathGuard: true
+
+postgres:
+  persistence:
+    storageClass: csi-cinder-high-speed
+minio:
+  # The MinIO root credential lives here, not in agentium-lab: every application
+  # pod loads that Secret whole. See docs/ops/agentium-kubernetes.md.
+  existingRootSecret: agentium-lab-minio-root
+  persistence:
+    storageClass: csi-cinder-high-speed
+qdrant:
+  persistence:
+    storageClass: csi-cinder-high-speed
+rabbitmq:
+  persistence:
+    storageClass: csi-cinder-high-speed
+
+livekit:
+  enabled: false
+sftp:
+  enabled: false
+beat:
+  enabled: false
