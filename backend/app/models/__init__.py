@@ -44,6 +44,7 @@ from app.models.huggingface import (
     HubImportReservation,
 )
 from app.models.impact import Impact
+from app.models.secret import Secret, SecretVersion
 from app.models.intelligence import FeedArticle, FeedSource, SafetyFilter, SemanticTarget
 from app.models.knowledge_collection import (
     KnowledgeCollection,
@@ -154,6 +155,8 @@ __all__ = [
     "WorkspaceActionItem",
     "WorkspaceJob",
     "HFPlatformConfig",
+    "Secret",
+    "SecretVersion",
     "HFLicenseAcceptance",
     "HFLicenseException",
     "HubArtifact",

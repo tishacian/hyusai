@@ -599,6 +599,16 @@ class Settings(BaseSettings):
     hf_import_lease_seconds: int = Field(default=300, ge=30)
     hf_download_timeout_seconds: int = Field(default=60, ge=5, le=600)
     hf_max_files: int = Field(default=512, ge=1, le=10000)
+    # Secret registry (app.services.secrets). The db backend derives its Fernet
+    # key from SECRET_REGISTRY_FERNET_KEY, falling back to
+    # CONNECTOR_SECRETS_FERNET_KEY; without either, writes and reads fail closed.
+    secret_registry_fernet_key: str = ""
+    secret_registry_default_backend: str = "db"
+    openbao_addr: str = ""
+    openbao_mount: str = "agentium"
+    openbao_role_id: str = ""
+    openbao_secret_id: str = ""
+    openbao_timeout_seconds: float = Field(default=5.0, gt=0, le=60)
     tabular_data_enabled: bool = True
     tabular_upload_max_bytes: int = Field(default=256 * 1024**2, ge=1024)
     tabular_preview_rows: int = Field(default=50, ge=1, le=500)
