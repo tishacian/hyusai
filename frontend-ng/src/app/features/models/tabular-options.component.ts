@@ -25,6 +25,9 @@ import { shownSpecFields, specColumns, specValues } from './tabular-options.vm';
             <div class="ck-field" [attr.data-spec-field]="field.key">
               <label class="ck-label" [for]="'tabular-' + field.key">{{ label(field.key) }}</label>
               @switch (field.kind) {
+                @case ('label') {
+                  <input class="ck-input" type="text" maxlength="200" [id]="'tabular-' + field.key" [ngModel]="values()[field.key] ?? ''" (ngModelChange)="patch(field, $event === '' ? null : $event)" />
+                }
                 @case ('artifact') {
                   <select class="ck-input" [id]="'tabular-' + field.key" [ngModel]="values()[field.key] ?? ''" (ngModelChange)="patch(field, $event)">
                     <option value="">{{ i18n.t('models.spec.artifact_default') }}</option>

@@ -435,6 +435,21 @@ async def compare_model_versions(
     return table
 
 
+@router.get("/{model_id}/evaluation-review")
+async def review_model_evaluation(
+    model_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    from app.services.ml_evaluation_review import review
+
+    try:
+        return review(db, model_id=model_id, workspace_id=workspace.id)
+    except TabularError as exc:
+        _raise_tabular(exc)
+
+
 @router.post("/{model_id}/cancel")
 async def cancel_model_training(
     model_id: str,

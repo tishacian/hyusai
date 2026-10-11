@@ -61,6 +61,7 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.skill import Skill
 from app.models.tabular import MLModel, MLModelApiKey, MLPrediction, TabularDataset
+from app.resources.ml_classification_extensions import label_name
 from app.services.ml.families import get_family
 from app.services.skills_registry.binding import (
     SkillBindingError,
@@ -432,11 +433,7 @@ def contract_fields(model: MLModel) -> list[dict[str, Any]]:
 def _label(value: Any) -> str:
     if value is None:
         return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, float) and value.is_integer():
-        return str(int(value))
-    return str(value)[:120]
+    return label_name(value)
 
 
 def _finite(value: Any) -> float | None:
@@ -695,6 +692,11 @@ def _rows_from(
     for index, raw in enumerate(predicted):
         if model.task == CLASSIFICATION:
             label = _label(raw)
+            # Previously stored numpy booleans/long labels used str()[:120].
+            # Honor that vocabulary while new models use the shared spelling.
+            legacy = str(raw)[:120]
+            if label not in classes and legacy in classes:
+                label = legacy
             answer: dict[str, Any] = {"prediction": label}
             if proba is not None and index < len(proba):
                 vector = [

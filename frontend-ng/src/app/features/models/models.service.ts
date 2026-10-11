@@ -208,6 +208,10 @@ export class ModelsService {
     );
   }
 
+  evaluationReview(modelId: string): Promise<import('./evaluation-evidence.vm').EvaluationReview> {
+    return firstValueFrom(this.http.get<import('./evaluation-evidence.vm').EvaluationReview>(`${this.base}/${modelId}/evaluation-review`));
+  }
+
   async cancel(modelId: string): Promise<ModelDto> {
     const response = await firstValueFrom(
       this.http.post<{ model: ModelDto }>(`${this.base}/${modelId}/cancel`, {}),

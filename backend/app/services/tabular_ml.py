@@ -929,6 +929,20 @@ def report_state_key(workspace_id: str, model_id: str) -> str:
     )
 
 
+def evaluation_partition_key(workspace_id: str, model_id: str) -> str:
+    return get_object_store().key(
+        "workspaces", workspace_id, "ml", "models", model_id, "report", "evaluation.json.gz"
+    )
+
+
+def evaluation_partition_uri(model: MLModel) -> str | None:
+    evidence = (model.metrics_json or {}).get("evaluation") or {}
+    expected = evaluation_partition_key(model.workspace_id, model.id)
+    if evidence.get("status") == "stored" and evidence.get("key") == expected:
+        return get_object_store().uri(expected)
+    return None
+
+
 def upload_report_state(local: Path, *, workspace_id: str, model_id: str) -> str | None:
     """Publish the report state if the harness wrote one. Never raises.
 
@@ -1768,7 +1782,12 @@ def clamp_timeout(value: Any) -> float:
 
 
 def _write_manifest(
-    scratch: Path, model: MLModel, data_path: Path, *, distillation: dict | None = None
+    scratch: Path,
+    model: MLModel,
+    data_path: Path,
+    *,
+    distillation: dict | None = None,
+    dataset: TabularDataset | None = None,
 ) -> Path:
     params = dict(model.params_json or {})
     manifest = {
@@ -1793,6 +1812,17 @@ def _write_manifest(
         "progress_path": str(scratch / _PROGRESS_FILE),
         "report_path": str(scratch / "report" / _REPORT_STATE_FILE),
         "report_state_limit_mb": int(settings.ml_train_report_state_limit_mb),
+        "evaluation_path": str(scratch / "report" / "evaluation.json.gz"),
+        "dataset": {"id": model.dataset_id, "version": dataset.version if dataset else None},
+        "diagnostics": {
+            "enabled": bool(
+                settings.ml_skore_checks_enabled
+                and model.workspace_id in settings.ml_skore_checks_workspaces
+                and (model.family or TABULAR.key) == TABULAR.key
+            ),
+            "budget_s": float(settings.ml_skore_checks_budget_s),
+            "max_rows": int(settings.ml_skore_checks_max_rows),
+        },
     }
     if manifest["family"] in {"forecasting_deep", "tabular_deep"}:
         from contextlib import nullcontext
@@ -2035,7 +2065,9 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                     status_code=409,
                 )
             data_path = materialize(dataset, scratch / "data.parquet")
-            manifest_path = _write_manifest(scratch, model, data_path, distillation=distillation)
+            manifest_path = _write_manifest(
+                scratch, model, data_path, distillation=distillation, dataset=dataset
+            )
             result_path = scratch / "result.json"
             interpreter = Path(sys.executable)
             threads = str(int(settings.ml_train_threads))
@@ -2100,6 +2132,26 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                         workspace_id=model.workspace_id,
                         model_id=model.id,
                     )
+                    evaluation = (summary.get("metrics") or {}).get("evaluation")
+                    if isinstance(evaluation, dict) and evaluation.get("status") == "recorded":
+                        local = scratch / "report" / "evaluation.json.gz"
+                        key = evaluation_partition_key(model.workspace_id, model.id)
+                        try:
+                            from app.resources.ml_evaluation import MAX_BYTES
+
+                            if not local.is_file() or local.stat().st_size > MAX_BYTES:
+                                raise ValueError("Missing or oversized evaluation artifact")
+                            payload = local.read_bytes()
+                            import hashlib
+
+                            if hashlib.sha256(payload).hexdigest() != evaluation.get("sha256"):
+                                raise ValueError("Evaluation artifact digest mismatch")
+                            get_object_store().write_bytes(key, payload)
+                            evaluation["key"] = key
+                            evaluation["status"] = "stored"
+                        except Exception:
+                            evaluation["status"] = "unavailable"
+                            evaluation["reason"] = "artifact_upload_failed"
         except TabularError as exc:
             status, error = "failed", f"{exc.code}: {exc.message}"
         except Exception as exc:  # noqa: BLE001 - the row is the error channel
@@ -2214,6 +2266,7 @@ def _register_version(model: MLModel) -> None:
             # reader who has only the registry can still find the rows the
             # published metrics were measured on.
             "agentium.skore_report_state": _report_state_uri(model) or "",
+            "agentium.evaluation_partition": evaluation_partition_uri(model) or "",
             "agentium.family": model.family or TABULAR.key,
             "agentium.runtime": (model.runtime_json or {}).get("runtime") or "",
             "agentium.runtime.image_revision": (model.runtime_json or {}).get("image_revision")

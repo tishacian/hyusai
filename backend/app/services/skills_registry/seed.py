@@ -1619,6 +1619,32 @@ SEED_SKILLS: list[dict[str, Any]] = [
         },
     },
     {
+        "slug": "ml_evaluation_review_v1",
+        "version": "1",
+        "name": "Review Model Evaluation",
+        "description": "Reads a workspace model's development diagnostics and proposes hypotheses to review in its Flow. It never optimizes on final-test scores, trains a model or promotes a version. Training and promotion remain separate authorized decisions.",
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 30000, "retryable": False, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"model_id": {"type": "string", "maxLength": 36}},
+            "required": ["model_id"],
+            "additionalProperties": False,
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "model_id": {"type": "string"},
+                "mode": {"const": "proposal_only"},
+                "proposals": {"type": "array"},
+                "constraints": {"type": "array"},
+            },
+        },
+    },
+    {
         "slug": "ml_monitor_model_v1",
         "version": "1",
         "name": "Monitor Model",
@@ -3782,6 +3808,7 @@ SEED_CAPABILITIES: list[dict[str, Any]] = [
         "output_unit": "model",
         "skill_slugs": [
             "ml_train_sklearn_v1",
+            "ml_evaluation_review_v1",
             "ml_predict_v1",
             "ml_batch_score_v1",
         ],
@@ -4313,6 +4340,7 @@ SKILL_CATEGORIES: dict[str, str] = {
     "ml_predict_v1": "Models",
     "ml_train_sklearn_v1": "Models",
     "ml_monitor_model_v1": "Models",
+    "ml_evaluation_review_v1": "Models",
     "ml_retrain_model_v1": "Models",
     "multi_hop_retrieve_v1": "Retrieval",
     "news_signal_synthesis_v1": "Analysis",

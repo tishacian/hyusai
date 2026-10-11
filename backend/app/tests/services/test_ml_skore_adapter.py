@@ -10,7 +10,12 @@ import pandas as pd
 import pytest
 from sklearn.datasets import make_classification, make_regression
 from sklearn.linear_model import LogisticRegression, Ridge
-from sklearn.metrics import accuracy_score, log_loss, mean_absolute_error
+from sklearn.metrics import (
+    accuracy_score,
+    log_loss,
+    mean_absolute_error,
+    mean_absolute_percentage_error,
+)
 from sklearn.model_selection import cross_val_score, train_test_split
 from skore import ComparisonReport, CrossValidationReport, EstimatorReport
 
@@ -51,6 +56,25 @@ def test_comparison_keeps_model_ids_and_full_precision(classifiers):
     assert not any(row["key"].endswith("_time") for row in rows)
     assert "default_score" not in scores
     json.dumps(rows, allow_nan=False)
+
+
+def test_comparison_regression_mape_uses_percent_and_preserves_missing_values():
+    x, y = make_regression(n_samples=60, n_features=3, noise=2, random_state=42)
+    models = [Ridge(alpha=alpha).fit(x, y) for alpha in (1, 10)]
+    reports = {
+        f"v{index}": EstimatorReport(model, X_test=x, y_test=y)
+        for index, model in enumerate(models)
+    }
+    rows = adapter.comparison_metrics(
+        ComparisonReport(reports).metrics.summarize(), names={"a": "v0", "b": "v1"}
+    )
+    mape = next(row for row in rows if row["key"] == "mape")
+    assert mape["b"] == pytest.approx(mean_absolute_percentage_error(y, models[1].predict(x)) * 100)
+    for missing in (None, np.nan, np.inf):
+        frame = pd.DataFrame({"v0": [missing], "v1": [0.123456789]}, index=["mape"])
+        actual = adapter.comparison_metrics(display(frame), names={"a": "v0", "b": "v1"})
+        assert actual == [{"key": "mape", "a": None, "b": 12.3456789}]
+        json.dumps(actual, allow_nan=False)
 
 
 def test_cv_matches_independent_folds_and_preserves_percent_mape():
