@@ -75,13 +75,17 @@ def comparison_metrics(display, *, names: Mapping[str, str]) -> list[dict]:
         or set(frame.columns) != set(names.values())
     ):
         raise ValueError("Skore comparison columns do not match the requested models")
+
+    def value(key, name):
+        number = _number(frame.loc[key, name], rounded=False)
+        return (
+            _number(number * 100, rounded=False) if key == "mape" and number is not None else number
+        )
+
     return [
         {
             "key": key,
-            **{
-                model_id: _number(frame.loc[key, name], rounded=False)
-                for model_id, name in names.items()
-            },
+            **{model_id: value(key, name) for model_id, name in names.items()},
         }
         for key in frame.index
         if not key.endswith("_time") and key != "default_score"

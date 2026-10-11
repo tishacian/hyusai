@@ -272,11 +272,7 @@ def _number(value) -> float | None:
 def _label(value) -> str:
     if value is None:
         return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, float) and value.is_integer():
-        return str(int(value))
-    return str(value)[:120]
+    return _classification_extensions().label_name(value)
 
 
 def _scalar(value):
@@ -382,6 +378,17 @@ def _summary_table(display) -> dict:
     return _skore_adapter().estimator_metrics(display)
 
 
+@lru_cache(maxsize=1)
+def _evaluation_module():
+    import importlib.util
+
+    path = Path(__file__).with_name("ml_evaluation.py")
+    spec = importlib.util.spec_from_file_location("ml_evaluation", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _pick(table: dict, base: str, positive: str | None) -> float | None:
     """Read a metric skore may have named per class, per macro average, or bare.
 
@@ -402,18 +409,13 @@ def _curve(frame, x_column: str, y_column: str, *, limit: int) -> list[dict]:
     return _thin(frame[x_column].to_numpy(), frame[y_column].to_numpy(), limit)
 
 
-def _classification_metrics(report, classes, *, curve_points: int) -> dict:
-    """The model card's classification read model, entirely from skore.
-
-    ``f1`` and ``balanced_accuracy`` are not in skore's default table, and are
-    not recomputed here either: both are definitions over numbers skore already
-    reported — f1 is the harmonic mean of precision and recall, balanced
-    accuracy is the macro recall — so deriving them keeps one source of truth.
-    """
+def _classification_metrics(report, classes, *, curve_points: int, positive_class=None) -> dict:
+    """Named metrics plus F1 derived per class from Skore's confusion counts."""
 
     labels = list(classes)
     binary = len(labels) == 2
-    positive = _label(labels[-1]) if binary else None
+    positive_value = labels[-1] if positive_class is None and binary else positive_class
+    positive = _label(positive_value) if binary else None
     table = _summary_table(report.metrics.summarize())
 
     matrix = [[0 for _ in labels] for _ in labels]
@@ -426,9 +428,11 @@ def _classification_metrics(report, classes, *, curve_points: int) -> dict:
 
     precision = _pick(table, "precision", positive)
     recall = _pick(table, "recall", positive)
-    f1 = None
-    if precision is not None and recall is not None and (precision + recall) > 0:
-        f1 = _number(2 * precision * recall / (precision + recall))
+    class_f1 = []
+    for at, row in enumerate(matrix):
+        denominator = sum(row) + sum(other[at] for other in matrix)
+        class_f1.append(2 * row[at] / denominator if denominator else 0.0)
+    f1 = _number(class_f1[index[positive]] if binary else sum(class_f1) / len(class_f1))
     # Balanced accuracy is the mean of the per-class recalls, and it is read off
     # the matrix rather than the metric table on purpose: with ``pos_label`` set
     # skore reports the *positive* class's recall under the bare name ``recall``,
@@ -861,6 +865,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     _progress(progress_path, "reading")
     try:
         frame = pd.read_parquet(data_path, columns=list({*features, target, *fairness_columns}))
+        frame = frame.reset_index(drop=True)
     except Exception as exc:  # noqa: BLE001
         return _fail(5, f"ml_dataset_unreadable: {exc}")
 
@@ -876,10 +881,6 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         # and non-contiguous surviving rows keep their original correspondence.
         frame = frame.reset_index(drop=True)
     frame = frame.dropna(subset=[target])
-    if explain_enabled and distillation is None:
-        # Protected columns follow the exact held-out rows, even if the source
-        # parquet carried duplicate index labels or numeric targets are dropped.
-        frame = frame.reset_index(drop=True)
     if len(frame) < min_rows:
         return _fail(
             3,
@@ -905,6 +906,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
 
     stratify = None
     classes: list = []
+    positive = None
     if task == "classification":
         y = y.astype("object") if y.dtype == object else y
         counts = y.value_counts()
@@ -929,6 +931,10 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             )
         stratify = y
         classes = list(counts.sort_index().index)
+        try:
+            positive = _classification_extensions().positive_label(classes, explain_spec)
+        except ValueError as exc:
+            return _fail(2, f"ml_positive_class_invalid: {exc}")
     else:
         y = pd.to_numeric(y, errors="coerce")
         keep = y.notna()
@@ -954,6 +960,23 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         )
     except Exception as exc:  # noqa: BLE001
         return _fail(2, f"ml_split_failed: {exc}")
+
+    evaluation = None
+    if manifest.get("evaluation_path"):
+        try:
+            evaluation = _evaluation_module().prepare(
+                frame.loc[x.index],
+                columns=[*features, target],
+                train_indices=x_train.index,
+                test_indices=x_test.index,
+                dataset=manifest.get("dataset"),
+                target=target,
+                seed=seed,
+                test_size=test_size,
+                positive_class=_label(positive) if positive is not None else None,
+            )
+        except Exception as exc:
+            return _fail(5, f"ml_evaluation_provenance_failed: {exc}")
 
     tuning_result = None
     params = manifest.get("params")
@@ -1021,13 +1044,15 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             pipeline,
             X_test=x_test,
             y_test=y_test,
-            **({"pos_label": classes[-1]} if binary else {}),
+            **({"pos_label": positive} if binary else {}),
         )
     except Exception as exc:  # noqa: BLE001
         return _fail(1, f"ml_report_failed: {type(exc).__name__}: {exc}")
 
     if task == "classification":
-        metrics = _classification_metrics(report, classes, curve_points=curve_points)
+        metrics = _classification_metrics(
+            report, classes, curve_points=curve_points, positive_class=positive
+        )
         scoring = "roc_auc" if binary else "accuracy"
         balance = [
             {"label": _label(value), "count": int(count)}
@@ -1036,7 +1061,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         metrics["target"] = {
             "name": str(target),
             "classes": [_label(value) for value in classes],
-            "positive": _label(classes[-1]) if len(classes) == 2 else None,
+            "positive": _label(positive) if binary else None,
             "balance": balance,
         }
     else:
@@ -1066,6 +1091,15 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     if tuning_result is not None:
         metrics["tuning"] = tuning_result
     metrics["task"] = task
+    metrics["metric_semantics"] = {
+        "schema": 2,
+        "role": "final_test",
+        "positive_class": _label(positive) if binary else None,
+        "averaging": "binary" if binary else "macro" if task == "classification" else None,
+        "f1": "per_class_confusion_counts",
+        "mape_unit": "percent",
+        "cv_std_ddof": 1,
+    }
     metrics["monitoring_reference"] = _monitoring_reference(x_train, seed)
     if intervals is not None:
         metrics["intervals"] = _interval_evidence(intervals, pipeline.predict(x_test), y_test)
@@ -1092,7 +1126,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
                 progress=lambda step: _progress(progress_path, step),
                 number=_number,
                 summarize=lambda report, labels: _classification_metrics(
-                    report, labels, curve_points=curve_points
+                    report, labels, curve_points=curve_points, positive_class=positive
                 ),
             )
         except Exception as exc:  # A failed fold is not a failed fit.
@@ -1114,7 +1148,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
                     _fold_splitter(folds, task, y_train), folds, progress_path
                 ),
                 n_jobs=1,
-                **({"pos_label": classes[-1]} if binary else {}),
+                **({"pos_label": positive} if binary else {}),
             )
             per_metric = _skore_adapter().cross_validation_metrics(
                 folded.metrics.summarize(), keys=_CARD_METRICS
@@ -1147,8 +1181,34 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         except Exception as exc:  # Even a worker setup failure must preserve the fit.
             metrics["explain"] = {"error": f"{type(exc).__name__}: {exc}"[:180]}
 
+    # A fresh base estimator on training-only development rows. The final
+    # report stays prefit/test-only and the served model is never modified.
+    import importlib.util
+
+    diagnostics_path = Path(__file__).with_name("ml_diagnostics.py")
+    diagnostics_spec = importlib.util.spec_from_file_location("ml_diagnostics", diagnostics_path)
+    diagnostics = importlib.util.module_from_spec(diagnostics_spec)
+    diagnostics_spec.loader.exec_module(diagnostics)
+    metrics["diagnostics"] = diagnostics.run(
+        base_pipeline,
+        x_train,
+        y_train,
+        config=manifest.get("diagnostics") or {},
+        seed=seed,
+        task=task,
+        positive_class=positive,
+        scratch=Path(result_path).parent,
+    )
+
     # After the metrics, so the state carries the predictions they were read
     # from rather than making the next reader recompute them.
+    if evaluation is not None:
+        try:
+            metrics["evaluation"] = _evaluation_module().write_partition(
+                evaluation, manifest["evaluation_path"]
+            )
+        except Exception as exc:
+            metrics["evaluation"] = {"status": "unavailable", "reason": str(exc)[:200]}
     report_state = (
         _persist_report(report, report_path, limit_bytes=int(report_limit_mb * 1024 * 1024))
         if report_limit_mb > 0

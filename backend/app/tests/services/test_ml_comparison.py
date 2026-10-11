@@ -68,9 +68,7 @@ def test_a_version_is_not_compared_with_itself(db_session, two_fits):
     assert raised.value.code == "ML_COMPARE_SAME_VERSION"
 
 
-def test_two_versions_answering_different_questions_are_refused(
-    db_session, two_fits
-):
+def test_two_versions_answering_different_questions_are_refused(db_session, two_fits):
     """One table cannot rank a churn classifier against an ARPU regressor."""
 
     first, second = two_fits
@@ -178,8 +176,7 @@ def test_the_table_reproduces_each_version_s_own_recorded_score(
     rows = {row["key"]: row for row in table["metrics"]}
     for model in (left, right):
         recorded = {
-            score["key"]: score["value"]
-            for score in (model.metrics_json or {}).get("scores") or []
+            score["key"]: score["value"] for score in (model.metrics_json or {}).get("scores") or []
         }
         for key in ("roc_auc", "accuracy"):
             # The card's copy is rounded to six decimals on the way into JSON;
@@ -188,7 +185,7 @@ def test_the_table_reproduces_each_version_s_own_recorded_score(
 
 
 @pytest.mark.slow
-def test_a_version_trained_elsewhere_is_compared_but_flagged(
+def test_a_recorded_version_with_changed_dataset_is_refused(
     db_session, workspace, dataset, enabled, monkeypatch, store
 ):
     """The Flow case: a version fitted on a derived dataset is the one worth ranking.
@@ -220,9 +217,6 @@ def test_a_version_trained_elsewhere_is_compared_but_flagged(
     left.dataset_id = derived.id
     db_session.commit()
 
-    table = ml_comparison.compare(db_session, left=left, right=right)
-    assert table["dataset"]["id"] == right.dataset_id
-    assert {entry["code"] for entry in table["warnings"]} == {
-        "TRAINED_ON_ANOTHER_DATASET"
-    }
-    assert table["warnings"][0]["model_id"] == left.id
+    with pytest.raises(TabularError) as raised:
+        ml_comparison.compare(db_session, left=left, right=right)
+    assert raised.value.code == "ML_COMPARE_UNVERIFIED_PARTITION"

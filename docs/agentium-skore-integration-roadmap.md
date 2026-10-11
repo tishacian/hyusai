@@ -3,7 +3,8 @@
 ## Décision et périmètre
 
 Base de travail : `demo/agentic`, commit `7e41de642c6254b3b88f508cb37be79ff5844fed`.
-Cible du premier lot : Skore **0.27.0**, publié le 9 octobre 2026.
+Cible : Skore **0.27.0**, publié le 9 octobre 2026. Vérification PyPI renouvelée
+le 11 octobre 2026 : dernière version stable, Python ≥ 3.11, licence MIT.
 
 **MinIO/ObjectStore conserve les octets et MLflow conserve le registre et les
 références existantes. Aucun second stockage d'expériences n'est introduit.**
@@ -15,8 +16,8 @@ gardent leurs chemins et leur politique de conservation.
 
 Skore Lib (MIT) fournit les évaluations compatibles. Hyusai reste responsable
 des exécutions, de la provenance, des autorisations et de la promotion des modèles.
-Les intégrations d'agents restent au lot 5 ; cette migration ne requiert aucun
-service Probabl hébergé.
+La revue agent du lot 5 utilise les diagnostics de développement ; cette
+intégration ne requiert aucun service Probabl hébergé.
 
 ## État de départ
 
@@ -38,15 +39,17 @@ service Probabl hébergé.
 | Lot | Contenu | Critères de sortie | État |
 | --- | --- | --- | --- |
 | 1 — Compatibilité 0.27 | Mettre à jour plage et contraintes ; centraliser les lectures de métriques dans un adaptateur sans I/O ; préserver les réponses API et les artefacts. | Évaluations réelles classification/régression/CV/comparaison ; calibration et seuils ; qualification explicite de la relecture des anciens états ; sauvegarde/rechargement MLflow ; contraintes cohérentes. | Réalisé et qualifié localement ; réserve de livraison sur les anciens états |
-| 2 — Provenance et partitions | Enregistrer dataset/version/empreinte, identifiants de lignes, stratégie, graine, cible et classe positive ; utiliser ces partitions en comparaison. | Reproduction indépendante de l'ordre de lecture et de la configuration courante ; exclusion vérifiable des lignes d'entraînement ; anciens modèles marqués lorsque la preuve manque. | Planifié |
-| 3 — Diagnostics | Exécuter les checks applicables sur les rapports de développement ; enregistrer code, explication, portée, statut et version ; limiter les checks coûteux. | Cas contrôlés de surapprentissage/fuite ; non-applicable, ignoré et erreur distincts d'un résultat favorable ; budget et annulation respectés. | Planifié |
-| 4 — Métriques et décision métier | Définir classe positive et agrégation explicitement ; corriger F1 macro ; unifier métriques et conventions de calibration ; conserver l'entraînement spécialisé par fold. | Comparaison avec scorers de référence, classes rares, courbes avant/après et modèle servi identique au modèle évalué ; aucune sélection sur le test final. | Planifié |
-| 5 — Interface et agents | Présenter preuves/limites dans les fiches et comparaisons ; proposer des améliorations via le Flow et les gates existants. | Navigation de l'alerte à sa preuve ; autorisations par workspace ; proposition, entraînement et promotion restent des décisions distinctes. | Planifié |
-| 6 — Activation | Qualifier images, tailles, latences et compatibilité des artefacts ; activer progressivement les diagnostics. | Images identifiées, tests de bout en bout, procédure de retour vérifiée ; aucun réentraînement implicite. | Planifié |
+| 2 — Provenance et partitions | Artefact JSON compressé dans l'ObjectStore existant, référence MLflow ; comparaison sur l'intersection des tests prouvés, excluant les contenus vus au train. | Empreintes indépendantes de l'ordre et de la graine courante ; corruption, dataset modifié et preuves incomplètes refusés ; anciens modèles explicitement non vérifiés. | Implémenté, qualifié localement |
+| 3 — Diagnostics | Rapport de développement distinct, modèle de base cloné ; checks publics isolés, processus à budget limité et plafond de lignes. | Surapprentissage et fuite temporelle contrôlés ; statuts distincts ; timeout sans perdre le modèle, annulation par le groupe du superviseur. | Implémenté, qualifié localement ; activation désactivée par défaut |
+| 4 — Métriques et décision métier | Classe positive explicite ; F1 moyen des F1 par classe ; calibration/seuil/CV cohérents ; MAPE en pourcentage et écart-type CV d'échantillon. | Scorers de référence ; classe positive à la première position ; rechargement du modèle réellement servi ; aucune sélection sur le test final. | Implémenté, qualifié localement |
+| 5 — Interface et agents | Fiche d'évaluation FR/EN ; preuves et limites en comparaison ; revue en lecture seule accessible au Flow et aux agents. | Lien de la piste au contrôle ; isolation workspace ; aucune mutation, aucun entraînement ni promotion par la revue. | Implémenté, qualifié localement ; navigateur FR/EN validé |
+| 6 — Activation | Script de smoke par image, mesures de taille/temps, sauvegarde vérifiant les partitions, allowlist de workspaces et retour au flag désactivé. | Builds immuables sur VM, runtime 0.25 conservé, canaries protégées et activation progressive sans réentraînement implicite. | Préparé et qualifié localement ; qualification des images et activation VM restantes |
 
-Ordre : 1 → 2 → 3 → 4 → 5 → 6. Chaque lot est livré séparément avec ses tests
-et sa qualification. L'autorisation actuelle porte sur la roadmap et le lot 1,
-pas sur un déploiement ni l'activation des lots suivants.
+Ordre : 1 → 2 → 3 → 4 → 5 → 6. Le lot 1 est livré séparément ; les lots 2 à 6
+partagent une branche d'intégration, avec des critères de qualification distincts.
+Le GO utilisateur porte désormais sur tous les lots. Les conditions de livraison
+du dépôt restent applicables : source poussée sur `demo/agentic`, builds sur VM,
+sauvegarde vérifiée et canaries protégées avant une activation effective.
 
 ## Contrats à préserver
 
@@ -61,7 +64,7 @@ Le lot 1 ne change pas la signification historique de F1, la classe positive,
 les seuils, le découpage ni les règles de promotion : ces évolutions sont
 identifiées au lot 4 et devront documenter les différences de scores.
 
-Pour les lots suivants, le résumé d'évaluation versionné sera stocké dans les
+Le résumé d'évaluation versionné est stocké dans les
 artefacts et métadonnées existants. Le rapport Skore complet reste facultatif.
 La compatibilité future de `to_dict()` n'est pas présumée : elle est vérifiée
 sur les versions qualifiées. Préserver les anciens artefacts et leurs versions,
@@ -94,6 +97,33 @@ de base ne doit pas être présenté comme un diagnostic du modèle calibré ser
 Le schéma de restitution pourra être commun aux familles, mais Skore n'est pas
 un évaluateur universel de clustering, forecasting, modèles de fondation ou RAG.
 Conserver leurs évaluateurs spécifiques et indiquer moteur et portée.
+
+## Implémentation des lots 2 à 6
+
+Le worker écrit `report/evaluation.json.gz` à côté de `report/state.joblib`,
+dans le préfixe `ml/models/<model_id>` existant. Le JSON n'embarque pas une copie
+des cellules : il conserve leurs empreintes SHA-256 et les appartenances au
+train/test. Les contenus identiques présents dans les deux partitions sont
+signalés et exclus des comparaisons. Dataset et version doivent correspondre ;
+un dataset transformé différent ne peut pas être déclaré indépendant sans
+provenance de lignes inter-datasets, qui n'est pas encore disponible.
+
+Les diagnostics sont limités aux modèles tabulaires classiques. Un clone du
+modèle de base est ajusté sur une sous-partition du train, avec validation de
+développement distincte. Les contrôles coûteux restent non exécutés en mode
+rapide ; les contrôles hors périmètre sont ignorés. Ils ne constituent pas une
+certification et ne décrivent pas le modèle calibré servi.
+
+`ml_evaluation_review_v1` appartient à la Capability existante `tabular_models`.
+Son contexte d'exécution fournit le workspace, sans substitution depuis le
+payload. Il propose des hypothèses issues des contrôles de développement ; les
+statuts partiels et les seuls scores de test final ne génèrent pas de pistes.
+L'auteur valide le plan du Flow, déclenche l'entraînement par le mécanisme
+existant et décide séparément de la promotion. Aucun nouveau mécanisme de gates,
+de registre ou de stockage n'est créé.
+
+Les commandes, mesures, contrôles de sauvegarde et étapes d'activation sont dans
+[la qualification des lots 2 à 6](agentium-skore-lots-2-6-verification.md).
 
 ## Qualification du lot 1
 

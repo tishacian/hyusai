@@ -126,7 +126,7 @@ export interface ComparisonDto {
   task: ModelTask;
   target: string;
   dataset: { id: string; name: string; slug: string; version: number };
-  split: { rows: number; test_size: number; random_state: number };
+  split: { rows: number; test_size: number; random_state: number | null; verified?: boolean; strategy?: string; role?: string; recorded_seeds?: number[] };
   models: {
     model_id: string;
     column: string;
@@ -135,7 +135,7 @@ export interface ComparisonDto {
     is_champion: boolean;
   }[];
   metrics: ComparisonMetricRow[];
-  warnings: { code: string; model_id: string }[];
+  warnings: { code: string; model_id?: string }[];
 }
 
 export interface CvBlock {
@@ -149,6 +149,9 @@ export interface CvBlock {
 }
 
 export interface MetricsBlock {
+  evaluation?: import('./evaluation-evidence.vm').EvaluationProvenance;
+  diagnostics?: import('./evaluation-evidence.vm').DiagnosticsEvidence;
+  metric_semantics?: { schema: number; positive_class?: string | null; averaging?: string | null; cv_std_ddof?: number };
   clustering?: import('./clustering.vm').ClusteringEvidence;
   distillation?: import('./distillation-evidence.vm').DistillationEvidence;
   intervals?: IntervalEvidence;
@@ -817,7 +820,7 @@ export function numericKnobs(algo: AlgoDescriptor | undefined): NumericKnobDescr
 /** A field of a model family's problem definition (time column, horizon, …). */
 export interface SpecFieldDescriptor {
   key: string;
-  kind: 'artifact' | 'column' | 'columns' | 'int' | 'float' | 'enum' | 'bool' | 'int_list' | 'column_roles';
+  kind: 'label' | 'artifact' | 'column' | 'columns' | 'int' | 'float' | 'enum' | 'bool' | 'int_list' | 'column_roles';
   required: boolean;
   default?: unknown;
   min?: number;
@@ -1730,6 +1733,8 @@ export const COMPARE_ERROR_CODES = [
   'ML_COMPARE_SPLIT_FAILED',
   'ML_COMPARE_FAILED',
   'ML_COMPARE_NOT_TABULAR',
+  'ML_COMPARE_UNVERIFIED_PARTITION',
+  'ML_COMPARE_DIFFERENT_POSITIVE_CLASS',
 ] as const;
 
 const COMPARE_ERROR_SET: ReadonlySet<string> = new Set(COMPARE_ERROR_CODES);
