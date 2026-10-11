@@ -886,6 +886,25 @@ def tabular_dbt_execute(self, execution_id: str) -> dict:
     return {**result, "task_id": str(self.request.id)}
 
 
+@celery_app.task(
+    name="agentium.dataops_sql_execute",
+    bind=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def dataops_sql_execute(self, execution_id: str) -> dict:
+    """Settle one SQL transform on the DuckDB runner (dataops queue).
+
+    The statement travels on the execution row, like a dbt project: the row is
+    what the walker polls, and it was validated before it was queued.
+    """
+
+    from app.services.dataops.sql_execution import run_sql_execution
+
+    result = run_sql_execution(execution_id)
+    return {**result, "task_id": str(self.request.id)}
+
+
 @celery_app.task(name="agentium.recipe_env_build")
 def recipe_env_build(env_id: str) -> dict:
     """Explicit prebuild of one recipe venv (inspector 'prepare now')."""

@@ -169,7 +169,10 @@ async def preview_sql_transform(
                 db, workspace_id=workspace.id, declared=declared, payload=None
             )
             return {"preview": None, "sources": source_catalog(sources)}
-        result = preview_sql(
+        # duckdb is synchronous: on a thread, or one slow preview stalls every
+        # request this process is serving.
+        result = await run_in_threadpool(
+            preview_sql,
             db,
             workspace_id=workspace.id,
             sql=body.sql,

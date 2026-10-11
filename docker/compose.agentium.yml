@@ -264,6 +264,18 @@ services:
       CELERY_CONCURRENCY: ${AGENTIUM_RECIPE_CONCURRENCY:-2}
       CELERY_BEAT: "0"
 
+  # Data transforms (SQL, Polars, dbt) are awaited by Flows too, and they are
+  # the work that grows with the data: their own pool keeps a large join from
+  # holding the slots of the walkers that wait on it.
+  agentium-worker-dataops:
+    extends:
+      service: agentium-worker-cpu
+    container_name: agentium-worker-dataops
+    environment:
+      CELERY_QUEUES: dataops
+      CELERY_CONCURRENCY: ${AGENTIUM_DATAOPS_CONCURRENCY:-2}
+      CELERY_BEAT: "0"
+
   # The forecasting runtime (skforecast), in its own image so neither the API
   # nor the general worker carries numba and statsmodels. Opt-in: a deployment
   # names the profile, and until its worker beats, the catalog greys the

@@ -344,10 +344,6 @@ def source_catalog(sources: Iterable[TransformSource]) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-def _quote_path(path: Path) -> str:
-    return str(path).replace("'", "''")
-
-
 def execute_sql(
     sources: list[TransformSource],
     sql: str,
@@ -369,6 +365,7 @@ def execute_sql(
 
     import duckdb
     import polars as pl
+    import pyarrow.dataset as pa_dataset
 
     validated = validate_sql(sql)
     cap = int(row_limit or settings.tabular_transform_max_rows)
@@ -385,8 +382,16 @@ def execute_sql(
         if timer is not None:
             timer.start()
         try:
-            connection.execute("SET threads TO 2")
-            connection.execute("SET memory_limit = '1GB'")
+            # In-process, so no spill directory: a statement that needs a disk
+            # belongs on the worker plane (dataops.sql_execution), not here.
+            memory_mb = (
+                settings.dataops_preview_memory_mb
+                if truncate
+                else settings.dataops_duckdb_memory_mb
+            )
+            connection.execute(f"SET threads TO {int(settings.dataops_duckdb_threads)}")
+            connection.execute(f"SET memory_limit = '{int(memory_mb)}MB'")
+            connection.execute("SET temp_directory = ''")
             for index, source in enumerate(sources):
                 try:
                     if max_input_bytes is None:
@@ -416,12 +421,11 @@ def execute_sql(
                         "sha256": digest,
                         "size_bytes": local.stat().st_size,
                     }
-                # Eager load: after this loop the filesystem is sealed, so the
-                # author's statement cannot reach any path.
-                connection.execute(
-                    f'CREATE TABLE "{source.view}" AS '
-                    f"SELECT * FROM read_parquet('{_quote_path(local)}')"
-                )
+                # Scanned lazily through Arrow, which reads the file itself: the
+                # seal below closes duckdb's own filesystem, so the author's
+                # statement still cannot reach any path, but a preview reading
+                # five rows of two columns no longer loads the whole table.
+                connection.register(source.view, pa_dataset.dataset(str(local), format="parquet"))
                 if max_input_rows is not None:
                     count = connection.execute(f'SELECT count(*) FROM "{source.view}"').fetchone()[
                         0
@@ -443,6 +447,9 @@ def execute_sql(
                 )
             if prepare is not None:
                 prepare(connection)
+            # After the caller's own settings (the enrichment pins its time
+            # zone): from here nothing the seal closed can be switched back.
+            connection.execute("SET lock_configuration = true")
             try:
                 # One row past the cap so an oversized result is detectable
                 # rather than silently trimmed.

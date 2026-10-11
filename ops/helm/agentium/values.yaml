@@ -38,10 +38,10 @@ worker:
   # The recipe env cache is node-local and rebuilds itself. Size it for the
   # service's own quota plus the pip cache that shares the directory.
   recipeEnvsSizeLimit: 14Gi
-  # One worker consumes both pools. Compose splits them so a long recipe
-  # cannot fill the CPU pool; this chart has a single worker, and a recipes
-  # task with nobody listening stays queued forever.
-  queues: cpu,recipes
+  # One worker consumes every pool. Compose splits them so a long recipe or a
+  # large transform cannot fill the CPU pool; this chart has a single worker,
+  # and a recipes or dataops task with nobody listening stays queued forever.
+  queues: cpu,recipes,dataops
   concurrency: 2
   beat: "1"
 p4Maintenance:
