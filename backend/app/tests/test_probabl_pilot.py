@@ -84,6 +84,46 @@ def test_selection_requires_three_matching_development_partitions(contract):
     assert not pilot.select_candidates(contract, rows)[contract["tasks"][0]["id"]]
 
 
+def test_revision_two_preserves_reserve_and_excludes_uncached_regression_even_if_it_passes(
+    contract,
+):
+    revised = json.loads((ROOT / "config/ml/probabl-pilot.v2.json").read_text())
+    pilot.validate_contract(revised)
+    for key in ("partition", "tasks", "decision", "budgets", "search", "serving", "runtime"):
+        assert revised[key] == contract[key]
+    schedule = pilot.balanced_schedule(revised)
+    assert len(schedule) == 108
+    assert (
+        sum(bool(pilot.exclusion_reason(revised, r["task"], r["candidate"])) for r in schedule) == 9
+    )
+    task = next(task for task in revised["tasks"] if task["kind"] == "regression")
+    rows = [
+        {
+            "task": task["id"],
+            "candidate": candidate,
+            "status": "evaluated",
+            "split": f"dev-{split}",
+            "split_sha256": task["partition_sha256"][f"dev-{split}"],
+            # An excluded profile winning every rerun still cannot be nominated.
+            "metric_value": 0.0 if candidate == "tabicl_plain" else 1.0,
+            "resources": {"cpu_seconds": 1},
+        }
+        for candidate in ("dummy", "sklearn_linear", "tabicl_plain", "tabicl_cache")
+        for split in range(3)
+    ]
+    assert pilot.select_candidates(revised, rows)[task["id"]] == [
+        "dummy",
+        "sklearn_linear",
+        "tabicl_cache",
+    ]
+    assert not pilot.select_candidates(
+        revised, [r for r in rows if r["candidate"] != "tabicl_cache"]
+    )[task["id"]]
+    revised["exclusions"].pop()
+    with pytest.raises(ValueError, match="exclude every"):
+        pilot.validate_contract(revised)
+
+
 def test_paired_interval_respects_metric_direction_and_sample_support():
     truth = list(range(100))
     baseline = [value + 2 for value in truth]

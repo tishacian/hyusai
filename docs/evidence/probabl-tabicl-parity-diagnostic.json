@@ -1,0 +1,356 @@
+{
+  "schema": 1,
+  "date": "2026-10-11",
+  "scope": "Development-only diagnostic, not final qualification or business-value evidence",
+  "final_reserve_opened": false,
+  "versions": {
+    "tabicl": "2.2.0",
+    "torch": "2.14.0+cpu",
+    "numpy": "2.5.2",
+    "pandas": "2.3.3",
+    "scikit-learn": "1.9.0",
+    "safetensors": "0.8.0"
+  },
+  "tolerance": {
+    "atol": 1e-06,
+    "rtol": 1e-06,
+    "changed": false
+  },
+  "original_development": {
+    "completed_cases": 51,
+    "planned_cases": 108,
+    "code_sha256": "259328f50a3c40c0bd380bd211090ad4d8e763af1760bd6e6dfd771b368a2537",
+    "contract_sha256": "b4c9ee37e2edd34bf95908f4c63ce1c1852495fe3eb0963b4dda87af0234a92c",
+    "failures": [
+      {
+        "task": "linear-regression-demo",
+        "candidate": "tabicl_plain",
+        "split": "dev-0",
+        "status": "failed",
+        "reason": "worker_failure"
+      },
+      {
+        "task": "friedman-mixed-demo",
+        "candidate": "tabicl_plain",
+        "split": "dev-0",
+        "status": "failed",
+        "reason": "worker_failure"
+      },
+      {
+        "task": "delivery-cost-mixed-demo",
+        "candidate": "tabicl_plain",
+        "split": "dev-0",
+        "status": "failed",
+        "reason": "worker_failure"
+      }
+    ]
+  },
+  "independent_reproduction_after_probes": [
+    {
+      "task": "linear-regression-demo",
+      "own_prediction_buffer": true,
+      "original_prediction_buffer_drift": 0.0,
+      "train_dataframe_changed": false,
+      "target_series_changed": false,
+      "max_absolute": 0.0003662109375,
+      "mean_absolute": 0.00011167327465955168,
+      "violations": 59,
+      "rows": 120,
+      "examples": [
+        [
+          1,
+          -88.2679214477539,
+          -88.26780700683594,
+          0.00011444091796875,
+          8.926780719775707e-05
+        ],
+        [
+          5,
+          58.874603271484375,
+          58.87470245361328,
+          9.918212890625e-05,
+          5.9874702856177464e-05
+        ],
+        [
+          8,
+          -50.33872985839844,
+          -50.33857727050781,
+          0.000152587890625,
+          5.1338578487047926e-05
+        ],
+        [
+          9,
+          31.435340881347656,
+          31.43528938293457,
+          5.14984130859375e-05,
+          3.2435291359433904e-05
+        ],
+        [
+          12,
+          50.0570068359375,
+          50.05694580078125,
+          6.103515625e-05,
+          5.105694435769692e-05
+        ],
+        [
+          13,
+          38.63336181640625,
+          38.633155822753906,
+          0.00020599365234375,
+          3.96331561205443e-05
+        ],
+        [
+          16,
+          16.695026397705078,
+          16.694921493530273,
+          0.0001049041748046875,
+          1.7694921552902088e-05
+        ],
+        [
+          18,
+          -22.841394424438477,
+          -22.84126853942871,
+          0.000125885009765625,
+          2.38412685575895e-05
+        ],
+        [
+          24,
+          27.16068458557129,
+          27.160564422607422,
+          0.0001201629638671875,
+          2.8160564397694543e-05
+        ],
+        [
+          25,
+          -25.013761520385742,
+          -25.01369857788086,
+          6.29425048828125e-05,
+          2.601369851618074e-05
+        ]
+      ]
+    },
+    {
+      "task": "friedman-mixed-demo",
+      "own_prediction_buffer": true,
+      "original_prediction_buffer_drift": 0.0,
+      "train_dataframe_changed": false,
+      "target_series_changed": false,
+      "max_absolute": 0.0,
+      "mean_absolute": 0.0,
+      "violations": 0,
+      "rows": 160,
+      "examples": []
+    }
+  ],
+  "controlled_comparisons": [
+    {
+      "task": "linear-regression-demo",
+      "split": "dev-0",
+      "deltas": [
+        {
+          "comparison": "immediate_repeated",
+          "max_absolute": 0.0,
+          "mean_absolute": 0.0,
+          "violations": 0,
+          "rows": 120,
+          "near_examples": []
+        },
+        {
+          "comparison": "reload_before_probes",
+          "max_absolute": 0.0,
+          "mean_absolute": 0.0,
+          "violations": 0,
+          "rows": 120,
+          "near_examples": []
+        },
+        {
+          "comparison": "restored_repeated",
+          "max_absolute": 0.0,
+          "mean_absolute": 0.0,
+          "violations": 0,
+          "rows": 120,
+          "near_examples": []
+        },
+        {
+          "comparison": "original_after_probes",
+          "max_absolute": 0.0,
+          "mean_absolute": 0.0,
+          "violations": 0,
+          "rows": 120,
+          "near_examples": []
+        },
+        {
+          "comparison": "original_after_probes_vs_reload",
+          "max_absolute": 0.0,
+          "mean_absolute": 0.0,
+          "violations": 0,
+          "rows": 120,
+          "near_examples": []
+        }
+      ],
+      "train_context_equal": true,
+      "target_context_equal": true,
+      "fitted_state_equal": true
+    },
+    {
+      "task": "friedman-mixed-demo",
+      "split": "dev-0",
+      "deltas": [
+        {
+          "comparison": "immediate_repeated",
+          "max_absolute": 0.0,
+          "mean_absolute": 0.0,
+          "violations": 0,
+          "rows": 160,
+          "near_examples": []
+        },
+        {
+          "comparison": "reload_before_probes",
+          "max_absolute": 0.0,
+          "mean_absolute": 0.0,
+          "violations": 0,
+          "rows": 160,
+          "near_examples": []
+        },
+        {
+          "comparison": "restored_repeated",
+          "max_absolute": 0.0,
+          "mean_absolute": 0.0,
+          "violations": 0,
+          "rows": 160,
+          "near_examples": []
+        },
+        {
+          "comparison": "original_after_probes",
+          "max_absolute": 0.0,
+          "mean_absolute": 0.0,
+          "violations": 0,
+          "rows": 160,
+          "near_examples": []
+        },
+        {
+          "comparison": "original_after_probes_vs_reload",
+          "max_absolute": 0.0,
+          "mean_absolute": 0.0,
+          "violations": 0,
+          "rows": 160,
+          "near_examples": []
+        }
+      ],
+      "train_context_equal": true,
+      "target_context_equal": true,
+      "fitted_state_equal": true
+    }
+  ],
+  "fresh_four_thread_control": [
+    {
+      "effective_n_jobs": 4,
+      "effective_torch_threads": 4,
+      "omp_environment": "4",
+      "import": "lazy",
+      "profile": "baseline",
+      "task": "linear-regression-demo",
+      "own_prediction_buffer": true,
+      "original_prediction_buffer_drift": 0.0,
+      "train_dataframe_changed": false,
+      "target_series_changed": false,
+      "max_absolute": 0.0,
+      "mean_absolute": 0.0,
+      "violations": 0,
+      "rows": 120,
+      "examples": []
+    }
+  ],
+  "fresh_real_worker_control": {
+    "status": "passed",
+    "comparisons": [
+      {
+        "allclose": true,
+        "max_absolute": 0.0,
+        "violations": 0,
+        "torch_threads": 4,
+        "pools": [
+          {
+            "user_api": "openmp",
+            "internal_api": "openmp",
+            "num_threads": 4,
+            "prefix": "libgomp",
+            "version": null
+          },
+          {
+            "user_api": "openmp",
+            "internal_api": "openmp",
+            "num_threads": 4,
+            "prefix": "libgomp",
+            "version": null
+          },
+          {
+            "user_api": "blas",
+            "internal_api": "openblas",
+            "num_threads": 4,
+            "prefix": "libscipy_openblas",
+            "version": "0.3.34.0.0",
+            "threading_layer": "pthreads",
+            "architecture": "SkylakeX"
+          },
+          {
+            "user_api": "blas",
+            "internal_api": "openblas",
+            "num_threads": 4,
+            "prefix": "libscipy_openblas",
+            "version": "0.3.31.dev",
+            "threading_layer": "pthreads",
+            "architecture": "SkylakeX"
+          }
+        ]
+      }
+    ]
+  },
+  "interpretation": {
+    "established": "The noncached regression export/reload path exceeded the fixed tolerance in development; separate fresh-process reproductions sometimes pass.",
+    "mutation_checks": "Original predictions own their buffer and remain unchanged after probes; training frames and target series remain unchanged.",
+    "exact_internal_cause": "Not isolated. No claim that attention backend, Torch import order or CPU envelope fixes parity.",
+    "controls_limitation": "Deterministic/math-backend runs and their identical baseline all passed, so these do not demonstrate a numerical correction.",
+    "weights_and_context": "An independent passing reconstruction verified exact fitted weights and train/target context; this does not prove equivalence in every failed execution."
+  },
+  "cpu_envelope_fix": {
+    "rule": "n_jobs=min(requested, max(1, OMP_NUM_THREADS), 4); absent OMP_NUM_THREADS defaults to 1, including reload.",
+    "runtime_sha256": "d29b502ab88ede45240a7601d895d088ee70110b317e8dc3511d54825be14c91",
+    "real_cached_roundtrip": [
+      {
+        "task": "classification",
+        "producer_threads": 2,
+        "reader_threads": 1,
+        "actual_torch_reader_threads": 1,
+        "max_absolute": 0.0,
+        "parity": true
+      },
+      {
+        "task": "regression",
+        "producer_threads": 2,
+        "reader_threads": 1,
+        "actual_torch_reader_threads": 1,
+        "max_absolute": 5.340576171875e-05,
+        "parity": true
+      }
+    ],
+    "scope": "Small real offline smoke; not complete classification/regression qualification."
+  },
+  "service_decision": {
+    "regression_without_cache": "refused",
+    "error_code": "ML_TABICL_PROFILE_UNQUALIFIED",
+    "http_status": 409,
+    "explicit_kv_cache_true_required": true,
+    "automatic_profile_conversion": false,
+    "regression_with_cache": "Requires independent complete qualification; not promoted automatically.",
+    "classification_without_cache": "No exclusion from this regression diagnostic.",
+    "global_pilot_default": "disabled"
+  },
+  "reproduction_scripts_sha256": {
+    "exact.py": "a2fdef9dd5b81f5d967b351497ceb4fe4df53f06322ebf7a9e0b9885c69c3603",
+    "reproduce.py": "50a53b2752bd20bf29aee802a77e2c329796c06545e97d7f7ae6c0f5b9bf1a96",
+    "control.py": "c2f73fe318f92f3842756912d4fa4b3c0356d50cfca6adc25169dcf062ac68e1",
+    "worker.py": "49f7e2632b05b54a764c7d4c3499a04f31ac4c05eeda5a436dd255b349340d2b",
+    "threads.py": "ee213d7f26c74f4e120ff246f9ad6b5726d6b169e5f8188ac2b5e246ff74b9ce"
+  }
+}

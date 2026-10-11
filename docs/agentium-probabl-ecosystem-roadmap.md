@@ -61,8 +61,9 @@ des mesures et des niveaux de preuve distincts.
 ## 3. Correspondance avec le mental model
 
 Le [mental model](mental-model.md) et le [contrat des Skills](skills-runtime.md)
-restent les références. Les noms proposés ci-dessous sont des décisions de
-conception à stabiliser dans le lot P0, pas des objets déjà créés.
+restent les références. Au cadrage initial, les noms ci-dessous étaient des
+décisions de conception à stabiliser dans le lot P0. Les objets désormais
+implémentés et leur portée sont décrits dans le rapport de qualification.
 
 | Objet | Application dans cette roadmap |
 | --- | --- |

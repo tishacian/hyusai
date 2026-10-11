@@ -467,9 +467,17 @@ def require_model_foundation(model, db=None) -> None:
     """Derived ML exports and explicitly migrated v1 exports retain grant checks."""
     if model.family == "tabular_foundation":
         from app.core.config import settings
+        from app.services.ml.families.tabular_foundation import require_qualified_profile
         from app.services.tabular_datasets import TabularError
         from app.services.tabular_predict import drop_from_cache
 
+        try:
+            require_qualified_profile(
+                getattr(model, "task", None), getattr(model, "spec_json", None)
+            )
+        except TabularError:
+            drop_from_cache(model.id)
+            raise
         if not getattr(settings, "ml_tabicl_enabled", False) or model.workspace_id not in getattr(
             settings, "ml_tabicl_workspaces", []
         ):
@@ -546,7 +554,8 @@ def validate_local_artifact(workspace_id: str, artifact_id: str, usage: str, *, 
             contract = validate_layout(snapshot, usage)
             runtime = runtime_versions(contract["engine"])
             task = validate_weights(snapshot.path)["task"]
-            model = build_estimator(task, snapshot.path)
+            # Exercise a service-admitted profile; plain regression failed P6 parity.
+            model = build_estimator(task, snapshot.path, kv_cache=task == "regression")
             X = pd.DataFrame({"a": np.arange(20, dtype=float), "b": np.arange(20, dtype=float) % 3})
             y = np.arange(20) % 2 if task == "classification" else np.arange(20, dtype=float)
             model.fit(X, y)

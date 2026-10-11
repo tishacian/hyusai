@@ -5,12 +5,31 @@ from pathlib import Path
 from app.services.ml.families.base import Family, SpecField
 
 
+def require_qualified_profile(task, spec):
+    """Keep a failed development profile out of training and serving."""
+    from app.services.tabular_datasets import TabularError
+
+    if task == "regression" and (spec or {}).get("kv_cache") is not True:
+        raise TabularError(
+            code="ML_TABICL_PROFILE_UNQUALIFIED",
+            message="TabICL regression without cache failed reload parity; explicitly select kv_cache=true.",
+            status_code=409,
+            details={
+                "task": "regression",
+                "kv_cache": False,
+                "required_kv_cache": True,
+                "reason": "reload_parity",
+            },
+        )
+
+
 def validate_tabicl(
     dataset, *, task, target, features, algo, knobs, test_size, cross_validation, name, spec
 ):
     from app.services.tabular_datasets import TabularError
     from app.services.tabular_ml import ALGO_BY_KEY, validate_training
 
+    require_qualified_profile(task, spec)
     if knobs not in (None, {}) or cross_validation not in (None, 0, 1):
         raise TabularError(
             code="ML_DEEP_OPTION_UNSUPPORTED",

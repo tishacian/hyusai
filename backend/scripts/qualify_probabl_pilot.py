@@ -34,6 +34,7 @@ from probabl_pilot import (  # noqa: E402
     block_network,
     dataset,
     digest,
+    exclusion_reason,
     partitions,
     project_full_cycle_cpu,
     run_bounded,
@@ -287,7 +288,7 @@ def main(argv=None):
     parser.add_argument(
         "--contract",
         type=Path,
-        default=Path(__file__).resolve().parents[2] / "config/ml/probabl-pilot.v1.json",
+        default=Path(__file__).resolve().parents[2] / "config/ml/probabl-pilot.v2.json",
     )
     parser.add_argument("--output", type=Path)
     parser.add_argument("--stage", choices=("development", "final"), default="development")
@@ -414,6 +415,7 @@ def main(argv=None):
         parent_cpu_accounted = parent_cpu
         task = next(t for t in contract["tasks"] if t["id"] == case["task"])
         remaining = contract["budgets"]["campaign_cpu_seconds"] - total_cpu - reserved_cpu
+        excluded = exclusion_reason(contract, case["task"], case["candidate"])
         reason = None
         if remaining <= 0:
             reason = "campaign_cpu_budget_exhausted"
@@ -423,7 +425,9 @@ def main(argv=None):
             or runtime_versions()["tabicl"] is None
         ):
             reason = "qualified_local_weights_or_runtime_unavailable"
-        if reason:
+        if excluded:
+            result = {**case, "status": "not_qualified", "reason": excluded, "executed": False}
+        elif reason:
             result = {**case, "status": "not_evaluated", "reason": reason}
         else:
             with tempfile.TemporaryDirectory(prefix="probabl-pilot-") as scratch:
