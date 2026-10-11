@@ -78,3 +78,6 @@ data/
 
 # Secrets
 **/secrets/
+# Code packages named "secrets" (registry service, UI) are source, not runtime secrets.
+!backend/app/services/secrets/
+!frontend-ng/src/app/shared/secrets/

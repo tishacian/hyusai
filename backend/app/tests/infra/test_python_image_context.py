@@ -22,6 +22,7 @@ PYTHON_IGNORES = [
 # Files the API or a worker reads at run time from outside backend/.
 RUNTIME_READS = [
     "backend/app/main.py",
+    "backend/app/services/secrets/registry.py",
     "backend/requirements.txt",
     "backend/constraints-demo-app.txt",
     "backend/constraints-demo-giskard.txt",
@@ -148,3 +149,12 @@ def test_the_matcher_follows_moby_semantics():
     assert not _excluded("docs/a/b/c.md", patterns)
     assert _excluded("docker/env/agentium.env", patterns)
     assert not _excluded("docker/env/agentium.env.example", patterns)
+
+
+def test_code_packages_named_secrets_reach_their_image():
+    root = _patterns(ROOT / ".dockerignore")
+    assert not _excluded("frontend-ng/src/app/shared/secrets/secrets.api.ts", root)
+    assert not _excluded("backend/app/services/secrets/registry.py", root)
+    assert _excluded("docker/secrets/token.txt", root)
+    for ignore_file in PYTHON_IGNORES:
+        assert _excluded("frontend-ng/src/app/shared/secrets/secrets.api.ts", _patterns(ignore_file))
