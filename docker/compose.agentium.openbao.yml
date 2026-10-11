@@ -1,0 +1,69 @@
+# Opt-in OpenBao secret backend (AGENTIUM_OPENBAO=1 in scripts/agentium-vm-deploy.sh).
+# Apply after the base and VM overlays; --profile openbao starts the server.
+# The db backend stays the default: workspaces opt in per secret backend.
+# Bootstrap: scripts/agentium_openbao_bootstrap.py; backups: scripts/agentium-openbao-snapshot.sh.
+services:
+  agentium-openbao:
+    container_name: agentium-openbao
+    # openbao/openbao:2.6.4 (multi-arch index, identical on docker.io and ghcr.io).
+    image: openbao/openbao@sha256:cf2340fc9a22cb9358ca0defd1f39b65673836bd23fe2bb8984a07e11fe13ef4
+    profiles: ["openbao"]
+    restart: unless-stopped
+    init: true
+    user: "${AGENTIUM_OPENBAO_UID:-100}:${AGENTIUM_OPENBAO_GID:-1000}"
+    entrypoint: ["bao", "server", "-config=/openbao/config/openbao.hcl"]
+    networks:
+      - agentium-net
+    environment:
+      BAO_ADDR: http://127.0.0.1:8200
+    cap_drop:
+      - ALL
+    cap_add:
+      - IPC_LOCK
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    mem_limit: ${AGENTIUM_OPENBAO_MEM_LIMIT:-512m}
+    volumes:
+      - type: bind
+        source: ./openbao/openbao.hcl
+        target: /openbao/config/openbao.hcl
+        read_only: true
+      - type: bind
+        source: ${AGENTIUM_OPENBAO_DATA_PATH:-/srv/agentium-data/openbao}
+        target: /openbao/data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${AGENTIUM_OPENBAO_UNSEAL_KEY_FILE:?Set the OpenBao static unseal key file}
+        target: /run/openbao-seal/unseal.key
+        read_only: true
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp
+    healthcheck:
+      # `bao status` exits 0 only when initialised and unsealed.
+      test: ["CMD", "bao", "status"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+  agentium-backend:
+    environment: &openbao-client
+      OPENBAO_ADDR: http://agentium-openbao:8200
+      OPENBAO_MOUNT: agentium
+    env_file:
+      - ${AGENTIUM_OPENBAO_BACKEND_ENV_FILE:?Set the OpenBao backend AppRole environment file}
+  agentium-migrate:
+    environment: *openbao-client
+    env_file:
+      - ${AGENTIUM_OPENBAO_BACKEND_ENV_FILE:?Set the OpenBao backend AppRole environment file}
+  agentium-worker-cpu:
+    environment: *openbao-client
+    env_file:
+      - ${AGENTIUM_OPENBAO_WORKER_ENV_FILE:?Set the OpenBao worker AppRole environment file}
+  agentium-worker-recipes:
+    environment: *openbao-client
+    env_file:
+      - ${AGENTIUM_OPENBAO_WORKER_ENV_FILE:?Set the OpenBao worker AppRole environment file}

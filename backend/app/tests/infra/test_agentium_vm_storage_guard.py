@@ -819,7 +819,7 @@ def test_launcher_scrubs_shell_and_gates_only_closed_application_commands() -> N
         assert f"{polluted}=" not in compose
     # The opt-in forecasting profile is rendered into the same check when on.
     assert (
-        'compose --profile infra --profile tools --profile sftp "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" config --format json'
+        'compose --profile infra --profile tools --profile sftp "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" "${OPENBAO_PROFILE[@]}" config --format json'
         in storage
     )
     assert 'assert_protected_data_path "$OBJECT_STORE_ROOT"' in storage
@@ -1137,3 +1137,113 @@ def test_launcher_reconciles_the_catalog_explicitly_and_reports_it_after_every_s
     assert "catalog >/dev/null || printf" in up
     assert "catalog-apply" in up
     assert "catalog-check|catalog-apply" in script
+
+
+def test_openbao_raft_data_is_mounted_only_by_the_openbao_server():
+    module = _module()
+    data = module.VM_OPENBAO_STORAGE_ENVIRONMENT["AGENTIUM_OPENBAO_DATA_PATH"]
+    assert data == "/srv/agentium-data/openbao"
+    model = _compose_model()
+    module.assert_vm_compose_storage(model)  # profile off: nothing to check
+
+    def server(source: str = data, *, read_only: bool = False) -> dict:
+        return {
+            "volumes": [
+                {"type": "bind", "source": "/w/docker/openbao/openbao.hcl",
+                 "target": "/openbao/config/openbao.hcl", "read_only": True},
+                {"type": "bind", "source": source, "target": "/openbao/data",
+                 "read_only": read_only},
+                {"type": "bind", "source": "/d/runtime-env/openbao-unseal.key",
+                 "target": "/run/openbao-seal/unseal.key", "read_only": True},
+            ]
+        }
+
+    model["services"]["agentium-openbao"] = server()
+    module.assert_vm_compose_storage(model)
+
+    for broken in (server("/var/lib/openbao"), server(read_only=True)):
+        bad = deepcopy(model)
+        bad["services"]["agentium-openbao"] = broken
+        with pytest.raises(module.RuntimeEnvBundleError, match="source or access mode"):
+            module.assert_vm_compose_storage(bad)
+
+    leaked = deepcopy(model)
+    leaked["services"]["agentium-backend"]["volumes"].append(
+        {"type": "bind", "source": data, "target": "/data/openbao", "read_only": True}
+    )
+    with pytest.raises(module.RuntimeEnvBundleError, match="approved boundary"):
+        module.assert_vm_compose_storage(leaked)
+
+
+def test_openbao_storage_environment_is_pinned_when_declared():
+    module = _module()
+    base = "".join(
+        f"{key}={value}\n"
+        for key, value in (
+            module.VM_STORAGE_ENVIRONMENT | module.VM_APPLICATION_STORAGE_ENVIRONMENT
+        ).items()
+    )
+    module.assert_vm_storage_environment(base.encode())
+    module.assert_vm_storage_environment(
+        (base + "AGENTIUM_OPENBAO_DATA_PATH=/srv/agentium-data/openbao\n").encode()
+    )
+    with pytest.raises(module.RuntimeEnvBundleError, match="OpenBao storage path"):
+        module.assert_vm_storage_environment(
+            (base + "AGENTIUM_OPENBAO_DATA_PATH=/home/ubuntu/openbao\n").encode()
+        )
+
+
+def test_launcher_guards_openbao_paths_only_on_request(tmp_path: Path) -> None:
+    script = LAUNCHER.read_text(encoding="utf-8")
+    assert 'OPENBAO="${AGENTIUM_OPENBAO:-0}"' in script
+    assert 'readonly OPENBAO_DATA_ROOT="$DATA_ROOT/openbao"' in script
+    assert 'readonly OPENBAO_BACKUPS_ROOT="$DATA_ROOT/openbao-backups"' in script
+    storage = _shell_function(script, "storage_check")
+    assert (
+        'if [ "$OPENBAO" = 1 ]; then\n'
+        '\t\tassert_protected_data_path "$OPENBAO_DATA_ROOT"\n'
+        '\t\tassert_protected_data_path "$OPENBAO_BACKUPS_ROOT"\n'
+        "\tfi"
+    ) in storage
+    compose = _shell_function(script, "compose")
+    assert '"${OPENBAO_OVERLAY[@]}"' in compose
+    assert '"${OPENBAO_ENV[@]}"' in compose
+    assert '"${HUGGINGFACE_SERVICES[@]}" "${OPENBAO_SERVICES[@]}"' in _shell_case(script, "up")
+    for command in ("openbao-prepare", "openbao-init", "openbao-snapshot"):
+        assert f'[ "$OPENBAO" = 1 ] || fail "{command} requires AGENTIUM_OPENBAO=1"' in (
+            _shell_case(script, command)
+        )
+    assert _shell_case(script, "openbao-init").lstrip().split("\n")[1].strip() == "storage_check"
+
+    flag_block = script.split('OPENBAO="${AGENTIUM_OPENBAO:-0}"', 1)[1].split("\nfi\n", 1)[0]
+    for value, hf, expected in (
+        ("0", "0", "||"),
+        ("1", "0", "--profile openbao|agentium-openbao|-f /w/compose.agentium.openbao.yml"),
+        (
+            "1",
+            "1",
+            "--profile openbao|agentium-openbao|-f /w/compose.agentium.openbao.yml "
+            "-f /w/compose.agentium.openbao-huggingface.yml",
+        ),
+    ):
+        probe = tmp_path / f"openbao-{value}-{hf}.sh"
+        probe.write_text(
+            "#!/usr/bin/env bash\nset -eo pipefail\n"
+            "fail() { printf '%s\\n' \"$*\" >&2; exit 1; }\n"
+            f"W=/w\nD=/d\nOPENBAO_DATA_ROOT=/srv/agentium-data/openbao\nHUGGINGFACE={hf}\n"
+            f'OPENBAO="{value}"' + flag_block + "\nfi\n"
+            'echo "${OPENBAO_PROFILE[*]-}|${OPENBAO_SERVICES[*]-}|${OPENBAO_OVERLAY[*]-}"\n',
+            encoding="utf-8",
+        )
+        out = subprocess.run(
+            ["bash", str(probe)], check=True, capture_output=True, text=True
+        ).stdout.strip()
+        assert out == expected
+    bad = tmp_path / "openbao-bad.sh"
+    bad.write_text(
+        "#!/usr/bin/env bash\nset -eo pipefail\n"
+        "fail() { printf '%s\\n' \"$*\" >&2; exit 1; }\n"
+        'OPENBAO="yes"' + flag_block + "\nfi\n",
+        encoding="utf-8",
+    )
+    assert subprocess.run(["bash", str(bad)], capture_output=True, text=True).returncode == 1

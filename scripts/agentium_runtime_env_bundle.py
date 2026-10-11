@@ -75,6 +75,10 @@ VM_HUB_STORAGE_ENVIRONMENT = {
     "AGENTIUM_HUB_BUNDLES_PATH": "/srv/agentium-data/hub-bundles",
     "AGENTIUM_HF_BUNDLE_KEYS_PATH": "/srv/agentium-data/hf-bundle-keys",
 }
+# OpenBao raft + audit data (profile openbao); backups stay host-side only.
+VM_OPENBAO_STORAGE_ENVIRONMENT = {
+    "AGENTIUM_OPENBAO_DATA_PATH": "/srv/agentium-data/openbao",
+}
 VM_HUB_STORAGE_MOUNTS = {
     "agentium-hub-fetch": {
         "/data/object_store": ("AGENTIUM_OBJECT_STORE_PATH", False),
@@ -146,12 +150,16 @@ for _ml_deep_service in ("agentium-worker-ml-deep", "agentium-worker-ml-deep-ser
         "/data/object_store": ("AGENTIUM_OBJECT_STORE_PATH", False),
         "/data/models": ("AGENTIUM_ML_DEEP_MODELS_PATH", True),
     }
+VM_APPLICATION_STORAGE_MOUNTS["agentium-openbao"] = {
+    "/openbao/data": ("AGENTIUM_OPENBAO_DATA_PATH", False),
+}
 # Services that only exist when an opt-in Compose profile is active. Absent
 # from a rendering without the profile and from a host that never enabled it,
 # they are skipped; present, they are held to their contract like any other.
 VM_OPTIONAL_PROFILE_SERVICES = frozenset(
     {
         "agentium-hub-fetch",
+        "agentium-openbao",
         "agentium-worker-ml-ts",
         "agentium-worker-ml-ts-serve",
         "agentium-worker-ml-deep",
@@ -352,6 +360,11 @@ def assert_vm_storage_environment(content: bytes) -> None:
             raise RuntimeEnvBundleError(
                 "VM Hugging Face storage path differs from its protected data-disk location"
             )
+    for key, expected in VM_OPENBAO_STORAGE_ENVIRONMENT.items():
+        if key in values and values[key] != expected:
+            raise RuntimeEnvBundleError(
+                "VM OpenBao storage path differs from its protected data-disk location"
+            )
 
 
 def _application_mount_contracts(service_names, *, hub_present=False):
@@ -444,7 +457,11 @@ def assert_vm_compose_storage(compose: Any) -> None:
     ):
         raise RuntimeEnvBundleError("rendered VM Qdrant snapshot bind differs")
 
-    environments = VM_APPLICATION_STORAGE_ENVIRONMENT | VM_HUB_STORAGE_ENVIRONMENT
+    environments = (
+        VM_APPLICATION_STORAGE_ENVIRONMENT
+        | VM_HUB_STORAGE_ENVIRONMENT
+        | VM_OPENBAO_STORAGE_ENVIRONMENT
+    )
     services = compose["services"]
     hub_present = "agentium-hub-fetch" in services or any(
         mount.get("target") in {"/data/hub-cache", "/data/hub-bundles"}
@@ -588,7 +605,11 @@ def assert_vm_active_storage_mounts(payload: Any) -> None:
             ),
         },
     }
-    environments = VM_APPLICATION_STORAGE_ENVIRONMENT | VM_HUB_STORAGE_ENVIRONMENT
+    environments = (
+        VM_APPLICATION_STORAGE_ENVIRONMENT
+        | VM_HUB_STORAGE_ENVIRONMENT
+        | VM_OPENBAO_STORAGE_ENVIRONMENT
+    )
     contracts = _application_mount_contracts(
         expected_container_names,
         hub_present="agentium-hub-fetch" in expected_container_names,
