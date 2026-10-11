@@ -2900,13 +2900,15 @@ def test_python_runtime_cannot_fall_back_to_a_live_dotenv_after_capture() -> Non
     assert 'os.environ.get("AGENTIUM_DISABLE_DOTENV", "0")' in config
     assert "Settings(_env_file=_settings_env_file())" in config
     assert 'return None if mode == "1" else ".env"' in config
-    # migrate, backend, worker, beat, P4, SFTP and the forecasting worker are
-    # the seven Python services that declare it; the forecasting server
-    # extends that worker and inherits it.
-    assert compose.count('AGENTIUM_DISABLE_DOTENV: "1"') == 7
+    # migrate, backend, worker, beat, P4, SFTP and the forecasting and deep
+    # learning workers are the eight Python services that declare it; their
+    # serving workers extend them and inherit it.
+    assert compose.count('AGENTIUM_DISABLE_DOTENV: "1"') == 8
     services = yaml.safe_load(compose)["services"]
-    assert services["agentium-worker-ml-ts-serve"]["extends"]["service"] == "agentium-worker-ml-ts"
-    assert services["agentium-worker-ml-ts"]["environment"]["AGENTIUM_DISABLE_DOTENV"] == "1"
+    for family in ("ml-ts", "ml-deep"):
+        worker = f"agentium-worker-{family}"
+        assert services[f"{worker}-serve"]["extends"]["service"] == worker
+        assert services[worker]["environment"]["AGENTIUM_DISABLE_DOTENV"] == "1"
     assert "Environment=AGENTIUM_DISABLE_DOTENV=1" in unit
 
 
