@@ -29,6 +29,9 @@ readonly ML_DEEP_MODELS_ROOT="$DATA_ROOT/ml-deep-models"
 readonly HUB_CACHE_ROOT="$DATA_ROOT/hub-cache"
 readonly HUB_BUNDLES_ROOT="$DATA_ROOT/hub-bundles"
 readonly HUB_BUNDLE_KEYS_ROOT="$DATA_ROOT/hf-bundle-keys"
+readonly OPENBAO_DATA_ROOT="$DATA_ROOT/openbao"
+readonly OPENBAO_BACKUPS_ROOT="$DATA_ROOT/openbao-backups"
+readonly OPENBAO_BOOTSTRAP="$R/scripts/agentium_openbao_bootstrap.py"
 readonly SECURE_DEPOSIT_ROOT=/home/ubuntu/omnirag/backend/data/secure_deposit
 readonly EXPECTED_SECURE_SOURCE=/dev/sdc
 readonly FAISS_ROOT=/home/ubuntu/omnirag/backend/faiss_db
@@ -117,6 +120,32 @@ if [ "$HUGGINGFACE" = 1 ]; then
 	HUGGINGFACE_OVERLAY=(-f "$W/compose.agentium.huggingface.yml")
 fi
 
+# OpenBao secret backend, same opt-in shape. The overlay hands each client its
+# own AppRole file from runtime-env (written by agentium_openbao_bootstrap.py);
+# the db backend stays the default whatever this flag says.
+OPENBAO="${AGENTIUM_OPENBAO:-0}"
+case "$OPENBAO" in
+0 | 1) ;;
+*) fail "AGENTIUM_OPENBAO must be 0 or 1" ;;
+esac
+OPENBAO_PROFILE=()
+OPENBAO_SERVICES=()
+OPENBAO_OVERLAY=()
+OPENBAO_ENV=()
+if [ "$OPENBAO" = 1 ]; then
+	OPENBAO_PROFILE=(--profile openbao)
+	OPENBAO_SERVICES=(agentium-openbao)
+	OPENBAO_OVERLAY=(-f "$W/compose.agentium.openbao.yml")
+	[ "$HUGGINGFACE" = 1 ] && OPENBAO_OVERLAY+=(-f "$W/compose.agentium.openbao-huggingface.yml")
+	OPENBAO_ENV=(
+		AGENTIUM_OPENBAO_DATA_PATH="$OPENBAO_DATA_ROOT"
+		AGENTIUM_OPENBAO_UNSEAL_KEY_FILE="$D/runtime-env/openbao-unseal.key"
+		AGENTIUM_OPENBAO_BACKEND_ENV_FILE="$D/runtime-env/openbao-backend.env"
+		AGENTIUM_OPENBAO_WORKER_ENV_FILE="$D/runtime-env/openbao-worker.env"
+		AGENTIUM_OPENBAO_HUB_ENV_FILE="$D/runtime-env/openbao-hub-fetch.env"
+	)
+fi
+
 readonly_docker() {
 	clean_exec docker --host "$DOCKER_SOCKET" "$@"
 }
@@ -139,12 +168,14 @@ compose() {
 		AGENTIUM_BACKEND_WORKERS="$WORKERS" \
 		AGENTIUM_CELERY_BEAT=0 \
 		AGENTIUM_STARTUP_RECONCILIATION=disabled \
+		"${OPENBAO_ENV[@]}" \
 		docker --host "$DOCKER_SOCKET" compose -p agentium \
 		--env-file "$D/runtime-env/compose.effective.env" \
 		-f "$W/compose.agentium.yml" \
 		-f "$D/compose.agentium.opened.yml" \
 		-f "$W/compose.agentium.vm-runtime.yml" \
 		"${HUGGINGFACE_OVERLAY[@]}" \
+		"${OPENBAO_OVERLAY[@]}" \
 		"$@"
 }
 
@@ -225,10 +256,14 @@ storage_check() {
 		assert_protected_data_path "$HUB_BUNDLES_ROOT"
 		assert_protected_data_path "$HUB_BUNDLE_KEYS_ROOT"
 	fi
+	if [ "$OPENBAO" = 1 ]; then
+		assert_protected_data_path "$OPENBAO_DATA_ROOT"
+		assert_protected_data_path "$OPENBAO_BACKUPS_ROOT"
+	fi
 	assert_exact_backing_path \
 		"$SECURE_DEPOSIT_ROOT" "$EXPECTED_SECURE_SOURCE" "$SECURE_DEPOSIT_ROOT"
 	assert_exact_backing_path "$FAISS_ROOT" "$EXPECTED_ROOT_SOURCE" /
-	compose --profile infra --profile tools --profile sftp "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" config --format json |
+	compose --profile infra --profile tools --profile sftp "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" "${OPENBAO_PROFILE[@]}" config --format json |
 		clean_exec python3 "$ENV_HELPER" vm-storage-compose-check
 	readonly_docker volume inspect agentium_minio_block |
 		clean_exec python3 "$ENV_HELPER" vm-storage-volume-check \
@@ -267,7 +302,7 @@ catalog() {
 }
 
 case "${1:-}" in
-images) compose "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" config --images ;;
+images) compose "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" "${OPENBAO_PROFILE[@]}" config --images ;;
 storage-check) storage_check ;;
 migrate)
 	storage_check
@@ -275,7 +310,7 @@ migrate)
 	;;
 up)
 	storage_check
-	compose up -d --no-build --no-deps --pull never agentium-worker-recipes agentium-backend agentium-worker-cpu agentium-frontend agentium-p4-maintenance agentium-beat "${ML_TS_SERVICES[@]}" "${ML_DEEP_SERVICES[@]}" "${HUGGINGFACE_SERVICES[@]}"
+	compose up -d --no-build --no-deps --pull never agentium-worker-recipes agentium-backend agentium-worker-cpu agentium-frontend agentium-p4-maintenance agentium-beat "${ML_TS_SERVICES[@]}" "${ML_DEEP_SERVICES[@]}" "${HUGGINGFACE_SERVICES[@]}" "${OPENBAO_SERVICES[@]}"
 	# Said at the end of every switch, never blocking it: new code
 	# whose Skills the database lacks is a feature nobody can see.
 	catalog >/dev/null || printf '%s\n' "WARNING: catalog-check did not pass (verdict above); to bring the Skills catalog to this release: $0 catalog-apply" >&2
@@ -285,11 +320,31 @@ catalog-apply)
 	storage_check
 	catalog --apply
 	;;
+openbao-prepare)
+	[ "$OPENBAO" = 1 ] || fail "openbao-prepare requires AGENTIUM_OPENBAO=1"
+	assert_data_device
+	assert_protected_data_path "$OPENBAO_DATA_ROOT"
+	clean_exec python3 "$OPENBAO_BOOTSTRAP" prepare --runtime-env "$D/runtime-env" --data-path "$OPENBAO_DATA_ROOT"
+	;;
+openbao-init)
+	[ "$OPENBAO" = 1 ] || fail "openbao-init requires AGENTIUM_OPENBAO=1"
+	storage_check
+	compose up -d --no-build --no-deps --pull never agentium-openbao
+	OPENBAO_IP="$(readonly_docker inspect agentium-openbao --format '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' | /usr/bin/awk '{print $1}')"
+	[ -n "$OPENBAO_IP" ] || fail "agentium-openbao has no network address"
+	clean_exec python3 "$OPENBAO_BOOTSTRAP" init --addr "http://$OPENBAO_IP:8200" --runtime-env "$D/runtime-env"
+	;;
+openbao-snapshot)
+	[ "$OPENBAO" = 1 ] || fail "openbao-snapshot requires AGENTIUM_OPENBAO=1"
+	assert_protected_data_path "$OPENBAO_BACKUPS_ROOT"
+	clean_exec AGENTIUM_OPENBAO_BACKUPS_PATH="$OPENBAO_BACKUPS_ROOT" bash "$R/scripts/agentium-openbao-snapshot.sh" "$D/runtime-env"
+	;;
+openbao-status) readonly_docker exec agentium-openbao bao status ;;
 ml-ts-stop) compose --profile ml-ts rm --stop --force "${ML_TS_ALL[@]}" ;;
 ml-deep-stop) compose --profile ml-deep rm --stop --force "${ML_DEEP_ALL[@]}" ;;
-ps) compose "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" ps ;;
+ps) compose "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" "${OPENBAO_PROFILE[@]}" ps ;;
 *)
-	echo "usage: $0 {images|storage-check|migrate|up|catalog-check|catalog-apply|ml-ts-stop|ml-deep-stop|ps}" >&2
+	echo "usage: $0 {images|storage-check|migrate|up|catalog-check|catalog-apply|openbao-prepare|openbao-init|openbao-snapshot|openbao-status|ml-ts-stop|ml-deep-stop|ps}" >&2
 	exit 2
 	;;
 esac
