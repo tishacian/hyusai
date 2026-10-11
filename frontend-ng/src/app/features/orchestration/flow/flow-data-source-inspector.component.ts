@@ -36,7 +36,7 @@ export class FlowDataSourceInspectorComponent {
   protected readonly database = computed(() => this.sources.connectors().find(c => c.id === this.connectorId())?.values['database'] ?? '');
   protected readonly configured = computed(() => this.sources.connectors().some(c => c.id === this.connectorId() && c.configured));
   protected readonly consumers = computed(() => this.store.nodes().filter(n => this.store.edges().some(e => e.from === this.node().id && e.to === n.id && (e.kind ?? 'data') === 'data')));
-  protected readonly candidates = computed(() => this.store.nodes().filter(n => !['asset', 'source', 'sink'].includes(n.kind ?? 'task') && !this.consumers().some(c => c.id === n.id)));
+  protected readonly candidates = computed(() => this.store.nodes().filter(n => !['asset', 'secret', 'source', 'sink'].includes(n.kind ?? 'task') && !this.consumers().some(c => c.id === n.id)));
   protected readonly catalog = signal<PgCatalog | null>(null);
   protected readonly description = signal<PgDescription | null>(null);
   protected readonly preview = signal<PgPreview | null>(null);

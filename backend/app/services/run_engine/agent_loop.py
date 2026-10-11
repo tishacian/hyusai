@@ -12,6 +12,7 @@ from typing import Any, Iterable, Mapping, Optional
 
 from app.services.membrane.enforcement import evaluate_capability
 from app.services.membrane.spec import resolve_membrane_spec
+from app.services.run_engine.secret_grants import redact as redact_secrets
 
 DECIDE_SKILL = "decide_next_v1"
 SEARCH_SKILL = "skill_search_v1"
@@ -359,8 +360,8 @@ def build_decide_prompt(
         "Reply with JSON only, no prose:\n"
         '{"next_skill":"<slug or null>","rationale":"...","confidence":0.0,'
         '"needs_human":false,"human_prompt":null,"exit":null,"done":false}\n'
-        f"Goal: {dict(goal)}\n"
-        f"Observations: {list(observations)}\n"
+        f"Goal: {redact_secrets(dict(goal))}\n"
+        f"Observations: {redact_secrets(list(observations))}\n"
         f"Budget: {dict(budget)}\n"
         f"Visible skills (you may only name one of these slugs): {catalog}\n"
         f"Allowed slugs: {slugs}\n"

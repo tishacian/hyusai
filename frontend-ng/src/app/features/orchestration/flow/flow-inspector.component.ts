@@ -117,6 +117,7 @@ import {
 import { FlowRunService } from './flow-run.service';
 import { DatasetPreviewComponent } from '@app/features/data/dataset-preview.component';
 import { FlowDataSourceInspectorComponent } from './flow-data-source-inspector.component';
+import { SecretPickerComponent } from '@app/shared/secrets/secret-picker.component';
 import { isConnectorSource } from './flow-data-sources.vm';
 
 /** Engine kind of the node the lexicon calls an Output. */
@@ -215,6 +216,7 @@ export function publishedNodeExecutor(
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     A11yModule,
+    SecretPickerComponent,
     NavLinkDirective,
     GlyphComponent,
     HelpTooltipComponent,
@@ -953,6 +955,45 @@ export function publishedNodeExecutor(
                   <ck-glyph name="layers" [size]="12" color="currentColor" />
                   {{ i18n.t('flow.inspector.asset.open_knowledge') }}
                 </a>
+              }
+            </section>
+          }
+
+          @if (n.kind === 'secret') {
+            <section class="ck-flow-section" data-testid="secret-node-editor">
+              <span class="ck-flow-section__label">{{
+                i18n.t('flow.inspector.section.secret')
+              }}</span>
+              <fieldset class="ck-flow-field" [disabled]="editingLocked()">
+                <legend class="ck-flow-field__label">{{ i18n.t('flow.inspector.secret.ref') }}</legend>
+                <app-secret-picker
+                  data-testid="secret-ref-picker"
+                  [ref]="secretRef(n) || null"
+                  [scope]="systemId() ? 'system' : 'workspace'"
+                  [systemId]="systemId()"
+                  [includeWorkspace]="true"
+                  (refChange)="onSecretRef($event)"
+                />
+
+              </fieldset>
+              <p class="ck-flow-hint">{{ i18n.t('flow.inspector.secret.hint') }}</p>
+              @for (target of secretTargets(n); track target.id) {
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">{{
+                    i18n.t('flow.inspector.secret.slot', { name: target.label })
+                  }}</span>
+                  <input
+                    class="ck-flow-input"
+                    type="text"
+                    [attr.data-testid]="'secret-slot-' + target.id"
+                    [value]="target.slot"
+                    [disabled]="editingLocked()"
+                    (change)="onSecretSlot(target.id, $event)"
+                    [attr.placeholder]="i18n.t('flow.inspector.secret.slot.placeholder')"
+                  />
+                </label>
+              } @empty {
+                <p class="ck-flow-hint">{{ i18n.t('flow.inspector.secret.no_targets') }}</p>
               }
             </section>
           }
@@ -1897,6 +1938,61 @@ export class FlowInspectorComponent {
   collectionSlug(n: CanonicalFlowNode): string {
     const v = (n.config as Record<string, unknown> | undefined)?.['collection_slug'];
     return typeof v === 'string' ? v : '';
+  }
+
+  secretRef(n: CanonicalFlowNode): string {
+    const v = (n.config as Record<string, unknown> | undefined)?.['secret_ref'];
+    return typeof v === 'string' ? v : '';
+  }
+
+  private secretBindings(n: CanonicalFlowNode): Record<string, string> {
+    const raw = (n.config as Record<string, unknown> | undefined)?.['bindings'];
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    return Object.fromEntries(
+      Object.entries(raw as Record<string, unknown>).filter(
+        (entry): entry is [string, string] => typeof entry[1] === 'string',
+      ),
+    );
+  }
+
+  /** Tasks wired from a secret node by a data edge, with their granted slot. */
+  secretTargets(n: CanonicalFlowNode): Array<{ id: string; label: string; slot: string }> {
+    const bindings = this.secretBindings(n);
+    const nodes = new Map(this.store.nodes().map((node) => [node.id, node] as const));
+    const seen = new Set<string>();
+    return this.store.edges().flatMap((edge) => {
+      const target = nodes.get(edge.to);
+      if (
+        edge.from !== n.id ||
+        (edge.kind ?? 'data') !== 'data' ||
+        !target ||
+        (target.kind ?? 'task') !== 'task' ||
+        seen.has(target.id)
+      ) {
+        return [];
+      }
+      seen.add(target.id);
+      return [{ id: target.id, label: target.label || target.id, slot: bindings[target.id] ?? '' }];
+    });
+  }
+
+  onSecretRef(ref: string | null): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(id, 'secret_ref', ref ?? '');
+  }
+
+  onSecretSlot(targetId: string, event: Event): void {
+    const node = this.node();
+    if (!node) return;
+    const wired = new Set(this.secretTargets(node).map((target) => target.id));
+    const bindings = Object.fromEntries(
+      Object.entries(this.secretBindings(node)).filter(([id]) => wired.has(id)),
+    );
+    const slot = (event.target as HTMLInputElement).value.trim();
+    if (slot) bindings[targetId] = slot;
+    else delete bindings[targetId];
+    this.store.updateNodeConfig(node.id, 'bindings', bindings);
   }
 
   isRetrievalNode(n: CanonicalFlowNode): boolean {

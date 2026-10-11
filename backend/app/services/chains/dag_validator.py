@@ -238,10 +238,169 @@ def _is_declarative_source_node(node: Mapping[str, Any]) -> bool:
     ``asset`` kind and any typed ``source.*`` node (e.g. ``source.sftp_arrival``,
     ``source.collection``) — never the plain chat/request entry (``type:input``).
     """
-    if _node_kind(node) == "asset":
+    if _node_kind(node) in ("asset", "secret"):
         return True
     node_type = node.get("type")
     return isinstance(node_type, str) and node_type.startswith("source.")
+
+
+def _secret_granted_tasks(
+    node: Mapping[str, Any],
+    nid: str,
+    nodes_by_id: Mapping[str, Mapping[str, Any]],
+    edges: Sequence[Mapping[str, Any]],
+) -> dict[str, str]:
+    """``{task_id: slot}`` for wired ``secret -> task`` data edges carrying a binding."""
+    cfg = node.get("config") or {}
+    bindings = cfg.get("bindings") if isinstance(cfg, Mapping) else None
+    if not isinstance(bindings, Mapping):
+        return {}
+    granted: dict[str, str] = {}
+    for edge in edges:
+        target = edge.get("to")
+        if edge.get("from") != nid or str(edge.get("kind") or "data") != "data":
+            continue
+        slot = bindings.get(target)
+        target_node = nodes_by_id.get(target)
+        if (
+            target_node is not None
+            and _node_kind(target_node) == "task"
+            and isinstance(slot, str)
+            and slot.strip()
+        ):
+            granted[target] = slot.strip()
+    return granted
+
+
+def _secret_node_issues(
+    node: Mapping[str, Any],
+    nid: str,
+    nodes_by_id: Mapping[str, Mapping[str, Any]],
+    edges: Sequence[Mapping[str, Any]],
+) -> list[ValidationIssue]:
+    from app.services.secrets import SecretRegistryError, parse_ref
+
+    label = node.get("label") or nid
+    issues: list[ValidationIssue] = []
+    cfg = node.get("config") or {}
+    ref = cfg.get("secret_ref") if isinstance(cfg, Mapping) else None
+    try:
+        parse_ref(ref)
+    except SecretRegistryError:
+        issues.append(
+            ValidationIssue(
+                level="error",
+                code="secret_ref_invalid",
+                message=f"Secret {label!r} needs a secret:// reference.",
+                node_id=nid,
+            )
+        )
+    if not _secret_granted_tasks(node, nid, nodes_by_id, edges):
+        issues.append(
+            ValidationIssue(
+                level="warn",
+                code="secret_unbound",
+                message=f"Secret {label!r} grants no slot to any task.",
+                node_id=nid,
+            )
+        )
+    return issues
+
+
+def validate_flow_secrets(
+    db: Any,
+    flow: Mapping[str, Any],
+    *,
+    workspace_id: Optional[str],
+    system_id: Optional[str],
+) -> list[ValidationIssue]:
+    """Registry-aware checks for ``secret`` nodes (needs a DB session).
+
+    ``secret_unknown`` and ``secret_scope_violation`` are looked up without
+    resolving any value. ``secret_slot_unknown`` applies only to skills whose
+    ``execution.secret_slots`` manifest declares their slots.
+    """
+    from app.models.secret import Secret
+    from app.models.skill import Skill
+    from app.services.secrets import SecretRegistryError, parse_ref
+
+    if not isinstance(flow, Mapping):
+        return []
+    nodes = [node for node in _iter_nodes(flow) if isinstance(node, Mapping)]
+    edges = [edge for edge in _iter_edges(flow) if isinstance(edge, Mapping)]
+    nodes_by_id = {nid: node for node in nodes for nid in [_node_id(node)] if nid}
+    issues: list[ValidationIssue] = []
+    for nid, node in nodes_by_id.items():
+        if _node_kind(node) != "secret":
+            continue
+        label = node.get("label") or nid
+        cfg = node.get("config") or {}
+        try:
+            parsed = parse_ref(cfg.get("secret_ref") if isinstance(cfg, Mapping) else None)
+        except SecretRegistryError:
+            continue
+        if parsed.scope == "system" and parsed.system_id != system_id:
+            issues.append(
+                ValidationIssue(
+                    level="error",
+                    code="secret_scope_violation",
+                    message=f"Secret {label!r} belongs to another system.",
+                    node_id=nid,
+                )
+            )
+            continue
+        owner_key = {
+            "platform": "platform",
+            "workspace": workspace_id,
+            "system": parsed.system_id,
+        }[parsed.scope]
+        secret = (
+            db.query(Secret)
+            .filter(
+                Secret.scope == parsed.scope,
+                Secret.owner_key == owner_key,
+                Secret.name == parsed.name,
+            )
+            .one_or_none()
+            if owner_key
+            else None
+        )
+        if secret is None or secret.disabled_at is not None:
+            issues.append(
+                ValidationIssue(
+                    level="error",
+                    code="secret_unknown",
+                    message=f"Secret {label!r} references no active secret in scope.",
+                    node_id=nid,
+                )
+            )
+        elif workspace_id and secret.workspace_id and secret.workspace_id != workspace_id:
+            issues.append(
+                ValidationIssue(
+                    level="error",
+                    code="secret_scope_violation",
+                    message=f"Secret {label!r} belongs to another workspace.",
+                    node_id=nid,
+                )
+            )
+        for task_id, slot in _secret_granted_tasks(node, nid, nodes_by_id, edges).items():
+            try:
+                binding = resolve_flow_skill_binding(nodes_by_id[task_id])
+            except FlowSkillBindingError:
+                continue
+            slug = binding.skill_slug if binding else None
+            skill = db.query(Skill).filter(Skill.slug == slug).first() if slug else None
+            declared = ((skill.execution or {}) if skill is not None else {}).get("secret_slots")
+            if isinstance(declared, list) and slot not in declared:
+                issues.append(
+                    ValidationIssue(
+                        level="error",
+                        code="secret_slot_unknown",
+                        message=f"Skill {slug!r} declares no secret slot {slot!r}.",
+                        node_id=nid,
+                    )
+                )
+    return issues
 
 
 def _has_cycle(adj: Mapping[str, Sequence[str]]) -> bool:
@@ -1136,6 +1295,8 @@ def validate_flow(flow: Mapping[str, Any]) -> list[ValidationIssue]:
                         node_id=nid,
                     )
                 )
+        elif kind == "secret":
+            issues.extend(_secret_node_issues(node, nid, nodes_by_id, edges))
         elif kind == "asset" and node.get("type") != "source.connector":
             collection_slug = cfg.get("collection_slug")
             if not isinstance(collection_slug, str) or not collection_slug.strip():

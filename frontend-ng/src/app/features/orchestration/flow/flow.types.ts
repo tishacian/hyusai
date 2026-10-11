@@ -223,6 +223,15 @@ export const DEFAULT_PALETTE: PaletteItem[] = [
     config: { collection_slug: '', workspace_scoped: true },
   },
   {
+    type: 'secret',
+    kind: 'secret',
+    label: 'Secret',
+    description: 'Grants a registry secret to the wired tasks',
+    icon: 'shield',
+    tone: 'rose',
+    config: { secret_ref: '', bindings: {} },
+  },
+  {
     type: 'source.sftp_arrival',
     kind: 'source',
     label: 'SFTP arrival',

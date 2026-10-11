@@ -1333,6 +1333,9 @@ async def validate_system_flow(
 
     flow = _canonical_flow(body.flow_definition)
     issues = dag_validator.validate_flow(flow)
+    issues += dag_validator.validate_flow_secrets(
+        db, flow, workspace_id=workspace.id, system_id=system.id
+    )
     issues = sorted(
         issues,
         key=lambda issue: (
@@ -1600,6 +1603,9 @@ async def update_system(
     issues: list = []
     if new_flow is not None and not options.skip_validation:
         issues = dag_validator.validate_flow(new_flow)
+        issues += dag_validator.validate_flow_secrets(
+            db, new_flow, workspace_id=workspace.id, system_id=s.id
+        )
         if dag_validator.has_errors(issues):
             raise HTTPException(
                 status_code=400,
