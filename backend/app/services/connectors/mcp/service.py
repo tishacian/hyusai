@@ -35,6 +35,13 @@ from app.services.connectors.mcp.contract import (
     normalize_transport,
 )
 from app.services.connectors.mcp.errors import McpUnconfigured
+from app.services.secrets.compat import (
+    kind_for,
+    read_secret_field,
+    secret_name,
+    write_secret_field,
+)
+from app.services.secrets.registry import SecretConsumer
 
 if TYPE_CHECKING:
     from app.models.workspace import Workspace
@@ -58,6 +65,32 @@ def is_workspace_enabled(workspace: "Workspace") -> bool:
     from app.services.workspace_features import feature_enabled
 
     return feature_enabled(workspace, FEATURE_FLAG)
+
+
+def _read(workspace: "Workspace", stored: Any, consumer_id: str) -> str:
+    return (
+        read_secret_field(
+            stored,
+            legacy=_decrypt_secret,
+            consumer=SecretConsumer(
+                "connector", consumer_id, workspace_id=getattr(workspace, "id", None)
+            ),
+            owner=workspace,
+        )
+        or ""
+    )
+
+
+def _seal(db: Optional[DBSession], workspace_id: Optional[str], value: str, *parts: str) -> Any:
+    return write_secret_field(
+        db if workspace_id else None,
+        value,
+        scope="workspace",
+        name=secret_name("mcp", *parts),
+        legacy=_encrypt_secret,
+        kind=kind_for(parts[-1]),
+        workspace_id=workspace_id,
+    )
 
 
 def _connectors(workspace: "Workspace") -> dict[str, Any]:
@@ -246,18 +279,18 @@ def get_decrypted_oauth_secret(workspace: "Workspace", server_id: str = "") -> s
         for item in _raw_servers(workspace):
             if str(item.get("id") or "") != wanted:
                 continue
-            blob = str(item.get("oauth_client_secret_encrypted") or "")
+            blob = item.get("oauth_client_secret_encrypted")
             if blob:
-                secret = _decrypt_secret(blob)
+                secret = _read(workspace, blob, f"mcp:{wanted}")
                 if secret:
                     return secret
             env_secret = (os.environ.get(env_oauth_client_secret_key(wanted)) or "").strip()
             if env_secret:
                 return env_secret
             break
-    blob = str(_raw_shared_auth(workspace).get("oauth_client_secret_encrypted") or "")
+    blob = _raw_shared_auth(workspace).get("oauth_client_secret_encrypted")
     if blob:
-        secret = _decrypt_secret(blob)
+        secret = _read(workspace, blob, "mcp:shared")
         if secret:
             return secret
     return _shared_oauth_from_env()["oauth_client_secret"]
@@ -398,9 +431,9 @@ def get_decrypted_token(workspace: "Workspace", server_id: str) -> str:
     for item in _raw_servers(workspace):
         if str(item.get("id") or "") != wanted:
             continue
-        blob = str(item.get("token_encrypted") or "")
+        blob = item.get("token_encrypted")
         if blob:
-            token = _decrypt_secret(blob)
+            token = _read(workspace, blob, f"mcp:{wanted}")
             if token:
                 return token
         break
@@ -484,6 +517,8 @@ def _incoming_shared_auth(
     payload: Mapping[str, Any],
     *,
     current: Mapping[str, Any] | None,
+    db: Optional[DBSession] = None,
+    workspace_id: Optional[str] = None,
 ) -> dict[str, Any]:
     token_url = _http_url(payload.get("oauth_token_url"), field="oauth_token_url")
     client_id = str(payload.get("oauth_client_id") or "").strip()
@@ -496,7 +531,9 @@ def _incoming_shared_auth(
     }
     secret = payload.get("oauth_client_secret")
     if secret is not None and str(secret) != "":
-        stored["oauth_client_secret_encrypted"] = _encrypt_secret(str(secret))
+        stored["oauth_client_secret_encrypted"] = _seal(
+            db, workspace_id, str(secret), "shared", "oauth_client_secret"
+        )
     elif current and current.get("oauth_client_secret_encrypted"):
         stored["oauth_client_secret_encrypted"] = current["oauth_client_secret_encrypted"]
     return stored
@@ -506,6 +543,8 @@ def _incoming_row(
     payload: Mapping[str, Any],
     *,
     current: Mapping[str, Any] | None,
+    db: Optional[DBSession] = None,
+    workspace_id: Optional[str] = None,
 ) -> dict[str, Any]:
     server_id = _normalize_server_id(payload.get("id"))
     label = str(payload.get("label") or server_id).strip() or server_id
@@ -540,12 +579,14 @@ def _incoming_row(
     }
     token = payload.get("token")
     if token is not None and str(token) != "":
-        stored["token_encrypted"] = _encrypt_secret(str(token))
+        stored["token_encrypted"] = _seal(db, workspace_id, str(token), server_id, "token")
     elif current and current.get("token_encrypted"):
         stored["token_encrypted"] = current["token_encrypted"]
     secret = payload.get("oauth_client_secret")
     if secret is not None and str(secret) != "":
-        stored["oauth_client_secret_encrypted"] = _encrypt_secret(str(secret))
+        stored["oauth_client_secret_encrypted"] = _seal(
+            db, workspace_id, str(secret), server_id, "oauth_client_secret"
+        )
     elif current and current.get("oauth_client_secret_encrypted"):
         stored["oauth_client_secret_encrypted"] = current["oauth_client_secret_encrypted"]
     return stored
@@ -566,7 +607,12 @@ def replace_servers(
     for item in raw:
         if not isinstance(item, Mapping):
             raise ValueError("each server must be an object")
-        row = _incoming_row(item, current=current_by_id.get(str(item.get("id") or "")))
+        row = _incoming_row(
+            item,
+            current=current_by_id.get(str(item.get("id") or "")),
+            db=db,
+            workspace_id=getattr(workspace, "id", None),
+        )
         if row["id"] in seen:
             raise ValueError(f"duplicate MCP server id {row['id']!r}")
         seen.add(row["id"])
@@ -576,7 +622,12 @@ def replace_servers(
     if write_shared and shared_raw is not None and not isinstance(shared_raw, Mapping):
         raise ValueError("shared_auth must be an object")
     shared_stored = (
-        _incoming_shared_auth(shared_raw or {}, current=_raw_shared_auth(workspace))
+        _incoming_shared_auth(
+            shared_raw or {},
+            current=_raw_shared_auth(workspace),
+            db=db,
+            workspace_id=getattr(workspace, "id", None),
+        )
         if write_shared
         else None
     )
@@ -604,6 +655,8 @@ def upsert_server(
             ),
             None,
         ),
+        db=db,
+        workspace_id=getattr(workspace, "id", None),
     )
     replaced = False
     next_rows: list[dict[str, Any]] = []

@@ -112,6 +112,52 @@ def decrypt_token(blob: str | None) -> str | None:
         ) from None
 
 
+def read_token(stored: Any, *, workspace: Any = None, db: Any = None) -> str | None:
+    """Token from a registry reference or a legacy envelope (platform when no workspace)."""
+    from app.services.secrets.compat import read_secret_field
+    from app.services.secrets.registry import SecretConsumer
+    from app.services.secrets.values import SecretRegistryError
+
+    workspace_id = getattr(workspace, "id", None)
+    try:
+        return read_secret_field(
+            stored,
+            legacy=decrypt_token,
+            consumer=SecretConsumer("connector", "huggingface", workspace_id=workspace_id),
+            db=db,
+            owner=workspace,
+        )
+    except SecretRegistryError:
+        raise HFError(
+            "HF_CREDENTIAL_UNREADABLE",
+            "Reconnect Hugging Face: the stored token cannot be resolved.",
+            503,
+        ) from None
+
+
+def store_token(db: Any, token: str, *, actor: str, workspace_id: str | None = None) -> Any:
+    """Validate then store a Hub token; ``workspace_id=None`` means the platform scope."""
+    from app.services.secrets.compat import write_secret_field
+    from app.services.secrets.values import SecretRegistryError
+
+    encrypt_token(token)  # validation and the legacy key requirement
+    try:
+        return write_secret_field(
+            db,
+            token.strip(),
+            scope="workspace" if workspace_id else "platform",
+            name="huggingface-token",
+            legacy=encrypt_token,
+            actor=actor,
+            kind="token",
+            workspace_id=workspace_id,
+        )
+    except SecretRegistryError as exc:
+        raise HFError(
+            "HF_ENCRYPTION_REQUIRED", f"The Hub token cannot be stored ({exc.code}).", 503
+        ) from None
+
+
 @dataclass(frozen=True)
 class Connection:
     endpoint: str = DEFAULT_ENDPOINT
@@ -137,7 +183,7 @@ class Connection:
             entry = entries["huggingface"] or {}
             return cls(
                 (entry.get("values") or {}).get("endpoint") or DEFAULT_ENDPOINT,
-                decrypt_token((entry.get("secrets") or {}).get("token")),
+                read_token((entry.get("secrets") or {}).get("token"), workspace=workspace, db=db),
                 "workspace",
                 workspace_id,
             )
@@ -146,7 +192,7 @@ class Connection:
         if config:
             return cls(
                 config.get("endpoint") or DEFAULT_ENDPOINT,
-                decrypt_token(config.get("token_encrypted")),
+                read_token(config.get("token_encrypted"), db=db),
                 "platform",
                 workspace_id,
             )
@@ -203,7 +249,7 @@ def set_platform_connection(db, values: dict, *, actor: str) -> dict:
             raise HFError(
                 "HF_CONFIG_INVALID", "The Hub token must be text of at most 4096 characters."
             )
-        previous["token_encrypted"] = encrypt_token(token.strip())
+        previous["token_encrypted"] = store_token(db, token, actor=actor)
     config.connection = previous
     emit_audit_event(
         workspace_id=None,
