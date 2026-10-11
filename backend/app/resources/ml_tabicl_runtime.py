@@ -147,12 +147,22 @@ def convert_checkpoint(source, destination, *, task):
     return metadata
 
 
+def execution_threads(requested):
+    """A stored profile cannot exceed the current worker CPU envelope."""
+    try:
+        ceiling = max(1, int(os.environ.get("OMP_NUM_THREADS", "1")))
+    except ValueError as exc:
+        raise ValueError("OMP_NUM_THREADS must be an integer") from exc
+    return min(requested, ceiling, 4)
+
+
 def build_estimator(task, weights_dir, *, n_estimators=1, seed=42, n_jobs=4, kv_cache=False):
     """Return an unfitted CPU estimator; only two bounded pilot profiles are allowed."""
     if version("tabicl") != TABICL_VERSION:
         raise ValueError("TabICL runtime must be exactly 2.2.0")
     if n_estimators != 1 or type(kv_cache) is not bool or not 1 <= n_jobs <= 4:
         raise ValueError("Unqualified TabICL pilot profile")
+    n_jobs = execution_threads(n_jobs)
     metadata = validate_weights(weights_dir, task)
     os.environ.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1")
     import torch

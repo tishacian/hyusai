@@ -1,0 +1,30 @@
+{
+  "status": "interrupted_before_final",
+  "reason": "Product worker thread envelope defect requires an independently qualified runtime correction; non-cached regression reload parity failures remain diagnostic evidence",
+  "eligible_for_value_claims": false,
+  "final_reserve_opened": false,
+  "contract_sha256": "b4c9ee37e2edd34bf95908f4c63ce1c1852495fe3eb0963b4dda87af0234a92c",
+  "code_sha256": "259328f50a3c40c0bd380bd211090ad4d8e763af1760bd6e6dfd771b368a2537",
+  "completed_cases": 51,
+  "measured_cpu_seconds_through_checkpoint": 1614.389346000001,
+  "prior_cpu_reserve_seconds": 2500.0,
+  "uncompleted_workers_at_stop": [
+    {
+      "pid": 75508,
+      "observed_cpu_seconds": 0.05,
+      "rss_bytes": 5767168,
+      "command": [
+        "/workspace/.venvs/tabicl-pilot/bin/python",
+        "/workspace/hyusai/backend/scripts/qualify_probabl_pilot.py",
+        "--worker",
+        "/tmp/probabl-pilot-ny7p2jyh/job.json",
+        "/tmp/probabl-pilot-ny7p2jyh/result.json"
+      ]
+    }
+  ],
+  "parent_cpu_conservatively_reserved_again_seconds": 296.7,
+  "extra_cpu_reserve_seconds": 356.75,
+  "budget_charged_seconds": 4471.139346000001,
+  "remaining_of_43200_seconds": 38728.860654,
+  "note": "Reservation includes a 60 CPU-second margin for checkpoint-to-stop and control-process overhead; it is not reported as measured model cost."
+}

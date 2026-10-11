@@ -123,4 +123,11 @@ test('TabICL uses its own bounded fields and requires an available authorized ar
   assert.equal(foundationIssue(catalog, 'tabicl_v2', { artifact_id: 'tabicl-local' }, 3), 'models.foundation.unsupported');
   assert.equal(foundationIssue(deepCatalog(), 'tabicl_v2', { artifact_id: 'tabicl-local' }, 0), 'models.foundation.unavailable');
   assert.equal(foundationIssue(deepCatalog(), 'linear', {}, 0), null);
+  catalog.families!.find(family => family.key === 'tabular_foundation')!.foundation_models!.push(
+    { artifact_id: 'tabicl-regression', upstream_id: 'hyusai-converted/TabICL', revision: 'abc', task: 'regression' },
+  );
+  const regression = { artifact_id: 'tabicl-regression', kv_cache: false };
+  assert.equal(foundationIssue(catalog, 'tabicl_v2', regression, 0, 'regression'), 'models.foundation.regression_cache_required');
+  assert.equal(foundationIssue(catalog, 'tabicl_v2', { ...regression, kv_cache: true }, 0, 'regression'), null);
+  assert.equal(regression.kv_cache, false, 'refusal must never silently opt the user into more memory');
 });

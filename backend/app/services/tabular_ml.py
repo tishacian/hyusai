@@ -765,8 +765,10 @@ def validate_training(
             details={"field": "distillation_inference_cost_per_1000"},
         )
     if family.key == "tabular_foundation":
+        from app.services.ml.families.tabular_foundation import require_qualified_profile
         from app.services.ml.runtime import model_descriptors
 
+        require_qualified_profile(chosen_task, problem)
         descriptor = model_descriptors(db, workspace_id=getattr(dataset, "workspace_id", None)).get(
             problem["artifact_id"]
         )

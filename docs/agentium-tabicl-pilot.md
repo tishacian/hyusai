@@ -6,12 +6,20 @@ ObjectStore/MinIO, MLflow et les grants Hugging Face de Hyusai. La preuve de
 valeur appartient au lot P6 ; les petits jeux de qualification ci-dessous ne
 justifient aucune adoption métier.
 
-## Runtime et format qualifiés
+## Runtime et format du pilote
 
 - TabICL **2.2.0**, torch **2.14.0+cpu**, CPU fixé, quatre threads maximum.
+  Fit et reconstruction respectent aussi le plafond `OMP_NUM_THREADS` du worker
+  (un thread en son absence), même si l'export provient d'un worker plus large.
 - Un estimateur d'ensemble ; deux profils déclarés : sans cache ou cache en
   mémoire. Aucun cache interne n'est sérialisé. Aucun fine-tuning, tuning libre,
   cross-validation automatique, explication SHAP ou intervalle de prédiction.
+  La régression sans cache est désormais **refusée** à l'entrée du service :
+  sa parité après export/rechargement a échoué sur les trois tâches de régression
+  du développement P6. Il faut demander explicitement `kv_cache=true` ; aucune
+  conversion implicite du profil n'est réalisée. Le refus HTTP409 porte le code
+  `ML_TABICL_PROFILE_UNQUALIFIED` et vaut aussi pour une prédiction sur un ancien
+  modèle résident, qui est alors évincé du cache.
 - Jusqu'à 10 000 lignes et 100 variables numériques/catégorielles ; un holdout
   tracé. Les poids sont figés, le contexte d'apprentissage reste sensible.
 - Le loader interne `_load_model` de TabICL est remplacé par un adaptateur épinglé
@@ -98,6 +106,15 @@ reçoit pas de preuve offline positive.
 
 La [preuve locale conservée](evidence/probabl-tabicl-offline.json) contient les
 versions, les deux parités et les pics mémoire observés sous blocage seccomp.
+Cette vérification réduite ne qualifie pas tous les profils : le
+[diagnostic de parité P6](evidence/probabl-tabicl-parity-diagnostic.json) conserve
+l'échec ultérieur de régression sans cache, jusqu'à `3,6621e-4` d'écart absolu
+et 59 violations sur 120 sorties au seuil inchangé `rtol=atol=1e-6`.
+Les contrôles excluent une mutation des données ou des sorties ; la cause
+numérique interne précise reste non isolée. Des reproductions indépendantes
+peuvent passer, ce qui ne retire pas les échecs. Le profil avec cache reste
+soumis à sa propre qualification complète ; aucun final réservé n'a servi au
+diagnostic.
 
 Les tests `test_tabicl_pilot.py` couvrent aussi le défaut désactivé, le refus des
 configurations arbitraires et des poids altérés, l'absence de contournement des

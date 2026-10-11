@@ -230,6 +230,45 @@ def test_training_checks_checkpoint_task_before_dispatch(monkeypatch):
     assert result.family == "tabular_foundation" and result.algo.key == "tabicl_v2"
     assert result.spec["artifact_id"] == artifact_id
 
+    descriptor["task"] = kwargs["task"] = "regression"
+    for cache_spec in ({}, {"kv_cache": False}):
+        kwargs["spec"] = {"artifact_id": artifact_id, **cache_spec}
+        with pytest.raises(TabularError) as refused:
+            tabular_ml.validate_training(dataset, **kwargs)
+        assert refused.value.code == "ML_TABICL_PROFILE_UNQUALIFIED"
+        assert refused.value.status_code == 409
+    kwargs["spec"] = {"artifact_id": artifact_id, "kv_cache": True}
+    result = tabular_ml.validate_training(dataset, **kwargs)
+    assert result.task == "regression" and result.spec["kv_cache"] is True
+
+
+def test_unqualified_regression_is_refused_before_warm_cache_or_grant(monkeypatch):
+    from app.services import tabular_predict
+    from app.services.huggingface import adapters
+    from app.services.tabular_datasets import TabularError
+
+    monkeypatch.setattr(settings, "ml_tabicl_enabled", True)
+    monkeypatch.setattr(settings, "ml_tabicl_workspaces", ["w"])
+    evicted, authorized = [], []
+    monkeypatch.setattr(tabular_predict, "drop_from_cache", evicted.append)
+    monkeypatch.setattr(adapters, "authorized_manifest", lambda *a, **k: authorized.append(a))
+    model = SimpleNamespace(
+        id="m",
+        task="regression",
+        family="tabular_foundation",
+        workspace_id="w",
+        spec_json={"kv_cache": False},
+        params_json={"foundation": {"artifact_id": "a"}},
+    )
+    with pytest.raises(TabularError) as refused:
+        adapters.require_model_foundation(model)
+    assert refused.value.code == "ML_TABICL_PROFILE_UNQUALIFIED"
+    assert evicted == ["m"] and not authorized
+    assert model.spec_json["kv_cache"] is False
+    model.spec_json["kv_cache"] = True
+    adapters.require_model_foundation(model)
+    assert authorized == [("w", "a")]
+
 
 def test_harness_refuses_oversized_parquet_before_loading_rows(tmp_path, monkeypatch):
     import pandas as pd
@@ -256,3 +295,23 @@ def test_harness_refuses_oversized_parquet_before_loading_rows(tmp_path, monkeyp
     )
     assert ml_tabicl_harness.main(["harness", str(spec_path), str(tmp_path / "result.json")]) == 5
     assert not (tmp_path / "result.json").exists()
+
+
+@pytest.mark.parametrize("threads,expected", [("1", 1), ("2", 2), ("4", 4), ("32", 4), ("0", 1)])
+def test_tabicl_training_respects_supervisor_thread_limit(monkeypatch, threads, expected):
+    from app.resources.ml_tabicl_harness import training_threads
+
+    monkeypatch.setenv("OMP_NUM_THREADS", threads)
+    assert training_threads() == expected
+
+
+@pytest.mark.parametrize(
+    "requested,envelope,expected", [(4, "1", 1), (4, "2", 2), (2, "4", 2), (4, "32", 4)]
+)
+def test_tabicl_reload_profile_cannot_expand_worker_threads(
+    monkeypatch, requested, envelope, expected
+):
+    from app.resources.ml_tabicl_runtime import execution_threads
+
+    monkeypatch.setenv("OMP_NUM_THREADS", envelope)
+    assert execution_threads(requested) == expected

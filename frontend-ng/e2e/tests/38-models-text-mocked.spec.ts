@@ -33,12 +33,13 @@ function flow() {
   return graph;
 }
 
-async function setup(page: Page, options: { theme: string; locale: string; fields?: boolean; deep?: boolean; foundation?: boolean; available?: boolean; workerDown?: boolean; savedSpec?: Record<string,unknown> }) {
+async function setup(page: Page, options: { theme: string; locale: string; fields?: boolean; deep?: boolean; foundation?: boolean; foundationTask?: 'classification' | 'regression'; available?: boolean; workerDown?: boolean; savedSpec?: Record<string,unknown> }) {
   const catalog = structuredClone(baseline);
   if (options.foundation) {
+    const foundationTask = options.foundationTask ?? 'classification';
     catalog.algos.push({key:'tabicl_v2', family:'tabular_foundation', tasks:['classification','regression'], available:true, estimators:{classification:'tabicl.TabICLClassifier',regression:'tabicl.TabICLRegressor'}, scale:false, tags:['experimental','foundation','local'], knobs:[]});
     catalog.families.push({key:'tabular_foundation', tasks:['classification','regression'], runtime:'ml-deep', serving:'remote', available:true,
-      foundation_models:[{artifact_id:'tabicl-local',upstream_id:'hyusai-converted/tabicl-v2-classification',revision:'frozen'}],
+      foundation_models:[{artifact_id:'tabicl-local',upstream_id:`hyusai-converted/tabicl-v2-${foundationTask}`,revision:'frozen',task:foundationTask}],
       spec_fields:[{key:'artifact_id',kind:'artifact',required:true},{key:'kv_cache',kind:'bool',default:false}]});
   }
   catalog.families.find((family: any) => family.key === 'tabular').spec_fields = options.fields === false ? [] : fixture.text_fields;
@@ -175,6 +176,77 @@ test.describe('Models · local TabICL pilot — mocked QA', () => {
       await studio.locator('.ck-submit').click();
       await expect.poll(() => api.trains.length).toBe(1);
       expect(api.trains[0]).toMatchObject({ algo: 'tabicl_v2', spec: { artifact_id: 'tabicl-local', kv_cache: false }, cross_validation: 0 });
+    });
+    test(`${locale}: Flow TabICL retains its authorized artifact after reopening`, async ({ page }) => {
+      const api = await setup(page, { theme: 'dark', locale, foundation: true });
+      const spec = { artifact_id: 'tabicl-local', kv_cache: false };
+      await page.goto(`/systems/${systemId}/flow?lens=build`);
+      await page.locator('app-flow-node').filter({ hasText: 'Train sales' }).click();
+      await page.getByTestId('open-train-workshop').click();
+      const workshop = page.locator('app-flow-train-workshop');
+      await workshop.getByTestId('train-target').locator('[data-testid="column-select"][data-name="region"]').click();
+      await workshop.getByRole('button', { name: 'Classification', exact: true }).click();
+      await workshop.getByRole('button', { name: /TabICL v2/ }).click();
+      await workshop.getByTestId('tabular-options').locator('summary').click();
+      await expect(workshop.getByTestId('foundation-scope')).toBeVisible();
+      await expect(workshop.locator('#tabular-text_encoder')).toHaveCount(0);
+      await expect(workshop.locator('#tabular-artifact_id')).toHaveValue('');
+      await expect(workshop.locator('#tabular-kv_cache')).not.toBeChecked();
+      await expect(workshop.getByTestId('run-train-test')).toBeDisabled();
+      expect(api.trains).toEqual([]);
+      await workshop.locator('#tabular-artifact_id').selectOption('tabicl-local');
+      await expect.poll(() => api.params()).toMatchObject({
+        target: 'region', task: 'classification', algo: 'tabicl_v2', cross_validation: 0,
+      });
+      // Drafts store authored choices; the shared wire serializer materializes
+      // the catalog's default kv_cache=false when training is submitted.
+      await expect.poll(() => api.params().spec).toEqual({ artifact_id: spec.artifact_id });
+      await expect(workshop.getByTestId('run-train-test')).toBeEnabled();
+      await workshop.getByRole('button', {
+        name: locale === 'fr' ? 'Fermer l’atelier d’entraînement' : 'Close the training studio', exact: true,
+      }).click();
+      await page.getByTestId('open-train-workshop').click();
+      await expect(workshop.getByRole('button', { name: /TabICL v2/ })).toHaveAttribute('aria-pressed', 'true');
+      await workshop.getByTestId('tabular-options').locator('summary').click();
+      await expect(workshop.locator('#tabular-artifact_id')).toHaveValue('tabicl-local');
+      await expect(workshop.locator('#tabular-kv_cache')).not.toBeChecked();
+      await expect(workshop.getByTestId('run-train-test')).toBeEnabled();
+      await workshop.getByTestId('run-train-test').click();
+      await expect.poll(() => api.trains.length).toBe(1);
+      expect(api.trains[0]).toMatchObject({ target: 'region', task: 'classification', algo: 'tabicl_v2', cross_validation: 0 });
+      expect(api.trains[0].spec).toEqual(spec);
+    });
+    test(`${locale}: TabICL regression requires explicit cache opt-in`, async ({ page }) => {
+      const api = await setup(page, { theme: 'dark', locale, foundation: true, foundationTask: 'regression' });
+      await page.goto('/models');
+      await page.getByRole('button', { name: locale === 'fr' ? /Entraîner/ : /Train/ }).first().click();
+      const studio = page.getByRole('dialog');
+      await studio.getByTestId('train-target').locator('[data-testid="column-select"][data-name="amount"]').click();
+      await studio.getByRole('button', { name: /TabICL v2/ }).click();
+      await studio.getByTestId('tabular-options').locator('summary').click();
+      await expect(studio.locator('#tabular-artifact_id')).toHaveValue('');
+      await expect(studio.locator('#tabular-kv_cache')).not.toBeChecked();
+      await expect(studio.locator('.ck-submit')).toBeDisabled();
+      await expect(studio.getByTestId('tabular-options-refusal')).toBeVisible();
+      expect(api.trains).toEqual([]);
+
+      await studio.locator('#tabular-artifact_id').selectOption('tabicl-local');
+      await expect(studio.locator('#tabular-kv_cache')).not.toBeChecked();
+      await expect(studio.locator('.ck-submit')).toBeDisabled();
+      await expect(studio.getByTestId('tabular-options-refusal')).toContainText(locale === 'fr'
+        ? 'La régression TabICL sans cache n’est pas qualifiée au rechargement.'
+        : 'TabICL regression without caching has not qualified for reloading.');
+      await expect(studio.getByRole('button', { name: /TabICL v2/ })).toHaveAttribute('aria-pressed', 'true');
+      expect(api.trains).toEqual([]);
+
+      await studio.locator('#tabular-kv_cache').check();
+      await expect(studio.locator('#tabular-kv_cache')).toBeChecked();
+      await expect(studio.getByTestId('tabular-options-refusal')).toHaveCount(0);
+      await expect(studio.locator('.ck-submit')).toBeEnabled();
+      await studio.locator('.ck-submit').click();
+      await expect.poll(() => api.trains.length).toBe(1);
+      expect(api.trains[0]).toMatchObject({ target: 'amount', task: 'regression', algo: 'tabicl_v2', cross_validation: 0 });
+      expect(api.trains[0].spec).toEqual({ artifact_id: 'tabicl-local', kv_cache: true });
     });
   }
 });

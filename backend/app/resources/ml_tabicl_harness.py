@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from importlib.metadata import version
@@ -16,6 +17,11 @@ else:
     from ml_artifact_contract import build_artifact_contract
     from ml_evaluation import prepare, write_partition
     from ml_tabicl_runtime import build_estimator, export_state, normalize_frame
+
+
+def training_threads():
+    """Honor the supervisor envelope, including deployments below four CPUs."""
+    return max(1, min(4, int(os.environ.get("OMP_NUM_THREADS", "1"))))
 
 
 def main(argv):
@@ -88,6 +94,7 @@ def main(argv):
             task,
             manifest["foundation"]["path"],
             seed=manifest["random_state"],
+            n_jobs=training_threads(),
             kv_cache=manifest["spec"].get("kv_cache", False),
         )
         progress.write_text("fitting")

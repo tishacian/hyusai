@@ -1577,6 +1577,7 @@ export const REFUSAL_CODES = [
   'ML_DEEP_MODEL_INVALID',
   'ML_DEEP_MODEL_CHANGED',
   'ML_DEEP_OPTION_UNSUPPORTED',
+  'ML_TABICL_PROFILE_UNQUALIFIED',
   'ML_LABEL_REVIEW_REQUIRED',
   'ML_LABEL_REVIEW_CHANGED',
   'ML_LABEL_REVIEW_INVALID',
@@ -1632,7 +1633,7 @@ export function refusalField(
 ): 'target' | 'features' | 'algo' | 'dataset' | 'spec' | null {
   // A forecast's refusals are about its problem definition (date column,
   // horizon, covariate roles), which the form renders as one block.
-  if (code === 'ML_SPEC_INVALID' || (code ?? '').startsWith('ML_TS_') || (code ?? '').startsWith('ML_DEEP_')) {
+  if (code === 'ML_SPEC_INVALID' || code === 'ML_TABICL_PROFILE_UNQUALIFIED' || (code ?? '').startsWith('ML_TS_') || (code ?? '').startsWith('ML_DEEP_')) {
     return code === 'ML_TS_ALGO_SHAPE_MISMATCH' ? 'algo' : 'spec';
   }
   switch (code) {
@@ -1677,6 +1678,7 @@ export function refusalField(
  * saw, a key that was revoked, an artifact that will not load.
  */
 export const SERVING_ERROR_CODES = [
+  'ML_TABICL_PROFILE_UNQUALIFIED',
   'ML_RUNTIME_MISSING',
   'ML_INTERVAL_LEVEL_UNKNOWN',
   'ML_PREDICT_DISABLED',

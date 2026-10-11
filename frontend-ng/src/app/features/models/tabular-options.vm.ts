@@ -41,6 +41,7 @@ export function foundationIssue(catalog: ModelCatalog, algo: string, spec: Recor
   if (!family?.available) return 'models.foundation.unavailable';
   if (crossValidation >= 2) return 'models.foundation.unsupported';
   if (!spec?.['artifact_id'] || !family.foundation_models?.some(model => model.artifact_id === spec['artifact_id'] && (!task || !model.task || model.task === task))) return 'models.foundation.artifact_required';
+  if (task === 'regression' && spec['kv_cache'] !== true) return 'models.foundation.regression_cache_required';
   return null;
 }
 

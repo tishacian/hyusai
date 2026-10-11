@@ -151,9 +151,23 @@ def partitions(task, contract, y):
 
 
 def validate_contract(contract):
-    if contract.get("schema") != "hyusai.probabl-pilot.v1":
+    if contract.get("schema") not in {"hyusai.probabl-pilot.v1", "hyusai.probabl-pilot.v2"}:
         raise ValueError("Unknown pilot schema")
     tasks = contract["tasks"]
+    exclusions = contract.get("exclusions", [])
+    if contract["schema"] == "hyusai.probabl-pilot.v2":
+        expected = {(task["id"], "tabicl_plain") for task in tasks if task["kind"] == "regression"}
+        actual = {(item["task"], item["candidate"]) for item in exclusions}
+        if (
+            len(exclusions) != 3
+            or actual != expected
+            or any(not item["reason"] for item in exclusions)
+        ):
+            raise ValueError(
+                "Revision 2 must exclude every unqualified uncached regression profile"
+            )
+    elif exclusions:
+        raise ValueError("Revision 1 did not pre-register exclusions")
     if contract["candidates"] != [
         "dummy",
         "sklearn_linear",
@@ -201,6 +215,18 @@ def validate_contract(contract):
         if actual != task["partition_sha256"]:
             raise ValueError(f"Partition fingerprint changed: {task['id']}")
     return contract
+
+
+def exclusion_reason(contract, task, candidate):
+    """Exclusions are protocol decisions, never inferred from a lucky rerun."""
+    return next(
+        (
+            item["reason"]
+            for item in contract.get("exclusions", [])
+            if item["task"] == task and item["candidate"] == candidate
+        ),
+        None,
+    )
 
 
 def balanced_schedule(contract, stage="development", selection=None):
@@ -421,6 +447,8 @@ def select_candidates(contract, results):
     for task in contract["tasks"]:
         values = {}
         for candidate in contract["candidates"]:
+            if exclusion_reason(contract, task["id"], candidate):
+                continue
             rows = [
                 r
                 for r in results
@@ -460,7 +488,10 @@ def summarize(contract, results):
         rows = [
             r
             for r in results
-            if r["task"] == task["id"] and r["split"] == "final" and r["status"] == "evaluated"
+            if r["task"] == task["id"]
+            and r["split"] == "final"
+            and r["status"] == "evaluated"
+            and not exclusion_reason(contract, task["id"], r["candidate"])
         ]
         baseline = next((r for r in rows if r["candidate"].startswith("sklearn_")), None)
         challenger = next((r for r in rows if r["candidate"].startswith("tabicl_")), None)
