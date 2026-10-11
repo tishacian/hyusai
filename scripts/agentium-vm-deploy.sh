@@ -157,6 +157,8 @@ ADMIN=$(readonly_docker inspect qdrant --format "{{range .Config.Env}}{{println 
 [ -n "$ADMIN" ] || fail "Qdrant admin key not found"
 readonly ADMIN
 
+# ${A[@]+"${A[@]}"}: bash 3.2 (macOS, where the contract tests run) treats an
+# empty array as unbound under set -u.
 compose() {
 	/usr/bin/env -i \
 		HOME="$COMPOSE_CLEAN_HOME" \
@@ -168,14 +170,14 @@ compose() {
 		AGENTIUM_BACKEND_WORKERS="$WORKERS" \
 		AGENTIUM_CELERY_BEAT=0 \
 		AGENTIUM_STARTUP_RECONCILIATION=disabled \
-		"${OPENBAO_ENV[@]}" \
+		${OPENBAO_ENV[@]+"${OPENBAO_ENV[@]}"} \
 		docker --host "$DOCKER_SOCKET" compose -p agentium \
 		--env-file "$D/runtime-env/compose.effective.env" \
 		-f "$W/compose.agentium.yml" \
 		-f "$D/compose.agentium.opened.yml" \
 		-f "$W/compose.agentium.vm-runtime.yml" \
-		"${HUGGINGFACE_OVERLAY[@]}" \
-		"${OPENBAO_OVERLAY[@]}" \
+		${HUGGINGFACE_OVERLAY[@]+"${HUGGINGFACE_OVERLAY[@]}"} \
+		${OPENBAO_OVERLAY[@]+"${OPENBAO_OVERLAY[@]}"} \
 		"$@"
 }
 
