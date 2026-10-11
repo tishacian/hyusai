@@ -535,7 +535,7 @@ def _write_frame(frame: Any, *, workspace_id: str, dataset_id: str) -> tuple[str
         local = Path(tmp) / "data.parquet"
         frame.write_parquet(local, compression="zstd")
         size = int(local.stat().st_size)
-        store.write_bytes(key, local.read_bytes())
+        store.write_file(key, local)
     return key, size
 
 
@@ -870,6 +870,13 @@ def register_frame(
 
     profile = profile_frame(frame)
     key, size = _write_frame(frame, workspace_id=workspace_id, dataset_id=dataset.id)
+    _settle_registered(db, dataset, profile=profile, key=key, size=size)
+    return dataset
+
+
+def _settle_registered(
+    db: DBSession, dataset: TabularDataset, *, profile: dict[str, Any], key: str, size: int
+) -> None:
     _apply_profile(dataset, profile)
     dataset.storage_key = key
     dataset.size_bytes = size
@@ -877,6 +884,61 @@ def register_frame(
     dataset.status_detail = None
     dataset.ingested_at = datetime.utcnow()
     db.flush()
+
+
+def register_parquet_file(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    name: str,
+    path: Path,
+    source: str = "transform",
+    produced_by: str | None = None,
+    parent_ids: Iterable[str] | None = None,
+    run_id: str | None = None,
+    node_id: str | None = None,
+    lineage: dict[str, Any] | None = None,
+) -> TabularDataset:
+    """Persist a Parquet file a runner already wrote, as a ready dataset version.
+
+    The file is uploaded as written rather than read into a frame and written
+    again: the runner streamed it batch by batch so that its size never had to
+    fit in memory, and re-encoding it here would undo that. Only the profile
+    still reads the table, which is the next thing to move to the runner.
+    """
+
+    import polars as pl
+
+    frame = pl.read_parquet(path)
+    max_rows = int(settings.tabular_transform_max_rows)
+    if frame.height > max_rows:
+        raise TabularError(
+            code="DATASET_TOO_LARGE",
+            message=f"The result exceeds {max_rows:,} rows.",
+            details={"row_count": int(frame.height)},
+        )
+    label = (name or "result").strip()[:200] or "result"
+    slug = slugify(label)
+    dataset = TabularDataset(
+        id=str(uuid4()),
+        workspace_id=workspace_id,
+        name=label,
+        slug=slug,
+        version=next_version(db, workspace_id=workspace_id, slug=slug),
+        source=source,
+        status="ingesting",
+        produced_by=produced_by,
+        parent_ids=[str(p) for p in (parent_ids or []) if p],
+        run_id=run_id,
+        node_id=node_id,
+        system_id=system_of_run(db, run_id),
+        lineage_json=dict(lineage or {}),
+    )
+    db.add(dataset)
+    db.flush()
+    profile = profile_frame(frame)
+    key = get_object_store().write_file(_parquet_key(workspace_id, dataset.id), Path(path))
+    _settle_registered(db, dataset, profile=profile, key=key, size=int(Path(path).stat().st_size))
     return dataset
 
 

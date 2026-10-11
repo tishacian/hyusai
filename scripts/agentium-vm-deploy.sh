@@ -275,10 +275,12 @@ storage_check() {
 		clean_exec python3 "$ENV_HELPER" vm-storage-volume-check \
 			--name agentium_qdrant_block
 	assert_volume_mountpoint agentium_qdrant_block /qdrant
-	local recipe_containers=()
-	if readonly_docker inspect --type container agentium-worker-recipes >/dev/null 2>&1; then
-		recipe_containers=(agentium-worker-recipes)
-	fi
+	local recipe_containers=() recipe_container
+	for recipe_container in agentium-worker-recipes agentium-worker-dataops; do
+		if readonly_docker inspect --type container "$recipe_container" >/dev/null 2>&1; then
+			recipe_containers+=("$recipe_container")
+		fi
+	done
 	# Forecasting and deep workers mount the object store: checked wherever they
 	# exist, including a host that has since switched their flag back to 0.
 	local ml_ts_containers=() container
@@ -312,7 +314,7 @@ migrate)
 	;;
 up)
 	storage_check
-	compose up -d --no-build --no-deps --pull never agentium-worker-recipes agentium-backend agentium-worker-cpu agentium-frontend agentium-p4-maintenance agentium-beat "${ML_TS_SERVICES[@]}" "${ML_DEEP_SERVICES[@]}" "${HUGGINGFACE_SERVICES[@]}" "${OPENBAO_SERVICES[@]}"
+	compose up -d --no-build --no-deps --pull never agentium-worker-recipes agentium-worker-dataops agentium-backend agentium-worker-cpu agentium-frontend agentium-p4-maintenance agentium-beat "${ML_TS_SERVICES[@]}" "${ML_DEEP_SERVICES[@]}" "${HUGGINGFACE_SERVICES[@]}" "${OPENBAO_SERVICES[@]}"
 	# Said at the end of every switch, never blocking it: new code
 	# whose Skills the database lacks is a feature nobody can see.
 	catalog >/dev/null || printf '%s\n' "WARNING: catalog-check did not pass (verdict above); to bring the Skills catalog to this release: $0 catalog-apply" >&2

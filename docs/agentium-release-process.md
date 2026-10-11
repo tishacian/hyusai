@@ -380,7 +380,7 @@ sudo env AGENTIUM_IMAGE_TAG=<sha12> "$DEPLOY" up
 ```
 
 `up` recreates exactly `agentium-backend`, `agentium-worker-cpu`,
-`agentium-worker-recipes`, `agentium-frontend`, `agentium-p4-maintenance`,
+`agentium-worker-recipes`, `agentium-worker-dataops`, `agentium-frontend`, `agentium-p4-maintenance`,
 `agentium-beat` — plus `agentium-worker-ml-ts` and
 `agentium-worker-ml-ts-serve` when `AGENTIUM_ML_TS=1` (§4b) — with
 `--no-build --pull never`, so the images from §4 must exist at the tag.
@@ -517,6 +517,21 @@ The four proofs stay in those docs. The desk is an operator screen (no numbered
 beats). Rebuild the Word with
 `docs/ops/build-nawa-pr-to-po-playbook.py` after a label or figure change.
 Always hard-reload before the talk.
+
+### Dataops consumer prerequisite
+
+SQL, Polars and dbt transforms run on the `dataops` queue
+(`CELERY_DATAOPS_QUEUE`), consumed by `agentium-worker-dataops`: same worker
+image, recipe store and protected mounts as the recipes pool, beat disabled.
+A Flow's SQL node no longer executes in the process that walks the Flow; it
+waits on that queue like the Polars node. A manually selected service list
+must therefore include the dataops worker, or every transform stays queued
+until the node's deadline. The Helm chart's single worker consumes
+`cpu,recipes,dataops`. The duckdb budget is set by `DATAOPS_DUCKDB_MEMORY_MB`,
+`DATAOPS_DUCKDB_THREADS` and `DATAOPS_SPILL_MAX_MB` (spill to the run's scratch
+directory); the runner's ceilings by `DATAOPS_RUNNER_MEMORY_LIMIT_MB` and
+`DATAOPS_MAX_OUTPUT_MB`. After `up`, run one SQL node and check its dataset's
+lineage carries `"placement": "local"`.
 
 ### Recipe consumer prerequisite
 

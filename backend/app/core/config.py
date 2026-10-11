@@ -111,6 +111,10 @@ class Settings(BaseSettings):
     celery_task_default_queue: str = "cpu"
     # Recipes are awaited by Flow workers: they must have an independent consumer.
     celery_recipe_queue: str = "recipes"
+    # Data transforms (SQL, Polars, dbt) are awaited the same way, and they are
+    # the work that grows with the data: their own pool keeps a large join from
+    # holding the slots the walkers that wait on it need.
+    celery_dataops_queue: str = "dataops"
     # Training queue of the tabular model family. Empty => the default queue,
     # where the general worker already trains it. Other families name their own
     # queue setting (app.services.ml.families), consumed by their own image.
@@ -628,6 +632,23 @@ class Settings(BaseSettings):
     # size and a result past this row count is truncated rather than persisted.
     tabular_sql_max_chars: int = Field(default=40_000, ge=100)
     tabular_transform_max_rows: int = Field(default=5_000_000, ge=1)
+    # The duckdb budget of a SQL transform run on the worker plane. It used to be
+    # hard-coded at two threads and 1 GiB with nowhere to spill, so a sort or a
+    # join larger than memory failed instead of slowing down. Past
+    # ``memory_mb`` the engine now spills to the run's scratch directory, up to
+    # ``spill_max_mb``; the runner's address-space ceiling sits above both
+    # because duckdb reserves more virtual memory than it commits.
+    dataops_duckdb_memory_mb: int = Field(default=1024, ge=64)
+    dataops_duckdb_threads: int = Field(default=2, ge=1, le=64)
+    dataops_spill_max_mb: int = Field(default=4096, ge=0)
+    dataops_runner_memory_limit_mb: int = Field(default=4096, ge=512)
+    # Largest Parquet a run may write; also the per-file ceiling (RLIMIT_FSIZE)
+    # for the result and the spill files.
+    dataops_max_output_mb: int = Field(default=4096, ge=16)
+    dataops_sql_timeout_s: float = Field(default=300.0, ge=1.0)
+    # The workshop's Test button runs in the web process, on a thread: a smaller
+    # budget and no spill, because a preview that needs a disk is a run.
+    dataops_preview_memory_mb: int = Field(default=512, ge=64)
     # Polars transform node. Author code runs on the venv interpreter, so the
     # engine itself has to be IN the venv: this pin is prepended to the node's
     # requirements and is therefore part of the env fingerprint. Keep it aligned

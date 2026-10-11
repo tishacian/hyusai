@@ -2404,7 +2404,7 @@ async def _system_run_read_v1(
 async def _sql_transform_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
-    """Run the node's graph-owned SQL over its dataset inputs (duckdb, in-process).
+    """Run the node's graph-owned SQL over its dataset inputs.
 
     The statement and the output name are authoritative graph configuration
     injected as ``_transform`` by the DAG walker
@@ -2413,14 +2413,20 @@ async def _sql_transform_v1(
     from the payload (upstream dataset envelopes) and from the pins declared on
     the node.
 
-    Execution is offloaded to a thread: duckdb is synchronous and CPU-bound, and
-    the walker's event loop still has other nodes to settle.
+    The statement runs on the worker plane, not here: this wrapper often runs in
+    the web process, and a SQL node is the work that grows with the data. It
+    stages a ``RecipeExecution``, the DuckDB runner settles it on the
+    ``dataops`` queue, and the wrapper follows the row like the Polars node.
+    Only the historical enrichment, which carries its own row, byte and time
+    bounds, still executes in-process.
     """
     import asyncio
+    import time as time_mod
 
     from app.db.base import SessionLocal
+    from app.models.recipe import RECIPE_EXECUTION_TERMINAL_STATUSES, RecipeExecution
+    from app.services.dataops.sql_execution import clamp_timeout, submit_sql_run
     from app.services.tabular_datasets import TabularError
-    from app.services.tabular_transforms import run_sql_transform
 
     ctx = ctx or {}
     transform = payload.get("_transform")
@@ -2436,13 +2442,14 @@ async def _sql_transform_v1(
     inputs = {key: value for key, value in payload.items() if not key.startswith("_")}
     sources = transform.get("sources")
 
-    def _run() -> dict[str, Any]:
-        with SessionLocal() as db:
-            # The DAG projects every transform key, so a plain SQL node
-            # carries ``enrichment: None``.
-            if transform.get("enrichment") is not None:
-                from app.services.tabular_enrichment import run_enrichment_transform
+    # The DAG projects every transform key, so a plain SQL node carries
+    # ``enrichment: None``.
+    if transform.get("enrichment") is not None:
 
+        def _enrich() -> dict[str, Any]:
+            from app.services.tabular_enrichment import run_enrichment_transform
+
+            with SessionLocal() as db:
                 return run_enrichment_transform(
                     db,
                     workspace_id=str(workspace_id),
@@ -2451,21 +2458,58 @@ async def _sql_transform_v1(
                     run_id=ctx.get("run_id"),
                     node_id=str(transform.get("node_id") or "") or None,
                 )
-            return run_sql_transform(
+
+        try:
+            return await asyncio.to_thread(_enrich)
+        except TabularError as exc:
+            raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+    timeout_s = clamp_timeout(transform.get("timeout_s"))
+
+    def _submit() -> tuple[str, bool]:
+        with SessionLocal() as db:
+            execution = submit_sql_run(
                 db,
                 workspace_id=str(workspace_id),
                 sql=transform.get("sql"),
                 output_name=str(transform.get("output_name") or "sql result"),
                 declared=sources if isinstance(sources, list) else None,
                 payload=inputs,
+                timeout_s=timeout_s,
                 run_id=ctx.get("run_id"),
                 node_id=str(transform.get("node_id") or "") or None,
             )
+            return execution.id, execution.status in RECIPE_EXECUTION_TERMINAL_STATUSES
 
     try:
-        return await asyncio.to_thread(_run)
+        # Off the loop: validation and source resolution read the database,
+        # and eager mode (dev/tests) runs the whole statement inside this call.
+        execution_id, already_settled = await asyncio.to_thread(_submit)
     except TabularError as exc:
         raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+    if already_settled:
+        with SessionLocal() as db:
+            row = db.query(RecipeExecution).filter(RecipeExecution.id == execution_id).first()
+            status, output, error = (
+                row.status,
+                row.output_json if isinstance(row.output_json, dict) else None,
+                row.error,
+            )
+    else:
+        # The runner enforces its own limits; this outer deadline only protects
+        # the walker from a stuck plane (a queue nobody consumes).
+        deadline = time_mod.monotonic() + timeout_s + 30.0
+        status, output, error, _ = await _await_managed_execution(execution_id, deadline=deadline)
+
+    if status == "succeeded":
+        return dict(output or {})
+    detail = (error or "").strip()
+    if ":" in detail.split(" ", 1)[0]:
+        # Already a coded reason (``SQL_EXECUTION_FAILED: …``): the node's
+        # failure reads the same as the workshop's.
+        raise ValueError(detail[:480])
+    raise RuntimeError(f"sql_transform_{status}: {detail}"[:480])
 
 
 async def _polars_transform_v1(

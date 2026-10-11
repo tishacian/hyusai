@@ -35,7 +35,7 @@ export const POLARS_TRANSFORM_SKILL_SLUG = 'polars_transform_v1';
 export const DBT_TRANSFORM_SKILL_SLUG = 'dbt_transform_v1';
 
 /** Mirror of `settings.tabular_sql_max_chars`. */
-export const SQL_MAX_CHARS = 20_000;
+export const SQL_MAX_CHARS = 40_000;
 /** Mirror of `settings.recipe_execution_max_code_bytes`. */
 export const TRANSFORM_MAX_CODE_CHARS = 200_000;
 
