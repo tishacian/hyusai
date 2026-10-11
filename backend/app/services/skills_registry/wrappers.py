@@ -2426,6 +2426,17 @@ async def _sql_transform_v1(
 
     def _run() -> dict[str, Any]:
         with SessionLocal() as db:
+            if "enrichment" in transform:
+                from app.services.tabular_enrichment import run_enrichment_transform
+
+                return run_enrichment_transform(
+                    db,
+                    workspace_id=str(workspace_id),
+                    spec=transform["enrichment"],
+                    output_name=str(transform.get("output_name") or "historical features"),
+                    run_id=ctx.get("run_id"),
+                    node_id=str(transform.get("node_id") or "") or None,
+                )
             return run_sql_transform(
                 db,
                 workspace_id=str(workspace_id),
@@ -2639,6 +2650,37 @@ async def _llm_label_dataset_v1(
     return await label_dataset({"config": block, "dataset_ref": dataset_ref}, ctx)
 
 
+async def _ml_methodology(payload, ctx, *, planning):
+    import asyncio
+
+    from app.db.base import SessionLocal
+    from app.services.ml_methodology import experiment_plan, problem_frame
+    from app.services.tabular_datasets import TabularError
+
+    if not ctx or not ctx.get("workspace_id"):
+        raise ValueError("ML_METHOD_WORKSPACE_REQUIRED")
+    method = payload.get("_method")
+    inputs = {key: value for key, value in payload.items() if key != "_method"}
+
+    def execute():
+        with SessionLocal() as db:
+            try:
+                service = experiment_plan if planning else problem_frame
+                return service(db, workspace_id=ctx["workspace_id"], payload=inputs, method=method)
+            except TabularError as exc:
+                raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+    return await asyncio.to_thread(execute)
+
+
+async def _ml_problem_frame_v1(payload, ctx=None):
+    return await _ml_methodology(payload, ctx, planning=False)
+
+
+async def _ml_experiment_plan_v1(payload, ctx=None):
+    return await _ml_methodology(payload, ctx, planning=True)
+
+
 async def _ml_evaluation_review_v1(payload, ctx=None):
     import asyncio
 
@@ -2779,6 +2821,26 @@ async def _ml_train_sklearn_v1(
 
     def _submit() -> str:
         with SessionLocal() as db:
+            from app.services.ml_methodology import validate_training_method
+
+            method_flow = None
+            if train.get("methodology") is not None:
+                from app.models.run import Run
+
+                method_run = db.get(Run, ctx.get("run_id")) if ctx.get("run_id") else None
+                if method_run is None or method_run.workspace_id != str(workspace_id):
+                    raise TabularError(
+                        code="ML_METHOD_FLOW_REQUIRED",
+                        message="Method training requires its authorized Flow Run.",
+                    )
+                method_flow = method_run.flow_snapshot
+            validate_training_method(
+                db,
+                workspace_id=str(workspace_id),
+                train=train,
+                dataset_ref=dataset_ref,
+                flow=method_flow,
+            )
             model = submit_training(
                 db,
                 workspace_id=str(workspace_id),
@@ -7250,6 +7312,8 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
         "app.services.ml_evaluation_review",
         "bound",
     ),
+    "ml_problem_frame_v1": (_ml_problem_frame_v1, "app.services.ml_methodology", "bound"),
+    "ml_experiment_plan_v1": (_ml_experiment_plan_v1, "app.services.ml_methodology", "bound"),
     "ml_retrain_model_v1": (_ml_retrain_model_v1, "app.services.ml_retraining", "bound"),
     "ml_predict_v1": (
         _ml_predict_v1,

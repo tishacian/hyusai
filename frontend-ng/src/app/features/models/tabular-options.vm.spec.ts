@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { shownSpecFields, specColumns, specValues, tabularFields, tabularSpec, embeddingIssue } from './tabular-options.vm';
+import { shownSpecFields, specColumns, specValues, tabularFields, tabularSpec, embeddingIssue, foundationIssue } from './tabular-options.vm';
 import type { ModelCatalog, PlanColumn, SpecFieldDescriptor } from './models.vm';
 
 const fixture = JSON.parse(readFileSync(resolve(process.cwd(), 'e2e/fixtures/ml-tabular-extensions.json'), 'utf8'));
@@ -103,4 +103,24 @@ test('artifact selectors preserve explicit imported model IDs and omit the legac
   const fields = [{ key: 'artifact_id', kind: 'artifact', required: false }] as SpecFieldDescriptor[];
   assert.deepEqual(tabularSpec(fields, { artifact_id: 'hf-minilm' }, 'classification'), { artifact_id: 'hf-minilm' });
   assert.deepEqual(tabularSpec(fields, { artifact_id: '' }, 'classification'), {});
+});
+
+test('TabICL uses its own bounded fields and requires an available authorized artifact', () => {
+  const catalog = { ...deepCatalog(), algos: [{ key: 'tabicl_v2', family: 'tabular_foundation' }], families: [
+    ...deepCatalog().families!,
+    { key: 'tabular_foundation', tasks: ['classification', 'regression'], available: true,
+      spec_fields: [{ key: 'artifact_id', kind: 'artifact', required: true }, { key: 'kv_cache', kind: 'bool', default: false }],
+      foundation_models: [{ artifact_id: 'tabicl-local', upstream_id: 'hyusai-converted/TabICL', revision: 'abc', task: 'classification' }] },
+  ] } as ModelCatalog;
+  const fields = tabularFields(catalog, 'classification', { text_encoder: 'embedding' }, 'tabicl_v2');
+  assert.deepEqual(fields.map(field => field.key), ['artifact_id', 'kv_cache']);
+  assert.equal(fields[0].artifact_choices?.[0].artifact_id, 'tabicl-local');
+  assert.deepEqual(tabularFields(catalog, 'regression', {}, 'tabicl_v2')[0].artifact_choices, []);
+  assert.equal(foundationIssue(catalog, 'tabicl_v2', { artifact_id: 'tabicl-local' }, 0, 'regression'), 'models.foundation.artifact_required');
+  assert.deepEqual(tabularSpec(fields, { artifact_id: 'tabicl-local', text_encoder: 'string' }, 'classification'), { artifact_id: 'tabicl-local', kv_cache: false });
+  assert.equal(foundationIssue(catalog, 'tabicl_v2', { artifact_id: 'tabicl-local' }, 0), null);
+  assert.equal(foundationIssue(catalog, 'tabicl_v2', { artifact_id: 'revoked' }, 0), 'models.foundation.artifact_required');
+  assert.equal(foundationIssue(catalog, 'tabicl_v2', { artifact_id: 'tabicl-local' }, 3), 'models.foundation.unsupported');
+  assert.equal(foundationIssue(deepCatalog(), 'tabicl_v2', { artifact_id: 'tabicl-local' }, 0), 'models.foundation.unavailable');
+  assert.equal(foundationIssue(deepCatalog(), 'linear', {}, 0), null);
 });

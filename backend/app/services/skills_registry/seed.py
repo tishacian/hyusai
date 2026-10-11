@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session as DBSession
 from app.models.capability import Capability
 from app.models.skill import Skill
 from app.services.ecommerce_skill_catalog import CLAIM_SKILLS
+from app.services.ml_methodology import skill_definitions as ml_methodology_skills
 
 RETRIEVAL_POLICY_PROPERTIES: dict[str, Any] = {
     "top_k": {"type": "integer", "default": 5},
@@ -1640,6 +1641,7 @@ SEED_SKILLS: list[dict[str, Any]] = [
                 "model_id": {"type": "string"},
                 "mode": {"const": "proposal_only"},
                 "proposals": {"type": "array"},
+                "development": {"type": "object"},
                 "constraints": {"type": "array"},
             },
         },
@@ -3527,6 +3529,7 @@ SEED_SKILLS: list[dict[str, Any]] = [
 
 # ---- Universal Capabilities -------------------------------------------------
 SEED_SKILLS.extend(CLAIM_SKILLS)
+SEED_SKILLS.extend(ml_methodology_skills())
 
 SEED_CAPABILITIES: list[dict[str, Any]] = [
     {
@@ -3808,6 +3811,8 @@ SEED_CAPABILITIES: list[dict[str, Any]] = [
         "output_unit": "model",
         "skill_slugs": [
             "ml_train_sklearn_v1",
+            "ml_problem_frame_v1",
+            "ml_experiment_plan_v1",
             "ml_evaluation_review_v1",
             "ml_predict_v1",
             "ml_batch_score_v1",
@@ -4341,6 +4346,8 @@ SKILL_CATEGORIES: dict[str, str] = {
     "ml_train_sklearn_v1": "Models",
     "ml_monitor_model_v1": "Models",
     "ml_evaluation_review_v1": "Models",
+    "ml_problem_frame_v1": "Models",
+    "ml_experiment_plan_v1": "Models",
     "ml_retrain_model_v1": "Models",
     "multi_hop_retrieve_v1": "Retrieval",
     "news_signal_synthesis_v1": "Analysis",

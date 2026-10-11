@@ -36,6 +36,7 @@ export function retrainingReviewReady(binding: RetrainingBinding | null | undefi
 }
 const reasons = new Set(['MONITORING_FORBIDDEN','MONITORING_UNSUPPORTED','MONITORING_INTERVAL_INVALID','MONITORING_CATALOG_REQUIRED','MONITORING_BINDING_INVALID','MONITORING_FLOW_CHANGED','MONITORING_DISABLED','RETRAIN_SOURCE_UNAVAILABLE','RETRAIN_FEEDBACK_INSUFFICIENT','RETRAIN_PROPOSAL_EXISTS','RETRAIN_CHAMPION_REQUIRED','RETRAIN_PROPOSAL_INVALID','RETRAIN_PROPOSAL_CHANGED','RETRAIN_SOURCE_CHANGED','RETRAIN_ALREADY_BOUND','RETRAIN_HUMAN_REQUIRED','RETRAIN_REJECTED','RETRAIN_CANCELLED','RETRAIN_RUN_TERMINAL','RETRAIN_WORKER_LOST']);
 export function retrainingReason(code: string | null | undefined): string {
+  if (code === 'ML_PILOT_AUTOMATION_DISABLED') return 'models.retraining.reason.pilot_automation_disabled';
   const key = code?.replace(/^ML_/, '') ?? '';
   return 'models.retraining.reason.' + (reasons.has(key) ? key.toLowerCase() : 'unavailable');
 }

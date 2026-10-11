@@ -656,6 +656,8 @@ class Settings(BaseSettings):
     # serving path unpickles what training pickled, and a version skew between
     # two sklearn installs is a load failure with no useful error.
     ml_train_enabled: bool = True
+    # Reversible rollout gate for ML advice, including published method Skills.
+    ml_methodology_enabled: bool = True
     ml_train_max_rows: int = Field(default=2_000_000, ge=100)
     ml_train_min_rows: int = Field(default=40, ge=4)
     ml_train_max_features: int = Field(default=256, ge=1)
@@ -676,6 +678,9 @@ class Settings(BaseSettings):
     ml_skore_checks_workspaces: list[str] = Field(default_factory=list)
     ml_skore_checks_budget_s: float = Field(default=30.0, ge=1.0, le=120.0)
     ml_skore_checks_max_rows: int = Field(default=2000, ge=100, le=50_000)
+    # Experimental local tabular foundation models require both controls.
+    ml_tabicl_enabled: bool = False
+    ml_tabicl_workspaces: list[str] = Field(default_factory=list)
     ml_train_importance_rows: int = Field(default=2_000, ge=100)
     # Points kept per curve. A ROC is drawn ~300px wide, so 500 samples is more
     # than one per pixel — the cap exists to bound the JSON a model card carries,

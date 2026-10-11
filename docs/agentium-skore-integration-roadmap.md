@@ -133,6 +133,7 @@ ni la migration déployée à partir de seuls tests Python locaux.
 
 Références :
 
+- [Roadmap complémentaire Skills Probabl, skrub, TabICL et skops](agentium-probabl-ecosystem-roadmap.md)
 - [Release Skore 0.27.0](https://github.com/probabl-ai/skore/releases/tag/skore%2F0.27.0)
 - [Métadonnées et licence](https://pypi.org/project/skore/0.27.0/)
 - [Contrôles méthodologiques](https://docs.skore.probabl.ai/stable/user_guide/automated_checks.html)

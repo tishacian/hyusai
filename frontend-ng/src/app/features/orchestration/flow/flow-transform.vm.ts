@@ -122,6 +122,8 @@ export interface TransformModel {
 }
 
 export interface TransformParams {
+  /** SQL's declarative historical feature mode; invalid drafts stay visible. */
+  enrichment?: unknown;
   /** The authored program of a single-file engine: a statement, or a script. */
   program: string;
   output_name: string;
@@ -147,7 +149,7 @@ export interface TransformParams {
 }
 
 /** Editor language of one file. */
-export type TransformFileLanguage = 'sql' | 'python' | 'yaml';
+export type TransformFileLanguage = 'sql' | 'python' | 'yaml' | 'text';
 
 /**
  * One editable file of a transform node.
@@ -323,6 +325,44 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+/** Presence matters: malformed contracts must never fall back to executable SQL. */
+export function isHistoricalEnrichment(params: TransformParams, engine: TransformEngine): boolean {
+  return engine === 'sql' && Object.hasOwn(params, 'enrichment');
+}
+
+export function historicalEnrichmentStarter(): Record<string, unknown> {
+  return {
+    version: 1, operation: 'historical_aggregates',
+    base: { dataset_id: '', version: 1 }, history: { dataset_id: '', version: 1 },
+    base_row_id: 'order_id', history_row_id: 'event_id',
+    base_key: 'customer_id', history_key: 'customer_id',
+    decision_time: 'ordered_at', available_time: 'available_at',
+    base_features: [], target_columns: ['target'], unavailable_columns: [],
+    aggregates: [{ operation: 'count', output: 'prior_events' }],
+    max_base_rows: 50000, max_history_rows: 100000, max_input_bytes: 64000000,
+    max_unmatched_fraction: 1, timeout_s: 30,
+  };
+}
+
+export function historicalEnrichmentCopy(): TransformEngineDescriptor['copy'] {
+  return {
+    ...TRANSFORM_ENGINES.sql.copy,
+    section: 'flow.transform.enrichment.title',
+    hint: 'flow.transform.enrichment.sources',
+    open: 'flow.transform.enrichment.open',
+    openAria: 'flow.transform.enrichment.open',
+    program: 'flow.transform.enrichment.contract',
+    title: 'flow.transform.enrichment.title',
+    editorLabel: 'flow.transform.enrichment.contract',
+    editorAria: 'flow.transform.enrichment.contract',
+    editorEngine: 'flow.transform.enrichment.rule',
+    editorPlaceholder: 'flow.transform.enrichment.placeholder',
+    run: 'flow.transform.enrichment.preview',
+    sourcesHint: 'flow.transform.enrichment.sources',
+    resultEmpty: 'flow.transform.enrichment.empty',
+  };
+}
+
 /** Which engine a node runs on, or `null` when it is not a transform node. */
 export function transformEngineOf(
   node: CanonicalFlowNode | null | undefined,
@@ -429,11 +469,19 @@ export function readTransformParams(
   const config = node && isRecord(node.config) ? node.config : {};
   const params = isRecord(config['params']) ? config['params'] : {};
   const program = params[descriptor.programField];
-  const sources = Array.isArray(params['sources'])
+  let sources = Array.isArray(params['sources'])
     ? params['sources']
         .map(readSourcePin)
         .filter((pin): pin is TransformSourcePin => pin !== null)
     : [];
+  if (resolved === 'sql' && Object.hasOwn(params, 'enrichment')) {
+    const contract = params['enrichment'];
+    sources = isRecord(contract) ? ['base', 'history'].flatMap((role) => {
+      const ref = contract[role];
+      return isRecord(ref) && typeof ref['dataset_id'] === 'string' && ref['dataset_id']
+        ? [{ view: role, dataset_id: ref['dataset_id'] }] : [];
+    }) : [];
+  }
   const models = Array.isArray(params['models'])
     ? params['models'].map(readModel).filter((m): m is TransformModel => m !== null)
     : [];
@@ -452,8 +500,15 @@ export function readTransformParams(
         .filter((entry) => entry !== primary)
     : [];
   return {
+    ...(resolved === 'sql' && Object.hasOwn(params, 'enrichment')
+      ? { enrichment: params['enrichment'] }
+      : {}),
     program:
-      typeof program === 'string'
+      resolved === 'sql' && Object.hasOwn(params, 'enrichment')
+        ? typeof params['enrichment'] === 'string'
+          ? params['enrichment']
+          : JSON.stringify(params['enrichment'], null, 2) ?? 'null'
+        : typeof program === 'string'
         ? program
         : resolved === 'dbt'
           ? (effectiveModels.at(-1)?.sql ?? descriptor.defaultProgram)
@@ -489,6 +544,10 @@ export function transformFiles(
   params: TransformParams,
   engine: TransformEngine,
 ): TransformFile[] {
+  if (isHistoricalEnrichment(params, engine)) {
+    return [{ id: 'enrichment', name: 'historical-features.json', language: 'text',
+      content: params.program, kind: 'program' }];
+  }
   if (engine !== 'dbt') {
     const descriptor = TRANSFORM_ENGINES[engine];
     return [
@@ -562,6 +621,11 @@ export function fileWrite(
   fileId: string,
   content: string,
 ): { path: string; value: unknown } | null {
+  if (fileId === 'enrichment') {
+    let value: unknown = content;
+    try { value = JSON.parse(content); } catch { /* Keep an invalid draft visible. */ }
+    return { path: 'params.enrichment', value };
+  }
   if (engine !== 'dbt') {
     return { path: `params.${TRANSFORM_ENGINES[engine].programField}`, value: content };
   }
@@ -800,6 +864,21 @@ export function preflightTransform(
   params: TransformParams,
   engine: TransformEngine,
 ): TransformFailure | null {
+  if (isHistoricalEnrichment(params, engine)) {
+    const contract = params.enrichment;
+    if (!isRecord(contract) || (contract['operation'] !== undefined && contract['operation'] !== 'historical_aggregates') ||
+        !isRecord(contract['base']) || !isRecord(contract['history']) ||
+        !Array.isArray(contract['aggregates']) || contract['aggregates'].length === 0) {
+      return { key: 'flow.transform.error.ENRICHMENT_SPEC_INVALID' };
+    }
+    for (const pin of [contract['base'], contract['history']]) {
+      if (typeof pin['dataset_id'] !== 'string' || !pin['dataset_id'].trim() ||
+          typeof pin['version'] !== 'number' || !Number.isInteger(pin['version']) || pin['version'] < 1) {
+        return { key: 'flow.transform.error.ENRICHMENT_SPEC_INVALID' };
+      }
+    }
+    return null;
+  }
   if (engine !== 'dbt') return preflightProgram(params.program, engine);
   const written = params.models.filter((model) => model.sql.trim());
   if (written.length === 0) {
@@ -847,6 +926,11 @@ export function preflightTransform(
 
 /** The refusal codes the workshop translates; anything else falls back. */
 export const TRANSFORM_ERROR_CODES: readonly string[] = [
+  'ENRICHMENT_SPEC_INVALID', 'ENRICHMENT_VERSION_MISMATCH', 'ENRICHMENT_SOURCE_CHANGED',
+  'ENRICHMENT_INPUT_TOO_LARGE', 'ENRICHMENT_TIMEOUT', 'ENRICHMENT_COLUMN_MISSING',
+  'ENRICHMENT_COLUMN_COLLISION', 'ENRICHMENT_KEY_INVALID', 'ENRICHMENT_KEY_TYPE_MISMATCH',
+  'ENRICHMENT_TIME_INVALID', 'ENRICHMENT_AGGREGATE_TYPE', 'ENRICHMENT_BASE_EMPTY',
+  'ENRICHMENT_CARDINALITY', 'ENRICHMENT_UNMATCHED',
   'SQL_EMPTY',
   'SQL_TOO_LONG',
   'SQL_MULTIPLE_STATEMENTS',

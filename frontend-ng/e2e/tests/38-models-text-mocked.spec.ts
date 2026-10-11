@@ -33,8 +33,14 @@ function flow() {
   return graph;
 }
 
-async function setup(page: Page, options: { theme: string; locale: string; fields?: boolean; deep?: boolean; available?: boolean; workerDown?: boolean; savedSpec?: Record<string,unknown> }) {
+async function setup(page: Page, options: { theme: string; locale: string; fields?: boolean; deep?: boolean; foundation?: boolean; available?: boolean; workerDown?: boolean; savedSpec?: Record<string,unknown> }) {
   const catalog = structuredClone(baseline);
+  if (options.foundation) {
+    catalog.algos.push({key:'tabicl_v2', family:'tabular_foundation', tasks:['classification','regression'], available:true, estimators:{classification:'tabicl.TabICLClassifier',regression:'tabicl.TabICLRegressor'}, scale:false, tags:['experimental','foundation','local'], knobs:[]});
+    catalog.families.push({key:'tabular_foundation', tasks:['classification','regression'], runtime:'ml-deep', serving:'remote', available:true,
+      foundation_models:[{artifact_id:'tabicl-local',upstream_id:'hyusai-converted/tabicl-v2-classification',revision:'frozen'}],
+      spec_fields:[{key:'artifact_id',kind:'artifact',required:true},{key:'kv_cache',kind:'bool',default:false}]});
+  }
   catalog.families.find((family: any) => family.key === 'tabular').spec_fields = options.fields === false ? [] : fixture.text_fields;
   if (options.deep) catalog.families.push({key:'tabular_deep',tasks:['classification','regression'],runtime:'ml-deep',serving:'remote',available:options.available!==false,spec_fields:[
     {key:'text_encoder',kind:'enum',default:'embedding',choices:['embedding']},
@@ -142,6 +148,36 @@ test.describe('Models · text encoder — mocked QA', () => {
   }
 });
 
+
+test.describe('Models · local TabICL pilot — mocked QA', () => {
+  test.beforeEach(async ({}, info) => {
+    test.skip(process.env['E2E_CHROME_V2_MOCKED'] !== '1' || !['localhost', '127.0.0.1'].includes(new URL(String(info.project.use.baseURL)).hostname), 'Local mocked QA only.');
+  });
+  for (const locale of ['fr', 'en']) {
+    test(`${locale}: pilot requires an authorized artifact and keeps cache opt-in`, async ({ page }) => {
+      const api = await setup(page, { theme: 'dark', locale, foundation: true });
+      await page.goto('/models');
+      await page.getByRole('button', { name: locale === 'fr' ? /Entraîner/ : /Train/ }).first().click();
+      const studio = page.getByRole('dialog');
+      await studio.getByTestId('train-target').locator('[data-testid="column-select"][data-name="region"]').click();
+      await studio.getByRole('button', { name: /TabICL v2/ }).click();
+      await studio.getByTestId('tabular-options').locator('summary').click();
+      await expect(studio.getByTestId('foundation-scope')).toBeVisible();
+      await expect(studio.locator('#tabular-text_encoder')).toHaveCount(0);
+      await expect(studio.locator('.ck-submit')).toBeDisabled();
+      await studio.locator('#tabular-artifact_id').selectOption('tabicl-local');
+      await expect(studio.locator('#tabular-kv_cache')).not.toBeChecked();
+      await studio.locator('#train-cv').selectOption({ index: 1 });
+      await expect(studio.getByTestId('tabular-options-refusal')).toBeVisible();
+      await expect(studio.locator('.ck-submit')).toBeDisabled();
+      await studio.locator('#train-cv').selectOption({ index: 0 });
+      await expect(studio.locator('.ck-submit')).toBeEnabled();
+      await studio.locator('.ck-submit').click();
+      await expect.poll(() => api.trains.length).toBe(1);
+      expect(api.trains[0]).toMatchObject({ algo: 'tabicl_v2', spec: { artifact_id: 'tabicl-local', kv_cache: false }, cross_validation: 0 });
+    });
+  }
+});
 
 test.describe('Models · local embeddings — mocked QA', () => {
   test.beforeEach(async ({}, info) => {

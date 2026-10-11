@@ -525,7 +525,10 @@ def require_artifact(db, workspace_id: str, artifact_id: str, usage: str | None 
         artifact.metadata_json,
         artifact.metadata_json.get("license_text", ""),
     )
-    if usage in {"embedding", "reranker", "forecasting", "llm"} and artifact.kind != "model":
+    if (
+        usage in {"embedding", "reranker", "forecasting", "tabular_foundation", "llm"}
+        and artifact.kind != "model"
+    ):
         raise HFError("HF_INCOMPATIBLE_USAGE", "This usage requires a model artifact.", 409)
     artifact.last_used_at = _now()
     return artifact

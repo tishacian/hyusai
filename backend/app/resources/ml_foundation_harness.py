@@ -265,7 +265,13 @@ def save_export(manifest, series, frequency, weights, weight_hashes, model_dir):
         for path in sorted(model_dir.rglob("*"))
         if path.is_file()
     }
+    try:
+        from app.resources.ml_artifact_contract import build_artifact_contract
+    except ModuleNotFoundError:
+        from ml_artifact_contract import build_artifact_contract
+
     return {
+        **build_artifact_contract(model_dir, family="forecasting_deep", serialization="json"),
         "serialization": "json",
         "sha256": files["artifacts/forecaster.json"],
         "code_file": PYFUNC.name,

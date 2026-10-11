@@ -66,6 +66,9 @@ import {
   dbtNodePassed,
   defaultOutputName,
   fileWrite,
+  isHistoricalEnrichment,
+  historicalEnrichmentStarter,
+  historicalEnrichmentCopy,
   isTransformNode,
   modelIndexOf,
   preflightTransform,
@@ -280,6 +283,16 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
                     {{ i18n.t('flow.transform.editor.lines', { count: lineCount() }) }}
                   </span>
                 </div>
+                @if (engine() === 'sql') {
+                  <label class="ck-transform-workshop__field">
+                    <span>{{ i18n.t('flow.transform.enrichment.mode') }}</span>
+                    <select data-testid="transform-sql-mode" [value]="historical() ? 'historical' : 'sql'"
+                      [disabled]="transform.busy()" (change)="onSqlMode($event)">
+                      <option value="sql">{{ i18n.t('flow.transform.enrichment.sql') }}</option>
+                      <option value="historical">{{ i18n.t('flow.transform.enrichment.title') }}</option>
+                    </select>
+                  </label>
+                }
                 <ck-code-editor
                   #editor
                   class="ck-transform-workshop__cm"
@@ -391,6 +404,15 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
                     }
                   </p>
                 } @else if (transform.preview(); as result) {
+                  @if (historical() && result.enrichment; as evidence) {
+                    <p class="ck-transform-workshop__hint" data-testid="enrichment-evidence">
+                      {{ i18n.t('flow.transform.enrichment.evidence', { rows: evidence.output_rows, unmatched: evidence.unmatched_rows }) }}
+                    </p>
+                    <button type="button" class="ck-transform-workshop__mini" data-testid="pin-enrichment-proof"
+                      [disabled]="!canPinEnrichment() || transform.busy()" (click)="pinEnrichmentProof()">
+                      {{ i18n.t('flow.transform.enrichment.pin_proof') }}
+                    </button>
+                  }
                   <ck-data-table
                     [columns]="result.schema"
                     [rows]="result.preview"
@@ -465,6 +487,14 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
                   @case ('sources') {
                     <p class="ck-transform-workshop__hint">{{ i18n.t(copy().sourcesHint) }}</p>
 
+                    @if (historical()) {
+                      @for (dataset of transform.datasets(); track dataset.id) {
+                        <div class="ck-transform-workshop__source">
+                          <strong>{{ dataset.name }} · v{{ dataset.version }}</strong>
+                          <code>{{ dataset.id }}</code>
+                        </div>
+                      }
+                    } @else {
                     <label class="ck-transform-workshop__field">
                       <span>{{ i18n.t('flow.transform.sources.add') }}</span>
                       <select
@@ -563,6 +593,7 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
                         </ul>
                       </div>
                     }
+                    }
                   }
 
                   @case ('environment') {
@@ -659,7 +690,12 @@ export class FlowTransformWorkshopComponent {
   protected readonly node = this.store.selectedNode;
   protected readonly engine = computed(() => transformEngineOf(this.node()) ?? 'sql');
   protected readonly descriptor = computed(() => TRANSFORM_ENGINES[this.engine()]);
-  protected readonly copy = computed(() => this.descriptor().copy);
+  protected readonly historical = computed(() => isHistoricalEnrichment(this.params(), this.engine()));
+  protected readonly copy = computed(() => this.historical() ? historicalEnrichmentCopy() : this.descriptor().copy);
+  private readonly lastEnrichmentPreviewInput = signal<string | null>(null);
+  protected readonly canPinEnrichment = computed(() => this.historical() &&
+    !!this.transform.preview()?.enrichment &&
+    this.lastEnrichmentPreviewInput() === JSON.stringify(this.params().enrichment));
 
   /**
    * The preview as a check-list rather than a word.
@@ -766,7 +802,7 @@ export class FlowTransformWorkshopComponent {
     // completion offers. Re-resolves whenever the author pins or unpins one.
     effect(() => {
       const engine = this.engine();
-      const pins = this.params().sources;
+      const pins = this.historical() ? [] : this.params().sources;
       const signature = `${engine}:${JSON.stringify(pins)}`;
       if (signature === this.lastResolvedPins) return;
       this.lastResolvedPins = signature;
@@ -963,7 +999,9 @@ export class FlowTransformWorkshopComponent {
     const refusal = preflightTransform(params, engine);
     this.preflight.set(refusal);
     if (refusal) return;
+    const enrichmentInput = this.historical() ? JSON.stringify(params.enrichment) : null;
     await this.transform.run(engine, params.program, params.sources, {
+      ...(this.historical() ? { enrichment: params.enrichment } : {}),
       rowLimit: PREVIEW_ROW_LIMIT,
       requirementsText: params.requirements_text,
       timeoutS: params.timeout_s,
@@ -971,6 +1009,33 @@ export class FlowTransformWorkshopComponent {
       testsYml: params.tests_yml,
       outputModel: params.output_model,
     });
+    this.lastEnrichmentPreviewInput.set(enrichmentInput);
+  }
+
+  protected onSqlMode(event: Event): void {
+    this.flushProgram();
+    const node = this.node();
+    if (!node) return;
+    const config = (node.config ?? {}) as Record<string, unknown>;
+    const raw = (config['params'] ?? {}) as Record<string, unknown>;
+    const updated = { ...raw };
+    if ((event.target as HTMLSelectElement).value === 'historical') {
+      updated['enrichment'] = historicalEnrichmentStarter();
+    } else {
+      delete updated['enrichment'];
+    }
+    this.transform.clearResult();
+    this.lastEnrichmentPreviewInput.set(null);
+    this.preflight.set(null);
+    this.activeFileId.set(null);
+    this.store.updateNodeConfig(node.id, 'params', updated);
+  }
+
+  protected pinEnrichmentProof(): void {
+    this.flushProgram();
+    if (!this.canPinEnrichment()) return;
+    const contract = this.transform.preview()?.enrichment?.contract;
+    if (contract) this.writeParam('enrichment', structuredClone(contract));
   }
 
   private writeParam(field: string, value: unknown): void {

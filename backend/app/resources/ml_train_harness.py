@@ -638,13 +638,17 @@ def _make_pipeline(estimator_path, params, *, spec=None, seed=42, tuning=False):
     from skrub import StringEncoder, tabular_pipeline
 
     pipeline = tabular_pipeline(_resolve_estimator(estimator_path, params))
+    # Selection belongs to each fit: neither the final test nor a validation
+    # fold may decide which inputs its training pipeline retains. skrub also
+    # preserves constant-with-missing columns, whose missingness can be useful.
+    pipeline.named_steps["tablevectorizer"].set_params(drop_if_constant=True)
     _configure_text_encoder(pipeline, spec, seed)
-    if tuning:
-        # TPE's seed alone cannot reproduce folds whose text SVD is unseeded.
-        # Keep the existing automatic encoder behaviour when tuning is off.
-        vectorizer = pipeline.named_steps.get("tablevectorizer")
-        if vectorizer is not None and isinstance(vectorizer.high_cardinality, StringEncoder):
-            vectorizer.high_cardinality.set_params(random_state=seed)
+    # The run seed covers text SVD in both ordinary fits and tuning. Automatic
+    # encoding still chooses the same encoder, but repeating a fit is now
+    # reproducible instead of depending on the process-global random state.
+    vectorizer = pipeline.named_steps.get("tablevectorizer")
+    if vectorizer is not None and isinstance(vectorizer.high_cardinality, StringEncoder):
+        vectorizer.high_cardinality.set_params(random_state=seed)
     imputer = pipeline.named_steps.get("simpleimputer")
     if imputer is not None:
         imputer.set_params(strategy="median")
@@ -774,6 +778,16 @@ def _monitoring_reference(frame, seed):
     return module.build_reference(frame, seed=seed)
 
 
+def _preprocessing_module():
+    import importlib.util
+
+    path = Path(__file__).with_name("ml_preprocessing.py")
+    spec = importlib.util.spec_from_file_location("ml_preprocessing", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _configure_text_encoder(pipeline, spec, seed):
     encoder = (spec or {}).get("text_encoder", "auto")
     if encoder == "embedding":
@@ -896,13 +910,8 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         if pd.api.types.is_integer_dtype(x[column]):
             x[column] = x[column].astype("float64")
 
-    dropped: list[dict] = []
-    for column in list(x.columns):
-        if x[column].nunique(dropna=True) <= 1:
-            dropped.append({"name": str(column), "reason": "constant"})
-            x = x.drop(columns=[column])
     if x.empty or not len(x.columns):
-        return _fail(2, "ml_features_unusable: every feature column is constant")
+        return _fail(2, "ml_features_unusable: no feature columns")
 
     stratify = None
     classes: list = []
@@ -961,6 +970,11 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     except Exception as exc:  # noqa: BLE001
         return _fail(2, f"ml_split_failed: {exc}")
 
+    # Fail clearly on an unusable train, without selecting or dropping any
+    # columns here. The actual selection is learned again inside every fold.
+    if all(x_train[column].nunique(dropna=False) <= 1 for column in x_train):
+        return _fail(2, "ml_features_unusable: every training feature column is constant")
+
     evaluation = None
     if manifest.get("evaluation_path"):
         try:
@@ -1000,6 +1014,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     extended_classification = task == "classification" and extension.enabled(extension_spec)
     classification_context = {}
     base_pipeline = clone(pipeline)
+    fit_started = time.monotonic()
     try:
         if extended_classification:
             pipeline, classification_context = extension.fit(
@@ -1015,6 +1030,15 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             pipeline.fit(x_train, y_train)
     except Exception as exc:  # noqa: BLE001 - the algorithm's refusal is the answer
         return _fail(1, f"ml_fit_failed: {type(exc).__name__}: {exc}")
+
+    preprocessing = _preprocessing_module()
+    preprocessing_summary = preprocessing.record_fitted(
+        pipeline,
+        x_train,
+        fit_time_ms=(time.monotonic() - fit_started) * 1000,
+        fit_rows=(classification_context.get("calibration") or {}).get("fit_rows"),
+    )
+    retained_columns, dropped = preprocessing.learned_columns(pipeline)
 
     intervals = None
     if task == "regression" and (manifest.get("spec") or {}).get("intervals") == "conformal":
@@ -1109,10 +1133,15 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         "test": int(len(x_test)),
     }
     metrics["columns"] = {
-        "used": [str(column) for column in x.columns],
+        "used": retained_columns,
         "dropped": dropped,
     }
-    metrics["importances"] = _importances(report, rows=importance_rows, scoring=scoring, seed=seed)
+    metrics["preprocessing"] = preprocessing_summary
+    metrics["importances"] = [
+        row
+        for row in _importances(report, rows=importance_rows, scoring=scoring, seed=seed)
+        if row["feature"] in retained_columns
+    ]
 
     if folds >= 2 and extended_classification:
         try:
@@ -1228,12 +1257,18 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
 
     _progress(progress_path, "saving")
     try:
+        from importlib.metadata import version
+
         embedding = (manifest.get("spec") or {}).get("text_encoder") == "embedding"
         trusted = [] if embedding else _trusted_types(pipeline)
-        requirements = None
+        # This curated pipeline has a known runtime. Explicit producer versions
+        # avoid MLflow spawning another model load to guess dependencies and
+        # keep its exported environment aligned with the artifact contract.
+        requirements = [
+            f"{name}=={version(name)}"
+            for name in ("mlflow", "scikit-learn", "skrub", "skops", "numpy", "scipy", "pandas")
+        ]
         if embedding:
-            from importlib.metadata import version
-
             requirements = ["--extra-index-url https://download.pytorch.org/whl/cpu"] + [
                 f"{name}=={version(name)}"
                 for name in (
@@ -1258,20 +1293,26 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             serialization_format="cloudpickle" if embedding else "skops",
             pip_requirements=requirements,
         )
+        (Path(model_dir) / "preprocessing.json").write_text(
+            json.dumps(preprocessing_summary, ensure_ascii=False, allow_nan=False),
+            encoding="utf-8",
+        )
+        contract_spec = importlib.util.spec_from_file_location(
+            "ml_artifact_contract", Path(__file__).with_name("ml_artifact_contract.py")
+        )
+        contract_module = importlib.util.module_from_spec(contract_spec)
+        contract_spec.loader.exec_module(contract_module)
+        artifact = contract_module.build_artifact_contract(
+            model_dir,
+            family="tabular_deep" if embedding else "tabular",
+            serialization="cloudpickle" if embedding else "skops",
+            trusted_types=trusted,
+        )
     except Exception as exc:  # noqa: BLE001
         return _fail(4, f"ml_artifact_unwritable: {type(exc).__name__}: {exc}")
 
-    artifact = None
     if embedding:
-        import hashlib
-
-        bundle = Path(model_dir)
-        files = {
-            str(path.relative_to(bundle)): hashlib.sha256(path.read_bytes()).hexdigest()
-            for path in bundle.rglob("*")
-            if path.is_file()
-        }
-        artifact = {"serialization": "cloudpickle", "sha256": files["model.pkl"], "files": files}
+        artifact["sha256"] = artifact["files"]["model.pkl"]
         metrics["embedding"] = {
             key: value
             for key, value in (manifest.get("foundation") or {}).items()

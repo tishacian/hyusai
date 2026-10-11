@@ -106,7 +106,7 @@ const SCORE_LIMIT = 4;
 import { clusteringColumns } from '@app/features/models/clustering.vm';
 import { ForecastSpecComponent } from '@app/features/models/forecast-spec.component';
 import { TabularOptionsComponent } from '@app/features/models/tabular-options.component';
-import { tabularFields, tabularSpec, embeddingIssue } from '@app/features/models/tabular-options.vm';
+import { tabularFields, tabularSpec, embeddingIssue, foundationIssue } from '@app/features/models/tabular-options.vm';
 import {
   FORECASTING_TASK,
   draftFromSpec,
@@ -821,11 +821,12 @@ export class FlowTrainWorkshopComponent {
 
   protected readonly isClustering = computed(() => this.effectiveTask() === 'clustering');
   protected readonly isForecasting = computed(() => this.effectiveTask() === FORECASTING_TASK);
-  protected readonly tabularFields = computed(() => tabularFields(this.ml.catalog(), this.effectiveTask(), this.params().spec));
+  protected readonly tabularFields = computed(() => tabularFields(this.ml.catalog(), this.effectiveTask(), this.params().spec, this.effectiveAlgo()));
   protected readonly tabularSpec = computed(() => tabularSpec(this.tabularFields(), this.params().spec, this.effectiveTask()));
 
   protected readonly embeddingSelected = computed(() => !this.isForecasting() && this.params().spec?.['text_encoder'] === 'embedding');
   protected readonly embeddingIssue = computed(() => this.isForecasting() ? null :
+    foundationIssue(this.ml.catalog(), this.effectiveAlgo(), this.params().spec, this.params().cross_validation, this.effectiveTask()) ??
     embeddingIssue(this.ml.catalog(), this.tabularSpec(), this.params().cross_validation, this.selectedFeatures()));
 
   /** The node's forecast spec as form fields; it lives on the node as `spec`. */

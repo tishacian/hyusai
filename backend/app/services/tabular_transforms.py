@@ -29,12 +29,14 @@ snake_case slug.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 from uuid import uuid4
 
 from sqlalchemy.orm import Session as DBSession
@@ -153,9 +155,7 @@ def validate_sql(sql: Any) -> str:
 
     text = str(sql or "").strip()
     if not text:
-        raise TabularError(
-            code="SQL_EMPTY", message="Write a SELECT statement to run."
-        )
+        raise TabularError(code="SQL_EMPTY", message="Write a SELECT statement to run.")
     limit = int(settings.tabular_sql_max_chars)
     if len(text) > limit:
         raise TabularError(
@@ -170,9 +170,7 @@ def validate_sql(sql: Any) -> str:
             message="Run a single statement: a transform produces one table.",
         )
     if not statements:
-        raise TabularError(
-            code="SQL_EMPTY", message="Write a SELECT statement to run."
-        )
+        raise TabularError(code="SQL_EMPTY", message="Write a SELECT statement to run.")
     # Keywords first: "DROP TABLE x" deserves "DROP is not allowed", which is
     # more actionable than the generic read-only refusal below.
     words = set(re.findall(r"[a-z_][a-z0-9_]*", scrubbed.lower()))
@@ -253,9 +251,7 @@ def _dataset_refs_in(payload: Any) -> list[Any]:
                 refs.append(value)
             elif isinstance(value, list):
                 refs.extend(
-                    item
-                    for item in value
-                    if isinstance(item, dict) and item.get("dataset_id")
+                    item for item in value if isinstance(item, dict) and item.get("dataset_id")
                 )
     return refs
 
@@ -312,8 +308,7 @@ def resolve_sources(
         raise TabularError(
             code="TRANSFORM_NO_INPUT",
             message=(
-                "Connect a dataset upstream or pin one on the node before running "
-                "the transform."
+                "Connect a dataset upstream or pin one on the node before running the transform."
             ),
         )
     return sources
@@ -359,6 +354,11 @@ def execute_sql(
     *,
     row_limit: int | None = None,
     truncate: bool = False,
+    prepare: Callable[[Any], None] | None = None,
+    max_input_rows: int | None = None,
+    max_input_bytes: int | None = None,
+    timeout_s: float | None = None,
+    source_evidence: dict[str, Any] | None = None,
 ) -> Any:
     """Run one validated statement over the sources and return a polars frame.
 
@@ -375,30 +375,84 @@ def execute_sql(
     with tempfile.TemporaryDirectory(prefix="agentium-sql-") as tmp:
         root = Path(tmp)
         connection = duckdb.connect(database=":memory:")
+        expired = threading.Event()
+
+        def interrupt() -> None:
+            expired.set()
+            connection.interrupt()
+
+        timer = threading.Timer(timeout_s, interrupt) if timeout_s else None
+        if timer is not None:
+            timer.start()
         try:
             connection.execute("SET threads TO 2")
             connection.execute("SET memory_limit = '1GB'")
             for index, source in enumerate(sources):
-                local = materialize(source.dataset, root / f"{source.view}.parquet")
+                try:
+                    if max_input_bytes is None:
+                        local = materialize(source.dataset, root / f"{source.view}.parquet")
+                    else:
+                        local = materialize(
+                            source.dataset,
+                            root / f"{source.view}.parquet",
+                            max_bytes=max_input_bytes,
+                        )
+                except ValueError as exc:
+                    if max_input_bytes is not None:
+                        raise TabularError(
+                            code="ENRICHMENT_INPUT_TOO_LARGE",
+                            message="A source exceeds the enrichment byte budget.",
+                        ) from exc
+                    raise
+                if max_input_bytes is not None and local.stat().st_size > max_input_bytes:
+                    raise TabularError(
+                        code="ENRICHMENT_INPUT_TOO_LARGE",
+                        message="A source exceeds the enrichment byte budget.",
+                    )
+                if source_evidence is not None:
+                    with local.open("rb") as handle:
+                        digest = hashlib.file_digest(handle, "sha256").hexdigest()
+                    source_evidence[source.view] = {
+                        "sha256": digest,
+                        "size_bytes": local.stat().st_size,
+                    }
                 # Eager load: after this loop the filesystem is sealed, so the
                 # author's statement cannot reach any path.
                 connection.execute(
                     f'CREATE TABLE "{source.view}" AS '
                     f"SELECT * FROM read_parquet('{_quote_path(local)}')"
                 )
+                if max_input_rows is not None:
+                    count = connection.execute(f'SELECT count(*) FROM "{source.view}"').fetchone()[
+                        0
+                    ]
+                    if count > max_input_rows:
+                        raise TabularError(
+                            code="ENRICHMENT_INPUT_TOO_LARGE",
+                            message="A source exceeds the enrichment row budget.",
+                        )
                 connection.execute(
                     f'CREATE VIEW "input_{index + 1}" AS SELECT * FROM "{source.view}"'
                 )
                 if index == 0 and source.view != "input":
-                    connection.execute(
-                        f'CREATE VIEW "input" AS SELECT * FROM "{source.view}"'
-                    )
+                    connection.execute(f'CREATE VIEW "input" AS SELECT * FROM "{source.view}"')
             _seal_filesystem(connection)
+            if expired.is_set():
+                raise TabularError(
+                    code="ENRICHMENT_TIMEOUT", message="The enrichment exceeded its time budget."
+                )
+            if prepare is not None:
+                prepare(connection)
             try:
                 # One row past the cap so an oversized result is detectable
                 # rather than silently trimmed.
                 relation = connection.sql(validated).limit(cap if truncate else cap + 1)
                 table = relation.arrow()
+                if expired.is_set():
+                    raise TabularError(
+                        code="ENRICHMENT_TIMEOUT",
+                        message="The enrichment exceeded its time budget.",
+                    )
             except TabularError:
                 raise
             except Exception as exc:  # noqa: BLE001 - the engine message is the value
@@ -407,7 +461,16 @@ def execute_sql(
                     message=_readable_engine_error(exc),
                     details=_positioned_failure(connection, validated, exc),
                 ) from exc
+        except Exception as exc:
+            if expired.is_set():
+                raise TabularError(
+                    code="ENRICHMENT_TIMEOUT", message="The enrichment exceeded its time budget."
+                ) from exc
+            raise
         finally:
+            if timer is not None:
+                timer.cancel()
+                timer.join()
             connection.close()
     frame = pl.from_arrow(table)
     if isinstance(frame, pl.Series):  # pragma: no cover - arrow always yields a table
@@ -419,9 +482,7 @@ def execute_sql(
             details={"row_limit": cap},
         )
     if frame.width == 0:
-        raise TabularError(
-            code="SQL_NO_COLUMNS", message="The statement returned no columns."
-        )
+        raise TabularError(code="SQL_NO_COLUMNS", message="The statement returned no columns.")
     return frame
 
 
@@ -506,9 +567,7 @@ def _error_position(exc: Exception, statement: str) -> dict[str, Any] | None:
     return None
 
 
-def _positioned_failure(
-    connection: Any, statement: str, exc: Exception
-) -> dict[str, Any] | None:
+def _positioned_failure(connection: Any, statement: str, exc: Exception) -> dict[str, Any] | None:
     """The coordinate for a refused statement, asking twice if the first is mute.
 
     The relational API (``connection.sql``) is what runs the author's statement,
@@ -558,13 +617,9 @@ def preview_sql(
     table in the editor is literally the table the dataset will show.
     """
 
-    sources = resolve_sources(
-        db, workspace_id=workspace_id, payload=payload, declared=declared
-    )
+    sources = resolve_sources(db, workspace_id=workspace_id, payload=payload, declared=declared)
     started = time.monotonic()
-    frame = execute_sql(
-        sources, sql, row_limit=max(1, int(row_limit)), truncate=True
-    )
+    frame = execute_sql(sources, sql, row_limit=max(1, int(row_limit)), truncate=True)
     elapsed_ms = (time.monotonic() - started) * 1000
     profile = profile_frame(frame)
     return {
@@ -592,9 +647,7 @@ def run_sql_transform(
 ) -> dict[str, Any]:
     """Execute a transform and persist its result as a new dataset version."""
 
-    sources = resolve_sources(
-        db, workspace_id=workspace_id, payload=payload, declared=declared
-    )
+    sources = resolve_sources(db, workspace_id=workspace_id, payload=payload, declared=declared)
     started = time.monotonic()
     frame = execute_sql(sources, sql)
     elapsed_ms = (time.monotonic() - started) * 1000
@@ -612,8 +665,7 @@ def run_sql_transform(
             "engine": "duckdb",
             "sql": str(sql)[:4000],
             "sources": [
-                {"view": source.view, "dataset_id": source.dataset.id}
-                for source in sources
+                {"view": source.view, "dataset_id": source.dataset.id} for source in sources
             ],
             "duration_ms": round(elapsed_ms, 1),
         },
