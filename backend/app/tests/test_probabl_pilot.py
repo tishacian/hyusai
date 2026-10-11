@@ -6,6 +6,7 @@ import copy
 import importlib.util
 import json
 import os
+import platform
 import sys
 from pathlib import Path
 
@@ -18,12 +19,24 @@ SPEC = importlib.util.spec_from_file_location(
 pilot = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(pilot)
 
+# The synthetic generators go through libm and BLAS, whose last bits differ by
+# platform: the contract's fingerprints were frozen on the Linux x86-64 runtime.
+frozen_platform = pytest.mark.skipif(
+    (sys.platform, platform.machine()) != ("linux", "x86_64"),
+    reason="dataset fingerprints are frozen on Linux x86-64",
+)
+# The bounded runner measures through /proc and blocks the network with seccomp.
+linux_sandbox = pytest.mark.skipif(
+    sys.platform != "linux", reason="the pilot sandbox requires Linux procfs and seccomp"
+)
+
 
 @pytest.fixture(scope="module")
 def contract():
     return json.loads((ROOT / "config/ml/probabl-pilot.v1.json").read_text())
 
 
+@frozen_platform
 def test_contract_hashes_and_final_reserve_are_disjoint(contract):
     pilot.validate_contract(contract)
     for task in contract["tasks"]:
@@ -84,6 +97,7 @@ def test_selection_requires_three_matching_development_partitions(contract):
     assert not pilot.select_candidates(contract, rows)[contract["tasks"][0]["id"]]
 
 
+@frozen_platform
 def test_revision_two_preserves_reserve_and_excludes_uncached_regression_even_if_it_passes(
     contract,
 ):
@@ -151,6 +165,7 @@ def test_full_cycle_includes_startup_and_children_without_double_counting(contra
     assert projection["projected_cpu_seconds"] == 20.0 - 6.0 + 100 * 2.0
 
 
+@linux_sandbox
 def test_seccomp_blocks_real_native_network_syscalls():
     code = f"""
 import sys, socket, ctypes, errno
@@ -178,6 +193,7 @@ assert ctypes.get_errno() == errno.EPERM
     assert measured["exit_code"] == 0, measured
 
 
+@linux_sandbox
 def test_cpu_budget_counts_children_and_timeout_kills_process_group(tmp_path):
     child = "import time; end=time.process_time()+0.25\nwhile time.process_time()<end: pass"
     code = f"import subprocess,sys; subprocess.run([sys.executable,'-c',{child!r}],check=True)"
