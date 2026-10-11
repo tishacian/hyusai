@@ -2639,6 +2639,29 @@ async def _llm_label_dataset_v1(
     return await label_dataset({"config": block, "dataset_ref": dataset_ref}, ctx)
 
 
+async def _ml_evaluation_review_v1(payload, ctx=None):
+    import asyncio
+
+    from app.db.base import SessionLocal
+    from app.services.ml_evaluation_review import review
+    from app.services.tabular_datasets import TabularError
+
+    # Workspace comes from the authorized execution context, never the payload.
+    if not ctx or not ctx.get("workspace_id"):
+        raise ValueError("ML_EVALUATION_WORKSPACE_REQUIRED")
+
+    def execute():
+        with SessionLocal() as db:
+            try:
+                return review(
+                    db, model_id=payload.get("model_id"), workspace_id=ctx["workspace_id"]
+                )
+            except TabularError as exc:
+                raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+    return await asyncio.to_thread(execute)
+
+
 async def _ml_monitor_model_v1(payload, ctx=None):
     import asyncio
 
@@ -7222,6 +7245,11 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
         "bound",
     ),
     "ml_monitor_model_v1": (_ml_monitor_model_v1, "app.services.ml_retraining", "bound"),
+    "ml_evaluation_review_v1": (
+        _ml_evaluation_review_v1,
+        "app.services.ml_evaluation_review",
+        "bound",
+    ),
     "ml_retrain_model_v1": (_ml_retrain_model_v1, "app.services.ml_retraining", "bound"),
     "ml_predict_v1": (
         _ml_predict_v1,

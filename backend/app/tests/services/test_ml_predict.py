@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
+import numpy as np
 import pytest
 
 from app.core.config import settings
@@ -171,6 +172,24 @@ def test_a_classification_answers_with_a_label_a_confidence_and_a_named_vector(d
     assert answer["served"]["version"] == 1
     # JSON that Postgres and an HTTP client will both accept.
     json.dumps(answer, allow_nan=False)
+
+
+@pytest.mark.parametrize(
+    ("predicted", "classes"),
+    [
+        (np.bool_(False), ["false", "true"]),
+        (np.bool_(False), ["False", "True"]),
+        ("a" * 150, ["a" * 150, "z"]),
+        ("a" * 150, ["a" * 120, "z"]),
+    ],
+)
+def test_serving_preserves_business_labels_and_legacy_vocabulary(predicted, classes):
+    model = MLModel(task="classification", metrics_json={"target": {"positive": classes[0]}})
+    positive = tabular_predict._positive_label(model, classes)
+    answer = tabular_predict._rows_from(model, classes, positive, [predicted], [[0.4, 0.6]])[0]
+    assert answer["prediction"] == classes[0]
+    assert answer["confidence"] == answer["score"] == 0.4
+    assert [row["label"] for row in answer["probabilities"]] == classes
 
 
 def test_a_high_risk_row_scores_above_a_low_risk_one(db_session, model):

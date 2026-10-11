@@ -1,6 +1,7 @@
 import { ForecastActualsComponent } from './forecast-actuals.component';
 import { ScheduledMonitoringComponent } from './scheduled-monitoring.component';
 import { ClassificationEvidenceComponent } from "./classification-evidence.component";
+import { EvaluationEvidenceComponent } from "./evaluation-evidence.component";
 import { ExplanationEvidenceComponent } from "./explanation-evidence.component";
 /**
  * Model card — the evidence, the contract, the lineage and the settings.
@@ -131,6 +132,7 @@ const CHART_ASPECT = 300 / 190;
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     ClassificationEvidenceComponent,
+    EvaluationEvidenceComponent,
     ExplanationEvidenceComponent,
     NavLinkDirective,
     CkBackLinkComponent,
@@ -569,6 +571,9 @@ const CHART_ASPECT = 300 / 190;
               }
 
               <ck-tabular-intervals [intervals]="model()?.metrics?.intervals" />
+              @if (row.family === 'tabular' || !row.family) {
+                <ck-evaluation-evidence [metrics]="row.metrics ?? null" [modelId]="row.id" />
+              }
               <div class="ck-charts">
                 <ck-classification-evidence [calibration]="calibration()" [decision]="decision()" [warnings]="classificationWarnings()" />
                 <ck-explanation-evidence [evidence]="explanations()" [regression]="row.task === 'regression'" />
@@ -801,6 +806,7 @@ const CHART_ASPECT = 300 / 190;
                   </button>
                 } @else if (sameRows(); as joint) {
                   <div class="mt-2 space-y-2">
+                    <div class="ck-hint" data-testid="comparison-verification">{{ i18n.t(joint.split.verified ? 'models.compare.same.verified' : 'models.compare.same.unverified') }}</div>
                     <div class="text-[11px] ck-mono" style="color: var(--ck-fg-3)">
                       {{
                         i18n.t('models.compare.same.provenance', {

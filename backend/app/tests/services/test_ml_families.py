@@ -237,6 +237,7 @@ TABULAR_TEST_FIELDS = (
 
 def test_tabular_catalog_does_not_offer_options_without_training_effects():
     assert {field.key for field in TABULAR.spec_fields} == {
+        "positive_class",
         "calibration",
         "explain",
         "fairness_columns",
