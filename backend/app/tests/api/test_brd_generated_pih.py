@@ -1,9 +1,11 @@
 """Replay the unedited PIH proposal produced by the configured provider."""
 import json
-import pytest
 from pathlib import Path
-from app.tests.api.test_workspace_skill_brd_import import _seed, _client
+
+import pytest
+
 from app.core.config import settings
+from app.tests.api.test_workspace_skill_brd_import import _client, _seed
 
 
 @pytest.mark.asyncio
@@ -24,6 +26,14 @@ async def test_generated_pih_proposal_executes_and_resumes(db_session, tmp_path,
     filename = 'pih-generated-invalid-hitl.json' if invalid_hitl_mapping else 'pih-generated-proposal.json'
     material=json.loads((fixtures / filename).read_text())
     response=client.post(path,json=material)
+    if invalid_hitl_mapping:
+        # The human gate owns its outputs (approved, decision_id, ...): a sink
+        # reading an authored 'completion' from it is refused before any Run.
+        assert response.status_code==422,response.text
+        detail=response.json()["detail"]
+        assert detail["code"]=="brd_proposal_flow_invalid"
+        assert {(i["code"],i["node_id"]) for i in detail["issues"]}=={("variable_unresolved","sink_out")}
+        return
     assert response.status_code==200,response.text
     proposal=response.json()
     applied=client.post(path+'/'+proposal['id']+'/apply',json={'expected_sha256':proposal['sha256'],'reviewed':True})
@@ -35,10 +45,10 @@ async def test_generated_pih_proposal_executes_and_resumes(db_session, tmp_path,
     assert len(draft.flow_definition["nodes"]) == 6
     assert len(proposal["proposal"]["coverage"]) == 7
     assert proposal["proposal"]["coverage"][0]["section"] == "business outcomes"
-    from app.services.skills_registry import wrappers
-    from app.services.run_engine.dag import execute_run_dag, resume_run_dag
     from app.models.decision import Decision
     from app.models.run import SkillInvocation
+    from app.services.run_engine.dag import execute_run_dag, resume_run_dag
+    from app.services.skills_registry import wrappers
     prompts = []
     async def model_response(payload, ctx=None):
         prompts.append(payload["prompt"])
@@ -69,13 +79,6 @@ async def test_generated_pih_proposal_executes_and_resumes(db_session, tmp_path,
         decision.status = review_status  # engine test; UI authorization tested separately
         db_session.commit()
         resumed = await resume_run_dag(run.id, decision_id=decision.id)
-        if invalid_hitl_mapping:
-            assert resumed["status"] == "failed", resumed
-            db_session.expire_all()
-            assert run.status == "failed"
-            assert any(cp.get("kind") == "variable_resolution_error" for cp in run.checkpoints)
-            assert len(prompts) == before + 3
-            continue
         assert resumed["status"] == "completed", resumed
         db_session.expire_all()
         assert run.output_ref["draft"] == f"stage-{before + 3}"
