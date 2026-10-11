@@ -269,6 +269,8 @@ const storeSpecs = [
   'src/app/features/governance/workspace-app-lifecycle.component.spec.ts',
   'src/app/features/governance/workspace-app-admin.guard.spec.ts',
   'src/app/features/workspace/chat-knowledge-settings.component.spec.ts',
+  'src/app/features/workspace/secrets.component.spec.ts',
+  'src/app/shared/secrets/secret-picker.component.spec.ts',
   'src/app/features/workspace/workspace-entitlements.component.spec.ts',
   'src/app/features/knowledge/knowledge-capture.component.spec.ts',
   'src/app/features/knowledge/ingestion-status.component.spec.ts',

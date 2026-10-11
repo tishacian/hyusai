@@ -120,6 +120,12 @@ export class WorkspaceShellComponent {
       descriptionKey: 'workspace.shell.tab.chat_knowledge.description',
     },
     {
+      path: 'secrets',
+      labelKey: 'resources.secrets.title',
+      icon: 'key-round',
+      descriptionKey: 'resources.secrets.tab_description',
+    },
+    {
       path: 'members',
       labelKey: 'workspace.members',
       icon: 'users',

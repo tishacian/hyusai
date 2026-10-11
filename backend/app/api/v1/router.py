@@ -70,6 +70,7 @@ from app.api.v1.endpoints import (
     reports,
     rpa,
     runs,
+    secrets,
     secure_deposit,
     sessions,
     settings,
@@ -130,6 +131,7 @@ api_router.include_router(hana.router, prefix="/hana", tags=["hana"])
 api_router.include_router(rpa.router, prefix="/rpa", tags=["rpa"])
 api_router.include_router(mcp.router, prefix="/mcp", tags=["mcp"])
 api_router.include_router(connectors.router, prefix="/connectors", tags=["connectors"])
+api_router.include_router(secrets.router, prefix="/secrets", tags=["secrets"])
 api_router.include_router(huggingface_lifecycle.router, prefix="/huggingface", tags=["huggingface"])
 api_router.include_router(
     huggingface_activation.router, prefix="/huggingface", tags=["huggingface"]

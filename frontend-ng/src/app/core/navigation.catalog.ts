@@ -632,6 +632,7 @@ export const AGENTIUM_SURFACE_LEAVES: AgentiumSurfaceLeaf[] = [
   { id: 'workspace-list', parent: 'workspace-admin', route: '/workspace', label: 'Workspace picker' },
   { id: 'workspace-chat-page', parent: 'workspace-chat', route: '/workspace/:slug/chat', label: 'Workspace chat' },
   { id: 'workspace-chat-knowledge', parent: 'workspace-admin', route: '/workspace/:slug/chat-knowledge', label: 'Chat knowledge settings' },
+  { id: 'workspace-secrets', parent: 'workspace-admin', route: '/workspace/:slug/secrets', label: 'Workspace secrets' },
   { id: 'auth-signin', parent: 'account', route: '/auth/signin', label: 'Sign in' },
 ];
 
