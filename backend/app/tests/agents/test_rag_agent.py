@@ -28,6 +28,16 @@ class _FakeModelService:
     ollama_client = _FakeOllamaClient()
 
 
+class _FakeEmbedder:
+    def describe(self):
+        return {
+            "provider": "test",
+            "model_name": "test-embedding",
+            "dimension": 8,
+            "degraded": False,
+        }
+
+
 @pytest.mark.asyncio
 async def test_rag_agent_uses_planned_retrieval_context(monkeypatch):
     seen: dict = {}
@@ -67,6 +77,11 @@ async def test_rag_agent_uses_planned_retrieval_context(monkeypatch):
     monkeypatch.setattr(
         "app.services.rag.context.retrieve_rag_context",
         fake_retrieve_rag_context,
+    )
+    # The agent reports the shared embedder; the real one is fail-closed
+    # without a provider credential, which retrieval is stubbed out of here.
+    monkeypatch.setattr(
+        "app.services.embedding.embedder.get_shared_embedder", lambda: _FakeEmbedder()
     )
 
     agent = object.__new__(RAGAgent)

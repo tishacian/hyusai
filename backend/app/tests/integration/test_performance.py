@@ -1,13 +1,14 @@
 """Performance benchmarks for RAG system"""
-import pytest
 import asyncio
-import time
-import tempfile
 import os
+import tempfile
+import time
+
+import pytest
+
 from app.services.rag.document_service import DocumentService
 
-
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("require_embedder")]
 
 
 @pytest.fixture
@@ -150,8 +151,9 @@ async def test_concurrent_operations():
 async def test_memory_usage():
     """Test memory usage with multiple documents"""
     try:
-        import psutil
         import os
+
+        import psutil
         psutil_available = True
     except ImportError:
         psutil_available = False

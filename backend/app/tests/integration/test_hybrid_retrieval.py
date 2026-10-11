@@ -1,12 +1,16 @@
 """Integration tests for hybrid retrieval"""
-import pytest
-import asyncio
-import tempfile
 import os
+import tempfile
+
+import pytest
+
 from app.services.rag.document_service import DocumentService
 
-
-pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("require_qdrant")]
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.usefixtures("require_embedder"),
+    pytest.mark.usefixtures("require_qdrant"),
+]
 
 
 @pytest.fixture

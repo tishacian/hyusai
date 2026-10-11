@@ -4,6 +4,10 @@ A test that needs Qdrant asks for ``require_qdrant``. Without a reachable
 Qdrant it is skipped with the address it tried, never failed: the unit suite
 must stay readable on a machine without the vector store, and the tests still
 run wherever Qdrant is up (``QDRANT_INTEGRATION=0`` forces the skip).
+
+A test that builds a ``DocumentService`` asks for ``require_embedder``: the
+embedder is fail-closed, so without the configured provider's credential it
+is skipped with the provider's own refusal.
 """
 
 from __future__ import annotations
@@ -43,3 +47,13 @@ def require_qdrant():
             f"Qdrant not reachable at {host}:{port} "
             "(start docker compose qdrant or set QDRANT_HOST / QDRANT_PORT)"
         )
+
+
+@pytest.fixture
+def require_embedder():
+    from app.services.embedding.embedder import Embedder, EmbeddingUnavailable
+
+    try:
+        Embedder()
+    except EmbeddingUnavailable as exc:
+        pytest.skip(f"Embedding provider unavailable: {exc}")
