@@ -1,0 +1,48 @@
+{{- if .Values.worker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentium-worker
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.replicaCount.worker }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        {{- include "agentium.labels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+    spec:
+      {{- include "agentium.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: worker
+          image: {{ .Values.image.worker | quote }}
+          {{- with .Values.resources.worker }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "agentium.fullname" . }}-config
+            - secretRef:
+                name: {{ include "agentium.secretName" . }}
+          env:
+            {{- include "agentium.appSecretEnv" . | nindent 12 }}
+          volumeMounts:
+            - name: recipe-envs
+              mountPath: /data/recipe_envs
+      volumes:
+        # Content-addressed virtualenvs plus the pip cache. The service evicts
+        # them on its own against a quota and an idle TTL, so this is a cache,
+        # not state: a pod that starts empty rebuilds what it needs. Node-local
+        # on purpose, so replicas never contend for one filesystem.
+        - name: recipe-envs
+          emptyDir:
+            sizeLimit: {{ .Values.worker.recipeEnvsSizeLimit }}
+{{- end }}

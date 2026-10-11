@@ -1,0 +1,10 @@
+---
+- name: Upgrade Agentium with Helm
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+  run_once: true
+  roles:
+    - role: update_protection
+    - role: helm_agentium

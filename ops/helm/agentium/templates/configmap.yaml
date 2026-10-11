@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agentium.fullname" . }}-config
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+data:
+  AGENTIUM_DISABLE_DOTENV: {{ .Values.config.AGENTIUM_DISABLE_DOTENV | quote }}
+  STARTUP_RECONCILIATION: {{ .Values.config.STARTUP_RECONCILIATION | quote }}
+  AGENTIUM_BACKEND_WORKERS: {{ .Values.backend.workers | quote }}
+  CELERY_QUEUES: {{ .Values.worker.queues | quote }}
+  CELERY_CONCURRENCY: {{ .Values.worker.concurrency | quote }}
+  CELERY_BEAT: {{ .Values.worker.beat | quote }}
+  POSTGRES_DB: {{ .Values.postgres.database | quote }}
+  POSTGRES_USER: {{ .Values.postgres.user | quote }}
+  RABBITMQ_DEFAULT_USER: {{ .Values.rabbitmq.user | quote }}
+  QDRANT_HOST: agentium-qdrant
+  # Issuer and JWKS base. Paths in the app append /realms/<realm>/...
+  KEYCLOAK_URL: {{ printf "http://agentium-kc:8080%s" (trimSuffix "/" .Values.keycloak.httpRelativePath) | quote }}
+  KEYCLOAK_URL_INTERNAL: {{ printf "http://agentium-kc:8080%s" (trimSuffix "/" .Values.keycloak.httpRelativePath) | quote }}
+  # Redirect target of Keycloak action emails; the realm registers it.
+  APP_PUBLIC_URL: {{ include "agentium.appUrl" . | quote }}
+  # The chart used to set no storage path at all, so the application fell back
+  # to its relative defaults and never wrote into the volumes mounted for it.
+  {{- if ne .Values.objectStore.backend "s3" }}
+  {{- fail "objectStore.backend must be s3: backend, worker and maintenance all write the artifact store, and this chart has no ReadWriteMany volume to share between them" }}
+  {{- end }}
+  OBJECT_STORE_BACKEND: {{ .Values.objectStore.backend | quote }}
+  OBJECT_STORE_S3_BUCKET: {{ .Values.objectStore.bucket | quote }}
+  OBJECT_STORE_S3_ENDPOINT_URL: {{ .Values.objectStore.endpointUrl | quote }}
+  OBJECT_STORE_S3_ACCESS_KEY: {{ .Values.objectStore.accessKey | quote }}
+  RECIPE_ENVS_PATH: /data/recipe_envs
+  # Staged deposits go to the artifact store too, so the API and a future SFTP
+  # pod never need to share a filesystem. Reads materialise a local copy.
+  SECURE_DEPOSIT_STORAGE_BACKEND: object_store
+  SECURE_DEPOSIT_STORAGE_DIR: /tmp/secure-deposit
+  {{- if .Values.ollama.enabled }}
+  OLLAMA_BASE_URL: http://agentium-ollama:11434
+  DEFAULT_PROVIDER: ollama
+  OLLAMA_DEFAULT_MODEL: {{ .Values.ollama.chatModel | quote }}
+  EMBEDDING_PROVIDER: ollama
+  EMBEDDING_MODEL: {{ .Values.ollama.embedModel | quote }}
+  EMBEDDING_DIMENSION: {{ .Values.ollama.embedDimension | quote }}
+  {{- end }}
