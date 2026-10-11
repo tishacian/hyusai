@@ -7,8 +7,12 @@ API/MLflow/ObjectStore, ni un SLA, ni un gain métier ou énergétique.
 La première campagne complète prévue a été interrompue avant le test final :
 51 cas terminés, dont 48 évalués et trois refus de parité export/rechargement du
 profil TabICL sans cache en régression. Les 57 autres cas ne sont pas évalués.
-Le plafond de threads du runtime produit nécessite également une correction.
+Le plafond de threads du runtime produit nécessitait également une correction,
+incluse depuis dans la révision 2.
 Ces résultats sont conservés et **ne permettent aucune décision d'adoption**.
+
+La [qualification terminée sous protocole v2](revision-2/README.md) conserve ces
+preuves et présente séparément ses exclusions, ses échecs et son test final.
 
 Le code exact de cette campagne est conservé au commit `0cf5e01c` : son empreinte
 agrégée sur les six fichiers du gel est

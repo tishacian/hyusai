@@ -1,0 +1,27 @@
+{
+  "contract_sha256": "4806447e19ac5fd56d898b29a40f7ad416e1a9823cda5509972f25c938802686",
+  "selected_on_development_only": {
+    "breast-cancer": [
+      "dummy",
+      "sklearn_linear",
+      "tabicl_cache"
+    ],
+    "delivery-cost-mixed-demo": [
+      "dummy",
+      "sklearn_linear",
+      "tabicl_cache"
+    ],
+    "delivery-late-imbalanced-demo": [
+      "dummy",
+      "sklearn_hist",
+      "tabicl_cache"
+    ],
+    "friedman-mixed-demo": [],
+    "iris-multiclass": [
+      "dummy",
+      "sklearn_linear",
+      "tabicl_cache"
+    ],
+    "linear-regression-demo": []
+  }
+}

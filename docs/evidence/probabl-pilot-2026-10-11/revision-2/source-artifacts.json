@@ -1,0 +1,30 @@
+{
+  "development/final-reserve-opened.json": {
+    "bytes": 650,
+    "sha256": "296eacc4155cc7edcccabdc19fcd7c4da4385dbcf759693fa9eed3b9c0ac9b8b"
+  },
+  "development/frozen-protocol.json": {
+    "bytes": 14278,
+    "sha256": "aeede71c319e324e13418fc05d6f54ed29ad45748c8aa866d664eb457ad2c871"
+  },
+  "development/results.json": {
+    "bytes": 349770,
+    "sha256": "f21e8e33d79db19be538321b1846edc4d4699ee9502831fcf50eb85970514ee3"
+  },
+  "development/selection.json": {
+    "bytes": 584,
+    "sha256": "7cea1ff98cc0bd2d2dd13b688117f64ca4822606614039fb6adc220244ef2d3c"
+  },
+  "final/frozen-protocol.json": {
+    "bytes": 14724,
+    "sha256": "3f6f166232e885ab618bbf44c97276582f2cc248ffe27ed221980b69953c33ac"
+  },
+  "final/results.json": {
+    "bytes": 103280,
+    "sha256": "e1a2e21283c2d87f417c4f6e3ddc31cfddc98dbc64bb0b90d5c34fbe1715d948"
+  },
+  "final/selection.json": {
+    "bytes": 584,
+    "sha256": "7cea1ff98cc0bd2d2dd13b688117f64ca4822606614039fb6adc220244ef2d3c"
+  }
+}
