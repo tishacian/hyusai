@@ -292,3 +292,89 @@ async def test_ollama_embed_posts_api_embed(monkeypatch):
     assert captured["json"] == {"model": "nomic-embed-text", "input": ["a", "b"]}
     assert result.shape == (2, 3)
     assert not embedder.is_degraded()
+
+
+def test_init_refuses_ollama_without_endpoint(monkeypatch):
+    monkeypatch.setattr(embedder_module.settings, "embedding_provider", "ollama")
+    monkeypatch.setattr(embedder_module.settings, "ollama_base_url", "")
+
+    with pytest.raises(EmbeddingUnavailable):
+        Embedder()
+
+
+def _ollama_embedder(dimension):
+    embedder = Embedder.__new__(Embedder)
+    embedder.model_name = "nomic-embed-text"
+    embedder.provider = "ollama"
+    embedder._client = None
+    embedder._local_model = None
+    embedder._ollama_base = "http://agentium-ollama:11434"
+    embedder._dimension = dimension
+    embedder._hash_fallback_count = 0
+    return embedder
+
+
+def _fake_ollama_client(payload=None, error=None):
+    class FakeResponse:
+        def raise_for_status(self):
+            if error is not None:
+                raise error
+
+        def json(self):
+            return payload
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            del args, kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def post(self, url, json):
+            del url, json
+            return FakeResponse()
+
+    return FakeClient
+
+
+@pytest.mark.asyncio
+async def test_ollama_failure_never_switches_vector_space(monkeypatch):
+    monkeypatch.setattr(
+        embedder_module.httpx, "Client", _fake_ollama_client(error=RuntimeError("down"))
+    )
+    embedder = _ollama_embedder(768)
+
+    with pytest.raises(EmbeddingUnavailable):
+        await embedder.embed_batch(["a"])
+    assert embedder.provider == "ollama"
+
+
+@pytest.mark.asyncio
+async def test_ollama_vector_of_the_wrong_width_is_refused(monkeypatch):
+    monkeypatch.setattr(
+        embedder_module.httpx,
+        "Client",
+        _fake_ollama_client(payload={"embeddings": [[0.1, 0.2]]}),
+    )
+    embedder = _ollama_embedder(768)
+
+    with pytest.raises(EmbeddingUnavailable):
+        await embedder.embed_batch(["a"])
+
+
+@pytest.mark.asyncio
+async def test_ollama_learns_the_width_of_its_first_vector(monkeypatch):
+    monkeypatch.setattr(
+        embedder_module.httpx,
+        "Client",
+        _fake_ollama_client(payload={"embeddings": [[0.1, 0.2, 0.3, 0.4]]}),
+    )
+    embedder = _ollama_embedder(None)
+
+    result = await embedder.embed_batch(["a"])
+
+    assert result.shape == (1, 4)
+    assert embedder.get_dimension() == 4
