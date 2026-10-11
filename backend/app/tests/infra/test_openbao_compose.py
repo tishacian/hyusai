@@ -190,6 +190,7 @@ def test_bootstrap_init_configures_approles_writes_0600_and_revokes_root(tmp_pat
         'path "agentium/data/platform/+/nodes/*" { capabilities = ["read"] }',
         'path "agentium/data/workspace/+/nodes/*" { capabilities = ["read"] }',
     ]
+    assert 'path "auth/token/revoke-self"' in server.policies["agentium-snapshot"]
     for role in ("backend", "worker", "hub-fetch", "snapshot"):
         path = tmp_path / f"openbao-{role}.env"
         assert stat.S_IMODE(path.stat().st_mode) == 0o600

@@ -49,6 +49,7 @@ path "{MOUNT}/data/workspace/+/nodes/*" {{ capabilities = ["read"] }}
 """,
     "agentium-snapshot": """
 path "sys/storage/raft/snapshot" { capabilities = ["read"] }
+path "auth/token/revoke-self" { capabilities = ["update"] }
 """,
 }
 ROLES = {

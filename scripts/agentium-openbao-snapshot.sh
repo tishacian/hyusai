@@ -11,7 +11,7 @@
 # argv or the logs. Suggested cron entry (root):
 #
 #   17 3 * * * /srv/agentium-data/worktrees/demo-agentic/scripts/agentium-openbao-snapshot.sh \
-#     <deployment>/runtime-env >>/var/log/agentium-openbao-snapshot.log 2>&1
+#     <deployment>/runtime-env >>/srv/agentium-data/openbao-backups/snapshot.log 2>&1
 #
 # Restore (stops serving secrets until done; same unseal key required, since
 # the snapshot is sealed with the static key that wrote it):
