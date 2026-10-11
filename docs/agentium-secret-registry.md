@@ -205,7 +205,13 @@ les autres secrets workspace/platform (clés cloud, connecteurs), ni la portée
 5. `agentium-vm-deploy.sh openbao-status` : `bao status` doit répondre
    initialisé et descellé.
 6. Basculer `SECRET_REGISTRY_DEFAULT_BACKEND=openbao` pour que les nouveaux
-   secrets aillent dans OpenBao.
+   secrets aillent dans OpenBao. Les secrets existants gardent leur backend
+   (`db`) et se résolvent toujours.
+
+Sur `omnirag-demo`, OpenBao est actif et `SECRET_REGISTRY_DEFAULT_BACKEND=openbao`
+depuis le 11/10/2026 (app, workers, hub-fetch) ; les secrets migrés avant
+cette date restent sur `db`. Retour arrière : remettre `db` dans les fichiers
+runtime-env, puis `agentium-vm-deploy.sh up`.
 
 Pour reconfigurer (nouvelle politique, nouveaux `secret_id`), régénérer un
 jeton root à partir de la clé de récupération (`bao operator generate-root`),
@@ -230,10 +236,11 @@ limite ; il n'est pas en place.
 `openbao-<UTC>.snap` (0600) dans `/srv/agentium-data/openbao-backups`,
 rétention `AGENTIUM_OPENBAO_BACKUP_RETAIN_DAYS` (14 jours par défaut). Les
 identifiants ne passent ni par argv ni par les journaux. Entrée cron
-quotidienne (root) :
+quotidienne (root), installée sur `omnirag-demo` dans
+`/etc/cron.d/agentium-openbao-snapshot` :
 
 ```text
-17 3 * * * <worktree>/scripts/agentium-openbao-snapshot.sh <déploiement>/runtime-env >>/var/log/agentium-openbao-snapshot.log 2>&1
+17 3 * * * root <worktree>/scripts/agentium-openbao-snapshot.sh <déploiement>/runtime-env >>/srv/agentium-data/openbao-backups/snapshot.log 2>&1
 ```
 
 Restauration (OpenBao ne sert plus de secrets pendant l'opération ; la **même
