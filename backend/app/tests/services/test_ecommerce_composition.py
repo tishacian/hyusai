@@ -89,7 +89,11 @@ def luma_artifact(tmp_path_factory):
         timeout=120,
     )
     assert result.returncode == 0, result.stderr
-    return directory / "model", json.loads((directory / "result.json").read_text())
+    summary = json.loads((directory / "result.json").read_text())
+    # Registry finalization copies the producer's contract into metrics_json;
+    # a row created directly must carry the same anchor.
+    summary["metrics"]["artifact"] = summary["artifact"]
+    return directory / "model", summary
 
 
 @pytest.fixture()
