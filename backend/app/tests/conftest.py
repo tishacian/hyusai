@@ -148,6 +148,8 @@ def db_session():
 
     # Order matters for FK constraints.
     _TRUNCATE_ORDER = [
+        "secret_versions",
+        "secrets",
         "hub_import_requests",
         "hub_import_reservations",
         "hub_artifact_usages",
