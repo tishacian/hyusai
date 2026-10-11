@@ -25,14 +25,12 @@ picked from the two training datasets rather than assumed: whichever covers both
 feature sets wins, and when neither does the request is refused with a code that
 names the missing columns instead of silently comparing on a subset.
 
-The split is reconstructed with the newer model's ``test_size`` and the fixed
-training seed, which reproduces that model's own test rows exactly. For the other
-model this is only leak-free if it was trained on the same dataset with the same
-knobs; when it was not, the response carries a warning naming it. That is
-deliberate: refusing would make the interesting comparison — a Flow-trained
-version against the baseline it is meant to beat — impossible, and a silent
-answer would be worse than either.
+New models carry a recorded partition: compare the intersection of their test
+rows, excluding every row content seen in either training partition. Changed
+datasets or incomplete proofs are refused. Legacy pairs retain reconstructed
+splits with an explicit unverified warning; they cannot prove absence of leakage.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -40,6 +38,7 @@ from typing import Any
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.tabular import MLModel, TabularDataset
+from app.resources.ml_skore_adapter import comparison_metrics
 from app.services.tabular_datasets import TabularError, read_frame
 
 logger = get_logger(__name__)
@@ -63,9 +62,7 @@ def _features(model: MLModel) -> list[str]:
     return [str(name) for name in (model.features or [])]
 
 
-def _pick_dataset(
-    db, *, left: MLModel, right: MLModel
-) -> tuple[TabularDataset, list[str]]:
+def _pick_dataset(db, *, left: MLModel, right: MLModel) -> tuple[TabularDataset, list[str]]:
     """The dataset that can host both models, and the columns it would be missing.
 
     Prefers the *right* (newer) model's dataset, because the split is
@@ -74,15 +71,13 @@ def _pick_dataset(
     """
 
     wanted = set(_features(left)) | set(_features(right)) | {str(right.target)}
+    for model in (left, right):
+        wanted.update(((model.metrics_json or {}).get("evaluation") or {}).get("columns") or [])
     shortfall: list[str] = []
     for candidate_id in (right.dataset_id, left.dataset_id):
         if not candidate_id:
             continue
-        dataset = (
-            db.query(TabularDataset)
-            .filter(TabularDataset.id == candidate_id)
-            .first()
-        )
+        dataset = db.query(TabularDataset).filter(TabularDataset.id == candidate_id).first()
         if dataset is None or dataset.status != "ready":
             continue
         held = {
@@ -126,16 +121,42 @@ def _report(model: MLModel, frame, *, target: str):
     binary = model.task == "classification" and len(classes) == 2
     positive = None
     if binary:
+        from app.resources.ml_classification_extensions import label_name
+
+        selected = ((model.metrics_json or {}).get("metric_semantics") or {}).get(
+            "positive_class", classes[-1]
+        )
         # The label as the fitted pipeline spells it, not as JSON stored it.
-        for value in getattr(entry.pipeline, "classes_", []):
-            if str(value) == classes[-1]:
-                positive = value
+        matching = [
+            value
+            for value in getattr(entry.pipeline, "classes_", [])
+            if label_name(value) == selected or str(value)[:120] == selected
+        ]
+        if len(matching) != 1:
+            raise ValueError("Stored positive class is absent from the fitted model")
+        positive = matching[0]
     return EstimatorReport(
         entry.pipeline,
         X_test=x_test,
         y_test=y_test,
         **({"pos_label": positive} if positive is not None else {}),
     )
+
+
+def _comparison_frame(dataset, columns, *, recorded):
+    if not recorded:
+        return read_frame(dataset, columns=columns).to_pandas()
+    # Same Parquet reader as training, preserving date/nullable cell semantics.
+    import tempfile
+    from pathlib import Path
+
+    import pandas as pd
+
+    from app.services.tabular_datasets import materialize
+
+    with tempfile.TemporaryDirectory(prefix="ml-comparison-") as scratch:
+        path = materialize(dataset, Path(scratch) / "dataset.parquet")
+        return pd.read_parquet(path, columns=columns).reset_index(drop=True)
 
 
 def compare(db, *, left: MLModel, right: MLModel) -> dict[str, Any]:
@@ -176,14 +197,30 @@ def compare(db, *, left: MLModel, right: MLModel) -> dict[str, Any]:
         raise TabularError(
             code="ML_COMPARE_DIFFERENT_QUESTION",
             message=(
-                "These versions do not answer the same question, so one table "
-                "cannot rank them."
+                "These versions do not answer the same question, so one table cannot rank them."
             ),
             status_code=409,
             details={
                 "left": {"task": left.task, "target": left.target},
                 "right": {"task": right.task, "target": right.target},
             },
+        )
+
+    positives = [
+        (
+            ((model.metrics_json or {}).get("metric_semantics") or {}).get(
+                "positive_class", (model.classes_json or [None])[-1]
+            )
+            if len(model.classes_json or []) == 2
+            else None
+        )
+        for model in (left, right)
+    ]
+    if left.task == "classification" and positives[0] != positives[1]:
+        raise TabularError(
+            code="ML_COMPARE_DIFFERENT_POSITIVE_CLASS",
+            message="These models use different positive classes.",
+            status_code=409,
         )
 
     dataset, _ = _pick_dataset(db, left=left, right=right)
@@ -197,27 +234,79 @@ def compare(db, *, left: MLModel, right: MLModel) -> dict[str, Any]:
 
     target = str(right.target)
     columns = sorted(set(_features(left)) | set(_features(right)) | {target})
-    frame = read_frame(dataset, columns=columns).to_pandas()
+    columns = sorted(
+        set(columns)
+        | {
+            column
+            for model in (left, right)
+            for column in ((model.metrics_json or {}).get("evaluation") or {}).get("columns", [])
+        }
+    )
+    evidence = [(model.metrics_json or {}).get("evaluation") for model in (left, right)]
+    frame = _comparison_frame(dataset, columns, recorded=any(evidence))
     frame = frame.dropna(subset=[target])
+    if right.task == "regression":
+        import pandas as pd
+
+        frame = frame[pd.to_numeric(frame[target], errors="coerce").notna()]
+
+    verified = False
+    partitions = []
+    if any(evidence):
+        from app.resources.ml_evaluation import read_partition, shared_holdout
+        from app.services.object_store import get_object_store
+        from app.services.tabular_ml import evaluation_partition_key
+
+        try:
+            for model, metadata in zip((left, right), evidence, strict=True):
+                expected = evaluation_partition_key(model.workspace_id, model.id)
+                if (
+                    not metadata
+                    or metadata.get("status") != "stored"
+                    or metadata.get("key") != expected
+                ):
+                    raise ValueError("A model lacks its recorded evaluation partition")
+                partition = read_partition(
+                    get_object_store().read_bytes(expected), sha256=metadata["sha256"]
+                )
+                source = partition.get("dataset") or {}
+                if (
+                    source.get("id") != dataset.id
+                    or source.get("id") != model.dataset_id
+                    or source.get("version") != dataset.version
+                    or partition.get("target") != target
+                ):
+                    raise ValueError("Partitions refer to different dataset versions or targets")
+                partitions.append(partition)
+            holdout = shared_holdout(frame, partitions)
+            verified = True
+        except Exception as exc:
+            raise TabularError(
+                code="ML_COMPARE_UNVERIFIED_PARTITION",
+                message="The recorded partitions cannot prove a shared unseen test set.",
+                status_code=409,
+                details={"reason": str(exc)[:200]},
+            ) from exc
 
     from sklearn.model_selection import train_test_split
 
     test_size = float(right.test_size or 0.25)
     stratify = frame[target] if right.task == "classification" else None
-    try:
-        _, holdout = train_test_split(
-            frame,
-            test_size=test_size,
-            random_state=int(settings.ml_train_random_state),
-            stratify=stratify,
-        )
-    except ValueError as exc:
-        raise TabularError(
-            code="ML_COMPARE_SPLIT_FAILED",
-            message="The comparison split could not be rebuilt on this dataset.",
-            status_code=409,
-            details={"reason": str(exc)[:200]},
-        ) from exc
+    if not verified:
+        try:
+            _, holdout = train_test_split(
+                frame,
+                test_size=test_size,
+                random_state=int(settings.ml_train_random_state),
+                stratify=stratify,
+            )
+        except ValueError as exc:
+            raise TabularError(
+                code="ML_COMPARE_SPLIT_FAILED",
+                message="The comparison split could not be rebuilt on this dataset.",
+                status_code=409,
+                details={"reason": str(exc)[:200]},
+            ) from exc
 
     from skore import ComparisonReport
 
@@ -230,13 +319,11 @@ def compare(db, *, left: MLModel, right: MLModel) -> dict[str, Any]:
             names[left.id]: _report(left, holdout, target=target),
             names[right.id]: _report(right, holdout, target=target),
         }
-        table = ComparisonReport(reports).metrics.summarize().frame()
+        rows = comparison_metrics(ComparisonReport(reports).metrics.summarize(), names=names)
     except TabularError:
         raise
     except Exception as exc:  # noqa: BLE001 - one code for "these two do not line up"
-        logger.warning(
-            "ml_comparison: failed", left=left.id, right=right.id, error=str(exc)[:200]
-        )
+        logger.warning("ml_comparison: failed", left=left.id, right=right.id, error=str(exc)[:200])
         raise TabularError(
             code="ML_COMPARE_FAILED",
             message="These two versions could not be scored on the same rows.",
@@ -244,26 +331,14 @@ def compare(db, *, left: MLModel, right: MLModel) -> dict[str, Any]:
             details={"reason": str(exc)[:200]},
         ) from exc
 
-    rows = []
-    for metric in table.index:
-        if str(metric).endswith("_time"):
-            # A predict timing is a property of this machine, not of the model.
-            continue
-        entry = {"key": str(metric)}
-        for model_id, name in names.items():
-            if name in table.columns:
-                value = table.loc[metric, name]
-                entry[model_id] = None if value is None else float(value)
-        rows.append(entry)
-
     warnings: list[dict[str, str]] = []
+    if not verified:
+        warnings.append({"code": "LEGACY_PARTITION_UNVERIFIED"})
     for model in (left, right):
         if model.dataset_id and model.dataset_id != dataset.id:
             # Some of these rows may have been in that model's training set, so
             # its column can read better than it would on unseen data.
-            warnings.append(
-                {"code": "TRAINED_ON_ANOTHER_DATASET", "model_id": model.id}
-            )
+            warnings.append({"code": "TRAINED_ON_ANOTHER_DATASET", "model_id": model.id})
         elif float(model.test_size or 0.25) != test_size:
             warnings.append({"code": "DIFFERENT_SPLIT_SIZE", "model_id": model.id})
 
@@ -279,7 +354,17 @@ def compare(db, *, left: MLModel, right: MLModel) -> dict[str, Any]:
         "split": {
             "rows": int(len(holdout)),
             "test_size": test_size,
-            "random_state": int(settings.ml_train_random_state),
+            "random_state": (
+                partitions[0]["random_state"]
+                if verified and partitions[0]["random_state"] == partitions[1]["random_state"]
+                else None
+                if verified
+                else int(settings.ml_train_random_state)
+            ),
+            "recorded_seeds": [part["random_state"] for part in partitions],
+            "verified": verified,
+            "strategy": "recorded_unseen_intersection" if verified else "legacy_reconstructed",
+            "role": "final_test",
         },
         "models": [
             {

@@ -1,0 +1,206 @@
+{
+  "budgets": {
+    "artifact_bytes": 1073741824,
+    "campaign_cpu_seconds": 43200,
+    "case_wall_seconds": 600,
+    "jobs": 1,
+    "limits_semantics": "per-case wall includes the complete measured cycle, stricter than the fit+first-predict ceiling; Linux process groups include tuning children; global CPU polling granularity 50 ms",
+    "memory_bytes": 6442450944,
+    "threads": 4
+  },
+  "candidates": [
+    "dummy",
+    "sklearn_linear",
+    "sklearn_hist",
+    "sklearn_tuned",
+    "tabicl_plain",
+    "tabicl_cache"
+  ],
+  "decision": {
+    "bootstrap_repetitions": 2000,
+    "bootstrap_seed": 86028121,
+    "business_value_status": "not_evaluated",
+    "classification_gain": 0.02,
+    "classification_noninferiority": 0.01,
+    "confidence": 0.95,
+    "energy": "not measured",
+    "final_reserve": "One final evaluation only after frozen development selection; final scores never become agent proposal context",
+    "frugal_max_cost_ratio": 0.75,
+    "money": "not measured",
+    "quality_max_cost_ratio": 2.0,
+    "rare_class": "F1 macro is primary; report rare-class recall as secondary, no degradation greater than 0.02 absolute for quality eligibility",
+    "regression_relative_gain": 0.05,
+    "regression_relative_noninferiority": 0.02,
+    "reload_atol": 1e-06,
+    "reload_rtol": 1e-06,
+    "storage": "A compute gain alone cannot qualify frugality when artifact storage increases"
+  },
+  "frozen_on": "2026-10-11",
+  "model_seed": 42,
+  "partition": {
+    "development_seeds": [
+      15485863,
+      32452843,
+      49979687
+    ],
+    "final_fraction": 0.2,
+    "final_seed": 104729,
+    "independence": "One generated or public observation per row; no temporal/group generalization claim",
+    "strategy": "iid",
+    "validation_fraction": 0.25
+  },
+  "runtime": {
+    "numpy": "2.5.2",
+    "pandas": "2.3.3",
+    "scikit-learn": "1.9.0",
+    "skops": "0.16.0",
+    "skrub": "0.11.0",
+    "tabicl": "2.2.0",
+    "torch": "2.14.0+cpu"
+  },
+  "schema": "agentium.probabl-pilot.v1",
+  "scope": "technical qualification only; public and synthetic IID data; no client ROI or deployment approval",
+  "search": {
+    "folds": 3,
+    "implementation": "existing ml_train_harness._tune / Optuna TPE",
+    "internal_objective": "Existing harness uses ROC AUC for binary, balanced accuracy for multiclass, negative MAE for regression; external primary metric stays fixed",
+    "seconds": 120,
+    "selection": "Best complete classical and foundation profile by mean development primary metric; total CPU breaks ties",
+    "trials": 4
+  },
+  "serving": {
+    "interactive_sla_ms": null,
+    "projected_request_rows": 100,
+    "projected_requests": 100,
+    "repetitions": 2,
+    "request_fixture": "Repeating reserved rows is allowed solely for latency; repetitions never enlarge statistical sample size",
+    "request_rows": [
+      1,
+      100,
+      1000
+    ]
+  },
+  "tasks": [
+    {
+      "attribution": "Wolberg, W., Mangasarian, O., Street, N., and Street, W. (1995). Breast Cancer Wisconsin (Diagnostic). UCI Machine Learning Repository. DOI: 10.24432/C5DW2B",
+      "direction": "max",
+      "id": "breast-cancer",
+      "kind": "classification",
+      "license": "CC-BY-4.0 (UCI dataset)",
+      "limitations": "Public diagnostic classification, no clinical deployment claim",
+      "metric": "f1_macro",
+      "partition_sha256": {
+        "dev-0": "fb11bc04f5c0fb5e12ae1b50dabdaf026442dd7b11f7bba15686af0fd7b6f191",
+        "dev-1": "6a85c6c863568bf16b60141a1be613cb2b8367151576975130e5e633cf0a9e03",
+        "dev-2": "281429332035718a0aaa929e2cb44269d5ee63fb3ceddfc77c5afb8e954864b8",
+        "final": "00b95c0c6d6ed21c8236b1e13eb26d94f4de1e7262677e17c3c3c03ae80afd78"
+      },
+      "reference": "https://archive.ics.uci.edu/dataset/17/breast+cancer+wisconsin+diagnostic",
+      "rows": 569,
+      "sha256": "d833846bd28b0a6a4d08d643f647e85335c88770d0dc66d240e93ca50f349ba5",
+      "source": "breast_cancer",
+      "version": "bundled scikit-learn 1.9.0"
+    },
+    {
+      "attribution": "Fisher, R. (1936). Iris. UCI Machine Learning Repository. DOI: 10.24432/C56C76",
+      "direction": "max",
+      "id": "iris-multiclass",
+      "kind": "classification",
+      "license": "CC-BY-4.0 (UCI dataset)",
+      "limitations": "Very small historical dataset; uncertainty may prevent conclusion",
+      "metric": "f1_macro",
+      "partition_sha256": {
+        "dev-0": "8ed25c4eef71cdfd022b14467833c71d41e2c322d83b22c90b2bb08fd6ab3c29",
+        "dev-1": "2970473f7f494584ab1b60460f1314d22879ceaa3ea3fc8f447f10f6a765980c",
+        "dev-2": "68c29d7455149977f7c44e37eaa4e2d3321bb9ac83ecc0f75e5644e167dae95b",
+        "final": "b1d7fa7e6735343ca1e08ad87a2b3a3aeb746ff6ae24993f02d7ad406c277a9b"
+      },
+      "reference": "https://archive.ics.uci.edu/dataset/53/iris",
+      "rows": 150,
+      "sha256": "d31529f4c8dd10c80cf4f3099c403d2a8c9b18be4a98618b576aa7a28fb1fccb",
+      "source": "iris",
+      "version": "bundled scikit-learn 1.9.0"
+    },
+    {
+      "direction": "max",
+      "generator_seed": 76001,
+      "id": "delivery-late-imbalanced-demo",
+      "kind": "classification",
+      "license": "Synthetic Agentium qualification fixture; no third-party data records",
+      "limitations": "Illustrative order-time features, generated IID rare delays; not observed business value",
+      "metric": "f1_macro",
+      "partition_sha256": {
+        "dev-0": "132c0d2212fa1ad4883da20a1432055dc42beab5e4559641c8c50c726b54f03e",
+        "dev-1": "4f1477856b7eb2dc5e5f94c82e179940a395c08a55e5fdaeff488366d8564b21",
+        "dev-2": "947685093cb513acf24d817a63a5ef5a69ec0decc8e77cec221eb21f0377ce94",
+        "final": "56726f0d941d6f3c36cdc88ec0e669d579867652076052bdfb77a66cb51d5491"
+      },
+      "reference": "backend/app/resources/probabl_pilot.py:dataset",
+      "rows": 1000,
+      "sha256": "b684d320051e2836798a79646582a904eba0f950a5b658533efe8a6838cab53c",
+      "source": "delivery_late_synthetic",
+      "version": "generator-v1"
+    },
+    {
+      "direction": "min",
+      "generator_seed": 76002,
+      "id": "linear-regression-demo",
+      "kind": "regression",
+      "license": "Synthetic output; sklearn generator source BSD-3-Clause",
+      "limitations": "Artificial linear relation, not a client dataset",
+      "metric": "mae",
+      "partition_sha256": {
+        "dev-0": "8922ef9dd041441272a73e508f10eda7787022d5952c2a3bb6930d04a9a90c5e",
+        "dev-1": "6b2db7f19e808a86645ce9575b00867759d55148d958042ecdc59b8dfa1b3361",
+        "dev-2": "18fcbb53b703461183b2a1f7ca542d6e9ea60f549edece246ece2dac8b64f031",
+        "final": "db6acd4cf4fa933f5baa3f50a319bcd71983ec361909721f83ccb961172aa647"
+      },
+      "reference": "https://scikit-learn.org/stable/modules/generated/sklearn.datasets.make_regression.html",
+      "rows": 600,
+      "sha256": "8b4de37ccbdf5aa4d05fac1dadba27399d8985b29d4be91d62277e8d6b601971",
+      "source": "linear_synthetic",
+      "version": "generator-v1 / scikit-learn 1.9.0"
+    },
+    {
+      "direction": "min",
+      "generator_seed": 76003,
+      "id": "friedman-mixed-demo",
+      "kind": "regression",
+      "license": "Synthetic output; sklearn generator source BSD-3-Clause",
+      "limitations": "Artificial nonlinear relation with irrelevant categorical region",
+      "metric": "mae",
+      "partition_sha256": {
+        "dev-0": "91ac31606f4cc6f9ab5e7d2ef15feb75f1d52fa0b4d9bd6f50429e4116cdeb36",
+        "dev-1": "2b664d14e7d9c6945dc31d154e700a2d019d6c31f8f5c0840d8fe119b1ab73fd",
+        "dev-2": "0196231e337e44ce8fa2f5c3713e521057c08eb564b853e1e8c7e8a9650ee9d4",
+        "final": "ef756aade37cae62a677d43557bc34b14a08d9bd75b9994c89e8c6b1bfee4fb3"
+      },
+      "reference": "https://scikit-learn.org/stable/modules/generated/sklearn.datasets.make_friedman1.html",
+      "rows": 800,
+      "sha256": "e038cc7d52e81195dda4690388778a57165abda93efaf59013bf7cf715ba461d",
+      "source": "friedman_synthetic",
+      "version": "generator-v1 / scikit-learn 1.9.0"
+    },
+    {
+      "direction": "min",
+      "generator_seed": 76004,
+      "id": "delivery-cost-mixed-demo",
+      "kind": "regression",
+      "license": "Synthetic Agentium qualification fixture; no third-party data records",
+      "limitations": "Illustrative costs from order-time features; target is generated, never financial ROI",
+      "metric": "mae",
+      "partition_sha256": {
+        "dev-0": "2a5bdd03c2615927fab8c6600fa5b1a4e211548d91203eba96e471598a454178",
+        "dev-1": "1f5ea5b3224700d9531d6c9b96649c8ace7966b8bf6488fb365508e95ab4d285",
+        "dev-2": "f8981c6b20426276291e5a6a5b11a7b2d9481eadb4f1447409a09811e8fed6a7",
+        "final": "ffce6f4f7728c0df680676ae3569b223321dd6933a227ebd130d9bd70fc6e7d2"
+      },
+      "reference": "backend/app/resources/probabl_pilot.py:dataset",
+      "rows": 1000,
+      "sha256": "aed90cc37e21c9853814652f04e665d231c69937bf7dfeb2b3f34dab5959911e",
+      "source": "delivery_cost_synthetic",
+      "version": "generator-v1"
+    }
+  ],
+  "version": 1
+}

@@ -1,1 +1,3 @@
 *.pdf binary
+# Byte-for-byte upstream notice; its final blank line is part of the pinned SHA.
+backend/app/resources/tabicl/LICENSE -text whitespace=-blank-at-eof

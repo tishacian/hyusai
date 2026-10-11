@@ -19,7 +19,7 @@ router = APIRouter()
 
 
 class ActivationBody(BaseModel):
-    usage: Literal["forecasting", "embedding", "reranker"]
+    usage: Literal["forecasting", "embedding", "reranker", "tabular_foundation"]
     runtime: Literal["ml", "rag"] | None = None
 
 

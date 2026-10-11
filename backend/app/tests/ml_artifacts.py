@@ -114,4 +114,8 @@ def fit_churn_artifact(
         timeout=900,
     )
     assert completed.returncode == 0, completed.stderr
-    return model_dir, json.loads(result_path.read_text(encoding="utf-8"))
+    summary = json.loads(result_path.read_text(encoding="utf-8"))
+    # Registry finalization copies the producer's contract into metrics_json.
+    # Fixtures creating registry rows directly must preserve that same anchor.
+    summary["metrics"]["artifact"] = summary["artifact"]
+    return model_dir, summary

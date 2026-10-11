@@ -62,17 +62,18 @@ def live_skill_definition_sha256(skill: Skill) -> str | None:
     was written to remove.
     """
 
-    if not isinstance(skill.executor, Mapping):
+    from app.services.ml_methodology import freeze_method_in_binding, frozen_method_executor
+
+    executor = frozen_method_executor(skill.slug) or skill.executor
+    if not isinstance(executor, Mapping):
         return None
     try:
         return skill_definition_sha256(
-            input_schema=validate_schema_definition(
-                skill.input_schema or {}, field="input_schema"
-            ),
+            input_schema=validate_schema_definition(skill.input_schema or {}, field="input_schema"),
             output_schema=validate_schema_definition(
                 skill.output_schema or {}, field="output_schema"
             ),
-            executor=dict(skill.executor),
+            executor=freeze_method_in_binding(dict(executor)),
         )
     except FlowContractError:
         return None

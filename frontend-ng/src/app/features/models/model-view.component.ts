@@ -1,6 +1,9 @@
 import { ForecastActualsComponent } from './forecast-actuals.component';
 import { ScheduledMonitoringComponent } from './scheduled-monitoring.component';
 import { ClassificationEvidenceComponent } from "./classification-evidence.component";
+import { EvaluationEvidenceComponent } from "./evaluation-evidence.component";
+import { PreprocessingEvidenceComponent } from './preprocessing-evidence.component';
+import { fittedPreparation } from './preprocessing-evidence.vm';
 import { ExplanationEvidenceComponent } from "./explanation-evidence.component";
 /**
  * Model card — the evidence, the contract, the lineage and the settings.
@@ -131,6 +134,8 @@ const CHART_ASPECT = 300 / 190;
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     ClassificationEvidenceComponent,
+    EvaluationEvidenceComponent,
+    PreprocessingEvidenceComponent,
     ExplanationEvidenceComponent,
     NavLinkDirective,
     CkBackLinkComponent,
@@ -569,6 +574,16 @@ const CHART_ASPECT = 300 / 190;
               }
 
               <ck-tabular-intervals [intervals]="model()?.metrics?.intervals" />
+              <section data-testid="artifact-contract">
+                <div class="ck-section-label">{{ i18n.t('models.artifact.contract_title') }}</div>
+                <p class="ck-hint">{{ i18n.t(row.metrics?.artifact?.contract_version === 1 ? 'models.artifact.contract_recorded' : 'models.artifact.contract_legacy') }}</p>
+              </section>
+              @if (row.family === 'tabular' || row.family === 'tabular_deep' || !row.family) {
+                <ck-preprocessing-evidence [evidence]="row.metrics?.preprocessing" />
+              }
+              @if (row.family === 'tabular' || !row.family) {
+                <ck-evaluation-evidence [metrics]="row.metrics ?? null" [modelId]="row.id" />
+              }
               <div class="ck-charts">
                 <ck-classification-evidence [calibration]="calibration()" [decision]="decision()" [warnings]="classificationWarnings()" />
                 <ck-explanation-evidence [evidence]="explanations()" [regression]="row.task === 'regression'" />
@@ -801,6 +816,7 @@ const CHART_ASPECT = 300 / 190;
                   </button>
                 } @else if (sameRows(); as joint) {
                   <div class="mt-2 space-y-2">
+                    <div class="ck-hint" data-testid="comparison-verification">{{ i18n.t(joint.split.verified ? 'models.compare.same.verified' : 'models.compare.same.unverified') }}</div>
                     <div class="text-[11px] ck-mono" style="color: var(--ck-fg-3)">
                       {{
                         i18n.t('models.compare.same.provenance', {
@@ -1992,7 +2008,8 @@ export class ModelViewComponent implements OnInit {
       },
       {
         label: this.i18n.t('models.setup.preprocessing'),
-        value: this.i18n.t('models.setup.preprocessing.value'),
+        value: this.i18n.t(fittedPreparation(row.metrics?.preprocessing)
+          ? 'models.preparation.recorded' : 'models.preparation.unavailable'),
       },
     ];
     if (row.task === 'clustering') {

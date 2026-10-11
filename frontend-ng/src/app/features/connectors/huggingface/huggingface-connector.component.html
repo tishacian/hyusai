@@ -139,12 +139,15 @@
       <article class="hf-artifact">
         <div><strong>{{ artifact.repo_id }}</strong><p class="hf-sha">{{ artifact.revision }}</p><p>{{ artifact.format }} {{ artifact.variant }} · {{ bytes(artifact.total_bytes) }} · {{ artifact.status }}</p><p class="hf-muted">{{ artifact.license }} · {{ artifact.artifact_id }}</p>
           @if (artifact.in_catalogue) { <span class="ck-pill">{{ i18n.t('connectors.hf.catalogue') }}</span> }
-          @if (artifact.error_code) { <p class="hf-error">{{ artifact.error_code }}</p> }
+          @if (artifact.error_code) { <p class="hf-error">{{ errorCode(artifact.error_code) }}</p> }
         </div>
         <div class="hf-actions">
           @if (settings.can_import_models && artifact.kind === 'model' && artifact.status === 'ready' && artifact.has_access && artifact.format === 'safetensors') {
             <button type="button" class="ck-btn" (click)="activateArtifact(artifact, 'forecasting')" [disabled]="busy()">{{ i18n.t('connectors.hf.activate_forecast') }}</button>
             <button type="button" class="ck-btn" (click)="activateArtifact(artifact, 'embedding')" [disabled]="busy()">{{ i18n.t('connectors.hf.activate_embedding') }}</button>
+            @if (artifact.repo_id.startsWith('agentium-converted/tabicl-v2-')) {
+              <button type="button" class="ck-btn" (click)="activateArtifact(artifact, 'tabular_foundation')" [disabled]="busy()">{{ i18n.t('connectors.hf.activate_tabicl') }}</button>
+            }
           }
           <button type="button" class="ck-btn" (click)="showUsages(artifact)">{{ i18n.t('connectors.hf.usages') }}</button>
           @if (!artifact.has_access && artifact.status === 'ready' && (artifact.kind === 'model' ? settings.can_import_models : settings.can_import_datasets)) { <button type="button" class="ck-btn" (click)="grantArtifact(artifact)" [disabled]="busy()">{{ i18n.t('connectors.hf.grant') }}</button> }

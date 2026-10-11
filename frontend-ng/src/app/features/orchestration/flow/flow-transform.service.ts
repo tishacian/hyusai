@@ -57,6 +57,13 @@ import {
 
 /** What a settled preview describes, whatever engine produced it. */
 export interface TransformPreviewResult {
+  enrichment?: {
+    contract: Record<string, unknown>;
+    unmatched_rows: number;
+    unmatched_fraction: number;
+    output_rows: number;
+    feature_columns: string[];
+  };
   row_count: number;
   column_count: number;
   schema: TabularColumn[];
@@ -79,6 +86,7 @@ interface QueuedPreviewResponse {
 
 /** Everything a transform run needs beyond its program and its pins. */
 export interface TransformRunOptions {
+  enrichment?: unknown;
   rowLimit?: number;
   requirementsText?: string;
   timeoutS?: number;
@@ -227,6 +235,14 @@ export class FlowTransformService {
             }),
           'DBT_CANCELLED',
         );
+      } else if (Object.hasOwn(options, 'enrichment')) {
+        const response = await firstValueFrom(this.http.post<TransformPreviewResult>(
+          '/api/v1/datasets/enrichment-preview',
+          { enrichment: options.enrichment, row_limit: options.rowLimit ?? 50 },
+        ));
+        if (this.disposed) return;
+        this.preview.set(response);
+        this.sources.set(response.sources ?? []);
       } else {
         const response = await this.postSql({
           sql: program,
@@ -407,6 +423,12 @@ export class FlowTransformService {
   private toFailure(error: unknown): TransformFailure {
     if (error instanceof HttpErrorResponse) {
       const detail = isRecord(error.error) ? error.error['detail'] : null;
+      if (error.url?.includes('/enrichment-preview') && Array.isArray(detail)) {
+        const fields = detail.filter(isRecord).slice(0, 6)
+          .map((entry) => Array.isArray(entry['loc']) ? entry['loc'].join('.') : '')
+          .filter(Boolean).join(', ');
+        return transformFailure('ENRICHMENT_SPEC_INVALID', fields);
+      }
       if (isRecord(detail)) {
         return transformFailure(
           typeof detail['code'] === 'string' ? detail['code'] : null,

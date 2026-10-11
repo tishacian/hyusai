@@ -21,7 +21,7 @@
           <label class="hf-grow">{{ i18n.t('connectors.hf.deployment_id') }}<input name="deploymentId" [(ngModel)]="deploymentId" required /></label><button type="submit" class="ck-btn" [disabled]="busy() || !deploymentId.trim()">{{ i18n.t('connectors.hf.track') }}</button>
         </form>
         @for (deployment of deployments(); track deployment.deployment_id) {
-          <article class="hf-artifact"><div><strong>{{ deployment.deployment_id }}</strong><p>{{ deployment.node_name }} · {{ deployment.state }}</p>@if (deployment.error_code) { <p class="hf-error">{{ deployment.error_code }}</p> }</div><div class="hf-actions"><button type="button" class="ck-btn" [disabled]="busy()" (click)="deploymentAction(deployment.deployment_id)">{{ i18n.t('connectors.hf.refresh') }}</button>@if (deployment.state !== 'stopped') { <button type="button" class="ck-btn" [disabled]="busy()" (click)="deploymentAction(deployment.deployment_id, 'stop')">{{ i18n.t('connectors.hf.stop') }}</button> }</div></article>
+          <article class="hf-artifact"><div><strong>{{ deployment.deployment_id }}</strong><p>{{ deployment.node_name }} · {{ deployment.state }}</p>@if (deployment.error_code) { <p class="hf-error">{{ errorCode(deployment.error_code) }}</p> }</div><div class="hf-actions"><button type="button" class="ck-btn" [disabled]="busy()" (click)="deploymentAction(deployment.deployment_id)">{{ i18n.t('connectors.hf.refresh') }}</button>@if (deployment.state !== 'stopped') { <button type="button" class="ck-btn" [disabled]="busy()" (click)="deploymentAction(deployment.deployment_id, 'stop')">{{ i18n.t('connectors.hf.stop') }}</button> }</div></article>
         }
       </details>
       <details>
@@ -45,7 +45,7 @@
         </details>
       }
       @if (jobs().length) {
-        <div aria-live="polite">@for (job of jobs(); track job.job_id) { <div class="hf-artifact"><div><strong>{{ job.job_id }}</strong><p>{{ job.status }} · {{ job.stage }}</p>@if (job.error_code) { <p class="hf-error">{{ job.error_code }}</p> }</div>@if (job.stage === 'license_required' && job.license) {
+        <div aria-live="polite">@for (job of jobs(); track job.job_id) { <div class="hf-artifact"><div><strong>{{ job.job_id }}</strong><p>{{ job.status }} · {{ job.stage }}</p>@if (job.error_code) { <p class="hf-error">{{ errorCode(job.error_code) }}</p> }</div>@if (job.stage === 'license_required' && job.license) {
           <div class="hf-stack"><strong>{{ job.license.tag }}</strong><pre class="hf-license">{{ job.license.text }}</pre><p class="hf-sha">{{ job.license.digest }}</p><label class="hf-inline"><input type="checkbox" [checked]="acceptedLicenses().includes(job.job_id)" (change)="toggleLicense(job.job_id, $any($event.target).checked)" />{{ i18n.t('connectors.hf.accept_check') }}</label><button type="button" class="ck-btn" [disabled]="busy() || !acceptedLicenses().includes(job.job_id)" (click)="acceptLicense(job)">{{ i18n.t('connectors.hf.accept') }}</button></div>
         }
         @if (job.download_available) { <button type="button" class="ck-btn" (click)="download(job)" [disabled]="downloadBusy()">{{ i18n.t('connectors.hf.download') }}</button> }</div> }</div>

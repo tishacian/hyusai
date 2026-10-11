@@ -220,9 +220,17 @@ def frequency_key(frequency: str | None) -> str | None:
     head = frequency.lstrip("1").split("-")[0]
     if head.lower() == "h":
         return "h"
-    return {"D": "D", "B": "D", "W": "W", "MS": "MS", "ME": "MS", "M": "MS", "QS": "QS", "QE": "QS", "Q": "QS"}.get(
-        head.upper()
-    )
+    return {
+        "D": "D",
+        "B": "D",
+        "W": "W",
+        "MS": "MS",
+        "ME": "MS",
+        "M": "MS",
+        "QS": "QS",
+        "QE": "QS",
+        "Q": "QS",
+    }.get(head.upper())
 
 
 def _season(frequency: str) -> int:
@@ -301,7 +309,9 @@ def analyse_series(values, *, season: int, lags: list[int]) -> dict:
     analysis: dict = {"points": count, "season": season}
     if count < 12 or float(series.std() or 0) == 0.0:
         return analysis
-    wanted = sorted({lag for lag in lags if lag >= 1} | {season * k for k in (1, 2, 7) if season > 1})
+    wanted = sorted(
+        {lag for lag in lags if lag >= 1} | {season * k for k in (1, 2, 7) if season > 1}
+    )
     nlags = int(min(count // 3, max([*wanted, 2 * season, 24])))
     correlations = acf(series, nlags=nlags, fft=True)
     analysis["confidence"] = _number(1.96 / math.sqrt(count))
@@ -313,7 +323,9 @@ def analyse_series(values, *, season: int, lags: list[int]) -> dict:
         partial = pacf(series, nlags=partial_lags, method="ywm")
         confidence = 1.96 / math.sqrt(count)
         significant = [
-            (lag, float(partial[lag])) for lag in range(1, partial_lags + 1) if abs(partial[lag]) > confidence
+            (lag, float(partial[lag]))
+            for lag in range(1, partial_lags + 1)
+            if abs(partial[lag]) > confidence
         ]
         significant.sort(key=lambda item: -abs(item[1]))
         analysis["suggested_lags"] = sorted(lag for lag, _ in significant[:6])
@@ -378,7 +390,9 @@ def diagnose_regressor(
     X, y = forecaster.create_train_X_y(**inputs)
     estimator = forecaster.estimator
     if direct:
-        X, y = forecaster.filter_train_X_y_for_step(step=1, X_train=X, y_train=y, remove_suffix=True)
+        X, y = forecaster.filter_train_X_y_for_step(
+            step=1, X_train=X, y_train=y, remove_suffix=True
+        )
         estimator = forecaster.estimators_[1]
     order = np.argsort(np.asarray(X.index), kind="stable")
     X, y = X.iloc[order], y.iloc[order]
@@ -389,7 +403,11 @@ def diagnose_regressor(
     report = EstimatorReport(model, X_test=X.iloc[cut:], y_test=y.iloc[cut:])
     reader = _tabular_reader()
     read = reader._regression_metrics(report, curve_points=_CURVE_POINTS)
-    state = reader._persist_report(report, report_path, limit_bytes=limit_bytes) if report_path else None
+    state = (
+        reader._persist_report(report, report_path, limit_bytes=limit_bytes)
+        if report_path
+        else None
+    )
     return (
         {
             "step": 1 if direct else None,
@@ -417,7 +435,9 @@ def _explain_fit(forecaster, *, inputs: dict, direct: bool, groups_of) -> tuple[
     X, y = forecaster.create_train_X_y(**inputs)
     estimator = forecaster.estimator
     if direct:
-        X, y = forecaster.filter_train_X_y_for_step(step=1, X_train=X, y_train=y, remove_suffix=True)
+        X, y = forecaster.filter_train_X_y_for_step(
+            step=1, X_train=X, y_train=y, remove_suffix=True
+        )
         estimator = forecaster.estimators_[1]
     sample = X.sample(min(EXPLAIN_ROWS, len(X)), random_state=0) if len(X) > EXPLAIN_ROWS else X
     columns = [str(column) for column in X.columns]
@@ -426,7 +446,9 @@ def _explain_fit(forecaster, *, inputs: dict, direct: bool, groups_of) -> tuple[
     if hasattr(estimator, "coef_"):
         kind = "linear"
         coef = np.ravel(estimator.coef_)
-        weights = np.abs(coef * (sample.to_numpy(dtype=float) - X.mean().to_numpy(dtype=float))).mean(axis=0)
+        weights = np.abs(
+            coef * (sample.to_numpy(dtype=float) - X.mean().to_numpy(dtype=float))
+        ).mean(axis=0)
     else:
         kind = "tree"
         try:
@@ -464,7 +486,8 @@ def _explain_fit(forecaster, *, inputs: dict, direct: bool, groups_of) -> tuple[
         "method": method,
         "step": 1 if direct else None,
         "groups": [
-            {"group": group, "share": _number(share)} for group, share in sorted(shares.items(), key=lambda kv: -kv[1])
+            {"group": group, "share": _number(share)}
+            for group, share in sorted(shares.items(), key=lambda kv: -kv[1])
         ],
         "features": features[:_TOP_FEATURES],
         "lags": [{"lag": lag, "value": _number(value)} for lag, value in sorted(lags.items())],
@@ -488,17 +511,26 @@ def build_forecaster(manifest, *, frequency, lags):
         ForecasterRecursiveMultiSeries,
         ForecasterStats,
     )
+
     spec = manifest["spec"]
     algo, target = manifest["algo"], manifest["target"]
     shape, horizon = spec.get("shape", "single"), int(spec["horizon"])
     season = _season(frequency)
-    calendar = CalendarFeatures(features=_calendar_features(frequency)) if spec.get("calendar", True) else None
+    calendar = (
+        CalendarFeatures(features=_calendar_features(frequency))
+        if spec.get("calendar", True)
+        else None
+    )
     if algo == "seasonal_naive":
         return ForecasterEquivalentDate(offset=season, n_offsets=1), "naive"
     if algo in ("ets", "arima"):
         from skforecast.stats import Arima, Ets
 
-        estimator = Ets(m=season) if algo == "ets" else Arima(order=(1, 1, 1), seasonal_order=(0, 1, 1), m=season)
+        estimator = (
+            Ets(m=season)
+            if algo == "ets"
+            else Arima(order=(1, 1, 1), seasonal_order=(0, 1, 1), m=season)
+        )
         return ForecasterStats(estimator=estimator), "stats"
     regressor = _resolve_regressor(manifest.get("estimator"), dict(manifest.get("params") or {}))
     if shape == "panel":
@@ -507,10 +539,17 @@ def build_forecaster(manifest, *, frequency, lags):
         )
     elif shape == "multivariate":
         built = ForecasterDirectMultiVariate(
-            estimator=regressor, level=target, steps=horizon, lags=lags, calendar_features=calendar, n_jobs=1
+            estimator=regressor,
+            level=target,
+            steps=horizon,
+            lags=lags,
+            calendar_features=calendar,
+            n_jobs=1,
         )
     elif spec.get("strategy") == "direct":
-        built = ForecasterDirect(estimator=regressor, steps=horizon, lags=lags, calendar_features=calendar, n_jobs=1)
+        built = ForecasterDirect(
+            estimator=regressor, steps=horizon, lags=lags, calendar_features=calendar, n_jobs=1
+        )
     else:
         built = ForecasterRecursive(estimator=regressor, lags=lags, calendar_features=calendar)
     return built, "regression"
@@ -574,14 +613,19 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             if frame.duplicated(["_series", time_column]).any():
                 return _fail(2, "ml_ts_duplicates: a series repeats a date")
             first = frame[frame["_series"] == frame["_series"].iloc[0]]
-            frequency = _frequency(pd.DatetimeIndex(first[time_column]), spec.get("frequency", "auto"))
+            frequency = _frequency(
+                pd.DatetimeIndex(first[time_column]), spec.get("frequency", "auto")
+            )
             if not frequency:
                 return _fail(2, "ml_ts_frequency: the dates follow no regular step")
             # A static covariate is coded once, over the whole panel, so the
             # same region is the same number in every series.
             for column in static_cols:
                 if frame.groupby("_series")[column].nunique(dropna=True).gt(1).any():
-                    return _fail(2, f"ml_ts_static_varies: '{column}' changes within a series, so it is not static")
+                    return _fail(
+                        2,
+                        f"ml_ts_static_varies: '{column}' changes within a series, so it is not static",
+                    )
                 if not pd.api.types.is_numeric_dtype(frame[column]):
                     labels = sorted(frame[column].dropna().astype(str).unique())
                     static_codes[column] = {label: float(code) for code, label in enumerate(labels)}
@@ -598,7 +642,9 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
                 key = str(name)
                 series_map[key] = grid[target].astype(float)
                 static_values[key] = {
-                    column: _number(rows[column].dropna().iloc[0]) if rows[column].notna().any() else None
+                    column: _number(rows[column].dropna().iloc[0])
+                    if rows[column].notna().any()
+                    else None
                     for column in static_cols
                 }
                 if future_cols or static_cols:
@@ -633,18 +679,26 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         return _fail(2, str(exc))
 
     season = _season(frequency)
-    reserved = (folds + int(manifest["tuning"]["folds"]) + 2) * horizon if manifest.get("tuning") else max(2, folds + 1) * horizon
+    reserved = (
+        (folds + int(manifest["tuning"]["folds"]) + 2) * horizon
+        if manifest.get("tuning")
+        else max(2, folds + 1) * horizon
+    )
     # Lags the author did not choose follow the frequency the data turned out
     # to have, trimmed to what the history can feed.
     lags = asked_lags or default_lags(frequency, history=history, reserved=reserved)
     needed = reserved + max(lags)
     if history < needed:
-        return _fail(3, f"ml_ts_history: {history} steps, {needed} needed for this horizon, lags and folds")
+        return _fail(
+            3, f"ml_ts_history: {history} steps, {needed} needed for this horizon, lags and folds"
+        )
 
     tuning_result = None
     if manifest.get("tuning"):
         if algo in ("ets", "arima", "seasonal_naive") or fill == "interpolate":
-            return _fail(5, "ml_ts_tuning_unsupported: regressor and non-interpolated history required")
+            return _fail(
+                5, "ml_ts_tuning_unsupported: regressor and non-interpolated history required"
+            )
         # The search child receives the prefix only: even the path to the
         # original dataset is absent. The last outer folds remain untouched.
         import importlib.util
@@ -658,11 +712,20 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         train = {
             "truth": truth.loc[truth.index < cutoff],
             "y": y.loc[y.index < cutoff] if shape != "panel" else None,
-            "series": ({name: values.loc[values.index < cutoff] for name, values in series_map.items()}
-                       if shape == "panel" else series_frame.loc[series_frame.index < cutoff]
-                       if shape == "multivariate" else None),
-            "exog": ({name: values.loc[values.index < cutoff] for name, values in exog_map.items()}
-                     if shape == "panel" else exog.loc[exog.index < cutoff] if exog is not None else None),
+            "series": (
+                {name: values.loc[values.index < cutoff] for name, values in series_map.items()}
+                if shape == "panel"
+                else series_frame.loc[series_frame.index < cutoff]
+                if shape == "multivariate"
+                else None
+            ),
+            "exog": (
+                {name: values.loc[values.index < cutoff] for name, values in exog_map.items()}
+                if shape == "panel"
+                else exog.loc[exog.index < cutoff]
+                if exog is not None
+                else None
+            ),
         }
         try:
             params, tuning_result = tuner.tune(manifest, train, frequency=frequency, lags=lags)
@@ -684,7 +747,11 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     )
     from skforecast.preprocessing import CalendarFeatures
 
-    calendar = CalendarFeatures(features=_calendar_features(frequency)) if spec.get("calendar", True) else None
+    calendar = (
+        CalendarFeatures(features=_calendar_features(frequency))
+        if spec.get("calendar", True)
+        else None
+    )
 
     try:
         forecaster, kind = build_forecaster(manifest, frequency=frequency, lags=lags)
@@ -698,7 +765,9 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     span = len(truth)
     lower = upper = None
     try:
-        cv = TimeSeriesFold(steps=horizon, initial_train_size=span - folds * horizon, refit=kind == "stats")
+        cv = TimeSeriesFold(
+            steps=horizon, initial_train_size=span - folds * horizon, refit=kind == "stats"
+        )
         # skforecast parallelizes a backtest with joblib workers by default; each
         # one copies the data, and the worker grants a fit a fixed thread budget
         # (OMP_NUM_THREADS) under a memory ceiling. One budget for both.
@@ -729,7 +798,9 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         points["level"] = target
     points["level"] = points["level"].astype(str)
     points = points[points["level"].isin([str(column) for column in truth.columns])]
-    points["actual"] = _long(truth).reindex(pd.MultiIndex.from_arrays([points.index, points["level"]])).to_numpy()
+    points["actual"] = (
+        _long(truth).reindex(pd.MultiIndex.from_arrays([points.index, points["level"]])).to_numpy()
+    )
     if "fold" not in points.columns:
         points["fold"] = points.groupby("level").cumcount() // horizon
     points["step"] = points.groupby(["level", "fold"]).cumcount() + 1
@@ -749,17 +820,26 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
                 points.loc[mask, "lower"] = points.loc[mask, "pred"] - width
                 points.loc[mask, "upper"] = points.loc[mask, "pred"] + width
     bracketed = points.dropna(subset=["lower", "upper", "actual"])
-    inside = (bracketed["actual"] >= bracketed["lower"]) & (bracketed["actual"] <= bracketed["upper"])
+    inside = (bracketed["actual"] >= bracketed["lower"]) & (
+        bracketed["actual"] <= bracketed["upper"]
+    )
     covered = inside.mean() if len(bracketed) else None
     width = (bracketed["upper"] - bracketed["lower"]).mean() if len(bracketed) else None
 
     if "levels" in table.columns:
         overall = table[table["levels"].isin(SUMMARY_LEVELS[:2])].head(1)
-        overall = overall.drop(columns=["levels"]) if len(overall) else table.drop(columns=["levels"]).mean().to_frame().T
+        overall = (
+            overall.drop(columns=["levels"])
+            if len(overall)
+            else table.drop(columns=["levels"]).mean().to_frame().T
+        )
         per_level = table[~table["levels"].isin(SUMMARY_LEVELS)]
     else:
         overall, per_level = table, None
-    raw = {key: _number(value) for key, value in (overall.iloc[0].to_dict() if len(overall) else {}).items()}
+    raw = {
+        key: _number(value)
+        for key, value in (overall.iloc[0].to_dict() if len(overall) else {}).items()
+    }
     mse = raw.get("mean_squared_error")
     mape = raw.get("mean_absolute_percentage_error")
     scores = {
@@ -837,7 +917,8 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
                 groups_of=groups_of,
             )
             importances = [
-                {"feature": item["feature"], "value": item["value"]} for item in explanation.get("features", [])
+                {"feature": item["feature"], "value": item["value"]}
+                for item in explanation.get("features", [])
             ]
         except Exception as exc:  # noqa: BLE001 - an explanation is evidence, not the fit
             explanation = {"method": "unavailable", "reason": f"{type(exc).__name__}: {exc}"[:200]}
@@ -877,10 +958,16 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
                 limit_bytes=int(float(manifest.get("report_state_limit_mb") or 0) * 1024 * 1024),
             )
         except Exception as exc:  # noqa: BLE001 - a diagnostic is evidence, not the fit
-            print(f"ml_forecast_diagnostic_skipped: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+            print(
+                f"ml_forecast_diagnostic_skipped: {type(exc).__name__}: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
 
     # ---- the anatomy of the series it was fitted on -------------------------
-    plotted_names = [name for name in (sorted(series_map) if shape == "panel" else [target])][:_PLOTTED_SERIES]
+    plotted_names = [name for name in (sorted(series_map) if shape == "panel" else [target])][
+        :_PLOTTED_SERIES
+    ]
     analyses = []
     for name in plotted_names:
         try:
@@ -903,7 +990,9 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
                 "lower": _number(row["lower"]),
                 "upper": _number(row["upper"]),
                 "side": "above" if above else "below",
-                "gap": _number(row["actual"] - row["upper"] if above else row["lower"] - row["actual"]),
+                "gap": _number(
+                    row["actual"] - row["upper"] if above else row["lower"] - row["actual"]
+                ),
             }
         )
     excursions.sort(key=lambda item: -(item["gap"] or 0))
@@ -960,7 +1049,10 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     from mlflow.models import ModelSignature
     from mlflow.types import ColSpec, ParamSchema, ParamSpec, Schema
 
-    inputs = [ColSpec("string", "series", required=False), ColSpec("string", "timestamp", required=False)]
+    inputs = [
+        ColSpec("string", "series", required=False),
+        ColSpec("string", "timestamp", required=False),
+    ]
     inputs += [ColSpec("double", column, required=False) for column in future_cols]
     signature = ModelSignature(
         inputs=Schema(inputs),
@@ -973,7 +1065,9 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
                 ColSpec("double", "upper_bound"),
             ]
         ),
-        params=ParamSchema([ParamSpec("horizon", "long", horizon), ParamSpec("interval_level", "double", level)]),
+        params=ParamSchema(
+            [ParamSpec("horizon", "long", horizon), ParamSpec("interval_level", "double", level)]
+        ),
     )
     from importlib.metadata import PackageNotFoundError
     from importlib.metadata import version as package_version
@@ -995,6 +1089,14 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             pip_requirements=requirements,
         )
         artifact_sha = _sha256(model_dir / "artifacts" / artifact.name)
+        try:
+            from app.resources.ml_artifact_contract import build_artifact_contract
+        except ModuleNotFoundError:
+            from ml_artifact_contract import build_artifact_contract
+
+        artifact_contract = build_artifact_contract(
+            model_dir, family="forecasting", serialization=serialization, trusted_types=trusted
+        )
     except Exception as exc:  # noqa: BLE001
         return _fail(4, f"ml_artifact_unwritable: {type(exc).__name__}: {exc}")
     finally:
@@ -1033,12 +1135,16 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     ]
     per_step = points.assign(
         error=residual,
-        inside=((points["actual"] >= points["lower"]) & (points["actual"] <= points["upper"])).where(
-            points["lower"].notna()
-        ),
+        inside=(
+            (points["actual"] >= points["lower"]) & (points["actual"] <= points["upper"])
+        ).where(points["lower"].notna()),
     )
     per_horizon = [
-        {"step": int(step), "mae": _number(rows["error"].mean()), "coverage": _number(rows["inside"].dropna().mean())}
+        {
+            "step": int(step),
+            "mae": _number(rows["error"].mean()),
+            "coverage": _number(rows["inside"].dropna().mean()),
+        }
         for step, rows in per_step.groupby("step")
     ]
     # The context the backtest starts from: what the series did just before the
@@ -1048,7 +1154,10 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         first = sample.index[sample["level"] == name].min()
         series = truth[name].dropna()
         before = series[series.index < first].tail(min(2 * horizon, _POINTS // 3))
-        history_tail += [{"t": str(stamp), "series": name, "value": _number(value)} for stamp, value in before.items()]
+        history_tail += [
+            {"t": str(stamp), "series": name, "value": _number(value)}
+            for stamp, value in before.items()
+        ]
     scored = {key: value for key, value in scores.items() if value is not None}
     primary_key = "mase" if scored.get("mase") is not None else "mae"
     metrics = {
@@ -1068,7 +1177,9 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             "interval_level": level,
             "interval_method": "model" if kind == "stats" else "conformal",
             "lags": lags if kind == "regression" else [],
-            "calendar": _calendar_features(frequency) if calendar is not None and kind == "regression" else [],
+            "calendar": _calendar_features(frequency)
+            if calendar is not None and kind == "regression"
+            else [],
             "series_count": len(levels),
             "filled_steps": int(holes),
             "fill": fill,
@@ -1097,12 +1208,25 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     summary = {
         "metrics": metrics,
         "signature": {
-            "inputs": [{"name": column, "type": "double", "kind": "number", "role": "future"} for column in future_cols],
-            "output": {"task": "forecasting", "target": target, "levels": levels[:_PER_SERIES], "horizon": horizon},
+            "inputs": [
+                {"name": column, "type": "double", "kind": "number", "role": "future"}
+                for column in future_cols
+            ],
+            "output": {
+                "task": "forecasting",
+                "target": target,
+                "levels": levels[:_PER_SERIES],
+                "horizon": horizon,
+            },
         },
         "input_example": [],
         "classes": [],
-        "artifact": {"serialization": serialization, "sha256": artifact_sha, "code_sha256": _sha256(PYFUNC)},
+        "artifact": {
+            **artifact_contract,
+            "sha256": artifact_sha,
+            "code_file": PYFUNC.name,
+            "code_sha256": _sha256(PYFUNC),
+        },
         # The skore report's own state, uploaded by the worker like a tabular one.
         "report_state": report_state,
         "duration_ms": round((time.monotonic() - started) * 1000, 1),

@@ -1,0 +1,96 @@
+{
+  "checked_on": "2026-10-11",
+  "producer": {
+    "python": "3.12",
+    "mlflow": "3.15.2",
+    "scikit-learn": "1.9.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1",
+    "pandas": "2.3.3",
+    "skrub": "0.10.1",
+    "skops": "0.14.0"
+  },
+  "reader": {
+    "python": "3.12",
+    "mlflow": "3.15.2",
+    "scikit-learn": "1.9.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1",
+    "pandas": "2.3.3",
+    "skrub": "0.11.0",
+    "skops": "0.16.0"
+  },
+  "cross_version_enabled": false,
+  "decision": "retain_exact_producer_runtime",
+  "same_runtime_tests": {
+    "producer": "27 passed",
+    "candidate": "27 passed",
+    "serving_gate": "1 passed",
+    "reader_guards_and_calendar_profiles": "11 additional unique cases passed through targeted runs (serving gate, pyfunc paths, calendar frequencies, ZIP directory allocation, cross-workspace namespace)"
+  },
+  "cross_version_cases": [
+    {
+      "case": "classification/calibration+threshold",
+      "producer_reload": "passed",
+      "candidate_reload": "passed",
+      "prediction_parity": true,
+      "reason": null
+    },
+    {
+      "case": "clustering",
+      "producer_reload": "passed",
+      "candidate_reload": "passed",
+      "prediction_parity": true,
+      "reason": null
+    },
+    {
+      "case": "classification/auto",
+      "producer_reload": "passed",
+      "candidate_reload": "refused",
+      "prediction_parity": null,
+      "reason": "skops0.16 requires explicit trust for TreePredictor absent from the 0.14 MLflow declaration"
+    },
+    {
+      "case": "classification/string",
+      "producer_reload": "passed",
+      "candidate_reload": "refused",
+      "prediction_parity": null,
+      "reason": "skops0.16 requires explicit trust for TreePredictor absent from the 0.14 MLflow declaration"
+    },
+    {
+      "case": "classification/minhash",
+      "producer_reload": "passed",
+      "candidate_reload": "refused",
+      "prediction_parity": null,
+      "reason": "skops0.16 requires explicit trust for TreePredictor absent from the 0.14 MLflow declaration"
+    },
+    {
+      "case": "regression/auto",
+      "producer_reload": "passed",
+      "candidate_reload": "refused",
+      "prediction_parity": null,
+      "reason": "skops0.16 requires explicit trust for TreePredictor absent from the 0.14 MLflow declaration"
+    },
+    {
+      "case": "regression/string",
+      "producer_reload": "passed",
+      "candidate_reload": "refused",
+      "prediction_parity": null,
+      "reason": "skops0.16 requires explicit trust for TreePredictor absent from the 0.14 MLflow declaration"
+    },
+    {
+      "case": "regression/minhash",
+      "producer_reload": "passed",
+      "candidate_reload": "refused",
+      "prediction_parity": null,
+      "reason": "skops0.16 requires explicit trust for TreePredictor absent from the 0.14 MLflow declaration"
+    }
+  ],
+  "scope": "Synthetic qualification data only; direct MLflow loading in an isolated qualification process. The serving reader remains strict and refuses runtime changes before load. No old bundle or trusted list was rewritten.",
+  "serving_regression_suite": {
+    "suite": "clustering harness + forecasting harness + tabular predict",
+    "initial_passed": 132,
+    "initial_failure": "Old missing-artifact fixture changed URI to another workspace; now rejected earlier by namespace protection. Fixture corrected to remove objects within the authorized namespace.",
+    "targeted_rerun": "2 passed: corrected missing-artifact case and explicit cross-workspace rejection."
+  }
+}

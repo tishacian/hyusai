@@ -51,6 +51,7 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.services import ml_comparison
 from app.services.ml.forecast_monitoring import ActualsBinding
+from app.services.ml_methodology import ExperimentPlanRequest, MethodResponse, ProblemFrameRequest
 from app.services.ml_retraining import MonitoringPolicy
 from app.services.ml_shadow import ShadowConfig
 from app.services.tabular_datasets import (
@@ -203,6 +204,38 @@ async def get_catalog(
     """Algorithms, their knobs, the model families and the training limits."""
 
     return {"catalog": catalog_payload(db, workspace_id=workspace.id)}
+
+
+@router.post("/methodology/problem-frame", response_model=MethodResponse)
+async def frame_ml_problem(
+    body: ProblemFrameRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """The same read-only method and workspace scope as the catalog Skill."""
+    from app.services.ml_methodology import problem_frame
+
+    try:
+        return problem_frame(db, workspace_id=workspace.id, payload=body.model_dump())
+    except TabularError as exc:
+        _raise_tabular(exc)
+
+
+@router.post("/methodology/experiment-plan", response_model=MethodResponse)
+async def plan_ml_experiment(
+    body: ExperimentPlanRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Return a draft; publication and execution use existing System services."""
+    from app.services.ml_methodology import experiment_plan
+
+    try:
+        return experiment_plan(db, workspace_id=workspace.id, payload=body.model_dump())
+    except TabularError as exc:
+        _raise_tabular(exc)
 
 
 class PlanBody(BaseModel):
@@ -433,6 +466,21 @@ async def compare_model_versions(
     except TabularError as exc:
         _raise_tabular(exc)
     return table
+
+
+@router.get("/{model_id}/evaluation-review")
+async def review_model_evaluation(
+    model_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    from app.services.ml_evaluation_review import review
+
+    try:
+        return review(db, model_id=model_id, workspace_id=workspace.id)
+    except TabularError as exc:
+        _raise_tabular(exc)
 
 
 @router.post("/{model_id}/cancel")

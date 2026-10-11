@@ -61,6 +61,7 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.skill import Skill
 from app.models.tabular import MLModel, MLModelApiKey, MLPrediction, TabularDataset
+from app.resources.ml_classification_extensions import label_name
 from app.services.ml.families import get_family
 from app.services.skills_registry.binding import (
     SkillBindingError,
@@ -184,12 +185,15 @@ def _fingerprint(model: MLModel) -> str:
     v2 from being answered by v1's resident pipeline.
     """
 
+    from app.services.ml.artifacts import artifact_fingerprint
+
     stamp = model.trained_at or model.updated_at
     return "|".join(
         (
             str(model.model_uri or ""),
             stamp.isoformat() if stamp else "",
             str(model.status or ""),
+            artifact_fingerprint((model.metrics_json or {}).get("artifact") or {}),
         )
     )
 
@@ -227,6 +231,7 @@ def _load_mlflow_model(directory: Path) -> Any:
     served = mlflow.pyfunc.load_model(str(directory))
     for reach in (
         lambda: served.get_raw_model(),
+        lambda: served.unwrap_python_model().get_raw_model(),
         lambda: served._model_impl.get_raw_model(),
         lambda: served._model_impl.sklearn_model,
     ):
@@ -281,7 +286,7 @@ def load_pipeline_traced(model: MLModel) -> tuple[LoadedModel, bool]:
         )
 
     if (
-        family.key == "tabular_deep"
+        family.key in {"tabular_deep", "tabular_foundation"}
         and settings.ml_runtime != "ml-deep"
         and not settings.worker_eager_mode
     ):
@@ -290,7 +295,7 @@ def load_pipeline_traced(model: MLModel) -> tuple[LoadedModel, bool]:
             message="Embedding models load only in the deep runtime.",
             status_code=409,
         )
-    if family.key == "tabular_deep":
+    if family.key in {"tabular_deep", "tabular_foundation"}:
         from app.services.huggingface.adapters import require_model_foundation
 
         require_model_foundation(model)
@@ -308,10 +313,14 @@ def load_pipeline_traced(model: MLModel) -> tuple[LoadedModel, bool]:
         directory = Path(tempfile.mkdtemp(prefix="ml-serve-"))
         try:
             download_model_dir(model, directory)
-            if family.key in {"tabular_deep", "clustering"}:
-                from app.services.ml.artifacts import verify_bundle
+            from app.services.ml.artifacts import verify_model_bundle
 
-                verify_bundle(directory, (model.metrics_json or {}).get("artifact") or {})
+            verify_model_bundle(
+                directory,
+                (model.metrics_json or {}).get("artifact") or {},
+                family=family.key,
+                max_bytes=int(settings.ml_train_artifact_limit_mb) * 1024 * 1024,
+            )
             pipeline = _load_mlflow_model(directory)
         except TabularError:
             shutil.rmtree(directory, ignore_errors=True)
@@ -410,7 +419,8 @@ def contract_fields(model: MLModel) -> list[dict[str, Any]]:
 
     Order is not cosmetic: skrub's vectorizer refuses a frame whose columns
     arrive in a different order than at fit time, so the contract *is* the
-    column order. It also excludes what the fit dropped, which is why it is the
+    column order. It preserves the fitted input schema, including columns
+    dropped inside preprocessing, which is why it is the
     truth here rather than ``MLModel.features``.
     """
 
@@ -432,11 +442,7 @@ def contract_fields(model: MLModel) -> list[dict[str, Any]]:
 def _label(value: Any) -> str:
     if value is None:
         return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, float) and value.is_integer():
-        return str(int(value))
-    return str(value)[:120]
+    return label_name(value)
 
 
 def _finite(value: Any) -> float | None:
@@ -695,6 +701,11 @@ def _rows_from(
     for index, raw in enumerate(predicted):
         if model.task == CLASSIFICATION:
             label = _label(raw)
+            # Previously stored numpy booleans/long labels used str()[:120].
+            # Honor that vocabulary while new models use the shared spelling.
+            legacy = str(raw)[:120]
+            if label not in classes and legacy in classes:
+                label = legacy
             answer: dict[str, Any] = {"prediction": label}
             if proba is not None and index < len(proba):
                 vector = [
@@ -903,7 +914,7 @@ def predict_rows(
     served = serving_version(db, model, version=version)
     _interval_band(served, interval_level)
     coerced = coerce_rows(served, rows)
-    if served.family == "tabular_deep" and settings.ml_runtime != "ml-deep":
+    if served.family in {"tabular_deep", "tabular_foundation"} and settings.ml_runtime != "ml-deep":
         from app.services.ml.deep_serving import request_rows
 
         result = request_rows(db, served, coerced, explain=explain, interval_level=interval_level)
@@ -1156,7 +1167,9 @@ def _score_into(
             details={"columns": absent[:8]},
         )
 
-    remote = served.family == "tabular_deep" and settings.ml_runtime != "ml-deep"
+    remote = (
+        served.family in {"tabular_deep", "tabular_foundation"} and settings.ml_runtime != "ml-deep"
+    )
     entry = None if remote else load_pipeline(served)
     classes = [str(value) for value in (served.classes_json or [])] if remote else entry.classes
     positive = _positive_label(served, classes)
@@ -1606,6 +1619,9 @@ def publish_as_skill(
     # card would otherwise freeze that card's fields under a Skill that answers
     # with different ones.
     serving = champion_for(db, workspace_id=model.workspace_id, slug=model.slug) or model
+    from app.services.ml.families.tabular_foundation import require_qualified_model
+
+    require_qualified_model(serving)
     row = existing or Skill(workspace_id=model.workspace_id, slug=identity.slug)
     row.name = f"Predict · {serving.name}"[:200]
     row.description = _skill_description(serving)
@@ -1877,9 +1893,18 @@ def serving_block(db: DBSession, model: MLModel) -> dict[str, Any]:
     else:
         callable_now = bool(settings.ml_predict_enabled and model.status == "ready" and fields)
         endpoint = public_predict_path(model)
+    from app.services.ml.families.tabular_foundation import require_qualified_model
+
+    refusal = None
+    try:
+        require_qualified_model(model)
+    except TabularError as exc:
+        callable_now = False
+        refusal = exc.payload()
     return {
         "enabled": bool(settings.ml_predict_enabled and settings.tabular_data_enabled),
         "callable": callable_now,
+        **({"refusal": refusal} if refusal else {}),
         "serving_version": int(champion.version) if champion is not None else None,
         "serving_model_id": champion.id if champion is not None else None,
         "is_serving": bool(champion is not None and champion.id == model.id),

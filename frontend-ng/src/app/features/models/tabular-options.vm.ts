@@ -2,8 +2,13 @@
 import type { ModelCatalog, ModelTask, PlanColumn, SpecFieldDescriptor } from './models.vm';
 
 export function tabularFields(
-  catalog: ModelCatalog, task: ModelTask, spec?: Record<string, unknown> | null,
+  catalog: ModelCatalog, task: ModelTask, spec?: Record<string, unknown> | null, algo?: string,
 ): SpecFieldDescriptor[] {
+  if (catalog.algos?.find(entry => entry.key === algo)?.family === 'tabular_foundation' || algo === 'tabicl_v2') {
+    const foundation = catalog.families?.find(family => family.key === 'tabular_foundation' && family.tasks.includes(task));
+    return (foundation?.spec_fields ?? []).map(field => field.kind === 'artifact'
+      ? { ...field, artifact_choices: foundation?.foundation_models?.filter(model => model.artifact_id && (!model.task || model.task === task)) ?? [] } : field);
+  }
   const classic = catalog.families?.find((family) => family.key === 'tabular' && family.tasks.includes(task))?.spec_fields ?? [];
   const deep = catalog.families?.find((family) => family.key === 'tabular_deep' && family.tasks.includes(task));
   const embedding = spec?.['text_encoder'] === 'embedding';
@@ -28,6 +33,19 @@ export function tabularFields(
 const EMBEDDING_UNSUPPORTED: Record<string, string> = {
   tuning: 'off', calibration: 'off', threshold: 'default', intervals: 'off', explain: 'off',
 };
+
+/** A saved pilot choice remains explicitly unavailable when the server withdraws it. */
+export function foundationIssue(catalog: ModelCatalog, algo: string, spec: Record<string, unknown> | null | undefined, crossValidation: number, task?: ModelTask): string | null {
+  if (algo !== 'tabicl_v2' && catalog.algos?.find(entry => entry.key === algo)?.family !== 'tabular_foundation') return null;
+  // Saved Flows and stale catalogs must keep the qualification refusal even
+  // after regression artifacts have disappeared from the current catalog.
+  if (task === 'regression') return 'models.foundation.regression_unqualified';
+  const family = catalog.families?.find(entry => entry.key === 'tabular_foundation');
+  if (!family?.available) return 'models.foundation.unavailable';
+  if (crossValidation >= 2) return 'models.foundation.unsupported';
+  if (!spec?.['artifact_id'] || !family.foundation_models?.some(model => model.artifact_id === spec['artifact_id'] && (!task || !model.task || model.task === task))) return 'models.foundation.artifact_required';
+  return null;
+}
 
 /** Local refusal mirrors the bounded first release without discarding saved choices. */
 export function embeddingIssue(

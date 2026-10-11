@@ -95,11 +95,11 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
           icon="zap-off"
           [title]="i18n.t('models.play.unavailable.title')"
           [description]="
-            !block.enabled
+            servingRefusal() ?? (!block.enabled
               ? i18n.t('models.play.unavailable.disabled')
               : (block.mode === 'forecast' || model().family === 'tabular_deep') && model().status === 'ready'
                 ? i18n.t('models.play.unavailable.no_worker')
-                : i18n.t('models.play.unavailable.untrained')
+                : i18n.t('models.play.unavailable.untrained'))
           "
         />
       } @else {
@@ -968,6 +968,12 @@ export class ModelPlaygroundComponent {
 
   protected readonly answer = signal<PredictAnswer | null>(null);
   protected readonly refusal = signal<string>('');
+  protected readonly servingRefusal = computed(() => {
+    const refusal = this.serving().refusal;
+    if (!refusal) return null;
+    const key = servingErrorKey(refusal.code);
+    return key ? this.i18n.t(key) : refusal.message || null;
+  });
   protected readonly running = signal(false);
   protected readonly minting = signal(false);
   /** The panel a finished prediction has to be able to show itself in. */
