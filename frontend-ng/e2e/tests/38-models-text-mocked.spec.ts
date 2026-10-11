@@ -33,12 +33,15 @@ function flow() {
   return graph;
 }
 
-async function setup(page: Page, options: { theme: string; locale: string; fields?: boolean; deep?: boolean; foundation?: boolean; foundationTask?: 'classification' | 'regression'; available?: boolean; workerDown?: boolean; savedSpec?: Record<string,unknown> }) {
+async function setup(page: Page, options: { theme: string; locale: string; fields?: boolean; deep?: boolean; foundation?: boolean; foundationTask?: 'classification' | 'regression'; available?: boolean; workerDown?: boolean; profileUnqualified?: boolean; savedSpec?: Record<string,unknown>; savedAlgo?: string }) {
   const catalog = structuredClone(baseline);
   if (options.foundation) {
     const foundationTask = options.foundationTask ?? 'classification';
-    catalog.algos.push({key:'tabicl_v2', family:'tabular_foundation', tasks:['classification','regression'], available:true, estimators:{classification:'tabicl.TabICLClassifier',regression:'tabicl.TabICLRegressor'}, scale:false, tags:['experimental','foundation','local'], knobs:[]});
-    catalog.families.push({key:'tabular_foundation', tasks:['classification','regression'], runtime:'ml-deep', serving:'remote', available:true,
+    // Regression fixtures emulate an old catalog; the current pilot only
+    // advertises classification, including when opening a saved regression.
+    const foundationTasks = foundationTask === 'regression' ? ['classification', 'regression'] : ['classification'];
+    catalog.algos.push({key:'tabicl_v2', family:'tabular_foundation', tasks:foundationTasks, available:true, estimators:{classification:'tabicl.TabICLClassifier',regression:'tabicl.TabICLRegressor'}, scale:false, tags:['experimental','foundation','local'], knobs:[]});
+    catalog.families.push({key:'tabular_foundation', tasks:foundationTasks, runtime:'ml-deep', serving:'remote', available:true,
       foundation_models:[{artifact_id:'tabicl-local',upstream_id:`omnirag-converted/tabicl-v2-${foundationTask}`,revision:'frozen',task:foundationTask}],
       spec_fields:[{key:'artifact_id',kind:'artifact',required:true},{key:'kv_cache',kind:'bool',default:false}]});
   }
@@ -52,7 +55,7 @@ async function setup(page: Page, options: { theme: string; locale: string; field
   const plans: any[] = [], trains: any[] = [], drafts: any[] = [], feedback: any[] = [];
   let graph = flow(), revision = 1;
   if (options.savedSpec) Object.assign(graph.nodes.find((node:any) => node.id === 'train.sales').config.params,
-    {target:'amount',task:'regression',algo:'gradient_boosting',spec:options.savedSpec});
+    {target:'amount',task:'regression',algo:options.savedAlgo ?? 'gradient_boosting',spec:options.savedSpec});
   const hash = '3'.repeat(64);
   const system = () => ({ id: systemId, workspace_id: workspace.id, name: 'Sales', status: 'active', flow_definition: graph, flow_sha256: hash, objective: 'Sales' });
   const state = () => ({ system_id: systemId, status: 'active', draft: { revision, base_published_version_id: 'published-v1', flow_sha256: hash, flow_definition: graph }, published: { version_id: 'published-v1', version_number: 1, flow_sha256: hash, flow_definition: graph, execution_contract_ready: true } });
@@ -82,7 +85,14 @@ async function setup(page: Page, options: { theme: string; locale: string; field
       if (!body.target) return json(route, base);
       return json(route, { ...base, plan: { task: body.task ?? fixture.columns.find((column: any) => column.name === body.target)?.suggested_task, family: 'tabular', spec: body.spec ?? {}, target: body.target, features: ['message'], algo: body.algo || 'gradient_boosting', estimator: 'sklearn.ensemble.HistGradientBoostingRegressor', knobs: {}, test_size: 0.25, cross_validation: 0, name: 'Sales amount', warnings: [], rows: 800 } });
     }
-    if (path === `/ml-models/${model.id}`) return json(route, { model: {...model, family: options.deep ? 'tabular_deep' : model.family}, dataset, provenance: null, versions: [model], challenger_id: null, catalog, serving: { enabled: true, callable: !options.workerDown, mode: 'rows', serving_version: 1, serving_model_id: model.id, is_serving: true, max_rows: 100, fields: [{ name: 'visits', kind: 'integer', required: true }], classes: [], positive_label: null, predict_count: 1, last_predict_at: null, published_skill: null, keys: [], endpoint: `/api/v1/ml-models/${model.id}/predict`, key_header: 'X-Agentium-Model-Key' } });
+    if (path === `/ml-models/${model.id}`) return json(route, {
+      model: {...model, family: options.deep ? 'tabular_deep' : model.family,
+        ...(options.profileUnqualified ? { family: 'tabular_foundation', algo: 'tabicl_v2', spec: { artifact_id: 'tabicl-local', kv_cache: true } } : {}) },
+      dataset, provenance: null, versions: [model], challenger_id: null, catalog,
+      serving: { enabled: true, callable: !options.workerDown && !options.profileUnqualified,
+        ...(options.profileUnqualified ? { refusal: { error: 'TabICLProfileUnqualified', code: 'ML_TABICL_PROFILE_UNQUALIFIED', message: 'Reload parity has not qualified.', task: 'regression', reason: 'reload_parity' } } : {}),
+        mode: 'rows', serving_version: 1, serving_model_id: model.id, is_serving: true, max_rows: 100, fields: [{ name: 'visits', kind: 'integer', required: true }], classes: [], positive_label: null, predict_count: 1, last_predict_at: null, published_skill: null, keys: [], endpoint: `/api/v1/ml-models/${model.id}/predict`, key_header: 'X-Agentium-Model-Key' },
+    });
     if (path === `/ml-models/${model.id}/monitoring`) return json(route, { monitoring });
     if (path === `/ml-models/${model.id}/feedback`) {
       const body = request.postDataJSON(); feedback.push(body);
@@ -104,7 +114,11 @@ async function setup(page: Page, options: { theme: string; locale: string; field
     if (path === '/connectors') return json(route, { can_configure: true, connectors: [] });
     return json(route, {});
   });
-  return { plans, trains, feedback, params: () => drafts.at(-1)?.nodes.find((node: any) => node.id === 'train.sales')?.config?.params ?? {} };
+  return {
+    plans, trains, feedback,
+    params: () => drafts.at(-1)?.nodes.find((node: any) => node.id === 'train.sales')?.config?.params ?? {},
+    flowParams: () => graph.nodes.find((node: any) => node.id === 'train.sales')?.config?.params ?? {},
+  };
 }
 
 test.describe('Models · text encoder — mocked QA', () => {
@@ -216,7 +230,7 @@ test.describe('Models · local TabICL pilot — mocked QA', () => {
       expect(api.trains[0]).toMatchObject({ target: 'region', task: 'classification', algo: 'tabicl_v2', cross_validation: 0 });
       expect(api.trains[0].spec).toEqual(spec);
     });
-    test(`${locale}: TabICL regression requires explicit cache opt-in`, async ({ page }) => {
+    test(`${locale}: TabICL regression stays refused with and without cache`, async ({ page }) => {
       const api = await setup(page, { theme: 'dark', locale, foundation: true, foundationTask: 'regression' });
       await page.goto('/models');
       await page.getByRole('button', { name: locale === 'fr' ? /Entraîner/ : /Train/ }).first().click();
@@ -234,19 +248,52 @@ test.describe('Models · local TabICL pilot — mocked QA', () => {
       await expect(studio.locator('#tabular-kv_cache')).not.toBeChecked();
       await expect(studio.locator('.ck-submit')).toBeDisabled();
       await expect(studio.getByTestId('tabular-options-refusal')).toContainText(locale === 'fr'
-        ? 'La régression TabICL sans cache n’est pas qualifiée au rechargement.'
-        : 'TabICL regression without caching has not qualified for reloading.');
+        ? 'La régression TabICL n’est pas qualifiée au rechargement, avec ou sans cache.'
+        : 'TabICL regression has not qualified for reloading, with or without caching.');
       await expect(studio.getByRole('button', { name: /TabICL v2/ })).toHaveAttribute('aria-pressed', 'true');
       expect(api.trains).toEqual([]);
 
       await studio.locator('#tabular-kv_cache').check();
       await expect(studio.locator('#tabular-kv_cache')).toBeChecked();
-      await expect(studio.getByTestId('tabular-options-refusal')).toHaveCount(0);
-      await expect(studio.locator('.ck-submit')).toBeEnabled();
-      await studio.locator('.ck-submit').click();
-      await expect.poll(() => api.trains.length).toBe(1);
-      expect(api.trains[0]).toMatchObject({ target: 'amount', task: 'regression', algo: 'tabicl_v2', cross_validation: 0 });
-      expect(api.trains[0].spec).toEqual({ artifact_id: 'tabicl-local', kv_cache: true });
+      await expect(studio.getByTestId('tabular-options-refusal')).toContainText(locale === 'fr'
+        ? 'Choisissez un autre modèle pour cette tâche.'
+        : 'Choose another model for this task.');
+      await expect(studio.locator('.ck-submit')).toBeDisabled();
+      await expect(studio.getByRole('button', { name: /TabICL v2/ })).toHaveAttribute('aria-pressed', 'true');
+      expect(api.trains).toEqual([]);
+    });
+    test(`${locale}: saved Flow TabICL regression is refused after catalog withdrawal`, async ({ page }) => {
+      const savedSpec = { artifact_id: 'tabicl-local', kv_cache: true };
+      const api = await setup(page, { theme: 'dark', locale, foundation: true, savedAlgo: 'tabicl_v2', savedSpec });
+      await page.goto(`/systems/${systemId}/flow?lens=build`);
+      await page.locator('app-flow-node').filter({ hasText: 'Train sales' }).click();
+      await page.getByTestId('open-train-workshop').click();
+      const workshop = page.locator('app-flow-train-workshop');
+      const refusal = locale === 'fr'
+        ? 'La régression TabICL n’est pas qualifiée au rechargement, avec ou sans cache.'
+        : 'TabICL regression has not qualified for reloading, with or without caching.';
+      await expect(workshop.getByTestId('tabular-options-refusal')).toContainText(refusal);
+      await expect(workshop.getByTestId('run-train-test')).toBeDisabled();
+      await expect(workshop.getByRole('button', { name: /TabICL v2/ })).toHaveCount(0);
+      await workshop.getByRole('button', {
+        name: locale === 'fr' ? 'Fermer l’atelier d’entraînement' : 'Close the training studio', exact: true,
+      }).click();
+      await page.getByTestId('open-train-workshop').click();
+      await expect(workshop.getByTestId('tabular-options-refusal')).toContainText(refusal);
+      await expect(workshop.getByTestId('run-train-test')).toBeDisabled();
+      expect(api.flowParams()).toMatchObject({ task: 'regression', algo: 'tabicl_v2', spec: savedSpec });
+      expect(api.trains).toEqual([]);
+    });
+    test(`${locale}: saved TabICL regression explains its prediction refusal`, async ({ page }) => {
+      const api = await setup(page, { theme: 'light', locale, foundation: true, profileUnqualified: true });
+      await page.goto(`/models/${model.id}`);
+      await page.getByRole('tab', { name: locale === 'fr' ? 'Prédire' : 'Predict', exact: true }).click();
+      const play = page.locator('app-model-playground');
+      await expect(play).toContainText(locale === 'fr'
+        ? 'Ce modèle de régression TabICL n’est pas qualifié au rechargement, avec ou sans cache.'
+        : 'This TabICL regression model has not qualified for reloading, with or without caching.');
+      await expect(play.getByRole('button', { name: locale === 'fr' ? 'Prédire' : 'Predict', exact: true })).toHaveCount(0);
+      expect(api.trains).toEqual([]);
     });
   }
 });

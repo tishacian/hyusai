@@ -116,9 +116,11 @@ test('TabICL uses its own bounded fields and requires an available authorized ar
   assert.deepEqual(fields.map(field => field.key), ['artifact_id', 'kv_cache']);
   assert.equal(fields[0].artifact_choices?.[0].artifact_id, 'tabicl-local');
   assert.deepEqual(tabularFields(catalog, 'regression', {}, 'tabicl_v2')[0].artifact_choices, []);
-  assert.equal(foundationIssue(catalog, 'tabicl_v2', { artifact_id: 'tabicl-local' }, 0, 'regression'), 'models.foundation.artifact_required');
+  assert.equal(foundationIssue(catalog, 'tabicl_v2', { artifact_id: 'tabicl-local' }, 0, 'regression'), 'models.foundation.regression_unqualified');
   assert.deepEqual(tabularSpec(fields, { artifact_id: 'tabicl-local', text_encoder: 'string' }, 'classification'), { artifact_id: 'tabicl-local', kv_cache: false });
   assert.equal(foundationIssue(catalog, 'tabicl_v2', { artifact_id: 'tabicl-local' }, 0), null);
+  assert.equal(foundationIssue(catalog, 'tabicl_v2', { artifact_id: 'tabicl-local', kv_cache: false }, 0, 'classification'), null);
+  assert.equal(foundationIssue(catalog, 'tabicl_v2', { artifact_id: 'tabicl-local', kv_cache: true }, 0, 'classification'), null);
   assert.equal(foundationIssue(catalog, 'tabicl_v2', { artifact_id: 'revoked' }, 0), 'models.foundation.artifact_required');
   assert.equal(foundationIssue(catalog, 'tabicl_v2', { artifact_id: 'tabicl-local' }, 3), 'models.foundation.unsupported');
   assert.equal(foundationIssue(deepCatalog(), 'tabicl_v2', { artifact_id: 'tabicl-local' }, 0), 'models.foundation.unavailable');
@@ -127,7 +129,10 @@ test('TabICL uses its own bounded fields and requires an available authorized ar
     { artifact_id: 'tabicl-regression', upstream_id: 'omnirag-converted/TabICL', revision: 'abc', task: 'regression' },
   );
   const regression = { artifact_id: 'tabicl-regression', kv_cache: false };
-  assert.equal(foundationIssue(catalog, 'tabicl_v2', regression, 0, 'regression'), 'models.foundation.regression_cache_required');
-  assert.equal(foundationIssue(catalog, 'tabicl_v2', { ...regression, kv_cache: true }, 0, 'regression'), null);
+  assert.equal(foundationIssue(catalog, 'tabicl_v2', regression, 0, 'regression'), 'models.foundation.regression_unqualified');
+  assert.equal(foundationIssue(catalog, 'tabicl_v2', { ...regression, kv_cache: true }, 0, 'regression'), 'models.foundation.regression_unqualified');
+  assert.equal(foundationIssue(catalog, 'tabicl_v2', { artifact_id: 'tabicl-regression' }, 0, 'regression'), 'models.foundation.regression_unqualified');
+  assert.equal(foundationIssue(catalog, 'tabicl_v2', null, 0, 'regression'), 'models.foundation.regression_unqualified');
+  assert.equal(foundationIssue(deepCatalog(), 'tabicl_v2', { ...regression, kv_cache: true }, 0, 'regression'), 'models.foundation.regression_unqualified', 'withdrawn catalog entries must not hide why a saved Flow is refused');
   assert.equal(regression.kv_cache, false, 'refusal must never silently opt the user into more memory');
 });

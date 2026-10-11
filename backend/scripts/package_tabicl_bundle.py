@@ -20,19 +20,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 def manifest_for(directory: Path, license_text: str):
+    from app.resources.ml_tabicl_notice import NOTICE_NAME, prepare_notice
     from app.resources.ml_tabicl_runtime import TABICL_VERSION, sha256, validate_weights
     from app.services.huggingface import policy, registry
     from app.services.huggingface.storage import blob_key
 
     config = validate_weights(directory)
-    if not license_text.strip() or len(license_text.encode()) > 128 * 1024:
-        raise ValueError("Include the original BSD-3-Clause license text")
+    prepare_notice(directory, license_text)
     inventory = {
         name: {
             "size_bytes": (directory / name).stat().st_size,
             "upstream_hash": {"algorithm": "sha256", "value": sha256(directory / name)},
         }
-        for name in ("config.json", "model.safetensors")
+        for name in ("config.json", "model.safetensors", NOTICE_NAME)
     }
     conversion = {
         "kind": "tabicl-weights-only-to-safetensors-v1",

@@ -109,8 +109,12 @@ def test_no_legacy_grant_bypass(monkeypatch):
 def test_converted_bundle_uses_existing_offline_store_and_grant(db_session, tmp_path, monkeypatch):
     import base64
     import hashlib
+    import shutil
+    from contextlib import ExitStack
     from uuid import uuid4
 
+    import numpy as np
+    import pandas as pd
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -118,8 +122,12 @@ def test_converted_bundle_uses_existing_offline_store_and_grant(db_session, tmp_
     from app.models.user import User
     from app.models.workspace import Workspace
     from app.models.workspace_job import WorkspaceJob
+    from app.resources.ml_tabicl_notice import NOTICE_NAME, notice_document
+    from app.resources.ml_tabicl_runtime import export_state
     from app.services.huggingface import bundles, offline, registry
+    from app.services.huggingface.cache import ArtifactCache
     from app.services.huggingface.storage import HubStore
+    from app.services.ml.local_models import resolve_artifact_model
 
     script = Path(__file__).resolve().parents[3] / "scripts" / "package_tabicl_bundle.py"
     module_spec = importlib.util.spec_from_file_location("package_tabicl_bundle", script)
@@ -134,7 +142,8 @@ def test_converted_bundle_uses_existing_offline_store_and_grant(db_session, tmp_
     config = _weight_config()
     config["weights_sha256"] = hashlib.sha256(weight_bytes).hexdigest()
     (converted / "config.json").write_text(json.dumps(config))
-    manifest = module.manifest_for(converted, "BSD-3-Clause test license evidence")
+    notice = notice_document()
+    manifest = module.manifest_for(converted, notice["license_text"])
     assert manifest["repo_id"] == "omnirag-converted/tabicl-v2-classification"
     assert manifest["revision"] != REVISION
     assert manifest["conversion"]["source_revision"] == REVISION
@@ -193,6 +202,39 @@ def test_converted_bundle_uses_existing_offline_store_and_grant(db_session, tmp_
     assert artifact.status == "ready"
     assert db_session.get(HubArtifactGrant, (workspace.id, artifact.id)) is not None
 
+    # The provisioner's copy can disappear. The signed, inventoried notice must
+    # travel via the ordinary ObjectStore/cache and autonomous export paths.
+    shutil.rmtree(converted)
+    cache = ArtifactCache(tmp_path / "cache", min_free_bytes=0)
+    store = HubStore()
+    with ExitStack() as streams:
+        cache.materialize(
+            artifact.manifest_json,
+            lambda name, entry: streams.enter_context(store.open(entry["object_key"])),
+        )
+    local = resolve_artifact_model(
+        artifact.id,
+        kind="tabular_foundation",
+        cache_dir=cache.root,
+        manifest=artifact.manifest_json,
+    )
+    assert NOTICE_NAME in local.files
+    # Export a tiny declared context without fitting or loading fake tensors.
+    estimator = SimpleNamespace(
+        model_path=local.path,
+        classes_=np.array(["no", "yes"]),
+        random_state=42,
+        n_jobs=1,
+        kv_cache=False,
+    )
+    exported = tmp_path / "exported"
+    export_state(estimator, pd.DataFrame({"x": [1.0, 2.0]}), ["no", "yes"], exported)
+    shutil.rmtree(cache.root)
+    transported = exported / "foundation" / NOTICE_NAME
+    assert json.loads(transported.read_text()) == notice
+    assert hashlib.sha256(transported.read_bytes()).hexdigest() == local.files[NOTICE_NAME]
+    assert (exported / "foundation" / "model.safetensors").read_bytes() == weight_bytes
+
 
 def test_training_checks_checkpoint_task_before_dispatch(monkeypatch):
     from app.services import tabular_ml
@@ -231,18 +273,17 @@ def test_training_checks_checkpoint_task_before_dispatch(monkeypatch):
     assert result.spec["artifact_id"] == artifact_id
 
     descriptor["task"] = kwargs["task"] = "regression"
-    for cache_spec in ({}, {"kv_cache": False}):
+    for cache_spec in ({}, {"kv_cache": False}, {"kv_cache": True}):
         kwargs["spec"] = {"artifact_id": artifact_id, **cache_spec}
         with pytest.raises(TabularError) as refused:
             tabular_ml.validate_training(dataset, **kwargs)
         assert refused.value.code == "ML_TABICL_PROFILE_UNQUALIFIED"
         assert refused.value.status_code == 409
-    kwargs["spec"] = {"artifact_id": artifact_id, "kv_cache": True}
-    result = tabular_ml.validate_training(dataset, **kwargs)
-    assert result.task == "regression" and result.spec["kv_cache"] is True
+        assert refused.value.details == {"task": "regression", "reason": "reload_parity"}
 
 
-def test_unqualified_regression_is_refused_before_warm_cache_or_grant(monkeypatch):
+@pytest.mark.parametrize("kv_cache", [False, True])
+def test_unqualified_regression_is_refused_before_warm_cache_or_grant(monkeypatch, kv_cache):
     from app.services import tabular_predict
     from app.services.huggingface import adapters
     from app.services.tabular_datasets import TabularError
@@ -257,17 +298,98 @@ def test_unqualified_regression_is_refused_before_warm_cache_or_grant(monkeypatc
         task="regression",
         family="tabular_foundation",
         workspace_id="w",
-        spec_json={"kv_cache": False},
+        spec_json={"kv_cache": kv_cache},
         params_json={"foundation": {"artifact_id": "a"}},
     )
     with pytest.raises(TabularError) as refused:
         adapters.require_model_foundation(model)
     assert refused.value.code == "ML_TABICL_PROFILE_UNQUALIFIED"
     assert evicted == ["m"] and not authorized
-    assert model.spec_json["kv_cache"] is False
-    model.spec_json["kv_cache"] = True
+    assert model.spec_json["kv_cache"] is kv_cache
+    model.task = "classification"
     adapters.require_model_foundation(model)
     assert authorized == [("w", "a")]
+
+
+@pytest.mark.parametrize("kv_cache", [False, True])
+def test_withdrawn_regression_cannot_run_publish_or_be_promoted(
+    db_session, tmp_path, monkeypatch, kv_cache
+):
+    from collections import OrderedDict
+    from uuid import uuid4
+
+    from app.models.tabular import MLModel
+    from app.services import tabular_ml, tabular_predict
+    from app.services.ml import deep_serving, runtime
+    from app.services.tabular_datasets import TabularError
+
+    model = MLModel(
+        id=str(uuid4()),
+        workspace_id=str(uuid4()),
+        name="Withdrawn pilot",
+        slug="withdrawn-pilot",
+        version=1,
+        task="regression",
+        family="tabular_foundation",
+        algo="tabicl_v2",
+        target="y",
+        features=["x"],
+        spec_json={"kv_cache": kv_cache},
+        params_json={},
+        status="ready",
+        model_uri="existing-export",
+        metrics_json={"artifact": {"trust_profile": "tabicl-json-safetensors-v2"}},
+    )
+    monkeypatch.setattr(settings, "ml_predict_enabled", True)
+    monkeypatch.setattr(settings, "ml_runtime", "ml-deep")
+    monkeypatch.setattr(tabular_predict, "champion_for", lambda *a, **k: model)
+    monkeypatch.setattr(tabular_predict, "contract_fields", lambda _: [])
+    monkeypatch.setattr(tabular_predict, "published_skill", lambda *a: None)
+    monkeypatch.setattr(tabular_predict, "list_api_keys", lambda *a, **k: [])
+    monkeypatch.setattr(runtime, "serving_availability", lambda *a: (True, None))
+    monkeypatch.setattr(
+        tabular_predict, "_load_mlflow_model", lambda _: pytest.fail("No deserialization allowed")
+    )
+    cached_dir = tmp_path / "cache"
+    cached_dir.mkdir()
+    entry = tabular_predict.LoadedModel(
+        model.id, tabular_predict._fingerprint(model), object(), [], cached_dir, 0, 0
+    )
+    monkeypatch.setattr(tabular_predict, "_cache", OrderedDict({model.id: entry}))
+    # The service policy precedes warm-cache reuse and does not confuse the v2
+    # format/CPU contract with numerical qualification of a regression model.
+    with pytest.raises(TabularError) as refused:
+        tabular_predict.load_pipeline_traced(model)
+    assert refused.value.code == "ML_TABICL_PROFILE_UNQUALIFIED"
+    assert model.id not in tabular_predict._cache and not cached_dir.exists()
+
+    for call in (
+        lambda: deep_serving.request_rows(db_session, model, [{"x": 1}]),
+        lambda: tabular_ml._write_manifest(tmp_path, model, tmp_path / "unread.parquet"),
+        lambda: tabular_ml.set_champion(db_session, model),
+        lambda: tabular_predict.publish_as_skill(db_session, model=model),
+    ):
+        with pytest.raises(TabularError) as refused:
+            call()
+        assert refused.value.code == "ML_TABICL_PROFILE_UNQUALIFIED"
+    assert not model.is_champion
+    serving = tabular_predict.serving_block(db_session, model)
+    assert serving["callable"] is False
+    assert serving["refusal"]["code"] == "ML_TABICL_PROFILE_UNQUALIFIED"
+    assert serving["refusal"]["task"] == "regression"
+    assert serving["refusal"]["reason"] == "reload_parity"
+
+
+@pytest.mark.parametrize(
+    "family,task", [("tabular_foundation", "classification"), ("tabular", "regression")]
+)
+def test_regression_withdrawal_does_not_restrict_other_profiles(family, task):
+    from app.services.ml.families.tabular_foundation import require_qualified_model
+
+    for kv_cache in (False, True):
+        require_qualified_model(
+            SimpleNamespace(family=family, task=task, spec_json={"kv_cache": kv_cache})
+        )
 
 
 def test_harness_refuses_oversized_parquet_before_loading_rows(tmp_path, monkeypatch):

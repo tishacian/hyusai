@@ -1619,6 +1619,9 @@ def publish_as_skill(
     # card would otherwise freeze that card's fields under a Skill that answers
     # with different ones.
     serving = champion_for(db, workspace_id=model.workspace_id, slug=model.slug) or model
+    from app.services.ml.families.tabular_foundation import require_qualified_model
+
+    require_qualified_model(serving)
     row = existing or Skill(workspace_id=model.workspace_id, slug=identity.slug)
     row.name = f"Predict · {serving.name}"[:200]
     row.description = _skill_description(serving)
@@ -1890,9 +1893,18 @@ def serving_block(db: DBSession, model: MLModel) -> dict[str, Any]:
     else:
         callable_now = bool(settings.ml_predict_enabled and model.status == "ready" and fields)
         endpoint = public_predict_path(model)
+    from app.services.ml.families.tabular_foundation import require_qualified_model
+
+    refusal = None
+    try:
+        require_qualified_model(model)
+    except TabularError as exc:
+        callable_now = False
+        refusal = exc.payload()
     return {
         "enabled": bool(settings.ml_predict_enabled and settings.tabular_data_enabled),
         "callable": callable_now,
+        **({"refusal": refusal} if refusal else {}),
         "serving_version": int(champion.version) if champion is not None else None,
         "serving_model_id": champion.id if champion is not None else None,
         "is_serving": bool(champion is not None and champion.id == model.id),

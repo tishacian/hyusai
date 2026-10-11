@@ -120,7 +120,10 @@ sa continuité sur le runtime producteur ou qualifié un réentraînement explic
 Le [guide du pilote](agentium-tabicl-pilot.md) décrit les deux checkpoints
 officiels, leurs SHA-256, la conversion `weights_only=True`, les safetensors,
 le bundle dérivé signé et son import par les contrôles existants. Les notices
-BSD-3-Clause restent dans le bundle. Aucune sérialisation pickle d'estimateur
+amont complètes sont épinglées avec leur provenance dans le dépôt puis dans un
+`license.json` inventorié et signé. Elles suivent les poids jusqu'à l'export
+autonome ; un ancien bundle sans cette notice doit être repackagé et réimporté
+avant de produire un nouvel export. Aucune sérialisation pickle d'estimateur
 TabICL ni aucun téléchargement implicite n'est utilisé.
 
 La [preuve hors réseau](evidence/probabl-tabicl-offline.json) compare l'amont,
@@ -145,16 +148,20 @@ restent des preuves de l'ancien environnement, sans admission rétroactive.
 Pas de promotion automatique, de champion de repli, de surveillance planifiée
 ou de réentraînement automatique pour cette famille expérimentale.
 
-Le **profil de régression sans cache est refusé** à la soumission et avant
-prédiction, y compris pour un modèle déjà résident. Le premier développement
-a révélé des écarts après éviction/reconstruction : jusqu'à `3,6621e-4` et
+La **régression TabICL est refusée**, avec ou sans cache, à la soumission et
+avant prédiction, y compris pour un modèle déjà résident. Le premier
+développement a révélé des écarts du profil sans cache après
+éviction/reconstruction : jusqu'à `3,6621e-4` et
 59/120 sorties au-delà de `rtol=atol=1e-6` dans une reproduction linéaire.
 Entrées, cibles, poids et buffer de sortie n'étaient pas altérés. Le phénomène
 peut disparaître dans un processus frais ; sa cause numérique interne n'est
 pas isolée. Aucun seuil n'a été assoupli et aucune correction spéculative n'est
-revendiquée. Le cache mémoire doit être choisi explicitement pour essayer la
-régression ; aucune migration ou activation implicite du cache n'a lieu.
-La classification conserve ses deux profils candidats.
+revendiquée. Le développement révisé a ensuite constaté un échec de parité du
+profil avec cache sur `linear-regression-demo/dev-1`, sans dépassement de budget.
+Le cache ne constitue donc pas une correction qualifiée. L'admission produit
+refuse toute régression pour ce pilote ; les résultats expérimentaux des autres
+tâches restent conservés sans rétablir cette admission. La classification
+conserve ses deux profils candidats, sous les flags et grants du pilote.
 
 Les [preuves diagnostiques P6](evidence/probabl-pilot-2026-10-11/README.md)
 conservent les 51 cas terminés du premier développement : 48 évalués, trois
@@ -177,6 +184,8 @@ ne vaudrait donc ni validation de frugalité en production ni activation métier
 Le premier appel et le reload concernent l'objet modèle dans un processus
 jetable : le cache de pages du système n'est pas purgé. L'hôte est partagé ;
 ces mesures ne représentent ni un démarrage disque froid ni un p95 d'API.
+Les tailles comparées sont celles des exports directs mesurés ; elles excluent
+aussi la nouvelle notice signée transmise par le packaging produit.
 Énergie, prix et ROI restent indisponibles.
 
 ## Vérifications locales
@@ -196,18 +205,23 @@ TabICL utilisent le runtime optionnel CPU décrit dans la preuve hors réseau.
 | Méthodes | 196/196 tests finaux dans le runtime candidat : méthodes/API/rollback, publication, alias, dispatch, droits, revue et retraining ; aucun skip. Les premiers passages 124/54/9 utilisaient le runtime de base. Corpus de 12 missions, sans mesure de productivité. |
 | Préparation | Neuf tests dans chacun des deux runtimes, six roundtrips réels par runtime ; les six tests combinés calibration/seuil/CV/tuning passent. |
 | Enrichissement | 29/29 tests de service dans le runtime candidat, contrôles API de replay et de droits, 59 tests frontend ciblés ; les parcours navigateur FR et EN passent. |
-| TabICL | 19 tests finaux du pilote et 13 tests du runtime existant ; deux vrais roundtrips MLflow et deux smokes hors réseau avec retrait de la copie source. Après correction, vrais rechargements du profil cache avec passage de deux à un thread. |
+| TabICL | Premiers contrôles : 19 tests du pilote et 13 tests du runtime existant, deux vrais roundtrips MLflow et deux smokes hors réseau avec retrait de la copie source ; vrais rechargements cache avec passage de deux à un thread. Après retrait de toute régression : 23 tests serveur ciblés et deux tests HTTP vérifient le refus avant job, chargement, promotion ou publication. Ces smokes historiques ne rétablissent pas l'admission de la régression. |
+| Notice et import TabICL | 38 tests passent sur pilote complet, notice, activation et import offline ; six cas ONNX optionnels sautés. Le transport signé → ObjectStore → cache → export autonome conserve la notice après retrait des sources, sans entraînement de poids factices. |
 | Régression transverse | 239 succès, six skips ONNX optionnels et cinq anciens contrats de tests à actualiser au premier passage ; après correction, les suites catalogue/familles (60 tests) et contraintes d'images (neuf tests) passent. |
 | Admission HTTP | Le vrai schéma FastAPI accepte `tabular_foundation` pour ML et refuse les activations RAG/dataset ; test ciblé réussi. |
 | Navigateur | 21 scénarios distincts modèles/Skore et deux d'enrichissement passent. Les six scénarios TabICL FR/EN Studio/Flow ont été rejoués sur le dernier build, dont les nouveaux refus de régression sans cache. Un timeout initial sous compilation concurrente n'est pas reproduit, sans changer les délais ni les assertions. |
 | Build | Compilation Angular de production réussie avec deux workers ; avertissements existants sur les dépendances CommonJS et les templates, aucune erreur de compilation. |
-| Tests unitaires frontend | 2 113/2 113 tests passent dans la campagne complète, sans skip ; après la dernière garde du profil de régression, 123 tests ciblés des options, contrats de la carte et erreurs passent. |
+| Tests unitaires frontend | 2 113/2 113 tests passent dans la campagne complète, sans skip ; 123 tests ciblés après la première garde de profil, puis 127 tests des options, contrats de modèle et connecteur après retrait de toute régression et traduction des refus de notice. |
 | Qualité statique | Contrôles i18n, navigation et chrome ; Ruff, format, conformité produit, secrets et contrôles de fichiers pre-commit réussis. |
 
 L'isolation Giskard est conservée : son venv garde skrub 0.10.1 et skops 0.14.0,
 séparément qualifiés. Le test de contraintes vérifie explicitement ces exceptions
 sans modifier ses dépendances. Les tests ONNX sautés ne constituent pas une
 qualification d'ONNX dans cette session.
+La dernière suite de transport de notice utilise le runtime candidat, avec le
+site-packages du pilote ajouté en dernier pour les métadonnées optionnelles
+TabICL/torch requises par l'export d'état. Aucun environnement n'a été modifié ;
+ce test ne constitue pas un nouveau fit ni une qualification d'image complète.
 
 Le hook `pre-commit-update`, qui met à jour les outils de développement depuis
 l'amont, est exclu du dernier passage ; sa modification automatique de Ruff a

@@ -338,13 +338,23 @@
   },
   "service_decision": {
     "regression_without_cache": "refused",
+    "regression_with_cache": "refused",
     "error_code": "ML_TABICL_PROFILE_UNQUALIFIED",
     "http_status": 409,
-    "explicit_kv_cache_true_required": true,
+    "reason": "reload_parity",
     "automatic_profile_conversion": false,
-    "regression_with_cache": "Requires independent complete qualification; not promoted automatically.",
-    "classification_without_cache": "No exclusion from this regression diagnostic.",
-    "global_pilot_default": "disabled"
+    "classification": "Experimental admission unchanged; requires independent complete qualification.",
+    "scope": [
+      "training",
+      "queued_worker",
+      "prediction",
+      "warm_cache",
+      "promotion",
+      "skill_publication",
+      "serving_availability"
+    ],
+    "global_pilot_default": "disabled",
+    "artifact_profile_v2": "Integrity, runtime compatibility and CPU-envelope contract; not numerical qualification or product admission."
   },
   "reproduction_scripts_sha256": {
     "exact.py": "a2fdef9dd5b81f5d967b351497ceb4fe4df53f06322ebf7a9e0b9885c69c3603",
@@ -352,5 +362,23 @@
     "control.py": "c2f73fe318f92f3842756912d4fa4b3c0356d50cfca6adc25169dcf062ac68e1",
     "worker.py": "49f7e2632b05b54a764c7d4c3499a04f31ac4c05eeda5a436dd255b349340d2b",
     "threads.py": "ee213d7f26c74f4e120ff246f9ad6b5726d6b169e5f8188ac2b5e246ff74b9ce"
+  },
+  "additional_development_observation": {
+    "source": "probabl-pilot-revision-2-development",
+    "code_sha256": "8637ffcbced79aba7a5f8f44c61efb72fbef5503627e8ddbf7f59618efde0c4f",
+    "contract_sha256": "4806447e19ac5fd56d898b29a40f7ad416e1a9823cda5509972f25c938802686",
+    "case": {
+      "candidate": "tabicl_cache",
+      "task": "linear-regression-demo",
+      "split": "dev-1",
+      "status": "failed",
+      "reason": "worker_failure"
+    },
+    "failure": "Export/reload prediction parity failed",
+    "cpu_seconds": 24.229549000000105,
+    "wall_seconds": 16.947014898993075,
+    "stopped_by": null,
+    "interpretation": "A cached regression failure also exists. Caching is not a demonstrated parity fix.",
+    "final_reserve_opened_for_diagnosis": false
   }
 }

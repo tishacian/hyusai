@@ -155,17 +155,27 @@ def _train(client, dataset, **overrides):
 
 
 def test_segmentation_plan_does_not_require_a_target(client, dataset):
-    response = client.post("/ml-models/plan", json={
-        "dataset_id": dataset.id, "task": "clustering", "features": ["arpu", "tenure_months"],
-    })
+    response = client.post(
+        "/ml-models/plan",
+        json={
+            "dataset_id": dataset.id,
+            "task": "clustering",
+            "features": ["arpu", "tenure_months"],
+        },
+    )
     assert response.status_code == 200
     body = response.json()
     assert body["refusal"] is None
     assert body["plan"]["task"] == "clustering" and body["plan"]["target"] == ""
     assert body["plan"]["algo"] == "kmeans"
-    refused = client.post("/ml-models/plan", json={
-        "dataset_id": dataset.id, "task": "clustering", "features": ["plan"],
-    }).json()
+    refused = client.post(
+        "/ml-models/plan",
+        json={
+            "dataset_id": dataset.id,
+            "task": "clustering",
+            "features": ["plan"],
+        },
+    ).json()
     assert refused["refusal"]["code"] == "ML_CLUSTER_FEATURE_NOT_NUMERIC"
 
 
@@ -180,21 +190,38 @@ def test_segmentation_plan_checks_the_selected_group_count(client, dataset, db_s
 
 
 def test_segmentation_api_trains_serves_batches_and_publishes_real_artifact(
-    client, dataset, db_session, workspace, user, monkeypatch,
+    client,
+    dataset,
+    db_session,
+    workspace,
+    user,
+    monkeypatch,
 ):
     from app.models.tabular import MLPrediction
     from app.services import tabular_predict
     from app.services.tabular_datasets import read_frame, resolve_dataset_ref
 
     monkeypatch.setattr(settings, "ml_predict_enabled", True)
-    client.app.dependency_overrides[ml_models_api.predict_caller] = lambda: ml_models_api.PredictCaller(
-        workspace_id=workspace.id, kind="session", user_id=user.id,
+    client.app.dependency_overrides[ml_models_api.predict_caller] = lambda: (
+        ml_models_api.PredictCaller(
+            workspace_id=workspace.id,
+            kind="session",
+            user_id=user.id,
+        )
     )
-    response = client.post("/ml-models", json={
-        "dataset_id": dataset.id, "name": "Customer segments", "task": "clustering",
-        "features": ["arpu", "tenure_months"], "algo": "kmeans", "knobs": {"n_clusters": 3},
-        "test_size": 0, "cross_validation": 0,
-    })
+    response = client.post(
+        "/ml-models",
+        json={
+            "dataset_id": dataset.id,
+            "name": "Customer segments",
+            "task": "clustering",
+            "features": ["arpu", "tenure_months"],
+            "algo": "kmeans",
+            "knobs": {"n_clusters": 3},
+            "test_size": 0,
+            "cross_validation": 0,
+        },
+    )
     assert response.status_code == 200, response.text
     body = response.json()["model"]
     assert body["status"] == "ready", body.get("error")
@@ -208,21 +235,28 @@ def test_segmentation_api_trains_serves_batches_and_publishes_real_artifact(
         probes = [{"arpu": 40.0, "tenure_months": 20.0}, {"arpu": None, "tenure_months": 70.0}]
         answer = client.post(path + "/predict", json={"rows": probes}).json()
         assert answer["task"] == "clustering" and answer["classes"] == []
-        assert all(set(item) == {"prediction"} and type(item["prediction"]) is int for item in answer["predictions"])
+        assert all(
+            set(item) == {"prediction"} and type(item["prediction"]) is int
+            for item in answer["predictions"]
+        )
         journal = db_session.get(MLPrediction, answer["prediction_id"])
         assert "scores" not in journal.scores_json and "mean" not in journal.scores_json
         tabular_predict.reset_cache()
         reloaded = client.post(path + "/predict", json={"rows": probes}).json()
         assert reloaded["predictions"] == answer["predictions"]
         scored = tabular_predict.score_dataset(db_session, model=model, dataset=dataset)
-        output = resolve_dataset_ref(db_session, workspace_id=workspace.id, ref={"dataset_id": scored["dataset_id"]})
+        output = resolve_dataset_ref(
+            db_session, workspace_id=workspace.id, ref={"dataset_id": scored["dataset_id"]}
+        )
         scored_frame = read_frame(output)
         assert scored_frame["prediction"].dtype == pl.Int64 and len(scored_frame) == 60
         assert output.lineage_json["model"]["task"] == "clustering"
         published = client.post(path + "/publish")
         assert published.status_code == 200, published.text
         assert published.json()["serving"]["mode"] == "rows"
-        feedback = client.post(path + "/feedback", json={"prediction_id": answer["prediction_id"], "label": "0"})
+        feedback = client.post(
+            path + "/feedback", json={"prediction_id": answer["prediction_id"], "label": "0"}
+        )
         assert feedback.status_code == 409
         assert feedback.json()["detail"]["code"] == "ML_CLUSTER_FEEDBACK_UNSUPPORTED"
     finally:
@@ -275,6 +309,37 @@ def test_plan_without_a_target_answers_with_the_candidate_columns(client, datase
     assert columns["region"]["distinct"] == 3
 
 
+@pytest.mark.parametrize("kv_cache", [False, True])
+def test_tabicl_regression_refuses_plan_and_submit_before_dispatch(
+    client, dataset, workspace, db_session, monkeypatch, kv_cache
+):
+    from app.services.ml import runtime
+
+    monkeypatch.setattr(settings, "ml_tabicl_enabled", True)
+    monkeypatch.setattr(settings, "ml_tabicl_workspaces", [workspace.id])
+    monkeypatch.setattr(tabular_ml, "family_availability", lambda *a: (True, None))
+    monkeypatch.setattr(runtime, "model_descriptors", lambda *a, **k: {})
+    monkeypatch.setattr(
+        tabular_ml, "dispatch_training", lambda *a: pytest.fail("A withdrawn profile cannot queue")
+    )
+    request = {
+        "dataset_id": dataset.id,
+        "target": "arpu",
+        "task": "regression",
+        "algo": "tabicl_v2",
+        "spec": {"artifact_id": str(uuid4()), "kv_cache": kv_cache},
+    }
+    planned = client.post("/ml-models/plan", json=request)
+    assert planned.status_code == 200
+    assert planned.json()["plan"] is None
+    assert planned.json()["refusal"]["code"] == "ML_TABICL_PROFILE_UNQUALIFIED"
+    submitted = client.post("/ml-models", json=request)
+    assert submitted.status_code == 409
+    assert submitted.json()["detail"]["code"] == "ML_TABICL_PROFILE_UNQUALIFIED"
+    assert submitted.json()["detail"]["reason"] == "reload_parity"
+    assert db_session.query(MLModel).count() == 0
+
+
 def test_plan_columns_carry_the_profile_the_picker_draws(client, dataset):
     """Choosing a target is a judgement about a distribution, so it travels.
 
@@ -289,9 +354,7 @@ def test_plan_columns_carry_the_profile_the_picker_draws(client, dataset):
     # Numeric column: the histogram is what a sparkline is drawn from.
     arpu = columns["arpu"]["profile"]
     assert arpu["kind"] == "float"
-    assert arpu["histogram"] and all(
-        {"upper", "count"} <= set(bin_) for bin_ in arpu["histogram"]
-    )
+    assert arpu["histogram"] and all({"upper", "count"} <= set(bin_) for bin_ in arpu["histogram"])
     assert arpu["min"] is not None and arpu["max"] is not None
     assert arpu["mean"] is not None
 
@@ -375,9 +438,7 @@ def test_plan_on_an_unknown_dataset_is_a_coded_404(client):
 # ---------------------------------------------------------------------------
 
 
-def test_training_returns_the_settled_model_card_in_one_call(
-    client, dataset, monkeypatch
-):
+def test_training_returns_the_settled_model_card_in_one_call(client, dataset, monkeypatch):
     _stub_harness(monkeypatch)
 
     response = _train(client, dataset, algo="random_forest", cross_validation=3)
@@ -406,9 +467,7 @@ def test_a_refused_training_request_is_a_form_error_and_stages_no_row(client, da
     assert client.get("/ml-models").json()["models"] == []
 
 
-def test_a_failed_fit_settles_the_row_with_the_harness_reason(
-    client, dataset, monkeypatch
-):
+def test_a_failed_fit_settles_the_row_with_the_harness_reason(client, dataset, monkeypatch):
     _stub_harness(monkeypatch, exit_code=1)
 
     model = _train(client, dataset).json()["model"]
@@ -424,9 +483,7 @@ def test_the_list_is_workspace_scoped_filterable_and_carries_the_catalog(
 ):
     _stub_harness(monkeypatch)
     mine = _train(client, dataset).json()["model"]
-    other = Workspace(
-        id=str(uuid4()), name="Other", slug=f"other-{uuid4().hex[:8]}", settings={}
-    )
+    other = Workspace(id=str(uuid4()), name="Other", slug=f"other-{uuid4().hex[:8]}", settings={})
     db_session.add(other)
     db_session.commit()
     db_session.add(
@@ -473,9 +530,7 @@ def test_the_detail_read_carries_the_dataset_and_every_version_of_the_lineage(
     assert body["dataset"]["id"] == dataset.id
     # A retrain does not take the alias from the version that was serving.
     assert body["model"]["is_champion"] is False
-    assert next(row for row in body["versions"] if row["id"] == first["id"])[
-        "is_champion"
-    ]
+    assert next(row for row in body["versions"] if row["id"] == first["id"])["is_champion"]
     # Upload → this version. No transform hop, no scored children yet.
     assert body["provenance"]["dataset"]["id"] == dataset.id
     assert body["provenance"]["transform"] is None
@@ -579,9 +634,7 @@ def test_the_dataset_chip_follows_parent_ids_not_sql_in_order(
     assert body["transform"]["id"] == features.id
 
 
-def test_every_version_on_a_card_carries_the_scores_the_card_compares(
-    client, dataset, monkeypatch
-):
+def test_every_version_on_a_card_carries_the_scores_the_card_compares(client, dataset, monkeypatch):
     """The comparison table and the deltas are drawn from the sibling rows.
 
     They were serialized without a metric block, so both read an empty list of
@@ -607,9 +660,7 @@ def test_every_version_on_a_card_carries_the_scores_the_card_compares(
 
 
 def test_an_unknown_or_foreign_model_is_a_coded_404(client, db_session):
-    other = Workspace(
-        id=str(uuid4()), name="Other", slug=f"other-{uuid4().hex[:8]}", settings={}
-    )
+    other = Workspace(id=str(uuid4()), name="Other", slug=f"other-{uuid4().hex[:8]}", settings={})
     db_session.add(other)
     db_session.commit()
     foreign = MLModel(
@@ -655,9 +706,7 @@ def test_promoting_a_version_moves_the_alias_and_returns_the_new_lineage(
     # The card shows champion *and* challenger, so promotion has to hand back
     # both halves: the version just displaced is now the contender.
     assert body["challenger_id"] == first["id"]
-    assert client.get(f"/ml-models/{first['id']}").json()["model"]["is_champion"] is (
-        False
-    )
+    assert client.get(f"/ml-models/{first['id']}").json()["model"]["is_champion"] is (False)
 
 
 def test_the_card_names_the_challenger_as_the_best_loser_not_the_newest(
@@ -695,9 +744,7 @@ def test_the_card_names_the_challenger_as_the_best_loser_not_the_newest(
     assert body["challenger_id"] == best_loser["id"]
 
 
-def test_the_comparison_route_refuses_a_version_against_itself(
-    client, dataset, monkeypatch
-):
+def test_the_comparison_route_refuses_a_version_against_itself(client, dataset, monkeypatch):
     """The refusal codes reach the page as codes, not as a 500.
 
     Scoring two real pipelines needs real artifacts, which this module stubs; the
@@ -719,9 +766,7 @@ def test_the_comparison_route_is_workspace_scoped_on_both_sides(
 ):
     _stub_harness(monkeypatch)
     model = _train(client, dataset).json()["model"]
-    other = Workspace(
-        id=str(uuid4()), name="Other", slug=f"other-{uuid4().hex[:8]}", settings={}
-    )
+    other = Workspace(id=str(uuid4()), name="Other", slug=f"other-{uuid4().hex[:8]}", settings={})
     db_session.add(other)
     foreign = MLModel(
         id=str(uuid4()),
@@ -785,9 +830,7 @@ def test_cancel_settles_a_queued_run_and_is_idempotent_on_a_terminal_one(
     assert again.status_code == 200 and again.json()["model"]["status"] == "cancelled"
 
 
-def test_deleting_a_version_removes_it_from_the_registry(
-    client, dataset, monkeypatch, db_session
-):
+def test_deleting_a_version_removes_it_from_the_registry(client, dataset, monkeypatch, db_session):
     _stub_harness(monkeypatch)
     model = _train(client, dataset).json()["model"]
 
@@ -810,9 +853,7 @@ def test_training_refuses_while_the_plane_is_disabled(client, dataset, monkeypat
     assert client.get("/ml-models/catalog").json()["catalog"]["enabled"] is False
 
 
-def test_an_unknown_body_field_is_rejected_rather_than_silently_ignored(
-    client, dataset
-):
+def test_an_unknown_body_field_is_rejected_rather_than_silently_ignored(client, dataset):
     response = client.post(
         "/ml-models",
         json={"dataset_id": dataset.id, "target": "churn", "estimator": "xgboost"},
@@ -821,9 +862,7 @@ def test_an_unknown_body_field_is_rejected_rather_than_silently_ignored(
     assert response.status_code == 422
 
 
-def test_a_knob_outside_its_bounds_is_clamped_rather_than_refused(
-    client, dataset, monkeypatch
-):
+def test_a_knob_outside_its_bounds_is_clamped_rather_than_refused(client, dataset, monkeypatch):
     _stub_harness(monkeypatch)
 
     model = _train(
@@ -838,64 +877,97 @@ def test_a_knob_outside_its_bounds_is_clamped_rather_than_refused(
 
 
 def test_tuning_plan_estimates_cost_from_an_earlier_version(client, dataset, db_session):
-    spec = tabular_ml.validate_training(dataset, task='classification', target='churn')
+    spec = tabular_ml.validate_training(dataset, task="classification", target="churn")
     earlier = tabular_ml.create_model(db_session, workspace_id=dataset.workspace_id, spec=spec)
-    earlier.status = 'ready'
+    earlier.status = "ready"
     earlier.train_duration_ms = 4000
     db_session.commit()
-    response = client.post('/ml-models/plan', json={
-        'dataset_id': dataset.id, 'target': 'churn',
-        'spec': {'tuning': 'budget', 'tuning_trials': 5, 'tuning_budget_s': 30},
-    })
+    response = client.post(
+        "/ml-models/plan",
+        json={
+            "dataset_id": dataset.id,
+            "target": "churn",
+            "spec": {"tuning": "budget", "tuning_trials": 5, "tuning_budget_s": 30},
+        },
+    )
     assert response.status_code == 200
-    warnings = response.json()['plan']['warnings']
-    estimate = next(row for row in warnings if row['code'] == 'ML_TUNING_ESTIMATE')
-    assert estimate['estimated_s'] == 60 and estimate['budget_s'] == 30
-    assert any(row['code'] == 'ML_TUNING_BUDGET_LIMITED' for row in warnings)
+    warnings = response.json()["plan"]["warnings"]
+    estimate = next(row for row in warnings if row["code"] == "ML_TUNING_ESTIMATE")
+    assert estimate["estimated_s"] == 60 and estimate["budget_s"] == 30
+    assert any(row["code"] == "ML_TUNING_BUDGET_LIMITED" for row in warnings)
 
 
 def test_tuning_plan_refuses_budget_above_the_training_reserve(client, dataset, monkeypatch):
-    monkeypatch.setattr(settings, 'ml_train_timeout_s', 100)
-    response = client.post('/ml-models/plan', json={
-        'dataset_id': dataset.id, 'target': 'churn',
-        'spec': {'tuning': 'budget', 'tuning_budget_s': 61},
-    })
+    monkeypatch.setattr(settings, "ml_train_timeout_s", 100)
+    response = client.post(
+        "/ml-models/plan",
+        json={
+            "dataset_id": dataset.id,
+            "target": "churn",
+            "spec": {"tuning": "budget", "tuning_budget_s": 61},
+        },
+    )
     assert response.status_code == 200
-    refusal = response.json()['refusal']
-    assert refusal['code'] == 'ML_SPEC_INVALID'
-    assert refusal['field'] == 'tuning_budget_s'
+    refusal = response.json()["refusal"]
+    assert refusal["code"] == "ML_SPEC_INVALID"
+    assert refusal["field"] == "tuning_budget_s"
 
 
-def test_plan_identifies_long_high_cardinality_text_without_labeling_ids(client, dataset, db_session):
+def test_plan_identifies_long_high_cardinality_text_without_labeling_ids(
+    client, dataset, db_session
+):
     from app.services.tabular_datasets import profile_frame
-    rows = pl.DataFrame({
-        'message': [f'This is a detailed support ticket number {index}' for index in range(60)],
-        'short_id': [f'ID{index}' for index in range(60)],
-        'long_category': ['A long but repeated categorical value'] * 60,
-        'churn': [index % 2 for index in range(60)],
-    })
+
+    rows = pl.DataFrame(
+        {
+            "message": [f"This is a detailed support ticket number {index}" for index in range(60)],
+            "short_id": [f"ID{index}" for index in range(60)],
+            "long_category": ["A long but repeated categorical value"] * 60,
+            "churn": [index % 2 for index in range(60)],
+        }
+    )
     profile = profile_frame(rows)
-    dataset.schema_json = profile['schema']
-    dataset.stats_json = profile['stats']
+    dataset.schema_json = profile["schema"]
+    dataset.stats_json = profile["stats"]
     db_session.commit()
-    response = client.post('/ml-models/plan', json={'dataset_id': dataset.id})
+    response = client.post("/ml-models/plan", json={"dataset_id": dataset.id})
     assert response.status_code == 200
-    columns = {item['name']: item for item in response.json()['columns']}
-    assert columns['message']['role'] == 'text'
-    assert all('role' not in columns[key] for key in ('short_id', 'long_category', 'churn'))
-    plan = client.post('/ml-models/plan', json={'dataset_id': dataset.id, 'target': 'churn'}).json()['plan']
-    identifiers = [item['feature'] for item in plan['warnings'] if item['code'] == 'ML_FEATURE_IDENTIFIER']
-    assert identifiers == ['short_id']
+    columns = {item["name"]: item for item in response.json()["columns"]}
+    assert columns["message"]["role"] == "text"
+    assert all("role" not in columns[key] for key in ("short_id", "long_category", "churn"))
+    plan = client.post(
+        "/ml-models/plan", json={"dataset_id": dataset.id, "target": "churn"}
+    ).json()["plan"]
+    identifiers = [
+        item["feature"] for item in plan["warnings"] if item["code"] == "ML_FEATURE_IDENTIFIER"
+    ]
+    assert identifiers == ["short_id"]
 
 
 def test_text_encoder_is_catalog_driven_and_validated_in_plan(client, dataset):
-    response = client.post('/ml-models/plan', json={
-        'dataset_id': dataset.id, 'target': 'churn', 'spec': {'text_encoder': 'minhash'},
-    })
+    response = client.post(
+        "/ml-models/plan",
+        json={
+            "dataset_id": dataset.id,
+            "target": "churn",
+            "spec": {"text_encoder": "minhash"},
+        },
+    )
     assert response.status_code == 200
-    assert response.json()['plan']['spec'] == {'calibration': 'off', 'threshold': 'default', 'tuning': 'off', 'explain': 'off', 'text_encoder': 'minhash'}
-    invalid = client.post('/ml-models/plan', json={
-        'dataset_id': dataset.id, 'target': 'churn', 'spec': {'text_encoder': 'torch'},
-    }).json()['refusal']
-    assert invalid['code'] == 'ML_SPEC_INVALID'
-    assert invalid['field'] == 'text_encoder'
+    assert response.json()["plan"]["spec"] == {
+        "calibration": "off",
+        "threshold": "default",
+        "tuning": "off",
+        "explain": "off",
+        "text_encoder": "minhash",
+    }
+    invalid = client.post(
+        "/ml-models/plan",
+        json={
+            "dataset_id": dataset.id,
+            "target": "churn",
+            "spec": {"text_encoder": "torch"},
+        },
+    ).json()["refusal"]
+    assert invalid["code"] == "ML_SPEC_INVALID"
+    assert invalid["field"] == "text_encoder"

@@ -9,18 +9,22 @@ def require_qualified_profile(task, spec):
     """Keep a failed development profile out of training and serving."""
     from app.services.tabular_datasets import TabularError
 
-    if task == "regression" and (spec or {}).get("kv_cache") is not True:
+    if task == "regression":
         raise TabularError(
             code="ML_TABICL_PROFILE_UNQUALIFIED",
-            message="TabICL regression without cache failed reload parity; explicitly select kv_cache=true.",
+            message="TabICL regression failed reload parity with and without cache; use a different model.",
             status_code=409,
             details={
                 "task": "regression",
-                "kv_cache": False,
-                "required_kv_cache": True,
                 "reason": "reload_parity",
             },
         )
+
+
+def require_qualified_model(model):
+    """Apply the pilot decision without changing admission of other families."""
+    if getattr(model, "family", None) == "tabular_foundation":
+        require_qualified_profile(getattr(model, "task", None), getattr(model, "spec_json", None))
 
 
 def validate_tabicl(

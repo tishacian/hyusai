@@ -37,11 +37,13 @@ const EMBEDDING_UNSUPPORTED: Record<string, string> = {
 /** A saved pilot choice remains explicitly unavailable when the server withdraws it. */
 export function foundationIssue(catalog: ModelCatalog, algo: string, spec: Record<string, unknown> | null | undefined, crossValidation: number, task?: ModelTask): string | null {
   if (algo !== 'tabicl_v2' && catalog.algos?.find(entry => entry.key === algo)?.family !== 'tabular_foundation') return null;
+  // Saved Flows and stale catalogs must keep the qualification refusal even
+  // after regression artifacts have disappeared from the current catalog.
+  if (task === 'regression') return 'models.foundation.regression_unqualified';
   const family = catalog.families?.find(entry => entry.key === 'tabular_foundation');
   if (!family?.available) return 'models.foundation.unavailable';
   if (crossValidation >= 2) return 'models.foundation.unsupported';
   if (!spec?.['artifact_id'] || !family.foundation_models?.some(model => model.artifact_id === spec['artifact_id'] && (!task || !model.task || model.task === task))) return 'models.foundation.artifact_required';
-  if (task === 'regression' && spec['kv_cache'] !== true) return 'models.foundation.regression_cache_required';
   return null;
 }
 
