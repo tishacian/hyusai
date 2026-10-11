@@ -1,0 +1,42 @@
+[
+  {
+    "id": "01-agentium-operating-system",
+    "text": "Agentium is Datategy's sovereign operating system for intelligent systems. It turns AI from isolated experiments into a governed portfolio, where every system, run, evaluation and decision can be controlled."
+  },
+  {
+    "id": "02-enterprise-connectors",
+    "text": "The platform starts where enterprise reality lives: documents, APIs, business applications, operational feeds and private infrastructure. Models, knowledge, tools and traces stay inside a controlled boundary."
+  },
+  {
+    "id": "03-systems-factory",
+    "text": "The core model is simple. A business objective becomes a System. Each System combines skills, models, knowledge, policies, runtime traces and human review."
+  },
+  {
+    "id": "04-flow-builder",
+    "text": "The Flow Builder makes that system explicit. Nodes, grounding, control policy and review steps are visible before execution. The blueprint is not a slide; it is a live runtime manifest."
+  },
+  {
+    "id": "05-observability-quality",
+    "text": "When the system runs, quality becomes operational. Each execution is measured through confidence, evidence, scores, cost, latency, evaluations and decision lineage."
+  },
+  {
+    "id": "06-octocity-cockpit",
+    "text": "Octocity shows the same factory pattern in operation. A synthetic mission room uses OCTAVE to connect signals, evidence and decisions inside one governed workspace."
+  },
+  {
+    "id": "07-octocity-map",
+    "text": "Cartography turns abstract signals into operational posture. Leaders see territory, cities, layers, confidence levels and the next action before a decision is prepared."
+  },
+  {
+    "id": "08-octocity-news-flows",
+    "text": "Open intelligence is no longer a disconnected feed. News-flow analysis ranks signals, links sources to map posture and prepares decision-grade evidence."
+  },
+  {
+    "id": "09-octocity-chat-action",
+    "text": "OCTAVE becomes the command surface. It has the signal, the sources and the map posture. But before routing the review, it detects one missing governance rule: when should this signal escalate?"
+  },
+  {
+    "id": "10-knowledge-voice2voice",
+    "text": "Now I become the field expert. OCTAVE captures my operational knowledge live. As an expert, I would not escalate a regional signal after a single source. I require two independent sources, confidence above seventy percent, and human review when ownership is missing. Captured. The rule becomes reviewed memory, ready for the next governed run."
+  }
+]

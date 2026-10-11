@@ -1,6 +1,6 @@
 # README #
 
-This README is on using the benchmarking pipeline to reproduce the results in the internal report.
+This directory contains benchmarking scripts and utilities for evaluating RAG pipelines, specifically designed for multi-hop reasoning tasks. A detailed report is also available for internal use only.
 
 ### What is this repository for? ###
 
@@ -25,7 +25,6 @@ The arrangment of files in the benchmarking folder
 📜 benchmarking
 ├── 📄 README.md
 ├── 📜 benchmarking.py
-├── 📜 bm_data.py
 ├── 📜 customchain_hah.py
 ├── 📜 customchain_hybrid.py
 ├── 📜 customchain_naive.py
@@ -35,57 +34,214 @@ The arrangment of files in the benchmarking folder
 └── 📜 resourcemonitor.py
 ```
 
-#### Bash installation
-Run command
+
+## Setup Instructions
+
+### Quick Setup
+```bash
+# Make install script executable
+chmod +x install.sh
+
+# Run installation (automatically detects GPU/CPU)
+./install.sh
 ```
-bash install.sh
-```
-Activate virtaul environment
-```
+
+### Manual Setup
+```bash
+# Create virtual environment
+python3 -m venv .venv
+
+# Activate environment
 source .venv/bin/activate
-```
-Launch the webapp on localhost:
-```
-python main.py
+
+# Install dependencies based on your system:
+# For macOS (Apple Silicon or Intel):
+pip install -r requirements/macos.txt
+
+# For GPU (NVIDIA/CUDA):
+pip install -r requirements/gpu.txt
+pip install -r requirements/shared.txt
+
+# For CPU (Linux/Windows):
+pip install -r requirements/cpu.txt
+pip install -r requirements/shared.txt
 ```
 
-#### Scratch installation
-Install python3.12 using [brew](https://docs.brew.sh/Installation) for MacOS for example:
-```
-brew install python@3.12
-```
+## Available Scripts
 
-Create a virtual environment and install the dependencies:
+### 1. `benchmarking.py`
+- Evaluates naive RAG pipeline
+- Uses fallback import system for compatibility
+- Evaluates on multiple multi-hop reasoning datasets
 
-```
-python3.12 -m venv venv
-source venv/bin/activate
-pip install -r benchmarking/requirements/requirements.txt
-```
+### 2. `benchmarking-o1.py`
+- Evaluates HAH (Hybrid Attention and Hierarchical) pipeline
+- Includes comprehensive resource monitoring
+- CO2 emissions tracking and cost calculation
 
+### 3. `dataset_manager.py`
+- Centralized dataset configuration and management
+- Multi-hop reasoning specific dataset loading with caching
+- Proper QA pair extraction for complex reasoning tasks
+- Disk space monitoring and sample size control
 
-### Running benchmarking and reproducing results ###
-Depending on the RAG method of interest, Update the following in the part of the ```benchmarking.py``` script.
+## Usage
 
-- For Naive RAG
-```
-from customchain_naive import CustomLLMChain  # change this for different pipeline [1]
-```
-- For Hybrid RAG
-```
-from customchain_hybrid import CustomLLMChain  # change this for different pipeline [1]
-```
-- For HAH RAG
-```
-from customchain_hah import CustomLLMChain  # change this for different pipeline [1]
-```
+### Basic Benchmarking
+```bash
+# Activate environment
+source .venv/bin/activate
 
-Run the script to reproduce the results
-```
+# Run naive pipeline evaluation
 python benchmarking.py
+
+# Run HAH pipeline evaluation
+python benchmarking-o1.py
 ```
 
-#### Average Evaluation Metrics of different RAG Methods
+### Environment Variables
+```bash
+# Set country code for CO2 emissions calculation
+export COUNTRY_CODE="FR"  # France
+export COUNTRY_CODE="US"  # United States
+export COUNTRY_CODE="DE"  # Germany
+```
+
+## Dataset Information
+
+### Multi-Hop Reasoning Datasets
+
+#### HotpotQA
+- **Purpose**: Multi-hop reasoning with supporting facts
+- **Format**: Question + Answer + Supporting Facts
+- **Use Case**: Complex reasoning requiring multiple information sources
+
+#### 2WikiMultiHop
+- **Purpose**: Multi-hop reasoning with Wikipedia articles
+- **Format**: Question + Answer + Supporting Facts
+- **Use Case**: Knowledge-intensive multi-hop reasoning
+
+#### AmbigQA
+- **Purpose**: Ambiguous questions requiring multi-hop reasoning
+- **Format**: Question + Multiple Possible Answers
+- **Use Case**: Handling ambiguity in complex reasoning tasks
+
+#### CommonsenseQA
+- **Purpose**: Commonsense reasoning with multiple choice
+- **Format**: Question + Choices + Answer Key
+- **Use Case**: Commonsense knowledge integration
+
+## Output Structure
+
+Results are saved to:
+- `evaluation_results/` for naive pipeline
+- `evaluation_results-o1/` for HAH pipeline
+
+Each dataset gets its own subdirectory with:
+- Metrics over time
+- Resource usage metrics
+- Cost calculations
+- Summary statistics
+
+## Using GPU Script
+
+```bash
+# Run all pipelines (Naive, Hybrid, HAH) with a model
+./run_benchmarking_gpu.sh --model "MODEL_NAME" --all-pipelines
+
+# Run specific pipeline with a model
+./run_benchmarking_gpu.sh --model "MODEL_NAME" PIPELINE_NAME
+
+# Run O1 reasoning pipelines
+./run_benchmarking_gpu.sh --model "MODEL_NAME" --all-o1
+```
+
+### Directly w/ python
+
+```bash
+# Normal pipelines
+python3 benchmarking.py --pipeline PIPELINE_NAME --model "MODEL_NAME"
+
+# O1 reasoning pipelines
+python3 benchmarking_o1.py --pipeline PIPELINE_NAME --model "MODEL_NAME"
+```
+
+## Available Pipelines
+
+| Type | Pipeline Names |
+|------|---------------|
+| **Normal** | `Naive`, `Hybrid`, `HAH` |
+| **O1 Reasoning** | `Reasoning`, `Mini-Reasoning` |
+
+## Available Models
+
+| Model Name | Size | Notes |
+|-----------|------|-------|
+| `neuralmagic/Meta-Llama-3-8B-Instruct-quantized.w4a16` | 8B | Default, quantized |
+| `suayptalha/DeepSeek-R1-Distill-Llama-3B` | 3B | Good for reasoning |
+| `RedHatAI/DeepSeek-R1-Distill-Llama-8B-quantized.w4a16` | 8B | DeepSeek R1 8B, quantized |
+| `RedHatAI/SmolLM3-3B-quantized_w4a16` | 3B | Small, efficient |
+| `RedHatAI/gemma-2-9b-it-quantized_w4a16` | 9B | Medium size |
+| `RedHatAI/gemma-3-4b-it-quantized_w4a16` | 4B | Balanced |
+| `microsoft/Phi-3-mini-4k-instruct` | 3.8B | Microsoft model |
+
+## Common Use Cases
+
+### 1. Test a Single Pipeline-Model Combination
+```bash
+./run_benchmarking_gpu.sh --model "suayptalha/DeepSeek-R1-Distill-Llama-3B" HAH
+```
+
+### 2. Compare All Pipelines with One Model
+```bash
+./run_benchmarking_gpu.sh --model "RedHatAI/gemma-3-4b-it-quantized_w4a16" --all-pipelines
+```
+
+### 3. Compare One Pipeline Across Models
+```bash
+# Run HAH with different models sequentially
+./run_benchmarking_gpu.sh --model "suayptalha/DeepSeek-R1-Distill-Llama-3B" HAH
+./run_benchmarking_gpu.sh --model "RedHatAI/gemma-3-4b-it-quantized_w4a16" HAH
+./run_benchmarking_gpu.sh --model "neuralmagic/Meta-Llama-3-8B-Instruct-quantized.w4a16" HAH
+```
+
+### 4. Run on Specific GPU
+```bash
+CUDA_VISIBLE_DEVICES=1 python3 benchmarking.py --pipeline HAH --model "MODEL_NAME"
+```
+
+### 5. Run O1 Reasoning Pipelines
+```bash
+./run_benchmarking_gpu.sh --model "neuralmagic/Meta-Llama-3-8B-Instruct-quantized.w4a16" --all-o1
+```
+
+## Output Locations
+
+Results are saved in:
+```
+evaluation_results/{model_name}/{pipeline}_evaluation_summary.csv
+```
+
+Example:
+- `evaluation_results/suayptalha_DeepSeek-R1-Distill-Llama-3B/HAH_evaluation_summary.csv`
+
+## Monitoring
+
+```bash
+# Check GPU status
+./monitor_gpu.sh check
+
+# Monitor continuously
+./monitor_gpu.sh
+
+# Check running processes
+./run_benchmarking_gpu.sh --status
+
+# View logs
+tail -f gpu_benchmarking_logs/gpu*_*.log
+```
+
+## Average Evaluation Metrics of different RAG Methods
 
 | Metric | HAH RAG | Hybrid RAG | Naive RAG |
 |--------|---------|------------|------------|

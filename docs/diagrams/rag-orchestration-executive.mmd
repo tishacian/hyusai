@@ -1,0 +1,119 @@
+---
+config:
+  layout: elk
+  elk:
+    nodePlacementStrategy: NETWORK_SIMPLEX
+---
+flowchart TB
+
+    %% ════════════ 1. INGESTION ════════════
+    subgraph INGEST ["📦 1 · INDEXATION — des données brutes au storage"]
+        direction LR
+        RAW["Données brutes<br/>ZIP SFTP · uploads PDF/Excel/HTML<br/><i>NU1569…/BBA120/Spare Parts List AKK200.pdf</i>"]
+        PROMO["🔐 Secure Deposit<br/>promotion opérateur<br/>par vague"]
+        METAX["🏷️ Métadonnées extraites des chemins<br/>project_code=AKK200 · machine=BBA120<br/>wave_id=spl_v1 · source_family=spare_parts_list"]
+        DEDUP{"SHA-256<br/>déjà connu ?"}
+        SKIP["statut deduplicated<br/>jamais ré-indexé"]
+        PARSE["📄 Parse + OCR<br/>✂️ chunks 1000c / overlap 200<br/>🧮 embeddings 1536D"]
+        RAW --> PROMO --> METAX --> DEDUP
+        DEDUP -- "oui" --> SKIP
+        DEDUP -- "non" --> PARSE
+    end
+
+    %% ════════════ 2. STORAGE ════════════
+    subgraph STORE ["🗄️ 2 · STORAGE — construit, jamais brut"]
+        direction LR
+        QD[("Qdrant — 1 point/chunk<br/>vecteur 1536D + payload :<br/>content · filename · page<br/><b>project_code · machine · wave_id</b><br/>content_sha256 · source_family")]
+        BM[("Artefact BM25 versionné<br/>format · built_at · chunk_count")]
+        FACTS[("Table facts + Doc facts<br/><i>lignes Excel ➜ faits requêtables</i>")]
+        OBJ[("Object store<br/>original/ · ingested/ · derived/")]
+        PG[("PostgreSQL ledger<br/>collections · sources · runs")]
+    end
+
+    %% ════════════ 3. QUESTION ════════════
+    subgraph QUERY ["💬 3 · QUESTION — « et pour celle-ci, quelle liste de pièces ? »"]
+        direction TB
+        U["👤 POST /chat/stream"]
+        TRIV{"triviale ?<br/>« bonjour »"}
+        BYP["réponse directe ⚡"]
+        MEM["📚 Mémoire conversationnelle<br/>budget 3500 tokens + résumé<br/>+ entités saillantes ➜ <i>retrouve AKK200</i>"]
+        CFG["⚙️ Defaults workspace<br/>scope andritz-spl ➜ chah · top_k 8<br/>balanced · grounding strict"]
+        AUG["🔎 Requête augmentée<br/><i>« …celle-ci | contexte: AKK200 »</i>"]
+        PROF{"profil<br/>latence"}
+        FAST["fast · voix<br/>naïf borné, sans CE/MMR"]
+        DEEP["deep · async<br/>pool 200 + variante LLM réécrite"]
+        U --> TRIV
+        TRIV -- "oui" --> BYP
+        TRIV -- "non" --> MEM --> CFG --> AUG --> PROF
+        PROF -- "fast" --> FAST
+        PROF -- "deep" --> DEEP
+    end
+
+    %% ════════════ 4. RETRIEVAL ════════════
+    subgraph FAN ["🔁 4 · C-HAH — fan-out parallèle (balanced)"]
+        direction TB
+        VAR["3 variantes de requête<br/><i>AKK200 / AKK 200 / AKK-200</i>"]
+        DNS["Dense — le sens"]
+        SPR["Sparse — les mots exacts<br/><i>capte AKK200 littéral</i>"]
+        EXM["⚡ Exact match fichiers + table facts<br/><i>« Spare Parts List AKK200 » épinglé</i>"]
+        RRF{"Fusion RRF pondérée<br/>identifiant détecté ➜<br/>sparse 0.6 / dense 0.4"}
+        VAR --> DNS --> RRF
+        VAR --> SPR --> RRF
+        SPR -. "timeout 1.5s ➜<br/>badge dense-only" .-> RRF
+        EXM --> RRF
+    end
+
+    %% ════════════ 5. RAFFINAGE ════════════
+    subgraph REFINE ["🧹 5 · RAFFINAGE — chaque étage borné, fallback propre"]
+        direction TB
+        R1["rerank policy + dédup"]
+        R2["filtre cross-projet<br/><i>ACO150 écarté via payload project_code</i>"]
+        R3["🤖 cross-encoder · 500 ms · top 24"]
+        R4["MMR diversité · flag · 500 ms"]
+        R5["compression 0.7<br/><i>16 ➜ 12 chunks</i>"]
+        R1 --> R2 --> R3 --> R4 --> R5
+    end
+
+    %% ════════════ 6. GÉNÉRATION ════════════
+    subgraph GEN ["✍️ 6 · GÉNÉRATION"]
+        direction TB
+        GUARD{"évidence<br/>trouvée ?"}
+        NOSRC["🚫 « pas de source fiable »<br/>+ deep search en fond"]
+        CLS["classifieur raisonnement · flag<br/><i>FACTUAL ➜ template précis</i>"]
+        BUDG["budget adaptatif<br/>ρ = entrée/fenêtre ➜ max_tokens"]
+        LLM["LLM streaming + citations"]
+        ANS["💬 « Voir Spare Parts List<br/>AKK200_Ind A.pdf… »"]
+        SAVE["💾 message + run ledger<br/>+ entités saillantes ➜ tour suivant"]
+        GUARD -- "non + strict" --> NOSRC
+        GUARD -- "oui" --> CLS --> BUDG --> LLM --> ANS --> SAVE
+    end
+
+    %% ════════════ Flux inter-blocs ════════════
+    PARSE --> QD
+    PARSE --> BM
+    PARSE --> FACTS
+    PARSE --> OBJ
+    PARSE --> PG
+
+    PROF -- "balanced · chat" --> VAR
+    QD -.-> DNS
+    QD -.-> SPR
+    BM -.-> SPR
+    FACTS -.-> EXM
+
+    RRF --> R1
+    FAST --> R1
+    DEEP --> R1
+
+    R5 --> GUARD
+    SAVE -.-> MEM
+    SAVE -.-> PG
+
+    style INGEST fill:#3a3a3a,color:#fff
+    style STORE fill:#0b3d5c,color:#fff
+    style QUERY fill:#4a3a1a,color:#fff
+    style FAN fill:#1a3a5c,color:#fff
+    style REFINE fill:#3d2b56,color:#fff
+    style GEN fill:#1f4a2e,color:#fff
+    style NOSRC fill:#7a2222,color:#fff
+    style BYP fill:#555,color:#fff

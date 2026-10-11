@@ -1,0 +1,21 @@
+{
+  "sha": "4771d53ae2a057b3e6b0590a7b3b4ce8d9068166",
+  "kind": "synthetic technical API test, not a human review or voice test",
+  "session_id": "c84ec7f5-3480-43dd-8205-a59d88c459a0",
+  "proposal_id": "98fd6641-6239-48bc-b405-fb80ba7ab2dc",
+  "status": "pending_review",
+  "checks": {
+    "corrected_value_in_report": true,
+    "old_value_absent_from_report": true,
+    "synthetic_marker_in_report": true,
+    "review_status": "pending_review"
+  },
+  "report_markdown": "# QA Capture continuity R2CAP4771\n\nObjectif : Recette technique synthétique du passage Capture vers une connaissance publiée. Ne pas utiliser comme consigne réelle.\n\n## Correction de la recette\nLa correction de la recette concerne la recette synthétique R2CAP4771. Voici les points clés :\n\n- **Collection** : La pression nominale est fixée à 6 bar. \n- **Note** : Cette donnée est fictive et est uniquement destinée à tester la collection avant sa publication. \n- **Intervention** : Aucune intervention réelle n’est autorisée sur cette recette. \n\nEn ce qui concerne l'inventaire de la Knowledge collection :\n\n- **Total des sources** : 1\n- **Sources correspondant au périmètre du système** : 1\n- **Total des chunks indexés** : 1\n- **Typologie par source_kind** : \n  - Texte : 1\n- **Typologie par extension** : \n  - md : 1\n- **Statuts** : \n  - Prêt : 1\n\n**Collections** :\n- **agentium-showcase-intervention-history** : \n  - 1 source(s), 1 chunk(s), 1 source correspondante, statut prêt.\n  - **Filtres de périmètre** : document_filename=['northforge-intervention-history.md'].\n  - Détails : \n    - northforge-intervention-history.md | texte | md | prêt | 1 chunk | 846 bytes.\n\nSources : Inventaire Knowledge collection\n\n## Questions ouvertes pour reprise\n_Points restés sans réponse à la publication ; à compléter par un expert._\n- Quelle est la procédure à suivre si une intervention réelle est nécessaire malgré l'interdiction mentionnée ?\n- Quelles sont les conséquences de la pression nominale de 6 bar sur la sécurité ou le fonctionnement de la recette ?\n- Y a-t-il des exceptions à la règle d'interdiction d'intervention réelle dans des cas spécifiques ?\n- Comment la donnée fictive de pression nominale de 6 bar est-elle validée avant publication ?\n- Quels types d'interventions sont considérés comme réels et donc interdits ?\n",
+  "selected_context": "0b638983-36fe-4e9d-b300-5d5b1e965b4b",
+  "selected_context_name": "Analyze Contracts And Flag context",
+  "original_text": "Recette synthétique R2CAP4771. La pression nominale indiquée dans ce compte rendu est de 8 bar. Cette donnée fictive sert uniquement à tester la correction avant publication.",
+  "amended_text": "Recette synthétique R2CAP4771. Correction : la pression nominale est de 6 bar. Cette donnée fictive sert uniquement à tester la correction avant publication. Aucune intervention réelle n’est autorisée.",
+  "event_id": "c5cc572c-9a46-424f-be48-8d738a5d509e",
+  "amendment_id": "74279c2e-72d4-4b95-80f9-d346c5380432",
+  "acceptance": "FAILED: unrelated collection inventory included in the report; publication not attempted"
+}

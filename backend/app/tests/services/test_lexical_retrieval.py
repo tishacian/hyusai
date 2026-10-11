@@ -1,0 +1,183 @@
+from __future__ import annotations
+
+import re
+
+from app.services.rag.lexical_retrieval import (
+    DIGIT_FIRST_IDENTIFIER_PATTERN,
+    SPARSE_SCHEMA_VERSION,
+    analyze_query,
+    derived_industrial_metadata,
+    enrich_payload_for_lexical_sparse,
+    identifier_variants,
+    lexical_match_details,
+    metadata_search_text,
+    parse_lexical_config,
+)
+
+
+def test_identifier_variants_are_generic_for_code_like_terms():
+    variants = identifier_variants("ABC-123")
+
+    assert "ABC123" in variants
+    assert "ABC 123" in variants
+    assert "ABC-123" in variants
+    assert "ABC_123" in variants
+
+
+def test_query_analysis_uses_configured_document_type_aliases():
+    config = parse_lexical_config(
+        {
+            "document_types": {
+                "parts_catalog": {
+                    "aliases": ["parts list", "component catalogue"],
+                }
+            }
+        }
+    )
+
+    signals = analyze_query("Find the parts list for PRJ-204", config)
+
+    assert signals.requires_exact_match is True
+    assert "PRJ204" in signals.exact_terms
+    assert "parts_catalog" in signals.document_type_intents
+
+
+def test_query_analysis_does_not_treat_hyphenated_words_as_exact_identifiers():
+    signals = analyze_query("Peux-tu retrouver la Spare Parts List du projet ACO140 ?")
+
+    assert "ACO140" in signals.exact_terms
+    assert "PEUXTU" not in signals.exact_terms
+
+
+def test_query_analysis_recognizes_single_letter_dotted_equipment_code():
+    signals = analyze_query("Quelle est la quantité de graisse pour le palier D.60 ?")
+
+    assert "D60" in signals.exact_terms
+    assert signals.requires_exact_match is True
+    assert "D.60" in signals.identifier_variants
+
+
+def test_query_analysis_extracts_dotted_code_from_diameter_phrasing():
+    signals = analyze_query(
+        "Quelle quantité de graisse appliquer au graissage d'un palier moteur "
+        "de diamètre 60 (D.60) ?"
+    )
+
+    assert "D60" in signals.exact_terms
+
+
+def test_query_analysis_recognizes_compact_and_separated_short_codes():
+    assert "D60" in analyze_query("graissage du palier D60").exact_terms
+    assert "D40" in analyze_query("palier moteur D-40").exact_terms
+    assert "D60" in analyze_query("référence palier D_60").exact_terms
+
+
+def test_query_analysis_recognizes_digit_first_part_identifiers():
+    # SPL part numbers are digit-first with a short letter suffix (the inlet
+    # conveyor belt 2310PW). Every identifier pattern used to require a leading
+    # letter, so those references never reached exact matching.
+    for query, code in (
+        ("la toile du convoyeur est la 2310PW", "2310PW"),
+        ("on monte une 2030B", "2030B"),
+        ("le tapis 7310D", "7310D"),
+    ):
+        signals = analyze_query(query)
+        assert code in signals.exact_terms, query
+        assert signals.requires_exact_match is True, query
+
+
+def test_digit_first_identifiers_exclude_measurements_and_bare_numbers():
+    for text in ("250bar", "1500mm", "400V", "2000rpm", "3000tr", "en 2024", "page 120", "20 mm"):
+        assert re.search(DIGIT_FIRST_IDENTIFIER_PATTERN, text.upper(), re.IGNORECASE) is None, text
+
+
+def test_short_code_extraction_stays_code_like():
+    # A bare letter followed by whitespace + number is ordinary prose: the
+    # separator must be punctuation, not a space, so this is not a code.
+    assert analyze_query("Il y a 60 grammes de graisse par palier").exact_terms == ()
+    # A single trailing digit is too short to qualify as an identifier.
+    assert analyze_query("voir le point B5 du schéma").exact_terms == ()
+
+
+def test_metadata_sparse_text_enriches_filename_and_code_without_domain_terms():
+    payload = {
+        "content": "A generic chunk.",
+        "document_filename": "Component list PRJ204.pdf",
+        "project_code": "PRJ204",
+        "archive_name": "PRJ204.zip",
+    }
+
+    text = metadata_search_text(payload)
+    enriched = enrich_payload_for_lexical_sparse(payload)
+
+    assert text.count("PRJ204") >= 3
+    assert "Component list PRJ204.pdf" in text
+    assert enriched["sparse_schema_version"] == SPARSE_SCHEMA_VERSION
+    assert "prj204" in enriched["retrieval_identifiers"]
+    assert "component" in enriched["retrieval_terms"]
+
+
+def test_sparse_enrichment_derives_generic_industrial_metadata_hints():
+    payload = {
+        "content": "Maintenance note. Part no LM 300 filtering cartridge.",
+        "document_filename": "Manual_BHX100__Chapter 08__section IV.pdf",
+        "inner_document_path": "BHX100/files/section_IV/Filtration_vacuum_maintenance.html",
+        "project_code": "BHX100",
+    }
+
+    derived = derived_industrial_metadata(payload)
+    enriched = enrich_payload_for_lexical_sparse(payload)
+
+    assert derived["chapter"] == "Chapter 08"
+    assert derived["section"] == "Section IV"
+    assert derived["family"] == "filtration"
+    assert enriched["part_number"] == "LM 300 filtering cartridge"
+    assert "lm300filteringcartridge" in enriched["retrieval_identifiers"]
+    assert "filtration" in enriched["retrieval_terms"]
+
+
+def test_sparse_enrichment_requires_part_as_a_word_before_part_number_derivation():
+    payload = {
+        "content": "La particule M est decrite ici sans reference de piece.",
+        "document_filename": "Manual_ACJ200.pdf",
+    }
+
+    derived = derived_industrial_metadata(payload)
+
+    assert "part_number" not in derived
+
+
+def test_lexical_match_boosts_exact_metadata_and_demotes_other_identifiers():
+    matching = lexical_match_details(
+        content="",
+        metadata={"document_filename": "Component list PRJ204.pdf", "project_code": "PRJ204"},
+        query="Find component list for PRJ204",
+    )
+    other = lexical_match_details(
+        content="",
+        metadata={"document_filename": "Component list PRJ999.pdf", "project_code": "PRJ999"},
+        query="Find component list for PRJ204",
+    )
+
+    assert matching["score"] > 0
+    assert matching["matched_exact_terms"] == ["PRJ204"]
+    assert other["missing_exact_match"] is True
+    assert other["score"] < matching["score"]
+
+
+def test_lexical_match_prefers_document_type_in_metadata_over_incidental_content():
+    config = parse_lexical_config({"document_types": {"parts_catalog": ["spare parts list"]}})
+    metadata_match = lexical_match_details(
+        content="Generic spare information.",
+        metadata={"document_filename": "Spare Parts List PRJ204.pdf", "project_code": "PRJ204"},
+        query="Find the spare parts list for PRJ204",
+        config=config,
+    )
+    content_only = lexical_match_details(
+        content="This chapter mentions a spare parts list in passing.",
+        metadata={"document_filename": "Chapter 01 PRJ204.pdf", "project_code": "PRJ204"},
+        query="Find the spare parts list for PRJ204",
+        config=config,
+    )
+
+    assert metadata_match["score"] > content_only["score"]

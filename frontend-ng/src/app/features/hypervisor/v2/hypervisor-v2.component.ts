@@ -1,0 +1,4160 @@
+import { HypervisorAutomationComponent } from './hypervisor-automation.component';
+import { OperationalObjectiveComponent } from '@app/features/systems/operational-objective.component';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  HostListener,
+  OnDestroy,
+  OnInit,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
+import { ActivatedRoute, Router } from '@angular/router';
+import { Subscription, forkJoin, of, type Observable } from 'rxjs';
+import { catchError } from 'rxjs/operators';
+import { ApiService } from '@app/core/api.service';
+import {
+  CanonicalApiService,
+  type Capability,
+  type DecisionRow,
+  type HypervisorSignal,
+  type HypervisorValueBasisItem,
+  type HypervisorValueBasisStatus,
+  type Recommendation,
+} from '@app/core/canonical-api.service';
+import { I18nService } from '@app/core/i18n.service';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { WorkspaceViewContext } from '@app/core/workspace-view-context';
+import { isHypervisorFacet, type HypervisorFacetId, type NavLinkInput } from '@app/core/navigation.catalog';
+import {
+  CkChartMiniAreaComponent,
+  CkChartPulseComponent,
+  CkChartRadialDaysComponent,
+  CkChartSankeyFlowComponent,
+  CkChartStreamComponent,
+  CkChartTipComponent,
+  CkChartUnitDotsComponent,
+  CkPanelComponent,
+  FilterChipComponent,
+  KbdComponent,
+  NavLinkDirective,
+  PageFrameComponent,
+  TagComponent,
+  type CkChartTick,
+  type CkChartTipLine,
+  type CkChartTone,
+  type CkRadialDay,
+  type CkSankeySource,
+  type CkStreamPeak,
+  type CkStreamSeries,
+} from '@app/shared/cockpit';
+import {
+  arrivalProvenanceLabel,
+  arrivalProvenanceState,
+  readArrivalProvenance,
+  type ArrivalProvenance,
+} from '@app/shared/cockpit/arrival-provenance';
+import { easeOutProgress, prefersReducedMotion } from '@app/shared/cockpit/charts/chart-interact';
+import {
+  STALE_AFTER_DAYS,
+  availableNumber,
+  projectSeries,
+  sortRegisterRows,
+  type HypervisorChartTick,
+  type HypervisorDenominator,
+  type HypervisorNativeUnit,
+  type HypervisorRegisterRow,
+  type HypervisorSeriesResponse,
+  type HypervisorSeriesView,
+  type SeriesFact,
+} from './hypervisor-v2-series';
+import {
+  COMPRENDRE_BLOCKS,
+  DECIDER_BLOCKS,
+  DEFAULT_HYPERVISOR_VIEWS,
+  DETAILLER_BLOCKS,
+  availableHypervisorViews,
+  REGISTER_COLUMNS,
+  VIEW_SORTS,
+  cloneView,
+  impactGenericView,
+  isImpactViewId,
+  moveStratumBlock,
+  parseImpactViewQuery,
+  parseViewsPayload,
+  removeStratumBlock,
+  replaceView,
+  serializeViewsForWrite,
+  showsBlock,
+  showsColumn,
+  toggleRegisterColumn,
+  toggleStratumBlock,
+  viewDenominator,
+  viewPeriod,
+  type HypervisorBlockRef,
+  type HypervisorNamedView,
+  type HypervisorStratumId,
+  type HypervisorViewDenominator,
+  type ImpactViewId,
+} from './hypervisor-v2-views';
+import {
+  LOADING_SOURCES,
+  impactPageProblem,
+  impactSourceRequests,
+  settleSource,
+  withSourceState,
+  type ImpactSourceId,
+  type ImpactSourceState,
+  type ImpactSourceStates,
+  type ImpactSourceValues,
+  type SourceOutcome,
+} from './impact-sources';
+import { ImpactActivityComponent } from './blocks/impact-activity.component';
+import { ImpactFinancialScenarioComponent } from './blocks/impact-financial-scenario.component';
+import { ACTIVITY_METRICS, SCENARIO_FIELDS, activityMetrics, scopedSeries, summarySections, type ScenarioField } from './impact-product-blocks';
+import { ImpactBlockAlertesComponent } from './blocks/impact-block-alertes.component';
+import { ImpactBlockCarteComponent } from './blocks/impact-block-carte.component';
+import { ImpactBlockEcheancierComponent } from './blocks/impact-block-echeancier.component';
+import { ImpactBlockFluxComponent } from './blocks/impact-block-flux.component';
+import { ImpactBlockIndicateursComponent } from './blocks/impact-block-indicateurs.component';
+import { ImpactBlockOrdreDuJourComponent } from './blocks/impact-block-ordre-du-jour.component';
+import {
+  mapAgendaMetadataToOrdre,
+  mapDecisionsToOrdre,
+  mapMacroToIndicateurs,
+  mapMapToZones,
+  mapMonitorToAlertes,
+  mapNewsToFlux,
+  mapRegisterToIndicateurs,
+  mapSignalsToAlertes,
+  mapTimelineToEcheancier,
+  type ImpactMacroRaw,
+  type ImpactMapRaw,
+  type ImpactMonitorRaw,
+  type ImpactNewsRaw,
+  type ImpactTimelineRaw,
+} from './impact-block-data';
+import {
+  DAY_LOCK_IDLE,
+  activityStrip,
+  lockTransition,
+  reduceDayLock,
+  selectedDay,
+  selectionModel,
+  stripKeyTarget,
+  type DayLockEvent,
+  type DayLockState,
+  type SelectionDayMode,
+  type SelectionSystemMode,
+} from './impact-synthese';
+import {
+  pendingDecisionsFact,
+  presentationEscape,
+  proofChain,
+  type ProofBasis,
+  type ProofBasisAuthor,
+  type ProofDay,
+} from './impact-presentation';
+
+interface BasisDraft {
+  unit: string;
+  hours_per_unit: string;
+  value_per_unit: string;
+  currency: string;
+  status: HypervisorValueBasisStatus;
+  note: string;
+}
+
+interface RecommendationGroup {
+  item: Recommendation;
+  count: number;
+}
+
+/** Provenance marks: measured, declared/estimated, missing. */
+const MARK_MEASURED = '●';
+const MARK_DECLARED = '◐';
+const MARK_NONE = '○';
+const MAX_UNIT_DOTS = 24;
+const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
+
+function humanizeOutputUnit(unit: string | null | undefined, fallback: string): string {
+  const raw = (unit ?? '').trim();
+  return raw ? raw.replace(/_/g, ' ') : fallback;
+}
+
+@Component({
+  selector: 'app-hypervisor-v2',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  host: {
+    '[class.hv2-enter]': 'entering()',
+    '[class.hv2-theme-presentation]': 'presentationTheme()',
+    '[attr.data-testid]': '"hypervisor-v2"',
+  },
+  imports: [
+    NgTemplateOutlet,
+    PageFrameComponent,
+    HypervisorAutomationComponent,
+    OperationalObjectiveComponent,
+    NavLinkDirective,
+    KbdComponent,
+    TagComponent,
+    FilterChipComponent,
+    CkPanelComponent,
+    CkChartRadialDaysComponent,
+    CkChartSankeyFlowComponent,
+    CkChartStreamComponent,
+    CkChartMiniAreaComponent,
+    CkChartUnitDotsComponent,
+    CkChartPulseComponent,
+    CkChartTipComponent,
+    ImpactBlockEcheancierComponent,
+    ImpactBlockFluxComponent,
+    ImpactBlockCarteComponent,
+    ImpactBlockAlertesComponent,
+    ImpactActivityComponent,
+    ImpactFinancialScenarioComponent,
+    ImpactBlockOrdreDuJourComponent,
+    ImpactBlockIndicateursComponent,
+  ],
+  template: `
+    @if (presentationTheme()) {
+      <div class="hv2-presentation-liseré" aria-hidden="true" data-testid="hypervisor-presentation-lisere"></div>
+    }
+    <p class="sr-only" role="status" aria-live="polite" data-testid="hypervisor-v2-source-announcer">{{ sourceAnnouncement() }}</p>
+    <ck-page-frame
+      [eyebrow]="pageEyebrow()"
+      [title]="pageTitle()"
+      [description]="presentationTheme() ? '' : pageSummary()"
+    >
+      @if (arrivalChipLabel(); as chip) {
+        <ck-filter-chip
+          kind="provenance"
+          [label]="chip"
+          [href]="arrivalBackHref()"
+          testId="impact-arrival-provenance"
+          (navigate)="onArrivalBack()"
+        />
+      }
+      <div actions class="hv2-actions">
+        @if (presentationTheme()) {
+          <button
+            type="button"
+            class="hv2-text-btn"
+            data-testid="hypervisor-quit-presentation"
+            (click)="exitPresentationTheme()"
+          >
+            {{ i18n.t('hypervisor.v2.theme.quit') }}
+            <ck-kbd>{{ i18n.t('hypervisor.v2.theme.quit_kbd') }}</ck-kbd>
+          </button>
+        } @else {
+          <div class="hv2-switch" role="tablist">
+            @for (view of switcherViews(); track view.id) {
+              <button
+                type="button"
+                role="tab"
+                [attr.data-testid]="'hypervisor-v2-view-' + view.id"
+                [attr.aria-selected]="view.id === switcherActiveId()"
+                [attr.title]="viewLabel(view)"
+                [class.hv2-switch-on]="view.id === switcherActiveId()"
+                (click)="selectSwitcherView(view.id)"
+              ><span>{{ viewLabel(view) }}</span></button>
+            }
+          </div>
+          <button
+            type="button"
+            class="hv2-text-btn"
+            data-testid="hypervisor-enter-presentation"
+            (click)="enterPresentationTheme()"
+          >
+            {{ i18n.t('hypervisor.v2.theme.present') }}
+          </button>
+          <button type="button" class="hv2-text-btn" (click)="customizeOpen.set(true)">
+            {{ i18n.t('hypervisor.v2.customize') }}
+            <ck-kbd>⌘E</ck-kbd>
+          </button>
+        }
+      </div>
+
+      @if (!activeImpactViewId() && activeView()) {
+        <p class="hv2-scope" data-testid="impact-view-scope">{{ systemScopeLabel() }} · {{ i18n.t('hypervisor.v2.period.' + viewPeriod(activeView())) }} · {{ i18n.t('hypervisor.v2.product.completed_charts') }}</p>
+      }
+      @if (loading()) {
+        <p class="hv2-muted">{{ i18n.t('hypervisor.v2.loading') }}</p>
+      } @else if (loadProblem(); as problem) {
+        <section role="alert">
+          <p>{{ i18n.t(problem) }}</p>
+          <div style="display:flex;align-items:center;gap:16px;margin-top:12px">
+            <button type="button" style="padding:8px 16px;border:1px solid var(--ck-stroke-2);border-radius:4px" (click)="reload()">{{ i18n.t('common.retry') }}</button>
+            <a style="text-decoration:underline" [navLink]="{ leaf: 'help-guide', ref: 'value' }">{{ i18n.t('experience.adoption.help') }}</a>
+          </div>
+        </section>
+      } @else {
+        <div data-testid="hypervisor-v2-facets">
+        @if (activeFacet() === 'synthese') {
+          @if (impactViewUnavailable()) {
+            <section class="hv2-muted" role="status" data-testid="hypervisor-v2-impact-unavailable">
+              <h2>{{ i18n.t('hypervisor.v2.mission_room.unavailable.title') }}</h2>
+              <p>{{ i18n.t('hypervisor.v2.mission_room.unavailable.description') }}</p>
+              <button type="button" class="hv2-text-btn" (click)="selectView('direction')">
+                {{ i18n.t('hypervisor.v2.mission_room.unavailable.action') }}
+              </button>
+            </section>
+          } @else if (activeImpactView(); as impactView) {
+            <section
+              class="hv2-impact-blocks"
+              data-testid="hypervisor-v2-impact-blocks"
+              [attr.data-view]="impactView.id"
+            >
+              @for (block of impactComprendreBlocks(); track block.type + '-' + $index) {
+                @switch (block.type) {
+                  @case ('echeancier') {
+                    <app-impact-block-echeancier
+                      [source]="block.source || null"
+                      [title]="block.title || null"
+                      [width]="block.width || null"
+                      [settings]="block.settings"
+                      [exit]="block.exit || null"
+                      [items]="impactEcheancierItems()"
+                    />
+                  }
+                  @case ('flux') {
+                    <app-impact-block-flux
+                      [source]="block.source || null"
+                      [title]="block.title || null"
+                      [width]="block.width || null"
+                      [settings]="block.settings"
+                      [exit]="block.exit || null"
+                      [items]="impactFluxItems()"
+                    />
+                  }
+                  @case ('carte') {
+                    <app-impact-block-carte
+                      [source]="block.source || null"
+                      [title]="block.title || null"
+                      [width]="block.width || null"
+                      [settings]="block.settings"
+                      [exit]="block.exit || null"
+                      [zones]="impactCarteZones()"
+                      [selectedZoneId]="impactSelectedZone()"
+                      [attribution]="mapAttribution()"
+                      (zoneSelect)="onImpactZoneSelect($event)"
+                    />
+                  }
+                  @case ('alertes') {
+                    <app-impact-block-alertes
+                      [source]="block.source || null"
+                      [title]="block.title || null"
+                      [width]="block.width || null"
+                      [settings]="block.settings"
+                      [exit]="block.exit || null"
+                      [items]="impactAlerteItems()"
+                    />
+                  }
+                  @case ('ordre_du_jour') {
+                    <app-impact-block-agenda
+                      [source]="block.source || null"
+                      [title]="block.title || null"
+                      [width]="block.width || null"
+                      [settings]="block.settings"
+                      [exit]="block.exit || null"
+                      [points]="impactOrdrePoints()"
+                      (logDecision)="onMeetingDecision($event)"
+                    />
+                  }
+                  @case ('indicateurs') {
+                    <app-impact-block-indicateurs
+                      [source]="block.source || null"
+                      [title]="block.title || null"
+                      [width]="block.width || null"
+                      [settings]="block.settings"
+                      [exit]="block.exit || null"
+                      [items]="impactIndicateurItems()"
+                    />
+                  }
+                }
+              }
+              @if (showsBlock(impactView, 'decider', 'decisions') && !presentationTheme()) {
+                <article class="hv2-card hv2-card-decision">
+                  <ng-container [ngTemplateOutlet]="decisionTpl"></ng-container>
+                </article>
+              }
+            </section>
+          } @else if (presentationTheme() && !hasProductBlocks()) {
+            <ng-container [ngTemplateOutlet]="presentationTpl"></ng-container>
+          } @else {
+            <p class="sr-only" role="status" aria-live="polite" data-testid="hypervisor-v2-lock-announcer">{{ lockAnnouncement() }}</p>
+            <div class="hv2-page">
+            <ck-chart-tip
+              [open]="pageTipOpen()"
+              [title]="pageTipTitle()"
+              [lines]="pageTipLines()"
+              [x]="pageTipX()"
+              [y]="pageTipY()"
+            />
+            @if (hasResultBlocks() && !series()) {
+              @if (sourceStates().series !== 'ready') { <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'series' }"></ng-container> }
+              @else { <p class="hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p> }
+            }
+            @if (showStratum('comprendre')) {
+              <section class="hv2-stratum hv2-stratum-bands" data-testid="hypervisor-v2-stratum-comprendre" aria-labelledby="hv2-leader-comprendre">
+                <ng-container [ngTemplateOutlet]="leaderTpl" [ngTemplateOutletContext]="{ id: 'comprendre', hidden: true }"></ng-container>
+                @for (section of summarySections(); track section) {
+                  @switch (section) {
+                    @case ('activity') {
+                      @if (productBlock('activity'); as block) { <app-impact-activity [block]="block" [systemId]="activeView()?.system_id || null" [scopeLabel]="systemScopeLabel()" [period]="viewPeriod(activeView())" [canEdit]="canEdit() && !presentationTheme()" (configure)="openBlockSettings('activity')" /> }
+                    }
+                    @case ('financial_scenario') {
+                      @if (productBlock('financial_scenario'); as block) { <app-impact-financial-scenario [block]="block" [scopeLabel]="systemScopeLabel()" [canEdit]="canEdit() && !presentationTheme()" (configure)="openBlockSettings('financial_scenario')" /> }
+                    }
+                    @case ('command') { @if (series()) { <ng-container [ngTemplateOutlet]="commandBandTpl"></ng-container> } }
+                    @case ('cadran') { @if (series()) { <ng-container [ngTemplateOutlet]="cadranBandTpl"></ng-container> } }
+                    @case ('rivers') { @if (series()) { <ng-container [ngTemplateOutlet]="riversBandTpl"></ng-container> } }
+                    @case ('pair') { @if (series()) { <ng-container [ngTemplateOutlet]="pairBandTpl"></ng-container> } }
+                    @case ('sankey') { @if (series()) { <ng-container [ngTemplateOutlet]="sankeyBandTpl"></ng-container> } }
+                  }
+                }
+              </section>
+            }
+            @if (series() && showStratum('detailler') && showBlock('detailler', 'registre')) {
+              <section class="hv2-stratum" data-testid="hypervisor-v2-stratum-detailler" aria-labelledby="hv2-leader-detailler">
+                <ng-container [ngTemplateOutlet]="leaderTpl" [ngTemplateOutletContext]="{ id: 'detailler' }"></ng-container>
+                <ng-container [ngTemplateOutlet]="registerTpl" [ngTemplateOutletContext]="{ testid: 'hypervisor-v2-register' }"></ng-container>
+              </section>
+            }
+            @if (series() && showStratum('decider')) {
+              <section class="hv2-stratum" data-testid="hypervisor-v2-stratum-decider" aria-labelledby="hv2-leader-decider">
+                <ng-container [ngTemplateOutlet]="leaderTpl" [ngTemplateOutletContext]="{ id: 'decider' }"></ng-container>
+                <div class="hv2-cards3">
+                  @if (showBlock('decider', 'signal')) {
+                    <ng-container [ngTemplateOutlet]="signalTpl" [ngTemplateOutletContext]="{ hero: false }"></ng-container>
+                  }
+                  @if (showBlock('decider', 'decisions')) {
+                    <article class="hv2-card hv2-card-decision" [style.--stagger]="1">
+                      <ng-container [ngTemplateOutlet]="decisionTpl"></ng-container>
+                    </article>
+                  }
+                  <article class="hv2-card hv2-card-bases" [style.--stagger]="2">
+                    <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.bases.kicker', { declared: declaredCount(), total: series()!.register.length }) }}</p>
+                    <h3 class="hv2-card-title">{{ basesTitle() }}</h3>
+                    @if (series()!.outside.length) {
+                      <ul class="hv2-bases-list">
+                        @for (row of series()!.outside; track row.systemId) {
+                          <li class="hv2-bases-row">
+                            <span>{{ row.name }}</span>
+                            <span class="ck-tnum hv2-muted">{{ outcomeLabel(row) }}</span>
+                            @if (row.capabilityId) {
+                              <a class="hv2-link" [navLink]="basesLink(row.capabilityId)">→ {{ i18n.t('hypervisor.v2.bases.declare_short') }}</a>
+                            }
+                          </li>
+                        }
+                      </ul>
+                    }
+                    <p class="hv2-footnote">{{ i18n.t('hypervisor.v2.bases.footnote') }}</p>
+                  </article>
+                </div>
+              </section>
+            }
+          </div>
+            <app-operational-objective />
+            <app-hypervisor-automation />
+        }
+        }
+
+        @if (activeFacet() === 'registre') {
+          <ng-container [ngTemplateOutlet]="legendTpl"></ng-container>
+          @if (sourceStates().series !== 'ready') {
+            <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'series' }"></ng-container>
+          } @else if (series()) {
+            <ng-container [ngTemplateOutlet]="registerTpl" [ngTemplateOutletContext]="{ testid: 'hypervisor-v2-register-registre' }"></ng-container>
+          } @else {
+            <p class="hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p><a [navLink]="{leaf:'help-guide',params:{guideId:'value'}}">{{i18n.t('experience.adoption.help')}}</a>
+          }
+        }
+
+        @if (activeFacet() === 'couts') {
+          <ng-container [ngTemplateOutlet]="legendTpl"></ng-container>
+          <div class="hv2-stack">
+            @if (sourceStates().series !== 'ready') {
+              <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'series' }"></ng-container>
+            } @else if (series(); as view) {
+              <article class="hv2-card">
+                <header class="hv2-card-head hv2-card-head-wrap">
+                  <div>
+                    <h3 class="hv2-card-title">{{ i18n.t('hypervisor.v2.hero.cost') }}</h3>
+                    <p class="hv2-card-sub">{{ costFact() }}</p>
+                  </div>
+                  <dl class="hv2-facts hv2-facts-aside" data-testid="hypervisor-v2-couts-ratio">
+                    <div class="hv2-fact">
+                      <dt>{{ i18n.t('hypervisor.v2.metric.ratio') }}</dt>
+                      <dd class="ck-mono ck-tnum" data-fact="ratio">
+                        <span [class.hv2-teal]="view.ratio.state === 'available'">{{ ratioFact() }}</span>
+                        @if (valueDeclaredShare(); as share) {
+                          <span class="hv2-fact-share" data-testid="hypervisor-v2-couts-declared-share">· {{ share }}</span>
+                        }
+                      </dd>
+                    </div>
+                  </dl>
+                </header>
+                @if (costStreamSeries().length) {
+                  <ck-chart-stream
+                    fluid
+                    [series]="costStreamSeries()"
+                    [dayLabels]="dayLabels()"
+                    [weekendStarts]="view.weekendStarts"
+                    [ticks]="streamTicks()"
+                    [gridLabel]="moneyLabel"
+                    [hoverDay]="selectedDayIndex()"
+                    [lockedDay]="lockedDay()"
+                    [hoverSystem]="hoverSystem()"
+                    (dayHover)="onDayHover($event)"
+                    (dayLock)="onDayLock($event)"
+                    (systemHover)="onSystemHover($event)"
+                  />
+                } @else {
+                  <p class="hv2-muted">{{ factLabel(view.costTotal) }}</p>
+                }
+              </article>
+              <ng-container [ngTemplateOutlet]="registerTpl" [ngTemplateOutletContext]="{ testid: 'hypervisor-v2-register-couts' }"></ng-container>
+            } @else {
+              <p class="hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p><a [navLink]="{leaf:'help-guide',params:{guideId:'value'}}">{{i18n.t('experience.adoption.help')}}</a>
+            }
+          </div>
+        }
+
+        @if (activeFacet() === 'bases') {
+          <ng-container [ngTemplateOutlet]="basesTpl"></ng-container>
+        }
+
+        @if (activeFacet() === 'decisions') {
+          <div class="hv2-stack">
+            <article class="hv2-card">
+              <header class="hv2-card-head">
+                <h3 class="hv2-card-title">{{ i18n.t('hypervisor.v2.decisions.proposed') }}@if (sourceStates().decisions === 'ready') { <span class="ck-mono hv2-count">{{ proposedDecisions().length }}</span>}</h3>
+                <button type="button" class="hv2-text-btn" (click)="scanRecommendations()" [disabled]="scanning()">
+                  {{ scanning() ? i18n.t('hypervisor.reco.scanning') : i18n.t('hypervisor.reco.scan') }}
+                </button>
+              </header>
+              @if (sourceStates().decisions !== 'ready') {
+                <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'decisions' }"></ng-container>
+              } @else if (proposedDecisions().length === 0) {
+                <p class="hv2-muted">{{ i18n.t('hypervisor.v2.decisions.none_proposed') }}</p>
+              } @else {
+                <ul class="hv2-list">
+                  @for (item of proposedDecisions(); track item.id) {
+                    <li class="hv2-list-row">
+                      @if (isAgentSuggested(item)) {
+                        <span class="hv2-agent-orb" data-testid="hypervisor-decision-agent-orb" [attr.aria-label]="i18n.t('hypervisor.v2.decisions.agent_orb')"></span>
+                      }
+                      <span class="hv2-grow">{{ item.title }}</span>
+                      <span class="ck-mono hv2-muted">{{ formatDate(item.created_at) }}</span>
+                      <button type="button" class="hv2-btn" (click)="accept(item)">{{ i18n.t('hypervisor.v2.decision.accept') }}</button>
+                      <button type="button" class="hv2-btn" (click)="reject(item)">{{ i18n.t('hypervisor.v2.decision.reject') }}</button>
+                    </li>
+                  }
+                </ul>
+              }
+            </article>
+            <a class="hv2-link" data-testid="hypervisor-decisions-review-queue" [navLink]="{ surface: 'review-queue' }">
+              {{ i18n.t('hypervisor.v2.decisions.review_queue') }}
+            </a>
+            <article class="hv2-card">
+              <header class="hv2-card-head">
+                <h3 class="hv2-card-title">{{ i18n.t('hypervisor.v2.decisions.recommendations') }}@if (sourceStates().recos === 'ready') { <span class="ck-mono hv2-count">{{ recommendationGroups().length }}</span>}</h3>
+              </header>
+              @if (sourceStates().recos !== 'ready') {
+                <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'recos' }"></ng-container>
+              } @else if (recommendationGroups().length === 0) {
+                <p class="hv2-muted">{{ i18n.t('hypervisor.v2.decisions.none_reco') }}</p>
+              } @else {
+                <ul class="hv2-list">
+                  @for (group of recommendationGroups(); track group.item.id) {
+                    <li class="hv2-list-row">
+                      <span class="hv2-grow">{{ group.item.title }}</span>
+                      @if (group.count > 1) {
+                        <span class="ck-mono hv2-count">×{{ group.count }}</span>
+                      }
+                      <span class="ck-mono hv2-muted">{{ scopeLabel(group.item.scope) }}</span>
+                    </li>
+                  }
+                </ul>
+              }
+            </article>
+            <article class="hv2-card">
+              <header class="hv2-card-head">
+                <h3 class="hv2-card-title">{{ i18n.t('hypervisor.v2.decisions.history') }}@if (sourceStates().decisions === 'ready') { <span class="ck-mono hv2-count">{{ historyDecisions().length }}</span>}</h3>
+                @if (historyDecisions().length) {
+                  <button type="button" class="hv2-text-btn" (click)="historyOpen.set(!historyOpen())" [attr.aria-expanded]="historyOpen()">
+                    {{ historyOpen() ? i18n.t('hypervisor.v2.decisions.history_hide') : i18n.t('hypervisor.v2.decisions.history_show', { count: historyDecisions().length }) }}
+                  </button>
+                }
+              </header>
+              @if (sourceStates().decisions !== 'ready') {
+                <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'decisions' }"></ng-container>
+              } @else if (historyDecisions().length === 0) {
+                <p class="hv2-muted">{{ i18n.t('hypervisor.v2.decisions.none_history') }}</p>
+              } @else if (historyOpen()) {
+                <ul class="hv2-list">
+                  @for (item of historyDecisions(); track item.id) {
+                    <li class="hv2-list-row">
+                      <span class="hv2-grow">{{ item.title }}</span>
+                      <span class="ck-mono hv2-muted">{{ decisionStatus(item.status) }}</span>
+                      <span class="ck-mono hv2-muted">{{ formatDate(item.applied_at || item.created_at) }}</span>
+                    </li>
+                  }
+                </ul>
+              }
+            </article>
+          </div>
+        }
+
+        @if (activeFacet() === 'journal') {
+          <article class="hv2-card">
+            <h3 class="hv2-kicker">{{ i18n.t('hypervisor.v2.journal.title') }}</h3>
+            @if (sourceStates().series !== 'ready') {
+              <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'series' }"></ng-container>
+            } @else if (series(); as view) {
+              <ck-chart-pulse
+                [values]="view.pulseValues"
+                [staleFrom]="view.staleFrom"
+                [startLabel]="i18n.t('hypervisor.v2.journal.start')"
+                [endLabel]="i18n.t('hypervisor.v2.journal.end')"
+                [zeroLabel]="i18n.t('hypervisor.v2.journal.zero')"
+                [valueLabel]="pulseTip"
+              />
+            }
+            @if (sourceStates().decisions !== 'ready') {
+              <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'decisions' }"></ng-container>
+            } @else if (journalEntries().length === 0) {
+              <p class="hv2-muted">{{ i18n.t('hypervisor.v2.journal.empty') }}</p>
+            } @else {
+              <ul class="hv2-list" data-testid="hypervisor-v2-journal-entries">
+                @for (entry of journalEntries(); track entry.id) {
+                  <li class="hv2-journal-entry">
+                    <div class="hv2-list-row">
+                      <span class="hv2-grow">{{ i18n.t('hypervisor.v2.journal.decision', { title: entry.title }) }}</span>
+                      <span class="ck-mono hv2-muted">{{ formatDate(entry.at) }}</span>
+                    </div>
+                    <div class="hv2-list-row hv2-journal-effect">
+                      <span class="hv2-grow">{{ entry.effect
+                        ? i18n.t('hypervisor.v2.journal.effect', { effect: entry.effect })
+                        : i18n.t('hypervisor.v2.journal.effect_pending') }}</span>
+                    </div>
+                  </li>
+                }
+              </ul>
+            }
+            <ul class="hv2-list">
+              @for (item of signals(); track item.id) {
+                <li class="hv2-list-row">
+                  <ck-tag [tone]="item.tone">{{ item.label }}</ck-tag>
+                </li>
+              }
+            </ul>
+          </article>
+        }
+        </div>
+      }
+    </ck-page-frame>
+
+    <!-- Activity strip, shared by the Synthèse and the Présentation theme: a
+         horizontal listbox of days. Focus stays on the list (one tab stop,
+         aria-activedescendant names the day); arrows preview, Enter or Space
+         locks, a click locks. Selection does not follow focus. -->
+    <ng-template #stripTpl>
+      <div class="hv2-command-col hv2-command-strip" data-testid="hypervisor-v2-activity-strip">
+        <div class="hv2-strip-head">
+          <p class="hv2-label" id="hv2-strip-title">{{ i18n.t('hypervisor.v2.strip.title') }}</p>
+          <p class="hv2-label ck-tnum">{{ rangeLabel() }}</p>
+        </div>
+        <p class="sr-only" id="hv2-strip-desc">{{ stripSummary() }}. {{ i18n.t('hypervisor.v2.strip.help') }}</p>
+        <div class="hv2-strip-frame">
+          @if (strip().selectedWeek; as week) {
+            <span
+              class="hv2-strip-week"
+              aria-hidden="true"
+              [style.left.%]="stripMarkX(week.start)"
+              [style.width.%]="stripMarkX(week.end) - stripMarkX(week.start)"
+            ></span>
+          }
+          <div
+            class="hv2-strip"
+            role="listbox"
+            aria-orientation="horizontal"
+            aria-labelledby="hv2-strip-title"
+            aria-describedby="hv2-strip-desc"
+            tabindex="0"
+            data-testid="hypervisor-v2-strip-days"
+            [attr.aria-activedescendant]="stripFocused() ? 'hv2-strip-day-' + stripActiveIndex() : null"
+            (focus)="onStripFocus()"
+            (blur)="onStripBlur()"
+            (keydown)="onStripKey($event)"
+            (pointerleave)="onStripPointerLeave()"
+          >
+            @for (mark of strip().marks; track mark.index) {
+              <div
+                class="hv2-strip-day"
+                role="option"
+                [attr.id]="'hv2-strip-day-' + mark.index"
+                [attr.data-day]="mark.index"
+                [attr.aria-selected]="mark.locked"
+                [attr.aria-label]="stripDayAria(mark.index)"
+                [class.is-active]="stripFocused() && mark.index === stripActiveIndex()"
+                (pointerenter)="onDayHover(mark.index)"
+                (click)="onStripDayClick(mark.index)"
+              >
+                @if (mark.total > 0) {
+                  <span
+                    class="hv2-strip-mark"
+                    [class.is-weekend]="mark.weekend"
+                    [class.is-in-week]="mark.inSelectedWeek"
+                    [class.is-selected]="mark.selected"
+                    [class.is-locked]="mark.locked"
+                    [attr.data-day]="mark.index"
+                    [style.height.%]="4 + mark.share * 96"
+                  ></span>
+                }
+              </div>
+            }
+          </div>
+        </div>
+        <div class="hv2-strip-axis ck-tnum" aria-hidden="true">
+          @for (week of strip().weeks; track week.start; let w = $index) {
+            <span
+              class="hv2-strip-tick"
+              [class.is-selected]="week.selected"
+              [class.is-locked]="strip().lockedWeek?.start === week.start"
+              [style.left.%]="stripMarkX(week.start)"
+            >@if (stripShowsWeek(week, w)) { {{ stripWeekLabel(week.isoWeek) }} }</span>
+          }
+        </div>
+        <p class="hv2-strip-lock" data-testid="hypervisor-v2-strip-lock" [class.is-locked]="strip().lockedWeek != null">{{ stripLockLine() }}</p>
+      </div>
+    </ng-template>
+
+    <ng-template #riversTpl let-height="height">
+      <section class="hv2-band hv2-rivers" data-testid="hypervisor-v2-rivers" aria-labelledby="hv2-rivers-title">
+        <header class="hv2-band-head">
+          <div>
+            <h3 class="hv2-band-title" id="hv2-rivers-title">{{ riversTitle() }}</h3>
+            <p class="hv2-band-sub">{{ i18n.t('hypervisor.v2.rivers.sub') }}</p>
+          </div>
+          <span class="hv2-band-legend">{{ riversLegend() }}</span>
+        </header>
+        @if (streamSeries().length) {
+          <ck-chart-stream
+            fluid
+            followTip
+            [height]="height"
+            [series]="streamSeries()"
+            [dayLabels]="dayLabels()"
+            [weekendStarts]="series()!.weekendStarts"
+            [ticks]="streamTicks()"
+            [peak]="streamPeak()"
+            [gridLabel]="quantityLabel"
+            [hoverDay]="selectedDayIndex()"
+            [lockedDay]="lockedDay()"
+            [hoverSystem]="hoverSystem()"
+            [dayAriaLabel]="riverDayAria"
+            (dayHover)="onDayHover($event)"
+            (dayLock)="onDayLock($event)"
+            (systemHover)="onSystemHover($event)"
+          />
+        } @else {
+          <p class="hv2-muted">{{ i18n.t('hypervisor.v2.rivers.empty') }}</p>
+        }
+      </section>
+    </ng-template>
+
+    <ng-template #pairTpl let-present="present" let-hors="hors">
+      <div class="hv2-band hv2-pair">
+        @if (selection().system; as sys) {
+          <section class="hv2-pair-col hv2-selected-system" data-testid="hypervisor-v2-selected-system" aria-labelledby="hv2-selected-system-title">
+            <h3 class="hv2-label" id="hv2-selected-system-title">{{ present ? presentSystemLabel(sys.mode) : systemModeLabel(sys.mode) }}</h3>
+            <p class="hv2-system-title">{{ sys.row.name }}</p>
+            <dl class="hv2-inline-facts">
+              <div>
+                <dt>{{ i18n.t('hypervisor.v2.tip.label.hours') }}</dt>
+                <dd class="ck-tnum" [class.hv2-teal]="sys.row.basisStatus !== 'measured' && sys.row.hours.state === 'available'">{{ systemHours(sys.row) }}</dd>
+              </div>
+              <div>
+                <dt>{{ i18n.t('hypervisor.v2.hero.cost') }}</dt>
+                <dd class="ck-tnum">{{ systemCost(sys.row) }}</dd>
+              </div>
+              <div>
+                <dt>{{ i18n.t('hypervisor.v2.hero.value') }}</dt>
+                <dd class="ck-tnum" [class.hv2-teal]="sys.row.valueDeclared.state === 'available'">{{ systemValue(sys.row) }}</dd>
+              </div>
+            </dl>
+            <a class="hv2-link" [navLink]="systemLink(sys.row)" [navState]="registreProvenanceState()">{{ i18n.t('hypervisor.v2.selected.open', { name: sys.row.name }) }}</a>
+          </section>
+        }
+        @if (hors) {
+          <section class="hv2-pair-col hv2-hors" data-testid="hypervisor-v2-hors-denominateur" aria-labelledby="hv2-hors-title">
+            <h3 class="hv2-label" id="hv2-hors-title">{{ i18n.t('hypervisor.v2.hors.kicker') }}</h3>
+            @if (series()!.outside.length === 0) {
+              <p class="hv2-system-title">{{ i18n.t('hypervisor.v2.hors.title') }}</p>
+              <p class="hv2-muted">{{ i18n.t('hypervisor.v2.hors.empty') }}</p>
+            } @else {
+              <p class="hv2-system-title">{{ horsTitle() }}</p>
+              <p class="hv2-band-sub">{{ i18n.t('hypervisor.v2.hors.note') }}</p>
+              <div class="hv2-hors-list">
+                @for (row of series()!.outside; track row.systemId) {
+                  <div
+                    class="hv2-hors-row"
+                    [class.hv2-row-lit]="hoverSystem() === row.systemId"
+                    (pointerenter)="onSystemHover(row.systemId)"
+                    (pointerleave)="onSystemHover(null)"
+                  >
+                    <div class="hv2-hors-line">
+                      <span class="hv2-hors-name">{{ row.name }}</span>
+                      <span class="ck-tnum hv2-hors-value" [attr.title]="dotsTitle(row)">{{ outcomeLabel(row) }} {{ outcomeMark(row) }}</span>
+                    </div>
+                    @if (outcomeCount(row) > 0) {
+                      <ck-chart-unit-dots
+                        [units]="outcomeCount(row)"
+                        [unitsPerDot]="unitsPerDot()"
+                        [dotSize]="5"
+                        [gap]="3"
+                        [tipTitle]="dotsTip(row)"
+                      />
+                    }
+                  </div>
+                }
+              </div>
+              @if (horsDeclareLink(); as link) {
+                <a class="hv2-link" [navLink]="link">{{ i18n.t('hypervisor.v2.hors.declare') }}</a>
+              }
+            }
+          </section>
+        }
+      </div>
+    </ng-template>
+
+    <ng-template #legendTpl>
+      <p class="hv2-legend">{{ i18n.t('hypervisor.v2.legend') }}</p>
+    </ng-template>
+
+    <ng-template #unitesTpl>
+      <div class="hv2-unites" data-testid="hypervisor-v2-unites">
+        <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.unites.kicker') }}</p>
+        <ul class="hv2-unites-list">
+          @for (group of nativeUnits(); track group.unit) {
+            <li class="hv2-unites-row">
+              <span class="hv2-unites-value ck-tnum">{{ formatNumber(group.total, 0) }}</span>
+              <div class="hv2-unites-meta">
+                <span class="hv2-unites-unit">{{ nativeUnitLabel(group.unit) }}</span>
+                <span class="hv2-unites-systems">{{ unitesSystems(group) }}</span>
+              </div>
+              @if (group.total > 0) {
+                <ck-chart-unit-dots
+                  [units]="group.total"
+                  [unitsPerDot]="nativeUnitsPerDot()"
+                  [width]="96"
+                  [dotSize]="5"
+                  [gap]="3"
+                  [tipTitle]="unitesDotsTip(group)"
+                />
+              }
+            </li>
+          }
+        </ul>
+        <p class="hv2-sub">{{ unitesNote() }}</p>
+      </div>
+    </ng-template>
+
+    <ng-template #couvertureTpl>
+      <div class="hv2-hero-couverture" data-testid="hypervisor-v2-couverture">
+        <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.couverture.kicker', { declared: declaredCount(), total: series()!.register.length }) }}</p>
+        <h3 class="hv2-card-title">{{ couvertureTitle() }}</h3>
+        <p class="hv2-card-sub">{{ i18n.t('hypervisor.v2.couverture.note') }}</p>
+        @if (missingBasisRows().length) {
+          <ul class="hv2-bases-list">
+            @for (row of missingBasisRows(); track row.systemId) {
+              <li class="hv2-bases-row">
+                <span>{{ row.name }}</span>
+                <span class="ck-tnum hv2-muted">{{ outcomeLabel(row) }}</span>
+              </li>
+            }
+          </ul>
+          <a class="hv2-link" [navLink]="basesFacetLink()">{{ couvertureDeclare() }}</a>
+        }
+      </div>
+    </ng-template>
+
+    <ng-template #signalTpl let-hero="hero">
+      <article
+        class="hv2-card hv2-card-signal"
+        [class.hv2-hero-signal]="hero"
+        [attr.data-testid]="hero ? 'hypervisor-v2-hero-signal' : null"
+        [style.--stagger]="0"
+      >
+        <p class="hv2-kicker">{{ signalKicker() }}</p>
+        <h3 class="hv2-card-title">{{ signalCopy() }}</h3>
+        <ck-chart-pulse
+          [values]="series()!.pulseValues"
+          [staleFrom]="series()!.staleFrom"
+          [width]="250"
+          [height]="56"
+          [startLabel]="i18n.t('hypervisor.v2.journal.start')"
+          [endLabel]="i18n.t('hypervisor.v2.journal.end')"
+          [zeroLabel]="i18n.t('hypervisor.v2.journal.zero')"
+          [valueLabel]="pulseTip"
+        />
+        <p class="hv2-card-sub">{{ signalContext() }}</p>
+        @if (staleRows().length === 1) {
+          <a class="hv2-btn" [navLink]="systemLink(staleRows()[0]!)">{{ i18n.t('hypervisor.v2.signal.open_system') }}</a>
+        }
+      </article>
+    </ng-template>
+
+    <ng-template #decisionTpl>
+      @if (sourceStates().decisions !== 'ready') {
+        <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'decisions' }"></ng-container>
+      } @else if (firstProposed(); as decision) {
+        <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.decision.kicker', { date: formatDate(decision.created_at, true) }) }}</p>
+        <h3 class="hv2-card-title">
+          @if (isAgentSuggested(decision)) {
+            <span class="hv2-agent-orb" data-testid="hypervisor-decision-agent-orb" [attr.aria-label]="i18n.t('hypervisor.v2.decisions.agent_orb')"></span>
+          }
+          {{ decision.title }}
+        </h3>
+        <dl class="hv2-facts hv2-facts-plain">
+          <div class="hv2-fact"><dt>{{ i18n.t('hypervisor.v2.decision.scope') }}</dt><dd>{{ scopeLabel(decision.scope) }}</dd></div>
+          <div class="hv2-fact"><dt>{{ i18n.t('hypervisor.v2.decision.kind') }}</dt><dd>{{ kindLabel(decision.kind) }}</dd></div>
+          @if (proposedDecisions().length > 1) {
+            <div class="hv2-fact"><dt>{{ i18n.t('hypervisor.v2.decisions.proposed') }}</dt><dd>{{ pendingLabel(proposedDecisions().length - 1) }}</dd></div>
+          }
+        </dl>
+        <div class="hv2-btn-row">
+          <button type="button" class="hv2-btn" (click)="accept(decision)">{{ i18n.t('hypervisor.v2.decision.accept') }}</button>
+          <button type="button" class="hv2-btn" (click)="reject(decision)">{{ i18n.t('hypervisor.v2.decision.reject') }}</button>
+        </div>
+        <a class="hv2-link" [navLink]="{ surface: 'review-queue' }">{{ i18n.t('hypervisor.v2.decisions.review_queue') }}</a>
+      } @else {
+        <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.decision.kicker_none') }}</p>
+        <p class="hv2-card-sub">{{ i18n.t('hypervisor.v2.decision.empty') }}</p>
+      }
+    </ng-template>
+
+    <!-- Thème Présentation W2-v6 (L29): the Synthèse state told for a room.
+         Same day lock, same selection model, same charts, bigger; one copper
+         element (the lock needle and its ring). No register, no sankey, no
+         filled button, no orb. Escape: a locked day first, then the theme. -->
+    <ng-template #presentationTpl>
+      <div class="hv2-present" data-testid="hypervisor-presentation">
+        @if (sourceStates().series !== 'ready') {
+          <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'series' }"></ng-container>
+        } @else if (!series()) {
+          <p class="hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p>
+        } @else {
+          <p class="sr-only" role="status" aria-live="polite" data-testid="hypervisor-v2-lock-announcer">{{ lockAnnouncement() }}</p>
+          <ng-container [ngTemplateOutlet]="leaderTpl" [ngTemplateOutletContext]="{ id: 'comprendre', hidden: true }"></ng-container>
+
+          <!-- 1 · Command band: the monument at display size, the day strip, three facts. -->
+          <section class="hv2-band hv2-command hv2-present-command" data-testid="hypervisor-presentation-command">
+            <div class="hv2-command-col hv2-command-monument">
+              <p class="hv2-label">{{ i18n.t('hypervisor.v2.hero.kicker', { days: dayCount() }) }}</p>
+              @if (monument(); as mon) {
+                <p class="hv2-monument-group" data-testid="hypervisor-v2-monument">
+                  <span class="sr-only">{{ monumentLabel() }}</span>
+                  <span class="hv2-monument-row" aria-hidden="true">
+                    <span class="hv2-monument-figure">
+                      <span class="hv2-monument ck-tnum">{{ monumentValue() }}</span>
+                      <span class="hv2-monument-unit">{{ mon.unit }}</span>
+                    </span>
+                  </span>
+                  <span class="hv2-sentence" aria-hidden="true">{{ heroSentence() }}</span>
+                  @if (measuredPart(); as part) {
+                    <span class="hv2-measured-part" aria-hidden="true" data-testid="hypervisor-v2-measured-part">{{ measuredMark }} {{ part }}</span>
+                  }
+                </p>
+              } @else {
+                <div class="hv2-monument-row">
+                  <span class="hv2-monument hv2-monument-state">{{ factLabel(series()!.monument) }}</span>
+                </div>
+                <p class="hv2-sub">{{ i18n.t('hypervisor.v2.hero.not_configured') }}</p>
+              }
+            </div>
+            @if (strip().marks.length) {
+              <ng-container [ngTemplateOutlet]="stripTpl"></ng-container>
+            }
+            <dl class="hv2-command-col hv2-facts hv2-command-facts">
+              <div class="hv2-fact">
+                <dt>{{ i18n.t('hypervisor.v2.hero.cost') }}</dt>
+                <dd class="ck-tnum" data-fact="cost">{{ costFact() }}</dd>
+              </div>
+              <div class="hv2-fact">
+                <dt>{{ i18n.t('hypervisor.v2.hero.value') }}</dt>
+                <dd class="ck-tnum" [class.hv2-teal]="series()!.valueTotal.state === 'available'" data-fact="value">{{ valueFact() }}</dd>
+              </div>
+              <div class="hv2-fact">
+                <dt>{{ i18n.t('hypervisor.v2.present.decisions') }}</dt>
+                <dd class="ck-tnum" data-fact="decisions" data-testid="hypervisor-presentation-decisions">
+                  @switch (pendingDecisions().kind) {
+                    @case ('open') {
+                      <a
+                        class="hv2-link hv2-fact-link"
+                        [navLink]="decisionsFacetLink()"
+                        [attr.aria-label]="i18n.t('hypervisor.v2.present.decisions_link', { count: proposedDecisions().length })"
+                      >{{ proposedDecisions().length }} →</a>
+                    }
+                    @case ('none') {
+                      <span class="hv2-fact-state">{{ i18n.t('hypervisor.v2.present.decisions_none') }}</span>
+                    }
+                    @default {
+                      <span class="hv2-fact-state">{{ decisionsStateLabel() }}</span>
+                    }
+                  }
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          <!-- 2 · Cadran with reference circles and the lock needle | chaîne de preuve. -->
+          <section class="hv2-band hv2-cadran-band hv2-present-cadran" data-testid="hypervisor-presentation-cadran" aria-labelledby="hv2-present-cadran-title">
+            <div class="hv2-cadran-col">
+              <h3 class="hv2-band-title" id="hv2-present-cadran-title">{{ cadranTitle() }}</h3>
+              <div class="hv2-cadran-dial">
+                <ck-chart-radial-days
+                  [days]="radialDays()"
+                  [ticks]="radialTicks()"
+                  [size]="660"
+                  [innerRadius]="112"
+                  [outerRadius]="252"
+                  [referenceRings]="2"
+                  [needle]="true"
+                  [needleMotion]="needleMotion()"
+                  [centerValue]="i18n.t('hypervisor.v2.cadran.center', { days: dayCount() })"
+                  [centerCaption]="i18n.t('hypervisor.v2.cadran.grammar')"
+                  [rangeLabel]="rangeLabel()"
+                  [peakLabel]="quantityLabel"
+                  [hoverDay]="selectedDayIndex()"
+                  [lockedDay]="lockedDay()"
+                  (dayHover)="onDayHover($event)"
+                  (dayLock)="onDayLock($event)"
+                />
+              </div>
+              <p class="hv2-chart-caption">{{ cadranLegend() }} · {{ i18n.t('hypervisor.v2.present.cadran.needle') }}</p>
+            </div>
+            @let chain = proof();
+            <aside class="hv2-proof" data-testid="hypervisor-presentation-proof" aria-labelledby="hv2-proof-title">
+              <div>
+                <h3 class="hv2-band-title" id="hv2-proof-title">{{ i18n.t('hypervisor.v2.present.proof.title') }}</h3>
+                <p class="hv2-band-sub">{{ i18n.t('hypervisor.v2.present.proof.sub') }}</p>
+              </div>
+              <ol class="hv2-proof-list" role="list">
+                <li class="hv2-proof-step" data-testid="hypervisor-presentation-proof-1" [attr.data-state]="chain[0].state">
+                  <span class="hv2-proof-n ck-tnum" aria-hidden="true">01</span>
+                  <div class="hv2-proof-body">
+                    <div class="hv2-sel-head">
+                      <p class="hv2-label">{{ proofDayTitle(chain[0].state) }}</p>
+                      @if (chain[0].state === 'locked') {
+                        <button type="button" class="hv2-text-btn" data-testid="hypervisor-v2-unlock" (click)="unlockDay()">
+                          {{ i18n.t('hypervisor.v2.selection.unlock') }}
+                          <ck-kbd>{{ i18n.t('hypervisor.v2.theme.quit_kbd') }}</ck-kbd>
+                        </button>
+                      }
+                    </div>
+                    @if (chain[0].date) {
+                      <p class="hv2-proof-main">{{ formatLongDate(chain[0].date) }}</p>
+                      <p class="hv2-proof-meta ck-tnum">{{ proofDayFigures(chain[0]) }}</p>
+                      @if (chain[0].state === 'peak') {
+                        <p class="hv2-proof-note">{{ i18n.t('hypervisor.v2.present.proof.peak_note') }}</p>
+                      }
+                    } @else {
+                      <p class="hv2-proof-note">{{ i18n.t('hypervisor.v2.hero.peak.none') }}</p>
+                    }
+                  </div>
+                </li>
+                <li class="hv2-proof-step" data-testid="hypervisor-presentation-proof-2" [attr.data-state]="chain[1].state">
+                  <span class="hv2-proof-n ck-tnum" aria-hidden="true">02</span>
+                  <div class="hv2-proof-body">
+                    <p class="hv2-label">{{ i18n.t('hypervisor.v2.present.proof.rivers') }}</p>
+                    @if (chain[1].state === 'parts') {
+                      <ul class="hv2-sel-list">
+                        @for (part of chain[1].parts; track part.systemId) {
+                          <li
+                            class="hv2-sel-row"
+                            [class.hv2-row-lit]="hoverSystem() === part.systemId"
+                            (pointerenter)="onSystemHover(part.systemId)"
+                            (pointerleave)="onSystemHover(null)"
+                          >
+                            <span class="hv2-sel-name">{{ part.label }}</span>
+                            <span class="ck-tnum hv2-sel-num" [class.hv2-teal]="part.declared">{{ riverPartValue(part.value, part.declared) }}</span>
+                          </li>
+                        }
+                      </ul>
+                      @if (chain[1].more > 0) {
+                        <p class="hv2-proof-note">{{ proofMore(chain[1].more) }}</p>
+                      }
+                    } @else if (chain[1].state === 'empty') {
+                      <p class="hv2-proof-note">{{ i18n.t('hypervisor.v2.selection.rivers_empty') }}</p>
+                    } @else {
+                      <p class="hv2-proof-note">{{ i18n.t('hypervisor.v2.present.proof.none') }}</p>
+                    }
+                  </div>
+                </li>
+                <li class="hv2-proof-step" data-testid="hypervisor-presentation-proof-3" [attr.data-state]="chain[2].state">
+                  <span class="hv2-proof-n ck-tnum" aria-hidden="true">03</span>
+                  <div class="hv2-proof-body">
+                    <p class="hv2-label">{{ i18n.t('hypervisor.v2.present.proof.register') }}</p>
+                    @if (chain[2].row; as row) {
+                      <p class="hv2-proof-main">{{ row.name }}</p>
+                      <p class="hv2-proof-meta">{{ systemModeLabel(chain[2].mode!) }}</p>
+                      <p class="hv2-proof-meta ck-tnum">{{ i18n.t('hypervisor.v2.present.proof.register_period', { days: dayCount(), hours: systemHours(row), runs: runsLabel(row) }) }}</p>
+                      <a class="hv2-link" [navLink]="systemLink(row)" [navState]="registreProvenanceState()">{{ i18n.t('hypervisor.v2.selected.open', { name: row.name }) }}</a>
+                    } @else {
+                      <p class="hv2-proof-note">{{ i18n.t('hypervisor.v2.present.proof.none') }}</p>
+                    }
+                  </div>
+                </li>
+                <li class="hv2-proof-step" data-testid="hypervisor-presentation-proof-4" [attr.data-state]="chain[3].state">
+                  <span class="hv2-proof-n ck-tnum" aria-hidden="true">04</span>
+                  <div class="hv2-proof-body">
+                    <p class="hv2-label">{{ i18n.t('hypervisor.v2.present.proof.basis') }}</p>
+                    @if (chain[2].row; as row) {
+                      <p class="hv2-proof-main ck-tnum" [class.hv2-teal]="chain[3].state === 'declared'">{{ basisLabel(row) }}</p>
+                      @if (chain[3].state !== 'missing') {
+                        <p class="hv2-proof-meta">{{ proofBasisAuthor(chain[3]) }}</p>
+                      }
+                    } @else {
+                      <p class="hv2-proof-note">{{ i18n.t('hypervisor.v2.present.proof.none') }}</p>
+                    }
+                  </div>
+                </li>
+              </ol>
+            </aside>
+          </section>
+
+          <!-- 3 · Rivers, full width and taller, same crosshair on the locked day. -->
+          <ng-container [ngTemplateOutlet]="riversTpl" [ngTemplateOutletContext]="{ height: 360 }"></ng-container>
+
+          <!-- 4 · The system of the locked day | Hors du total. -->
+          <ng-container [ngTemplateOutlet]="pairTpl" [ngTemplateOutletContext]="{ present: true, hors: true }"></ng-container>
+        }
+      </div>
+    </ng-template>
+
+    <ng-template #unavailableTpl let-source="source">
+      <div class="hv2-unavailable" [attr.data-testid]="'hypervisor-v2-unavailable-' + source">
+        <div class="hv2-unavailable-copy">
+          <span class="hv2-unavailable-kicker">{{ sourceName(source) }}</span>
+          <p class="hv2-unavailable-text" role="status" aria-live="polite">{{ sourceRetrying(source)
+            ? i18n.t('hypervisor.v2.source.retrying')
+            : i18n.t('hypervisor.v2.source.unavailable') }}</p>
+        </div>
+        <button
+          type="button"
+          class="hv2-retry ck-press"
+          [attr.data-testid]="'hypervisor-v2-retry-' + source"
+          [attr.aria-label]="i18n.t('hypervisor.v2.source.retry_label', { source: sourceName(source) })"
+          [attr.aria-disabled]="sourceRetrying(source) ? 'true' : null"
+          (click)="retrySource(source)"
+        >{{ i18n.t('hypervisor.v2.source.retry') }}</button>
+      </div>
+    </ng-template>
+
+    <ng-template #leaderTpl let-id="id" let-hidden="hidden">
+      <header class="hv2-leader" [class.sr-only]="hidden">
+        <h2 class="hv2-leader-title" [attr.id]="'hv2-leader-' + id">{{ i18n.t('hypervisor.v2.leader.' + id + '.title') }}</h2>
+        <p class="hv2-leader-sub">{{ i18n.t('hypervisor.v2.leader.' + id + '.sub') }}</p>
+      </header>
+    </ng-template>
+
+    <ng-template #commandBandTpl>
+                @if (showCommandBand()) {
+                  <section class="hv2-band hv2-command" data-testid="hypervisor-v2-hero">
+                    @if (showBlock('comprendre', 'monument')) {
+                      <div class="hv2-command-col hv2-command-monument">
+                        <p class="hv2-label">{{ i18n.t('hypervisor.v2.hero.kicker', { days: dayCount() }) }}</p>
+                        @if (monument(); as mon) {
+                          <p class="hv2-monument-group" data-testid="hypervisor-v2-monument">
+                            <span class="sr-only">{{ monumentLabel() }}</span>
+                            <span class="hv2-monument-row" aria-hidden="true">
+                              <span class="hv2-monument-figure">
+                                <span class="hv2-monument ck-tnum">{{ monumentValue() }}</span>
+                                <span class="hv2-monument-unit">{{ mon.unit }}</span>
+                              </span>
+                            </span>
+                            <span class="hv2-sentence" aria-hidden="true">{{ heroSentence() }}</span>
+                            @if (measuredPart(); as part) {
+                              <span class="hv2-measured-part" aria-hidden="true" data-testid="hypervisor-v2-measured-part">{{ measuredMark }} {{ part }}</span>
+                            }
+                          </p>
+                          @if (showBlock('comprendre', 'provenance')) {
+                            @if (provenance(); as prov) {
+                              <div class="hv2-provenance">
+                                <span
+                                  class="hv2-provenance-ink"
+                                  role="img"
+                                  tabindex="0"
+                                  [style.flexGrow]="prov.measured"
+                                  [attr.aria-label]="provenanceMeasuredTip()"
+                                  (pointerenter)="onProvenanceTip('measured', $event)"
+                                  (pointerleave)="clearPageTip()"
+                                  (focus)="onProvenanceTip('measured', $event)"
+                                  (blur)="clearPageTip()"
+                                ></span>
+                                <span
+                                  class="hv2-provenance-teal"
+                                  role="img"
+                                  tabindex="0"
+                                  [style.flexGrow]="prov.declared"
+                                  [attr.aria-label]="provenanceDeclaredTip()"
+                                  (pointerenter)="onProvenanceTip('declared', $event)"
+                                  (pointerleave)="clearPageTip()"
+                                  (focus)="onProvenanceTip('declared', $event)"
+                                  (blur)="clearPageTip()"
+                                ></span>
+                              </div>
+                            }
+                          }
+                        } @else {
+                          <div class="hv2-monument-row">
+                            <span class="hv2-monument hv2-monument-state">{{ factLabel(series()!.monument) }}</span>
+                          </div>
+                          <p class="hv2-sub">{{ i18n.t('hypervisor.v2.hero.not_configured') }}</p>
+                        }
+                      </div>
+                      @if (strip().marks.length) {
+                        <ng-container [ngTemplateOutlet]="stripTpl"></ng-container>
+                      }
+                    }
+                    @if (showBlock('comprendre', 'unites')) {
+                      <div class="hv2-command-col">
+                        <ng-container [ngTemplateOutlet]="unitesTpl"></ng-container>
+                      </div>
+                    }
+                    @if (showBlock('comprendre', 'provenance')) {
+                      <dl class="hv2-command-col hv2-facts hv2-command-facts">
+                        <div class="hv2-fact">
+                          <dt>{{ i18n.t('hypervisor.v2.hero.cost') }}</dt>
+                          <dd class="ck-tnum" data-fact="cost">{{ costFact() }}</dd>
+                        </div>
+                        <div class="hv2-fact">
+                          <dt>{{ i18n.t('hypervisor.v2.hero.value') }}</dt>
+                          <dd class="ck-tnum" [class.hv2-teal]="series()!.valueTotal.state === 'available'" data-fact="value">{{ valueFact() }}</dd>
+                        </div>
+                        <div class="hv2-fact">
+                          <dt>{{ countedLabel() }}</dt>
+                          <dd class="ck-tnum" data-fact="counted">{{ countedFact() }}</dd>
+                        </div>
+                      </dl>
+                    }
+                    @if (showBlock('comprendre', 'couverture')) {
+                      <div class="hv2-command-col">
+                        <ng-container [ngTemplateOutlet]="couvertureTpl"></ng-container>
+                      </div>
+                    }
+                    @if (showBlock('comprendre', 'signal')) {
+                      <div class="hv2-command-col">
+                        <ng-container [ngTemplateOutlet]="signalTpl" [ngTemplateOutletContext]="{ hero: true }"></ng-container>
+                      </div>
+                    }
+                    @if (showBlock('comprendre', 'decisions')) {
+                      <div class="hv2-command-col hv2-hero-decision">
+                        <ng-container [ngTemplateOutlet]="decisionTpl"></ng-container>
+                      </div>
+                    }
+                  </section>
+                }
+    </ng-template>
+
+    <ng-template #cadranBandTpl>
+                @if (showBlock('comprendre', 'cadran')) {
+                  <section class="hv2-band hv2-cadran-band" aria-labelledby="hv2-cadran-title">
+                    <div class="hv2-cadran-col">
+                      <h3 class="hv2-band-title" id="hv2-cadran-title">{{ cadranTitle() }}</h3>
+                      <div class="hv2-cadran-dial">
+                        <ck-chart-radial-days
+                          [days]="radialDays()"
+                          [ticks]="radialTicks()"
+                          [size]="580"
+                          [innerRadius]="104"
+                          [outerRadius]="246"
+                          [centerValue]="i18n.t('hypervisor.v2.cadran.center', { days: dayCount() })"
+                          [centerCaption]="i18n.t('hypervisor.v2.cadran.grammar')"
+                          [rangeLabel]="rangeLabel()"
+                          [peakLabel]="quantityLabel"
+                          [hoverDay]="selectedDayIndex()"
+                          [lockedDay]="lockedDay()"
+                          (dayHover)="onDayHover($event)"
+                          (dayLock)="onDayLock($event)"
+                        />
+                      </div>
+                      <p class="hv2-chart-caption">{{ cadranLegend() }}</p>
+                    </div>
+                    <ng-container [ngTemplateOutlet]="selectionTpl"></ng-container>
+                  </section>
+                }
+    </ng-template>
+
+    <ng-template #riversBandTpl>
+                @if (showBlock('comprendre', 'rivers')) {
+                  <ng-container [ngTemplateOutlet]="riversTpl" [ngTemplateOutletContext]="{ height: 280 }"></ng-container>
+                }
+    </ng-template>
+
+    <ng-template #pairBandTpl>
+                @if (showBlock('comprendre', 'rivers') || showBlock('comprendre', 'hors_denominateur')) {
+                  <ng-container
+                    [ngTemplateOutlet]="pairTpl"
+                    [ngTemplateOutletContext]="{ present: false, hors: showBlock('comprendre', 'hors_denominateur') }"
+                  ></ng-container>
+                }
+    </ng-template>
+
+    <ng-template #sankeyBandTpl>
+                @if (showBlock('comprendre', 'sankey')) {
+                  <section class="hv2-band hv2-flow-band" aria-labelledby="hv2-flow-title">
+                    <div class="hv2-flow-copy">
+                      <h3 class="hv2-band-title" id="hv2-flow-title">{{ i18n.t('hypervisor.v2.sankey.title') }}</h3>
+                      <p class="hv2-band-sub">{{ sankeyExplainer() }}</p>
+                    </div>
+                    @if (sankeySources().length) {
+                      <div class="hv2-flow-chart">
+                        <ck-chart-sankey-flow
+                          [width]="640"
+                          [height]="300"
+                          [sources]="sankeySources()"
+                          [middleLabel]="sankeyMiddleLabel()"
+                          [rightLabel]="sankeyRightLabel()"
+                          [leftCaption]="i18n.t('hypervisor.v2.sankey.left_caption') + ' ' + measuredMark"
+                          [middleCaption]="i18n.t('hypervisor.v2.sankey.middle_caption')"
+                          [rightCaption]="i18n.t('hypervisor.v2.sankey.right_caption') + ' ' + declaredMark"
+                          [hoverSystem]="hoverSystem()"
+                          [middleTip]="sankeyMiddleTip()"
+                          [rightTip]="sankeyRightTip()"
+                          (systemHover)="onSystemHover($event)"
+                          (systemClick)="onSystemClick($event)"
+                        />
+                      </div>
+                    }
+                  </section>
+                }
+    </ng-template>
+
+    <ng-template #selectionTpl>
+      <aside class="hv2-selection" data-testid="hypervisor-v2-selection" aria-labelledby="hv2-selection-title">
+        <h3 class="hv2-band-title" id="hv2-selection-title">{{ i18n.t('hypervisor.v2.selection.title') }}</h3>
+        @if (selection().day; as day) {
+          <section class="hv2-sel-block" data-testid="hypervisor-v2-selection-day" [attr.data-mode]="day.mode">
+            <div class="hv2-sel-head">
+              <p class="hv2-label">{{ dayModeLabel(day.mode) }}</p>
+              @if (day.mode === 'locked') {
+                <button type="button" class="hv2-text-btn" data-testid="hypervisor-v2-unlock" (click)="unlockDay()">
+                  {{ i18n.t('hypervisor.v2.selection.unlock') }}
+                  <ck-kbd>{{ i18n.t('hypervisor.v2.theme.quit_kbd') }}</ck-kbd>
+                </button>
+              }
+            </div>
+            <p class="hv2-sel-date">{{ formatLongDate(day.point.date) }}</p>
+            <p class="hv2-sel-value ck-tnum">{{ formatQuantity(day.total) }}</p>
+            <p class="hv2-sel-meta">{{ selectionDayMeta(day.point.runs, day.point.systems) }}</p>
+            @if (day.point.measured > 0 || day.point.declared > 0) {
+              <p class="hv2-sel-split ck-tnum">
+                @if (day.point.measured > 0) {
+                  <span>{{ i18n.t('hypervisor.v2.tip.measured', { mark: measuredMark, value: formatQuantity(day.point.measured) }) }}</span>
+                }
+                @if (day.point.declared > 0) {
+                  <span class="hv2-teal">{{ i18n.t('hypervisor.v2.tip.declared', { mark: declaredMark, value: formatQuantity(day.point.declared) }) }}</span>
+                }
+              </p>
+            }
+          </section>
+          <section class="hv2-sel-block" data-testid="hypervisor-v2-selection-rivers">
+            <p class="hv2-label">{{ i18n.t('hypervisor.v2.selection.rivers') }}</p>
+            @if (selection().rivers.length) {
+              <ul class="hv2-sel-list">
+                @for (part of selection().rivers; track part.systemId) {
+                  <li
+                    class="hv2-sel-row"
+                    [class.hv2-row-lit]="hoverSystem() === part.systemId"
+                    (pointerenter)="onSystemHover(part.systemId)"
+                    (pointerleave)="onSystemHover(null)"
+                  >
+                    <span class="hv2-sel-name">{{ part.label }}</span>
+                    <span class="ck-tnum hv2-sel-num" [class.hv2-teal]="part.declared">{{ riverPartValue(part.value, part.declared) }}</span>
+                  </li>
+                }
+              </ul>
+            } @else {
+              <p class="hv2-muted">{{ i18n.t('hypervisor.v2.selection.rivers_empty') }}</p>
+            }
+          </section>
+        } @else {
+          <p class="hv2-muted">{{ i18n.t('hypervisor.v2.hero.peak.none') }}</p>
+        }
+        @if (selection().system; as sys) {
+          <section class="hv2-sel-block" data-testid="hypervisor-v2-selection-system">
+            <p class="hv2-label">{{ systemModeLabel(sys.mode) }}</p>
+            <p class="hv2-sel-system">{{ sys.row.name }}</p>
+            <p class="hv2-sel-meta">
+              {{ i18n.t('hypervisor.v2.selection.basis') }}
+              <span class="ck-tnum" [class.hv2-teal]="sys.row.basisStatus === 'declared'">{{ basisLabel(sys.row) }}</span>
+            </p>
+          </section>
+        }
+      </aside>
+    </ng-template>
+
+    <ng-template #registerTpl let-testid="testid">
+      <article class="hv2-card hv2-register ck-h-scroll" [attr.data-testid]="testid">
+        <header class="hv2-card-head">
+          <div>
+            <h3 class="hv2-card-title">{{ i18n.t('hypervisor.v2.register.title') }}</h3>
+            <p class="hv2-card-sub">{{ registerSub() }}</p>
+          </div>
+        </header>
+        @if (registerRows().length === 0) {
+          <p class="hv2-muted">{{ i18n.t('hypervisor.v2.register.empty') }}</p>
+        } @else {
+          <table class="hv2-table">
+            <thead>
+              <tr>
+                <th>{{ i18n.t('hypervisor.v2.col.system') }}</th>
+                @if (showCol('unit')) { <th>{{ i18n.t('hypervisor.v2.col.unit') }}</th> }
+                @if (showCol('spark')) { <th>{{ periodLabel() }}</th> }
+                @if (showCol('cost')) { <th class="hv2-num">{{ i18n.t('hypervisor.v2.col.cost') }}</th> }
+                @if (showCol('basis')) { <th>{{ i18n.t('hypervisor.v2.col.basis') }}</th> }
+                @if (showCol('value')) { <th class="hv2-num">{{ i18n.t('hypervisor.v2.col.value') }}</th> }
+                <th class="hv2-arrow-col"><span aria-hidden="true">→</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of registerRows(); track row.systemId; let i = $index) {
+                <tr
+                  [attr.data-system-id]="row.systemId"
+                  [class.hv2-row-outside]="row.outsideDenominator"
+                  [class.hv2-row-lit]="hoverSystem() === row.systemId"
+                  [class.hv2-row-flash]="flashSystem() === row.systemId || cameFromSystem() === row.systemId"
+                  [style.--stagger]="i"
+                  (pointerenter)="onSystemHover(row.systemId)"
+                  (pointerleave)="onSystemHover(null)"
+                >
+                  <td>
+                    <div class="hv2-system">
+                      <span class="hv2-glyph ck-mono" [attr.data-health]="row.health">{{ row.initials }}</span>
+                      <div>
+                        <div class="hv2-system-name">
+                          {{ row.name }}
+                          @if (cameFromSystem() === row.systemId) {
+                            <span class="hv2-came-from">{{ i18n.t('nav.provenance.came_from') }}</span>
+                          }
+                        </div>
+                        <div class="hv2-system-meta"><span class="hv2-up">{{ runsWord(row) }}</span> · {{ runsLabel(row) }}</div>
+                      </div>
+                    </div>
+                  </td>
+                  @if (showCol('unit')) {
+                    <td>
+                      <span class="ck-tnum hv2-result-value">{{ resultMain(row) }}</span>
+                      <span class="hv2-result-qualifier">{{ resultQualifier(row) }}</span>
+                    </td>
+                  }
+                  @if (showCol('spark')) {
+                    <td><ck-chart-mini-area [values]="row.weekSpark" [tone]="sparkTone(row)" [width]="84" [height]="24" [valueLabel]="sparkTip" /></td>
+                  }
+                  @if (showCol('cost')) { <td class="ck-tnum hv2-num">{{ formatFact(row.cost, 'currency') }}</td> }
+                  @if (showCol('basis')) {
+                    <td class="hv2-basis ck-tnum" [class.hv2-teal]="row.basisStatus === 'declared'" [class.hv2-basis-absent]="!row.basisStatus || row.basisStatus === 'none'">
+                      {{ basisLabel(row) }}
+                      @if (!row.basisStatus || row.basisStatus === 'none') {
+                        @if (row.capabilityId) {
+                          · <a class="hv2-link" [navLink]="basesLink(row.capabilityId)">{{ i18n.t('hypervisor.v2.register.basis_state.declare') }}</a>
+                        }
+                      }
+                    </td>
+                  }
+                  @if (showCol('value')) {
+                    <td class="ck-tnum hv2-num" [class.hv2-teal]="row.valueDeclared.state === 'available'">{{ rowValue(row) }}</td>
+                  }
+                  <td class="hv2-arrow-col">
+                    <a
+                      class="hv2-arrow"
+                      [navLink]="systemLink(row)"
+                      [navState]="registreProvenanceState()"
+                      [attr.aria-label]="i18n.t('hypervisor.v2.register.open_system')"
+                      [title]="i18n.t('hypervisor.v2.register.open_system')"
+                    >→</a>
+                  </td>
+                </tr>
+              }
+            </tbody>
+            <tfoot>
+              <tr>
+                <th>{{ i18n.t('hypervisor.v2.register.total_systems', { count: series()!.register.length }) }}</th>
+                @if (showCol('unit')) { <td class="ck-tnum">{{ footerResult() }}</td> }
+                @if (showCol('spark')) { <td></td> }
+                @if (showCol('cost')) { <td class="ck-tnum hv2-num">{{ formatFact(series()!.costTotal, 'currency') }}</td> }
+                @if (showCol('basis')) { <td class="ck-tnum">{{ i18n.t('hypervisor.v2.register.total_declared', { declared: declaredCount(), total: series()!.register.length }) }}</td> }
+                @if (showCol('value')) { <td class="ck-tnum hv2-num" [class.hv2-teal]="series()!.valueTotal.state === 'available'">{{ footerValue() }}</td> }
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        }
+      </article>
+    </ng-template>
+
+    <ng-template #basesTpl>
+      <article class="hv2-card ck-h-scroll" data-testid="hypervisor-v2-value-bases">
+        <h3 class="hv2-kicker">{{ i18n.t('nav.facet.bases') }}</h3>
+        @if (sourceStates().bases !== 'ready') {
+          <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'bases' }"></ng-container>
+        } @else if (bases().length === 0) {
+          <p class="hv2-muted">{{ i18n.t('hypervisor.v2.bases.empty') }}</p>
+        } @else {
+          <table class="hv2-table">
+            <thead>
+              <tr>
+                <th>{{ i18n.t('hypervisor.v2.bases.col.capability') }}</th>
+                <th>{{ i18n.t('hypervisor.v2.bases.col.unit') }}</th>
+                <th>{{ i18n.t('hypervisor.v2.bases.col.hours') }}</th>
+                <th>{{ i18n.t('hypervisor.v2.bases.col.value') }}</th>
+                <th>{{ i18n.t('hypervisor.v2.bases.col.status') }}</th>
+                <th>{{ i18n.t('hypervisor.v2.bases.col.provenance') }}</th>
+                <th>{{ i18n.t('hypervisor.v2.bases.col.systems') }}</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of bases(); track row.capability_id) {
+                <tr [class.hv2-row-focus]="focusCapabilityId() === row.capability_id">
+                  <td>
+                    <div>{{ row.name }}</div>
+                    @if (posedByCopy(row); as posed) {
+                      <div class="ck-mono hv2-muted hv2-posed" data-testid="hypervisor-bases-posed-by">{{ posed }}</div>
+                    }
+                    <button
+                      type="button"
+                      class="hv2-text-btn"
+                      [attr.aria-expanded]="expandedBasisId() === row.capability_id"
+                      (click)="toggleBasisContract(row.capability_id)"
+                    >{{ i18n.t('hypervisor.v2.bases.contract_toggle') }}</button>
+                    @if (expandedBasisId() === row.capability_id) {
+                      <div class="hv2-basis-contract" data-testid="hypervisor-bases-contract">
+                        <div class="ck-mono">{{ row.value_basis?.unit || row.output_unit || '—' }}</div>
+                        <div class="ck-mono">{{ formatMaybeNumber(row.value_basis?.hours_per_unit) }} h</div>
+                        <div class="ck-mono">{{ formatMoney(row.value_basis?.value_per_unit, row.value_basis?.currency) }}</div>
+                        <div>{{ provenanceCopy(row) }}</div>
+                      </div>
+                    }
+                  </td>
+                  <td>{{ row.value_basis?.unit || row.output_unit || '' }}</td>
+                  <td class="ck-mono ck-tnum">{{ formatMaybeNumber(row.value_basis?.hours_per_unit) }}</td>
+                  <td class="ck-mono ck-tnum">{{ formatMoney(row.value_basis?.value_per_unit, row.value_basis?.currency) }}</td>
+                  <td>{{ basisStatusLabel(row.value_basis?.status ?? 'none') }}</td>
+                  <td>{{ provenanceCopy(row) }}</td>
+                  <td>{{ systemNames(row) }}</td>
+                  <td>
+                    @if (isCatalogLocked(row)) {
+                      <p class="hv2-muted">{{ i18n.t('hypervisor.v2.bases.catalog_readonly') }}</p>
+                    } @else if (canEdit()) {
+                      @if (editingId() === row.capability_id) {
+                        <div class="hv2-edit">
+                          <label>{{ i18n.t('hypervisor.v2.bases.unit') }}
+                            <input [value]="draft()!.unit" (input)="patchDraft('unit', $event)" />
+                          </label>
+                          <label>{{ i18n.t('hypervisor.v2.bases.hours_per_unit') }}
+                            <input type="number" [value]="draft()!.hours_per_unit" (input)="patchDraft('hours_per_unit', $event)" />
+                          </label>
+                          <label>{{ i18n.t('hypervisor.v2.bases.value_per_unit') }}
+                            <input type="number" [value]="draft()!.value_per_unit" (input)="patchDraft('value_per_unit', $event)" />
+                          </label>
+                          <label>{{ i18n.t('hypervisor.v2.bases.currency') }}
+                            <input [value]="draft()!.currency" (input)="patchDraft('currency', $event)" />
+                          </label>
+                          <label>{{ i18n.t('hypervisor.v2.bases.col.status') }}
+                            <select [value]="draft()!.status" (change)="patchDraft('status', $event)">
+                              <option value="declared">{{ i18n.t('hypervisor.v2.bases.status.declared') }}</option>
+                              <option value="measured">{{ i18n.t('hypervisor.v2.bases.status.measured') }}</option>
+                              <option value="none">{{ i18n.t('hypervisor.v2.bases.status.none') }}</option>
+                            </select>
+                          </label>
+                          <label>{{ i18n.t('hypervisor.v2.bases.note') }}
+                            <input [value]="draft()!.note" (input)="patchDraft('note', $event)" />
+                          </label>
+                          <button type="button" class="hv2-text-btn" (click)="saveBasis(row)" [disabled]="savingBasis()">{{ i18n.t('common.save') }}</button>
+                          <button type="button" class="hv2-text-btn" (click)="editingId.set(null)">{{ i18n.t('common.cancel') }}</button>
+                          @if (basisError()) {
+                            <p class="hv2-error">{{ i18n.t('hypervisor.v2.bases.save_failed') }}</p>
+                          }
+                        </div>
+                      } @else {
+                        <button type="button" class="hv2-text-btn" (click)="startEdit(row)">{{ i18n.t('common.edit') }}</button>
+                      }
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+      </article>
+    </ng-template>
+
+    <ck-panel
+      [open]="customizeOpen()"
+      (openChange)="customizeOpen.set($event)"
+      position="side"
+      [title]="i18n.t('hypervisor.v2.customize.title')"
+      width="720px"
+    >
+      @if (activeView(); as view) {
+        @if (!canEdit()) {
+          <p class="hv2-muted">{{ i18n.t('hypervisor.v2.customize.preview_only') }}</p>
+        }
+        <div class="hv2-product-editor">
+          <label>{{ i18n.t('hypervisor.v2.product.view_name') }}<input [value]="view.label" [disabled]="!canEdit()" maxlength="100" (input)="setViewLabel(eventValue($event))" /></label>
+          <label>{{ i18n.t('hypervisor.v2.product.scope') }}
+            <select data-testid="impact-system-scope" [value]="view.system_id || ''" [disabled]="!canEdit() || systemsProblem()" (change)="setSystemScope(eventValue($event))">
+              <option value="">{{ i18n.t('hypervisor.v2.product.all_systems') }}</option>
+              @for (system of activitySystems(); track system.id) { <option [value]="system.id">{{ system.name }}</option> }
+            </select>
+          </label>
+          @if (systemsProblem()) { <p role="status">{{ i18n.t('hypervisor.v2.product.unavailable') }}</p> }
+          <label class="hv2-inline"><input type="checkbox" [checked]="defaultViewId() === view.id" [disabled]="!canEdit()" (change)="setDefaultView($event)" />{{ i18n.t('hypervisor.v2.product.default_view') }}</label>
+          @if (canEdit()) {
+            <div class="hv2-new-view"><label>{{ i18n.t('hypervisor.v2.product.new_view') }}<input [value]="newViewName()" maxlength="100" (input)="newViewName.set(eventValue($event))" /></label><button type="button" class="hv2-text-btn" [disabled]="!newViewName().trim()" (click)="addView()">{{ i18n.t('hypervisor.v2.product.create_view') }}</button></div>
+          }
+        </div>
+        <div class="hv2-customize-grid">
+          <div class="hv2-customize-assembly" data-testid="hypervisor-customize-assembly">
+            <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.customize.assembly') }}</p>
+            <fieldset class="hv2-fieldset">
+              <legend class="hv2-kicker">{{ i18n.t('hypervisor.v2.customize.denominator') }}</legend>
+              @for (item of denominators; track item) {
+                <label>
+                  <input type="radio" name="denominator" [checked]="view.denominator === item" (change)="setDenominator(item)" />
+                  {{ i18n.t('hypervisor.v2.denominator.' + item) }}
+                </label>
+              }
+            </fieldset>
+            <fieldset class="hv2-fieldset">
+              <legend class="hv2-kicker">{{ i18n.t('hypervisor.v2.customize.period') }}</legend>
+              @for (item of periods; track item) {
+                <label>
+                  <input type="radio" name="period" [checked]="viewPeriod(view) === item" (change)="setPeriod(item)" />
+                  {{ i18n.t('hypervisor.v2.period.' + item) }}
+                </label>
+              }
+            </fieldset>
+            <fieldset class="hv2-fieldset">
+              <legend class="hv2-kicker">{{ i18n.t('hypervisor.v2.customize.sort') }}</legend>
+              @for (item of sorts; track item) {
+                <label>
+                  <input type="radio" name="sort" [checked]="view.sort === item" (change)="setSort(item)" />
+                  {{ i18n.t('hypervisor.v2.sort.' + item) }}
+                </label>
+              }
+            </fieldset>
+            <fieldset class="hv2-fieldset">
+              <legend class="hv2-kicker">{{ i18n.t('hypervisor.v2.customize.columns') }}</legend>
+              @for (item of columns; track item) {
+                <label>
+                  <input type="checkbox" [checked]="showsColumn(view, item)" (change)="toggleColumn(item)" />
+                  {{ i18n.t('hypervisor.v2.col.' + item) }}
+                </label>
+              }
+            </fieldset>
+            @for (stratum of strata; track stratum.id) {
+              <fieldset class="hv2-fieldset">
+                <legend class="hv2-kicker">{{ i18n.t(stratum.label) }}</legend>
+                @for (block of assembledBlocks(view, stratum.id); track block.type) {
+                  <div
+                    class="hv2-block-row"
+                    [attr.data-testid]="'hypervisor-customize-block-' + block.type"
+                    tabindex="0"
+                    (keydown)="onCustomizeKeydown($event, stratum.id, block.type)"
+                  >
+                    <span>{{ i18n.t('hypervisor.v2.block.' + block.type) }}</span>
+                    <button type="button" class="hv2-text-btn" (click)="moveBlock(stratum.id, block.type, -1)" [attr.aria-label]="i18n.t('hypervisor.v2.customize.move_up')">↑</button>
+                    <button type="button" class="hv2-text-btn" (click)="moveBlock(stratum.id, block.type, 1)" [attr.aria-label]="i18n.t('hypervisor.v2.customize.move_down')">↓</button>
+                    <button type="button" class="hv2-text-btn" (click)="removeBlock(stratum.id, block.type)" [attr.aria-label]="i18n.t('hypervisor.v2.customize.remove')">×</button>
+                  </div>
+                  @if (block.type === 'activity' || block.type === 'financial_scenario') {
+                    <div class="hv2-product-editor hv2-block-settings" [attr.data-testid]="'impact-settings-' + block.type">
+                      <label>{{ i18n.t('hypervisor.v2.product.block_title') }}<input [value]="block.title || ''" maxlength="200" [disabled]="!canEdit()" (input)="setBlockTitle(block.type, eventValue($event))" /></label>
+                      @if (block.type === 'activity') {
+                        @for (metric of activityMetricOptions; track metric) { <label class="hv2-inline"><input type="checkbox" [checked]="activityMetrics(block).includes(metric)" [disabled]="!canEdit()" (change)="toggleActivityMetric(metric)" />{{ i18n.t('hypervisor.v2.product.metric.' + metric) }}</label> }
+                      } @else {
+                        <p>{{ i18n.t('hypervisor.v2.scenario.edit_note') }}</p>
+                        <label>{{ i18n.t('hypervisor.v2.scenario.currency') }}<input [value]="block.settings['currency'] || ''" maxlength="3" [disabled]="!canEdit()" (input)="setBlockSetting(block.type, 'currency', eventValue($event).toUpperCase())" /></label>
+                        @for (field of scenarioFields; track field) {
+                          <label>{{ i18n.t('hypervisor.v2.scenario.' + field) }}<input type="number" min="0" [max]="scenarioMax(field)" [step]="field === 'monthly_volume' ? '1' : 'any'" [value]="block.settings[field] ?? ''" [disabled]="!canEdit()" (input)="setScenarioNumber(field, eventValue($event))" /></label>
+                        }
+                        <label>{{ i18n.t('hypervisor.v2.scenario.unit_label') }}<input [value]="block.settings['unit_label'] || ''" maxlength="80" [disabled]="!canEdit()" (input)="setBlockSetting(block.type, 'unit_label', eventValue($event))" /></label>
+                        <label>{{ i18n.t('hypervisor.v2.scenario.source_note') }}<textarea [value]="block.settings['note'] || ''" maxlength="1000" [disabled]="!canEdit()" (input)="setBlockSetting(block.type, 'note', eventValue($event))"></textarea></label>
+                      }
+                    </div>
+                  }
+                }
+              </fieldset>
+            }
+          </div>
+          <div class="hv2-customize-catalog" data-testid="hypervisor-customize-catalog">
+            <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.customize.catalog') }}</p>
+            @for (stratum of strata; track stratum.id) {
+              <fieldset class="hv2-fieldset">
+                <legend class="hv2-kicker">{{ i18n.t(stratum.label) }}</legend>
+                @for (block of stratum.blocks; track block) {
+                  <label>
+                    <input type="checkbox" [checked]="showsBlock(view, stratum.id, block)" (change)="toggleBlock(stratum.id, block)" />
+                    {{ i18n.t('hypervisor.v2.block.' + block) }}
+                  </label>
+                }
+              </fieldset>
+            }
+          </div>
+        </div>
+        <p role="status" data-testid="impact-save-message">{{ saveMessage() ? i18n.t(saveMessage()) : '' }}</p>
+        @if (canEdit()) {
+          <button type="button" class="hv2-text-btn" (click)="saveViews()" [disabled]="savingViews()">
+            {{ i18n.t('hypervisor.v2.customize.save') }}
+          </button>
+        }
+      }
+    </ck-panel>
+  `,
+  styles: [`
+    :host { display: block; color: var(--ck-fg-1); position: relative; }
+    :host.hv2-theme-presentation { --hv2-presentation-mark: var(--sentinel-accent, #65d66e); }
+    /* The eyebrow text takes the theme green where it reads (dark); on light
+       surfaces the Sentinel green falls to 1.7:1, so the text takes a darker
+       mix of it (5.7:1). The liseré keeps the brand green in both. */
+    :host { --hv2-presentation-ink: var(--sentinel-accent, #65d66e); }
+    :host-context(html:not(.dark)), :host-context([data-theme="light"]) {
+      --hv2-presentation-ink: color-mix(in srgb, var(--sentinel-accent, #65d66e) 45%, var(--ck-fg-1));
+    }
+    :host.hv2-theme-presentation ::ng-deep .ck-label {
+      color: var(--hv2-presentation-ink) !important;
+    }
+    .hv2-presentation-liseré {
+      height: 2px;
+      margin: -8px -32px 16px;
+      background: var(--hv2-presentation-mark, var(--sentinel-accent, #65d66e));
+    }
+    /* Thème Présentation W2-v6: the Synthèse bands at room scale. The daily
+       Synthèse stays sober; the intensity lives here, in size, not in colour. */
+    .hv2-present { display: flex; flex-direction: column; }
+    .hv2-present > .hv2-band:first-of-type { border-top-color: var(--ck-stroke-strong); }
+    .hv2-present-command .hv2-command-monument { flex: 1.35 1 0; }
+    .hv2-present-command .hv2-monument { font-size: clamp(88px, 8.4vw, 152px); }
+    .hv2-present-command .hv2-monument-unit { font-size: clamp(30px, 2.6vw, 46px); }
+    .hv2-present-command .hv2-sentence { font-size: 19px; }
+    .hv2-present-command .hv2-measured-part { font-size: 14px; }
+    .hv2-present .hv2-strip { height: 128px; }
+    .hv2-present .hv2-cadran-dial { padding: 16px 0 8px; }
+    .hv2-fact-link { font-size: inherit; }
+    .hv2-fact-state { color: var(--ck-fg-2); }
+    /* Chaîne de preuve: numbered links between hairlines, never boxes. */
+    .hv2-proof {
+      min-width: 0; display: flex; flex-direction: column; gap: 14px;
+      padding: 24px 0 24px 28px; border-left: 1px solid var(--ck-stroke-2);
+    }
+    .hv2-proof-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+    .hv2-proof-step {
+      display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px;
+      padding: 14px 0; border-top: 1px solid var(--ck-stroke-2);
+    }
+    .hv2-proof-n { font-size: 12px; line-height: 28px; color: var(--ck-fg-3); }
+    .hv2-proof-body { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+    .hv2-proof-body > .hv2-label, .hv2-proof-body .hv2-sel-head .hv2-label { line-height: 28px; }
+    .hv2-proof-main { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.35; color: var(--ck-fg-1); }
+    .hv2-proof-meta { margin: 0; font-size: 13px; line-height: 1.45; color: var(--ck-fg-2); }
+    .hv2-proof-note { margin: 0; font-size: 12px; line-height: 1.45; color: var(--ck-fg-3); }
+    .hv2-proof-body .hv2-link { align-self: flex-start; margin-top: 2px; }
+    .hv2-proof-body .hv2-sel-list { margin: 0; }
+    .hv2-actions, .hv2-list-row, .hv2-block-row, .hv2-btn-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .hv2-actions { min-width: 0; max-width: 100%; }
+    .hv2-customize-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 24px;
+      align-items: start;
+    }
+    .hv2-customize-assembly, .hv2-customize-catalog { min-width: 0; }
+    .hv2-scope { margin: 0 0 16px; font-size: 12px; color: var(--ck-fg-2); }
+    .hv2-product-editor { display: grid; gap: 12px; margin: 0 0 20px; }
+    .hv2-product-editor label { display: grid; gap: 6px; font-size: 12px; color: var(--ck-fg-2); }
+    .hv2-product-editor input:not([type=checkbox]), .hv2-product-editor select, .hv2-product-editor textarea { width: 100%; box-sizing: border-box; min-width: 0; padding: 7px 9px; border: 1px solid var(--ck-stroke-2); border-radius: 6px; color: var(--ck-fg-1); background: var(--ck-bg-panel); font: inherit; }
+    .hv2-product-editor .hv2-inline { display: flex; align-items: center; gap: 8px; }
+    .hv2-block-settings { padding: 12px 0; border-bottom: 1px solid var(--ck-stroke-2); }
+    .hv2-new-view { display: flex; align-items: end; gap: 12px; }
+    .hv2-new-view label { flex: 1; }
+    .hv2-block-row { gap: 4px; }
+    .hv2-block-row > span { flex: 1; min-width: 80px; }
+
+    .hv2-agent-orb {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      margin-right: 8px;
+      border: 2px solid var(--ck-fg-1);
+      background: transparent;
+      vertical-align: middle;
+    }
+    .hv2-basis-absent { border-bottom: 1px dotted var(--ck-stroke-2); }
+    .hv2-posed { font-size: 11px; margin-top: 4px; }
+    .hv2-basis-contract {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--ck-stroke-2);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .hv2-journal-entry { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--ck-stroke-2); }
+    .hv2-journal-effect { color: var(--ck-fg-2); font-size: 12px; }
+    :host.hv2-theme-presentation .hv2-btn,
+    :host.hv2-theme-presentation .hv2-btn-primary { display: none; }
+    :host.hv2-theme-presentation .hv2-agent-orb { display: none; }
+    .hv2-stack { display: flex; flex-direction: column; gap: 20px; }
+    .hv2-switch { display: flex; flex-wrap: wrap; min-width: 0; max-width: 100%; gap: 4px; padding: 4px; background: var(--ck-bg-panel); border: 1px solid var(--ck-stroke-2); border-radius: 8px; }
+    .hv2-switch button, .hv2-text-btn {
+      background: transparent; border: 0; color: var(--ck-fg-2); cursor: pointer; border-radius: 6px;
+      font-size: 12px; line-height: 1.3; padding: 6px 10px;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .hv2-switch button { min-width: 0; max-width: 100%; }
+    .hv2-switch button span { min-width: 0; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hv2-text-btn:hover, .hv2-switch button:hover { color: var(--ck-fg-1); }
+    .hv2-text-btn:disabled { cursor: default; opacity: 0.5; }
+    .hv2-switch-on { color: var(--ck-fg-1) !important; background: var(--ck-bg-inset); outline: 1px solid var(--ck-stroke-strong); }
+    .hv2-legend {
+      display: flex; justify-content: flex-end; font-size: 12px; color: var(--ck-fg-3);
+      margin: -6px 0 12px;
+    }
+    /* Synthèse W2-v5: full-width bands under hairlines, no card series. */
+    .hv2-page { display: flex; flex-direction: column; gap: 0; position: relative; }
+    .hv2-stratum { display: block; min-width: 0; }
+    .hv2-leader {
+      display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px;
+      padding: 32px 0 14px; border-top: 1px solid var(--ck-stroke-strong);
+    }
+    .hv2-leader-title { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.3; color: var(--ck-fg-1); }
+    .hv2-leader-sub { margin: 0; font-size: 12px; line-height: 1.4; color: var(--ck-fg-3); }
+    .hv2-label, .hv2-kicker {
+      margin: 0; font-size: 12px; font-weight: 500; line-height: 1.35; color: var(--ck-fg-3);
+    }
+    .hv2-kicker { margin: 0 0 8px; }
+    .hv2-band { border-top: 1px solid var(--ck-stroke-2); padding: 24px 0; min-width: 0; }
+    .hv2-stratum-bands > .hv2-band:first-of-type { border-top-color: var(--ck-stroke-strong); }
+    .hv2-band-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+    .hv2-band-title { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.25; letter-spacing: -0.01em; color: var(--ck-fg-1); }
+    .hv2-band-sub { margin: 4px 0 0; font-size: 12px; line-height: 1.45; color: var(--ck-fg-3); max-width: 60ch; }
+    .hv2-band-legend { font-size: 12px; color: var(--ck-fg-3); }
+
+    /* 1 · Command band: monument | activity strip | facts. */
+    .hv2-command { display: flex; align-items: stretch; padding: 0; }
+    .hv2-command-col {
+      flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 10px;
+      padding: 28px; border-left: 1px solid var(--ck-stroke-2);
+    }
+    .hv2-command-col:first-child { border-left: 0; padding-left: 0; }
+    .hv2-command-col:last-child { padding-right: 0; }
+    .hv2-command-monument { flex: 1.15 1 0; justify-content: center; }
+    .hv2-command-strip { flex: 1.5 1 0; }
+    .hv2-monument-group { margin: 2px 0 0; }
+    .hv2-monument-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+    .hv2-monument-figure { display: inline-flex; align-items: baseline; gap: 8px; white-space: nowrap; }
+    .hv2-monument { font-size: 104px; font-weight: 600; letter-spacing: -0.05em; line-height: 0.9; color: var(--ck-fg-1); }
+    .hv2-monument-state { font-size: 22px; line-height: 1.2; color: var(--ck-fg-2); }
+    .hv2-monument-unit { font-size: 36px; font-weight: 500; color: var(--ck-fg-3); }
+    .hv2-sentence { display: block; margin: 14px 0 0; font-size: 17px; line-height: 1.3; color: var(--ck-fg-2); }
+    .hv2-measured-part { display: block; margin: 6px 0 0; font-size: 13px; line-height: 1.35; color: var(--ck-fg-2); }
+    .hv2-sub { margin: 6px 0 0; font-size: 12px; line-height: 1.4; color: var(--ck-fg-3); }
+    /* No overflow clip: the segments are focusable and the keyboard ring sits
+       outside them. The ends round themselves instead. */
+    .hv2-provenance { display: flex; height: 6px; margin-top: 8px; max-width: 320px; border-radius: 3px; background: var(--ck-stroke-2); }
+    .hv2-provenance > :first-child { border-radius: 3px 0 0 3px; }
+    .hv2-provenance > :last-child { border-radius: 0 3px 3px 0; }
+    .hv2-provenance > :only-child { border-radius: 3px; }
+    .hv2-provenance-ink { background: var(--ck-fg-1); }
+    /* Declared share: a light teal tint over the track (12 %, so the lines keep
+       3:1 on it) under a 45° hatch of the declared ink — readable without
+       colour, and unlike a link or a filled button. */
+    .hv2-provenance-teal {
+      background-color: color-mix(in srgb, var(--ck-data-declared) 12%, transparent);
+      background-image: repeating-linear-gradient(-45deg, var(--ck-data-declared) 0 2px, transparent 2px 5px);
+    }
+    .hv2-strip-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+    .hv2-strip-frame { position: relative; margin-top: auto; }
+    /* A listbox of days: one tab stop; the ring is drawn on the active day
+       (aria-activedescendant), so the list itself shows none. */
+    .hv2-strip {
+      position: relative; display: flex; align-items: stretch; height: 104px;
+      border-bottom: 1px solid var(--ck-stroke-strong); cursor: pointer;
+    }
+    .hv2-strip:focus-visible { outline: none; }
+    .hv2-strip-week {
+      position: absolute; top: 0; bottom: 0; pointer-events: none;
+      background: color-mix(in srgb, var(--ck-fg-1) 7%, transparent);
+      border: 1px solid var(--ck-fg-3); border-bottom: 0;
+    }
+    .hv2-strip-day { flex: 1 1 0; min-width: 0; display: flex; align-items: flex-end; justify-content: center; }
+    .hv2-strip:focus-visible .hv2-strip-day.is-active { outline: 2px solid var(--ck-primary); outline-offset: 1px; }
+    /* Follows every hover and arrow key: the highlight is instant, no transition. */
+    .hv2-strip-mark { position: relative; display: block; width: 56%; min-width: 2px; max-width: 12px; background: var(--ck-fg-3); opacity: 0.75; }
+    .hv2-strip-mark.is-weekend { opacity: 0.45; }
+    .hv2-strip-mark.is-in-week { opacity: 1; }
+    .hv2-strip-mark.is-selected, .hv2-strip-mark.is-locked { background: var(--ck-fg-1); opacity: 1; }
+    /* The locked day keeps a cap over its mark, so a preview elsewhere never hides where the lock is. */
+    .hv2-strip-mark.is-locked::before {
+      content: ''; position: absolute; left: 50%; top: -8px; width: 4px; height: 4px;
+      margin-left: -2px; border-radius: 2px; background: var(--ck-fg-1);
+    }
+    .hv2-strip-axis { position: relative; height: 16px; font-size: 11px; color: var(--ck-fg-3); }
+    .hv2-strip-tick { position: absolute; top: 2px; white-space: nowrap; }
+    .hv2-strip-tick.is-selected, .hv2-strip-tick.is-locked { color: var(--ck-fg-1); font-weight: 600; }
+    .hv2-strip-lock { margin: 0; min-height: 1.4em; font-size: 12px; line-height: 1.4; color: var(--ck-fg-3); }
+    .hv2-strip-lock.is-locked { color: var(--ck-fg-1); }
+    .hv2-teal { color: var(--ck-signal-cool); }
+    .hv2-facts { margin: 0; display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--ck-stroke-2); }
+    .hv2-facts-plain { border-top: 0; padding-top: 0; margin: 10px 0 14px; }
+    .hv2-fact { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; }
+    .hv2-fact dt { font-size: 12px; color: var(--ck-fg-2); }
+    .hv2-fact dd { margin: 0; font-size: 12px; color: var(--ck-fg-1); }
+    .hv2-command-facts { flex: 0.9 1 0; justify-content: center; gap: 12px; margin: 0; padding-top: 28px; border-top: 0; }
+    .hv2-command-facts .hv2-fact dt { font-size: 13px; }
+    .hv2-command-facts .hv2-fact dd { font-size: 15px; }
+    .hv2-card-head-wrap { flex-wrap: wrap; }
+    .hv2-facts-aside { border-top: 0; padding-top: 0; min-width: min(100%, 320px); }
+    .hv2-facts-aside .hv2-fact dt, .hv2-facts-aside .hv2-fact dd { font-size: 13px; }
+    .hv2-fact-share { color: var(--ck-fg-2); margin-left: 4px; }
+
+    .hv2-unites { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+    .hv2-unites-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+    .hv2-unites-row {
+      display: grid; grid-template-columns: 4.6rem minmax(0, 1fr) 96px;
+      gap: 8px 12px; align-items: center;
+    }
+    .hv2-unites-value {
+      font-size: 22px; font-weight: 600; letter-spacing: -0.03em; line-height: 1;
+      text-align: right; color: var(--ck-fg-1);
+    }
+    .hv2-unites-meta { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .hv2-unites-unit {
+      font-size: 13px; line-height: 1.25; color: var(--ck-fg-1);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .hv2-unites-systems { font-size: 12px; color: var(--ck-fg-3); }
+    .hv2-unites-row ck-chart-unit-dots { justify-self: end; }
+    .hv2-hero-couverture, .hv2-hero-decision { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+    .hv2-hero-couverture .hv2-link { margin-top: auto; }
+
+    /* 2 · Cadran band: the dial dominates, the selection states the live state. */
+    .hv2-cadran-band { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); padding: 0; }
+    .hv2-cadran-col { min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 24px 28px 24px 0; }
+    .hv2-cadran-dial { display: flex; justify-content: center; padding: 12px 0 4px; }
+    .hv2-selection {
+      min-width: 0; display: flex; flex-direction: column; gap: 18px;
+      padding: 24px 0 24px 28px; border-left: 1px solid var(--ck-stroke-2);
+    }
+    .hv2-sel-block { display: flex; flex-direction: column; gap: 4px; padding-top: 16px; border-top: 1px solid var(--ck-stroke-2); }
+    .hv2-sel-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 28px; }
+    .hv2-sel-head .hv2-text-btn { padding: 4px 6px; margin-right: -6px; }
+    .hv2-sel-date { margin: 0; font-size: 14px; line-height: 1.35; color: var(--ck-fg-1); }
+    .hv2-sel-value { margin: 2px 0 0; font-size: 36px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.05; color: var(--ck-fg-1); }
+    .hv2-sel-meta { margin: 0; font-size: 12px; line-height: 1.45; color: var(--ck-fg-2); }
+    .hv2-sel-split { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 0 0; font-size: 12px; color: var(--ck-fg-2); }
+    .hv2-sel-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; }
+    .hv2-sel-row {
+      display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+      padding: 6px 6px; margin: 0 -6px; border-radius: 4px; font-size: 13px; color: var(--ck-fg-1);
+    }
+    .hv2-sel-num { font-size: 13px; white-space: nowrap; }
+    .hv2-sel-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hv2-sel-system { margin: 0; font-size: 18px; font-weight: 600; line-height: 1.3; color: var(--ck-fg-1); }
+
+    /* 3 · Rivers band. */
+    .hv2-rivers ck-chart-stream { margin-top: 4px; }
+
+    /* 4 · Selected system | not in the total. */
+    .hv2-pair { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); padding: 0; }
+    .hv2-pair-col { min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 24px 28px; }
+    .hv2-pair-col:first-child { padding-left: 0; }
+    .hv2-pair-col:last-child { padding-right: 0; }
+    .hv2-pair-col + .hv2-pair-col { border-left: 1px solid var(--ck-stroke-2); }
+    .hv2-system-title { margin: 0; font-size: 26px; font-weight: 600; line-height: 1.2; letter-spacing: -0.01em; color: var(--ck-fg-1); }
+    .hv2-inline-facts { display: flex; flex-wrap: wrap; gap: 8px 32px; margin: 6px 0 4px; }
+    .hv2-inline-facts > div { display: flex; flex-direction: column; gap: 2px; }
+    .hv2-inline-facts dt { font-size: 12px; color: var(--ck-fg-3); }
+    .hv2-inline-facts dd { margin: 0; font-size: 15px; color: var(--ck-fg-1); }
+    .hv2-selected-system .hv2-link { align-self: flex-start; }
+
+    /* 5 · Flux band. */
+    .hv2-flow-band { display: grid; grid-template-columns: minmax(240px, 0.8fr) minmax(0, 2.2fr); gap: 28px; align-items: start; }
+    .hv2-flow-chart { min-width: 0; }
+    .hv2-degraded-page { display: flex; flex-direction: column; gap: 14px; }
+    .hv2-unavailable {
+      display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px;
+      padding: 12px 14px; border: 1px dashed var(--ck-stroke-strong); border-left: 2px solid var(--ck-signal-warn);
+      border-radius: 8px; background: var(--ck-bg-panel);
+    }
+    .hv2-unavailable-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .hv2-unavailable-kicker { font-size: 12px; font-weight: 500; color: var(--ck-fg-3); }
+    .hv2-unavailable-text { margin: 0; font-size: 13px; line-height: 1.4; color: var(--ck-fg-1); }
+    /* Inside a card the card is the frame: no second box, same copy and action. */
+    .hv2-card .hv2-unavailable { padding: 0; border: 0; border-radius: 0; background: transparent; }
+    .hv2-degraded-page > .hv2-card { max-width: 640px; }
+    .hv2-retry {
+      min-height: 32px; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--ck-stroke-strong);
+      background: transparent; color: var(--ck-fg-1); font-size: 12px; cursor: pointer;
+    }
+    .hv2-retry:hover { background: var(--ck-bg-inset); }
+    .hv2-retry[aria-disabled='true'] { cursor: progress; color: var(--ck-fg-3); }
+    .hv2-chart-caption { margin: 0; font-size: 12px; line-height: 1.4; color: var(--ck-fg-3); text-align: center; }
+    .hv2-card { border: 1px solid var(--ck-stroke-2); border-radius: 10px; background: var(--ck-bg-panel); padding: 16px 18px; }
+    .hv2-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+    .hv2-card-title { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.3; color: var(--ck-fg-1); }
+    .hv2-card-sub { margin: 3px 0 0; font-size: 11px; line-height: 1.4; color: var(--ck-fg-3); }
+    .hv2-card-legend { font-size: 10px; color: var(--ck-fg-3); white-space: nowrap; }
+    .hv2-hors-title { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.3; color: var(--ck-fg-1); }
+    .hv2-hors-list { display: flex; flex-direction: column; gap: 12px; }
+    .hv2-hors-row { display: flex; flex-direction: column; gap: 5px; padding: 4px 6px; margin: 0 -6px; border-radius: 6px; transition: background 120ms var(--ck-ease-out, ease-out); }
+    .hv2-hors-line { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+    .hv2-hors-name { font-size: 13px; color: var(--ck-fg-1); }
+    .hv2-hors-value { font-size: 13px; color: var(--ck-fg-1); white-space: nowrap; }
+    .hv2-link { color: var(--ck-signal-cool); text-decoration: none; font-size: 12px; }
+    .hv2-link:hover { text-decoration: underline; }
+    .hv2-hors .hv2-link { margin-top: auto; padding-top: 6px; font-size: 12px; align-self: flex-start; }
+
+    .hv2-register { padding: 16px 18px 10px; }
+    .hv2-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .hv2-table thead th {
+      text-align: left; padding: 6px 10px 8px; border-bottom: 1px solid var(--ck-stroke-2);
+      font-size: 12px; font-weight: 500; color: var(--ck-fg-3);
+    }
+    .hv2-table td, .hv2-table tfoot th { text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--ck-stroke-2); vertical-align: middle; }
+    .hv2-table tfoot th { font-size: 12px; font-weight: 600; color: var(--ck-fg-1); }
+    .hv2-table tfoot td, .hv2-table tfoot th { border-bottom: 0; border-top: 1px solid var(--ck-stroke-strong); padding-top: 12px; font-size: 12px; }
+    .hv2-num { text-align: right !important; white-space: nowrap; }
+    .hv2-arrow-col { width: 28px; text-align: right !important; }
+    .hv2-arrow { color: var(--ck-fg-3); text-decoration: none; font-size: 14px; }
+    .hv2-arrow:hover { color: var(--ck-fg-1); }
+    .hv2-system { display: flex; align-items: center; gap: 10px; }
+    .hv2-system-name { font-size: 13px; font-weight: 500; color: var(--ck-fg-1); display: inline-flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .hv2-came-from { font-size: 11px; color: var(--ck-signal-cool); font-weight: 500; }
+    .hv2-system-meta { font-size: 12px; color: var(--ck-fg-3); margin-top: 2px; }
+    .hv2-up { color: var(--ck-fg-2); }
+    .hv2-result-value { font-size: 13px; color: var(--ck-fg-1); }
+    .hv2-result-qualifier { font-size: 11px; color: var(--ck-fg-3); margin-left: 6px; }
+    .hv2-basis { font-size: 12px; color: var(--ck-fg-2); white-space: nowrap; }
+    .hv2-row-outside .hv2-system-name { color: var(--ck-fg-2); }
+    .hv2-glyph {
+      display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+      width: 28px; height: 28px; border-radius: 6px;
+      border: 1px solid var(--ck-stroke-strong); font-size: 10px; color: var(--ck-fg-2);
+    }
+    .hv2-glyph[data-health='pos'] { border-color: var(--ck-signal-pos); }
+    .hv2-glyph[data-health='warn'] { border-color: var(--ck-signal-warn); }
+    .hv2-glyph[data-health='neg'] { border-color: var(--ck-signal-neg); }
+    .hv2-row-focus { background: var(--ck-bg-inset); }
+    .hv2-table tbody tr { transition: background 120ms var(--ck-ease-out, ease-out); }
+    .hv2-row-lit { background: var(--ck-bg-inset); }
+    .hv2-row-flash { outline: 1px solid var(--ck-signal-cool); outline-offset: -1px; }
+    /* The entering class sits on the host: only :host() matches it under
+       emulated encapsulation. Tokens v2 home entrance, first rows staggered. */
+    :host(.hv2-enter) .hv2-register tbody tr,
+    :host(.hv2-enter) .hv2-cards3 > .hv2-card {
+      animation: hv2FadeUp var(--ck-dur-med, 200ms) var(--ck-ease-out, ease-out) both;
+      animation-delay: calc(min(var(--stagger, 0), 3) * 30ms);
+    }
+    @keyframes hv2FadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      :host(.hv2-enter) .hv2-register tbody tr,
+      :host(.hv2-enter) .hv2-cards3 > .hv2-card { animation: none; }
+      .hv2-table tbody tr, .hv2-hors-row { transition: none; }
+    }
+
+    .hv2-cards3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .hv2-cards3 .hv2-card { display: flex; flex-direction: column; gap: 10px; }
+    .hv2-cards3 .hv2-kicker { margin: 0; }
+    /* Inside the Synthèse the bands are the frame: cards lose their box and
+       sit as columns between hairlines. Other facets keep their cards. */
+    .hv2-page .hv2-card { border: 0; border-radius: 0; background: transparent; padding: 0; }
+    .hv2-page .hv2-register { padding: 0 0 8px; }
+    .hv2-page .hv2-cards3 { gap: 0; padding-bottom: 8px; }
+    .hv2-page .hv2-cards3 > .hv2-card { padding: 4px 28px 8px; border-left: 1px solid var(--ck-stroke-2); }
+    .hv2-page .hv2-cards3 > .hv2-card:first-child { padding-left: 0; border-left: 0; }
+    .hv2-page .hv2-cards3 > .hv2-card:last-child { padding-right: 0; }
+    .hv2-page .hv2-command .hv2-card { padding: 0; }
+    .hv2-card-signal { border-left: 2px solid var(--ck-signal-warn); }
+    .hv2-card-decision { border-left: 2px solid var(--ck-signal-cool); }
+    .hv2-card-bases { border-style: dashed; }
+    .hv2-btn {
+      display: inline-flex; align-items: center; justify-content: center; align-self: flex-start;
+      padding: 6px 12px; border-radius: 6px; border: 1px solid var(--ck-stroke-strong);
+      background: transparent; color: var(--ck-fg-1); font-size: 12px; cursor: pointer; text-decoration: none;
+    }
+    .hv2-btn-primary { background: var(--ck-fg-1); color: var(--ck-bg-base); border-color: var(--ck-fg-1); }
+    .hv2-bases-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .hv2-bases-row { display: flex; align-items: baseline; gap: 10px; font-size: 12px; }
+    .hv2-bases-row > span:first-child { flex: 1 1 auto; color: var(--ck-fg-1); }
+    .hv2-bases-row .ck-mono { font-size: 11px; }
+    .hv2-footnote { margin: auto 0 0; padding-top: 10px; border-top: 1px solid var(--ck-stroke-2); font-size: 11px; line-height: 1.45; color: var(--ck-fg-3); }
+    .hv2-count { font-size: 11px; color: var(--ck-fg-3); margin-left: 6px; }
+    .hv2-grow { flex: 1 1 auto; }
+    .hv2-muted { font-size: 12px; color: var(--ck-fg-4); }
+    .hv2-error { color: var(--ck-signal-neg); font-size: 12px; }
+    .hv2-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+    .hv2-list-row { padding: 6px 0; border-bottom: 1px solid var(--ck-stroke-2); }
+    .hv2-fieldset { border: 1px solid var(--ck-stroke-2); padding: 10px 12px; margin: 0 0 12px; display: flex; flex-direction: column; gap: 6px; }
+    .hv2-edit { display: flex; flex-direction: column; gap: 6px; min-width: 180px; }
+    .hv2-edit input, .hv2-edit select {
+      width: 100%; background: var(--ck-bg-inset); color: var(--ck-fg-1);
+      border: 1px solid var(--ck-stroke-2); padding: 4px 6px;
+    }
+    @media (max-width: 1240px) {
+      .hv2-command { flex-wrap: wrap; }
+      .hv2-command-strip { order: 3; flex-basis: 100%; border-left: 0; border-top: 1px solid var(--ck-stroke-2); padding-inline: 0; }
+      .hv2-cadran-band, .hv2-flow-band { grid-template-columns: minmax(0, 1fr); }
+      .hv2-cadran-col { padding-right: 0; }
+      .hv2-selection, .hv2-proof { border-left: 0; border-top: 1px solid var(--ck-stroke-2); padding-left: 0; }
+    }
+    @media (max-width: 900px) {
+      .hv2-command { flex-direction: column; }
+      .hv2-command-col { padding-inline: 0; border-left: 0; }
+      .hv2-command-col + .hv2-command-col { border-top: 1px solid var(--ck-stroke-2); }
+      .hv2-monument { font-size: 72px; }
+      .hv2-pair { grid-template-columns: minmax(0, 1fr); }
+      .hv2-pair-col { padding-inline: 0; }
+      .hv2-pair-col + .hv2-pair-col { border-left: 0; border-top: 1px solid var(--ck-stroke-2); }
+      .hv2-cards3 { grid-template-columns: 1fr; }
+      .hv2-page .hv2-cards3 > .hv2-card { padding-inline: 0; border-left: 0; }
+      .hv2-page .hv2-cards3 > .hv2-card + .hv2-card { border-top: 1px solid var(--ck-stroke-2); padding-top: 16px; }
+    }
+  `],
+})
+export class HypervisorV2Component implements OnInit, OnDestroy {
+  readonly i18n = inject(I18nService);
+  private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly api = inject(CanonicalApiService);
+  private readonly http = inject(ApiService);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly workspaceView = new WorkspaceViewContext(
+    this.workspace,
+    () => this.reset(),
+    () => this.reload(),
+  );
+
+  readonly viewPeriod = viewPeriod;
+  readonly showsColumn = showsColumn;
+  readonly showsBlock = showsBlock;
+  readonly measuredMark = MARK_MEASURED;
+  readonly declaredMark = MARK_DECLARED;
+  readonly denominators: readonly HypervisorViewDenominator[] = ['hours', 'runs', 'value'];
+  readonly periods = ['7d', '30d', '90d'] as const;
+  readonly columns = REGISTER_COLUMNS;
+  readonly sorts = VIEW_SORTS;
+  readonly strata: ReadonlyArray<{ id: HypervisorStratumId; label: string; blocks: readonly string[] }> = [
+    { id: 'comprendre', label: 'hypervisor.v2.customize.stratum.comprendre', blocks: COMPRENDRE_BLOCKS },
+    { id: 'detailler', label: 'hypervisor.v2.customize.stratum.detailler', blocks: DETAILLER_BLOCKS },
+    { id: 'decider', label: 'hypervisor.v2.customize.stratum.decider', blocks: DECIDER_BLOCKS },
+  ];
+
+  readonly loading = signal(true);
+  readonly loadProblem = signal<string | null>(null);
+  /** One state per data source, so a failed request only degrades its own blocks. */
+  readonly sourceStates = signal<ImpactSourceStates>(LOADING_SOURCES);
+  /** Polite announcement once a retried source is back (its inline block is gone). */
+  readonly sourceAnnouncement = signal('');
+  readonly views = signal<HypervisorNamedView[]>([]);
+  readonly canEdit = signal(false);
+  readonly defaultViewId = signal<string | null>(null);
+  readonly newViewName = signal('');
+  readonly saveMessage = signal('');
+  readonly activitySystems = signal<{ id: string; name: string }[]>([]);
+  readonly systemsProblem = signal(false);
+  readonly activityMetricOptions = ACTIVITY_METRICS;
+  readonly scenarioFields = SCENARIO_FIELDS;
+  readonly activityMetrics = activityMetrics;
+  readonly summarySections = computed(() => summarySections(this.activeView()));
+  readonly hasProductBlocks = computed(() => this.summarySections().some(type => ['activity', 'financial_scenario'].includes(type)));
+  readonly hasResultBlocks = computed(() => this.summarySections().some(type => !['activity', 'financial_scenario'].includes(type)));
+  private viewsLoaded = false;
+  private destroyed = false;
+  readonly activeViewId = signal('direction');
+  readonly activeImpactViewId = signal<ImpactViewId | null>(null);
+  readonly meetingEventId = signal<string | null>(null);
+  readonly impactSelectedZone = signal<string | null>(null);
+  readonly expandedBasisId = signal<string | null>(null);
+  readonly mapAttribution = signal('OpenStreetMap contributors / CARTO');
+  readonly activeFacet = signal<HypervisorFacetId>('synthese');
+  readonly presentationTheme = signal(false);
+  readonly focusCapabilityId = signal<string | null>(null);
+  readonly series = signal<HypervisorSeriesView | null>(null);
+  readonly bases = signal<HypervisorValueBasisItem[]>([]);
+  readonly capabilities = signal<Capability[]>([]);
+  readonly catalogLocked = signal<ReadonlySet<string>>(new Set());
+  readonly recommendations = signal<Recommendation[]>([]);
+  readonly decisions = signal<DecisionRow[]>([]);
+  readonly signals = signal<HypervisorSignal[]>([]);
+  /** Live Mission Room payloads for generic Impact blocks (honest empty when absent). */
+  readonly impactTimeline = signal<ImpactTimelineRaw | null>(null);
+  readonly impactNews = signal<ImpactNewsRaw | null>(null);
+  readonly impactMap = signal<ImpactMapRaw | null>(null);
+  readonly impactMonitor = signal<ImpactMonitorRaw | null>(null);
+  readonly impactMacro = signal<ImpactMacroRaw | null>(null);
+  readonly customizeOpen = signal(false);
+  readonly historyOpen = signal(false);
+  readonly scanning = signal(false);
+  readonly savingViews = signal(false);
+  readonly savingBasis = signal(false);
+  readonly basisError = signal(false);
+  readonly editingId = signal<string | null>(null);
+  readonly draft = signal<BasisDraft | null>(null);
+  /** Day lock (L28): `hover` previews, `locked` pins; every linked view reads `selectedDayIndex`. */
+  readonly dayLock = signal<DayLockState>(DAY_LOCK_IDLE);
+  readonly hoverDay = computed(() => this.dayLock().hover);
+  readonly lockedDay = computed(() => this.dayLock().locked);
+  readonly selectedDayIndex = computed(() => selectedDay(this.dayLock()));
+  readonly lockAnnouncement = signal('');
+  readonly hoverSystem = signal<string | null>(null);
+  /** Last system clicked in the Flux: the selection panel keeps naming it after the pointer leaves. */
+  readonly pinnedSystem = signal<string | null>(null);
+  readonly selection = computed(() =>
+    selectionModel(this.series(), this.dayLock(), this.hoverSystem(), this.pinnedSystem()),
+  );
+  readonly strip = computed(() =>
+    activityStrip(this.series()?.days ?? [], this.selectedDayIndex(), this.lockedDay()),
+  );
+  /** Activity strip (listbox): the day the arrows reached while it has focus. */
+  readonly stripActive = signal<number | null>(null);
+  readonly stripFocused = signal(false);
+  /** Présentation: the needle draws in for a pointer lock only; keyboard locks never animate. */
+  readonly needleMotion = signal(false);
+  /** Présentation: the chaîne de preuve, read from the same selection as the Synthèse panel. */
+  readonly proof = computed(() => proofChain(this.selection(), (row) => this.basisAuthor(row)));
+  readonly flashSystem = signal<string | null>(null);
+  readonly cameFromSystem = signal<string | null>(null);
+  readonly arrival = signal<ArrivalProvenance | null>(null);
+  readonly arrivalChipLabel = computed(() => {
+    const provenance = this.arrival();
+    if (!provenance || provenance.kind === 'see_in_impact') return null;
+    if (provenance.kind !== 'system' && provenance.kind !== 'object' && provenance.kind !== 'impact_registre') {
+      return null;
+    }
+    return arrivalProvenanceLabel(provenance, (key, params) => this.i18n.t(key, params));
+  });
+  readonly arrivalBackHref = computed(() => this.arrival()?.backUrl || '');
+  readonly entering = signal(false);
+  readonly monumentValue = signal('');
+  readonly pageTipOpen = signal(false);
+  readonly pageTipTitle = signal('');
+  readonly pageTipLines = signal<CkChartTipLine[]>([]);
+  readonly pageTipX = signal(0);
+  readonly pageTipY = signal(0);
+
+  readonly activeView = computed(() =>
+    this.views().find((view) => view.id === this.activeViewId()) ?? this.views()[0] ?? null,
+  );
+  readonly activeImpactView = computed(() => impactGenericView(this.activeImpactViewId()));
+  readonly missionRoomAvailable = computed(() => !!this.workspace.current()?.workspace_app_runtime?.experience?.mission_room);
+  readonly impactViewUnavailable = computed(() => !!this.activeImpactViewId() && !this.missionRoomAvailable());
+  readonly switcherViews = computed(() => availableHypervisorViews(
+    this.views(), this.missionRoomAvailable(), this.activeFacet() === 'synthese',
+  ));
+  readonly switcherActiveId = computed(() => this.activeImpactViewId() ?? this.activeViewId());
+  readonly impactComprendreBlocks = computed(() => this.activeImpactView()?.strata.comprendre ?? []);
+  readonly journalEntries = computed(() => {
+    return this.decisions()
+      .filter((row) => row.status === 'applied' || row.status === 'accepted')
+      .map((row) => ({
+        id: row.id,
+        title: row.title,
+        at: row.applied_at || row.created_at || null,
+        effect: typeof row.effect === 'string' ? row.effect : null,
+      }));
+  });
+  readonly registerRows = computed(() => {
+    const view = this.series();
+    const active = this.activeView();
+    if (!view) return [];
+    return sortRegisterRows(view.register, active?.sort ?? 'name');
+  });
+  readonly staleRows = computed(() => {
+    const view = this.series();
+    if (!view) return [];
+    return view.register.filter((row) => view.staleSystemIds.includes(row.systemId));
+  });
+  readonly proposedDecisions = computed(() => this.decisions().filter((row) => row.status === 'proposed'));
+  /** Présentation command band: « aucune » for a known zero, a link only with something to open. */
+  readonly pendingDecisions = computed(() =>
+    pendingDecisionsFact(this.sourceStates().decisions === 'ready', this.proposedDecisions().length),
+  );
+  readonly firstProposed = computed(() => this.proposedDecisions()[0] ?? null);
+  readonly historyDecisions = computed(() => this.decisions().filter((row) => row.status !== 'proposed'));
+  /** Recommendations by title, minus those already materialised as a decision. */
+  readonly recommendationGroups = computed<RecommendationGroup[]>(() => {
+    const taken = new Set(this.decisions().map((row) => normaliseTitle(row.title)));
+    const groups = new Map<string, RecommendationGroup>();
+    for (const item of this.recommendations()) {
+      const key = normaliseTitle(item.title);
+      if (taken.has(key)) continue;
+      const group = groups.get(key);
+      if (group) group.count += 1;
+      else groups.set(key, { item, count: 1 });
+    }
+    return [...groups.values()];
+  });
+
+  /** Bound as properties so the chart primitives can call them without `this`. */
+  readonly quantityLabel = (value: number): string => this.formatQuantity(value);
+  readonly moneyLabel = (value: number): string => this.formatMoney(value, this.series()?.currency, 0);
+  readonly sparkTip = (value: number): string => this.i18n.t('hypervisor.v2.spark.tip', {
+    value: this.formatNumber(value, Math.abs(value) < 10 ? 1 : 0),
+  });
+  readonly pulseTip = (value: number, index: number): string => this.i18n.t('hypervisor.v2.pulse.tip', {
+    date: this.formatDate(this.series()?.dates[index]),
+    value: this.formatNumber(value, 0),
+  });
+
+  readonly radialDays = computed((): CkRadialDay[] => {
+    const view = this.series();
+    if (!view) return [];
+    this.i18n.locale();
+    return view.days.map((day) => {
+      const total = day.measured + day.declared;
+      const lines: CkChartTipLine[] = [
+        { label: this.i18n.t('hypervisor.v2.tip.label.total'), value: this.formatQuantity(total) },
+      ];
+      if (day.measured > 0) {
+        lines.push({
+          label: '',
+          value: this.i18n.t('hypervisor.v2.tip.measured', {
+            mark: MARK_MEASURED,
+            value: this.formatQuantity(day.measured),
+          }),
+        });
+      }
+      if (day.declared > 0) {
+        lines.push({
+          label: '',
+          value: this.i18n.t('hypervisor.v2.tip.declared', {
+            mark: MARK_DECLARED,
+            value: this.formatQuantity(day.declared),
+          }),
+        });
+      }
+      lines.push({ label: this.i18n.t('hypervisor.v2.tip.label.runs'), value: this.formatNumber(day.runs, 0) });
+      lines.push({ label: this.i18n.t('hypervisor.v2.tip.label.systems'), value: this.formatNumber(day.systems, 0) });
+      const title = this.formatDate(day.date, true);
+      return {
+        measured: day.measured,
+        declared: day.declared,
+        weekend: day.weekend,
+        dateLabel: title,
+        shortLabel: this.formatDate(day.date),
+        runs: day.runs,
+        systems: day.systems,
+        tip: { title, lines },
+        aria: [title, ...lines.map((line) => `${line.label} ${line.value}`.trim())].join(' · '),
+      };
+    });
+  });
+
+  readonly radialTicks = computed((): CkChartTick[] => {
+    this.i18n.locale();
+    return (this.series()?.ticks ?? [])
+      .filter((tick) => tick.kind === 'week')
+      .map((tick) => ({ index: tick.index, label: this.tickLabel(tick), anchor: 'middle' as const }));
+  });
+
+  readonly streamTicks = computed((): CkChartTick[] => {
+    this.i18n.locale();
+    return (this.series()?.ticks ?? []).map((tick) => ({
+      index: tick.index,
+      label: this.tickLabel(tick),
+      anchor: tick.anchor,
+    }));
+  });
+
+  readonly dayLabels = computed((): string[] => {
+    this.i18n.locale();
+    return (this.series()?.dates ?? []).map((date) => this.formatDate(date, true));
+  });
+
+  readonly streamSeries = computed((): CkStreamSeries[] => {
+    this.i18n.locale();
+    return (this.series()?.streams ?? []).map((row) => ({
+      id: row.systemId,
+      label: row.label,
+      detail: `${this.formatQuantity(row.total)} ${row.tone === 'declared' || row.tone === 'declared-soft' ? MARK_DECLARED : MARK_MEASURED}`,
+      values: row.values,
+      tone: row.tone,
+    }));
+  });
+
+  readonly costStreamSeries = computed((): CkStreamSeries[] => {
+    this.i18n.locale();
+    return (this.series()?.costStreams ?? []).map((row) => ({
+      id: row.systemId,
+      label: row.label,
+      detail: this.formatMoney(row.total, this.series()?.currency, 0),
+      values: row.values,
+      tone: row.tone,
+    }));
+  });
+
+  readonly streamPeak = computed((): CkStreamPeak | null => {
+    const peak = this.series()?.peak;
+    if (!peak) return null;
+    this.i18n.locale();
+    return { index: peak.index, label: `${this.formatQuantity(peak.total)} · ${this.formatDate(peak.date)}` };
+  });
+
+  readonly sankeySources = computed((): CkSankeySource[] => {
+    const view = this.series();
+    if (!view) return [];
+    this.i18n.locale();
+    const byId = new Map(view.register.map((row) => [row.systemId, row]));
+    return view.sankey.map((row) => {
+      const register = byId.get(row.systemId);
+      const lines: CkChartTipLine[] = [
+        { label: this.i18n.t('hypervisor.v2.tip.label.runs'), value: `${this.formatNumber(row.runs, 0)} ${this.i18n.t('hypervisor.v2.unit.runs')}` },
+        { label: this.i18n.t('hypervisor.v2.tip.label.outcomes'), value: this.outcomeLabel(row) },
+      ];
+      const hours = availableNumber(register?.hours);
+      const value = availableNumber(register?.valueDeclared);
+      if (hours != null) {
+        lines.push({ label: this.i18n.t('hypervisor.v2.tip.label.hours'), value: this.formatQuantity(hours) });
+      }
+      if (value != null) {
+        lines.push({
+          label: this.i18n.t('hypervisor.v2.tip.label.value'),
+          value: this.formatMoney(value, register?.currency ?? view.currency, 0),
+        });
+      }
+      const basis = row.basisStatus && row.basisStatus !== 'none' ? row.basisStatus : 'none';
+      lines.push({
+        label: this.i18n.t('hypervisor.v2.tip.label.basis'),
+        value: this.i18n.t(`hypervisor.v2.register.basis_state.${basis}`),
+      });
+      return {
+        id: row.systemId,
+        label: row.label,
+        detail: `${this.formatNumber(row.runs, 0)} ${this.i18n.t('hypervisor.v2.unit.runs')}`,
+        value: row.runs,
+        ...(row.outsideDenominator ? { stubLabel: `${this.outcomeLabel(row)} ${MARK_NONE}` } : {}),
+        tip: { title: row.label, lines },
+      };
+    });
+  });
+
+  readonly sankeyMiddleTip = computed(() => {
+    const view = this.series();
+    if (!view) return null;
+    this.i18n.locale();
+    const converting = view.sankey.filter((row) => !row.outsideDenominator).length;
+    return {
+      title: this.sankeyMiddleLabel(),
+      lines: [{ label: this.i18n.t('hypervisor.v2.sankey.tip.aggregates', { count: converting }), value: '' }],
+    };
+  });
+
+  readonly sankeyRightTip = computed(() => {
+    const view = this.series();
+    if (!view) return null;
+    this.i18n.locale();
+    const converting = view.sankey.filter((row) => !row.outsideDenominator).length;
+    return {
+      title: this.sankeyRightLabel(),
+      lines: [{ label: this.i18n.t('hypervisor.v2.sankey.tip.aggregates', { count: converting }), value: '' }],
+    };
+  });
+
+  private readonly sourceGenerations: Record<ImpactSourceId, number> = { series: 0, bases: 0, decisions: 0, recos: 0 };
+  private readonly applySourceOutcome: { [K in ImpactSourceId]: (outcome: SourceOutcome<ImpactSourceValues[K]>) => void } = {
+    series: (outcome) => {
+      const value = outcome.ok ? outcome.value : null;
+      const previous = this.series();
+      this.lastSeries = value;
+      this.series.set(value ? projectSeries(scopedSeries(value, this.activeView()), viewDenominator(this.activeView())) : null);
+      const next = this.series();
+      if (!next || !previous || next.from !== previous.from || next.to !== previous.to) {
+        this.applyDayLock({ type: 'reset' });
+      }
+      this.markSource('series', outcome.ok ? 'ready' : 'unavailable');
+    },
+    bases: (outcome) => {
+      this.bases.set(outcome.ok ? outcome.value : []);
+      this.markSource('bases', outcome.ok ? 'ready' : 'unavailable');
+    },
+    decisions: (outcome) => {
+      this.decisions.set(outcome.ok ? outcome.value : []);
+      this.markSource('decisions', outcome.ok ? 'ready' : 'unavailable');
+    },
+    recos: (outcome) => {
+      this.recommendations.set(outcome.ok ? outcome.value : []);
+      this.markSource('recos', outcome.ok ? 'ready' : 'unavailable');
+    },
+  };
+  private routeSub: Subscription | null = null;
+  private impactLiveSub: Subscription | null = null;
+  private impactLiveGeneration = 0;
+  private lastSeries: HypervisorSeriesResponse | null = null;
+  private painted = false;
+  private enterTimer: ReturnType<typeof setTimeout> | null = null;
+  private flashTimer: ReturnType<typeof setTimeout> | null = null;
+  private monumentRaf = 0;
+  /**
+   * Last input modality, recorded in the capture phase so it is known before
+   * any chart handler emits a lock: keyboard-driven locks never animate.
+   */
+  private lastInput: 'pointer' | 'keyboard' = 'pointer';
+  private readonly markPointer = (): void => {
+    this.lastInput = 'pointer';
+  };
+  private readonly markKeyboard = (): void => {
+    this.lastInput = 'keyboard';
+  };
+
+  ngOnInit(): void {
+    const el = this.host.nativeElement as HTMLElement;
+    el.addEventListener('pointerdown', this.markPointer, true);
+    el.addEventListener('keydown', this.markKeyboard, true);
+    const provenance = readArrivalProvenance();
+    this.arrival.set(provenance);
+    if (provenance?.kind === 'system' || provenance?.kind === 'object') {
+      this.cameFromSystem.set(provenance.systemId || null);
+    }
+    this.routeSub = this.route.queryParamMap.subscribe((params) => {
+      const facet = params.get('facet');
+      this.activeFacet.set(isHypervisorFacet(facet) ? facet : 'synthese');
+      this.focusCapabilityId.set(params.get('capabilityId'));
+      const theme = params.get('theme');
+      this.presentationTheme.set(theme === 'presentation');
+      const impactView = parseImpactViewQuery(params.get('view'));
+      this.activeImpactViewId.set(impactView);
+      this.meetingEventId.set(params.get('eventId'));
+      if (impactView && this.activeFacet() !== 'synthese') {
+        this.activeFacet.set('synthese');
+      }
+      this.reloadImpactLive();
+    });
+    this.reload();
+  }
+
+  ngOnDestroy(): void {
+    this.destroyed = true;
+    const el = this.host.nativeElement as HTMLElement;
+    el.removeEventListener('pointerdown', this.markPointer, true);
+    el.removeEventListener('keydown', this.markKeyboard, true);
+    this.routeSub?.unsubscribe();
+    this.impactLiveSub?.unsubscribe();
+    this.workspaceView.destroy();
+    this.stopMonument();
+    if (this.enterTimer) clearTimeout(this.enterTimer);
+    if (this.flashTimer) clearTimeout(this.flashTimer);
+  }
+
+  onDayHover(index: number | null): void {
+    this.applyDayLock({ type: 'hover', day: index });
+  }
+
+  /** Click, Enter or Space on a spoke, a river day or a strip day: lock it, or unlock it if it is the locked day. */
+  onDayLock(index: number): void {
+    this.needleMotion.set(this.lastInput === 'pointer' && !prefersReducedMotion());
+    this.applyDayLock({ type: 'toggle', day: index });
+  }
+
+  /** `viaThemeEscape`: the Présentation Escape unlocked, so the announcement says the next one leaves. */
+  unlockDay(viaThemeEscape = false): void {
+    this.applyDayLock(
+      { type: 'escape' },
+      viaThemeEscape ? 'hypervisor.v2.lock.unlocked_theme' : 'hypervisor.v2.lock.unlocked',
+    );
+  }
+
+  private applyDayLock(event: DayLockEvent, unlockedKey = 'hypervisor.v2.lock.unlocked'): void {
+    const prev = this.dayLock();
+    const next = reduceDayLock(prev, event);
+    if (next === prev) return;
+    this.dayLock.set(next);
+    const change = lockTransition(prev, next);
+    if (change === 'locked') this.lockAnnouncement.set(this.lockedDayAnnouncement(next.locked!));
+    else if (change === 'unlocked') this.lockAnnouncement.set(this.i18n.t(unlockedKey));
+  }
+
+  // --- Activity strip (listbox of days) ----------------------------------------
+
+  /** The day under the listbox focus: the last one reached by keys, else the lock, else the preview, else the peak. */
+  stripActiveIndex(): number {
+    const n = this.strip().marks.length;
+    const pick = this.stripActive() ?? this.lockedDay() ?? this.selectedDayIndex() ?? this.series()?.peak?.index ?? 0;
+    return Math.min(Math.max(0, pick), Math.max(0, n - 1));
+  }
+
+  onStripFocus(): void {
+    this.stripFocused.set(true);
+    // Keyboard focus previews the active day, as a focused spoke does; a click previews what it hits.
+    if (this.lastInput === 'keyboard') this.onDayHover(this.stripActiveIndex());
+  }
+
+  onStripBlur(): void {
+    this.stripFocused.set(false);
+    this.stripActive.set(null);
+    this.onDayHover(null);
+  }
+
+  onStripPointerLeave(): void {
+    this.onDayHover(this.stripFocused() && this.lastInput === 'keyboard' ? this.stripActiveIndex() : null);
+  }
+
+  /** Arrows and Page keys preview a day (no animation), Enter or Space lock it. Escape bubbles to the page. */
+  onStripKey(event: KeyboardEvent): void {
+    const n = this.strip().marks.length;
+    if (!n) return;
+    const index = this.stripActiveIndex();
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      this.stripActive.set(index);
+      this.onDayLock(index);
+      return;
+    }
+    const next = stripKeyTarget(event.key, index, n);
+    if (next == null) return;
+    event.preventDefault();
+    this.stripActive.set(next);
+    this.onDayHover(next);
+  }
+
+  onStripDayClick(index: number): void {
+    this.stripActive.set(index);
+    this.onDayLock(index);
+  }
+
+  stripDayAria(index: number): string {
+    const point = this.series()?.days[index];
+    if (!point) return '';
+    return `${this.formatDate(point.date, true)} · ${this.formatQuantity(point.measured + point.declared)}`;
+  }
+
+  /** « Semaine verrouillée · S.35 · du 24 août au 30 août », or the plain state when nothing is locked. */
+  stripLockLine(): string {
+    const week = this.strip().lockedWeek;
+    if (!week) return this.i18n.t('hypervisor.v2.strip.no_lock');
+    const days = this.series()?.days ?? [];
+    return this.i18n.t('hypervisor.v2.strip.locked_week', {
+      week: this.stripWeekLabel(week.isoWeek),
+      from: this.formatDate(days[week.start]?.date),
+      to: this.formatDate(days[week.end - 1]?.date),
+    });
+  }
+
+  // --- Présentation W2-v6 ----------------------------------------------------------
+
+  /** Footer of the theme: the top system of a locked day is « the system of the locked day ». */
+  presentSystemLabel(mode: SelectionSystemMode): string {
+    return mode === 'day' && this.selection().day?.mode === 'locked'
+      ? this.i18n.t('hypervisor.v2.present.system.locked_day')
+      : this.systemModeLabel(mode);
+  }
+
+  /** Pending decisions never read 0 while unknown: the state label stands in for the count. */
+  decisionsStateLabel(): string {
+    return this.sourceStates().decisions === 'loading'
+      ? this.i18n.t('hypervisor.v2.present.state.loading')
+      : this.i18n.t('hypervisor.state.unavailable');
+  }
+
+  proofDayTitle(state: ProofDay['state']): string {
+    return state === 'none' ? this.i18n.t('hypervisor.v2.present.proof.day_none') : this.dayModeLabel(state);
+  }
+
+  /** « 109 h · 73 exécutions · 2 systèmes » (runs view: the value already is the runs). */
+  proofDayFigures(day: ProofDay): string {
+    return `${this.formatQuantity(day.total)} · ${this.selectionDayMeta(day.runs, day.systems)}`;
+  }
+
+  proofMore(count: number): string {
+    return count === 1
+      ? this.i18n.t('hypervisor.v2.present.proof.rivers_more_one')
+      : this.i18n.t('hypervisor.v2.present.proof.rivers_more', { count });
+  }
+
+  /** Author and date of the basis when the bases source knows them; says so when it does not. */
+  proofBasisAuthor(basis: ProofBasis): string {
+    if (basis.by && basis.at) {
+      return this.i18n.t('hypervisor.v2.bases.posed_by', { who: basis.by, when: this.formatDate(basis.at) });
+    }
+    if (basis.by) return this.i18n.t('hypervisor.v2.present.proof.basis_by', { who: basis.by });
+    if (basis.at) return this.i18n.t('hypervisor.v2.present.proof.basis_at', { when: this.formatDate(basis.at) });
+    return this.i18n.t('hypervisor.v2.present.proof.basis_unknown');
+  }
+
+  private basisAuthor(row: HypervisorRegisterRow): ProofBasisAuthor | null {
+    const basis = this.bases().find((item) => item.capability_id === row.capabilityId)?.value_basis;
+    return basis ? { by: basis.declared_by ?? null, at: basis.declared_at ?? null } : null;
+  }
+
+  private lockedDayAnnouncement(index: number): string {
+    const point = this.series()?.days[index];
+    if (!point) return '';
+    return this.i18n.t('hypervisor.v2.lock.locked', {
+      date: this.formatLongDate(point.date),
+      value: this.formatQuantity(point.measured + point.declared),
+    });
+  }
+
+  onSystemHover(id: string | null): void {
+    if (this.hoverSystem() === id) return;
+    this.hoverSystem.set(id);
+  }
+
+  onSystemClick(id: string): void {
+    this.onSystemHover(id);
+    this.pinnedSystem.set(id);
+    const row = this.host.nativeElement.querySelector(
+      `[data-testid="hypervisor-v2-register"] [data-system-id="${CSS.escape(id)}"]`,
+    );
+    if (!(row instanceof HTMLElement)) return;
+    row.scrollIntoView({ block: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+    this.flashSystem.set(id);
+    if (this.flashTimer) clearTimeout(this.flashTimer);
+    this.flashTimer = setTimeout(() => {
+      if (this.flashSystem() === id) this.flashSystem.set(null);
+    }, 600);
+  }
+
+  onProvenanceTip(kind: 'measured' | 'declared', event: Event): void {
+    const title = kind === 'measured' ? this.provenanceMeasuredTip() : this.provenanceDeclaredTip();
+    this.showPageTip(title, event);
+  }
+
+  clearPageTip(): void {
+    this.pageTipOpen.set(false);
+  }
+
+  provenanceMeasuredTip(): string {
+    const view = this.series();
+    const prov = this.provenance();
+    if (!view || !prov) return '';
+    return this.i18n.t('hypervisor.v2.hero.provenance.measured_tip', {
+      mark: MARK_MEASURED,
+      pct: prov.measuredPct,
+      value: this.formatQuantity(view.measuredTotal),
+    });
+  }
+
+  provenanceDeclaredTip(): string {
+    const view = this.series();
+    const prov = this.provenance();
+    if (!view || !prov) return '';
+    return this.i18n.t('hypervisor.v2.hero.provenance.declared_tip', {
+      mark: MARK_DECLARED,
+      pct: prov.declaredPct,
+      value: this.formatQuantity(view.declaredTotal),
+    });
+  }
+
+  dotsTip(row: HypervisorRegisterRow): string {
+    return this.i18n.t('hypervisor.v2.hors.units_tip', {
+      count: this.outcomeCount(row),
+      n: this.unitsPerDot(),
+      unit: row.outputUnit ?? this.i18n.t('hypervisor.v2.unit.units'),
+    });
+  }
+
+  private showPageTip(title: string, event: Event): void {
+    const page = this.host.nativeElement.querySelector('.hv2-page');
+    const origin = page instanceof HTMLElement ? page : this.host.nativeElement;
+    const target = event.target instanceof HTMLElement ? event.target : origin;
+    const hostRect = origin.getBoundingClientRect();
+    const rect = target.getBoundingClientRect();
+    this.pageTipTitle.set(title);
+    this.pageTipLines.set([]);
+    this.pageTipX.set(rect.left + rect.width / 2 - hostRect.left);
+    this.pageTipY.set(rect.top - hostRect.top);
+    this.pageTipOpen.set(true);
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  onKey(event: KeyboardEvent): void {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'e') {
+      event.preventDefault();
+      this.customizeOpen.set(true);
+      return;
+    }
+    // Présentation peels one layer per Escape: a locked day first (the unlock
+    // is announced, with a hint that the next Escape leaves), then the theme.
+    // The Synthèse only has the first layer (below).
+    if (event.key === 'Escape' && this.presentationTheme() && this.canExitPresentationTheme()) {
+      event.preventDefault();
+      if (presentationEscape(this.dayLock()) === 'unlock') this.unlockDay(true);
+      else this.exitPresentationTheme();
+      return;
+    }
+    if (
+      event.key === 'Escape'
+      && !event.defaultPrevented
+      && this.lockedDay() != null
+      && !this.customizeOpen()
+    ) {
+      event.preventDefault();
+      this.unlockDay();
+    }
+  }
+
+  enterPresentationTheme(): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { theme: 'presentation' },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  exitPresentationTheme(): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { theme: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  /** Escape exits only when no menu, panel or tooltip is open. */
+  private canExitPresentationTheme(): boolean {
+    if (this.customizeOpen() || this.pageTipOpen()) return false;
+    if (typeof document === 'undefined') return true;
+    // The activity strip is a listbox that is always there, not an open popup.
+    if (document.querySelector('[role="menu"], [role="listbox"]:not(.hv2-strip), [aria-expanded="true"]')) {
+      return false;
+    }
+    return true;
+  }
+
+  onFacetChange(id: string): void {
+    if (!isHypervisorFacet(id) || id === this.activeFacet()) return;
+    this.activeFacet.set(id);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { facet: id },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  basesLink(capabilityId: string): NavLinkInput {
+    return { facet: 'bases', capabilityId };
+  }
+
+  basesFacetLink(): NavLinkInput {
+    return { facet: 'bases' };
+  }
+
+  decisionsFacetLink(): NavLinkInput {
+    return { facet: 'decisions' };
+  }
+
+  registreFacetLink(): NavLinkInput {
+    return { facet: 'registre' };
+  }
+
+  systemLink(row: HypervisorRegisterRow): NavLinkInput {
+    return { type: 'system', ref: row.systemId };
+  }
+
+  registreProvenanceState(): Record<string, ArrivalProvenance> {
+    return arrivalProvenanceState({
+      kind: 'impact_registre',
+      backUrl: this.router.url,
+    });
+  }
+
+  onArrivalBack(): void {
+    const back = this.arrival()?.backUrl;
+    if (back) void this.router.navigateByUrl(back);
+  }
+
+  horsDeclareLink(): NavLinkInput | null {
+    const row = this.series()?.outside.find((item) => item.capabilityId);
+    return row?.capabilityId ? this.basesLink(row.capabilityId) : null;
+  }
+
+  viewLabel(view: HypervisorNamedView): string {
+    const key = `hypervisor.v2.view.${view.id}`;
+    const label = this.i18n.t(key);
+    return label === key ? view.label : label;
+  }
+
+  // --- Page frame ---------------------------------------------------------
+
+  pageEyebrow(): string {
+    if (this.presentationTheme()) {
+      return this.i18n.t('hypervisor.v2.theme.eyebrow');
+    }
+    return this.i18n.t('hypervisor.v2.page.eyebrow');
+  }
+
+  pageTitle(): string {
+    if (this.presentationTheme()) {
+      const days = this.dayCount();
+      return days && this.activeFacet() === 'synthese' && !this.activeImpactView()
+        ? this.i18n.t('hypervisor.v2.theme.title_days', { days })
+        : this.i18n.t('hypervisor.v2.theme.title');
+    }
+    return this.i18n.t('hypervisor.v2.page.title');
+  }
+
+  pageSummary(): string {
+    const view = this.series();
+    if (!view) return this.i18n.t('hypervisor.v2.page.description');
+    const capabilities = new Set(view.register.map((row) => row.capabilityId).filter(Boolean)).size;
+    return this.i18n.t('hypervisor.v2.page.summary', {
+      systems: view.register.length,
+      capabilities: this.activeView()?.system_id ? capabilities : capabilities || this.bases().length,
+      days: view.dates.length,
+      date: this.formatDate(view.to),
+      view: this.viewLabel(this.activeView() ?? DEFAULT_HYPERVISOR_VIEWS[0]!),
+    });
+  }
+
+  denominator(): HypervisorDenominator {
+    return viewDenominator(this.activeView());
+  }
+
+  periodLabel(): string {
+    return this.i18n.t(`hypervisor.v2.period.${viewPeriod(this.activeView())}`);
+  }
+
+  dayCount(): number {
+    return this.series()?.dates.length ?? 0;
+  }
+
+  showStratum(stratum: HypervisorStratumId): boolean {
+    const view = this.activeView();
+    return Boolean(view?.strata[stratum]?.length);
+  }
+
+  showBlock(stratum: HypervisorStratumId, block: string): boolean {
+    return showsBlock(this.activeView(), stratum, block);
+  }
+
+  /** The W2-v5 command band: monument, facts, and the view's other headline blocks. */
+  showCommandBand(): boolean {
+    return (
+      this.showBlock('comprendre', 'monument')
+      || this.showBlock('comprendre', 'provenance')
+      || this.showBlock('comprendre', 'unites')
+      || this.showBlock('comprendre', 'couverture')
+      || this.showBlock('comprendre', 'signal')
+      || this.showBlock('comprendre', 'decisions')
+    );
+  }
+
+  showCol(column: string): boolean {
+    return showsColumn(this.activeView(), column);
+  }
+
+  // --- Hero ---------------------------------------------------------------
+
+  monument(): { value: string; unit: string } | null {
+    const view = this.series();
+    const value = availableNumber(view?.monument);
+    if (view == null || value == null) return null;
+    const denominator = this.denominator();
+    if (denominator === 'value') {
+      return { value: this.formatNumber(value, 0), unit: this.currencySymbol(view.currency) };
+    }
+    return {
+      value: this.formatNumber(value, value < 10 ? 1 : 0),
+      unit: denominator === 'hours' ? this.i18n.t('hypervisor.v2.unit.hours_short') : this.i18n.t('hypervisor.v2.unit.runs'),
+    };
+  }
+
+  heroSentence(): string {
+    return this.i18n.t(`hypervisor.v2.hero.sentence.${this.denominator()}`, { days: this.dayCount() });
+  }
+
+  /** The measured share, shown right next to the monument number. */
+  measuredPart(): string {
+    const prov = this.provenance();
+    if (!prov) return '';
+    return this.i18n.t(`hypervisor.v2.hero.measured_part.${this.denominator()}`, { pct: prov.measuredPct });
+  }
+
+  /**
+   * The monument read as one sentence by screen readers, with the final
+   * value (never the count-up frames): "2 496 heures de travail attribuées
+   * aux agents en 91 jours, dont 38 % mesurées".
+   */
+  monumentLabel(): string {
+    const mon = this.monument();
+    if (!mon) return '';
+    // Hours read « 1 284 heures de travail… »: the sentence names the unit. Runs and
+    // value keep theirs, since their sentence no longer repeats it.
+    const amount = this.denominator() === 'hours' ? mon.value : `${mon.value} ${mon.unit}`.trim();
+    const sentence = this.heroSentence();
+    const measured = this.measuredPart();
+    return measured
+      ? this.i18n.t('hypervisor.v2.hero.monument_label_measured', { amount, sentence, measured })
+      : this.i18n.t('hypervisor.v2.hero.monument_label', { amount, sentence });
+  }
+
+
+
+  // --- Synthèse W2-v5 -------------------------------------------------------
+
+  /** Facts column of the command band: « Systèmes comptés en heures : 3 / 14 ». */
+  countedFact(): string {
+    const view = this.series();
+    if (!view) return '';
+    return `${view.register.length - view.outside.length} / ${view.register.length}`;
+  }
+
+  countedLabel(): string {
+    return this.i18n.t(`hypervisor.v2.facts.counted.${this.denominator()}`);
+  }
+
+  cadranTitle(): string {
+    return this.i18n.t('hypervisor.v2.cadran.title', { days: this.dayCount() });
+  }
+
+
+
+  stripWeekLabel(isoWeek: number): string {
+    return this.i18n.t('hypervisor.v2.tick.week', { week: isoWeek });
+  }
+
+  /** Strip week labels: whole weeks only (a 1-day edge week would collide), every other one past 7 weeks. */
+  stripShowsWeek(week: { start: number; end: number }, position: number): boolean {
+    if (week.end - week.start < 4) return false;
+    return this.strip().weeks.length <= 7 || position % 2 === 0;
+  }
+
+  stripMarkX(index: number): number {
+    const n = Math.max(1, this.strip().marks.length);
+    return (index / n) * 100;
+  }
+
+  stripSummary(): string {
+    const strip = this.strip();
+    const view = this.series();
+    if (!view || !strip.marks.length) return '';
+    const active = strip.marks.filter((mark) => mark.total > 0).length;
+    return this.i18n.t('hypervisor.v2.strip.summary', {
+      active,
+      days: strip.marks.length,
+      range: this.rangeLabel(),
+    });
+  }
+
+  dayModeLabel(mode: SelectionDayMode): string {
+    return this.i18n.t(`hypervisor.v2.selection.day.${mode}`);
+  }
+
+  systemModeLabel(mode: SelectionSystemMode): string {
+    return this.i18n.t(`hypervisor.v2.selection.system.${mode}`, { days: this.dayCount() });
+  }
+
+  selectionDayMeta(runs: number, systems: number): string {
+    // Counted in runs, the big number already is the runs: say only the systems.
+    if (this.denominator() === 'runs') {
+      return this.i18n.t('hypervisor.v2.selection.day.meta_systems', { systems: this.formatNumber(systems, 0) });
+    }
+    return this.i18n.t('hypervisor.v2.selection.day.meta', {
+      runs: this.formatNumber(runs, 0),
+      systems: this.formatNumber(systems, 0),
+    });
+  }
+
+  riverPartValue(value: number, declared: boolean): string {
+    return `${this.formatQuantity(value)} ${declared ? MARK_DECLARED : MARK_MEASURED}`;
+  }
+
+  systemHours(row: HypervisorRegisterRow): string {
+    const hours = availableNumber(row.hours);
+    if (hours == null) return this.factLabel(row.hours);
+    return `${this.formatQuantity(hours)} ${row.basisStatus === 'measured' ? MARK_MEASURED : MARK_DECLARED}`;
+  }
+
+  systemCost(row: HypervisorRegisterRow): string {
+    const cost = availableNumber(row.cost);
+    if (cost == null) return this.factLabel(row.cost);
+    return `${this.formatMoney(cost, row.currency ?? this.series()?.currency, 0)} ${MARK_MEASURED}`;
+  }
+
+  systemValue(row: HypervisorRegisterRow): string {
+    const value = availableNumber(row.valueDeclared);
+    if (value == null) return this.factLabel(row.valueDeclared);
+    return `≈ ${this.formatMoney(value, row.currency ?? this.series()?.currency, 0)} ${MARK_DECLARED}`;
+  }
+
+  /** The accessible name of a river day: date, total and the per-system breakdown. */
+  readonly riverDayAria = (index: number): string => {
+    const view = this.series();
+    const point = view?.days[index];
+    if (!view || !point) return '';
+    const parts = view.streams
+      .filter((row) => (row.values[index] ?? 0) > 0)
+      .map((row) => `${row.label} ${this.riverPartValue(row.values[index] ?? 0, row.tone === 'declared' || row.tone === 'declared-soft')}`);
+    return [this.formatDate(point.date, true), this.formatQuantity(point.measured + point.declared), ...parts].join(' · ');
+  };
+
+  provenance(): { measured: number; declared: number; measuredPct: string; declaredPct: string } | null {
+    const view = this.series();
+    if (!view) return null;
+    const total = view.measuredTotal + view.declaredTotal;
+    if (total <= 0) return null;
+    return {
+      measured: view.measuredTotal / total,
+      declared: view.declaredTotal / total,
+      measuredPct: this.formatPercent(view.measuredTotal / total),
+      declaredPct: this.formatPercent(view.declaredTotal / total),
+    };
+  }
+
+
+
+  costFact(): string {
+    const fact = this.series()?.costTotal;
+    if (!fact) return '';
+    const value = availableNumber(fact);
+    if (value == null) return this.factLabel(fact);
+    return `${this.formatMoney(value, this.series()?.currency, 0)} ${MARK_MEASURED}`;
+  }
+
+  valueFact(): string {
+    const fact = this.series()?.valueTotal;
+    if (!fact) return '';
+    const value = availableNumber(fact);
+    if (value == null) return this.factLabel(fact);
+    return `≈ ${this.formatMoney(value, this.series()?.currency, 0, true)} ${MARK_DECLARED}`;
+  }
+
+  ratioFact(): string {
+    const fact = this.series()?.ratio;
+    if (!fact) return '';
+    const value = availableNumber(fact);
+    if (value == null) return this.factLabel(fact);
+    return `× ${this.formatNumber(value, 1)} ${MARK_DECLARED}`;
+  }
+
+  /** Share of the declared value that rests on a declared (not measured) basis. */
+  valueDeclaredShare(): string {
+    const view = this.series();
+    if (!view) return '';
+    let total = 0;
+    let declared = 0;
+    for (const row of view.register) {
+      const value = availableNumber(row.valueDeclared);
+      if (value == null || value <= 0) continue;
+      total += value;
+      if (row.basisStatus !== 'measured') declared += value;
+    }
+    if (total <= 0) return '';
+    return this.i18n.t('hypervisor.v2.metric.ratio_declared_share', { pct: this.formatPercent(declared / total) });
+  }
+
+  // --- Charts -------------------------------------------------------------
+
+  rangeLabel(): string {
+    const view = this.series();
+    if (!view) return '';
+    return `${this.formatDate(view.from)} → ${this.formatDate(view.to)}`;
+  }
+
+  sankeyMiddleLabel(): string {
+    const mon = this.monument();
+    return mon ? `${mon.value} ${mon.unit} ${MARK_MEASURED}` : '';
+  }
+
+  sankeyRightLabel(): string {
+    const fact = this.series()?.valueTotal;
+    const value = availableNumber(fact);
+    if (value == null) return '';
+    return `≈ ${this.formatMoney(value, this.series()?.currency, 0, true)} ${MARK_DECLARED}`;
+  }
+
+  sankeyExplainer(): string {
+    const rows = this.series()?.sankey ?? [];
+    if (!rows.length) return this.i18n.t('hypervisor.v2.sankey.empty');
+    const joined = rows.filter((row) => !row.outsideDenominator).length;
+    const stopped = rows.length - joined;
+    const unit = this.i18n.t(`hypervisor.v2.in.${this.denominator()}`);
+    const parts = [this.i18n.t('hypervisor.v2.sankey.width')];
+    if (joined === 1) parts.push(this.i18n.t('hypervisor.v2.sankey.join_one', { unit }));
+    else if (joined > 1) parts.push(this.i18n.t('hypervisor.v2.sankey.join', { count: joined, unit }));
+    if (stopped === 1) parts.push(this.i18n.t('hypervisor.v2.sankey.stop_one'));
+    else if (stopped > 1) parts.push(this.i18n.t('hypervisor.v2.sankey.stop', { count: stopped }));
+    return parts.join(' ');
+  }
+
+  riversTitle(): string {
+    return this.i18n.t(`hypervisor.v2.rivers.title.${this.denominator()}`);
+  }
+
+  riversLegend(): string {
+    return this.denominator() === 'runs'
+      ? this.i18n.t('hypervisor.v2.rivers.legend_runs')
+      : this.i18n.t('hypervisor.v2.rivers.legend');
+  }
+
+  cadranLegend(): string {
+    return this.denominator() === 'runs'
+      ? this.i18n.t('hypervisor.v2.cadran.legend_runs')
+      : this.i18n.t('hypervisor.v2.cadran.legend');
+  }
+
+  nativeUnits(): HypervisorNativeUnit[] {
+    return this.series()?.nativeUnits ?? [];
+  }
+
+  nativeUnitsPerDot(): number {
+    const max = Math.max(0, ...this.nativeUnits().map((group) => group.total));
+    const needed = max / MAX_UNIT_DOTS;
+    return NICE_DOT_STEPS.find((step) => step >= needed) ?? Math.ceil(needed);
+  }
+
+  nativeUnitLabel(unit: string | null | undefined): string {
+    return humanizeOutputUnit(unit, this.i18n.t('hypervisor.v2.unit.units'));
+  }
+
+  unitesNote(): string {
+    const groups = this.nativeUnits();
+    if (groups.length < 2) return this.i18n.t('hypervisor.v2.unites.note_one');
+    return this.i18n.t('hypervisor.v2.unites.note', {
+      left: this.nativeUnitLabel(groups[0]!.unit),
+      right: this.nativeUnitLabel(groups[1]!.unit),
+    });
+  }
+
+  unitesSystems(group: HypervisorNativeUnit): string {
+    return group.systems.length === 1
+      ? this.i18n.t('hypervisor.v2.unites.systems_one')
+      : this.i18n.t('hypervisor.v2.unites.systems', { count: group.systems.length });
+  }
+
+  unitesDotsTip(group: HypervisorNativeUnit): string {
+    return this.i18n.t('hypervisor.v2.unites.dots', {
+      n: this.nativeUnitsPerDot(),
+      unit: this.nativeUnitLabel(group.unit),
+    });
+  }
+
+  missingBasisRows(): HypervisorRegisterRow[] {
+    return (this.series()?.register ?? []).filter((row) => !row.basisStatus || row.basisStatus === 'none');
+  }
+
+  couvertureTitle(): string {
+    const missing = this.missingBasisRows().length;
+    if (missing === 0) return this.i18n.t('hypervisor.v2.couverture.title_none');
+    return this.i18n.t('hypervisor.v2.couverture.title', {
+      declared: this.declaredCount(),
+      missing,
+    });
+  }
+
+  couvertureDeclare(): string {
+    const count = this.missingBasisRows().length;
+    return count === 1
+      ? this.i18n.t('hypervisor.v2.couverture.declare_one')
+      : this.i18n.t('hypervisor.v2.couverture.declare', { count });
+  }
+
+  horsTitle(): string {
+    const count = this.series()?.outside.length ?? 0;
+    const key = this.denominator() === 'value' ? 'value' : 'hours';
+    return count === 1
+      ? this.i18n.t(`hypervisor.v2.hors.title.${key}_one`)
+      : this.i18n.t(`hypervisor.v2.hors.title.${key}`, { count });
+  }
+
+  outcomeCount(row: Pick<HypervisorRegisterRow, 'outcomes'>): number {
+    return availableNumber(row.outcomes) ?? 0;
+  }
+
+  outcomeLabel(row: Pick<HypervisorRegisterRow, 'outcomes' | 'outputUnit'>): string {
+    const value = availableNumber(row.outcomes);
+    if (value == null) return this.factLabel(row.outcomes);
+    return `${this.formatNumber(value, 0)} ${this.nativeUnitLabel(row.outputUnit)}`.trim();
+  }
+
+  outcomeMark(row: Pick<HypervisorRegisterRow, 'outcomes'>): string {
+    return availableNumber(row.outcomes) == null ? MARK_NONE : MARK_MEASURED;
+  }
+
+  /** Units per dot so the longest hors-dénominateur row stays within 24 dots. */
+  unitsPerDot(): number {
+    const max = Math.max(0, ...(this.series()?.outside ?? []).map((row) => this.outcomeCount(row)));
+    const needed = max / MAX_UNIT_DOTS;
+    return NICE_DOT_STEPS.find((step) => step >= needed) ?? Math.ceil(needed);
+  }
+
+  dotsTitle(row: HypervisorRegisterRow): string {
+    return this.i18n.t('hypervisor.v2.hors.dots_title', {
+      n: this.unitsPerDot(),
+      unit: row.outputUnit ?? this.i18n.t('hypervisor.v2.unit.units'),
+    });
+  }
+
+  // --- Register -----------------------------------------------------------
+
+  registerSub(): string {
+    const view = this.series();
+    if (!view) return '';
+    const sort = this.i18n.t(`hypervisor.v2.sort.${this.activeView()?.sort ?? 'name'}`).toLocaleLowerCase(this.localeTag());
+    const unit = this.i18n.t(`hypervisor.v2.in.${this.denominator()}`);
+    const outside = view.outside.length;
+    if (!outside) return this.i18n.t('hypervisor.v2.register.sub_all', { sort, unit });
+    return this.i18n.t('hypervisor.v2.register.sub', {
+      sort,
+      unit,
+      inside: view.register.length - outside,
+      outside,
+    });
+  }
+
+  runsWord(row: HypervisorRegisterRow): string {
+    return (availableNumber(row.runs) ?? 0) > 0
+      ? this.i18n.t('hypervisor.v2.register.operated')
+      : this.i18n.t('hypervisor.v2.register.silent');
+  }
+
+  runsLabel(row: HypervisorRegisterRow): string {
+    return `${this.formatNumber(availableNumber(row.runs) ?? 0, 0)} ${this.i18n.t('hypervisor.v2.unit.runs')}`;
+  }
+
+  resultMain(row: HypervisorRegisterRow): string {
+    const denominator = this.denominator();
+    if (row.outsideDenominator || denominator === 'runs') return this.outcomeLabel(row);
+    if (denominator === 'value') {
+      const value = availableNumber(row.valueDeclared);
+      if (value == null) return this.factLabel(row.valueDeclared);
+      return this.i18n.t('hypervisor.v2.register.result.value', { value: this.formatMoney(value, row.currency ?? this.series()?.currency, 0) });
+    }
+    const hours = availableNumber(row.hours);
+    if (hours == null) return this.factLabel(row.hours);
+    return this.i18n.t('hypervisor.v2.register.result.hours', { value: this.formatQuantity(hours) });
+  }
+
+  resultQualifier(row: HypervisorRegisterRow): string {
+    if (row.outsideDenominator || this.denominator() === 'runs') {
+      return availableNumber(row.outcomes) == null
+        ? ''
+        : `· ${this.i18n.t('hypervisor.v2.register.qualifier.outcome')} ${MARK_MEASURED}`;
+    }
+    const fact = this.denominator() === 'value' ? row.valueDeclared : row.hours;
+    if (availableNumber(fact) == null) return '';
+    return row.basisStatus === 'measured'
+      ? `· ${this.i18n.t('hypervisor.v2.register.qualifier.measured')} ${MARK_MEASURED}`
+      : `· ${this.i18n.t('hypervisor.v2.register.qualifier.declared')} ${MARK_DECLARED}`;
+  }
+
+  sparkTone(row: HypervisorRegisterRow): CkChartTone {
+    if (this.denominator() === 'runs') return 'ink';
+    if (row.outsideDenominator) return 'muted';
+    return row.basisStatus === 'measured' ? 'ink' : 'declared';
+  }
+
+  basisLabel(row: HypervisorRegisterRow): string {
+    if (!row.basisStatus || row.basisStatus === 'none') {
+      return `${MARK_NONE} ${this.i18n.t('hypervisor.v2.register.basis_state.none')}`;
+    }
+    const rate = this.basisRate(row);
+    const state = this.i18n.t(`hypervisor.v2.register.basis_state.${row.basisStatus}`);
+    return row.basisStatus === 'measured'
+      ? `${rate} ${MARK_MEASURED} ${state}`.trim()
+      : `≈ ${rate} ${MARK_DECLARED} ${state}`.trim();
+  }
+
+  rowValue(row: HypervisorRegisterRow): string {
+    const value = availableNumber(row.valueDeclared);
+    if (value == null) return `— ${this.factLabel(row.valueDeclared)}`;
+    return `≈ ${this.formatMoney(value, row.currency ?? this.series()?.currency, 0)}`;
+  }
+
+  footerResult(): string {
+    const view = this.series();
+    if (!view) return '';
+    const mon = this.monument();
+    if (!mon) return this.factLabel(view.monument);
+    const inside = view.register.length - view.outside.length;
+    const unit = this.i18n.t(`hypervisor.v2.in.${this.denominator()}`);
+    return `${mon.value} ${mon.unit} · ${this.i18n.t('hypervisor.v2.register.total_inside', { count: inside, unit })}`;
+  }
+
+  footerValue(): string {
+    const view = this.series();
+    if (!view) return '';
+    const value = availableNumber(view.valueTotal);
+    if (value == null) return this.factLabel(view.valueTotal);
+    return `≈ ${this.formatMoney(value, view.currency, 0)}`;
+  }
+
+  declaredCount(): number {
+    return (this.series()?.register ?? []).filter((row) => row.basisStatus === 'declared' || row.basisStatus === 'measured').length;
+  }
+
+  // --- Stratum 03 ---------------------------------------------------------
+
+  signalKicker(): string {
+    const stale = this.staleRows();
+    if (!stale.length) return this.i18n.t('hypervisor.v2.signal.kicker_quiet');
+    const days = Math.max(...stale.map((row) => availableNumber(row.daysSinceLastRun) ?? STALE_AFTER_DAYS));
+    return this.i18n.t('hypervisor.v2.signal.kicker', { days });
+  }
+
+  signalCopy(): string {
+    const stale = this.staleRows();
+    if (stale.length === 0) return this.i18n.t('hypervisor.v2.signal.healthy');
+    if (stale.length === 1) return this.i18n.t('hypervisor.v2.signal.stale_one', { name: stale[0]!.name });
+    return this.i18n.t('hypervisor.v2.signal.stale', { count: stale.length });
+  }
+
+  signalContext(): string {
+    const stale = this.staleRows();
+    if (stale.length === 0) return this.i18n.t('hypervisor.v2.signal.context_healthy', { n: STALE_AFTER_DAYS });
+    if (stale.length === 1) {
+      const row = stale[0]!;
+      return this.i18n.t('hypervisor.v2.signal.context_one', {
+        days: availableNumber(row.daysSinceLastRun) ?? STALE_AFTER_DAYS,
+        runs: this.formatNumber(availableNumber(row.runs) ?? 0, 0),
+      });
+    }
+    return this.i18n.t('hypervisor.v2.signal.context_many', { count: stale.length, n: STALE_AFTER_DAYS });
+  }
+
+  basesTitle(): string {
+    const count = this.series()?.outside.length ?? 0;
+    if (count === 0) return this.i18n.t('hypervisor.v2.bases.title_none');
+    if (count === 1) return this.i18n.t('hypervisor.v2.bases.title_one');
+    return this.i18n.t('hypervisor.v2.bases.title', { count });
+  }
+
+  pendingLabel(count: number): string {
+    return count === 1
+      ? this.i18n.t('hypervisor.v2.decision.pending_one')
+      : this.i18n.t('hypervisor.v2.decision.pending', { count });
+  }
+
+  scopeLabel(scope: string): string {
+    return this.fallback(`hypervisor.scope.${scope}`, scope);
+  }
+
+  kindLabel(kind: string): string {
+    return this.fallback(`hypervisor.decisions.kind.${kind}`, kind);
+  }
+
+  decisionStatus(status: string): string {
+    return this.fallback(`hypervisor.decisions.status.${status}`, status);
+  }
+
+  // --- Views & editing ----------------------------------------------------
+
+  selectView(id: string): void {
+    const current = this.activeView();
+    this.activeImpactViewId.set(null);
+    this.activeViewId.set(id);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { view: null, eventId: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+    const next = this.views().find((view) => view.id === id);
+    if (!current || !next) return;
+    if (viewPeriod(current) !== viewPeriod(next)) this.reload(false);
+    else this.reproject();
+    this.applyDayLock({ type: 'reset' });
+  }
+
+  selectImpactView(id: ImpactViewId): void {
+    this.activeImpactViewId.set(id);
+    this.activeFacet.set('synthese');
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { view: id, facet: 'synthese' },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  selectSwitcherView(id: string): void {
+    if (isImpactViewId(id)) this.selectImpactView(id);
+    else this.selectView(id);
+  }
+
+  assembledBlocks(view: HypervisorNamedView, stratum: HypervisorStratumId): HypervisorBlockRef[] {
+    return view.strata[stratum] ?? [];
+  }
+
+  removeBlock(stratum: HypervisorStratumId, block: string): void {
+    this.patchActive((view) => removeStratumBlock(view, stratum, block));
+  }
+
+  onCustomizeKeydown(event: KeyboardEvent, stratum: HypervisorStratumId, block: string): void {
+    if ((event.target as HTMLElement).closest('input, select, textarea')) return;
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      this.moveBlock(stratum, block, -1);
+    } else if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      this.moveBlock(stratum, block, 1);
+    } else if (event.key === 'x' || event.key === 'X' || event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault();
+      this.removeBlock(stratum, block);
+    }
+  }
+
+  workspaceCurrency(): string | null {
+    const settings = this.workspace.current()?.settings;
+    const raw = settings?.['currency'] ?? settings?.['default_currency'];
+    return typeof raw === 'string' && /^[A-Z]{3}$/.test(raw) ? raw : null;
+  }
+
+  posedByCopy(row: HypervisorValueBasisItem): string {
+    const who = row.value_basis?.declared_by;
+    const when = row.value_basis?.declared_at;
+    if (!who || !when) return '';
+    return this.i18n.t('hypervisor.v2.bases.posed_by', { who, when: this.formatDate(when) });
+  }
+
+  toggleBasisContract(id: string): void {
+    this.expandedBasisId.set(this.expandedBasisId() === id ? null : id);
+  }
+
+  isAgentSuggested(row: DecisionRow): boolean {
+    return row.agent_suggested === true
+      || row.rationale?.['suggested_by'] === 'agent'
+      || row.rationale?.['agent'] != null;
+  }
+
+  onImpactZoneSelect(zoneId: string): void {
+    this.impactSelectedZone.set(this.impactSelectedZone() === zoneId ? null : zoneId);
+  }
+
+  impactEcheancierItems() {
+    return mapTimelineToEcheancier(this.impactTimeline());
+  }
+
+  impactFluxItems() {
+    return mapNewsToFlux(this.impactNews());
+  }
+
+  impactCarteZones() {
+    return mapMapToZones(this.impactMap());
+  }
+
+  impactAlerteItems() {
+    const zone = this.impactSelectedZone();
+    const fromMission = mapMonitorToAlertes(this.impactMonitor(), this.impactNews());
+    const items = fromMission.length ? fromMission : mapSignalsToAlertes(this.signals());
+    if (!zone) return items;
+    const selected = this.impactCarteZones().find((row) => row.id === zone);
+    const zoneName = selected?.name;
+    return items.filter((item) => item.zone === zone || item.zone === zoneName);
+  }
+
+  impactOrdrePoints() {
+    const fromMeeting = mapAgendaMetadataToOrdre(this.impactTimeline(), this.meetingEventId());
+    if (fromMeeting.length) return fromMeeting;
+    return mapDecisionsToOrdre(this.decisions());
+  }
+
+  impactIndicateurItems() {
+    const fromMacro = mapMacroToIndicateurs(this.impactMacro());
+    if (fromMacro.length) return fromMacro;
+    return mapRegisterToIndicateurs(this.series()?.register ?? []);
+  }
+
+  onMeetingDecision(payload: { pointId: string; optionId: string }): void {
+    const eventId = this.meetingEventId();
+    if (!eventId) return;
+    const note = `Meeting decision · ${payload.pointId} · ${payload.optionId}`;
+    this.api.createDecision({
+      scope: 'portfolio',
+      target_id: null,
+      kind: 'meeting',
+      title: note,
+      notes: note,
+      origin: 'meeting',
+      meeting_event_id: eventId,
+      agenda_item_ref: payload.pointId,
+      rationale: { origin: 'meeting', option_id: payload.optionId },
+    }).subscribe(() => this.reload());
+  }
+
+  eventValue(event: Event): string { return (event.target as HTMLInputElement).value; }
+
+  systemScopeLabel(): string {
+    const id = this.activeView()?.system_id;
+    return id ? this.activitySystems().find(system => system.id === id)?.name || this.i18n.t('hypervisor.v2.product.system_unavailable') : this.i18n.t('hypervisor.v2.product.all_systems');
+  }
+
+  setViewLabel(label: string): void { this.patchActive(view => ({ ...view, label })); }
+
+  setSystemScope(systemId: string): void {
+    this.patchActive(view => ({ ...view, system_id: systemId || null }));
+    this.applyDayLock({ type: 'reset' }); this.reproject();
+  }
+
+  setDefaultView(event: Event): void {
+    this.defaultViewId.set((event.target as HTMLInputElement).checked ? this.activeView()?.id ?? null : this.views()[0]?.id ?? null);
+    this.saveMessage.set('hypervisor.v2.product.unsaved');
+  }
+
+  addView(): void {
+    const label = this.newViewName().trim();
+    if (!this.canEdit() || !label) return;
+    const view: HypervisorNamedView = {
+      id: 'view-' + crypto.randomUUID(), label, denominator: 'runs', period: '7d',
+      system_id: this.activeView()?.system_id || null, schema_version: 2,
+      strata: { comprendre: [{ type: 'activity', settings: {} }], detailler: [], decider: [] },
+      register_columns: ['unit', 'spark'], sort: 'name',
+    };
+    this.views.update(views => [...views, view]); this.newViewName.set('');
+    this.selectView(view.id); this.saveMessage.set('hypervisor.v2.product.unsaved');
+  }
+
+  productBlock(type: string): HypervisorBlockRef | null {
+    return this.activeView()?.strata.comprendre.find(block => block.type === type) ?? null;
+  }
+
+  openBlockSettings(type: string): void {
+    this.customizeOpen.set(true);
+    setTimeout(() => (this.host.nativeElement as HTMLElement).querySelector<HTMLElement>('[data-testid="impact-settings-' + type + '"] input')?.focus(), 0);
+  }
+
+  setBlockTitle(type: string, title: string): void {
+    this.patchActive(view => ({ ...view, strata: { ...view.strata, comprendre: view.strata.comprendre.map(block => block.type === type ? { ...block, title } : block) } }));
+  }
+
+  setBlockSetting(type: string, key: string, value: unknown): void {
+    this.patchActive(view => ({ ...view, strata: { ...view.strata, comprendre: view.strata.comprendre.map(block => block.type === type ? { ...block, settings: { ...block.settings, [key]: value } } : block) } }));
+  }
+
+  toggleActivityMetric(metric: typeof ACTIVITY_METRICS[number]): void {
+    const block = this.productBlock('activity');
+    if (!block) return;
+    const current = activityMetrics(block);
+    this.setBlockSetting('activity', 'metrics', current.includes(metric) ? current.filter(item => item !== metric) : [...current, metric]);
+  }
+
+  scenarioMax(field: ScenarioField): number { return field.endsWith('minutes') ? 1440 : 1000000; }
+
+  setScenarioNumber(field: ScenarioField, raw: string): void {
+    this.setBlockSetting('financial_scenario', field, raw.trim() ? Number(raw) : null);
+  }
+
+  setDenominator(value: HypervisorViewDenominator): void {
+    this.patchActive((view) => ({ ...view, denominator: value }));
+    this.reproject();
+  }
+
+  setPeriod(value: '7d' | '30d' | '90d'): void {
+    this.patchActive((view) => ({ ...view, period: value }));
+    this.reload(false);
+  }
+
+  setSort(value: string): void {
+    this.patchActive((view) => ({ ...view, sort: value }));
+  }
+
+  toggleColumn(column: string): void {
+    this.patchActive((view) => toggleRegisterColumn(view, column));
+  }
+
+  toggleBlock(stratum: HypervisorStratumId, block: string): void {
+    this.patchActive((view) => toggleStratumBlock(view, stratum, block));
+  }
+
+  moveBlock(stratum: HypervisorStratumId, block: string, direction: -1 | 1): void {
+    this.patchActive((view) => moveStratumBlock(view, stratum, block, direction));
+  }
+
+  saveViews(): void {
+    if (!this.canEdit()) return;
+    const scope = this.workspace.captureRequestScope();
+    const snapshot = serializeViewsForWrite(this.views());
+    const defaultId = this.defaultViewId();
+    const fingerprint = JSON.stringify([snapshot, defaultId]);
+    this.savingViews.set(true); this.saveMessage.set('');
+    this.api.putHypervisorViews(snapshot, defaultId).subscribe({
+      next: (payload) => {
+        if (this.destroyed || !this.workspace.isRequestScopeCurrent(scope)) return;
+        const parsed = parseViewsPayload(payload);
+        const editedDuringSave = fingerprint !== JSON.stringify([serializeViewsForWrite(this.views()), this.defaultViewId()]);
+        if (!editedDuringSave) {
+          this.views.set(parsed.views);
+          this.defaultViewId.set(parsed.default_view_id ?? null);
+        }
+        this.canEdit.set(parsed.can_edit);
+        this.savingViews.set(false);
+        this.saveMessage.set(editedDuringSave ? 'hypervisor.v2.product.unsaved' : 'hypervisor.v2.product.saved');
+      },
+      error: (error: unknown) => {
+        if (this.destroyed || !this.workspace.isRequestScopeCurrent(scope)) return;
+        this.savingViews.set(false); this.saveMessage.set('hypervisor.v2.product.save_failed');
+        if (error instanceof HttpErrorResponse && error.status === 403) this.canEdit.set(false);
+      },
+    });
+  }
+
+  isCatalogLocked(row: HypervisorValueBasisItem): boolean {
+    if (this.catalogLocked().has(row.capability_id)) return true;
+    const capability = this.capabilities().find((item) => item.id === row.capability_id);
+    return capability?.workspace_scope === 'global';
+  }
+
+  startEdit(row: HypervisorValueBasisItem): void {
+    this.basisError.set(false);
+    this.editingId.set(row.capability_id);
+    this.draft.set({
+      unit: row.value_basis?.unit || row.output_unit || '',
+      hours_per_unit: row.value_basis?.hours_per_unit != null ? String(row.value_basis.hours_per_unit) : '',
+      value_per_unit: row.value_basis?.value_per_unit != null ? String(row.value_basis.value_per_unit) : '',
+      currency: row.value_basis?.currency || this.workspaceCurrency() || '',
+      status: row.value_basis?.status ?? 'declared',
+      note: row.value_basis?.note || '',
+    });
+  }
+
+  patchDraft(key: keyof BasisDraft, event: Event): void {
+    const current = this.draft();
+    if (!current) return;
+    const target = event.target as HTMLInputElement | HTMLSelectElement;
+    this.draft.set({ ...current, [key]: target.value });
+  }
+
+  saveBasis(row: HypervisorValueBasisItem): void {
+    const draft = this.draft();
+    if (!draft) return;
+    this.savingBasis.set(true);
+    this.basisError.set(false);
+    this.api.putCapabilityValueBasis(row.capability_id, {
+      unit: draft.unit,
+      hours_per_unit: draft.hours_per_unit === '' ? null : Number(draft.hours_per_unit),
+      value_per_unit: draft.value_per_unit === '' ? null : Number(draft.value_per_unit),
+      currency: draft.currency,
+      status: draft.status,
+      note: draft.note || null,
+    }).subscribe({
+      next: (item) => {
+        this.bases.update((list) => list.map((entry) => entry.capability_id === item.capability_id ? { ...entry, ...item } : entry));
+        this.editingId.set(null);
+        this.savingBasis.set(false);
+        this.reload();
+      },
+      error: (error: unknown) => {
+        this.savingBasis.set(false);
+        if (error instanceof HttpErrorResponse && error.status === 404) {
+          this.catalogLocked.update((set) => new Set([...set, row.capability_id]));
+          this.editingId.set(null);
+          return;
+        }
+        this.basisError.set(true);
+      },
+    });
+  }
+
+  scanRecommendations(): void {
+    this.scanning.set(true);
+    this.api.generateProactiveRecommendations({ since_days: 7 }).subscribe({
+      next: () => {
+        this.scanning.set(false);
+        this.reload();
+      },
+      error: () => this.scanning.set(false),
+    });
+  }
+
+  accept(row: DecisionRow): void {
+    this.api.acceptDecision(row.id).subscribe(() => this.reload());
+  }
+
+  reject(row: DecisionRow): void {
+    this.api.rejectDecision(row.id).subscribe(() => this.reload());
+  }
+
+  // --- Formatting ---------------------------------------------------------
+
+  formatFact(fact: SeriesFact, kind: 'currency' | 'quantity'): string {
+    const value = availableNumber(fact);
+    if (value == null) return this.factLabel(fact);
+    if (kind === 'currency') return this.formatMoney(value, this.series()?.currency, 0);
+    return this.formatQuantity(value);
+  }
+
+  /** Money in the active locale; `compact` renders `55,9 k€` past 10 000. */
+  formatMoney(
+    value: number | null | undefined,
+    currency: string | null | undefined,
+    digits = 2,
+    compact = false,
+  ): string {
+    if (value == null) return '';
+    const code = currency && /^[A-Z]{3}$/.test(currency) ? currency : null;
+    const options: Intl.NumberFormatOptions = compact && Math.abs(value) >= 10_000
+      ? { notation: 'compact', maximumFractionDigits: 1 }
+      : { maximumFractionDigits: digits };
+    if (code) {
+      options.style = 'currency';
+      options.currency = code;
+    }
+    return new Intl.NumberFormat(this.localeTag(), options).format(value);
+  }
+
+  formatNumber(value: number, digits = 2): string {
+    return new Intl.NumberFormat(this.localeTag(), { maximumFractionDigits: digits }).format(value);
+  }
+
+  /** A denominator quantity with its unit: `71 h`, `0,8 h`, `212 unités`, `1 284 €`. */
+  formatQuantity(value: number): string {
+    const denominator = this.denominator();
+    if (denominator === 'value') return this.formatMoney(value, this.series()?.currency, 0);
+    const number = this.formatNumber(value, Math.abs(value) < 10 ? 1 : 0);
+    const unit = denominator === 'hours' ? this.i18n.t('hypervisor.v2.unit.hours_short') : this.i18n.t('hypervisor.v2.unit.runs');
+    return `${number} ${unit}`;
+  }
+
+  formatPercent(share: number): string {
+    return new Intl.NumberFormat(this.localeTag(), { style: 'percent', maximumFractionDigits: 0 }).format(share);
+  }
+
+  formatMaybeNumber(value: number | null | undefined): string {
+    return value == null ? '' : this.formatNumber(value);
+  }
+
+  /** `9 août` / `Aug 9`; with `weekday`, `mar. 25 août` / `Tue, Aug 25`. */
+  formatDate(iso: string | null | undefined, weekday = false): string {
+    if (!iso) return '';
+    const key = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : iso.slice(0, 10);
+    const date = new Date(`${key}T12:00:00Z`);
+    if (Number.isNaN(date.getTime())) return iso;
+    return new Intl.DateTimeFormat(this.localeTag(), {
+      day: 'numeric',
+      month: 'short',
+      timeZone: 'UTC',
+      ...(weekday ? { weekday: 'short' } : {}),
+    }).format(date);
+  }
+
+  /** `lundi 31 août` / `Monday, August 31`: the day as the lock announcement says it. */
+  formatLongDate(iso: string | null | undefined): string {
+    if (!iso) return '';
+    const key = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : iso.slice(0, 10);
+    const date = new Date(`${key}T12:00:00Z`);
+    if (Number.isNaN(date.getTime())) return iso;
+    return new Intl.DateTimeFormat(this.localeTag(), {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      timeZone: 'UTC',
+    }).format(date);
+  }
+
+  factLabel(fact: SeriesFact): string {
+    return this.i18n.t(`hypervisor.state.${fact.state}`);
+  }
+
+  basisStatusLabel(status: HypervisorValueBasisStatus): string {
+    return this.i18n.t(`hypervisor.v2.bases.status.${status}`);
+  }
+
+  provenanceCopy(row: HypervisorValueBasisItem): string {
+    const who = row.value_basis?.declared_by;
+    const when = row.value_basis?.declared_at;
+    if (!who && !when) return '';
+    return this.i18n.t('hypervisor.v2.bases.declared_by', { who: who || '', when: when ? this.formatDate(when) : '' });
+  }
+
+  systemNames(row: HypervisorValueBasisItem): string {
+    return (row.systems ?? []).map((item) => item.name).join(', ');
+  }
+
+  private tickLabel(tick: HypervisorChartTick): string {
+    return tick.kind === 'week'
+      ? this.i18n.t('hypervisor.v2.tick.week', { week: tick.isoWeek })
+      : this.formatDate(tick.date);
+  }
+
+  private basisRate(row: HypervisorRegisterRow): string {
+    const basis = this.bases().find((item) => item.capability_id === row.capabilityId)?.value_basis;
+    if (!basis) return '';
+    const currency = basis.currency ?? row.currency ?? this.series()?.currency;
+    const unit = basis.unit || row.outputUnit || this.i18n.t('hypervisor.v2.unit.units');
+    if (basis.hours_per_unit && basis.value_per_unit != null && this.denominator() === 'hours') {
+      return `${this.formatMoney(basis.value_per_unit / basis.hours_per_unit, currency, 0)} / ${this.i18n.t('hypervisor.v2.unit.hours_short')}`;
+    }
+    if (basis.value_per_unit != null) return `${this.formatMoney(basis.value_per_unit, currency, 0)} / ${unit}`;
+    if (basis.hours_per_unit != null) return `${this.formatNumber(basis.hours_per_unit, 2)} ${this.i18n.t('hypervisor.v2.unit.hours_short')} / ${unit}`;
+    return '';
+  }
+
+  private currencySymbol(currency: string | null | undefined): string {
+    const code = currency && /^[A-Z]{3}$/.test(currency) ? currency : null;
+    if (!code) return '';
+    const part = new Intl.NumberFormat(this.localeTag(), { style: 'currency', currency: code })
+      .formatToParts(0)
+      .find((item) => item.type === 'currency');
+    return part?.value ?? code;
+  }
+
+  private fallback(key: string, raw: string): string {
+    const label = this.i18n.t(key);
+    return label === key ? raw : label;
+  }
+
+  private localeTag(): string {
+    return this.i18n.locale() === 'en' ? 'en-US' : 'fr-FR';
+  }
+
+  private patchActive(mutate: (view: HypervisorNamedView) => HypervisorNamedView): void {
+    const current = this.activeView();
+    if (!current) return;
+    this.views.set(replaceView(this.views(), mutate(cloneView(current))));
+    this.saveMessage.set('hypervisor.v2.product.unsaved');
+  }
+
+  private reproject(): void {
+    const raw = this.lastSeries;
+    if (!raw) return;
+    this.series.set(projectSeries(scopedSeries(raw, this.activeView()), viewDenominator(this.activeView())));
+    this.syncMonument(false);
+  }
+
+  private reset(): void {
+    this.views.set([]); this.defaultViewId.set(null); this.viewsLoaded = false;
+    this.activitySystems.set([]); this.canEdit.set(false); this.customizeOpen.set(false); this.saveMessage.set('');
+    this.lastSeries = null; this.savingViews.set(false); this.newViewName.set('');
+    this.series.set(null);
+    this.bases.set([]);
+    this.decisions.set([]);
+    this.recommendations.set([]);
+    this.signals.set([]);
+    this.impactTimeline.set(null);
+    this.impactNews.set(null);
+    this.impactMap.set(null);
+    this.impactMonitor.set(null);
+    this.impactMacro.set(null);
+    this.sourceStates.set(LOADING_SOURCES);
+    this.sourceAnnouncement.set('');
+    this.editingId.set(null);
+    this.painted = false;
+    this.entering.set(false);
+    this.monumentValue.set('');
+    this.dayLock.set(DAY_LOCK_IDLE);
+    this.lockAnnouncement.set('');
+    this.hoverSystem.set(null);
+    this.pinnedSystem.set(null);
+    this.stopMonument();
+  }
+
+  reload(loadViews = true): void {
+    const request = this.workspaceView.beginRequest();
+    const period = viewPeriod(this.activeView() ?? DEFAULT_HYPERVISOR_VIEWS[0]);
+    const sources = impactSourceRequests(this.http, period);
+    this.loading.set(true);
+    this.loadProblem.set(null);
+    // Each block source settles on its own: one failure never blanks the page.
+    forkJoin({
+      series: settleSource(sources.series()),
+      bases: settleSource(sources.bases()),
+      decisions: settleSource(sources.decisions()),
+      recos: settleSource(sources.recos()),
+      views: loadViews ? this.api.hypervisorViews().pipe(catchError(() => of(null))) : of({ views: this.views(), can_edit: this.canEdit(), default_view_id: this.defaultViewId() }),
+      activitySystems: this.http.get<{ systems: { id: string; name: string }[] }>('/hypervisor/activity/systems').pipe(catchError(() => of(null))),
+      capabilities: this.api.listCapabilities().pipe(catchError(() => of([] as Capability[]))),
+      balance: this.api.hypervisorBalanceSheet(period === '90d' ? 'rolling_90d' : 'rolling_30d').pipe(
+        catchError(() => of(null)),
+      ),
+      mapSettings: this.api.hypervisorMapSettings().pipe(catchError(() => of(null))),
+    }).subscribe((bundle) => {
+      if (!this.workspaceView.isCurrent(request)) return;
+      const problem = impactPageProblem(bundle);
+      if (problem) {
+        this.loadProblem.set(problem);
+        this.loading.set(false);
+        return;
+      }
+      const parsed = parseViewsPayload(loadViews ? bundle.views : { views: this.views(), can_edit: this.canEdit(), default_view_id: this.defaultViewId() });
+      this.views.set(parsed.views);
+      this.canEdit.set(parsed.can_edit);
+      this.defaultViewId.set(parsed.default_view_id ?? null);
+      if (!this.viewsLoaded) {
+        this.activeViewId.set(parsed.default_view_id || parsed.views[0]?.id || 'direction');
+        this.viewsLoaded = true;
+      }
+      this.activitySystems.set(bundle.activitySystems?.systems ?? []);
+      this.systemsProblem.set(bundle.activitySystems == null);
+      if (bundle.mapSettings?.attribution) {
+        this.mapAttribution.set(bundle.mapSettings.attribution);
+      }
+      if (!parsed.views.some((view) => view.id === this.activeViewId())) {
+        this.activeViewId.set(parsed.views[0]?.id ?? 'direction');
+      }
+      if (viewPeriod(this.activeView()) !== period) {
+        this.reload(false);
+        return;
+      }
+      this.applySourceOutcome.series(bundle.series);
+      this.applySourceOutcome.bases(bundle.bases);
+      this.applySourceOutcome.decisions(bundle.decisions);
+      this.applySourceOutcome.recos(bundle.recos);
+      this.capabilities.set(bundle.capabilities);
+      this.signals.set(bundle.balance?.signals ?? []);
+      this.sourceAnnouncement.set('');
+      this.loading.set(false);
+      this.afterSeriesPaint();
+      this.reloadImpactLive();
+    });
+  }
+
+  sourceName(id: ImpactSourceId): string {
+    return this.i18n.t(`hypervisor.v2.source.name.${id}`);
+  }
+
+  sourceRetrying(id: ImpactSourceId): boolean {
+    return this.sourceStates()[id] === 'loading';
+  }
+
+  /** Re-requests only the failed source; the other blocks stay as they are. */
+  retrySource(id: ImpactSourceId): void {
+    if (this.sourceRetrying(id)) return;
+    const scope = this.workspaceView.captureRequest();
+    const generation = ++this.sourceGenerations[id];
+    const period = viewPeriod(this.activeView() ?? DEFAULT_HYPERVISOR_VIEWS[0]);
+    this.sourceAnnouncement.set('');
+    this.markSource(id, 'loading');
+    this.settleOne(id, impactSourceRequests(this.http, period)[id](), scope, generation);
+  }
+
+  private settleOne<K extends ImpactSourceId>(
+    id: K,
+    request: Observable<ImpactSourceValues[K]>,
+    scope: ReturnType<WorkspaceViewContext['captureRequest']>,
+    generation: number,
+  ): void {
+    settleSource(request).subscribe((outcome) => {
+      if (!this.workspaceView.isCurrent(scope) || generation !== this.sourceGenerations[id]) return;
+      this.applySourceOutcome[id](outcome);
+      if (id === 'series') this.afterSeriesPaint();
+      if (outcome.ok) {
+        this.sourceAnnouncement.set(this.i18n.t('hypervisor.v2.source.loaded', { source: this.sourceName(id) }));
+      }
+    });
+  }
+
+  private markSource(id: ImpactSourceId, state: ImpactSourceState): void {
+    this.sourceStates.update((states) => withSourceState(states, id, state));
+  }
+
+  private afterSeriesPaint(): void {
+    const firstPaint = !this.painted && this.series() != null;
+    if (this.series()) this.painted = true;
+    this.syncMonument(firstPaint);
+    if (firstPaint) this.beginEntrance();
+    const cameFrom = this.cameFromSystem();
+    if (cameFrom && firstPaint) {
+      queueMicrotask(() => this.onSystemClick(cameFrom));
+    }
+  }
+
+  /** Fetch Mission Room payloads only when a generic Impact view is open. */
+  private reloadImpactLive(): void {
+    this.impactLiveSub?.unsubscribe();
+    this.impactLiveSub = null;
+    const generation = ++this.impactLiveGeneration;
+    if (!this.activeImpactViewId() || !this.missionRoomAvailable()) {
+      this.impactTimeline.set(null);
+      this.impactNews.set(null);
+      this.impactMap.set(null);
+      this.impactMonitor.set(null);
+      this.impactMacro.set(null);
+      return;
+    }
+    const scope = this.workspaceView.captureRequest();
+    this.impactLiveSub = forkJoin({
+      timeline: this.http.get<ImpactTimelineRaw>('/mission-room/timeline').pipe(
+        catchError((): Observable<ImpactTimelineRaw | null> => of(null)),
+      ),
+      news: this.http.get<ImpactNewsRaw>('/mission-room/news').pipe(
+        catchError((): Observable<ImpactNewsRaw | null> => of(null)),
+      ),
+      map: this.http.get<ImpactMapRaw>('/mission-room/map').pipe(
+        catchError((): Observable<ImpactMapRaw | null> => of(null)),
+      ),
+      monitor: this.http.get<ImpactMonitorRaw>('/mission-room/monitor').pipe(
+        catchError((): Observable<ImpactMonitorRaw | null> => of(null)),
+      ),
+      macro: this.http.get<ImpactMacroRaw>('/mission-room/macro-indicators').pipe(
+        catchError((): Observable<ImpactMacroRaw | null> => of(null)),
+      ),
+    }).subscribe((bundle) => {
+      if (generation !== this.impactLiveGeneration) return;
+      if (!this.workspaceView.isCurrent(scope)) return;
+      this.impactTimeline.set(bundle.timeline);
+      this.impactNews.set(bundle.news);
+      this.impactMap.set(bundle.map);
+      this.impactMonitor.set(bundle.monitor);
+      this.impactMacro.set(bundle.macro);
+    });
+  }
+
+  private beginEntrance(): void {
+    if (prefersReducedMotion()) {
+      this.entering.set(false);
+      return;
+    }
+    this.entering.set(true);
+    if (this.enterTimer) clearTimeout(this.enterTimer);
+    this.enterTimer = setTimeout(() => this.entering.set(false), 1600);
+  }
+
+  private syncMonument(animate: boolean): void {
+    const mon = this.monument();
+    const raw = availableNumber(this.series()?.monument);
+    if (!mon || raw == null) {
+      this.stopMonument();
+      this.monumentValue.set(mon?.value ?? '');
+      return;
+    }
+    if (!animate || prefersReducedMotion()) {
+      this.stopMonument();
+      this.monumentValue.set(mon.value);
+      return;
+    }
+    this.beginCountUp(raw, mon.value, raw < 10 ? 1 : 0);
+  }
+
+  private beginCountUp(target: number, final: string, digits: number): void {
+    this.stopMonument();
+    this.monumentValue.set(this.formatNumber(0, digits));
+    const start = performance.now();
+    const step = (now: number): void => {
+      const t = (now - start) / 900;
+      if (t >= 1) {
+        this.monumentValue.set(final);
+        this.monumentRaf = 0;
+        return;
+      }
+      this.monumentValue.set(this.formatNumber(target * easeOutProgress(t), digits));
+      this.monumentRaf = requestAnimationFrame(step);
+    };
+    this.monumentRaf = requestAnimationFrame(step);
+  }
+
+  private stopMonument(): void {
+    if (this.monumentRaf) cancelAnimationFrame(this.monumentRaf);
+    this.monumentRaf = 0;
+  }
+}
+
+function normaliseTitle(title: string): string {
+  return title.trim().toLocaleLowerCase();
+}

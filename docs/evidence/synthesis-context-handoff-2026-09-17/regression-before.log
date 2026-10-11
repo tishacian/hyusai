@@ -1,0 +1,128 @@
+FF..                                                                     [100%]
+=================================== FAILURES ===================================
+_ test_retrieved_evidence_reaches_generation_without_a_second_threshold[hybrid-0.01639344262295082-0.72-True] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x112486060>
+pipeline = 'hybrid', score = 0.01639344262295082, dense_score = 0.72
+expected_source = True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "pipeline,score,dense_score,expected_source",
+        [("hybrid", 1 / 61, 0.72, True), ("hybrid", 1 / 61, None, True),
+         ("naive", 0.05, None, False), ("hybrid", 1 / 61, 0.05, False)],
+    )
+    async def test_retrieved_evidence_reaches_generation_without_a_second_threshold(
+        monkeypatch, pipeline, score, dense_score, expected_source,
+    ):
+        from app.services.rag import context
+    
+        monkeypatch.setattr(context.settings, "rag_similarity_threshold", 0.2)
+        monkeypatch.setattr(context.settings, "rag_retrieval_worker_enabled", False)
+        monkeypatch.setattr(context.settings, "rag_generation_adaptive_enabled", False)
+        passage = "Synthetic capture: corrected nominal pressure is 6 bar."
+        metadata = {"document_id": "capture-test", "document_filename": "capture.md",
+                    "collection": "capture-test", "source_type": "expert_fiche"}
+        if dense_score is not None:
+            metadata["dense_score"] = dense_score
+    
+        async def retrieve(*args, **kwargs):
+            chunks, scores, metas, metrics = context._apply_similarity_threshold(
+                [passage], [score], [metadata], pipeline=pipeline,
+            )
+            return {"chunks": chunks, "scores": scores, "metadatas": metas,
+                    "pipeline": pipeline, "metrics": metrics}
+    
+        monkeypatch.setattr(context, "retrieve_rag_context", retrieve)
+        monkeypatch.setattr(context, "get_retrieval_profile", lambda request: {
+            "collection": "capture-test", "collections": ["capture-test"],
+            "vector_db": "qdrant", "top_k": 5, "latency_profile": "fast",
+            "query": request["query"],
+        })
+        prompts = []
+    
+        class RecordingLLM:
+            async def stream_complete(self, *, prompt, **kwargs):
+                prompts.append(prompt)
+                yield "6 bar [1]." if passage in prompt else "No documents found."
+    
+        agent = OmniRAGAgent()
+        monkeypatch.setattr(agent, "_get_document_service", lambda request: None)
+        monkeypatch.setattr(agent, "_get_llm", lambda: RecordingLLM())
+        events = [event async for event in agent.process({
+            "query": "What is the corrected nominal pressure? Cite the source.",
+            "workspace_slug": "test", "response_language": "en",
+        })]
+        assert len(prompts) == 1
+>       assert (passage in prompts[0]) is expected_source
+E       AssertionError: assert ('Synthetic capture: corrected nominal pressure is 6 bar.' in 'User message:\nWhat is the corrected nominal pressure? Cite the source.\n\nKnowledge base context:\nNo documents foun...ntact Andritz or an Andritz representative for more information, unless the user explicitly asked for contact details.') is True
+
+app/tests/services/test_omnirag_sources.py:74: AssertionError
+----------------------------- Captured stdout call -----------------------------
+2026-09-17 06:20:42 [error    ] No embedding provider available, using hash fallback — retrieval quality is degraded to lexical noise model=text-embedding-3-small
+2026-09-17 06:20:42 [error    ] Hash pseudo-embedding emitted — vectors are not semantic count=1 model=text-embedding-3-small provider=hash
+_ test_retrieved_evidence_reaches_generation_without_a_second_threshold[hybrid-0.01639344262295082-None-True] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1145a4a70>
+pipeline = 'hybrid', score = 0.01639344262295082, dense_score = None
+expected_source = True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "pipeline,score,dense_score,expected_source",
+        [("hybrid", 1 / 61, 0.72, True), ("hybrid", 1 / 61, None, True),
+         ("naive", 0.05, None, False), ("hybrid", 1 / 61, 0.05, False)],
+    )
+    async def test_retrieved_evidence_reaches_generation_without_a_second_threshold(
+        monkeypatch, pipeline, score, dense_score, expected_source,
+    ):
+        from app.services.rag import context
+    
+        monkeypatch.setattr(context.settings, "rag_similarity_threshold", 0.2)
+        monkeypatch.setattr(context.settings, "rag_retrieval_worker_enabled", False)
+        monkeypatch.setattr(context.settings, "rag_generation_adaptive_enabled", False)
+        passage = "Synthetic capture: corrected nominal pressure is 6 bar."
+        metadata = {"document_id": "capture-test", "document_filename": "capture.md",
+                    "collection": "capture-test", "source_type": "expert_fiche"}
+        if dense_score is not None:
+            metadata["dense_score"] = dense_score
+    
+        async def retrieve(*args, **kwargs):
+            chunks, scores, metas, metrics = context._apply_similarity_threshold(
+                [passage], [score], [metadata], pipeline=pipeline,
+            )
+            return {"chunks": chunks, "scores": scores, "metadatas": metas,
+                    "pipeline": pipeline, "metrics": metrics}
+    
+        monkeypatch.setattr(context, "retrieve_rag_context", retrieve)
+        monkeypatch.setattr(context, "get_retrieval_profile", lambda request: {
+            "collection": "capture-test", "collections": ["capture-test"],
+            "vector_db": "qdrant", "top_k": 5, "latency_profile": "fast",
+            "query": request["query"],
+        })
+        prompts = []
+    
+        class RecordingLLM:
+            async def stream_complete(self, *, prompt, **kwargs):
+                prompts.append(prompt)
+                yield "6 bar [1]." if passage in prompt else "No documents found."
+    
+        agent = OmniRAGAgent()
+        monkeypatch.setattr(agent, "_get_document_service", lambda request: None)
+        monkeypatch.setattr(agent, "_get_llm", lambda: RecordingLLM())
+        events = [event async for event in agent.process({
+            "query": "What is the corrected nominal pressure? Cite the source.",
+            "workspace_slug": "test", "response_language": "en",
+        })]
+        assert len(prompts) == 1
+>       assert (passage in prompts[0]) is expected_source
+E       AssertionError: assert ('Synthetic capture: corrected nominal pressure is 6 bar.' in 'User message:\nWhat is the corrected nominal pressure? Cite the source.\n\nKnowledge base context:\nNo documents foun...ntact Andritz or an Andritz representative for more information, unless the user explicitly asked for contact details.') is True
+
+app/tests/services/test_omnirag_sources.py:74: AssertionError
+----------------------------- Captured stdout call -----------------------------
+2026-09-17 06:20:42 [error    ] No embedding provider available, using hash fallback — retrieval quality is degraded to lexical noise model=text-embedding-3-small
+2026-09-17 06:20:42 [error    ] Hash pseudo-embedding emitted — vectors are not semantic count=1 model=text-embedding-3-small provider=hash
+=========================== short test summary info ============================
+FAILED app/tests/services/test_omnirag_sources.py::test_retrieved_evidence_reaches_generation_without_a_second_threshold[hybrid-0.01639344262295082-0.72-True]
+FAILED app/tests/services/test_omnirag_sources.py::test_retrieved_evidence_reaches_generation_without_a_second_threshold[hybrid-0.01639344262295082-None-True]
+2 failed, 2 passed, 15 deselected in 1.50s

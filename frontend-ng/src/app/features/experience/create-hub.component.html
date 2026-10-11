@@ -1,0 +1,159 @@
+<ck-page-frame
+  [eyebrow]="i18n.t('experience.hub.eyebrow')"
+  [title]="i18n.t('experience.hub.title')"
+>
+  <ck-help titleHelp id="concept.business-application" />
+
+  <div class="xp-hub">
+    @if (canEdit()) {
+      <form class="xp-automation" (ngSubmit)="createAutomation()">
+        <div class="xp-automation-head">
+          <h2>{{ i18n.t('experience.hub.automation.title') }}</h2>
+          <span>{{ i18n.t('experience.hub.automation.shape') }}</span>
+        </div>
+        <input
+          type="text"
+          [(ngModel)]="automationPrompt"
+          name="automation-prompt"
+          [placeholder]="i18n.t('experience.hub.composer.placeholder')"
+          [disabled]="automationCreating()"
+          autocomplete="off"
+        />
+        <footer>
+          <p>{{ i18n.t('experience.hub.automation.body') }}</p>
+          <button
+            type="submit"
+            [disabled]="automationCreating()"
+          >
+            {{ automationCreating() ? i18n.t('experience.hub.automation.loading') : i18n.t('experience.hub.automation.cta') }}
+          </button>
+        </footer>
+        @if (automationError(); as error) {
+          <p class="xp-automation-error" role="alert">{{ i18n.t(error) }}</p>
+        }
+      </form>
+    }
+
+    @if (!canEdit()) {
+      <section class="xp-review-card">
+        <div>
+          <h2>{{ i18n.t('experience.hub.review.title') }}</h2>
+          <p>{{ i18n.t('experience.hub.review.body') }}</p>
+        </div>
+        <a [navLink]="{ surface: 'create-apps' }" class="xp-card-cta">
+          {{ i18n.t('experience.hub.resume.all') }}
+          <ck-glyph name="arrow-right" [size]="12" />
+        </a>
+      </section>
+    }
+
+    <section class="xp-resume" [attr.aria-label]="i18n.t('experience.hub.resume.title')">
+      <h2 class="xp-section-title">{{ i18n.t('experience.hub.resume.title') }}</h2>
+      @if (recentState() === 'loading') {
+        <app-empty-state icon="sparkles" size="sm" [title]="i18n.t('common.loading')" />
+      } @else if (recentState() === 'error') {
+        <app-empty-state
+          icon="alert-triangle"
+          size="sm"
+          [title]="i18n.t('experience.work.unavailable.title')"
+          [description]="i18n.t('experience.work.unavailable.body')"
+        >
+          <button type="button" class="xp-card-cta xp-link-button" (click)="loadRecent()">
+            {{ i18n.t('common.retry') }}
+          </button>
+        </app-empty-state>
+      } @else if (recentApps().length === 0) {
+        <app-empty-state
+          icon="inbox"
+          size="sm"
+          [title]="i18n.t('experience.hub.resume.empty.title')"
+          [description]="i18n.t('experience.hub.resume.empty.description')"
+        />
+      } @else {
+        <ul class="xp-resume-apps">
+          @for (app of recentApps(); track app.id) {
+            <li>
+              <span><strong>{{ app.name }}</strong><small>{{ state(app) }} · /work/{{ app.slug }}</small></span>
+              <a [navLink]="{ leaf: 'create-app-edit', ref: app.id }" class="xp-card-cta">
+                {{ i18n.t('experience.apps.action.continue') }}
+                <ck-glyph name="arrow-right" [size]="12" />
+              </a>
+            </li>
+          }
+        </ul>
+      }
+      @if (recentState() === 'ready') {
+        <p class="xp-resume-note">{{ i18n.t('experience.hub.resume.note') }}</p>
+        <a [navLink]="{ surface: 'create-apps' }" class="xp-preview-link">{{ i18n.t('experience.hub.resume.all') }}</a>
+      }
+    </section>
+
+    <section class="xp-resume" [attr.aria-label]="i18n.t('experience.hub.systems.title')">
+      <h2 class="xp-section-title">{{ i18n.t('experience.hub.systems.title') }}</h2>
+      @if (recentSystemsState() === 'loading') {
+        <app-empty-state icon="sparkles" size="sm" [title]="i18n.t('common.loading')" />
+      } @else if (recentSystemsState() === 'error') {
+        <app-empty-state
+          icon="alert-triangle"
+          size="sm"
+          [title]="i18n.t('experience.work.unavailable.title')"
+          [description]="i18n.t('experience.work.unavailable.body')"
+        >
+          <button type="button" class="xp-card-cta xp-link-button" (click)="loadRecentSystems()">
+            {{ i18n.t('common.retry') }}
+          </button>
+        </app-empty-state>
+      } @else if (recentSystems().length === 0) {
+        <app-empty-state
+          icon="cube"
+          size="sm"
+          [title]="i18n.t('experience.hub.systems.empty')"
+          [description]="i18n.t('experience.hub.systems.empty.description')"
+        />
+      } @else {
+        <ul class="xp-resume-apps">
+          @for (system of recentSystems(); track system.system_id) {
+            <li>
+              <span>
+                <strong>{{ system.system_name }}</strong>
+                <small>{{ systemStatus(system.last_status) }} · {{ system.run_count }} {{ i18n.t('experience.hub.systems.runs') }}</small>
+              </span>
+              <a [navLink]="{ type: 'system', ref: system.system_id, lens: 'build' }" class="xp-card-cta">
+                {{ i18n.t('experience.hub.systems.open') }}
+                <ck-glyph name="arrow-right" [size]="12" />
+              </a>
+            </li>
+          }
+        </ul>
+      }
+    </section>
+
+    <section class="xp-articulation" [attr.aria-label]="i18n.t('experience.hub.articulation.title')">
+      <header class="xp-articulation-head">
+        <h2 class="xp-section-title">{{ i18n.t('experience.hub.articulation.title') }}</h2>
+        <p>{{ i18n.t('experience.hub.articulation.aside') }}</p>
+      </header>
+      <div class="xp-strip">
+        <article class="xp-strip-node">
+          <h3>{{ i18n.t('nav.business_apps') }}</h3>
+          <p>{{ i18n.t('experience.hub.articulation.app.body') }}</p>
+        </article>
+        <div class="xp-strip-link">
+          <span>{{ i18n.t('experience.hub.articulation.bindings') }}</span>
+          <ck-help id="concept.binding" />
+        </div>
+        <article class="xp-strip-node">
+          <h3>{{ i18n.t('experience.hub.articulation.systems.title') }}</h3>
+          <p>{{ i18n.t('experience.hub.articulation.systems.body') }}</p>
+        </article>
+        <div class="xp-strip-link">
+          <span>{{ i18n.t('experience.hub.articulation.anchored') }}</span>
+        </div>
+        <article class="xp-strip-node">
+          <h3>{{ i18n.t('nav.knowledge') }}</h3>
+          <p>{{ i18n.t('experience.hub.articulation.knowledge.body') }}</p>
+        </article>
+      </div>
+    </section>
+  </div>
+</ck-page-frame>

@@ -1,0 +1,2627 @@
+import { ForecastActualsComponent } from './forecast-actuals.component';
+import { ScheduledMonitoringComponent } from './scheduled-monitoring.component';
+import { ClassificationEvidenceComponent } from "./classification-evidence.component";
+import { EvaluationEvidenceComponent } from "./evaluation-evidence.component";
+import { PreprocessingEvidenceComponent } from './preprocessing-evidence.component';
+import { fittedPreparation } from './preprocessing-evidence.vm';
+import { ExplanationEvidenceComponent } from "./explanation-evidence.component";
+/**
+ * Model card — the evidence, the contract, the lineage and the settings.
+ *
+ * One request serves the whole page: the training worker already folded the
+ * metrics, the curves, the class balance, the permutation importances and the
+ * input contract into the row, so there is nothing to compute per tab and
+ * nothing to fetch when the user switches one.
+ *
+ * The Results tab is the "this is an ML platform" moment, and it is arranged as
+ * an argument rather than as a dashboard: the class balance sits *next to* the
+ * scores because an 82% accuracy on a 4% churn rate is not a result; the
+ * confusion matrix is shaded by row so the mistake that matters — the churner
+ * called loyal — cannot be hidden by the majority class; and the importances
+ * name what the model actually leaned on.
+ *
+ * Promotion is the one write that changes behaviour elsewhere: a lineage serves
+ * exactly one version, and it is chosen here, by hand. Retraining never steals
+ * that place.
+ */
+import { TuningEvidenceComponent } from './tuning-evidence.component';
+import { DistillationEvidenceComponent } from './distillation-evidence.component';
+import { ClusteringEvidenceComponent } from './clustering-evidence.component';
+import { DriftEvidenceComponent } from './drift-evidence.component';
+import { ShadowEvidenceComponent } from './shadow-evidence.component';
+import type { ShadowReport } from './shadow-evidence.vm';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  OnInit,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { HttpErrorResponse } from '@angular/common/http';
+import { ActivatedRoute, Router } from '@angular/router';
+import { ZoomContextService } from '@app/core/zoom-context.service';
+import { ToastrService } from 'ngx-toastr';
+import { IconComponent } from '@app/shared/ui/icon.component';
+import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
+import {
+  CkObjectHeaderComponent,
+  type CkObjectKpi,
+} from '@app/shared/cockpit/object-header.component';
+import { CkTabComponent, CkTabsComponent } from '@app/shared/cockpit/tabs.component';
+import { formatBytes } from '@app/shared/ui/data-table.vm';
+import { I18nService } from '@app/core/i18n.service';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { DataService, type DatasetDto } from '@app/features/data/data.service';
+import { ModelPlaygroundComponent } from './model-playground.component';
+import { TabularIntervalsComponent } from './tabular-intervals.component';
+import { ModelTrainComponent, type TrainSeed } from './model-train.component';
+import { ModelsService, isModelActive, type ModelDetailDto } from './models.service';
+import { BarListComponent } from '@app/features/data/viz/bar-list.component';
+import { ConfusionMatrixComponent } from '@app/features/data/viz/confusion-matrix.component';
+import {
+  CurveChartComponent,
+  type CurveReference,
+} from '@app/features/data/viz/curve-chart.component';
+import {
+  confusionView,
+  curveDomain,
+  type ConfusionCell,
+  type CurvePoint,
+  type VizBar,
+} from '@app/features/data/viz/viz.vm';
+import { ForecastChartComponent } from '@app/features/data/viz/forecast-chart.component';
+import { forecastChartSeries, formatForecastStamp } from '@app/features/data/viz/forecast-chart.vm';
+import {
+  acfBars,
+  anatomyFacts,
+  baselineGain,
+  coverageTone,
+  excursionsOf,
+  seriesAnalysis,
+  frequencyKey,
+  groupShareBars,
+  horizonBars,
+  lagBars,
+  isForecast,
+  plottedSeries,
+  seriesBars,
+  seriesEvidence,
+  type ForecastMetrics,
+} from './forecast.vm';
+import {
+  aucTrace,
+  balanceBars,
+  comparisonPair,
+  comparisonRows,
+  compareErrorKey,
+  driftBars,
+  formatMetric,
+  higherIsBetter,
+  importanceBars,
+  metricDelta,
+  metricTone,
+  monitorTone,
+  pipelineHops,
+  previousVersion,
+  primaryScore,
+  splitError,
+  trainChecklist,
+  trainingErrorKey,
+  type ComparisonDto,
+  type ComparisonMetricRow,
+  type ComparisonRow,
+  type CvBlock,
+  type MetricTone,
+  type ModelDto,
+  type MonitoringReport,
+  type PipelineChip,
+  type ServingBlock,
+  type SignatureField,
+} from './models.vm';
+
+const POLL_INTERVAL_MS = 1500;
+
+/** The shape every chart on this page shares. A ROC squashed flat lies. */
+const CHART_ASPECT = 300 / 190;
+
+@Component({
+  selector: 'app-model-view',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    ClassificationEvidenceComponent,
+    EvaluationEvidenceComponent,
+    PreprocessingEvidenceComponent,
+    ExplanationEvidenceComponent,
+    NavLinkDirective,
+    CkBackLinkComponent,
+    IconComponent,
+    EmptyStateComponent,
+    CkObjectHeaderComponent,
+    CkTabsComponent,
+    CkTabComponent,
+    ModelPlaygroundComponent,
+    TabularIntervalsComponent,
+    ModelTrainComponent,
+    BarListComponent,
+    ConfusionMatrixComponent,
+    CurveChartComponent,
+    TuningEvidenceComponent,
+    DistillationEvidenceComponent,
+    ClusteringEvidenceComponent,
+    DriftEvidenceComponent,
+    ShadowEvidenceComponent,
+    ForecastActualsComponent,
+    ScheduledMonitoringComponent,
+    ForecastChartComponent,
+  ],
+  template: `
+    <ck-back-link />
+
+    @if (model(); as row) {
+      <ck-object-header
+        [eyebrow]="eyebrow(row)"
+        [title]="row.name"
+        [subtitle]="subtitle(row)"
+        [kpis]="kpis()"
+      >
+        <div status class="flex items-center gap-1.5">
+          <!-- Which version this page is. Every other version of the lineage
+               shares this page's title, so without it the reader has to open the
+               Versions tab to learn whether they are looking at the one that
+               serves. -->
+          <span class="ck-badge ck-mono" data-testid="hero-version">
+            {{ i18n.t('models.versions.label', { version: row.version }) }}
+          </span>
+          @if (row.is_champion) {
+            <span class="ck-badge ck-badge--champion ck-mono">
+              <app-icon name="crown" [size]="10" /> {{ i18n.t('models.detail.serving') }}
+            </span>
+          } @else if (row.id === challengerId()) {
+            <!-- The other half of champion/challenger, and the same fact the
+                 registry alias records: this is what promotion would serve. -->
+            <span
+              class="ck-badge ck-badge--challenger ck-mono"
+              [title]="i18n.t('models.detail.challenger_hint')"
+            >
+              <app-icon name="medal" [size]="10" />
+              {{ i18n.t('models.detail.challenger') }}
+            </span>
+          }
+          <span
+            class="ck-badge ck-mono"
+            [class.ck-badge--warn]="row.status === 'failed'"
+            [class.ck-badge--live]="isActive(row)"
+          >
+            {{ i18n.t('models.status.' + row.status) }}
+          </span>
+        </div>
+        <div actions class="flex items-center gap-1.5 flex-wrap">
+          @if (row.status === 'ready' && !row.is_champion) {
+            <button
+              type="button"
+              class="ck-cta inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+              data-testid="promote-serving"
+              [title]="i18n.t('models.detail.promote_hint')"
+              (click)="promote()"
+            >
+              <app-icon name="crown" [size]="14" />
+              {{ i18n.t('models.detail.promote', { version: row.version }) }}
+            </button>
+          }
+          @if (isActive(row)) {
+            <button
+              type="button"
+              class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
+              [disabled]="row.cancel_requested"
+              (click)="cancel()"
+            >
+              <app-icon name="square" [size]="14" /> {{ i18n.t('models.detail.cancel') }}
+            </button>
+          } @else {
+            <button
+              type="button"
+              class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
+              (click)="retrain()"
+            >
+              <app-icon name="refresh-cw" [size]="14" /> {{ i18n.t('models.detail.retrain') }}
+            </button>
+          }
+          <button
+            type="button"
+            class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
+            (click)="remove()"
+          >
+            <app-icon name="trash-2" [size]="14" /> {{ i18n.t('models.detail.delete') }}
+          </button>
+        </div>
+      </ck-object-header>
+
+      @if (pipeline().length) {
+        <nav
+          class="ck-provenance"
+          [attr.aria-label]="i18n.t('models.detail.provenance')"
+        >
+          <span class="ck-provenance__label">{{ i18n.t('models.detail.provenance') }}</span>
+          <ol class="ck-lineage" data-testid="provenance-chain">
+            @for (hop of pipeline(); track hop.kind + hop.id) {
+              <li class="ck-lineage__item">
+                <a
+                  [navLink]="hop.link"
+                  class="ck-lineage__link"
+                  [attr.data-kind]="hop.kind"
+                  [attr.data-current]="hop.current"
+                >
+                  {{ hop.label }}
+                </a>
+              </li>
+            }
+          </ol>
+        </nav>
+      }
+
+      @if (row.system_id; as systemId) {
+        <nav class="ck-provenance" [attr.aria-label]="i18n.t('models.detail.origin_system')">
+          <span class="ck-provenance__label">{{ i18n.t('models.detail.origin_system') }}</span>
+          <ol class="ck-lineage" data-testid="origin-system">
+            <li class="ck-lineage__item">
+              <a [navLink]="{ type: 'system', ref: systemId }" class="ck-lineage__link" data-kind="system">
+                {{ i18n.t('models.detail.system_chip') }}
+              </a>
+            </li>
+            @if (row.run_id; as runId) {
+              <li class="ck-lineage__item">
+                <a [navLink]="{ type: 'run', ref: runId }" class="ck-lineage__link" data-kind="run">
+                  {{ i18n.t('models.detail.run_chip') }} <em>{{ runId.slice(0, 8) }}</em>
+                </a>
+              </li>
+            }
+          </ol>
+        </nav>
+      }
+
+      @if (isActive(row)) {
+        <div class="ck-progress rounded-md px-4 py-3 mb-3">
+          <div class="flex items-center gap-2 text-sm" style="color: var(--ck-fg-1)">
+            <app-icon name="loader-2" [size]="14" class="animate-spin" />
+            {{ i18n.t('models.detail.progress.title') }}
+          </div>
+          <ol class="ck-steps" data-testid="train-checklist">
+            @for (step of checklist(); track step.step) {
+              <li class="ck-steps__item" [attr.data-state]="step.state">
+                @if (step.state === 'done') {
+                  <app-icon name="check" [size]="11" class="shrink-0" />
+                } @else if (step.state === 'active') {
+                  <span class="ck-pulse shrink-0"></span>
+                } @else {
+                  <span class="ck-steps__dot shrink-0"></span>
+                }
+                <span class="truncate">{{ i18n.t(step.key, step.params) }}</span>
+              </li>
+            }
+          </ol>
+        </div>
+      } @else if (row.status === 'failed') {
+        <div class="ck-error rounded-md px-4 py-3 mb-3">
+          <div class="text-sm font-medium" style="color: var(--ck-signal-neg)">
+            {{ i18n.t('models.detail.error.title') }}
+          </div>
+          <div class="text-[12px] mt-1" style="color: var(--ck-fg-2)">{{ errorSentence() }}</div>
+          @if (errorDetail(); as detail) {
+            <code class="text-[11px] block mt-1" style="color: var(--ck-fg-4)">{{ detail }}</code>
+          }
+        </div>
+      }
+
+      <ck-tabs [active]="tab()" (activeChange)="onTabChange($event)">
+        <!-- ── Results ──────────────────────────────────────────────────── -->
+        <ck-tab id="evidence" [label]="i18n.t('models.detail.tab.evidence')">
+          @if (row.task === 'clustering') {
+            <ck-clustering-evidence [evidence]="row.metrics?.clustering" />
+          } @else if (!scores().length) {
+            <app-empty-state icon="brain" [title]="i18n.t('models.evidence.none')" />
+          } @else {
+            <div class="space-y-4">
+              <section>
+                <div class="ck-section-label">
+                  {{ i18n.t(forecast() ? 'models.evidence.scores.forecast' : 'models.evidence.scores') }}
+                </div>
+                <div class="ck-scores">
+                  @for (score of scores(); track score.key) {
+                    <div class="ck-score-card" [title]="i18n.t('models.metric.' + score.key + '.hint')">
+                      <div class="ck-score-card__value">
+                        {{ score.display }}
+                      </div>
+                      <div class="ck-score-card__label">
+                        {{ i18n.t('models.metric.' + score.key) }}
+                      </div>
+                      @if (score.delta; as delta) {
+                        <div
+                          class="ck-delta ck-mono"
+                          [attr.data-move]="delta.flat ? 'flat' : delta.better ? 'up' : 'down'"
+                          [title]="deltaTitle()"
+                        >
+                          {{ delta.display }}
+                        </div>
+                      }
+                    </div>
+                  }
+                </div>
+                <div class="flex items-baseline gap-2 flex-wrap mt-2">
+                  @if (rowsLine(); as line) {
+                    <span class="text-[11px] ck-mono" style="color: var(--ck-fg-4)">{{ line }}</span>
+                  }
+                  @if (against(); as earlier) {
+                    <a
+                      [navLink]="{ leaf: 'model-doc', ref: earlier.id }"
+                      class="text-[11px] ck-mono transition"
+                      style="color: var(--ck-fg-4)"
+                    >
+                      {{ deltaTitle() }}
+                    </a>
+                  }
+                </div>
+              </section>
+
+              <ck-tuning-evidence [result]="row.metrics?.tuning" />
+              <ck-distillation-evidence [evidence]="row.metrics?.distillation" />
+
+              @if (forecast(); as fm) {
+                <section class="ck-chart" data-testid="forecast-evidence">
+                  <div class="flex items-center justify-between gap-2 flex-wrap">
+                    <div class="ck-section-label">{{ i18n.t('models.evidence.forecast') }}</div>
+                    @if (forecastSeriesNames().length > 1) {
+                      <select
+                        class="ck-series-pick ck-mono"
+                        [attr.aria-label]="i18n.t('models.evidence.forecast.series')"
+                        [value]="forecastSeries()"
+                        (change)="forecastPick.set($any($event.target).value)"
+                      >
+                        @for (name of forecastSeriesNames(); track name) {
+                          <option [value]="name">{{ name }}</option>
+                        }
+                      </select>
+                    }
+                  </div>
+                  <ck-forecast-chart
+                    [series]="forecastChart()"
+                    [frequency]="fm.forecast?.frequency"
+                    [locale]="i18n.locale()"
+                    [label]="i18n.t('models.evidence.forecast')"
+                    [names]="forecastNames()"
+                    [format]="valueFormat"
+                  />
+                  <div class="flex items-center gap-1.5 flex-wrap mt-2">
+                    @if (forecastGain(); as gain) {
+                      <span class="ck-fold ck-mono" [attr.data-tone]="gain.tone">{{ gain.text }}</span>
+                    }
+                    @if (forecastCoverage(); as coverage) {
+                      <span class="ck-fold ck-mono" [attr.data-tone]="coverage.tone">{{ coverage.text }}</span>
+                    }
+                    <span class="ck-fold ck-mono">{{ forecastSetup() }}</span>
+                    @if (fm.forecast?.filled_steps) {
+                      <span class="ck-fold ck-mono" data-tone="warn">
+                        {{
+                          i18n.t('models.evidence.forecast.filled', {
+                            count: fm.forecast?.filled_steps ?? 0,
+                            fill: i18n.t('models.spec.fill.' + (fm.forecast?.fill ?? 'interpolate'))
+                          })
+                        }}
+                      </span>
+                    }
+                  </div>
+                  <div class="ck-hint mt-1.5">
+                    {{ i18n.t('models.evidence.forecast.hint', { level: percent(fm.forecast?.interval_level ?? 0.8) }) }}
+                  </div>
+                </section>
+                <div class="ck-charts">
+                  @if (forecastHorizonBars().length) {
+                    <section class="ck-chart">
+                      <div class="ck-section-label">{{ i18n.t('models.evidence.horizon') }}</div>
+                      <ck-bar-list [bars]="forecastHorizonBars()" />
+                      <div class="ck-hint">{{ i18n.t('models.evidence.horizon.hint') }}</div>
+                    </section>
+                  }
+                  @if (forecastSeriesBars().length) {
+                    <section class="ck-chart">
+                      <div class="ck-section-label">{{ i18n.t('models.evidence.series') }}</div>
+                      <ck-bar-list [bars]="forecastSeriesBars()" />
+                      <div class="ck-hint">{{ i18n.t('models.evidence.series.hint') }}</div>
+                    </section>
+                  }
+                </div>
+
+                <!-- What it leans on: families, then the past it repeats. A
+                     statistical model is its parameters; the naive, its season. -->
+                @if (fm.explanation; as ex) {
+                  <section data-testid="forecast-explanation">
+                    <div class="ck-section-label">{{ i18n.t('models.explain.title') }}</div>
+                    @if (ex.method === 'shap' || ex.method === 'shap-approximate' || ex.method === 'permutation') {
+                      <div class="ck-charts">
+                        <section class="ck-chart">
+                          <div class="ck-section-label">{{ i18n.t('models.explain.groups') }}</div>
+                          <ck-bar-list [bars]="explainGroupBars()" />
+                          <div class="ck-hint">{{ i18n.t('models.explain.groups.hint') }}</div>
+                        </section>
+                        @if (explainLagBars().length) {
+                          <section class="ck-chart">
+                            <div class="ck-section-label">{{ i18n.t('models.explain.lags') }}</div>
+                            <ck-bar-list [bars]="explainLagBars()" />
+                            <div class="ck-hint">
+                              {{ i18n.t('models.explain.lags.hint') }}
+                              @if (ex.step) { {{ i18n.t('models.explain.step') }} }
+                            </div>
+                          </section>
+                        }
+                      </div>
+                      @if (ex.method === 'shap-approximate') {
+                        <div class="ck-hint">{{ i18n.t('models.explain.approximate') }}</div>
+                      }
+                    } @else if (ex.method === 'model') {
+                      <div class="flex items-center gap-1.5 flex-wrap">
+                        <span class="ck-fold ck-mono">{{ ex.name }}</span>
+                        @if (ex.aic !== null && ex.aic !== undefined) {
+                          <span class="ck-fold ck-mono">{{ i18n.t('models.explain.model.aic', { aic: valueFormat(ex.aic) }) }}</span>
+                        }
+                        @for (param of ex.parameters ?? []; track param.name) {
+                          <span class="ck-fold ck-mono">{{ param.name }} {{ param.value === null ? '—' : valueFormat(param.value) }}</span>
+                        }
+                      </div>
+                      <div class="ck-hint">{{ i18n.t('models.explain.model.hint') }}</div>
+                    } @else if (ex.method === 'naive') {
+                      <div class="ck-hint">{{ i18n.t('models.explain.naive', { season: ex.season ?? 0 }) }}</div>
+                    } @else {
+                      <div class="ck-hint">{{ i18n.t('models.explain.unavailable') }}</div>
+                    }
+                  </section>
+                }
+
+                @if (anatomy(); as an) {
+                  <section data-testid="forecast-analysis">
+                    <div class="ck-section-label">{{ i18n.t('models.analysis.title') }}</div>
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                      @for (fact of anatomyFacts(); track fact.key) {
+                        <span class="ck-fold ck-mono" [attr.data-tone]="fact.tone">{{ fact.text }}</span>
+                      }
+                    </div>
+                    @if (acfBars().length) {
+                      <section class="ck-chart mt-2">
+                        <div class="ck-section-label">{{ i18n.t('models.analysis.acf') }}</div>
+                        <ck-bar-list [bars]="acfBars()" />
+                        @if (an.suggested_lags?.length) {
+                          <div class="ck-hint ck-mono">
+                            {{ i18n.t('models.analysis.suggested', { lags: (an.suggested_lags ?? []).join(', ') }) }}
+                          </div>
+                        }
+                        <div class="ck-hint">{{ i18n.t('models.analysis.acf.hint') }}</div>
+                      </section>
+                    }
+                    <div class="ck-hint">{{ i18n.t('models.analysis.hint') }}</div>
+                  </section>
+                }
+
+                @if (fm.diagnostic; as diag) {
+                  <section data-testid="forecast-diagnostic">
+                    <div class="ck-section-label">{{ i18n.t('models.diagnostic.title') }}</div>
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                      @for (score of diag.scores; track score.key) {
+                        <span class="ck-fold ck-mono">
+                          {{ i18n.t('models.metric.' + score.key) }} {{ formatMetric(score.key, score.value) }}
+                        </span>
+                      }
+                    </div>
+                    @if (diag.curves.fit.length) {
+                      <div class="ck-charts mt-2">
+                      <section class="ck-chart">
+                        <div class="ck-section-label">{{ i18n.t('models.diagnostic.fit') }}</div>
+                        <ck-curve-chart
+                          [points]="diag.curves.fit"
+                          [aspect]="chart"
+                          [domain]="diagnosticDomain()"
+                          [reference]="diagnosticIdentity()"
+                          [label]="i18n.t('models.diagnostic.fit')"
+                          [xLabel]="i18n.t('models.evidence.fit.x')"
+                          [yLabel]="i18n.t('models.evidence.fit.y')"
+                          [pointLabel]="describeFit"
+                        />
+                      </section>
+                      </div>
+                    }
+                    <div class="ck-hint">
+                      {{
+                        i18n.t('models.diagnostic.hint', {
+                          train: diag.rows.train.toLocaleString(i18n.locale()),
+                          test: diag.rows.test.toLocaleString(i18n.locale())
+                        })
+                      }}
+                    </div>
+                  </section>
+                }
+
+                @if (excursions().length) {
+                  <section data-testid="forecast-excursions">
+                    <div class="ck-section-label">{{ i18n.t('models.excursions.title') }}</div>
+                    <ul class="ck-excursions">
+                      @for (point of excursions(); track point.t + point.series) {
+                        <li>
+                          <span class="ck-mono">{{ point.series }}</span>
+                          <span class="ck-mono">{{ stampOf(point.t) }}</span>
+                          <span [attr.data-side]="point.side">
+                            {{
+                              i18n.t('models.excursions.' + point.side, {
+                                actual: valueFormat(point.actual ?? 0),
+                                bound: valueFormat((point.side === 'above' ? point.upper : point.lower) ?? 0)
+                              })
+                            }}
+                          </span>
+                        </li>
+                      }
+                    </ul>
+                    <div class="ck-hint">
+                      {{
+                        i18n.t('models.excursions.hint', {
+                          count: fm.excursions?.count ?? 0,
+                          share: percent(fm.excursions?.share ?? 0)
+                        })
+                      }}
+                    </div>
+                  </section>
+                }
+              }
+
+              <ck-tabular-intervals [intervals]="model()?.metrics?.intervals" />
+              <section data-testid="artifact-contract">
+                <div class="ck-section-label">{{ i18n.t('models.artifact.contract_title') }}</div>
+                <p class="ck-hint">{{ i18n.t(row.metrics?.artifact?.contract_version === 1 ? 'models.artifact.contract_recorded' : 'models.artifact.contract_legacy') }}</p>
+              </section>
+              @if (row.family === 'tabular' || row.family === 'tabular_deep' || !row.family) {
+                <ck-preprocessing-evidence [evidence]="row.metrics?.preprocessing" />
+              }
+              @if (row.family === 'tabular' || !row.family) {
+                <ck-evaluation-evidence [metrics]="row.metrics ?? null" [modelId]="row.id" />
+              }
+              <div class="ck-charts">
+                <ck-classification-evidence [calibration]="calibration()" [decision]="decision()" [warnings]="classificationWarnings()" />
+                <ck-explanation-evidence [evidence]="explanations()" [regression]="row.task === 'regression'" />
+                @if (roc().length) {
+                  <section class="ck-chart">
+                    <div class="ck-section-label">{{ i18n.t('models.evidence.roc') }}</div>
+                    <ck-curve-chart
+                      [points]="roc()"
+                      [aspect]="chart"
+                      [reference]="DIAGONAL"
+                      [fill]="true"
+                      [label]="i18n.t('models.evidence.roc')"
+                      [xLabel]="i18n.t('models.evidence.roc.x')"
+                      [yLabel]="i18n.t('models.evidence.roc.y')"
+                      [pointLabel]="describeRoc"
+                    />
+                    <div class="ck-hint">{{ i18n.t('models.evidence.roc.hint') }}</div>
+                  </section>
+                }
+                @if (pr().length) {
+                  <section class="ck-chart">
+                    <div class="ck-section-label">{{ i18n.t('models.evidence.pr') }}</div>
+                    <ck-curve-chart
+                      [points]="pr()"
+                      [aspect]="chart"
+                      [reference]="prevalence()"
+                      [label]="i18n.t('models.evidence.pr')"
+                      [xLabel]="i18n.t('models.evidence.pr.x')"
+                      [yLabel]="i18n.t('models.evidence.pr.y')"
+                      [pointLabel]="describePr"
+                    />
+                    <div class="ck-hint">{{ i18n.t('models.evidence.pr.hint') }}</div>
+                  </section>
+                }
+                @if (fit().length) {
+                  <section class="ck-chart">
+                    <div class="ck-section-label">{{ i18n.t('models.evidence.fit') }}</div>
+                    <ck-curve-chart
+                      [points]="fit()"
+                      [aspect]="chart"
+                      [domain]="fitDomain()"
+                      [reference]="identity()"
+                      [label]="i18n.t('models.evidence.fit')"
+                      [xLabel]="i18n.t('models.evidence.fit.x')"
+                      [yLabel]="i18n.t('models.evidence.fit.y')"
+                      [pointLabel]="describeFit"
+                    />
+                    <div class="ck-hint">{{ i18n.t('models.evidence.fit.hint') }}</div>
+                  </section>
+                }
+                @if (confusion()) {
+                  <section class="ck-chart">
+                    <div class="ck-section-label">{{ i18n.t('models.evidence.confusion') }}</div>
+                    <ck-confusion-matrix
+                      [view]="confusion()"
+                      [label]="i18n.t('models.evidence.confusion')"
+                      [actualLabel]="i18n.t('models.evidence.confusion.actual')"
+                      [predictedLabel]="i18n.t('models.evidence.confusion.predicted')"
+                      [format]="countFormat"
+                      [shareFormat]="cellShare"
+                      [describe]="cellDescription"
+                    />
+                    <div class="ck-hint">{{ i18n.t('models.evidence.confusion.hint') }}</div>
+                  </section>
+                }
+                @if (balance().length) {
+                  <section class="ck-chart">
+                    <div class="ck-section-label">{{ i18n.t('models.evidence.balance') }}</div>
+                    <ck-bar-list [bars]="balanceBars()" />
+                    <div class="ck-hint">{{ i18n.t('models.evidence.balance.hint') }}</div>
+                  </section>
+                }
+              </div>
+
+              @if (importances().length && !forecast()) {
+                <section>
+                  <div class="ck-section-label">{{ i18n.t('models.evidence.importances') }}</div>
+                  <ck-bar-list [bars]="importanceBars()" />
+                  <div class="ck-hint">{{ i18n.t('models.evidence.importances.hint') }}</div>
+                </section>
+              }
+
+              @if (cv(); as folds) {
+                <section>
+                  <div class="ck-section-label">{{ i18n.t('models.evidence.cv') }}</div>
+                  @if (folds.error) {
+                    <div class="text-[11px] ck-mono" style="color: var(--ck-signal-warn)">
+                      {{ i18n.t('models.evidence.cv.failed') }}
+                    </div>
+                  } @else {
+                    <div class="text-[12px] ck-mono" style="color: var(--ck-fg-2)">
+                      {{ cvSummary(folds) }}
+                    </div>
+                    <div class="flex items-center gap-1.5 flex-wrap mt-1.5">
+                      @for (row of folds.metrics ?? []; track row.key) {
+                        <span class="ck-fold ck-mono">
+                          {{ i18n.t('models.metric.' + row.key) }}
+                          {{ formatMetric(row.key, row.mean) }}
+                          @if (row.std !== null && row.std !== undefined) {
+                            <span style="color: var(--ck-fg-3)"
+                              >± {{ formatMetric(row.key, row.std) }}</span
+                            >
+                          }
+                        </span>
+                      }
+                    </div>
+                  }
+                </section>
+              }
+
+              @if (dropped().length) {
+                <section>
+                  <div class="ck-section-label">{{ i18n.t('models.evidence.dropped') }}</div>
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    @for (column of dropped(); track column.name) {
+                      <span class="ck-fold ck-mono">
+                        {{
+                          i18n.t('models.evidence.dropped.' + column.reason, { name: column.name })
+                        }}
+                      </span>
+                    }
+                  </div>
+                </section>
+              }
+            </div>
+          }
+        </ck-tab>
+
+        <!-- ── Playground ──────────────────────────────────────────────────── -->
+        <ck-tab id="play" [label]="i18n.t('models.detail.tab.play')">
+          @if (serving(); as plane) {
+            <app-model-playground
+              [model]="row"
+              [serving]="plane"
+              (servingChange)="serving.set($event)"
+              (changed)="reload()"
+            />
+          }
+        </ck-tab>
+
+        <!-- ── Comparison ──────────────────────────────────────────────────── -->
+        @if (row.task !== 'clustering') {
+        <ck-tab id="compare" [label]="i18n.t('models.detail.tab.compare')">
+          @if (!comparison().length) {
+            <app-empty-state
+              icon="git-compare"
+              [title]="i18n.t('models.compare.none.title')"
+              [description]="i18n.t('models.compare.none.description')"
+            />
+          } @else {
+            <div class="space-y-3">
+              <div class="ck-hint">{{ i18n.t('models.compare.hint') }}</div>
+              <div class="ck-versus">
+                @for (side of sides(); track side.id) {
+                  <div class="ck-versus__side" [attr.data-role]="side.role">
+                    <div class="ck-section-label">
+                      {{ i18n.t('models.versions.label', { version: side.version }) }}
+                    </div>
+                    <div class="text-[12px]" style="color: var(--ck-fg-1)">{{ side.name }}</div>
+                    <div class="text-[10.5px] ck-mono" style="color: var(--ck-fg-4)">
+                      {{ side.line }}
+                    </div>
+                  </div>
+                }
+              </div>
+              <div class="ck-surface rounded-md ck-h-scroll">
+                <table class="w-full text-sm ck-schema">
+                  <thead>
+                    <tr>
+                      <th class="ck-schema__th">{{ i18n.t('models.compare.metric') }}</th>
+                      <th class="ck-schema__th">{{ i18n.t('models.compare.before') }}</th>
+                      <th class="ck-schema__th">{{ i18n.t('models.compare.after') }}</th>
+                      <th class="ck-schema__th">{{ i18n.t('models.compare.move') }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (line of comparison(); track line.key) {
+                      <tr class="ck-schema__tr">
+                        <td class="ck-schema__td">{{ i18n.t('models.metric.' + line.key) }}</td>
+                        <td
+                          class="ck-schema__td ck-mono"
+                          [class.ck-versus__win]="line.winner === 'left'"
+                        >
+                          {{ line.left }}
+                        </td>
+                        <td
+                          class="ck-schema__td ck-mono"
+                          [class.ck-versus__win]="line.winner === 'right'"
+                        >
+                          {{ line.right }}
+                        </td>
+                        <td class="ck-schema__td">
+                          @if (line.delta; as delta) {
+                            <span
+                              class="ck-delta ck-mono"
+                              [attr.data-move]="
+                                delta.flat ? 'flat' : delta.better ? 'up' : 'down'
+                              "
+                            >
+                              {{ delta.display }}
+                            </span>
+                          }
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              @if (verdict(); as sentence) {
+                <div class="text-[12px]" style="color: var(--ck-fg-2)">{{ sentence }}</div>
+              }
+
+              <!-- Same rows: skore's joint table, on request -->
+              <section class="pt-1">
+                <div class="ck-section-label">{{ i18n.t('models.compare.same.title') }}</div>
+                <div class="ck-hint">{{ i18n.t('models.compare.same.hint') }}</div>
+                @if (!sameRows()) {
+                  <button
+                    type="button"
+                    class="ck-btn-primary inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium mt-2"
+                    [disabled]="scoring()"
+                    (click)="scoreOnTheSameRows()"
+                  >
+                    <app-icon name="scale" [size]="14" />
+                    {{
+                      scoring()
+                        ? i18n.t('models.compare.same.running')
+                        : i18n.t('models.compare.same.action')
+                    }}
+                  </button>
+                } @else if (sameRows(); as joint) {
+                  <div class="mt-2 space-y-2">
+                    <div class="ck-hint" data-testid="comparison-verification">{{ i18n.t(joint.split.verified ? 'models.compare.same.verified' : 'models.compare.same.unverified') }}</div>
+                    <div class="text-[11px] ck-mono" style="color: var(--ck-fg-3)">
+                      {{
+                        i18n.t('models.compare.same.provenance', {
+                          rows: joint.split.rows,
+                          dataset: joint.dataset.name,
+                          version: joint.dataset.version,
+                        })
+                      }}
+                    </div>
+                    @for (caveat of joint.warnings; track caveat.code + caveat.model_id) {
+                      <div
+                        class="text-[11px] ck-mono"
+                        style="color: var(--ck-signal-warn)"
+                      >
+                        {{ i18n.t('models.compare.same.warn.' + caveat.code) }}
+                      </div>
+                    }
+                    <div class="ck-surface rounded-md ck-h-scroll">
+                      <table class="w-full text-sm ck-schema">
+                        <thead>
+                          <tr>
+                            <th class="ck-schema__th">
+                              {{ i18n.t('models.compare.metric') }}
+                            </th>
+                            @for (side of joint.models; track side.model_id) {
+                              <th class="ck-schema__th">
+                                {{
+                                  i18n.t('models.versions.label', {
+                                    version: side.version,
+                                  })
+                                }}
+                              </th>
+                            }
+                          </tr>
+                        </thead>
+                        <tbody>
+                          @for (line of joint.metrics; track line.key) {
+                            <tr class="ck-schema__tr">
+                              <td
+                                class="ck-schema__td"
+                                [title]="i18n.t('models.metric.' + line.key + '.hint')"
+                              >
+                                {{ i18n.t('models.metric.' + line.key) }}
+                              </td>
+                              @for (side of joint.models; track side.model_id) {
+                                <td
+                                  class="ck-schema__td ck-mono"
+                                  [class.ck-versus__win]="
+                                    sameRowsWinner(line, side.model_id)
+                                  "
+                                >
+                                  {{ sameRowsCell(line, side.model_id) }}
+                                </td>
+                              }
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                }
+              </section>
+            </div>
+          }
+        </ck-tab>
+
+        <!-- ── Monitoring ──────────────────────────────────────────────────── -->
+        }
+        @if (row.task !== 'clustering') {
+        <ck-tab id="monitor" [label]="i18n.t('models.detail.tab.monitor')">
+          <ck-scheduled-monitoring [evidence]="monitoring()?.scheduled" [modelId]="row.id" [version]="row.version" (changed)="onScheduledChanged($event)" (refresh)="reload()" />
+          @if (row.task === 'forecasting') {
+            <ck-forecast-actuals [evidence]="monitoring()?.forecast_actuals" [modelId]="row.id" (changed)="onScheduledChanged($event)" (refresh)="reload()" />
+          } @else {
+          <ck-shadow-evidence [evidence]="monitoring()?.shadow" [modelId]="row.id" [version]="row.version" [task]="row.task"
+            (changed)="onShadowChanged($event)" (refresh)="reload()" />
+          @if (!monitoring() || !monitoring()!.window.predictions) {
+            <app-empty-state
+              icon="pulse"
+              [title]="i18n.t('models.monitor.empty.title')"
+              [description]="i18n.t('models.monitor.empty.description')"
+            />
+          } @else if (monitoring(); as report) {
+            <div class="space-y-3" data-testid="monitor-panel">
+              <div class="ck-hint">
+                {{
+                  i18n.t('models.monitor.window', {
+                    predictions: report.window.predictions,
+                    labeled: report.window.labeled,
+                  })
+                }}
+                @if (report.window.served_version != null) {
+                  · {{ i18n.t('models.monitor.tests.version', { version: report.window.served_version }) }}
+                }
+              </div>
+              <div class="ck-scores">
+                @for (card of monitorCards(); track card.key) {
+                  <div class="ck-score-card">
+                    <div class="ck-section-label">{{ card.label }}</div>
+                    <div class="ck-score-card__value" [attr.data-tone]="card.tone">
+                      {{ card.status }}
+                    </div>
+                  </div>
+                }
+              </div>
+              @if (monitorBars().length) {
+                <section>
+                  <div class="ck-section-label">{{ i18n.t('models.monitor.tests.psi') }}</div>
+                  <ck-bar-list [bars]="monitorBars()" />
+                </section>
+              }
+              <ck-drift-evidence [features]="report.data_drift.features" />
+              @if (monitorAuc().length) {
+                <section class="ck-chart">
+                  <div class="ck-section-label">{{ i18n.t('models.monitor.auc') }}</div>
+                  <ck-curve-chart
+                    [points]="monitorAuc()"
+                    [aspect]="chart"
+                    [label]="i18n.t('models.monitor.auc')"
+                    [xLabel]="i18n.t('models.monitor.auc.x')"
+                    [yLabel]="i18n.t('models.monitor.auc.y')"
+                  />
+                </section>
+              }
+              <section class="ck-surface rounded-md px-4 py-3">
+                <div class="ck-section-label">{{ i18n.t('models.monitor.feedback') }}</div>
+                <div class="ck-hint" style="margin-top: 0">
+                  {{ i18n.t('models.monitor.feedback.hint') }}
+                </div>
+                <div class="flex items-end gap-2 flex-wrap mt-3">
+                  <label class="ck-field">
+                    <span class="ck-field__name ck-mono">{{
+                      i18n.t('models.monitor.feedback.id')
+                    }}</span>
+                    <input
+                      type="text"
+                      class="ck-field__input"
+                      [value]="feedbackId() || models.lastPredictionId() || ''"
+                      (input)="feedbackId.set($any($event.target).value)"
+                    />
+                  </label>
+                  <label class="ck-field">
+                    <span class="ck-field__name ck-mono">{{
+                      i18n.t('models.monitor.feedback.label')
+                    }}</span>
+                    <input
+                      type="text"
+                      class="ck-field__input"
+                      [value]="feedbackLabel()"
+                      (input)="feedbackLabel.set($any($event.target).value)"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
+                    [disabled]="!canSendFeedback() || feedbackBusy()"
+                    (click)="sendFeedback()"
+                  >
+                    {{ i18n.t('models.monitor.feedback.submit') }}
+                  </button>
+                </div>
+                <div class="ck-hint">{{ i18n.t('models.monitor.dataset.hint') }}</div>
+                <div class="flex items-center gap-2 flex-wrap mt-2">
+                  <button
+                    type="button"
+                    class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
+                    [disabled]="feedbackBusy()"
+                    (click)="exportFeedback()"
+                  >
+                    {{ i18n.t('models.monitor.dataset') }}
+                  </button>
+                  @if (feedbackDataset(); as ds) {
+                    <button
+                      type="button"
+                      class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
+                      (click)="retrainFromFeedback()"
+                    >
+                      {{ i18n.t('models.monitor.retrain') }}
+                    </button>
+                    <a
+                      [navLink]="{ leaf: 'data-doc', ref: ds.id }"
+                      class="text-[11px] ck-mono"
+                      style="color: var(--ck-signal-cool)"
+                    >
+                      {{ ds.name }}
+                    </a>
+                  }
+                </div>
+              </section>
+            </div>
+          }
+          }
+        </ck-tab>
+        }
+
+        <!-- ── Input contract ──────────────────────────────────────────────── -->
+        <ck-tab id="contract" [label]="i18n.t('models.detail.tab.contract')">
+          @if (!fields().length) {
+            <app-empty-state icon="braces" [title]="i18n.t('models.evidence.none')" />
+          } @else {
+            <div class="space-y-4">
+              <div>
+                <div class="ck-section-label">{{ i18n.t('models.contract.title') }}</div>
+                <div class="ck-hint">{{ i18n.t('models.contract.hint') }}</div>
+              </div>
+              <div class="ck-surface rounded-md ck-h-scroll">
+                <table class="w-full text-sm ck-schema">
+                  <thead>
+                    <tr>
+                      <th class="ck-schema__th">{{ i18n.t('models.contract.field') }}</th>
+                      <th class="ck-schema__th">{{ i18n.t('models.contract.kind') }}</th>
+                      <th class="ck-schema__th">{{ i18n.t('models.contract.range') }}</th>
+                      <th class="ck-schema__th">{{ i18n.t('models.contract.default') }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (field of fields(); track field.name) {
+                      <tr class="ck-schema__tr">
+                        <td class="ck-schema__td ck-mono" style="color: var(--ck-fg-1)">
+                          {{ field.name }}
+                        </td>
+                        <td class="ck-schema__td">
+                          <span class="ck-kind">
+                            {{ i18n.t('models.contract.kind.' + field.kind) }}
+                          </span>
+                        </td>
+                        <td class="ck-schema__td ck-mono">{{ rangeOf(field) }}</td>
+                        <td class="ck-schema__td ck-mono">{{ defaultOf(field) }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              <div>
+                <div class="ck-section-label">{{ i18n.t('models.contract.output') }}</div>
+                <div class="text-[12px]" style="color: var(--ck-fg-2)">{{ outputLine() }}</div>
+              </div>
+              @if (example(); as sample) {
+                <div>
+                  <div class="ck-section-label">{{ i18n.t('models.contract.example') }}</div>
+                  <pre class="ck-code">{{ sample }}</pre>
+                </div>
+              }
+            </div>
+          }
+        </ck-tab>
+
+        <!-- ── Versions ─────────────────────────────────────────────────────── -->
+        <ck-tab id="versions" [label]="i18n.t('models.detail.tab.versions')">
+          <div class="space-y-2">
+            <div class="ck-hint">{{ i18n.t('models.versions.hint') }}</div>
+            <!-- The lineage as one line, oldest to newest. The list below says
+                 the same thing in more words; this says it in a shape, which is
+                 what makes "v3 is the third attempt and it is the one serving"
+                 legible without reading three rows. -->
+            @if (lineage().length > 1) {
+              <ol class="ck-lineage" data-testid="lineage-chain">
+                @for (link of lineage(); track link.id) {
+                  <li class="ck-lineage__item">
+                    <a
+                      [navLink]="{ leaf: 'model-doc', ref: link.id }"
+                      class="ck-lineage__link"
+                      [attr.data-current]="link.current"
+                      [attr.data-champion]="link.champion"
+                      [title]="link.hint"
+                    >
+                      @if (link.champion) {
+                        <app-icon name="crown" [size]="9" />
+                      }
+                      {{ i18n.t('models.versions.label', { version: link.version }) }}
+                      @if (link.score) {
+                        <em>{{ link.score }}</em>
+                      }
+                    </a>
+                  </li>
+                }
+              </ol>
+            }
+            <ul class="space-y-2">
+              @for (version of versions(); track version.id) {
+                <li>
+                  <a
+                    [navLink]="{ leaf: 'model-doc', ref: version.id }"
+                    class="flex items-center gap-3 ck-surface rounded-md px-4 py-2.5 transition ck-row"
+                  >
+                    <span class="ck-badge ck-mono">{{
+                      i18n.t('models.versions.label', { version: version.version })
+                    }}</span>
+                    @if (version.is_champion) {
+                      <span class="ck-badge ck-badge--champion ck-mono">
+                        <app-icon name="crown" [size]="9" /> {{ i18n.t('models.versions.serving') }}
+                      </span>
+                    } @else if (version.id === challengerId()) {
+                      <span class="ck-badge ck-badge--challenger ck-mono">
+                        <app-icon name="medal" [size]="9" />
+                        {{ i18n.t('models.versions.challenger') }}
+                      </span>
+                    }
+                    <span class="flex-1 text-[11px] ck-mono" style="color: var(--ck-fg-4)">
+                      {{ versionLine(version) }}
+                    </span>
+                    @if (scoreOf(version); as score) {
+                      <span class="ck-score-inline">
+                        {{ score.display }}
+                      </span>
+                    }
+                    @if (version.id === model()?.id) {
+                      <span class="ck-badge ck-badge--on ck-mono">
+                        {{ i18n.t('models.versions.current') }}
+                      </span>
+                    }
+                  </a>
+                </li>
+              }
+            </ul>
+          </div>
+        </ck-tab>
+
+        <!-- ── Settings ─────────────────────────────────────────────────────── -->
+        <ck-tab id="setup" [label]="i18n.t('models.detail.tab.setup')">
+          <div class="ck-surface rounded-md ck-h-scroll">
+            <table class="w-full text-sm ck-schema">
+              <tbody>
+                @for (entry of setup(); track entry.label) {
+                  <tr class="ck-schema__tr">
+                    <td class="ck-schema__td" style="width: 34%; color: var(--ck-fg-4)">
+                      {{ entry.label }}
+                    </td>
+                    <td class="ck-schema__td ck-mono" style="color: var(--ck-fg-1)">
+                      {{ entry.value }}
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+          @if (dataset(); as ds) {
+            <a
+              [navLink]="{ leaf: 'data-doc', ref: ds.id }"
+              class="inline-flex items-center gap-1.5 text-[11px] ck-mono mt-3 transition"
+              style="color: var(--ck-signal-cool)"
+            >
+              <app-icon name="table" [size]="12" /> {{ i18n.t('models.detail.dataset.open') }}
+            </a>
+          }
+        </ck-tab>
+      </ck-tabs>
+    } @else if (loading()) {
+      <div class="ck-surface rounded-md p-6 animate-pulse">
+        <div class="h-3 w-48 rounded" style="background: rgba(255,255,255,0.05)"></div>
+      </div>
+    } @else {
+      <!-- Not "no models yet": there are models, this id is not one of them.
+           The list's empty copy here offers to train one, which is not what a
+           reader who followed a stale link is trying to do. -->
+      <app-empty-state
+        icon="brain"
+        [title]="i18n.t('models.detail.gone.title')"
+        [description]="i18n.t('models.detail.gone.description')"
+      >
+        <a [navLink]="{ surface: 'models' }" class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm">
+          <app-icon name="chevron-left" [size]="13" /> {{ i18n.t('models.detail.back') }}
+        </a>
+      </app-empty-state>
+    }
+
+    @if (studioOpen()) {
+      <app-model-train
+        [datasets]="data.datasets()"
+        [seed]="seed()"
+        (close)="studioOpen.set(false)"
+        (trained)="onRetrained($event)"
+      />
+    }
+  `,
+  styles: [
+    `
+      .ck-progress {
+        border: 1px solid rgba(125, 211, 252, 0.25);
+        background: rgba(125, 211, 252, 0.05);
+      }
+      /* Same check-list as the ingest plane's, and the same reason: one line at
+         a time is a spinner with a caption. A fit runs long enough — folds run
+         longer — that a reader needs to see where the frontier is. */
+      .ck-steps {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 12px;
+        margin-top: 5px;
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+      }
+      .ck-steps__item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        min-width: 0;
+        color: var(--ck-fg-4, #8891a0);
+        transition: color var(--ck-dur-fast, 120ms) var(--ck-ease-out, ease);
+      }
+      .ck-steps__item[data-state='done'] {
+        color: var(--ck-signal-pos, #4ade80);
+      }
+      .ck-steps__item[data-state='active'] {
+        color: var(--ck-signal-cool, #7dd3fc);
+      }
+      .ck-steps__item[data-state='todo'] {
+        opacity: 0.5;
+      }
+      .ck-steps__dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 1px currentColor;
+      }
+      .ck-pulse {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--ck-signal-cool, #7dd3fc);
+        animation: ck-train-pulse 1.4s ease-in-out infinite;
+      }
+      @keyframes ck-train-pulse {
+        0%,
+        100% {
+          opacity: 0.35;
+          transform: scale(0.85);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.15);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .ck-pulse {
+          animation: none;
+        }
+      }
+      .ck-error {
+        border: 1px solid rgba(239, 90, 111, 0.25);
+        background: rgba(239, 90, 111, 0.05);
+      }
+      .ck-section-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--ck-fg-4, #8891a0);
+        margin-bottom: 7px;
+      }
+      .ck-hint {
+        font-size: 10.5px;
+        line-height: 1.45;
+        color: var(--ck-fg-4, #8891a0);
+        margin-top: 6px;
+      }
+      /* The lineage as a chain. The arrows are drawn with ::after rather than
+         put in the markup so they are not read out as content — a screen reader
+         announcing "v1 arrow v2 arrow v3" is worse than reading three links. */
+      .ck-provenance {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px 12px;
+        margin: 10px 0 16px;
+      }
+      .ck-provenance__label {
+        font-size: 10px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--ck-fg-4, #8891a0);
+      }
+      .ck-lineage {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0;
+        margin: 0 0 4px;
+        padding: 0;
+        list-style: none;
+      }
+      .ck-lineage__item:not(:last-child)::after {
+        content: '→';
+        margin: 0 6px;
+        color: var(--ck-fg-4, #8891a0);
+        font-size: 11px;
+      }
+      .ck-lineage__item {
+        display: flex;
+        align-items: center;
+      }
+      .ck-lineage__link {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font: 10.5px / 1 var(--ck-font-mono, monospace);
+        color: var(--ck-fg-3, #a6aebc);
+        box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+        transition:
+          color var(--ck-dur-fast, 120ms) var(--ck-ease-out, ease),
+          box-shadow var(--ck-dur-fast, 120ms) var(--ck-ease-out, ease);
+      }
+      .ck-lineage__link em {
+        font-style: normal;
+        font-variant-numeric: tabular-nums;
+        color: var(--ck-fg-4, #8891a0);
+      }
+      .ck-lineage__link:hover {
+        color: var(--ck-fg-1, #e6e9ee);
+        box-shadow: inset 0 0 0 1px var(--ck-stroke-3, rgba(255, 255, 255, 0.16));
+      }
+      /* The version being read is filled; the one that serves is outlined. Two
+         different facts, so two different cues rather than two shades of one. */
+      .ck-lineage__link[data-current='true'] {
+        color: var(--ck-fg-1, #e6e9ee);
+        background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.06));
+        box-shadow: inset 0 0 0 1px var(--ck-stroke-3, rgba(255, 255, 255, 0.18));
+      }
+      .ck-lineage__link[data-champion='true'] {
+        color: var(--ck-signal-pos, #4ade80);
+        box-shadow: inset 0 0 0 1px
+          color-mix(in srgb, var(--ck-signal-pos, #4ade80) 45%, transparent);
+      }
+      .ck-lineage__link:focus-visible {
+        outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+        outline-offset: 1px;
+      }
+      .ck-scores {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .ck-score-card {
+        min-width: 104px;
+        padding: 9px 12px;
+        border-radius: 6px;
+        background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.03));
+        box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.07));
+      }
+      .ck-score-card__value {
+        font-size: 19px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        color: var(--ck-fg-1, #e6e9ef);
+        line-height: 1.15;
+      }
+      .ck-score-card__label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        color: var(--ck-fg-4, #8891a0);
+        margin-top: 2px;
+      }
+      /* The delta is the sentence "this retrain was worth keeping", so it is
+         coloured by verdict rather than by sign: a smaller MAE reads as green. */
+      .ck-delta {
+        display: inline-block;
+        font-size: 10.5px;
+        font-variant-numeric: tabular-nums;
+        margin-top: 3px;
+        color: var(--ck-fg-4, #8891a0);
+      }
+      .ck-delta[data-move='up'] {
+        color: var(--ck-signal-pos, #34d399);
+      }
+      .ck-delta[data-move='down'] {
+        color: var(--ck-signal-neg, #ef5a6f);
+      }
+      .ck-versus {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+      @media (min-width: 720px) {
+        .ck-versus {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      .ck-versus__side {
+        padding: 10px 12px;
+        border-radius: 6px;
+        background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.03));
+        box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.07));
+      }
+      .ck-versus__side[data-role='after'] {
+        box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.28);
+      }
+      .ck-versus__win {
+        color: var(--ck-fg-1, #e6e9ef) !important;
+        font-weight: 600;
+      }
+      .ck-charts {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+      .ck-excursions {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        margin: 4px 0 6px;
+        font-size: 11.5px;
+        color: var(--ck-fg-2, #c3c9d4);
+      }
+      .ck-excursions li {
+        display: grid;
+        grid-template-columns: minmax(0, 9rem) minmax(0, 8rem) minmax(0, 1fr);
+        gap: 10px;
+      }
+      .ck-excursions [data-side='above'] {
+        color: var(--ck-signal-warn, #fbbf24);
+      }
+      .ck-series-pick {
+        font-size: 11px;
+        padding: 3px 6px;
+        border-radius: 4px;
+        color: var(--ck-fg-2, #c3c9d4);
+        background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.03));
+        border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+      }
+      @media (min-width: 820px) {
+        .ck-charts {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      .ck-chart {
+        padding: 12px 14px;
+        border-radius: 6px;
+        background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.02));
+        box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.06));
+      }
+      .ck-fold {
+        font-size: 10.5px;
+        padding: 2px 7px;
+        border-radius: 4px;
+        color: var(--ck-fg-3, #a6aebc);
+        background: rgba(255, 255, 255, 0.04);
+        box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.07));
+      }
+      .ck-fold[data-tone='pos'] {
+        color: var(--ck-signal-pos, #34d399);
+      }
+      .ck-fold[data-tone='warn'] {
+        color: var(--ck-signal-warn, #fbbf24);
+      }
+      .ck-fold[data-tone='neg'] {
+        color: var(--ck-signal-neg, #ef5a6f);
+      }
+      .ck-schema {
+        border-collapse: separate;
+        border-spacing: 0;
+      }
+      .ck-schema__th {
+        text-align: left;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        font-weight: 600;
+        color: var(--ck-fg-4, #8891a0);
+        padding: 8px 12px;
+        background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.03));
+        border-bottom: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+      }
+      .ck-schema__td {
+        padding: 7px 12px;
+        border-bottom: 1px solid var(--ck-stroke-1, rgba(255, 255, 255, 0.03));
+        color: var(--ck-fg-2, #c3c9d4);
+        font-size: 12px;
+      }
+      .ck-schema__tr:hover {
+        background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.03));
+      }
+      .ck-kind {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        padding: 2px 5px;
+        border-radius: 4px;
+        color: var(--ck-fg-3, #a6aebc);
+        background: rgba(255, 255, 255, 0.06);
+      }
+      .ck-code {
+        font-size: 11px;
+        line-height: 1.5;
+        padding: 10px 12px;
+        border-radius: 5px;
+        min-width: 0;
+        max-width: 100%;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        color: var(--ck-fg-2, #c3c9d4);
+        background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.03));
+        box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.07));
+      }
+      .ck-row:hover {
+        background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.04));
+      }
+      .ck-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        padding: 2px 5px;
+        border-radius: 3px;
+        color: var(--ck-fg-4, #8891a0);
+        background: rgba(255, 255, 255, 0.04);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+      }
+      .ck-badge--champion {
+        color: var(--ck-signal-pos, #34d399);
+        background: rgba(52, 211, 153, 0.1);
+        box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.28);
+      }
+      /* Deliberately cooler than the champion's green: a contender, not a peer. */
+      .ck-badge--challenger {
+        color: var(--ck-signal-warm, #fbbf24);
+        background: rgba(251, 191, 36, 0.1);
+        box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.28);
+      }
+      .ck-badge--on {
+        color: var(--ck-signal-cool, #7dd3fc);
+        background: rgba(125, 211, 252, 0.1);
+      }
+      .ck-badge--warn {
+        color: var(--ck-signal-neg, #ef5a6f);
+        background: rgba(239, 90, 111, 0.08);
+      }
+      .ck-badge--live {
+        color: var(--ck-signal-cool, #7dd3fc);
+        background: rgba(125, 211, 252, 0.1);
+      }
+      .ck-score-inline {
+        font-size: 12px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        color: var(--ck-fg-1, #e6e9ef);
+      }
+      .ck-field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 160px;
+      }
+      .ck-field__name {
+        font-size: 10px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--ck-fg-4, #8891a0);
+      }
+      .ck-field__input {
+        padding: 6px 8px;
+        border-radius: 6px;
+        font: 12px / 1.3 var(--ck-font-mono, monospace);
+        color: var(--ck-fg-1, #e6e9ee);
+        background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.04));
+        box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+      }
+    `,
+  ],
+})
+export class ModelViewComponent implements OnInit {
+  readonly i18n = inject(I18nService);
+  protected readonly data = inject(DataService);
+  protected readonly models = inject(ModelsService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly navigation = inject(ZoomContextService);
+  private readonly toast = inject(ToastrService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly workspace = inject(WorkspaceService);
+
+  protected readonly chart = CHART_ASPECT;
+
+  protected readonly detail = signal<ModelDetailDto | null>(null);
+  protected readonly loading = signal(false);
+  protected readonly tab = signal('evidence');
+  protected readonly studioOpen = signal(false);
+  protected readonly monitoring = signal<MonitoringReport | null>(null);
+  protected readonly feedbackId = signal('');
+  protected readonly feedbackLabel = signal('');
+  protected readonly feedbackBusy = signal(false);
+  protected readonly feedbackDataset = signal<DatasetDto | null>(null);
+  protected readonly feedbackDatasetId = signal<string | null>(null);
+  /**
+   * The serving plane, held apart from the detail it arrived with.
+   *
+   * A mint, a revoke or a publish returns a fresh block, and re-reading the whole
+   * card to learn that a key now exists would throw away the secret the Playground
+   * is still showing — a secret this platform cannot show twice.
+   */
+  protected readonly serving = signal<ServingBlock | null>(null);
+  /**
+   * skore's joint table, once asked for.
+   *
+   * Not loaded with the card: it re-scores two pipelines over a test split, so
+   * it costs a model load and a pass over the rows. The recorded-vs-recorded
+   * table above it is free and already on screen.
+   */
+  protected readonly sameRows = signal<ComparisonDto | null>(null);
+  protected readonly scoring = signal(false);
+
+  private modelId = '';
+  private loadGeneration = 0;
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
+
+  protected readonly model = computed(() => this.detail()?.model ?? null);
+  protected readonly dataset = computed(() => this.detail()?.dataset ?? null);
+  protected readonly versions = computed(() => this.detail()?.versions ?? []);
+  /** Dataset → transform → this version → scored children. Not v1→v2. */
+  protected readonly pipeline = computed(() =>
+    pipelineHops(this.detail()?.provenance, (chip) => this.hopLabel(chip)),
+  );
+  /** Named by the API, because the registry alias is derived from the same rule. */
+  protected readonly challengerId = computed(
+    () => this.detail()?.challenger_id ?? null,
+  );
+  private readonly metrics = computed(() => this.model()?.metrics ?? null);
+
+  /** The backtest evidence, when this version is a forecast. */
+  protected readonly forecast = computed<ForecastMetrics | null>(() => {
+    const metrics = this.metrics();
+    return isForecast(metrics) ? metrics : null;
+  });
+  protected readonly forecastSeriesNames = computed(() => plottedSeries(this.forecast()));
+  /** The series the reader picked; the first plotted one until they do. */
+  protected readonly forecastPick = signal('');
+  protected readonly forecastSeries = computed(() => {
+    const names = this.forecastSeriesNames();
+    return names.includes(this.forecastPick()) ? this.forecastPick() : (names[0] ?? '');
+  });
+  protected readonly forecastChart = computed(() => {
+    const evidence = seriesEvidence(this.forecast(), this.forecastSeries());
+    return forecastChartSeries(evidence.history, evidence.backtest);
+  });
+  protected readonly forecastNames = computed(() => ({
+    actual: this.i18n.t('models.evidence.forecast.actual'),
+    pred: this.i18n.t('models.evidence.forecast.pred'),
+    interval: this.i18n.t('models.evidence.forecast.interval'),
+  }));
+  protected readonly forecastGain = computed(() => {
+    const gain = baselineGain(this.forecast());
+    if (gain === null) return null;
+    const share = this.percent(Math.abs(gain));
+    return {
+      tone: gain > 0 ? 'pos' : 'neg',
+      text: this.i18n.t(gain > 0 ? 'models.evidence.baseline.better' : 'models.evidence.baseline.worse', {
+        share,
+      }),
+    };
+  });
+  protected readonly forecastCoverage = computed(() => {
+    const forecast = this.forecast();
+    const coverage = forecast?.scores?.find((score) => score.key === 'coverage')?.value;
+    const level = forecast?.forecast?.interval_level;
+    if (typeof coverage !== 'number' || typeof level !== 'number') return null;
+    return {
+      tone: coverageTone(coverage, level),
+      text: this.i18n.t('models.evidence.coverage', {
+        coverage: this.percent(coverage),
+        level: this.percent(level),
+      }),
+    };
+  });
+  protected readonly forecastSetup = computed(() => {
+    const summary = this.forecast()?.forecast;
+    if (!summary) return '';
+    const key = frequencyKey(summary.frequency);
+    return this.i18n.t('models.evidence.forecast.setup', {
+      frequency: key ? this.i18n.t('models.spec.frequency.' + key.toLowerCase()) : (summary.frequency ?? '?'),
+      horizon: summary.horizon ?? 0,
+      folds: summary.folds ?? 0,
+      method: this.i18n.t('models.evidence.forecast.method.' + (summary.interval_method ?? 'conformal')),
+    });
+  });
+  protected readonly forecastHorizonBars = computed<VizBar[]>(() =>
+    horizonBars(this.forecast(), this.valueFormat, (step) =>
+      this.i18n.t('models.evidence.horizon.step', { step }),
+    ),
+  );
+  protected readonly forecastSeriesBars = computed<VizBar[]>(() =>
+    seriesBars(this.forecast(), this.valueFormat),
+  );
+  private readonly translate = (key: string, params?: Record<string, string | number>): string =>
+    this.i18n.t(key, params);
+  protected readonly explainGroupBars = computed<VizBar[]>(() =>
+    groupShareBars(this.forecast()?.explanation, this.translate, (share) => this.percent(share)),
+  );
+  protected readonly explainLagBars = computed<VizBar[]>(() =>
+    lagBars(this.forecast()?.explanation, this.forecast()?.forecast?.frequency, this.translate, this.valueFormat),
+  );
+  protected readonly excursions = computed(() => excursionsOf(this.forecast()));
+  /** The anatomy of the series the chart shows. */
+  protected readonly anatomy = computed(() => seriesAnalysis(this.forecast(), this.forecastSeries()));
+  protected readonly anatomyFacts = computed(() =>
+    anatomyFacts(this.anatomy()).map((fact) => ({
+      key: fact.key,
+      tone: fact.tone,
+      text: this.i18n.t(fact.key, {
+        ...fact.params,
+        ...(typeof fact.params['value'] === 'number' ? { value: this.rate(fact.params['value'] as number) } : {}),
+        ...(typeof fact.params['p'] === 'number' ? { p: this.pValue(fact.params['p'] as number) } : {}),
+      }),
+    })),
+  );
+  protected readonly acfBars = computed<VizBar[]>(() =>
+    acfBars(this.anatomy(), this.forecast()?.forecast?.frequency, this.translate, (value) => this.rate(value)),
+  );
+  protected readonly diagnosticDomain = computed(() =>
+    curveDomain([this.forecast()?.diagnostic?.curves.fit ?? [], this.forecast()?.diagnostic?.curves.ideal ?? []]),
+  );
+  protected readonly diagnosticIdentity = computed<CurveReference>(() => ({
+    kind: 'series',
+    points: this.forecast()?.diagnostic?.curves.ideal ?? [],
+  }));
+
+  /** A p-value as a reader reads one: below 0.001 there is nothing left to show. */
+  private pValue(value: number): string {
+    return value < 0.001 ? `< ${(0.001).toLocaleString(this.i18n.locale())}` : `= ${this.rate(value)}`;
+  }
+
+  /** A backtest date in the unit of the series' frequency. */
+  protected stampOf(iso: string): string {
+    return formatForecastStamp(iso, this.forecast()?.forecast?.frequency, this.i18n.locale());
+  }
+  /** A value in the forecast column's own unit. A field, so the input is stable. */
+  protected readonly valueFormat = (value: number): string =>
+    value.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 2 });
+
+  /**
+   * The version this one's scores are read against.
+   *
+   * The newest *trained* version below it, not the champion and not `n-1`: a
+   * lineage can hold a failed retrain, and measuring against a run that never
+   * produced a score would silence the delta on the version after it.
+   */
+  protected readonly against = computed(() =>
+    previousVersion(this.model(), this.versions()),
+  );
+
+  protected readonly scores = computed(() => {
+    const earlier = new Map(
+      (this.against()?.metrics?.scores ?? []).map((score) => [score.key, score.value]),
+    );
+    return (this.metrics()?.scores ?? []).map((score) => ({
+      key: score.key,
+      display: formatMetric(score.key, score.value, this.i18n.locale()),
+      tone: metricTone(score.key, score.value),
+      delta: metricDelta(
+        score.key,
+        score.value,
+        earlier.get(score.key),
+        this.i18n.locale(),
+      ),
+    }));
+  });
+
+  /**
+   * The pair the comparison tab weighs, which is not always this one and the
+   * one below it: see `comparisonPair`. Kept apart from `against` because the
+   * delta beside a score is a claim about a retrain, and v1 did not have one.
+   */
+  protected readonly pair = computed(() => comparisonPair(this.model(), this.versions()));
+
+  protected readonly comparison = computed<ComparisonRow[]>(() => {
+    const pair = this.pair();
+    return pair ? comparisonRows(pair.before, pair.after, this.i18n.locale()) : [];
+  });
+
+  protected readonly confusion = computed(() => confusionView(this.metrics()?.confusion));
+  protected readonly importances = computed(() => importanceBars(this.metrics()?.importances));
+  protected readonly balance = computed(() => balanceBars(this.metrics()?.target?.balance));
+
+  /**
+   * The two bar blocks, adapted to the kit's shape.
+   *
+   * The number's *formatting* is the only thing the kit cannot decide: it needs
+   * a locale, and a component that draws rectangles has no business holding one.
+   * The widths were already computed against the set by `importanceBars` and
+   * `balanceBars`, which is where scaling belongs.
+   */
+  protected readonly importanceBars = computed<VizBar[]>(() =>
+    this.importances().map((bar) => ({
+      label: bar.feature,
+      display: bar.value.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 4 }),
+      width: bar.width,
+      negative: bar.negative,
+      emphasis: false,
+    })),
+  );
+
+  protected readonly balanceBars = computed<VizBar[]>(() => {
+    const bars = this.balance();
+    // The majority class is the one an accuracy figure hides behind, so it is
+    // the one drawn loud: 82% on a 4% churn rate should look like what it is.
+    const largest = Math.max(...bars.map((bar) => bar.share), 0);
+    return bars.map((bar) => ({
+      label: bar.label,
+      display: bar.count.toLocaleString(this.i18n.locale()),
+      share: this.percent(bar.share),
+      width: bar.width,
+      negative: false,
+      emphasis: bars.length > 1 && bar.share === largest,
+    }));
+  });
+
+  /** A ROC is judged against a coin flip; the diagonal never changes. */
+  protected readonly DIAGONAL: CurveReference = { kind: 'diagonal' };
+
+  protected readonly calibration = computed(() => this.metrics()?.calibration);
+  protected readonly decision = computed(() => this.metrics()?.decision);
+  protected readonly classificationWarnings = computed(() => (this.metrics()?.warnings ?? []).filter((warning) => ['ML_CALIBRATION_TOO_FEW', 'ML_THRESHOLD_TOO_FEW', 'ML_THRESHOLD_BINARY_ONLY'].includes(warning.code)));
+  protected readonly explanations = computed(() => this.metrics()?.explain);
+  protected readonly roc = computed(() => this.metrics()?.curves?.roc ?? []);
+  protected readonly pr = computed(() => this.metrics()?.curves?.pr ?? []);
+  protected readonly fit = computed(() => this.metrics()?.curves?.fit ?? []);
+
+  /**
+   * A precision/recall curve is judged against prevalence, not against 0.5.
+   *
+   * Without this line an imbalanced problem looks solved: a 4% churn rate makes
+   * any precision above 0.04 an improvement, and the curve alone does not say
+   * where that floor is.
+   */
+  protected readonly prevalence = computed<CurveReference>(() => ({
+    kind: 'level',
+    value: this.metrics()?.curves?.baseline ?? null,
+  }));
+
+  /** A regression fit is judged against the line where prediction equals truth. */
+  protected readonly identity = computed<CurveReference>(() => ({
+    kind: 'series',
+    points: this.metrics()?.curves?.ideal ?? [],
+  }));
+  protected readonly cv = computed(() => this.metrics()?.cv ?? null);
+  protected readonly dropped = computed(() => this.metrics()?.columns?.dropped ?? []);
+  protected readonly fields = computed<SignatureField[]>(
+    () => this.model()?.signature?.inputs ?? [],
+  );
+
+  /** The fit and its ideal share one domain, or they cannot be read together. */
+  protected readonly fitDomain = computed(() =>
+    curveDomain([this.metrics()?.curves?.fit ?? [], this.metrics()?.curves?.ideal ?? []]),
+  );
+
+  /**
+   * What a hovered point on each curve is called.
+   *
+   * Bound as fields rather than methods so the identity is stable: an arrow
+   * created in the template would be a new function on every change detection
+   * pass, and chart.js rebuilds its tooltip when its options change.
+   *
+   * The sentences are the reason the curves moved to a canvas. "TPR 0,82 at FPR
+   * 0,11" is an operating point a room can argue about — catch 82% of churners
+   * and bother 11% of the loyal ones — where a bare pair of coordinates is
+   * something a reader has to translate first.
+   */
+  protected readonly describeRoc = (point: CurvePoint): string =>
+    this.i18n.t('models.evidence.roc.point', {
+      tpr: this.rate(point.y),
+      fpr: this.rate(point.x),
+    });
+
+  protected readonly describePr = (point: CurvePoint): string =>
+    this.i18n.t('models.evidence.pr.point', {
+      precision: this.rate(point.y),
+      recall: this.rate(point.x),
+    });
+
+  protected readonly describeFit = (point: CurvePoint): string =>
+    this.i18n.t('models.evidence.fit.point', {
+      predicted: this.amount(point.y),
+      actual: this.amount(point.x),
+    });
+
+  /** A rate in the reader's locale, to three decimals but without the padding. */
+  private rate(value: number): string {
+    return value.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 3 });
+  }
+
+  /** A value on the target's own scale: an ARPU of 1 284 is not "1284". */
+  private amount(value: number): string {
+    return value.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 2 });
+  }
+
+  protected readonly kpis = computed<CkObjectKpi[]>(() => {
+    const row = this.model();
+    if (!row) return [];
+    const kpis: CkObjectKpi[] = [];
+    const score = this.scoreOf(row);
+    if (score) {
+      kpis.push({
+        label: this.i18n.t('models.metric.' + score.key),
+        value: score.display,
+        tone: score.tone === 'neutral' ? 'cool' : score.tone,
+      });
+    }
+    kpis.push({
+      label: this.i18n.t('models.kpi.rows'),
+      value: (row.row_count ?? 0).toLocaleString(this.i18n.locale()),
+    });
+    kpis.push({
+      label: this.i18n.t('models.kpi.features'),
+      value: String(row.features.length),
+    });
+    kpis.push({
+      label: this.i18n.t('models.kpi.duration'),
+      value: this.duration(row.train_duration_ms),
+    });
+    if (row.artifact_bytes) {
+      kpis.push({
+        label: this.i18n.t('models.kpi.artifact'),
+        value: formatBytes(row.artifact_bytes, this.i18n.locale()),
+      });
+    }
+    return kpis;
+  });
+
+  /** What a retrain opens the studio on: this version's own choices. */
+  protected readonly monitorCards = computed(() => {
+    const report = this.monitoring();
+    if (!report) return [];
+    return [
+      { key: 'data', label: this.i18n.t('models.monitor.data'), status: report.data_drift.status },
+      { key: 'score', label: this.i18n.t('models.monitor.score'), status: report.score_drift.status },
+      {
+        key: 'concept',
+        label: this.i18n.t('models.monitor.concept'),
+        status: report.concept_drift.status,
+      },
+    ].map((card) => ({
+      ...card,
+      status: this.i18n.t('models.monitor.status.' + card.status),
+      tone: monitorTone(card.status),
+    }));
+  });
+
+  protected readonly monitorBars = computed(() =>
+    driftBars(this.monitoring()?.data_drift.features),
+  );
+
+  protected readonly monitorAuc = computed(() => {
+    const concept = this.monitoring()?.concept_drift;
+    return aucTrace(concept?.train_auc, concept?.rolling_auc);
+  });
+
+  protected readonly seed = computed<TrainSeed | null>(() => {
+    const row = this.model();
+    if (!row) return null;
+    return {
+      datasetId: this.feedbackDatasetId() ?? row.dataset_id,
+      target: row.target,
+      task: row.task,
+      features: row.features,
+      algo: row.algo,
+      knobs: row.params?.knobs ?? {},
+      testSize: row.test_size,
+      crossValidation: row.cross_validation,
+      spec: row.spec,
+    };
+  });
+
+  protected readonly setup = computed<{ label: string; value: string }[]>(() => {
+    const row = this.model();
+    if (!row) return [];
+    const params = row.params ?? {};
+    const knobs = params.knobs ?? {};
+    const knobLine = Object.entries(knobs)
+      .map(([key, value]) => `${key}=${value === null ? 'auto' : value}`)
+      .join(' · ');
+    const entries: { label: string; value: string }[] = [
+      { label: this.i18n.t('models.setup.estimator'), value: params.estimator ?? row.algo },
+      { label: this.i18n.t('models.setup.target'), value: row.target },
+      {
+        label: this.i18n.t('models.setup.features'),
+        value: row.features.join(', ') || '—',
+      },
+      {
+        label: this.i18n.t('models.setup.split'),
+        value: row.test_size ? `${Math.round(row.test_size * 100)}%` : '—',
+      },
+      {
+        label: this.i18n.t('models.setup.cv'),
+        value: row.cross_validation
+          ? this.i18n.t('models.studio.cv.folds', { folds: row.cross_validation })
+          : this.i18n.t('models.studio.cv.off'),
+      },
+      {
+        label: this.i18n.t('models.setup.preprocessing'),
+        value: this.i18n.t(fittedPreparation(row.metrics?.preprocessing)
+          ? 'models.preparation.recorded' : 'models.preparation.unavailable'),
+      },
+    ];
+    if (row.task === 'clustering') {
+      const hidden = new Set(['models.setup.target', 'models.setup.split', 'models.setup.cv'].map(key => this.i18n.t(key)));
+      entries.splice(0, entries.length, ...entries.filter(entry => !hidden.has(entry.label)));
+      const preprocessing = entries.find(entry => entry.label === this.i18n.t('models.setup.preprocessing'));
+      if (preprocessing) preprocessing.value = this.i18n.t('models.clustering.preprocessing');
+    }
+    if (knobLine) {
+      entries.splice(1, 0, { label: this.i18n.t('models.setup.knobs'), value: knobLine });
+    }
+    if (params.scale) {
+      entries.push({ label: this.i18n.t('models.setup.scale'), value: '✓' });
+    }
+    if (row.artifact_bytes) {
+      entries.push({
+        label: this.i18n.t('models.setup.artifact'),
+        value: formatBytes(row.artifact_bytes, this.i18n.locale()),
+      });
+    }
+    const evaluation = row.metrics?.report;
+    if (evaluation?.bytes) {
+      // Says the evaluation itself was kept, not just its summary: the split and
+      // the predictions behind every number on this card are still on disk.
+      entries.push({
+        label: this.i18n.t('models.setup.evaluation'),
+        value: this.i18n.t('models.setup.evaluation.value', {
+          size: formatBytes(evaluation.bytes, this.i18n.locale()),
+          skore: evaluation.skore ?? '',
+        }),
+      });
+    }
+    return entries;
+  });
+
+  ngOnInit(): void {
+    const unregister = this.workspace.registerContextReset(() => {
+      this.loadGeneration++;
+      this.stopPolling();
+      this.clearModelContext();
+      this.loading.set(false);
+    });
+    // Subscribed rather than snapshotted: the Versions tab links to a sibling
+    // version, which Angular serves by reusing this component instance.
+    this.route.paramMap
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((params) => {
+        const next = params.get('modelId') ?? '';
+        if (next === this.modelId) return;
+        this.modelId = next;
+        this.clearModelContext();
+        void this.load();
+      });
+    const facet = this.route.snapshot.queryParamMap.get('facet');
+    if (facet) this.tab.set(facet);
+    void this.data.refresh();
+    this.destroyRef.onDestroy(() => { this.loadGeneration++; unregister(); this.stopPolling(); });
+  }
+
+  protected onTabChange(id: string): void {
+    this.tab.set(id);
+    if (id === 'monitor') void this.load();
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { facet: id },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  protected isActive(model: ModelDto): boolean {
+    return isModelActive(model);
+  }
+
+  /**
+   * The fit as a check-list, so a wait reads as distance covered.
+   *
+   * Same list the train studio draws, from the same function: a reader who
+   * started the fit in the studio and opened the card while it ran must not find
+   * two different accounts of where it got to.
+   */
+  protected readonly checklist = computed(() =>
+    trainChecklist(
+      this.model()?.status,
+      this.model()?.status_detail,
+      this.model()?.cross_validation,
+      this.i18n.locale(),
+      this.model()?.task,
+      this.model()?.spec,
+    ),
+  );
+
+  protected formatMetric(key: string, value: number | null | undefined): string {
+    return formatMetric(key, value, this.i18n.locale());
+  }
+
+  /** The eyebrow: what kind of model this is, then how it is fitted.
+   *
+   * The task leads because it is the coarser fact — a reader who knows this
+   * answers a yes/no question reads every metric below differently from one
+   * looking at a regression, and the algorithm alone does not say which it is
+   * (a gradient boosting does both). The list page already labels the task, so
+   * without this the card was the one place the reader could not see it.
+   */
+  protected eyebrow(model: ModelDto): string {
+    return [
+      this.i18n.t('models.task.' + model.task),
+      this.i18n.t('models.algo.' + model.algo),
+    ]
+      .filter(Boolean)
+      .join(' · ');
+  }
+
+  private hopLabel(chip: PipelineChip): string {
+    if (chip.kind === 'transform' && !chip.engine) {
+      return this.i18n.t('models.detail.provenance.dataset', { name: chip.name });
+    }
+    return this.i18n.t(`models.detail.provenance.${chip.kind}`, {
+      name: chip.name,
+      version: chip.version,
+      engine: chip.engine ?? '',
+    });
+  }
+
+  protected subtitle(model: ModelDto): string {
+    const predicts = model.task === 'clustering' ? this.i18n.t('models.clustering.no_target') : this.i18n.t('models.list.target', { target: model.target });
+    const from = model.dataset_slug
+      ? this.i18n.t('models.list.dataset', { dataset: model.dataset_slug })
+      : '';
+    const trained = model.trained_at
+      ? this.i18n.t('models.detail.trained_at', {
+          date: new Date(model.trained_at).toLocaleString(this.i18n.locale()),
+        })
+      : '';
+    return [predicts, from, trained].filter(Boolean).join(' · ');
+  }
+
+  protected rowsLine(): string {
+    const rows = this.metrics()?.rows;
+    if (!rows?.total) return '';
+    if (this.model()?.task === 'clustering') return this.i18n.t('models.clustering.rows', { rows: rows.total.toLocaleString(this.i18n.locale()) });
+    const forecast = this.forecast();
+    if (forecast) {
+      const history = (forecast.rows as { history?: number } | undefined)?.history ?? 0;
+      return this.i18n.t('models.evidence.forecast.rows', {
+        total: rows.total.toLocaleString(this.i18n.locale()),
+        history: history.toLocaleString(this.i18n.locale()),
+        series: forecast.forecast?.series_count ?? 1,
+      });
+    }
+    return this.i18n.t('models.evidence.rows', {
+      total: rows.total.toLocaleString(this.i18n.locale()),
+      train: (rows.train ?? 0).toLocaleString(this.i18n.locale()),
+      test: (rows.test ?? 0).toLocaleString(this.i18n.locale()),
+    });
+  }
+
+  /**
+   * Cell text and tooltip, passed to the matrix as functions.
+   *
+   * Bound fields rather than methods: `[format]` is an input, and a method
+   * reference would be a new closure on every change detection pass, which
+   * re-renders the whole grid for nothing.
+   */
+  protected readonly countFormat = (count: number): string =>
+    count.toLocaleString(this.i18n.locale());
+
+  /**
+   * The share printed under a cell's count. A field, not a method reference, so
+   * the input's identity is stable across change detection.
+   */
+  protected readonly cellShare = (share: number): string => this.percent(share);
+
+  protected readonly cellDescription = (cell: ConfusionCell): string =>
+    `${this.i18n.t('models.evidence.confusion.actual')} ${cell.actual} → ${this.i18n.t(
+      'models.evidence.confusion.predicted',
+    )} ${cell.predicted} · ${this.percent(cell.share)}`;
+
+  protected percent(share: number): string {
+    return `${(share * 100).toLocaleString(this.i18n.locale(), {
+      maximumFractionDigits: 1,
+    })}%`;
+  }
+
+  protected cvSummary(folds: CvBlock): string {
+    return this.i18n.t('models.evidence.cv.summary', {
+      mean: this.formatMetric(folds.metric, folds.mean),
+      folds: folds.folds,
+      std: this.formatMetric(folds.metric, folds.std),
+    });
+  }
+
+  protected rangeOf(field: SignatureField): string {
+    if (field.kind === 'number' && field.min !== null && field.min !== undefined) {
+      return `${this.number(field.min)} → ${this.number(field.max)}`;
+    }
+    if (field.choices?.length) {
+      const shown = field.choices.slice(0, 4).join(', ');
+      return field.choices.length > 4 ? `${shown}, …` : shown;
+    }
+    return '—';
+  }
+
+  protected defaultOf(field: SignatureField): string {
+    const value = field.default;
+    if (value === null || value === undefined) return '—';
+    return typeof value === 'number' ? this.number(value) : String(value);
+  }
+
+  protected outputLine(): string {
+    const output = this.model()?.signature?.output;
+    if (!output?.task) return '—';
+    if (output.task === 'clustering') return this.i18n.t('models.clustering.assignment_hint');
+    if (output.task === 'classification') {
+      return this.i18n.t('models.contract.output.classification', {
+        classes: (output.classes ?? []).join(', ') || '—',
+      });
+    }
+    return this.i18n.t('models.contract.output.regression', {
+      target: output.target ?? this.model()?.target ?? '—',
+    });
+  }
+
+  protected example(): string {
+    const rows = this.model()?.input_example ?? [];
+    if (!rows.length) return '';
+    return JSON.stringify(rows[0], null, 2);
+  }
+
+  /**
+   * The lineage oldest-first, as links carrying their own verdict.
+   *
+   * Oldest-first even though the list below is newest-first, because a chain is
+   * read as a progression and a progression runs forwards: `v1 → v2 → v3` says
+   * the work improved, and the same three reversed says nothing at all.
+   */
+  protected readonly lineage = computed(() => {
+    const current = this.model()?.id;
+    return [...this.versions()]
+      .sort((left, right) => left.version - right.version)
+      .map((version) => {
+        const score = this.scoreOf(version);
+        return {
+          id: version.id,
+          version: version.version,
+          champion: version.is_champion,
+          current: version.id === current,
+          score: score?.display ?? '',
+          hint: this.versionLine(version),
+        };
+      });
+  });
+
+  protected versionLine(version: ModelDto): string {
+    const trained = version.trained_at
+      ? this.i18n.t('models.versions.trained', {
+          date: new Date(version.trained_at).toLocaleDateString(this.i18n.locale()),
+        })
+      : this.i18n.t('models.status.' + version.status);
+    return `${this.i18n.t('models.algo.' + version.algo)} · ${trained}`;
+  }
+
+  protected scoreOf(
+    model: ModelDto,
+  ): { key: string; display: string; tone: MetricTone } | null {
+    const score = primaryScore(model);
+    if (!score) return null;
+    return {
+      key: score.key,
+      display: formatMetric(score.key, score.value, this.i18n.locale()),
+      tone: metricTone(score.key, score.value),
+    };
+  }
+
+  /** What a delta is measured against, said once instead of on every tile. */
+  protected deltaTitle(): string {
+    const earlier = this.against();
+    if (!earlier) return '';
+    return this.i18n.t('models.evidence.delta.against', { version: earlier.version });
+  }
+
+  protected sides(): {
+    id: string;
+    role: 'before' | 'after';
+    version: number;
+    name: string;
+    line: string;
+  }[] {
+    const pair = this.pair();
+    if (!pair) return [];
+    return [
+      {
+        id: pair.before.id,
+        role: 'before' as const,
+        version: pair.before.version,
+        name: pair.before.name,
+        line: this.versionLine(pair.before),
+      },
+      {
+        id: pair.after.id,
+        role: 'after' as const,
+        version: pair.after.version,
+        name: pair.after.name,
+        line: this.versionLine(pair.after),
+      },
+    ];
+  }
+
+  /**
+   * The comparison in one sentence, on the metric the task is judged by.
+   *
+   * A table of six deltas states facts; the room wants to know whether the
+   * retrain was worth keeping, which is a claim about one number.
+   */
+  protected verdict(): string {
+    const pair = this.pair();
+    if (!pair) return '';
+    const score = primaryScore(pair.after);
+    if (!score) return '';
+    const before = (pair.before.metrics?.scores ?? []).find((row) => row.key === score.key);
+    const delta = metricDelta(
+      score.key,
+      score.value,
+      before?.value,
+      this.i18n.locale(),
+    );
+    if (!delta) return '';
+    const key = delta.flat
+      ? 'models.compare.verdict.flat'
+      : delta.better
+        ? 'models.compare.verdict.better'
+        : 'models.compare.verdict.worse';
+    return this.i18n.t(key, {
+      metric: this.i18n.t('models.metric.' + score.key),
+      delta: delta.display,
+      version: pair.after.version,
+      previous: pair.before.version,
+    });
+  }
+
+  /** Publishing a lineage changes the row, so the card re-reads it. */
+  protected reload(): void {
+    void this.load();
+  }
+
+  /** The failure named in the product's own words, not the harness's. */
+  protected errorSentence(): string {
+    const { code, detail } = splitError(this.model()?.error);
+    const key = trainingErrorKey(code);
+    return key ? this.i18n.t(key) : detail || this.i18n.t('models.detail.error.title');
+  }
+
+  /** The harness's own last line, kept because it is what a fix starts from. */
+  protected errorDetail(): string {
+    const { code, detail } = splitError(this.model()?.error);
+    return trainingErrorKey(code) ? detail : '';
+  }
+
+  protected duration(ms: number | null | undefined): string {
+    if (!ms || ms <= 0) return '—';
+    if (ms < 1000) return `${Math.round(ms)} ms`;
+    const seconds = ms / 1000;
+    if (seconds < 60) {
+      return `${seconds.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 1 })} s`;
+    }
+    const minutes = Math.floor(seconds / 60);
+    return `${minutes} min ${Math.round(seconds % 60)} s`;
+  }
+
+  protected async promote(): Promise<void> {
+    const row = this.model();
+    if (!row) return;
+    try {
+      await this.models.promote(row.id);
+      this.toast.success(
+        this.i18n.t('models.detail.promoted', { name: row.name, version: row.version }),
+      );
+      await this.load();
+    } catch {
+      this.toast.error(this.i18n.t('models.studio.failed'));
+    }
+  }
+
+  /** Re-score both versions over one split, and render skore's joint table. */
+  protected async scoreOnTheSameRows(): Promise<void> {
+    const pair = this.pair();
+    if (!pair) return;
+    this.scoring.set(true);
+    try {
+      // The route reads `against` as the left column, so the pair's order is
+      // the table's order on both the recorded and the re-scored tables.
+      this.sameRows.set(await this.models.comparison(pair.after.id, pair.before.id));
+    } catch (error) {
+      // The refusals are coded and each one names what does not line up, so the
+      // code is worth translating rather than replacing with "failed".
+      this.toast.error(this.compareFailure(error));
+    } finally {
+      this.scoring.set(false);
+    }
+  }
+
+  /** A coded comparison refusal in the product's words, or the server's own. */
+  private compareFailure(error: unknown): string {
+    const detail =
+      error instanceof HttpErrorResponse
+        ? (error.error?.detail ?? error.error)
+        : null;
+    const code = typeof detail === 'object' && detail ? String(detail.code ?? '') : '';
+    const key = compareErrorKey(code);
+    if (key) return this.i18n.t(key);
+    const message =
+      typeof detail === 'object' && detail ? String(detail.message ?? '') : '';
+    return message || this.i18n.t('models.compare.failed');
+  }
+
+  /** One cell of skore's table: keyed by model id, formatted in its own unit. */
+  protected sameRowsCell(row: ComparisonMetricRow, modelId: string): string {
+    const value = row[modelId];
+    return formatMetric(
+      row.key,
+      typeof value === 'number' ? value : null,
+      this.i18n.locale(),
+    );
+  }
+
+  /** Which side of skore's table won a metric, for the highlight. */
+  protected sameRowsWinner(row: ComparisonMetricRow, modelId: string): boolean {
+    const table = this.sameRows();
+    if (!table) return false;
+    const values = table.models
+      .map((side) => row[side.model_id])
+      .filter((value): value is number => typeof value === 'number');
+    if (values.length < 2) return false;
+    const mine = row[modelId];
+    if (typeof mine !== 'number') return false;
+    const higher = higherIsBetter(row.key);
+    // A metric with no direction (an interval's coverage) has no winner.
+    if (higher === null) return false;
+    const best = higher ? Math.max(...values) : Math.min(...values);
+    return mine === best && values[0] !== values[1];
+  }
+
+  protected async cancel(): Promise<void> {
+    const row = this.model();
+    if (!row) return;
+    await this.models.cancel(row.id);
+    this.toast.info(this.i18n.t('models.detail.cancelled'));
+    await this.load();
+  }
+
+  protected readonly canSendFeedback = computed(
+    () =>
+      Boolean(
+        (this.feedbackId().trim() || this.models.lastPredictionId()) &&
+          this.feedbackLabel().trim(),
+      ),
+  );
+
+  protected onScheduledChanged(report: MonitoringReport): void {
+    this.monitoring.set(report); this.syncPolling();
+  }
+
+  protected onShadowChanged(shadow: ShadowReport): void {
+    this.monitoring.update(report => report ? { ...report, shadow } : report);
+    this.syncPolling();
+  }
+
+  protected async sendFeedback(): Promise<void> {
+    const row = this.model();
+    const predictionId = this.feedbackId().trim() || this.models.lastPredictionId();
+    const label = this.feedbackLabel().trim();
+    if (!row || !predictionId || !label) return;
+    const scope = this.workspace.captureRequestScope();
+    const current = () => this.model()?.id === row.id && this.workspace.isRequestScopeCurrent(scope);
+    this.feedbackBusy.set(true);
+    try {
+      const result = await this.models.feedback(row.id, {
+        prediction_id: predictionId,
+        label,
+      });
+      if (!current()) return;
+      this.monitoring.set(result.monitoring);
+      this.toast.success(this.i18n.t('models.monitor.feedback.done'));
+    } catch (error) {
+      if (!current()) return;
+      const code = error instanceof HttpErrorResponse ? error.error?.detail?.code ?? error.error?.code : null;
+      this.toast.error(this.i18n.t(code === 'ML_FEEDBACK_NOT_NUMERIC'
+        ? 'models.error.ml_feedback_not_numeric' : 'models.monitor.feedback.failed'));
+    } finally {
+      if (current()) this.feedbackBusy.set(false);
+    }
+  }
+
+  protected async exportFeedback(): Promise<void> {
+    const row = this.model();
+    if (!row) return;
+    const scope = this.workspace.captureRequestScope();
+    const current = () => this.model()?.id === row.id && this.workspace.isRequestScopeCurrent(scope);
+    this.feedbackBusy.set(true);
+    try {
+      const dataset = await this.models.materializeFeedback(row.id);
+      if (!current()) return;
+      this.feedbackDataset.set(dataset);
+      this.feedbackDatasetId.set(dataset.id);
+      this.toast.success(
+        this.i18n.t('models.monitor.dataset.done', { name: dataset.name }),
+      );
+    } catch {
+      if (!current()) return;
+      this.toast.error(this.i18n.t('models.monitor.dataset.failed'));
+    } finally {
+      if (current()) this.feedbackBusy.set(false);
+    }
+  }
+
+  protected retrainFromFeedback(): void {
+    const dataset = this.feedbackDataset();
+    if (dataset) this.feedbackDatasetId.set(dataset.id);
+    this.studioOpen.set(true);
+  }
+
+  protected retrain(): void {
+    this.feedbackDatasetId.set(null);
+    this.studioOpen.set(true);
+  }
+
+  protected onRetrained(model: ModelDto): void {
+    this.studioOpen.set(false);
+    void this.router.navigateByUrl(this.navigation.leafUrl('model-doc', { ref: model.id }));
+  }
+
+  protected async remove(): Promise<void> {
+    const row = this.model();
+    if (!row) return;
+    const confirmed = confirm(
+      this.i18n.t('models.detail.delete_confirm', {
+        name: row.name,
+        version: row.version,
+      }),
+    );
+    if (!confirmed) return;
+    await this.models.remove(row.id);
+    this.toast.success(this.i18n.t('models.detail.deleted', { name: row.name }));
+    void this.router.navigateByUrl(this.navigation.surfaceUrl('models'));
+  }
+
+  private number(value: unknown): string {
+    const raw = Number(value);
+    if (!Number.isFinite(raw)) return '—';
+    return raw.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 3 });
+  }
+
+  private async load(): Promise<void> {
+    if (!this.modelId) return;
+    const modelId = this.modelId, generation = ++this.loadGeneration;
+    const scope = this.workspace.captureRequestScope();
+    const current = () => generation === this.loadGeneration && modelId === this.modelId && this.workspace.isRequestScopeCurrent(scope);
+    this.loading.set(true);
+    try {
+      const detail = await this.models.detail(modelId);
+      if (!current()) return;
+      this.detail.set(detail);
+      if (detail.model.task === 'clustering' && ['monitor', 'compare'].includes(this.tab())) this.tab.set('evidence');
+      this.serving.set(detail.serving ?? null);
+      if (!this.feedbackId() && this.models.lastPredictionId()) {
+        this.feedbackId.set(this.models.lastPredictionId() ?? '');
+      }
+      try {
+        if (detail.model.task === 'clustering') {
+          this.monitoring.set(null);
+          this.syncPolling();
+          return;
+        }
+        const report = await this.models.monitoring(modelId);
+        if (!current()) return;
+        this.monitoring.set(report.window.model_id && report.window.model_id !== modelId ? null : report);
+      } catch {
+        if (!current()) return;
+        this.monitoring.set(null);
+      }
+      this.syncPolling();
+    } catch {
+      if (!current()) return;
+      this.detail.set(null);
+      this.serving.set(null);
+      this.monitoring.set(null);
+    } finally {
+      if (current()) this.loading.set(false);
+    }
+  }
+
+  private clearModelContext(): void {
+    this.stopPolling();
+    this.detail.set(null); this.serving.set(null); this.monitoring.set(null); this.sameRows.set(null);
+    this.feedbackId.set(''); this.feedbackLabel.set(''); this.feedbackDataset.set(null);
+    this.feedbackDatasetId.set(null); this.feedbackBusy.set(false); this.studioOpen.set(false);
+  }
+
+  private syncPolling(): void {
+    const row = this.model();
+    if (row && (isModelActive(row) || (this.monitoring()?.shadow?.window.pending ?? 0) > 0 || this.monitoring()?.scheduled?.proposals.some(p => p.status === 'running'))) {
+      if (this.pollTimer) return;
+      this.pollTimer = setInterval(() => { if (!this.loading()) void this.load(); }, POLL_INTERVAL_MS);
+    } else {
+      this.stopPolling();
+    }
+  }
+
+  private stopPolling(): void {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+  }
+}

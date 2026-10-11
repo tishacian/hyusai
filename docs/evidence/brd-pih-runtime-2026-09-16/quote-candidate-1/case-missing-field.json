@@ -1,0 +1,28 @@
+{
+  "case_id": "case-missing-field",
+  "run_id": "10010f67-b54d-4b26-993b-36e9c5a14d48",
+  "output": {
+    "draft": "Documentary Executive Summary for PIH SPARK-089 Regrade Review\n\n1) Current vs Proposed\n- Current Title: Research Coordinator\n- Current Grade: G6\n- Proposed Title: Senior Research Coordinator\n- Proposed Grade: Missing\n- Effective Date: Missing\n\n2) Supporting evidence (verbatim excerpts)\n- Evidence for Current Title: \"- Title: Research Coordinator\"\n- Evidence for Current Grade: \"- Grade: G6\"\n- Evidence for Proposed Title: \"- Title: Senior Research Coordinator\"\n- Evidence for Proposed Grade: \"[No grade specified]\"\n- Evidence for Effective Date: Missing (no quote available)\n\n3) Other Notable Facts (only if explicitly present)\n- \"Rationale: Leads two clinical study sites.\"\n\n4) Missing information\n- Proposed Grade\n- Effective Date"
+  },
+  "assertions": {
+    "verdict": "passed",
+    "assertions": [
+      {
+        "id": "no-hr-decision-approve-2",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "contains-missing-proposed-grade",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "missing-section-list",
+        "passed": true,
+        "path_found": true
+      }
+    ]
+  },
+  "review": "harness_acceptance_not_human"
+}

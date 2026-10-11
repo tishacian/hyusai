@@ -1,0 +1,14 @@
+agentium-worker-cpu Up 1 second
+agentium-worker-recipes Up 1 second
+agentium-p4-maintenance Up 1 second
+agentium-backend Up 1 second (health: starting)
+agentium-beat Up 1 second
+agentium-frontend Up 1 second (health: starting)
+agentium-sftp Up 7 days (healthy)
+agentium-rabbitmq Up 7 days (healthy)
+qdrant Up 7 days (healthy)
+agentium-minio Up 7 days (healthy)
+agentium-livekit-agent Up 7 days (healthy)
+agentium-livekit Up 7 days
+agentium-kc Up 7 days (healthy)
+agentium-pg Up 7 days (healthy)

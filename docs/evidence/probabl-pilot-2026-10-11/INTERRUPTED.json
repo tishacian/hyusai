@@ -1,0 +1,23 @@
+{
+  "status": "interrupted_before_final",
+  "reason": "Product worker thread envelope defect requires an independently qualified runtime correction; non-cached regression reload parity failures remain diagnostic evidence",
+  "eligible_for_value_claims": false,
+  "final_reserve_opened": false,
+  "contract_sha256": "a3c17be0479e74e375d3b020d493b088b9f125ebde64bb2634350e57b9966512",
+  "code_sha256": "8a0878cf988e99992e07520268bcd4ccf02d630749185a081925e0d5f8511d03",
+  "completed_cases": 51,
+  "measured_cpu_seconds_through_checkpoint": 1614.389346000001,
+  "prior_cpu_reserve_seconds": 2500.0,
+  "uncompleted_workers_at_stop": [
+    {
+      "pid": 75508,
+      "observed_cpu_seconds": 0.05,
+      "rss_bytes": 5767168
+    }
+  ],
+  "parent_cpu_conservatively_reserved_again_seconds": 296.7,
+  "extra_cpu_reserve_seconds": 356.75,
+  "budget_charged_seconds": 4471.139346000001,
+  "remaining_of_43200_seconds": 38728.860654,
+  "note": "Reservation includes a 60 CPU-second margin for checkpoint-to-stop and control-process overhead; it is not reported as measured model cost."
+}

@@ -1,0 +1,9 @@
+# Hub writer's own read-only OpenBao AppRole. Applied only when both
+# AGENTIUM_HUGGINGFACE=1 and AGENTIUM_OPENBAO=1, after both overlays.
+services:
+  agentium-hub-fetch:
+    environment:
+      OPENBAO_ADDR: http://agentium-openbao:8200
+      OPENBAO_MOUNT: agentium
+    env_file:
+      - ${AGENTIUM_OPENBAO_HUB_ENV_FILE:?Set the OpenBao hub-fetch AppRole environment file}

@@ -1,0 +1,152 @@
+- link "Skip to main content":
+  - /url: "#main-content"
+- banner:
+  - generic: Agentium
+  - generic: OS · v0.4.0
+  - navigation:
+    - button "Portfolio"
+    - button "PIH Document Summary"
+    - button "PIH Document Summary System"
+  - link "Work ↗":
+    - /url: /work
+  - generic "Diagnostics"
+  - button "Chat":
+    - generic: Chat
+  - 'button "Theme: Dark · click → System"':
+  - button "Workspace · Agentium Showcase":
+    - generic: AS
+    - generic: Agentium Showcase
+  - button "Account · thibaud.ishacian@datategy.net":
+    - generic: TI
+- complementary:
+  - navigation "Primary navigation":
+    - link "Impact":
+      - /url: /hypervisor
+      - generic: Impact
+    - link "Create":
+      - /url: /presets?lens=build&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742&systemId=a021f6c3-fed5-4940-a3e1-53d5a7617f57
+      - generic: Create
+    - link "Monitor":
+      - /url: /presets?lens=operate&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742&systemId=a021f6c3-fed5-4940-a3e1-53d5a7617f57
+      - generic: Monitor
+    - link "Improve":
+      - /url: /presets?lens=steer&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742&systemId=a021f6c3-fed5-4940-a3e1-53d5a7617f57
+      - generic: Improve
+    - link "Administer":
+      - /url: /presets?lens=govern&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742&systemId=a021f6c3-fed5-4940-a3e1-53d5a7617f57
+      - generic: Administer
+  - button "Jump to…":
+    - generic: Jump to…
+- complementary "Summary":
+  - generic: Summary
+  - generic: Create
+  - navigation:
+    - link "Business application":
+      - /url: /create/apps
+      - generic: Business application
+    - link "Systems":
+      - /url: /systems
+      - generic: Systems
+    - link "Capabilities":
+      - /url: /capabilities
+      - generic: Capabilities
+    - link "Skills":
+      - /url: /skills
+      - generic: Skills
+    - link "Knowledge":
+      - /url: /knowledge
+      - generic: Knowledge
+    - link "Data & Models":
+      - /url: /data
+      - generic: Data & Models
+    - link "Flow builder":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57/flow?capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Flow builder
+    - generic: In PIH Document Summary System
+    - link "Overview":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?facet=overview&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Overview
+    - link "Runs":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?facet=runs&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Runs
+    - link "Design":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?facet=design&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Design
+    - link "Context":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?facet=context&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Context
+- main:
+  - generic: Govern · Presets
+  - heading "RAG Presets" [active] [level=1]
+  - generic: "Multi-scope retrieval + generation configuration. The most specific preset wins at run time: system > capability > workspace."
+  - button "Resolve preset"
+  - link "Evaluation thresholds":
+    - /url: /presets/evaluation?lens=build&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742&systemId=a021f6c3-fed5-4940-a3e1-53d5a7617f57
+  - button "+ New preset"
+  - generic "Total":
+    - generic: Total
+    - generic: "3"
+  - generic "Workspace":
+    - generic: Workspace
+    - generic: "3"
+  - generic "Capability":
+    - generic: Capability
+    - generic: "0"
+  - generic "System":
+    - generic: System
+    - generic: "0"
+  - generic: Scope
+  - heading "Workspace defaults" [level=3]
+  - generic: 3 presets
+  - button "+ Add"
+  - list:
+    - generic "Default preset for this scope"
+    - link "Default":
+      - /url: /presets/fa5494c4-c87c-4850-a907-2ff04e88189b?lens=build&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742&systemId=a021f6c3-fed5-4940-a3e1-53d5a7617f57
+    - generic: Default
+    - generic "e2ed9e40-5fa6-4e32-8948-3e1220134fd3"
+    - paragraph: Provider openai · Model gpt-5 · Top-K 5 · Mode hybrid
+    - button "Clone…"
+    - button "Delete" [disabled]
+    - link "Open →":
+      - /url: /presets/fa5494c4-c87c-4850-a907-2ff04e88189b?lens=build&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742&systemId=a021f6c3-fed5-4940-a3e1-53d5a7617f57
+    - generic "Default preset for this scope"
+    - link "Default":
+      - /url: /presets/7aaab58f-4b3d-4bcd-807a-ec9cc9ff3c43?lens=build&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742&systemId=a021f6c3-fed5-4940-a3e1-53d5a7617f57
+    - generic: Default
+    - generic "00458aaa-7ff6-4a94-9578-e4414d831f89"
+    - paragraph: Provider openai · Model gpt-5 · Top-K 5 · Mode hybrid
+    - button "Clone…"
+    - button "Delete" [disabled]
+    - link "Open →":
+      - /url: /presets/7aaab58f-4b3d-4bcd-807a-ec9cc9ff3c43?lens=build&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742&systemId=a021f6c3-fed5-4940-a3e1-53d5a7617f57
+    - generic "Default preset for this scope"
+    - link "Default":
+      - /url: /presets/b57f40c8-01d2-46f3-bf1c-78da4071c7e9?lens=build&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742&systemId=a021f6c3-fed5-4940-a3e1-53d5a7617f57
+    - generic: Default
+    - paragraph: Provider openai · Model gpt-5 · Top-K 5 · Mode hybrid
+    - button "Clone…"
+    - button "Delete" [disabled]
+    - link "Open →":
+      - /url: /presets/b57f40c8-01d2-46f3-bf1c-78da4071c7e9?lens=build&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742&systemId=a021f6c3-fed5-4940-a3e1-53d5a7617f57
+  - generic: Scope
+  - heading "Capability overrides" [level=3]
+  - generic: 0 presets
+  - button "+ Add"
+  - list
+  - generic: Scope
+  - heading "System overrides" [level=3]
+  - generic: 0 presets
+  - button "+ Add"
+  - list
+- contentinfo:
+  - generic: System operational
+  - generic: Zone · Create · Depth 3/5
+  - generic: ⌘K
+  - text: Command
+  - generic "⌘Z zoom out (Portfolio › Capability › System › Run › Skill)":
+    - generic: ⌘Z
+    - text: Zoom
+  - generic: v0.4.0 · build 1
+- status: Agentium
+- document

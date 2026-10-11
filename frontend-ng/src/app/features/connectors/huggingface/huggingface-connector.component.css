@@ -1,0 +1,28 @@
+:host { display: block; color: var(--ck-fg-1); }
+.hf-panel { padding: 1.25rem; margin-bottom: 1rem; border: 1px solid var(--ck-stroke); border-radius: .5rem; background: var(--ck-bg-surface); }
+.hf-stack { display: grid; gap: 1rem; }
+h2 { font-weight: 600; }
+label { display: grid; gap: .4rem; font-size: .875rem; }
+input:not([type=checkbox]), select { width: 100%; padding: .55rem .7rem; border: 1px solid var(--ck-stroke); border-radius: .3rem; background: var(--ck-bg-inset); color: var(--ck-fg-1); }
+input[type=checkbox] { accent-color: var(--ck-signal-cool); }
+.hf-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.hf-actions, .hf-search, .hf-inline { display: flex; flex-wrap: wrap; gap: .65rem; align-items: center; }
+.hf-search { align-items: end; }
+.hf-grow { flex: 1; min-width: 200px; }
+.hf-muted { color: var(--ck-fg-3); font-size: .8rem; }
+.hf-sha { font-family: monospace; font-size: .75rem; overflow-wrap: anywhere; color: var(--ck-fg-3); }
+.hf-alert { border: 1px solid currentColor; border-radius: .4rem; padding: .8rem; margin-bottom: 1rem; }
+.hf-error { color: var(--ck-signal-danger, #f87171); }
+.hf-results { display: grid; gap: .5rem; max-height: 24rem; overflow: auto; }
+.hf-result { padding: .8rem; text-align: left; display: flex; flex-wrap: wrap; gap: .6rem; border: 1px solid var(--ck-stroke); border-radius: .4rem; }
+.hf-result:hover { background: var(--ck-bg-inset); }
+.hf-files { max-height: 20rem; overflow: auto; border: 1px solid var(--ck-stroke); border-radius: .4rem; padding: .8rem; }
+.hf-file { display: flex; gap: .6rem; padding: .3rem 0; align-items: center; }
+.hf-file span { flex: 1; overflow-wrap: anywhere; }
+.hf-file small { white-space: nowrap; color: var(--ck-fg-3); }
+.hf-artifact { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--ck-stroke); }
+pre { font-size: .75rem; overflow: auto; max-height: 22rem; padding-top: .7rem; }
+.hf-license { white-space: pre-wrap; }
+summary { cursor: pointer; padding: .4rem 0; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+progress { width: 100%; }

@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "network": "seccomp_connect_send_denied_verified_eperm",
+  "versions": {
+    "tabicl": "2.2.0",
+    "torch": "2.14.0+cpu",
+    "numpy": "2.5.2",
+    "pandas": "2.3.3",
+    "scikit-learn": "1.9.0",
+    "safetensors": "0.8.0"
+  },
+  "results": [
+    {
+      "task": "classification",
+      "status": "passed",
+      "conversion_parity": true,
+      "autonomous_reload": true,
+      "source_copy_removed": true,
+      "rtol": 1e-06,
+      "atol": 1e-06,
+      "seconds": 44.02403364301426,
+      "process_peak_rss_mib": 633.63671875
+    },
+    {
+      "task": "regression",
+      "status": "passed",
+      "conversion_parity": true,
+      "autonomous_reload": true,
+      "source_copy_removed": true,
+      "rtol": 1e-06,
+      "atol": 1e-06,
+      "seconds": 80.43356770800892,
+      "process_peak_rss_mib": 701.10546875
+    }
+  ],
+  "scope": "technical_smoke_no_business_value_claim"
+}

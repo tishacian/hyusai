@@ -1,0 +1,93 @@
+diff --git a/backend/app/services/evaluation/campaigns.py b/backend/app/services/evaluation/campaigns.py
+index cd9a287e..5d20e5ae 100644
+--- a/backend/app/services/evaluation/campaigns.py
++++ b/backend/app/services/evaluation/campaigns.py
+@@ -473,9 +473,11 @@ def run_generation_job(job_id: str):
+                 if text:
+                     rows.append({"text": text[:8000], "metadata": {"collection_id": collection_id,
+                         "point_id": record.get("point_id"), "document_id": record.get("document_id")}})
+-        if not 8 <= len(rows) <= 500:
+-            raise ValueError("Generation requires 8 to 500 usable source chunks")
+-        job.stage, job.progress = "generating_testset", 25
++        # Reviewed-case evaluation does not perform testset topic discovery.
++        minimum_rows = 1 if job.kind == "evaluation_raget" else 8
++        if not minimum_rows <= len(rows) <= 500:
++            raise HTTPException(422, f"This operation requires {minimum_rows} to 500 usable source chunks; found {len(rows)}.")
++        job.stage, job.progress = ("judge" if job.kind == "evaluation_raget" else "generating_testset"), 25
+         db.commit()
+         options = dict(rows=rows, model=routing.model, embedding_model=inputs["embedding_model"],
+             api_key=routing._api_key, num_questions=inputs["num_questions"], language=inputs["language"],
+diff --git a/backend/app/tests/api/test_evaluation_campaigns.py b/backend/app/tests/api/test_evaluation_campaigns.py
+index 07bce0cf..4ffb75fa 100644
+--- a/backend/app/tests/api/test_evaluation_campaigns.py
++++ b/backend/app/tests/api/test_evaluation_campaigns.py
+@@ -384,7 +384,8 @@ def test_generation_rechecks_source_policy_and_embedding_allowlist(db_session, m
+     assert "corpus" in denied.text
+ 
+ 
+-def test_raget_repeated_request_returns_same_job(db_session, monkeypatch):
++@pytest.mark.parametrize("chunk_count", [0, 1])
++def test_raget_repeated_request_returns_same_job(db_session, monkeypatch, chunk_count):
+     from types import SimpleNamespace
+     from app.models.evaluation_campaign import EvaluationSuite
+     from app.models.workspace_job import WorkspaceJob
+@@ -408,6 +409,59 @@ def test_raget_repeated_request_returns_same_job(db_session, monkeypatch):
+     second = http.post(f"/evaluation/campaigns/{created['id']}/raget",json={"request_key":"raget-one"})
+     assert second.json()["id"] == first.json()["id"]
+     assert db_session.query(WorkspaceJob).filter_by(kind="evaluation_raget").count() == 1
++    retained_runs = {run.id: copy.deepcopy(run.output_ref) for run in db_session.query(Run).all()}
++    async def payloads(*, limit):
++        return [{"content": "The pressure is 6 bar.", "document_id": "manual"}] * chunk_count
++    monkeypatch.setattr("app.db.base.SessionLocal", lambda: db_session)
++    monkeypatch.setattr("app.services.vector_db.factory.VectorDBFactory.get_db",
++                        lambda *args, **kwargs: SimpleNamespace(list_payloads=payloads))
++    calls = []
++    def evaluate(**kwargs):
++        assert db_session.get(WorkspaceJob, first.json()["id"]).stage == "judge"
++        calls.append(kwargs)
++        return {"method": "giskard_raget", "cases": [{"id": "direct", "correctness": True}]}
++    monkeypatch.setattr("app.services.evaluation.giskard_adapter.generate_isolated", evaluate)
++    result = campaigns.run_generation_job(first.json()["id"])
++    if chunk_count:
++        assert result["status"] == "completed"
++        assert len(calls) == 2
++        assert all(len(call["rows"]) == 1 for call in calls)
++        for call, side in zip(calls, ("baseline", "candidate")):
++            case = call["evaluation_cases"][0]
++            assert case["agent_answer"] == "6 bar"
++            assert case["metadata"]["run_id"] == created["results"][0][side]["run_id"]
++        report = db_session.get(WorkspaceJob, first.json()["id"]).result
++        assert report["coverage"]["chunks_examined"] == 1
++        assert report["review_status"] == "evaluated"
++    else:
++        assert result["status"] == "failed"
++        assert not calls
++        assert "found 0" in db_session.get(WorkspaceJob, first.json()["id"]).error
++    assert {run.id: run.output_ref for run in db_session.query(Run).all()} == retained_runs
++
++
++def test_testset_generation_still_requires_eight_chunks(db_session, monkeypatch):
++    from types import SimpleNamespace
++    from app.models.workspace_job import WorkspaceJob
++    workspace, user, system, _ = _seed(db_session)
++    collection = KnowledgeCollection(id="small-corpus", workspace_id=workspace.id, slug="small-corpus",
++        name="Small", vector_collection_name="small-corpus", artifact_prefix="small/", status="ready")
++    db_session.add(collection)
++    db_session.commit()
++    http = client(db_session, workspace, user, monkeypatch)
++    monkeypatch.setattr("app.services.model_plane.execution.resolve_model_execution",
++                        lambda *args, **kwargs: SimpleNamespace(provider="openai", model="gpt-4o-mini", _api_key="private"))
++    job = http.post('/evaluation/generations', json={"system_id": system.id,
++        "collection_ids": [collection.id], "request_key": "small"}).json()
++    async def payloads(*, limit):
++        return [{"content": "The pressure is 6 bar."}]
++    monkeypatch.setattr("app.db.base.SessionLocal", lambda: db_session)
++    monkeypatch.setattr("app.services.vector_db.factory.VectorDBFactory.get_db",
++                        lambda *args, **kwargs: SimpleNamespace(list_payloads=payloads))
++    monkeypatch.setattr("app.services.evaluation.giskard_adapter.generate_isolated",
++                        lambda **kwargs: pytest.fail("An insufficient corpus must not call the provider"))
++    assert campaigns.run_generation_job(job["id"])["status"] == "failed"
++    assert "requires 8" in db_session.get(WorkspaceJob, job["id"]).error
+ 
+ 
+ def test_changed_model_refused_before_loading_corpus(db_session, monkeypatch):

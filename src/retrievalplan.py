@@ -1,15 +1,16 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Created on Sun May 25 19:12:35 2025
 
 @author: kennethezukwoke
 """
-import numpy as np
+
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional
-from src.globalvariables import ReasoningType
+from typing import Any, Optional
+
+import numpy as np
+
 from src.ensembleretriever import FusionMethod
+from src.globalvariables import ReasoningType
 
 
 @dataclass
@@ -20,7 +21,7 @@ class RetrievalContext:
     diversity_score: float = 0.0
     reasoning_score: float = 0.0
     embedding: Optional[np.ndarray] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     token_count: int = 0
 
     def __lt__(self, other):
@@ -46,7 +47,7 @@ class QueryAnalysis:
     lambda_param: float = 0.5
     has_multiple_questions: bool = False
     word_count: int = 0
-    query_characteristics: Dict[str, float] = field(default_factory=dict)
+    query_characteristics: dict[str, float] = field(default_factory=dict)
     reasoning_type: Optional[ReasoningType] = None
     reasoning_confidence: float = 0.0
     embedding: Optional[np.ndarray] = None
@@ -85,9 +86,7 @@ class RetrievalPlan:
         """
         plan = cls()
         plan.primary_k = (
-            query_analysis.k_value * 13
-            if is_large_model
-            else query_analysis.k_value
+            query_analysis.k_value * 13 if is_large_model else query_analysis.k_value
         )
         plan.secondary_k = 5 if is_large_model else 12
 
@@ -116,15 +115,9 @@ class RetrievalPlan:
             plan.diversity_weight = 0.3
             plan.reasoning_weight = 0.4
 
-        if (
-            query_analysis.query_characteristics.get("has_proper_nouns", 0)
-            > 0.5
-        ):
+        if query_analysis.query_characteristics.get("has_proper_nouns", 0) > 0.5:
             plan.fusion_method = FusionMethod.QUERY_ADAPTIVE
-        elif (
-            query_analysis.query_characteristics.get("technical_ratio", 0)
-            > 0.3
-        ):
+        elif query_analysis.query_characteristics.get("technical_ratio", 0) > 0.3:
             plan.fusion_method = FusionMethod.QUERY_ADAPTIVE
         elif (
             query_analysis.word_count > 15
@@ -139,10 +132,7 @@ class RetrievalPlan:
         if query_analysis.complexity > 0.7:
             plan.use_semantic_chunking = True
 
-        if (
-            query_analysis.query_characteristics.get("technical_ratio", 0)
-            > 0.2
-        ):
+        if query_analysis.query_characteristics.get("technical_ratio", 0) > 0.2:
             plan.use_query_expansion = True
 
         return plan

@@ -1,0 +1,583 @@
+from __future__ import annotations
+
+import asyncio
+import json
+from types import SimpleNamespace
+
+import pytest
+
+from app.models.capability import Capability
+from app.models.system import System
+from app.models.user import User
+from app.models.workspace import Workspace
+from app.services.actions.executor import (
+    _has_mission_room_action_contract,
+    execute_flow_action,
+    get_awaiting_state,
+    handle_registry_chat_action,
+    resolve_action_with_awaiting,
+    set_awaiting_state,
+)
+from app.services.actions.registry import effective_action_manifests, resolve_action
+
+
+def _workspace(**kwargs) -> Workspace:
+    defaults = {
+        "id": "ws-sentinel",
+        "slug": "sentinel-ci",
+        "name": "SENTINEL-CI",
+        "settings": {
+            "actions": {"enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1"]},
+            "assistant_profiles": [
+                {
+                    "key": "vigie_executive",
+                    "actions": {"enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1"]},
+                }
+            ],
+        },
+    }
+    defaults.update(kwargs)
+    return Workspace(**defaults)
+
+
+def test_mission_room_executor_gate_uses_action_contract_not_slug() -> None:
+    legacy_slug = _workspace(settings={})
+    configured = _workspace(
+        slug="institutional-operations",
+        settings={"family": "sentinel_ci"},
+    )
+    crossed = _workspace(
+        slug="crossed-action-packs",
+        settings={
+            "actions": {
+                "enabled_packs": [
+                    "sentinel_ci_aya_v1",
+                    "octave_mission_room_v1",
+                ]
+            }
+        },
+    )
+
+    assert not _has_mission_room_action_contract(
+        legacy_slug,
+        assistant_profile="vigie_executive",
+    )
+    assert _has_mission_room_action_contract(
+        configured,
+        assistant_profile="renamed_executive_profile",
+    )
+    assert not _has_mission_room_action_contract(crossed)
+
+
+@pytest.mark.parametrize(
+    ("phrase", "expected"),
+    [
+        ("Aya, fais moi un résumé des sujets prioritaires", "aya.priority_summary"),
+        (
+            "Fais moi un zoom sur la région nord projet public composants importés",
+            "aya.focus_zone_with_project",
+        ),
+        ("Montre moi le trafic maritime à destination d'Abidjan", "aya.show_maritime_traffic"),
+        ("OK Aya, quel est mon prochain RDV ?", "aya.open_next_meeting"),
+        ("Quels ont été les derniers échanges ?", "aya.summarize_last_exchanges"),
+        ("Aya, donne moi des préconisations sur le cacao", "aya.recommend_cacao"),
+        ("Cale un RDV avec le ministre de l'Économie", "aya.schedule_meeting"),
+        # Phase A — causal chain.
+        ("Pourquoi cette cargaison est-elle bloquée ?", "aya.explain_why"),
+        ("Explique moi pourquoi le projet public est en retard", "aya.explain_why"),
+        ("Qu'est-ce qui cause la tension dans le Nord ?", "aya.explain_why"),
+        # Phase C — vessel evidence.
+        ("Montre le navire MV Atlantic Trader", "aya.show_vessel_evidence"),
+        ("Voir flux entree port", "aya.show_vessel_evidence"),
+        ("explique le cargo Atlantic Trader", "aya.show_vessel_evidence"),
+        ("AYA, explique le cargo Atlantic Trader", "aya.show_vessel_evidence"),
+        # Phase D — customs record PV.
+        ("Montre le PV douanes", "aya.show_customs_record"),
+        ("Ouvre le proces verbal douanes", "aya.show_customs_record"),
+        # Phase H — agenda update.
+        ("Ajoute le point cacao au meeting", "aya.update_meeting_agenda"),
+        ("Mets a jour l'ordre du jour", "aya.update_meeting_agenda"),
+        # Phase I — meeting live mode.
+        ("Demarre la reunion", "aya.start_meeting"),
+        ("Commence la reunion", "aya.start_meeting"),
+        ("Valide l'option B", "aya.log_decision"),
+        ("Decide option C", "aya.log_decision"),
+        ("Qu'avons nous decide la derniere fois ?", "aya.recall_past_decisions"),
+        ("Rappelle moi nos decisions", "aya.recall_past_decisions"),
+        ("oui", "voice.confirm_yes"),
+        ("non", "voice.confirm_no"),
+        # AYA wake-word handling.
+        ("AYA", "aya.acknowledge_presence"),
+        ("AYA ?", "aya.acknowledge_presence"),
+        ("AYA tu m'entends", "aya.acknowledge_presence"),
+        ("AYA tu es là", "aya.acknowledge_presence"),
+        ("AYA présente", "aya.acknowledge_presence"),
+        ("AYA écoute", "aya.acknowledge_presence"),
+        ("Hey AYA", "aya.acknowledge_presence"),
+        # AYA prefix/suffix should not pollute the rest of the matching pipeline.
+        ("AYA, donne moi le cockpit 60 secondes", "aya.priority_summary"),
+        ("Donne moi le cockpit 60 secondes AYA", "aya.priority_summary"),
+        ("pourquoi AYA situation au nord", "aya.explain_why"),
+        ("AYA, ouvre le PV douanes", "aya.show_customs_record"),
+        ("AYA, démarre la réunion", "aya.start_meeting"),
+        # Top 5 résolveur — anglicismes critiques.
+        ("morning briefing", "aya.priority_summary"),
+        ("daily briefing", "aya.priority_summary"),
+        ("give me the briefing", "aya.priority_summary"),
+        ("next meeting", "aya.open_next_meeting"),
+        ("what's my next meeting", "aya.open_next_meeting"),
+        ("start meeting", "aya.start_meeting"),
+        ("start the meeting", "aya.start_meeting"),
+        ("show me the customs report", "aya.show_customs_record"),
+        ("show the customs pv", "aya.show_customs_record"),
+        ("draft a customs email", "aya.draft_customs_email"),
+        ("customs clearance email", "aya.draft_customs_email"),
+        ("why is the north tense", "aya.explain_why"),
+        ("why north", "aya.explain_why"),
+        # Top 5 résolveur — ultra-courts ≤ 4 mots.
+        ("voir pv", "aya.show_customs_record"),
+        ("pv douanes", "aya.show_customs_record"),
+        ("quoi maintenant", "aya.open_next_meeting"),
+        ("résume préfet", "aya.summarize_last_exchanges"),
+        ("résume Préfet Nawa", "aya.summarize_last_exchanges"),
+        ("résume Nawa", "aya.summarize_last_exchanges"),
+        ("preco cacao", "aya.recommend_cacao"),
+        ("préco cacao", "aya.recommend_cacao"),
+        ("email dérogation", "aya.draft_customs_email"),
+        ("email derogation", "aya.draft_customs_email"),
+        # Top 5 résolveur — formes orales familières.
+        ("c'est quoi qui cloche au Nord", "aya.explain_why"),
+        ("on prépare un email aux douanes", "aya.propose_customs_email"),
+        ("on commence le meeting", "aya.start_meeting"),
+        # Top 5 résolveur — tie-breaker Atlantic Trader vs douanes.
+        ("le PV du 18 mai sur Atlantic Trader", "aya.show_customs_record"),
+        ("rédige un courrier de dédouanement pour Atlantic Trader", "aya.draft_customs_email"),
+        # Bug demo-eve #1 — polite filler ("OK, très bien") followed by a
+        # substantive verb must NOT match ``voice.confirm_yes``; it must
+        # route to the port-situation view instead.
+        (
+            "OK, très bien, tu peux me montrer la situation au port, s'il te plaît ?",
+            "aya.show_maritime_traffic",
+        ),
+        ("ok montre la situation au port", "aya.show_maritime_traffic"),
+        ("AYA, montre la situation au port", "aya.show_maritime_traffic"),
+        ("ouvre la vue du port", "aya.show_maritime_traffic"),
+        ("etat du port", "aya.show_maritime_traffic"),
+        ("show me the port situation", "aya.show_maritime_traffic"),
+    ],
+)
+def test_resolver_matches_demo_scenario_phrases(phrase, expected):
+    workspace = _workspace()
+    result = resolve_action(
+        workspace, text=phrase, surface="voice", assistant_profile="vigie_executive"
+    )
+    assert result.matched is True
+    assert result.action_id == expected
+
+
+def test_long_filler_does_not_match_confirm_yes():
+    """Bug demo-eve #1 — guard rail for ``voice.confirm_yes``.
+
+    Without the resolver guard, ``"ok"`` matches the confirm phrase by
+    substring with word-boundary protection and wins at ~0.875, then the
+    executor falls into the stub branch ("execution demo en attente de
+    binding complet"). The guard filters confirm actions out for
+    utterances longer than ``_CONFIRM_MAX_TOKENS`` unless the query is
+    verbatim a confirm phrase.
+    """
+
+    workspace = _workspace()
+    result = resolve_action(
+        workspace,
+        text="OK, très bien, tu peux me montrer la situation au port, s'il te plaît ?",
+        surface="voice",
+        assistant_profile="vigie_executive",
+    )
+    assert result.matched is True
+    assert result.action_id != "voice.confirm_yes"
+    assert result.action_id != "voice.confirm_no"
+
+
+def test_bare_confirmation_still_matches_confirm_yes():
+    """Sanity — short bare confirmations still resolve to confirm_yes."""
+
+    workspace = _workspace()
+    for phrase in ("oui", "ok", "vas-y", "d'accord"):
+        result = resolve_action(
+            workspace, text=phrase, surface="voice", assistant_profile="vigie_executive"
+        )
+        assert result.matched is True, phrase
+        assert result.action_id == "voice.confirm_yes", phrase
+
+
+def test_voice_confirm_yes_without_awaiting_returns_graceful_message(db_session):
+    """Bug demo-eve #1 — defensive guard inside the executor.
+
+    Even when the resolver would still produce ``voice.confirm_yes`` (eg.
+    bare ``"oui"``) and no awaiting bucket exists, the executor must NOT
+    emit the stub binding message. It should respond gracefully so the
+    demo voice loop stays clean.
+    """
+
+    workspace = _workspace()
+    user = User(id="u1", username="vp", email="vp@example.test", is_active=True)
+    db_session.add_all([workspace, user])
+    db_session.commit()
+
+    manifest = next(
+        m
+        for m in effective_action_manifests(workspace, surface="voice")
+        if m.action_id == "voice.confirm_yes"
+    )
+    result = asyncio.run(
+        execute_flow_action(
+            db_session,
+            workspace,
+            user,
+            manifest=manifest,
+            text="oui",
+            session_id="sess-no-awaiting",
+        )
+    )
+    assert "execution demo en attente de binding" not in (result.get("content") or "").lower()
+    assert "Monsieur le Vice Premier Ministre" in (result.get("content") or "")
+
+
+def test_registry_flow_authorization_receives_target_system_and_manifest_contract(
+    db_session,
+    monkeypatch,
+):
+    workspace = _workspace(id="ws-flow-authz", slug="flow-authz")
+    user = User(
+        id="u-flow-authz",
+        username="flow-authz",
+        email="flow-authz@example.test",
+        is_active=True,
+    )
+    capability = Capability(
+        id="capability-target-123",
+        workspace_id=workspace.id,
+        slug="opaque_capability",
+        name="Opaque capability",
+    )
+    system = System(
+        id="system-target-123",
+        workspace_id=workspace.id,
+        capability_id=capability.id,
+        name="Opaque system",
+        objective="Authorize an actual target",
+        status="active",
+        flow_definition={"nodes": [], "edges": []},
+    )
+    db_session.add_all([workspace, user, capability, system])
+    db_session.commit()
+    calls: list[dict] = []
+
+    def _resolve(*_args, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            effective_allowed=True,
+            reason="candidate_allowed",
+            mode="shadow",
+            policy_id="aya_voice_command:action.execute",
+        )
+
+    monkeypatch.setattr(
+        "app.services.actions.executor.resolve_manifest_permission",
+        _resolve,
+    )
+
+    result = asyncio.run(
+        handle_registry_chat_action(
+            db_session,
+            workspace,
+            user,
+            query="AYA",
+            assistant_profile="vigie_executive",
+            system_id="system-target-123",
+        )
+    )
+
+    assert result is not None
+    assert result["action"] == "aya.acknowledge_presence"
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["workspace"] is workspace
+    assert call["required_permission"] == "action.execute"
+    assert call["capability_manifest"] == "aya_voice_command"
+    assert call["action_id"] == "aya.acknowledge_presence"
+    assert call["resource_attrs"] == {
+        "workspace_id": workspace.id,
+        "system_id": "system-target-123",
+        "capability_id": capability.id,
+        "capability": "aya_voice_command",
+        "action_id": "aya.acknowledge_presence",
+    }
+
+
+def test_registry_flow_enforce_denial_stops_handler_before_side_effect(
+    db_session,
+    monkeypatch,
+):
+    workspace = _workspace(id="ws-flow-denied", slug="flow-denied")
+    user = User(
+        id="u-flow-denied",
+        username="flow-denied",
+        email="flow-denied@example.test",
+        is_active=True,
+    )
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.services.actions.executor.resolve_manifest_permission",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            effective_allowed=False,
+            reason="role_denied",
+            mode="enforce",
+            policy_id="aya_voice_command:action.execute",
+        ),
+    )
+
+    async def _must_not_run(*_args, **_kwargs):
+        raise AssertionError("flow-node handler ran after authorization denial")
+
+    monkeypatch.setattr("app.services.actions.executor._invoke_skill", _must_not_run)
+
+    result = asyncio.run(
+        handle_registry_chat_action(
+            db_session,
+            workspace,
+            user,
+            query="morning briefing",
+            assistant_profile="vigie_executive",
+            system_id="system-denied-123",
+        )
+    )
+
+    assert result is not None
+    assert result["action"] == "action_denied"
+    assert result["applied"] is False
+    assert result["action_effects"] == []
+    assert result["authorization"] == {
+        "mode": "enforce",
+        "reason": "role_denied",
+        "policy_id": "aya_voice_command:action.execute",
+    }
+
+
+def test_awaiting_decline_is_authorized_before_clearing_state(
+    db_session,
+    monkeypatch,
+):
+    workspace = _workspace(id="ws-decline-denied", slug="decline-denied")
+    user = User(
+        id="u-decline-denied",
+        username="decline-denied",
+        email="decline-denied@example.test",
+        is_active=True,
+    )
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    set_awaiting_state(
+        db_session,
+        workspace,
+        {"action_on_yes": "aya.draft_customs_email"},
+        session_id="session-decline-denied",
+    )
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.services.actions.executor.resolve_manifest_permission",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            effective_allowed=False,
+            reason="role_denied",
+            mode="enforce",
+            policy_id="voice2voice_interaction:action.execute",
+        ),
+    )
+
+    result = asyncio.run(
+        handle_registry_chat_action(
+            db_session,
+            workspace,
+            user,
+            query="non",
+            assistant_profile="vigie_executive",
+            session_id="session-decline-denied",
+            system_id="system-decline-123",
+        )
+    )
+
+    assert result is not None
+    assert result["action"] == "action_denied"
+    assert get_awaiting_state(
+        db_session,
+        workspace,
+        session_id="session-decline-denied",
+    ) == {"action_on_yes": "aya.draft_customs_email"}
+
+
+def test_awaiting_yes_routes_to_draft_customs_email(db_session):
+    workspace = _workspace()
+    db_session.add(workspace)
+    db_session.commit()
+    set_awaiting_state(
+        db_session,
+        workspace,
+        {
+            "key": "customs_email",
+            "action_on_yes": "aya.draft_customs_email",
+            "action_on_no": "voice.confirm_no",
+        },
+        session_id="sess-1",
+    )
+    db_session.commit()
+
+    awaiting = get_awaiting_state(db_session, workspace, session_id="sess-1")
+    resolution = resolve_action_with_awaiting(
+        workspace,
+        text="oui",
+        surface="chat",
+        assistant_profile="vigie_executive",
+        awaiting=awaiting,
+    )
+    assert resolution.matched is True
+    assert resolution.action_id == "aya.draft_customs_email"
+    assert resolution.reason == "awaiting_yes"
+
+
+def test_execute_maritime_sets_awaiting_and_propose_effect(db_session):
+    workspace = _workspace()
+    user = User(id="u1", username="vp", email="vp@example.test", is_active=True)
+    db_session.add_all([workspace, user])
+    db_session.commit()
+
+    manifest = next(
+        m
+        for m in effective_action_manifests(workspace, surface="chat")
+        if m.action_id == "aya.show_maritime_traffic"
+    )
+    result = asyncio.run(
+        execute_flow_action(
+            db_session,
+            workspace,
+            user,
+            manifest=manifest,
+            text="trafic maritime abidjan",
+            session_id="sess-maritime",
+        )
+    )
+    assert result["action"] == "aya.show_maritime_traffic"
+    effects = result.get("action_effects") or []
+    assert any(item.get("effect") == "assistant-propose" for item in effects)
+    navigate = next(item for item in effects if item.get("effect") == "assistant-navigate")
+    assert navigate["queryParams"]["mode"] == "live"
+    assert navigate["queryParams"]["panel"] == "maritime"
+    webcam = next(item for item in effects if item.get("effect") == "assistant-show-webcam")
+    assert webcam["source_id"] == "apm-apapa-gate-1"
+    assert webcam["cargo_id"] == "cargo-abidjan-supply-001"
+    awaiting = get_awaiting_state(db_session, workspace, session_id="sess-maritime")
+    assert awaiting is not None
+    assert awaiting["action_on_yes"] == "aya.draft_customs_email"
+
+
+def test_octocity_deferred_action_keeps_neutral_resolvable_id(db_session, monkeypatch):
+    workspace = _workspace(
+        id="ws-octocity-actions",
+        slug="octocity-mission-room",
+        name="Octocity Mission Room",
+        mode="demo",
+        settings={
+            "mission_room": {"profile": "octocity_institutional_v1"},
+            "assistant_profile_default": "octave_executive",
+            "actions": {
+                "enabled_packs": [
+                    "global_voice_v1",
+                    "octave_mission_room_v1",
+                    "octave_security_v1",
+                ]
+            },
+            "assistant_profiles": [
+                {
+                    "key": "octave_executive",
+                    "actions": {
+                        "enabled_packs": [
+                            "global_voice_v1",
+                            "octave_mission_room_v1",
+                            "octave_security_v1",
+                        ]
+                    },
+                }
+            ],
+        },
+    )
+    user = User(id="u-octocity", username="director", email="director@example.test", is_active=True)
+    db_session.add_all([workspace, user])
+    db_session.commit()
+
+    async def fake_invoke(skill_id, payload, ctx):
+        del payload, ctx
+        if skill_id == "summarize_long_document_v1":
+            return {"summary_markdown": "Coordination brief.", "citations": []}
+        if skill_id == "generate_recommendations_v1":
+            return {"options": [], "sources": []}
+        raise AssertionError(f"Unexpected skill invocation: {skill_id}")
+
+    monkeypatch.setattr("app.services.actions.executor._invoke_skill", fake_invoke)
+    manifest = next(
+        item
+        for item in effective_action_manifests(
+            workspace,
+            surface="chat",
+            assistant_profile="octave_executive",
+        )
+        if item.action_id == "octave.summarize_last_exchanges"
+    )
+
+    proposal = asyncio.run(
+        execute_flow_action(
+            db_session,
+            workspace,
+            user,
+            manifest=manifest,
+            text="Summarize the latest exchanges",
+            session_id="sess-octocity",
+        )
+    )
+    awaiting = get_awaiting_state(db_session, workspace, session_id="sess-octocity")
+    assert awaiting is not None
+    assert awaiting["action_on_yes"] == "octave.recommend_diversification"
+    propose_effect = next(
+        item for item in proposal["action_effects"] if item.get("effect") == "assistant-propose"
+    )
+    assert propose_effect["confirm_action"] == "octave.recommend_diversification"
+
+    for legacy_action_id in (
+        "aya.recommend_cacao",
+        "octave.recommend_cacao",
+        "octave.recommend_bio-composites",
+    ):
+        legacy_resolution = resolve_action_with_awaiting(
+            workspace,
+            text="oui",
+            surface="chat",
+            assistant_profile="octave_executive",
+            awaiting={"action_on_yes": legacy_action_id},
+        )
+        assert legacy_resolution.action_id == "octave.recommend_diversification"
+
+    confirmed = asyncio.run(
+        handle_registry_chat_action(
+            db_session,
+            workspace,
+            user,
+            query="oui",
+            assistant_profile="octave_executive",
+            session_id="sess-octocity",
+        )
+    )
+    assert confirmed is not None
+    assert confirmed["action"] == "octave.recommend_diversification"
+
+    serialized = json.dumps([proposal, confirmed], ensure_ascii=False).casefold()
+    for forbidden in ("sentinel", "aya", "cacao", "prefet", "préfet", "sahel"):
+        assert forbidden not in serialized

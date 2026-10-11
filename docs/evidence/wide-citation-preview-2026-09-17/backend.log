@@ -1,0 +1,53 @@
+..................................................................       [100%]
+=============================== warnings summary ===============================
+app/tests/api/test_documents_preview_chunks.py: 56 warnings
+app/tests/services/test_secure_deposit.py: 173 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag/backend/.venv/lib/python3.14/site-packages/sqlalchemy/sql/schema.py:3624: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+app/tests/services/test_secure_deposit.py: 59 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/audit_logger.py:61: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+app/tests/services/test_secure_deposit.py::test_deposit_link_password_is_one_time_and_session_scoped
+app/tests/services/test_secure_deposit.py::test_deposit_session_token_is_bound_to_access_id
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/secure_deposit.py:1067: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    expires_at = datetime.utcnow() + timedelta(seconds=settings.secure_deposit_session_ttl_seconds)
+
+app/tests/services/test_secure_deposit.py::test_deposit_link_password_is_one_time_and_session_scoped
+app/tests/services/test_secure_deposit.py::test_deposit_session_token_is_bound_to_access_id
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/secure_deposit.py:1075: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "iat": datetime.utcnow(),
+
+app/tests/services/test_secure_deposit.py::test_release_a_sftp_canary_success_audit_recovers_after_commit_before_response
+app/tests/services/test_secure_deposit.py::test_release_a_sftp_canary_denial_audit_is_retry_safe_after_revocation
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/secure_deposit_sftp.py:162: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+app/tests/services/test_secure_deposit.py::test_release_a_sftp_canary_denial_audit_is_retry_safe_after_revocation
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/secure_deposit.py:1576: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    link.updated_at = datetime.utcnow()
+
+app/tests/services/test_secure_deposit.py::test_build_deposit_archive_contains_files_and_manifest
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/secure_deposit.py:983: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+
+app/tests/services/test_secure_deposit.py::test_build_deposit_archive_contains_files_and_manifest
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/secure_deposit.py:1027: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "generated_at": datetime.utcnow().isoformat() + "Z",
+
+app/tests/services/test_secure_deposit.py::test_promote_spreadsheet_queues_collection_ingest
+app/tests/services/test_secure_deposit.py::test_promote_zip_queues_collection_ingest
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/knowledge_collections.py:627: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    row.updated_at = datetime.utcnow()
+
+app/tests/services/test_secure_deposit.py::test_promote_spreadsheet_queues_collection_ingest
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/secure_deposit.py:2076: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    deposit_file.promoted_at = datetime.utcnow()
+
+app/tests/services/test_secure_deposit.py::test_promote_zip_queues_collection_ingest
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/secure_deposit.py:2482: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    deposit_file.promoted_at = datetime.utcnow()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+66 passed, 301 warnings in 25.43s

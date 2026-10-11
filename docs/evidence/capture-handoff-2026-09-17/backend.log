@@ -1,0 +1,34 @@
+..........                                                               [100%]
+=============================== warnings summary ===============================
+app/tests/api/test_context_tenant_bindings.py: 6 warnings
+app/tests/services/test_chat_session_bounding.py: 16 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag/backend/.venv/lib/python3.14/site-packages/sqlalchemy/sql/schema.py:3624: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+app/tests/services/test_chat_session_bounding.py::test_recent_short_thread_is_still_reused
+app/tests/services/test_chat_session_bounding.py::test_thread_idle_past_the_bound_opens_a_new_one
+app/tests/services/test_chat_session_bounding.py::test_thread_longer_than_the_bound_opens_a_new_one
+app/tests/services/test_chat_session_bounding.py::test_the_production_runaway_thread_is_no_longer_extended
+app/tests/services/test_chat_session_bounding.py::test_the_new_thread_is_the_one_reused_next
+app/tests/services/test_chat_session_bounding.py::test_an_explicit_session_id_is_never_rotated
+app/tests/services/test_chat_session_bounding.py::test_reuse_latest_session_false_still_forces_a_new_thread
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/tests/services/test_chat_session_bounding.py:49: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    last_activity = datetime.utcnow() - idle
+
+app/tests/services/test_chat_session_bounding.py::test_recent_short_thread_is_still_reused
+app/tests/services/test_chat_session_bounding.py::test_thread_idle_past_the_bound_opens_a_new_one
+app/tests/services/test_chat_session_bounding.py::test_thread_longer_than_the_bound_opens_a_new_one
+app/tests/services/test_chat_session_bounding.py::test_the_production_runaway_thread_is_no_longer_extended
+app/tests/services/test_chat_session_bounding.py::test_the_production_runaway_thread_is_no_longer_extended
+app/tests/services/test_chat_session_bounding.py::test_the_new_thread_is_the_one_reused_next
+app/tests/services/test_chat_session_bounding.py::test_the_new_thread_is_the_one_reused_next
+app/tests/services/test_chat_session_bounding.py::test_reuse_latest_session_false_still_forces_a_new_thread
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/api/v1/endpoints/chat.py:635: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_chat_session_bounding.py::test_the_new_thread_is_the_one_reused_next
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/tests/services/test_chat_session_bounding.py:163: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+10 passed, 82 deselected, 38 warnings in 1.62s

@@ -1,0 +1,2267 @@
+/**
+ * `<app-flow-inspector>` — deterministic, store-driven node inspector.
+ *
+ * Rebuilt on `--ck-*` tokens + CDK A11y (focus-trap, Escape) instead of the
+ * old bespoke z-index-48→70 config sheet. It is a DOCKED panel (normal flow,
+ * so it reflows alongside the canvas and has zero z-index conflicts) on wide
+ * screens, and a slide-over on narrow screens.
+ *
+ * Selection is deterministic: it reads `store.selectedNode` (a computed
+ * signal), so a click/keyboard selection updates the inspector within one
+ * frame. Edits write back through the store's stable API.
+ *
+ * EXTENSION SEAM (P2): project manifest-driven editable fields into the
+ * `[flowInspectorFields]` slot. They write back via `store.updateNodeData`
+ * without this component or the store changing:
+ *
+ *   <app-flow-inspector>
+ *     <app-manifest-fields flowInspectorFields />
+ *   </app-flow-inspector>
+ */
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  output,
+  signal,
+  untracked,
+} from '@angular/core';
+import { A11yModule } from '@angular/cdk/a11y';
+import { NavLinkDirective } from '@app/shared/cockpit';
+import { GlyphComponent } from '@app/shared/cockpit/glyph.component';
+import { HelpTooltipComponent } from '@app/shared/cockpit/help-tooltip.component';
+import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { I18nService } from '@app/core/i18n.service';
+import { WorkspaceService, type WorkspaceRequestScope } from '@app/core/workspace.service';
+import { CanonicalApiService, type Skill } from '@app/core/canonical-api.service';
+import { SkillExecutionComponent } from '@app/features/skills/skill-execution.component';
+import type { Subscription } from 'rxjs';
+import { ApiService } from '@app/core/api.service';
+import type {
+  CanonicalFlowNode,
+  DecisionNodeConfig,
+} from '@app/core/flow-serializer.service';
+import { FlowStore } from './flow.store';
+import { FlowPersistenceService } from './flow-persistence.service';
+import { ManifestFieldsComponent } from './manifest-fields.component';
+import {
+  FlowCollectionsService,
+  type FlowDocumentOption,
+} from './flow-collections.service';
+import { FlowTriggerControlsComponent } from './flow-trigger-controls.component';
+import { FlowTriggersPanelComponent } from './flow-triggers-panel.component';
+import { FlowIngressEditorComponent } from './flow-ingress-editor.component';
+import { FlowDecisionBindingsComponent } from './flow-decision-bindings.component';
+import { FlowSchemaEditorComponent } from './flow-schema-editor.component';
+import {
+  PRIVILEGE_TIERS,
+  availableHitlPromptKinds,
+  agentLoopEnvelopeParts,
+  clampConfidence,
+  clampTurns,
+  deadlineMinutes,
+  formatDoneWhen,
+  formatSlugList,
+  itsdAgentLoopStarterFlow,
+  itsdOverlayLoopConfig,
+  minutesToDeadlineMs,
+  parseDoneWhen,
+  parseOptionalCost,
+  parseSlugList,
+  readAgentLoopConfig,
+  readHitlConfig,
+  type OnBudget,
+  type PrivilegeTier,
+  type PromptKind,
+} from './agent-loop-inspector.vm';
+import { isMcpSkillSlug, mcpServerIdForSlug } from './mcp-inspector';
+import { FlowRecipeService } from './flow-recipe.service';
+import {
+  isPythonRecipeNode,
+  previewRequirements,
+  readRecipeParams,
+  recipeCodeSummary,
+  recipeEnvStatusKey,
+  shortFingerprint,
+  type RecipeNodeParams,
+} from './flow-recipe.vm';
+import {
+  TRANSFORM_ENGINES,
+  historicalEnrichmentCopy,
+  isHistoricalEnrichment,
+  isTransformNode,
+  programSummary,
+  publishedProgram,
+  readTransformParams,
+  transformEngineOf,
+  type TransformParams,
+} from './flow-transform.vm';
+import { FlowMlService } from './flow-ml.service';
+import {
+  chooseModelPatch,
+  isTrainNode,
+  lineageVersions,
+  pinVersionPatch,
+  pinnedDataset,
+  preflightServing,
+  readPredictParams,
+  readTrainParams,
+  servableModels,
+  servingDescriptor,
+  type MlFailure,
+  type PredictNodeParams,
+  type ServingRoleDescriptor,
+  type TrainNodeParams,
+} from './flow-ml.vm';
+import { FlowRunService } from './flow-run.service';
+import { DatasetPreviewComponent } from '@app/features/data/dataset-preview.component';
+import { FlowDataSourceInspectorComponent } from './flow-data-source-inspector.component';
+import { SecretPickerComponent } from '@app/shared/secrets/secret-picker.component';
+import { isConnectorSource } from './flow-data-sources.vm';
+
+/** Engine kind of the node the lexicon calls an Output. */
+const OUTPUT_NODE_KIND = 'sink';
+
+export interface RetrievalDocumentRef {
+  collection_slug: string;
+  document_id: string;
+}
+
+export interface RetrievalDocumentOption extends FlowDocumentOption {
+  collection: string;
+  key: string;
+  catalogued: boolean;
+}
+
+/** Preserve saved scopes even when their collection is absent from the live
+ * catalogue (deleted, unavailable, or tenant catalogue temporarily stale). */
+export function buildCollectionOptions(
+  catalogued: readonly string[],
+  persisted: readonly string[],
+): string[] {
+  const catalog = [...new Set(catalogued.map((value) => value.trim()).filter(Boolean))];
+  const missing = [...new Set(persisted.map((value) => value.trim()).filter(Boolean))]
+    .filter((value) => !catalog.includes(value));
+  return [...missing, ...catalog];
+}
+
+/** Merge the bounded live catalogue with persisted refs. A saved ref may sit
+ * beyond the endpoint's first 1000 rows (or reference a temporarily missing
+ * document); keeping it visible makes reload faithful and lets the operator
+ * explicitly deselect it instead of silently carrying hidden configuration. */
+export function buildRetrievalDocumentOptions(
+  collections: readonly string[],
+  documentsFor: (collection: string) => readonly FlowDocumentOption[],
+  persistedRefs: readonly RetrievalDocumentRef[],
+): RetrievalDocumentOption[] {
+  const options = new Map<string, RetrievalDocumentOption>();
+  for (const collection of collections) {
+    for (const document of documentsFor(collection)) {
+      const key = `${collection}\u0000${document.id}`;
+      options.set(key, { ...document, collection, key, catalogued: true });
+    }
+  }
+  const allowed = new Set(collections);
+  for (const ref of persistedRefs) {
+    if (!allowed.has(ref.collection_slug)) continue;
+    const key = `${ref.collection_slug}\u0000${ref.document_id}`;
+    if (options.has(key)) continue;
+    options.set(key, {
+      id: ref.document_id,
+      filename: ref.document_id,
+      status: null,
+      collection: ref.collection_slug,
+      key,
+      catalogued: false,
+    });
+  }
+  return [...options.values()];
+}
+
+interface SkillExecutionLookup {
+  nodeId: string;
+  slug: string;
+  systemId: string | null;
+  scope: WorkspaceRequestScope;
+  executor: Skill['executor'];
+}
+
+/** A published binding belongs to this exact node and Skill, never just a slug
+ * elsewhere in the graph. Its read-only preview is distinct from the draft. */
+export function publishedNodeExecutor(
+  node: CanonicalFlowNode | null,
+  contract: Record<string, unknown> | null,
+): Skill['executor'] {
+  if (!node) return null;
+  const nodes = contract?.['nodes'];
+  if (!nodes || typeof nodes !== 'object' || Array.isArray(nodes)) return null;
+  const binding = (nodes as Record<string, unknown>)[node.id];
+  if (!binding || typeof binding !== 'object' || Array.isArray(binding)) return null;
+  const row = binding as Record<string, unknown>;
+  const config = (node.config ?? {}) as Record<string, unknown>;
+  if (!config['skill_slug'] || row['skill_slug'] !== config['skill_slug']) return null;
+  if (config['skill_id'] && row['skill_id'] !== config['skill_id']) return null;
+  const executor = row['executor'];
+  if (!executor || typeof executor !== 'object' || Array.isArray(executor)) return null;
+  const value = executor as Record<string, unknown>;
+  if (typeof value['kind'] !== 'string' || !value['kind']) return null;
+  if (value['params'] != null && (typeof value['params'] !== 'object' || Array.isArray(value['params']))) return null;
+  return executor as Skill['executor'];
+}
+
+@Component({
+  selector: 'app-flow-inspector',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    A11yModule,
+    SecretPickerComponent,
+    NavLinkDirective,
+    GlyphComponent,
+    HelpTooltipComponent,
+    EmptyStateComponent,
+    ManifestFieldsComponent,
+    SkillExecutionComponent,
+    FlowTriggerControlsComponent,
+    FlowTriggersPanelComponent,
+    FlowIngressEditorComponent,
+    FlowDecisionBindingsComponent,
+    FlowSchemaEditorComponent,
+    DatasetPreviewComponent,
+    FlowDataSourceInspectorComponent,
+  ],
+  styleUrl: './flow-inspector.component.scss',
+  template: `
+    <aside
+      class="ck-flow-inspector"
+      role="complementary"
+      [attr.aria-label]="i18n.t('flow.inspector.aria')"
+      cdkTrapFocus
+      [cdkTrapFocusAutoCapture]="false"
+      (keydown.escape)="close.emit()"
+    >
+      <header class="ck-flow-inspector__head">
+        <div class="ck-flow-inspector__heading">
+          <span class="ck-flow-inspector__eyebrow">
+            {{ node() ? kindLabel(node()!.kind ?? 'task') : i18n.t('flow.inspector.aria') }}
+            @if (dirty()) {
+              <span
+                class="ck-flow-inspector__dirty"
+                [title]="i18n.t('flow.inspector.unsaved.hint')"
+              >
+                <ck-glyph name="pulse" [size]="11" color="currentColor" />
+                {{ i18n.t('flow.inspector.unsaved') }}
+              </span>
+            }
+          </span>
+          <h2 class="ck-flow-inspector__title">
+            {{ node()?.label || node()?.type || i18n.t('flow.inspector.empty.title') }}
+          </h2>
+        </div>
+        <button
+          type="button"
+          class="ck-flow-inspector__close"
+          (click)="close.emit()"
+          [attr.aria-label]="i18n.t('flow.inspector.close.aria')"
+          [title]="i18n.t('flow.inspector.close')"
+        >
+          <ck-glyph name="x" [size]="13" color="currentColor" />
+        </button>
+      </header>
+
+      <!--
+        Three registers, top to bottom: what you name (label, description),
+        what you configure (the kind-specific sections, open by default), and
+        what you rarely need — identity, ports, contract, deletion — folded
+        into disclosures. Folded is not hidden: every field stays one click
+        away, in the same place, and none was removed.
+      -->
+      <div class="ck-flow-inspector__body">
+        @if (node(); as n) {
+          <section class="ck-flow-section">
+            <label class="ck-flow-field">
+              <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.field.label') }}</span>
+              <input
+                class="ck-flow-input"
+                type="text"
+                [value]="n.label ?? ''"
+                (input)="onLabel($event)"
+                [attr.placeholder]="i18n.t('flow.inspector.field.label.placeholder')"
+              />
+            </label>
+            <label class="ck-flow-field">
+              <span class="ck-flow-field__label">{{
+                i18n.t('flow.inspector.field.description')
+              }}</span>
+              <textarea
+                class="ck-flow-input ck-flow-input--area"
+                rows="3"
+                [value]="description(n)"
+                (input)="onDescription($event)"
+                [attr.placeholder]="i18n.t('flow.inspector.field.description.placeholder')"
+              ></textarea>
+            </label>
+          </section>
+
+          @if (selectedSkillSlug(); as slug) {
+            <section class="ck-flow-section">
+              <span class="ck-flow-section__label">{{ i18n.t('skills.execution.current') }}</span>
+              @if (currentSkillDefinition(); as definition) {
+                <app-skill-execution [executor]="definition.executor" [systemId]="systemId() || undefined" />
+              } @else {
+                <p class="ck-flow-hint" role="status">{{ i18n.t('common.loading') }}</p>
+              }
+              <a class="ck-flow-mini-action" [navLink]="{ type: 'skill', ref: slug, facet: 'overview' }">
+                {{ i18n.t('skills.execution.open_definition') }}
+              </a>
+            </section>
+            @if (publishedSkillExecutor(); as executor) {
+              <details class="ck-flow-section ck-flow-fold">
+                <summary class="ck-flow-fold__summary">{{ i18n.t('skills.execution.published') }}</summary>
+                <p class="ck-flow-hint">{{ i18n.t('skills.execution.published_hint') }}</p>
+                <app-skill-execution [executor]="executor" [showResolution]="false" />
+              </details>
+            }
+          }
+
+          @if ((n.kind ?? 'task') === 'task' || (n.kind ?? 'task') === 'retry') {
+            <section class="ck-flow-section" data-testid="node-error-policy">
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.error_policy.title') }}
+              </span>
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">
+                  {{ i18n.t('flow.inspector.error_policy.label') }}
+                </span>
+                <select
+                  class="ck-flow-input"
+                  data-testid="node-error-policy-select"
+                  [value]="errorPolicy(n)"
+                  (change)="onErrorPolicy($event)"
+                >
+                  <option value="continue">{{ i18n.t('flow.inspector.error_policy.continue') }}</option>
+                  <option value="fail">{{ i18n.t('flow.inspector.error_policy.fail') }}</option>
+                  <option value="route">{{ i18n.t('flow.inspector.error_policy.route') }}</option>
+                </select>
+              </label>
+              @if (errorPolicy(n) === 'route') {
+                <p class="ck-flow-hint">{{ i18n.t('flow.inspector.error_policy.route_hint') }}</p>
+              }
+            </section>
+          }
+
+          @if ((n.kind ?? 'task') === 'join') {
+            <section class="ck-flow-section" data-testid="join-quorum">
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.join.title') }}
+              </span>
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">
+                  {{ i18n.t('flow.inspector.join.min_success') }}
+                </span>
+                <input
+                  class="ck-flow-input"
+                  type="number"
+                  min="0"
+                  step="1"
+                  [value]="joinMinSuccess(n)"
+                  (change)="onJoinMinSuccess($event)"
+                />
+                <p class="ck-flow-hint">{{ i18n.t('flow.inspector.join.hint') }}</p>
+              </label>
+            </section>
+          }
+
+          @if ((n.kind ?? 'task') === 'agent_loop') {
+            <section class="ck-flow-section ck-flow-agent-loop">
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.section.agent_loop') }}
+              </span>
+              <p class="ck-flow-hint">{{ i18n.t('flow.inspector.agent_loop.hint') }}</p>
+              @if (agentLoopLine(n); as line) {
+                <p class="ck-flow-hint ck-flow-hint--mono">{{
+                  i18n.t('flow.inspector.agent_loop.envelope', {
+                    objective: line.objective || '—',
+                    turns: line.turns,
+                    skills: line.skills,
+                    privilege: line.privilege,
+                  })
+                }}</p>
+              }
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.objective') }}</span>
+                <textarea
+                  class="ck-flow-input ck-flow-input--area"
+                  rows="3"
+                  [value]="agentLoopConfig(n).goal.objective"
+                  (input)="onAgentLoopObjective($event)"
+                  [attr.placeholder]="i18n.t('flow.inspector.agent_loop.objective.placeholder')"
+                ></textarea>
+              </label>
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.done_when') }}</span>
+                <textarea
+                  class="ck-flow-input ck-flow-input--area"
+                  rows="3"
+                  [value]="formatDoneWhen(agentLoopConfig(n).goal.done_when)"
+                  (input)="onAgentLoopDoneWhen($event)"
+                  [attr.placeholder]="i18n.t('flow.inspector.agent_loop.done_when.placeholder')"
+                ></textarea>
+              </label>
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.allowlist') }}</span>
+                <textarea
+                  class="ck-flow-input ck-flow-input--area"
+                  rows="4"
+                  [value]="formatSlugList(agentLoopConfig(n).skill_allowlist)"
+                  (input)="onAgentLoopAllowlist($event)"
+                  [attr.placeholder]="i18n.t('flow.inspector.agent_loop.allowlist.placeholder')"
+                ></textarea>
+                <p class="ck-flow-hint">{{
+                  i18n.t('flow.inspector.agent_loop.allowlist.count', {
+                    count: agentLoopConfig(n).skill_allowlist.length,
+                  })
+                }}</p>
+              </label>
+              <div class="ck-flow-agent-loop__row">
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.turns') }}</span>
+                  <input
+                    class="ck-flow-input"
+                    type="number"
+                    min="1"
+                    max="32"
+                    [value]="agentLoopConfig(n).budget.max_turns"
+                    (input)="onAgentLoopTurns($event)"
+                  />
+                </label>
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.confidence') }}</span>
+                  <input
+                    class="ck-flow-input"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    [value]="agentLoopConfig(n).confidence_floor"
+                    (input)="onAgentLoopConfidence($event)"
+                  />
+                </label>
+              </div>
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.privilege') }}</span>
+                <select
+                  class="ck-flow-input"
+                  [value]="agentLoopConfig(n).privilege_tier"
+                  (change)="onAgentLoopPrivilege($event)"
+                >
+                  @for (tier of privilegeTiers; track tier) {
+                    <option [value]="tier">{{ i18n.t('flow.inspector.agent_loop.privilege.' + tier) }}</option>
+                  }
+                </select>
+              </label>
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.on_budget') }}</span>
+                <select
+                  class="ck-flow-input"
+                  [value]="agentLoopConfig(n).on_budget"
+                  (change)="onAgentLoopOnBudget($event)"
+                >
+                  <option value="exit">{{ i18n.t('flow.inspector.agent_loop.on_budget.exit') }}</option>
+                  <option value="ask_human">{{ i18n.t('flow.inspector.agent_loop.on_budget.ask_human') }}</option>
+                </select>
+              </label>
+              <div class="ck-flow-agent-loop__row">
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.cost') }}</span>
+                  <input
+                    class="ck-flow-input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    [value]="agentLoopConfig(n).budget.max_cost ?? ''"
+                    (input)="onAgentLoopCost($event)"
+                  />
+                </label>
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.deadline') }}</span>
+                  <input
+                    class="ck-flow-input"
+                    type="number"
+                    min="0"
+                    step="1"
+                    [value]="deadlineMinutes(agentLoopConfig(n).budget.deadline_ms)"
+                    (input)="onAgentLoopDeadline($event)"
+                  />
+                </label>
+              </div>
+              <div class="ck-flow-agent-loop__actions">
+                <button type="button" class="ck-flow-mini-action" (click)="applyItsdLoopDefaults()">
+                  {{ i18n.t('flow.inspector.agent_loop.apply_itsd') }}
+                </button>
+                <button type="button" class="ck-flow-mini-action" (click)="loadItsdStarter()">
+                  {{ i18n.t('flow.inspector.agent_loop.load_starter') }}
+                </button>
+              </div>
+            </section>
+          }
+
+          @if (isRecipeNode(n)) {
+            <section class="ck-flow-section" data-testid="recipe-summary">
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.section.recipe') }}
+              </span>
+              <p class="ck-flow-hint">{{ i18n.t('flow.recipe.inspector.hint') }}</p>
+              <dl class="ck-flow-kv">
+                <dt>{{ i18n.t('flow.recipe.inspector.script') }}</dt>
+                <dd class="mono">{{ recipeSummary(n) }}</dd>
+                <dt>{{ i18n.t('flow.recipe.inspector.timeout') }}</dt>
+                <dd class="mono">{{
+                  i18n.t('flow.recipe.inspector.timeout.value', {
+                    seconds: recipeParams(n).timeout_s,
+                  })
+                }}</dd>
+                <dt>{{ i18n.t('flow.recipe.inspector.env') }}</dt>
+                <dd class="mono">{{ recipeEnvLine(n) }}</dd>
+              </dl>
+              <button
+                type="button"
+                class="ck-flow-action"
+                data-testid="open-recipe-workshop"
+                (click)="openRecipeWorkshop.emit()"
+                [attr.aria-label]="i18n.t('flow.recipe.inspector.open.aria')"
+              >
+                <ck-glyph name="focus" [size]="12" color="currentColor" />
+                {{ i18n.t('flow.recipe.inspector.open') }}
+              </button>
+            </section>
+          }
+
+          @if (isTransformNode(n)) {
+            <section class="ck-flow-section" data-testid="transform-summary">
+              <span class="ck-flow-section__label">
+                {{ i18n.t(transformCopy(n).section) }}
+              </span>
+              <p class="ck-flow-hint">{{ i18n.t(transformCopy(n).hint) }}</p>
+              <dl class="ck-flow-kv">
+                <dt>{{ i18n.t(transformCopy(n).program) }}</dt>
+                <dd class="mono">{{ transformProgramSummary(n) }}</dd>
+                <dt>{{ i18n.t('flow.transform.inspector.output') }}</dt>
+                <dd class="mono">{{ transformOutputLine(n) }}</dd>
+                <dt>{{ i18n.t('flow.transform.inspector.sources') }}</dt>
+                <dd class="mono">{{ transformSourcesLine(n) }}</dd>
+              </dl>
+              <button
+                type="button"
+                class="ck-flow-action"
+                data-testid="open-transform-workshop"
+                (click)="openTransformWorkshop.emit()"
+                [attr.aria-label]="i18n.t(transformCopy(n).openAria)"
+              >
+                <ck-glyph name="focus" [size]="12" color="currentColor" />
+                {{ i18n.t(transformCopy(n).open) }}
+              </button>
+            </section>
+          }
+
+          @if (isTrainNode(n)) {
+            <section class="ck-flow-section" data-testid="train-summary">
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.section.train') }}
+              </span>
+              <p class="ck-flow-hint">{{ i18n.t('flow.ml.train.inspector.hint') }}</p>
+              <dl class="ck-flow-kv">
+                <dt>{{ i18n.t('flow.ml.train.inspector.target') }}</dt>
+                <dd class="mono">{{ trainTargetLine(n) }}</dd>
+                <dt>{{ i18n.t('flow.ml.train.inspector.dataset') }}</dt>
+                <dd class="mono">{{ trainDatasetLine(n) }}</dd>
+                <dt>{{ i18n.t('flow.ml.train.inspector.output') }}</dt>
+                <dd class="mono">{{ trainOutputLine(n) }}</dd>
+              </dl>
+              <button
+                type="button"
+                class="ck-flow-action"
+                data-testid="open-train-workshop"
+                (click)="openTrainWorkshop.emit()"
+                [attr.aria-label]="i18n.t('flow.ml.train.inspector.open.aria')"
+              >
+                <ck-glyph name="focus" [size]="12" color="currentColor" />
+                {{ i18n.t('flow.ml.train.inspector.open') }}
+              </button>
+            </section>
+          }
+
+          <!-- Serving nodes get a section, not a dialog: which model answers is
+               one dropdown, and a workshop for one dropdown is ceremony. -->
+          @if (servingCopy(n); as copy) {
+            <section class="ck-flow-section" data-testid="serving-summary">
+              <span class="ck-flow-section__label">{{ i18n.t(copy.section) }}</span>
+              <p class="ck-flow-hint">{{ i18n.t(copy.hint) }}</p>
+
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">
+                  {{ i18n.t('flow.ml.serving.model') }}
+                </span>
+                <select
+                  class="ck-flow-input"
+                  data-testid="serving-model"
+                  [value]="servingParams(n).model_slug"
+                  (change)="onServingModel($event)"
+                >
+                  <option value="">{{ i18n.t('flow.ml.serving.model.none') }}</option>
+                  @for (lineage of servingLineages(n); track lineage.slug) {
+                    <option [value]="lineage.slug" [selected]="lineage.slug === servingParams(n).model_slug">
+                      {{ lineage.name }}
+                    </option>
+                  }
+                </select>
+              </label>
+
+              @if (servingParams(n).model_slug) {
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">
+                    {{ i18n.t('flow.ml.serving.version') }}
+                  </span>
+                  <select
+                    class="ck-flow-input"
+                    data-testid="serving-version"
+                    [value]="servingParams(n).pinned_version ?? ''"
+                    (change)="onServingVersion($event)"
+                  >
+                    <option value="">{{ i18n.t('flow.ml.serving.version.champion') }}</option>
+                    @for (version of servingVersions(n); track version.id) {
+                      <option [value]="version.version" [selected]="version.version === servingParams(n).pinned_version">
+                        {{
+                          i18n.t('flow.ml.serving.version.pinned', {
+                            version: version.version,
+                          })
+                        }}
+                      </option>
+                    }
+                  </select>
+                </label>
+                <p class="ck-flow-hint">{{ i18n.t('flow.ml.serving.version.hint') }}</p>
+              } @else if (!servingLineages(n).length) {
+                <p class="ck-flow-hint" data-testid="serving-empty">
+                  {{ i18n.t(copy.forecasts ? 'flow.ml.forecast.empty' : 'flow.ml.serving.empty') }}
+                </p>
+              }
+
+              @if (copy.forecasts) {
+                <!-- How far ahead, and how sure. Left empty, each keeps what the
+                     model was trained to answer. -->
+                <div class="ck-flow-field">
+                  <span class="ck-flow-field__label">{{ i18n.t('flow.ml.forecast.horizon') }}</span>
+                  <input
+                    class="ck-flow-input"
+                    type="number"
+                    min="1"
+                    data-testid="forecast-node-horizon"
+                    [value]="servingParams(n).horizon ?? ''"
+                    [attr.placeholder]="forecastDefaultHorizon(n)"
+                    (change)="onForecastHorizon($event)"
+                  />
+                </div>
+                <div class="ck-flow-field">
+                  <span class="ck-flow-field__label">{{ i18n.t('flow.ml.forecast.level') }}</span>
+                  <select
+                    class="ck-flow-input"
+                    data-testid="forecast-node-level"
+                    [value]="servingParams(n).interval_level ?? ''"
+                    (change)="onForecastLevel($event)"
+                  >
+                    <option value="">{{ i18n.t('flow.ml.forecast.level.model') }}</option>
+                    @for (level of forecastLevels; track level) {
+                      <option [value]="level" [selected]="level === servingParams(n).interval_level">
+                        {{ level * 100 }} %
+                      </option>
+                    }
+                  </select>
+                </div>
+                <p class="ck-flow-hint">{{ i18n.t('flow.ml.forecast.horizon.hint') }}</p>
+              }
+
+              @if (copy.writesDataset) {
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">
+                    {{ i18n.t('flow.ml.serving.output') }}
+                  </span>
+                  <input
+                    class="ck-flow-input"
+                    type="text"
+                    maxlength="200"
+                    spellcheck="false"
+                    data-testid="serving-output"
+                    [value]="servingParams(n).output_name"
+                    [attr.placeholder]="i18n.t('flow.ml.serving.output.auto')"
+                    (change)="onServingOutput($event)"
+                  />
+                </label>
+
+                <!-- Once it has run, the node's whole product is a table. Naming
+                     it is not looking at it, and the scored columns are the
+                     reason the node is on the canvas. -->
+                @if (writtenDataset(n); as scored) {
+                  <div class="ck-flow-field" data-testid="serving-output-preview">
+                    <span class="ck-flow-field__label">
+                      {{ i18n.t('flow.ml.serving.output.produced') }}
+                    </span>
+                    <ck-dataset-preview [datasetId]="scored" maxHeight="180px" />
+                    <a class="ck-flow-link" [navLink]="{ leaf: 'data-doc', ref: scored }">
+                      {{ i18n.t('flow.ml.serving.output.open') }}
+                    </a>
+                  </div>
+                }
+              }
+
+              @if (copy.supportsExplain) {
+                <label class="ck-flow-field ck-flow-field--row">
+                  <input
+                    type="checkbox"
+                    data-testid="serving-explain"
+                    [checked]="servingParams(n).explain"
+                    (change)="onServingExplain($event)"
+                  />
+                  <span class="ck-flow-field__label">
+                    {{ i18n.t('flow.ml.serving.explain') }}
+                  </span>
+                </label>
+                <p class="ck-flow-hint">{{ i18n.t('flow.ml.serving.explain.hint') }}</p>
+              }
+
+              @if (servingRefusal(n); as reason) {
+                <p class="ck-flow-hint ck-flow-hint--warn" role="alert">
+                  {{ i18n.t(reason.key) }}
+                </p>
+              }
+            </section>
+          }
+
+          @if ((n.kind ?? 'task') === 'hitl') {
+            <section class="ck-flow-section">
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.section.human_gate') }}
+              </span>
+              <p class="ck-flow-hint">{{ i18n.t('flow.inspector.human_gate.hint') }}</p>
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.human_gate.prompt') }}</span>
+                <textarea
+                  class="ck-flow-input ck-flow-input--area"
+                  rows="3"
+                  [value]="hitlConfig(n).prompt"
+                  (input)="onHitlPrompt($event)"
+                  [attr.placeholder]="i18n.t('flow.inspector.human_gate.prompt.placeholder')"
+                ></textarea>
+              </label>
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.human_gate.kind') }}</span>
+                <select
+                  class="ck-flow-input"
+                  [value]="hitlConfig(n).prompt_kind"
+                  (change)="onHitlPromptKind($event)"
+                >
+                  @for (kind of promptKinds(n); track kind) {
+                    <option [value]="kind">{{ i18n.t('flow.inspector.human_gate.kind.' + kind) }}</option>
+                  }
+                </select>
+              </label>
+            </section>
+          }
+
+          @if ((n.kind ?? 'task') === 'decision') {
+            <section class="ck-flow-section ck-flow-decision">
+              <div class="ck-flow-section__heading-row">
+                <span class="ck-flow-section__label">
+                  {{ i18n.t('flow.inspector.section.decision') }}
+                  <ck-help id="concept.decision" />
+                </span>
+                <button
+                  type="button"
+                  class="ck-flow-mini-action"
+                  (click)="addDecisionBranch()"
+                >
+                  {{ i18n.t('flow.inspector.decision.add') }}
+                </button>
+              </div>
+
+              <p class="ck-flow-hint">{{ i18n.t('flow.inspector.decision.hint') }}</p>
+
+              <div class="ck-flow-decision__branches">
+                @for (branch of decisionBranches(n); track $index; let i = $index; let first = $first; let last = $last) {
+                  <article class="ck-flow-decision__branch">
+                    <div class="ck-flow-decision__branch-head">
+                      <span class="ck-flow-decision__order">{{ i + 1 }}</span>
+                      <span class="ck-flow-decision__route-count">
+                        {{
+                          i18n.t('flow.inspector.decision.routes', {
+                            count: decisionRouteCount(n.id, branch.label),
+                          })
+                        }}
+                      </span>
+                      <div class="ck-flow-decision__branch-actions">
+                        <button
+                          type="button"
+                          class="ck-flow-icon-action"
+                          [disabled]="first"
+                          (click)="moveDecisionBranch(i, -1)"
+                          [attr.aria-label]="i18n.t('flow.inspector.decision.up.aria')"
+                          [title]="i18n.t('flow.inspector.decision.up')"
+                        >↑</button>
+                        <button
+                          type="button"
+                          class="ck-flow-icon-action"
+                          [disabled]="last"
+                          (click)="moveDecisionBranch(i, 1)"
+                          [attr.aria-label]="i18n.t('flow.inspector.decision.down.aria')"
+                          [title]="i18n.t('flow.inspector.decision.down')"
+                        >↓</button>
+                        <button
+                          type="button"
+                          class="ck-flow-icon-action ck-flow-icon-action--danger"
+                          [disabled]="decisionBranches(n).length <= 2"
+                          (click)="removeDecisionBranch(i)"
+                          [attr.aria-label]="i18n.t('flow.inspector.decision.remove')"
+                          [title]="i18n.t('flow.inspector.decision.remove')"
+                        >×</button>
+                      </div>
+                    </div>
+
+                    <label class="ck-flow-field">
+                      <span class="ck-flow-field__label">{{
+                        i18n.t('flow.inspector.decision.route_label')
+                      }}</span>
+                      <input
+                        class="ck-flow-input mono"
+                        type="text"
+                        [value]="branch.label"
+                        (input)="onDecisionBranchLabel(i, $event)"
+                        placeholder="branch_label"
+                        spellcheck="false"
+                      />
+                    </label>
+
+                    <label class="ck-flow-field">
+                      <span class="ck-flow-field__label">{{
+                        i18n.t('flow.inspector.decision.condition')
+                      }}</span>
+                      <textarea
+                        class="ck-flow-input ck-flow-input--area"
+                        rows="2"
+                        [value]="branch.condition"
+                        (input)="onDecisionCondition(i, $event)"
+                        placeholder="value == True"
+                        spellcheck="false"
+                      ></textarea>
+                    </label>
+                  </article>
+                }
+              </div>
+
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">{{
+                  i18n.t('flow.inspector.decision.default')
+                }}</span>
+                <select
+                  class="ck-flow-input"
+                  [value]="decisionDefault(n)"
+                  (change)="onDecisionDefault($event)"
+                >
+                  <option value="">{{ i18n.t('flow.inspector.decision.default.none') }}</option>
+                  @for (branch of decisionBranches(n); track $index) {
+                    <option [value]="branch.label">{{
+                      branch.label || i18n.t('flow.inspector.decision.invalid_label')
+                    }}</option>
+                  }
+                </select>
+              </label>
+
+              <app-flow-decision-bindings />
+            </section>
+          }
+
+          @if (isConnectorSource(n)) {
+            <app-flow-data-source-inspector [node]="n" [locked]="editingLocked()" />
+          }
+          @if ((n.kind ?? 'task') === 'asset' && !isConnectorSource(n)) {
+            <section class="ck-flow-section">
+              <span class="ck-flow-section__label">{{
+                i18n.t('flow.inspector.section.asset')
+              }}</span>
+
+              @if (collectionsState() === 'loaded' && collectionOptions().length > 0) {
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">{{
+                    i18n.t('flow.inspector.asset.collection')
+                  }}</span>
+                  <select
+                    class="ck-flow-input"
+                    [value]="collectionSlug(n)"
+                    (change)="onCollectionSlug($event)"
+                  >
+                    <option value="">{{
+                      i18n.t('flow.inspector.asset.collection.none')
+                    }}</option>
+                    @for (slug of collectionOptions(); track slug) {
+                      <option [value]="slug">{{ slug }}</option>
+                    }
+                  </select>
+                </label>
+              } @else {
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">{{
+                    i18n.t('flow.inspector.asset.slug')
+                  }}</span>
+                  <input
+                    class="ck-flow-input"
+                    type="text"
+                    [value]="collectionSlug(n)"
+                    (input)="onCollectionSlug($event)"
+                    [attr.placeholder]="i18n.t('flow.inspector.asset.slug.placeholder')"
+                  />
+                </label>
+                @if (collectionsState() === 'loading') {
+                  <p class="ck-flow-hint">{{ i18n.t('flow.inspector.asset.loading') }}</p>
+                } @else if (collectionsState() === 'error') {
+                  <p class="ck-flow-hint">
+                    {{ i18n.t('flow.inspector.asset.error') }}
+                    <button type="button" class="ck-flow-hint__btn" (click)="retryCollections()">
+                      {{ i18n.t('flow.inspector.asset.retry') }}
+                    </button>
+                  </p>
+                } @else if (collectionsState() === 'loaded') {
+                  <p class="ck-flow-hint">{{ i18n.t('flow.inspector.asset.empty') }}</p>
+                }
+              }
+
+              <label class="ck-flow-field ck-flow-field--row">
+                <input
+                  type="checkbox"
+                  [checked]="workspaceScoped(n)"
+                  (change)="onWorkspaceScoped($event)"
+                />
+                <span class="ck-flow-field__label">{{
+                  i18n.t('flow.inspector.asset.workspace_scoped')
+                }}</span>
+              </label>
+
+              @if (collectionSlug(n); as slug) {
+                <a class="ck-flow-action" [navLink]="{ leaf: 'knowledge-doc', ref: slug }">
+                  <ck-glyph name="layers" [size]="12" color="currentColor" />
+                  {{ i18n.t('flow.inspector.asset.open') }}
+                </a>
+              } @else {
+                <a class="ck-flow-action" [navLink]="{ surface: 'knowledge' }">
+                  <ck-glyph name="layers" [size]="12" color="currentColor" />
+                  {{ i18n.t('flow.inspector.asset.open_knowledge') }}
+                </a>
+              }
+            </section>
+          }
+
+          @if (n.kind === 'secret') {
+            <section class="ck-flow-section" data-testid="secret-node-editor">
+              <span class="ck-flow-section__label">{{
+                i18n.t('flow.inspector.section.secret')
+              }}</span>
+              <fieldset class="ck-flow-field" [disabled]="editingLocked()">
+                <legend class="ck-flow-field__label">{{ i18n.t('flow.inspector.secret.ref') }}</legend>
+                <app-secret-picker
+                  data-testid="secret-ref-picker"
+                  [ref]="secretRef(n) || null"
+                  [scope]="systemId() ? 'system' : 'workspace'"
+                  [systemId]="systemId()"
+                  [includeWorkspace]="true"
+                  (refChange)="onSecretRef($event)"
+                />
+
+              </fieldset>
+              <p class="ck-flow-hint">{{ i18n.t('flow.inspector.secret.hint') }}</p>
+              @for (target of secretTargets(n); track target.id) {
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">{{
+                    i18n.t('flow.inspector.secret.slot', { name: target.label })
+                  }}</span>
+                  <input
+                    class="ck-flow-input"
+                    type="text"
+                    [attr.data-testid]="'secret-slot-' + target.id"
+                    [value]="target.slot"
+                    [disabled]="editingLocked()"
+                    (change)="onSecretSlot(target.id, $event)"
+                    [attr.placeholder]="i18n.t('flow.inspector.secret.slot.placeholder')"
+                  />
+                </label>
+              } @empty {
+                <p class="ck-flow-hint">{{ i18n.t('flow.inspector.secret.no_targets') }}</p>
+              }
+            </section>
+          }
+
+          @if (isRetrievalNode(n)) {
+            <section class="ck-flow-section" data-testid="retrieval-scope-editor">
+              <span class="ck-flow-section__label">{{
+                i18n.t('flow.inspector.section.retrieval')
+              }}</span>
+              <p class="ck-flow-hint">{{ i18n.t('flow.inspector.retrieval.hint') }}</p>
+              @if (retrievalScopeError(); as scopeError) {
+                <p class="ck-flow-hint ck-flow-hint--error" role="alert">{{ scopeError }}</p>
+              }
+
+              @if (collectionsState() === 'loaded' && collectionOptions().length > 0) {
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">{{
+                    i18n.t('flow.inspector.retrieval.collections')
+                  }}</span>
+                  <select
+                    class="ck-flow-input ck-flow-input--multi"
+                    multiple
+                    size="5"
+                    (change)="onRetrievalCollections($event)"
+                    [attr.aria-label]="i18n.t('flow.inspector.retrieval.collections.aria')"
+                  >
+                    @for (slug of collectionOptions(); track slug) {
+                      <option [value]="slug" [selected]="retrievalCollectionSelected(n, slug)">
+                        {{ slug }}
+                      </option>
+                    }
+                  </select>
+                </label>
+              } @else {
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">{{
+                    i18n.t('flow.inspector.retrieval.slugs')
+                  }}</span>
+                  <textarea
+                    class="ck-flow-input ck-flow-input--area"
+                    rows="2"
+                    [value]="retrievalCollections(n).join(', ')"
+                    (change)="onRetrievalCollectionsText($event)"
+                    placeholder="collection-a, collection-b"
+                  ></textarea>
+                </label>
+              }
+
+              @if (retrievalCollections(n).length > 0) {
+                @if (retrievalDocumentsLoading()) {
+                  <p class="ck-flow-hint">{{
+                    i18n.t('flow.inspector.retrieval.documents.loading')
+                  }}</p>
+                }
+                @if (retrievalDocumentsError()) {
+                  <p class="ck-flow-hint">
+                    {{ i18n.t('flow.inspector.retrieval.documents.error') }}
+                    <button type="button" class="ck-flow-hint__btn" (click)="retryRetrievalDocuments()">
+                      {{ i18n.t('flow.inspector.retrieval.documents.retry') }}
+                    </button>
+                  </p>
+                }
+                @if (retrievalDocumentOptions().length > 0) {
+                  <label class="ck-flow-field">
+                    <span class="ck-flow-field__label">{{
+                      i18n.t('flow.inspector.retrieval.documents')
+                    }}</span>
+                    <select
+                      class="ck-flow-input ck-flow-input--multi"
+                      multiple
+                      size="7"
+                      (change)="onRetrievalDocuments($event)"
+                      [attr.aria-label]="i18n.t('flow.inspector.retrieval.documents.aria')"
+                    >
+                      @for (doc of retrievalDocumentOptions(); track doc.key) {
+                        <option
+                          [value]="doc.key"
+                          [selected]="retrievalDocumentSelected(n, doc.collection, doc.id)"
+                        >
+                          {{ doc.filename }} · {{ doc.collection }}
+                          @if (!doc.catalogued) {
+                            · {{ i18n.t('flow.inspector.retrieval.documents.stored') }}
+                          }
+                        </option>
+                      }
+                    </select>
+                  </label>
+                  <p class="ck-flow-hint">
+                    {{ i18n.t('flow.inspector.retrieval.documents.all') }}
+                    @if (retrievalDocumentsTruncated()) {
+                      {{ i18n.t('flow.inspector.retrieval.documents.more') }}
+                      <button
+                        type="button"
+                        class="ck-flow-hint__btn"
+                        [disabled]="retrievalDocumentsLoading()"
+                        (click)="loadMoreRetrievalDocuments()"
+                      >
+                        {{ i18n.t('flow.inspector.retrieval.documents.load_more') }}
+                      </button>
+                    }
+                  </p>
+                } @else if (!retrievalDocumentsLoading() && !retrievalDocumentsError()) {
+                  <p class="ck-flow-hint">{{
+                    i18n.t('flow.inspector.retrieval.documents.empty')
+                  }}</p>
+                }
+              } @else {
+                <p class="ck-flow-hint">{{ i18n.t('flow.inspector.retrieval.no_scope') }}</p>
+              }
+            </section>
+          }
+
+          @if ((n.kind ?? 'task') === 'source') {
+            <section class="ck-flow-section">
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.section.entry') }}
+                <ck-help id="concept.entry-point" />
+              </span>
+              <app-flow-ingress-editor [systemId]="systemId()" />
+            </section>
+          }
+
+          @if (isTriggerSource(n)) {
+            <section class="ck-flow-section">
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.section.trigger') }}
+                <ck-help id="concept.trigger" />
+              </span>
+              @if (isSftpTrigger(n)) {
+                <a class="ck-flow-action" [navLink]="{ surface: 'secure-deposit' }">
+                  <ck-glyph name="orbit" [size]="12" color="currentColor" />
+                  {{ i18n.t('flow.inspector.trigger.sftp') }}
+                </a>
+              }
+              @if (systemId(); as sid) {
+                <app-flow-trigger-controls [systemId]="sid" />
+                <app-flow-triggers-panel [systemId]="sid" />
+              } @else {
+                <p class="ck-flow-hint">{{ i18n.t('flow.inspector.trigger.unavailable') }}</p>
+              }
+            </section>
+          }
+
+          @if (mcpServerId(n); as mcpServer) {
+            <section class="ck-flow-section">
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.section.mcp') }}
+              </span>
+              <p class="ck-flow-hint">{{ i18n.t('flow.inspector.mcp.server', { id: mcpServer }) }}</p>
+              @if (mcpCredentialSource(n); as source) {
+                <p class="ck-flow-hint">{{ i18n.t('flow.inspector.mcp.credential', { source }) }}</p>
+              }
+              @if (mcpConnectorEnabled()) {
+                <a class="ck-flow-action" [navLink]="{ surface: 'mcp' }">
+                  <ck-glyph name="orbit" [size]="12" color="currentColor" />
+                  {{ i18n.t('flow.inspector.mcp.open') }}
+                </a>
+              } @else {
+                <p class="ck-flow-hint">{{ i18n.t('flow.inspector.mcp.disabled') }}</p>
+              }
+            </section>
+          }
+
+          <!-- P2: manifest-driven editable fields (write back to the exact
+               runtime_read_path via the store's dotted-path writers). -->
+          <app-manifest-fields />
+
+          <!-- Kept seam for any further inspector extensions. -->
+          <ng-content select="[flowInspectorFields]" />
+
+          <!-- Folded tail: the published contract, the port shapes, the engine
+               identifiers and the deletion. Each is a native disclosure —
+               closed on arrival, one click from the same content as before. -->
+          @if (declaresOutputContract(n)) {
+            <details class="ck-flow-section ck-flow-fold">
+              <summary class="ck-flow-fold__summary">
+                {{ i18n.t('flow.inspector.section.output_contract') }}
+              </summary>
+              <ck-help id="concept.output" />
+              <app-flow-schema-editor
+                configKey="output_schema"
+                [label]="i18n.t('flow.inspector.output_contract.label')"
+                [deriveFrom]="outputContractDeriveFrom(n)"
+                [hint]="outputContractHint(n)"
+                [fallbackHint]="outputContractFallback(n)"
+              />
+            </details>
+          }
+
+          @if ((n.inputs?.length ?? 0) > 0 || (n.outputs?.length ?? 0) > 0) {
+            <details class="ck-flow-section ck-flow-fold">
+              <summary class="ck-flow-fold__summary">
+                {{ i18n.t('flow.inspector.section.ports') }}
+              </summary>
+              <div class="ck-flow-ports">
+                @for (p of n.inputs ?? []; track p.name) {
+                  <span class="ck-flow-chip ck-flow-chip--in">
+                    {{ p.name }} · {{ p.schema }}
+                  </span>
+                }
+                @for (p of n.outputs ?? []; track p.name) {
+                  <span class="ck-flow-chip ck-flow-chip--out">
+                    {{ p.name }} · {{ p.schema }}
+                  </span>
+                }
+              </div>
+            </details>
+          }
+
+          <details class="ck-flow-section ck-flow-fold">
+            <summary class="ck-flow-fold__summary">
+              {{ i18n.t('flow.inspector.section.identity') }}
+            </summary>
+            <p class="ck-flow-hint">{{ i18n.t('flow.inspector.section.identity.hint') }}</p>
+            <dl class="ck-flow-kv">
+              <dt>{{ i18n.t('flow.inspector.identity.id') }}</dt>
+              <dd class="mono">{{ n.id }}</dd>
+              <dt>{{ i18n.t('flow.inspector.identity.type') }}</dt>
+              <dd class="mono">{{ n.type }}</dd>
+              <dt>{{ i18n.t('flow.inspector.identity.kind') }}</dt>
+              <dd class="mono">{{ n.kind ?? 'task' }}</dd>
+            </dl>
+          </details>
+
+          <details class="ck-flow-section ck-flow-fold ck-flow-danger">
+            <summary class="ck-flow-fold__summary">
+              {{ i18n.t('flow.inspector.section.danger') }}
+            </summary>
+            <button
+              type="button"
+              class="ck-flow-danger__btn"
+              [disabled]="editingLocked()"
+              (click)="deleteNode()"
+              [attr.aria-label]="i18n.t('flow.inspector.danger.delete.aria')"
+              aria-keyshortcuts="Delete Backspace"
+              [title]="i18n.t('flow.inspector.danger.delete.hint')"
+            >
+              {{ i18n.t('flow.inspector.danger.delete') }}
+            </button>
+            <p class="ck-flow-hint">
+              {{ i18n.t('flow.inspector.danger.body', { name: n.label || n.id }) }}
+            </p>
+          </details>
+        } @else {
+          <div class="ck-flow-empty">
+            <app-empty-state
+              icon="crosshair"
+              size="sm"
+              [title]="i18n.t('flow.inspector.empty.title')"
+              [description]="i18n.t('flow.inspector.empty.body')"
+            >
+              <button
+                type="button"
+                class="ck-flow-mini-action"
+                (click)="loadItsdStarter()"
+                [disabled]="editingLocked()"
+              >
+                {{ i18n.t('flow.inspector.agent_loop.load_starter') }}
+              </button>
+            </app-empty-state>
+          </div>
+        }
+      </div>
+    </aside>
+  `,
+})
+export class FlowInspectorComponent {
+  readonly isConnectorSource = isConnectorSource;
+  private readonly store = inject(FlowStore);
+  private readonly collectionsSvc = inject(FlowCollectionsService);
+  readonly i18n = inject(I18nService);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly api = inject(ApiService);
+  private readonly canonical = inject(CanonicalApiService);
+  /** Optional: present whenever the inspector renders inside the builder shell. */
+  private readonly persistence = inject(FlowPersistenceService, { optional: true });
+  /** Optional: the builder provides it; the summary then shows the live env. */
+  private readonly recipeSvc = inject(FlowRecipeService, { optional: true });
+  /** Optional, same reason: the registry is what turns the model picker into a
+   *  list of real lineages rather than a slug someone has to remember. */
+  private readonly mlSvc = inject(FlowMlService, { optional: true });
+  /** Optional: only the builder shell has run state, and only a node that ran
+   *  has an output dataset to show. */
+  private readonly runSvc = inject(FlowRunService, { optional: true });
+
+  /** Active trigger source node types (mirror of the backend
+   *  `triggers.TRIGGER_TYPE_TO_EVENT`) — the nodes that offer piloting. */
+  private static readonly TRIGGER_TYPES = new Set<string>([
+    'source.sftp_arrival',
+    'source.deposit_promoted',
+    'source.schedule',
+    'source.webhook',
+  ]);
+
+  /** The System this inspector's flow is bound to (null on the scratchpad).
+   *  Passed from the shell so trigger piloting can target the right System. */
+  readonly systemId = input<string | null>(null);
+
+  /** Deterministic, single-frame selection straight from the store. */
+  readonly node = this.store.selectedNode;
+
+  readonly selectedSkillSlug = computed(() => {
+    const node = this.node();
+    return node ? this.skillSlug(node) : '';
+  });
+  private readonly skillDefinition = signal<SkillExecutionLookup | null>(null);
+  readonly currentSkillDefinition = computed(() => {
+    const definition = this.skillDefinition();
+    return definition && this.skillLookupIsCurrent(definition) ? definition : null;
+  });
+  readonly publishedSkillExecutor = computed(() => {
+    const persistence = this.persistence;
+    if (!persistence || !this.systemId() || persistence.systemId() !== this.systemId()
+      || !persistence.hydrationReady()) return null;
+    return publishedNodeExecutor(this.node(), persistence.publishedExecutionContract());
+  });
+
+  /** Surfaced so the inspector shows the unsaved/dirty state (Save lives in
+   *  the toolbar, owned elsewhere — this is a read-only indicator). */
+  readonly dirty = this.store.dirty;
+
+  /** Same gate the node card and the keyboard shortcut use. */
+  readonly editingLocked = computed(() => this.persistence?.actionsDisabled() ?? false);
+
+  /** Live collections catalogue for the asset picker (cached, shared). */
+  readonly collectionsState = this.collectionsSvc.state;
+
+  /** Picker options: the catalogue plus the node's current slug when it isn't
+   *  in the catalogue, so an existing binding is never dropped from the list. */
+  readonly collectionOptions = computed<string[]>(() => {
+    const n = this.node();
+    const persisted = !n
+      ? []
+      : this.isRetrievalNode(n)
+        ? this.retrievalCollections(n)
+        : [this.collectionSlug(n)];
+    return buildCollectionOptions(this.collectionsSvc.collections(), persisted);
+  });
+
+  readonly retrievalDocumentOptions = computed(() => {
+    const node = this.node();
+    if (!node) return [];
+    return buildRetrievalDocumentOptions(
+      this.retrievalCollections(node),
+      (collection) => this.collectionsSvc.documentsFor(collection),
+      this.retrievalDocumentRefs(node),
+    );
+  });
+
+  readonly retrievalDocumentsLoading = computed(() => {
+    const node = this.node();
+    return !!node && this.retrievalCollections(node).some(
+      (slug) => this.collectionsSvc.documentStates()[slug] === 'loading',
+    );
+  });
+
+  readonly retrievalDocumentsError = computed(() => {
+    const node = this.node();
+    return !!node && this.retrievalCollections(node).some(
+      (slug) => this.collectionsSvc.documentStates()[slug] === 'error',
+    );
+  });
+
+  readonly retrievalDocumentsTruncated = computed(() => {
+    const node = this.node();
+    return !!node && this.retrievalCollections(node).some(
+      (slug) => this.collectionsSvc.documentHasMore()[slug] === true,
+    );
+  });
+  readonly retrievalScopeError = signal<string | null>(null);
+  private lastRetrievalScopeNodeId: string | null = null;
+
+  readonly close = output<void>();
+  /** The workshop dialogs are mounted by the builder shell, not by this panel. */
+  readonly openRecipeWorkshop = output<void>();
+  readonly openTransformWorkshop = output<void>();
+  readonly openTrainWorkshop = output<void>();
+
+  constructor() {
+    effect((onCleanup) => {
+      const nodeId = this.store.selectedNodeId();
+      const slug = this.selectedSkillSlug();
+      const systemId = this.systemId();
+      this.workspace.contextEpoch();
+      this.skillDefinition.set(null);
+      if (!nodeId || !slug) return;
+      const request = untracked(() => this.loadSkillExecution(nodeId, slug, systemId));
+      onCleanup(() => request.unsubscribe());
+    });
+    effect(() => {
+      const selectedId = this.store.selectedNodeId();
+      if (selectedId === this.lastRetrievalScopeNodeId) return;
+      this.lastRetrievalScopeNodeId = selectedId;
+      this.retrievalScopeError.set(null);
+    });
+    // Lazy, cached fetch: only hit the collections endpoint once an asset node
+    // is actually inspected (keeps the fetch off the builder's hot path).
+    effect(() => {
+      const n = this.node();
+      if (!n) return;
+      if (((n.kind ?? 'task') === 'asset' && !isConnectorSource(n)) || this.isRetrievalNode(n)) {
+        this.collectionsSvc.ensureLoaded();
+      }
+      if (this.isRetrievalNode(n)) {
+        for (const slug of this.retrievalCollections(n)) {
+          this.collectionsSvc.ensureDocumentsLoaded(slug);
+        }
+      }
+    });
+    // Same lazy stance for the recipe plane: resolve the managed env only
+    // once a recipe node is actually inspected. The service deduplicates by
+    // spec key, so re-selecting the node costs nothing.
+    effect(() => {
+      const n = this.node();
+      if (!n || !this.recipeSvc || !this.isRecipeNode(n)) return;
+      const params = this.recipeParams(n);
+      const preview = previewRequirements(params.requirements_text);
+      if (preview.invalid.length > 0 || preview.tooMany) return;
+      void this.recipeSvc.ensureResolved(params);
+    });
+    // And for the model plane: the registry is only fetched once a serving node
+    // is actually inspected, and once per builder shell after that.
+    effect(() => {
+      const n = this.node();
+      if (!n || !this.mlSvc || !servingDescriptor(n)) return;
+      void this.mlSvc.ensureRegistry();
+    });
+    effect(() => {
+      const n = this.node();
+      if (!n || !this.mcpConnectorEnabled() || !isMcpSkillSlug(this.skillSlug(n))) return;
+      if (this.mcpServersLoaded) return;
+      this.mcpServersLoaded = true;
+      this.api.get<{ servers?: Array<{ id?: string; credential_source?: string | null }> }>('/mcp/servers').subscribe({
+        next: (body) => this.mcpServers.set(body.servers || []),
+        error: () => this.mcpServers.set([]),
+      });
+    });
+  }
+
+  private skillLookupIsCurrent(lookup: Omit<SkillExecutionLookup, 'executor'>): boolean {
+    const node = this.node();
+    return node?.id === lookup.nodeId && this.skillSlug(node) === lookup.slug
+      && this.systemId() === lookup.systemId && this.workspace.isRequestScopeCurrent(lookup.scope);
+  }
+
+  private loadSkillExecution(nodeId: string, slug: string, systemId: string | null): Subscription {
+    const lookup = { nodeId, slug, systemId, scope: this.workspace.captureRequestScope() };
+    return this.canonical.getSkill(slug).subscribe((skill) => {
+      if (this.skillLookupIsCurrent(lookup)) {
+        this.skillDefinition.set({ ...lookup, executor: skill?.executor ?? null });
+      }
+    });
+  }
+
+  /** Retry the collections fetch after a load error (manual-entry fallback
+   *  stays available meanwhile). */
+  retryCollections(): void {
+    this.collectionsSvc.retry();
+  }
+
+  /** True for an active trigger source node (SFTP arrival / deposit promoted). */
+  isTriggerSource(n: CanonicalFlowNode): boolean {
+    return (
+      (n.kind ?? 'task') === 'source' &&
+      FlowInspectorComponent.TRIGGER_TYPES.has(String(n.type))
+    );
+  }
+
+  /** True for the SFTP arrival trigger specifically (offers the deposit link). */
+  isSftpTrigger(n: CanonicalFlowNode): boolean {
+    return (n.kind ?? 'task') === 'source' && String(n.type).startsWith('source.sftp');
+  }
+
+  readonly mcpConnectorEnabled = this.workspace.mcpConnectorEnabled;
+  private readonly mcpServers = signal<Array<{ id?: string; credential_source?: string | null }>>([]);
+  private mcpServersLoaded = false;
+
+  skillSlug(n: CanonicalFlowNode): string {
+    const slug = ((n.config ?? {}) as Record<string, unknown>)['skill_slug'];
+    return typeof slug === 'string' ? slug : '';
+  }
+
+  mcpServerId(n: CanonicalFlowNode): string {
+    const params = ((n.config ?? {}) as Record<string, unknown>)['params'];
+    return mcpServerIdForSlug(
+      this.skillSlug(n),
+      params && typeof params === 'object' && !Array.isArray(params)
+        ? (params as Record<string, unknown>)
+        : null,
+    );
+  }
+
+  mcpCredentialSource(n: CanonicalFlowNode): string {
+    const serverId = this.mcpServerId(n);
+    if (!serverId) return '';
+    const row = this.mcpServers().find((item) => item.id === serverId);
+    return typeof row?.credential_source === 'string' ? row.credential_source : '';
+  }
+
+  /** True for a task node bound to the Python recipe Skill. */
+  isRecipeNode(n: CanonicalFlowNode): boolean {
+    return isPythonRecipeNode(n);
+  }
+
+  recipeParams(n: CanonicalFlowNode): RecipeNodeParams {
+    return readRecipeParams(n);
+  }
+
+  /** True for a task node bound to any tabular transform Skill. */
+  isTransformNode(n: CanonicalFlowNode): boolean {
+    return isTransformNode(n);
+  }
+
+  /** Dictionary keys of the node's engine, so one section serves both. */
+  transformCopy(n: CanonicalFlowNode) {
+    const engine = transformEngineOf(n) ?? 'sql';
+    return isHistoricalEnrichment(readTransformParams(n), engine)
+      ? historicalEnrichmentCopy() : TRANSFORM_ENGINES[engine].copy;
+  }
+
+  transformParams(n: CanonicalFlowNode): TransformParams {
+    return readTransformParams(n);
+  }
+
+  /** First meaningful line of the program — enough to recognise the transform.
+   *  For dbt that is the model the node PUBLISHES, not the last one authored:
+   *  the inspector names what leaves the node. */
+  transformProgramSummary(n: CanonicalFlowNode): string {
+    const engine = transformEngineOf(n) ?? 'sql';
+    const params = this.transformParams(n);
+    return programSummary(publishedProgram(params, engine), engine) || '—';
+  }
+
+  /** The dataset each run versions, or the node label it defaults to. */
+  transformOutputLine(n: CanonicalFlowNode): string {
+    return (
+      this.transformParams(n).output_name ||
+      this.i18n.t('flow.transform.inspector.output.auto')
+    );
+  }
+
+  transformSourcesLine(n: CanonicalFlowNode): string {
+    const count = this.transformParams(n).sources.length;
+    return count === 0
+      ? this.i18n.t('flow.transform.inspector.sources.none')
+      : this.i18n.t('flow.transform.inspector.sources.count', { count });
+  }
+
+  // -------------------------------------------------------------------------
+  // Model nodes — a summary + a workshop for the fit, a picker for the serving
+  // -------------------------------------------------------------------------
+
+  /** True for a task node bound to the sklearn training Skill. */
+  isTrainNode(n: CanonicalFlowNode): boolean {
+    return isTrainNode(n);
+  }
+
+  trainParams(n: CanonicalFlowNode): TrainNodeParams {
+    return readTrainParams(n);
+  }
+
+  /** What the node predicts — the one line that identifies a fit. */
+  trainTargetLine(n: CanonicalFlowNode): string {
+    return this.trainParams(n).target || this.i18n.t('flow.ml.train.inspector.target.none');
+  }
+
+  /** The table it fits on: a pin, or whatever the wire hands it. */
+  trainDatasetLine(n: CanonicalFlowNode): string {
+    const pin = pinnedDataset(this.trainParams(n).sources);
+    return (
+      pin?.dataset_slug ||
+      pin?.dataset_id ||
+      this.i18n.t('flow.ml.train.inspector.dataset.wire')
+    );
+  }
+
+  /** The lineage each run versions, or the name the plan will derive. */
+  trainOutputLine(n: CanonicalFlowNode): string {
+    return (
+      this.trainParams(n).model_name || this.i18n.t('flow.ml.train.inspector.output.auto')
+    );
+  }
+
+  /** The serving shape's own vocabulary, or `null` when the node serves none. */
+  servingCopy(
+    n: CanonicalFlowNode,
+  ): (ServingRoleDescriptor['copy'] & Pick<
+    ServingRoleDescriptor,
+    'writesDataset' | 'supportsExplain'
+  > & { forecasts: boolean }) | null {
+    const descriptor = servingDescriptor(n);
+    if (!descriptor) return null;
+    return {
+      ...descriptor.copy,
+      writesDataset: descriptor.writesDataset,
+      supportsExplain: descriptor.supportsExplain && !(this.mlSvc?.registry() ?? []).some(model =>
+        model.task === 'clustering' && (model.id === this.servingParams(n).model_id || model.slug === this.servingParams(n).model_slug)),
+      forecasts: descriptor.serves === 'forecast',
+    };
+  }
+
+  servingParams(n: CanonicalFlowNode): PredictNodeParams {
+    return readPredictParams(n);
+  }
+
+  /** One entry per lineage, newest version first: the picker chooses a lineage,
+   *  and the version pin below it chooses whether to follow or to freeze. */
+  servingLineages(n: CanonicalFlowNode): { slug: string; name: string }[] {
+    const seen = new Set<string>();
+    const lineages: { slug: string; name: string }[] = [];
+    const serves = servingDescriptor(n)?.serves ?? null;
+    for (const model of servableModels(this.mlSvc?.registry() ?? [], serves)) {
+      if (seen.has(model.slug)) continue;
+      seen.add(model.slug);
+      lineages.push({ slug: model.slug, name: model.name });
+    }
+    return lineages;
+  }
+
+  servingVersions(n: CanonicalFlowNode) {
+    return lineageVersions(this.mlSvc?.registry() ?? [], this.servingParams(n).model_slug);
+  }
+
+  /**
+   * The dataset this node wrote on its last run, or `null` before it has run.
+   *
+   * Read off the `node_end` badge rather than fetched: the walker already put
+   * the reference on the frame the canvas badges from, so the panel opens the
+   * rows the node produced without a second question about the graph.
+   */
+  writtenDataset(n: CanonicalFlowNode): string | null {
+    return this.runSvc?.nodeRunFor(n.id)?.data?.dataset_id ?? null;
+  }
+
+  /** The client-side gap, so an unfinished node says so before it is run. */
+  servingRefusal(n: CanonicalFlowNode): MlFailure | null {
+    const descriptor = servingDescriptor(n);
+    if (!descriptor) return null;
+    // `wired: true` because the inspector cannot know what the upstream edge
+    // carries — an unwired score node is the run's refusal to make, not this
+    // panel's.
+    return preflightServing(this.servingParams(n), descriptor, { wired: true });
+  }
+
+  onServingModel(event: Event): void {
+    const slug = (event.target as HTMLSelectElement).value;
+    const model = servableModels(this.mlSvc?.registry() ?? []).find(
+      (row) => row.slug === slug,
+    );
+    this.writeServing(
+      model ? chooseModelPatch(model) : { model_slug: '', model_id: '', pinned_version: null },
+    );
+  }
+
+  /** The levels a forecast node offers; the model's own is the empty choice. */
+  readonly forecastLevels = [0.5, 0.8, 0.9, 0.95];
+
+  /** The horizon the chosen model was trained for, shown as the default. */
+  forecastDefaultHorizon(n: CanonicalFlowNode): string {
+    const slug = this.servingParams(n).model_slug;
+    const model = (this.mlSvc?.registry() ?? []).find((row) => row.slug === slug && row.status === 'ready');
+    const horizon = model?.spec?.['horizon'];
+    return typeof horizon === 'number' ? String(horizon) : '';
+  }
+
+  onForecastHorizon(event: Event): void {
+    const raw = Number((event.target as HTMLInputElement).value);
+    this.writeServing({ horizon: Number.isFinite(raw) && raw >= 1 ? Math.round(raw) : null });
+  }
+
+  onForecastLevel(event: Event): void {
+    const raw = (event.target as HTMLSelectElement).value;
+    this.writeServing({ interval_level: raw ? Number(raw) : null });
+  }
+
+  onServingVersion(event: Event): void {
+    const raw = (event.target as HTMLSelectElement).value;
+    this.writeServing(pinVersionPatch(raw ? Number(raw) : null));
+  }
+
+  onServingOutput(event: Event): void {
+    this.writeServing({
+      output_name: (event.target as HTMLInputElement).value.trim(),
+    });
+  }
+
+  onServingExplain(event: Event): void {
+    this.writeServing({ explain: (event.target as HTMLInputElement).checked });
+  }
+
+  /** One store write per gesture, merged into the RAW params bag so a key this
+   *  view model does not know about survives the edit. */
+  private writeServing(patch: Record<string, unknown>): void {
+    const node = this.node();
+    if (!node) return;
+    const config = (node.config ?? {}) as Record<string, unknown>;
+    const raw = config['params'];
+    const current =
+      raw !== null && typeof raw === 'object' && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : {};
+    this.store.updateNodeConfig(node.id, 'params', { ...current, ...patch });
+  }
+
+  /** First `def` line of the script — enough to recognise the recipe. */
+  recipeSummary(n: CanonicalFlowNode): string {
+    return recipeCodeSummary(this.recipeParams(n).code) || '—';
+  }
+
+  /**
+   * One line about the managed environment: the live resolved row when the
+   * builder shell provides the recipe service, otherwise the declared spec.
+   */
+  recipeEnvLine(n: CanonicalFlowNode): string {
+    const env = this.recipeSvc?.env() ?? null;
+    if (env) {
+      const status = this.i18n.t(recipeEnvStatusKey(env.status));
+      const fingerprint = shortFingerprint(env.fingerprint);
+      return fingerprint ? `${status} · ${fingerprint}` : status;
+    }
+    const count = previewRequirements(this.recipeParams(n).requirements_text).lines.length;
+    return count === 0
+      ? this.i18n.t('flow.recipe.inspector.env.base')
+      : this.i18n.t('flow.recipe.env.packages', { count });
+  }
+
+  /** Nodes whose published output schema is authored rather than derived.
+   *  Retry and Loop are excluded: their contract output is the control
+   *  envelope produced by the adapter, and publication rejects an override. */
+  declaresOutputContract(n: CanonicalFlowNode): boolean {
+    const kind = n.kind ?? 'task';
+    return kind === 'task' || kind === OUTPUT_NODE_KIND;
+  }
+
+  /**
+   * Engine node kinds are API values, so the label is looked up at runtime and
+   * falls back to the raw kind for anything the dictionary does not name yet.
+   */
+  kindLabel(kind: string): string {
+    const key = `flow.node.kind.${kind}`;
+    const label = this.i18n.t(key);
+    return label === key ? kind : label;
+  }
+
+  errorPolicy(node: CanonicalFlowNode): 'continue' | 'fail' | 'route' {
+    const value = (node.config as Record<string, unknown> | undefined)?.['on_error'];
+    return value === 'fail' || value === 'route' ? value : 'continue';
+  }
+
+  onErrorPolicy(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'on_error',
+      (event.target as HTMLSelectElement).value as 'continue' | 'fail' | 'route',
+    );
+  }
+
+  joinMinSuccess(node: CanonicalFlowNode): number | '' {
+    const value = (node.config as Record<string, unknown> | undefined)?.['min_success'];
+    return typeof value === 'number' && Number.isFinite(value) ? value : '';
+  }
+
+  onJoinMinSuccess(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    const raw = (event.target as HTMLInputElement).value;
+    const value = raw === '' ? null : Math.max(0, Math.trunc(Number(raw)));
+    if (raw !== '' && !Number.isFinite(value)) return;
+    this.store.updateNodeConfig(id, 'min_success', value);
+  }
+
+  readonly privilegeTiers = PRIVILEGE_TIERS;
+  readonly promptKinds = availableHitlPromptKinds;
+  readonly formatSlugList = formatSlugList;
+  readonly formatDoneWhen = formatDoneWhen;
+  readonly deadlineMinutes = deadlineMinutes;
+
+  agentLoopConfig(node: CanonicalFlowNode) {
+    return readAgentLoopConfig(node);
+  }
+
+  agentLoopLine(node: CanonicalFlowNode) {
+    return agentLoopEnvelopeParts(node);
+  }
+
+  hitlConfig(node: CanonicalFlowNode) {
+    return readHitlConfig(node);
+  }
+
+  onAgentLoopObjective(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(id, 'goal.objective', (event.target as HTMLTextAreaElement).value);
+  }
+
+  onAgentLoopDoneWhen(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'goal.done_when',
+      parseDoneWhen((event.target as HTMLTextAreaElement).value),
+    );
+  }
+
+  onAgentLoopAllowlist(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'skill_allowlist',
+      parseSlugList((event.target as HTMLTextAreaElement).value),
+    );
+  }
+
+  onAgentLoopTurns(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'budget.max_turns',
+      clampTurns((event.target as HTMLInputElement).value),
+    );
+  }
+
+  onAgentLoopConfidence(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'confidence_floor',
+      clampConfidence((event.target as HTMLInputElement).value),
+    );
+  }
+
+  onAgentLoopCost(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'budget.max_cost',
+      parseOptionalCost((event.target as HTMLInputElement).value),
+    );
+  }
+
+  onAgentLoopDeadline(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'budget.deadline_ms',
+      minutesToDeadlineMs((event.target as HTMLInputElement).value),
+    );
+  }
+
+  onAgentLoopPrivilege(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'privilege_tier',
+      (event.target as HTMLSelectElement).value as PrivilegeTier,
+    );
+  }
+
+  onAgentLoopOnBudget(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'on_budget',
+      (event.target as HTMLSelectElement).value as OnBudget,
+    );
+  }
+
+  applyItsdLoopDefaults(): void {
+    const node = this.node();
+    if (!node || (node.kind ?? 'task') !== 'agent_loop') return;
+    const defaults = itsdOverlayLoopConfig();
+    this.store.patchNode(node.id, {
+      config: {
+        ...(node.config ?? {}),
+        skill_slug: 'decide_next_v1',
+        decide_skill: 'decide_next_v1',
+        ...defaults,
+      },
+    });
+  }
+
+  loadItsdStarter(): void {
+    this.store.replaceAsEdit(itsdAgentLoopStarterFlow());
+    this.store.setSelection('loop.itsd');
+  }
+
+  onHitlPrompt(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(id, 'prompt', (event.target as HTMLTextAreaElement).value);
+  }
+
+  onHitlPromptKind(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'prompt_kind',
+      (event.target as HTMLSelectElement).value as PromptKind,
+    );
+  }
+
+  /** An Output node publishes what it consumes; every other node, what it emits. */
+  outputContractDeriveFrom(n: CanonicalFlowNode): 'inputs' | 'outputs' {
+    return this.isOutputNode(n) ? 'inputs' : 'outputs';
+  }
+
+  private isOutputNode(n: CanonicalFlowNode): boolean {
+    return (n.kind ?? 'task') === OUTPUT_NODE_KIND;
+  }
+
+  outputContractHint(n: CanonicalFlowNode): string {
+    return this.i18n.t(
+      this.isOutputNode(n)
+        ? 'flow.inspector.output_contract.hint.output'
+        : 'flow.inspector.output_contract.hint.task',
+    );
+  }
+
+  outputContractFallback(n: CanonicalFlowNode): string {
+    return this.i18n.t(
+      this.isOutputNode(n)
+        ? 'flow.inspector.output_contract.fallback.output'
+        : 'flow.inspector.output_contract.fallback.task',
+    );
+  }
+
+  description(n: { data?: Record<string, unknown> }): string {
+    const d = n.data?.['description'];
+    return typeof d === 'string' ? d : '';
+  }
+
+  /** Current `collection_slug` from an asset node's config (empty if unset). */
+  collectionSlug(n: CanonicalFlowNode): string {
+    const v = (n.config as Record<string, unknown> | undefined)?.['collection_slug'];
+    return typeof v === 'string' ? v : '';
+  }
+
+  secretRef(n: CanonicalFlowNode): string {
+    const v = (n.config as Record<string, unknown> | undefined)?.['secret_ref'];
+    return typeof v === 'string' ? v : '';
+  }
+
+  private secretBindings(n: CanonicalFlowNode): Record<string, string> {
+    const raw = (n.config as Record<string, unknown> | undefined)?.['bindings'];
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    return Object.fromEntries(
+      Object.entries(raw as Record<string, unknown>).filter(
+        (entry): entry is [string, string] => typeof entry[1] === 'string',
+      ),
+    );
+  }
+
+  /** Tasks wired from a secret node by a data edge, with their granted slot. */
+  secretTargets(n: CanonicalFlowNode): Array<{ id: string; label: string; slot: string }> {
+    const bindings = this.secretBindings(n);
+    const nodes = new Map(this.store.nodes().map((node) => [node.id, node] as const));
+    const seen = new Set<string>();
+    return this.store.edges().flatMap((edge) => {
+      const target = nodes.get(edge.to);
+      if (
+        edge.from !== n.id ||
+        (edge.kind ?? 'data') !== 'data' ||
+        !target ||
+        (target.kind ?? 'task') !== 'task' ||
+        seen.has(target.id)
+      ) {
+        return [];
+      }
+      seen.add(target.id);
+      return [{ id: target.id, label: target.label || target.id, slot: bindings[target.id] ?? '' }];
+    });
+  }
+
+  onSecretRef(ref: string | null): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(id, 'secret_ref', ref ?? '');
+  }
+
+  onSecretSlot(targetId: string, event: Event): void {
+    const node = this.node();
+    if (!node) return;
+    const wired = new Set(this.secretTargets(node).map((target) => target.id));
+    const bindings = Object.fromEntries(
+      Object.entries(this.secretBindings(node)).filter(([id]) => wired.has(id)),
+    );
+    const slot = (event.target as HTMLInputElement).value.trim();
+    if (slot) bindings[targetId] = slot;
+    else delete bindings[targetId];
+    this.store.updateNodeConfig(node.id, 'bindings', bindings);
+  }
+
+  isRetrievalNode(n: CanonicalFlowNode): boolean {
+    const config = (n.config ?? {}) as Record<string, unknown>;
+    const category = typeof config['skill_category'] === 'string'
+      ? config['skill_category'].trim().toLowerCase()
+      : '';
+    const identity = `${n.type ?? ''} ${config['skill_slug'] ?? ''}`.toLowerCase();
+    return (n.kind ?? 'task') === 'task' && (
+      category === 'retrieval'
+      || /retriev|semantic[._ -]?search|rag[._ -]?search/.test(identity)
+    );
+  }
+
+  retrievalCollections(n: CanonicalFlowNode): string[] {
+    const value = ((n.config ?? {}) as Record<string, unknown>)['collection_slugs'];
+    if (!Array.isArray(value)) return [];
+    return [...new Set(value.map((item) => String(item ?? '').trim()).filter(Boolean))].sort();
+  }
+
+  retrievalCollectionSelected(n: CanonicalFlowNode, slug: string): boolean {
+    return this.retrievalCollections(n).includes(slug);
+  }
+
+  retrievalDocumentRefs(n: CanonicalFlowNode): RetrievalDocumentRef[] {
+    const value = ((n.config ?? {}) as Record<string, unknown>)['document_refs'];
+    if (!Array.isArray(value)) return [];
+    const refs = value.flatMap((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+      const record = item as Record<string, unknown>;
+      const collection_slug = String(record['collection_slug'] ?? '').trim();
+      const document_id = String(record['document_id'] ?? '').trim();
+      return collection_slug && document_id ? [{ collection_slug, document_id }] : [];
+    });
+    return refs.filter(
+      (ref, index) =>
+        refs.findIndex(
+          (candidate) =>
+            candidate.collection_slug === ref.collection_slug &&
+            candidate.document_id === ref.document_id,
+        ) === index,
+    );
+  }
+
+  retrievalDocumentSelected(
+    n: CanonicalFlowNode,
+    collection: string,
+    documentId: string,
+  ): boolean {
+    return this.retrievalDocumentRefs(n).some(
+      (ref) => ref.collection_slug === collection && ref.document_id === documentId,
+    );
+  }
+
+  /** Current `workspace_scoped` flag; defaults to true (the palette seed). */
+  workspaceScoped(n: CanonicalFlowNode): boolean {
+    const v = (n.config as Record<string, unknown> | undefined)?.['workspace_scoped'];
+    return v !== false;
+  }
+
+  decisionBranches(n: CanonicalFlowNode): DecisionNodeConfig['branches'] {
+    const raw = (n.config as Record<string, unknown> | undefined)?.['branches'];
+    if (!Array.isArray(raw)) return [];
+    return raw.map((branch) => {
+      const record = branch && typeof branch === 'object' && !Array.isArray(branch)
+        ? branch as Record<string, unknown>
+        : {};
+      return {
+        label: typeof record['label'] === 'string' ? record['label'] : '',
+        condition: typeof record['condition'] === 'string' ? record['condition'] : '',
+      };
+    });
+  }
+
+  decisionDefault(n: CanonicalFlowNode): string {
+    const value = (n.config as Record<string, unknown> | undefined)?.['default_branch'];
+    return typeof value === 'string' ? value : '';
+  }
+
+  decisionRouteCount(nodeId: string, label: string): number {
+    return this.store.edges().filter((edge) =>
+      edge.from === nodeId &&
+      (edge.kind ?? 'data') === 'branch' &&
+      (edge.branch_label ?? edge.label) === label
+    ).length;
+  }
+
+  addDecisionBranch(): void {
+    const id = this.node()?.id;
+    if (id) this.store.mutateDecision(id, { type: 'add' });
+  }
+
+  onDecisionBranchLabel(index: number, event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.mutateDecision(id, {
+      type: 'update',
+      index,
+      patch: { label: (event.target as HTMLInputElement).value },
+    });
+  }
+
+  onDecisionCondition(index: number, event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.mutateDecision(id, {
+      type: 'update',
+      index,
+      patch: { condition: (event.target as HTMLTextAreaElement).value },
+    });
+  }
+
+  removeDecisionBranch(index: number): void {
+    const id = this.node()?.id;
+    if (id) this.store.mutateDecision(id, { type: 'remove', index });
+  }
+
+  moveDecisionBranch(index: number, direction: -1 | 1): void {
+    const id = this.node()?.id;
+    if (id) this.store.mutateDecision(id, { type: 'move', index, direction });
+  }
+
+  onDecisionDefault(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    const label = (event.target as HTMLSelectElement).value;
+    this.store.mutateDecision(id, {
+      type: 'set_default',
+      ...(label ? { label } : {}),
+    });
+  }
+
+  // Shared by the live picker (`<select>`, fed by FlowCollectionsService) and
+  // the manual-entry fallback (`<input>`, shown while the catalogue is loading,
+  // empty or unavailable). Both event targets expose `.value`.
+  onCollectionSlug(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'collection_slug',
+      (event.target as HTMLInputElement | HTMLSelectElement).value,
+    );
+  }
+
+  onRetrievalCollections(event: Event): void {
+    const select = event.target as HTMLSelectElement;
+    this.patchRetrievalCollections(
+      Array.from(select.selectedOptions).map((option) => option.value),
+    );
+  }
+
+  onRetrievalCollectionsText(event: Event): void {
+    const value = (event.target as HTMLTextAreaElement).value;
+    this.patchRetrievalCollections(value.split(/[\n,]/g));
+  }
+
+  onRetrievalDocuments(event: Event): void {
+    const node = this.node();
+    if (!node) return;
+    const refs = Array.from((event.target as HTMLSelectElement).selectedOptions).flatMap((option) => {
+      const separator = option.value.indexOf('\u0000');
+      if (separator <= 0) return [];
+      const collection_slug = option.value.slice(0, separator);
+      const document_id = option.value.slice(separator + 1);
+      return collection_slug && document_id ? [{ collection_slug, document_id }] : [];
+    });
+    if (refs.length > 1000) {
+      this.retrievalScopeError?.set(
+        this.i18n.t('flow.inspector.retrieval.error.documents'),
+      );
+      return;
+    }
+    this.retrievalScopeError?.set(null);
+    this.patchRetrievalConfig(node, {
+      collection_slugs: this.retrievalCollections(node),
+      document_refs: refs,
+    });
+  }
+
+  retryRetrievalDocuments(): void {
+    const node = this.node();
+    if (!node) return;
+    for (const slug of this.retrievalCollections(node)) {
+      this.collectionsSvc.ensureDocumentsLoaded(slug, true);
+    }
+  }
+
+  loadMoreRetrievalDocuments(): void {
+    const node = this.node();
+    if (!node) return;
+    for (const slug of this.retrievalCollections(node)) {
+      if (this.collectionsSvc.documentHasMore()[slug] === true) {
+        this.collectionsSvc.loadMoreDocuments(slug);
+      }
+    }
+  }
+
+  private patchRetrievalCollections(rawCollections: string[]): void {
+    const node = this.node();
+    if (!node) return;
+    const collection_slugs = [...new Set(
+      rawCollections.map((item) => String(item ?? '').trim()).filter(Boolean),
+    )].sort();
+    if (collection_slugs.length > 32) {
+      this.retrievalScopeError?.set(
+        this.i18n.t('flow.inspector.retrieval.error.collections'),
+      );
+      return;
+    }
+    this.retrievalScopeError?.set(null);
+    const allowed = new Set(collection_slugs);
+    const document_refs = this.retrievalDocumentRefs(node).filter((ref) =>
+      allowed.has(ref.collection_slug),
+    );
+    this.patchRetrievalConfig(node, { collection_slugs, document_refs });
+  }
+
+  private patchRetrievalConfig(
+    node: CanonicalFlowNode,
+    scope: {
+      collection_slugs: string[];
+      document_refs: Array<{ collection_slug: string; document_id: string }>;
+    },
+  ): void {
+    this.store.patchNode(node.id, {
+      config: {
+        ...(node.config ?? {}),
+        collection_slugs: scope.collection_slugs,
+        document_refs: scope.document_refs,
+      },
+    });
+  }
+
+  onWorkspaceScoped(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'workspace_scoped',
+      (event.target as HTMLInputElement).checked,
+    );
+  }
+
+  /** Same store mutation as the node card's trash and the Delete/Backspace
+   *  shortcut, so all three share one undo frame semantics. */
+  deleteNode(): void {
+    const id = this.node()?.id;
+    if (!id || this.editingLocked()) return;
+    this.store.removeNode(id);
+  }
+
+  onLabel(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.patchNode(id, { label: (event.target as HTMLInputElement).value });
+  }
+
+  onDescription(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeData(
+      id,
+      'description',
+      (event.target as HTMLTextAreaElement).value,
+    );
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "checked_at": "2026-09-16T19:28:15.050247+00:00",
+  "reader_revision": "b4fde677a75a7a9f6ab30898882104c37582709b",
+  "read_only": true,
+  "new_run_created": false,
+  "provider_called": false,
+  "historical_suite_id": "984d3c08-0340-4ffd-b90d-ef0ab6802116",
+  "checks": [
+    {
+      "retained_run_id": "a57c9f78-d805-42e6-91d2-1ac6d27a224a",
+      "status": "hitl_pending",
+      "collection_ids": [
+        "5c0f10fa-c7ff-499a-bd99-6efda2a98fb1",
+        "b3fa0e81-e6c5-468d-b89c-af13bf5e138d"
+      ],
+      "current_ledger": [
+        {
+          "id": "5c0f10fa-c7ff-499a-bd99-6efda2a98fb1",
+          "updated_at": "2026-06-24T13:37:15.216265",
+          "document_count": 9,
+          "chunk_count": 11,
+          "embedding_model": "text-embedding-3-small",
+          "document_names_sha256": "568eba058c4299e71bba9f45587544a276ae8027cf954cba44566611204b85b5",
+          "verification": "collection_ledger"
+        },
+        {
+          "id": "b3fa0e81-e6c5-468d-b89c-af13bf5e138d",
+          "updated_at": "2026-09-16T12:28:47.574280",
+          "document_count": 1,
+          "chunk_count": 1,
+          "embedding_model": "text-embedding-3-small",
+          "document_names_sha256": "353d72e4b6208a86bd8f6ed277363f3b08657d25a3fd34338016ac1b767eb885",
+          "verification": "collection_ledger"
+        }
+      ],
+      "historical_suite_limitations": [
+        "The BRD suite has no reviewed corpus manifest; corpus identity and drift are unverified."
+      ]
+    },
+    {
+      "retained_run_id": "40e53546-a6af-40a4-a777-2204e2837d10",
+      "status": "hitl_pending",
+      "collection_ids": [
+        "5c0f10fa-c7ff-499a-bd99-6efda2a98fb1",
+        "b3fa0e81-e6c5-468d-b89c-af13bf5e138d"
+      ],
+      "current_ledger": [
+        {
+          "id": "5c0f10fa-c7ff-499a-bd99-6efda2a98fb1",
+          "updated_at": "2026-06-24T13:37:15.216265",
+          "document_count": 9,
+          "chunk_count": 11,
+          "embedding_model": "text-embedding-3-small",
+          "document_names_sha256": "568eba058c4299e71bba9f45587544a276ae8027cf954cba44566611204b85b5",
+          "verification": "collection_ledger"
+        },
+        {
+          "id": "b3fa0e81-e6c5-468d-b89c-af13bf5e138d",
+          "updated_at": "2026-09-16T12:28:47.574280",
+          "document_count": 1,
+          "chunk_count": 1,
+          "embedding_model": "text-embedding-3-small",
+          "document_names_sha256": "353d72e4b6208a86bd8f6ed277363f3b08657d25a3fd34338016ac1b767eb885",
+          "verification": "collection_ledger"
+        }
+      ],
+      "historical_suite_limitations": [
+        "The BRD suite has no reviewed corpus manifest; corpus identity and drift are unverified."
+      ]
+    }
+  ]
+}

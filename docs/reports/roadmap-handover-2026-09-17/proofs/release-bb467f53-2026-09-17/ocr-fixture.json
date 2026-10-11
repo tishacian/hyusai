@@ -1,0 +1,11 @@
+{
+  "source": "backend/app/tests/fixtures/po_invoice_recon/Invoice_INV-8834_Sample.pdf",
+  "source_sha256": "12c6befcde7eb5a4206af365be0bfa01294a28da5e152893d28223f38602135a",
+  "scan_sha256": "3633896c8ca6c5aee82bc29ad45dc98ed01b2d976bf0b5f1846269d628ad2b90",
+  "pages": 1,
+  "native_text_characters": 0,
+  "page_images": 1,
+  "expected_invoice": "INV-8834",
+  "expected_total_qar": "9860.00",
+  "ocr_executed": false
+}

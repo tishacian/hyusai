@@ -1,0 +1,19 @@
+
+> agentium@0.1.0 test:unit
+> node scripts/run-unit.mjs
+
+✔ voice oracle timeline only uses registered Lucide icons (5.521417ms)
+✔ a late session create from A cannot select, store or render the A session in B (1.132667ms)
+✔ a late open-session response from A cannot restore its messages in B (0.392708ms)
+✔ evaluation and Deep Search poll responses from A cannot mutate B (0.779917ms)
+✔ HITL message polling is unique per session and Run, then refreshes the pending bubble (0.740916ms)
+✔ a HITL poll from a conversation left behind cannot mutate the active conversation (0.435ms)
+✔ spreadsheet citations preserve the sheet and cell range in the source preview request (0.464334ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 468.050083

@@ -1,0 +1,4673 @@
+"""Seed catalog of canonical Skills + universal Capabilities.
+
+Each entry in `SEED_SKILLS` is a wrapper around an existing OmniRAG
+endpoint. The actual `invoke()` callable is registered in
+`backend/app/services/skills_registry/wrappers.py`; here we only declare
+the typed contracts so the registry is queryable from `/skills` without
+the runtime needing to be alive.
+"""
+
+import json
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy.orm import Session as DBSession
+
+from app.models.capability import Capability
+from app.models.skill import Skill
+from app.services.ecommerce_skill_catalog import CLAIM_SKILLS
+from app.services.ml_methodology import skill_definitions as ml_methodology_skills
+
+RETRIEVAL_POLICY_PROPERTIES: dict[str, Any] = {
+    "top_k": {"type": "integer", "default": 5},
+    "candidate_pool_k": {"type": "integer"},
+    "synthesis_k": {"type": "integer"},
+    "source_display_k": {"type": "integer"},
+    "rag_pipeline_mode": {
+        "type": "string",
+        "enum": ["auto", "vector", "dense", "hybrid", "hah", "chah"],
+    },
+    "latency_profile": {"type": "string", "enum": ["fast", "balanced", "deep"]},
+    "retrieval_profile": {"type": "string", "enum": ["oracle_fast", "chat", "deep_async"]},
+    "deep_retrieval": {"type": "boolean"},
+    "knowledge_scope": {"type": "string"},
+    "collection": {"type": "string"},
+    "collection_name": {"type": "string"},
+    "context_collection": {"type": "string"},
+    "retrieval_filters": {"type": "object"},
+}
+
+
+def _translation_skill(
+    slug: str,
+    name: str,
+    description: str,
+    skill_type: str,
+    *,
+    mode: str = "async",
+    timeout_ms: int = 1_800_000,
+    required: list[str] | None = None,
+    properties: dict[str, Any] | None = None,
+    outputs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "slug": slug,
+        "version": "1",
+        "name": name,
+        "description": description,
+        "type": skill_type,
+        "provider": "internal",
+        "certification_level": "enterprise",
+        "execution": {
+            "mode": mode,
+            "timeout_ms": timeout_ms,
+            "retryable": True,
+            "idempotent": True,
+        },
+        "pricing": {"unit": "per_batch_stage", "unit_price": 0.0, "currency": "EUR"},
+        "input_schema": {
+            "type": "object",
+            "required": required or [],
+            "properties": {
+                "batch_id": {"type": "string"},
+                "agent_identity": {"type": "string"},
+                "tenant_policy": {"type": "object"},
+                **(properties or {}),
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "verdict": {"type": "string"},
+                "showcase_seed": {"type": "boolean"},
+                **(outputs or {}),
+            },
+        },
+    }
+
+
+TRANSLATION_SKILLS: list[dict[str, Any]] = [
+    _translation_skill(
+        "translation_archive_ingest_v1",
+        "Translation Archive Ingest",
+        "Validates a tenant-scoped DITA source archive, manifest hash and topic inventory.",
+        "translation_ingestion",
+        required=["archive_ref", "manifest_sha256"],
+        properties={
+            "archive_ref": {"type": "string"},
+            "manifest_sha256": {"type": "string"},
+            "source_lang": {"type": "string", "default": "fr-FR"},
+            "target_langs": {"type": "array", "items": {"type": "string"}},
+        },
+        outputs={
+            "parsed_topics": {"type": "integer"},
+            "archive_hash": {"type": "string"},
+            "glossary_refs": {"type": "array"},
+        },
+    ),
+    _translation_skill(
+        "translation_memory_retrieve_v1",
+        "Translation Memory Retrieve",
+        "Retrieves bilingual examples from sovereign FAISS/BGE-M3 translation memory.",
+        "retrieval",
+        timeout_ms=600_000,
+        properties={
+            "source_segments": {"type": "array"},
+            "kb_dir": {"type": "string"},
+            "k_retrieval": {"type": "integer", "default": 2},
+            "embedding_model": {"type": "string", "default": "BAAI/bge-m3"},
+        },
+        outputs={
+            "examples": {"type": "array"},
+            "index_versions": {"type": "array"},
+            "cache_hit_rate": {"type": "number"},
+        },
+    ),
+    _translation_skill(
+        "translation_label_index_resolve_v1",
+        "Translation Label Index Resolve",
+        "Resolves REFERENT, INDEX and TEXTES-LOCA-GAMA values while preserving protected DITA placeholders.",
+        "transformation",
+        timeout_ms=600_000,
+        properties={
+            "library_ref_path": {"type": "string"},
+            "preserve_conkeyref_byte_equal": {"type": "boolean", "default": True},
+        },
+        outputs={
+            "labels_resolved": {"type": "integer"},
+            "protected_placeholders": {"type": "integer"},
+        },
+    ),
+    _translation_skill(
+        "translation_pivot_normalize_v1",
+        "Translation F1 Pivot Normalize",
+        "Normalizes fr-FR DITA content into an en-GB pivot with deterministic local model routing.",
+        "generation",
+        properties={
+            "source_lang": {"type": "string", "default": "fr-FR"},
+            "pivot_lang": {"type": "string", "default": "en-GB"},
+            "model": {"type": "string", "default": "sovereign-vllm:unsloth/gpt-oss-20b-BF16"},
+            "temperature": {"type": "number", "default": 0},
+        },
+        outputs={
+            "pivot_lang": {"type": "string"},
+            "segments": {"type": "integer"},
+            "token_usage": {"type": "object"},
+        },
+    ),
+    _translation_skill(
+        "translation_fanout_v1",
+        "Translation F2 Fan-out",
+        "Fans out the pivot into all target locales with bounded parallelism and replayable topic state.",
+        "batch",
+        properties={
+            "target_langs": {"type": "array", "items": {"type": "string"}},
+            "num_parallel_topics": {"type": "integer", "default": 5},
+            "gpu_ids": {"type": "array", "items": {"type": "integer"}},
+        },
+        outputs={
+            "target_langs": {"type": "integer"},
+            "completed_topics": {"type": "integer"},
+            "state_checkpoint_ref": {"type": "string"},
+        },
+    ),
+    _translation_skill(
+        "translation_j2450_qa_v1",
+        "Translation J2450 QA",
+        "Runs seven SAE J2450 QA agent identities and supervisor convergence.",
+        "analysis",
+        properties={
+            "limit_qa_loop": {"type": "integer", "default": 5},
+            "categories": {"type": "array", "items": {"type": "string"}},
+            "severity_policy": {"type": "string", "default": "no_error"},
+        },
+        outputs={
+            "agents": {"type": "array"},
+            "weighted_score": {"type": "number"},
+            "loop_count": {"type": "integer"},
+        },
+    ),
+    _translation_skill(
+        "translation_post_guard_v1",
+        "Translation Post Guard",
+        "Applies deterministic XML, DITA placeholder, RTL and LLM-artifact guardrails before delivery.",
+        "compliance",
+        timeout_ms=900_000,
+        properties={
+            "blocking_modes": {"type": "array", "items": {"type": "string"}},
+            "cdc_e1_strict": {"type": "boolean", "default": True},
+        },
+        outputs={
+            "cdc_e1_violations": {"type": "integer"},
+            "blocked_topic": {"type": "string"},
+            "guard_report_ref": {"type": "string"},
+        },
+    ),
+    _translation_skill(
+        "translation_cdt_gate_v1",
+        "Translation CDT Gate",
+        "Freezes, approves, rejects or resubmits delivery manifests under human review policy.",
+        "human_augmented",
+        mode="sync",
+        timeout_ms=300_000,
+        properties={
+            "action": {"type": "string"},
+            "reviewer_role": {"type": "string", "default": "translation_reviewer"},
+            "max_replays_per_topic": {"type": "integer", "default": 3},
+        },
+        outputs={
+            "approval": {"type": "string"},
+            "replayed_topics": {"type": "integer"},
+            "decision_id": {"type": "string"},
+        },
+    ),
+    _translation_skill(
+        "translation_package_delivery_v1",
+        "Translation Package Delivery",
+        "Packages DITA outputs, reports, SHA256 manifests and simulated SFTP delivery evidence.",
+        "delivery",
+        timeout_ms=900_000,
+        properties={
+            "delivery_channel": {"type": "string", "default": "simulated_sftp"},
+            "push_requires_human_approval": {"type": "boolean", "default": True},
+        },
+        outputs={
+            "delivery_package": {"type": "string"},
+            "receipt": {"type": "string"},
+            "manifest_ref": {"type": "string"},
+        },
+    ),
+]
+
+
+# ---- Skills ----------------------------------------------------------------
+# (slug, version, name, description, type, provider, certification, execution,
+#  pricing, input_schema, output_schema)
+SEED_SKILLS: list[dict[str, Any]] = [
+    *TRANSLATION_SKILLS,
+    {
+        "slug": "llm_rag_answer_v1",
+        "version": "1",
+        "name": "RAG Answer",
+        "description": "Retrieval-augmented answer with citations. When a 'context' array is supplied (e.g. join.retrieval.results) it synthesises grounded FROM those chunks without a second retrieval; otherwise it runs the orchestrator retrieval (tenant slug resolved).",
+        "type": "rag",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 60_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_call", "unit_price": 0.012, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "context_id": {"type": "string"},
+                "context": {
+                    "type": "array",
+                    "description": "Pre-retrieved chunks (e.g. join.retrieval.results). When present, the answer is synthesised FROM these (no second retrieval).",
+                },
+                "answer_profile": {"type": "string"},
+                "lang_target": {"type": "string"},
+                **RETRIEVAL_POLICY_PROPERTIES,
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string"},
+                "citations": {"type": "array"},
+                "decision_steps": {"type": "array"},
+            },
+        },
+    },
+    {
+        "slug": "semantic_search_v1",
+        "version": "1",
+        "name": "Semantic Search",
+        "description": "Budget-aware sparse+dense search over the knowledge base.",
+        "type": "retrieval",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 8_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0008, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "mode": {"type": "string"},
+                "rag_pipeline_mode": {"type": "string"},
+                **RETRIEVAL_POLICY_PROPERTIES,
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "results": {"type": "array"},
+            },
+        },
+    },
+    {
+        "slug": "multi_hop_retrieve_v1",
+        "version": "1",
+        "name": "Multi-Hop Retrieve",
+        "description": "Decomposed multi-hop retrieval: runs N semantic_search_v1 passes in parallel over the planner's sub_queries (plus the main query) and merges/dedupes the hits (RRF, reusing comparative_retrieval) into the same results[] shape as semantic_search. Used as the retrieval lane for comparison/multi-hop/transversal queries; degrades to a single search when no sub-queries are provided.",
+        "type": "retrieval",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 20_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0016, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "sub_queries": {"type": "array", "items": {"type": "string"}},
+                "rag_pipeline_mode": {"type": "string"},
+                **RETRIEVAL_POLICY_PROPERTIES,
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "results": {"type": "array"},
+                "raw_chunks_retrieved": {"type": "integer"},
+                "sub_queries": {"type": "array", "items": {"type": "string"}},
+                "hop_count": {"type": "integer"},
+            },
+        },
+    },
+    {
+        "slug": "chat_trivial_bypass_v1",
+        "version": "1",
+        "name": "Chat Trivial Bypass",
+        "description": "Conservative local bypass for greetings, thanks and acknowledgements before retrieval.",
+        "type": "policy",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 500, "retryable": False, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "bypassed": {"type": "boolean"},
+                "answer": {"type": "string"},
+                "reason": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "chat_grounding_policy_v1",
+        "version": "1",
+        "name": "Chat Grounding Policy",
+        "description": "Resolves workspace/profile grounding instructions before generation.",
+        "type": "policy",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 1000, "retryable": False, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "assistant_profile": {"type": "string"},
+                "grounding_mode": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "mode": {"type": "string"},
+                "require_sources": {"type": "boolean"},
+                "fallback_disclaimer": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "chat_action_resolver_v1",
+        "version": "1",
+        "name": "Chat Action Resolver",
+        "description": "Matches chat text to workspace action manifests without executing side effects automatically.",
+        "type": "tool",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 1500, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "assistant_profile": {"type": "string"},
+                "surface": {"type": "string", "default": "chat"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "matched": {"type": "boolean"},
+                "action_id": {"type": "string"},
+                "requires_confirmation": {"type": "boolean"},
+            },
+        },
+    },
+    {
+        "slug": "document_ingestion_v1",
+        "version": "1",
+        "name": "Document Ingestion",
+        "description": "Parse and embed a document into the knowledge base.",
+        "type": "ingestion",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {
+            "mode": "async",
+            "timeout_ms": 120_000,
+            "retryable": True,
+            "idempotent": True,
+        },
+        "pricing": {"unit": "per_doc", "unit_price": 0.04, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["filename"],
+            "properties": {
+                "filename": {"type": "string"},
+                "collection": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "doc_id": {"type": "string"},
+                "chunks": {"type": "integer"},
+            },
+        },
+    },
+    {
+        "slug": "eval_radar_v1",
+        "version": "1",
+        "name": "Evaluation Radar",
+        "description": "Multi-axis evaluation (groundedness, relevance, recall, latency, safety).",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": False, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.02, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["answer"],
+            "properties": {
+                "answer": {"type": "string"},
+                "ground_truth": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "axes": {"type": "object"},
+                "overall": {"type": "number"},
+            },
+        },
+    },
+    {
+        "slug": "claim_audit_v1",
+        "version": "1",
+        "name": "Claim Audit",
+        "description": "Verifies factual claims in an answer against the citations.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": False, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.025, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["answer"],
+            "properties": {
+                "answer": {"type": "string"},
+                "citations": {"type": "array"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "claims": {"type": "array"},
+                "verdict": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "chat_agentic_plan_v1",
+        "version": "1",
+        "name": "Chat Agentic Plan",
+        "description": "Provider-neutral agentic planner: classifies the request (answer/clarify/reject_oos), picks the reasoning depth and exposes the per-lane retrieval budgets (top_k/synthesis_k/candidate_pool_k, matching the classic chat budget policy) consumed by the retrieve nodes. Clarify is gated (rejected when a project code/identifier is present or the request is not genuinely ambiguous). reject_oos is gated: demoted to answer when a known project/machine/system is named (never rejected on language). Inventory/transversal multi-project questions are forced to the deep lane. Emits sub_queries (2-4 decomposed sub-questions) for comparison/multi-hop/transversal profiles (empty otherwise) to drive the multi_hop_retrieve lane. Schema-placeholder scope hints are dropped. Model resolved via ModelRouter.",
+        "type": "planning",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.004, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "conversation_history": {"type": "array"},
+                "model": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["answer", "clarify", "reject_oos"]},
+                "mode": {"type": "string", "enum": ["fast", "balanced", "deep"]},
+                "answer_profile": {"type": "string"},
+                "scope_hint": {"type": "string"},
+                "clarifying_question": {"type": "string"},
+                "oos_reason": {"type": "string"},
+                "lang_target": {"type": "string"},
+                "confidence": {"type": "number"},
+                "retrieval": {
+                    "type": "object",
+                    "properties": {
+                        "latency_profile": {"type": "string", "enum": ["fast", "balanced", "deep"]},
+                        "retrieval_profile": {
+                            "type": "string",
+                            "enum": ["oracle_fast", "chat", "deep_async"],
+                        },
+                        "top_k": {"type": "integer"},
+                        "synthesis_k": {"type": "integer"},
+                        "candidate_pool_k": {"type": "integer"},
+                        "rag_pipeline_mode": {"type": "string", "enum": ["chah", "auto"]},
+                        "deep_retrieval": {"type": "boolean"},
+                    },
+                },
+                "sub_queries": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+    },
+    {
+        "slug": "decide_next_v1",
+        "version": "1",
+        "name": "Decide Next",
+        "description": "Bounded AgentLoop planner: JSON-only next-skill choice inside a mandate-filtered catalog. Fail-closed coerce rejects slugs outside visible_skills.",
+        "type": "planning",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 20_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.003, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "goal": {"type": "object"},
+                "observations": {"type": "array"},
+                "visible_skills": {"type": "array"},
+                "budget": {"type": "object"},
+                "confidence_floor": {"type": "number"},
+                "model": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "next_skill": {"type": ["string", "null"]},
+                "rationale": {"type": "string"},
+                "confidence": {"type": "number"},
+                "needs_human": {"type": "boolean"},
+                "human_prompt": {"type": ["string", "null"]},
+                "exit": {"type": ["string", "null"]},
+                "done": {"type": "boolean"},
+            },
+        },
+    },
+    {
+        "slug": "skill_search_v1",
+        "version": "1",
+        "name": "Skill Search",
+        "description": "Compact catalog search under the current AgentLoop mandate. Returns at most 8 visible skills; never invents slugs outside the envelope.",
+        "type": "planning",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "skill_allowlist": {"type": "array", "items": {"type": "string"}},
+                "privilege_tier": {"type": "string"},
+                "limit": {"type": "integer"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "skills": {"type": "array"},
+                "count": {"type": "integer"},
+            },
+        },
+    },
+    {
+        "slug": "chat_self_correct_v1",
+        "version": "1",
+        "name": "Chat Self Correct",
+        "description": "Provider-neutral bounded self-correction reactor (1 pass): picks one repair action. escalate_deep RE-RETRIEVES (deep lane) and re-grounds the answer on the new context, or abstains — never fabricates; translate/declare_partial only transform the already-grounded draft. Model resolved via ModelRouter.",
+        "type": "generation",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 45_000, "retryable": True, "idempotent": False},
+        "pricing": {"unit": "per_call", "unit_price": 0.012, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["draft_answer"],
+            "properties": {
+                "draft_answer": {"type": "string"},
+                "query": {"type": "string"},
+                "citations": {"type": "array"},
+                "composite": {"type": "number"},
+                "hallucination_rate": {"type": "number"},
+                "mode": {"type": "string"},
+                "scope_hint": {"type": "string"},
+                "lang_target": {"type": "string"},
+                "answer_profile": {"type": "string"},
+                "model": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string"},
+                "citations": {"type": "array"},
+                "action_taken": {
+                    "type": "string",
+                    "enum": ["escalate_deep", "translate", "declare_partial"],
+                },
+            },
+        },
+    },
+    {
+        "slug": "response_eval_v1",
+        "version": "1",
+        "name": "Response Eval",
+        "description": "Embedding-based RAG quality wrapper around ResponseEvaluator. Single authoritative source of the 0-100 composite (ResponseEvaluator score x100), with hallucination_rate, context_count and HHEM/factuality/coherence.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": False, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.002, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["answer"],
+            "properties": {
+                "answer": {"type": "string"},
+                "citations": {"type": "array"},
+                "context_chunks": {"type": "array"},
+                "query": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "composite": {"type": "number"},
+                "hallucination_rate": {"type": "number"},
+                "context_count": {"type": "integer"},
+                "hhem": {"type": "number"},
+                "factuality": {"type": "number"},
+                "coherence": {"type": "number"},
+            },
+        },
+    },
+    {
+        "slug": "intelligence_batch_v1",
+        "version": "1",
+        "name": "Intelligence Batch",
+        "description": "Pulls feeds, deduplicates, scores and stores articles for a campaign.",
+        "type": "ingestion",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {
+            "mode": "async",
+            "timeout_ms": 600_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_batch", "unit_price": 0.5, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "feed_ids": {"type": "array"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "ingested": {"type": "integer"},
+                "errors": {"type": "integer"},
+            },
+        },
+    },
+    {
+        "slug": "ministerial_briefing_v1",
+        "version": "1",
+        "name": "Ministerial Briefing",
+        "description": "Builds a sourced daily executive briefing from workspace signals, agenda, projects and open intelligence.",
+        "type": "planning",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 12_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_brief", "unit_price": 0.08, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "workspace_name": {"type": "string"},
+                "date": {"type": "string"},
+                "include_sources": {"type": "boolean", "default": True},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "briefing": {"type": "object"},
+                "sources": {"type": "array"},
+            },
+        },
+    },
+    {
+        "slug": "news_signal_synthesis_v1",
+        "version": "1",
+        "name": "News Signal Synthesis",
+        "description": "Summarizes RSS/open-intelligence signals into risks, confidence, source trails and advisory actions.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_signal_batch", "unit_price": 0.06, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "signals": {"type": "array"},
+                "target": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string"},
+                "signals": {"type": "array"},
+                "sources": {"type": "array"},
+            },
+        },
+    },
+    {
+        "slug": "project_risk_explainer_v1",
+        "version": "1",
+        "name": "Project Risk Explainer",
+        "description": "Explains strategic project delay, likely causes, risk and human-validated action options.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_project", "unit_price": 0.05, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string"},
+                "question": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "project": {"type": "object"},
+                "explanation": {"type": "object"},
+                "sources": {"type": "array"},
+            },
+        },
+    },
+    {
+        "slug": "territorial_signal_map_v1",
+        "version": "1",
+        "name": "Territorial Signal Map",
+        "description": "Produces an illustrative decision map with zones, source-backed signals and non-military recommendations.",
+        "type": "visualization",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_map", "unit_price": 0.07, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "question": {"type": "string"},
+                "scope": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "map": {"type": "object"},
+                "zones": {"type": "array"},
+                "sources": {"type": "array"},
+            },
+        },
+    },
+    {
+        "slug": "instruction_draft_v1",
+        "version": "1",
+        "name": "Instruction Draft",
+        "description": "Drafts advisory cabinet instructions from sourced project or territorial signals; never sends externally.",
+        "type": "generation",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": False},
+        "pricing": {"unit": "per_draft", "unit_price": 0.04, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["target_id"],
+            "properties": {
+                "target_id": {"type": "string"},
+                "target_type": {"type": "string"},
+                "instruction_type": {"type": "string"},
+                "tone": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "requires_validation": {"type": "boolean"},
+                "body": {"type": "string"},
+                "sources": {"type": "array"},
+            },
+        },
+    },
+    {
+        "slug": "calendar_read_v1",
+        "version": "1",
+        "name": "Calendar Read",
+        "description": "Reads workspace calendar events and daily summaries from the institutional agenda connector.",
+        "type": "connector",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_read", "unit_price": 0.01, "currency": "USD"},
+        "input_schema": {"type": "object", "properties": {"date": {"type": "string"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {"events": {"type": "array"}, "summary": {"type": "string"}},
+        },
+    },
+    {
+        "slug": "calendar_create_event_v1",
+        "version": "1",
+        "name": "Calendar Create Event",
+        "description": "Creates an event in the workspace institutional calendar according to the workspace write policy.",
+        "type": "connector",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": False, "idempotent": False},
+        "pricing": {"unit": "per_event", "unit_price": 0.02, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["title", "start_at"],
+            "properties": {
+                "title": {"type": "string"},
+                "start_at": {"type": "string"},
+                "end_at": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"event": {"type": "object"}, "requires_validation": {"type": "boolean"}},
+        },
+    },
+    {
+        "slug": "calendar_update_event_v1",
+        "version": "1",
+        "name": "Calendar Update Event",
+        "description": "Updates an event in the workspace institutional calendar.",
+        "type": "connector",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": False, "idempotent": False},
+        "pricing": {"unit": "per_event", "unit_price": 0.02, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["event_id"],
+            "properties": {
+                "event_id": {"type": "string"},
+                "start_at": {"type": "string"},
+                "title": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"event": {"type": "object"}, "requires_validation": {"type": "boolean"}},
+        },
+    },
+    {
+        "slug": "calendar_cancel_event_v1",
+        "version": "1",
+        "name": "Calendar Cancel Event",
+        "description": "Cancels an event in the workspace institutional calendar.",
+        "type": "connector",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": False, "idempotent": False},
+        "pricing": {"unit": "per_event", "unit_price": 0.02, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["event_id"],
+            "properties": {"event_id": {"type": "string"}, "reason": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"event": {"type": "object"}, "requires_validation": {"type": "boolean"}},
+        },
+    },
+    {
+        "slug": "calendar_daily_summary_v1",
+        "version": "1",
+        "name": "Calendar Daily Summary",
+        "description": "Builds a daily institutional agenda summary with conflicts, next event and free slots.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_summary", "unit_price": 0.02, "currency": "USD"},
+        "input_schema": {"type": "object", "properties": {"date": {"type": "string"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {"summary": {"type": "string"}, "events": {"type": "array"}},
+        },
+    },
+    {
+        "slug": "sap_hana_query_v1",
+        "version": "1",
+        "name": "SAP HANA Query",
+        "description": "Runs a parameterized SQL query against the workspace SAP HANA Cloud connector (read-only by default).",
+        "type": "connector",
+        "provider": "sap",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_query", "unit_price": 0.02, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["sql"],
+            "properties": {
+                "sql": {"type": "string"},
+                "params": {"type": "object"},
+                "max_rows": {"type": "integer"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "columns": {"type": "array"},
+                "rows": {"type": "array"},
+                "row_count": {"type": "integer"},
+                "context": {
+                    "type": "array",
+                    "description": "Row passages for llm_rag_answer_v1 grounding.",
+                },
+            },
+        },
+    },
+    {
+        "slug": "rpa_dispatch_v1",
+        "version": "1",
+        "name": "RPA Dispatch",
+        "description": (
+            "Dispatches a job to the workspace RPA Bridge connector "
+            "(generic REST orchestrator) and polls to completion within a bounded timeout."
+        ),
+        "type": "connector",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
+        "pricing": {"unit": "per_job", "unit_price": 0.05, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["job_key"],
+            "properties": {
+                "job_key": {
+                    "type": "string",
+                    "description": "Logical job key (resolved via connector job_mapping when configured).",
+                },
+                "input": {"type": "object"},
+                "callback_url": {"type": "string"},
+                "timeout_s": {"type": "number"},
+                "poll_interval_s": {"type": "number"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+                "job_key": {"type": "string"},
+                "status": {"type": "string"},
+                "result": {"type": "object"},
+                "error": {},
+                "polls": {"type": "integer"},
+                "duration_ms": {"type": "integer"},
+            },
+        },
+    },
+    {
+        "slug": "mcp_call_v1",
+        "version": "1",
+        "name": "MCP Call",
+        "description": (
+            "Calls one tool on a workspace MCP server (HTTP/SSE). "
+            "Write-set is the contract (reject_pr / create_po / handle_rejection), not the payload."
+        ),
+        "type": "connector",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.02, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["server_id", "tool"],
+            "properties": {
+                "server_id": {"type": "string"},
+                "tool": {
+                    "type": "string",
+                    "description": "Contract tool name (resolved via server tool_aliases).",
+                },
+                "arguments": {"type": "object"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "ok": {"type": "boolean"},
+                "result": {"type": "object"},
+                "server_id": {"type": "string"},
+                "tool": {"type": "string"},
+                "contract_tool": {"type": "string"},
+                "credential_source": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "sap_list_approved_prs_v1",
+        "version": "1",
+        "name": "SAP list approved PRs",
+        "description": "Lists approved purchase requisitions with no PO via the workspace sap MCP server.",
+        "type": "connector",
+        "provider": "sap",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.02, "currency": "USD"},
+        "input_schema": {"type": "object", "properties": {}},
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "prs": {"type": "array"},
+                "count": {"type": "integer"},
+                "server_id": {"type": "string"},
+                "tool": {"type": "string"},
+                "contract_tool": {"type": "string"},
+                "credential_source": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "sap_check_budget_v1",
+        "version": "1",
+        "name": "SAP check budget",
+        "description": "Checks remaining budget for one purchase requisition via the sap MCP server.",
+        "type": "connector",
+        "provider": "sap",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.02, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["pr_id"],
+            "properties": {"pr_id": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "pr_id": {"type": "string"},
+                "budget_ok": {"type": "boolean"},
+                "reason": {"type": "string"},
+                "server_id": {"type": "string"},
+                "tool": {"type": "string"},
+                "contract_tool": {"type": "string"},
+                "credential_source": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "sap_get_justification_v1",
+        "version": "1",
+        "name": "SAP get justification",
+        "description": "Reads the justification text for one purchase requisition via the sap MCP server.",
+        "type": "connector",
+        "provider": "sap",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.02, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["pr_id"],
+            "properties": {"pr_id": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "pr_id": {"type": "string"},
+                "justification": {"type": "string"},
+                "server_id": {"type": "string"},
+                "tool": {"type": "string"},
+                "contract_tool": {"type": "string"},
+                "credential_source": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "sap_reject_pr_v1",
+        "version": "1",
+        "name": "SAP reject PR",
+        "description": "Rejects a purchase requisition via the sap MCP server. Budget-only automatic write; no HITL.",
+        "type": "connector",
+        "provider": "sap",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 30_000,
+            "retryable": False,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_call", "unit_price": 0.05, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["pr_id"],
+            "properties": {
+                "pr_id": {"type": "string"},
+                "reason": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "pr_id": {"type": "string"},
+                "rejected": {"type": "boolean"},
+                "server_id": {"type": "string"},
+                "tool": {"type": "string"},
+                "contract_tool": {"type": "string"},
+                "credential_source": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "hikma_list_pos_by_type_v1",
+        "version": "1",
+        "name": "HIKMA list POs by type",
+        "description": "Lists purchase orders already created for the same PR type via the hikma MCP server.",
+        "type": "connector",
+        "provider": "hikma",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.02, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["pr_type"],
+            "properties": {"pr_type": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "pos": {"type": "array"},
+                "pr_type": {"type": "string"},
+                "count": {"type": "integer"},
+                "server_id": {"type": "string"},
+                "tool": {"type": "string"},
+                "contract_tool": {"type": "string"},
+                "credential_source": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "sap_create_po_v1",
+        "version": "1",
+        "name": "SAP create PO",
+        "description": "Creates a purchase order via the sap MCP server. Writes only after a named human approval.",
+        "type": "connector",
+        "provider": "sap",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 30_000,
+            "retryable": False,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_call", "unit_price": 0.05, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["pr_id", "supplier", "format"],
+            "properties": {
+                "pr_id": {"type": "string"},
+                "supplier": {"type": "string"},
+                "format": {"type": "string"},
+                "amount": {"type": "number"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "po_id": {"type": "string"},
+                "pr_id": {"type": "string"},
+                "created": {"type": "boolean"},
+                "server_id": {"type": "string"},
+                "tool": {"type": "string"},
+                "contract_tool": {"type": "string"},
+                "credential_source": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "sap_handle_rejection_v1",
+        "version": "1",
+        "name": "SAP handle rejection",
+        "description": "Records a human rejection of a purchase requisition via the sap MCP server. Writes only after a named human rejection.",
+        "type": "connector",
+        "provider": "sap",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 30_000,
+            "retryable": False,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_call", "unit_price": 0.05, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["pr_id"],
+            "properties": {
+                "pr_id": {"type": "string"},
+                "note": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "pr_id": {"type": "string"},
+                "handled": {"type": "boolean"},
+                "server_id": {"type": "string"},
+                "tool": {"type": "string"},
+                "contract_tool": {"type": "string"},
+                "credential_source": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "python_recipe_v1",
+        "version": "1",
+        "name": "Python Recipe",
+        # Plain text only: catalog descriptions render verbatim in the UI,
+        # so markdown backticks would show up literally.
+        "description": (
+            "Runs an author-written Python script (main(inputs) -> dict) in a "
+            "managed, content-addressed virtual environment on the async worker "
+            "plane, with per-execution status tracking and cancellation. The "
+            "workspace datasets pinned on the node arrive in inputs as rows, "
+            "with the model that scored them when there was one."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "async",
+            "timeout_ms": 600_000,
+            "retryable": False,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_execution", "unit_price": 0.0, "currency": "USD"},
+        # The concrete contract is author-declared on the node
+        # (config.input_schema / config.output_schema); the catalog schema
+        # stays generic object→object.
+        "input_schema": {"type": "object", "properties": {}},
+        "output_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "slug": "system_run_read_v1",
+        "version": "1",
+        "name": "System Result Read",
+        # Plain text only: catalog descriptions render verbatim in the UI.
+        "description": (
+            "Reads the output of the newest completed run of another System in "
+            "the same workspace, without executing it. Read-only, and a System "
+            "that has never finished a run answers with found false rather "
+            "than an error."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 15_000,
+            "retryable": True,
+            "idempotent": True,
+        },
+        "pricing": {"unit": "per_read", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "system_id": {"type": "string"},
+                "system_name": {"type": "string"},
+            },
+        },
+        # Namespaced under one key so the envelope can be merged into a
+        # downstream node's input without colliding with the producer's own
+        # fields — ``output`` in particular is a name every second Skill uses.
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "system_run": {
+                    "type": "object",
+                    "properties": {
+                        "system_id": {"type": "string"},
+                        "system_name": {"type": "string"},
+                        "run_id": {},
+                        "completed_at": {},
+                        "found": {"type": "boolean"},
+                        "output": {"type": "object"},
+                    },
+                }
+            },
+        },
+    },
+    {
+        "slug": "sql_transform_v1",
+        "version": "1",
+        "name": "SQL Transform",
+        # Plain text only: catalog descriptions render verbatim in the UI.
+        "description": (
+            "Runs an author-written read-only SQL statement over the node's "
+            "dataset inputs with duckdb, and persists the result as a new "
+            "versioned dataset with its lineage."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 300_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_transform", "unit_price": 0.0, "currency": "USD"},
+        # Datasets travel by reference, so the contract is a dataset envelope in
+        # and a dataset envelope out; the concrete columns are author-declared.
+        "input_schema": {
+            "type": "object",
+            "properties": {"dataset_id": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "dataset_id": {"type": "string"},
+                "name": {"type": "string"},
+                "slug": {"type": "string"},
+                "version": {"type": "integer"},
+                "rows": {"type": "integer"},
+                "columns": {"type": "integer"},
+                "duration_ms": {"type": "number"},
+            },
+        },
+    },
+    {
+        "slug": "polars_transform_v1",
+        "version": "1",
+        "name": "Polars Transform",
+        # Plain text only: catalog descriptions render verbatim in the UI.
+        "description": (
+            "Runs an author-written Polars transform over the node's dataset "
+            "inputs on a managed, isolated Python environment, and persists the "
+            "result as a new versioned dataset with its lineage."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 300_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_transform", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"dataset_id": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "dataset_id": {"type": "string"},
+                "name": {"type": "string"},
+                "slug": {"type": "string"},
+                "version": {"type": "integer"},
+                "rows": {"type": "integer"},
+                "columns": {"type": "integer"},
+                "duration_ms": {"type": "number"},
+            },
+        },
+    },
+    {
+        "slug": "dbt_transform_v1",
+        "version": "1",
+        "name": "dbt Transform",
+        # Plain text only: catalog descriptions render verbatim in the UI.
+        "description": (
+            "Builds an author-written dbt project (several models linked by ref, "
+            "plus data tests) over the node's dataset inputs with dbt-duckdb on a "
+            "managed, isolated environment. Publishes the selected model as a new "
+            "versioned dataset, and refuses to publish when a data test fails."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 600_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_transform", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"dataset_id": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "dataset_id": {"type": "string"},
+                "name": {"type": "string"},
+                "slug": {"type": "string"},
+                "version": {"type": "integer"},
+                "rows": {"type": "integer"},
+                "columns": {"type": "integer"},
+                "duration_ms": {"type": "number"},
+                "dbt": {"type": "object"},
+            },
+        },
+    },
+    {
+        "slug": "hf_dataset_import_v1",
+        "version": "1",
+        "name": "Hugging Face Dataset",
+        "description": (
+            "Publishes the verified result of an imported Hugging Face dataset in this "
+            "workspace. Pins its artifact and selection digest for reproducible replay; "
+            "checks current access and never downloads a moving Hub revision."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 300_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_transform", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            # Editor parameters move into the graph-owned _hf_dataset block
+            # before execution. The wrapper validates its required pins there.
+            "type": "object",
+            "properties": {
+                "artifact_id": {
+                    "type": "string",
+                    "maxLength": 36,
+                    "description": "Imported dataset artifact identifier.",
+                },
+                "selection_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$",
+                    "description": "Immutable selection digest returned by the dataset import.",
+                },
+                "output_name": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "default": "Hugging Face dataset",
+                },
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "dataset_id": {"type": "string"},
+                "artifact_id": {"type": "string"},
+                "selection_digest": {"type": "string"},
+                "rows": {"type": "integer"},
+                "columns": {"type": "integer"},
+                "name": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "llm_label_dataset_v1",
+        "version": "1",
+        "name": "Label Dataset with LLM",
+        "description": (
+            "Labels text columns with the workspace language model and publishes a generated "
+            "dataset carrying its source lineage. Structured class labels, explicit estimated "
+            "token prices and row, token, cost and time budgets control each resumable job."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "async",
+            "timeout_ms": 900_000,
+            "retryable": False,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_1k_tokens", "unit_price": 0.0, "currency": "USD"},
+        # These are editor parameters. The DAG moves them into its protected
+        # _label block before execution; the service validates that block.
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sources": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "default": [],
+                    "description": "Optional dataset pin; otherwise use the upstream dataset.",
+                },
+                "text_columns": {
+                    "type": "array",
+                    "items": {"type": "string", "maxLength": 100},
+                    "minItems": 1,
+                    "maxItems": 8,
+                    "description": "Required: names of the text columns sent to the model.",
+                },
+                "labels": {
+                    "type": "array",
+                    "items": {"type": "string", "maxLength": 100},
+                    "minItems": 2,
+                    "maxItems": 100,
+                    "description": "Required: allowed class labels.",
+                },
+                "label_column": {"type": "string", "default": "label", "maxLength": 100},
+                "instruction": {
+                    "type": "string",
+                    "maxLength": 4000,
+                    "description": "Required: explain how to choose among the allowed labels.",
+                },
+                "output_name": {"type": "string", "maxLength": 200},
+                "batch_size": {"type": "integer", "default": 10, "minimum": 1, "maximum": 50},
+                "max_rows": {"type": "integer", "default": 500, "minimum": 1, "maximum": 5000},
+                "max_tokens": {
+                    "type": "integer",
+                    "default": 100000,
+                    "minimum": 1,
+                    "maximum": 2000000,
+                },
+                "max_output_tokens": {
+                    "type": "integer",
+                    "default": 2048,
+                    "minimum": 64,
+                    "maximum": 8192,
+                },
+                "max_cost_usd": {
+                    "type": "number",
+                    "default": 1,
+                    "exclusiveMinimum": 0,
+                    "maximum": 100,
+                },
+                "input_cost_per_million": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1000,
+                    "description": "Required: estimated USD per million input tokens for the workspace model. No assumed provider price.",
+                },
+                "output_cost_per_million": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1000,
+                    "description": "Required: estimated USD per million output tokens for the workspace model. No assumed provider price.",
+                },
+                "timeout_s": {"type": "integer", "default": 300, "minimum": 1, "maximum": 900},
+                "resume_job_id": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "dataset_id": {"type": "string"},
+                "name": {"type": "string"},
+                "slug": {"type": "string"},
+                "version": {"type": "integer"},
+                "rows": {"type": "integer"},
+                "columns": {"type": "integer"},
+                "job_id": {"type": "string"},
+                "labeling": {"type": "object"},
+            },
+        },
+    },
+    {
+        "slug": "ml_evaluation_review_v1",
+        "version": "1",
+        "name": "Review Model Evaluation",
+        "description": "Reads a workspace model's development diagnostics and proposes hypotheses to review in its Flow. It never optimizes on final-test scores, trains a model or promotes a version. Training and promotion remain separate authorized decisions.",
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 30000, "retryable": False, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"model_id": {"type": "string", "maxLength": 36}},
+            "required": ["model_id"],
+            "additionalProperties": False,
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "model_id": {"type": "string"},
+                "mode": {"const": "proposal_only"},
+                "proposals": {"type": "array"},
+                "development": {"type": "object"},
+                "constraints": {"type": "array"},
+            },
+        },
+    },
+    {
+        "slug": "ml_monitor_model_v1",
+        "version": "1",
+        "name": "Monitor Model",
+        "description": "Measures a scheduled model window and proposes retraining on labeled feedback or observed forecast history for human review. Configure the managed monitoring Flow from Model Center; this Skill requires that model's monitoring binding.",
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 120000, "retryable": False, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {"type": "object", "properties": {}},
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "proposed": {"type": "boolean"},
+                "proposal_id": {"type": "string"},
+                "snapshot_id": {"type": "string"},
+                "badge": {"type": ["string", "null"]},
+            },
+        },
+    },
+    {
+        "slug": "ml_retrain_model_v1",
+        "version": "1",
+        "name": "Train Reviewed Challenger",
+        "description": "Trains the exact data snapshot confirmed at the model's human review gate in its managed monitoring Flow. An approved proposal and its review decision are required; promotion remains separate.",
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "async",
+            "timeout_ms": 900000,
+            "retryable": False,
+            "idempotent": True,
+        },
+        "pricing": {"unit": "per_training", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"proposal_id": {"type": "string"}, "decision_id": {"type": "string"}},
+            "required": ["proposal_id", "decision_id"],
+        },
+        "output_schema": {"type": "object", "properties": {"model_id": {"type": "string"}}},
+    },
+    {
+        "slug": "ml_train_sklearn_v1",
+        "version": "1",
+        "name": "Train sklearn Model",
+        # Plain text only: catalog descriptions render verbatim in the UI.
+        "description": (
+            "Trains a model on a workspace dataset without writing code. Supervised "
+            "tabular models report test metrics, curves and feature importances; "
+            "KMeans segmentation uses selected numeric features without a target, "
+            "and reports cluster profiles, silhouette and resampling stability. "
+            "Models are saved in portable MLflow format and registered by version."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "async",
+            "timeout_ms": 900_000,
+            "retryable": False,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_training", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"dataset_id": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "model_id": {"type": "string"},
+                "name": {"type": "string"},
+                "slug": {"type": "string"},
+                "version": {"type": "integer"},
+                "task": {"type": "string"},
+                "algo": {"type": "string"},
+                "target": {"type": "string"},
+                "metric": {"type": "object"},
+                "is_champion": {"type": "boolean"},
+                "rows": {"type": "integer"},
+                "features": {"type": "integer"},
+                "duration_ms": {"type": "number"},
+            },
+        },
+    },
+    {
+        "slug": "ml_predict_v1",
+        "version": "1",
+        "name": "Predict with Model",
+        # Plain text only: catalog descriptions render verbatim in the UI.
+        "description": (
+            "Answers one record with a trained model: a prediction, with probabilities "
+            "when available, or a version-specific cluster identifier for segmentation. This is also "
+            "what a model published as a Skill runs, so an agent asking about a "
+            "single customer and a Flow scoring an event take the same path. The "
+            "version that answers is whichever one currently serves the model's "
+            "lineage, so promoting a retrain changes the answer without editing "
+            "the Flow."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 60_000,
+            "retryable": True,
+            "idempotent": True,
+        },
+        "pricing": {"unit": "per_prediction", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"rows": {"type": "array"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "served": {"type": "object"},
+                "task": {"type": "string"},
+                "target": {"type": "string"},
+                "classes": {"type": "array"},
+                "positive_label": {"type": "string"},
+                "predictions": {"type": "array"},
+                "rows": {"type": "integer"},
+                "duration_ms": {"type": "number"},
+            },
+        },
+    },
+    {
+        "slug": "ml_batch_score_v1",
+        "version": "1",
+        "name": "Batch Score Dataset",
+        # Plain text only: catalog descriptions render verbatim in the UI.
+        "description": (
+            "Scores a whole dataset with a trained model and writes a new "
+            "versioned dataset carrying every input column plus the prediction, "
+            "its confidence and the positive-class score. Keeping the input "
+            "columns is what makes the output joinable back to the customer it "
+            "describes. The version that answers is whichever one currently "
+            "serves the model's lineage."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 300_000,
+            "retryable": True,
+            "idempotent": True,
+        },
+        "pricing": {"unit": "per_scored_dataset", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"dataset_id": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "dataset_id": {"type": "string"},
+                "name": {"type": "string"},
+                "slug": {"type": "string"},
+                "version": {"type": "integer"},
+                "rows": {"type": "integer"},
+                "columns": {"type": "integer"},
+                "scored_rows": {"type": "integer"},
+                "added_columns": {"type": "array"},
+                "model": {"type": "object"},
+                "duration_ms": {"type": "number"},
+            },
+        },
+    },
+    {
+        "slug": "ml_forecast_v1",
+        "version": "1",
+        "name": "Forecast Series",
+        # Plain text only: catalog descriptions render verbatim in the UI.
+        "description": (
+            "Forecasts every series of a trained forecasting model over its "
+            "horizon and writes a new versioned dataset: one row per series and "
+            "step, with the forecast and its interval. It also returns, per series, "
+            "when the forecast peaks and how high its interval goes, so an alert "
+            "or a summary node can act on it directly. Values known in advance "
+            "come from a dataset on the wire when the model needs them. The "
+            "version that answers is whichever one currently serves the lineage."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 600_000,
+            "retryable": True,
+            "idempotent": True,
+        },
+        "pricing": {"unit": "per_forecast_dataset", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"dataset_id": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "dataset_id": {"type": "string"},
+                "name": {"type": "string"},
+                "slug": {"type": "string"},
+                "version": {"type": "integer"},
+                "rows": {"type": "integer"},
+                "columns": {"type": "integer"},
+                "model": {"type": "object"},
+                "forecast": {"type": "object"},
+                "duration_ms": {"type": "number"},
+            },
+        },
+    },
+    {
+        "slug": "action_plan_create_v1",
+        "version": "1",
+        "name": "Action Plan Create",
+        "description": "Creates a workspace-scoped action item linked to a decision, run, calendar event or source signal.",
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": False, "idempotent": False},
+        "pricing": {"unit": "per_action", "unit_price": 0.02, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["title"],
+            "properties": {
+                "title": {"type": "string"},
+                "due_at": {"type": "string"},
+                "priority": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"item": {"type": "object"}, "requires_validation": {"type": "boolean"}},
+        },
+    },
+    {
+        "slug": "action_plan_reschedule_v1",
+        "version": "1",
+        "name": "Action Plan Reschedule",
+        "description": "Reschedules a workspace action item while preserving auditability.",
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": False, "idempotent": False},
+        "pricing": {"unit": "per_action", "unit_price": 0.01, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["item_id", "due_at"],
+            "properties": {"item_id": {"type": "string"}, "due_at": {"type": "string"}},
+        },
+        "output_schema": {"type": "object", "properties": {"item": {"type": "object"}}},
+    },
+    {
+        "slug": "action_plan_status_v1",
+        "version": "1",
+        "name": "Action Plan Status",
+        "description": "Lists and summarizes workspace action items for a cabinet or operator view.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_read", "unit_price": 0.01, "currency": "USD"},
+        "input_schema": {"type": "object", "properties": {"status": {"type": "string"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {"items": {"type": "array"}, "summary": {"type": "object"}},
+        },
+    },
+    {
+        "slug": "action_plan_cancel_v1",
+        "version": "1",
+        "name": "Action Plan Cancel",
+        "description": "Cancels a workspace action item under the workspace write policy.",
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": False, "idempotent": False},
+        "pricing": {"unit": "per_action", "unit_price": 0.01, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["item_id"],
+            "properties": {"item_id": {"type": "string"}, "reason": {"type": "string"}},
+        },
+        "output_schema": {"type": "object", "properties": {"item": {"type": "object"}}},
+    },
+    {
+        "slug": "scenario_generate_v1",
+        "version": "1",
+        "name": "Scenario Generate",
+        "description": "Generates advisory decision scenarios with cost, impact, confidence and risk-reduction scoring.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_scenario_pack", "unit_price": 0.03, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "target_kind": {"type": "string"},
+                "target_id": {"type": "string"},
+                "risk_level": {"type": "string"},
+            },
+        },
+        "output_schema": {"type": "object", "properties": {"options": {"type": "array"}}},
+    },
+    {
+        "slug": "scenario_compare_v1",
+        "version": "1",
+        "name": "Scenario Compare",
+        "description": "Compares advisory scenarios and exposes tradeoffs for human decision makers.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_comparison", "unit_price": 0.02, "currency": "USD"},
+        "input_schema": {"type": "object", "properties": {"options": {"type": "array"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {"best": {"type": "object"}, "tradeoffs": {"type": "array"}},
+        },
+    },
+    {
+        "slug": "scenario_recommend_v1",
+        "version": "1",
+        "name": "Scenario Recommend",
+        "description": "Selects the recommended scenario while preserving alternatives and reasoning.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_recommendation", "unit_price": 0.03, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "target_kind": {"type": "string"},
+                "target_id": {"type": "string"},
+                "risk_level": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"recommended": {"type": "object"}, "options": {"type": "array"}},
+        },
+    },
+    {
+        "slug": "map_layer_read_v1",
+        "version": "1",
+        "name": "Map Layer Read",
+        "description": "Reads workspace map layers, zones and source metadata.",
+        "type": "connector",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_read", "unit_price": 0.01, "currency": "USD"},
+        "input_schema": {"type": "object", "properties": {"map_slug": {"type": "string"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {"map": {"type": "object"}, "zones": {"type": "array"}},
+        },
+    },
+    {
+        "slug": "map_zone_score_v1",
+        "version": "1",
+        "name": "Map Zone Score",
+        "description": "Scores map zones using configured signals, projects and source confidence.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_map", "unit_price": 0.04, "currency": "USD"},
+        "input_schema": {"type": "object", "properties": {"map_slug": {"type": "string"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {"scores": {"type": "array"}, "job": {"type": "object"}},
+        },
+    },
+    {
+        "slug": "map_signal_attach_v1",
+        "version": "1",
+        "name": "Map Signal Attach",
+        "description": "Attaches a source signal to a workspace map zone for later scoring.",
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": False, "idempotent": False},
+        "pricing": {"unit": "per_signal", "unit_price": 0.02, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["zone_key", "title"],
+            "properties": {
+                "zone_key": {"type": "string"},
+                "title": {"type": "string"},
+                "weight": {"type": "number"},
+            },
+        },
+        "output_schema": {"type": "object", "properties": {"signal": {"type": "object"}}},
+    },
+    {
+        "slug": "map_recommendation_generate_v1",
+        "version": "1",
+        "name": "Map Recommendation Generate",
+        "description": "Builds non-military preventive action recommendations from scored map zones.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_recommendation_pack", "unit_price": 0.03, "currency": "USD"},
+        "input_schema": {"type": "object", "properties": {"map_slug": {"type": "string"}}},
+        "output_schema": {"type": "object", "properties": {"recommendations": {"type": "array"}}},
+    },
+    {
+        "slug": "map_command_apply_v1",
+        "version": "1",
+        "name": "Map Command Apply",
+        "description": "Produces provider-neutral camera, layer and annotation commands for a workspace map renderer.",
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_command", "unit_price": 0.01, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["intent"],
+            "properties": {
+                "map_slug": {"type": "string"},
+                "intent": {"type": "string"},
+                "target": {"type": "string"},
+                "layers": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"map_state": {"type": "object"}, "sources": {"type": "array"}},
+        },
+    },
+    {
+        "slug": "source_registry_refresh_v1",
+        "version": "1",
+        "name": "Source Registry Refresh",
+        "description": "Refreshes workspace source freshness, confidence and layer registry metadata for executive monitoring.",
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 8_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_refresh", "unit_price": 0.02, "currency": "USD"},
+        "input_schema": {"type": "object", "properties": {"workspace_slug": {"type": "string"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {"source_health": {"type": "object"}, "layers": {"type": "array"}},
+        },
+    },
+    {
+        "slug": "osint_signal_prioritize_v1",
+        "version": "1",
+        "name": "OSINT Signal Prioritize",
+        "description": "Ranks public OSINT, press and rumor signals by geography, institutional impact and decision urgency.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_signal_batch", "unit_price": 0.04, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"signals": {"type": "array"}, "geography": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"priorities": {"type": "array"}, "geographic_tiers": {"type": "array"}},
+        },
+    },
+    {
+        "slug": "rumor_origin_trace_v1",
+        "version": "1",
+        "name": "Rumor Origin Trace",
+        "description": "Builds an advisory trace of public rumor origin, propagation channels, confidence and recommended response.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_trace", "unit_price": 0.04, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"rumor_id": {"type": "string"}, "signals": {"type": "array"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "origin": {"type": "string"},
+                "spread": {"type": "array"},
+                "confidence": {"type": "number"},
+            },
+        },
+    },
+    {
+        "slug": "evidence_graph_build_v1",
+        "version": "1",
+        "name": "Evidence Graph Build",
+        "description": "Connects entities, sources, places, projects, events and actions into a workspace-scoped evidence graph.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_graph", "unit_price": 0.05, "currency": "USD"},
+        "input_schema": {"type": "object", "properties": {"scope": {"type": "string"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "nodes": {"type": "array"},
+                "edges": {"type": "array"},
+                "clusters": {"type": "array"},
+            },
+        },
+    },
+    {
+        "slug": "situation_posture_score_v1",
+        "version": "1",
+        "name": "Situation Posture Score",
+        "description": "Scores national posture from territorial, press, agenda, visual, maritime and action-plan signals.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 8_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_score", "unit_price": 0.03, "currency": "USD"},
+        "input_schema": {"type": "object", "properties": {"signals": {"type": "array"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "score": {"type": "number"},
+                "label": {"type": "string"},
+                "axes": {"type": "array"},
+            },
+        },
+    },
+    {
+        "slug": "maritime_snapshot_read_v1",
+        "version": "1",
+        "name": "Maritime Snapshot Read",
+        "description": "Reads demo-safe or provider-backed port, customs and vessel snapshots for Gulf of Guinea monitoring.",
+        "type": "connector",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 8_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_snapshot", "unit_price": 0.03, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"port": {"type": "string"}, "time_range": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "ports": {"type": "array"},
+                "vessels": {"type": "array"},
+                "source_health": {"type": "object"},
+            },
+        },
+    },
+    {
+        "slug": "decision_option_rank_v1",
+        "version": "1",
+        "name": "Decision Option Rank",
+        "description": "Ranks advisory options by impact, cost, urgency, confidence and human-validation requirements.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 8_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_decision", "unit_price": 0.03, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"options": {"type": "array"}, "deadline": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"recommended": {"type": "object"}, "alternatives": {"type": "array"}},
+        },
+    },
+    {
+        "slug": "draft_response_email_v1",
+        "version": "1",
+        "name": "Draft Response Email",
+        "description": "Drafts a sourced response email for communication or cabinet teams without sending it automatically.",
+        "type": "generation",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": False},
+        "pricing": {"unit": "per_email_draft", "unit_price": 0.04, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["target_id"],
+            "properties": {
+                "target_id": {"type": "string"},
+                "recipient": {"type": "string"},
+                "tone": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string"},
+                "body": {"type": "string"},
+                "requires_validation": {"type": "boolean"},
+            },
+        },
+    },
+    {
+        "slug": "visual_source_read_v1",
+        "version": "1",
+        "name": "Visual Source Read",
+        "description": "Reads workspace visual stream sources and their latest capture posture without continuous recording.",
+        "type": "connector",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_read", "unit_price": 0.01, "currency": "USD"},
+        "input_schema": {"type": "object", "properties": {"source_id": {"type": "string"}}},
+        "output_schema": {
+            "type": "object",
+            "properties": {"sources": {"type": "array"}, "dashboard": {"type": "object"}},
+        },
+    },
+    {
+        "slug": "visual_snapshot_capture_v1",
+        "version": "1",
+        "name": "Visual Snapshot Capture",
+        "description": "Captures one snapshot from an authorized visual source using the configured provider-neutral adapter.",
+        "type": "ingestion",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "async",
+            "timeout_ms": 30_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_snapshot", "unit_price": 0.03, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["source_id"],
+            "properties": {"source_id": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"capture": {"type": "object"}, "job": {"type": "object"}},
+        },
+    },
+    {
+        "slug": "visual_snapshot_analyze_v1",
+        "version": "1",
+        "name": "Visual Snapshot Analyze",
+        "description": "Produces a lightweight, non-biometric observation from a visual snapshot.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 15_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_snapshot", "unit_price": 0.04, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["capture_id"],
+            "properties": {"capture_id": {"type": "string"}},
+        },
+        "output_schema": {"type": "object", "properties": {"observation": {"type": "object"}}},
+    },
+    {
+        "slug": "visual_observation_sync_knowledge_v1",
+        "version": "1",
+        "name": "Visual Observation Sync Knowledge",
+        "description": "Synchronizes visual observations into a workspace Knowledge collection for RAG and AYA.",
+        "type": "ingestion",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 8_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_observation", "unit_price": 0.01, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["observation_id"],
+            "properties": {"observation_id": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"collection": {"type": "string"}, "object_key": {"type": "string"}},
+        },
+    },
+    {
+        "slug": "time_context_set_v1",
+        "version": "1",
+        "name": "Time Context Set",
+        "description": "Sets a workspace demo or replay time context for reproducible executive demonstrations.",
+        "type": "governance",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": False, "idempotent": False},
+        "pricing": {"unit": "per_update", "unit_price": 0.01, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"current_date": {"type": "string"}, "label": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"demo_time_context": {"type": "object"}},
+        },
+    },
+    {
+        "slug": "territorial_action_window_v1",
+        "version": "1",
+        "name": "Territorial Action Window",
+        "description": "Recommends non-military action windows for a territorial signal using agenda and map context.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_window", "unit_price": 0.02, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"zone_id": {"type": "string"}, "target_id": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"recommended_windows": {"type": "array"}},
+        },
+    },
+    {
+        "slug": "sharepoint_ingestion_v1",
+        "version": "1",
+        "name": "SharePoint Ingestion",
+        "description": "Synchronizes a SharePoint library into a knowledge collection.",
+        "type": "ingestion",
+        "provider": "microsoft",
+        "certification_level": "production",
+        "execution": {
+            "mode": "async",
+            "timeout_ms": 1_800_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_file", "unit_price": 0.06, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["site_url"],
+            "properties": {
+                "site_url": {"type": "string"},
+                "library": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "files": {"type": "integer"},
+                "skipped": {"type": "integer"},
+            },
+        },
+    },
+    {
+        "slug": "voice_transcribe_v1",
+        "version": "1",
+        "name": "Voice Transcribe",
+        "description": "Phase 0 speech-to-text for recorded expert turns, backed by the active VoiceRuntimeProvider.",
+        "type": "voice",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
+        "pricing": {"unit": "per_minute", "unit_price": 0.012, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["audio_ref"],
+            "properties": {
+                "audio_ref": {"type": "string"},
+                "audio_base64": {"type": "string"},
+                "filename": {"type": "string"},
+                "content_type": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "transcript": {"type": "string"},
+                "model": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "voice_tts_v1",
+        "version": "1",
+        "name": "Voice TTS",
+        "description": "Segmented text-to-speech with selectable voices for guided capture sessions.",
+        "type": "voice",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 30_000,
+            "retryable": True,
+            "idempotent": True,
+        },
+        "pricing": {"unit": "per_char", "unit_price": 0.00002, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["text"],
+            "properties": {
+                "text": {"type": "string"},
+                "voice": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "audio_url": {"type": "string"},
+                "audio_base64": {"type": "string"},
+                "content_type": {"type": "string"},
+                "model": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "voice_realtime_session_v1",
+        "version": "1",
+        "name": "Voice Realtime Session",
+        "description": "Starts a provider-neutral realtime voice session with explicit provider, model, transport and fallback policy.",
+        "type": "voice",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 30_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_session", "unit_price": 0.02, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "provider": {"type": "string"},
+                "model": {"type": "string"},
+                "transport": {"type": "string"},
+                "language": {"type": "string"},
+                "voice": {"type": "string"},
+                "fallback_policy": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "provider": {"type": "string"},
+                "transport": {"type": "string"},
+                "events": {"type": "array"},
+                "capabilities": {"type": "object"},
+            },
+        },
+    },
+    {
+        "slug": "voice_realtime_transcribe_v1",
+        "version": "1",
+        "name": "Voice Realtime Transcribe",
+        "description": "Emits text.partial/text.final events from a realtime or cascade transcription provider.",
+        "type": "voice",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 60_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_minute", "unit_price": 0.012, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "audio_ref": {"type": "string"},
+                "audio_base64": {"type": "string"},
+                "provider": {"type": "string"},
+                "model": {"type": "string"},
+                "language": {"type": "string"},
+                "transport": {"type": "string"},
+                "fallback_policy": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "transcript": {"type": "string"},
+                "text_events": {"type": "array"},
+                "provider": {"type": "string"},
+                "fallback": {"type": "boolean"},
+            },
+        },
+    },
+    {
+        "slug": "voice_realtime_speak_v1",
+        "version": "1",
+        "name": "Voice Realtime Speak",
+        "description": "Produces audio.out events from a realtime, local or cascade speech provider.",
+        "type": "voice",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 30_000,
+            "retryable": True,
+            "idempotent": True,
+        },
+        "pricing": {"unit": "per_char", "unit_price": 0.00002, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["text"],
+            "properties": {
+                "text": {"type": "string"},
+                "provider": {"type": "string"},
+                "model": {"type": "string"},
+                "transport": {"type": "string"},
+                "language": {"type": "string"},
+                "voice": {"type": "string"},
+                "fallback_policy": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "audio_base64": {"type": "string"},
+                "content_type": {"type": "string"},
+                "provider": {"type": "string"},
+                "events": {"type": "array"},
+            },
+        },
+    },
+    {
+        "slug": "voice_realtime_translate_v1",
+        "version": "1",
+        "name": "Voice Realtime Translate",
+        "description": "Routes live translation events through an OpenAI Realtime or local translation-capable provider.",
+        "type": "voice",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 60_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_minute", "unit_price": 0.02, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "provider": {"type": "string"},
+                "source_language": {"type": "string"},
+                "target_language": {"type": "string"},
+                "transport": {"type": "string"},
+                "fallback_policy": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "events": {"type": "array"},
+                "translated_text": {"type": "string"},
+                "provider": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "voice_oracle_turn_v1",
+        "version": "1",
+        "name": "Voice Oracle Turn",
+        "description": "Binds transcript, Knowledge context and evaluator output into the next voice action for a system.",
+        "type": "voice",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 15_000, "retryable": True, "idempotent": False},
+        "pricing": {"unit": "per_turn", "unit_price": 0.01, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string"},
+                "question": {"type": "object"},
+                "gap": {"type": "object"},
+                "context": {"type": "object"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string"},
+                "evaluation": {"type": "object"},
+                "events": {"type": "array"},
+            },
+        },
+    },
+    {
+        "slug": "voice_tandem_oracle_v1",
+        "version": "1",
+        "name": "Voice Tandem Oracle",
+        "description": "Coordinates realtime voice micro-turns with a background Knowledge oracle using provider-neutral latest-wins events.",
+        "type": "voice",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 15_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_turn", "unit_price": 0.012, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "partial_text": {"type": "string"},
+                "final_text": {"type": "string"},
+                "turn_id": {"type": "string"},
+                "duration_ms": {"type": "integer"},
+                "evaluation": {"type": "object"},
+                "next_prompt": {"type": "string"},
+                "sources": {"type": "array"},
+                "provider": {"type": "string"},
+                "transport": {"type": "string"},
+                "fallback_policy": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "events": {"type": "array"},
+                "mode": {"type": "string"},
+                "committed": {"type": "boolean"},
+            },
+        },
+    },
+    {
+        "slug": "knowledge_gap_analysis_v1",
+        "version": "1",
+        "name": "Knowledge Gap Analysis",
+        "description": "Identifies missing, weakly sourced or tacit knowledge to resolve with an expert.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 15_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.015, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["objective"],
+            "properties": {
+                "objective": {"type": "string"},
+                "expert_profile": {"type": "string"},
+                "context": {"type": "object"},
+                "knowledge_refs": {"type": "array"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "gaps": {"type": "array"},
+            },
+        },
+    },
+    {
+        "slug": "expert_interview_plan_v1",
+        "version": "1",
+        "name": "Expert Interview Plan",
+        "description": "Builds a duration-bounded expert interview agenda from prioritized knowledge gaps.",
+        "type": "planning",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 15_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_plan", "unit_price": 0.03, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["objective", "duration_minutes", "gaps"],
+            "properties": {
+                "objective": {"type": "string"},
+                "expert_profile": {"type": "string"},
+                "duration_minutes": {"type": "integer"},
+                "gaps": {"type": "array"},
+                "context": {"type": "object"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "plan": {"type": "object"},
+            },
+        },
+    },
+    {
+        "slug": "expert_answer_evaluator_v1",
+        "version": "1",
+        "name": "Expert Answer Evaluator",
+        "description": "Evaluates whether an expert answer is sufficient, partial, contradictory or needs a follow-up.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 8_000, "retryable": False, "idempotent": True},
+        "pricing": {"unit": "per_answer", "unit_price": 0.01, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["answer"],
+            "properties": {
+                "answer": {"type": "string"},
+                "question": {"type": "object"},
+                "gap": {"type": "object"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "verdict": {"type": "string"},
+                "score": {"type": "number"},
+                "follow_up": {"type": "string"},
+                "signals": {"type": "object"},
+            },
+        },
+    },
+    {
+        "slug": "capture_structuring_v1",
+        "version": "1",
+        "name": "Capture Structuring",
+        "description": "Turns transcript and evaluated expert answers into a reviewable knowledge update proposal.",
+        "type": "generation",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 20_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_session", "unit_price": 0.04, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["session"],
+            "properties": {
+                "session": {"type": "object"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "proposal": {"type": "object"},
+            },
+        },
+    },
+    {
+        "slug": "audit_log_v1",
+        "version": "1",
+        "name": "Audit Log",
+        "description": "Persists a typed audit event for compliance and replay.",
+        "type": "compliance",
+        "provider": "internal",
+        "certification_level": "enterprise",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0001, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["event_type"],
+            "properties": {
+                "event_type": {"type": "string"},
+                "details": {"type": "object"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "ollama_llm_v1",
+        "version": "1",
+        "name": "Ollama LLM",
+        "description": "Generic LLM call routed through the Ollama provider.",
+        "type": "llm",
+        "provider": "ollama",
+        "certification_level": "basic",
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 120_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_1k_tokens", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["prompt"],
+            "properties": {
+                "prompt": {"type": "string"},
+                "model": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "completion": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "chain_naive_v1",
+        "version": "1",
+        "name": "RAG Chain · Naive",
+        "description": "Single-pass vector retrieval + LLM answer. Cheapest, fastest, lowest recall.",
+        "type": "rag",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 45_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_call", "unit_price": 0.006, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "context_id": {"type": "string"},
+                **RETRIEVAL_POLICY_PROPERTIES,
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string"},
+                "citations": {"type": "array"},
+                "decision_steps": {"type": "array"},
+            },
+        },
+    },
+    {
+        "slug": "chain_hybrid_v1",
+        "version": "1",
+        "name": "RAG Chain · Hybrid (HAH)",
+        "description": "Two-pass sparse+dense retrieval with RRF fusion before the LLM answer.",
+        "type": "rag",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 60_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_call", "unit_price": 0.014, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "context_id": {"type": "string"},
+                **RETRIEVAL_POLICY_PROPERTIES,
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string"},
+                "citations": {"type": "array"},
+                "decision_steps": {"type": "array"},
+            },
+        },
+    },
+    {
+        "slug": "chain_mixed_hah_v1",
+        "version": "1",
+        "name": "RAG Chain · Composite HAH (C-HAH)",
+        "description": "Budget-aware C-HAH retrieval: runs scoped query variants and fuses via RRF before the LLM answer.",
+        "type": "rag",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 75_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_call", "unit_price": 0.022, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "context_id": {"type": "string"},
+                **RETRIEVAL_POLICY_PROPERTIES,
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string"},
+                "citations": {"type": "array"},
+                "decision_steps": {"type": "array"},
+            },
+        },
+    },
+    {
+        "slug": "azure_llm_v1",
+        "version": "1",
+        "name": "Azure OpenAI LLM",
+        "description": "LLM call routed through Azure OpenAI.",
+        "type": "llm",
+        "provider": "azure",
+        "certification_level": "production",
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 60_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_1k_tokens", "unit_price": 0.01, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["prompt"],
+            "properties": {
+                "prompt": {"type": "string"},
+                "model": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "completion": {"type": "string"},
+            },
+        },
+    },
+    # Explicit provider Skills (b3a50bac): new bindings name the provider they
+    # call, where the historical azure_llm_v1 label also covers public OpenAI
+    # and environment credentials. Prompt templates reuse these wrappers.
+    {
+        "slug": "openai_llm_v1",
+        "version": "1",
+        "name": "OpenAI LLM",
+        "description": "LLM call through the workspace's OpenAI provider configuration.",
+        "type": "llm",
+        "provider": "openai",
+        "certification_level": "production",
+        "execution": {"mode": "stream", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
+        "pricing": {"unit": "per_1k_tokens", "unit_price": 0.01, "currency": "USD"},
+        "input_schema": {"type": "object", "required": ["prompt"], "properties": {
+            "prompt": {"type": "string"},
+            "model": {"type": "string"},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "completion": {"type": "string"},
+        }},
+    },
+    {
+        "slug": "azure_openai_llm_v1",
+        "version": "1",
+        "name": "Azure OpenAI deployment LLM",
+        "description": "LLM call through the workspace's Azure OpenAI deployment. New Azure bindings use this Skill.",
+        "type": "llm",
+        "provider": "azure_openai",
+        "certification_level": "production",
+        "execution": {"mode": "stream", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
+        "pricing": {"unit": "per_1k_tokens", "unit_price": 0.01, "currency": "USD"},
+        "input_schema": {"type": "object", "required": ["prompt"], "properties": {
+            "prompt": {"type": "string"},
+            "model": {"type": "string"},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "completion": {"type": "string"},
+        }},
+    },
+    {
+        "slug": "workspace_llm_v1",
+        "version": "1",
+        "name": "Workspace LLM",
+        "description": "Drafts from an instruction and the run input, using the workspace model. No knowledge base.",
+        "type": "llm",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 60_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_1k_tokens", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "instruction": {"type": "string"},
+                "prompt": {"type": "string"},
+                "transcript": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "completion": {"type": "string"},
+            },
+        },
+    },
+    # ---- Mission Room assistant skills --------------------------------------
+    # These carry a bound wrapper and are invoked by the assistant action pack
+    # (`app/services/actions/executor.py`). They were never declared here, so
+    # `/skills` reported the catalog as smaller than the runtime actually is.
+    {
+        "slug": "briefing_priorities_v1",
+        "version": "1",
+        "name": "Briefing Priorities",
+        "description": "Extracts the top attention-required items of the mission cockpit as a ranked briefing.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "basic",
+        "execution": {"mode": "sync", "timeout_ms": 20_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "knowledge_scope": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "priorities": {"type": "array"},
+                "cockpit": {"type": "object"},
+            },
+        },
+    },
+    {
+        "slug": "summarize_long_document_v1",
+        "version": "1",
+        "name": "Summarize Long Document",
+        "description": "Summarizes a long knowledge-base document around focus topics, with citations.",
+        "type": "generation",
+        "provider": "internal",
+        "certification_level": "basic",
+        "execution": {"mode": "sync", "timeout_ms": 60_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["document_id"],
+            "properties": {
+                "document_id": {"type": "string"},
+                "query": {"type": "string"},
+                "focus_topics": {"type": "array", "items": {"type": "string"}},
+                "length": {
+                    "type": "string",
+                    "enum": ["short", "medium", "long"],
+                    "default": "medium",
+                },
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "summary_markdown": {"type": "string"},
+                "key_topics": {"type": "array"},
+                "citations": {"type": "array"},
+                "document_id": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "generate_recommendations_v1",
+        "version": "1",
+        "name": "Generate Recommendations",
+        "description": "Produces ranked, optionally costed options on a topic, with sources and a human-validation flag.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "basic",
+        "execution": {"mode": "sync", "timeout_ms": 60_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["topic"],
+            "properties": {
+                "topic": {"type": "string"},
+                "chiffrage": {"type": "boolean", "default": True},
+                "context_collection": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "topic": {"type": "string"},
+                "options": {"type": "array"},
+                "sources": {"type": "array"},
+                "human_validation_required": {"type": "boolean"},
+            },
+        },
+    },
+    {
+        "slug": "draft_email_v1",
+        "version": "1",
+        "name": "Draft Email",
+        "description": "Drafts an advisory-only outbound message from a template kind and context references.",
+        "type": "generation",
+        "provider": "internal",
+        "certification_level": "basic",
+        "execution": {"mode": "sync", "timeout_ms": 60_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["template_kind"],
+            "properties": {
+                "template_kind": {"type": "string"},
+                "target_id": {"type": "string"},
+                "context_refs": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "template_kind": {"type": "string"},
+                "subject": {"type": "string"},
+                "recipient": {"type": "string"},
+                "body_markdown": {"type": "string"},
+                "sources": {"type": "array"},
+                "requires_validation": {"type": "boolean"},
+                "advisory_only": {"type": "boolean"},
+                "target_id": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "causal_drill_v1",
+        "version": "1",
+        "name": "Causal Drill",
+        "description": "Walks the evidence graph along a relation from a focus node and returns the cited causal path.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "basic",
+        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "from_node": {"type": "string"},
+                "relation": {"type": "string", "default": "caused_by"},
+                "depth": {"type": "integer", "default": 4},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "from_node": {"type": "string"},
+                "relation": {"type": "string"},
+                "path": {"type": "array"},
+                "next_focus": {"type": "string"},
+                "explanation": {"type": "string"},
+                "citations": {"type": "array"},
+            },
+        },
+    },
+    {
+        "slug": "schedule_meeting_v1",
+        "version": "1",
+        "name": "Schedule Meeting",
+        "description": "Proposes a calendar slot from the workspace agenda; the write happens after human confirmation.",
+        "type": "connector",
+        "provider": "internal",
+        "certification_level": "basic",
+        "execution": {"mode": "sync", "timeout_ms": 20_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["topic"],
+            "properties": {
+                "topic": {"type": "string"},
+                "participant_role": {"type": "string"},
+                "urgency": {"type": "string"},
+                "duration_min": {"type": "integer", "default": 45},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "applied": {"type": "boolean"},
+                "requires_validation": {"type": "boolean"},
+                "proposed_slot": {"type": "object"},
+                "calendar_event_draft_id": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "spreadsheet_table_extract_v1",
+        "version": "1",
+        "name": "Spreadsheet Table Extract",
+        "description": "Reads an .xlsx from the Secure Deposit (file_ids from a deposit.promoted event, or collection_slug + filename_pattern), auto-detects the header row, resolves formula cells to values and returns typed rows with an optional exact-match column filter.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_id": {"type": "string"},
+                "file_ids": {"type": "array", "items": {"type": "string"}},
+                "collection_slug": {"type": "string"},
+                "filename_pattern": {"type": "string"},
+                "sheet": {"type": "string"},
+                "header_row": {"type": "integer"},
+                "filters": {"type": "object"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "columns": {"type": "array", "items": {"type": "string"}},
+                "rows": {"type": "array", "items": {"type": "object"}},
+                "row_count": {"type": "integer"},
+                "source_file": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "invoice_document_extract_v1",
+        "version": "1",
+        "name": "Invoice Document Extract",
+        "description": "Extracts the header fields (invoice number/date, PO reference, due date, vendor), numbered line items and totals block from a text PDF invoice resolved from the Secure Deposit (file_ids or collection_slug + filename_pattern). Deterministic text parsing, no LLM.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_id": {"type": "string"},
+                "file_ids": {"type": "array", "items": {"type": "string"}},
+                "collection_slug": {"type": "string"},
+                "filename_pattern": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "invoice_number": {"type": "string"},
+                "invoice_date": {"type": "string"},
+                "po_reference": {"type": "string"},
+                "due_date": {"type": "string"},
+                "vendor": {"type": "string"},
+                "line_items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "description": {"type": "string"},
+                            "qty": {"type": "number"},
+                            "unit_price": {"type": "number"},
+                            "line_total": {"type": "number"},
+                        },
+                    },
+                },
+                "subtotal": {"type": "number"},
+                "vat": {"type": "number"},
+                "total_due": {"type": "number"},
+                "currency": {"type": "string"},
+                "source_file": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "line_items_reconcile_v1",
+        "version": "1",
+        "name": "Line Items Reconcile",
+        "description": "Pure deterministic reconciliation of two line-item sets: pairs lines by description (exact then fuzzy above 0.85), compares quantity and unit price, computes variance percentages and flags lines beyond the tolerance. No I/O, no LLM.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["po_lines", "invoice_lines"],
+            "properties": {
+                "po_lines": {"type": "array", "items": {"type": "object"}},
+                "invoice_lines": {"type": "array", "items": {"type": "object"}},
+                "po_reference": {"type": "string"},
+                "tolerance_pct": {"type": "number", "default": 2.0},
+                "po_field_map": {"type": "object"},
+                "invoice_field_map": {"type": "object"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "po_reference": {"type": "string"},
+                "lines": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "description": {"type": "string"},
+                            "po_qty": {"type": "number"},
+                            "invoice_qty": {"type": "number"},
+                            "qty_variance_pct": {"type": "number"},
+                            "po_unit_price": {"type": "number"},
+                            "invoice_unit_price": {"type": "number"},
+                            "price_variance_pct": {"type": "number"},
+                            "status": {
+                                "type": "string",
+                                "enum": [
+                                    "matched",
+                                    "qty_mismatch",
+                                    "price_mismatch",
+                                    "both_mismatch",
+                                    "unmatched_invoice_line",
+                                    "unmatched_po_line",
+                                ],
+                            },
+                        },
+                    },
+                },
+                "matched_count": {"type": "integer"},
+                "flagged_count": {"type": "integer"},
+                "po_total": {"type": "number"},
+                "invoice_total": {"type": "number"},
+                "total_variance_pct": {"type": "number"},
+                "tolerance_pct": {"type": "number"},
+            },
+        },
+    },
+    {
+        "slug": "reconciliation_report_v1",
+        "version": "1",
+        "name": "Reconciliation Report",
+        "description": "Renders a deterministic plain-text reconciliation report (verdict, fixed-width variance table, totals, one recommendation per flagged line) from a line_items_reconcile_v1 output. No timestamps: the same input always yields the same bytes.",
+        "type": "generation",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 10_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["reconciliation"],
+            "properties": {
+                "reconciliation": {"type": "object"},
+                "verdict": {"type": "string", "enum": ["Approved", "Needs Review"]},
+                "invoice_meta": {
+                    "type": "object",
+                    "properties": {
+                        "invoice_number": {"type": "string"},
+                        "vendor": {"type": "string"},
+                        "invoice_date": {"type": "string"},
+                        "total_due": {"type": "number"},
+                    },
+                },
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "report_text": {"type": "string"},
+                "verdict": {"type": "string"},
+                "flagged_count": {"type": "integer"},
+            },
+        },
+    },
+    {
+        "slug": "grounding_check_v1",
+        "version": "1",
+        "name": "Grounding Check",
+        "description": "Deterministic mid-flow grounding gate: every claim must name a source id present in the retrieved evidence.",
+        "type": "governance",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["draft", "evidence"],
+            "properties": {
+                "draft": {
+                    "type": "object",
+                    "required": ["claims"],
+                    "properties": {
+                        "claims": {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                                "type": "object",
+                                "required": ["text", "source_id"],
+                                "properties": {
+                                    "text": {"type": "string", "minLength": 1},
+                                    "source_id": {"type": "string", "minLength": 1},
+                                },
+                                "additionalProperties": False,
+                            },
+                        },
+                    },
+                    "additionalProperties": True,
+                },
+                "evidence": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["id"],
+                        "properties": {
+                            "id": {"type": "string", "minLength": 1},
+                            "text": {"type": "string"},
+                        },
+                        "additionalProperties": True,
+                    },
+                },
+            },
+            "additionalProperties": False,
+        },
+        "output_schema": {
+            "type": "object",
+            "required": ["accepted", "violations"],
+            "properties": {
+                "accepted": {"type": "boolean"},
+                "violations": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["claim_index", "code", "source_id"],
+                        "properties": {
+                            "claim_index": {"type": "integer", "minimum": 0},
+                            "code": {"type": "string", "enum": ["missing_source"]},
+                            "source_id": {"type": "string"},
+                        },
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "slug": "evaluate_v1",
+        "version": "1",
+        "name": "Typed Evaluation",
+        "description": "Runs the native judge inside a Flow and exposes typed answers (closed choice, bounded score, yes probability) for routing.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 60_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["query", "response", "context_chunks", "questions"],
+            "properties": {
+                "query": {"type": "string", "minLength": 1},
+                "response": {"type": "string", "minLength": 1},
+                "context_chunks": {"type": "array", "items": {"type": "string"}},
+                "questions": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+            },
+            "additionalProperties": False,
+        },
+        "output_schema": {
+            "type": "object",
+            "required": ["answers", "composite_score", "hallucination_rate"],
+            "properties": {
+                "answers": {"type": "object"},
+                "composite_score": {"type": ["number", "null"]},
+                "hallucination_rate": {"type": ["number", "null"]},
+                "status": {"type": "string"},
+            },
+            "additionalProperties": True,
+        },
+    },
+    {
+        "slug": "publish_email_v1",
+        "version": "1",
+        "name": "Publish Email",
+        "description": "Sends an approved plain-text email to workspace members through the platform SMTP service.",
+        "type": "automation",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": True, "idempotent": False},
+        "pricing": {"unit": "per_email", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["recipients", "subject", "body_text"],
+            "properties": {
+                "recipients": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "string", "format": "email"},
+                },
+                "subject": {"type": "string", "minLength": 1},
+                "body_text": {"type": "string", "minLength": 1},
+            },
+            "additionalProperties": False,
+        },
+        "output_schema": {
+            "type": "object",
+            "required": ["status", "sent", "recipients"],
+            "properties": {
+                "status": {"type": "string", "enum": ["held", "sent"]},
+                "sent": {"type": "boolean"},
+                "recipients": {"type": "array", "items": {"type": "string"}},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "slug": "role_agent_v1",
+        "version": "1",
+        "name": "Role Agent",
+        "description": "Runs one role prompt and returns the JSON object demanded by the node output contract.",
+        "type": "llm",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["role", "instruction", "body", "output_contract"],
+            "properties": {
+                "role": {"type": "string", "minLength": 1},
+                "instruction": {"type": "string", "minLength": 1},
+                "body": {"type": "string"},
+                "output_contract": {"type": "object"},
+            },
+            "additionalProperties": False,
+        },
+        "output_schema": {"type": "object"},
+    },
+]
+
+
+# ---- Universal Capabilities -------------------------------------------------
+SEED_SKILLS.extend(CLAIM_SKILLS)
+SEED_SKILLS.extend(ml_methodology_skills())
+
+SEED_CAPABILITIES: list[dict[str, Any]] = [
+    {
+        "slug": "workspace_assistant",
+        "name": "Workspace Assistant",
+        "tier": "universal",
+        "description": "Always-on workspace chat system for sourced answers, fast retrieval, Deep Search escalation, actions and audit trails.",
+        "input_unit": "chat_turn",
+        "output_unit": "sourced_answer",
+        "skill_slugs": [
+            "chat_trivial_bypass_v1",
+            "chat_action_resolver_v1",
+            "chat_grounding_policy_v1",
+            "chat_agentic_plan_v1",
+            "decide_next_v1",
+            "skill_search_v1",
+            "chat_self_correct_v1",
+            "llm_rag_answer_v1",
+            "semantic_search_v1",
+            "multi_hop_retrieve_v1",
+            "chain_mixed_hah_v1",
+            "eval_radar_v1",
+            "claim_audit_v1",
+            "response_eval_v1",
+            "grounding_check_v1",
+            "evaluate_v1",
+            "publish_email_v1",
+            "role_agent_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_outcome", "unit_price": 0.06, "currency": "USD"},
+        "value_per_outcome": 1.50,
+        "confidence_threshold": 0.65,
+        "sla": {"max_latency_ms": 8000, "fast_answer_target_ms": 4500},
+        "roi_model": {"type": "time_saved_plus_decision_quality"},
+    },
+    {
+        "slug": "automation_author",
+        "name": "Automation draft",
+        "tier": "universal",
+        "description": "Drafts text from an instruction and the run input. Does not search a knowledge base.",
+        "input_unit": "transcript",
+        "output_unit": "draft",
+        "skill_slugs": ["workspace_llm_v1"],
+        "pricing": {"unit": "per_outcome", "unit_price": 0.0, "currency": "USD"},
+        "value_per_outcome": 0.0,
+        "confidence_threshold": 0.0,
+        "sla": {"max_latency_ms": 60000},
+        "roi_model": {"type": "time_saved"},
+    },
+    {
+        "slug": "intelligent_qa",
+        "name": "Intelligent Q&A",
+        "tier": "universal",
+        "description": "Answers questions over your knowledge base with citations and a verifiable reasoning trail.",
+        "input_unit": "question",
+        "output_unit": "answer",
+        "skill_slugs": [
+            "llm_rag_answer_v1",
+            "semantic_search_v1",
+            "claim_audit_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_outcome", "unit_price": 0.05, "currency": "USD"},
+        "value_per_outcome": 1.20,
+        "confidence_threshold": 0.65,
+        "sla": {"max_latency_ms": 8000, "uptime": 0.995},
+        "roi_model": {"type": "value_minus_cost"},
+    },
+    {
+        "slug": "knowledge_curation",
+        "name": "Knowledge Curation",
+        "tier": "universal",
+        "description": "Continuously ingests, deduplicates and indexes documents from any source (uploads, SharePoint, web feeds).",
+        "input_unit": "document",
+        "output_unit": "indexed_chunk",
+        "skill_slugs": [
+            "document_ingestion_v1",
+            "sharepoint_ingestion_v1",
+            "intelligence_batch_v1",
+        ],
+        "pricing": {"unit": "per_doc", "unit_price": 0.05, "currency": "USD"},
+        "value_per_outcome": 0.40,
+        "confidence_threshold": None,
+        "sla": {"freshness_minutes": 60},
+        "roi_model": {"type": "time_saved"},
+    },
+    {
+        "slug": "voice2voice_interaction",
+        "name": "Voice2Voice Interaction",
+        "tier": "universal",
+        "description": "Provider-neutral realtime voice loop for chat, capture and custom systems, with cascade fallback and auditable events.",
+        "input_unit": "voice_session",
+        "output_unit": "conversation_turn",
+        "skill_slugs": [
+            "voice_realtime_session_v1",
+            "voice_realtime_transcribe_v1",
+            "voice_oracle_turn_v1",
+            "voice_tandem_oracle_v1",
+            "voice_realtime_speak_v1",
+            "voice_realtime_translate_v1",
+            "voice_transcribe_v1",
+            "voice_tts_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_session", "unit_price": 0.12, "currency": "USD"},
+        "value_per_outcome": 0.90,
+        "confidence_threshold": 0.70,
+        "sla": {"max_latency_ms": 4000},
+        "roi_model": {"type": "value_minus_cost"},
+    },
+    {
+        "slug": "voice_assistant",
+        "name": "Voice Assistant",
+        "tier": "universal",
+        "description": "Transcribe a question, retrieve an answer, speak it back. End-to-end voice loop.",
+        "input_unit": "audio_minute",
+        "output_unit": "answer",
+        "skill_slugs": [
+            "voice_realtime_session_v1",
+            "voice_realtime_transcribe_v1",
+            "voice_tandem_oracle_v1",
+            "llm_rag_answer_v1",
+            "voice_realtime_speak_v1",
+            "voice_transcribe_v1",
+            "voice_tts_v1",
+        ],
+        "pricing": {"unit": "per_outcome", "unit_price": 0.10, "currency": "USD"},
+        "value_per_outcome": 0.60,
+        "confidence_threshold": 0.70,
+        "sla": {"max_latency_ms": 4000},
+        "roi_model": {"type": "value_minus_cost"},
+    },
+    {
+        "slug": "expert_knowledge_capture",
+        "name": "Expert Knowledge Capture",
+        "tier": "universal",
+        "description": "Prepares and runs guided expert interviews that resolve knowledge gaps and produce reviewable knowledge-base updates.",
+        "input_unit": "capture_session",
+        "output_unit": "knowledge_update_proposal",
+        "skill_slugs": [
+            "knowledge_gap_analysis_v1",
+            "expert_interview_plan_v1",
+            "voice_realtime_session_v1",
+            "voice_realtime_transcribe_v1",
+            "semantic_search_v1",
+            "expert_answer_evaluator_v1",
+            "voice_oracle_turn_v1",
+            "voice_tandem_oracle_v1",
+            "capture_structuring_v1",
+            "voice_realtime_speak_v1",
+            "voice_transcribe_v1",
+            "voice_tts_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_session", "unit_price": 0.35, "currency": "USD"},
+        "value_per_outcome": 8.00,
+        "confidence_threshold": 0.70,
+        "sla": {"target_duration_minutes": 20, "max_plan_latency_ms": 15000},
+        "roi_model": {"type": "time_saved_plus_knowledge_retention"},
+    },
+    {
+        "slug": "sovereign_translation_suite",
+        "name": "Sovereign Translation Suite",
+        "tier": "industry",
+        "industry": "regulated_translation",
+        "description": "Runs DITA translation batches with local model routing, agent QA, deterministic guardrails, replay and audit-ready delivery.",
+        "input_unit": "dita_batch",
+        "output_unit": "accepted_delivery",
+        "skill_slugs": [
+            "translation_archive_ingest_v1",
+            "translation_memory_retrieve_v1",
+            "translation_label_index_resolve_v1",
+            "translation_pivot_normalize_v1",
+            "translation_fanout_v1",
+            "translation_j2450_qa_v1",
+            "translation_post_guard_v1",
+            "translation_cdt_gate_v1",
+            "translation_package_delivery_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_1000_source_words", "unit_price": 0.82, "currency": "EUR"},
+        "value_per_outcome": 4_800.00,
+        "confidence_threshold": 0.94,
+        "sla": {
+            "availability": "99.95%",
+            "batch_completion_target_hours": 36,
+            "max_replay_sla_hours": 4,
+        },
+        "roi_model": {"type": "lsp_cost_avoidance_plus_cycle_time"},
+    },
+    {
+        "slug": "answer_quality_audit",
+        "name": "Answer Quality Audit",
+        "tier": "universal",
+        "description": "Continuously evaluates answer quality (groundedness, relevance, safety) and alerts on regressions.",
+        "input_unit": "answer",
+        "output_unit": "evaluation",
+        "skill_slugs": ["eval_radar_v1", "claim_audit_v1"],
+        "pricing": {"unit": "per_outcome", "unit_price": 0.04, "currency": "USD"},
+        "value_per_outcome": 0.20,
+        "confidence_threshold": None,
+        "sla": {},
+        "roi_model": {"type": "risk_avoided"},
+    },
+    {
+        "slug": "document_reconciliation",
+        "name": "Document Reconciliation",
+        "tier": "universal",
+        "description": "Extracts line items from spreadsheets and text documents, reconciles them against the reference set within a tolerance and issues a deterministic variance report.",
+        "input_unit": "document_set",
+        "output_unit": "reconciliation_report",
+        "skill_slugs": [
+            "spreadsheet_table_extract_v1",
+            "invoice_document_extract_v1",
+            "line_items_reconcile_v1",
+            "reconciliation_report_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_reconciliation", "unit_price": 0.15, "currency": "USD"},
+        "value_per_outcome": 6.00,
+        "confidence_threshold": 0.75,
+        "sla": {"max_latency_ms": 30_000},
+        "roi_model": {"type": "value_minus_cost"},
+    },
+    {
+        # Carrier for the Flow Builder recipe node: without a claiming
+        # capability the catalog policy files python_recipe_v1 under
+        # `unclaimed`, which blocks System binding and greys the palette row
+        # in every workspace.
+        "slug": "python_recipes",
+        "name": "Python Recipes",
+        "tier": "universal",
+        "description": "Author-written Python recipes executed as Flow nodes in managed, content-addressed environments on the async worker plane, with per-execution status tracking and cancellation. A recipe reads the workspace datasets pinned on its node and the results other Systems have already produced, and returns the structure its author declares.",
+        "input_unit": "recipe_execution",
+        "output_unit": "structured_result",
+        # The cross-System read belongs with the recipe node rather than with
+        # the transforms: both exist so that an authored script can assemble a
+        # result out of what the workspace already produced.
+        "skill_slugs": ["python_recipe_v1", "system_run_read_v1"],
+        "pricing": {"unit": "per_execution", "unit_price": 0.02, "currency": "USD"},
+        "value_per_outcome": 1.00,
+        "confidence_threshold": 0.60,
+        "sla": {"max_latency_ms": 600_000},
+        "roi_model": {"type": "time_saved"},
+    },
+    {
+        # Carrier for the Flow Builder transform nodes: without a claiming
+        # capability the catalog policy files them under `unclaimed`, which
+        # blocks System binding and greys the palette row in every workspace.
+        "slug": "tabular_transforms",
+        "name": "Tabular Transforms",
+        "tier": "universal",
+        "description": "Tabular transformations over workspace datasets: read-only SQL executed with duckdb over Parquet, an author-written Polars script, or a dbt project whose data tests gate publication. All run on isolated managed environments and persist versioned datasets carrying their lineage.",
+        "input_unit": "dataset",
+        "output_unit": "dataset",
+        "skill_slugs": [
+            "sql_transform_v1",
+            "polars_transform_v1",
+            "dbt_transform_v1",
+            "llm_label_dataset_v1",
+            "hf_dataset_import_v1",
+        ],
+        "pricing": {"unit": "per_transform", "unit_price": 0.01, "currency": "USD"},
+        "value_per_outcome": 1.00,
+        "confidence_threshold": 0.60,
+        "sla": {"max_latency_ms": 300_000},
+        "roi_model": {"type": "time_saved"},
+    },
+    {
+        # Carrier for the model plane, same reason as `tabular_transforms`:
+        # without a claiming capability the catalog files the skill under
+        # `unclaimed`, which greys its palette row in every workspace.
+        "slug": "tabular_models",
+        "name": "Tabular Models",
+        "tier": "universal",
+        "description": "No-code supervised learning over workspace datasets: skrub decides the preprocessing per column, the estimator comes from a curated scikit-learn catalog, and every run computes its own metrics, curves and feature importances. Models are saved in the MLflow format and versioned as a lineage with one serving champion, and that champion is what answers a prediction — over a whole dataset or one record at a time.",
+        "input_unit": "dataset",
+        "output_unit": "model",
+        "skill_slugs": [
+            "ml_train_sklearn_v1",
+            "ml_problem_frame_v1",
+            "ml_experiment_plan_v1",
+            "ml_evaluation_review_v1",
+            "ml_predict_v1",
+            "ml_batch_score_v1",
+        ],
+        "pricing": {"unit": "per_training", "unit_price": 0.05, "currency": "USD"},
+        "value_per_outcome": 4.00,
+        "confidence_threshold": 0.60,
+        "sla": {"max_latency_ms": 900_000},
+        "roi_model": {"type": "time_saved"},
+    },
+    {
+        # The forecasting family: trained by the same node as a tabular model
+        # (its spec says forecasting), served by its own node.
+        "slug": "time_series_models",
+        "name": "Time Series Forecasting",
+        "tier": "universal",
+        "description": "No-code forecasting over dated workspace datasets: one series, a panel of similar series or one series from others, with lags, calendar features and covariates known in advance. Every model is judged by backtesting against repeating the last season, carries a calibrated interval, and is versioned in the same MLflow lineage as a tabular model; its champion forecasts every series into a dataset a Flow can alert on.",
+        "input_unit": "dataset",
+        "output_unit": "forecast",
+        "skill_slugs": ["ml_forecast_v1"],
+        "pricing": {"unit": "per_forecast", "unit_price": 0.02, "currency": "USD"},
+        "value_per_outcome": 4.00,
+        "confidence_threshold": 0.60,
+        "sla": {"max_latency_ms": 600_000},
+        "roi_model": {"type": "time_saved"},
+    },
+    {
+        # Model operations span both tabular and forecasting families. Their
+        # runtime wrappers are deliberately restricted to the managed Flow,
+        # but that does not make their catalog contracts private: a visible
+        # carrier is necessary to inspect them and bind the generated Flow.
+        "slug": "model_operations",
+        "name": "Model Operations",
+        "tier": "universal",
+        "industry": None,
+        "description": "Monitor deployed tabular and forecasting models, review retraining proposals and train challengers from approved evidence. Policies are configured in Model Center; their managed Flows preserve human approval and never promote a challenger automatically.",
+        "input_unit": "monitoring_window",
+        "output_unit": "reviewed_proposal",
+        "skill_slugs": ["ml_monitor_model_v1", "ml_retrain_model_v1"],
+        # No monetary value or cost is inferred from a monitoring event.
+        "pricing": {},
+        "value_per_outcome": None,
+        "confidence_threshold": None,
+        "sla": {},
+        "roi_model": {},
+    },
+    {
+        # Carrier of News Lab, a neutral watch every workspace may create: no
+        # industry tag (the explicit None clears the one earlier seeds wrote).
+        "slug": "market_signal_brief",
+        "name": "Market Signal Brief",
+        "tier": "universal",
+        "industry": None,
+        "description": "Aggregates intelligence feeds into a periodic decision-grade brief with semantic targets.",
+        "input_unit": "feed_batch",
+        "output_unit": "brief",
+        "skill_slugs": ["intelligence_batch_v1", "llm_rag_answer_v1", "audit_log_v1"],
+        "pricing": {"unit": "per_brief", "unit_price": 1.20, "currency": "USD"},
+        "value_per_outcome": 8.00,
+        "confidence_threshold": 0.65,
+        "sla": {"freshness_minutes": 240},
+        "roi_model": {"type": "value_minus_cost"},
+    },
+    {
+        "slug": "government_mission_room",
+        "name": "Government Mission Room",
+        "tier": "industry",
+        "industry": "government",
+        "description": "Executive sovereign cockpit combining briefing, open intelligence, projects, territorial map, assistant and advisory action drafts.",
+        "input_unit": "ministerial_signal",
+        "output_unit": "advisory_decision_pack",
+        "skill_slugs": [
+            "ministerial_briefing_v1",
+            "news_signal_synthesis_v1",
+            "project_risk_explainer_v1",
+            "territorial_signal_map_v1",
+            "instruction_draft_v1",
+            "scenario_generate_v1",
+            "scenario_compare_v1",
+            "scenario_recommend_v1",
+            "map_layer_read_v1",
+            "map_zone_score_v1",
+            "map_signal_attach_v1",
+            "map_recommendation_generate_v1",
+            "visual_source_read_v1",
+            "visual_snapshot_capture_v1",
+            "visual_snapshot_analyze_v1",
+            "visual_observation_sync_knowledge_v1",
+            "calendar_read_v1",
+            "calendar_create_event_v1",
+            "calendar_update_event_v1",
+            "calendar_cancel_event_v1",
+            "calendar_daily_summary_v1",
+            "action_plan_create_v1",
+            "action_plan_reschedule_v1",
+            "action_plan_status_v1",
+            "action_plan_cancel_v1",
+            "time_context_set_v1",
+            "territorial_action_window_v1",
+            "source_registry_refresh_v1",
+            "osint_signal_prioritize_v1",
+            "rumor_origin_trace_v1",
+            "evidence_graph_build_v1",
+            "situation_posture_score_v1",
+            "maritime_snapshot_read_v1",
+            "decision_option_rank_v1",
+            "draft_response_email_v1",
+            "llm_rag_answer_v1",
+            "chain_mixed_hah_v1",
+            "voice_tandem_oracle_v1",
+            "voice_realtime_session_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_daily_room", "unit_price": 2.80, "currency": "USD"},
+        "value_per_outcome": 20.00,
+        "confidence_threshold": 0.72,
+        "sla": {"freshness_minutes": 60, "max_latency_ms": 10000},
+        "roi_model": {"type": "decision_latency_reduced"},
+    },
+    {
+        "slug": "ministerial_daily_briefing",
+        "name": "Ministerial Daily Briefing",
+        "tier": "industry",
+        "industry": "government",
+        "description": "Produces a daily ministerial brief with agenda, priorities, risks, decisions expected and talking points.",
+        "input_unit": "workspace_day",
+        "output_unit": "briefing",
+        "skill_slugs": [
+            "ministerial_briefing_v1",
+            "calendar_daily_summary_v1",
+            "action_plan_status_v1",
+            "llm_rag_answer_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_brief", "unit_price": 0.35, "currency": "USD"},
+        "value_per_outcome": 8.00,
+        "confidence_threshold": 0.72,
+        "sla": {"max_latency_ms": 12000},
+        "roi_model": {"type": "time_saved"},
+    },
+    {
+        "slug": "open_intelligence_watch",
+        "name": "Open Intelligence Watch",
+        "tier": "industry",
+        "industry": "government",
+        "description": "Monitors RSS/open sources and converts weak signals into sourced risk summaries.",
+        "input_unit": "feed_batch",
+        "output_unit": "signal_brief",
+        "skill_slugs": [
+            "intelligence_batch_v1",
+            "news_signal_synthesis_v1",
+            "source_registry_refresh_v1",
+            "osint_signal_prioritize_v1",
+            "rumor_origin_trace_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_batch", "unit_price": 0.80, "currency": "USD"},
+        "value_per_outcome": 6.00,
+        "confidence_threshold": 0.65,
+        "sla": {"freshness_minutes": 60},
+        "roi_model": {"type": "risk_avoided"},
+    },
+    {
+        "slug": "scenario_fusion_monitor",
+        "name": "Scenario Fusion Monitor",
+        "tier": "industry",
+        "industry": "government",
+        "description": "Fuses map, news, visual, calendar and action-plan signals into a government mission-control scenario.",
+        "input_unit": "cross_source_signal",
+        "output_unit": "strategic_posture",
+        "skill_slugs": [
+            "news_signal_synthesis_v1",
+            "territorial_signal_map_v1",
+            "map_layer_read_v1",
+            "map_zone_score_v1",
+            "visual_source_read_v1",
+            "visual_snapshot_analyze_v1",
+            "calendar_daily_summary_v1",
+            "action_plan_status_v1",
+            "scenario_generate_v1",
+            "scenario_compare_v1",
+            "scenario_recommend_v1",
+            "chain_mixed_hah_v1",
+            "voice_tandem_oracle_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_scenario_cycle", "unit_price": 0.95, "currency": "USD"},
+        "value_per_outcome": 12.00,
+        "confidence_threshold": 0.70,
+        "sla": {"freshness_minutes": 30, "max_latency_ms": 10000},
+        "roi_model": {"type": "decision_latency_reduced"},
+    },
+    {
+        "slug": "strategic_project_pilotage",
+        "name": "Strategic Project Pilotage",
+        "tier": "industry",
+        "industry": "government",
+        "description": "Explains strategic project health, delay causes, risks and advisory options under human control.",
+        "input_unit": "project",
+        "output_unit": "risk_explanation",
+        "skill_slugs": [
+            "project_risk_explainer_v1",
+            "scenario_generate_v1",
+            "scenario_compare_v1",
+            "scenario_recommend_v1",
+            "semantic_search_v1",
+            "instruction_draft_v1",
+            "action_plan_create_v1",
+            "action_plan_status_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_project_review", "unit_price": 0.45, "currency": "USD"},
+        "value_per_outcome": 7.00,
+        "confidence_threshold": 0.70,
+        "sla": {"max_latency_ms": 10000},
+        "roi_model": {"type": "decision_quality"},
+    },
+    {
+        "slug": "territorial_action_map",
+        "name": "Territorial Action Map",
+        "tier": "industry",
+        "industry": "government",
+        "description": "Transforms territorial signals and RAG outputs into an illustrative executive map for non-military preventive action.",
+        "input_unit": "territorial_signal",
+        "output_unit": "map_zone",
+        "skill_slugs": [
+            "territorial_signal_map_v1",
+            "territorial_action_window_v1",
+            "map_layer_read_v1",
+            "map_zone_score_v1",
+            "map_signal_attach_v1",
+            "map_recommendation_generate_v1",
+            "map_command_apply_v1",
+            "situation_posture_score_v1",
+            "maritime_snapshot_read_v1",
+            "chain_mixed_hah_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_map", "unit_price": 0.50, "currency": "USD"},
+        "value_per_outcome": 7.50,
+        "confidence_threshold": 0.68,
+        "sla": {"max_latency_ms": 10000},
+        "roi_model": {"type": "situational_awareness"},
+    },
+    {
+        "slug": "visual_situation_watch",
+        "name": "Live Visual Monitor",
+        "tier": "industry",
+        "industry": "government",
+        "description": "Displays authorized live visual sources, captures snapshots, creates non-biometric observations and syncs them to Knowledge.",
+        "input_unit": "visual_source",
+        "output_unit": "visual_observation",
+        "skill_slugs": [
+            "visual_source_read_v1",
+            "visual_snapshot_capture_v1",
+            "visual_snapshot_analyze_v1",
+            "visual_observation_sync_knowledge_v1",
+            "chain_mixed_hah_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_source_day", "unit_price": 0.45, "currency": "USD"},
+        "value_per_outcome": 6.50,
+        "confidence_threshold": 0.62,
+        "sla": {"freshness_minutes": 60, "max_capture_latency_ms": 30000},
+        "roi_model": {"type": "situational_awareness"},
+    },
+    {
+        "slug": "government_calendar_assist",
+        "name": "Government Calendar Assist",
+        "tier": "industry",
+        "industry": "government",
+        "description": "Reads institutional agenda constraints and recommends decision windows for government operations.",
+        "input_unit": "workspace_day",
+        "output_unit": "agenda_arbitrage",
+        "skill_slugs": [
+            "calendar_read_v1",
+            "calendar_create_event_v1",
+            "calendar_update_event_v1",
+            "calendar_cancel_event_v1",
+            "calendar_daily_summary_v1",
+            "action_plan_status_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_day", "unit_price": 0.25, "currency": "USD"},
+        "value_per_outcome": 5.00,
+        "confidence_threshold": 0.70,
+        "sla": {"freshness_minutes": 15, "max_latency_ms": 8000},
+        "roi_model": {"type": "time_saved"},
+    },
+    {
+        "slug": "aya_voice_command",
+        "name": "AYA Voice Command",
+        "tier": "industry",
+        "industry": "government",
+        "description": "Voice-first command layer for AYA to brief, focus map/webcam panels and prepare advisory actions.",
+        "input_unit": "voice_turn",
+        "output_unit": "mission_command",
+        "skill_slugs": [
+            "voice_tandem_oracle_v1",
+            "voice_realtime_session_v1",
+            "llm_rag_answer_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_voice_session", "unit_price": 0.18, "currency": "USD"},
+        "value_per_outcome": 5.50,
+        "confidence_threshold": 0.68,
+        "sla": {"max_latency_ms": 5000},
+        "roi_model": {"type": "time_saved"},
+    },
+    {
+        "slug": "executive_instruction_drafting",
+        "name": "Executive Instruction Drafting",
+        "tier": "industry",
+        "industry": "government",
+        "description": "Drafts sourced cabinet instructions that remain advisory and require human validation before any external action.",
+        "input_unit": "decision_signal",
+        "output_unit": "draft_instruction",
+        "skill_slugs": [
+            "instruction_draft_v1",
+            "draft_response_email_v1",
+            "decision_option_rank_v1",
+            "claim_audit_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_draft", "unit_price": 0.25, "currency": "USD"},
+        "value_per_outcome": 4.50,
+        "confidence_threshold": 0.75,
+        "sla": {"max_latency_ms": 10000},
+        "roi_model": {"type": "time_saved"},
+    },
+    {
+        "slug": "osint_rumor_intelligence",
+        "name": "OSINT & Rumor Intelligence",
+        "tier": "industry",
+        "industry": "government",
+        "description": "Prioritizes public press and demo-safe rumor signals by geography, origin, institutional impact and response urgency.",
+        "input_unit": "osint_signal",
+        "output_unit": "prioritized_signal",
+        "skill_slugs": [
+            "intelligence_batch_v1",
+            "source_registry_refresh_v1",
+            "osint_signal_prioritize_v1",
+            "rumor_origin_trace_v1",
+            "news_signal_synthesis_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_signal_cycle", "unit_price": 0.55, "currency": "USD"},
+        "value_per_outcome": 9.00,
+        "confidence_threshold": 0.68,
+        "sla": {"freshness_minutes": 60},
+        "roi_model": {"type": "risk_avoided"},
+    },
+    {
+        "slug": "evidence_graph",
+        "name": "Evidence Graph",
+        "tier": "industry",
+        "industry": "government",
+        "description": "Connects sources, entities, places, projects, rumors, agenda constraints and advisory actions for explainable AYA answers.",
+        "input_unit": "evidence_record",
+        "output_unit": "evidence_graph",
+        "skill_slugs": [
+            "evidence_graph_build_v1",
+            "semantic_search_v1",
+            "chain_mixed_hah_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_graph_refresh", "unit_price": 0.30, "currency": "USD"},
+        "value_per_outcome": 7.50,
+        "confidence_threshold": 0.70,
+        "sla": {"freshness_minutes": 120},
+        "roi_model": {"type": "explainability"},
+    },
+    {
+        "slug": "maritime_customs_watch",
+        "name": "Maritime & Customs Watch",
+        "tier": "industry",
+        "industry": "government",
+        "description": "Monitors ports, customs context and Gulf of Guinea maritime snapshots for economic and infrastructure risk briefings.",
+        "input_unit": "port_signal",
+        "output_unit": "maritime_posture",
+        "skill_slugs": [
+            "maritime_snapshot_read_v1",
+            "map_layer_read_v1",
+            "osint_signal_prioritize_v1",
+            "situation_posture_score_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_snapshot", "unit_price": 0.25, "currency": "USD"},
+        "value_per_outcome": 6.50,
+        "confidence_threshold": 0.62,
+        "sla": {"freshness_minutes": 120},
+        "roi_model": {"type": "situational_awareness"},
+    },
+    {
+        "slug": "strategic_forecasts",
+        "name": "Strategic Forecasts",
+        "tier": "industry",
+        "industry": "government",
+        "description": "Turns fused signals into short-horizon forecast options with impact, cost, confidence and decision windows.",
+        "input_unit": "cross_source_signal",
+        "output_unit": "forecast_option",
+        "skill_slugs": [
+            "situation_posture_score_v1",
+            "scenario_generate_v1",
+            "scenario_compare_v1",
+            "scenario_recommend_v1",
+            "decision_option_rank_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_forecast_cycle", "unit_price": 0.45, "currency": "USD"},
+        "value_per_outcome": 10.00,
+        "confidence_threshold": 0.70,
+        "sla": {"freshness_minutes": 60},
+        "roi_model": {"type": "decision_latency_reduced"},
+    },
+    {
+        "slug": "decision_desk",
+        "name": "Decision Desk",
+        "tier": "industry",
+        "industry": "government",
+        "description": "Ranks advisory options and drafts cabinet or communication responses under human validation.",
+        "input_unit": "decision_signal",
+        "output_unit": "validated_draft",
+        "skill_slugs": [
+            "decision_option_rank_v1",
+            "draft_response_email_v1",
+            "instruction_draft_v1",
+            "action_plan_create_v1",
+            "action_plan_status_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_decision_pack", "unit_price": 0.35, "currency": "USD"},
+        "value_per_outcome": 8.50,
+        "confidence_threshold": 0.75,
+        "sla": {"max_latency_ms": 10000},
+        "roi_model": {"type": "time_saved"},
+    },
+    {
+        "slug": "compliance_assistant",
+        "name": "Compliance Assistant",
+        "tier": "industry",
+        "industry": "legal",
+        "description": "Answers compliance questions with full citation, audit log and HITL escalation when confidence is low.",
+        "input_unit": "question",
+        "output_unit": "answer",
+        "skill_slugs": ["llm_rag_answer_v1", "claim_audit_v1", "audit_log_v1"],
+        "pricing": {"unit": "per_outcome", "unit_price": 0.20, "currency": "USD"},
+        "value_per_outcome": 4.00,
+        "confidence_threshold": 0.80,
+        "sla": {"max_latency_ms": 10_000, "uptime": 0.999},
+        "roi_model": {"type": "value_minus_cost"},
+    },
+]
+
+
+# Product taxonomy exposed by ``/skills`` and rendered as palette sections.
+# It answers "what does this node do in a flow", which is orthogonal to the
+# Capability (which answers "what business job does this belong to"). Both
+# lenses are needed: a Capability spans several categories, and a category
+# spans several Capabilities.
+#
+#   LLM               generate or reason with a model
+#   Retrieval         ground an answer on the knowledge base
+#   Connections       read or write an external system of record
+#   Ingestion         write into the knowledge base
+#   Voice             speech in, speech out
+#   Governance        policy, audit, compliance and human gates
+#   Analysis          characterise material already in hand
+#   Data              turn one tabular dataset into another
+#   Models            fit a model on a dataset, or serve one
+#   Decision Support  score, rank and compare options to act on
+#   Automation        drive a side effect or orchestrate a pipeline stage
+#
+# Data and Models are deliberately narrow rather than folded into Analysis: a
+# transform PRODUCES a dataset and a training run produces a model, whereas
+# Analysis characterises material in hand. Reusing it would also have made it
+# the catalog's catch-all, which is the shape the taxonomy exists to avoid.
+SKILL_CATEGORIES: dict[str, str] = {
+    "action_plan_cancel_v1": "Automation",
+    "action_plan_create_v1": "Automation",
+    "action_plan_reschedule_v1": "Automation",
+    "action_plan_status_v1": "Analysis",
+    "audit_log_v1": "Governance",
+    "azure_llm_v1": "LLM",
+    "openai_llm_v1": "LLM",
+    "azure_openai_llm_v1": "LLM",
+    "briefing_priorities_v1": "Analysis",
+    "calendar_cancel_event_v1": "Connections",
+    "calendar_create_event_v1": "Connections",
+    "calendar_daily_summary_v1": "Analysis",
+    "calendar_read_v1": "Connections",
+    "calendar_update_event_v1": "Connections",
+    "capture_structuring_v1": "LLM",
+    "causal_drill_v1": "Analysis",
+    "chain_hybrid_v1": "Retrieval",
+    "chain_mixed_hah_v1": "Retrieval",
+    "chain_naive_v1": "Retrieval",
+    "chat_action_resolver_v1": "Automation",
+    "chat_agentic_plan_v1": "LLM",
+    "chat_grounding_policy_v1": "Governance",
+    "chat_self_correct_v1": "LLM",
+    "chat_trivial_bypass_v1": "Governance",
+    "claim_audit_v1": "Governance",
+    "dbt_transform_v1": "Data",
+    "decision_option_rank_v1": "Decision Support",
+    "decide_next_v1": "Decision Support",
+    "document_ingestion_v1": "Ingestion",
+    "draft_email_v1": "LLM",
+    "draft_response_email_v1": "LLM",
+    "ecommerce_delivery_evidence_v1": "Retrieval",
+    "ecommerce_policy_evidence_v1": "Retrieval",
+    "ecommerce_refund_evidence_v1": "Retrieval",
+    "ecommerce_resolution_propose_v1": "Decision Support",
+    "ecommerce_resolution_simulate_v1": "Automation",
+    "ecommerce_sav_context_v1": "Data",
+    "ecommerce_sav_dataset_v1": "Data",
+    "ecommerce_sla_dataset_v1": "Data",
+    "ecommerce_sla_features_v1": "Data",
+    "eval_radar_v1": "Governance",
+    "evidence_graph_build_v1": "Analysis",
+    "expert_answer_evaluator_v1": "Analysis",
+    "expert_interview_plan_v1": "LLM",
+    "generate_recommendations_v1": "Decision Support",
+    "instruction_draft_v1": "LLM",
+    "intelligence_batch_v1": "Ingestion",
+    "invoice_document_extract_v1": "Analysis",
+    "line_items_reconcile_v1": "Decision Support",
+    "knowledge_gap_analysis_v1": "Analysis",
+    "llm_rag_answer_v1": "Retrieval",
+    "llm_label_dataset_v1": "Data",
+    "hf_dataset_import_v1": "Data",
+    "map_command_apply_v1": "Automation",
+    "map_layer_read_v1": "Connections",
+    "map_recommendation_generate_v1": "Decision Support",
+    "map_signal_attach_v1": "Automation",
+    "map_zone_score_v1": "Decision Support",
+    "maritime_snapshot_read_v1": "Connections",
+    "ministerial_briefing_v1": "LLM",
+    "ml_batch_score_v1": "Models",
+    "ml_forecast_v1": "Models",
+    "ml_predict_v1": "Models",
+    "ml_train_sklearn_v1": "Models",
+    "ml_monitor_model_v1": "Models",
+    "ml_evaluation_review_v1": "Models",
+    "ml_problem_frame_v1": "Models",
+    "ml_experiment_plan_v1": "Models",
+    "ml_retrain_model_v1": "Models",
+    "multi_hop_retrieve_v1": "Retrieval",
+    "news_signal_synthesis_v1": "Analysis",
+    "ollama_llm_v1": "LLM",
+    "osint_signal_prioritize_v1": "Analysis",
+    "project_risk_explainer_v1": "Analysis",
+    "polars_transform_v1": "Data",
+    "postgresql_claim_snapshot_v1": "Data",
+    "python_recipe_v1": "Automation",
+    "reconciliation_report_v1": "Governance",
+    "response_eval_v1": "Governance",
+    "grounding_check_v1": "Governance",
+    "evaluate_v1": "Governance",
+    "publish_email_v1": "Automation",
+    "role_agent_v1": "LLM",
+    "rpa_dispatch_v1": "Automation",
+    "rumor_origin_trace_v1": "Analysis",
+    "mcp_call_v1": "Connections",
+    "hikma_list_pos_by_type_v1": "Connections",
+    "sap_check_budget_v1": "Connections",
+    "sap_create_po_v1": "Connections",
+    "sap_get_justification_v1": "Connections",
+    "sap_handle_rejection_v1": "Connections",
+    "sap_list_approved_prs_v1": "Connections",
+    "sap_reject_pr_v1": "Connections",
+    "sap_hana_query_v1": "Connections",
+    "scenario_compare_v1": "Decision Support",
+    "scenario_generate_v1": "Decision Support",
+    "scenario_recommend_v1": "Decision Support",
+    "schedule_meeting_v1": "Connections",
+    "semantic_search_v1": "Retrieval",
+    "skill_search_v1": "Decision Support",
+    "sharepoint_ingestion_v1": "Ingestion",
+    "situation_posture_score_v1": "Decision Support",
+    "source_registry_refresh_v1": "Ingestion",
+    "spreadsheet_table_extract_v1": "Analysis",
+    "sql_transform_v1": "Data",
+    "summarize_long_document_v1": "LLM",
+    "system_run_read_v1": "Automation",
+    "territorial_action_window_v1": "Decision Support",
+    "territorial_signal_map_v1": "Analysis",
+    "time_context_set_v1": "Governance",
+    "translation_archive_ingest_v1": "Ingestion",
+    "translation_cdt_gate_v1": "Governance",
+    "translation_fanout_v1": "Automation",
+    "translation_j2450_qa_v1": "Analysis",
+    "translation_label_index_resolve_v1": "Automation",
+    "translation_memory_retrieve_v1": "Retrieval",
+    "translation_package_delivery_v1": "Automation",
+    "translation_pivot_normalize_v1": "LLM",
+    "translation_post_guard_v1": "Governance",
+    "visual_observation_sync_knowledge_v1": "Ingestion",
+    "visual_snapshot_analyze_v1": "Analysis",
+    "visual_snapshot_capture_v1": "Ingestion",
+    "visual_source_read_v1": "Connections",
+    "voice_oracle_turn_v1": "Voice",
+    "voice_realtime_session_v1": "Voice",
+    "voice_realtime_speak_v1": "Voice",
+    "voice_realtime_transcribe_v1": "Voice",
+    "voice_realtime_translate_v1": "Voice",
+    "voice_tandem_oracle_v1": "Voice",
+    "voice_transcribe_v1": "Voice",
+    "voice_tts_v1": "Voice",
+    "workspace_llm_v1": "LLM",
+}
+
+
+def skill_category(slug: str) -> str | None:
+    """Product category for a catalog slug, or ``None`` when uncategorised.
+
+    Workspace-defined skills (Tranche F) will carry their own column value,
+    so an unknown slug is not an error here.
+    """
+
+    return SKILL_CATEGORIES.get(slug)
+
+
+# The fields the seed owns on a canonical row. Anything else (metrics, an
+# executor bound later) belongs to the platform and is never touched.
+_SEEDED_SKILL_FIELDS = (
+    "name",
+    "description",
+    "type",
+    "provider",
+    "certification_level",
+    "execution",
+    "pricing",
+    "input_schema",
+    "output_schema",
+    "version",
+)
+_SEEDED_CAPABILITY_FIELDS = (
+    "name",
+    "description",
+    "tier",
+    "industry",
+    "input_unit",
+    "output_unit",
+    "pricing",
+    "value_per_outcome",
+    "confidence_threshold",
+    "sla",
+    "roi_model",
+)
+
+
+def _as_stored(value: Any) -> Any:
+    """A seed value as the database returns it (tuples become lists in JSON)."""
+
+    return json.loads(json.dumps(value)) if isinstance(value, (dict, list, tuple)) else value
+
+
+def _skill_changes(row: Skill, entry: dict[str, Any]) -> dict[str, Any]:
+    changes = {
+        key: _as_stored(entry[key])
+        for key in _SEEDED_SKILL_FIELDS
+        if entry.get(key) is not None and getattr(row, key) != _as_stored(entry[key])
+    }
+    category = skill_category(entry["slug"])
+    if row.category != category:
+        changes["category"] = category
+    if row.is_seeded != "Y":
+        changes["is_seeded"] = "Y"
+    return changes
+
+
+def _capability_changes(
+    row: Capability, entry: dict[str, Any], skill_ids: list[str]
+) -> dict[str, Any]:
+    changes = {
+        key: _as_stored(entry[key])
+        for key in _SEEDED_CAPABILITY_FIELDS
+        if entry.get(key) is not None and getattr(row, key) != _as_stored(entry[key])
+    }
+    if "industry" in entry and entry["industry"] is None and row.industry is not None:
+        changes["industry"] = None
+    if list(row.skill_ids or []) != skill_ids:
+        changes["skill_ids"] = skill_ids
+    if row.is_seeded != "Y":
+        changes["is_seeded"] = "Y"
+    return changes
+
+
+def reconcile_catalog(db: DBSession, *, apply: bool) -> dict[str, Any]:
+    """Compare the canonical catalog in code with the database, and optionally
+    write only what differs.
+
+    Reported per kind: rows the code has and the database lacks (``missing``),
+    rows whose seeded fields differ, with the fields named (``changed``), and
+    seeded rows the code no longer declares (``orphaned`` — reported, never
+    deleted: a Flow may still reference them). ``in_sync`` is the answer a
+    release checks. With ``apply``, missing rows are created and changed ones
+    updated; identical rows are not rewritten, so their ``updated_at`` does not
+    move and a field the seed does not own is never touched.
+    """
+
+    now = datetime.utcnow()
+    seed_slugs = [entry["slug"] for entry in SEED_SKILLS]
+    rows = {row.slug: row for row in db.query(Skill).filter(Skill.slug.in_(seed_slugs)).all()}
+    skill_ids: dict[str, str] = {slug: row.id for slug, row in rows.items()}
+    skills: dict[str, Any] = {"missing": [], "changed": {}, "orphaned": []}
+    for entry in SEED_SKILLS:
+        row = rows.get(entry["slug"])
+        if row is None:
+            skills["missing"].append(entry["slug"])
+            if apply:
+                row = Skill(
+                    slug=entry["slug"],
+                    version=entry["version"],
+                    name=entry["name"],
+                    description=entry["description"],
+                    type=entry["type"],
+                    category=skill_category(entry["slug"]),
+                    provider=entry["provider"],
+                    certification_level=entry["certification_level"],
+                    execution=entry["execution"],
+                    pricing=entry["pricing"],
+                    input_schema=entry["input_schema"],
+                    output_schema=entry["output_schema"],
+                    is_seeded="Y",
+                    workspace_id=None,
+                )
+                db.add(row)
+                db.flush()
+                skill_ids[row.slug] = row.id
+            continue
+        changes = _skill_changes(row, entry)
+        if changes:
+            skills["changed"][entry["slug"]] = sorted(changes)
+            if apply:
+                for key, value in changes.items():
+                    setattr(row, key, value)
+                row.updated_at = now
+    skills["orphaned"] = sorted(
+        slug
+        for (slug,) in db.query(Skill.slug)
+        .filter(Skill.is_seeded == "Y", ~Skill.slug.in_(seed_slugs))
+        .all()
+    )
+
+    capability_slugs = [entry["slug"] for entry in SEED_CAPABILITIES]
+    capability_rows = {
+        row.slug: row
+        for row in db.query(Capability).filter(Capability.slug.in_(capability_slugs)).all()
+    }
+    capabilities: dict[str, Any] = {"missing": [], "changed": {}, "orphaned": []}
+    for entry in SEED_CAPABILITIES:
+        ids = [skill_ids[slug] for slug in entry["skill_slugs"] if slug in skill_ids]
+        row = capability_rows.get(entry["slug"])
+        if row is None:
+            capabilities["missing"].append(entry["slug"])
+            if apply:
+                db.add(
+                    Capability(
+                        slug=entry["slug"],
+                        name=entry["name"],
+                        description=entry["description"],
+                        tier=entry["tier"],
+                        industry=entry.get("industry"),
+                        input_unit=entry["input_unit"],
+                        output_unit=entry["output_unit"],
+                        skill_ids=ids,
+                        pricing=entry["pricing"],
+                        value_per_outcome=entry["value_per_outcome"],
+                        confidence_threshold=entry["confidence_threshold"],
+                        sla=entry["sla"],
+                        roi_model=entry["roi_model"],
+                        is_seeded="Y",
+                        workspace_id=None,
+                    )
+                )
+            continue
+        changes = _capability_changes(row, entry, ids)
+        if changes:
+            capabilities["changed"][entry["slug"]] = sorted(changes)
+            if apply:
+                for key, value in changes.items():
+                    setattr(row, key, value)
+                row.updated_at = now
+    capabilities["orphaned"] = sorted(
+        slug
+        for (slug,) in db.query(Capability.slug)
+        .filter(Capability.is_seeded == "Y", ~Capability.slug.in_(capability_slugs))
+        .all()
+    )
+
+    if apply:
+        db.commit()
+    behind = any(kind["missing"] or kind["changed"] for kind in (skills, capabilities))
+    return {
+        # After an apply the catalog is in sync by construction; the lists
+        # then say what the apply wrote.
+        "in_sync": True if apply else not behind,
+        "applied": bool(apply),
+        "skills": skills,
+        "capabilities": capabilities,
+    }
+
+
+def seed_skills_and_capabilities(db: DBSession) -> dict[str, int]:
+    """Idempotent upsert of the seed registry. Safe to call on every boot.
+
+    Only rows that differ are written, so the report counts real changes and an
+    identical row keeps its ``updated_at``.
+    """
+
+    report = reconcile_catalog(db, apply=True)
+    return {
+        "skills_added": len(report["skills"]["missing"]),
+        "skills_updated": len(report["skills"]["changed"]),
+        "capabilities_added": len(report["capabilities"]["missing"]),
+        "capabilities_updated": len(report["capabilities"]["changed"]),
+    }

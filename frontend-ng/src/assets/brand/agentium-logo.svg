@@ -1,0 +1,35 @@
+<svg width="520" height="128" viewBox="0 0 520 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Agentium</title>
+  <desc id="desc">Agentium wordmark with orbital A monogram.</desc>
+  <defs>
+    <linearGradient id="agentium-stroke" x1="29" y1="98" x2="97" y2="26" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00BCD4"/>
+      <stop offset="0.55" stop-color="#61F6FF"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <linearGradient id="agentium-route" x1="45" y1="69" x2="99" y2="52" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8B5CF6"/>
+      <stop offset="0.5" stop-color="#61F6FF"/>
+      <stop offset="1" stop-color="#00BCD4"/>
+    </linearGradient>
+    <linearGradient id="agentium-text" x1="138" y1="46" x2="380" y2="100" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F8FAFC"/>
+      <stop offset="1" stop-color="#B8C7D9"/>
+    </linearGradient>
+  </defs>
+  <g>
+    <rect width="128" height="128" rx="28" fill="#070A10"/>
+    <rect x="9" y="9" width="110" height="110" rx="23" stroke="#1D2733" stroke-width="2"/>
+    <path d="M31 96L58.4 30.5C60.5 25.5 67.5 25.5 69.6 30.5L97 96" stroke="url(#agentium-stroke)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M45 69H83" stroke="url(#agentium-route)" stroke-width="7" stroke-linecap="round"/>
+    <path d="M83 69C93 69 99 62 99 52" stroke="url(#agentium-route)" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="99" cy="52" r="4.5" fill="#61F6FF"/>
+    <path d="M64 38V60" stroke="#070A10" stroke-width="4" stroke-linecap="round" opacity="0.75"/>
+  </g>
+  <g>
+    <text x="154" y="77" fill="url(#agentium-text)" font-family="Inter Tight, Inter, Arial, sans-serif" font-size="45" font-weight="650" letter-spacing="-1.5">Agentium</text>
+    <text x="158" y="101" fill="#6F8196" font-family="JetBrains Mono, Menlo, monospace" font-size="12" font-weight="600" letter-spacing="3.1">AI ORCHESTRATION COCKPIT</text>
+    <path d="M154 88H398" stroke="#1D2733" stroke-width="1"/>
+    <path d="M154 88H236" stroke="url(#agentium-stroke)" stroke-width="1.5" stroke-linecap="round"/>
+  </g>
+</svg>

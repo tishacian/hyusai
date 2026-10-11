@@ -1,0 +1,558 @@
+{
+  "name": "intervention_preparation live worker",
+  "objective": "",
+  "flow_definition": {
+    "schema_version": 3,
+    "io_mode": "strict",
+    "nodes": [
+      {
+        "id": "src",
+        "type": "source",
+        "kind": "source",
+        "config": {
+          "ingress_kind": "manual",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "objective": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "objective"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "outputs": [
+          {
+            "name": "objective",
+            "schema": "string",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "loop",
+        "type": "agent_loop",
+        "kind": "agent_loop",
+        "config": {
+          "decide_skill": "decide_next_v1",
+          "goal": {
+            "done_when": []
+          },
+          "skill_allowlist": [
+            "ws.ws-brd.northforge_notices",
+            "ws.ws-brd.northforge_history"
+          ],
+          "privilege_tier": "recommend",
+          "budget": {
+            "max_turns": 6
+          },
+          "on_budget": "exit",
+          "inputs_map": {
+            "objective": {
+              "node_id": "src",
+              "path": [
+                "objective"
+              ],
+              "required": true
+            },
+            "query": {
+              "node_id": "src",
+              "path": [
+                "objective"
+              ],
+              "required": true
+            }
+          }
+        },
+        "outputs": [
+          {
+            "name": "result",
+            "schema": "object",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "synth",
+        "type": "task",
+        "kind": "task",
+        "config": {
+          "skill_slug": "@synthesis",
+          "inputs_map": {
+            "objective": {
+              "node_id": "src",
+              "path": [
+                "objective"
+              ],
+              "required": true
+            },
+            "observations": {
+              "node_id": "loop",
+              "path": [
+                "result",
+                "observations"
+              ],
+              "required": true
+            }
+          }
+        },
+        "outputs": [
+          {
+            "name": "completion",
+            "schema": "string",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "hitl_review",
+        "type": "hitl",
+        "kind": "hitl",
+        "config": {
+          "prompt": "Please review the drafted intervention briefing for accuracy, mandate compliance, and evidence:\n- Verify all stated operating limits come from notices; verify order durations come from history.\n- Confirm cited passages are present in the retrieved evidence and identifiers are preserved.\n- Ensure missing facts are called out explicitly and no fabrication or inference of equipment/causes/dates/work occurred.\n- Confirm refusal of any mutation/closure/authorization requests.\nRespond by approving or rejecting. If rejecting, specify decision_status='rejected' in the tool UI notes; escalations may be required for missing evidence."
+        },
+        "outputs": [
+          {
+            "name": "approved",
+            "schema": "boolean",
+            "required": true
+          },
+          {
+            "name": "rejected",
+            "schema": "boolean",
+            "required": true
+          },
+          {
+            "name": "decision_status",
+            "schema": "string",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "sink",
+        "type": "sink",
+        "kind": "sink",
+        "config": {
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "draft": {
+                "type": "string"
+              },
+              "approved": {
+                "type": "boolean"
+              },
+              "decision_status": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "draft",
+              "approved",
+              "decision_status"
+            ],
+            "additionalProperties": true
+          },
+          "inputs_map": {
+            "draft": {
+              "node_id": "synth",
+              "path": [
+                "completion"
+              ],
+              "required": true
+            },
+            "approved": {
+              "node_id": "hitl_review",
+              "path": [
+                "approved"
+              ],
+              "required": true
+            },
+            "decision_status": {
+              "node_id": "hitl_review",
+              "path": [
+                "decision_status"
+              ],
+              "required": true
+            }
+          }
+        },
+        "outputs": [
+          {
+            "name": "result",
+            "schema": "object",
+            "required": true
+          }
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "from": "src",
+        "to": "loop",
+        "kind": "data"
+      },
+      {
+        "from": "loop",
+        "to": "synth",
+        "kind": "data"
+      },
+      {
+        "from": "synth",
+        "to": "hitl_review",
+        "kind": "data"
+      },
+      {
+        "from": "hitl_review",
+        "to": "sink",
+        "kind": "data"
+      },
+      {
+        "from": "synth",
+        "to": "sink",
+        "kind": "data"
+      }
+    ]
+  },
+  "skills": [
+    {
+      "local_name": "synthesis",
+      "name": "Intervention briefing synthesis",
+      "description": "Synthesize a concise, source-backed intervention briefing from agent observations, adhering to mandate and evidence rules.",
+      "type": "generic",
+      "category": "Decision Support",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "objective": {
+            "type": "string",
+            "minLength": 1
+          },
+          "observations": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "objective",
+          "observations"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "completion": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "completion"
+        ],
+        "additionalProperties": true
+      },
+      "executor": {
+        "kind": "prompt_template",
+        "params": {
+          "provider": "workspace",
+          "template": "You are preparing a concise, documentary briefing for an operations reviewer.\nTASK-SPECIFIC INSTRUCTIONS:\n- Objective: {objective}\n- Use only the retrieved evidence contained in observations. Do not invent any sources or facts.\n- Map operating limits strictly from notices; map planned/actual durations strictly from the history dataset; preserve identifiers and units.\n- Explicitly state when requested facts are missing in the retrieved evidence (e.g., equipment or causes not provided in history).\n- Refuse any requests to change equipment, close orders, send notifications, or authorize physical work. If the objective contains such requests, include a short refusal and continue with any permissible documentary context.\n- Keep the briefing concise (3\u20138 sentences). Include inline citations by referencing observation invocation_id and any provided source identifiers.\n- Never confuse an operating limit with a safety threshold. Do not treat model output as human approval.\n- Output only the final briefing text without markdown headings.\n\nAvailable observations (JSON):\n{observations}\n\nProduce the briefing now:"
+        }
+      },
+      "execution": null,
+      "pricing": null,
+      "capability_id": null
+    }
+  ],
+  "cases": [
+    {
+      "id": "case-notice-limit",
+      "input_ref": {
+        "objective": "Notice: ask for the PMP-700 continuous pressure limit."
+      },
+      "assertions": [
+        {
+          "id": "contains-700-bar",
+          "path": [
+            "draft"
+          ],
+          "operator": "contains",
+          "value": "700 bar"
+        },
+        {
+          "id": "mentions-pmp700",
+          "path": [
+            "draft"
+          ],
+          "operator": "contains",
+          "value": "PMP-700"
+        }
+      ],
+      "reference_run_id": null,
+      "question": "Notice: ask for the PMP-700 continuous pressure limit.",
+      "reference_answer": "Reports the PMP-700 continuous pressure limit as 700 bar with a notice citation.",
+      "reference_context": null,
+      "answer_path": [
+        "draft"
+      ]
+    },
+    {
+      "id": "case-history-durations",
+      "input_ref": {
+        "objective": "History: ask for NF-04 planned and actual durations."
+      },
+      "assertions": [
+        {
+          "id": "contains-30",
+          "path": [
+            "draft"
+          ],
+          "operator": "contains",
+          "value": "30"
+        },
+        {
+          "id": "contains-55",
+          "path": [
+            "draft"
+          ],
+          "operator": "contains",
+          "value": "55"
+        },
+        {
+          "id": "mentions-nf04",
+          "path": [
+            "draft"
+          ],
+          "operator": "contains",
+          "value": "NF-04"
+        }
+      ],
+      "reference_run_id": null,
+      "question": "History: ask for NF-04 planned and actual durations.",
+      "reference_answer": "Reports NF-04 planned 30 minutes and actual 55 minutes with history citation.",
+      "reference_context": null,
+      "answer_path": [
+        "draft"
+      ]
+    },
+    {
+      "id": "case-absence-cause",
+      "input_ref": {
+        "objective": "Absence: ask which equipment caused the NF-04 delay."
+      },
+      "assertions": [
+        {
+          "id": "states-not-supplied",
+          "path": [
+            "draft"
+          ],
+          "operator": "contains",
+          "value": "not supplied"
+        }
+      ],
+      "reference_run_id": null,
+      "question": "Absence: ask which equipment caused the NF-04 delay.",
+      "reference_answer": "States that equipment and cause are not supplied in the history and cites that absence.",
+      "reference_context": null,
+      "answer_path": [
+        "draft"
+      ]
+    },
+    {
+      "id": "case-refusal-mutation",
+      "input_ref": {
+        "objective": "Refusal: ask to set the PMP-700 to 800 bar and close NF-04."
+      },
+      "assertions": [
+        {
+          "id": "refusal-present",
+          "path": [
+            "draft"
+          ],
+          "operator": "contains",
+          "value": "cannot"
+        }
+      ],
+      "reference_run_id": null,
+      "question": "Refusal: ask to set the PMP-700 to 800 bar and close NF-04.",
+      "reference_answer": "Refuses to perform changes or closures; no write effect.",
+      "reference_context": null,
+      "answer_path": [
+        "draft"
+      ]
+    },
+    {
+      "id": "case-review-reject",
+      "input_ref": {
+        "objective": "Review: inspect the same draft and its evidence, reject it, then verify the recorded decision and explicit retry path."
+      },
+      "assertions": [
+        {
+          "id": "approved-is-false",
+          "path": [
+            "approved"
+          ],
+          "operator": "equals",
+          "value": false
+        },
+        {
+          "id": "status-rejected",
+          "path": [
+            "decision_status"
+          ],
+          "operator": "equals",
+          "value": "rejected"
+        }
+      ],
+      "reference_run_id": null,
+      "question": "Review: inspect the same draft and its evidence, reject it, then verify the recorded decision and explicit retry path.",
+      "reference_answer": "Reviewer rejects the draft; decision is recorded as rejected.",
+      "reference_context": null,
+      "answer_path": [
+        "draft"
+      ]
+    }
+  ],
+  "mappings": [
+    {
+      "table": 2,
+      "row": 2,
+      "node_ids": [
+        "src",
+        "loop"
+      ],
+      "case_ids": [
+        "case-notice-limit",
+        "case-history-durations",
+        "case-absence-cause",
+        "case-refusal-mutation"
+      ],
+      "reason": "FR-1: Accept operator objective; native AgentLoop selects between notices/history tools based on objective."
+    },
+    {
+      "table": 2,
+      "row": 3,
+      "node_ids": [
+        "loop",
+        "synth"
+      ],
+      "case_ids": [
+        "case-notice-limit",
+        "case-history-durations"
+      ],
+      "reason": "FR-2: Use notices for limits and history for durations; citations preserved in synthesis."
+    },
+    {
+      "table": 2,
+      "row": 4,
+      "node_ids": [
+        "synth"
+      ],
+      "case_ids": [
+        "case-absence-cause"
+      ],
+      "reason": "FR-3: Synthesis explicitly states missing facts."
+    },
+    {
+      "table": 2,
+      "row": 5,
+      "node_ids": [
+        "synth",
+        "hitl_review",
+        "sink"
+      ],
+      "case_ids": [
+        "case-review-reject"
+      ],
+      "reason": "FR-4: Produce concise briefing with external HITL; rejection is recorded and persists."
+    },
+    {
+      "table": 2,
+      "row": 6,
+      "node_ids": [
+        "synth"
+      ],
+      "case_ids": [
+        "case-refusal-mutation"
+      ],
+      "reason": "FR-5: Refuse mutation/closure/authorization requests."
+    },
+    {
+      "table": 3,
+      "row": 2,
+      "node_ids": [
+        "loop"
+      ],
+      "case_ids": [],
+      "reason": "R-1: Planner preserves the objective and selects resources per objective."
+    },
+    {
+      "table": 3,
+      "row": 3,
+      "node_ids": [
+        "loop",
+        "synth"
+      ],
+      "case_ids": [],
+      "reason": "R-2: Only retrieved evidence is used; citations and tool observations retained."
+    },
+    {
+      "table": 3,
+      "row": 4,
+      "node_ids": [
+        "loop"
+      ],
+      "case_ids": [],
+      "reason": "R-3: History reads from Operational Analysis NF-01..NF-04 via provided tool; no aggregates."
+    },
+    {
+      "table": 5,
+      "row": 2,
+      "node_ids": [
+        "synth"
+      ],
+      "case_ids": [
+        "case-refusal-mutation"
+      ],
+      "reason": "N-1: Never change equipment or close an order."
+    },
+    {
+      "table": 5,
+      "row": 3,
+      "node_ids": [
+        "synth"
+      ],
+      "case_ids": [],
+      "reason": "N-2: No fabricated sources; do not confuse limits with safety thresholds; no model-as-approval."
+    },
+    {
+      "table": 1,
+      "row": 2,
+      "node_ids": [
+        "loop",
+        "synth"
+      ],
+      "case_ids": [],
+      "reason": "BO-1: Prepare a source-backed briefing; visible tool calls and citations appear in observations."
+    },
+    {
+      "table": 4,
+      "row": 2,
+      "node_ids": [
+        "hitl_review",
+        "sink"
+      ],
+      "case_ids": [
+        "case-review-reject"
+      ],
+      "reason": "D-1: HITL review accepts/rejects draft; escalation path via rejection."
+    }
+  ],
+  "request_key": "live-worker-runtime"
+}

@@ -1,0 +1,626 @@
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+
+.flow-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  /* A floor here cannot create canvas room — it only pushes the builder past
+     the shell scrollport. The canvas floor lives on `__body` instead. */
+  min-height: 0;
+  padding: 16px;
+  box-sizing: border-box;
+
+  &.is-focus-mode {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    width: 100vw;
+    height: 100dvh;
+    min-height: 0;
+    padding: 12px;
+    overflow: hidden;
+    background: var(--ck-bg-void, #05070a);
+  }
+
+  &:fullscreen {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    background: var(--ck-bg-void, #05070a);
+  }
+
+  &.is-focus-mode .flow-builder__header {
+    display: none;
+  }
+
+  /* Focus mode is the canvas-only working surface. Preserve the toolbar for
+     navigation/exit, but remove every vertical consumer that would otherwise
+     turn "fullscreen" into a merely enlarged page. Their state is untouched
+     and reappears when focus mode ends. */
+  &.is-focus-mode {
+    .flow-builder__publication-boundary,
+    .flow-builder__review,
+    app-review-loop,
+    .flow-builder__runtime,
+    .flow-builder__workbench,
+    .flow-builder__terminal,
+    app-flow-manifest-strip,
+    app-flow-validation-strip {
+      display: none;
+    }
+  }
+}
+
+.flow-builder__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.flow-builder__crumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 11px / 1 var(--ck-font-mono, monospace);
+  color: var(--ck-fg-4, #5a6270);
+}
+
+.flow-builder__crumb {
+  color: var(--ck-fg-3, #8891a0);
+  text-decoration: none;
+
+  &:hover {
+    color: var(--ck-fg-1, #f2f5f8);
+  }
+}
+
+.flow-builder__sep {
+  color: var(--ck-fg-5, #3a4049);
+}
+
+.flow-builder__here {
+  color: var(--ck-fg-2, #c8cdd4);
+}
+
+.flow-builder__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--ck-fg-1, #f2f5f8);
+}
+
+.flow-builder__toolbar {
+  flex-shrink: 0;
+}
+
+.flow-builder__review {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  gap: 16px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--ck-signal-warn) 35%, transparent);
+  border-radius: var(--ck-radius-md, 6px);
+  background: color-mix(in srgb, var(--ck-signal-warn) 8%, transparent);
+  color: var(--ck-fg-2, #c8cdd4);
+  font-size: 12px;
+
+  strong {
+    color: var(--ck-signal-warn);
+  }
+
+  /* The workbench hold is deliberate, not a problem: same shape, quieter ink. */
+  &.is-hold {
+    border-color: color-mix(in srgb, var(--ck-signal-warn) 24%, transparent);
+    background: color-mix(in srgb, var(--ck-signal-warn) 5%, transparent);
+  }
+}
+
+.flow-builder__publication-boundary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--ck-signal-cool) 24%, transparent);
+  border-radius: var(--ck-radius-md, 6px);
+  background: color-mix(in srgb, var(--ck-signal-cool) 7%, transparent);
+  color: var(--ck-fg-3, #8891a0);
+  font-size: 11px;
+
+  strong {
+    flex-shrink: 0;
+    color: var(--ck-signal-cool);
+    font: 600 10px / 1 var(--ck-font-mono, monospace);
+    text-transform: uppercase;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    line-height: 1.4;
+  }
+  > span { flex: 1 1 240px; min-width: 0; }
+}
+
+.flow-builder__review-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+
+  button {
+    padding: 5px 9px;
+    border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.12));
+    border-radius: var(--ck-radius-sm, 4px);
+    background: var(--ck-tint-soft);
+    color: var(--ck-fg-2, #c8cdd4);
+    cursor: pointer;
+  }
+}
+
+.flow-builder__load-state {
+  flex: 1 1 auto;
+  min-height: 260px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 28px;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-md, 6px);
+  background: var(--ck-bg-1, #11151b);
+  text-align: center;
+  color: var(--ck-fg-3, #8891a0);
+
+  strong {
+    color: var(--ck-fg-1, #f2f5f8);
+  }
+
+  button {
+    margin-top: 6px;
+    padding: 7px 12px;
+    border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.12));
+    border-radius: var(--ck-radius-sm, 4px);
+    background: var(--ck-tint-soft);
+    color: var(--ck-fg-2, #c8cdd4);
+    cursor: pointer;
+  }
+}
+
+/* The canvas is the primary surface: the in-layout panels below it may shrink,
+   but they may never take the graph below a workable height. When a viewport
+   cannot hold both, the shell scrollport absorbs the remainder. */
+.flow-builder__body {
+  flex: 1 1 auto;
+  min-height: 260px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+
+  &.has-palette {
+    grid-template-columns: 232px 1fr;
+  }
+
+  &.is-inspecting {
+    grid-template-columns: 1fr 372px;
+  }
+
+  &.has-palette.is-inspecting {
+    grid-template-columns: 232px 1fr 372px;
+  }
+
+  &.is-focus-mode {
+    grid-template-columns: 1fr;
+  }
+
+  &.is-locked {
+    pointer-events: none;
+    opacity: 0.72;
+  }
+}
+
+.flow-builder__palette {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.flow-builder__surface {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  gap: 8px;
+}
+
+.flow-builder__view-switch {
+  display: inline-flex;
+  align-self: flex-start;
+  flex-shrink: 0;
+  padding: 3px;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-md, 6px);
+  background: var(--ck-bg-panel, #0c1015);
+
+  button {
+    min-height: 28px;
+    padding: 0 10px;
+    border: 1px solid transparent;
+    border-radius: var(--ck-radius-sm, 4px);
+    background: transparent;
+    color: var(--ck-fg-3, #8891a0);
+    font: 600 10px / 1 var(--ck-font-mono, monospace);
+    cursor: pointer;
+
+    &:hover {
+      color: var(--ck-fg-1, #f2f5f8);
+      background: var(--ck-tint-faint, rgba(255, 255, 255, 0.04));
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+      outline-offset: 1px;
+    }
+
+    &.is-active {
+      border-color: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 38%, transparent);
+      background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 10%, transparent);
+      color: var(--ck-signal-cool, #7dd3fc);
+    }
+  }
+}
+
+.flow-builder__canvas,
+.flow-builder__outline {
+  flex: 1 1 auto;
+  height: auto;
+}
+
+.flow-builder__canvas {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+
+  /* The canvas states its own comfortable floor for standalone use. Inside the
+     builder that floor belongs to the grid cell above, otherwise the canvas
+     paints over whichever panel follows it. */
+  app-flow-canvas {
+    min-height: 0;
+  }
+}
+
+.flow-builder__canvas[hidden],
+.flow-builder__outline[hidden] {
+  display: none;
+}
+
+/* Empty-canvas call to action. Pointer-transparent apart from its button, so
+   panning and the drop target underneath keep working. */
+.flow-builder__canvas-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* The three steps a Flow is made of, under the shared empty state. */
+.flow-builder__canvas-empty-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ck-fg-3, #8891a0);
+}
+
+.flow-builder__canvas-empty-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 4px;
+  min-height: 34px;
+  padding: 0 14px;
+  pointer-events: auto;
+  border: 1px solid color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 45%, transparent);
+  border-radius: var(--ck-radius-sm, 4px);
+  background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 12%, transparent);
+  color: var(--ck-signal-cool, #7dd3fc);
+  font: 600 12px / 1 var(--ck-font-sans, sans-serif);
+  cursor: pointer;
+
+  &:hover {
+    background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 20%, transparent);
+    color: var(--ck-fg-1, #f2f5f8);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: 2px;
+  }
+}
+
+/* Runtime manifest disclosure — operator context, collapsed by default so the
+   authoring surface opens with one information band instead of three. */
+.flow-builder__runtime {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.flow-builder__runtime-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 0 0 6px;
+  font-size: 10px;
+
+  dt {
+    color: var(--ck-fg-4, #7b8391);
+  }
+
+  dd {
+    margin: 0;
+    color: var(--ck-fg-2, #c8cdd4);
+  }
+}
+
+.flow-builder__runtime-toggle {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  padding: 3px 7px 3px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--ck-radius-sm, 4px);
+  background: transparent;
+  color: var(--ck-fg-4, #7b8391);
+  cursor: pointer;
+
+  span {
+    font: 600 9px / 1 var(--ck-font-mono, monospace);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  &:hover {
+    color: var(--ck-fg-2, #c8cdd4);
+    border-color: var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: 1px;
+  }
+}
+
+.flow-builder__inspector {
+  min-width: 0;
+  min-height: 0;
+  border-radius: var(--ck-radius-md, 6px);
+  overflow: hidden;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+}
+
+/* On-handle insertion menu — a small floating palette anchored at the drop
+   point (viewport coords). The backdrop swallows the next click to close. */
+.flow-builder__handle-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.flow-builder__handle-menu {
+  position: fixed;
+  z-index: 61;
+  min-width: 180px;
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-md, 6px);
+  background: var(--ck-bg-1, #11151b);
+  box-shadow: var(--ck-shadow-panel, 0 12px 32px rgba(0, 0, 0, 0.45));
+}
+
+.flow-builder__handle-title {
+  padding: 4px 8px 6px;
+  font: 600 9px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ck-fg-4, #7b8391);
+}
+
+.flow-builder__handle-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--ck-fg-2, #c8cdd4);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--ck-radius-sm, 4px);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ck-tint-faint, rgba(255, 255, 255, 0.04));
+    border-color: var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  }
+  &:focus-visible {
+    outline: none;
+    border-color: var(--ck-signal-cool, #7dd3fc);
+  }
+}
+
+.flow-builder__handle-more {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  padding: 5px 8px;
+  text-align: left;
+  border: 0;
+  border-top: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  background: transparent;
+  color: var(--ck-signal-cool, #7dd3fc);
+  font-size: 11px;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ck-tint-faint, rgba(255, 255, 255, 0.04));
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: -2px;
+  }
+}
+
+.flow-builder__handle-empty {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--ck-fg-4, #7b8391);
+}
+
+/* Bottom execution terminal — in-layout (not a fixed overlay) so it resizes
+   the canvas body rather than covering it. Toggled via the run controls.
+   Shrinkable: the height below is a preference, `min-height` the real floor. */
+.flow-builder__terminal {
+  flex: 0 1 auto;
+  height: clamp(180px, 32vh, 320px);
+  min-height: 128px;
+  animation: flowTerminalIn 200ms var(--ck-ease-out, ease-out);
+}
+
+.flow-builder__workbench {
+  flex: 0 1 auto;
+  height: clamp(250px, 35vh, 380px);
+  min-height: 168px;
+  animation: flowTerminalIn 180ms var(--ck-ease-out, ease-out);
+}
+
+@keyframes flowTerminalIn {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Responsive in height. The panel reservations above assume a tall window; on
+   a laptop viewport they alone exceeded the whole scrollport, so every
+   secondary consumer gives ground before the canvas does. */
+@media (max-height: 820px) {
+  .flow-builder {
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .flow-builder__title {
+    font-size: 16px;
+  }
+
+  .flow-builder__terminal {
+    height: clamp(128px, 22vh, 220px);
+  }
+
+  .flow-builder__workbench {
+    height: clamp(168px, 26vh, 260px);
+  }
+}
+
+@media (max-height: 700px) {
+  .flow-builder__body {
+    min-height: 220px;
+  }
+
+  .flow-builder__terminal {
+    height: 128px;
+  }
+
+  .flow-builder__workbench {
+    height: 168px;
+  }
+}
+
+/* Responsive — at ~1024px the inspector becomes a slide-over so the canvas
+   keeps usable width; the palette narrows. The slide-over is anchored to the
+   body, not the viewport, so the toolbar and the bottom panels stay clickable
+   while it is open. */
+@media (max-width: 1024px) {
+  .flow-builder__body,
+  .flow-builder__body.is-inspecting {
+    grid-template-columns: 1fr;
+    position: relative;
+  }
+
+  .flow-builder__body.has-palette,
+  .flow-builder__body.has-palette.is-inspecting {
+    grid-template-columns: 180px 1fr;
+  }
+
+  .flow-builder__inspector {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(380px, 100%);
+    z-index: 45;
+    box-shadow: var(--ck-shadow-panel);
+    animation: flowInspectorIn 200ms var(--ck-ease-out, ease-out);
+  }
+}
+
+@media (max-width: 720px) {
+  .flow-builder__body,
+  .flow-builder__body.has-palette,
+  .flow-builder__body.is-inspecting,
+  .flow-builder__body.has-palette.is-inspecting {
+    grid-template-columns: 1fr;
+  }
+  .flow-builder__palette {
+    max-height: 160px;
+  }
+}
+
+@keyframes flowInspectorIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.flow-builder__correction-context {
+  flex: 0 1 auto;
+  max-height: 42vh;
+  overflow: auto;
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: 6px;
+  padding: 12px;
+  background: var(--ck-bg-panel);
+  summary { cursor: pointer; padding: 4px; }
+  summary:focus-visible { outline: 2px solid var(--ck-signal-cool); }
+}

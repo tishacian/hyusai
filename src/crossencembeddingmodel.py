@@ -1,17 +1,17 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Created on Sat Mar  1 14:20:06 2025
 
 @author: kennethezukwoke
 """
-import sys
-import torch
-import warnings
-import logging
+
 import asyncio
+import logging
+import sys
+import warnings
 from functools import lru_cache, wraps
-from typing import Dict, Any, Optional, Tuple
+from typing import Any, Optional
+
+import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 logging.basicConfig(
@@ -25,7 +25,9 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 device = torch.device(
     "cuda"
     if torch.cuda.is_available()
-    else "cpu" if torch.backends.mps.is_available() else "cpu"
+    else "cpu"
+    if torch.backends.mps.is_available()
+    else "cpu"
 )
 
 
@@ -50,15 +52,15 @@ class RerankerModelLoader:
     Class to load, initialize and cache reranker models.
     """
 
-    _model_cache: Dict[str, Any] = {}
-    _tokenizer_cache: Dict[str, Any] = {}
+    _model_cache: dict[str, Any] = {}
+    _tokenizer_cache: dict[str, Any] = {}
 
     @staticmethod
     @lru_cache(maxsize=None)
     @reranker_model_cache
     def load_reranker_model(
         model_name: str, device: Optional[str] = None
-    ) -> Tuple[Any, Any]:
+    ) -> tuple[Any, Any]:
         """
         Load and cache a reranker model and tokenizer based on the model name.
 
@@ -79,16 +81,11 @@ class RerankerModelLoader:
             model = RerankerModelLoader._model_cache[model_name]
             tokenizer = RerankerModelLoader._tokenizer_cache[model_name]
 
-            if (
-                device != "cpu"
-                and next(model.parameters()).device.type != device
-            ):
+            if device != "cpu" and next(model.parameters()).device.type != device:
                 try:
                     model = model.to(device)
                 except RuntimeError as e:
-                    logging.warning(
-                        f"Failed to move model to {device}, using CPU: {e}"
-                    )
+                    logging.warning(f"Failed to move model to {device}, using CPU: {e}")
                     model = model.to("cpu")
                     device = "cpu"
 
@@ -105,7 +102,7 @@ class RerankerModelLoader:
     @staticmethod
     async def load_model_async(
         model_name: str, device: Optional[str] = None
-    ) -> Tuple[Any, Any]:
+    ) -> tuple[Any, Any]:
         """
         Asynchronously load a reranker model.
 
@@ -186,9 +183,7 @@ class RerankerModelLoader:
         try:
             model = model.to(device)
             RerankerModelLoader._model_cache[model_name] = model
-            logging.info(
-                f"Moved model {model_name} from {current_device} to {device}"
-            )
+            logging.info(f"Moved model {model_name} from {current_device} to {device}")
             return True
         except Exception as e:
             logging.error(f"Failed to move model to {device}: {e}")

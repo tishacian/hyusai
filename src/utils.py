@@ -1,42 +1,47 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Created on Wed Mar 26 15:32:40 2025
 
 @author: kennethezukwoke
 """
-import os
-import re
-import subprocess
-import importlib.util
-import sys
-import shutil
-from typing import Literal
-import torch
-import logging
-import time
-import pickle
+
 import functools
+import importlib.util
+import logging
+import os
+import pickle
+import re
+import shutil
+import subprocess
+import sys
+import time
+from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
-from functools import cache
+
+import torch
+
 from src.globalvariables import (
-    Models,
-    GPU_MODEL_SET,
-    CPUModels,
     CPU_MODEL_SET,
+    GPU_MODEL_SET,
     LARGE_MODELS,
+    CPUModels,
+    Models,
 )
-from src.reasoning_instructions import ALL_PROMPT_SECTIONS_TO_REMOVE, ALL_PROMPT_PHRASES_TO_REMOVE, DEFAULT_INSTRUCTION_LANG, InstructionLangs
+from src.init_utils import build_multilang_stopwords
+from src.system_prompts import (
+    ALL_SYSTEM_PROMPT_PHRASES_TO_REMOVE,
+    ALL_SYSTEM_PROMPT_SECTIONS_TO_REMOVE,
+    DEFAULT_SYSTEM_PROMPT_LANG,
+    SystemPromptLangs,
+)
 
-user_tessdata = os.path.expanduser("~/.local/share/tessdata")
-if os.path.isdir(user_tessdata) and any(
-    f.endswith(".traineddata") for f in os.listdir(user_tessdata)
-):
-    os.environ["TESSDATA_PREFIX"] = user_tessdata
-else:
-    # alternative destination for tessdata
-    os.environ["TESSDATA_PREFIX"] = "/usr/share/tesseract-ocr/5/tessdata/"
+try:
+    # import as to avoid unused import warning
+    from nltk.corpus import stopwords as stopwords
 
+    NLTK_AVAILABLE = True
+except ImportError:
+    NLTK_AVAILABLE = False
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -44,12 +49,6 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
-try:
-    from nltk.corpus import stopwords
-
-    NLTK_AVAILABLE = True
-except ImportError:
-    NLTK_AVAILABLE = False
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -86,7 +85,7 @@ def measure_time_sync(func):
 # %%  tesseract utils
 
 
-@cache
+@lru_cache(maxsize=None)
 def configure_tesseract():
     """Configure Tesseract OCR and determine if its available.
 
@@ -104,9 +103,7 @@ def configure_tesseract():
             logging.info(f"Using Tesseract OCR at: {tesseract_path}")
         except ImportError:
             logging.info("pytesseract is not installed.")
-            logging.info(
-                "Installing pytesseract is required for OCR functionality."
-            )
+            logging.info("Installing pytesseract is required for OCR functionality.")
             tesseract_available = False
     else:
         logging.info(
@@ -137,7 +134,6 @@ def get_tesseract_path():
     try:
         path = shutil.which("tesseract")
         if path:
-            logging.info(f"Found tesseract using 'which': {path}")
             return path
 
         result = subprocess.run(
@@ -154,6 +150,7 @@ def get_tesseract_path():
 
     # check custom locations
     possible_paths = [
+        "/data/assets/",
         "/workspace/tesseract/bin/tesseract",  # OVH Custom location
         "/usr/bin/tesseract",
         "/usr/local/bin/tesseract",
@@ -239,13 +236,9 @@ def get_max_model_len(model_name, max_model_len: int = None) -> int:
         if model_name in GPU_MODEL_SET:
             gpu_type = gpu_arc_type(device)
             if model_name in LARGE_MODELS:
-                return (
-                    128 * 1024 if gpu_type in ["A100", "H100"] else 128 * 1024
-                )
+                return 128 * 1024 if gpu_type in ["A100", "H100"] else 128 * 1024
             elif model_name in [Models.LLAMA3_8B, Models.LLAMA3_70B]:
-                return (
-                    128 * 1024 if gpu_type in ["A100", "H100"] else 128 * 1024
-                )
+                return 128 * 1024 if gpu_type in ["A100", "H100"] else 128 * 1024
             elif model_name in [Models.LLAMA2_7B, Models.LLAMA2_13B]:
                 return 4 * 1024 if gpu_type in ["A100", "H100"] else 4 * 1024
             elif model_name == Models.TINYLLAMA:
@@ -267,79 +260,32 @@ def get_max_model_len(model_name, max_model_len: int = None) -> int:
 # %% stopwords
 
 
-def create_stopwords_mlin(data_dir: str = "data"):
-    """Create multilingual stopwords
+def load_multilang_stopwords(target_dir: str) -> set[str]:
+    """Load the multilingual stopwords set, or build it if missing.
 
     Parameters
     ----------
-    data_dir : str, optional
-        Directory to store cache file, by default "data"
+    target_dir : str
+        Directory where the multilingual stopwords set is stored.
 
     Returns
     -------
-    Optional[Set[str]]
-        Combined stopwords set, or None if failed
+    set[str]
+        The loaded multilingual stopwords set.
     """
-    data_path = Path(data_dir)
-    data_path.mkdir(exist_ok=True)
-    save_file = data_path / "multilingual_stopwords.pkl"
-    languages = ["english", "french", "german", "italian", "russian"]
+    file_path = Path(target_dir) / "multilang_stopwords.pkl"
 
-    if not NLTK_AVAILABLE:
-        logging.error("NLTK not available - cannot create stopwords")
-        return None
-
-    try:
-        combined_stopwords = set()
-        for lang in languages:
-            lang_stopwords = set(stopwords.words(lang))
-            combined_stopwords.update(lang_stopwords)
-
-        if not combined_stopwords:
-            logging.error("No stopwords could be loaded from any language")
-            return None
-
-        with open(save_file, "wb") as f:
-            pickle.dump(
-                combined_stopwords, f, protocol=pickle.HIGHEST_PROTOCOL
-            )
-
-        return combined_stopwords
-    except Exception as e:
-        logging.error(f"Error creating multilingual stopwords: {e}")
-        return None
+    if file_path.exists():
+        with file_path.open("rb") as f:
+            return pickle.load(f)
+    else:
+        logging.info("Multilingual stopwords file not found, building new one.")
+        return build_multilang_stopwords(target_dir)
 
 
-def load_stopwords(data_dir: str = "data"):
-    """Load stopwords, create if not exists
-
-    Parameters
-    ----------
-    data_dir : str, optional
-        Directory containing cache file, by default "data"
-
-    Returns
-    -------
-    Set[str]
-        Combined stopwords set (empty set if all methods fail)
-    """
-    saved_file = Path(data_dir) / "multilingual_stopwords.pkl"
-
-    if saved_file.exists():
-        with open(saved_file, "rb") as f:
-            stopwords_set = pickle.load(f)
-        return stopwords_set
-
-    stopwords_set = create_stopwords_mlin(data_dir)
-
-    if stopwords_set is None:
-        logging.error("Failed to create stopwords - returning empty set")
-        return set()
-
-    return stopwords_set
-
-
-def format_llm_response(response: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG) -> str:
+def format_llm_response(
+    response: str, language: SystemPromptLangs = DEFAULT_SYSTEM_PROMPT_LANG
+) -> str:
     """Format LLM response while preserving tables and structured data.
     Only removes template artifacts and prompt phrases.
 
@@ -347,26 +293,69 @@ def format_llm_response(response: str, language: InstructionLangs = DEFAULT_INST
     ----------
     response : str
         Raw response from the LLM
-    language : InstructionLangs, optional
+    language : SystemPromptLangs, optional
         Language of the reasoning instructions to remove,
-        by default DEFAULT_INSTRUCTION_LANG
+        by default DEFAULT_SYSTEM_PROMPT_LANG
 
     Returns
     -------
     str
         Cleaned response with preserved formatting
     """
-    instruction_block = r"\[INST\].*?\[/INST\]"
-    prompt_sections = ALL_PROMPT_SECTIONS_TO_REMOVE[language]
-    prompt_phrases = ALL_PROMPT_PHRASES_TO_REMOVE[language]
+    instruction_blocks = [r"\[INST\].*?\[/INST\]", r"\[INST\]", r"\[/INST\]"]
+    prompt_sections = ALL_SYSTEM_PROMPT_SECTIONS_TO_REMOVE[language]
+    prompt_phrases = ALL_SYSTEM_PROMPT_PHRASES_TO_REMOVE[language]
     try:
-        response = re.sub(instruction_block, "", response, flags=re.DOTALL).strip()
+        for block in instruction_blocks:
+            response = re.sub(block, "", response, flags=re.DOTALL).strip()
         # remove standard prompt sections/phrases
         for section in prompt_sections:
-            response = re.sub(section, "", response, flags=re.IGNORECASE | re.DOTALL).strip()
+            response = re.sub(
+                section, "", response, flags=re.IGNORECASE | re.DOTALL
+            ).strip()
         for phrase in prompt_phrases:
             response = re.sub(phrase, "", response, flags=re.MULTILINE).strip()
         return response
     except Exception as e:
         logging.error(f"🚩 An error occurred during response formatting: {str(e)}")
         return "No sufficient context to respond to the question."
+
+
+def humanize_datetime(dt: datetime) -> str:
+    """
+    Converts a datetime object to a human-readable string.
+
+    Example:
+        2025-06-17T15:42:00Z -> "June 17, 2025 at 15:42 UTC"
+
+    Parameters
+    ----------
+    dt : datetime
+        The datetime object to format.
+
+    Returns
+    -------
+    str
+        A human-readable string representation.
+    """
+    if not dt:
+        return "N/A"
+    return dt.strftime("%B %d, %Y at %H:%M")
+
+
+def add_leading_space_if_needed(s: str) -> str:
+    """Add a leading space to a non-empty string if it does not already start with one.
+
+    Parameters
+    ----------
+    s : str
+        The input string to check.
+
+    Returns
+    -------
+    str
+        The original string with a leading space added if it did not already have one.
+    """
+    if s and not s[0].isspace():
+        return " " + s
+    return s

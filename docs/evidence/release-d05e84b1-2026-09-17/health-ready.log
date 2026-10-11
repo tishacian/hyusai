@@ -1,0 +1,6 @@
+/agentium-backend agentium-backend:d05e84b15c53 running healthy
+/agentium-worker-cpu agentium-worker:d05e84b15c53 running 
+/agentium-worker-recipes agentium-worker:d05e84b15c53 running 
+/agentium-frontend agentium-frontend:d05e84b15c53 running healthy
+/agentium-p4-maintenance agentium-worker:d05e84b15c53 running 
+/agentium-beat agentium-worker:d05e84b15c53 running 

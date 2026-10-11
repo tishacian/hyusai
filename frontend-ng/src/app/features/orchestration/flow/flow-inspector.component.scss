@@ -1,0 +1,500 @@
+/* Node inspector — docked panel, tokenised, AA contrast. */
+
+:host {
+  display: block;
+  height: 100%;
+}
+
+.ck-flow-inspector {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--ck-bg-panel, #0c1014);
+  border-left: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  color: var(--ck-fg-1, #f2f5f8);
+}
+
+.ck-flow-inspector__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  flex-shrink: 0;
+}
+
+.ck-flow-inspector__heading {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ck-flow-inspector__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 9px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ck-fg-3, #8891a0);
+}
+
+.ck-flow-inspector__dirty {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  letter-spacing: 0.08em;
+  color: var(--ck-on-signal);
+  background: var(--ck-signal-warn, #f5b84a);
+}
+
+.ck-flow-inspector__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--ck-fg-1, #f2f5f8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ck-flow-inspector__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--ck-radius-sm, 4px);
+  background: transparent;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  color: var(--ck-fg-3, #8891a0);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    color var(--ck-dur-fast) var(--ck-ease-out),
+    border-color var(--ck-dur-fast) var(--ck-ease-out),
+    background var(--ck-dur-fast) var(--ck-ease-out);
+
+  &:hover {
+    color: var(--ck-fg-1);
+    border-color: var(--ck-stroke-3);
+    background: var(--ck-tint-soft);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool);
+    outline-offset: 2px;
+  }
+}
+
+.ck-flow-inspector__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.ck-flow-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ck-flow-section__label {
+  font: 600 9px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ck-fg-3, #8891a0);
+}
+
+/* Folded sections: same section shell, a native `<details>` so the fold costs
+   no state and keeps keyboard and screen-reader semantics for free. */
+.ck-flow-fold {
+  > .ck-flow-fold__summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    list-style: none;
+    font: 600 9px / 1 var(--ck-font-mono, monospace);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ck-fg-3, #8891a0);
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+
+    &::before {
+      content: '▸';
+      font-size: 9px;
+      line-height: 1;
+      transition: transform var(--ck-dur-fast, 120ms) var(--ck-ease-out, ease-out);
+    }
+
+    &:hover {
+      color: var(--ck-fg-2, #c8cdd4);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--ck-signal-cool);
+      outline-offset: 2px;
+    }
+  }
+
+  &[open] > .ck-flow-fold__summary::before {
+    transform: rotate(90deg);
+  }
+}
+
+.ck-flow-section__heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ck-flow-mini-action,
+.ck-flow-icon-action {
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-sm, 4px);
+  background: var(--ck-bg-inset, #0a0d11);
+  color: var(--ck-fg-2, #c8cdd4);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    border-color: var(--ck-signal-violet, #a78bfa);
+    color: var(--ck-fg-1, #f2f5f8);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+  }
+}
+
+.ck-flow-mini-action {
+  padding: 5px 8px;
+  font: 600 9px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* The way out of the panel and onto the dataset the node wrote — the provenance
+   thread, followed forwards. */
+.ck-flow-link {
+  align-self: flex-start;
+  font-size: 10.5px;
+  color: var(--ck-signal-cool, #7dd3fc);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.ck-flow-decision__branches {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ck-flow-decision__branch {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--ck-signal-violet, #a78bfa) 24%, transparent);
+  border-radius: var(--ck-radius-md, 6px);
+  background: color-mix(in srgb, var(--ck-signal-violet, #a78bfa) 4%, transparent);
+}
+
+.ck-flow-decision__branch-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.ck-flow-decision__order {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ck-signal-violet, #a78bfa) 18%, transparent);
+  color: var(--ck-signal-violet, #a78bfa);
+  font: 700 9px / 1 var(--ck-font-mono, monospace);
+}
+
+.ck-flow-decision__route-count {
+  flex: 1 1 auto;
+  color: var(--ck-fg-3, #8891a0);
+  font: 9px / 1 var(--ck-font-mono, monospace);
+}
+
+.ck-flow-decision__branch-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.ck-flow-icon-action {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font: 600 13px / 1 var(--ck-font-mono, monospace);
+
+  &--danger:hover:not(:disabled) {
+    border-color: var(--ck-signal-neg, #ef5a6f);
+    color: var(--ck-signal-neg, #ef5a6f);
+  }
+}
+
+.ck-flow-kv {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 6px 12px;
+  margin: 0;
+
+  dt {
+    font: 600 10px / 1.4 var(--ck-font-mono, monospace);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ck-fg-3, #8891a0);
+  }
+  dd {
+    margin: 0;
+    font-size: 12px;
+    color: var(--ck-fg-2, #c8cdd4);
+    word-break: break-word;
+
+    &.mono {
+      font-family: var(--ck-font-mono, monospace);
+      font-size: 11px;
+    }
+  }
+}
+
+.ck-flow-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  &--row {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+  }
+}
+
+.ck-flow-agent-loop__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.ck-flow-agent-loop__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ck-flow-hint--mono {
+  font-family: var(--ck-font-mono, monospace);
+  font-size: 11px;
+}
+
+.ck-flow-field__label {
+  font: 600 10px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ck-fg-3, #8891a0);
+}
+
+.ck-flow-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--ck-fg-1, #f2f5f8);
+  background: var(--ck-bg-inset, #0a0d11);
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-sm, 4px);
+  transition: border-color var(--ck-dur-fast) var(--ck-ease-out);
+
+  &::placeholder {
+    color: var(--ck-fg-4, #5a6270);
+  }
+  &:hover {
+    border-color: var(--ck-stroke-3, rgba(255, 255, 255, 0.14));
+  }
+  &:focus {
+    outline: none;
+    border-color: var(--ck-signal-cool, #7dd3fc);
+    box-shadow: 0 0 0 1px var(--ck-signal-cool, #7dd3fc);
+  }
+
+  &--area {
+    resize: vertical;
+    min-height: 64px;
+    font-family: var(--ck-font-mono, monospace);
+    line-height: 1.45;
+  }
+
+  &--multi {
+    min-height: 104px;
+    padding: 4px;
+
+    option {
+      padding: 6px 8px;
+      border-radius: 3px;
+    }
+
+    option:checked {
+      color: var(--ck-fg-1, #f2f5f8);
+      background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 24%, transparent);
+    }
+  }
+}
+
+.ck-flow-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ck-fg-3, #8891a0);
+
+  &--error {
+    color: var(--ck-signal-danger, #fb7185);
+  }
+
+  /* A configuration gap, not a failure: a serving node with no model chosen is
+     incomplete, and saying so in the danger colour would over-state it. */
+  &--warn {
+    color: var(--ck-signal-warn, #f5b84a);
+  }
+}
+
+.ck-flow-hint__btn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ck-signal-cool, #7dd3fc);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* Secondary action link (node deep-links: open collection / SFTP deposit). */
+.ck-flow-action {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ck-fg-1, #f2f5f8);
+  background: var(--ck-bg-inset, #0a0d11);
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-sm, 4px);
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    border-color var(--ck-dur-fast) var(--ck-ease-out),
+    background var(--ck-dur-fast) var(--ck-ease-out);
+
+  &:hover {
+    border-color: var(--ck-stroke-3, rgba(255, 255, 255, 0.14));
+    background: var(--ck-tint-soft, rgba(255, 255, 255, 0.04));
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool);
+    outline-offset: 2px;
+  }
+}
+
+/* Destructive node action — last section of the body so it is deliberate,
+   labelled and impossible to hit while editing fields above it. */
+.ck-flow-danger {
+  padding-top: 14px;
+  border-top: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+}
+
+.ck-flow-danger__btn {
+  align-self: flex-start;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--ck-signal-neg, #ef5a6f) 42%, transparent);
+  border-radius: var(--ck-radius-sm, 4px);
+  background: color-mix(in srgb, var(--ck-signal-neg, #ef5a6f) 10%, transparent);
+  color: var(--ck-signal-neg, #ef5a6f);
+  font: 600 12px / 1 var(--ck-font-sans, sans-serif);
+  cursor: pointer;
+  transition:
+    border-color var(--ck-dur-fast) var(--ck-ease-out),
+    background var(--ck-dur-fast) var(--ck-ease-out);
+
+  &:hover:not(:disabled) {
+    border-color: var(--ck-signal-neg, #ef5a6f);
+    background: color-mix(in srgb, var(--ck-signal-neg, #ef5a6f) 20%, transparent);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: 2px;
+  }
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
+}
+
+.ck-flow-ports {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ck-flow-chip {
+  font: 10px / 1 var(--ck-font-mono, monospace);
+  padding: 5px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--ck-stroke-2);
+  color: var(--ck-fg-2, #c8cdd4);
+
+  &--in {
+    border-color: color-mix(in srgb, var(--ck-fg-4) 60%, transparent);
+  }
+  &--out {
+    border-color: color-mix(in srgb, var(--ck-signal-cool) 50%, transparent);
+    color: var(--ck-signal-cool);
+  }
+}
+
+.ck-flow-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--ck-fg-3, #8891a0);
+
+  p {
+    margin: 0;
+    font-size: 12px;
+    max-width: 220px;
+    line-height: 1.5;
+  }
+}

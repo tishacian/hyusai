@@ -1,0 +1,73 @@
+The bundle contains this ref:
+c19d30e8133c1a728b9e834a98fc135cda171bda refs/heads/demo/agentic
+The bundle requires this ref:
+ab15d204a73ee9975ce52d56dccb11b92e39589d
+The bundle uses this hash algorithm: sha1
+/tmp/outcome-card-c19d30e8.bundle is okay
+From /tmp/outcome-card-c19d30e8.bundle
+ * branch              demo/agentic -> FETCH_HEAD
+Updating ab15d204..c19d30e8
+Fast-forward
+ .../evidence/invocation-audit-2026-09-17/README.md |   3 +
+ .../invocation-context-2026-09-17/README.md        |   3 +
+ docs/evidence/outcome-card-2026-09-17/README.md    |  21 +++
+ docs/evidence/outcome-card-2026-09-17/backend.log  |  51 ++++++
+ docs/evidence/outcome-card-2026-09-17/build.log    | 107 +++++++++++
+ docs/evidence/outcome-card-2026-09-17/chrome.log   |   5 +
+ docs/evidence/outcome-card-2026-09-17/focused.log  |  17 ++
+ docs/evidence/outcome-card-2026-09-17/i18n.log     |   5 +
+ docs/evidence/outcome-card-2026-09-17/nav.log      |   5 +
+ docs/evidence/outcome-card-2026-09-17/unit.log     |  25 +++
+ .../evidence/release-ab15d204-2026-09-17/README.md |  54 ++++++
+ .../backend-build-info.json                        |   6 +
+ .../release-ab15d204-2026-09-17/canaries.log       |  19 ++
+ .../frontend-build-info.json                       |   5 +
+ .../release-ab15d204-2026-09-17/health.log         |   7 +
+ .../release-ab15d204-2026-09-17/home-http.log      |   1 +
+ .../release-ab15d204-2026-09-17/invocation-dom.txt |  96 ++++++++++
+ .../release-ab15d204-2026-09-17/invocation.png     | Bin 0 -> 139417 bytes
+ .../release-ab15d204-2026-09-17/pre-switch.log     |   3 +
+ .../release-ab15d204-2026-09-17/return-run-dom.txt | 198 +++++++++++++++++++++
+ .../release-ab15d204-2026-09-17/storage.log        |   2 +
+ .../unavailable-dom.txt                            |  78 ++++++++
+ .../release-ab15d204-2026-09-17/unavailable.png    | Bin 0 -> 46054 bytes
+ .../release-ab15d204-2026-09-17/vm-build.log       |   9 +
+ .../release-ab15d204-2026-09-17/worker-sdk.log     |   7 +
+ docs/ops/agentium-r0-closure.md                    |  34 ++--
+ docs/ops/agentium-safe-vm-deployment.md            |  31 ++++
+ docs/ops/brd-system-roadmap-progress.md            |  15 +-
+ docs/ui/observability/README.md                    |  20 +++
+ .../tests/23-observability-evidence-canary.spec.ts |   9 +
+ frontend-ng/scripts/run-unit.mjs                   |   1 +
+ frontend-ng/src/app/core/i18n/runs.dict.ts         |  18 ++
+ .../src/app/features/runs/run-view.component.ts    |   8 +-
+ frontend-ng/src/app/shared/cockpit/run-cost.ts     |  20 +++
+ .../cockpit/run-outcome-card.component.spec.ts     | 104 +++++++++++
+ .../shared/cockpit/run-outcome-card.component.ts   |  72 +++++---
+ 36 files changed, 1010 insertions(+), 49 deletions(-)
+ create mode 100644 docs/evidence/outcome-card-2026-09-17/README.md
+ create mode 100644 docs/evidence/outcome-card-2026-09-17/backend.log
+ create mode 100644 docs/evidence/outcome-card-2026-09-17/build.log
+ create mode 100644 docs/evidence/outcome-card-2026-09-17/chrome.log
+ create mode 100644 docs/evidence/outcome-card-2026-09-17/focused.log
+ create mode 100644 docs/evidence/outcome-card-2026-09-17/i18n.log
+ create mode 100644 docs/evidence/outcome-card-2026-09-17/nav.log
+ create mode 100644 docs/evidence/outcome-card-2026-09-17/unit.log
+ create mode 100644 docs/evidence/release-ab15d204-2026-09-17/README.md
+ create mode 100644 docs/evidence/release-ab15d204-2026-09-17/backend-build-info.json
+ create mode 100644 docs/evidence/release-ab15d204-2026-09-17/canaries.log
+ create mode 100644 docs/evidence/release-ab15d204-2026-09-17/frontend-build-info.json
+ create mode 100644 docs/evidence/release-ab15d204-2026-09-17/health.log
+ create mode 100644 docs/evidence/release-ab15d204-2026-09-17/home-http.log
+ create mode 100644 docs/evidence/release-ab15d204-2026-09-17/invocation-dom.txt
+ create mode 100644 docs/evidence/release-ab15d204-2026-09-17/invocation.png
+ create mode 100644 docs/evidence/release-ab15d204-2026-09-17/pre-switch.log
+ create mode 100644 docs/evidence/release-ab15d204-2026-09-17/return-run-dom.txt
+ create mode 100644 docs/evidence/release-ab15d204-2026-09-17/storage.log
+ create mode 100644 docs/evidence/release-ab15d204-2026-09-17/unavailable-dom.txt
+ create mode 100644 docs/evidence/release-ab15d204-2026-09-17/unavailable.png
+ create mode 100644 docs/evidence/release-ab15d204-2026-09-17/vm-build.log
+ create mode 100644 docs/evidence/release-ab15d204-2026-09-17/worker-sdk.log
+ create mode 100644 frontend-ng/src/app/shared/cockpit/run-cost.ts
+ create mode 100644 frontend-ng/src/app/shared/cockpit/run-outcome-card.component.spec.ts
+chmod: cannot access 'akai-sync.log': No such file or directory

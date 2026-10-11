@@ -1,0 +1,3187 @@
+{
+  "sha": "18741f94fb6ced627c53701c0b469685618b852d",
+  "attempts": [
+    {
+      "key": "2d3c4e10-cdbc-47d4-9fd5-ca34c73eef33",
+      "receipt": {
+        "id": "91855689-8b2e-437e-b981-9d66d7f2636d",
+        "status": "pending",
+        "execution_surface": "published_manual",
+        "idempotent_replay": false,
+        "surface": "experience",
+        "origin": "experience:operational-analysis",
+        "experience_id": "f286295a-ebef-44d2-a4a3-d0dbf04c866f",
+        "experience_slug": "operational-analysis",
+        "experience_release_id": "9f8ad33f-41bc-4ccb-a043-d26e5241d779",
+        "experience_deployment_id": "e6d39e68-2eec-41db-b331-9e2ba71b36b1",
+        "channel": "live",
+        "binding_key": "showcase.operational.analyze",
+        "page_id": "analysis",
+        "component_id": "analyze"
+      },
+      "run": {
+        "id": "91855689-8b2e-437e-b981-9d66d7f2636d",
+        "system_id": "15b05919-c93b-4648-8581-8a41cbe2fae6",
+        "capability_id": null,
+        "status": "completed",
+        "trigger": "manual",
+        "started_at": "2026-09-17T02:48:57.918858",
+        "completed_at": "2026-09-17T02:49:21.930289",
+        "duration_ms": 23457.467735745013,
+        "input_ref": {
+          "execution": {
+            "flow_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d",
+            "runtime_mode": "dag_overlay",
+            "runtime_mode_reason": null,
+            "execution_surface": "published_manual",
+            "published_flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+            "ingress_id": "src",
+            "ingress_selection_version": 1,
+            "snapshot_at": "2026-09-17T02:48:58.399634Z",
+            "runtime_revision": "18741f94fb6ced627c53701c0b469685618b852d",
+            "control_policy": {
+              "schema_version": 1,
+              "state": "not_configured"
+            },
+            "system_id": "15b05919-c93b-4648-8581-8a41cbe2fae6"
+          },
+          "_ingress": {
+            "ingress_id": "src",
+            "source_node_id": "src",
+            "kind": "manual",
+            "adapter": {
+              "surface": "experience",
+              "origin": "experience:operational-analysis",
+              "experience_id": "f286295a-ebef-44d2-a4a3-d0dbf04c866f",
+              "experience_slug": "operational-analysis",
+              "experience_release_id": "9f8ad33f-41bc-4ccb-a043-d26e5241d779",
+              "experience_deployment_id": "e6d39e68-2eec-41db-b331-9e2ba71b36b1",
+              "channel": "live",
+              "binding_key": "showcase.operational.analyze",
+              "page_id": "analysis",
+              "component_id": "analyze",
+              "request_sha256": "e615a5cc3779118bf3768ec8edb5a8a99520bed9eaad0d84f7332088ae4121f5"
+            }
+          },
+          "workspace_id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+          "workspace_slug": "agentium-showcase",
+          "user_id": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+          "retrieval_contract": {}
+        },
+        "output_ref": {
+          "stats": {
+            "orders": 4,
+            "planned_minutes": 120,
+            "actual_minutes": 155,
+            "overrun_minutes": 35,
+            "late_orders": 3,
+            "largest_overrun_order": "NF-04",
+            "largest_overrun_minutes": 25
+          },
+          "answer": "- Donn\u00e9es observ\u00e9es:\n  - Commandes trait\u00e9es: 4 [1]\n  - Temps planifi\u00e9: 120 min [1]\n  - Temps r\u00e9el: 155 min [1]\n  - D\u00e9rive totale: +35 min [1]\n  - Commandes en retard: 3 [1]\n  - Plus grande d\u00e9rive individuelle: ordre NF-04, +25 min [1]\n\nExplication du retard op\u00e9rationnel:\n- L\u2019\u00e9cart global provient d\u2019une surconsommation de 35 min par rapport au plan (120 \u2192 155 min) [1]. \n- La majeure partie de cette d\u00e9rive est concentr\u00e9e sur un seul ordre, NF-04, avec 25 min d\u2019\u00e9cart, soit l\u2019essentiel des 35 min totaux; il reste donc 10 min d\u2019\u00e9cart cumul\u00e9 sur les autres ordres [1]. \n- 3 commandes sur 4 sont en retard, ce qui est coh\u00e9rent avec une d\u00e9rive totale de 35 min sur la plage planifi\u00e9e de 120 min [1].\n\nProchaine investigation (une seule):\n- Analyser en d\u00e9tail la chronologie de l\u2019ordre NF-04 (comparatif plan vs r\u00e9el par \u00e9tapes/horodatages) pour localiser pr\u00e9cis\u00e9ment les 25 minutes suppl\u00e9mentaires et identifier l\u2019\u00e9tape responsable [1].",
+          "numerical_reference_passed": true,
+          "human_validated": false,
+          "economic_impact": null,
+          "showcase_seed": true
+        },
+        "outcome": {
+          "decision": null,
+          "confidence": null,
+          "value_estimated": 0.0,
+          "cost_internal": 0.012,
+          "revenue_allocated": null,
+          "efficiency": 0.0,
+          "value_source": "unset",
+          "operator_value_note": null,
+          "measurement_provenance": null,
+          "baseline_eligible": false,
+          "baseline_ineligible_reason": "baseline_run_is_synthetic_demo"
+        },
+        "retries": 0,
+        "error": null,
+        "checkpoints": [
+          {
+            "kind": "ingress_accepted",
+            "t": "2026-09-17T02:48:57.918871",
+            "ingress_id": "src",
+            "ingress_kind": "manual",
+            "published_flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+            "flow_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d"
+          },
+          {
+            "kind": "run_start",
+            "nodes": 5,
+            "debug_mode": null,
+            "breakpoints": [],
+            "ingress_source_node_id": "src",
+            "inactive_ingress_source_node_ids": [],
+            "t": "2026-09-17T02:48:58.463102"
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:48:58.471296",
+            "node_id": "src",
+            "node_kind": "source",
+            "label": "Synthetic work orders",
+            "skill_slug": null
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:48:58.480885",
+            "node_id": "src",
+            "node_kind": "source"
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:48:58.487960",
+            "node_id": "calculate",
+            "node_kind": "task",
+            "label": "Calculate with Python / Polars",
+            "skill_slug": "python_recipe_v1"
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:49:00.683577",
+            "node_id": "calculate",
+            "node_kind": "task",
+            "skill_slug": "python_recipe_v1",
+            "status": "completed",
+            "latency_ms": 2106.521331705153,
+            "cost": 0.0
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:49:00.700266",
+            "node_id": "explain",
+            "node_kind": "task",
+            "label": "Explain the computed evidence",
+            "skill_slug": "llm_rag_answer_v1"
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:49:20.819163",
+            "node_id": "explain",
+            "node_kind": "task",
+            "skill_slug": "llm_rag_answer_v1",
+            "status": "completed",
+            "latency_ms": 20077.766365371644,
+            "cost": 0.012
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:49:20.828615",
+            "node_id": "check",
+            "node_kind": "task",
+            "label": "Check against the numerical reference",
+            "skill_slug": "python_recipe_v1"
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:49:21.888566",
+            "node_id": "check",
+            "node_kind": "task",
+            "skill_slug": "python_recipe_v1",
+            "status": "completed",
+            "latency_ms": 1025.523274205625,
+            "cost": 0.0
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:49:21.900234",
+            "node_id": "sink",
+            "node_kind": "sink",
+            "label": "Inspect result and evidence",
+            "skill_slug": null
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:49:21.909112",
+            "node_id": "sink",
+            "node_kind": "sink"
+          },
+          {
+            "kind": "run_end",
+            "status": "completed",
+            "nodes_executed": 5,
+            "t": "2026-09-17T02:49:22.183509"
+          }
+        ],
+        "test_result": null,
+        "waiting_subflows": {},
+        "result_held": false,
+        "flow_evidence": {
+          "flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+          "flow_snapshot_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d",
+          "execution_snapshot_at": "2026-09-17T02:48:58.399634Z",
+          "runtime_revision": "18741f94fb6ced627c53701c0b469685618b852d"
+        },
+        "invocations": [
+          {
+            "id": "d5bb80d1-518e-4ceb-a8e3-dd2c892d79ff",
+            "skill_slug": "python_recipe_v1",
+            "status": "completed",
+            "started_at": "2026-09-17T02:48:58.546971",
+            "completed_at": "2026-09-17T02:49:00.667089",
+            "latency_ms": 2106.521331705153,
+            "cost": 0.0,
+            "input_ref": {
+              "execution": {
+                "flow_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d",
+                "runtime_mode": "dag_overlay",
+                "runtime_mode_reason": null,
+                "execution_surface": "published_manual",
+                "published_flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+                "ingress_id": "src",
+                "ingress_selection_version": 1,
+                "snapshot_at": "2026-09-17T02:48:58.399634Z",
+                "runtime_revision": "18741f94fb6ced627c53701c0b469685618b852d",
+                "control_policy": {
+                  "schema_version": 1,
+                  "state": "not_configured"
+                },
+                "system_id": "15b05919-c93b-4648-8581-8a41cbe2fae6"
+              },
+              "_ingress": {
+                "ingress_id": "src",
+                "source_node_id": "src",
+                "kind": "manual",
+                "adapter": {
+                  "surface": "experience",
+                  "origin": "experience:operational-analysis",
+                  "experience_id": "f286295a-ebef-44d2-a4a3-d0dbf04c866f",
+                  "experience_slug": "operational-analysis",
+                  "experience_release_id": "9f8ad33f-41bc-4ccb-a043-d26e5241d779",
+                  "experience_deployment_id": "e6d39e68-2eec-41db-b331-9e2ba71b36b1",
+                  "channel": "live",
+                  "binding_key": "showcase.operational.analyze",
+                  "page_id": "analysis",
+                  "component_id": "analyze",
+                  "request_sha256": "e615a5cc3779118bf3768ec8edb5a8a99520bed9eaad0d84f7332088ae4121f5"
+                }
+              },
+              "workspace_id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+              "workspace_slug": "agentium-showcase",
+              "user_id": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+              "retrieval_contract": {},
+              "_recipe": {
+                "code": "import json\nimport polars as pl\n\nDEFAULT_ROWS = [{'order': 'NF-01', 'planned_minutes': 30, 'actual_minutes': 40}, {'order': 'NF-02', 'planned_minutes': 40, 'actual_minutes': 35}, {'order': 'NF-03', 'planned_minutes': 20, 'actual_minutes': 25}, {'order': 'NF-04', 'planned_minutes': 30, 'actual_minutes': 55}]\n\ndef main(inputs):\n    rows = inputs.get(\"rows\", DEFAULT_ROWS)\n    frame = pl.DataFrame(rows)\n    required = {\"order\", \"planned_minutes\", \"actual_minutes\"}\n    if not rows or not required.issubset(frame.columns):\n        raise ValueError(\"Supply non-empty rows with order, planned_minutes and actual_minutes\")\n    if frame.select(pl.col(\"planned_minutes\", \"actual_minutes\").null_count()).sum_horizontal().item() != 0:\n        raise ValueError(\"Durations cannot be missing\")\n    if frame.filter((pl.col(\"planned_minutes\") < 0) | (pl.col(\"actual_minutes\") < 0)).height:\n        raise ValueError(\"Durations cannot be negative\")\n    planned = frame[\"planned_minutes\"].sum()\n    actual = frame[\"actual_minutes\"].sum()\n    largest = frame.with_columns((pl.col(\"actual_minutes\") - pl.col(\"planned_minutes\")).alias(\"overrun\")).sort([\"overrun\", \"order\"], descending=[True, False]).row(0, named=True)\n    stats = {\"orders\": frame.height, \"planned_minutes\": planned, \"actual_minutes\": actual,\n             \"overrun_minutes\": actual - planned,\n             \"late_orders\": frame.filter(pl.col(\"actual_minutes\") > pl.col(\"planned_minutes\")).height,\n             \"largest_overrun_order\": largest[\"order\"], \"largest_overrun_minutes\": largest[\"overrun\"]}\n    return {\"stats\": stats, \"context\": [\"Synthetic NorthForge exercise; no customer data or verified savings. \" + json.dumps(stats)],\n            \"query\": \"Explain the operational delay using only the supplied numbers. Do not claim savings. Suggest one next investigation.\",\n            \"showcase_seed\": True}\n",
+                "requirements_text": "polars==1.31.0",
+                "index_url": null,
+                "extra_index_urls": null,
+                "timeout_s": 30,
+                "sources": null,
+                "node_id": "calculate"
+              }
+            },
+            "output_ref": {
+              "stats": {
+                "orders": 4,
+                "planned_minutes": 120,
+                "actual_minutes": 155,
+                "overrun_minutes": 35,
+                "late_orders": 3,
+                "largest_overrun_order": "NF-04",
+                "largest_overrun_minutes": 25
+              },
+              "context": [
+                "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}"
+              ],
+              "query": "Explain the operational delay using only the supplied numbers. Do not claim savings. Suggest one next investigation.",
+              "showcase_seed": true
+            },
+            "metrics": {
+              "cost_evidence": {
+                "schema_version": 1,
+                "state": "calculated",
+                "method": "catalog_unit_price",
+                "source": "skill_catalog:2d48c95e-d295-4058-b1c6-498f37e958a1:pricing",
+                "pricing_sha256": "180d622b84036120f8983343008002bc2238a477f008c40316b1a6e9ed22b494",
+                "currency": "USD",
+                "unit": "per_execution",
+                "quantity": 1.0
+              }
+            },
+            "trace": {
+              "node_id": "calculate",
+              "membrane_attempt_kind": "task",
+              "membrane_attempt_index": 1,
+              "effective_model": null
+            },
+            "error": null,
+            "execution_evidence": {
+              "resolution": "resolved",
+              "execution_snapshot_sha256": "95d5d4b6a34481abb901f14198b199a4660b5413ca4aa2e3a636d4b600a4b466"
+            }
+          },
+          {
+            "id": "9110bb76-127c-4fce-aa6e-0c6f381580f3",
+            "skill_slug": "llm_rag_answer_v1",
+            "status": "completed",
+            "started_at": "2026-09-17T02:49:00.719339",
+            "completed_at": "2026-09-17T02:49:20.807475",
+            "latency_ms": 20077.766365371644,
+            "cost": 0.012,
+            "input_ref": {
+              "stats": {
+                "orders": 4,
+                "planned_minutes": 120,
+                "actual_minutes": 155,
+                "overrun_minutes": 35,
+                "late_orders": 3,
+                "largest_overrun_order": "NF-04",
+                "largest_overrun_minutes": 25
+              },
+              "context": [
+                "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}"
+              ],
+              "query": "Explain the operational delay using only the supplied numbers. Do not claim savings. Suggest one next investigation.",
+              "showcase_seed": true
+            },
+            "output_ref": {
+              "answer": "- Donn\u00e9es observ\u00e9es:\n  - Commandes trait\u00e9es: 4 [1]\n  - Temps planifi\u00e9: 120 min [1]\n  - Temps r\u00e9el: 155 min [1]\n  - D\u00e9rive totale: +35 min [1]\n  - Commandes en retard: 3 [1]\n  - Plus grande d\u00e9rive individuelle: ordre NF-04, +25 min [1]\n\nExplication du retard op\u00e9rationnel:\n- L\u2019\u00e9cart global provient d\u2019une surconsommation de 35 min par rapport au plan (120 \u2192 155 min) [1]. \n- La majeure partie de cette d\u00e9rive est concentr\u00e9e sur un seul ordre, NF-04, avec 25 min d\u2019\u00e9cart, soit l\u2019essentiel des 35 min totaux; il reste donc 10 min d\u2019\u00e9cart cumul\u00e9 sur les autres ordres [1]. \n- 3 commandes sur 4 sont en retard, ce qui est coh\u00e9rent avec une d\u00e9rive totale de 35 min sur la plage planifi\u00e9e de 120 min [1].\n\nProchaine investigation (une seule):\n- Analyser en d\u00e9tail la chronologie de l\u2019ordre NF-04 (comparatif plan vs r\u00e9el par \u00e9tapes/horodatages) pour localiser pr\u00e9cis\u00e9ment les 25 minutes suppl\u00e9mentaires et identifier l\u2019\u00e9tape responsable [1].",
+              "citations": [
+                {
+                  "index": 1,
+                  "id": null,
+                  "source_id": null,
+                  "document": "source 1",
+                  "title": "source 1",
+                  "filename": "source 1",
+                  "document_id": null,
+                  "collection": null,
+                  "page": null,
+                  "snippet": "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}",
+                  "score": null
+                }
+              ],
+              "decision_steps": [],
+              "meta": {
+                "retrieval": {
+                  "raw_chunks_retrieved": 1,
+                  "source": "join_context",
+                  "stage_timings": {}
+                },
+                "inventory_coverage_review": {
+                  "status": "not_armed",
+                  "reason": "not_inventory"
+                }
+              },
+              "usage": {
+                "total_tokens": 2081,
+                "provider_calls": 1,
+                "measurement_source": "provider_reported",
+                "measurement_coverage": "complete",
+                "providers": [
+                  "openai"
+                ],
+                "calls": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "total_tokens": 2081,
+                    "prompt_tokens": 328,
+                    "completion_tokens": 1753
+                  }
+                ],
+                "prompt_tokens": 328,
+                "completion_tokens": 1753
+              }
+            },
+            "metrics": {
+              "cost_evidence": {
+                "schema_version": 1,
+                "state": "calculated",
+                "method": "catalog_unit_price",
+                "source": "skill_catalog:e2339094-4c59-43b3-a5d0-334263663d30:pricing",
+                "pricing_sha256": "96449c474e090f20047d146f048f27f77f63e332c615546b264896b7c66dadbc",
+                "currency": "USD",
+                "unit": "per_call",
+                "quantity": 1.0
+              },
+              "total_tokens": 2081,
+              "token_evidence": {
+                "total_tokens": 2081,
+                "provider_calls": 1,
+                "measurement_source": "provider_reported",
+                "measurement_coverage": "complete",
+                "providers": [
+                  "openai"
+                ],
+                "calls": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "total_tokens": 2081,
+                    "prompt_tokens": 328,
+                    "completion_tokens": 1753
+                  }
+                ],
+                "prompt_tokens": 328,
+                "completion_tokens": 1753
+              }
+            },
+            "trace": {
+              "node_id": "explain",
+              "membrane_attempt_kind": "task",
+              "membrane_attempt_index": 1,
+              "model_resolution": {
+                "provider": "openai",
+                "model": "gpt-5",
+                "credential_source": "env",
+                "model_source": "global",
+                "fallback": false,
+                "requested_provider": "workspace",
+                "fallback_plan": [
+                  {
+                    "provider": "ollama",
+                    "model": "qwen3:8b",
+                    "credential_source": "none",
+                    "model_source": "global",
+                    "fallback": false,
+                    "requested_provider": "ollama"
+                  }
+                ],
+                "attempts": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "credential_source": "env",
+                    "model_source": "global",
+                    "fallback": false,
+                    "requested_provider": "workspace",
+                    "fallback_plan": [
+                      {
+                        "provider": "ollama",
+                        "model": "qwen3:8b",
+                        "credential_source": "none",
+                        "model_source": "global",
+                        "fallback": false,
+                        "requested_provider": "ollama"
+                      }
+                    ],
+                    "dispatch_started": true,
+                    "status": "completed"
+                  }
+                ],
+                "dispatch_started": true,
+                "returned_model": "gpt-5-2025-08-07"
+              },
+              "model_execution": {
+                "provider": "openai",
+                "model": "gpt-5",
+                "credential_source": "env",
+                "model_source": "global",
+                "fallback": false,
+                "requested_provider": "workspace",
+                "fallback_plan": [
+                  {
+                    "provider": "ollama",
+                    "model": "qwen3:8b",
+                    "credential_source": "none",
+                    "model_source": "global",
+                    "fallback": false,
+                    "requested_provider": "ollama"
+                  }
+                ],
+                "attempts": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "credential_source": "env",
+                    "model_source": "global",
+                    "fallback": false,
+                    "requested_provider": "workspace",
+                    "fallback_plan": [
+                      {
+                        "provider": "ollama",
+                        "model": "qwen3:8b",
+                        "credential_source": "none",
+                        "model_source": "global",
+                        "fallback": false,
+                        "requested_provider": "ollama"
+                      }
+                    ],
+                    "dispatch_started": true,
+                    "status": "completed"
+                  }
+                ],
+                "dispatch_started": true,
+                "returned_model": "gpt-5-2025-08-07"
+              },
+              "effective_model": "openai:gpt-5"
+            },
+            "error": null,
+            "execution_evidence": {
+              "resolution": "resolved",
+              "execution_snapshot_sha256": "b737350d5d0c9e35fbeda8d5cb64331a58fe546b4e3c0b0d653adb18095bdf22"
+            }
+          },
+          {
+            "id": "cdbcd72d-d5a6-47ea-a4c7-5b52043c296e",
+            "skill_slug": "python_recipe_v1",
+            "status": "completed",
+            "started_at": "2026-09-17T02:49:20.843525",
+            "completed_at": "2026-09-17T02:49:21.878355",
+            "latency_ms": 1025.523274205625,
+            "cost": 0.0,
+            "input_ref": {
+              "answer": "- Donn\u00e9es observ\u00e9es:\n  - Commandes trait\u00e9es: 4 [1]\n  - Temps planifi\u00e9: 120 min [1]\n  - Temps r\u00e9el: 155 min [1]\n  - D\u00e9rive totale: +35 min [1]\n  - Commandes en retard: 3 [1]\n  - Plus grande d\u00e9rive individuelle: ordre NF-04, +25 min [1]\n\nExplication du retard op\u00e9rationnel:\n- L\u2019\u00e9cart global provient d\u2019une surconsommation de 35 min par rapport au plan (120 \u2192 155 min) [1]. \n- La majeure partie de cette d\u00e9rive est concentr\u00e9e sur un seul ordre, NF-04, avec 25 min d\u2019\u00e9cart, soit l\u2019essentiel des 35 min totaux; il reste donc 10 min d\u2019\u00e9cart cumul\u00e9 sur les autres ordres [1]. \n- 3 commandes sur 4 sont en retard, ce qui est coh\u00e9rent avec une d\u00e9rive totale de 35 min sur la plage planifi\u00e9e de 120 min [1].\n\nProchaine investigation (une seule):\n- Analyser en d\u00e9tail la chronologie de l\u2019ordre NF-04 (comparatif plan vs r\u00e9el par \u00e9tapes/horodatages) pour localiser pr\u00e9cis\u00e9ment les 25 minutes suppl\u00e9mentaires et identifier l\u2019\u00e9tape responsable [1].",
+              "citations": [
+                {
+                  "index": 1,
+                  "id": null,
+                  "source_id": null,
+                  "document": "source 1",
+                  "title": "source 1",
+                  "filename": "source 1",
+                  "document_id": null,
+                  "collection": null,
+                  "page": null,
+                  "snippet": "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}",
+                  "score": null
+                }
+              ],
+              "decision_steps": [],
+              "meta": {
+                "retrieval": {
+                  "raw_chunks_retrieved": 1,
+                  "source": "join_context",
+                  "stage_timings": {}
+                },
+                "inventory_coverage_review": {
+                  "status": "not_armed",
+                  "reason": "not_inventory"
+                }
+              },
+              "usage": {
+                "total_tokens": 2081,
+                "provider_calls": 1,
+                "measurement_source": "provider_reported",
+                "measurement_coverage": "complete",
+                "providers": [
+                  "openai"
+                ],
+                "calls": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "total_tokens": 2081,
+                    "prompt_tokens": 328,
+                    "completion_tokens": 1753
+                  }
+                ],
+                "prompt_tokens": 328,
+                "completion_tokens": 1753
+              },
+              "stats": {
+                "orders": 4,
+                "planned_minutes": 120,
+                "actual_minutes": 155,
+                "overrun_minutes": 35,
+                "late_orders": 3,
+                "largest_overrun_order": "NF-04",
+                "largest_overrun_minutes": 25
+              },
+              "_recipe": {
+                "code": "def main(inputs):\n    stats = inputs.get(\"stats\") or {}\n    answer = inputs.get(\"answer\")\n    if stats != {'orders': 4, 'planned_minutes': 120, 'actual_minutes': 155, 'overrun_minutes': 35, 'late_orders': 3, 'largest_overrun_order': 'NF-04', 'largest_overrun_minutes': 25}:\n        raise ValueError(\"The fixed NorthForge fixture no longer matches the expected result; inspect the Python inputs and version before changing the reference\")\n    if not isinstance(answer, str) or not answer.strip():\n        raise ValueError(\"The model returned no explanation\")\n    return {\"stats\": stats, \"answer\": answer, \"numerical_reference_passed\": True,\n            \"human_validated\": False, \"economic_impact\": None, \"showcase_seed\": True}\n",
+                "requirements_text": null,
+                "index_url": null,
+                "extra_index_urls": null,
+                "timeout_s": 30,
+                "sources": null,
+                "node_id": "check"
+              }
+            },
+            "output_ref": {
+              "stats": {
+                "orders": 4,
+                "planned_minutes": 120,
+                "actual_minutes": 155,
+                "overrun_minutes": 35,
+                "late_orders": 3,
+                "largest_overrun_order": "NF-04",
+                "largest_overrun_minutes": 25
+              },
+              "answer": "- Donn\u00e9es observ\u00e9es:\n  - Commandes trait\u00e9es: 4 [1]\n  - Temps planifi\u00e9: 120 min [1]\n  - Temps r\u00e9el: 155 min [1]\n  - D\u00e9rive totale: +35 min [1]\n  - Commandes en retard: 3 [1]\n  - Plus grande d\u00e9rive individuelle: ordre NF-04, +25 min [1]\n\nExplication du retard op\u00e9rationnel:\n- L\u2019\u00e9cart global provient d\u2019une surconsommation de 35 min par rapport au plan (120 \u2192 155 min) [1]. \n- La majeure partie de cette d\u00e9rive est concentr\u00e9e sur un seul ordre, NF-04, avec 25 min d\u2019\u00e9cart, soit l\u2019essentiel des 35 min totaux; il reste donc 10 min d\u2019\u00e9cart cumul\u00e9 sur les autres ordres [1]. \n- 3 commandes sur 4 sont en retard, ce qui est coh\u00e9rent avec une d\u00e9rive totale de 35 min sur la plage planifi\u00e9e de 120 min [1].\n\nProchaine investigation (une seule):\n- Analyser en d\u00e9tail la chronologie de l\u2019ordre NF-04 (comparatif plan vs r\u00e9el par \u00e9tapes/horodatages) pour localiser pr\u00e9cis\u00e9ment les 25 minutes suppl\u00e9mentaires et identifier l\u2019\u00e9tape responsable [1].",
+              "numerical_reference_passed": true,
+              "human_validated": false,
+              "economic_impact": null,
+              "showcase_seed": true
+            },
+            "metrics": {
+              "cost_evidence": {
+                "schema_version": 1,
+                "state": "calculated",
+                "method": "catalog_unit_price",
+                "source": "skill_catalog:2d48c95e-d295-4058-b1c6-498f37e958a1:pricing",
+                "pricing_sha256": "180d622b84036120f8983343008002bc2238a477f008c40316b1a6e9ed22b494",
+                "currency": "USD",
+                "unit": "per_execution",
+                "quantity": 1.0
+              }
+            },
+            "trace": {
+              "node_id": "check",
+              "membrane_attempt_kind": "task",
+              "membrane_attempt_index": 1,
+              "effective_model": null
+            },
+            "error": null,
+            "execution_evidence": {
+              "resolution": "resolved",
+              "execution_snapshot_sha256": "95d5d4b6a34481abb901f14198b199a4660b5413ca4aa2e3a636d4b600a4b466"
+            }
+          }
+        ]
+      },
+      "seconds": 25.322,
+      "passed": true
+    },
+    {
+      "key": "12f44894-43eb-419e-b6f7-3fb6d310f5be",
+      "receipt": {
+        "id": "21df259c-c237-4455-ab42-2add6dd88211",
+        "status": "pending",
+        "execution_surface": "published_manual",
+        "idempotent_replay": false,
+        "surface": "experience",
+        "origin": "experience:operational-analysis",
+        "experience_id": "f286295a-ebef-44d2-a4a3-d0dbf04c866f",
+        "experience_slug": "operational-analysis",
+        "experience_release_id": "9f8ad33f-41bc-4ccb-a043-d26e5241d779",
+        "experience_deployment_id": "e6d39e68-2eec-41db-b331-9e2ba71b36b1",
+        "channel": "live",
+        "binding_key": "showcase.operational.analyze",
+        "page_id": "analysis",
+        "component_id": "analyze"
+      },
+      "run": {
+        "id": "21df259c-c237-4455-ab42-2add6dd88211",
+        "system_id": "15b05919-c93b-4648-8581-8a41cbe2fae6",
+        "capability_id": null,
+        "status": "completed",
+        "trigger": "manual",
+        "started_at": "2026-09-17T02:49:23.319398",
+        "completed_at": "2026-09-17T02:49:45.826454",
+        "duration_ms": 22112.34615277499,
+        "input_ref": {
+          "execution": {
+            "flow_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d",
+            "runtime_mode": "dag_overlay",
+            "runtime_mode_reason": null,
+            "execution_surface": "published_manual",
+            "published_flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+            "ingress_id": "src",
+            "ingress_selection_version": 1,
+            "snapshot_at": "2026-09-17T02:49:23.688134Z",
+            "runtime_revision": "18741f94fb6ced627c53701c0b469685618b852d",
+            "control_policy": {
+              "schema_version": 1,
+              "state": "not_configured"
+            },
+            "system_id": "15b05919-c93b-4648-8581-8a41cbe2fae6"
+          },
+          "_ingress": {
+            "ingress_id": "src",
+            "source_node_id": "src",
+            "kind": "manual",
+            "adapter": {
+              "surface": "experience",
+              "origin": "experience:operational-analysis",
+              "experience_id": "f286295a-ebef-44d2-a4a3-d0dbf04c866f",
+              "experience_slug": "operational-analysis",
+              "experience_release_id": "9f8ad33f-41bc-4ccb-a043-d26e5241d779",
+              "experience_deployment_id": "e6d39e68-2eec-41db-b331-9e2ba71b36b1",
+              "channel": "live",
+              "binding_key": "showcase.operational.analyze",
+              "page_id": "analysis",
+              "component_id": "analyze",
+              "request_sha256": "e615a5cc3779118bf3768ec8edb5a8a99520bed9eaad0d84f7332088ae4121f5"
+            }
+          },
+          "workspace_id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+          "workspace_slug": "agentium-showcase",
+          "user_id": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+          "retrieval_contract": {}
+        },
+        "output_ref": {
+          "stats": {
+            "orders": 4,
+            "planned_minutes": 120,
+            "actual_minutes": 155,
+            "overrun_minutes": 35,
+            "late_orders": 3,
+            "largest_overrun_order": "NF-04",
+            "largest_overrun_minutes": 25
+          },
+          "answer": "Constats chiffr\u00e9s\n- 4 ordres trait\u00e9s au total [1].\n- Temps planifi\u00e9 cumul\u00e9: 120 min; temps r\u00e9el cumul\u00e9: 155 min; d\u00e9passement total: 35 min (155 \u2212 120) [1].\n- Taux de d\u00e9passement global: 35/120 \u2248 29,2 % au\u2011del\u00e0 du plan [1].\n- En moyenne: 30,0 min/ordre planifi\u00e9es (120/4) et 38,75 min/ordre r\u00e9elles (155/4), soit +8,75 min/ordre [1].\n- 3 ordres en retard (75 % des 4 ordres) [1].\n- Ordre avec le plus grand d\u00e9passement: NF-04, +25 min [1].\n- NF-04 concentre \u2248 71 % du d\u00e9passement total (25/35) [1]; le solde du d\u00e9passement global est de 10 min r\u00e9parti sur les autres ordres [1].\n\nExplication op\u00e9rationnelle du retard\n- Le retard op\u00e9rationnel global provient d\u2019un \u00e9cart cumul\u00e9 de 35 min entre le temps r\u00e9el (155 min) et le plan (120 min), soit un surcro\u00eet d\u2019environ 29 % de la charge pr\u00e9vue [1]. Cet \u00e9cart est domin\u00e9 par un seul ordre, NF-04, qui apporte 25 min du d\u00e9passement total (\u2248 71 %), ce qui explique que 3 des 4 ordres se retrouvent en retard sur la p\u00e9riode observ\u00e9e [1].\n\nProchaine investigation (une seule)\n- Analyser en priorit\u00e9 l\u2019ordre NF-04 pour d\u00e9composer ses 25 min de d\u00e9passement par phase (pr\u00e9paration, ex\u00e9cution, attentes) et identifier l\u2019\u00e9tape contributrice majeure \u00e0 corriger en premier [1].",
+          "numerical_reference_passed": true,
+          "human_validated": false,
+          "economic_impact": null,
+          "showcase_seed": true
+        },
+        "outcome": {
+          "decision": null,
+          "confidence": null,
+          "value_estimated": 0.0,
+          "cost_internal": 0.012,
+          "revenue_allocated": null,
+          "efficiency": 0.0,
+          "value_source": "unset",
+          "operator_value_note": null,
+          "measurement_provenance": null,
+          "baseline_eligible": false,
+          "baseline_ineligible_reason": "baseline_run_is_synthetic_demo"
+        },
+        "retries": 0,
+        "error": null,
+        "checkpoints": [
+          {
+            "kind": "ingress_accepted",
+            "t": "2026-09-17T02:49:23.319410",
+            "ingress_id": "src",
+            "ingress_kind": "manual",
+            "published_flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+            "flow_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d"
+          },
+          {
+            "kind": "run_start",
+            "nodes": 5,
+            "debug_mode": null,
+            "breakpoints": [],
+            "ingress_source_node_id": "src",
+            "inactive_ingress_source_node_ids": [],
+            "t": "2026-09-17T02:49:23.712963"
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:49:23.721293",
+            "node_id": "src",
+            "node_kind": "source",
+            "label": "Synthetic work orders",
+            "skill_slug": null
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:49:23.729238",
+            "node_id": "src",
+            "node_kind": "source"
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:49:23.736329",
+            "node_id": "calculate",
+            "node_kind": "task",
+            "label": "Calculate with Python / Polars",
+            "skill_slug": "python_recipe_v1"
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:49:25.809331",
+            "node_id": "calculate",
+            "node_kind": "task",
+            "skill_slug": "python_recipe_v1",
+            "status": "completed",
+            "latency_ms": 2034.9634755402803,
+            "cost": 0.0
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:49:25.820936",
+            "node_id": "explain",
+            "node_kind": "task",
+            "label": "Explain the computed evidence",
+            "skill_slug": "llm_rag_answer_v1"
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:49:44.730940",
+            "node_id": "explain",
+            "node_kind": "task",
+            "skill_slug": "llm_rag_answer_v1",
+            "status": "completed",
+            "latency_ms": 18873.11797775328,
+            "cost": 0.012
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:49:44.743039",
+            "node_id": "check",
+            "node_kind": "task",
+            "label": "Check against the numerical reference",
+            "skill_slug": "python_recipe_v1"
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:49:45.804289",
+            "node_id": "check",
+            "node_kind": "task",
+            "skill_slug": "python_recipe_v1",
+            "status": "completed",
+            "latency_ms": 1024.0276511758566,
+            "cost": 0.0
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:49:45.812589",
+            "node_id": "sink",
+            "node_kind": "sink",
+            "label": "Inspect result and evidence",
+            "skill_slug": null
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:49:45.818025",
+            "node_id": "sink",
+            "node_kind": "sink"
+          },
+          {
+            "kind": "run_end",
+            "status": "completed",
+            "nodes_executed": 5,
+            "t": "2026-09-17T02:49:45.857140"
+          }
+        ],
+        "test_result": null,
+        "waiting_subflows": {},
+        "result_held": false,
+        "flow_evidence": {
+          "flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+          "flow_snapshot_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d",
+          "execution_snapshot_at": "2026-09-17T02:49:23.688134Z",
+          "runtime_revision": "18741f94fb6ced627c53701c0b469685618b852d"
+        },
+        "invocations": [
+          {
+            "id": "238652de-198b-473b-b6f8-8debf757d395",
+            "skill_slug": "python_recipe_v1",
+            "status": "completed",
+            "started_at": "2026-09-17T02:49:23.752896",
+            "completed_at": "2026-09-17T02:49:25.798255",
+            "latency_ms": 2034.9634755402803,
+            "cost": 0.0,
+            "input_ref": {
+              "execution": {
+                "flow_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d",
+                "runtime_mode": "dag_overlay",
+                "runtime_mode_reason": null,
+                "execution_surface": "published_manual",
+                "published_flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+                "ingress_id": "src",
+                "ingress_selection_version": 1,
+                "snapshot_at": "2026-09-17T02:49:23.688134Z",
+                "runtime_revision": "18741f94fb6ced627c53701c0b469685618b852d",
+                "control_policy": {
+                  "schema_version": 1,
+                  "state": "not_configured"
+                },
+                "system_id": "15b05919-c93b-4648-8581-8a41cbe2fae6"
+              },
+              "_ingress": {
+                "ingress_id": "src",
+                "source_node_id": "src",
+                "kind": "manual",
+                "adapter": {
+                  "surface": "experience",
+                  "origin": "experience:operational-analysis",
+                  "experience_id": "f286295a-ebef-44d2-a4a3-d0dbf04c866f",
+                  "experience_slug": "operational-analysis",
+                  "experience_release_id": "9f8ad33f-41bc-4ccb-a043-d26e5241d779",
+                  "experience_deployment_id": "e6d39e68-2eec-41db-b331-9e2ba71b36b1",
+                  "channel": "live",
+                  "binding_key": "showcase.operational.analyze",
+                  "page_id": "analysis",
+                  "component_id": "analyze",
+                  "request_sha256": "e615a5cc3779118bf3768ec8edb5a8a99520bed9eaad0d84f7332088ae4121f5"
+                }
+              },
+              "workspace_id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+              "workspace_slug": "agentium-showcase",
+              "user_id": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+              "retrieval_contract": {},
+              "_recipe": {
+                "code": "import json\nimport polars as pl\n\nDEFAULT_ROWS = [{'order': 'NF-01', 'planned_minutes': 30, 'actual_minutes': 40}, {'order': 'NF-02', 'planned_minutes': 40, 'actual_minutes': 35}, {'order': 'NF-03', 'planned_minutes': 20, 'actual_minutes': 25}, {'order': 'NF-04', 'planned_minutes': 30, 'actual_minutes': 55}]\n\ndef main(inputs):\n    rows = inputs.get(\"rows\", DEFAULT_ROWS)\n    frame = pl.DataFrame(rows)\n    required = {\"order\", \"planned_minutes\", \"actual_minutes\"}\n    if not rows or not required.issubset(frame.columns):\n        raise ValueError(\"Supply non-empty rows with order, planned_minutes and actual_minutes\")\n    if frame.select(pl.col(\"planned_minutes\", \"actual_minutes\").null_count()).sum_horizontal().item() != 0:\n        raise ValueError(\"Durations cannot be missing\")\n    if frame.filter((pl.col(\"planned_minutes\") < 0) | (pl.col(\"actual_minutes\") < 0)).height:\n        raise ValueError(\"Durations cannot be negative\")\n    planned = frame[\"planned_minutes\"].sum()\n    actual = frame[\"actual_minutes\"].sum()\n    largest = frame.with_columns((pl.col(\"actual_minutes\") - pl.col(\"planned_minutes\")).alias(\"overrun\")).sort([\"overrun\", \"order\"], descending=[True, False]).row(0, named=True)\n    stats = {\"orders\": frame.height, \"planned_minutes\": planned, \"actual_minutes\": actual,\n             \"overrun_minutes\": actual - planned,\n             \"late_orders\": frame.filter(pl.col(\"actual_minutes\") > pl.col(\"planned_minutes\")).height,\n             \"largest_overrun_order\": largest[\"order\"], \"largest_overrun_minutes\": largest[\"overrun\"]}\n    return {\"stats\": stats, \"context\": [\"Synthetic NorthForge exercise; no customer data or verified savings. \" + json.dumps(stats)],\n            \"query\": \"Explain the operational delay using only the supplied numbers. Do not claim savings. Suggest one next investigation.\",\n            \"showcase_seed\": True}\n",
+                "requirements_text": "polars==1.31.0",
+                "index_url": null,
+                "extra_index_urls": null,
+                "timeout_s": 30,
+                "sources": null,
+                "node_id": "calculate"
+              }
+            },
+            "output_ref": {
+              "stats": {
+                "orders": 4,
+                "planned_minutes": 120,
+                "actual_minutes": 155,
+                "overrun_minutes": 35,
+                "late_orders": 3,
+                "largest_overrun_order": "NF-04",
+                "largest_overrun_minutes": 25
+              },
+              "context": [
+                "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}"
+              ],
+              "query": "Explain the operational delay using only the supplied numbers. Do not claim savings. Suggest one next investigation.",
+              "showcase_seed": true
+            },
+            "metrics": {
+              "cost_evidence": {
+                "schema_version": 1,
+                "state": "calculated",
+                "method": "catalog_unit_price",
+                "source": "skill_catalog:2d48c95e-d295-4058-b1c6-498f37e958a1:pricing",
+                "pricing_sha256": "180d622b84036120f8983343008002bc2238a477f008c40316b1a6e9ed22b494",
+                "currency": "USD",
+                "unit": "per_execution",
+                "quantity": 1.0
+              }
+            },
+            "trace": {
+              "node_id": "calculate",
+              "membrane_attempt_kind": "task",
+              "membrane_attempt_index": 1,
+              "effective_model": null
+            },
+            "error": null,
+            "execution_evidence": {
+              "resolution": "resolved",
+              "execution_snapshot_sha256": "95d5d4b6a34481abb901f14198b199a4660b5413ca4aa2e3a636d4b600a4b466"
+            }
+          },
+          {
+            "id": "a2815aca-d348-4bf5-b2c3-5b154c307484",
+            "skill_slug": "llm_rag_answer_v1",
+            "status": "completed",
+            "started_at": "2026-09-17T02:49:25.836581",
+            "completed_at": "2026-09-17T02:49:44.718315",
+            "latency_ms": 18873.11797775328,
+            "cost": 0.012,
+            "input_ref": {
+              "stats": {
+                "orders": 4,
+                "planned_minutes": 120,
+                "actual_minutes": 155,
+                "overrun_minutes": 35,
+                "late_orders": 3,
+                "largest_overrun_order": "NF-04",
+                "largest_overrun_minutes": 25
+              },
+              "context": [
+                "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}"
+              ],
+              "query": "Explain the operational delay using only the supplied numbers. Do not claim savings. Suggest one next investigation.",
+              "showcase_seed": true
+            },
+            "output_ref": {
+              "answer": "Constats chiffr\u00e9s\n- 4 ordres trait\u00e9s au total [1].\n- Temps planifi\u00e9 cumul\u00e9: 120 min; temps r\u00e9el cumul\u00e9: 155 min; d\u00e9passement total: 35 min (155 \u2212 120) [1].\n- Taux de d\u00e9passement global: 35/120 \u2248 29,2 % au\u2011del\u00e0 du plan [1].\n- En moyenne: 30,0 min/ordre planifi\u00e9es (120/4) et 38,75 min/ordre r\u00e9elles (155/4), soit +8,75 min/ordre [1].\n- 3 ordres en retard (75 % des 4 ordres) [1].\n- Ordre avec le plus grand d\u00e9passement: NF-04, +25 min [1].\n- NF-04 concentre \u2248 71 % du d\u00e9passement total (25/35) [1]; le solde du d\u00e9passement global est de 10 min r\u00e9parti sur les autres ordres [1].\n\nExplication op\u00e9rationnelle du retard\n- Le retard op\u00e9rationnel global provient d\u2019un \u00e9cart cumul\u00e9 de 35 min entre le temps r\u00e9el (155 min) et le plan (120 min), soit un surcro\u00eet d\u2019environ 29 % de la charge pr\u00e9vue [1]. Cet \u00e9cart est domin\u00e9 par un seul ordre, NF-04, qui apporte 25 min du d\u00e9passement total (\u2248 71 %), ce qui explique que 3 des 4 ordres se retrouvent en retard sur la p\u00e9riode observ\u00e9e [1].\n\nProchaine investigation (une seule)\n- Analyser en priorit\u00e9 l\u2019ordre NF-04 pour d\u00e9composer ses 25 min de d\u00e9passement par phase (pr\u00e9paration, ex\u00e9cution, attentes) et identifier l\u2019\u00e9tape contributrice majeure \u00e0 corriger en premier [1].",
+              "citations": [
+                {
+                  "index": 1,
+                  "id": null,
+                  "source_id": null,
+                  "document": "source 1",
+                  "title": "source 1",
+                  "filename": "source 1",
+                  "document_id": null,
+                  "collection": null,
+                  "page": null,
+                  "snippet": "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}",
+                  "score": null
+                }
+              ],
+              "decision_steps": [],
+              "meta": {
+                "retrieval": {
+                  "raw_chunks_retrieved": 1,
+                  "source": "join_context",
+                  "stage_timings": {}
+                },
+                "inventory_coverage_review": {
+                  "status": "not_armed",
+                  "reason": "not_inventory"
+                }
+              },
+              "usage": {
+                "total_tokens": 2186,
+                "provider_calls": 1,
+                "measurement_source": "provider_reported",
+                "measurement_coverage": "complete",
+                "providers": [
+                  "openai"
+                ],
+                "calls": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "total_tokens": 2186,
+                    "prompt_tokens": 328,
+                    "completion_tokens": 1858
+                  }
+                ],
+                "prompt_tokens": 328,
+                "completion_tokens": 1858
+              }
+            },
+            "metrics": {
+              "cost_evidence": {
+                "schema_version": 1,
+                "state": "calculated",
+                "method": "catalog_unit_price",
+                "source": "skill_catalog:e2339094-4c59-43b3-a5d0-334263663d30:pricing",
+                "pricing_sha256": "96449c474e090f20047d146f048f27f77f63e332c615546b264896b7c66dadbc",
+                "currency": "USD",
+                "unit": "per_call",
+                "quantity": 1.0
+              },
+              "total_tokens": 2186,
+              "token_evidence": {
+                "total_tokens": 2186,
+                "provider_calls": 1,
+                "measurement_source": "provider_reported",
+                "measurement_coverage": "complete",
+                "providers": [
+                  "openai"
+                ],
+                "calls": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "total_tokens": 2186,
+                    "prompt_tokens": 328,
+                    "completion_tokens": 1858
+                  }
+                ],
+                "prompt_tokens": 328,
+                "completion_tokens": 1858
+              }
+            },
+            "trace": {
+              "node_id": "explain",
+              "membrane_attempt_kind": "task",
+              "membrane_attempt_index": 1,
+              "model_resolution": {
+                "provider": "openai",
+                "model": "gpt-5",
+                "credential_source": "env",
+                "model_source": "global",
+                "fallback": false,
+                "requested_provider": "workspace",
+                "fallback_plan": [
+                  {
+                    "provider": "ollama",
+                    "model": "qwen3:8b",
+                    "credential_source": "none",
+                    "model_source": "global",
+                    "fallback": false,
+                    "requested_provider": "ollama"
+                  }
+                ],
+                "attempts": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "credential_source": "env",
+                    "model_source": "global",
+                    "fallback": false,
+                    "requested_provider": "workspace",
+                    "fallback_plan": [
+                      {
+                        "provider": "ollama",
+                        "model": "qwen3:8b",
+                        "credential_source": "none",
+                        "model_source": "global",
+                        "fallback": false,
+                        "requested_provider": "ollama"
+                      }
+                    ],
+                    "dispatch_started": true,
+                    "status": "completed"
+                  }
+                ],
+                "dispatch_started": true,
+                "returned_model": "gpt-5-2025-08-07"
+              },
+              "model_execution": {
+                "provider": "openai",
+                "model": "gpt-5",
+                "credential_source": "env",
+                "model_source": "global",
+                "fallback": false,
+                "requested_provider": "workspace",
+                "fallback_plan": [
+                  {
+                    "provider": "ollama",
+                    "model": "qwen3:8b",
+                    "credential_source": "none",
+                    "model_source": "global",
+                    "fallback": false,
+                    "requested_provider": "ollama"
+                  }
+                ],
+                "attempts": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "credential_source": "env",
+                    "model_source": "global",
+                    "fallback": false,
+                    "requested_provider": "workspace",
+                    "fallback_plan": [
+                      {
+                        "provider": "ollama",
+                        "model": "qwen3:8b",
+                        "credential_source": "none",
+                        "model_source": "global",
+                        "fallback": false,
+                        "requested_provider": "ollama"
+                      }
+                    ],
+                    "dispatch_started": true,
+                    "status": "completed"
+                  }
+                ],
+                "dispatch_started": true,
+                "returned_model": "gpt-5-2025-08-07"
+              },
+              "effective_model": "openai:gpt-5"
+            },
+            "error": null,
+            "execution_evidence": {
+              "resolution": "resolved",
+              "execution_snapshot_sha256": "b737350d5d0c9e35fbeda8d5cb64331a58fe546b4e3c0b0d653adb18095bdf22"
+            }
+          },
+          {
+            "id": "34f38641-351f-46ed-abbe-1225cc95379d",
+            "skill_slug": "python_recipe_v1",
+            "status": "completed",
+            "started_at": "2026-09-17T02:49:44.760386",
+            "completed_at": "2026-09-17T02:49:45.795972",
+            "latency_ms": 1024.0276511758566,
+            "cost": 0.0,
+            "input_ref": {
+              "answer": "Constats chiffr\u00e9s\n- 4 ordres trait\u00e9s au total [1].\n- Temps planifi\u00e9 cumul\u00e9: 120 min; temps r\u00e9el cumul\u00e9: 155 min; d\u00e9passement total: 35 min (155 \u2212 120) [1].\n- Taux de d\u00e9passement global: 35/120 \u2248 29,2 % au\u2011del\u00e0 du plan [1].\n- En moyenne: 30,0 min/ordre planifi\u00e9es (120/4) et 38,75 min/ordre r\u00e9elles (155/4), soit +8,75 min/ordre [1].\n- 3 ordres en retard (75 % des 4 ordres) [1].\n- Ordre avec le plus grand d\u00e9passement: NF-04, +25 min [1].\n- NF-04 concentre \u2248 71 % du d\u00e9passement total (25/35) [1]; le solde du d\u00e9passement global est de 10 min r\u00e9parti sur les autres ordres [1].\n\nExplication op\u00e9rationnelle du retard\n- Le retard op\u00e9rationnel global provient d\u2019un \u00e9cart cumul\u00e9 de 35 min entre le temps r\u00e9el (155 min) et le plan (120 min), soit un surcro\u00eet d\u2019environ 29 % de la charge pr\u00e9vue [1]. Cet \u00e9cart est domin\u00e9 par un seul ordre, NF-04, qui apporte 25 min du d\u00e9passement total (\u2248 71 %), ce qui explique que 3 des 4 ordres se retrouvent en retard sur la p\u00e9riode observ\u00e9e [1].\n\nProchaine investigation (une seule)\n- Analyser en priorit\u00e9 l\u2019ordre NF-04 pour d\u00e9composer ses 25 min de d\u00e9passement par phase (pr\u00e9paration, ex\u00e9cution, attentes) et identifier l\u2019\u00e9tape contributrice majeure \u00e0 corriger en premier [1].",
+              "citations": [
+                {
+                  "index": 1,
+                  "id": null,
+                  "source_id": null,
+                  "document": "source 1",
+                  "title": "source 1",
+                  "filename": "source 1",
+                  "document_id": null,
+                  "collection": null,
+                  "page": null,
+                  "snippet": "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}",
+                  "score": null
+                }
+              ],
+              "decision_steps": [],
+              "meta": {
+                "retrieval": {
+                  "raw_chunks_retrieved": 1,
+                  "source": "join_context",
+                  "stage_timings": {}
+                },
+                "inventory_coverage_review": {
+                  "status": "not_armed",
+                  "reason": "not_inventory"
+                }
+              },
+              "usage": {
+                "total_tokens": 2186,
+                "provider_calls": 1,
+                "measurement_source": "provider_reported",
+                "measurement_coverage": "complete",
+                "providers": [
+                  "openai"
+                ],
+                "calls": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "total_tokens": 2186,
+                    "prompt_tokens": 328,
+                    "completion_tokens": 1858
+                  }
+                ],
+                "prompt_tokens": 328,
+                "completion_tokens": 1858
+              },
+              "stats": {
+                "orders": 4,
+                "planned_minutes": 120,
+                "actual_minutes": 155,
+                "overrun_minutes": 35,
+                "late_orders": 3,
+                "largest_overrun_order": "NF-04",
+                "largest_overrun_minutes": 25
+              },
+              "_recipe": {
+                "code": "def main(inputs):\n    stats = inputs.get(\"stats\") or {}\n    answer = inputs.get(\"answer\")\n    if stats != {'orders': 4, 'planned_minutes': 120, 'actual_minutes': 155, 'overrun_minutes': 35, 'late_orders': 3, 'largest_overrun_order': 'NF-04', 'largest_overrun_minutes': 25}:\n        raise ValueError(\"The fixed NorthForge fixture no longer matches the expected result; inspect the Python inputs and version before changing the reference\")\n    if not isinstance(answer, str) or not answer.strip():\n        raise ValueError(\"The model returned no explanation\")\n    return {\"stats\": stats, \"answer\": answer, \"numerical_reference_passed\": True,\n            \"human_validated\": False, \"economic_impact\": None, \"showcase_seed\": True}\n",
+                "requirements_text": null,
+                "index_url": null,
+                "extra_index_urls": null,
+                "timeout_s": 30,
+                "sources": null,
+                "node_id": "check"
+              }
+            },
+            "output_ref": {
+              "stats": {
+                "orders": 4,
+                "planned_minutes": 120,
+                "actual_minutes": 155,
+                "overrun_minutes": 35,
+                "late_orders": 3,
+                "largest_overrun_order": "NF-04",
+                "largest_overrun_minutes": 25
+              },
+              "answer": "Constats chiffr\u00e9s\n- 4 ordres trait\u00e9s au total [1].\n- Temps planifi\u00e9 cumul\u00e9: 120 min; temps r\u00e9el cumul\u00e9: 155 min; d\u00e9passement total: 35 min (155 \u2212 120) [1].\n- Taux de d\u00e9passement global: 35/120 \u2248 29,2 % au\u2011del\u00e0 du plan [1].\n- En moyenne: 30,0 min/ordre planifi\u00e9es (120/4) et 38,75 min/ordre r\u00e9elles (155/4), soit +8,75 min/ordre [1].\n- 3 ordres en retard (75 % des 4 ordres) [1].\n- Ordre avec le plus grand d\u00e9passement: NF-04, +25 min [1].\n- NF-04 concentre \u2248 71 % du d\u00e9passement total (25/35) [1]; le solde du d\u00e9passement global est de 10 min r\u00e9parti sur les autres ordres [1].\n\nExplication op\u00e9rationnelle du retard\n- Le retard op\u00e9rationnel global provient d\u2019un \u00e9cart cumul\u00e9 de 35 min entre le temps r\u00e9el (155 min) et le plan (120 min), soit un surcro\u00eet d\u2019environ 29 % de la charge pr\u00e9vue [1]. Cet \u00e9cart est domin\u00e9 par un seul ordre, NF-04, qui apporte 25 min du d\u00e9passement total (\u2248 71 %), ce qui explique que 3 des 4 ordres se retrouvent en retard sur la p\u00e9riode observ\u00e9e [1].\n\nProchaine investigation (une seule)\n- Analyser en priorit\u00e9 l\u2019ordre NF-04 pour d\u00e9composer ses 25 min de d\u00e9passement par phase (pr\u00e9paration, ex\u00e9cution, attentes) et identifier l\u2019\u00e9tape contributrice majeure \u00e0 corriger en premier [1].",
+              "numerical_reference_passed": true,
+              "human_validated": false,
+              "economic_impact": null,
+              "showcase_seed": true
+            },
+            "metrics": {
+              "cost_evidence": {
+                "schema_version": 1,
+                "state": "calculated",
+                "method": "catalog_unit_price",
+                "source": "skill_catalog:2d48c95e-d295-4058-b1c6-498f37e958a1:pricing",
+                "pricing_sha256": "180d622b84036120f8983343008002bc2238a477f008c40316b1a6e9ed22b494",
+                "currency": "USD",
+                "unit": "per_execution",
+                "quantity": 1.0
+              }
+            },
+            "trace": {
+              "node_id": "check",
+              "membrane_attempt_kind": "task",
+              "membrane_attempt_index": 1,
+              "effective_model": null
+            },
+            "error": null,
+            "execution_evidence": {
+              "resolution": "resolved",
+              "execution_snapshot_sha256": "95d5d4b6a34481abb901f14198b199a4660b5413ca4aa2e3a636d4b600a4b466"
+            }
+          }
+        ]
+      },
+      "seconds": 23.244,
+      "passed": true
+    },
+    {
+      "key": "d07f5cb7-42df-49f8-aac8-66317cd906b2",
+      "receipt": {
+        "id": "a6dedc91-c0c7-40ca-9f35-c847eeba4190",
+        "status": "pending",
+        "execution_surface": "published_manual",
+        "idempotent_replay": false,
+        "surface": "experience",
+        "origin": "experience:operational-analysis",
+        "experience_id": "f286295a-ebef-44d2-a4a3-d0dbf04c866f",
+        "experience_slug": "operational-analysis",
+        "experience_release_id": "9f8ad33f-41bc-4ccb-a043-d26e5241d779",
+        "experience_deployment_id": "e6d39e68-2eec-41db-b331-9e2ba71b36b1",
+        "channel": "live",
+        "binding_key": "showcase.operational.analyze",
+        "page_id": "analysis",
+        "component_id": "analyze"
+      },
+      "run": {
+        "id": "a6dedc91-c0c7-40ca-9f35-c847eeba4190",
+        "system_id": "15b05919-c93b-4648-8581-8a41cbe2fae6",
+        "capability_id": null,
+        "status": "completed",
+        "trigger": "manual",
+        "started_at": "2026-09-17T02:49:46.593143",
+        "completed_at": "2026-09-17T02:50:04.817238",
+        "duration_ms": 18075.83276182413,
+        "input_ref": {
+          "execution": {
+            "flow_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d",
+            "runtime_mode": "dag_overlay",
+            "runtime_mode_reason": null,
+            "execution_surface": "published_manual",
+            "published_flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+            "ingress_id": "src",
+            "ingress_selection_version": 1,
+            "snapshot_at": "2026-09-17T02:49:46.711452Z",
+            "runtime_revision": "18741f94fb6ced627c53701c0b469685618b852d",
+            "control_policy": {
+              "schema_version": 1,
+              "state": "not_configured"
+            },
+            "system_id": "15b05919-c93b-4648-8581-8a41cbe2fae6"
+          },
+          "_ingress": {
+            "ingress_id": "src",
+            "source_node_id": "src",
+            "kind": "manual",
+            "adapter": {
+              "surface": "experience",
+              "origin": "experience:operational-analysis",
+              "experience_id": "f286295a-ebef-44d2-a4a3-d0dbf04c866f",
+              "experience_slug": "operational-analysis",
+              "experience_release_id": "9f8ad33f-41bc-4ccb-a043-d26e5241d779",
+              "experience_deployment_id": "e6d39e68-2eec-41db-b331-9e2ba71b36b1",
+              "channel": "live",
+              "binding_key": "showcase.operational.analyze",
+              "page_id": "analysis",
+              "component_id": "analyze",
+              "request_sha256": "e615a5cc3779118bf3768ec8edb5a8a99520bed9eaad0d84f7332088ae4121f5"
+            }
+          },
+          "workspace_id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+          "workspace_slug": "agentium-showcase",
+          "user_id": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+          "retrieval_contract": {}
+        },
+        "output_ref": {
+          "stats": {
+            "orders": 4,
+            "planned_minutes": 120,
+            "actual_minutes": 155,
+            "overrun_minutes": 35,
+            "late_orders": 3,
+            "largest_overrun_order": "NF-04",
+            "largest_overrun_minutes": 25
+          },
+          "answer": "Explication de l\u2019\u00e9cart op\u00e9rationnel\n- 4 ordres trait\u00e9s; charge planifi\u00e9e totale 120 min, r\u00e9alis\u00e9 155 min, soit un \u00e9cart de +35 min (+29,2% vs plan). [1]\n- 3 ordres sont en retard. [1]\n- L\u2019\u00e9cart principal provient de l\u2019ordre NF-04 avec +25 min; le solde cumul\u00e9 des autres ordres est donc de +10 min (35\u201325). NF-04 repr\u00e9sente ~71% de l\u2019\u00e9cart total (25/35). [1]\n\nContexte\n- Exercice synth\u00e9tique NorthForge; pas de donn\u00e9es client ni d\u2019\u00e9conomies v\u00e9rifi\u00e9es. [1]\n\nProchaine investigation (une)\n- Analyser en priorit\u00e9 l\u2019ordre NF-04 pour expliquer les +25 min : reconstituer la chronologie d\u2019ex\u00e9cution et les \u00e9v\u00e9nements enregistr\u00e9s sur cet ordre afin d\u2019identifier la cause principale du retard. [1]",
+          "numerical_reference_passed": true,
+          "human_validated": false,
+          "economic_impact": null,
+          "showcase_seed": true
+        },
+        "outcome": {
+          "decision": null,
+          "confidence": null,
+          "value_estimated": 0.0,
+          "cost_internal": 0.012,
+          "revenue_allocated": null,
+          "efficiency": 0.0,
+          "value_source": "unset",
+          "operator_value_note": null,
+          "measurement_provenance": null,
+          "baseline_eligible": false,
+          "baseline_ineligible_reason": "baseline_run_is_synthetic_demo"
+        },
+        "retries": 0,
+        "error": null,
+        "checkpoints": [
+          {
+            "kind": "ingress_accepted",
+            "t": "2026-09-17T02:49:46.593154",
+            "ingress_id": "src",
+            "ingress_kind": "manual",
+            "published_flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+            "flow_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d"
+          },
+          {
+            "kind": "run_start",
+            "nodes": 5,
+            "debug_mode": null,
+            "breakpoints": [],
+            "ingress_source_node_id": "src",
+            "inactive_ingress_source_node_ids": [],
+            "t": "2026-09-17T02:49:46.737209"
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:49:46.744895",
+            "node_id": "src",
+            "node_kind": "source",
+            "label": "Synthetic work orders",
+            "skill_slug": null
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:49:46.753195",
+            "node_id": "src",
+            "node_kind": "source"
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:49:46.760357",
+            "node_id": "calculate",
+            "node_kind": "task",
+            "label": "Calculate with Python / Polars",
+            "skill_slug": "python_recipe_v1"
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:49:48.827132",
+            "node_id": "calculate",
+            "node_kind": "task",
+            "skill_slug": "python_recipe_v1",
+            "status": "completed",
+            "latency_ms": 2032.909500412643,
+            "cost": 0.0
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:49:48.837752",
+            "node_id": "explain",
+            "node_kind": "task",
+            "label": "Explain the computed evidence",
+            "skill_slug": "llm_rag_answer_v1"
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:50:03.734241",
+            "node_id": "explain",
+            "node_kind": "task",
+            "skill_slug": "llm_rag_answer_v1",
+            "status": "completed",
+            "latency_ms": 14867.983806878328,
+            "cost": 0.012
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:50:03.740389",
+            "node_id": "check",
+            "node_kind": "task",
+            "label": "Check against the numerical reference",
+            "skill_slug": "python_recipe_v1"
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:50:04.782065",
+            "node_id": "check",
+            "node_kind": "task",
+            "skill_slug": "python_recipe_v1",
+            "status": "completed",
+            "latency_ms": 1016.8890431523323,
+            "cost": 0.0
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:50:04.794003",
+            "node_id": "sink",
+            "node_kind": "sink",
+            "label": "Inspect result and evidence",
+            "skill_slug": null
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:50:04.802811",
+            "node_id": "sink",
+            "node_kind": "sink"
+          },
+          {
+            "kind": "run_end",
+            "status": "completed",
+            "nodes_executed": 5,
+            "t": "2026-09-17T02:50:04.869032"
+          }
+        ],
+        "test_result": null,
+        "waiting_subflows": {},
+        "result_held": false,
+        "flow_evidence": {
+          "flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+          "flow_snapshot_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d",
+          "execution_snapshot_at": "2026-09-17T02:49:46.711452Z",
+          "runtime_revision": "18741f94fb6ced627c53701c0b469685618b852d"
+        },
+        "invocations": [
+          {
+            "id": "98d3ba22-2924-4fca-a0d9-847270d05d5c",
+            "skill_slug": "python_recipe_v1",
+            "status": "completed",
+            "started_at": "2026-09-17T02:49:46.775795",
+            "completed_at": "2026-09-17T02:49:48.817420",
+            "latency_ms": 2032.909500412643,
+            "cost": 0.0,
+            "input_ref": {
+              "execution": {
+                "flow_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d",
+                "runtime_mode": "dag_overlay",
+                "runtime_mode_reason": null,
+                "execution_surface": "published_manual",
+                "published_flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+                "ingress_id": "src",
+                "ingress_selection_version": 1,
+                "snapshot_at": "2026-09-17T02:49:46.711452Z",
+                "runtime_revision": "18741f94fb6ced627c53701c0b469685618b852d",
+                "control_policy": {
+                  "schema_version": 1,
+                  "state": "not_configured"
+                },
+                "system_id": "15b05919-c93b-4648-8581-8a41cbe2fae6"
+              },
+              "_ingress": {
+                "ingress_id": "src",
+                "source_node_id": "src",
+                "kind": "manual",
+                "adapter": {
+                  "surface": "experience",
+                  "origin": "experience:operational-analysis",
+                  "experience_id": "f286295a-ebef-44d2-a4a3-d0dbf04c866f",
+                  "experience_slug": "operational-analysis",
+                  "experience_release_id": "9f8ad33f-41bc-4ccb-a043-d26e5241d779",
+                  "experience_deployment_id": "e6d39e68-2eec-41db-b331-9e2ba71b36b1",
+                  "channel": "live",
+                  "binding_key": "showcase.operational.analyze",
+                  "page_id": "analysis",
+                  "component_id": "analyze",
+                  "request_sha256": "e615a5cc3779118bf3768ec8edb5a8a99520bed9eaad0d84f7332088ae4121f5"
+                }
+              },
+              "workspace_id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+              "workspace_slug": "agentium-showcase",
+              "user_id": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+              "retrieval_contract": {},
+              "_recipe": {
+                "code": "import json\nimport polars as pl\n\nDEFAULT_ROWS = [{'order': 'NF-01', 'planned_minutes': 30, 'actual_minutes': 40}, {'order': 'NF-02', 'planned_minutes': 40, 'actual_minutes': 35}, {'order': 'NF-03', 'planned_minutes': 20, 'actual_minutes': 25}, {'order': 'NF-04', 'planned_minutes': 30, 'actual_minutes': 55}]\n\ndef main(inputs):\n    rows = inputs.get(\"rows\", DEFAULT_ROWS)\n    frame = pl.DataFrame(rows)\n    required = {\"order\", \"planned_minutes\", \"actual_minutes\"}\n    if not rows or not required.issubset(frame.columns):\n        raise ValueError(\"Supply non-empty rows with order, planned_minutes and actual_minutes\")\n    if frame.select(pl.col(\"planned_minutes\", \"actual_minutes\").null_count()).sum_horizontal().item() != 0:\n        raise ValueError(\"Durations cannot be missing\")\n    if frame.filter((pl.col(\"planned_minutes\") < 0) | (pl.col(\"actual_minutes\") < 0)).height:\n        raise ValueError(\"Durations cannot be negative\")\n    planned = frame[\"planned_minutes\"].sum()\n    actual = frame[\"actual_minutes\"].sum()\n    largest = frame.with_columns((pl.col(\"actual_minutes\") - pl.col(\"planned_minutes\")).alias(\"overrun\")).sort([\"overrun\", \"order\"], descending=[True, False]).row(0, named=True)\n    stats = {\"orders\": frame.height, \"planned_minutes\": planned, \"actual_minutes\": actual,\n             \"overrun_minutes\": actual - planned,\n             \"late_orders\": frame.filter(pl.col(\"actual_minutes\") > pl.col(\"planned_minutes\")).height,\n             \"largest_overrun_order\": largest[\"order\"], \"largest_overrun_minutes\": largest[\"overrun\"]}\n    return {\"stats\": stats, \"context\": [\"Synthetic NorthForge exercise; no customer data or verified savings. \" + json.dumps(stats)],\n            \"query\": \"Explain the operational delay using only the supplied numbers. Do not claim savings. Suggest one next investigation.\",\n            \"showcase_seed\": True}\n",
+                "requirements_text": "polars==1.31.0",
+                "index_url": null,
+                "extra_index_urls": null,
+                "timeout_s": 30,
+                "sources": null,
+                "node_id": "calculate"
+              }
+            },
+            "output_ref": {
+              "stats": {
+                "orders": 4,
+                "planned_minutes": 120,
+                "actual_minutes": 155,
+                "overrun_minutes": 35,
+                "late_orders": 3,
+                "largest_overrun_order": "NF-04",
+                "largest_overrun_minutes": 25
+              },
+              "context": [
+                "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}"
+              ],
+              "query": "Explain the operational delay using only the supplied numbers. Do not claim savings. Suggest one next investigation.",
+              "showcase_seed": true
+            },
+            "metrics": {
+              "cost_evidence": {
+                "schema_version": 1,
+                "state": "calculated",
+                "method": "catalog_unit_price",
+                "source": "skill_catalog:2d48c95e-d295-4058-b1c6-498f37e958a1:pricing",
+                "pricing_sha256": "180d622b84036120f8983343008002bc2238a477f008c40316b1a6e9ed22b494",
+                "currency": "USD",
+                "unit": "per_execution",
+                "quantity": 1.0
+              }
+            },
+            "trace": {
+              "node_id": "calculate",
+              "membrane_attempt_kind": "task",
+              "membrane_attempt_index": 1,
+              "effective_model": null
+            },
+            "error": null,
+            "execution_evidence": {
+              "resolution": "resolved",
+              "execution_snapshot_sha256": "95d5d4b6a34481abb901f14198b199a4660b5413ca4aa2e3a636d4b600a4b466"
+            }
+          },
+          {
+            "id": "d25183e7-cae3-4c6d-8ac1-8936912ca056",
+            "skill_slug": "llm_rag_answer_v1",
+            "status": "completed",
+            "started_at": "2026-09-17T02:49:48.851776",
+            "completed_at": "2026-09-17T02:50:03.727288",
+            "latency_ms": 14867.983806878328,
+            "cost": 0.012,
+            "input_ref": {
+              "stats": {
+                "orders": 4,
+                "planned_minutes": 120,
+                "actual_minutes": 155,
+                "overrun_minutes": 35,
+                "late_orders": 3,
+                "largest_overrun_order": "NF-04",
+                "largest_overrun_minutes": 25
+              },
+              "context": [
+                "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}"
+              ],
+              "query": "Explain the operational delay using only the supplied numbers. Do not claim savings. Suggest one next investigation.",
+              "showcase_seed": true
+            },
+            "output_ref": {
+              "answer": "Explication de l\u2019\u00e9cart op\u00e9rationnel\n- 4 ordres trait\u00e9s; charge planifi\u00e9e totale 120 min, r\u00e9alis\u00e9 155 min, soit un \u00e9cart de +35 min (+29,2% vs plan). [1]\n- 3 ordres sont en retard. [1]\n- L\u2019\u00e9cart principal provient de l\u2019ordre NF-04 avec +25 min; le solde cumul\u00e9 des autres ordres est donc de +10 min (35\u201325). NF-04 repr\u00e9sente ~71% de l\u2019\u00e9cart total (25/35). [1]\n\nContexte\n- Exercice synth\u00e9tique NorthForge; pas de donn\u00e9es client ni d\u2019\u00e9conomies v\u00e9rifi\u00e9es. [1]\n\nProchaine investigation (une)\n- Analyser en priorit\u00e9 l\u2019ordre NF-04 pour expliquer les +25 min : reconstituer la chronologie d\u2019ex\u00e9cution et les \u00e9v\u00e9nements enregistr\u00e9s sur cet ordre afin d\u2019identifier la cause principale du retard. [1]",
+              "citations": [
+                {
+                  "index": 1,
+                  "id": null,
+                  "source_id": null,
+                  "document": "source 1",
+                  "title": "source 1",
+                  "filename": "source 1",
+                  "document_id": null,
+                  "collection": null,
+                  "page": null,
+                  "snippet": "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}",
+                  "score": null
+                }
+              ],
+              "decision_steps": [],
+              "meta": {
+                "retrieval": {
+                  "raw_chunks_retrieved": 1,
+                  "source": "join_context",
+                  "stage_timings": {}
+                },
+                "inventory_coverage_review": {
+                  "status": "not_armed",
+                  "reason": "not_inventory"
+                }
+              },
+              "usage": {
+                "total_tokens": 1879,
+                "provider_calls": 1,
+                "measurement_source": "provider_reported",
+                "measurement_coverage": "complete",
+                "providers": [
+                  "openai"
+                ],
+                "calls": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "total_tokens": 1879,
+                    "prompt_tokens": 328,
+                    "completion_tokens": 1551
+                  }
+                ],
+                "prompt_tokens": 328,
+                "completion_tokens": 1551
+              }
+            },
+            "metrics": {
+              "cost_evidence": {
+                "schema_version": 1,
+                "state": "calculated",
+                "method": "catalog_unit_price",
+                "source": "skill_catalog:e2339094-4c59-43b3-a5d0-334263663d30:pricing",
+                "pricing_sha256": "96449c474e090f20047d146f048f27f77f63e332c615546b264896b7c66dadbc",
+                "currency": "USD",
+                "unit": "per_call",
+                "quantity": 1.0
+              },
+              "total_tokens": 1879,
+              "token_evidence": {
+                "total_tokens": 1879,
+                "provider_calls": 1,
+                "measurement_source": "provider_reported",
+                "measurement_coverage": "complete",
+                "providers": [
+                  "openai"
+                ],
+                "calls": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "total_tokens": 1879,
+                    "prompt_tokens": 328,
+                    "completion_tokens": 1551
+                  }
+                ],
+                "prompt_tokens": 328,
+                "completion_tokens": 1551
+              }
+            },
+            "trace": {
+              "node_id": "explain",
+              "membrane_attempt_kind": "task",
+              "membrane_attempt_index": 1,
+              "model_resolution": {
+                "provider": "openai",
+                "model": "gpt-5",
+                "credential_source": "env",
+                "model_source": "global",
+                "fallback": false,
+                "requested_provider": "workspace",
+                "fallback_plan": [
+                  {
+                    "provider": "ollama",
+                    "model": "qwen3:8b",
+                    "credential_source": "none",
+                    "model_source": "global",
+                    "fallback": false,
+                    "requested_provider": "ollama"
+                  }
+                ],
+                "attempts": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "credential_source": "env",
+                    "model_source": "global",
+                    "fallback": false,
+                    "requested_provider": "workspace",
+                    "fallback_plan": [
+                      {
+                        "provider": "ollama",
+                        "model": "qwen3:8b",
+                        "credential_source": "none",
+                        "model_source": "global",
+                        "fallback": false,
+                        "requested_provider": "ollama"
+                      }
+                    ],
+                    "dispatch_started": true,
+                    "status": "completed"
+                  }
+                ],
+                "dispatch_started": true,
+                "returned_model": "gpt-5-2025-08-07"
+              },
+              "model_execution": {
+                "provider": "openai",
+                "model": "gpt-5",
+                "credential_source": "env",
+                "model_source": "global",
+                "fallback": false,
+                "requested_provider": "workspace",
+                "fallback_plan": [
+                  {
+                    "provider": "ollama",
+                    "model": "qwen3:8b",
+                    "credential_source": "none",
+                    "model_source": "global",
+                    "fallback": false,
+                    "requested_provider": "ollama"
+                  }
+                ],
+                "attempts": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "credential_source": "env",
+                    "model_source": "global",
+                    "fallback": false,
+                    "requested_provider": "workspace",
+                    "fallback_plan": [
+                      {
+                        "provider": "ollama",
+                        "model": "qwen3:8b",
+                        "credential_source": "none",
+                        "model_source": "global",
+                        "fallback": false,
+                        "requested_provider": "ollama"
+                      }
+                    ],
+                    "dispatch_started": true,
+                    "status": "completed"
+                  }
+                ],
+                "dispatch_started": true,
+                "returned_model": "gpt-5-2025-08-07"
+              },
+              "effective_model": "openai:gpt-5"
+            },
+            "error": null,
+            "execution_evidence": {
+              "resolution": "resolved",
+              "execution_snapshot_sha256": "b737350d5d0c9e35fbeda8d5cb64331a58fe546b4e3c0b0d653adb18095bdf22"
+            }
+          },
+          {
+            "id": "0419f985-334d-4b53-a35b-13522596c614",
+            "skill_slug": "python_recipe_v1",
+            "status": "completed",
+            "started_at": "2026-09-17T02:50:03.749757",
+            "completed_at": "2026-09-17T02:50:04.771395",
+            "latency_ms": 1016.8890431523323,
+            "cost": 0.0,
+            "input_ref": {
+              "answer": "Explication de l\u2019\u00e9cart op\u00e9rationnel\n- 4 ordres trait\u00e9s; charge planifi\u00e9e totale 120 min, r\u00e9alis\u00e9 155 min, soit un \u00e9cart de +35 min (+29,2% vs plan). [1]\n- 3 ordres sont en retard. [1]\n- L\u2019\u00e9cart principal provient de l\u2019ordre NF-04 avec +25 min; le solde cumul\u00e9 des autres ordres est donc de +10 min (35\u201325). NF-04 repr\u00e9sente ~71% de l\u2019\u00e9cart total (25/35). [1]\n\nContexte\n- Exercice synth\u00e9tique NorthForge; pas de donn\u00e9es client ni d\u2019\u00e9conomies v\u00e9rifi\u00e9es. [1]\n\nProchaine investigation (une)\n- Analyser en priorit\u00e9 l\u2019ordre NF-04 pour expliquer les +25 min : reconstituer la chronologie d\u2019ex\u00e9cution et les \u00e9v\u00e9nements enregistr\u00e9s sur cet ordre afin d\u2019identifier la cause principale du retard. [1]",
+              "citations": [
+                {
+                  "index": 1,
+                  "id": null,
+                  "source_id": null,
+                  "document": "source 1",
+                  "title": "source 1",
+                  "filename": "source 1",
+                  "document_id": null,
+                  "collection": null,
+                  "page": null,
+                  "snippet": "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}",
+                  "score": null
+                }
+              ],
+              "decision_steps": [],
+              "meta": {
+                "retrieval": {
+                  "raw_chunks_retrieved": 1,
+                  "source": "join_context",
+                  "stage_timings": {}
+                },
+                "inventory_coverage_review": {
+                  "status": "not_armed",
+                  "reason": "not_inventory"
+                }
+              },
+              "usage": {
+                "total_tokens": 1879,
+                "provider_calls": 1,
+                "measurement_source": "provider_reported",
+                "measurement_coverage": "complete",
+                "providers": [
+                  "openai"
+                ],
+                "calls": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "total_tokens": 1879,
+                    "prompt_tokens": 328,
+                    "completion_tokens": 1551
+                  }
+                ],
+                "prompt_tokens": 328,
+                "completion_tokens": 1551
+              },
+              "stats": {
+                "orders": 4,
+                "planned_minutes": 120,
+                "actual_minutes": 155,
+                "overrun_minutes": 35,
+                "late_orders": 3,
+                "largest_overrun_order": "NF-04",
+                "largest_overrun_minutes": 25
+              },
+              "_recipe": {
+                "code": "def main(inputs):\n    stats = inputs.get(\"stats\") or {}\n    answer = inputs.get(\"answer\")\n    if stats != {'orders': 4, 'planned_minutes': 120, 'actual_minutes': 155, 'overrun_minutes': 35, 'late_orders': 3, 'largest_overrun_order': 'NF-04', 'largest_overrun_minutes': 25}:\n        raise ValueError(\"The fixed NorthForge fixture no longer matches the expected result; inspect the Python inputs and version before changing the reference\")\n    if not isinstance(answer, str) or not answer.strip():\n        raise ValueError(\"The model returned no explanation\")\n    return {\"stats\": stats, \"answer\": answer, \"numerical_reference_passed\": True,\n            \"human_validated\": False, \"economic_impact\": None, \"showcase_seed\": True}\n",
+                "requirements_text": null,
+                "index_url": null,
+                "extra_index_urls": null,
+                "timeout_s": 30,
+                "sources": null,
+                "node_id": "check"
+              }
+            },
+            "output_ref": {
+              "stats": {
+                "orders": 4,
+                "planned_minutes": 120,
+                "actual_minutes": 155,
+                "overrun_minutes": 35,
+                "late_orders": 3,
+                "largest_overrun_order": "NF-04",
+                "largest_overrun_minutes": 25
+              },
+              "answer": "Explication de l\u2019\u00e9cart op\u00e9rationnel\n- 4 ordres trait\u00e9s; charge planifi\u00e9e totale 120 min, r\u00e9alis\u00e9 155 min, soit un \u00e9cart de +35 min (+29,2% vs plan). [1]\n- 3 ordres sont en retard. [1]\n- L\u2019\u00e9cart principal provient de l\u2019ordre NF-04 avec +25 min; le solde cumul\u00e9 des autres ordres est donc de +10 min (35\u201325). NF-04 repr\u00e9sente ~71% de l\u2019\u00e9cart total (25/35). [1]\n\nContexte\n- Exercice synth\u00e9tique NorthForge; pas de donn\u00e9es client ni d\u2019\u00e9conomies v\u00e9rifi\u00e9es. [1]\n\nProchaine investigation (une)\n- Analyser en priorit\u00e9 l\u2019ordre NF-04 pour expliquer les +25 min : reconstituer la chronologie d\u2019ex\u00e9cution et les \u00e9v\u00e9nements enregistr\u00e9s sur cet ordre afin d\u2019identifier la cause principale du retard. [1]",
+              "numerical_reference_passed": true,
+              "human_validated": false,
+              "economic_impact": null,
+              "showcase_seed": true
+            },
+            "metrics": {
+              "cost_evidence": {
+                "schema_version": 1,
+                "state": "calculated",
+                "method": "catalog_unit_price",
+                "source": "skill_catalog:2d48c95e-d295-4058-b1c6-498f37e958a1:pricing",
+                "pricing_sha256": "180d622b84036120f8983343008002bc2238a477f008c40316b1a6e9ed22b494",
+                "currency": "USD",
+                "unit": "per_execution",
+                "quantity": 1.0
+              }
+            },
+            "trace": {
+              "node_id": "check",
+              "membrane_attempt_kind": "task",
+              "membrane_attempt_index": 1,
+              "effective_model": null
+            },
+            "error": null,
+            "execution_evidence": {
+              "resolution": "resolved",
+              "execution_snapshot_sha256": "95d5d4b6a34481abb901f14198b199a4660b5413ca4aa2e3a636d4b600a4b466"
+            }
+          }
+        ]
+      },
+      "seconds": 18.995,
+      "passed": true
+    },
+    {
+      "key": "64e1e846-0c80-4569-9dd7-d3e8dfbabd81",
+      "receipt": {
+        "id": "e9bc5e34-363a-432e-9d5e-1230db0169a9",
+        "status": "pending",
+        "execution_surface": "published_manual",
+        "idempotent_replay": false,
+        "surface": "experience",
+        "origin": "experience:operational-analysis",
+        "experience_id": "f286295a-ebef-44d2-a4a3-d0dbf04c866f",
+        "experience_slug": "operational-analysis",
+        "experience_release_id": "9f8ad33f-41bc-4ccb-a043-d26e5241d779",
+        "experience_deployment_id": "e6d39e68-2eec-41db-b331-9e2ba71b36b1",
+        "channel": "live",
+        "binding_key": "showcase.operational.analyze",
+        "page_id": "analysis",
+        "component_id": "analyze"
+      },
+      "run": {
+        "id": "e9bc5e34-363a-432e-9d5e-1230db0169a9",
+        "system_id": "15b05919-c93b-4648-8581-8a41cbe2fae6",
+        "capability_id": null,
+        "status": "completed",
+        "trigger": "manual",
+        "started_at": "2026-09-17T02:50:05.699165",
+        "completed_at": "2026-09-17T02:50:24.473894",
+        "duration_ms": 18402.056094259024,
+        "input_ref": {
+          "execution": {
+            "flow_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d",
+            "runtime_mode": "dag_overlay",
+            "runtime_mode_reason": null,
+            "execution_surface": "published_manual",
+            "published_flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+            "ingress_id": "src",
+            "ingress_selection_version": 1,
+            "snapshot_at": "2026-09-17T02:50:06.045064Z",
+            "runtime_revision": "18741f94fb6ced627c53701c0b469685618b852d",
+            "control_policy": {
+              "schema_version": 1,
+              "state": "not_configured"
+            },
+            "system_id": "15b05919-c93b-4648-8581-8a41cbe2fae6"
+          },
+          "_ingress": {
+            "ingress_id": "src",
+            "source_node_id": "src",
+            "kind": "manual",
+            "adapter": {
+              "surface": "experience",
+              "origin": "experience:operational-analysis",
+              "experience_id": "f286295a-ebef-44d2-a4a3-d0dbf04c866f",
+              "experience_slug": "operational-analysis",
+              "experience_release_id": "9f8ad33f-41bc-4ccb-a043-d26e5241d779",
+              "experience_deployment_id": "e6d39e68-2eec-41db-b331-9e2ba71b36b1",
+              "channel": "live",
+              "binding_key": "showcase.operational.analyze",
+              "page_id": "analysis",
+              "component_id": "analyze",
+              "request_sha256": "e615a5cc3779118bf3768ec8edb5a8a99520bed9eaad0d84f7332088ae4121f5"
+            }
+          },
+          "workspace_id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+          "workspace_slug": "agentium-showcase",
+          "user_id": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+          "retrieval_contract": {}
+        },
+        "output_ref": {
+          "stats": {
+            "orders": 4,
+            "planned_minutes": 120,
+            "actual_minutes": 155,
+            "overrun_minutes": 35,
+            "late_orders": 3,
+            "largest_overrun_order": "NF-04",
+            "largest_overrun_minutes": 25
+          },
+          "answer": "Explication du retard op\u00e9rationnel (chiffres fournis) :\n- 4 ordres planifi\u00e9s au total [1].\n- 120 minutes planifi\u00e9es au global vs 155 minutes r\u00e9elles, soit un surtemps cumul\u00e9 de 35 minutes (155 \u2212 120 = 35) [1].\n- 3 ordres en retard sur 4 [1].\n- L\u2019\u00e9cart principal provient de l\u2019ordre NF-04 avec +25 minutes, ce qui repr\u00e9sente 25 minutes sur 35 minutes de surtemps total [1].\n\nConclusion op\u00e9rationnelle:\n- Le retard global de 35 minutes est majoritairement port\u00e9 par NF-04 (25/35 minutes) et, plus largement, 3 des 4 ordres ont d\u00e9pass\u00e9 le plan [1].\n\nProchaine investigation (une seule, cibl\u00e9e):\n- Prioriser l\u2019analyse d\u00e9taill\u00e9e de NF-04: d\u00e9composer ses temps par op\u00e9rations et comparer planifi\u00e9 vs r\u00e9el pour localiser l\u2019\u00e9tape \u00e0 l\u2019origine des +25 minutes de d\u00e9rive [1].",
+          "numerical_reference_passed": true,
+          "human_validated": false,
+          "economic_impact": null,
+          "showcase_seed": true
+        },
+        "outcome": {
+          "decision": null,
+          "confidence": null,
+          "value_estimated": 0.0,
+          "cost_internal": 0.012,
+          "revenue_allocated": null,
+          "efficiency": 0.0,
+          "value_source": "unset",
+          "operator_value_note": null,
+          "measurement_provenance": null,
+          "baseline_eligible": false,
+          "baseline_ineligible_reason": "baseline_run_is_synthetic_demo"
+        },
+        "retries": 0,
+        "error": null,
+        "checkpoints": [
+          {
+            "kind": "ingress_accepted",
+            "t": "2026-09-17T02:50:05.699178",
+            "ingress_id": "src",
+            "ingress_kind": "manual",
+            "published_flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+            "flow_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d"
+          },
+          {
+            "kind": "run_start",
+            "nodes": 5,
+            "debug_mode": null,
+            "breakpoints": [],
+            "ingress_source_node_id": "src",
+            "inactive_ingress_source_node_ids": [],
+            "t": "2026-09-17T02:50:06.067254"
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:50:06.074186",
+            "node_id": "src",
+            "node_kind": "source",
+            "label": "Synthetic work orders",
+            "skill_slug": null
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:50:06.081679",
+            "node_id": "src",
+            "node_kind": "source"
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:50:06.089229",
+            "node_id": "calculate",
+            "node_kind": "task",
+            "label": "Calculate with Python / Polars",
+            "skill_slug": "python_recipe_v1"
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:50:08.149705",
+            "node_id": "calculate",
+            "node_kind": "task",
+            "skill_slug": "python_recipe_v1",
+            "status": "completed",
+            "latency_ms": 2027.8016943484545,
+            "cost": 0.0
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:50:08.161999",
+            "node_id": "explain",
+            "node_kind": "task",
+            "label": "Explain the computed evidence",
+            "skill_slug": "llm_rag_answer_v1"
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:50:23.369752",
+            "node_id": "explain",
+            "node_kind": "task",
+            "skill_slug": "llm_rag_answer_v1",
+            "status": "completed",
+            "latency_ms": 15171.89866118133,
+            "cost": 0.012
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:50:23.380636",
+            "node_id": "check",
+            "node_kind": "task",
+            "label": "Check against the numerical reference",
+            "skill_slug": "python_recipe_v1"
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:50:24.437244",
+            "node_id": "check",
+            "node_kind": "task",
+            "skill_slug": "python_recipe_v1",
+            "status": "completed",
+            "latency_ms": 1022.453898563981,
+            "cost": 0.0
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:50:24.449666",
+            "node_id": "sink",
+            "node_kind": "sink",
+            "label": "Inspect result and evidence",
+            "skill_slug": null
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:50:24.458971",
+            "node_id": "sink",
+            "node_kind": "sink"
+          },
+          {
+            "kind": "run_end",
+            "status": "completed",
+            "nodes_executed": 5,
+            "t": "2026-09-17T02:50:24.522880"
+          }
+        ],
+        "test_result": null,
+        "waiting_subflows": {},
+        "result_held": false,
+        "flow_evidence": {
+          "flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+          "flow_snapshot_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d",
+          "execution_snapshot_at": "2026-09-17T02:50:06.045064Z",
+          "runtime_revision": "18741f94fb6ced627c53701c0b469685618b852d"
+        },
+        "invocations": [
+          {
+            "id": "f45e7265-9ec3-4a3a-84f9-23614b91dd6e",
+            "skill_slug": "python_recipe_v1",
+            "status": "completed",
+            "started_at": "2026-09-17T02:50:06.103681",
+            "completed_at": "2026-09-17T02:50:08.139445",
+            "latency_ms": 2027.8016943484545,
+            "cost": 0.0,
+            "input_ref": {
+              "execution": {
+                "flow_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d",
+                "runtime_mode": "dag_overlay",
+                "runtime_mode_reason": null,
+                "execution_surface": "published_manual",
+                "published_flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+                "ingress_id": "src",
+                "ingress_selection_version": 1,
+                "snapshot_at": "2026-09-17T02:50:06.045064Z",
+                "runtime_revision": "18741f94fb6ced627c53701c0b469685618b852d",
+                "control_policy": {
+                  "schema_version": 1,
+                  "state": "not_configured"
+                },
+                "system_id": "15b05919-c93b-4648-8581-8a41cbe2fae6"
+              },
+              "_ingress": {
+                "ingress_id": "src",
+                "source_node_id": "src",
+                "kind": "manual",
+                "adapter": {
+                  "surface": "experience",
+                  "origin": "experience:operational-analysis",
+                  "experience_id": "f286295a-ebef-44d2-a4a3-d0dbf04c866f",
+                  "experience_slug": "operational-analysis",
+                  "experience_release_id": "9f8ad33f-41bc-4ccb-a043-d26e5241d779",
+                  "experience_deployment_id": "e6d39e68-2eec-41db-b331-9e2ba71b36b1",
+                  "channel": "live",
+                  "binding_key": "showcase.operational.analyze",
+                  "page_id": "analysis",
+                  "component_id": "analyze",
+                  "request_sha256": "e615a5cc3779118bf3768ec8edb5a8a99520bed9eaad0d84f7332088ae4121f5"
+                }
+              },
+              "workspace_id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+              "workspace_slug": "agentium-showcase",
+              "user_id": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+              "retrieval_contract": {},
+              "_recipe": {
+                "code": "import json\nimport polars as pl\n\nDEFAULT_ROWS = [{'order': 'NF-01', 'planned_minutes': 30, 'actual_minutes': 40}, {'order': 'NF-02', 'planned_minutes': 40, 'actual_minutes': 35}, {'order': 'NF-03', 'planned_minutes': 20, 'actual_minutes': 25}, {'order': 'NF-04', 'planned_minutes': 30, 'actual_minutes': 55}]\n\ndef main(inputs):\n    rows = inputs.get(\"rows\", DEFAULT_ROWS)\n    frame = pl.DataFrame(rows)\n    required = {\"order\", \"planned_minutes\", \"actual_minutes\"}\n    if not rows or not required.issubset(frame.columns):\n        raise ValueError(\"Supply non-empty rows with order, planned_minutes and actual_minutes\")\n    if frame.select(pl.col(\"planned_minutes\", \"actual_minutes\").null_count()).sum_horizontal().item() != 0:\n        raise ValueError(\"Durations cannot be missing\")\n    if frame.filter((pl.col(\"planned_minutes\") < 0) | (pl.col(\"actual_minutes\") < 0)).height:\n        raise ValueError(\"Durations cannot be negative\")\n    planned = frame[\"planned_minutes\"].sum()\n    actual = frame[\"actual_minutes\"].sum()\n    largest = frame.with_columns((pl.col(\"actual_minutes\") - pl.col(\"planned_minutes\")).alias(\"overrun\")).sort([\"overrun\", \"order\"], descending=[True, False]).row(0, named=True)\n    stats = {\"orders\": frame.height, \"planned_minutes\": planned, \"actual_minutes\": actual,\n             \"overrun_minutes\": actual - planned,\n             \"late_orders\": frame.filter(pl.col(\"actual_minutes\") > pl.col(\"planned_minutes\")).height,\n             \"largest_overrun_order\": largest[\"order\"], \"largest_overrun_minutes\": largest[\"overrun\"]}\n    return {\"stats\": stats, \"context\": [\"Synthetic NorthForge exercise; no customer data or verified savings. \" + json.dumps(stats)],\n            \"query\": \"Explain the operational delay using only the supplied numbers. Do not claim savings. Suggest one next investigation.\",\n            \"showcase_seed\": True}\n",
+                "requirements_text": "polars==1.31.0",
+                "index_url": null,
+                "extra_index_urls": null,
+                "timeout_s": 30,
+                "sources": null,
+                "node_id": "calculate"
+              }
+            },
+            "output_ref": {
+              "stats": {
+                "orders": 4,
+                "planned_minutes": 120,
+                "actual_minutes": 155,
+                "overrun_minutes": 35,
+                "late_orders": 3,
+                "largest_overrun_order": "NF-04",
+                "largest_overrun_minutes": 25
+              },
+              "context": [
+                "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}"
+              ],
+              "query": "Explain the operational delay using only the supplied numbers. Do not claim savings. Suggest one next investigation.",
+              "showcase_seed": true
+            },
+            "metrics": {
+              "cost_evidence": {
+                "schema_version": 1,
+                "state": "calculated",
+                "method": "catalog_unit_price",
+                "source": "skill_catalog:2d48c95e-d295-4058-b1c6-498f37e958a1:pricing",
+                "pricing_sha256": "180d622b84036120f8983343008002bc2238a477f008c40316b1a6e9ed22b494",
+                "currency": "USD",
+                "unit": "per_execution",
+                "quantity": 1.0
+              }
+            },
+            "trace": {
+              "node_id": "calculate",
+              "membrane_attempt_kind": "task",
+              "membrane_attempt_index": 1,
+              "effective_model": null
+            },
+            "error": null,
+            "execution_evidence": {
+              "resolution": "resolved",
+              "execution_snapshot_sha256": "95d5d4b6a34481abb901f14198b199a4660b5413ca4aa2e3a636d4b600a4b466"
+            }
+          },
+          {
+            "id": "ca93273e-e6cc-4ac7-8405-369963bccac2",
+            "skill_slug": "llm_rag_answer_v1",
+            "status": "completed",
+            "started_at": "2026-09-17T02:50:08.178170",
+            "completed_at": "2026-09-17T02:50:23.358526",
+            "latency_ms": 15171.89866118133,
+            "cost": 0.012,
+            "input_ref": {
+              "stats": {
+                "orders": 4,
+                "planned_minutes": 120,
+                "actual_minutes": 155,
+                "overrun_minutes": 35,
+                "late_orders": 3,
+                "largest_overrun_order": "NF-04",
+                "largest_overrun_minutes": 25
+              },
+              "context": [
+                "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}"
+              ],
+              "query": "Explain the operational delay using only the supplied numbers. Do not claim savings. Suggest one next investigation.",
+              "showcase_seed": true
+            },
+            "output_ref": {
+              "answer": "Explication du retard op\u00e9rationnel (chiffres fournis) :\n- 4 ordres planifi\u00e9s au total [1].\n- 120 minutes planifi\u00e9es au global vs 155 minutes r\u00e9elles, soit un surtemps cumul\u00e9 de 35 minutes (155 \u2212 120 = 35) [1].\n- 3 ordres en retard sur 4 [1].\n- L\u2019\u00e9cart principal provient de l\u2019ordre NF-04 avec +25 minutes, ce qui repr\u00e9sente 25 minutes sur 35 minutes de surtemps total [1].\n\nConclusion op\u00e9rationnelle:\n- Le retard global de 35 minutes est majoritairement port\u00e9 par NF-04 (25/35 minutes) et, plus largement, 3 des 4 ordres ont d\u00e9pass\u00e9 le plan [1].\n\nProchaine investigation (une seule, cibl\u00e9e):\n- Prioriser l\u2019analyse d\u00e9taill\u00e9e de NF-04: d\u00e9composer ses temps par op\u00e9rations et comparer planifi\u00e9 vs r\u00e9el pour localiser l\u2019\u00e9tape \u00e0 l\u2019origine des +25 minutes de d\u00e9rive [1].",
+              "citations": [
+                {
+                  "index": 1,
+                  "id": null,
+                  "source_id": null,
+                  "document": "source 1",
+                  "title": "source 1",
+                  "filename": "source 1",
+                  "document_id": null,
+                  "collection": null,
+                  "page": null,
+                  "snippet": "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}",
+                  "score": null
+                }
+              ],
+              "decision_steps": [],
+              "meta": {
+                "retrieval": {
+                  "raw_chunks_retrieved": 1,
+                  "source": "join_context",
+                  "stage_timings": {}
+                },
+                "inventory_coverage_review": {
+                  "status": "not_armed",
+                  "reason": "not_inventory"
+                }
+              },
+              "usage": {
+                "total_tokens": 1764,
+                "provider_calls": 1,
+                "measurement_source": "provider_reported",
+                "measurement_coverage": "complete",
+                "providers": [
+                  "openai"
+                ],
+                "calls": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "total_tokens": 1764,
+                    "prompt_tokens": 328,
+                    "completion_tokens": 1436
+                  }
+                ],
+                "prompt_tokens": 328,
+                "completion_tokens": 1436
+              }
+            },
+            "metrics": {
+              "cost_evidence": {
+                "schema_version": 1,
+                "state": "calculated",
+                "method": "catalog_unit_price",
+                "source": "skill_catalog:e2339094-4c59-43b3-a5d0-334263663d30:pricing",
+                "pricing_sha256": "96449c474e090f20047d146f048f27f77f63e332c615546b264896b7c66dadbc",
+                "currency": "USD",
+                "unit": "per_call",
+                "quantity": 1.0
+              },
+              "total_tokens": 1764,
+              "token_evidence": {
+                "total_tokens": 1764,
+                "provider_calls": 1,
+                "measurement_source": "provider_reported",
+                "measurement_coverage": "complete",
+                "providers": [
+                  "openai"
+                ],
+                "calls": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "total_tokens": 1764,
+                    "prompt_tokens": 328,
+                    "completion_tokens": 1436
+                  }
+                ],
+                "prompt_tokens": 328,
+                "completion_tokens": 1436
+              }
+            },
+            "trace": {
+              "node_id": "explain",
+              "membrane_attempt_kind": "task",
+              "membrane_attempt_index": 1,
+              "model_resolution": {
+                "provider": "openai",
+                "model": "gpt-5",
+                "credential_source": "env",
+                "model_source": "global",
+                "fallback": false,
+                "requested_provider": "workspace",
+                "fallback_plan": [
+                  {
+                    "provider": "ollama",
+                    "model": "qwen3:8b",
+                    "credential_source": "none",
+                    "model_source": "global",
+                    "fallback": false,
+                    "requested_provider": "ollama"
+                  }
+                ],
+                "attempts": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "credential_source": "env",
+                    "model_source": "global",
+                    "fallback": false,
+                    "requested_provider": "workspace",
+                    "fallback_plan": [
+                      {
+                        "provider": "ollama",
+                        "model": "qwen3:8b",
+                        "credential_source": "none",
+                        "model_source": "global",
+                        "fallback": false,
+                        "requested_provider": "ollama"
+                      }
+                    ],
+                    "dispatch_started": true,
+                    "status": "completed"
+                  }
+                ],
+                "dispatch_started": true,
+                "returned_model": "gpt-5-2025-08-07"
+              },
+              "model_execution": {
+                "provider": "openai",
+                "model": "gpt-5",
+                "credential_source": "env",
+                "model_source": "global",
+                "fallback": false,
+                "requested_provider": "workspace",
+                "fallback_plan": [
+                  {
+                    "provider": "ollama",
+                    "model": "qwen3:8b",
+                    "credential_source": "none",
+                    "model_source": "global",
+                    "fallback": false,
+                    "requested_provider": "ollama"
+                  }
+                ],
+                "attempts": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "credential_source": "env",
+                    "model_source": "global",
+                    "fallback": false,
+                    "requested_provider": "workspace",
+                    "fallback_plan": [
+                      {
+                        "provider": "ollama",
+                        "model": "qwen3:8b",
+                        "credential_source": "none",
+                        "model_source": "global",
+                        "fallback": false,
+                        "requested_provider": "ollama"
+                      }
+                    ],
+                    "dispatch_started": true,
+                    "status": "completed"
+                  }
+                ],
+                "dispatch_started": true,
+                "returned_model": "gpt-5-2025-08-07"
+              },
+              "effective_model": "openai:gpt-5"
+            },
+            "error": null,
+            "execution_evidence": {
+              "resolution": "resolved",
+              "execution_snapshot_sha256": "b737350d5d0c9e35fbeda8d5cb64331a58fe546b4e3c0b0d653adb18095bdf22"
+            }
+          },
+          {
+            "id": "c3174d5f-edd5-4048-a5c2-564dcb9e1fbc",
+            "skill_slug": "python_recipe_v1",
+            "status": "completed",
+            "started_at": "2026-09-17T02:50:23.395682",
+            "completed_at": "2026-09-17T02:50:24.426341",
+            "latency_ms": 1022.453898563981,
+            "cost": 0.0,
+            "input_ref": {
+              "answer": "Explication du retard op\u00e9rationnel (chiffres fournis) :\n- 4 ordres planifi\u00e9s au total [1].\n- 120 minutes planifi\u00e9es au global vs 155 minutes r\u00e9elles, soit un surtemps cumul\u00e9 de 35 minutes (155 \u2212 120 = 35) [1].\n- 3 ordres en retard sur 4 [1].\n- L\u2019\u00e9cart principal provient de l\u2019ordre NF-04 avec +25 minutes, ce qui repr\u00e9sente 25 minutes sur 35 minutes de surtemps total [1].\n\nConclusion op\u00e9rationnelle:\n- Le retard global de 35 minutes est majoritairement port\u00e9 par NF-04 (25/35 minutes) et, plus largement, 3 des 4 ordres ont d\u00e9pass\u00e9 le plan [1].\n\nProchaine investigation (une seule, cibl\u00e9e):\n- Prioriser l\u2019analyse d\u00e9taill\u00e9e de NF-04: d\u00e9composer ses temps par op\u00e9rations et comparer planifi\u00e9 vs r\u00e9el pour localiser l\u2019\u00e9tape \u00e0 l\u2019origine des +25 minutes de d\u00e9rive [1].",
+              "citations": [
+                {
+                  "index": 1,
+                  "id": null,
+                  "source_id": null,
+                  "document": "source 1",
+                  "title": "source 1",
+                  "filename": "source 1",
+                  "document_id": null,
+                  "collection": null,
+                  "page": null,
+                  "snippet": "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}",
+                  "score": null
+                }
+              ],
+              "decision_steps": [],
+              "meta": {
+                "retrieval": {
+                  "raw_chunks_retrieved": 1,
+                  "source": "join_context",
+                  "stage_timings": {}
+                },
+                "inventory_coverage_review": {
+                  "status": "not_armed",
+                  "reason": "not_inventory"
+                }
+              },
+              "usage": {
+                "total_tokens": 1764,
+                "provider_calls": 1,
+                "measurement_source": "provider_reported",
+                "measurement_coverage": "complete",
+                "providers": [
+                  "openai"
+                ],
+                "calls": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "total_tokens": 1764,
+                    "prompt_tokens": 328,
+                    "completion_tokens": 1436
+                  }
+                ],
+                "prompt_tokens": 328,
+                "completion_tokens": 1436
+              },
+              "stats": {
+                "orders": 4,
+                "planned_minutes": 120,
+                "actual_minutes": 155,
+                "overrun_minutes": 35,
+                "late_orders": 3,
+                "largest_overrun_order": "NF-04",
+                "largest_overrun_minutes": 25
+              },
+              "_recipe": {
+                "code": "def main(inputs):\n    stats = inputs.get(\"stats\") or {}\n    answer = inputs.get(\"answer\")\n    if stats != {'orders': 4, 'planned_minutes': 120, 'actual_minutes': 155, 'overrun_minutes': 35, 'late_orders': 3, 'largest_overrun_order': 'NF-04', 'largest_overrun_minutes': 25}:\n        raise ValueError(\"The fixed NorthForge fixture no longer matches the expected result; inspect the Python inputs and version before changing the reference\")\n    if not isinstance(answer, str) or not answer.strip():\n        raise ValueError(\"The model returned no explanation\")\n    return {\"stats\": stats, \"answer\": answer, \"numerical_reference_passed\": True,\n            \"human_validated\": False, \"economic_impact\": None, \"showcase_seed\": True}\n",
+                "requirements_text": null,
+                "index_url": null,
+                "extra_index_urls": null,
+                "timeout_s": 30,
+                "sources": null,
+                "node_id": "check"
+              }
+            },
+            "output_ref": {
+              "stats": {
+                "orders": 4,
+                "planned_minutes": 120,
+                "actual_minutes": 155,
+                "overrun_minutes": 35,
+                "late_orders": 3,
+                "largest_overrun_order": "NF-04",
+                "largest_overrun_minutes": 25
+              },
+              "answer": "Explication du retard op\u00e9rationnel (chiffres fournis) :\n- 4 ordres planifi\u00e9s au total [1].\n- 120 minutes planifi\u00e9es au global vs 155 minutes r\u00e9elles, soit un surtemps cumul\u00e9 de 35 minutes (155 \u2212 120 = 35) [1].\n- 3 ordres en retard sur 4 [1].\n- L\u2019\u00e9cart principal provient de l\u2019ordre NF-04 avec +25 minutes, ce qui repr\u00e9sente 25 minutes sur 35 minutes de surtemps total [1].\n\nConclusion op\u00e9rationnelle:\n- Le retard global de 35 minutes est majoritairement port\u00e9 par NF-04 (25/35 minutes) et, plus largement, 3 des 4 ordres ont d\u00e9pass\u00e9 le plan [1].\n\nProchaine investigation (une seule, cibl\u00e9e):\n- Prioriser l\u2019analyse d\u00e9taill\u00e9e de NF-04: d\u00e9composer ses temps par op\u00e9rations et comparer planifi\u00e9 vs r\u00e9el pour localiser l\u2019\u00e9tape \u00e0 l\u2019origine des +25 minutes de d\u00e9rive [1].",
+              "numerical_reference_passed": true,
+              "human_validated": false,
+              "economic_impact": null,
+              "showcase_seed": true
+            },
+            "metrics": {
+              "cost_evidence": {
+                "schema_version": 1,
+                "state": "calculated",
+                "method": "catalog_unit_price",
+                "source": "skill_catalog:2d48c95e-d295-4058-b1c6-498f37e958a1:pricing",
+                "pricing_sha256": "180d622b84036120f8983343008002bc2238a477f008c40316b1a6e9ed22b494",
+                "currency": "USD",
+                "unit": "per_execution",
+                "quantity": 1.0
+              }
+            },
+            "trace": {
+              "node_id": "check",
+              "membrane_attempt_kind": "task",
+              "membrane_attempt_index": 1,
+              "effective_model": null
+            },
+            "error": null,
+            "execution_evidence": {
+              "resolution": "resolved",
+              "execution_snapshot_sha256": "95d5d4b6a34481abb901f14198b199a4660b5413ca4aa2e3a636d4b600a4b466"
+            }
+          }
+        ]
+      },
+      "seconds": 21.122,
+      "passed": true
+    },
+    {
+      "key": "a4c272db-9bea-4697-bffc-c374e0044fa4",
+      "receipt": {
+        "id": "dd6e1b2e-597d-4a61-9409-acb4d6cd9e51",
+        "status": "pending",
+        "execution_surface": "published_manual",
+        "idempotent_replay": false,
+        "surface": "experience",
+        "origin": "experience:operational-analysis",
+        "experience_id": "f286295a-ebef-44d2-a4a3-d0dbf04c866f",
+        "experience_slug": "operational-analysis",
+        "experience_release_id": "9f8ad33f-41bc-4ccb-a043-d26e5241d779",
+        "experience_deployment_id": "e6d39e68-2eec-41db-b331-9e2ba71b36b1",
+        "channel": "live",
+        "binding_key": "showcase.operational.analyze",
+        "page_id": "analysis",
+        "component_id": "analyze"
+      },
+      "run": {
+        "id": "dd6e1b2e-597d-4a61-9409-acb4d6cd9e51",
+        "system_id": "15b05919-c93b-4648-8581-8a41cbe2fae6",
+        "capability_id": null,
+        "status": "completed",
+        "trigger": "manual",
+        "started_at": "2026-09-17T02:50:26.887120",
+        "completed_at": "2026-09-17T02:50:47.759505",
+        "duration_ms": 20711.245579645038,
+        "input_ref": {
+          "execution": {
+            "flow_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d",
+            "runtime_mode": "dag_overlay",
+            "runtime_mode_reason": null,
+            "execution_surface": "published_manual",
+            "published_flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+            "ingress_id": "src",
+            "ingress_selection_version": 1,
+            "snapshot_at": "2026-09-17T02:50:27.017579Z",
+            "runtime_revision": "18741f94fb6ced627c53701c0b469685618b852d",
+            "control_policy": {
+              "schema_version": 1,
+              "state": "not_configured"
+            },
+            "system_id": "15b05919-c93b-4648-8581-8a41cbe2fae6"
+          },
+          "_ingress": {
+            "ingress_id": "src",
+            "source_node_id": "src",
+            "kind": "manual",
+            "adapter": {
+              "surface": "experience",
+              "origin": "experience:operational-analysis",
+              "experience_id": "f286295a-ebef-44d2-a4a3-d0dbf04c866f",
+              "experience_slug": "operational-analysis",
+              "experience_release_id": "9f8ad33f-41bc-4ccb-a043-d26e5241d779",
+              "experience_deployment_id": "e6d39e68-2eec-41db-b331-9e2ba71b36b1",
+              "channel": "live",
+              "binding_key": "showcase.operational.analyze",
+              "page_id": "analysis",
+              "component_id": "analyze",
+              "request_sha256": "e615a5cc3779118bf3768ec8edb5a8a99520bed9eaad0d84f7332088ae4121f5"
+            }
+          },
+          "workspace_id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+          "workspace_slug": "agentium-showcase",
+          "user_id": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+          "retrieval_contract": {}
+        },
+        "output_ref": {
+          "stats": {
+            "orders": 4,
+            "planned_minutes": 120,
+            "actual_minutes": 155,
+            "overrun_minutes": 35,
+            "late_orders": 3,
+            "largest_overrun_order": "NF-04",
+            "largest_overrun_minutes": 25
+          },
+          "answer": "Bilan chiffr\u00e9 et explication du retard op\u00e9rationnel\n- Commandes trait\u00e9es: 4 [1]\n- Temps planifi\u00e9 total: 120 minutes; temps r\u00e9el: 155 minutes; d\u00e9passement global: +35 minutes [1]\n- Commandes en retard: 3 (sur 4) [1]\n- Plus grand d\u00e9passement par commande: NF-04 avec +25 minutes [1]\n\nLe retard op\u00e9rationnel provient d\u2019un \u00e9cart global de +35 minutes entre le plan et l\u2019ex\u00e9cution [1]. La commande NF-04 concentre \u00e0 elle seule +25 minutes de ce d\u00e9passement [1], laissant +10 minutes d\u2019\u00e9cart cumul\u00e9 sur les autres commandes. Cette concentration d\u2019\u00e9cart sur NF-04 contribue m\u00e9caniquement au fait que 3 commandes sont en retard [1].\n\nProchaine investigation (unique)\n- Analyser en priorit\u00e9 la commande NF-04 pour d\u00e9composer les +25 minutes d\u2019\u00e9cart par \u00e9tape/processus et ressource (op\u00e9rateur, machine, r\u00e9glages) afin d\u2019identifier le goulet ou l\u2019\u00e9v\u00e9nement pr\u00e9cis \u00e0 l\u2019origine de ce d\u00e9passement [1].",
+          "numerical_reference_passed": true,
+          "human_validated": false,
+          "economic_impact": null,
+          "showcase_seed": true
+        },
+        "outcome": {
+          "decision": null,
+          "confidence": null,
+          "value_estimated": 0.0,
+          "cost_internal": 0.012,
+          "revenue_allocated": null,
+          "efficiency": 0.0,
+          "value_source": "unset",
+          "operator_value_note": null,
+          "measurement_provenance": null,
+          "baseline_eligible": false,
+          "baseline_ineligible_reason": "baseline_run_is_synthetic_demo"
+        },
+        "retries": 0,
+        "error": null,
+        "checkpoints": [
+          {
+            "kind": "ingress_accepted",
+            "t": "2026-09-17T02:50:26.887132",
+            "ingress_id": "src",
+            "ingress_kind": "manual",
+            "published_flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+            "flow_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d"
+          },
+          {
+            "kind": "run_start",
+            "nodes": 5,
+            "debug_mode": null,
+            "breakpoints": [],
+            "ingress_source_node_id": "src",
+            "inactive_ingress_source_node_ids": [],
+            "t": "2026-09-17T02:50:27.043855"
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:50:27.070730",
+            "node_id": "src",
+            "node_kind": "source",
+            "label": "Synthetic work orders",
+            "skill_slug": null
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:50:27.078228",
+            "node_id": "src",
+            "node_kind": "source"
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:50:27.084619",
+            "node_id": "calculate",
+            "node_kind": "task",
+            "label": "Calculate with Python / Polars",
+            "skill_slug": "python_recipe_v1"
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:50:29.147404",
+            "node_id": "calculate",
+            "node_kind": "task",
+            "skill_slug": "python_recipe_v1",
+            "status": "completed",
+            "latency_ms": 2029.7558372840285,
+            "cost": 0.0
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:50:29.159924",
+            "node_id": "explain",
+            "node_kind": "task",
+            "label": "Explain the computed evidence",
+            "skill_slug": "llm_rag_answer_v1"
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:50:46.652652",
+            "node_id": "explain",
+            "node_kind": "task",
+            "skill_slug": "llm_rag_answer_v1",
+            "status": "completed",
+            "latency_ms": 17454.740157350898,
+            "cost": 0.012
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:50:46.664274",
+            "node_id": "check",
+            "node_kind": "task",
+            "label": "Check against the numerical reference",
+            "skill_slug": "python_recipe_v1"
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:50:47.724731",
+            "node_id": "check",
+            "node_kind": "task",
+            "skill_slug": "python_recipe_v1",
+            "status": "completed",
+            "latency_ms": 1024.5830304920673,
+            "cost": 0.0
+          },
+          {
+            "kind": "node_start",
+            "t": "2026-09-17T02:50:47.736112",
+            "node_id": "sink",
+            "node_kind": "sink",
+            "label": "Inspect result and evidence",
+            "skill_slug": null
+          },
+          {
+            "kind": "node_end",
+            "t": "2026-09-17T02:50:47.745130",
+            "node_id": "sink",
+            "node_kind": "sink"
+          },
+          {
+            "kind": "run_end",
+            "status": "completed",
+            "nodes_executed": 5,
+            "t": "2026-09-17T02:50:47.806040"
+          }
+        ],
+        "test_result": null,
+        "waiting_subflows": {},
+        "result_held": false,
+        "flow_evidence": {
+          "flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+          "flow_snapshot_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d",
+          "execution_snapshot_at": "2026-09-17T02:50:27.017579Z",
+          "runtime_revision": "18741f94fb6ced627c53701c0b469685618b852d"
+        },
+        "invocations": [
+          {
+            "id": "a1a5caf5-cec4-4c4d-837b-ddaee2c1d908",
+            "skill_slug": "python_recipe_v1",
+            "status": "completed",
+            "started_at": "2026-09-17T02:50:27.098693",
+            "completed_at": "2026-09-17T02:50:29.136307",
+            "latency_ms": 2029.7558372840285,
+            "cost": 0.0,
+            "input_ref": {
+              "execution": {
+                "flow_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d",
+                "runtime_mode": "dag_overlay",
+                "runtime_mode_reason": null,
+                "execution_surface": "published_manual",
+                "published_flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+                "ingress_id": "src",
+                "ingress_selection_version": 1,
+                "snapshot_at": "2026-09-17T02:50:27.017579Z",
+                "runtime_revision": "18741f94fb6ced627c53701c0b469685618b852d",
+                "control_policy": {
+                  "schema_version": 1,
+                  "state": "not_configured"
+                },
+                "system_id": "15b05919-c93b-4648-8581-8a41cbe2fae6"
+              },
+              "_ingress": {
+                "ingress_id": "src",
+                "source_node_id": "src",
+                "kind": "manual",
+                "adapter": {
+                  "surface": "experience",
+                  "origin": "experience:operational-analysis",
+                  "experience_id": "f286295a-ebef-44d2-a4a3-d0dbf04c866f",
+                  "experience_slug": "operational-analysis",
+                  "experience_release_id": "9f8ad33f-41bc-4ccb-a043-d26e5241d779",
+                  "experience_deployment_id": "e6d39e68-2eec-41db-b331-9e2ba71b36b1",
+                  "channel": "live",
+                  "binding_key": "showcase.operational.analyze",
+                  "page_id": "analysis",
+                  "component_id": "analyze",
+                  "request_sha256": "e615a5cc3779118bf3768ec8edb5a8a99520bed9eaad0d84f7332088ae4121f5"
+                }
+              },
+              "workspace_id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+              "workspace_slug": "agentium-showcase",
+              "user_id": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+              "retrieval_contract": {},
+              "_recipe": {
+                "code": "import json\nimport polars as pl\n\nDEFAULT_ROWS = [{'order': 'NF-01', 'planned_minutes': 30, 'actual_minutes': 40}, {'order': 'NF-02', 'planned_minutes': 40, 'actual_minutes': 35}, {'order': 'NF-03', 'planned_minutes': 20, 'actual_minutes': 25}, {'order': 'NF-04', 'planned_minutes': 30, 'actual_minutes': 55}]\n\ndef main(inputs):\n    rows = inputs.get(\"rows\", DEFAULT_ROWS)\n    frame = pl.DataFrame(rows)\n    required = {\"order\", \"planned_minutes\", \"actual_minutes\"}\n    if not rows or not required.issubset(frame.columns):\n        raise ValueError(\"Supply non-empty rows with order, planned_minutes and actual_minutes\")\n    if frame.select(pl.col(\"planned_minutes\", \"actual_minutes\").null_count()).sum_horizontal().item() != 0:\n        raise ValueError(\"Durations cannot be missing\")\n    if frame.filter((pl.col(\"planned_minutes\") < 0) | (pl.col(\"actual_minutes\") < 0)).height:\n        raise ValueError(\"Durations cannot be negative\")\n    planned = frame[\"planned_minutes\"].sum()\n    actual = frame[\"actual_minutes\"].sum()\n    largest = frame.with_columns((pl.col(\"actual_minutes\") - pl.col(\"planned_minutes\")).alias(\"overrun\")).sort([\"overrun\", \"order\"], descending=[True, False]).row(0, named=True)\n    stats = {\"orders\": frame.height, \"planned_minutes\": planned, \"actual_minutes\": actual,\n             \"overrun_minutes\": actual - planned,\n             \"late_orders\": frame.filter(pl.col(\"actual_minutes\") > pl.col(\"planned_minutes\")).height,\n             \"largest_overrun_order\": largest[\"order\"], \"largest_overrun_minutes\": largest[\"overrun\"]}\n    return {\"stats\": stats, \"context\": [\"Synthetic NorthForge exercise; no customer data or verified savings. \" + json.dumps(stats)],\n            \"query\": \"Explain the operational delay using only the supplied numbers. Do not claim savings. Suggest one next investigation.\",\n            \"showcase_seed\": True}\n",
+                "requirements_text": "polars==1.31.0",
+                "index_url": null,
+                "extra_index_urls": null,
+                "timeout_s": 30,
+                "sources": null,
+                "node_id": "calculate"
+              }
+            },
+            "output_ref": {
+              "stats": {
+                "orders": 4,
+                "planned_minutes": 120,
+                "actual_minutes": 155,
+                "overrun_minutes": 35,
+                "late_orders": 3,
+                "largest_overrun_order": "NF-04",
+                "largest_overrun_minutes": 25
+              },
+              "context": [
+                "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}"
+              ],
+              "query": "Explain the operational delay using only the supplied numbers. Do not claim savings. Suggest one next investigation.",
+              "showcase_seed": true
+            },
+            "metrics": {
+              "cost_evidence": {
+                "schema_version": 1,
+                "state": "calculated",
+                "method": "catalog_unit_price",
+                "source": "skill_catalog:2d48c95e-d295-4058-b1c6-498f37e958a1:pricing",
+                "pricing_sha256": "180d622b84036120f8983343008002bc2238a477f008c40316b1a6e9ed22b494",
+                "currency": "USD",
+                "unit": "per_execution",
+                "quantity": 1.0
+              }
+            },
+            "trace": {
+              "node_id": "calculate",
+              "membrane_attempt_kind": "task",
+              "membrane_attempt_index": 1,
+              "effective_model": null
+            },
+            "error": null,
+            "execution_evidence": {
+              "resolution": "resolved",
+              "execution_snapshot_sha256": "95d5d4b6a34481abb901f14198b199a4660b5413ca4aa2e3a636d4b600a4b466"
+            }
+          },
+          {
+            "id": "f95017a4-4f94-45e6-b169-9be6ab0004e4",
+            "skill_slug": "llm_rag_answer_v1",
+            "status": "completed",
+            "started_at": "2026-09-17T02:50:29.176242",
+            "completed_at": "2026-09-17T02:50:46.639521",
+            "latency_ms": 17454.740157350898,
+            "cost": 0.012,
+            "input_ref": {
+              "stats": {
+                "orders": 4,
+                "planned_minutes": 120,
+                "actual_minutes": 155,
+                "overrun_minutes": 35,
+                "late_orders": 3,
+                "largest_overrun_order": "NF-04",
+                "largest_overrun_minutes": 25
+              },
+              "context": [
+                "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}"
+              ],
+              "query": "Explain the operational delay using only the supplied numbers. Do not claim savings. Suggest one next investigation.",
+              "showcase_seed": true
+            },
+            "output_ref": {
+              "answer": "Bilan chiffr\u00e9 et explication du retard op\u00e9rationnel\n- Commandes trait\u00e9es: 4 [1]\n- Temps planifi\u00e9 total: 120 minutes; temps r\u00e9el: 155 minutes; d\u00e9passement global: +35 minutes [1]\n- Commandes en retard: 3 (sur 4) [1]\n- Plus grand d\u00e9passement par commande: NF-04 avec +25 minutes [1]\n\nLe retard op\u00e9rationnel provient d\u2019un \u00e9cart global de +35 minutes entre le plan et l\u2019ex\u00e9cution [1]. La commande NF-04 concentre \u00e0 elle seule +25 minutes de ce d\u00e9passement [1], laissant +10 minutes d\u2019\u00e9cart cumul\u00e9 sur les autres commandes. Cette concentration d\u2019\u00e9cart sur NF-04 contribue m\u00e9caniquement au fait que 3 commandes sont en retard [1].\n\nProchaine investigation (unique)\n- Analyser en priorit\u00e9 la commande NF-04 pour d\u00e9composer les +25 minutes d\u2019\u00e9cart par \u00e9tape/processus et ressource (op\u00e9rateur, machine, r\u00e9glages) afin d\u2019identifier le goulet ou l\u2019\u00e9v\u00e9nement pr\u00e9cis \u00e0 l\u2019origine de ce d\u00e9passement [1].",
+              "citations": [
+                {
+                  "index": 1,
+                  "id": null,
+                  "source_id": null,
+                  "document": "source 1",
+                  "title": "source 1",
+                  "filename": "source 1",
+                  "document_id": null,
+                  "collection": null,
+                  "page": null,
+                  "snippet": "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}",
+                  "score": null
+                }
+              ],
+              "decision_steps": [],
+              "meta": {
+                "retrieval": {
+                  "raw_chunks_retrieved": 1,
+                  "source": "join_context",
+                  "stage_timings": {}
+                },
+                "inventory_coverage_review": {
+                  "status": "not_armed",
+                  "reason": "not_inventory"
+                }
+              },
+              "usage": {
+                "total_tokens": 1659,
+                "provider_calls": 1,
+                "measurement_source": "provider_reported",
+                "measurement_coverage": "complete",
+                "providers": [
+                  "openai"
+                ],
+                "calls": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "total_tokens": 1659,
+                    "prompt_tokens": 328,
+                    "completion_tokens": 1331
+                  }
+                ],
+                "prompt_tokens": 328,
+                "completion_tokens": 1331
+              }
+            },
+            "metrics": {
+              "cost_evidence": {
+                "schema_version": 1,
+                "state": "calculated",
+                "method": "catalog_unit_price",
+                "source": "skill_catalog:e2339094-4c59-43b3-a5d0-334263663d30:pricing",
+                "pricing_sha256": "96449c474e090f20047d146f048f27f77f63e332c615546b264896b7c66dadbc",
+                "currency": "USD",
+                "unit": "per_call",
+                "quantity": 1.0
+              },
+              "total_tokens": 1659,
+              "token_evidence": {
+                "total_tokens": 1659,
+                "provider_calls": 1,
+                "measurement_source": "provider_reported",
+                "measurement_coverage": "complete",
+                "providers": [
+                  "openai"
+                ],
+                "calls": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "total_tokens": 1659,
+                    "prompt_tokens": 328,
+                    "completion_tokens": 1331
+                  }
+                ],
+                "prompt_tokens": 328,
+                "completion_tokens": 1331
+              }
+            },
+            "trace": {
+              "node_id": "explain",
+              "membrane_attempt_kind": "task",
+              "membrane_attempt_index": 1,
+              "model_resolution": {
+                "provider": "openai",
+                "model": "gpt-5",
+                "credential_source": "env",
+                "model_source": "global",
+                "fallback": false,
+                "requested_provider": "workspace",
+                "fallback_plan": [
+                  {
+                    "provider": "ollama",
+                    "model": "qwen3:8b",
+                    "credential_source": "none",
+                    "model_source": "global",
+                    "fallback": false,
+                    "requested_provider": "ollama"
+                  }
+                ],
+                "attempts": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "credential_source": "env",
+                    "model_source": "global",
+                    "fallback": false,
+                    "requested_provider": "workspace",
+                    "fallback_plan": [
+                      {
+                        "provider": "ollama",
+                        "model": "qwen3:8b",
+                        "credential_source": "none",
+                        "model_source": "global",
+                        "fallback": false,
+                        "requested_provider": "ollama"
+                      }
+                    ],
+                    "dispatch_started": true,
+                    "status": "completed"
+                  }
+                ],
+                "dispatch_started": true,
+                "returned_model": "gpt-5-2025-08-07"
+              },
+              "model_execution": {
+                "provider": "openai",
+                "model": "gpt-5",
+                "credential_source": "env",
+                "model_source": "global",
+                "fallback": false,
+                "requested_provider": "workspace",
+                "fallback_plan": [
+                  {
+                    "provider": "ollama",
+                    "model": "qwen3:8b",
+                    "credential_source": "none",
+                    "model_source": "global",
+                    "fallback": false,
+                    "requested_provider": "ollama"
+                  }
+                ],
+                "attempts": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "credential_source": "env",
+                    "model_source": "global",
+                    "fallback": false,
+                    "requested_provider": "workspace",
+                    "fallback_plan": [
+                      {
+                        "provider": "ollama",
+                        "model": "qwen3:8b",
+                        "credential_source": "none",
+                        "model_source": "global",
+                        "fallback": false,
+                        "requested_provider": "ollama"
+                      }
+                    ],
+                    "dispatch_started": true,
+                    "status": "completed"
+                  }
+                ],
+                "dispatch_started": true,
+                "returned_model": "gpt-5-2025-08-07"
+              },
+              "effective_model": "openai:gpt-5"
+            },
+            "error": null,
+            "execution_evidence": {
+              "resolution": "resolved",
+              "execution_snapshot_sha256": "b737350d5d0c9e35fbeda8d5cb64331a58fe546b4e3c0b0d653adb18095bdf22"
+            }
+          },
+          {
+            "id": "c13a18f8-49d1-466f-8782-a7b44494a129",
+            "skill_slug": "python_recipe_v1",
+            "status": "completed",
+            "started_at": "2026-09-17T02:50:46.680807",
+            "completed_at": "2026-09-17T02:50:47.713388",
+            "latency_ms": 1024.5830304920673,
+            "cost": 0.0,
+            "input_ref": {
+              "answer": "Bilan chiffr\u00e9 et explication du retard op\u00e9rationnel\n- Commandes trait\u00e9es: 4 [1]\n- Temps planifi\u00e9 total: 120 minutes; temps r\u00e9el: 155 minutes; d\u00e9passement global: +35 minutes [1]\n- Commandes en retard: 3 (sur 4) [1]\n- Plus grand d\u00e9passement par commande: NF-04 avec +25 minutes [1]\n\nLe retard op\u00e9rationnel provient d\u2019un \u00e9cart global de +35 minutes entre le plan et l\u2019ex\u00e9cution [1]. La commande NF-04 concentre \u00e0 elle seule +25 minutes de ce d\u00e9passement [1], laissant +10 minutes d\u2019\u00e9cart cumul\u00e9 sur les autres commandes. Cette concentration d\u2019\u00e9cart sur NF-04 contribue m\u00e9caniquement au fait que 3 commandes sont en retard [1].\n\nProchaine investigation (unique)\n- Analyser en priorit\u00e9 la commande NF-04 pour d\u00e9composer les +25 minutes d\u2019\u00e9cart par \u00e9tape/processus et ressource (op\u00e9rateur, machine, r\u00e9glages) afin d\u2019identifier le goulet ou l\u2019\u00e9v\u00e9nement pr\u00e9cis \u00e0 l\u2019origine de ce d\u00e9passement [1].",
+              "citations": [
+                {
+                  "index": 1,
+                  "id": null,
+                  "source_id": null,
+                  "document": "source 1",
+                  "title": "source 1",
+                  "filename": "source 1",
+                  "document_id": null,
+                  "collection": null,
+                  "page": null,
+                  "snippet": "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}",
+                  "score": null
+                }
+              ],
+              "decision_steps": [],
+              "meta": {
+                "retrieval": {
+                  "raw_chunks_retrieved": 1,
+                  "source": "join_context",
+                  "stage_timings": {}
+                },
+                "inventory_coverage_review": {
+                  "status": "not_armed",
+                  "reason": "not_inventory"
+                }
+              },
+              "usage": {
+                "total_tokens": 1659,
+                "provider_calls": 1,
+                "measurement_source": "provider_reported",
+                "measurement_coverage": "complete",
+                "providers": [
+                  "openai"
+                ],
+                "calls": [
+                  {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "total_tokens": 1659,
+                    "prompt_tokens": 328,
+                    "completion_tokens": 1331
+                  }
+                ],
+                "prompt_tokens": 328,
+                "completion_tokens": 1331
+              },
+              "stats": {
+                "orders": 4,
+                "planned_minutes": 120,
+                "actual_minutes": 155,
+                "overrun_minutes": 35,
+                "late_orders": 3,
+                "largest_overrun_order": "NF-04",
+                "largest_overrun_minutes": 25
+              },
+              "_recipe": {
+                "code": "def main(inputs):\n    stats = inputs.get(\"stats\") or {}\n    answer = inputs.get(\"answer\")\n    if stats != {'orders': 4, 'planned_minutes': 120, 'actual_minutes': 155, 'overrun_minutes': 35, 'late_orders': 3, 'largest_overrun_order': 'NF-04', 'largest_overrun_minutes': 25}:\n        raise ValueError(\"The fixed NorthForge fixture no longer matches the expected result; inspect the Python inputs and version before changing the reference\")\n    if not isinstance(answer, str) or not answer.strip():\n        raise ValueError(\"The model returned no explanation\")\n    return {\"stats\": stats, \"answer\": answer, \"numerical_reference_passed\": True,\n            \"human_validated\": False, \"economic_impact\": None, \"showcase_seed\": True}\n",
+                "requirements_text": null,
+                "index_url": null,
+                "extra_index_urls": null,
+                "timeout_s": 30,
+                "sources": null,
+                "node_id": "check"
+              }
+            },
+            "output_ref": {
+              "stats": {
+                "orders": 4,
+                "planned_minutes": 120,
+                "actual_minutes": 155,
+                "overrun_minutes": 35,
+                "late_orders": 3,
+                "largest_overrun_order": "NF-04",
+                "largest_overrun_minutes": 25
+              },
+              "answer": "Bilan chiffr\u00e9 et explication du retard op\u00e9rationnel\n- Commandes trait\u00e9es: 4 [1]\n- Temps planifi\u00e9 total: 120 minutes; temps r\u00e9el: 155 minutes; d\u00e9passement global: +35 minutes [1]\n- Commandes en retard: 3 (sur 4) [1]\n- Plus grand d\u00e9passement par commande: NF-04 avec +25 minutes [1]\n\nLe retard op\u00e9rationnel provient d\u2019un \u00e9cart global de +35 minutes entre le plan et l\u2019ex\u00e9cution [1]. La commande NF-04 concentre \u00e0 elle seule +25 minutes de ce d\u00e9passement [1], laissant +10 minutes d\u2019\u00e9cart cumul\u00e9 sur les autres commandes. Cette concentration d\u2019\u00e9cart sur NF-04 contribue m\u00e9caniquement au fait que 3 commandes sont en retard [1].\n\nProchaine investigation (unique)\n- Analyser en priorit\u00e9 la commande NF-04 pour d\u00e9composer les +25 minutes d\u2019\u00e9cart par \u00e9tape/processus et ressource (op\u00e9rateur, machine, r\u00e9glages) afin d\u2019identifier le goulet ou l\u2019\u00e9v\u00e9nement pr\u00e9cis \u00e0 l\u2019origine de ce d\u00e9passement [1].",
+              "numerical_reference_passed": true,
+              "human_validated": false,
+              "economic_impact": null,
+              "showcase_seed": true
+            },
+            "metrics": {
+              "cost_evidence": {
+                "schema_version": 1,
+                "state": "calculated",
+                "method": "catalog_unit_price",
+                "source": "skill_catalog:2d48c95e-d295-4058-b1c6-498f37e958a1:pricing",
+                "pricing_sha256": "180d622b84036120f8983343008002bc2238a477f008c40316b1a6e9ed22b494",
+                "currency": "USD",
+                "unit": "per_execution",
+                "quantity": 1.0
+              }
+            },
+            "trace": {
+              "node_id": "check",
+              "membrane_attempt_kind": "task",
+              "membrane_attempt_index": 1,
+              "effective_model": null
+            },
+            "error": null,
+            "execution_evidence": {
+              "resolution": "resolved",
+              "execution_snapshot_sha256": "95d5d4b6a34481abb901f14198b199a4660b5413ca4aa2e3a636d4b600a4b466"
+            }
+          }
+        ]
+      },
+      "seconds": 23.16,
+      "passed": true
+    }
+  ],
+  "experience_id": "f286295a-ebef-44d2-a4a3-d0dbf04c866f",
+  "status": "five_passed"
+}

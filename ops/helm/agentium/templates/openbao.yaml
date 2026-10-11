@@ -1,0 +1,214 @@
+{{- if and .Values.openbao.enabled .Values.openbao.server.enabled }}
+{{/*
+Single-node OpenBao, agentium-openbao in docker/compose.agentium.openbao.yml:
+raft storage, static-key auto-unseal from a Secret the chart does not own,
+declarative file audit, no UI, cluster-internal only.
+Initialise it once with scripts/agentium_openbao_bootstrap.py through a
+port-forward (docs/ops/agentium-kubernetes.md).
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agentium.fullname" . }}-openbao
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openbao
+data:
+  openbao.hcl: |
+    ui            = false
+    # Integrated storage memory-maps its database; mlock is not recommended with raft.
+    disable_mlock = true
+    api_addr      = "http://agentium-openbao:8200"
+    cluster_addr  = "http://agentium-openbao-0.agentium-openbao:8201"
+
+    storage "raft" {
+      path    = "/openbao/data/raft"
+      node_id = "agentium-openbao-1"
+    }
+
+    listener "tcp" {
+      address         = "0.0.0.0:8200"
+      cluster_address = "0.0.0.0:8201"
+      # Cluster network only; the NetworkPolicy below limits the clients.
+      tls_disable     = true
+    }
+
+    seal "static" {
+      current_key_id = "agentium-1"
+      current_key    = "file:///run/openbao-seal/unseal.key"
+    }
+
+    audit "file" "agentium-file" {
+      description = "Agentium audit log"
+      options {
+        file_path = "/openbao/data/audit/audit.log"
+        mode      = "0600"
+      }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentium-openbao
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openbao
+spec:
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: openbao
+  ports:
+    - name: http
+      port: 8200
+      targetPort: http
+    - name: cluster
+      port: 8201
+      targetPort: cluster
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: agentium-openbao
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openbao
+spec:
+  serviceName: agentium-openbao
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: openbao
+  template:
+    metadata:
+      labels:
+        {{- include "agentium.labels" . | nindent 8 }}
+        app.kubernetes.io/component: openbao
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ .Values.openbao.server.uid }}
+        runAsGroup: {{ .Values.openbao.server.gid }}
+        fsGroup: {{ .Values.openbao.server.gid }}
+      initContainers:
+        # The raft and audit directories must exist before the server starts.
+        - name: data-dirs
+          image: {{ .Values.openbao.server.image | quote }}
+          {{- with .Values.resources.openbao }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          command: ["/bin/sh", "-c", "mkdir -p /openbao/data/raft /openbao/data/audit && chmod 0700 /openbao/data/raft /openbao/data/audit"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /openbao/data
+      containers:
+        - name: openbao
+          image: {{ .Values.openbao.server.image | quote }}
+          {{- with .Values.resources.openbao }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          command: ["bao", "server", "-config=/openbao/config/openbao.hcl"]
+          env:
+            - name: BAO_ADDR
+              value: http://127.0.0.1:8200
+          ports:
+            - name: http
+              containerPort: 8200
+            - name: cluster
+              containerPort: 8201
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              add: ["IPC_LOCK"]
+          # `bao status` exits 0 only when initialised and unsealed. Liveness
+          # stays on the socket so an uninitialised server is not restarted
+          # while it waits for the bootstrap.
+          readinessProbe:
+            exec:
+              command: ["bao", "status"]
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          volumeMounts:
+            - name: config
+              mountPath: /openbao/config
+              readOnly: true
+            - name: unseal-key
+              mountPath: /run/openbao-seal
+              readOnly: true
+            - name: data
+              mountPath: /openbao/data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "agentium.fullname" . }}-openbao
+        - name: unseal-key
+          secret:
+            secretName: {{ .Values.openbao.server.unsealKeySecret }}
+            defaultMode: 0440
+            items:
+              - key: {{ .Values.openbao.server.unsealKeyKey }}
+                path: unseal.key
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
+        {{- if not .Values.openbao.server.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+  {{- if .Values.openbao.server.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- include "agentium.storageClassName" (list .Values.openbao.server.persistence.storageClass .) | nindent 8 }}
+        resources:
+          requests:
+            storage: {{ .Values.openbao.server.persistence.size }}
+  {{- end }}
+{{- if .Values.openbao.server.networkPolicy }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agentium-openbao
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openbao
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: openbao
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/instance
+                operator: In
+                values: [{{ .Release.Name | quote }}]
+              - key: app.kubernetes.io/component
+                operator: In
+                values: ["backend", "worker", "migrate", "hub-fetch"]
+      ports:
+        - port: 8200
+{{- end }}
+{{- end }}

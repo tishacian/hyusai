@@ -1,0 +1,653 @@
+/**
+ * Canonical `/runs` browser.
+ *
+ * Replaces the legacy `observability/traces-list` view. A Run is the top
+ * level execution object of the mental model; every Skill invocation
+ * happens under a Run id, and Decisions point to one. Listing them here
+ * gives the operator a single page to drill into any failing / expensive
+ * / slow execution across every System.
+ */
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { Observable, Subscription, distinctUntilChanged, map } from 'rxjs';
+import { IconComponent } from '@app/shared/ui/icon.component';
+import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { HelpTooltipComponent, FilterChipComponent, NavLinkDirective, PageFrameComponent } from '@app/shared/cockpit';
+import { CanonicalApiService, type Run, type RunSystemSummary } from '@app/core/canonical-api.service';
+import { I18nService } from '@app/core/i18n.service';
+import { ZoomContextService } from '@app/core/zoom-context.service';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { WorkspaceViewContext } from '@app/core/workspace-view-context';
+import { formatSkillCost } from '@app/features/skills/skill-cost';
+import { experienceOrigin, experienceSlugFromOrigin, normalizedExperienceOrigin } from './runs-origin';
+
+type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
+type SummarySort = 'recent' | 'runs' | 'duration' | 'cost';
+
+@Component({
+  selector: 'app-runs-list',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    FormsModule,
+    IconComponent,
+    EmptyStateComponent,
+    PageFrameComponent,
+    HelpTooltipComponent,
+    FilterChipComponent,
+    NavLinkDirective,
+    RouterLink,
+  ],
+  template: `
+    <ck-page-frame
+      [eyebrow]="i18n.t('runs.list.eyebrow')"
+      [title]="i18n.t('runs.title')"
+      [description]="i18n.t('runs.list.description')"
+    >
+      <ck-help titleHelp id="concept.run" />
+      <div actions [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6">
+        @if (navigation.navV5Enabled() && (filterCapabilityId() || filterSystemId())) {
+          @if (filterCapabilityId(); as capId) {
+            <ck-filter-chip
+              kind="filter"
+              [label]="capId"
+              testId="runs-filter-capability"
+              (dismiss)="clearListFilter('capabilityId')"
+            />
+          }
+          @if (filterSystemId(); as sysId) {
+            <ck-filter-chip
+              kind="filter"
+              [label]="sysId"
+              testId="runs-filter-system"
+              (dismiss)="clearListFilter('systemId')"
+            />
+            <a
+              [navLink]="{ type: 'system', ref: sysId }"
+              class="text-xs"
+              style="color:var(--ck-signal-cool);"
+            >{{ i18n.t('nav.facet.open_system', { name: sysId }) }}</a>
+          }
+        }
+        <ck-help id="runs.list" />
+        <form
+          [style.display]="'inline-flex'"
+          [style.alignItems]="'center'"
+          [style.gap.px]="4"
+          (submit)="applyOrigin($event)"
+        >
+          <label
+            for="runs-experience-filter"
+            [style.color]="'var(--ck-fg-3)'"
+            [style.fontSize.px]="12"
+          >
+            {{ i18n.t('runs.list.filter.experience') }}
+          </label>
+          <input
+            id="runs-experience-filter"
+            name="experienceFilter"
+            [(ngModel)]="originDraft"
+            class="ck-mono"
+            [attr.aria-invalid]="originInvalid()"
+            [attr.aria-describedby]="originInvalid() ? 'runs-experience-filter-error' : null"
+            [style.height.px]="28"
+            [style.width.px]="150"
+            [style.padding]="'0 9px'"
+            [style.background]="'var(--ck-bg-inset)'"
+            [style.color]="'var(--ck-fg-1)'"
+            [style.border]="'1px solid ' + (originInvalid() ? 'var(--ck-signal-neg)' : 'var(--ck-stroke-2)')"
+            [style.borderRadius.px]="4"
+            [style.fontSize.px]="11"
+            [placeholder]="i18n.t('runs.list.filter.experience.placeholder')"
+          />
+          <button
+            type="submit"
+            class="inline-flex items-center px-2.5 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+          >
+            {{ i18n.t('runs.list.filter.apply') }}
+          </button>
+          @if (originActive()) {
+            <button
+              type="button"
+              class="inline-flex items-center px-2.5 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+              (click)="clearOrigin()"
+            >
+              {{ i18n.t('runs.list.filter.clear') }}
+            </button>
+          }
+          @if (originInvalid()) {
+            <span id="runs-experience-filter-error" role="alert" class="sr-only">
+              {{ i18n.t('runs.list.filter.experience.invalid') }}
+            </span>
+          }
+        </form>
+        <select
+          [ngModel]="statusFilter()"
+          (ngModelChange)="statusFilter.set($event)"
+          [attr.aria-label]="i18n.t('runs.list.column.status')"
+          [style.height.px]="28"
+          [style.padding]="'0 10px'"
+          [style.background]="'var(--ck-bg-inset)'"
+          [style.color]="'var(--ck-fg-1)'"
+          [style.border]="'1px solid var(--ck-stroke-2)'"
+          [style.borderRadius.px]="4"
+          [style.fontSize.px]="12"
+        >
+          <option value="all">{{ i18n.t('runs.list.filter.all') }}</option>
+          <option value="completed">{{ i18n.t('runs.status.completed') }}</option>
+          <option value="failed">{{ i18n.t('runs.status.failed') }}</option>
+          <option value="running">{{ i18n.t('runs.status.running') }}</option>
+          <option value="pending">{{ i18n.t('runs.status.pending') }}</option>
+        </select>
+        @if (grouped()) {
+          <select
+            [ngModel]="summarySort()"
+            (ngModelChange)="summarySort.set($event)"
+            [attr.aria-label]="i18n.t('runs.list.group.sort')"
+            [style.height.px]="28"
+            [style.padding]="'0 10px'"
+            [style.background]="'var(--ck-bg-inset)'"
+            [style.color]="'var(--ck-fg-1)'"
+            [style.border]="'1px solid var(--ck-stroke-2)'"
+            [style.borderRadius.px]="4"
+            [style.fontSize.px]="12"
+          >
+            <option value="recent">{{ i18n.t('runs.list.group.sort.recent') }}</option>
+            <option value="runs">{{ i18n.t('runs.list.group.sort.runs') }}</option>
+            <option value="duration">{{ i18n.t('runs.list.group.sort.duration') }}</option>
+            <option value="cost">{{ i18n.t('runs.list.group.sort.cost') }}</option>
+          </select>
+        }
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+          (click)="toggleGrouping()"
+          [disabled]="loading()"
+          [attr.aria-pressed]="grouped()"
+        >
+          <app-icon name="layers" [size]="12" />
+          {{ i18n.t(grouped() ? 'runs.list.group.hide' : 'runs.list.group.show') }}
+        </button>
+        @if (grouped()) {
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+            (click)="exportSummariesCsv()"
+            [disabled]="visibleSummaries().length === 0"
+          >
+            <app-icon name="download" [size]="12" />
+            {{ i18n.t('runs.list.group.export') }}
+          </button>
+        }
+        <a
+          [navLink]="{ surface: 'observability' }"
+          class="inline-flex items-center px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+        >
+          {{ i18n.t('runs.list.group.observability') }}
+        </a>
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+          (click)="refresh()"
+          [disabled]="loading()"
+        >
+          <app-icon name="refresh-cw" [size]="12" [class.animate-spin]="loading()" />
+          {{ i18n.t('common.refresh') }}
+        </button>
+      </div>
+
+      <div body>
+        @if (loadError()) {
+          <div class="px-5 py-8 text-center" role="alert">
+            <p class="mb-3 text-sm text-red-300">{{ i18n.t('state.error.network') }}</p>
+            <button
+              type="button"
+              class="inline-flex items-center px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+              (click)="refresh()"
+            >
+              {{ i18n.t('common.retry') }}
+            </button>
+          </div>
+        } @else if (loading() && hasRows() === false) {
+          <div class="divide-y divide-white/5">
+            @for (_ of [0, 1, 2, 3, 4, 5]; track $index) {
+              <div class="px-5 py-3 animate-pulse">
+                <div class="h-3 w-60 bg-white/5 rounded"></div>
+              </div>
+            }
+          </div>
+        } @else if (hasRows() === false) {
+          <app-empty-state
+            icon="activity"
+            [title]="i18n.t('runs.list.empty.title')"
+            [description]="i18n.t(originActive()
+              ? 'runs.list.empty.experience_description'
+              : 'runs.list.empty.description')"
+          ><div class="flex flex-wrap items-center justify-center gap-3">
+            <button type="button" class="ck-btn-soft" (click)="statusFilter.set('all'); clearOrigin()">{{i18n.t('experience.adoption.clear')}}</button>
+            <a class="ck-accent text-xs underline underline-offset-2" [navLink]="{leaf:'help-guide',params:{guideId:'runs'}}">{{i18n.t('experience.adoption.help')}}</a>
+          </div></app-empty-state>
+        } @else if (grouped()) {
+          <div
+            class="px-5 py-2 text-[11px] font-medium grid grid-cols-12 gap-3 border-b border-white/5"
+            style="color:var(--ck-fg-3)"
+          >
+            <div class="col-span-4">{{ i18n.t('runs.list.column.system') }}</div>
+            <div class="col-span-2">{{ i18n.t('runs.list.column.last_status') }}</div>
+            <div class="col-span-2 text-right">{{ i18n.t('runs.list.column.runs') }}</div>
+            <div class="col-span-2 text-right">{{ i18n.t('runs.list.column.duration') }}</div>
+            <div class="col-span-2 text-right">{{ i18n.t('runs.list.column.provider_cost') }}</div>
+          </div>
+          <ul class="divide-y divide-white/5">
+            @for (summary of visibleSummaries(); track summary.system_id) {
+              <li>
+                <a
+                  [routerLink]="systemHref(summary)"
+                  class="w-full px-5 py-3 grid grid-cols-12 gap-3 items-center text-left text-sm bg-transparent border-0 hover:bg-white/[0.02] cursor-pointer transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-cyan-400"
+                >
+                  <div class="col-span-4 min-w-0">
+                    <div class="text-xs text-white truncate">{{ summary.system_name }}</div>
+                    <div class="font-mono text-[10px] text-gray-500 truncate">{{ summary.system_id }}</div>
+                  </div>
+                  <div class="col-span-2 text-xs">{{ statusLabel(summary.last_status ?? undefined) }}</div>
+                  <div class="col-span-2 text-right text-xs font-mono tabular-nums">{{ summary.run_count }}</div>
+                  <div class="col-span-2 text-right text-xs font-mono tabular-nums">
+                    {{ formatDuration(summary.last_duration_ms) }}
+                  </div>
+                  <div class="col-span-2 text-right text-xs font-mono tabular-nums">
+                    @if (summary.total_provider_cost_usd != null) {
+                      {{ formatRunCost(summary.total_provider_cost_usd ?? 0) }}
+                    } @else {
+                      <span class="text-gray-600">—</span>
+                    }
+                  </div>
+                </a>
+              </li>
+            }
+          </ul>
+        } @else {
+          <div
+            class="px-5 py-2 text-[11px] font-medium grid grid-cols-12 gap-3 border-b border-white/5"
+            style="color:var(--ck-fg-3)"
+          >
+            <div class="col-span-4">{{ i18n.t('runs.list.column.identity') }}</div>
+            <div class="col-span-2">{{ i18n.t('runs.list.column.status') }}</div>
+            <div class="col-span-2">{{ i18n.t('runs.list.column.started') }}</div>
+            <div class="col-span-1 text-right">{{ i18n.t('runs.list.column.duration') }}</div>
+            <div class="col-span-2 text-right">{{ i18n.t('runs.list.column.outcome') }}</div>
+            <div class="col-span-1 text-right">{{ i18n.t('runs.list.column.cost') }}</div>
+          </div>
+          <ul class="divide-y divide-white/5">
+            @for (r of visibleRuns(); track r.id) {
+              <li>
+                <a
+                  [routerLink]="runHref(r)"
+                  class="w-full px-5 py-3 grid grid-cols-12 gap-3 items-center text-left text-sm bg-transparent border-0 hover:bg-white/[0.02] cursor-pointer transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-cyan-400"
+                >
+                <div class="col-span-4 min-w-0">
+                  <div class="font-mono text-xs text-white truncate">{{ r.id }}</div>
+                  @if (r.system_id) {
+                    <div class="font-mono text-[10px] text-gray-500 truncate">
+                      sys · {{ r.system_id }}
+                    </div>
+                  }
+                </div>
+                <div class="col-span-2">
+                  <span
+                    class="text-[11px] font-medium px-1.5 py-0.5 rounded border"
+                    [class.bg-emerald-500\\/10]="r.status === 'completed'"
+                    [class.text-emerald-300]="r.status === 'completed'"
+                    [class.border-emerald-500\\/30]="r.status === 'completed'"
+                    [class.bg-red-500\\/10]="r.status === 'failed'"
+                    [class.text-red-300]="r.status === 'failed'"
+                    [class.border-red-500\\/30]="r.status === 'failed'"
+                    [class.bg-cyan-500\\/10]="r.status === 'running'"
+                    [class.text-cyan-300]="r.status === 'running'"
+                    [class.border-cyan-500\\/30]="r.status === 'running'"
+                    [class.bg-white\\/5]="r.status === 'pending' || r.status === 'cancelled'"
+                    [class.text-gray-300]="r.status === 'pending' || r.status === 'cancelled'"
+                    [class.border-white\\/10]="r.status === 'pending' || r.status === 'cancelled'"
+                  >
+                    {{ statusLabel(r.status) }}
+                  </span>
+                </div>
+                <div class="col-span-2 text-xs text-gray-400 font-mono">
+                  {{ formatTime(r.started_at) }}
+                </div>
+                <div class="col-span-1 text-right text-xs text-gray-300 font-mono tabular-nums">
+                  @if (r.duration_ms != null) {
+                    {{ (r.duration_ms).toFixed(0) }}ms
+                  }
+                </div>
+                <div class="col-span-2 text-right text-xs font-mono">
+                  @if (r.outcome?.decision) {
+                    <span class="text-emerald-400">{{ r.outcome!.decision }}</span>
+                  } @else if (r.outcome?.confidence != null) {
+                    <span class="text-gray-300">{{ ((r.outcome!.confidence ?? 0) * 100).toFixed(0) }}%</span>
+                  } @else {
+                    <span class="text-gray-600">—</span>
+                  }
+                </div>
+                <div class="col-span-1 text-right text-xs text-gray-300 font-mono tabular-nums">
+                  @if (r.outcome?.cost_internal != null) {
+                    {{ formatRunCost(r.outcome!.cost_internal ?? 0) }}
+                  }
+                </div>
+                </a>
+              </li>
+            }
+          </ul>
+        }
+      </div>
+    </ck-page-frame>
+  `,
+})
+export class RunsListComponent implements OnInit, OnDestroy {
+  private readonly canonical = inject(CanonicalApiService);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+  protected readonly navigation = inject(ZoomContextService);
+  readonly i18n = inject(I18nService);
+  private readonly workspace = inject(WorkspaceService);
+  private scopeParams: { system_id?: string; capability_id?: string; origin?: string } | undefined;
+  private routeSubscription: Subscription | null = null;
+  private contextRefreshSubscription: Subscription | null = null;
+  private requestSubscription: Subscription | null = null;
+  private readonly workspaceView = new WorkspaceViewContext(
+    this.workspace,
+    () => this.resetWorkspaceState(),
+    () => this.reloadCurrentScope(),
+  );
+
+  readonly runs = signal<Run[]>([]);
+  readonly summaries = signal<RunSystemSummary[]>([]);
+  readonly loading = signal(false);
+  readonly loadError = signal(false);
+  readonly originActive = signal(false);
+  readonly originInvalid = signal(false);
+  originDraft = '';
+  readonly statusFilter = signal<StatusFilter>('all');
+  readonly filterSystemId = signal<string | null>(null);
+  readonly filterCapabilityId = signal<string | null>(null);
+  readonly grouped = signal(false);
+  readonly summarySort = signal<SummarySort>('recent');
+
+  readonly visibleRuns = computed(() => {
+    const list = this.runs();
+    const status = this.statusFilter();
+    if (status === 'all') return list;
+    return list.filter((r) => r.status === status);
+  });
+
+  readonly visibleSummaries = computed(() => {
+    const status = this.statusFilter();
+    const rows = this.summaries().filter(
+      (summary) => status === 'all' || summary.last_status === status,
+    );
+    const sorters: Record<SummarySort, (a: RunSystemSummary, b: RunSystemSummary) => number> = {
+      recent: () => 0,
+      runs: (a, b) => b.run_count - a.run_count,
+      duration: (a, b) => (b.last_duration_ms ?? -1) - (a.last_duration_ms ?? -1),
+      cost: (a, b) => (b.total_provider_cost_usd ?? -1) - (a.total_provider_cost_usd ?? -1),
+    };
+    return [...rows].sort(sorters[this.summarySort()]);
+  });
+
+  readonly hasRows = computed(() => (
+    this.grouped() ? this.visibleSummaries().length > 0 : this.visibleRuns().length > 0
+  ));
+
+  ngOnInit(): void {
+    this.routeSubscription = this.route.queryParamMap.pipe(
+      map((params) => {
+        const origin = normalizedExperienceOrigin(params.get('origin'));
+        this.originDraft = experienceSlugFromOrigin(origin);
+        this.originActive.set(!!origin);
+        this.originInvalid.set(false);
+        this.filterSystemId.set(params.get('systemId') ?? params.get('system_id'));
+        this.filterCapabilityId.set(params.get('capabilityId') ?? params.get('capability_id'));
+        return this.effectiveScope(
+          params.get('systemId') ?? params.get('system_id'),
+          params.get('capabilityId') ?? params.get('capability_id'),
+          origin,
+        );
+      }),
+      distinctUntilChanged((a, b) => (
+        a?.system_id === b?.system_id
+        && a?.capability_id === b?.capability_id
+        && a?.origin === b?.origin
+      )),
+    ).subscribe((scopeParams) => {
+      this.scopeParams = scopeParams;
+      this.resetResults();
+      this.refresh();
+    });
+    this.contextRefreshSubscription = this.workspace.contextRefresh$.subscribe(() => {
+      const params = this.route.snapshot.queryParamMap;
+      const next = this.effectiveScope(
+        params.get('systemId') ?? params.get('system_id'),
+        params.get('capabilityId') ?? params.get('capability_id'),
+        normalizedExperienceOrigin(params.get('origin')),
+      );
+      if (
+        next?.system_id === this.scopeParams?.system_id
+        && next?.capability_id === this.scopeParams?.capability_id
+        && next?.origin === this.scopeParams?.origin
+      ) {
+        return;
+      }
+      this.scopeParams = next;
+      this.resetResults();
+      this.refresh();
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.routeSubscription?.unsubscribe();
+    this.routeSubscription = null;
+    this.contextRefreshSubscription?.unsubscribe();
+    this.contextRefreshSubscription = null;
+    this.workspaceView.destroy();
+  }
+
+  refresh(): void {
+    this.requestSubscription?.unsubscribe();
+    this.requestSubscription = null;
+    const request = this.workspaceView.beginRequest();
+    this.loading.set(true);
+    this.loadError.set(false);
+    const request$: Observable<Run[] | RunSystemSummary[]> = this.grouped()
+      ? this.canonical.listRunSummaries({ system_id: this.scopeParams?.system_id })
+      : this.canonical.listRuns(this.scopeParams);
+    const subscription = request$.subscribe({
+      next: (list) => {
+        if (!this.workspaceView.isCurrent(request)) return;
+        if (this.grouped()) this.summaries.set(list as RunSystemSummary[] ?? []);
+        else this.runs.set(list as Run[] ?? []);
+        this.loading.set(false);
+      },
+      error: () => {
+        if (!this.workspaceView.isCurrent(request)) return;
+        this.runs.set([]);
+        this.summaries.set([]);
+        this.loadError.set(true);
+        this.loading.set(false);
+      },
+    });
+    this.requestSubscription = subscription.closed ? null : subscription;
+  }
+
+  runHref(r: Run): string {
+    return this.navigation.objectUrl('run', r.id);
+  }
+
+  systemHref(summary: RunSystemSummary): string {
+    return this.navigation.objectUrl('system', summary.system_id);
+  }
+
+  toggleGrouping(): void {
+    this.grouped.set(!this.grouped());
+    this.refresh();
+  }
+
+  formatDuration(durationMs: number | null | undefined): string {
+    if (durationMs == null) return '—';
+    if (durationMs < 1_000) return `${Math.round(durationMs)}ms`;
+    const seconds = durationMs / 1_000;
+    if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+    const minutes = Math.floor(seconds / 60);
+    return `${minutes}m ${Math.round(seconds % 60)}s`;
+  }
+
+  exportSummariesCsv(): void {
+    const headers = [
+      this.i18n.t('runs.list.column.system'),
+      this.i18n.t('runs.list.column.last_status'),
+      this.i18n.t('runs.list.column.runs'),
+      this.i18n.t('runs.list.column.duration'),
+      this.i18n.t('runs.list.column.provider_cost'),
+    ];
+    const lines = [
+      headers.join(','),
+      ...this.visibleSummaries().map((summary) => [
+        this.csvCell(summary.system_name),
+        this.csvCell(summary.last_status ?? ''),
+        summary.run_count,
+        summary.last_duration_ms ?? '',
+        summary.total_provider_cost_usd ?? '',
+      ].join(',')),
+    ];
+    const url = URL.createObjectURL(new Blob(['\uFEFF', lines.join('\n')], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `runs-by-system-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  csvCell(value: string): string {
+    return `"${value.replaceAll('"', '""')}"`;
+  }
+
+  applyOrigin(event: Event): void {
+    event.preventDefault();
+    const origin = this.originDraft.trim() ? experienceOrigin(this.originDraft) : null;
+    if (this.originDraft.trim() && !origin) {
+      this.originInvalid.set(true);
+      return;
+    }
+    this.originInvalid.set(false);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { origin },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  clearListFilter(key: 'systemId' | 'capabilityId'): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: key === 'systemId'
+        ? { systemId: null, system_id: null }
+        : { capabilityId: null, capability_id: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  clearOrigin(): void {
+    this.originDraft = '';
+    this.originInvalid.set(false);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { origin: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  /**
+   * Translate a run status, falling back to the raw API value when the
+   * backend grows a status the dictionary hasn't caught up with — an unknown
+   * status must stay visible, not turn into a blank cell.
+   */
+  statusLabel(status: string | undefined): string {
+    if (!status) return '—';
+    const key = `runs.status.${status}`;
+    const label = this.i18n.t(key);
+    return label === key ? status : label;
+  }
+
+  formatTime(ts: string | undefined): string {
+    if (!ts) return '—';
+    try {
+      return new Date(ts).toLocaleString(undefined, {
+        month: 'short',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return ts;
+    }
+  }
+
+  formatRunCost(amount: number): string {
+    const settings = this.workspace.current()?.settings as Record<string, unknown> | undefined;
+    const publicSettings = settings?.['public'];
+    const fromPublic =
+      publicSettings && typeof publicSettings === 'object' && !Array.isArray(publicSettings)
+        ? (publicSettings as Record<string, unknown>)['currency']
+        : null;
+    const currency =
+      (typeof fromPublic === 'string' && fromPublic) ||
+      (typeof settings?.['currency'] === 'string' && settings['currency']) ||
+      'USD';
+    return formatSkillCost(amount, currency, this.i18n.locale());
+  }
+
+  private effectiveScope(
+    systemId: string | null,
+    capabilityId: string | null,
+    origin: string | null,
+  ): { system_id?: string; capability_id?: string; origin?: string } | undefined {
+    const axes = this.navigation.axesV3Enabled();
+    if (!origin && (!axes || (!systemId && !capabilityId))) return undefined;
+    return {
+      ...(axes && systemId ? { system_id: systemId } : {}),
+      ...(axes && capabilityId ? { capability_id: capabilityId } : {}),
+      ...(origin ? { origin } : {}),
+    };
+  }
+
+  private reloadCurrentScope(): void {
+    const params = this.route.snapshot.queryParamMap;
+    this.scopeParams = this.effectiveScope(
+      params.get('systemId') ?? params.get('system_id'),
+      params.get('capabilityId') ?? params.get('capability_id'),
+      normalizedExperienceOrigin(params.get('origin')),
+    );
+    this.refresh();
+  }
+
+  private resetResults(): void {
+    this.requestSubscription?.unsubscribe();
+    this.requestSubscription = null;
+    this.workspaceView.invalidate();
+    this.runs.set([]);
+    this.summaries.set([]);
+    this.loadError.set(false);
+    this.loading.set(false);
+  }
+
+  private resetWorkspaceState(): void {
+    this.requestSubscription?.unsubscribe();
+    this.requestSubscription = null;
+    this.runs.set([]);
+    this.summaries.set([]);
+    this.loadError.set(false);
+    this.loading.set(false);
+  }
+}

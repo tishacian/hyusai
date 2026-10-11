@@ -1,0 +1,410 @@
+import { Injectable, inject } from '@angular/core';
+import { Observable, Subject } from 'rxjs';
+import { TokenStorageService } from './token-storage.service';
+import { VoiceCaptureMode } from './voice-capture-config';
+import { VoiceEventReassembler } from './voice-frame-reassembly';
+import { WorkspaceService } from './workspace.service';
+
+export type VoiceSessionEventType =
+  | 'session.ready'
+  | 'session.start'
+  | 'loop.start'
+  | 'loop.pause'
+  | 'loop.resume'
+  | 'loop.stop'
+  | 'loop.armed'
+  | 'client.metric'
+  | 'audio.frame'
+  | 'audio.pause'
+  | 'audio.endpoint'
+  | 'audio.endpoint.auto'
+  | 'audio.out'
+  | 'section.select'
+  | 'section.active'
+  | 'section.finish'
+  | 'capture.finish'
+  | 'capture.scene'
+  | 'capture.view.referenced'
+  | 'tts.started'
+  | 'tts.ended'
+  | 'tts.interrupted'
+  | 'text.partial'
+  | 'text.final'
+  | 'translation.partial'
+  | 'translation.final'
+  | 'conversation.step'
+  | 'evaluation.delta'
+  | 'prompt.next'
+  | 'barge_in'
+  | 'voice.command'
+  | 'oracle.delta'
+  | 'oracle.action'
+  | 'oracle.commit'
+  | 'oracle.superseded'
+  | 'runtime.metric'
+  // Assistant surface: the gateway answers a spoken turn with the body of
+  // `POST /api/v1/assistant/turns`, and reads the context the surface owns off
+  // `assistant.context` (docs/ops/assistant-engine-contract.md).
+  | 'assistant.answer'
+  | 'assistant.context'
+  | 'session.error'
+  | 'session.close';
+
+export interface VoiceSessionEvent {
+  id: string;
+  session_id: string;
+  type: VoiceSessionEventType | string;
+  ts_ms: number;
+  sequence: number;
+  payload: Record<string, any>;
+}
+
+export interface VoiceSessionStartOptions {
+  runtime?: string;
+  provider?: string;
+  model?: string | null;
+  transport?: 'backend_ws' | 'webrtc' | string;
+  language?: string | null;
+  output_language?: string | null;
+  fallback_policy?: string | null;
+  tandem_oracle?: boolean;
+  oracle?: {
+    min_interval_ms?: number;
+    min_delta_chars?: number;
+    partial_stt_min_interval_ms?: number;
+    live_partial_stt_enabled?: boolean;
+    live_questions_enabled?: boolean;
+  };
+  capability?: string;
+  context_id?: string | null;
+  system_id?: string | null;
+  /**
+   * Which loop the gateway runs. `assistant` is the switch — and the only
+   * switch — that routes committed turns to the assistant engine; `surface`
+   * isolates the room and its metadata but is never read as a mode.
+   */
+  mode?: 'manual' | 'conversation_only' | 'assistant';
+  codec?: {
+    input: string;
+    sample_rate?: number;
+    channels?: number;
+  };
+}
+
+export interface VoiceFrameMeta {
+  turn_id?: string | null;
+  question_id?: string | null;
+  retrieval_event_id?: string | null;
+  interruption_of_event_id?: string | null;
+  content_type?: string | null;
+  document_refs?: Record<string, unknown>[];
+  visual_context?: Record<string, unknown> | null;
+  auto?: boolean;
+  reason?: string | null;
+  capture_mode?: VoiceCaptureMode;
+  silence_ms?: number;
+  min_speech_ms?: number;
+  rms_threshold?: number;
+  endpoint_grace_ms?: number;
+}
+
+export class VoiceSessionConnection {
+  private readonly eventsSubject = new Subject<VoiceSessionEvent>();
+  private readonly pending: string[] = [];
+  /** Rejoins the events the gateway had to cut up to fit a data packet. */
+  private readonly frames = new VoiceEventReassembler();
+  readonly events$: Observable<VoiceSessionEvent> = this.eventsSubject.asObservable();
+  private invalidated = false;
+  private closedNotified = false;
+
+  constructor(
+    private readonly socket: WebSocket,
+    private readonly onClosed: () => void = () => undefined,
+  ) {
+    this.socket.onopen = () => {
+      if (this.invalidated) return;
+      while (this.pending.length && this.socket.readyState === WebSocket.OPEN) {
+        this.socket.send(this.pending.shift()!);
+      }
+    };
+    this.socket.onmessage = (message) => {
+      if (this.invalidated) return;
+      try {
+        // Framed answer/audio payloads are rejoined before anyone sees them, so
+        // this lane and the LiveKit one deliver the identical event. Null means
+        // the payload is still incomplete.
+        const whole = this.frames.accept(JSON.parse(String(message.data)) as VoiceSessionEvent);
+        if (whole) this.eventsSubject.next(whole);
+      } catch {
+        this.eventsSubject.next({
+          id: crypto.randomUUID?.() || String(Date.now()),
+          session_id: '',
+          type: 'session.error',
+          ts_ms: Date.now(),
+          sequence: 0,
+          payload: { code: 'invalid_event', message: String(message.data) },
+        });
+      }
+    };
+    this.socket.onerror = () => {
+      if (this.invalidated) return;
+      this.eventsSubject.next({
+        id: crypto.randomUUID?.() || String(Date.now()),
+        session_id: '',
+        type: 'session.error',
+        ts_ms: Date.now(),
+        sequence: 0,
+        payload: { code: 'transport_error', message: 'Voice WebSocket transport error.' },
+      });
+    };
+    this.socket.onclose = () => {
+      this.terminate(false);
+    };
+  }
+
+  start(options: VoiceSessionStartOptions): void {
+    this.send('session.start', {
+      runtime: options.runtime || options.provider || 'cascade_openai',
+      provider: options.provider || options.runtime || 'cascade_openai',
+      model: options.model || null,
+      transport: options.transport || 'backend_ws',
+      language: options.language || null,
+      output_language: options.output_language || null,
+      fallback_policy: options.fallback_policy || 'cascade_openai',
+      tandem_oracle: options.tandem_oracle ?? true,
+      oracle: options.oracle || { min_interval_ms: 350, min_delta_chars: 24 },
+      capability: options.capability || 'voice2voice_interaction',
+      context_id: options.context_id || null,
+      system_id: options.system_id || null,
+      mode: options.mode || 'conversation_only',
+      codec: options.codec || { input: 'webm', channels: 1 },
+    });
+  }
+
+  async sendAudioFrame(blob: Blob, meta: VoiceFrameMeta): Promise<void> {
+    const bytes_b64 = await this.blobToBase64(blob);
+    const accepted = this.send('audio.frame', {
+      bytes_b64,
+      turn_id: meta.turn_id,
+      question_id: meta.question_id,
+      retrieval_event_id: meta.retrieval_event_id,
+      interruption_of_event_id: meta.interruption_of_event_id,
+      document_refs: meta.document_refs || [],
+      visual_context: meta.visual_context || null,
+      content_type: meta.content_type || blob.type || 'audio/webm',
+      encoding: blob.type || 'audio/webm',
+      duration_ms: 0,
+    });
+    if (!accepted) throw new Error('Voice WebSocket connection is closed.');
+  }
+
+  endpoint(meta: VoiceFrameMeta): void {
+    this.send(meta.auto ? 'audio.endpoint.auto' : 'audio.endpoint', {
+      turn_id: meta.turn_id,
+      question_id: meta.question_id,
+      retrieval_event_id: meta.retrieval_event_id,
+      interruption_of_event_id: meta.interruption_of_event_id,
+      document_refs: meta.document_refs || [],
+      visual_context: meta.visual_context || null,
+      auto: Boolean(meta.auto),
+      reason: meta.reason || null,
+      capture_mode: meta.capture_mode || null,
+      silence_ms: meta.silence_ms ?? null,
+      min_speech_ms: meta.min_speech_ms ?? null,
+      rms_threshold: meta.rms_threshold ?? null,
+      endpoint_grace_ms: meta.endpoint_grace_ms ?? null,
+    });
+  }
+
+  /** Push a live partial transcript so the backend tandem oracle can react
+   * before the turn is finalised. Used by streaming conversation loops. */
+  textPartial(text: string, meta: VoiceFrameMeta = {}): void {
+    this.send('text.partial', {
+      text,
+      turn_id: meta.turn_id,
+      question_id: meta.question_id,
+      retrieval_event_id: meta.retrieval_event_id,
+      transcript_state: 'partial',
+    });
+  }
+
+  bargeIn(promptEventId?: string | null): void {
+    this.send('barge_in', { prompt_event_id: promptEventId || null });
+  }
+
+  /** Stop sending audio frames / close the mic locally without ending the turn.
+   * Must NOT trigger any relance or conversation step on the backend. */
+  audioPause(payload: Record<string, any> = {}): void {
+    this.send('audio.pause', payload);
+  }
+
+  /** User jumped directly to a plan section/subsection in the selector. */
+  sectionSelect(payload: { topic_id?: string | null; subtopic_id?: string | null } & Record<string, any> = {}): void {
+    this.send('section.select', payload);
+  }
+
+  /** Push the current scene (pinned pieces + focused visual context) so the
+   * gateway can resolve deictic anchors on realtime voice turns even though the
+   * continuous mic track never carries per-turn `visual_context` (mirror of
+   * section.select). */
+  captureScene(payload: { visual_context: unknown; document_refs: unknown[] }): void {
+    this.send('capture.scene', payload);
+  }
+
+  /** User explicitly finished a section — the ONLY trigger of the timeline relance
+   * ("avez-vous terminé ? / souhaitez-vous continuer ?") and section reformulation. */
+  sectionFinish(payload: { topic_id?: string | null; subtopic_id?: string | null } & Record<string, any> = {}): void {
+    this.send('section.finish', payload);
+  }
+
+  /** User finished the whole capture — closes remaining sections and starts the final phase. */
+  captureFinish(payload: Record<string, any> = {}): void {
+    this.send('capture.finish', payload);
+  }
+
+  loopStart(payload: Record<string, any> = {}): void {
+    this.send('loop.start', payload);
+  }
+
+  loopPause(payload: Record<string, any> = {}): void {
+    this.send('loop.pause', payload);
+  }
+
+  loopResume(payload: Record<string, any> = {}): void {
+    this.send('loop.resume', payload);
+  }
+
+  loopStop(payload: Record<string, any> = {}): void {
+    this.send('loop.stop', payload);
+  }
+
+  loopArmed(payload: Record<string, any> = {}): void {
+    this.send('loop.armed', payload);
+  }
+
+  clientMetric(payload: Record<string, any> = {}): void {
+    this.send('client.metric', payload);
+  }
+
+  voiceCommand(command: string, transcript: string, payload: Record<string, any> = {}): void {
+    this.send('voice.command', { command, transcript, ...payload });
+  }
+
+  ttsStarted(payload: Record<string, any> = {}): void {
+    this.send('tts.started', payload);
+  }
+
+  ttsEnded(payload: Record<string, any> = {}): void {
+    this.send('tts.ended', payload);
+  }
+
+  ttsInterrupted(payload: Record<string, any> = {}): void {
+    this.send('tts.interrupted', payload);
+  }
+
+  /**
+   * Any control frame that has no dedicated helper — the twin of
+   * `LiveKitConversationConnection.sendControl`, so a caller pushes the same
+   * event on either lane.
+   */
+  sendControl(type: VoiceSessionEventType | string, payload: Record<string, any> = {}): void {
+    this.send(type, payload);
+  }
+
+  close(): void {
+    if (this.invalidated) return;
+    if (this.socket.readyState === WebSocket.OPEN) {
+      this.send('session.close', {});
+    }
+    this.terminate(true);
+  }
+
+  /**
+   * Invalidate synchronously during a workspace transaction.  Handlers are
+   * detached before the browser begins its asynchronous close handshake, so a
+   * queued message/error from the old socket cannot escape into the new
+   * workspace.
+   */
+  invalidate(): void {
+    this.terminate(true);
+  }
+
+  private send(type: VoiceSessionEventType | string, payload: Record<string, any>): boolean {
+    if (this.invalidated) return false;
+    const frame = JSON.stringify({
+      id: crypto.randomUUID?.() || String(Date.now()),
+      type,
+      ts_ms: Date.now(),
+      payload,
+    });
+    if (this.socket.readyState === WebSocket.OPEN) {
+      this.socket.send(frame);
+      return true;
+    } else if (this.socket.readyState === WebSocket.CONNECTING) {
+      this.pending.push(frame);
+      return true;
+    }
+    return false;
+  }
+
+  private terminate(closeSocket: boolean): void {
+    if (this.invalidated) return;
+    this.invalidated = true;
+    this.frames.reset();
+    this.pending.length = 0;
+    this.socket.onopen = null;
+    this.socket.onmessage = null;
+    this.socket.onerror = null;
+    this.socket.onclose = null;
+    this.eventsSubject.complete();
+    if (!this.closedNotified) {
+      this.closedNotified = true;
+      this.onClosed();
+    }
+    if (closeSocket && this.socket.readyState < WebSocket.CLOSING) {
+      this.socket.close();
+    }
+  }
+
+  private blobToBase64(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error || new Error('Blob read failed'));
+      reader.onloadend = () => {
+        const value = String(reader.result || '');
+        resolve(value.includes(',') ? value.split(',')[1] : value);
+      };
+      reader.readAsDataURL(blob);
+    });
+  }
+}
+
+@Injectable({ providedIn: 'root' })
+export class VoiceSessionService {
+  private readonly tokenStorage = inject(TokenStorageService);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly activeConnections = new Set<VoiceSessionConnection>();
+
+  constructor() {
+    this.workspace.registerContextReset(() => {
+      const connections = [...this.activeConnections];
+      this.activeConnections.clear();
+      for (const connection of connections) connection.invalidate();
+    });
+  }
+
+  open(sessionId: string): VoiceSessionConnection {
+    const scope = this.workspace.captureRequestScope();
+    const token = this.tokenStorage.getToken();
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = new URL(`${protocol}//${window.location.host}/api/v1/voice/sessions/${encodeURIComponent(sessionId)}`);
+    if (token) url.searchParams.set('token', token);
+    if (scope.workspaceSlug) url.searchParams.set('workspace_slug', scope.workspaceSlug);
+    let connection: VoiceSessionConnection;
+    connection = new VoiceSessionConnection(new WebSocket(url.toString()), () => {
+      this.activeConnections.delete(connection);
+    });
+    this.activeConnections.add(connection);
+    return connection;
+  }
+}

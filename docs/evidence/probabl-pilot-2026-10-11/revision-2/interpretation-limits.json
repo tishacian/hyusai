@@ -1,0 +1,44 @@
+{
+  "adoption": "Even a statistical/cost threshold match only nominates a candidate for subsequent production and authorized-business-data qualification",
+  "artifact_bytes_scope": "Measured direct export (model context/config/weights or skops) only; excludes MLflow envelope, operational upload metadata and the product signed license.json notice added outside this frozen direct-model benchmark.",
+  "cgroup_envelope_observed": {
+    "cpu_max": "400000 100000",
+    "cpu_quota_equivalent": 4,
+    "interpretation": "Shared quota across this workspace processes, not four dedicated physical cores. Co-tenant builds/tests ran during part of development; logical CPU count is not the quota.",
+    "memory_max_bytes": 17179869184
+  },
+  "cold_warm_scope": "First model call and object eviction/reload in disposable Python processes; OS page caches are not purged. Two timing repetitions per request size do not qualify API p95/p99 or disk-cold startup.",
+  "cost_uncertainty": "Cost thresholds use measured point estimates plus a declared workload projection; two warm timing repetitions do not establish confidence intervals for cost ratios, and shared-host timing may vary.",
+  "deployment_environment": "Shared cloud CPU quota; co-tenant workload uncontrolled; no interactive SLA qualified",
+  "excluded_profile": "Uncached regression remains not qualified even if an isolated rerun succeeds; v2 does not execute its nine development cases.",
+  "includes": [
+    "dataset preparation",
+    "existing bounded tuning when selected",
+    "fit",
+    "first predict",
+    "repeated model.predict on 1/100/1000 rows",
+    "local skops or declarative TabICL JSON+safetensors export",
+    "local autonomous reload",
+    "eviction",
+    "process startup and imports",
+    "descendant CPU accounting"
+  ],
+  "independent_product_admission": {
+    "classification": "Experimental manual pilot only; no automatic promotion or global activation.",
+    "regression": "All TabICL regression profiles are refused by product services/UI after cached-profile parity failure in development; any per-task statistical/cost eligibility below cannot override this restriction."
+  },
+  "not_measured": [
+    "MLflow wrapper cost",
+    "ObjectStore upload/download cost",
+    "API authorization and RPC overhead",
+    "additional classification predict_proba forward in production",
+    "operator effort",
+    "energy",
+    "monetary price",
+    "client business outcome"
+  ],
+  "scope": "Offline direct-model lifecycle; technical qualification only",
+  "stopped_prequalification": "Earlier interrupted v1 campaigns remain diagnostic evidence. Their final reserve was never opened. Their 4471.139346-second conservative charge plus a 3600-second P5 diagnostic reserve are carried into v2; neither reserve is a new model measurement.",
+  "storage": "Disposable local benchmark artifacts do not add an experiment store; production stays on existing ObjectStore/MinIO and MLflow",
+  "uncertainty_scope": "Paired IID 95% percentile intervals are per task, not simultaneous family-wise guarantees across six tasks. Repeated development splits overlap and are used for selection only; no uncertainty estimate treats them as independent samples."
+}

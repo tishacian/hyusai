@@ -1,0 +1,683 @@
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { I18nService } from '@app/core/i18n.service';
+import { VpMapPreviewComponent } from './vp-map-preview.component';
+import { VpArbitrationStripComponent } from './vp-arbitration-strip.component';
+import { VpAyaPriorityBannerComponent } from './vp-aya-priority-banner.component';
+import { VpPressPreviewComponent } from './vp-press-preview.component';
+import { VpMacroIndicatorsComponent } from './vp-macro-indicators.component';
+import type { VesselPosition } from '@app/core/maritime-tracking.service';
+import type {
+  VpArbitrationCard,
+  VpAyaRecommendation,
+  VpDirectiveOfDay,
+  VpMapPreviewContext,
+  VpPressPreviewItem,
+  VpStatusBarItem,
+  VpZoneScore,
+} from './vp-cockpit.types';
+
+@Component({
+  selector: 'app-vp-cockpit',
+  standalone: true,
+  imports: [
+    CommonModule,
+    VpMapPreviewComponent,
+    VpArbitrationStripComponent,
+    VpAyaPriorityBannerComponent,
+    VpPressPreviewComponent,
+    VpMacroIndicatorsComponent,
+  ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    @if (securityOnly) {
+      @if (securityPosture; as posture) {
+        <section
+          id="s3-security-posture"
+          class="vp-block vp-block-security"
+          [class.mission-focus-pulse]="focusTarget === 'security_posture'"
+          [attr.aria-label]="i18n.t('mission.posture.aria')"
+        >
+          <header class="vp-block-head">
+            <div class="vp-block-head-main">
+              <span class="vp-block-eyebrow">{{ i18n.t('mission.posture.eyebrow') }}</span>
+              <h2 class="vp-block-title">{{ posture['summary'] || i18n.t('mission.posture.summary_fallback') }}</h2>
+              @if (postureNextCouncil(posture); as council) {
+                <span class="vp-security-council" [attr.aria-label]="i18n.t('mission.posture.next_council', { council: council })">{{ council }}</span>
+              }
+            </div>
+            @if (securityOsintBadges(posture).length) {
+              <div class="vp-osint-badges" [attr.aria-label]="i18n.t('mission.posture.osint_sources')">
+                @for (badge of securityOsintBadges(posture); track badge.key) {
+                  <span
+                    class="mission-status-badge"
+                    [class.is-live]="badge.live"
+                    [class.is-baseline]="!badge.live"
+                  >
+                    {{ badge.label }} · {{ badge.source_badge }}
+                  </span>
+                }
+              </div>
+            }
+          </header>
+          <div class="vp-security-grid">
+            @for (axis of postureAxes(posture); track axis.key) {
+              <article class="vp-security-card" [class]="'axis-' + axis.key + ' tone-' + (axis.tone || 'monitoring')">
+                <header class="vp-security-card-head">
+                  <span class="vp-security-card-axis">{{ axis.key === 'interior' ? i18n.t('mission.posture.axis_interior') : i18n.t('mission.posture.axis_exterior') }}</span>
+                  <strong class="vp-security-card-level" [attr.data-tone]="axis.tone">{{ axis.level | uppercase }}</strong>
+                </header>
+                <strong class="vp-security-axis-label">{{ axis.label }}</strong>
+                @if (axis.headline) {
+                  <p class="vp-security-card-headline">{{ axis.headline }}</p>
+                }
+                @if (axis.signals?.length) {
+                  <ul class="vp-security-card-signals" [attr.aria-label]="i18n.t('mission.posture.signals')">
+                    @for (signal of (axis.signals || []).slice(0, 3); track signal.id) {
+                      <li [class]="'tone-' + (signal.tone || 'monitoring')">
+                        <span class="vp-security-signal-label">{{ signal.label }}</span>
+                        @if (signal.summary) {
+                          <small class="vp-security-signal-summary">{{ signal.summary }}</small>
+                        }
+                      </li>
+                    }
+                  </ul>
+                }
+              </article>
+            }
+          </div>
+          <div class="vp-security-actions mission-action-footer">
+            <button type="button" class="vp-security-cta vp-security-cta-primary" (click)="securityPostureRequested.emit()">
+              {{ i18n.t('mission.posture.full') }}
+            </button>
+            <button type="button" class="vp-security-cta" (click)="securityCommuniqueRequested.emit()">
+              {{ i18n.t('mission.posture.draft_statement') }}
+            </button>
+          </div>
+        </section>
+      }
+    } @else {
+    <div class="vp-cockpit" [attr.aria-label]="i18n.t('mission.cockpit.aria')">
+      <section class="vp-block vp-block-status" [attr.aria-label]="i18n.t('mission.cockpit.national_posture')">
+        <header class="vp-block-head">
+          <span class="vp-block-eyebrow">{{ i18n.t('mission.cockpit.national_posture') }}</span>
+          <h2 class="vp-block-title">{{ i18n.t('mission.cockpit.today_state') }}</h2>
+        </header>
+        <div class="vp-status-bar">
+          @for (item of orderedStatusBar(); track item.key) {
+            <button
+              type="button"
+              class="status-chip"
+              [class]="toneClass(item.tone)"
+              [class.prominent]="isProminent(item)"
+              [attr.aria-label]="item.label + ' : ' + item.value + (item.detail ? ' — ' + item.detail : '')"
+              (click)="statusBarSelected.emit(item)"
+            >
+              @if (isProminent(item)) {
+                <span class="status-chip-pulse" aria-hidden="true"></span>
+              }
+              <span class="status-chip-label">{{ item.label }}</span>
+              <strong class="status-chip-value">{{ item.value }}</strong>
+              @if (item.detail) {
+                <small class="status-chip-detail">{{ item.detail }}</small>
+              }
+            </button>
+          }
+        </div>
+      </section>
+
+      <section class="vp-block vp-block-macro" [attr.aria-label]="i18n.t('mission.cockpit.macro')">
+        <app-vp-macro-indicators />
+      </section>
+
+      <section class="vp-block vp-block-aya" [attr.aria-label]="i18n.t('mission.cockpit.assistant_priority', { name: assistantName })">
+        <app-vp-aya-priority-banner
+          [assistantName]="assistantName"
+          [directive]="directive"
+          [recommendation]="ayaRecommendation"
+          (voiceRequest)="voiceRequest.emit($event)"
+          (voiceListen)="voiceListen.emit()"
+          (briefingRequest)="briefingRequest.emit()"
+        />
+      </section>
+
+      <section class="vp-block vp-block-terrain" [attr.aria-label]="i18n.t('mission.cockpit.map_and_decisions')">
+        <app-vp-map-preview
+          [context]="mapPreview"
+          [assistantName]="assistantName"
+          [vesselsEnabled]="!isOctocityMode()"
+          (openMap)="openMap.emit()"
+          (zoneSelected)="mapZoneSelected.emit($event)"
+          (vesselSelected)="mapVesselSelected.emit($event)"
+        />
+        <app-vp-arbitration-strip [cards]="arbitrationCards" [assistantName]="assistantName" (cardSelected)="arbitrationSelected.emit($event)" />
+      </section>
+
+      @if (securityPosture; as posture) {
+        <section
+          id="s3-security-posture"
+          class="vp-block vp-block-security"
+          [class.mission-focus-pulse]="focusTarget === 'security_posture'"
+          [attr.aria-label]="i18n.t('mission.posture.aria')"
+        >
+          <header class="vp-block-head">
+            <div class="vp-block-head-main">
+              <span class="vp-block-eyebrow">{{ i18n.t('mission.posture.eyebrow') }}</span>
+              <h2 class="vp-block-title">{{ posture['summary'] || i18n.t('mission.posture.summary_fallback') }}</h2>
+              @if (postureNextCouncil(posture); as council) {
+                <span class="vp-security-council" [attr.aria-label]="i18n.t('mission.posture.next_council', { council: council })">{{ council }}</span>
+              }
+            </div>
+            @if (securityOsintBadges(posture).length) {
+              <div class="vp-osint-badges" [attr.aria-label]="i18n.t('mission.posture.osint_sources')">
+                @for (badge of securityOsintBadges(posture); track badge.key) {
+                  <span
+                    class="mission-status-badge"
+                    [class.is-live]="badge.live"
+                    [class.is-baseline]="!badge.live"
+                  >
+                    {{ badge.label }} · {{ badge.source_badge }}
+                  </span>
+                }
+              </div>
+            }
+          </header>
+          <div class="vp-security-grid">
+            @for (axis of postureAxes(posture); track axis.key) {
+              <article class="vp-security-card" [class]="'axis-' + axis.key + ' tone-' + (axis.tone || 'monitoring')">
+                <header class="vp-security-card-head">
+                  <span class="vp-security-card-axis">{{ axis.key === 'interior' ? i18n.t('mission.posture.axis_interior') : i18n.t('mission.posture.axis_exterior') }}</span>
+                  <strong class="vp-security-card-level" [attr.data-tone]="axis.tone">{{ axis.level | uppercase }}</strong>
+                </header>
+                <strong class="vp-security-axis-label">{{ axis.label }}</strong>
+                @if (axis.headline) {
+                  <p class="vp-security-card-headline">{{ axis.headline }}</p>
+                }
+                @if (axis.signals?.length) {
+                  <ul class="vp-security-card-signals" [attr.aria-label]="i18n.t('mission.posture.signals')">
+                    @for (signal of (axis.signals || []).slice(0, 3); track signal.id) {
+                      <li [class]="'tone-' + (signal.tone || 'monitoring')">
+                        <span class="vp-security-signal-label">{{ signal.label }}</span>
+                        @if (signal.summary) {
+                          <small class="vp-security-signal-summary">{{ signal.summary }}</small>
+                        }
+                      </li>
+                    }
+                  </ul>
+                }
+              </article>
+            }
+          </div>
+          <div class="vp-security-actions mission-action-footer">
+            <button type="button" class="vp-security-cta vp-security-cta-primary" (click)="securityPostureRequested.emit()">
+              {{ i18n.t('mission.posture.full') }}
+            </button>
+            <button type="button" class="vp-security-cta" (click)="securityCommuniqueRequested.emit()">
+              {{ i18n.t('mission.posture.draft_statement') }}
+            </button>
+          </div>
+        </section>
+      }
+
+      <section class="vp-block vp-block-press" [attr.aria-label]="i18n.t('mission.cockpit.press_alert')">
+        <header class="vp-block-head">
+          <span class="vp-block-eyebrow">{{ i18n.t('mission.cockpit.press_signal') }}</span>
+          <h2 class="vp-block-title">{{ i18n.t('mission.cockpit.press_headline') }}</h2>
+        </header>
+        <app-vp-press-preview
+          [items]="pressPreview.slice(0, 1)"
+          [highlightId]="pressHighlightId"
+          (itemSelected)="pressSelected.emit($event)"
+        />
+      </section>
+    </div>
+    }
+  `,
+  styles: [
+    `
+      :host { display: block; min-width: 0; }
+      .vp-cockpit {
+        display: grid;
+        gap: var(--mission-space-5);
+        padding: var(--mission-space-1) 0;
+      }
+      .vp-block {
+        padding: var(--mission-space-5);
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-lg);
+        background: linear-gradient(180deg, rgba(8, 14, 20, 0.62), rgba(4, 8, 13, 0.42));
+        box-shadow: var(--mission-shadow-soft);
+      }
+      .vp-block-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: var(--mission-space-3);
+        margin-bottom: var(--mission-space-4);
+      }
+      .vp-block-eyebrow {
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        letter-spacing: var(--mission-tracking-micro);
+        text-transform: uppercase;
+        color: var(--mission-text-tertiary);
+      }
+      .vp-block-title {
+        margin: 0;
+        font-size: var(--mission-text-md);
+        font-weight: 600;
+        letter-spacing: var(--mission-tracking-tight);
+        color: var(--mission-text-primary);
+      }
+      .vp-status-bar {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--mission-space-3);
+      }
+      .status-chip {
+        position: relative;
+        padding: var(--mission-space-3) var(--mission-space-4);
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-md);
+        background: rgba(4, 8, 13, 0.58);
+        width: 100%;
+        color: inherit;
+        text-align: left;
+        appearance: none;
+        font: inherit;
+        cursor: pointer;
+        transition:
+          border-color var(--mission-dur-fast) var(--mission-ease-out),
+          background var(--mission-dur-fast) var(--mission-ease-out),
+          transform var(--mission-dur-fast) var(--mission-ease-out);
+      }
+      .status-chip:hover {
+        border-color: var(--sentinel-accent-muted);
+        background: rgba(101, 214, 110, 0.04);
+      }
+      .status-chip:focus-visible {
+        outline: 2px solid var(--sentinel-accent);
+        outline-offset: 2px;
+      }
+      .status-chip:active { transform: translateY(1px); }
+      .status-chip.critical { border-color: rgba(240, 100, 118, 0.34); }
+      .status-chip.elevated { border-color: rgba(241, 180, 90, 0.32); }
+      .status-chip.stable { border-color: rgba(63, 209, 141, 0.28); }
+      .status-chip.prominent {
+        background: linear-gradient(135deg, var(--mission-critical-soft), rgba(4, 8, 13, 0.62));
+        border-color: rgba(240, 100, 118, 0.55);
+        box-shadow: 0 0 0 1px rgba(240, 100, 118, 0.20), 0 0 18px rgba(240, 100, 118, 0.08);
+      }
+      .status-chip.prominent .status-chip-value { color: var(--mission-critical); }
+      .status-chip-pulse {
+        position: absolute;
+        top: var(--mission-space-3);
+        right: var(--mission-space-3);
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--mission-critical);
+        box-shadow: 0 0 0 0 rgba(240, 100, 118, 0.55);
+        animation: vp-pulse-critical 2.4s ease-in-out infinite;
+      }
+      @keyframes vp-pulse-critical {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(240, 100, 118, 0.55); }
+        50%      { box-shadow: 0 0 0 7px rgba(240, 100, 118, 0); }
+      }
+      .status-chip-label {
+        display: block;
+        color: var(--mission-text-tertiary);
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        letter-spacing: var(--mission-tracking-micro);
+        text-transform: uppercase;
+      }
+      .status-chip-value {
+        display: block;
+        margin-top: var(--mission-space-1);
+        font-size: var(--mission-text-lg);
+        font-weight: 600;
+        letter-spacing: var(--mission-tracking-tight);
+        line-height: 1.05;
+        color: var(--mission-text-primary);
+      }
+      .status-chip-detail {
+        display: block;
+        margin-top: var(--mission-space-1);
+        color: var(--mission-text-tertiary);
+        font-size: var(--mission-text-xs);
+        line-height: 1.35;
+      }
+      .vp-block-terrain {
+        display: grid;
+        grid-template-columns: minmax(0, 1.45fr) minmax(280px, 1fr);
+        gap: var(--mission-space-4);
+        align-items: stretch;
+        padding: 0;
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+      }
+      .vp-block-terrain > * {
+        min-width: 0;
+      }
+      .vp-block-aya {
+        padding: var(--mission-space-1);
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+      }
+      .vp-block-macro,
+      .vp-block-press {
+        padding: var(--mission-space-5);
+      }
+      .vp-block-security {
+        display: grid;
+        gap: var(--mission-space-4);
+        position: relative;
+        overflow: hidden;
+      }
+      .vp-block-head-main {
+        display: grid;
+        gap: var(--mission-space-2);
+        min-width: 0;
+      }
+      .vp-osint-badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--mission-space-2);
+        justify-content: flex-end;
+      }
+      .vp-security-council {
+        display: inline-flex;
+        width: fit-content;
+        margin-top: var(--mission-space-1);
+        padding: var(--mission-space-1) var(--mission-space-3);
+        border-radius: 999px;
+        background: rgba(240, 100, 118, 0.12);
+        border: 1px solid rgba(240, 100, 118, 0.38);
+        color: #fda4af;
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        letter-spacing: var(--mission-tracking-micro);
+        text-transform: uppercase;
+      }
+      .vp-security-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--mission-space-4);
+      }
+      .vp-security-card {
+        position: relative;
+        padding: var(--mission-space-4);
+        border: 1px solid var(--mission-border);
+        border-top: 3px solid var(--mission-border);
+        border-radius: var(--mission-radius-md);
+        background:
+          linear-gradient(180deg, rgba(18, 31, 28, 0.84), rgba(4, 8, 13, 0.64));
+        display: flex;
+        flex-direction: column;
+        gap: var(--mission-space-3);
+        min-width: 0;
+      }
+      .vp-security-card.axis-interior { box-shadow: inset 0 1px 0 rgba(101, 214, 110, 0.12); }
+      .vp-security-card.axis-exterior { box-shadow: inset 0 1px 0 rgba(125, 211, 252, 0.10); }
+      .vp-security-card.tone-watch,
+      .vp-security-card.tone-elevated {
+        border-color: rgba(241, 180, 90, 0.42);
+        border-top-color: var(--mission-warning);
+      }
+      .vp-security-card.tone-stable {
+        border-color: rgba(63, 209, 141, 0.32);
+        border-top-color: var(--mission-success);
+      }
+      .vp-security-card.tone-critical {
+        border-color: rgba(240, 100, 118, 0.42);
+        border-top-color: var(--mission-critical);
+      }
+      .vp-security-card-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: var(--mission-space-3);
+      }
+      .vp-security-card-axis {
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        letter-spacing: var(--mission-tracking-micro);
+        text-transform: uppercase;
+        color: var(--mission-text-tertiary);
+      }
+      .vp-security-axis-label {
+        display: block;
+        color: var(--mission-text-primary);
+        font-size: var(--mission-text-md);
+        line-height: var(--mission-lh-tight);
+      }
+      .vp-security-card-level {
+        font-size: var(--mission-text-md);
+        font-weight: 600;
+        letter-spacing: var(--mission-tracking-tight);
+        color: var(--mission-text-primary);
+      }
+      .vp-security-card-level[data-tone='watch'] { color: var(--mission-warning, #f1b45a); }
+      .vp-security-card-level[data-tone='elevated'] { color: var(--mission-warning, #f1b45a); }
+      .vp-security-card-level[data-tone='stable'] { color: var(--mission-success, #63d18d); }
+      .vp-security-card-level[data-tone='critical'] { color: var(--mission-critical, #f06476); }
+      .vp-security-card-headline {
+        margin: 0;
+        color: var(--mission-text-secondary);
+        font-size: var(--mission-text-sm);
+        line-height: 1.45;
+      }
+      .vp-security-card-signals {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        gap: var(--mission-space-2);
+      }
+      .vp-security-card-signals li {
+        padding: var(--mission-space-2) var(--mission-space-3);
+        border-left: 2px solid var(--mission-border);
+        background: rgba(8, 14, 20, 0.52);
+        border-radius: 4px;
+      }
+      .vp-security-card-signals li.tone-watch { border-left-color: rgba(241, 180, 90, 0.60); }
+      .vp-security-card-signals li.tone-stable { border-left-color: rgba(63, 209, 141, 0.55); }
+      .vp-security-card-signals li.tone-critical { border-left-color: rgba(240, 100, 118, 0.60); }
+      .vp-security-signal-label {
+        display: block;
+        font-weight: 600;
+        font-size: var(--mission-text-xs);
+        color: var(--mission-text-primary);
+      }
+      .vp-security-signal-summary {
+        display: block;
+        margin-top: 2px;
+        font-size: var(--mission-text-xs);
+        color: var(--mission-text-tertiary);
+        line-height: 1.35;
+      }
+      .vp-security-actions {
+        display: flex;
+        gap: var(--mission-space-3);
+        flex-wrap: wrap;
+        margin: 0 calc(var(--mission-space-5) * -1) calc(var(--mission-space-5) * -1);
+      }
+      .vp-security-cta {
+        appearance: none;
+        cursor: pointer;
+        padding: var(--mission-space-2) var(--mission-space-4);
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-md);
+        background: rgba(4, 8, 13, 0.5);
+        color: var(--mission-text-primary);
+        font: inherit;
+        font-size: var(--mission-text-xs);
+        letter-spacing: var(--mission-tracking-tight);
+        transition: border-color var(--mission-dur-fast) var(--mission-ease-out),
+          background var(--mission-dur-fast) var(--mission-ease-out);
+      }
+      .vp-security-cta:hover { border-color: var(--sentinel-accent-muted); background: rgba(101, 214, 110, 0.06); }
+      .vp-security-cta:focus-visible { outline: 2px solid var(--sentinel-accent); outline-offset: 2px; }
+      .vp-security-cta-primary { background: rgba(101, 214, 110, 0.10); border-color: rgba(101, 214, 110, 0.42); }
+      @media (max-width: 1100px) {
+        .vp-status-bar,
+        .vp-block-terrain,
+        .vp-security-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .status-chip-pulse { animation: none; }
+      }
+    `,
+  ],
+})
+export class VpCockpitComponent {
+  readonly i18n = inject(I18nService);
+
+  @Input() assistantName = 'AYA';
+  @Input() statusBar: VpStatusBarItem[] = [];
+  @Input() mapPreview: VpMapPreviewContext = {
+    route: '/hypervisor/mission-room/strategie',
+    label: 'Carte fusionnee',
+    zones: [],
+    map: null,
+    mapSystem: null,
+    geoPreview: { zone_scores: [] },
+    topZoneId: null,
+  };
+  @Input() directive: VpDirectiveOfDay = { text: '' };
+  @Input() ayaRecommendation: VpAyaRecommendation | null = null;
+  @Input() arbitrationCards: VpArbitrationCard[] = [];
+  @Input() pressPreview: VpPressPreviewItem[] = [];
+  @Input() pressHighlightId: string | null = null;
+  @Input() securityPosture: Record<string, any> | null = null;
+  @Input() securityOnly = false;
+  @Input() focusTarget: string | null = null;
+
+  @Output() openMap = new EventEmitter<void>();
+  @Output() mapZoneSelected = new EventEmitter<VpZoneScore>();
+  @Output() mapVesselSelected = new EventEmitter<VesselPosition>();
+  @Output() statusBarSelected = new EventEmitter<VpStatusBarItem>();
+  @Output() arbitrationSelected = new EventEmitter<VpArbitrationCard>();
+  @Output() pressSelected = new EventEmitter<VpPressPreviewItem>();
+  @Output() voiceRequest = new EventEmitter<string | undefined>();
+  @Output() voiceListen = new EventEmitter<void>();
+  @Output() briefingRequest = new EventEmitter<void>();
+  @Output() securityPostureRequested = new EventEmitter<void>();
+  @Output() securityCommuniqueRequested = new EventEmitter<void>();
+
+  isOctocityMode(): boolean {
+    return String(this.assistantName || '').toUpperCase() === 'OCTAVE';
+  }
+
+  toneClass(tone?: string): string {
+    const normalized = (tone || '').toLowerCase();
+    if (normalized === 'critical') return 'critical';
+    if (normalized === 'elevated' || normalized === 'watch') return 'elevated';
+    if (normalized === 'stable') return 'stable';
+    return 'monitoring';
+  }
+
+  isProminent(item: VpStatusBarItem): boolean {
+    const normalized = `${item.key} ${item.label} ${item.value} ${item.detail || ''}`.toLowerCase();
+    if (normalized.includes('zone nord') || normalized.includes('tension nord')) return true;
+    if (normalized.includes('nord') && this.toneClass(item.tone) === 'critical') return true;
+    return false;
+  }
+
+  postureAxes(posture: Record<string, any> | null): Array<{ key: string; label: string; level: string; tone: string; headline?: string; signals?: any[] }> {
+    if (!posture) return [];
+    const axes: Array<{ key: string; label: string; level: string; tone: string; headline?: string; signals?: any[] }> = [];
+    const interior = posture['interior'];
+    if (interior) {
+      axes.push({
+        key: 'interior',
+        label: interior.label || this.i18n.t('mission.posture.interior'),
+        level: interior.level || 'monitoring',
+        tone: interior.tone || 'monitoring',
+        headline: interior.headline,
+        signals: Array.isArray(interior.signals) ? interior.signals : [],
+      });
+    }
+    const exterior = posture['exterior'];
+    if (exterior) {
+      axes.push({
+        key: 'exterior',
+        label: exterior.label || this.i18n.t('mission.posture.exterior'),
+        level: exterior.level || 'monitoring',
+        tone: exterior.tone || 'monitoring',
+        headline: exterior.headline,
+        signals: Array.isArray(exterior.signals) ? exterior.signals : [],
+      });
+    }
+    return axes;
+  }
+
+  postureNextCouncil(posture: Record<string, any> | null): string | null {
+    const council = posture?.['next_council'];
+    if (!council) return null;
+    const time = council.time || '';
+    const label = council.label || this.i18n.t('mission.posture.next_council_default');
+    return time ? `${time} — ${label}` : label;
+  }
+
+  securityOsintBadges(
+    posture: Record<string, any> | null,
+  ): Array<{ key: string; label: string; source_badge: string; live: boolean }> {
+    const sources = posture?.['osint_sources'];
+    if (!sources || typeof sources !== 'object') return [];
+    const badges: Array<{ key: string; label: string; source_badge: string; live: boolean }> = [];
+    const rss = sources['rss'];
+    if (rss?.source_badge) {
+      badges.push({
+        key: 'rss',
+        label: this.i18n.t('mission.posture.rss_security'),
+        source_badge: this.sourceBadgeLabel(rss.source_badge),
+        live: Boolean(rss.live),
+      });
+    }
+    const cedeao = sources['cedeao_index'];
+    if (cedeao?.source_badge) {
+      badges.push({
+        key: 'cedeao',
+        label: 'Indice CEDEAO',
+        source_badge: this.sourceBadgeLabel(cedeao.source_badge),
+        live: Boolean(cedeao.live),
+      });
+    }
+    return badges;
+  }
+
+  sourceBadgeLabel(value: unknown): string {
+    const raw = String(value || '').trim();
+    const normalized = raw.toLowerCase();
+    if (!raw) return this.i18n.t('mission.source.demo');
+    if (normalized.includes('cache') || normalized.includes('baseline')) return this.i18n.t('mission.source.demo_reference');
+    if (normalized.includes('live')) return 'Live';
+    return raw;
+  }
+
+  orderedStatusBar(): VpStatusBarItem[] {
+    const items = (this.statusBar || []).slice();
+    const prominentIndex = items.findIndex((item) => this.isProminent(item));
+    if (prominentIndex > 0) {
+      const [prominent] = items.splice(prominentIndex, 1);
+      items.unshift(prominent);
+    }
+    if (!items.some((item) => this.isProminent(item))) {
+      items.unshift({
+        key: 'tension-nord',
+        label: 'Zone Nord',
+        value: 'Tendue',
+        detail: 'tension projet · cargo bloqué',
+        tone: 'critical',
+        drill_down: { view: 'strategie', zone: 'zone-nord', layers: 'threat,press' },
+      } as VpStatusBarItem);
+    }
+    return items.slice(0, 3);
+  }
+}

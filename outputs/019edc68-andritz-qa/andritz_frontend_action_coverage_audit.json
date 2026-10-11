@@ -1,0 +1,3851 @@
+{
+  "generated_at": "2026-06-24T03:54:09.650Z",
+  "scope": {
+    "workspace": "andritz",
+    "systems": [
+      "Chat Recherche",
+      "Knowledge Capture",
+      "Collections",
+      "SFTP Andritz"
+    ],
+    "safety": "static frontend template and matrix audit only; no browser, backend, VM, SFTP, collection, vector or object-store mutation"
+  },
+  "matrix": {
+    "feature_count": 101
+  },
+  "frontend_actions": {
+    "scoped_file_count": 12,
+    "binding_count": 339,
+    "uncovered_count": 0,
+    "default_mapped_count": 1,
+    "missing_feature_ref_count": 0,
+    "bindings": [
+      {
+        "file": "frontend-ng/src/app/features/chat/assistant-draft-drawer.component.ts",
+        "line": 131,
+        "event": "click",
+        "expression": "cancel()",
+        "feature_ids": [
+          "CHT-017"
+        ],
+        "coverage_rule": "assistant-draft-drawer:validate|modify|cancel"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/assistant-draft-drawer.component.ts",
+        "line": 147,
+        "event": "click",
+        "expression": "cancel()",
+        "feature_ids": [
+          "CHT-017"
+        ],
+        "coverage_rule": "assistant-draft-drawer:validate|modify|cancel"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/assistant-draft-drawer.component.ts",
+        "line": 228,
+        "event": "click",
+        "expression": "cancel()",
+        "feature_ids": [
+          "CHT-017"
+        ],
+        "coverage_rule": "assistant-draft-drawer:validate|modify|cancel"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/assistant-draft-drawer.component.ts",
+        "line": 232,
+        "event": "click",
+        "expression": "validate()",
+        "feature_ids": [
+          "CHT-017"
+        ],
+        "coverage_rule": "assistant-draft-drawer:validate|modify|cancel"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/assistant-draft-drawer.component.ts",
+        "line": 235,
+        "event": "click",
+        "expression": "modify()",
+        "feature_ids": [
+          "CHT-017"
+        ],
+        "coverage_rule": "assistant-draft-drawer:validate|modify|cancel"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/assistant-draft-drawer.component.ts",
+        "line": 238,
+        "event": "click",
+        "expression": "cancel()",
+        "feature_ids": [
+          "CHT-017"
+        ],
+        "coverage_rule": "assistant-draft-drawer:validate|modify|cancel"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-overlay.component.ts",
+        "line": 56,
+        "event": "click",
+        "expression": "expandToWorkspaceChat()",
+        "feature_ids": [
+          "CHT-021"
+        ],
+        "coverage_rule": "chat-overlay:expandToWorkspaceChat"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 499,
+        "event": "click",
+        "expression": "createNewChat()",
+        "feature_ids": [
+          "CHT-014"
+        ],
+        "coverage_rule": "chat-panel:createNewChat|openChatSession|archiveChatSession|deleteChatSession|clearConversation"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 526,
+        "event": "click",
+        "expression": "openChatSession(session.id)",
+        "feature_ids": [
+          "CHT-014"
+        ],
+        "coverage_rule": "chat-panel:createNewChat|openChatSession|archiveChatSession|deleteChatSession|clearConversation"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 531,
+        "event": "click",
+        "expression": "archiveChatSession(session, $event)",
+        "feature_ids": [
+          "CHT-014"
+        ],
+        "coverage_rule": "chat-panel:createNewChat|openChatSession|archiveChatSession|deleteChatSession|clearConversation"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 534,
+        "event": "click",
+        "expression": "deleteChatSession(session, $event)",
+        "feature_ids": [
+          "CHT-014"
+        ],
+        "coverage_rule": "chat-panel:createNewChat|openChatSession|archiveChatSession|deleteChatSession|clearConversation"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 563,
+        "event": "click",
+        "expression": "startExecutiveVoiceLoop()",
+        "feature_ids": [
+          "CHT-011",
+          "CHT-018"
+        ],
+        "coverage_rule": "chat-panel:startExecutiveVoiceLoop|stopVoiceExperience|toggleMic"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 573,
+        "event": "click",
+        "expression": "stopVoiceExperience()",
+        "feature_ids": [
+          "CHT-011",
+          "CHT-018"
+        ],
+        "coverage_rule": "chat-panel:startExecutiveVoiceLoop|stopVoiceExperience|toggleMic"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 582,
+        "event": "click",
+        "expression": "traceOpen.set(!traceOpen())",
+        "feature_ids": [
+          "CHT-007"
+        ],
+        "coverage_rule": "chat-panel:traceOpen|toggleTrail|toggleEval"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 652,
+        "event": "click",
+        "expression": "setSessionDocsMode('replace')",
+        "feature_ids": [
+          "CHT-006"
+        ],
+        "coverage_rule": "chat-panel:setSessionDocsMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 660,
+        "event": "click",
+        "expression": "setSessionDocsMode('combine')",
+        "feature_ids": [
+          "CHT-006"
+        ],
+        "coverage_rule": "chat-panel:setSessionDocsMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 726,
+        "event": "click",
+        "expression": "pauseResumeTts()",
+        "feature_ids": [
+          "CHT-012"
+        ],
+        "coverage_rule": "chat-panel:toggleTTS|pauseResumeTts"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 739,
+        "event": "click",
+        "expression": "toggleTTS()",
+        "feature_ids": [
+          "CHT-012"
+        ],
+        "coverage_rule": "chat-panel:toggleTTS|pauseResumeTts"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 747,
+        "event": "click",
+        "expression": "clearConversation()",
+        "feature_ids": [
+          "CHT-014"
+        ],
+        "coverage_rule": "chat-panel:createNewChat|openChatSession|archiveChatSession|deleteChatSession|clearConversation"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 797,
+        "event": "click",
+        "expression": "demoVoiceChipsDismissed.set(true)",
+        "feature_ids": [
+          "CHT-007"
+        ],
+        "coverage_rule": "chat-panel:copy\\(|demoVoiceChipsDismissed"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 805,
+        "event": "click",
+        "expression": "stageActionPrompt(chip)",
+        "feature_ids": [
+          "CHT-002",
+          "CHT-003"
+        ],
+        "coverage_rule": "chat-panel:send\\(|stageActionPrompt|useSuggestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 829,
+        "event": "click",
+        "expression": "stageActionPrompt(action)",
+        "feature_ids": [
+          "CHT-002",
+          "CHT-003"
+        ],
+        "coverage_rule": "chat-panel:send\\(|stageActionPrompt|useSuggestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 863,
+        "event": "click",
+        "expression": "useSuggestion(s)",
+        "feature_ids": [
+          "CHT-002",
+          "CHT-003"
+        ],
+        "coverage_rule": "chat-panel:send\\(|stageActionPrompt|useSuggestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 889,
+        "event": "click",
+        "expression": "stageActionPrompt(action)",
+        "feature_ids": [
+          "CHT-002",
+          "CHT-003"
+        ],
+        "coverage_rule": "chat-panel:send\\(|stageActionPrompt|useSuggestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 929,
+        "event": "click",
+        "expression": "toggleTrail(msg.id)",
+        "feature_ids": [
+          "CHT-007"
+        ],
+        "coverage_rule": "chat-panel:traceOpen|toggleTrail|toggleEval"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 988,
+        "event": "click",
+        "expression": "toggleEval(msg.id, step.id)",
+        "feature_ids": [
+          "CHT-007"
+        ],
+        "coverage_rule": "chat-panel:traceOpen|toggleTrail|toggleEval"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 1114,
+        "event": "click",
+        "expression": "gotoSourceTarget(msg, tok.n, sourceHostId || msg.id, openDirectSources !== false)",
+        "feature_ids": [
+          "CHT-008"
+        ],
+        "coverage_rule": "chat-panel:gotoSourceTarget|toggleSources|previewSource"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 1237,
+        "event": "click",
+        "expression": "toggleSources(msg.id)",
+        "feature_ids": [
+          "CHT-008"
+        ],
+        "coverage_rule": "chat-panel:gotoSourceTarget|toggleSources|previewSource"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 1303,
+        "event": "click",
+        "expression": "previewSource(src); $event.stopPropagation()",
+        "feature_ids": [
+          "CHT-008"
+        ],
+        "coverage_rule": "chat-panel:gotoSourceTarget|toggleSources|previewSource"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 1485,
+        "event": "click",
+        "expression": "toggleDeepRetrievalDetails(msg)",
+        "feature_ids": [
+          "CHT-009"
+        ],
+        "coverage_rule": "chat-panel:toggleDeepRetrievalDetails|launchDeepSearch"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 1574,
+        "event": "click",
+        "expression": "previewSource(src); $event.stopPropagation()",
+        "feature_ids": [
+          "CHT-008"
+        ],
+        "coverage_rule": "chat-panel:gotoSourceTarget|toggleSources|previewSource"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 1605,
+        "event": "click",
+        "expression": "rate(msg, 'up')",
+        "feature_ids": [
+          "CHT-017"
+        ],
+        "coverage_rule": "chat-panel:rate\\(|factCheck|openReviewQueue|openQaReview"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 1614,
+        "event": "click",
+        "expression": "rate(msg, 'down')",
+        "feature_ids": [
+          "CHT-017"
+        ],
+        "coverage_rule": "chat-panel:rate\\(|factCheck|openReviewQueue|openQaReview"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 1622,
+        "event": "click",
+        "expression": "copy(msg.content)",
+        "feature_ids": [
+          "CHT-007"
+        ],
+        "coverage_rule": "chat-panel:copy\\(|demoVoiceChipsDismissed"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 1631,
+        "event": "click",
+        "expression": "launchDeepSearch(msg)",
+        "feature_ids": [
+          "CHT-009"
+        ],
+        "coverage_rule": "chat-panel:toggleDeepRetrievalDetails|launchDeepSearch"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 1650,
+        "event": "click",
+        "expression": "factCheck(msg)",
+        "feature_ids": [
+          "CHT-017"
+        ],
+        "coverage_rule": "chat-panel:rate\\(|factCheck|openReviewQueue|openQaReview"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 1667,
+        "event": "click",
+        "expression": "toggleCorrection(msg)",
+        "feature_ids": [
+          "CHT-013"
+        ],
+        "coverage_rule": "chat-panel:toggleCorrection|closeCorrection|submitCorrection|toggleCorrectionMic"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 1692,
+        "event": "click",
+        "expression": "closeCorrection()",
+        "feature_ids": [
+          "CHT-013"
+        ],
+        "coverage_rule": "chat-panel:toggleCorrection|closeCorrection|submitCorrection|toggleCorrectionMic"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 1728,
+        "event": "click",
+        "expression": "toggleCorrectionMic()",
+        "feature_ids": [
+          "CHT-013"
+        ],
+        "coverage_rule": "chat-panel:toggleCorrection|closeCorrection|submitCorrection|toggleCorrectionMic"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 1759,
+        "event": "click",
+        "expression": "closeCorrection()",
+        "feature_ids": [
+          "CHT-013"
+        ],
+        "coverage_rule": "chat-panel:toggleCorrection|closeCorrection|submitCorrection|toggleCorrectionMic"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 1770,
+        "event": "click",
+        "expression": "submitCorrection(msg)",
+        "feature_ids": [
+          "CHT-013"
+        ],
+        "coverage_rule": "chat-panel:toggleCorrection|closeCorrection|submitCorrection|toggleCorrectionMic"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 1810,
+        "event": "click",
+        "expression": "openReviewQueue(trace.reviewQueueUrl)",
+        "feature_ids": [
+          "CHT-017"
+        ],
+        "coverage_rule": "chat-panel:rate\\(|factCheck|openReviewQueue|openQaReview"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 1829,
+        "event": "click",
+        "expression": "openQaReview(qa.decisionId, qa.runId)",
+        "feature_ids": [
+          "CHT-017"
+        ],
+        "coverage_rule": "chat-panel:rate\\(|factCheck|openReviewQueue|openQaReview"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 1981,
+        "event": "ngSubmit",
+        "expression": "send()",
+        "feature_ids": [
+          "CHT-002",
+          "CHT-003"
+        ],
+        "coverage_rule": "chat-panel:send\\(|stageActionPrompt|useSuggestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 2001,
+        "event": "click",
+        "expression": "toggleMic()",
+        "feature_ids": [
+          "CHT-011",
+          "CHT-018"
+        ],
+        "coverage_rule": "chat-panel:startExecutiveVoiceLoop|stopVoiceExperience|toggleMic"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-workspace.component.ts",
+        "line": 116,
+        "event": "click",
+        "expression": "openFlowBuilder()",
+        "feature_ids": [
+          "CHT-003",
+          "CHT-021"
+        ],
+        "coverage_rule": "chat-workspace:openFlowBuilder"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-workspace.component.ts",
+        "line": 158,
+        "event": "click",
+        "expression": "openFlowBuilder()",
+        "feature_ids": [
+          "CHT-003",
+          "CHT-021"
+        ],
+        "coverage_rule": "chat-workspace:openFlowBuilder"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-workspace.component.ts",
+        "line": 188,
+        "event": "click",
+        "expression": "dropOpen.set(!dropOpen())",
+        "feature_ids": [
+          "CHT-004",
+          "CHT-005",
+          "CHT-006"
+        ],
+        "coverage_rule": "chat-workspace:dropOpen|fileInput|onFileSelect|onDragOver|onDragLeave|onDrop|persistContext|detachSessionDoc"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-workspace.component.ts",
+        "line": 201,
+        "event": "dragover",
+        "expression": "onDragOver($event)",
+        "feature_ids": [
+          "CHT-004",
+          "CHT-005",
+          "CHT-006"
+        ],
+        "coverage_rule": "chat-workspace:dropOpen|fileInput|onFileSelect|onDragOver|onDragLeave|onDrop|persistContext|detachSessionDoc"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-workspace.component.ts",
+        "line": 202,
+        "event": "dragleave",
+        "expression": "onDragLeave($event)",
+        "feature_ids": [
+          "CHT-004",
+          "CHT-005",
+          "CHT-006"
+        ],
+        "coverage_rule": "chat-workspace:dropOpen|fileInput|onFileSelect|onDragOver|onDragLeave|onDrop|persistContext|detachSessionDoc"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-workspace.component.ts",
+        "line": 203,
+        "event": "drop",
+        "expression": "onDrop($event)",
+        "feature_ids": [
+          "CHT-004",
+          "CHT-005",
+          "CHT-006"
+        ],
+        "coverage_rule": "chat-workspace:dropOpen|fileInput|onFileSelect|onDragOver|onDragLeave|onDrop|persistContext|detachSessionDoc"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-workspace.component.ts",
+        "line": 204,
+        "event": "click",
+        "expression": "fileInput.click()",
+        "feature_ids": [
+          "CHT-004",
+          "CHT-005",
+          "CHT-006"
+        ],
+        "coverage_rule": "chat-workspace:dropOpen|fileInput|onFileSelect|onDragOver|onDragLeave|onDrop|persistContext|detachSessionDoc"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-workspace.component.ts",
+        "line": 211,
+        "event": "change",
+        "expression": "onFileSelect($event)",
+        "feature_ids": [
+          "CHT-004",
+          "CHT-005",
+          "CHT-006"
+        ],
+        "coverage_rule": "chat-workspace:dropOpen|fileInput|onFileSelect|onDragOver|onDragLeave|onDrop|persistContext|detachSessionDoc"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-workspace.component.ts",
+        "line": 244,
+        "event": "click",
+        "expression": "persistContext()",
+        "feature_ids": [
+          "CHT-004",
+          "CHT-005",
+          "CHT-006"
+        ],
+        "coverage_rule": "chat-workspace:dropOpen|fileInput|onFileSelect|onDragOver|onDragLeave|onDrop|persistContext|detachSessionDoc"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-workspace.component.ts",
+        "line": 267,
+        "event": "click",
+        "expression": "detachSessionDoc(d)",
+        "feature_ids": [
+          "CHT-004",
+          "CHT-005",
+          "CHT-006"
+        ],
+        "coverage_rule": "chat-workspace:dropOpen|fileInput|onFileSelect|onDragOver|onDragLeave|onDrop|persistContext|detachSessionDoc"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/connectors-page.component.ts",
+        "line": 137,
+        "event": "click",
+        "expression": "openSetup(connector)",
+        "feature_ids": [
+          "SFTP-018"
+        ],
+        "coverage_rule": "connectors-page:openSetup|saveSetup|onFieldInput|testSetup|clearSetup"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/connectors-page.component.ts",
+        "line": 187,
+        "event": "submit",
+        "expression": "saveSetup($event)",
+        "feature_ids": [
+          "SFTP-018"
+        ],
+        "coverage_rule": "connectors-page:openSetup|saveSetup|onFieldInput|testSetup|clearSetup"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/connectors-page.component.ts",
+        "line": 199,
+        "event": "input",
+        "expression": "onFieldInput(field.key, $event)",
+        "feature_ids": [
+          "SFTP-018"
+        ],
+        "coverage_rule": "connectors-page:openSetup|saveSetup|onFieldInput|testSetup|clearSetup"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/connectors-page.component.ts",
+        "line": 216,
+        "event": "click",
+        "expression": "testSetup()",
+        "feature_ids": [
+          "SFTP-018"
+        ],
+        "coverage_rule": "connectors-page:openSetup|saveSetup|onFieldInput|testSetup|clearSetup"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/connectors-page.component.ts",
+        "line": 223,
+        "event": "click",
+        "expression": "clearSetup()",
+        "feature_ids": [
+          "SFTP-018"
+        ],
+        "coverage_rule": "connectors-page:openSetup|saveSetup|onFieldInput|testSetup|clearSetup"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 309,
+        "event": "click",
+        "expression": "load()",
+        "feature_ids": [
+          "SFTP-005",
+          "SFTP-010",
+          "SFTP-015",
+          "SFTP-016"
+        ],
+        "coverage_rule": "sftp-connector:load\\(|loadOperations|loadIndexingMonitor|refreshTargetCollection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 345,
+        "event": "click",
+        "expression": "copy(absoluteUrl(link.public_url), 'URL copied')",
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ],
+        "coverage_rule": "sftp-connector:createLink|rotate|revoke|focusLinkQueue|secretLink|copy\\(absoluteUrl|copy\\(link"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 348,
+        "event": "click",
+        "expression": "copy(link.generated_password || '', 'Password copied')",
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ],
+        "coverage_rule": "sftp-connector:createLink|rotate|revoke|focusLinkQueue|secretLink|copy\\(absoluteUrl|copy\\(link"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 351,
+        "event": "click",
+        "expression": "secretLink.set(null)",
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ],
+        "coverage_rule": "sftp-connector:createLink|rotate|revoke|focusLinkQueue|secretLink|copy\\(absoluteUrl|copy\\(link"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 364,
+        "event": "ngSubmit",
+        "expression": "createLink()",
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ],
+        "coverage_rule": "sftp-connector:createLink|rotate|revoke|focusLinkQueue|secretLink|copy\\(absoluteUrl|copy\\(link"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 485,
+        "event": "click",
+        "expression": "refreshTargetCollection()",
+        "feature_ids": [
+          "SFTP-005",
+          "SFTP-010",
+          "SFTP-015",
+          "SFTP-016"
+        ],
+        "coverage_rule": "sftp-connector:load\\(|loadOperations|loadIndexingMonitor|refreshTargetCollection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 506,
+        "event": "click",
+        "expression": "refreshTargetCollection()",
+        "feature_ids": [
+          "SFTP-005",
+          "SFTP-010",
+          "SFTP-015",
+          "SFTP-016"
+        ],
+        "coverage_rule": "sftp-connector:load\\(|loadOperations|loadIndexingMonitor|refreshTargetCollection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 538,
+        "event": "click",
+        "expression": "copy(absoluteUrl(link.public_url), 'URL copied')",
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ],
+        "coverage_rule": "sftp-connector:createLink|rotate|revoke|focusLinkQueue|secretLink|copy\\(absoluteUrl|copy\\(link"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 541,
+        "event": "click",
+        "expression": "focusLinkQueue(link.id)",
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ],
+        "coverage_rule": "sftp-connector:createLink|rotate|revoke|focusLinkQueue|secretLink|copy\\(absoluteUrl|copy\\(link"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 544,
+        "event": "click",
+        "expression": "rotate(link)",
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ],
+        "coverage_rule": "sftp-connector:createLink|rotate|revoke|focusLinkQueue|secretLink|copy\\(absoluteUrl|copy\\(link"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 547,
+        "event": "click",
+        "expression": "revoke(link)",
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ],
+        "coverage_rule": "sftp-connector:createLink|rotate|revoke|focusLinkQueue|secretLink|copy\\(absoluteUrl|copy\\(link"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 570,
+        "event": "click",
+        "expression": "analyzeCurrentView()",
+        "feature_ids": [
+          "SFTP-007",
+          "SFTP-016"
+        ],
+        "coverage_rule": "sftp-connector:analyzeCurrentView"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 579,
+        "event": "click",
+        "expression": "promoteBatch()",
+        "feature_ids": [
+          "SFTP-009",
+          "SFTP-013"
+        ],
+        "coverage_rule": "sftp-connector:promoteBatch"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 592,
+        "event": "click",
+        "expression": "loadIndexingMonitor()",
+        "feature_ids": [
+          "SFTP-005",
+          "SFTP-010",
+          "SFTP-015",
+          "SFTP-016"
+        ],
+        "coverage_rule": "sftp-connector:load\\(|loadOperations|loadIndexingMonitor|refreshTargetCollection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 682,
+        "event": "click",
+        "expression": "openZipArchive(archiveFile)",
+        "feature_ids": [
+          "SFTP-006"
+        ],
+        "coverage_rule": "sftp-connector:previewFile|previewArchiveMember|archivePreview|openZipArchive|openArchiveFolder"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 813,
+        "event": "click",
+        "expression": "loadOperations()",
+        "feature_ids": [
+          "SFTP-005",
+          "SFTP-010",
+          "SFTP-015",
+          "SFTP-016"
+        ],
+        "coverage_rule": "sftp-connector:load\\(|loadOperations|loadIndexingMonitor|refreshTargetCollection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 822,
+        "event": "click",
+        "expression": "runReconciliationCheck()",
+        "feature_ids": [
+          "SFTP-010"
+        ],
+        "coverage_rule": "sftp-connector:runReconciliationCheck|quarantineFromDryRun"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 831,
+        "event": "click",
+        "expression": "quarantineFromDryRun()",
+        "feature_ids": [
+          "SFTP-010"
+        ],
+        "coverage_rule": "sftp-connector:runReconciliationCheck|quarantineFromDryRun"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 987,
+        "event": "click",
+        "expression": "promoteBatch()",
+        "feature_ids": [
+          "SFTP-009",
+          "SFTP-013"
+        ],
+        "coverage_rule": "sftp-connector:promoteBatch"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1000,
+        "event": "click",
+        "expression": "downloadArchive()",
+        "feature_ids": [
+          "SFTP-011"
+        ],
+        "coverage_rule": "sftp-connector:downloadArchive|downloadFile|downloadArchiveMember|downloadArchiveMemberPath"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1057,
+        "event": "click",
+        "expression": "setStatusFilter(summary.status)",
+        "feature_ids": [
+          "SFTP-005"
+        ],
+        "coverage_rule": "sftp-connector:setStatusFilter|goToFolder|clearQueueSearch|goToParentFolder|previousQueuePage|nextQueuePage|openFolder"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1074,
+        "event": "click",
+        "expression": "setStatusFilter('all')",
+        "feature_ids": [
+          "SFTP-005"
+        ],
+        "coverage_rule": "sftp-connector:setStatusFilter|goToFolder|clearQueueSearch|goToParentFolder|previousQueuePage|nextQueuePage|openFolder"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1094,
+        "event": "click",
+        "expression": "goToFolder(crumb.path)",
+        "feature_ids": [
+          "SFTP-005"
+        ],
+        "coverage_rule": "sftp-connector:setStatusFilter|goToFolder|clearQueueSearch|goToParentFolder|previousQueuePage|nextQueuePage|openFolder"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1106,
+        "event": "click",
+        "expression": "clearQueueSearch()",
+        "feature_ids": [
+          "SFTP-005"
+        ],
+        "coverage_rule": "sftp-connector:setStatusFilter|goToFolder|clearQueueSearch|goToParentFolder|previousQueuePage|nextQueuePage|openFolder"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1108,
+        "event": "click",
+        "expression": "goToParentFolder()",
+        "feature_ids": [
+          "SFTP-005"
+        ],
+        "coverage_rule": "sftp-connector:setStatusFilter|goToFolder|clearQueueSearch|goToParentFolder|previousQueuePage|nextQueuePage|openFolder"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1133,
+        "event": "click",
+        "expression": "previousQueuePage()",
+        "feature_ids": [
+          "SFTP-005"
+        ],
+        "coverage_rule": "sftp-connector:setStatusFilter|goToFolder|clearQueueSearch|goToParentFolder|previousQueuePage|nextQueuePage|openFolder"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1144,
+        "event": "click",
+        "expression": "nextQueuePage()",
+        "feature_ids": [
+          "SFTP-005"
+        ],
+        "coverage_rule": "sftp-connector:setStatusFilter|goToFolder|clearQueueSearch|goToParentFolder|previousQueuePage|nextQueuePage|openFolder"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1157,
+        "event": "click",
+        "expression": "openFolder(item.path)",
+        "feature_ids": [
+          "SFTP-005"
+        ],
+        "coverage_rule": "sftp-connector:setStatusFilter|goToFolder|clearQueueSearch|goToParentFolder|previousQueuePage|nextQueuePage|openFolder"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1225,
+        "event": "click",
+        "expression": "previewFile(file)",
+        "feature_ids": [
+          "SFTP-006"
+        ],
+        "coverage_rule": "sftp-connector:previewFile|previewArchiveMember|archivePreview|openZipArchive|openArchiveFolder"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1234,
+        "event": "click",
+        "expression": "downloadFile(file)",
+        "feature_ids": [
+          "SFTP-011"
+        ],
+        "coverage_rule": "sftp-connector:downloadArchive|downloadFile|downloadArchiveMember|downloadArchiveMemberPath"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1242,
+        "event": "click",
+        "expression": "promote(file)",
+        "feature_ids": [
+          "SFTP-008",
+          "SFTP-013"
+        ],
+        "coverage_rule": "sftp-connector:promote\\("
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1284,
+        "event": "click",
+        "expression": "downloadFile(archiveFile)",
+        "feature_ids": [
+          "SFTP-011"
+        ],
+        "coverage_rule": "sftp-connector:downloadArchive|downloadFile|downloadArchiveMember|downloadArchiveMemberPath"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1325,
+        "event": "click",
+        "expression": "openArchiveFolder(crumb.path)",
+        "feature_ids": [
+          "SFTP-006"
+        ],
+        "coverage_rule": "sftp-connector:previewFile|previewArchiveMember|archivePreview|openZipArchive|openArchiveFolder"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1346,
+        "event": "click",
+        "expression": "item.kind === 'folder' && openArchiveFolder(item.path)",
+        "feature_ids": [
+          "SFTP-006"
+        ],
+        "coverage_rule": "sftp-connector:previewFile|previewArchiveMember|archivePreview|openZipArchive|openArchiveFolder"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1370,
+        "event": "click",
+        "expression": "previewArchiveMember(item)",
+        "feature_ids": [
+          "SFTP-006"
+        ],
+        "coverage_rule": "sftp-connector:previewFile|previewArchiveMember|archivePreview|openZipArchive|openArchiveFolder"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1379,
+        "event": "click",
+        "expression": "downloadArchiveMember(item)",
+        "feature_ids": [
+          "SFTP-011"
+        ],
+        "coverage_rule": "sftp-connector:downloadArchive|downloadFile|downloadArchiveMember|downloadArchiveMemberPath"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1411,
+        "event": "click",
+        "expression": "archivePreviewPath() && downloadArchiveMemberPath(archivePreviewPath()!)",
+        "feature_ids": [
+          "SFTP-011"
+        ],
+        "coverage_rule": "sftp-connector:downloadArchive|downloadFile|downloadArchiveMember|downloadArchiveMemberPath"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1492,
+        "event": "click",
+        "expression": "previewFileTarget() && downloadFile(previewFileTarget()!)",
+        "feature_ids": [
+          "SFTP-011"
+        ],
+        "coverage_rule": "sftp-connector:downloadArchive|downloadFile|downloadArchiveMember|downloadArchiveMemberPath"
+      },
+      {
+        "file": "frontend-ng/src/app/features/deposit/deposit-portal.component.ts",
+        "line": 56,
+        "event": "ngSubmit",
+        "expression": "unlock()",
+        "feature_ids": [
+          "SFTP-002"
+        ],
+        "coverage_rule": "deposit-portal:unlock|loadFiles"
+      },
+      {
+        "file": "frontend-ng/src/app/features/deposit/deposit-portal.component.ts",
+        "line": 89,
+        "event": "dragover",
+        "expression": "onDragOver($event)",
+        "feature_ids": [
+          "SFTP-003"
+        ],
+        "coverage_rule": "deposit-portal:onFileInput|fileInput|uploadSelected|onDragOver|onDragLeave|onDrop"
+      },
+      {
+        "file": "frontend-ng/src/app/features/deposit/deposit-portal.component.ts",
+        "line": 90,
+        "event": "dragleave",
+        "expression": "onDragLeave($event)",
+        "feature_ids": [
+          "SFTP-003"
+        ],
+        "coverage_rule": "deposit-portal:onFileInput|fileInput|uploadSelected|onDragOver|onDragLeave|onDrop"
+      },
+      {
+        "file": "frontend-ng/src/app/features/deposit/deposit-portal.component.ts",
+        "line": 91,
+        "event": "drop",
+        "expression": "onDrop($event)",
+        "feature_ids": [
+          "SFTP-003"
+        ],
+        "coverage_rule": "deposit-portal:onFileInput|fileInput|uploadSelected|onDragOver|onDragLeave|onDrop"
+      },
+      {
+        "file": "frontend-ng/src/app/features/deposit/deposit-portal.component.ts",
+        "line": 98,
+        "event": "change",
+        "expression": "onFileInput($event)",
+        "feature_ids": [
+          "SFTP-003"
+        ],
+        "coverage_rule": "deposit-portal:onFileInput|fileInput|uploadSelected|onDragOver|onDragLeave|onDrop"
+      },
+      {
+        "file": "frontend-ng/src/app/features/deposit/deposit-portal.component.ts",
+        "line": 102,
+        "event": "click",
+        "expression": "fileInput.click()",
+        "feature_ids": [
+          "SFTP-003"
+        ],
+        "coverage_rule": "deposit-portal:onFileInput|fileInput|uploadSelected|onDragOver|onDragLeave|onDrop"
+      },
+      {
+        "file": "frontend-ng/src/app/features/deposit/deposit-portal.component.ts",
+        "line": 113,
+        "event": "click",
+        "expression": "uploadSelected()",
+        "feature_ids": [
+          "SFTP-003"
+        ],
+        "coverage_rule": "deposit-portal:onFileInput|fileInput|uploadSelected|onDragOver|onDragLeave|onDrop"
+      },
+      {
+        "file": "frontend-ng/src/app/features/deposit/deposit-portal.component.ts",
+        "line": 126,
+        "event": "click",
+        "expression": "loadFiles()",
+        "feature_ids": [
+          "SFTP-002"
+        ],
+        "coverage_rule": "deposit-portal:unlock|loadFiles"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/embedding-map.component.ts",
+        "line": 100,
+        "event": "change",
+        "expression": "sample.set(+($any($event.target).value || 300))",
+        "feature_ids": [
+          "COL-014"
+        ],
+        "coverage_rule": "embedding-map:loadGraph|selectNode|zoom|pan|resetView|sample|documentId"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/embedding-map.component.ts",
+        "line": 112,
+        "event": "change",
+        "expression": "documentId.set($any($event.target).value)",
+        "feature_ids": [
+          "COL-014"
+        ],
+        "coverage_rule": "embedding-map:loadGraph|selectNode|zoom|pan|resetView|sample|documentId"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/embedding-map.component.ts",
+        "line": 125,
+        "event": "click",
+        "expression": "loadGraph()",
+        "feature_ids": [
+          "COL-014"
+        ],
+        "coverage_rule": "embedding-map:loadGraph|selectNode|zoom|pan|resetView|sample|documentId"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/embedding-map.component.ts",
+        "line": 159,
+        "event": "click",
+        "expression": "zoom.set(clamp(zoom() - 0.2, 0.8, 2.4))",
+        "feature_ids": [
+          "COL-014"
+        ],
+        "coverage_rule": "embedding-map:loadGraph|selectNode|zoom|pan|resetView|sample|documentId"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/embedding-map.component.ts",
+        "line": 170,
+        "event": "input",
+        "expression": "zoom.set(+$any($event.target).value)",
+        "feature_ids": [
+          "COL-014"
+        ],
+        "coverage_rule": "embedding-map:loadGraph|selectNode|zoom|pan|resetView|sample|documentId"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/embedding-map.component.ts",
+        "line": 177,
+        "event": "click",
+        "expression": "zoom.set(clamp(zoom() + 0.2, 0.8, 2.4))",
+        "feature_ids": [
+          "COL-014"
+        ],
+        "coverage_rule": "embedding-map:loadGraph|selectNode|zoom|pan|resetView|sample|documentId"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/embedding-map.component.ts",
+        "line": 183,
+        "event": "click",
+        "expression": "panX.set(panX() - 5)",
+        "feature_ids": [
+          "COL-014"
+        ],
+        "coverage_rule": "embedding-map:loadGraph|selectNode|zoom|pan|resetView|sample|documentId"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/embedding-map.component.ts",
+        "line": 186,
+        "event": "click",
+        "expression": "panY.set(panY() - 5)",
+        "feature_ids": [
+          "COL-014"
+        ],
+        "coverage_rule": "embedding-map:loadGraph|selectNode|zoom|pan|resetView|sample|documentId"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/embedding-map.component.ts",
+        "line": 189,
+        "event": "click",
+        "expression": "panY.set(panY() + 5)",
+        "feature_ids": [
+          "COL-014"
+        ],
+        "coverage_rule": "embedding-map:loadGraph|selectNode|zoom|pan|resetView|sample|documentId"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/embedding-map.component.ts",
+        "line": 192,
+        "event": "click",
+        "expression": "panX.set(panX() + 5)",
+        "feature_ids": [
+          "COL-014"
+        ],
+        "coverage_rule": "embedding-map:loadGraph|selectNode|zoom|pan|resetView|sample|documentId"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/embedding-map.component.ts",
+        "line": 195,
+        "event": "click",
+        "expression": "resetView()",
+        "feature_ids": [
+          "COL-014"
+        ],
+        "coverage_rule": "embedding-map:loadGraph|selectNode|zoom|pan|resetView|sample|documentId"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/embedding-map.component.ts",
+        "line": 222,
+        "event": "click",
+        "expression": "selectNode(node)",
+        "feature_ids": [
+          "COL-014"
+        ],
+        "coverage_rule": "embedding-map:loadGraph|selectNode|zoom|pan|resetView|sample|documentId"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/embedding-map.component.ts",
+        "line": 278,
+        "event": "click",
+        "expression": "selectNode(selectedNode()!)",
+        "feature_ids": [
+          "COL-014"
+        ],
+        "coverage_rule": "embedding-map:loadGraph|selectNode|zoom|pan|resetView|sample|documentId"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 94,
+        "event": "click",
+        "expression": "openGlobalSearch()",
+        "feature_ids": [
+          "COL-001",
+          "COL-005",
+          "COL-007",
+          "COL-008",
+          "COL-017",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-base:loadCollections|loadBrowsePage|browse|search|filter|previewDoc"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 113,
+        "event": "click",
+        "expression": "openCreateCollection()",
+        "feature_ids": [
+          "COL-002"
+        ],
+        "coverage_rule": "knowledge-base:createCollection|createOpen|openCreateCollection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 120,
+        "event": "click",
+        "expression": "openFilePicker(fileInput)",
+        "feature_ids": [
+          "COL-003",
+          "COL-019"
+        ],
+        "coverage_rule": "knowledge-base:upload|FileSelect|fileInput|onDragOver|onDragLeave|onDrop"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 141,
+        "event": "dragover",
+        "expression": "onDragOver($event)",
+        "feature_ids": [
+          "COL-003",
+          "COL-019"
+        ],
+        "coverage_rule": "knowledge-base:upload|FileSelect|fileInput|onDragOver|onDragLeave|onDrop"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 142,
+        "event": "dragleave",
+        "expression": "onDragLeave($event)",
+        "feature_ids": [
+          "COL-003",
+          "COL-019"
+        ],
+        "coverage_rule": "knowledge-base:upload|FileSelect|fileInput|onDragOver|onDragLeave|onDrop"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 143,
+        "event": "drop",
+        "expression": "onDrop($event)",
+        "feature_ids": [
+          "COL-003",
+          "COL-019"
+        ],
+        "coverage_rule": "knowledge-base:upload|FileSelect|fileInput|onDragOver|onDragLeave|onDrop"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 144,
+        "event": "click",
+        "expression": "openFilePicker(fileInput)",
+        "feature_ids": [
+          "COL-003",
+          "COL-019"
+        ],
+        "coverage_rule": "knowledge-base:upload|FileSelect|fileInput|onDragOver|onDragLeave|onDrop"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 152,
+        "event": "change",
+        "expression": "onFileSelect($event)",
+        "feature_ids": [
+          "COL-003",
+          "COL-019"
+        ],
+        "coverage_rule": "knowledge-base:upload|FileSelect|fileInput|onDragOver|onDragLeave|onDrop"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 170,
+        "event": "click",
+        "expression": "$event.stopPropagation()",
+        "feature_ids": [
+          "COL-001",
+          "COL-023"
+        ],
+        "coverage_rule": "file-default:knowledge-base"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 237,
+        "event": "click",
+        "expression": "loadCollections()",
+        "feature_ids": [
+          "COL-001",
+          "COL-005",
+          "COL-007",
+          "COL-008",
+          "COL-017",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-base:loadCollections|loadBrowsePage|browse|search|filter|previewDoc"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 289,
+        "event": "click",
+        "expression": "openBrowse(doc.name)",
+        "feature_ids": [
+          "COL-001",
+          "COL-005",
+          "COL-007",
+          "COL-008",
+          "COL-017",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-base:loadCollections|loadBrowsePage|browse|search|filter|previewDoc"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 296,
+        "event": "click",
+        "expression": "openSearchIn(doc.name)",
+        "feature_ids": [
+          "COL-001",
+          "COL-005",
+          "COL-007",
+          "COL-008",
+          "COL-017",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-base:loadCollections|loadBrowsePage|browse|search|filter|previewDoc"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 303,
+        "event": "click",
+        "expression": "requestDeleteCollection(doc.name)",
+        "feature_ids": [
+          "COL-004"
+        ],
+        "coverage_rule": "knowledge-base:delete|requestDelete|clear"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 322,
+        "event": "ngSubmit",
+        "expression": "runSearch()",
+        "feature_ids": [
+          "COL-001",
+          "COL-005",
+          "COL-007",
+          "COL-008",
+          "COL-017",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-base:loadCollections|loadBrowsePage|browse|search|filter|previewDoc"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 414,
+        "event": "click",
+        "expression": "loadBrowsePage(browseOffset())",
+        "feature_ids": [
+          "COL-001",
+          "COL-005",
+          "COL-007",
+          "COL-008",
+          "COL-017",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-base:loadCollections|loadBrowsePage|browse|search|filter|previewDoc"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 433,
+        "event": "click",
+        "expression": "loadBrowsePage(browseOffset() > browsePageSize ? browseOffset() - browsePageSize : 0)",
+        "feature_ids": [
+          "COL-001",
+          "COL-005",
+          "COL-007",
+          "COL-008",
+          "COL-017",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-base:loadCollections|loadBrowsePage|browse|search|filter|previewDoc"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 443,
+        "event": "click",
+        "expression": "loadBrowsePage(browseOffset() + browsePageSize)",
+        "feature_ids": [
+          "COL-001",
+          "COL-005",
+          "COL-007",
+          "COL-008",
+          "COL-017",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-base:loadCollections|loadBrowsePage|browse|search|filter|previewDoc"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 467,
+        "event": "click",
+        "expression": "previewDoc(d)",
+        "feature_ids": [
+          "COL-001",
+          "COL-005",
+          "COL-007",
+          "COL-008",
+          "COL-017",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-base:loadCollections|loadBrowsePage|browse|search|filter|previewDoc"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 474,
+        "event": "click",
+        "expression": "requestDeleteDoc(d)",
+        "feature_ids": [
+          "COL-004"
+        ],
+        "coverage_rule": "knowledge-base:delete|requestDelete|clear"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 523,
+        "event": "click",
+        "expression": "createOpen.set(false)",
+        "feature_ids": [
+          "COL-002"
+        ],
+        "coverage_rule": "knowledge-base:createCollection|createOpen|openCreateCollection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 545,
+        "event": "keyup.enter",
+        "expression": "createCollection()",
+        "feature_ids": [
+          "COL-002"
+        ],
+        "coverage_rule": "knowledge-base:createCollection|createOpen|openCreateCollection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 551,
+        "event": "click",
+        "expression": "createOpen.set(false)",
+        "feature_ids": [
+          "COL-002"
+        ],
+        "coverage_rule": "knowledge-base:createCollection|createOpen|openCreateCollection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 558,
+        "event": "click",
+        "expression": "createCollection()",
+        "feature_ids": [
+          "COL-002"
+        ],
+        "coverage_rule": "knowledge-base:createCollection|createOpen|openCreateCollection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 620,
+        "event": "click",
+        "expression": "showAdvancedSetup.set(!showAdvancedSetup())",
+        "feature_ids": [
+          "KCAP-002",
+          "KCAP-004"
+        ],
+        "coverage_rule": "knowledge-capture:selectedDomain|showAdvancedSetup|createContextFromCollection|toggleDurationUnlimited|selectPlanMode|continueFromPreparation"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 648,
+        "event": "click",
+        "expression": "goSurface(item.id)",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 699,
+        "event": "click",
+        "expression": "selectedDomain = domain.id",
+        "feature_ids": [
+          "KCAP-002",
+          "KCAP-004"
+        ],
+        "coverage_rule": "knowledge-capture:selectedDomain|showAdvancedSetup|createContextFromCollection|toggleDurationUnlimited|selectPlanMode|continueFromPreparation"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 719,
+        "event": "click",
+        "expression": "showAdvancedSetup.set(!showAdvancedSetup())",
+        "feature_ids": [
+          "KCAP-002",
+          "KCAP-004"
+        ],
+        "coverage_rule": "knowledge-capture:selectedDomain|showAdvancedSetup|createContextFromCollection|toggleDurationUnlimited|selectPlanMode|continueFromPreparation"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 804,
+        "event": "click",
+        "expression": "createContextFromCollection()",
+        "feature_ids": [
+          "KCAP-002",
+          "KCAP-004"
+        ],
+        "coverage_rule": "knowledge-capture:selectedDomain|showAdvancedSetup|createContextFromCollection|toggleDurationUnlimited|selectPlanMode|continueFromPreparation"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 844,
+        "event": "click",
+        "expression": "toggleDurationUnlimited()",
+        "feature_ids": [
+          "KCAP-002",
+          "KCAP-004"
+        ],
+        "coverage_rule": "knowledge-capture:selectedDomain|showAdvancedSetup|createContextFromCollection|toggleDurationUnlimited|selectPlanMode|continueFromPreparation"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 862,
+        "event": "click",
+        "expression": "selectPlanMode(mode.id)",
+        "feature_ids": [
+          "KCAP-002",
+          "KCAP-004"
+        ],
+        "coverage_rule": "knowledge-capture:selectedDomain|showAdvancedSetup|createContextFromCollection|toggleDurationUnlimited|selectPlanMode|continueFromPreparation"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 887,
+        "event": "click",
+        "expression": "goSurface('dashboard')",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 896,
+        "event": "click",
+        "expression": "continueFromPreparation()",
+        "feature_ids": [
+          "KCAP-002",
+          "KCAP-004"
+        ],
+        "coverage_rule": "knowledge-capture:selectedDomain|showAdvancedSetup|createContextFromCollection|toggleDurationUnlimited|selectPlanMode|continueFromPreparation"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 921,
+        "event": "click",
+        "expression": "setDashboardTab('sessions')",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 931,
+        "event": "click",
+        "expression": "setDashboardTab('fiches')",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 951,
+        "event": "click",
+        "expression": "refreshPublishedFiches()",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 965,
+        "event": "keyup.enter",
+        "expression": "refreshPublishedFiches()",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1019,
+        "event": "click",
+        "expression": "refreshPublishedFiches()",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1068,
+        "event": "click",
+        "expression": "openPublishedFichePreview(row)",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1077,
+        "event": "click",
+        "expression": "openPublishedFicheCollection(row)",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1086,
+        "event": "click",
+        "expression": "openPublishedFicheSession(row)",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1132,
+        "event": "click",
+        "expression": "startNewSessionDraft()",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1164,
+        "event": "click",
+        "expression": "toggleArchivedSessions()",
+        "feature_ids": [
+          "KCAP-027"
+        ],
+        "coverage_rule": "knowledge-capture:archiveSession|unarchiveSession|requestDeleteSession|confirmDeleteSession|cancelDeleteSession|toggleArchivedSessions"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1179,
+        "event": "click",
+        "expression": "openDashboardSession(row)",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1180,
+        "event": "keydown.enter",
+        "expression": "openDashboardSession(row)",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1205,
+        "event": "click",
+        "expression": "unarchiveSession(row, $event)",
+        "feature_ids": [
+          "KCAP-027"
+        ],
+        "coverage_rule": "knowledge-capture:archiveSession|unarchiveSession|requestDeleteSession|confirmDeleteSession|cancelDeleteSession|toggleArchivedSessions"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1215,
+        "event": "click",
+        "expression": "archiveSession(row, $event)",
+        "feature_ids": [
+          "KCAP-027"
+        ],
+        "coverage_rule": "knowledge-capture:archiveSession|unarchiveSession|requestDeleteSession|confirmDeleteSession|cancelDeleteSession|toggleArchivedSessions"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1225,
+        "event": "click",
+        "expression": "requestDeleteSession(row, $event)",
+        "feature_ids": [
+          "KCAP-027"
+        ],
+        "coverage_rule": "knowledge-capture:archiveSession|unarchiveSession|requestDeleteSession|confirmDeleteSession|cancelDeleteSession|toggleArchivedSessions"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1240,
+        "event": "click",
+        "expression": "confirmDeleteSession(row, $event)",
+        "feature_ids": [
+          "KCAP-027"
+        ],
+        "coverage_rule": "knowledge-capture:archiveSession|unarchiveSession|requestDeleteSession|confirmDeleteSession|cancelDeleteSession|toggleArchivedSessions"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1247,
+        "event": "click",
+        "expression": "cancelDeleteSession($event)",
+        "feature_ids": [
+          "KCAP-027"
+        ],
+        "coverage_rule": "knowledge-capture:archiveSession|unarchiveSession|requestDeleteSession|confirmDeleteSession|cancelDeleteSession|toggleArchivedSessions"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1282,
+        "event": "click",
+        "expression": "openDashboardSessionForQuality(row.sessionId); $event.stopPropagation()",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1303,
+        "event": "click",
+        "expression": "openDashboardProposal(row)",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1369,
+        "event": "click",
+        "expression": "pauseSession(s)",
+        "feature_ids": [
+          "KCAP-007",
+          "KCAP-009"
+        ],
+        "coverage_rule": "knowledge-capture:pauseSession|resumeSession|startGuidedSession|onPrimaryCaptureAction|finishCapture|interruptSpeech|readCurrentQuestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1372,
+        "event": "click",
+        "expression": "resumeSession(s)",
+        "feature_ids": [
+          "KCAP-007",
+          "KCAP-009"
+        ],
+        "coverage_rule": "knowledge-capture:pauseSession|resumeSession|startGuidedSession|onPrimaryCaptureAction|finishCapture|interruptSpeech|readCurrentQuestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1398,
+        "event": "click",
+        "expression": "applySessionClosure(s, 'finish')",
+        "feature_ids": [
+          "KCAP-019"
+        ],
+        "coverage_rule": "knowledge-capture:applySessionClosure|closure|finishCurrentSection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1406,
+        "event": "click",
+        "expression": "applySessionClosure(s, 'extend')",
+        "feature_ids": [
+          "KCAP-019"
+        ],
+        "coverage_rule": "knowledge-capture:applySessionClosure|closure|finishCurrentSection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1414,
+        "event": "click",
+        "expression": "applySessionClosure(s, 'schedule')",
+        "feature_ids": [
+          "KCAP-019"
+        ],
+        "coverage_rule": "knowledge-capture:applySessionClosure|closure|finishCurrentSection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1478,
+        "event": "click",
+        "expression": "unmuteOracleQuestions()",
+        "feature_ids": [
+          "KCAP-014"
+        ],
+        "coverage_rule": "knowledge-capture:Oracle|oracle|muteOracle|unmuteOracle|answerOracleQuestion|dismissOracleQuestion|deferOracleQuestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1490,
+        "event": "click",
+        "expression": "muteOracleQuestions()",
+        "feature_ids": [
+          "KCAP-014"
+        ],
+        "coverage_rule": "knowledge-capture:Oracle|oracle|muteOracle|unmuteOracle|answerOracleQuestion|dismissOracleQuestion|deferOracleQuestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1513,
+        "event": "click",
+        "expression": "answerOracleQuestion(q)",
+        "feature_ids": [
+          "KCAP-014"
+        ],
+        "coverage_rule": "knowledge-capture:Oracle|oracle|muteOracle|unmuteOracle|answerOracleQuestion|dismissOracleQuestion|deferOracleQuestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1514,
+        "event": "click",
+        "expression": "dismissOracleQuestion(q)",
+        "feature_ids": [
+          "KCAP-014"
+        ],
+        "coverage_rule": "knowledge-capture:Oracle|oracle|muteOracle|unmuteOracle|answerOracleQuestion|dismissOracleQuestion|deferOracleQuestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1515,
+        "event": "click",
+        "expression": "deferOracleQuestion(q)",
+        "feature_ids": [
+          "KCAP-014"
+        ],
+        "coverage_rule": "knowledge-capture:Oracle|oracle|muteOracle|unmuteOracle|answerOracleQuestion|dismissOracleQuestion|deferOracleQuestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1550,
+        "event": "click",
+        "expression": "selectCaptureTopic(topic.id)",
+        "feature_ids": [
+          "KCAP-006",
+          "KCAP-008"
+        ],
+        "coverage_rule": "knowledge-capture:selectCaptureTopic|selectCaptureSubtopic|selectCaptureQuestion|jumpToLatestTranscript"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1564,
+        "event": "click",
+        "expression": "selectCaptureSubtopic(subtopic.id)",
+        "feature_ids": [
+          "KCAP-006",
+          "KCAP-008"
+        ],
+        "coverage_rule": "knowledge-capture:selectCaptureTopic|selectCaptureSubtopic|selectCaptureQuestion|jumpToLatestTranscript"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1601,
+        "event": "click",
+        "expression": "previewRetrievalChunk(ci)",
+        "feature_ids": [
+          "KCAP-013",
+          "KCAP-032"
+        ],
+        "coverage_rule": "knowledge-capture:retrieval|previewRetrievalChunk|Suggestion|suggestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1647,
+        "event": "click",
+        "expression": "finishCurrentSection(s)",
+        "feature_ids": [
+          "KCAP-019"
+        ],
+        "coverage_rule": "knowledge-capture:applySessionClosure|closure|finishCurrentSection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1656,
+        "event": "click",
+        "expression": "readCurrentQuestion()",
+        "feature_ids": [
+          "KCAP-007",
+          "KCAP-009"
+        ],
+        "coverage_rule": "knowledge-capture:pauseSession|resumeSession|startGuidedSession|onPrimaryCaptureAction|finishCapture|interruptSpeech|readCurrentQuestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1678,
+        "event": "click",
+        "expression": "dismissSuggestion(sug.id)",
+        "feature_ids": [
+          "KCAP-013",
+          "KCAP-032"
+        ],
+        "coverage_rule": "knowledge-capture:retrieval|previewRetrievalChunk|Suggestion|suggestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1709,
+        "event": "click",
+        "expression": "selectCaptureQuestion(q)",
+        "feature_ids": [
+          "KCAP-006",
+          "KCAP-008"
+        ],
+        "coverage_rule": "knowledge-capture:selectCaptureTopic|selectCaptureSubtopic|selectCaptureQuestion|jumpToLatestTranscript"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1781,
+        "event": "click",
+        "expression": "jumpToLatestTranscript()",
+        "feature_ids": [
+          "KCAP-006",
+          "KCAP-008"
+        ],
+        "coverage_rule": "knowledge-capture:selectCaptureTopic|selectCaptureSubtopic|selectCaptureQuestion|jumpToLatestTranscript"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1805,
+        "event": "click",
+        "expression": "beginAmend(event)",
+        "feature_ids": [
+          "KCAP-008",
+          "KCAP-030"
+        ],
+        "coverage_rule": "knowledge-capture:sendAnswer|sendWrittenCaptureNote|beginAmend|applyAmend|editingEventId"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1816,
+        "event": "click",
+        "expression": "applyAmend(s.id, event.id)",
+        "feature_ids": [
+          "KCAP-008",
+          "KCAP-030"
+        ],
+        "coverage_rule": "knowledge-capture:sendAnswer|sendWrittenCaptureNote|beginAmend|applyAmend|editingEventId"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1819,
+        "event": "click",
+        "expression": "editingEventId.set(null)",
+        "feature_ids": [
+          "KCAP-008",
+          "KCAP-030"
+        ],
+        "coverage_rule": "knowledge-capture:sendAnswer|sendWrittenCaptureNote|beginAmend|applyAmend|editingEventId"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1860,
+        "event": "change",
+        "expression": "onCaptureDocumentFileSelect(s, $event)",
+        "feature_ids": [
+          "KCAP-015",
+          "KCAP-016",
+          "KCAP-017",
+          "KCAP-021"
+        ],
+        "coverage_rule": "knowledge-capture:captureDocument|previewCaptureDocument|DocumentFile|documentInput"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1866,
+        "event": "click",
+        "expression": "captureDocumentInput.click()",
+        "feature_ids": [
+          "KCAP-015",
+          "KCAP-016",
+          "KCAP-017",
+          "KCAP-021"
+        ],
+        "coverage_rule": "knowledge-capture:captureDocument|previewCaptureDocument|DocumentFile|documentInput"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1878,
+        "event": "click",
+        "expression": "previewCaptureDocument(doc)",
+        "feature_ids": [
+          "KCAP-015",
+          "KCAP-016",
+          "KCAP-017",
+          "KCAP-021"
+        ],
+        "coverage_rule": "knowledge-capture:captureDocument|previewCaptureDocument|DocumentFile|documentInput"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1897,
+        "event": "click",
+        "expression": "sendWrittenCaptureNote(s)",
+        "feature_ids": [
+          "KCAP-008",
+          "KCAP-030"
+        ],
+        "coverage_rule": "knowledge-capture:sendAnswer|sendWrittenCaptureNote|beginAmend|applyAmend|editingEventId"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1923,
+        "event": "click",
+        "expression": "onPrimaryCaptureAction(s)",
+        "feature_ids": [
+          "KCAP-007",
+          "KCAP-009"
+        ],
+        "coverage_rule": "knowledge-capture:pauseSession|resumeSession|startGuidedSession|onPrimaryCaptureAction|finishCapture|interruptSpeech|readCurrentQuestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1946,
+        "event": "click",
+        "expression": "finishCapture(s)",
+        "feature_ids": [
+          "KCAP-007",
+          "KCAP-009"
+        ],
+        "coverage_rule": "knowledge-capture:pauseSession|resumeSession|startGuidedSession|onPrimaryCaptureAction|finishCapture|interruptSpeech|readCurrentQuestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1956,
+        "event": "click",
+        "expression": "interruptSpeech()",
+        "feature_ids": [
+          "KCAP-007",
+          "KCAP-009"
+        ],
+        "coverage_rule": "knowledge-capture:pauseSession|resumeSession|startGuidedSession|onPrimaryCaptureAction|finishCapture|interruptSpeech|readCurrentQuestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1966,
+        "event": "click",
+        "expression": "startGuidedSession(s)",
+        "feature_ids": [
+          "KCAP-007",
+          "KCAP-009"
+        ],
+        "coverage_rule": "knowledge-capture:pauseSession|resumeSession|startGuidedSession|onPrimaryCaptureAction|finishCapture|interruptSpeech|readCurrentQuestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1977,
+        "event": "click",
+        "expression": "sendAnswer(s)",
+        "feature_ids": [
+          "KCAP-008",
+          "KCAP-030"
+        ],
+        "coverage_rule": "knowledge-capture:sendAnswer|sendWrittenCaptureNote|beginAmend|applyAmend|editingEventId"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 1985,
+        "event": "click",
+        "expression": "createProposal(s)",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2042,
+        "event": "click",
+        "expression": "qualityTab.set(tab.id)",
+        "feature_ids": [
+          "KCAP-029"
+        ],
+        "coverage_rule": "knowledge-capture:quality|deferQualityItem|respondToQualityItem"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2053,
+        "event": "click",
+        "expression": "respondToQualityItem(s, item)",
+        "feature_ids": [
+          "KCAP-029"
+        ],
+        "coverage_rule": "knowledge-capture:quality|deferQualityItem|respondToQualityItem"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2054,
+        "event": "click",
+        "expression": "deferQualityItem(s, item)",
+        "feature_ids": [
+          "KCAP-029"
+        ],
+        "coverage_rule": "knowledge-capture:quality|deferQualityItem|respondToQualityItem"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2086,
+        "event": "click",
+        "expression": "setConversationMode('manual')",
+        "feature_ids": [
+          "KCAP-039"
+        ],
+        "coverage_rule": "knowledge-capture:setConversationMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2097,
+        "event": "click",
+        "expression": "setConversationMode('conversation_only')",
+        "feature_ids": [
+          "KCAP-039"
+        ],
+        "coverage_rule": "knowledge-capture:setConversationMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2176,
+        "event": "click",
+        "expression": "previewRetrievalChunk(ci)",
+        "feature_ids": [
+          "KCAP-013",
+          "KCAP-032"
+        ],
+        "coverage_rule": "knowledge-capture:retrieval|previewRetrievalChunk|Suggestion|suggestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2206,
+        "event": "click",
+        "expression": "goSurface('review')",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2238,
+        "event": "click",
+        "expression": "goSurface('session')",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2291,
+        "event": "click",
+        "expression": "applyPlanOutlineFormatFrom('plan', s, 'outdent')",
+        "feature_ids": [
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:applyPlanOutlineFormat|selectPlan|generatePlan|approvePlan|validateTopic|addTopic|removeTopic|renameTopic|selectedQuestionId|moveQuestion|removeQuestion|addQuestion|savePlan|plan\\/|outline"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2294,
+        "event": "click",
+        "expression": "applyPlanOutlineFormatFrom('plan', s, 'indent')",
+        "feature_ids": [
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:applyPlanOutlineFormat|selectPlan|generatePlan|approvePlan|validateTopic|addTopic|removeTopic|renameTopic|selectedQuestionId|moveQuestion|removeQuestion|addQuestion|savePlan|plan\\/|outline"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2297,
+        "event": "click",
+        "expression": "applyPlanOutlineFormatFrom('plan', s, 'renumber')",
+        "feature_ids": [
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:applyPlanOutlineFormat|selectPlan|generatePlan|approvePlan|validateTopic|addTopic|removeTopic|renameTopic|selectedQuestionId|moveQuestion|removeQuestion|addQuestion|savePlan|plan\\/|outline"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2300,
+        "event": "click",
+        "expression": "applyPlanOutlineFormatFrom('plan', s, 'move_up')",
+        "feature_ids": [
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:applyPlanOutlineFormat|selectPlan|generatePlan|approvePlan|validateTopic|addTopic|removeTopic|renameTopic|selectedQuestionId|moveQuestion|removeQuestion|addQuestion|savePlan|plan\\/|outline"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2303,
+        "event": "click",
+        "expression": "applyPlanOutlineFormatFrom('plan', s, 'move_down')",
+        "feature_ids": [
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:applyPlanOutlineFormat|selectPlan|generatePlan|approvePlan|validateTopic|addTopic|removeTopic|renameTopic|selectedQuestionId|moveQuestion|removeQuestion|addQuestion|savePlan|plan\\/|outline"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2317,
+        "event": "change",
+        "expression": "onPlanOutlineImportFile($event, s)",
+        "feature_ids": [
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:applyPlanOutlineFormat|selectPlan|generatePlan|approvePlan|validateTopic|addTopic|removeTopic|renameTopic|selectedQuestionId|moveQuestion|removeQuestion|addQuestion|savePlan|plan\\/|outline"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2402,
+        "event": "click",
+        "expression": "selectedQuestionId.set(q.id)",
+        "feature_ids": [
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:applyPlanOutlineFormat|selectPlan|generatePlan|approvePlan|validateTopic|addTopic|removeTopic|renameTopic|selectedQuestionId|moveQuestion|removeQuestion|addQuestion|savePlan|plan\\/|outline"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2428,
+        "event": "click",
+        "expression": "moveQuestion(s, subtopic, i, -1)",
+        "feature_ids": [
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:applyPlanOutlineFormat|selectPlan|generatePlan|approvePlan|validateTopic|addTopic|removeTopic|renameTopic|selectedQuestionId|moveQuestion|removeQuestion|addQuestion|savePlan|plan\\/|outline"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2437,
+        "event": "click",
+        "expression": "moveQuestion(s, subtopic, i, 1)",
+        "feature_ids": [
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:applyPlanOutlineFormat|selectPlan|generatePlan|approvePlan|validateTopic|addTopic|removeTopic|renameTopic|selectedQuestionId|moveQuestion|removeQuestion|addQuestion|savePlan|plan\\/|outline"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2446,
+        "event": "click",
+        "expression": "removeQuestion(s, subtopic, i)",
+        "feature_ids": [
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:applyPlanOutlineFormat|selectPlan|generatePlan|approvePlan|validateTopic|addTopic|removeTopic|renameTopic|selectedQuestionId|moveQuestion|removeQuestion|addQuestion|savePlan|plan\\/|outline"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2466,
+        "event": "click",
+        "expression": "addQuestion(s, topic, subtopic)",
+        "feature_ids": [
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:applyPlanOutlineFormat|selectPlan|generatePlan|approvePlan|validateTopic|addTopic|removeTopic|renameTopic|selectedQuestionId|moveQuestion|removeQuestion|addQuestion|savePlan|plan\\/|outline"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2534,
+        "event": "click",
+        "expression": "savePlan(s)",
+        "feature_ids": [
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:applyPlanOutlineFormat|selectPlan|generatePlan|approvePlan|validateTopic|addTopic|removeTopic|renameTopic|selectedQuestionId|moveQuestion|removeQuestion|addQuestion|savePlan|plan\\/|outline"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2547,
+        "event": "click",
+        "expression": "setConversationMode('manual')",
+        "feature_ids": [
+          "KCAP-039"
+        ],
+        "coverage_rule": "knowledge-capture:setConversationMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2559,
+        "event": "click",
+        "expression": "setConversationMode('conversation_only')",
+        "feature_ids": [
+          "KCAP-039"
+        ],
+        "coverage_rule": "knowledge-capture:setConversationMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2578,
+        "event": "click",
+        "expression": "startGuidedSession(s)",
+        "feature_ids": [
+          "KCAP-007",
+          "KCAP-009"
+        ],
+        "coverage_rule": "knowledge-capture:pauseSession|resumeSession|startGuidedSession|onPrimaryCaptureAction|finishCapture|interruptSpeech|readCurrentQuestion"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2606,
+        "event": "change",
+        "expression": "onProvidedPlanFile($event)",
+        "feature_ids": [
+          "KCAP-003",
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:onProvidedPlanFile|confirmProvidedPlanReplacement|cancelProvidedPlanReplacement|clearProvidedPlanSource|backToPlanModeSelection|createPlan|dictatePlanDialogue|submitPlanDialogueTurn|finalizePlanBuild"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2628,
+        "event": "click",
+        "expression": "confirmProvidedPlanReplacement()",
+        "feature_ids": [
+          "KCAP-003",
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:onProvidedPlanFile|confirmProvidedPlanReplacement|cancelProvidedPlanReplacement|clearProvidedPlanSource|backToPlanModeSelection|createPlan|dictatePlanDialogue|submitPlanDialogueTurn|finalizePlanBuild"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2635,
+        "event": "click",
+        "expression": "cancelProvidedPlanReplacement()",
+        "feature_ids": [
+          "KCAP-003",
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:onProvidedPlanFile|confirmProvidedPlanReplacement|cancelProvidedPlanReplacement|clearProvidedPlanSource|backToPlanModeSelection|createPlan|dictatePlanDialogue|submitPlanDialogueTurn|finalizePlanBuild"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2657,
+        "event": "click",
+        "expression": "clearProvidedPlanSource()",
+        "feature_ids": [
+          "KCAP-003",
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:onProvidedPlanFile|confirmProvidedPlanReplacement|cancelProvidedPlanReplacement|clearProvidedPlanSource|backToPlanModeSelection|createPlan|dictatePlanDialogue|submitPlanDialogueTurn|finalizePlanBuild"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2691,
+        "event": "click",
+        "expression": "backToPlanModeSelection()",
+        "feature_ids": [
+          "KCAP-003",
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:onProvidedPlanFile|confirmProvidedPlanReplacement|cancelProvidedPlanReplacement|clearProvidedPlanSource|backToPlanModeSelection|createPlan|dictatePlanDialogue|submitPlanDialogueTurn|finalizePlanBuild"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2699,
+        "event": "click",
+        "expression": "createPlan()",
+        "feature_ids": [
+          "KCAP-003",
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:onProvidedPlanFile|confirmProvidedPlanReplacement|cancelProvidedPlanReplacement|clearProvidedPlanSource|backToPlanModeSelection|createPlan|dictatePlanDialogue|submitPlanDialogueTurn|finalizePlanBuild"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2716,
+        "event": "click",
+        "expression": "goSurface('prep')",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2785,
+        "event": "click",
+        "expression": "applyPlanOutlineFormatFrom('plan_build', s, 'outdent')",
+        "feature_ids": [
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:applyPlanOutlineFormat|selectPlan|generatePlan|approvePlan|validateTopic|addTopic|removeTopic|renameTopic|selectedQuestionId|moveQuestion|removeQuestion|addQuestion|savePlan|plan\\/|outline"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2788,
+        "event": "click",
+        "expression": "applyPlanOutlineFormatFrom('plan_build', s, 'indent')",
+        "feature_ids": [
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:applyPlanOutlineFormat|selectPlan|generatePlan|approvePlan|validateTopic|addTopic|removeTopic|renameTopic|selectedQuestionId|moveQuestion|removeQuestion|addQuestion|savePlan|plan\\/|outline"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2791,
+        "event": "click",
+        "expression": "applyPlanOutlineFormatFrom('plan_build', s, 'renumber')",
+        "feature_ids": [
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:applyPlanOutlineFormat|selectPlan|generatePlan|approvePlan|validateTopic|addTopic|removeTopic|renameTopic|selectedQuestionId|moveQuestion|removeQuestion|addQuestion|savePlan|plan\\/|outline"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2794,
+        "event": "click",
+        "expression": "applyPlanOutlineFormatFrom('plan_build', s, 'move_up')",
+        "feature_ids": [
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:applyPlanOutlineFormat|selectPlan|generatePlan|approvePlan|validateTopic|addTopic|removeTopic|renameTopic|selectedQuestionId|moveQuestion|removeQuestion|addQuestion|savePlan|plan\\/|outline"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2797,
+        "event": "click",
+        "expression": "applyPlanOutlineFormatFrom('plan_build', s, 'move_down')",
+        "feature_ids": [
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:applyPlanOutlineFormat|selectPlan|generatePlan|approvePlan|validateTopic|addTopic|removeTopic|renameTopic|selectedQuestionId|moveQuestion|removeQuestion|addQuestion|savePlan|plan\\/|outline"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2811,
+        "event": "change",
+        "expression": "onPlanOutlineImportFile($event, s)",
+        "feature_ids": [
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:applyPlanOutlineFormat|selectPlan|generatePlan|approvePlan|validateTopic|addTopic|removeTopic|renameTopic|selectedQuestionId|moveQuestion|removeQuestion|addQuestion|savePlan|plan\\/|outline"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2862,
+        "event": "click",
+        "expression": "dictatePlanDialogue()",
+        "feature_ids": [
+          "KCAP-003",
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:onProvidedPlanFile|confirmProvidedPlanReplacement|cancelProvidedPlanReplacement|clearProvidedPlanSource|backToPlanModeSelection|createPlan|dictatePlanDialogue|submitPlanDialogueTurn|finalizePlanBuild"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2891,
+        "event": "click",
+        "expression": "submitPlanDialogueTurn(s)",
+        "feature_ids": [
+          "KCAP-003",
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:onProvidedPlanFile|confirmProvidedPlanReplacement|cancelProvidedPlanReplacement|clearProvidedPlanSource|backToPlanModeSelection|createPlan|dictatePlanDialogue|submitPlanDialogueTurn|finalizePlanBuild"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2911,
+        "event": "change",
+        "expression": "onPlanInstructionImportFile($event, s)",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 2919,
+        "event": "click",
+        "expression": "finalizePlanBuild(s)",
+        "feature_ids": [
+          "KCAP-003",
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "coverage_rule": "knowledge-capture:onProvidedPlanFile|confirmProvidedPlanReplacement|cancelProvidedPlanReplacement|clearProvidedPlanSource|backToPlanModeSelection|createPlan|dictatePlanDialogue|submitPlanDialogueTurn|finalizePlanBuild"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3051,
+        "event": "click",
+        "expression": "scrollToReviewQuestion(link.key)",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3065,
+        "event": "click",
+        "expression": "previewReportSource(src)",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3082,
+        "event": "click",
+        "expression": "scrollToReviewQuestion(link.key)",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3099,
+        "event": "click",
+        "expression": "previewReportSource(src)",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3140,
+        "event": "click",
+        "expression": "toggleReportEditMode()",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3156,
+        "event": "click",
+        "expression": "saveProposalReport(p.id)",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3160,
+        "event": "click",
+        "expression": "exportProposalMd()",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3163,
+        "event": "click",
+        "expression": "goSurface('session')",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3167,
+        "event": "click",
+        "expression": "regenerateProposal()",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3179,
+        "event": "click",
+        "expression": "passReviewLater()",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3189,
+        "event": "click",
+        "expression": "continueFromReview(p)",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3201,
+        "event": "click",
+        "expression": "passReviewLater()",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3210,
+        "event": "click",
+        "expression": "createProposal(s)",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3271,
+        "event": "click",
+        "expression": "applyProposalInstruction(p)",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3333,
+        "event": "click",
+        "expression": "dictateProposalQuestionAnswer()",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3342,
+        "event": "click",
+        "expression": "submitProposalQuestionAnswer(row, i)",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3354,
+        "event": "click",
+        "expression": "cancelProposalQuestionAnswer()",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3366,
+        "event": "click",
+        "expression": "beginProposalQuestionAnswer(row.key)",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3374,
+        "event": "click",
+        "expression": "row.status === 'deferred' ? restoreProposalOpenQuestion(row.key) : deferProposalOpenQuestion(row.key)",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3382,
+        "event": "click",
+        "expression": "invalidateProposalOpenQuestion(row.key)",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3422,
+        "event": "click",
+        "expression": "startClarificationSession()",
+        "feature_ids": [
+          "KCAP-023",
+          "KCAP-039"
+        ],
+        "coverage_rule": "knowledge-capture:startClarificationSession"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3469,
+        "event": "click",
+        "expression": "goSurface('dashboard')",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3614,
+        "event": "click",
+        "expression": "goSurface('review')",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-028",
+          "KCAP-035"
+        ],
+        "coverage_rule": "knowledge-capture:goSurface|setDashboardTab|openDashboardSession|openDashboardProposal|startNewSessionDraft|refreshPublishedFiches|openPublishedFiche"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3623,
+        "event": "click",
+        "expression": "passReviewLater()",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 3633,
+        "event": "click",
+        "expression": "publishToKnowledge(p.id)",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-022",
+          "KCAP-023",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "coverage_rule": "knowledge-capture:createProposal|proposal|review|publish|instruction|openQuestion|toggleReportEditMode"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 257,
+        "event": "click",
+        "expression": "onTabChange('guides')",
+        "feature_ids": [
+          "COL-005",
+          "COL-007",
+          "COL-014",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-view:onTabChange|loadSources|source|previewDocument|loadChunks|Chunk"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 265,
+        "event": "click",
+        "expression": "onTabChange('table-facts')",
+        "feature_ids": [
+          "COL-005",
+          "COL-007",
+          "COL-014",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-view:onTabChange|loadSources|source|previewDocument|loadChunks|Chunk"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 273,
+        "event": "click",
+        "expression": "onTabChange('bindings')",
+        "feature_ids": [
+          "COL-005",
+          "COL-007",
+          "COL-014",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-view:onTabChange|loadSources|source|previewDocument|loadChunks|Chunk"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 390,
+        "event": "input",
+        "expression": "sourceQuery.set($any($event.target).value)",
+        "feature_ids": [
+          "COL-005",
+          "COL-007",
+          "COL-014",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-view:onTabChange|loadSources|source|previewDocument|loadChunks|Chunk"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 391,
+        "event": "keydown.enter",
+        "expression": "loadSources(0)",
+        "feature_ids": [
+          "COL-005",
+          "COL-007",
+          "COL-014",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-view:onTabChange|loadSources|source|previewDocument|loadChunks|Chunk"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 399,
+        "event": "change",
+        "expression": "sourceKindFilter.set($any($event.target).value); loadSources(0)",
+        "feature_ids": [
+          "COL-005",
+          "COL-007",
+          "COL-014",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-view:onTabChange|loadSources|source|previewDocument|loadChunks|Chunk"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 412,
+        "event": "change",
+        "expression": "sourceExtensionFilter.set($any($event.target).value); loadSources(0)",
+        "feature_ids": [
+          "COL-005",
+          "COL-007",
+          "COL-014",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-view:onTabChange|loadSources|source|previewDocument|loadChunks|Chunk"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 425,
+        "event": "change",
+        "expression": "sourceStatusFilter.set($any($event.target).value); loadSources(0)",
+        "feature_ids": [
+          "COL-005",
+          "COL-007",
+          "COL-014",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-view:onTabChange|loadSources|source|previewDocument|loadChunks|Chunk"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 439,
+        "event": "change",
+        "expression": "sourceSort.set($any($event.target).value); loadSources(0)",
+        "feature_ids": [
+          "COL-005",
+          "COL-007",
+          "COL-014",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-view:onTabChange|loadSources|source|previewDocument|loadChunks|Chunk"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 453,
+        "event": "click",
+        "expression": "toggleSourceSortDir()",
+        "feature_ids": [
+          "COL-005",
+          "COL-007",
+          "COL-014",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-view:onTabChange|loadSources|source|previewDocument|loadChunks|Chunk"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 464,
+        "event": "click",
+        "expression": "loadSources(0)",
+        "feature_ids": [
+          "COL-005",
+          "COL-007",
+          "COL-014",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-view:onTabChange|loadSources|source|previewDocument|loadChunks|Chunk"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 505,
+        "event": "click",
+        "expression": "previewDocument(s)",
+        "feature_ids": [
+          "COL-005",
+          "COL-007",
+          "COL-014",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-view:onTabChange|loadSources|source|previewDocument|loadChunks|Chunk"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 525,
+        "event": "click",
+        "expression": "loadSources(sourceOffset() > sourcePageSize ? sourceOffset() - sourcePageSize : 0)",
+        "feature_ids": [
+          "COL-005",
+          "COL-007",
+          "COL-014",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-view:onTabChange|loadSources|source|previewDocument|loadChunks|Chunk"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 535,
+        "event": "click",
+        "expression": "loadSources(sourceOffset() + sourcePageSize)",
+        "feature_ids": [
+          "COL-005",
+          "COL-007",
+          "COL-014",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-view:onTabChange|loadSources|source|previewDocument|loadChunks|Chunk"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 617,
+        "event": "change",
+        "expression": "onChunkDocFilterChange($event)",
+        "feature_ids": [
+          "COL-005",
+          "COL-007",
+          "COL-014",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-view:onTabChange|loadSources|source|previewDocument|loadChunks|Chunk"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 627,
+        "event": "click",
+        "expression": "loadChunks(0)",
+        "feature_ids": [
+          "COL-005",
+          "COL-007",
+          "COL-014",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-view:onTabChange|loadSources|source|previewDocument|loadChunks|Chunk"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 682,
+        "event": "click",
+        "expression": "loadChunks(chunkOffset() - chunkPageSize)",
+        "feature_ids": [
+          "COL-005",
+          "COL-007",
+          "COL-014",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-view:onTabChange|loadSources|source|previewDocument|loadChunks|Chunk"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 690,
+        "event": "click",
+        "expression": "loadChunks(chunkOffset() + chunkPageSize)",
+        "feature_ids": [
+          "COL-005",
+          "COL-007",
+          "COL-014",
+          "COL-023"
+        ],
+        "coverage_rule": "knowledge-view:onTabChange|loadSources|source|previewDocument|loadChunks|Chunk"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 728,
+        "event": "click",
+        "expression": "loadDocumentFacts()",
+        "feature_ids": [
+          "COL-010",
+          "COL-013"
+        ],
+        "coverage_rule": "knowledge-view:loadDocumentFacts|documentFact|loadOcrFacts|ocrFact"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 799,
+        "event": "click",
+        "expression": "loadDocumentFacts()",
+        "feature_ids": [
+          "COL-010",
+          "COL-013"
+        ],
+        "coverage_rule": "knowledge-view:loadDocumentFacts|documentFact|loadOcrFacts|ocrFact"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 813,
+        "event": "input",
+        "expression": "documentFactQuery.set($any($event.target).value)",
+        "feature_ids": [
+          "COL-010",
+          "COL-013"
+        ],
+        "coverage_rule": "knowledge-view:loadDocumentFacts|documentFact|loadOcrFacts|ocrFact"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 814,
+        "event": "keydown.enter",
+        "expression": "loadDocumentFacts()",
+        "feature_ids": [
+          "COL-010",
+          "COL-013"
+        ],
+        "coverage_rule": "knowledge-view:loadDocumentFacts|documentFact|loadOcrFacts|ocrFact"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 822,
+        "event": "change",
+        "expression": "documentFactType.set($any($event.target).value); loadDocumentFacts(0)",
+        "feature_ids": [
+          "COL-010",
+          "COL-013"
+        ],
+        "coverage_rule": "knowledge-view:loadDocumentFacts|documentFact|loadOcrFacts|ocrFact"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 899,
+        "event": "click",
+        "expression": "loadDocumentFacts(documentFactOffset() > documentFactPageSize ? documentFactOffset() - documentFactPageSize : 0)",
+        "feature_ids": [
+          "COL-010",
+          "COL-013"
+        ],
+        "coverage_rule": "knowledge-view:loadDocumentFacts|documentFact|loadOcrFacts|ocrFact"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 909,
+        "event": "click",
+        "expression": "loadDocumentFacts(documentFactOffset() + documentFactPageSize)",
+        "feature_ids": [
+          "COL-010",
+          "COL-013"
+        ],
+        "coverage_rule": "knowledge-view:loadDocumentFacts|documentFact|loadOcrFacts|ocrFact"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 938,
+        "event": "click",
+        "expression": "loadOcrFacts()",
+        "feature_ids": [
+          "COL-010",
+          "COL-013"
+        ],
+        "coverage_rule": "knowledge-view:loadDocumentFacts|documentFact|loadOcrFacts|ocrFact"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 952,
+        "event": "input",
+        "expression": "ocrFactQuery.set($any($event.target).value)",
+        "feature_ids": [
+          "COL-010",
+          "COL-013"
+        ],
+        "coverage_rule": "knowledge-view:loadDocumentFacts|documentFact|loadOcrFacts|ocrFact"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 953,
+        "event": "keydown.enter",
+        "expression": "loadOcrFacts()",
+        "feature_ids": [
+          "COL-010",
+          "COL-013"
+        ],
+        "coverage_rule": "knowledge-view:loadDocumentFacts|documentFact|loadOcrFacts|ocrFact"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 961,
+        "event": "change",
+        "expression": "ocrFactType.set($any($event.target).value); loadOcrFacts()",
+        "feature_ids": [
+          "COL-010",
+          "COL-013"
+        ],
+        "coverage_rule": "knowledge-view:loadDocumentFacts|documentFact|loadOcrFacts|ocrFact"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 1049,
+        "event": "click",
+        "expression": "loadTableFacts()",
+        "feature_ids": [
+          "COL-009",
+          "COL-013"
+        ],
+        "coverage_rule": "knowledge-view:loadTableFacts|tableFact"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 1063,
+        "event": "input",
+        "expression": "onTableFactQueryInput($any($event.target).value)",
+        "feature_ids": [
+          "COL-009",
+          "COL-013"
+        ],
+        "coverage_rule": "knowledge-view:loadTableFacts|tableFact"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 1064,
+        "event": "keydown.enter",
+        "expression": "loadTableFacts()",
+        "feature_ids": [
+          "COL-009",
+          "COL-013"
+        ],
+        "coverage_rule": "knowledge-view:loadTableFacts|tableFact"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 1072,
+        "event": "change",
+        "expression": "tableFactType.set($any($event.target).value); loadTableFacts(0)",
+        "feature_ids": [
+          "COL-009",
+          "COL-013"
+        ],
+        "coverage_rule": "knowledge-view:loadTableFacts|tableFact"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 1089,
+        "event": "input",
+        "expression": "onTableFactSheetInput($any($event.target).value)",
+        "feature_ids": [
+          "COL-009",
+          "COL-013"
+        ],
+        "coverage_rule": "knowledge-view:loadTableFacts|tableFact"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 1090,
+        "event": "keydown.enter",
+        "expression": "loadTableFacts()",
+        "feature_ids": [
+          "COL-009",
+          "COL-013"
+        ],
+        "coverage_rule": "knowledge-view:loadTableFacts|tableFact"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 1163,
+        "event": "click",
+        "expression": "loadTableFacts(tableFactOffset() > tableFactPageSize ? tableFactOffset() - tableFactPageSize : 0)",
+        "feature_ids": [
+          "COL-009",
+          "COL-013"
+        ],
+        "coverage_rule": "knowledge-view:loadTableFacts|tableFact"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 1173,
+        "event": "click",
+        "expression": "loadTableFacts(tableFactOffset() + tableFactPageSize)",
+        "feature_ids": [
+          "COL-009",
+          "COL-013"
+        ],
+        "coverage_rule": "knowledge-view:loadTableFacts|tableFact"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 1199,
+        "event": "click",
+        "expression": "saveCollectionGuide('draft')",
+        "feature_ids": [
+          "COL-011"
+        ],
+        "coverage_rule": "knowledge-view:saveCollectionGuide|loadGuideIntoEditor|guide"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 1207,
+        "event": "click",
+        "expression": "saveCollectionGuide('published')",
+        "feature_ids": [
+          "COL-011"
+        ],
+        "coverage_rule": "knowledge-view:saveCollectionGuide|loadGuideIntoEditor|guide"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 1222,
+        "event": "input",
+        "expression": "guideTitle.set($any($event.target).value)",
+        "feature_ids": [
+          "COL-011"
+        ],
+        "coverage_rule": "knowledge-view:saveCollectionGuide|loadGuideIntoEditor|guide"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 1230,
+        "event": "input",
+        "expression": "guideMarkdown.set($any($event.target).value)",
+        "feature_ids": [
+          "COL-011"
+        ],
+        "coverage_rule": "knowledge-view:saveCollectionGuide|loadGuideIntoEditor|guide"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 1265,
+        "event": "click",
+        "expression": "loadGuideIntoEditor(guide)",
+        "feature_ids": [
+          "COL-011"
+        ],
+        "coverage_rule": "knowledge-view:saveCollectionGuide|loadGuideIntoEditor|guide"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 1404,
+        "event": "click",
+        "expression": "launchRetrievalArtifactJob('summary_index_rebuild')",
+        "feature_ids": [
+          "COL-012"
+        ],
+        "coverage_rule": "knowledge-view:launchRetrievalArtifactJob"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 1418,
+        "event": "click",
+        "expression": "launchRetrievalArtifactJob('sparse_index_rebuild')",
+        "feature_ids": [
+          "COL-012"
+        ],
+        "coverage_rule": "knowledge-view:launchRetrievalArtifactJob"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 1432,
+        "event": "click",
+        "expression": "launchRetrievalArtifactJob('qdrant_sparse_reindex')",
+        "feature_ids": [
+          "COL-012"
+        ],
+        "coverage_rule": "knowledge-view:launchRetrievalArtifactJob"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 191,
+        "event": "click",
+        "expression": "load()",
+        "feature_ids": [
+          "CHT-015",
+          "COL-021"
+        ],
+        "coverage_rule": "chat-knowledge-settings:load\\(|saveAll|addScope|setDefaultScope|removeScope|copyEffectiveChatToWorkspace|copyWorkspaceChatToProfile|addCollectionToDefaultScope|copyCollection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 199,
+        "event": "click",
+        "expression": "saveAll()",
+        "feature_ids": [
+          "CHT-015",
+          "COL-021"
+        ],
+        "coverage_rule": "chat-knowledge-settings:load\\(|saveAll|addScope|setDefaultScope|removeScope|copyEffectiveChatToWorkspace|copyWorkspaceChatToProfile|addCollectionToDefaultScope|copyCollection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 227,
+        "event": "click",
+        "expression": "addScope()",
+        "feature_ids": [
+          "CHT-015",
+          "COL-021"
+        ],
+        "coverage_rule": "chat-knowledge-settings:load\\(|saveAll|addScope|setDefaultScope|removeScope|copyEffectiveChatToWorkspace|copyWorkspaceChatToProfile|addCollectionToDefaultScope|copyCollection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 243,
+        "event": "change",
+        "expression": "setDefaultScope(i)",
+        "feature_ids": [
+          "CHT-015",
+          "COL-021"
+        ],
+        "coverage_rule": "chat-knowledge-settings:load\\(|saveAll|addScope|setDefaultScope|removeScope|copyEffectiveChatToWorkspace|copyWorkspaceChatToProfile|addCollectionToDefaultScope|copyCollection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 254,
+        "event": "click",
+        "expression": "removeScope(i)",
+        "feature_ids": [
+          "CHT-015",
+          "COL-021"
+        ],
+        "coverage_rule": "chat-knowledge-settings:load\\(|saveAll|addScope|setDefaultScope|removeScope|copyEffectiveChatToWorkspace|copyWorkspaceChatToProfile|addCollectionToDefaultScope|copyCollection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 345,
+        "event": "click",
+        "expression": "openGuideEditor(scope.key, guide)",
+        "feature_ids": [
+          "COL-011"
+        ],
+        "coverage_rule": "chat-knowledge-settings:Guide|guide|saveGuide|publishGuide|archiveGuide|openGuideEditor|closeGuideEditor|toggleGuideHistory"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 354,
+        "event": "click",
+        "expression": "openGuideEditor(scope.key)",
+        "feature_ids": [
+          "COL-011"
+        ],
+        "coverage_rule": "chat-knowledge-settings:Guide|guide|saveGuide|publishGuide|archiveGuide|openGuideEditor|closeGuideEditor|toggleGuideHistory"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 363,
+        "event": "click",
+        "expression": "toggleGuideHistory(scope.key)",
+        "feature_ids": [
+          "COL-011"
+        ],
+        "coverage_rule": "chat-knowledge-settings:Guide|guide|saveGuide|publishGuide|archiveGuide|openGuideEditor|closeGuideEditor|toggleGuideHistory"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 378,
+        "event": "click",
+        "expression": "publishGuide(guide)",
+        "feature_ids": [
+          "COL-011"
+        ],
+        "coverage_rule": "chat-knowledge-settings:Guide|guide|saveGuide|publishGuide|archiveGuide|openGuideEditor|closeGuideEditor|toggleGuideHistory"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 383,
+        "event": "click",
+        "expression": "archiveGuide(guide)",
+        "feature_ids": [
+          "COL-011"
+        ],
+        "coverage_rule": "chat-knowledge-settings:Guide|guide|saveGuide|publishGuide|archiveGuide|openGuideEditor|closeGuideEditor|toggleGuideHistory"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 408,
+        "event": "click",
+        "expression": "openGuideEditor(scope.key, version, 'restore')",
+        "feature_ids": [
+          "COL-011"
+        ],
+        "coverage_rule": "chat-knowledge-settings:Guide|guide|saveGuide|publishGuide|archiveGuide|openGuideEditor|closeGuideEditor|toggleGuideHistory"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 411,
+        "event": "click",
+        "expression": "openGuideEditor(scope.key, version)",
+        "feature_ids": [
+          "COL-011"
+        ],
+        "coverage_rule": "chat-knowledge-settings:Guide|guide|saveGuide|publishGuide|archiveGuide|openGuideEditor|closeGuideEditor|toggleGuideHistory"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 434,
+        "event": "click",
+        "expression": "closeGuideEditor()",
+        "feature_ids": [
+          "COL-011"
+        ],
+        "coverage_rule": "chat-knowledge-settings:Guide|guide|saveGuide|publishGuide|archiveGuide|openGuideEditor|closeGuideEditor|toggleGuideHistory"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 509,
+        "event": "click",
+        "expression": "saveGuide('draft')",
+        "feature_ids": [
+          "COL-011"
+        ],
+        "coverage_rule": "chat-knowledge-settings:Guide|guide|saveGuide|publishGuide|archiveGuide|openGuideEditor|closeGuideEditor|toggleGuideHistory"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 517,
+        "event": "click",
+        "expression": "saveGuide('published')",
+        "feature_ids": [
+          "COL-011"
+        ],
+        "coverage_rule": "chat-knowledge-settings:Guide|guide|saveGuide|publishGuide|archiveGuide|openGuideEditor|closeGuideEditor|toggleGuideHistory"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 546,
+        "event": "click",
+        "expression": "addTableProfile()",
+        "feature_ids": [
+          "COL-009",
+          "COL-010",
+          "COL-013"
+        ],
+        "coverage_rule": "chat-knowledge-settings:TableProfile|tableProfile|DocumentProfile|documentProfile"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 578,
+        "event": "click",
+        "expression": "removeTableProfile(i)",
+        "feature_ids": [
+          "COL-009",
+          "COL-010",
+          "COL-013"
+        ],
+        "coverage_rule": "chat-knowledge-settings:TableProfile|tableProfile|DocumentProfile|documentProfile"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 703,
+        "event": "click",
+        "expression": "addDocumentProfile()",
+        "feature_ids": [
+          "COL-009",
+          "COL-010",
+          "COL-013"
+        ],
+        "coverage_rule": "chat-knowledge-settings:TableProfile|tableProfile|DocumentProfile|documentProfile"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 741,
+        "event": "click",
+        "expression": "removeDocumentProfile(i)",
+        "feature_ids": [
+          "COL-009",
+          "COL-010",
+          "COL-013"
+        ],
+        "coverage_rule": "chat-knowledge-settings:TableProfile|tableProfile|DocumentProfile|documentProfile"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 932,
+        "event": "click",
+        "expression": "addPrompt()",
+        "feature_ids": [
+          "CHT-015",
+          "COL-021"
+        ],
+        "coverage_rule": "chat-knowledge-settings:Prompt|prompt|AssistantProfile|assistantProfile"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 972,
+        "event": "click",
+        "expression": "removePrompt(i)",
+        "feature_ids": [
+          "CHT-015",
+          "COL-021"
+        ],
+        "coverage_rule": "chat-knowledge-settings:Prompt|prompt|AssistantProfile|assistantProfile"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 1034,
+        "event": "click",
+        "expression": "copyEffectiveChatToWorkspace()",
+        "feature_ids": [
+          "CHT-015",
+          "COL-021"
+        ],
+        "coverage_rule": "chat-knowledge-settings:load\\(|saveAll|addScope|setDefaultScope|removeScope|copyEffectiveChatToWorkspace|copyWorkspaceChatToProfile|addCollectionToDefaultScope|copyCollection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 1063,
+        "event": "click",
+        "expression": "voiceLoopDraft.default_mode = mode.value",
+        "feature_ids": [
+          "CHT-011",
+          "CHT-012",
+          "CHT-018",
+          "KCAP-010",
+          "KCAP-037"
+        ],
+        "coverage_rule": "chat-knowledge-settings:voiceLoop|default_mode|capture|dictation"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 1329,
+        "event": "click",
+        "expression": "addCollectionToDefaultScope(collection)",
+        "feature_ids": [
+          "CHT-015",
+          "COL-021"
+        ],
+        "coverage_rule": "chat-knowledge-settings:load\\(|saveAll|addScope|setDefaultScope|removeScope|copyEffectiveChatToWorkspace|copyWorkspaceChatToProfile|addCollectionToDefaultScope|copyCollection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 1340,
+        "event": "click",
+        "expression": "copyCollection(collection)",
+        "feature_ids": [
+          "CHT-015",
+          "COL-021"
+        ],
+        "coverage_rule": "chat-knowledge-settings:load\\(|saveAll|addScope|setDefaultScope|removeScope|copyEffectiveChatToWorkspace|copyWorkspaceChatToProfile|addCollectionToDefaultScope|copyCollection"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 1385,
+        "event": "click",
+        "expression": "addAssistantProfile()",
+        "feature_ids": [
+          "CHT-015",
+          "COL-021"
+        ],
+        "coverage_rule": "chat-knowledge-settings:Prompt|prompt|AssistantProfile|assistantProfile"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 1411,
+        "event": "click",
+        "expression": "removeAssistantProfile(selectedAssistantProfileIndex())",
+        "feature_ids": [
+          "CHT-015",
+          "COL-021"
+        ],
+        "coverage_rule": "chat-knowledge-settings:Prompt|prompt|AssistantProfile|assistantProfile"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 1473,
+        "event": "click",
+        "expression": "copyWorkspaceChatToProfile()",
+        "feature_ids": [
+          "CHT-015",
+          "COL-021"
+        ],
+        "coverage_rule": "chat-knowledge-settings:load\\(|saveAll|addScope|setDefaultScope|removeScope|copyEffectiveChatToWorkspace|copyWorkspaceChatToProfile|addCollectionToDefaultScope|copyCollection"
+      }
+    ],
+    "uncovered": [],
+    "missing_feature_refs": []
+  },
+  "status": "pass"
+}

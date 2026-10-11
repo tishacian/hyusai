@@ -37,7 +37,7 @@ class ExtraMetrics:
             retrieved_docs = retrieved_docs[:k]
 
         def dcg_at_k(r, k):
-            r = np.asfarray(r)[:k]
+            r = np.asarray(r, dtype=float)[:k]
             if r.size:
                 return np.sum(
                     np.subtract(np.power(2, r), 1) / np.log2(np.arange(2, r.size + 2))

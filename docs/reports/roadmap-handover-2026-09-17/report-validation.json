@@ -1,0 +1,24 @@
+{
+  "date": "2026-09-17",
+  "render": "Chrome headless, local artifact only",
+  "viewports": [
+    [
+      1440,
+      1000
+    ],
+    [
+      390,
+      844
+    ]
+  ],
+  "images_loaded": 9,
+  "horizontal_page_overflow": false,
+  "broken_internal_anchors": [],
+  "broken_report_file_links": [],
+  "manual_inspection": [
+    "desktop top",
+    "observability section",
+    "mobile top"
+  ],
+  "runtime_unchanged": "e30230aea3f58518bbe2219a5b2dbbdd757bab2f"
+}

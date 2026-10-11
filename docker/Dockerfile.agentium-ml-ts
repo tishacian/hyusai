@@ -1,0 +1,95 @@
+# A release pins the digest it qualified (python:3.12-slim@sha256:…); the bare
+# tag moves under us, and the Python constraints do not freeze the OS layer.
+ARG PYTHON_BASE_IMAGE=python:3.12-slim
+FROM ${PYTHON_BASE_IMAGE}
+
+# Everything down to the "image-specific layers" marker is instruction-for-
+# instruction identical in Dockerfile.agentium-backend and -worker. BuildKit keys a layer on
+# its instruction and its parent, not on the file it came from, so the Python
+# stack — the multi-gigabyte part — is built once and stored once for both
+# images. test_demo_dependency_constraints pins the two prefixes together.
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+ARG PIP_INDEX_URL
+RUN : "${PIP_INDEX_URL:?PIP_INDEX_URL is required}"
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y \
+        fonts-dejavu \
+        libreoffice-writer \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+        tesseract-ocr-fra \
+    && rm -rf /var/lib/apt/lists/*
+
+# One constraints file for the API and the worker: a model is fitted here and
+# unpickled by the API, so both interpreters run the same numpy, scipy,
+# scikit-learn, skops and mlflow.
+COPY backend/requirements.txt backend/constraints-demo-app.txt /tmp/requirements/
+RUN pip install --no-cache-dir \
+    --constraint=/tmp/requirements/constraints-demo-app.txt \
+    --index-url=${PIP_INDEX_URL} \
+    -r /tmp/requirements/requirements.txt \
+    && pip check
+
+# Cross-encoder files for the RAG rerank stage (ONNX export + tokenizer), baked
+# from a manifest that pins each file by revision and sha256: no process
+# downloads a model at start-up, and an air-gapped host runs the bytes the
+# release qualified. ONNX Runtime scores them, so the API needs no torch.
+# RAG_MODELS_BASE_URL selects a mirror.
+ARG RAG_MODELS_BASE_URL=
+COPY backend/rag_models.lock.json backend/scripts/fetch_rag_models.py /tmp/rag-models/
+RUN python /tmp/rag-models/fetch_rag_models.py \
+        --manifest /tmp/rag-models/rag_models.lock.json --dest /opt/agentium-models
+
+# ---- image-specific layers ----
+
+# The forecasting runtime: skforecast and the statistical models it wraps, on
+# the very numpy/scipy/scikit-learn above — a forecast's regressor comes from
+# the same catalog as a tabular model, and the API reads the evidence this image
+# writes. No torch, no LibreOffice beyond the shared layer, no Giskard: this
+# image only fits and serves forecasts (app.workers.celery_ml, queue ml_ts).
+# The additive pins live in their own file; every package the app already pins
+# keeps the app's version (test_demo_dependency_constraints).
+COPY backend/requirements_ml_ts.txt backend/constraints-demo-ml-ts.txt /tmp/requirements/
+RUN pip install --no-cache-dir \
+        --constraint=/tmp/requirements/constraints-demo-app.txt \
+        --constraint=/tmp/requirements/constraints-demo-ml-ts.txt \
+        --index-url=${PIP_INDEX_URL} \
+        -r /tmp/requirements/requirements_ml_ts.txt \
+    && pip check \
+    && ! python -c "import torch" 2>/dev/null
+
+ARG USERNAME=agentium
+ARG USER_UID=1000
+ARG USER_GID=1000
+RUN groupadd --gid "$USER_GID" "$USERNAME" \
+    && useradd --uid "$USER_UID" --gid "$USER_GID" --create-home "$USERNAME"
+
+WORKDIR /app
+
+COPY --chown=$USERNAME:$USERNAME . .
+
+# numba compiles skforecast's statistical kernels on first use; its cache has to
+# be somewhere the unprivileged user can write, or every fit recompiles.
+RUN chmod +x ./run_celery.sh \
+    && mkdir -p /data/object_store /tmp/numba-cache \
+    && chown -R "$USERNAME":"$USERNAME" /data /tmp/numba-cache
+
+USER $USERNAME
+
+ENV PYTHONPATH=/app/backend:/app \
+    NUMBA_CACHE_DIR=/tmp/numba-cache \
+    ML_RUNTIME=ml-ts \
+    CELERY_APP=app.workers.celery_ml:celery_ml \
+    CELERY_QUEUES=ml_ts \
+    CELERY_BEAT=0
+WORKDIR /app
+
+ARG AGENTIUM_IMAGE_REVISION=unknown
+ENV AGENTIUM_IMAGE_REVISION=${AGENTIUM_IMAGE_REVISION}
+LABEL org.opencontainers.image.revision="${AGENTIUM_IMAGE_REVISION}"
+
+CMD ["./run_celery.sh"]

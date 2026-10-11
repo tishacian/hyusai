@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/tmp/qualify-document-locators-3705.py", line 66, in <module>
+    assert str(row[14-excel['column_start']])=='NF-04' and str(row[15-excel['column_start']])=='55', row
+               ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+IndexError: list index out of range

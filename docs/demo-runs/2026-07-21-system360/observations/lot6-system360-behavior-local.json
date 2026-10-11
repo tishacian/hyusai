@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "commit_sha": "cfa3f616050bb5f75c9a3709219b52939e7ec0bd",
+  "outcome": "passed",
+  "claims": {
+    "LOT6-SYSTEM360-PERSPECTIVES": "passed"
+  },
+  "ci": {
+    "server_url": "",
+    "project_id": "",
+    "pipeline_id": "",
+    "job_id": "",
+    "job_url": "",
+    "commit_sha": "",
+    "ref": "",
+    "ref_protected": ""
+  },
+  "checks": {
+    "build_revision": true,
+    "unique_marker_discovery": true,
+    "four_distinct_projections": true,
+    "invariant_identity_header_breadcrumb_tabs": true,
+    "ui_value_matches_api_per_lens": true,
+    "deep_link_reload_history_and_facet": true,
+    "workspace_switch_purges_object": true,
+    "explicit_missing_state": true,
+    "explicit_restricted_state": true,
+    "frontend_console_clean": true
+  },
+  "build_info": {
+    "backend": {
+      "service": "backend",
+      "revision": "cfa3f616050bb5f75c9a3709219b52939e7ec0bd",
+      "revision_verified": true,
+      "version": "1.0.0-demo"
+    },
+    "frontend": {
+      "service": "frontend",
+      "revision": "cfa3f616050bb5f75c9a3709219b52939e7ec0bd",
+      "revision_verified": true
+    }
+  },
+  "kind": "behavior",
+  "workspace": {
+    "id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3"
+  },
+  "discovered": {
+    "system_id": "619d0704-4bc7-4fe6-8400-a144f8c29046",
+    "capability_id": "885c6d26-4faa-4f3d-ac62-81471a429eb8",
+    "snapshot_id": "59b7dc14b20bfa89bb7a9f15036df1ae735b0839703016d567d9cafcfc95a7bf"
+  },
+  "projection_sha256": {
+    "build": "763d4faa2db3f4bfab449574e1ecf0ea37b7c17d707f9695e29a3cf61d2a9499",
+    "operate": "16340d658ec671655609e0e8174934f8d61e248a7f1e9aee05ed9a925dff790b",
+    "steer": "58726408c652081941b0388966f601a3098646b1c0016b6bc98f9821412103ee",
+    "govern": "7933921cd56d34f450e5b6858e29ca2becb35f8d7c83df175d8a73bbb2764964"
+  },
+  "invariant_chrome_sha256": "d41758696835c3d0bccaf10937ad2eeb1e3cdfac2fa49169fcd222064753c09e",
+  "missing_state": "not_configured",
+  "restricted_state": "restricted"
+}

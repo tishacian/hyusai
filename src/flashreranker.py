@@ -1,19 +1,20 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Created on Fri Feb 7 15:48:53 2025
 
 @author: kennethezukwoke
 """
+
+import logging
 import os
 import sys
-import torch
-import logging
 import warnings
-import numpy as np
-from enum import Enum
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Tuple, Union
+from enum import Enum
+from typing import Optional, Union
+
+import numpy as np
+import torch
+
 from src.crossencembeddingmodel import RerankerModelLoader
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
@@ -40,7 +41,9 @@ class RerankerConfig:
     device: Optional[str] = torch.device(
         "cuda"
         if torch.cuda.is_available()
-        else "cpu" if torch.backends.mps.is_available() else "cpu"
+        else "cpu"
+        if torch.backends.mps.is_available()
+        else "cpu"
     )
     model_name: str = "cross-encoder/ms-marco-MiniLM-L-12-v2"
 
@@ -60,34 +63,23 @@ class FlashReranker:
 
         """
         self.config = config or RerankerConfig()
-        self.device = (
-            self.config.device
-            if self.config.device is not None
-            else (
-                (
+        if self.config.device is not None:
+            self.device = self.config.device
+        else:
+            try:
+                self.device = torch.device(
                     "cuda"
                     if torch.cuda.is_available()
-                    and not any(
-                        torch.cuda.empty_cache() or False for _ in [None]
-                    )
+                    else "mps"
+                    if torch.backends.mps.is_available()
                     else "cpu"
                 )
-                if not any(
-                    logging.error(
-                        "Error detecting device, falling back to CPU"
-                    )
-                    or False
-                    for _ in [None]
-                )
-                else "cpu"
-            )
-        )
-
+            except Exception as e:
+                logging.error(f"Error detecting device, falling back to CPU: {e}")
+                self.device = "cpu"
         try:
-            self.model, self.tokenizer = (
-                RerankerModelLoader.load_reranker_model(
-                    self.config.model_name, self.device
-                )
+            self.model, self.tokenizer = RerankerModelLoader.load_reranker_model(
+                self.config.model_name, self.device
             )
             if self.model is None or self.tokenizer is None:
                 raise ValueError(
@@ -101,8 +93,8 @@ class FlashReranker:
             raise
 
     def _batch_tokenize(
-        self, query: str, passages: List[str]
-    ) -> Dict[str, torch.Tensor]:
+        self, query: str, passages: list[str]
+    ) -> dict[str, torch.Tensor]:
         """Tokenize w/ memory-efficient batching
 
         Parameters
@@ -158,7 +150,7 @@ class FlashReranker:
             )
 
     def _compute_relevance_scores(
-        self, inputs: Dict[str, torch.Tensor]
+        self, inputs: dict[str, torch.Tensor]
     ) -> torch.Tensor:
         """Compute scores
 
@@ -180,9 +172,7 @@ class FlashReranker:
                         with torch.inference_mode():
                             outputs = self.model(**inputs)
                     except RuntimeError:
-                        logging.warning(
-                            "CUDA error in scoring, falling back to CPU"
-                        )
+                        logging.warning("CUDA error in scoring, falling back to CPU")
                         self.device = "cpu"
                         device_type = RerankerModelLoader.get_model_device(
                             self.config.model_name
@@ -211,8 +201,8 @@ class FlashReranker:
             return torch.zeros(1)
 
     def _batch_process(
-        self, query: str, passages: List[str], batch_size: int
-    ) -> List[float]:
+        self, query: str, passages: list[str], batch_size: int
+    ) -> list[float]:
         """Process passages in memory-efficient batches
 
         Parameters
@@ -252,8 +242,8 @@ class FlashReranker:
         return all_scores
 
     def rerank(
-        self, query: str, passages: List[str], return_scores: bool = False
-    ) -> Union[List[str], Tuple[List[str], List[float]]]:
+        self, query: str, passages: list[str], return_scores: bool = False
+    ) -> Union[list[str], tuple[list[str], list[float]]]:
         """Mem-efficient reranking
 
         Parameters
@@ -281,9 +271,7 @@ class FlashReranker:
             scored_passages = list(zip(passages, scores))
             scored_passages.sort(key=lambda x: x[1], reverse=True)
             filtered = [
-                (p, s)
-                for p, s in scored_passages
-                if s >= self.config.threshold
+                (p, s) for p, s in scored_passages if s >= self.config.threshold
             ]
             if not filtered:
                 filtered = scored_passages
@@ -304,10 +292,10 @@ class FlashReranker:
 
     def evaluate(
         self,
-        queries: List[str],
-        passages: List[List[str]],
-        relevance_labels: List[List[int]],
-    ) -> Dict[str, float]:
+        queries: list[str],
+        passages: list[list[str]],
+        relevance_labels: list[list[int]],
+    ) -> dict[str, float]:
         """Evaluate reranker performance
 
         Parameters
@@ -331,9 +319,7 @@ class FlashReranker:
             "ndcg@10": [],  # Normalized Discounted Cumulative Gain
         }
 
-        for query, query_passages, labels in zip(
-            queries, passages, relevance_labels
-        ):
+        for query, query_passages, labels in zip(queries, passages, relevance_labels):
             try:
                 reranked_passages, scores = self.rerank(
                     query, query_passages, return_scores=True
@@ -353,9 +339,7 @@ class FlashReranker:
                     metrics["mrr"].append(0.0)
 
                 # -- P@1
-                metrics["precision@1"].append(
-                    1.0 if ranked_labels[0] > 0 else 0.0
-                )
+                metrics["precision@1"].append(1.0 if ranked_labels[0] > 0 else 0.0)
 
                 # -- NDCG@10
                 dcg = sum(
@@ -376,8 +360,8 @@ class FlashReranker:
         return {metric: np.mean(values) for metric, values in metrics.items()}
 
     def __call__(
-        self, query: str, passages: List[str], return_scores: bool = False
-    ) -> Union[List[str], Tuple[List[str], List[float]]]:
+        self, query: str, passages: list[str], return_scores: bool = False
+    ) -> Union[list[str], tuple[list[str], list[float]]]:
         """Convenience method to rerank context/passages
 
         Parameters

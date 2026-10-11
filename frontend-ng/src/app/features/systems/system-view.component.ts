@@ -1,0 +1,2303 @@
+import { MandateEditorComponent } from '@app/features/mandate/mandate-editor.component';
+import { SystemMandateComponent } from '@app/features/mandate/system-mandate.component';
+import { SystemMandateCoverageComponent } from './system-mandate-coverage.component';
+import { OperationalObjectiveComponent } from '@app/features/systems/operational-objective.component';
+import { ValueContractComponent } from '@app/features/systems/value-contract.component';
+import { ChangeDetectionStrategy, Component, HostListener, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { NgClass } from '@angular/common';
+import { ActivatedRoute, Router, RouterLink, type UrlTree } from '@angular/router';
+import { Subscription, forkJoin, of } from 'rxjs';
+import { catchError, distinctUntilChanged, map } from 'rxjs/operators';
+import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
+import { IconComponent } from '@app/shared/ui/icon.component';
+import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
+import { NavLinkDirective, RunOutcomeCardComponent, StatReadoutComponent } from '@app/shared/cockpit';
+import {
+  CkObjectHeaderComponent,
+  type CkObjectKpi,
+} from '@app/shared/cockpit/object-header.component';
+import { CkTabsComponent, CkTabComponent } from '@app/shared/cockpit/tabs.component';
+import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
+import { ApiService } from '@app/core/api.service';
+import { CanonicalApiService, type Run, type System, type SystemFlowState } from '@app/core/canonical-api.service';
+import { NewsLabComponent } from '@app/features/intelligence/news-lab.component';
+import { CaptureRouterComponent } from '@app/features/knowledge/capture-fil/capture-router.component';
+import { I18nService } from '@app/core/i18n.service';
+import { LensService } from '@app/core/lens';
+import { SettingsService } from '@app/core/settings.service';
+import { WorkspaceService, workspaceSettingFeature } from '@app/core/workspace.service';
+import { isObjectLens, type ObjectLens } from '@app/core/navigation.catalog';
+import { ZoomContextService } from '@app/core/zoom-context.service';
+import { WorkApiService } from '@app/features/experience/work/work-api.service';
+import {
+  sortSystemLinkedWorkApps,
+  withWorkReturnTo,
+  workEmblem,
+  type SystemLinkedWorkApp,
+} from '@app/features/experience/work/work-catalog';
+import { isCataloguedReturnTo } from '@app/features/experience/work/work-return';
+import {
+  WorkspaceViewContext,
+  type WorkspaceViewRequest,
+} from '@app/core/workspace-view-context';
+import { ToastrService } from 'ngx-toastr';
+import { FlowManifestService } from '@app/features/orchestration/flow/flow-manifest.service';
+import { SystemsStore } from './systems.store';
+import { SystemPerspectiveComponent } from './system-perspective.component';
+import { SystemValueLoopComponent } from './system-value-loop.component';
+import { isFlowBackedSystem, systemFlowProfile } from './system-flow-profile';
+import {
+  SYSTEM_OBJECT_LENSES,
+  systemPerspectiveAuthorizesValueLoop,
+  type PerspectiveFact,
+  type SystemPerspectiveResponse,
+} from './system-perspective.models';
+
+interface MetricsSummary {
+  total_requests?: number;
+  total_errors?: number;
+  error_rate_percent?: number;
+  metrics_count?: number;
+}
+
+interface LatestEvaluation {
+  composite_score?: number;
+  hallucination_rate?: number;
+  claim_audit?: unknown;
+  created_at?: string | null;
+}
+
+interface TraceRow {
+  id?: string;
+  trace_id?: string;
+  duration_ms?: number;
+  agent_id?: string;
+  system_id?: string;
+  operation_type?: string;
+}
+
+type SystemTabId =
+  | 'intelligence'
+  | 'overview'
+  | 'runs'
+  | 'design'
+  | 'context'
+  | 'capture'
+  | 'chat';
+
+/**
+ * Variant is a marker persisted on `flow_definition.variant` that lets
+ * SystemViewComponent adapt its facets without introducing a separate
+ * route. Specialist Systems can expose variant-specific labels and stages.
+ */
+type SystemVariant = 'intelligence' | 'expert_knowledge_capture' | 'translation_suite' | 'standard';
+
+interface WizardStep {
+  key: 'identity' | 'knowledge' | 'model' | 'guardrails' | 'launch';
+  title: string;
+  description: string;
+  icon: string;
+  cta: string;
+  route: string;
+  done: boolean;
+}
+
+interface PipelineStage {
+  key: string;
+  name: string;
+  icon: string;
+  description: string;
+  configureLabel: string;
+  route: UrlTree;
+  tone: 'brand' | 'violet' | 'emerald';
+}
+
+interface EffectiveRetrievalContext {
+  knowledgeScope?: string;
+  assistantProfile?: string;
+  surface?: string;
+  systemType?: string;
+  collections: string[];
+  retrievalDefaults?: Record<string, unknown>;
+  grounding?: Record<string, unknown>;
+  sourcePolicy?: Record<string, unknown>;
+}
+
+interface ContextConfigRow {
+  key: string;
+  value: string;
+}
+
+@Component({
+  selector: 'app-system-view',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    NgClass,
+    RouterLink,
+    NavLinkDirective,
+    ChatPanelComponent,
+    IconComponent,
+    StatReadoutComponent,
+    StatusPulseComponent,
+    RunOutcomeCardComponent,
+    CkObjectHeaderComponent,
+    CkTabsComponent,
+    CkTabComponent,
+    CkPanelComponent,
+    NewsLabComponent,
+    CaptureRouterComponent,
+    SystemPerspectiveComponent,
+    SystemValueLoopComponent,
+    OperationalObjectiveComponent,
+    ValueContractComponent,
+    SystemMandateComponent,
+    SystemMandateCoverageComponent,
+    MandateEditorComponent,
+  ],
+  styles: [`
+    :host .text-gray-500, :host .text-gray-600 { color: var(--ck-fg-3); }
+  `],
+  template: `
+    <ck-object-header
+      [eyebrow]="headerEyebrow()"
+      [title]="agentName() || i18n.t('systems.view.system')"
+      [subtitle]="agentDescription() || headerFallbackSubtitle()"
+      [kpis]="objectKpis()"
+    >
+      <app-status-pulse
+        status
+        [tone]="isDraft() ? 'warning' : 'success'"
+        [label]="isDraft() ? i18n.t('systems.view.draft') : i18n.t('systems.view.ready')"
+      />
+      @if (flowProfile() || designFlowProfile()) {
+        <a
+          actions
+          [navLink]="{ leaf: 'system-flow', ref: systemId, lens: 'build' }"
+          class="ck-btn-accent inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+          data-testid="system-open-flow"
+        >
+          <app-icon name="workflow" [size]="14" /> {{ i18n.t('systems.design.open_flow') }}
+        </a>
+      }
+      @if (flowPublicationEnabled()) {
+        <a
+          actions
+          [navLink]="{ leaf: 'system-run', ref: systemId }"
+          class="ck-btn-accent inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium transition"
+          [title]="i18n.t('systems.view.operator_hint')"
+          data-testid="system-operator-runner-link"
+        >
+          <app-icon name="play-circle" [size]="14" /> {{ i18n.t('systems.view.operator') }}
+        </a>
+      }
+      @if (!isExpertKnowledgeCapture()) {
+        <button
+          actions
+          type="button"
+          (click)="triggerRun()"
+          [disabled]="triggering() || isDraft()"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium transition"
+          style="border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-1); background:transparent;"
+          [style.opacity]="triggering() || isDraft() ? '0.4' : '1'"
+          data-testid="system-launch-run"
+        >
+          <app-icon name="play" [size]="12" />
+          {{ triggering() ? i18n.t('systems.run.queueing') : launchRunLabel() }}
+        </button>
+      }
+      @if (isExpertKnowledgeCapture()) {
+        <a
+          actions
+          [navLink]="{ leaf: 'system-capture-page', ref: systemId }"
+          class="ck-cta inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+          [title]="i18n.t('systems.view.capture.cta.hint')"
+        >
+          <app-icon name="mic" [size]="14" /> {{ i18n.t('systems.view.capture.cta') }}
+        </a>
+      }
+      @if (workLinkedApps().length === 1) {
+        <a
+          actions
+          id="open-in-work"
+          data-testid="system-open-in-work"
+          [routerLink]="workAppUrlTree(workLinkedApps()[0]!)"
+          class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+          [attr.title]="workOpenPreview(workLinkedApps()[0]!)"
+        >{{ i18n.t('nav.open_in_work') }} ↗</a>
+      } @else if (workLinkedApps().length > 1) {
+        <div
+          actions
+          class="relative inline-flex"
+          data-testid="system-open-in-work-menu"
+          (click)="$event.stopPropagation()"
+        >
+          <button
+            type="button"
+            id="open-in-work"
+            class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+            [attr.aria-expanded]="workMenuOpen()"
+            aria-haspopup="menu"
+            (click)="workMenuOpen.set(!workMenuOpen())"
+          >{{ i18n.t('nav.open_in_work_menu', { count: workLinkedApps().length }) }}</button>
+          @if (workMenuOpen()) {
+            <ul
+              role="menu"
+              class="absolute right-0 top-full mt-1 z-20 min-w-[16rem] py-1 rounded text-sm"
+              style="background:var(--ck-bg-panel-hi); border:1px solid var(--ck-stroke-soft); box-shadow:var(--ck-shadow-popover);"
+            >
+              @for (app of workLinkedApps(); track app.id) {
+                <li role="none">
+                  <a
+                    role="menuitem"
+                    class="flex items-center gap-2 px-3 py-2"
+                    style="color:var(--ck-fg-1);"
+                    [routerLink]="workAppUrlTree(app)"
+                    (click)="workMenuOpen.set(false)"
+                  >
+                    <span class="ck-mono shrink-0 w-6 text-center" aria-hidden="true">{{ workAppEmblem(app) }}</span>
+                    <span class="min-w-0 flex-1">
+                      <span class="block truncate font-medium">{{ app.name }}</span>
+                      <span class="block truncate text-xs" style="color:var(--ck-fg-3);">{{ workAppTypeLabel(app) }} · {{ workAppStatusLabel(app) }}</span>
+                    </span>
+                  </a>
+                </li>
+              }
+            </ul>
+          }
+        </div>
+      }
+      <button
+        actions
+        type="button"
+        (click)="chatPanelOpen.set(true)"
+        class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+        [title]="i18n.t('systems.view.chat_hint')"
+      >
+        <app-icon name="message-square" [size]="14" /> {{ i18n.t('systems.view.chat') }}
+      </button>
+      <a
+        actions
+        [navLink]="{ type: 'system', ref: systemId, lens: 'govern', facet: 'overview' }"
+        class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+        data-testid="system-mandate-link"
+      >
+        <app-icon name="shield-check" [size]="14" /> {{ i18n.t('mandate_system.open') }}
+      </a>
+      @if (showSystemSettingsAction()) {
+        <button
+          actions
+          type="button"
+          (click)="settingsPanelOpen.set(true)"
+          class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+          [title]="i18n.t('systems.view.settings_hint')"
+        >
+          <app-icon name="settings" [size]="14" /> {{ i18n.t('systems.view.settings') }}
+        </button>
+      }
+    </ck-object-header>
+
+    <ck-tabs
+      [active]="activeTab()"
+      (activeChange)="onTabChange($event)"
+      [ariaLabel]="i18n.t('systems.view.facets')"
+    >
+      @if (isIntelligence()) {
+        <ck-tab id="intelligence" [label]="i18n.t('systems.view.news_lab')">
+          <app-news-lab [systemId]="systemId" />
+        </ck-tab>
+      }
+
+      <ck-tab id="overview" [label]="i18n.t('systems.view.tab.overview')">
+        @if (activeObjectLens() === 'govern') {
+          @if (activeTab() === 'overview' && systemId) {
+            <app-system-mandate [systemId]="systemId" [compact]="true" />
+            <app-system-mandate-coverage [systemId]="systemId" />
+          }
+        } @else {
+<app-operational-objective [systemId]="systemId" />
+        @if (systemId) {
+          <app-value-contract [systemId]="systemId" />
+        }
+        @if (system360Enabled()) {
+          <app-system-perspective
+            [lens]="activeObjectLens()"
+            facet="overview"
+            [perspective]="activePerspective()"
+            [loading]="perspectivesLoading()"
+            [error]="perspectivesError()"
+          />
+          @if (activeObjectLens() === 'steer' && valueLoopEnabled()) {
+            <app-system-value-loop
+              [systemId]="systemId"
+              [workspaceKey]="workspaceRequestKey()"
+              [runs]="runs()"
+            />
+          }
+        } @else {
+        @if (isExpertKnowledgeCapture()) {
+          <div class="space-y-5">
+            <section class="ck-surface t-elevated rounded-md p-6">
+              <div class="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                <div class="max-w-2xl">
+                  <p class="ck-mono ck-accent text-[10px] tracking-[0.18em]">{{ i18n.t('systems.view.capture.eyebrow') }}</p>
+                  <h2 class="mt-2 text-2xl font-semibold text-white">{{ i18n.t('systems.view.capture.title') }}</h2>
+                  <p class="mt-3 text-sm leading-relaxed text-gray-400">
+                    {{ i18n.t('systems.view.capture.description') }}
+                  </p>
+                </div>
+                <a
+                  [navLink]="{ leaf: 'system-capture-page', ref: systemId }"
+                  class="ck-cta inline-flex shrink-0 items-center justify-center gap-2 rounded px-4 py-3 text-sm font-semibold"
+                >
+                  <app-icon name="mic" [size]="16" /> {{ i18n.t('systems.view.capture.open_sessions') }}
+                </a>
+              </div>
+            </section>
+
+            <section class="grid gap-3 md:grid-cols-4">
+              @for (step of captureSteps(); track step.label) {
+                <div class="rounded border border-white/10 bg-white/[0.03] p-4">
+                  <p class="ck-mono ck-accent text-[10px] tracking-wider">{{ step.label }}</p>
+                  <p class="mt-2 text-sm text-gray-300">{{ step.description }}</p>
+                </div>
+              }
+            </section>
+          </div>
+        } @else if (flowProfile(); as flow) {
+          <div class="space-y-6">
+            <section class="ck-surface t-elevated rounded-md p-5">
+              <div class="flex items-center gap-2 mb-3">
+                <app-icon name="play-circle" set="phosphor" [size]="16" class="ck-accent" />
+                <h3 class="text-sm font-semibold text-white">{{ i18n.t('systems.flow.triggers') }}</h3>
+                <span class="ml-auto text-[11px] text-gray-500">{{ flow.triggers.length }}</span>
+              </div>
+              @if (flow.triggers.length === 0) {
+                <p class="text-xs text-gray-400 leading-relaxed">
+                  {{ i18n.t('systems.flow.triggers.empty') }}
+                </p>
+              } @else {
+                <ul class="grid gap-2 md:grid-cols-2">
+                  @for (trigger of flow.triggers; track trigger.nodeId) {
+                    <li class="flex items-center gap-3 rounded border border-white/5 bg-black/20 px-3 py-2.5">
+                      <span class="ck-pill ck-tone-info shrink-0">{{ trigger.kind }}</span>
+                      <span class="text-sm text-white truncate">{{ trigger.label }}</span>
+                    </li>
+                  }
+                </ul>
+              }
+            </section>
+
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              <ck-stat-readout variant="tile" [label]="i18n.t('systems.view.steps')" [value]="flow.nodeCount" icon="layers" />
+              <ck-stat-readout variant="tile" [label]="i18n.t('systems.view.connections')" [value]="flow.edgeCount" icon="git-commit" />
+              <ck-stat-readout variant="tile" [label]="i18n.t('systems.view.bound_skills')" [value]="flow.skillSlugs.length" icon="zap" />
+              <ck-stat-readout variant="tile"
+                [label]="i18n.t('systems.view.runs')"
+                [value]="kpiTraces()"
+                icon="git-commit"
+                [interactive]="true"
+                (click)="goto('/runs')"
+              />
+              <ck-stat-readout variant="tile"
+                [label]="i18n.t('systems.view.errors')"
+                [value]="kpiErrors()"
+                [trend]="errorsTrend()"
+                icon="alert-triangle"
+                [interactive]="true"
+                (click)="goto('/observability/performance')"
+              />
+              <ck-stat-readout variant="tile"
+                [label]="i18n.t('systems.view.latency')"
+                [value]="kpiLatency()"
+                unit="ms"
+                icon="gauge"
+                [interactive]="true"
+                (click)="goto('/runs')"
+              />
+            </div>
+            @if (kpisLoading()) {
+              <p class="text-[11px] text-gray-500 -mt-2">{{ i18n.t('systems.view.metrics_loading') }}</p>
+            }
+
+            <section class="ck-surface t-elevated rounded-md p-5">
+              <div class="flex items-center gap-2 mb-3">
+                <app-icon name="git-commit" [size]="16" class="ck-accent" />
+                <h3 class="text-sm font-semibold text-white">{{ i18n.t('systems.view.latest_runs') }}</h3>
+                <button
+                  type="button"
+                  (click)="onTabChange('runs')"
+                  class="ck-accent ml-auto text-[11px]"
+                >
+                  {{ i18n.t('systems.view.see_all') }}
+                </button>
+              </div>
+              @if (runsLoading()) {
+                <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-4);">{{ i18n.t('systems.view.runs_loading') }}</p>
+              } @else if (recentRuns().length === 0) {
+                <p class="text-xs text-gray-400">
+                  {{ i18n.t('systems.view.flow_no_runs') }}
+                </p>
+              } @else {
+                <div class="space-y-3">
+                  @for (run of recentRuns(); track run.id) {
+                    <ck-run-outcome-card [run]="run" />
+                  }
+                </div>
+              }
+            </section>
+          </div>
+        } @else {
+        <div class="space-y-6">
+        <!-- OmniRAG banner: each stage links to the matching configuration -->
+        <div
+          class="relative overflow-hidden ck-surface rounded-md p-5"
+          style="background: linear-gradient(135deg, rgba(0,188,212,0.08) 0%, rgba(139,92,246,0.08) 100%); border: 1px solid rgba(0,188,212,0.25);"
+        >
+          <div class="absolute -right-16 -top-16 w-56 h-56 rounded-full bg-cyan-500/15 blur-3xl pointer-events-none"></div>
+          <div class="relative flex items-center gap-3 flex-wrap">
+            <app-icon name="atom" set="phosphor" [size]="18" class="ck-accent" />
+            <span class="ck-accent text-xs tracking-wider font-semibold">
+              {{ pipelineBannerLabel() }}
+            </span>
+            <div class="flex items-center gap-2 ml-auto text-[11px]">
+              @for (stage of pipelineStages; track stage.key; let last = $last) {
+                <a
+                  [routerLink]="stage.route"
+                  class="ck-btn-quiet inline-flex items-center gap-1.5 px-2 py-1 rounded"
+                  [title]="i18n.t('systems.view.stage.open', { name: stage.configureLabel })"
+                >
+                  <app-icon [name]="stage.icon" [size]="11" class="ck-accent" />
+                  {{ stage.name }}
+                </a>
+                @if (!last) {
+                  <app-icon name="chevron-right" [size]="12" class="text-gray-600" />
+                }
+              }
+            </div>
+          </div>
+        </div>
+
+        <!-- KPI row — each tile is actionable and routes to observability -->
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <ck-stat-readout variant="tile"
+            [label]="i18n.t('systems.view.requests')"
+            [value]="kpiRequests()"
+            [hint]="i18n.t('systems.view.since_restart')"
+            icon="play-circle"
+            [interactive]="true"
+            (click)="goto('/observability/performance')"
+          />
+          <ck-stat-readout variant="tile"
+            [label]="i18n.t('systems.view.errors')"
+            [value]="kpiErrors()"
+            [trend]="errorsTrend()"
+            icon="alert-triangle"
+            [interactive]="true"
+            (click)="goto('/observability/performance')"
+          />
+          <ck-stat-readout variant="tile"
+            [label]="i18n.t('systems.view.latency')"
+            [value]="kpiLatency()"
+            unit="ms"
+            icon="gauge"
+            [interactive]="true"
+            (click)="goto('/runs')"
+          />
+          <ck-stat-readout variant="tile"
+            [label]="i18n.t('systems.view.quality')"
+            [value]="kpiQuality()"
+            unit="/100"
+            icon="target"
+            [interactive]="true"
+            (click)="goto('/observability')"
+          />
+          <ck-stat-readout variant="tile"
+            [label]="i18n.t('systems.view.error_rate')"
+            [value]="kpiErrorRate()"
+            unit="%"
+            [trend]="errorRateTrend()"
+            icon="alert-circle"
+            [interactive]="true"
+            (click)="goto('/observability/performance')"
+          />
+          <ck-stat-readout variant="tile"
+            [label]="i18n.t('systems.view.runs')"
+            [value]="kpiTraces()"
+            icon="git-commit"
+            [interactive]="true"
+            (click)="goto('/runs')"
+          />
+        </div>
+        @if (kpisLoading()) {
+          <p class="text-[11px] text-gray-500 -mt-2">{{ i18n.t('systems.view.metrics_loading') }}</p>
+        }
+
+        <!-- Setup wizard — each step has an actionable CTA -->
+        <section class="ck-surface t-elevated rounded-md p-6">
+          <div class="flex items-center gap-2 mb-4">
+            <app-icon name="list-checks" set="phosphor" [size]="16" class="ck-accent" />
+            <h3 class="text-base font-semibold text-white">{{ i18n.t('systems.view.checklist') }}</h3>
+            <span class="ml-auto text-xs text-gray-400">{{ i18n.t('systems.view.completed', { done: completedSteps(), total: wizard().length }) }}</span>
+          </div>
+
+          <div class="w-full h-1.5 rounded-full bg-white/5 overflow-hidden mb-4">
+            <div
+              class="h-full rounded-full transition-all"
+              [style.background]="'var(--ck-cta-bg)'"
+              [style.width.%]="(completedSteps() / wizard().length) * 100"
+            ></div>
+          </div>
+
+          <ul class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            @for (step of wizard(); track step.key; let i = $index) {
+              <li
+                class="flex items-start gap-3 px-4 py-3 rounded-md border"
+                [style.background]="step.done ? 'var(--ck-status-ok-bg)' : 'var(--ck-bg-inset)'"
+                [style.borderColor]="step.done ? 'var(--ck-status-ok-line)' : 'var(--ck-stroke-2)'"
+              >
+                <div
+                  class="w-9 h-9 rounded-md flex items-center justify-center shrink-0"
+                  [ngClass]="step.done ? 'ck-tone-ok' : 'ck-tone-info'"
+                >
+                  <app-icon [name]="step.done ? 'check-circle-2' : step.icon" [size]="16" />
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[10px] tracking-wider text-gray-500 font-semibold">{{ i18n.t('systems.view.step', { number: i + 1 }) }}</span>
+                    <span class="text-sm font-medium text-white">{{ step.title }}</span>
+                  </div>
+                  <p class="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{{ step.description }}</p>
+                </div>
+                <a
+                  [routerLink]="step.route"
+                  class="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-medium"
+                  [ngClass]="step.done ? 'ck-btn-quiet' : 'ck-cta'"
+                >
+                  <app-icon [name]="step.done ? 'external-link' : 'arrow-right'" [size]="12" />
+                  {{ step.cta }}
+                </a>
+              </li>
+            }
+          </ul>
+        </section>
+        </div>
+        }
+        }
+        }
+      </ck-tab>
+
+      <ck-tab id="runs" [label]="i18n.t('systems.view.runs')">
+        @if (system360Enabled()) {
+          <app-system-perspective
+            [lens]="activeObjectLens()"
+            facet="runs"
+            [perspective]="activePerspective()"
+            [loading]="perspectivesLoading()"
+            [error]="perspectivesError()"
+          />
+        } @else {
+        <div class="space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-sm font-semibold text-white">{{ i18n.t('systems.view.outcomes') }}</h3>
+              @if (navigation.navV5Enabled()) {
+                <a [navLink]="{ surface: 'runs' }" class="ck-mono text-xs" style="color:var(--ck-signal-cool);">
+                  {{ i18n.t('nav.facet.see_in_runs') }}
+                </a>
+              }
+              <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); letter-spacing:0.08em; margin-top:2px;">
+                {{ i18n.t('systems.view.outcomes_hint') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              (click)="loadRuns()"
+              class="ck-mono inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs transition"
+              style="background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-3); letter-spacing:0.12em; "
+            >
+              <app-icon name="refresh-cw" [size]="12" />
+              {{ i18n.t('systems.view.refresh') }}
+            </button>
+          </div>
+
+          @if (runsLoading()) {
+            <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-4);">{{ i18n.t('systems.view.runs_loading') }}</div>
+          } @else if (runs().length === 0) {
+            <div class="ck-surface rounded-md" style="padding:32px; text-align:center;">
+              <div class="ck-mono" style="font-size:10px; letter-spacing:0.16em;  color:var(--ck-fg-4); margin-bottom:8px;">
+                {{ i18n.t('systems.view.no_runs') }}
+              </div>
+              <p class="text-sm text-white mb-1">{{ i18n.t('systems.view.no_outcomes') }}</p>
+              <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-4);">
+                {{ i18n.t('systems.view.run_next_step') }}
+              </p>
+            </div>
+          } @else {
+            <div class="space-y-3">
+              @for (run of runs(); track run.id) {
+                <ck-run-outcome-card [run]="run" />
+              }
+            </div>
+          }
+        </div>
+        }
+      </ck-tab>
+
+      <ck-tab id="design" [label]="i18n.t('systems.view.tab.design')">
+        @if (system360Enabled()) {
+          <app-system-perspective
+            [lens]="activeObjectLens()"
+            facet="design"
+            [perspective]="activePerspective()"
+            [loading]="perspectivesLoading()"
+            [error]="perspectivesError()"
+          />
+        } @else if (designUsesPublication() && !designFlowState()) {
+          <section class="ck-surface rounded-md p-5" role="status">
+            @if (designFlowError()) {
+              <p>{{ i18n.t('systems.design.unavailable') }}</p>
+              <button type="button" class="ck-btn-soft mt-3" (click)="loadDesignFlow()">
+                {{ i18n.t('common.retry') }}
+              </button>
+            } @else {
+              <p>{{ i18n.t('systems.design.loading') }}</p>
+            }
+          </section>
+        } @else {
+        @if (designFlowState(); as state) {
+          <p class="ck-surface rounded-md p-4 mb-4" role="status" data-testid="system-design-version">
+            <strong>{{ i18n.t('systems.design.version', { revision: state.draft.revision, version: state.published.version_number }) }}</strong>
+            {{ i18n.t('systems.design.boundary') }}
+          </p>
+        }
+        @if (designFlowProfile(); as flow) {
+          <div class="space-y-4" data-testid="system-flow-design">
+            <div
+              class="ck-surface rounded-md p-4 flex items-start gap-3"
+              style="background: linear-gradient(135deg, rgba(139,92,246,0.08) 0%, rgba(0,188,212,0.08) 100%); border: 1px solid rgba(139,92,246,0.25);"
+            >
+              <div class="ck-tone-info w-10 h-10 rounded-md flex items-center justify-center shrink-0">
+                <app-icon name="workflow" set="phosphor" [size]="18" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-semibold text-white">{{ i18n.t('systems.design.graph') }}</div>
+                <p class="text-xs text-gray-400 mt-0.5 leading-relaxed max-w-2xl">
+                  {{ i18n.t('systems.design.counts', { nodes: flow.nodeCount, edges: flow.edgeCount }) }}
+                  @if (!designFlowState()) { {{ flowPublicationDetail() }} }
+                </p>
+              </div>
+              <a
+                [navLink]="{ leaf: 'system-flow', ref: systemId, lens: 'build' }"
+                class="ck-cta inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium shrink-0"
+              >
+                <app-icon name="workflow" [size]="14" /> {{ i18n.t('systems.design.open_flow') }}
+              </a>
+            </div>
+
+            @if (flow.triggers.length > 0) {
+              <section class="ck-surface t-elevated rounded-md p-5">
+                <div class="flex items-center gap-2 mb-3">
+                  <app-icon name="play-circle" [size]="16" class="ck-accent" />
+                  <h3 class="text-sm font-semibold text-white">{{ i18n.t('systems.design.triggers') }}</h3>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  @for (trigger of flow.triggers; track trigger.nodeId) {
+                    <span class="ck-tone-neutral inline-flex items-center gap-2 rounded px-2.5 py-1.5">
+                      <span class="ck-accent text-[10px] tracking-wider">{{ trigger.kind }}</span>
+                      <span class="text-xs text-gray-200">{{ trigger.label }}</span>
+                    </span>
+                  }
+                </div>
+              </section>
+            }
+
+            <section class="ck-surface t-elevated rounded-md overflow-hidden">
+              <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
+                <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
+                  <app-icon name="layers" set="phosphor" [size]="16" class="ck-accent" />
+                  {{ i18n.t('systems.design.steps') }}
+                </h3>
+                <span class="text-[10px] tracking-wider text-gray-500 font-semibold">
+                  {{ i18n.t('systems.design.counts', { nodes: flow.nodeCount, edges: flow.edgeCount }) }}
+                </span>
+              </div>
+              <ul>
+                @for (step of flow.steps; track step.nodeId; let i = $index; let last = $last) {
+                  <li
+                    class="px-5 py-3 flex items-center gap-4"
+                    [class.border-b]="!last"
+                    [class.border-white\\/5]="!last"
+                  >
+                    <span class="ck-mono text-[10px] text-gray-500 w-6 shrink-0">{{ i + 1 }}</span>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-sm font-medium text-white truncate">{{ step.label }}</span>
+                        <span class="text-[10px] tracking-wider px-1.5 py-0.5 rounded bg-white/5 text-gray-400 ring-1 ring-white/10">
+                          {{ step.kind }}
+                        </span>
+                        @if (step.runtimeStatus) {
+                          <span
+                            class="ck-pill"
+                            [ngClass]="step.operational ? 'ck-tone-ok' : 'ck-tone-warn'"
+                          >
+                            {{ step.runtimeStatus }}
+                          </span>
+                        }
+                      </div>
+                      <p class="font-mono text-[11px] text-gray-500 mt-0.5 truncate">
+                        {{ step.skillSlug || step.nodeId }}
+                      </p>
+                    </div>
+                  </li>
+                }
+              </ul>
+            </section>
+
+            @if (flow.skillSlugs.length > 0) {
+              <section class="ck-surface t-elevated rounded-md p-5">
+                <div class="flex items-center gap-2 mb-3">
+                  <app-icon name="zap" [size]="16" class="ck-accent" />
+                  <h3 class="text-sm font-semibold text-white">{{ i18n.t('systems.design.skills') }}</h3>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  @for (slug of flow.skillSlugs; track slug) {
+                    <a
+                      [navLink]="{ type: 'skill', ref: slug }"
+                      class="ck-tone-info font-mono text-[11px] px-2 py-1 rounded"
+                    >
+                      {{ slug }}
+                    </a>
+                  }
+                </div>
+              </section>
+            }
+          </div>
+        } @else if (designFlowState()) {
+          <section class="ck-surface rounded-md p-5">
+            <p>{{ i18n.t('systems.design.configuration') }}</p>
+            <a [navLink]="{ leaf: 'system-flow', ref: systemId, lens: 'build' }" class="ck-btn-soft mt-3 inline-flex">
+              {{ i18n.t('systems.design.open_flow') }}
+            </a>
+          </section>
+        } @else {
+        <div class="space-y-4">
+        <!-- Orientation banner -->
+        <div
+          class="ck-surface rounded-md p-4 flex items-start gap-3"
+          style="background: linear-gradient(135deg, rgba(139,92,246,0.08) 0%, rgba(0,188,212,0.08) 100%); border: 1px solid rgba(139,92,246,0.25);"
+        >
+          <div class="ck-tone-info w-10 h-10 rounded-md flex items-center justify-center shrink-0">
+            <app-icon name="workflow" set="phosphor" [size]="18" />
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-semibold text-white">{{ i18n.t('systems.view.blueprint') }}</div>
+            <p class="text-xs text-gray-400 mt-0.5 leading-relaxed max-w-2xl">
+              {{ i18n.t('systems.view.blueprint_hint') }}
+            </p>
+          </div>
+          <a
+            [navLink]="{ leaf: 'system-flow', ref: systemId, lens: 'build' }"
+            class="ck-cta inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium shrink-0"
+          >
+            <app-icon name="workflow" [size]="14" /> {{ i18n.t('systems.design.open_flow') }}
+          </a>
+        </div>
+
+        <!-- Pipeline stages — each with inline "Configure" action -->
+        <section class="ck-surface t-elevated rounded-md overflow-hidden">
+          <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
+              <app-icon name="layers" set="phosphor" [size]="16" class="ck-accent" />
+              {{ i18n.t('systems.view.stages') }}
+            </h3>
+            <span class="text-[10px] tracking-wider text-gray-500 font-semibold">
+              {{ i18n.t('systems.view.stages_active', { count: pipelineStages.length }) }}
+            </span>
+          </div>
+          <ul>
+            @for (stage of pipelineStages; track stage.key; let i = $index; let last = $last) {
+              <li
+                class="px-5 py-4 flex items-center gap-4"
+                [class.border-b]="!last"
+                [class.border-white\\/5]="!last"
+              >
+                <div
+                  class="w-11 h-11 rounded-md flex items-center justify-center shrink-0"
+                  [ngClass]="stage.tone === 'emerald' ? 'ck-tone-ok' : 'ck-tone-info'"
+                >
+                  <app-icon [name]="stage.icon" [size]="18" />
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[10px] tracking-wider text-gray-500 font-semibold">L{{ i + 1 }}</span>
+                    <span class="text-sm font-medium text-white">{{ stage.name }}</span>
+                  </div>
+                  <p class="text-[12px] text-gray-400 mt-0.5 leading-relaxed">{{ stage.description }}</p>
+                </div>
+                <a
+                  [routerLink]="stage.route"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition shrink-0"
+                >
+                  <app-icon name="settings-2" [size]="12" /> {{ stage.configureLabel }}
+                </a>
+              </li>
+            }
+          </ul>
+        </section>
+        </div>
+        }
+        }
+      </ck-tab>
+
+      <ck-tab id="context" [label]="i18n.t('systems.view.tab.context')">
+        @if (activeTab() === 'context' && systemId) {
+          <app-mandate-editor [systemId]="systemId" />
+        }
+        @if (system360Enabled() && activeObjectLens() !== 'govern') {
+          <app-system-perspective
+            [lens]="activeObjectLens()"
+            facet="context"
+            [perspective]="activePerspective()"
+            [loading]="perspectivesLoading()"
+            [error]="perspectivesError()"
+          />
+        } @else {
+        <div class="space-y-4">
+        @if (contextLoading()) {
+          <div class="ck-surface t-elevated rounded-md p-5 animate-pulse">
+            <div class="h-3 w-40 bg-white/5 rounded mb-2"></div>
+            <div class="h-3 w-64 bg-white/5 rounded"></div>
+          </div>
+        } @else if (!currentContext() && effectiveRetrievalContext(); as retrievalContext) {
+          <section class="ck-surface t-elevated rounded-md p-5">
+            <div class="flex items-start gap-3 mb-5">
+              <div class="ck-tone-info w-9 h-9 rounded inline-flex items-center justify-center">
+                <app-icon name="database" set="phosphor" [size]="16" />
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <h3 class="text-sm font-semibold text-white">{{ i18n.t('systems.view.retrieval_context') }}</h3>
+                  <span class="ck-pill ck-tone-ok">{{ i18n.t('systems.view.scoped') }}</span>
+                </div>
+                <p class="text-xs text-gray-400 mt-1 leading-relaxed">
+                  {{ i18n.t('systems.view.retrieval_context_hint') }}
+                </p>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <a
+                  [navLink]="{ surface: 'knowledge' }"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+                >
+                  <app-icon name="database" [size]="12" /> {{ i18n.t('systems.view.open_knowledge') }}
+                </a>
+                <a
+                  [navLink]="{ leaf: 'system-flow', ref: systemId, lens: 'build' }"
+                  class="ck-cta inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium"
+                >
+                  <app-icon name="workflow" [size]="12" /> {{ i18n.t('systems.view.open_flow') }}
+                </a>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+              <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
+                <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-1">{{ i18n.t('systems.view.knowledge_scope') }}</div>
+                <div class="font-mono text-xs text-gray-200 break-all">{{ retrievalContext.knowledgeScope || '—' }}</div>
+              </div>
+              <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
+                <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-1">{{ i18n.t('systems.view.assistant_profile') }}</div>
+                <div class="font-mono text-xs text-gray-200 break-all">{{ retrievalContext.assistantProfile || '—' }}</div>
+              </div>
+              <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
+                <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-1">{{ i18n.t('systems.view.surface') }}</div>
+                <div class="font-mono text-xs text-gray-200 break-all">{{ retrievalContext.surface || '—' }}</div>
+              </div>
+              <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
+                <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-1">{{ i18n.t('systems.view.system_type') }}</div>
+                <div class="font-mono text-xs text-gray-200 break-all">{{ retrievalContext.systemType || '—' }}</div>
+              </div>
+            </div>
+
+            <div class="rounded bg-black/20 ring-1 ring-white/10 p-3 mb-4">
+              <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-2">{{ i18n.t('systems.view.collections') }}</div>
+              @if (retrievalContext.collections.length === 0) {
+                <div class="text-sm text-gray-500">—</div>
+              } @else {
+                <div class="flex flex-wrap gap-2">
+                  @for (collection of retrievalContext.collections; track collection) {
+                    <span class="ck-tone-info font-mono text-[11px] px-2 py-1 rounded">
+                      {{ collection }}
+                    </span>
+                  }
+                </div>
+              }
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+              <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
+                <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-2">{{ i18n.t('systems.view.retrieval_defaults') }}</div>
+                @if (retrievalDefaultsRows().length === 0) {
+                  <div class="text-sm text-gray-500">—</div>
+                } @else {
+                  <dl class="space-y-1.5">
+                    @for (row of retrievalDefaultsRows(); track row.key) {
+                      <div class="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)] gap-2 text-xs">
+                        <dt class="text-gray-500 font-mono truncate">{{ row.key }}</dt>
+                        <dd class="text-gray-200 font-mono break-all">{{ row.value }}</dd>
+                      </div>
+                    }
+                  </dl>
+                }
+              </div>
+              <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
+                <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-2">{{ i18n.t('systems.view.grounding') }}</div>
+                @if (groundingRows().length === 0) {
+                  <div class="text-sm text-gray-500">—</div>
+                } @else {
+                  <dl class="space-y-1.5">
+                    @for (row of groundingRows(); track row.key) {
+                      <div class="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)] gap-2 text-xs">
+                        <dt class="text-gray-500 font-mono truncate">{{ row.key }}</dt>
+                        <dd class="text-gray-200 font-mono break-all">{{ row.value }}</dd>
+                      </div>
+                    }
+                  </dl>
+                }
+              </div>
+              <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
+                <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-2">{{ i18n.t('systems.view.source_policy') }}</div>
+                @if (sourcePolicyRows().length === 0) {
+                  <div class="text-sm text-gray-500">—</div>
+                } @else {
+                  <dl class="space-y-1.5">
+                    @for (row of sourcePolicyRows(); track row.key) {
+                      <div class="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)] gap-2 text-xs">
+                        <dt class="text-gray-500 font-mono truncate">{{ row.key }}</dt>
+                        <dd class="text-gray-200 font-mono break-all">{{ row.value }}</dd>
+                      </div>
+                    }
+                  </dl>
+                }
+              </div>
+            </div>
+          </section>
+        } @else if (!currentContext()) {
+          <div class="ck-surface t-elevated rounded-md p-8 text-center text-gray-400 text-sm">
+            {{ i18n.t('systems.view.no_context') }}
+            <div class="mt-3">
+              <a
+                [navLink]="{ surface: 'contexts' }"
+                class="ck-cta inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium"
+              >
+                <app-icon name="external-link" [size]="12" /> {{ i18n.t('systems.view.manage_contexts') }}
+              </a>
+            </div>
+          </div>
+        } @else {
+          <section class="ck-surface t-elevated rounded-md p-5">
+            <div class="flex items-center gap-2 mb-4">
+              <app-icon name="database" [size]="14" class="ck-accent" />
+              <h3 class="text-sm font-semibold text-white">{{ currentContext()!.name }}</h3>
+              <span class="ml-auto text-[10px] font-mono px-2 py-0.5 rounded bg-white/5 text-gray-400 ring-1 ring-white/10">
+                v{{ currentContext()!.version ?? 1 }}
+              </span>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+              <div>
+                <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-1">{{ i18n.t('systems.view.data_refs') }}</div>
+                @if ((currentContext()!.data_refs ?? []).length === 0) {
+                  <div class="text-gray-500">—</div>
+                } @else {
+                  <ul class="space-y-1">
+                    @for (ref of currentContext()!.data_refs ?? []; track $index) {
+                      <li class="font-mono text-xs text-gray-300 truncate">{{ ref }}</li>
+                    }
+                  </ul>
+                }
+              </div>
+              <div>
+                <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-1">{{ i18n.t('systems.view.memory_refs') }}</div>
+                @if ((currentContext()!.memory_refs ?? []).length === 0) {
+                  <div class="text-gray-500">—</div>
+                } @else {
+                  <ul class="space-y-1">
+                    @for (ref of currentContext()!.memory_refs ?? []; track $index) {
+                      <li class="font-mono text-xs text-gray-300 truncate">{{ ref }}</li>
+                    }
+                  </ul>
+                }
+              </div>
+              <div>
+                <div class="text-[10px] tracking-wider text-gray-500 font-semibold mb-1">{{ i18n.t('systems.view.permissions') }}</div>
+                <pre class="font-mono text-[11px] text-gray-300 whitespace-pre-wrap break-all">{{ permissionsPreview() }}</pre>
+              </div>
+            </div>
+          </section>
+        }
+        </div>
+        }
+      </ck-tab>
+
+      <ck-tab id="capture" [label]="i18n.t('nav.facet.capture')">
+        @if (activeTab() === 'capture') {
+          <app-capture-router />
+        }
+      </ck-tab>
+    </ck-tabs>
+
+    <!-- Settings side panel — opened via header button; never a tab. -->
+    <ck-panel
+      [open]="settingsPanelOpen()"
+      (openChange)="settingsPanelOpen.set($event)"
+      position="side"
+      [eyebrow]="i18n.t('systems.view.panel')"
+      [title]="i18n.t('systems.view.settings')"
+      width="480px"
+    >
+      <div class="space-y-4">
+        <p class="text-xs text-gray-400">
+          {{ i18n.t('systems.view.settings_description') }}
+        </p>
+        <a
+          [navLink]="{ surface: 'presets' }"
+          class="ck-cta inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium"
+        >
+          <app-icon name="sliders-horizontal" [size]="12" /> {{ i18n.t('systems.view.settings_edit') }}
+        </a>
+        <a
+          [routerLink]="workspaceAccessRoute()"
+          class="ml-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 text-gray-200 ring-1 ring-white/10 transition"
+        >
+          <app-icon name="shield-check" [size]="12" /> {{ i18n.t('systems.view.manage_iam') }}
+        </a>
+
+        <section class="ck-surface t-elevated rounded-md p-5">
+          <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
+            <app-icon name="tag" set="phosphor" [size]="14" class="ck-accent" /> {{ i18n.t('systems.view.identity') }}
+          </h3>
+          <div class="space-y-3 text-sm">
+            <div>
+              <div class="text-[10px] tracking-wider text-gray-500 font-semibold">{{ i18n.t('systems.view.name') }}</div>
+              <div class="text-white">{{ agentName() }}</div>
+            </div>
+            <div>
+              <div class="text-[10px] tracking-wider text-gray-500 font-semibold">{{ i18n.t('systems.view.system_id') }}</div>
+              <div class="text-gray-300 font-mono text-xs break-all">{{ systemId }}</div>
+            </div>
+            <div>
+              <div class="text-[10px] tracking-wider text-gray-500 font-semibold">{{ i18n.t('systems.view.status') }}</div>
+              <div class="text-white capitalize">{{ isDraft() ? i18n.t('systems.view.draft') : i18n.t('systems.view.ready') }}</div>
+            </div>
+            <div>
+              <div class="text-[10px] tracking-wider text-gray-500 font-semibold">{{ i18n.t('systems.view.execution_mode') }}</div>
+              <div class="text-white">
+                {{ executionModeLabel() }}
+                <span class="ml-1 text-[10px] tracking-wider text-gray-500 font-mono">{{ executionModeRaw() }}</span>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section class="ck-surface t-elevated rounded-md p-5">
+          <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
+            <app-icon name="cpu" set="phosphor" [size]="14" class="ck-accent" /> {{ isDemoMode() ? i18n.t('systems.view.runtime') : i18n.t('systems.view.model') }}
+          </h3>
+          <div class="space-y-3 text-sm text-gray-300">
+            <div>
+              {{ isDemoMode() ? i18n.t('systems.view.runtime_policy') : i18n.t('systems.view.default_model') }}
+              <span class="text-white font-mono">{{ effectiveModel() }}</span>
+              @if (!isDemoMode() && systemDefaults()?.default_model) {
+                <span class="ck-pill ck-tone-info ml-1">{{ i18n.t('systems.view.override') }}</span>
+              }
+            </div>
+            <div>
+              {{ i18n.t('systems.view.reasoning_template') }}
+              <span class="text-white font-mono">{{ isDemoMode() ? i18n.t('systems.view.managed') : (systemDefaults()?.default_prompt_type || i18n.t('systems.view.auto')) }}</span>
+            </div>
+            <div>{{ i18n.t('systems.view.temperature') }} <span class="text-white font-mono">{{ isDemoMode() ? i18n.t('systems.view.managed') : (settings.settings().temperature?.toFixed(2) ?? '—') }}</span></div>
+            <div>{{ i18n.t('systems.view.max_tokens') }} <span class="text-white font-mono">{{ isDemoMode() ? i18n.t('systems.view.managed') : (settings.settings().maxTokens ?? '—') }}</span></div>
+          </div>
+        </section>
+        <section class="ck-surface t-elevated rounded-md p-5">
+          <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
+            <app-icon name="database" set="phosphor" [size]="14" class="ck-accent" /> {{ i18n.t('systems.view.retrieval') }}
+          </h3>
+          <div class="space-y-3 text-sm text-gray-300">
+            <div>
+              {{ i18n.t('systems.view.pipeline') }}
+              <span class="text-white font-mono">{{ systemDefaults()?.retrieval_mode_default || settings.ragPipelineMode() || '—' }}</span>
+              @if (systemDefaults()?.retrieval_mode_default && systemDefaults()?.retrieval_mode_default !== 'auto') {
+                <span class="ck-pill ck-tone-info ml-1">{{ i18n.t('systems.view.pinned') }}</span>
+              }
+            </div>
+            <div>{{ i18n.t('systems.view.top_k') }} <span class="text-white font-mono">{{ settings.settings().ragTopK ?? '—' }}</span></div>
+            <div>{{ i18n.t('systems.view.similarity') }} <span class="text-white font-mono">{{ settings.settings().ragSimilarityThreshold?.toFixed(2) ?? '—' }}</span></div>
+            <div class="pt-1">
+              <a
+                [navLink]="{ surface: 'knowledge' }"
+                class="ck-accent inline-flex items-center gap-1 text-xs"
+              >
+                <app-icon name="external-link" [size]="11" /> {{ i18n.t('systems.view.manage_collections') }}
+              </a>
+            </div>
+          </div>
+        </section>
+      </div>
+    </ck-panel>
+
+    <!-- Chat side panel — opens on demand, preserves the canvas context. -->
+    <ck-panel
+      [open]="chatPanelOpen()"
+      (openChange)="chatPanelOpen.set($event)"
+      position="side"
+      [eyebrow]="i18n.t('systems.view.panel')"
+      [title]="i18n.t('systems.view.chat')"
+      width="520px"
+    >
+      <div class="ck-surface t-elevated rounded-md p-0 overflow-hidden min-h-[520px]">
+        <app-chat-panel [systemId]="systemId" />
+      </div>
+    </ck-panel>
+  `,
+})
+export class SystemViewComponent implements OnInit, OnDestroy {
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly store = inject(SystemsStore);
+  private readonly api = inject(ApiService);
+  private readonly canonical = inject(CanonicalApiService);
+  private readonly toast = inject(ToastrService);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly flowManifest = inject(FlowManifestService);
+  readonly i18n = inject(I18nService);
+  readonly settings = inject(SettingsService);
+  readonly lensService = inject(LensService);
+  readonly navigation = inject(ZoomContextService);
+  private readonly workApi = inject(WorkApiService);
+  readonly workLinkedApps = signal<SystemLinkedWorkApp[]>([]);
+  readonly workMenuOpen = signal(false);
+  private workAppsSubscription: Subscription | null = null;
+  private systemRouteSubscription: Subscription | null = null;
+  private facetRouteSubscription: Subscription | null = null;
+  private viewSubscriptions = new Subscription();
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly perspectiveCache = new Map<string, SystemPerspectiveResponse>();
+  private readonly workspaceView = new WorkspaceViewContext(
+    this.workspace,
+    () => this.resetWorkspaceState(),
+    () => this.reloadCurrentSystem(),
+  );
+
+  @HostListener('document:click')
+  onDocumentClick(): void {
+    if (this.workMenuOpen()) this.workMenuOpen.set(false);
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (this.workMenuOpen()) this.workMenuOpen.set(false);
+  }
+
+  readonly runs = signal<Run[]>([]);
+  readonly runsLoading = signal(false);
+  readonly triggering = signal(false);
+
+  systemId = '';
+  agentName = signal('');
+  agentDescription = signal('');
+  isDraft = signal(false);
+  activeTab = signal<SystemTabId>('overview');
+
+  /**
+   * Variant derived from `flow_definition.variant`. When set to
+   * `intelligence`, the view prepends a dedicated facet for the News Lab
+   * so `/intelligence` is a thin redirect rather than a standalone page.
+   */
+  readonly variant = signal<SystemVariant>('standard');
+  readonly isIntelligence = computed(() => this.variant() === 'intelligence');
+  readonly isExpertKnowledgeCapture = computed(() => this.variant() === 'expert_knowledge_capture');
+  readonly isTranslationSuite = computed(() => this.variant() === 'translation_suite');
+  readonly headerEyebrow = computed(() => {
+    const type = this.isIntelligence()
+      ? this.i18n.t('systems.view.eyebrow_intelligence')
+      : this.isExpertKnowledgeCapture()
+        ? this.i18n.t('systems.view.capture.eyebrow')
+        : this.isTranslationSuite()
+          ? this.i18n.t('systems.view.eyebrow_translation')
+          : this.flowChromeActive()
+            ? this.i18n.t('systems.view.eyebrow_flow')
+            : this.i18n.t('systems.view.eyebrow_system');
+    if (!this.navigation.navV5Enabled()) return type;
+    return this.i18n.t('nav.eyebrow.from_zone', {
+      type,
+      zone: this.i18n.t(this.navigation.zoneI18nKey()),
+    });
+  });
+  readonly headerFallbackSubtitle = computed(() =>
+    this.isIntelligence()
+      ? this.i18n.t('systems.view.subtitle_intelligence')
+      : this.isExpertKnowledgeCapture()
+        ? this.i18n.t('systems.view.capture.subtitle')
+        : this.isTranslationSuite()
+          ? this.i18n.t('systems.view.subtitle_translation')
+          : this.flowChromeActive()
+            ? this.i18n.t('systems.view.subtitle_flow')
+            : this.i18n.t('systems.view.subtitle_system'),
+  );
+
+  /** Banner label above the stage strip — names what the stages belong to. */
+  readonly pipelineBannerLabel = computed(() =>
+    this.isTranslationSuite()
+      ? 'Translation Suite'
+      : this.isExpertKnowledgeCapture()
+        ? this.i18n.t('systems.view.capture.journey')
+        : this.i18n.t('systems.view.pipeline_banner'),
+  );
+
+  /** The four beats of a capture session, shown before the first one starts. */
+  readonly captureSteps = computed(() =>
+    ([1, 2, 3, 4] as const).map((n) => ({
+      label: this.i18n.t(`systems.view.capture.step${n}`),
+      description: this.i18n.t(`systems.view.capture.step${n}.desc`),
+    })),
+  );
+  /** Side panels — Settings and Chat live here, never as tabs. */
+  readonly settingsPanelOpen = signal(false);
+  readonly chatPanelOpen = signal(false);
+  readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
+  readonly showSystemSettingsAction = computed(() => !this.isExpertKnowledgeCapture() || !this.isDemoMode());
+  readonly flowPublicationEnabled = computed(() => {
+    const current = this.workspace.current();
+    const effective = current?.effective_features?.['flow_publication_v1'];
+    if (typeof effective === 'boolean') return effective;
+    return !!current && workspaceSettingFeature(current, 'flow_publication_v1', true);
+  });
+
+  readonly systemDefaults = signal<{
+    default_prompt_type?: string | null;
+    default_model?: string | null;
+    retrieval_mode_default?: string | null;
+    execution_mode?: string | null;
+  } | null>(null);
+
+  readonly executionModeRaw = computed(
+    () => this.systemDefaults()?.execution_mode || 'real_time_decision',
+  );
+
+  readonly executionModeLabel = computed(() => {
+    switch (this.executionModeRaw()) {
+      case 'real_time_decision':
+        return this.i18n.t('systems.view.realtime');
+      case 'batch_processing':
+        return this.i18n.t('systems.view.batch');
+      case 'event_driven_automation':
+        return this.i18n.t('systems.view.event_driven');
+      case 'continuous_monitoring':
+        return this.i18n.t('systems.view.monitoring');
+      case 'human_augmented':
+        return this.i18n.t('systems.view.human_augmented');
+      default:
+        return this.executionModeRaw();
+    }
+  });
+
+  readonly effectiveModel = computed(() => {
+    if (this.isDemoMode()) return this.i18n.t('systems.view.managed_workspace');
+    const d = this.systemDefaults();
+    return d?.default_model || this.settings.settings().defaultModel || '—';
+  });
+
+  readonly workspaceAccessRoute = computed(() => {
+    const slug = this.workspace.current()?.slug || this.workspace.currentSlug();
+    return slug
+      ? `/workspace/${encodeURIComponent(slug)}/access`
+      : this.navigation.leafUrl('governance-access');
+  });
+
+  readonly systemSnapshot = signal<System | null>(null);
+  readonly designFlowState = signal<SystemFlowState | null>(null);
+  readonly designFlowError = signal(false);
+  readonly designUsesPublication = computed(() =>
+    !this.system360Enabled() && this.variant() === 'standard' && this.flowPublicationEnabled(),
+  );
+  readonly designFlowProfile = computed(() => {
+    if (!this.designUsesPublication()) return this.flowProfile();
+    const system = this.systemSnapshot();
+    const state = this.designFlowState();
+    if (!system || !state || state.system_id !== system.id) return null;
+    // Runtime manifests describe the published graph, never this draft.
+    return systemFlowProfile({
+      ...system, flow_definition: state.draft.flow_definition,
+      published_flow_version_id: null, published_at: null, published_by: null,
+    });
+  });
+
+
+  /**
+   * Non-null only when the persisted graph proves the run engine walks it.
+   * Every facet that would otherwise describe an OmniRAG pipeline reads this
+   * first, so a System without that proof keeps its historical rendering.
+   */
+  readonly flowProfile = computed(() => {
+    const system = this.systemSnapshot();
+    if (!system) return null;
+    const manifest = this.flowManifest.manifest();
+    return systemFlowProfile(
+      system,
+      manifest?.system_id === system.id ? manifest : null,
+    );
+  });
+  /**
+   * The System 360 projection owns every facet when it is enabled, so the
+   * header must keep naming what the body renders. Naming the graph while the
+   * projection is on screen would also make the eyebrow flip once the async
+   * manifest lands, and the 360 canary asserts that chrome is invariant.
+   */
+  readonly flowChromeActive = computed(
+    () => !this.system360Enabled() && this.flowProfile() !== null,
+  );
+  readonly flowPublicationLabel = computed(() =>
+    this.flowProfile()?.publishedVersionId ? this.i18n.t('systems.view.published') : this.i18n.t('systems.view.draft_only'),
+  );
+
+  launchRunLabel(): string {
+    const versionId = this.flowProfile()?.publishedVersionId;
+    if (versionId) {
+      const short = String(versionId).startsWith('v')
+        ? String(versionId)
+        : `v${String(versionId).slice(0, 8)}`;
+      return this.i18n.t('systems.run.launch_version', { version: short });
+    }
+    return this.i18n.t('systems.run.launch');
+  }
+
+  readonly flowPublicationDetail = computed(() => {
+    const flow = this.flowProfile();
+    if (!flow) return '';
+    if (!flow.publishedVersionId) {
+      return this.i18n.t('systems.view.unpublished_detail');
+    }
+    const by = flow.publishedBy ? this.i18n.t('systems.view.published_by', { name: flow.publishedBy }) : '';
+    const at = flow.publishedAt ? this.i18n.t('systems.view.published_at', { date: new Intl.DateTimeFormat(this.i18n.locale()).format(new Date(flow.publishedAt)) }) : '';
+    return this.i18n.t('systems.view.published_detail', { at, by });
+  });
+  readonly flowSummaryLine = computed(() => {
+    const flow = this.flowProfile();
+    return flow ? this.i18n.t('systems.view.flow_summary', {
+      nodes: flow.nodeCount, edges: flow.edgeCount,
+      triggers: flow.triggers.length, skills: flow.skillSlugs.length,
+    }) : '';
+  });
+  readonly recentRuns = computed(() => this.runs().slice(0, 3));
+
+  readonly perspectives = signal<Partial<Record<ObjectLens, SystemPerspectiveResponse>>>({});
+  readonly perspectivesLoading = signal(false);
+  readonly perspectivesError = signal(false);
+  readonly activeObjectLens = computed<ObjectLens>(() => {
+    const lens = this.lensService.lens();
+    return isObjectLens(lens) ? lens : 'build';
+  });
+  readonly system360Enabled = computed(() => {
+    const systemSettings = asRecord(this.systemSnapshot()?.settings) ?? {};
+    const experience = asRecord(systemSettings['experience']) ?? {};
+    return (
+      workspaceSettingFeature(this.workspace.current(), 'cockpit_router_axes_v4', true) &&
+      workspaceSettingFeature(this.workspace.current(), 'system_360_projection_v1', true) &&
+      experience['system_360_canary'] === 'v1'
+    );
+  });
+  readonly valueLoopEnabled = computed(() => {
+    return this.system360Enabled()
+      && systemPerspectiveAuthorizesValueLoop(
+        this.perspectives().steer,
+        this.systemId,
+        this.systemSnapshot()?.workspace_id,
+      );
+  });
+  readonly workspaceRequestKey = computed(() =>
+    `${this.workspace.contextEpoch()}:${this.workspace.current()?.id || ''}:${this.workspace.currentSlug() || ''}`,
+  );
+  readonly activePerspective = computed(
+    () => this.perspectives()[this.activeObjectLens()] ?? null,
+  );
+  readonly currentContext = signal<import('@app/core/canonical-api.service').Context | null>(null);
+  readonly contextLoading = signal(false);
+  readonly effectiveRetrievalContext = computed(() => buildEffectiveRetrievalContext(this.systemSnapshot()));
+  readonly retrievalDefaultsRows = computed(() =>
+    contextRows(this.effectiveRetrievalContext()?.retrievalDefaults),
+  );
+  readonly groundingRows = computed(() => contextRows(this.effectiveRetrievalContext()?.grounding));
+  readonly sourcePolicyRows = computed(() => contextRows(this.effectiveRetrievalContext()?.sourcePolicy));
+
+  readonly permissionsPreview = computed(() => {
+    const p = this.currentContext()?.permissions ?? {};
+    const keys = Object.keys(p);
+    if (!keys.length) return '—';
+    return JSON.stringify(p, null, 2);
+  });
+
+  private readonly metrics = signal<MetricsSummary | null>(null);
+  private readonly latestEval = signal<LatestEvaluation | null>(null);
+  private readonly traces = signal<TraceRow[]>([]);
+  private readonly hasCollections = signal(false);
+  readonly kpisLoading = signal(false);
+
+  readonly kpiRequests = computed(() => this.metrics()?.total_requests ?? '—');
+  readonly kpiErrors = computed(() => this.metrics()?.total_errors ?? '—');
+  readonly kpiErrorRate = computed(() => {
+    const rate = this.metrics()?.error_rate_percent;
+    return rate == null ? '—' : rate.toFixed(1);
+  });
+  readonly kpiQuality = computed(() => {
+    const s = this.latestEval()?.composite_score;
+    return s == null ? '—' : s.toFixed(1);
+  });
+  readonly kpiTraces = computed(() => this.traces().length || '—');
+  readonly errorRateTrend = computed<'up' | null>(() => {
+    const rate = this.metrics()?.error_rate_percent;
+    return rate != null && rate > 0 ? 'up' : null;
+  });
+  readonly errorsTrend = computed<'up' | null>(() => {
+    const e = this.metrics()?.total_errors ?? 0;
+    return e > 0 ? 'up' : null;
+  });
+  readonly kpiLatency = computed(() => {
+    const rows = this.traces();
+    if (!rows.length) return '—';
+    const vals = rows.map((r) => r.duration_ms ?? 0).filter((v) => v > 0);
+    if (!vals.length) return '—';
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+    return Math.round(avg).toString();
+  });
+
+  /**
+   * Object-level KPIs rendered in the persistent `<ck-object-header>`.
+   * Values not yet tracked (ROI, unit cost) render as `—` — better to show
+   * the slot and admit ignorance than fake a number. See mental-model §6.
+   *
+   * The current lens is threaded in as a hint so future iterations can
+   * adapt the *set* of KPIs per lens (e.g. Govern highlights audit
+   * deltas); for now all lenses share the same 4 KPIs.
+   */
+  readonly objectKpis = computed<CkObjectKpi[]>(() => {
+    if (this.system360Enabled()) {
+      const header = this.perspectives()['build']?.header;
+      return [
+        { label: this.i18n.t('systems.view.status'), value: this.perspectiveHeaderValue(header?.status) },
+        { label: this.i18n.t('systems.view.runs'), value: this.perspectiveHeaderValue(header?.run_count) },
+        { label: this.i18n.t('systems.view.success'), value: this.perspectiveHeaderValue(header?.success_rate, '%') },
+        { label: this.i18n.t('systems.view.last_run'), value: this.perspectiveHeaderValue(header?.last_run_at) },
+      ];
+    }
+    const quality = this.latestEval()?.composite_score;
+    const errRate = this.metrics()?.error_rate_percent;
+    const yieldValue =
+      quality != null ? quality.toFixed(0) : errRate != null ? (100 - errRate).toFixed(0) : '—';
+    return [
+      { label: this.i18n.t('systems.view.roi'), value: '—', hint: this.i18n.t('systems.view.roi_hint') },
+      { label: this.i18n.t('systems.view.cost'), value: '—', hint: this.i18n.t('systems.view.cost_hint') },
+      {
+        label: this.i18n.t('systems.view.yield'),
+        value: yieldValue === '—' ? '—' : `${yieldValue}%`,
+        tone: yieldValue === '—' ? 'neutral' : 'cool',
+        hint: this.i18n.t('systems.view.yield_hint'),
+      },
+      {
+        label: this.i18n.t('systems.view.runs'),
+        value: String(this.traces().length || this.runs().length || 0),
+        tone: 'neutral',
+      },
+    ];
+  });
+
+  private perspectiveHeaderValue(fact: PerspectiveFact | undefined, suffix = ''): string {
+    if (!fact) return this.i18n.t('systems.view.state.loading');
+    if (fact.state !== 'available' || fact.value == null) {
+      return this.i18n.t(`systems.view.state.${fact.state === 'available' ? 'unavailable' : fact.state}`);
+    }
+    if (typeof fact.value === 'string') {
+      const label = this.i18n.t(`runs.status.${fact.value}`);
+      if (label !== `runs.status.${fact.value}`) return label;
+    }
+    return `${String(fact.value)}${suffix || fact.unit || ''}`;
+  }
+
+  onTabChange(id: string): void {
+    this.activeTab.set(id as SystemTabId);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { facet: id },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  readonly wizard = computed<WizardStep[]>(() => {
+    const s = this.settings.settings();
+    const hasModel = !!s.defaultModel;
+    const hasPipeline = !!this.settings.ragPipelineMode();
+    const draft = this.isDraft();
+    return [
+      {
+        key: 'identity',
+        title: this.i18n.t('systems.view.identity'),
+        description: this.i18n.t('systems.view.identity_description'),
+        icon: 'tag',
+        cta: this.i18n.t('systems.view.review'),
+        route: this.navigation.objectUrl('system', this.systemId),
+        done: !!this.agentName() && this.agentName() !== 'System',
+      },
+      {
+        key: 'knowledge',
+        title: this.i18n.t('systems.view.knowledge'),
+        description: this.i18n.t('systems.view.knowledge_description'),
+        icon: 'database',
+        cta: this.i18n.t('systems.view.open_knowledge'),
+        route: this.navigation.surfaceUrl('knowledge'),
+        done: this.hasCollections(),
+      },
+      {
+        key: 'model',
+        title: this.isDemoMode() ? this.i18n.t('systems.view.runtime') : this.i18n.t('systems.view.model'),
+        description: this.isDemoMode()
+          ? this.i18n.t('systems.view.model_managed_description')
+          : this.i18n.t('systems.view.model_description'),
+        icon: 'cpu',
+        cta: this.isDemoMode() ? this.i18n.t('systems.view.review') : this.i18n.t('systems.view.configure'),
+        route: this.navigation.surfaceUrl('presets'),
+        done: this.isDemoMode() ? true : hasModel,
+      },
+      {
+        key: 'guardrails',
+        title: this.i18n.t('systems.view.guardrails'),
+        description: this.i18n.t('systems.view.guardrails_description'),
+        icon: 'shield-check',
+        cta: this.i18n.t('systems.view.configure'),
+        route: this.navigation.surfaceUrl('presets'),
+        done: hasPipeline,
+      },
+      {
+        key: 'launch',
+        title: this.i18n.t('systems.view.launch'),
+        description: this.i18n.t('systems.view.launch_description'),
+        icon: 'rocket',
+        cta: this.i18n.t('systems.view.open_chat'),
+        route: this.navigation.objectUrl('system', this.systemId),
+        done: !draft,
+      },
+    ];
+  });
+
+  get pipelineStages(): PipelineStage[] {
+    if (this.isTranslationSuite()) {
+      return [
+        {
+          key: 'archive',
+          name: this.i18n.t('systems.view.stage.archive'),
+          icon: 'archive',
+          description: this.i18n.t('systems.view.stage.archive.description'),
+          configureLabel: this.i18n.t('systems.view.source'),
+          route: this.navigation.leafUrlTree('system-flow', { systemId: this.systemId }),
+          tone: 'brand',
+        },
+        {
+          key: 'memory',
+          name: this.i18n.t('systems.view.stage.memory'),
+          icon: 'database',
+          description: this.i18n.t('systems.view.stage.memory.description'),
+          configureLabel: this.i18n.t('systems.view.knowledge'),
+          route: this.navigation.surfaceUrlTree('knowledge'),
+          tone: 'violet',
+        },
+        {
+          key: 'pivot',
+          name: this.i18n.t('systems.view.stage.pivot'),
+          icon: 'workflow',
+          description: this.i18n.t('systems.view.stage.pivot.description'),
+          configureLabel: this.i18n.t('systems.view.flow'),
+          route: this.navigation.leafUrlTree('system-flow', { systemId: this.systemId }),
+          tone: 'brand',
+        },
+        {
+          key: 'fanout',
+          name: this.i18n.t('systems.view.stage.fanout'),
+          icon: 'globe-2',
+          description: this.i18n.t('systems.view.stage.fanout.description'),
+          configureLabel: this.i18n.t('systems.view.runtime'),
+          route: this.navigation.leafUrlTree('system-flow', { systemId: this.systemId }),
+          tone: 'violet',
+        },
+        {
+          key: 'qa',
+          name: this.i18n.t('systems.view.stage.qa'),
+          icon: 'list-checks',
+          description: this.i18n.t('systems.view.stage.qa.description'),
+          configureLabel: this.i18n.t('systems.view.guardrails'),
+          route: this.navigation.surfaceUrlTree('workspace-blueprints'),
+          tone: 'emerald',
+        },
+        {
+          key: 'delivery',
+          name: this.i18n.t('systems.view.stage.delivery'),
+          icon: 'shield-check',
+          description: this.i18n.t('systems.view.stage.delivery.description'),
+          configureLabel: this.i18n.t('systems.view.audit'),
+          route: this.navigation.leafUrlTree('governance-audit'),
+          tone: 'emerald',
+        },
+      ];
+    }
+    if (this.isExpertKnowledgeCapture()) {
+      return [
+        {
+          key: 'plan',
+          name: this.i18n.t('systems.view.stage.plan'),
+          icon: 'list-checks',
+          description: this.i18n.t('systems.view.stage.plan.desc'),
+          configureLabel: this.i18n.t('systems.view.capture.cta'),
+          route: this.navigation.leafUrlTree('system-capture-page', { systemId: this.systemId }),
+          tone: 'brand',
+        },
+        {
+          key: 'voice',
+          name: this.i18n.t('systems.view.stage.voice'),
+          icon: 'mic',
+          description: this.i18n.t('systems.view.stage.voice.desc'),
+          configureLabel: this.i18n.t('systems.view.capture.cta'),
+          route: this.navigation.leafUrlTree('system-capture-page', { systemId: this.systemId }),
+          tone: 'violet',
+        },
+        {
+          key: 'retrieve',
+          name: this.i18n.t('systems.view.stage.sources'),
+          icon: 'database',
+          description: this.i18n.t('systems.view.stage.sources.desc'),
+          configureLabel: this.i18n.t('systems.view.stage.sources'),
+          route: this.navigation.surfaceUrlTree('knowledge'),
+          tone: 'brand',
+        },
+        {
+          key: 'proposal',
+          name: this.i18n.t('systems.view.stage.report'),
+          icon: 'check-circle-2',
+          description: this.i18n.t('systems.view.stage.report.desc'),
+          configureLabel: this.i18n.t('systems.view.stage.report'),
+          route: this.navigation.leafUrlTree('system-flow', { systemId: this.systemId }),
+          tone: 'emerald',
+        },
+      ];
+    }
+    return [
+      {
+        key: 'query',
+        name: this.i18n.t('systems.view.stage.query'),
+        icon: 'message-square',
+        description: this.i18n.t('systems.view.stage.query.description'),
+        configureLabel: this.i18n.t('systems.view.system_prompt'),
+        route: this.navigation.surfaceUrlTree('presets'),
+        tone: 'brand',
+      },
+      {
+        key: 'retrieve',
+        name: this.i18n.t('systems.view.stage.retrieve'),
+        icon: 'database',
+        description: this.i18n.t('systems.view.stage.retrieve.description'),
+        configureLabel: this.i18n.t('systems.view.collections'),
+        route: this.navigation.surfaceUrlTree('knowledge'),
+        tone: 'violet',
+      },
+      {
+        key: 'rerank',
+        name: this.i18n.t('systems.view.stage.rerank'),
+        icon: 'filter',
+        description: this.i18n.t('systems.view.stage.rerank.description'),
+        configureLabel: this.i18n.t('systems.view.top_k_threshold'),
+        route: this.navigation.surfaceUrlTree('presets'),
+        tone: 'brand',
+      },
+      {
+        key: 'generate',
+        name: this.i18n.t('systems.view.stage.generate'),
+        icon: 'sparkles',
+        description: this.i18n.t('systems.view.stage.generate.description'),
+        configureLabel: this.i18n.t('systems.view.model'),
+        route: this.navigation.surfaceUrlTree('presets'),
+        tone: 'emerald',
+      },
+    ];
+  }
+
+  readonly completedSteps = computed(() => this.wizard().filter((s) => s.done).length);
+
+  goto(path: string): void {
+    this.router.navigateByUrl(path);
+  }
+
+  ngOnInit(): void {
+    this.systemRouteSubscription = this.route.paramMap.pipe(
+      map((params) => params.get('systemId') ?? ''),
+      distinctUntilChanged(),
+    ).subscribe((systemId) => {
+      this.workspaceView.invalidate();
+      this.cancelViewRequests();
+      this.systemId = systemId;
+      this.clearSystemData();
+      this.reloadCurrentSystem();
+      this.refreshWorkLinkedApps(systemId);
+    });
+    this.facetRouteSubscription = this.route.queryParamMap.pipe(
+      map((params) => params.get('facet')),
+      distinctUntilChanged(),
+    ).subscribe(() => this.applyRequestedFacet());
+  }
+
+  ngOnDestroy(): void {
+    this.systemRouteSubscription?.unsubscribe();
+    this.systemRouteSubscription = null;
+    this.facetRouteSubscription?.unsubscribe();
+    this.facetRouteSubscription = null;
+    this.workAppsSubscription?.unsubscribe();
+    this.workAppsSubscription = null;
+    this.workspaceView.destroy();
+  }
+
+  /** Cockpit URL with the active facet — carried as Work `returnTo`. */
+  cockpitReturnTo(): string {
+    if (!this.systemId) return '/systems';
+    return this.navigation.resolveLink({
+      type: 'system',
+      ref: this.systemId,
+      facet: this.activeTab(),
+    }).url;
+  }
+
+  workAppUrlTree(app: SystemLinkedWorkApp): UrlTree {
+    const returnTo = this.cockpitReturnTo();
+    const href = withWorkReturnTo(
+      app.href,
+      isCataloguedReturnTo(returnTo) ? returnTo : null,
+    );
+    return this.router.parseUrl(href);
+  }
+
+  workAppEmblem(app: SystemLinkedWorkApp): string {
+    return workEmblem({
+      name: app.name,
+      description: '',
+      emblem: app.emblem || '',
+    });
+  }
+
+  workAppTypeLabel(app: SystemLinkedWorkApp): string {
+    if (app.kind === 'automation' || app.type === 'automation') {
+      return this.i18n.t('experience.work.eyebrow.automation');
+    }
+    const key = `experience.work.pattern.${app.type}`;
+    const label = this.i18n.t(key);
+    return label === key ? this.i18n.t('experience.work.pattern.other') : label;
+  }
+
+  workAppStatusLabel(app: SystemLinkedWorkApp): string {
+    const status = (app.status || app.channel || '').toLowerCase();
+    if (status === 'pilot') return this.i18n.t('experience.work.status.pilot');
+    if (status === 'live') return this.i18n.t('experience.work.status.live');
+    return status || this.i18n.t('experience.work.status.live');
+  }
+
+  workOpenPreview(app: SystemLinkedWorkApp): string {
+    return this.i18n.t('nav.open_in_work_preview', {
+      name: app.name,
+      type: this.workAppTypeLabel(app),
+      facet: this.facetLabelForReturn(),
+    });
+  }
+
+  facetLabelForReturn(): string {
+    const tab = this.activeTab();
+    const key = `systems.view.tab.${tab}`;
+    const label = this.i18n.t(key);
+    if (label !== key) return label;
+    const navKey = `nav.facet.${tab}`;
+    const nav = this.i18n.t(navKey);
+    return nav !== navKey ? nav : tab;
+  }
+
+  private refreshWorkLinkedApps(systemId: string): void {
+    this.workAppsSubscription?.unsubscribe();
+    this.workAppsSubscription = null;
+    this.workLinkedApps.set([]);
+    this.workMenuOpen.set(false);
+    if (!systemId || !this.workspace.experienceV1Enabled()) return;
+    this.workAppsSubscription = this.workApi.listSystemWorkApps(systemId).subscribe((result) => {
+      if (result.kind !== 'ok') {
+        this.workLinkedApps.set([]);
+        return;
+      }
+      this.workLinkedApps.set(sortSystemLinkedWorkApps(result.apps));
+    });
+  }
+
+  /**
+   * Fetch the canonical System row and derive the variant marker from
+   * `flow_definition.variant`. When the URL carries `?facet=<id>`, the
+   * matching tab is auto-activated — this is how `/intelligence` opens
+   * directly on the News Lab facet without a second click.
+   */
+  private loadVariantAndApplyFacet(request: WorkspaceViewRequest, systemId: string): void {
+    if (!systemId) return;
+    const subscription = this.canonical.getSystem(systemId).subscribe({
+      next: (sys: System | null) => {
+        if (!this.requestIsCurrent(request, systemId)) return;
+        this.systemSnapshot.set(sys);
+        const flow = (sys?.flow_definition ?? {}) as Record<string, unknown>;
+        const variant = String(flow['variant'] ?? '').toLowerCase();
+        if (variant === 'intelligence') {
+          this.variant.set('intelligence');
+        } else if (variant === 'expert_knowledge_capture') {
+          this.variant.set('expert_knowledge_capture');
+        } else if (variant === 'translation_suite') {
+          this.variant.set('translation_suite');
+        } else {
+          this.variant.set('standard');
+        }
+        // The runtime sidecar is fetched only once the persisted graph already
+        // proves a run-engine flow: it refines that verdict, it never opens it.
+        if (isFlowBackedSystem(sys)) this.flowManifest.ensureLoaded(systemId);
+        if (this.system360Enabled()) {
+          this.loadPerspectives(request, systemId);
+        } else {
+          this.perspectives.set({});
+          this.perspectivesLoading.set(false);
+          this.perspectivesError.set(false);
+        }
+        if (this.designUsesPublication()) this.loadDesignFlow(request, systemId);
+        this.applyRequestedFacet();
+      },
+      error: () => {
+        if (!this.requestIsCurrent(request, systemId)) return;
+        this.designFlowError.set(true);
+        this.systemSnapshot.set(null);
+        this.applyRequestedFacet();
+      },
+    });
+    this.viewSubscriptions.add(subscription);
+  }
+
+  loadDesignFlow(
+    request = this.workspaceView.captureRequest(),
+    systemId = this.systemId,
+  ): void {
+    this.designFlowState.set(null);
+    this.designFlowError.set(false);
+    const subscription = this.canonical.getSystemFlowState(systemId).subscribe({
+      next: (state) => {
+        if (!this.requestIsCurrent(request, systemId)) return;
+        const flow = asRecord(state?.draft?.flow_definition);
+        if (state?.system_id !== systemId || !flow
+          || (Object.keys(flow).length > 0 && (!Array.isArray(flow['nodes']) || !Array.isArray(flow['edges'])))
+          || !Number.isInteger(state.draft.revision) || state.draft.revision < 1
+          || !state.draft.flow_sha256 || !state.published?.version_id
+          || !Number.isInteger(state.published.version_number)) {
+          this.designFlowError.set(true);
+          return;
+        }
+        this.designFlowState.set(state);
+      },
+      error: () => {
+        if (!this.requestIsCurrent(request, systemId)) return;
+        this.designFlowError.set(true);
+      },
+    });
+    this.viewSubscriptions.add(subscription);
+  }
+
+  private applyRequestedFacet(): void {
+    const requestedFacet = this.route.snapshot.queryParamMap.get('facet');
+    const facet = ({ skills: 'design', flow: 'design', knowledge: 'context' } as Record<string, string>)[requestedFacet || ''] || requestedFacet;
+    const allowed: SystemTabId[] = this.isIntelligence()
+      ? ['intelligence', 'overview', 'runs', 'design', 'context', 'capture']
+      : ['overview', 'runs', 'design', 'context', 'capture'];
+    if (facet && (allowed as string[]).includes(facet)) {
+      this.activeTab.set(facet as SystemTabId);
+      return;
+    }
+    if (this.isIntelligence()) {
+      this.activeTab.set('intelligence');
+    }
+  }
+
+  private loadContext(request: WorkspaceViewRequest, systemId: string): void {
+    if (!systemId) return;
+    this.contextLoading.set(true);
+    const subscription = this.canonical.listContexts({ system_id: systemId }).subscribe({
+      next: (ctxList) => {
+        if (!this.requestIsCurrent(request, systemId)) return;
+        this.currentContext.set((ctxList ?? [])[0] ?? null);
+        this.contextLoading.set(false);
+      },
+      error: () => {
+        if (!this.requestIsCurrent(request, systemId)) return;
+        this.currentContext.set(null);
+        this.contextLoading.set(false);
+      },
+    });
+    this.viewSubscriptions.add(subscription);
+  }
+
+  private loadPerspectives(request: WorkspaceViewRequest, systemId: string): void {
+    const workspaceSlug = request.scope.workspaceSlug;
+    const window = '30d';
+    this.perspectivesLoading.set(true);
+    this.perspectivesError.set(false);
+    const subscription = forkJoin(
+      SYSTEM_OBJECT_LENSES.map((lens) => {
+        const cacheKey = this.perspectiveCacheKey(request, systemId, lens, window);
+        const cached = this.perspectiveCache.get(cacheKey);
+        if (cached) return of(cached);
+        return this.api
+          .get<SystemPerspectiveResponse>(
+            `/systems/${encodeURIComponent(systemId)}/perspective`,
+            { lens, window },
+            { workspaceSlug },
+          )
+          .pipe(catchError(() => of(null)));
+      }),
+    ).subscribe((responses) => {
+      if (!this.requestIsCurrent(request, systemId)) return;
+      const next: Partial<Record<ObjectLens, SystemPerspectiveResponse>> = {};
+      const expectedWorkspaceId = this.systemSnapshot()?.workspace_id;
+      for (const [index, response] of responses.entries()) {
+        const requestedLens = SYSTEM_OBJECT_LENSES[index];
+        if (
+          response &&
+          response.schema_version === 1 &&
+          response.identity?.system_id === systemId &&
+          (!expectedWorkspaceId || response.identity.workspace_id === expectedWorkspaceId) &&
+          response.lens === requestedLens
+        ) {
+          next[requestedLens] = response;
+          this.perspectiveCache.set(
+            this.perspectiveCacheKey(request, systemId, requestedLens, window),
+            response,
+          );
+        }
+      }
+      this.perspectives.set(next);
+      this.perspectivesLoading.set(false);
+      this.perspectivesError.set(Object.keys(next).length !== SYSTEM_OBJECT_LENSES.length);
+    });
+    this.viewSubscriptions.add(subscription);
+  }
+
+  private perspectiveCacheKey(
+    request: WorkspaceViewRequest,
+    systemId: string,
+    lens: ObjectLens,
+    window: string,
+  ): string {
+    return [request.scope.epoch, request.scope.workspaceSlug, systemId, lens, window].join(':');
+  }
+
+  loadRuns(
+    request = this.workspaceView.captureRequest(),
+    systemId = this.systemId,
+  ): void {
+    if (!systemId) return;
+    this.runsLoading.set(true);
+    const subscription = this.canonical.listRuns({ system_id: systemId }).subscribe({
+      next: (list) => {
+        if (!this.requestIsCurrent(request, systemId)) return;
+        this.runs.set(list ?? []);
+        this.runsLoading.set(false);
+      },
+      error: () => {
+        if (!this.requestIsCurrent(request, systemId)) return;
+        this.runs.set([]);
+        this.runsLoading.set(false);
+      },
+    });
+    this.viewSubscriptions.add(subscription);
+  }
+
+  triggerRun(): void {
+    if (this.triggering() || !this.systemId || this.isDraft()) return;
+    const systemId = this.systemId;
+    const expectedFlowSha256 = this.systemSnapshot()?.flow_sha256;
+    if (!expectedFlowSha256) {
+      this.toast.warning(
+        this.i18n.t('systems.view.run_missing_revision'),
+        this.i18n.t('systems.view.run_not_triggered'),
+      );
+      return;
+    }
+    const request = this.workspaceView.captureRequest();
+    this.triggering.set(true);
+    const inputRef = this.isTranslationSuite()
+      ? {
+          suite: 'Translation Suite',
+          source_lang: 'fr-FR',
+          pivot_lang: 'en-GB',
+          target_lang_count: 39,
+          archive_ref: 'dita://pmi/kangoo3/owner_manual/source/fr-FR/archive.zip',
+          manifest_sha256: '7b8d1a9a6c2f76c2f3d6f2d4e16e4b90b2ef9e74fbd0a2f2a6f9f1b8e8c2d01d',
+          llm_provider: 'sovereign_vllm',
+          model: 'unsloth/gpt-oss-20b-BF16',
+          embedding_model: 'BAAI/bge-m3',
+          limit_qa_loop: 5,
+          num_parallel_topics: 5,
+          external_llm_egress: false,
+          replay_supported: true,
+          cdt_gate_required: true,
+        }
+      : {};
+    const subscription = this.canonical.triggerRun(systemId, {
+      trigger: 'manual',
+      input_ref: inputRef,
+      expected_flow_sha256: expectedFlowSha256,
+    }).subscribe({
+      next: (run) => {
+        if (!this.requestIsCurrent(request, systemId)) return;
+        this.triggering.set(false);
+        if (!run) {
+          this.toast.warning(this.i18n.t('systems.view.run_engine_unavailable'), this.i18n.t('systems.view.run_not_triggered'));
+          return;
+        }
+        this.toast.success(this.i18n.t('systems.view.run_scheduled', { id: run.id.slice(0, 8) }), this.i18n.t('systems.view.run_triggered'));
+        this.loadRuns(request, systemId);
+        // Refresh once the engine has had time to execute the sequence.
+        this.refreshTimer = setTimeout(() => {
+          this.refreshTimer = null;
+          if (this.requestIsCurrent(request, systemId)) this.loadRuns(request, systemId);
+        }, 3500);
+      },
+      error: () => {
+        if (!this.requestIsCurrent(request, systemId)) return;
+        this.triggering.set(false);
+        this.toast.warning(this.i18n.t('systems.view.run_engine_unavailable'), this.i18n.t('systems.view.run_not_triggered'));
+      },
+    });
+    this.viewSubscriptions.add(subscription);
+  }
+
+  private loadKpis(request: WorkspaceViewRequest, systemId: string): void {
+    this.kpisLoading.set(true);
+    const workspaceSlug = request.scope.workspaceSlug;
+    const subscription = forkJoin({
+      metrics: this.api
+        .get<MetricsSummary>('/metrics/summary', undefined, { workspaceSlug })
+        .pipe(catchError(() => of({} as MetricsSummary))),
+      evaluation: this.api
+        .get<{ evaluation: LatestEvaluation | null }>('/evaluation/latest', {
+          agent_id: systemId,
+        }, { workspaceSlug })
+        .pipe(catchError(() => of({ evaluation: null }))),
+      // Canonical `/runs` — legacy `/traces/traces` is deprecated.
+      traces: this.api
+        .get<{ runs: TraceRow[] } | TraceRow[]>('/runs', { system_id: systemId }, { workspaceSlug })
+        .pipe(
+          map((r) => (Array.isArray(r) ? r : r?.runs ?? [])),
+          catchError(() => of([] as TraceRow[])),
+        ),
+      collections: this.api
+        .get<{ collections: string[] }>('/documents/collections', undefined, { workspaceSlug })
+        .pipe(catchError(() => of({ collections: [] as string[] }))),
+    }).subscribe(({ metrics, evaluation, traces, collections }) => {
+      if (!this.requestIsCurrent(request, systemId)) return;
+      this.metrics.set(metrics ?? null);
+      this.latestEval.set(evaluation?.evaluation ?? null);
+      this.traces.set(
+        (traces ?? []).filter((t) =>
+          t.system_id === systemId || t.agent_id === systemId,
+        ),
+      );
+      this.hasCollections.set((collections?.collections?.length ?? 0) > 0);
+      this.kpisLoading.set(false);
+    });
+    this.viewSubscriptions.add(subscription);
+  }
+
+  private reloadCurrentSystem(): void {
+    const systemId = this.systemId || this.route.snapshot.paramMap.get('systemId') || '';
+    if (!systemId) return;
+    this.systemId = systemId;
+    this.cancelViewRequests();
+    const request = this.workspaceView.beginRequest();
+    this.settings.refresh();
+
+    const local = this.store.findById(systemId);
+    if (local) {
+      this.applyAgent(local);
+    } else {
+      const subscription = this.store.getById(systemId).subscribe({
+        next: (agent) => {
+          if (!agent || !this.requestIsCurrent(request, systemId)) return;
+          this.applyAgent(agent);
+        },
+        error: () => undefined,
+      });
+      this.viewSubscriptions.add(subscription);
+    }
+
+    this.loadVariantAndApplyFacet(request, systemId);
+    this.loadKpis(request, systemId);
+    this.loadRuns(request, systemId);
+    this.loadContext(request, systemId);
+  }
+
+  private applyAgent(agent: import('./systems.store').SystemAgent): void {
+    this.agentName.set(agent.name);
+    this.agentDescription.set(agent.description || '');
+    this.isDraft.set(!!agent.draft);
+    this.systemDefaults.set({
+      default_prompt_type: agent.default_prompt_type ?? null,
+      default_model: agent.default_model ?? null,
+      retrieval_mode_default: agent.retrieval_mode_default ?? null,
+      execution_mode: (agent as unknown as { execution_mode?: string | null }).execution_mode ?? null,
+    });
+  }
+
+  private requestIsCurrent(request: WorkspaceViewRequest, systemId: string): boolean {
+    return this.workspaceView.isCurrent(request) && systemId === this.systemId;
+  }
+
+  private cancelViewRequests(): void {
+    this.viewSubscriptions.unsubscribe();
+    this.viewSubscriptions = new Subscription();
+    if (this.refreshTimer !== null) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+  }
+
+  private clearSystemData(): void {
+    this.agentName.set('');
+    this.agentDescription.set('');
+    this.isDraft.set(false);
+    this.variant.set('standard');
+    this.activeTab.set('overview');
+    this.systemDefaults.set(null);
+    this.systemSnapshot.set(null);
+    this.designFlowState.set(null);
+    this.designFlowError.set(false);
+    this.perspectives.set({});
+    this.perspectivesLoading.set(false);
+    this.perspectivesError.set(false);
+    this.currentContext.set(null);
+    this.contextLoading.set(false);
+    this.runs.set([]);
+    this.runsLoading.set(false);
+    this.triggering.set(false);
+    this.metrics.set(null);
+    this.latestEval.set(null);
+    this.traces.set([]);
+    this.hasCollections.set(false);
+    this.kpisLoading.set(false);
+  }
+
+  private resetWorkspaceState(): void {
+    this.cancelViewRequests();
+    this.perspectiveCache.clear();
+    this.clearSystemData();
+    this.settingsPanelOpen.set(false);
+    this.chatPanelOpen.set(false);
+  }
+}
+
+function buildEffectiveRetrievalContext(system: System | null): EffectiveRetrievalContext | null {
+  if (!system) return null;
+  const settings = asRecord(system.settings) ?? {};
+  const flow = asRecord(system.flow_definition) ?? {};
+  const chat = asRecord(flow['chat']) ?? {};
+
+  const retrievalDefaults =
+    asRecord(settings['retrieval_defaults']) ??
+    asRecord(settings['retrieval']) ??
+    asRecord(chat['retrieval_defaults']) ??
+    asRecord(chat['retrieval']);
+  const grounding = asRecord(settings['grounding']) ?? asRecord(chat['grounding']);
+  const sourcePolicy =
+    asRecord(settings['source_policy']) ??
+    asRecord(chat['source_policy']) ??
+    asRecord(flow['source_policy']);
+
+  const collections = uniqueStrings([
+    ...asStringArray(settings['collection_slugs']),
+    ...asStringArray(settings['collections']),
+    ...asStringArray(chat['collection_slugs']),
+    ...asStringArray(chat['collections']),
+    ...asStringArray(flow['collection_slugs']),
+    ...asStringArray(flow['collections']),
+  ]);
+
+  const context: EffectiveRetrievalContext = {
+    knowledgeScope: firstString(settings['knowledge_scope'], chat['knowledge_scope'], flow['knowledge_scope']),
+    assistantProfile: firstString(settings['assistant_profile'], chat['assistant_profile'], flow['assistant_profile']),
+    surface: firstString(settings['surface'], chat['surface'], flow['surface']),
+    systemType: firstString(
+      settings['system_type'],
+      flow['system_type'],
+      (system as unknown as { type?: unknown }).type,
+    ),
+    collections,
+    retrievalDefaults: retrievalDefaults ?? undefined,
+    grounding: grounding ?? undefined,
+    sourcePolicy: sourcePolicy ?? undefined,
+  };
+
+  const hasContext =
+    !!context.knowledgeScope ||
+    !!context.assistantProfile ||
+    !!context.surface ||
+    collections.length > 0 ||
+    !!retrievalDefaults ||
+    !!grounding ||
+    !!sourcePolicy;
+  return hasContext ? context : null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (typeof item === 'string') return item;
+      const record = asRecord(item);
+      return firstString(record?.['slug'], record?.['collection_slug'], record?.['id'], record?.['name']);
+    })
+    .filter((item): item is string => !!item && !!item.trim())
+    .map((item) => item.trim());
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function contextRows(record?: Record<string, unknown>): ContextConfigRow[] {
+  if (!record) return [];
+  return Object.entries(record).map(([key, value]) => ({
+    key,
+    value: formatContextValue(value),
+  }));
+}
+
+function formatContextValue(value: unknown): string {
+  if (value == null) return '—';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}

@@ -1,0 +1,353 @@
+# :local is for `helm template` only. Lab/prod overlays and the CI artifact
+# values-ci-images.yaml must use @sha256: or a SHA12 tag, same contract as
+# docker/compose.agentium.registry.yml.
+image:
+  pullPolicy: IfNotPresent
+  frontend: agentium-frontend:local
+  backend: agentium-backend:local
+  worker: agentium-worker:local
+  # Read only when the matching component is enabled below.
+  mlTs: agentium-ml-ts:local
+  mlDeep: agentium-ml-deep:local
+  hubFetch: agentium-hub-fetch:local
+# UID/GID the Agentium images run as (USER_UID/USER_GID build args). Pods that
+# mount a Secret file or a shared volume use them as fsGroup.
+runtime:
+  uid: 1000
+  gid: 1000
+# Provider CSI class from Terraform (`storage_class`). Empty keeps the
+# cluster default. Per-service persistence.storageClass wins when set.
+storageClass: ""
+imagePullSecrets: []
+replicaCount:
+  frontend: 1
+  backend: 1
+  worker: 1
+  p4Maintenance: 1
+  keycloak: 1
+frontend:
+  enabled: true
+  port: 8080
+backend:
+  enabled: true
+  port: 8000
+  workers: 3
+  extraEnv: []
+worker:
+  enabled: true
+  # The recipe env cache is node-local and rebuilds itself. Size it for the
+  # service's own quota plus the pip cache that shares the directory.
+  recipeEnvsSizeLimit: 14Gi
+  # One worker consumes both pools. Compose splits them so a long recipe
+  # cannot fill the CPU pool; this chart has a single worker, and a recipes
+  # task with nobody listening stays queued forever.
+  queues: cpu,recipes
+  concurrency: 2
+  beat: "1"
+p4Maintenance:
+  enabled: true
+# Forecasting runtime (skforecast) in its own image, Compose profile ml-ts.
+# Until its worker beats, the catalog greys the forecasting family out.
+# Each family runs a training worker and a serving worker (threads pool) that
+# the API waits on.
+mlTs:
+  enabled: false
+  concurrency: 1
+  serveConcurrency: 4
+# Local foundation models (TabICL, Chronos), Compose profile ml-deep. No
+# weights are baked into the image: modelsClaim is a PVC with the provisioned
+# weights, mounted read-only at /data/models. Empty mounts nothing.
+mlDeep:
+  enabled: false
+  concurrency: 1
+  serveConcurrency: 1
+  modelsClaim: ""
+# Hugging Face connector (docs/huggingface-operations.md). Off by default.
+huggingface:
+  enabled: false
+  hubFetch:
+    # Secret loaded whole by hub-fetch and by nothing else: its Hub writer
+    # identity must never reach application pods. Required when enabled.
+    # Keys: HF_S3_ACCESS_KEY, HF_S3_SECRET_KEY, CONNECTOR_SECRETS_FERNET_KEY,
+    # LLM_PORTAL_FERNET_KEY, optionally OBJECT_STORE_S3_ACCESS_KEY /
+    # OBJECT_STORE_S3_SECRET_KEY and HF_TABULAR_DELETE_ACCESS_KEY /
+    # HF_TABULAR_DELETE_SECRET_KEY.
+    existingSecret: ""
+    concurrency: 2
+  # The cache is written by hub-fetch and read by the API, the CPU worker and
+  # ml-deep; the bundle spool is written by the API, the CPU worker and
+  # hub-fetch. Both must be ReadWriteMany: name an existing claim, or a
+  # storage class that provisions RWX volumes (NFS, Azure Files, Manila).
+  # Volumes must be writable by runtime.uid/gid.
+  cache:
+    existingClaim: ""
+    storageClass: ""
+    size: 50Gi
+  bundles:
+    existingClaim: ""
+    storageClass: ""
+    size: 20Gi
+  # Ed25519 bundle signing. The Secret holds the private key file and is
+  # mounted read-only at /run/hf-bundle-keys on the CPU worker and hub-fetch.
+  bundleSigning:
+    existingSecret: ""
+    keyFile: bundle-signing.pem
+    keyId: ""
+  # Public keys only: {"key-id": "<PEM or base64>"}.
+  trustKeysJson: "{}"
+  # Enterprise Hub origins, comma-separated HTTPS URLs. The public Hub is
+  # always allowed.
+  allowedEndpoints: ""
+  limits:
+    HF_CACHE_MAX_BYTES: "42949672960"
+    HF_CACHE_MIN_FREE_BYTES: "2147483648"
+    HF_DISK_MIN_FREE_BYTES: "10737418240"
+    HF_IMPORT_TIMEOUT_SECONDS: "7200"
+    HF_IMPORT_LEASE_SECONDS: "300"
+    HF_DOWNLOAD_TIMEOUT_SECONDS: "60"
+    HF_MAX_FILES: "512"
+# Secret registry (docs/agentium-secret-registry.md). The Fernet key is read
+# by key reference, so a Secret without it fails at pod creation. Empty
+# secretName means the application Secret.
+secretRegistry:
+  # Backend of new secrets: db or openbao. Existing secrets keep theirs.
+  defaultBackend: db
+  fernetKey:
+    secretName: ""
+    key: SECRET_REGISTRY_FERNET_KEY
+# Optional OpenBao backend. Each role reads its own AppRole Secret (keys
+# OPENBAO_ROLE_ID and OPENBAO_SECRET_ID): backend (API and migrate), worker,
+# hubFetch. Credentials come from scripts/agentium_openbao_bootstrap.py.
+openbao:
+  enabled: false
+  # Empty uses the in-cluster server below.
+  addr: ""
+  mount: agentium
+  timeoutSeconds: "5"
+  appRoleSecrets:
+    backend: ""
+    worker: ""
+    hubFetch: ""
+  # Single-node server, the Compose equivalent. Off means an external OpenBao
+  # at openbao.addr.
+  server:
+    enabled: false
+    # openbao/openbao:2.6.4, same digest as docker/compose.agentium.openbao.yml.
+    image: openbao/openbao@sha256:cf2340fc9a22cb9358ca0defd1f39b65673836bd23fe2bb8984a07e11fe13ef4
+    uid: 100
+    gid: 1000
+    # Secret holding the static auto-unseal key (64 hex characters) under
+    # unsealKeyKey. Required: losing it makes the data unreadable, so the
+    # chart never generates or owns it.
+    unsealKeySecret: ""
+    unsealKeyKey: unseal.key
+    # Only API, worker, migrate and hub-fetch pods may reach the server.
+    networkPolicy: true
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: ""
+migrate:
+  enabled: true
+  # post-install so the Secret and Postgres STS exist before the Job runs.
+  hook: post-install,post-upgrade
+  waitForPostgres: true
+rabbitmq:
+  enabled: true
+  image: rabbitmq:4.1-management
+  user: guest
+  persistence:
+    enabled: true
+    size: 8Gi
+    storageClass: ""
+postgres:
+  enabled: true
+  image: postgres:17
+  database: agentium
+  user: agentium
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: ""
+minio:
+  enabled: true
+  rootUser: agentium
+  # Secret holding MINIO_ROOT_PASSWORD, apart from the application Secret that
+  # every application pod loads whole. Required when createSecret is false.
+  existingRootSecret: ""
+  initImage: minio/mc:RELEASE.2025-04-16T18-13-26Z
+  image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+  persistence:
+    enabled: true
+    size: 100Gi
+    storageClass: ""
+qdrant:
+  enabled: true
+  image: qdrant/qdrant:v1.12.5-unprivileged
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: ""
+keycloak:
+  enabled: true
+  image: quay.io/keycloak/keycloak:26.1.4
+  httpRelativePath: /kc/
+  # Keycloak state in a Postgres database of its own. Off means the embedded
+  # dev store: users and realm edits are lost on every restart.
+  persistence:
+    enabled: true
+    database: keycloak
+  # Browser URL of the web app, for the realm's redirect URIs and the backend's
+  # action-email links. Empty derives it from ingress.host and ingress.tls.
+  appUrl: ""
+  # The imported realm carries no user. Set an email to create one
+  # organization admin at first import; its password is the
+  # AGENTIUM_BOOTSTRAP_ADMIN_PASSWORD key of the application Secret.
+  bootstrapAdmin:
+    email: ""
+ingress:
+  enabled: true
+  className: nginx
+  host: agentium.example
+  hiddenPathGuard: true
+  annotations: {}
+  tls: []
+  # tls:
+  #   - secretName: agentium-tls
+  #     hosts: [agentium.example]
+# Compose profiles. Stay off until the chart grows matching templates.
+livekit:
+  enabled: false
+sftp:
+  enabled: false
+beat:
+  enabled: false
+# Local model server. Off on the lab chart. values-local.yaml turns it on
+# and points chat + embeddings at it. The model portal can still route a
+# workspace to a cloud provider.
+ollama:
+  enabled: false
+  image: ollama/ollama:0.34.2
+  chatModel: qwen3.5:4b
+  embedModel: nomic-embed-text
+  embedDimension: 768
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: ""
+# NVIDIA-only OpenAI-compatible server. The portal already lists vLLM as an
+# engine. Leave this off on a Mac and on a CPU node pool.
+vllm:
+  enabled: false
+  image: vllm/vllm-openai:v0.19.1
+  model: Qwen/Qwen3.5-4B
+  gpu: 1
+# Application env that is not secret. Secrets go in existingSecret or
+# the generated Secret when createSecret is true.
+config:
+  AGENTIUM_DISABLE_DOTENV: "1"
+  STARTUP_RECONCILIATION: enabled
+  # Same defaults as docker/env/agentium.env.example.
+  ML_METHODOLOGY_ENABLED: "true"
+  ML_TABICL_ENABLED: "false"
+  ML_TABICL_WORKSPACES: "[]"
+# true only for local `helm template`. Lab/prod set existingSecret and
+# createSecret: false so no password is committed for a real env.
+createSecret: true
+# When createSecret is true these placeholders are rendered. Replace them
+# before any shared environment; they are not production values.
+secret:
+  AGENTIUM_POSTGRES_PASSWORD: change-me
+  AGENTIUM_RABBITMQ_PASSWORD: guest
+  AGENTIUM_MINIO_ROOT_PASSWORD: change-me-minio-password
+  OBJECT_STORE_S3_SECRET_KEY: change-me-agentium-app-password
+  KEYCLOAK_CLIENT_SECRET: change-me-keycloak-client-secret
+  AGENTIUM_BOOTSTRAP_ADMIN_PASSWORD: change-me-bootstrap-admin
+existingSecret: ""
+# Artifact store. "s3" points the application at object storage instead of a
+# filesystem, which is what lets backend, worker and maintenance share it
+# without a ReadWriteMany volume. The endpoint is the in-cluster MinIO by
+# default and is the only line to change for OVH Object Storage, Ceph or any
+# other S3 implementation.
+objectStore:
+  backend: s3
+  bucket: agentium-artifacts
+  endpointUrl: http://agentium-minio:9000
+  accessKey: agentium-app
+  policyName: agentium-app-policy
+# Requests are what the scheduler reserves; memory limits are what stop one
+# container taking a node down with it. CPU limits are deliberately absent:
+# CPU is compressible, and throttling a request path costs more than it
+# protects. These are starting points sized for the lab, not measurements.
+resources:
+  frontend:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}
+  backend:
+    requests: {cpu: 500m, memory: 1Gi}
+    limits: {memory: 4Gi}
+  worker:
+    requests: {cpu: 500m, memory: 2Gi, ephemeral-storage: 14Gi}
+    limits: {memory: 6Gi, ephemeral-storage: 16Gi}
+  p4Maintenance:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  migrate:
+    requests: {cpu: 100m, memory: 512Mi}
+    limits: {memory: 2Gi}
+  waitPostgres:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 128Mi}
+  postgres:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 2Gi}
+  qdrant:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 4Gi}
+  minio:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  minioInit:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}
+  rabbitmq:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  keycloak:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 1Gi}
+  ollama:
+    requests: {cpu: 500m, memory: 2Gi}
+    limits: {memory: 8Gi}
+  vllm:
+    requests: {cpu: 1, memory: 4Gi}
+    limits: {memory: 16Gi}
+  # Memory limits follow the Compose mem_limit of each service.
+  mlTs:
+    requests: {cpu: 500m, memory: 1Gi}
+    limits: {memory: 8Gi}
+  mlTsServe:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 3Gi}
+  mlDeep:
+    requests: {cpu: 500m, memory: 2Gi}
+    limits: {memory: 8Gi}
+  mlDeepServe:
+    requests: {cpu: 250m, memory: 1Gi}
+    limits: {memory: 4Gi}
+  hubFetch:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 2Gi}
+  openbao:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {memory: 512Mi}
+# A single-replica stateful service cannot be evicted without losing data, so
+# a drain must refuse rather than proceed. Turn this off only when you have
+# decided that a node drain may take Postgres down.
+podDisruptionBudget:
+  enabled: true
+# Not consumed by any template yet. They become meaningful with the node
+# pools of the subscription model; until then they are placeholders.
+nodeSelector: {}
+tolerations: []
+affinity: {}

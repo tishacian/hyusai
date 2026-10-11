@@ -1,0 +1,95 @@
+/* Display:contents so the host never adds a stray flex gap when the strip is
+   hidden on the scratchpad — the inner .ck-manifest is the real flex item. */
+:host {
+  display: contents;
+}
+
+.ck-manifest {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 5px 12px;
+  border: 1px solid var(--ck-stroke-1, rgba(255, 255, 255, 0.04));
+  border-radius: var(--ck-radius-md, 6px);
+  /* Inset/neutral surface — deliberately quieter than the run/debug controls. */
+  background: var(--ck-bg-inset, #0a0d11);
+  font-family: var(--ck-font-mono, monospace);
+}
+
+.ck-manifest--muted {
+  opacity: 0.75;
+}
+
+.ck-manifest__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ck-fg-4, #7b8391);
+}
+
+.ck-manifest__name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ck-fg-2, #c8cdd4);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ck-manifest__hint {
+  font-size: 11px;
+  color: var(--ck-fg-4, #7b8391);
+}
+
+.ck-manifest__sep {
+  width: 1px;
+  height: 14px;
+  background: var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+}
+
+.ck-manifest__chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  background: var(--ck-tint-faint, rgba(255, 255, 255, 0.04));
+  cursor: default;
+}
+
+.ck-manifest__chip-label {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ck-fg-4, #7b8391);
+}
+
+.ck-manifest__chip-value {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ck-fg-2, #c8cdd4);
+}
+
+/* Tone accents on the value only — keeps the strip calm vs. the run surfaces. */
+.ck-manifest__chip[data-tone='pos'] .ck-manifest__chip-value {
+  color: var(--ck-signal-pos, #34d399);
+}
+.ck-manifest__chip[data-tone='warn'] .ck-manifest__chip-value {
+  color: var(--ck-signal-warn, #f5b84a);
+}
+.ck-manifest__chip[data-tone='neg'] .ck-manifest__chip-value {
+  color: var(--ck-signal-neg, #ef5a6f);
+}
+.ck-manifest__chip[data-tone='cool'] .ck-manifest__chip-value {
+  color: var(--ck-signal-cool, #7dd3fc);
+}
+.ck-manifest__chip[data-tone='neutral'] .ck-manifest__chip-value {
+  color: var(--ck-fg-3, #8891a0);
+}

@@ -1,0 +1,817 @@
+"""Agentium API surface catalog.
+
+The catalog keeps the public FastAPI surface tied to Agentium's product
+mental model.  It is intentionally prefix-based: OpenAPI remains the source
+of truth for concrete methods and paths, while this module provides the
+business metadata required by docs, UI, and compatibility checks.
+"""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from typing import Any, Literal
+
+SurfaceStatus = Literal[
+    "canonical",
+    "compatibility",
+    "internal",
+    "public-external",
+    "deprecated",
+]
+
+SurfaceAudience = Literal["workspace-user", "admin", "external", "system"]
+
+
+@dataclass(frozen=True)
+class SurfaceMetadata:
+    prefix: str
+    domain: str
+    mental_object: str
+    status: SurfaceStatus
+    audience: SurfaceAudience
+    owner: str
+    ui_routes: tuple[str, ...] = ()
+    successor_prefix: str | None = None
+    notes: str = ""
+
+
+CATALOG_VERSION = "2026-07-22"
+
+
+SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
+    SurfaceMetadata(
+        "/api/v1/build-info",
+        "Governance",
+        "Deployment",
+        "internal",
+        "system",
+        "Platform",
+        notes="Secret-free immutable build identity used by deployment attestations.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/catalog",
+        "Governance",
+        "Governance",
+        "canonical",
+        "admin",
+        "Platform",
+        ("/governance/surface-map",),
+        notes="Machine-readable catalog of API routes and UI surfaces.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/blueprints",
+        "Governance",
+        "Workspace",
+        "canonical",
+        "admin",
+        "Platform",
+        ("/governance/blueprints",),
+        notes="Export/import workspace structure and configuration without members, secrets or raw data.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/governance/workspace-apps/apply",
+        "Governance",
+        "Workspace App",
+        "canonical",
+        "admin",
+        "Platform",
+        ("/governance/workspace-apps", "/workspace-app-repair"),
+        notes="Apply an exact, content-addressed Workspace App lifecycle plan with an idempotency key.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/governance/workspace-apps/compensate",
+        "Governance",
+        "Workspace App",
+        "canonical",
+        "admin",
+        "Platform",
+        ("/governance/workspace-apps", "/workspace-app-repair"),
+        notes=(
+            "Apply the server-derived inverse of an exact committed Workspace App "
+            "lifecycle receipt."
+        ),
+    ),
+    SurfaceMetadata(
+        "/api/v1/governance/workspace-apps/installations",
+        "Governance",
+        "Workspace App",
+        "canonical",
+        "admin",
+        "Platform",
+        ("/governance/workspace-apps", "/workspace-app-repair"),
+        notes="Authoritative Workspace App installation state for the current workspace.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/governance/workspace-apps/manifests",
+        "Governance",
+        "Workspace App",
+        "canonical",
+        "admin",
+        "Platform",
+        ("/governance/workspace-apps", "/workspace-app-repair"),
+        notes="Compatible content-addressed Workspace App manifests visible to workspace administrators.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/governance/workspace-apps/plan",
+        "Governance",
+        "Workspace App",
+        "canonical",
+        "admin",
+        "Platform",
+        ("/governance/workspace-apps", "/workspace-app-repair"),
+        notes="Read-only deterministic plan for a Workspace App lifecycle operation.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/mission-room",
+        "Hypervisor",
+        "Workbench",
+        "canonical",
+        "workspace-user",
+        "Government Mission Room",
+        ("/hypervisor/mission-room", "/hypervisor/mission-room/:view"),
+        notes="Immersive workspace app: briefing, open intelligence, projects, map and advisory actions.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/calendar",
+        "Governance",
+        "Connector",
+        "canonical",
+        "workspace-user",
+        "Agentium Core",
+        ("/hypervisor/mission-room/agenda", "/connectors"),
+        notes="Workspace calendar primitive backing institutional agenda connectors and assistant tools.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/action-plans",
+        "Operate",
+        "Run",
+        "canonical",
+        "workspace-user",
+        "Agentium Core",
+        ("/hypervisor/mission-room/decisions", "/hypervisor/mission-room/pilotage"),
+        notes="Workspace-scoped action planner for advisory decisions, cabinet follow-up and controlled assistant actions.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/actions",
+        "Operate",
+        "Run",
+        "canonical",
+        "workspace-user",
+        "Agentium Core",
+        ("/chat", "/flow-builder", "/workspace/:slug/settings"),
+        notes="Provider-neutral action manifests, effective inheritance, resolution and execution across Chat, Voice, Flow and System workbenches.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/workspace-jobs",
+        "Operate",
+        "Run",
+        "canonical",
+        "workspace-user",
+        "Agentium Core",
+        ("/systems/:id", "/hypervisor/mission-room"),
+        notes="Workspace-level job lifecycle and SSE events for operator-visible long-running work.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/maps",
+        "Hypervisor",
+        "Workbench",
+        "canonical",
+        "workspace-user",
+        "Agentium Core",
+        ("/hypervisor/mission-room/strategie", "/hypervisor/mission-room/cockpit"),
+        notes="Workspace map system: layers, zones, scoring and advisory recommendations.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/visual-intelligence",
+        "Governance",
+        "Connector",
+        "canonical",
+        "workspace-user",
+        "Agentium Core",
+        ("/hypervisor/mission-room/monitor", "/connectors"),
+        notes="Workspace-scoped visual snapshot connector, observations, Knowledge sync and situation-monitor posture.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/meetings",
+        "Operate",
+        "Review Queue",
+        "canonical",
+        "workspace-user",
+        "Agentium Core",
+        ("/hypervisor/mission-room/agenda", "/hypervisor/mission-room/decisions"),
+        notes="Workspace meeting decisions and reviewable agenda patches.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/reports",
+        "Operate",
+        "Workbench",
+        "canonical",
+        "workspace-user",
+        "Agentium Core",
+        ("/hypervisor/mission-room",),
+        notes="On-demand governed report artifacts initiated from workspace actions.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/admin",
+        "Governance",
+        "Governance",
+        "internal",
+        "admin",
+        "Platform",
+        notes="Workspace-admin maintenance operations; not a primary product surface.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/auth",
+        "Identity",
+        "Workspace",
+        "canonical",
+        "workspace-user",
+        "Platform",
+        ("/auth", "/workspace", "/account"),
+    ),
+    SurfaceMetadata(
+        "/api/v1/iam",
+        "Governance",
+        "Governance",
+        "canonical",
+        "admin",
+        "Platform",
+        ("/governance/access", "/workspace/:slug/access"),
+    ),
+    SurfaceMetadata(
+        "/api/v1/systems",
+        "Build",
+        "System",
+        "canonical",
+        "workspace-user",
+        "Agentium Core",
+        ("/systems", "/systems/:id", "/systems/:id/capture"),
+    ),
+    SurfaceMetadata(
+        "/api/v1/capabilities",
+        "Build",
+        "Capability",
+        "canonical",
+        "workspace-user",
+        "Agentium Core",
+        ("/capabilities", "/capabilities/:id"),
+    ),
+    SurfaceMetadata(
+        "/api/v1/skills",
+        "Build",
+        "Skill",
+        "canonical",
+        "workspace-user",
+        "Agentium Core",
+        ("/skills", "/skills/:slug"),
+    ),
+    SurfaceMetadata(
+        "/api/v1/experiences",
+        "Build",
+        "Experience",
+        "canonical",
+        "workspace-user",
+        "Agentium Core",
+        ("/create/apps", "/create/apps/:id", "/governance/experiences"),
+        notes="Governed business-application drafts, immutable releases, deployments, rollback and audit.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/system-bindings",
+        "Build",
+        "System Binding",
+        "canonical",
+        "workspace-user",
+        "Agentium Core",
+        ("/create/apps/:id", "/governance/experiences"),
+        notes="Stable, version-locked links from Experience actions to published System ingress contracts.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/work",
+        "Work",
+        "Experience",
+        "canonical",
+        "workspace-user",
+        "Runtime",
+        ("/work", "/work/:slug", "/work/:slug/:pageId"),
+        notes="Audience-filtered business application catalog, immutable runtime resolution and invocation.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/ecommerce-claims",
+        "Work",
+        "Experience",
+        "canonical",
+        "workspace-user",
+        "Runtime",
+        ("/work/reclamations/studio",),
+        notes="Read surface and benchmark of the released claims app; execution stays on /api/v1/work.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/knowledge-capture",
+        "Build",
+        "Workbench",
+        "canonical",
+        "workspace-user",
+        "Knowledge Capture",
+        (
+            "/knowledge/capture",
+            "/knowledge/interventions",
+            "/systems/:id/capture",
+        ),
+        notes="Expert Knowledge Capture workbench; system-scoped or capability-level entry.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/documents",
+        "Knowledge",
+        "Knowledge",
+        "canonical",
+        "workspace-user",
+        "Knowledge",
+        ("/knowledge", "/knowledge/:id"),
+        notes="Includes canonical collection ledger plus compatibility document routes.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/knowledge",
+        "Knowledge",
+        "Knowledge",
+        "canonical",
+        "workspace-user",
+        "Knowledge",
+        ("/knowledge", "/chat", "/hypervisor/mission-room"),
+        notes="Workspace Knowledge Scopes: named multi-collection retrieval surfaces for assistants.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/client360",
+        "Operate",
+        "Workbench",
+        "canonical",
+        "workspace-user",
+        "Andritz Client360 PDR",
+        ("/client360",),
+        notes="Explainable spare-parts potential, human-validated mail drafts and impact tracking for Client360 PDR.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/runs",
+        "Operate",
+        "Run",
+        "canonical",
+        "workspace-user",
+        "Runtime",
+        ("/runs", "/runs/:id"),
+    ),
+    SurfaceMetadata(
+        "/api/v1/voice",
+        "Operate",
+        "Workbench",
+        "canonical",
+        "workspace-user",
+        "Runtime",
+        ("/chat", "/knowledge/capture", "/systems/:id/capture"),
+    ),
+    SurfaceMetadata(
+        "/api/v1/livekit",
+        "Operate",
+        "Workbench",
+        "canonical",
+        "workspace-user",
+        "Runtime",
+        ("/chat", "/knowledge/capture"),
+        notes="Realtime voice room, participant token and agent dispatch control plane.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/tasks",
+        "Operate",
+        "Run",
+        "canonical",
+        "workspace-user",
+        "Runtime",
+        ("/tasks",),
+    ),
+    SurfaceMetadata(
+        "/api/v1/intelligence",
+        "Operate",
+        "Run",
+        "canonical",
+        "workspace-user",
+        "Runtime",
+        ("/intelligence",),
+    ),
+    SurfaceMetadata(
+        "/api/v1/metrics",
+        "Operate",
+        "Run",
+        "canonical",
+        "workspace-user",
+        "Runtime",
+    ),
+    SurfaceMetadata(
+        "/api/v1/telemetry",
+        "Operate",
+        "Run",
+        "canonical",
+        "workspace-user",
+        "Runtime",
+        ("/observability",),
+    ),
+    SurfaceMetadata(
+        "/api/v1/observability",
+        "Operate",
+        "Run",
+        "canonical",
+        "workspace-user",
+        "Runtime",
+        ("/observability",),
+        notes="Workspace runtime overview, retrieval evidence and operational alerts.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/health",
+        "Operate",
+        "Run",
+        "internal",
+        "system",
+        "Platform",
+    ),
+    SurfaceMetadata(
+        "/health",
+        "Operate",
+        "Run",
+        "internal",
+        "system",
+        "Platform",
+        notes="Container liveness/readiness probes (compose healthchecks).",
+    ),
+    SurfaceMetadata(
+        "/api/v1/models",
+        "Build",
+        "System",
+        "canonical",
+        "workspace-user",
+        "Platform",
+        ("/systems/new", "/settings/legacy"),
+    ),
+    SurfaceMetadata(
+        "/api/v1/python-envs",
+        "Build",
+        "Flow",
+        "canonical",
+        "workspace-user",
+        "Platform",
+        ("/systems/:id/flow",),
+        notes=(
+            "Content-addressed managed venvs backing the Python recipe and "
+            "transform nodes; read and rebuilt from the Flow workshop."
+        ),
+    ),
+    SurfaceMetadata(
+        "/api/v1/recipe-executions",
+        "Build",
+        "Flow",
+        "canonical",
+        "workspace-user",
+        "Platform",
+        ("/systems/:id/flow",),
+        notes=(
+            "Execution rows for the recipe and transform harnesses, polled by "
+            "the Flow workshop while a preview or a run is in flight."
+        ),
+    ),
+    SurfaceMetadata(
+        "/api/v1/datasets",
+        "Build",
+        "Dataset",
+        "canonical",
+        "workspace-user",
+        "Platform",
+        ("/data", "/data/:id"),
+        notes="Tabular datasets: ingest, column profile, SQL preview and lineage.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/ml-models",
+        "Build",
+        "Model",
+        "canonical",
+        "workspace-user",
+        "Platform",
+        ("/models", "/models/:id"),
+        notes=(
+            "No-code sklearn training over datasets: algorithm catalog, training "
+            "runs, model cards and the version that serves. Also the serving half "
+            "— inline predictions, scoped API keys, publish-as-Skill. Its "
+            "/{id}/predict route is the one place on this API that a non-session "
+            "credential reaches: a model-scoped X-API-Key, which authorizes that "
+            "one lineage and nothing else."
+        ),
+    ),
+    SurfaceMetadata(
+        "/api/v1/chat",
+        "Operate",
+        "Workbench",
+        "canonical",
+        "workspace-user",
+        "Runtime",
+        ("/chat",),
+    ),
+    SurfaceMetadata(
+        "/api/v1/assistant",
+        "Operate",
+        "Workbench",
+        "canonical",
+        "workspace-user",
+        "Runtime",
+        ("/chat", "/nawa/itsd/assistant"),
+        notes=(
+            "Tool-calling assistant engine shared by the text surface and the LiveKit "
+            "voice surface; configured per workspace by settings.assistant."
+        ),
+    ),
+    SurfaceMetadata(
+        "/api/v1/sessions",
+        "Operate",
+        "Run",
+        "compatibility",
+        "workspace-user",
+        "Runtime",
+        ("/chat", "/conversations", "/conversations/:id"),
+        notes="Chat/session compatibility surface; canonical evidence lives under Runs.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/impact",
+        "Hypervisor",
+        "Review Queue",
+        "canonical",
+        "workspace-user",
+        "Business Control",
+        ("/hypervisor",),
+    ),
+    SurfaceMetadata(
+        "/api/v1/hypervisor",
+        "Hypervisor",
+        "Review Queue",
+        "canonical",
+        "workspace-user",
+        "Business Control",
+        ("/hypervisor",),
+    ),
+    SurfaceMetadata(
+        "/api/v1/control-plane",
+        "Steer",
+        "Governance",
+        "canonical",
+        "admin",
+        "Business Control",
+        ("/steering",),
+    ),
+    SurfaceMetadata(
+        "/api/v1/contexts",
+        "Steer",
+        "Knowledge",
+        "canonical",
+        "workspace-user",
+        "Knowledge",
+        ("/steering/contexts", "/steering/contexts/:id"),
+    ),
+    SurfaceMetadata(
+        "/api/v1/reasoning",
+        "Build",
+        "System",
+        "canonical",
+        "workspace-user",
+        "Agentium Core",
+        ("/systems/new", "/presets"),
+    ),
+    SurfaceMetadata(
+        "/api/v1/evaluation",
+        "Governance",
+        "Review Queue",
+        "canonical",
+        "workspace-user",
+        "Quality",
+        ("/governance/canonical-answers", "/steering/review-queue"),
+    ),
+    SurfaceMetadata(
+        "/api/v1/audit",
+        "Governance",
+        "Governance",
+        "canonical",
+        "admin",
+        "Platform",
+        ("/governance/audit",),
+    ),
+    SurfaceMetadata(
+        "/api/v1/help-content",
+        "Governance",
+        "Governance",
+        "canonical",
+        "workspace-user",
+        "Product",
+    ),
+    SurfaceMetadata(
+        "/api/v1/presets",
+        "Governance",
+        "Governance",
+        "canonical",
+        "admin",
+        "Knowledge",
+        ("/presets",),
+    ),
+    SurfaceMetadata(
+        "/api/v1/sharepoint",
+        "Governance",
+        "Connector",
+        "canonical",
+        "admin",
+        "Connectors",
+        ("/connectors/sharepoint", "/resources"),
+    ),
+    SurfaceMetadata(
+        "/api/v1/sftp",
+        "Governance",
+        "Connector",
+        "canonical",
+        "workspace-user",
+        "Connectors",
+        ("/connectors", "/connectors/sftp", "/resources"),
+        notes="Secure Deposit management and workspace staging queue.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/hana",
+        "Governance",
+        "Connector",
+        "canonical",
+        "admin",
+        "Connectors",
+        ("/connectors/sap-hana", "/resources"),
+        notes="SAP HANA connector: workspace config, connectivity test, SELECT-only query.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/rpa",
+        "Governance",
+        "Connector",
+        "canonical",
+        "admin",
+        "Connectors",
+        ("/connectors/rpa-bridge", "/resources"),
+        notes="RPA Bridge connector: generic REST orchestrator contract (jobs dispatch/status).",
+    ),
+    SurfaceMetadata(
+        "/api/v1/mcp",
+        "Governance",
+        "Connector",
+        "canonical",
+        "admin",
+        "Connectors",
+        ("/connectors/mcp", "/resources"),
+        notes="MCP connector: multi-server registry, tools/list (capped), tools/call via Skills.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/connectors",
+        "Governance",
+        "Connector",
+        "canonical",
+        "admin",
+        "Connectors",
+        ("/connectors", "/resources"),
+        notes="Catalog connectors without a page of their own: write-only secrets, live test.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/huggingface",
+        "Governance",
+        "Connector",
+        "canonical",
+        "admin",
+        "Connectors",
+        ("/connectors/huggingface",),
+        notes="Governed Hugging Face connector: admitted artifacts, offline fetch jobs, bundles and activation.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/secrets",
+        "Governance",
+        "Governance",
+        "canonical",
+        "admin",
+        "Platform",
+        ("/workspace/secrets",),
+        notes="Secret registry: metadata only; values are write-only and never returned.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/workspaces",
+        "Governance",
+        "Governance",
+        "canonical",
+        "admin",
+        "Platform",
+        ("/apps",),
+        notes="Workspace apps enablement (wired/catalog toggles).",
+    ),
+    SurfaceMetadata(
+        "/api/v1/hooks",
+        "External Intake",
+        "Connector",
+        "public-external",
+        "external",
+        "Connectors",
+        notes="Public HMAC-signed webhook ingress mapped to System event triggers.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/deposit-links",
+        "External Intake",
+        "Connector",
+        "public-external",
+        "external",
+        "Connectors",
+        ("/deposit/:accessId",),
+        notes="Password-protected external deposit portal; no Agentium session required.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/agents",
+        "Build",
+        "System",
+        "deprecated",
+        "workspace-user",
+        "Agentium Core",
+        successor_prefix="/api/v1/systems",
+        notes="Legacy alias retained for compatibility.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/traces",
+        "Operate",
+        "Run",
+        "deprecated",
+        "workspace-user",
+        "Runtime",
+        successor_prefix="/api/v1/runs",
+        notes="Legacy trace surface; Runs are canonical.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/settings",
+        "Governance",
+        "Governance",
+        "compatibility",
+        "admin",
+        "Knowledge",
+        ("/settings/legacy",),
+        successor_prefix="/api/v1/presets",
+        notes="Compatibility proxy over workspace-default Presets.",
+    ),
+)
+
+
+def surface_metadata() -> list[dict[str, Any]]:
+    return [asdict(item) for item in SURFACE_METADATA]
+
+
+def match_surface(path: str) -> SurfaceMetadata:
+    ordered = sorted(SURFACE_METADATA, key=lambda item: len(item.prefix), reverse=True)
+    for item in ordered:
+        if path == item.prefix or path.startswith(item.prefix + "/"):
+            return item
+    # Deliberately explicit instead of failing: the catalog endpoint must
+    # keep working if a route is added before metadata is filled in. Tests
+    # guard against shipping uncataloged surfaces.
+    segment = "/" + "/".join(path.strip("/").split("/")[:3])
+    return SurfaceMetadata(
+        segment,
+        "Uncataloged",
+        "Governance",
+        "internal",
+        "system",
+        "Platform",
+        notes="Missing surface metadata; add this prefix to SURFACE_METADATA.",
+    )
+
+
+def build_endpoint_catalog(openapi_schema: dict[str, Any]) -> dict[str, Any]:
+    entries: list[dict[str, Any]] = []
+    for path, operations in sorted(openapi_schema.get("paths", {}).items()):
+        surface = match_surface(path)
+        for method, operation in sorted(operations.items()):
+            if method.lower() not in {"get", "post", "put", "patch", "delete", "head", "options"}:
+                continue
+            entries.append(
+                {
+                    "method": method.upper(),
+                    "path": path,
+                    "operation_id": operation.get("operationId"),
+                    "summary": operation.get("summary") or operation.get("description") or "",
+                    "tags": operation.get("tags", []),
+                    "domain": surface.domain,
+                    "mental_object": surface.mental_object,
+                    "status": surface.status,
+                    "audience": surface.audience,
+                    "owner": surface.owner,
+                    "ui_routes": list(surface.ui_routes),
+                    "successor_prefix": surface.successor_prefix,
+                    "notes": surface.notes,
+                }
+            )
+    return {
+        "version": CATALOG_VERSION,
+        "status_values": [
+            "canonical",
+            "compatibility",
+            "internal",
+            "public-external",
+            "deprecated",
+        ],
+        "entries": entries,
+        "uncataloged": [entry for entry in entries if entry["domain"] == "Uncataloged"],
+    }

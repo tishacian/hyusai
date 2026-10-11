@@ -1,0 +1,580 @@
+/**
+ * Knowledge assistant — layout only; every colour comes from `nawa-theme.scss`.
+ *
+ * The transcript is a column of exchanges rather than a two-sided chat: on a
+ * service desk screen the operator is reading answers, not watching a
+ * conversation, so the question is a quiet caption above the answer it produced.
+ */
+
+.as-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  // Load-bearing, not tidying. The height below fixes the BOX, but a grid row is
+  // auto-sized by default and grows past it, and overflow from an explicit-height
+  // box spills outside without making the box taller — so a long transcript used
+  // to hang below the app's own background, over the dark page underneath, in two
+  // halves. Capping the row is what sends the overflow to the scroller inside.
+  grid-template-rows: minmax(0, 1fr);
+  gap: 22px;
+  padding: 22px 26px 26px;
+  height: calc(100dvh - 78px);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+@media (max-width: 1080px) {
+  .as-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+    height: auto;
+    overflow: visible;
+  }
+}
+
+// ---- transcript ----------------------------------------------------------
+
+.as-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  // A flex item will not shrink below its content unless told to, and without
+  // this the transcript's own scroller never engages.
+  min-height: 0;
+  height: 100%;
+  gap: 14px;
+}
+
+// The thread the assistant is remembering, and the way out of it. A requester
+// who cannot see which conversation they are in cannot tell an answer that
+// follows from one that merely came next.
+.as-thread {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 11px;
+  border: 1px solid var(--nawa-line);
+  border-radius: 9px;
+  background: var(--nawa-surface-2);
+  color: var(--nawa-fg-faint);
+  font-size: 11.5px;
+}
+
+.as-thread ck-glyph { flex: 0 0 auto; }
+
+.as-thread-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--nawa-mono);
+  letter-spacing: 0.02em;
+}
+
+.as-thread-new {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.as-transcript {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-right: 6px;
+}
+
+.as-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  justify-content: center;
+  height: 100%;
+  max-width: 520px;
+  color: var(--nawa-fg-dim);
+  line-height: 1.6;
+}
+
+.as-empty strong {
+  color: var(--nawa-fg);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.as-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.as-question {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--nawa-fg-dim);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.as-question ck-glyph {
+  margin-top: 2px;
+  flex: 0 0 auto;
+  color: var(--nawa-fg-faint);
+}
+
+.as-answer {
+  border: 1px solid var(--nawa-line);
+  border-left: 2px solid var(--nawa-accent-line);
+  border-radius: var(--nawa-radius);
+  background: var(--nawa-surface);
+  padding: 15px 17px;
+  font-size: 13.5px;
+  line-height: 1.68;
+  white-space: pre-wrap;
+}
+
+.as-answer.as-answer-unsupported {
+  border-left-color: var(--nawa-line-strong);
+  color: var(--nawa-fg-dim);
+}
+
+.as-pending {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--nawa-fg-dim);
+  font-size: 12.5px;
+  padding: 15px 17px;
+  border: 1px dashed var(--nawa-line-strong);
+  border-radius: var(--nawa-radius);
+}
+
+// ---- provenance ----------------------------------------------------------
+
+.as-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--nawa-fg-faint);
+}
+
+.as-meta-strong {
+  color: var(--nawa-fg-dim);
+  font-weight: 650;
+}
+
+.as-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.as-source {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  border: 1px solid var(--nawa-line);
+  border-radius: 8px;
+  background: var(--nawa-surface-2);
+  padding: 9px 11px;
+}
+
+.as-source-index {
+  font-family: var(--nawa-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--nawa-accent);
+  padding-top: 1px;
+}
+
+.as-source-document {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.as-source-passage {
+  margin-top: 3px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--nawa-fg-dim);
+}
+
+// Services the assistant looked up, as names rather than as a second catalogue:
+// the catalogue has its own screen, and this is only the shortlist it read.
+.as-services {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.as-service {
+  padding: 3px 9px;
+  border: 1px solid var(--nawa-line);
+  border-radius: 4px;
+  background: var(--nawa-surface-2);
+  font-size: 11.5px;
+  color: var(--nawa-fg-dim);
+}
+
+// A tool that declined. Shown rather than swallowed: a screen that hides a
+// refusal is a screen that will eventually claim the action happened.
+.as-refusal {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--nawa-warn-line, var(--nawa-accent-line));
+  border-radius: 9px;
+  background: var(--nawa-surface-2);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--nawa-fg-dim);
+}
+
+.as-refusal app-icon { margin-top: 2px; }
+
+// ---- composer ------------------------------------------------------------
+
+.as-composer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  border: 1px solid var(--nawa-line-strong);
+  border-radius: var(--nawa-radius);
+  background: var(--nawa-surface);
+  padding: 11px 12px;
+}
+
+.as-composer:focus-within {
+  border-color: var(--nawa-accent-line);
+}
+
+.as-composer textarea {
+  flex: 1 1 auto;
+  min-height: 40px;
+  max-height: 130px;
+  border: 0;
+  background: transparent;
+  color: var(--nawa-fg);
+  font: inherit;
+  line-height: 1.55;
+  resize: none;
+  outline: none;
+}
+
+.as-composer textarea::placeholder {
+  color: var(--nawa-fg-faint);
+}
+
+// ---- side column ---------------------------------------------------------
+
+.as-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  // The suggestions outgrow a laptop screen, and this column must not be what
+  // decides the page's height: it scrolls on its own.
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+@media (max-width: 1080px) {
+  .as-side {
+    height: auto;
+    overflow: visible;
+  }
+
+  // Single column: the transcript is above the composer and the page scrolls, so
+  // the composer would otherwise leave the viewport exactly when it is needed.
+  .as-composer {
+    position: sticky;
+    bottom: 12px;
+    z-index: 1;
+  }
+}
+
+.as-side-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--nawa-fg-faint);
+}
+
+.as-suggestion {
+  text-align: left;
+  border: 1px solid var(--nawa-line);
+  border-radius: 9px;
+  background: var(--nawa-surface);
+  color: var(--nawa-fg-dim);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: 140ms ease;
+}
+
+.as-suggestion:hover:not(:disabled) {
+  border-color: var(--nawa-accent-line);
+  background: var(--nawa-surface-2);
+  color: var(--nawa-fg);
+}
+
+.as-suggestion:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.as-library {
+  border: 1px solid var(--nawa-line);
+  border-radius: 9px;
+  padding: 11px 12px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--nawa-fg-dim);
+}
+
+.as-library-title {
+  color: var(--nawa-fg);
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+// ---- a routed service: their own procedure -------------------------------
+.as-next {
+  margin: 11px 0 0;
+  padding: 9px 12px;
+  border-left: 2px solid var(--nawa-accent-line);
+  background: var(--nawa-surface-2);
+  border-radius: 0 8px 8px 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--nawa-fg-dim);
+}
+
+// ---- the offer: a service that runs here, waiting on a press -------------
+// Set apart from the answer above it, because pressing it changes an account.
+// The gate inside reuses .as-gate: this is the same kind of moment as the
+// supervisor decision, a person taking responsibility for what happens next.
+.as-action {
+  margin-top: 11px;
+  padding: 12px;
+  border: 1px solid var(--nawa-accent-line);
+  border-radius: 10px;
+  background: var(--nawa-surface-2);
+}
+
+.as-action-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--nawa-fg-dim);
+}
+
+.as-action-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 11px;
+  font-size: 11.5px;
+  color: var(--nawa-fg-dim);
+}
+
+.as-action-field input {
+  border: 1px solid var(--nawa-line-strong);
+  border-radius: 8px;
+  background: var(--nawa-surface);
+  color: var(--nawa-fg);
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 11px;
+}
+
+.as-action-field input:focus {
+  outline: none;
+  border-color: var(--nawa-accent-line);
+}
+
+.as-action .as-gate { margin-top: 11px; }
+
+// ---- a processed request: the run, as the exchange it was ----------------
+// Same geometry as the desk surface's thread, so a requester and a supervisor
+// are reading one shape in two places.
+.as-run {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.as-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: min(560px, 88%);
+  align-self: flex-start;
+}
+
+.as-bubble-assistant { align-self: flex-end; }
+
+.as-bubble-who {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--nawa-fg-faint);
+  font: 650 9px/1.2 var(--nawa-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.as-bubble-assistant .as-bubble-who { justify-content: flex-end; }
+.as-bubble-at { letter-spacing: 0.04em; }
+
+.as-bubble p {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 10px 10px 10px 10px;
+  border: 1px solid var(--nawa-line);
+  background: var(--nawa-surface-2);
+  font-size: 12.5px;
+  line-height: 1.6;
+  // The drafted notice carries a blank line between English and Arabic.
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.as-bubble:not(.as-bubble-assistant) p { border-top-left-radius: 3px; }
+
+.as-bubble-assistant p {
+  border-color: var(--nawa-accent-line);
+  background: var(--nawa-accent-soft);
+  border-top-right-radius: 3px;
+}
+
+// ---- the gate, answered from here ---------------------------------------
+.as-gate {
+  margin-top: 12px;
+  padding: 11px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  border: 1px solid var(--nawa-warn-line, var(--nawa-accent-line));
+  border-radius: 9px;
+  background: var(--nawa-surface-2);
+}
+
+.as-gate-label {
+  flex: 1 1 260px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--nawa-fg-dim);
+}
+
+.as-trace {
+  margin-top: 10px;
+  align-self: flex-start;
+}
+
+// ---- voice ---------------------------------------------------------------
+// The microphone sits inside the composer, the mute beside the theme switch:
+// one is part of writing a request, the other is a preference about the room.
+
+// Both carry .nawa-button for their shape; these only add what differs.
+.as-mic,
+.as-voice-toggle {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-weight: 600;
+}
+// Live and unmuted read as engaged rather than as another idle control.
+.as-mic-live,
+.as-voice-on {
+  border-color: var(--nawa-accent-line);
+  color: var(--nawa-accent-bright);
+  background: var(--nawa-surface-2);
+}
+.as-voice-note {
+  flex: 0 0 auto;
+  margin: 8px 2px 0;
+  color: var(--nawa-fg-dim);
+  font-size: 12px;
+}
+
+// ---- a previewed service: the procedure, walked ---------------------------
+// Same geometry as the run above, because it is showing the same thing: a
+// request being carried out. The one visual difference is the standing mark,
+// which has to survive a screenshot — hence a border and not just a colour.
+.as-preview-mark {
+  padding: 1px 7px;
+  border: 1px solid var(--nawa-accent-line);
+  border-radius: 4px;
+  font: 600 12px/1.7 var(--nawa-sans, inherit);
+  color: var(--nawa-fg-dim);
+  background: var(--nawa-surface-2);
+}
+
+.as-walk {
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  list-style: none;
+  counter-reset: as-walk;
+}
+
+.as-walk-step {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 9px;
+  border-radius: 7px;
+  background: var(--nawa-surface-2);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--nawa-fg-dim);
+}
+
+// The step the walk is stopped on, while it is stopped there. Once the decision
+// is taken it becomes an ordinary row and the tag alone records what it was.
+.as-walk-waiting {
+  border: 1px solid var(--nawa-warn-line, var(--nawa-accent-line));
+  background: transparent;
+}
+
+.as-walk-actor {
+  font: 650 10px/1.7 var(--nawa-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--nawa-fg-faint);
+}
+
+@media (max-width: 720px) {
+  .as-walk-step {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+}

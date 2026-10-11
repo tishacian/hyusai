@@ -1,0 +1,262 @@
+{
+  "_about": "Intelligence output a sentinel_ci workspace received before Intelligence became a neutral product, captured from the unmodified code. The sentinel_ci adapter must reproduce it exactly.",
+  "analysis_prompt": "Analyze this news article for intelligence purposes.\n\n## Article\nTitle: {title}\nContent (truncated): {content}\n\n## Semantic Target\n{target_description}\n\n## Instructions\nExtract:\n1. Key entities (people, organizations, locations, events)\n2. Sentiment (positive / negative / neutral / mixed)\n3. Risk level (low / medium / high / critical)\n4. Key findings (2-3 bullet points)\n5. Geopolitical relevance (if applicable)\n\nReturn ONLY valid JSON:\n{{\n  \"entities\": [\"entity1\", \"entity2\"],\n  \"sentiment\": \"neutral\",\n  \"risk_level\": \"low\",\n  \"key_findings\": [\"finding1\", \"finding2\"],\n  \"geopolitical_relevance\": \"brief note or null\"\n}}",
+  "collection": {
+    "description": "Open intelligence RSS sources, raw scraped article content, and consolidated News Lab analysis for AYA interactions.",
+    "name": "SENTINEL-CI Open Intelligence",
+    "slug": "sentinel-ci-open-intelligence"
+  },
+  "dashboard_synthesis": {
+    "entities": [
+      "Abidjan"
+    ],
+    "key_findings": [
+      "Pin summary"
+    ],
+    "knowledge_reference": {
+      "promotion_policy": "human_review_required",
+      "recommended_collection": "sentinel-ci-open-intelligence",
+      "status": "candidate"
+    },
+    "recommended_actions": [
+      "Verifier les sources primaires avant diffusion cabinet.",
+      "Promouvoir les signaux confirmes vers la base Knowledge du workspace.",
+      "Relier les signaux haut risque aux vues Presse, Veille et Decisions de l'hyperviseur."
+    ],
+    "source_articles": [
+      {
+        "id": "pin-article",
+        "relevance_score": 0.5,
+        "risk_level": "high",
+        "title": "Pin article",
+        "url": "https://example.test/pin"
+      }
+    ],
+    "summary": "1 articles analyses. 1 signal(s) haut risque. Priorite: Pin article.",
+    "title": "Synthese de veille RSS"
+  },
+  "defaults": {
+    "feeds": [
+      {
+        "active": true,
+        "category": "world",
+        "name": "BBC World News (default)",
+        "refresh_interval": 3600,
+        "url": "https://feeds.bbci.co.uk/news/world/rss.xml"
+      },
+      {
+        "active": true,
+        "category": "world",
+        "name": "NYT World (default)",
+        "refresh_interval": 3600,
+        "url": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"
+      }
+    ],
+    "filters": [
+      {
+        "active": true,
+        "name": "Standard safety (default)",
+        "prompt_template": "Flag content that is primarily illegal, graphic violence, or explicit hate speech. Allow neutral factual news reporting.",
+        "severity": "flag"
+      }
+    ],
+    "targets": [
+      {
+        "active": true,
+        "description": "World news, geopolitics, economy, technology, security, and major events relevant to enterprise risk awareness.",
+        "keywords": [],
+        "name": "General intelligence (default)",
+        "relevance_threshold": 0.1
+      }
+    ]
+  },
+  "empty_reference_synthesis": {
+    "entities": [],
+    "key_findings": [],
+    "knowledge_reference": {
+      "promotion_policy": "human_review_required",
+      "recommended_collection": "sentinel-ci-open-intelligence",
+      "status": "candidate"
+    },
+    "recommended_actions": [
+      "Verifier les sources primaires avant diffusion cabinet.",
+      "Promouvoir les signaux confirmes vers la base Knowledge du workspace.",
+      "Relier les signaux haut risque aux vues Presse, Veille et Decisions de l'hyperviseur."
+    ],
+    "source_articles": [],
+    "summary": "No articles analysed yet. Trigger an RSS analysis to produce the reference synthesis.",
+    "title": "Synthese de veille RSS"
+  },
+  "inputs": {
+    "articles": [
+      {
+        "id": "a0",
+        "published_at": "2026-05-10T08:00:00",
+        "relevance_score": 0.0,
+        "risk_level": "low",
+        "summary": "",
+        "title": "Signal 0",
+        "url": "https://example.test/0"
+      },
+      {
+        "id": "a1",
+        "published_at": "2026-05-11T08:00:00",
+        "relevance_score": 0.1,
+        "risk_level": "medium",
+        "summary": "Summary 1",
+        "title": "Signal 1",
+        "url": "https://example.test/1"
+      },
+      {
+        "id": "a2",
+        "published_at": "2026-05-12T08:00:00",
+        "relevance_score": 0.2,
+        "risk_level": "high",
+        "summary": "",
+        "title": "Signal 2",
+        "url": "https://example.test/2"
+      },
+      {
+        "id": "a3",
+        "published_at": "2026-05-13T08:00:00",
+        "relevance_score": 0.30000000000000004,
+        "risk_level": "critical",
+        "summary": "Summary 3",
+        "title": "Signal 3",
+        "url": "https://example.test/3"
+      },
+      {
+        "id": "a4",
+        "published_at": "2026-05-14T08:00:00",
+        "relevance_score": 0.4,
+        "risk_level": "low",
+        "summary": "",
+        "title": "Signal 4",
+        "url": "https://example.test/4"
+      },
+      {
+        "id": "a5",
+        "published_at": "2026-05-15T08:00:00",
+        "relevance_score": 0.5,
+        "risk_level": "high",
+        "summary": "Summary 5",
+        "title": "Signal 5",
+        "url": "https://example.test/5"
+      }
+    ],
+    "payload_kpis": {
+      "active_feeds": 2,
+      "analyzed": 6,
+      "high_risk": 3,
+      "total_articles": 6
+    },
+    "risk_counts": {
+      "critical": 1,
+      "high": 2,
+      "low": 2,
+      "medium": 1
+    },
+    "top_entities": [
+      [
+        "Abidjan",
+        4
+      ],
+      [
+        "CEDEAO",
+        3
+      ],
+      [
+        "Port",
+        2
+      ],
+      [
+        "Douanes",
+        2
+      ],
+      [
+        "Sahel",
+        1
+      ],
+      [
+        "AIS",
+        1
+      ],
+      [
+        "Extra",
+        1
+      ]
+    ]
+  },
+  "reference_synthesis": {
+    "entities": [
+      "Abidjan",
+      "CEDEAO",
+      "Port",
+      "Douanes",
+      "Sahel",
+      "AIS"
+    ],
+    "key_findings": [
+      "Summary 3",
+      "Summary 5",
+      "Signal 2",
+      "Summary 1",
+      "Signal 4"
+    ],
+    "knowledge_reference": {
+      "promotion_policy": "human_review_required",
+      "recommended_collection": "sentinel-ci-open-intelligence",
+      "status": "candidate"
+    },
+    "recommended_actions": [
+      "Verifier les sources primaires avant diffusion cabinet.",
+      "Promouvoir les signaux confirmes vers la base Knowledge du workspace.",
+      "Relier les signaux haut risque aux vues Presse, Veille et Decisions de l'hyperviseur."
+    ],
+    "source_articles": [
+      {
+        "id": "a3",
+        "relevance_score": 0.30000000000000004,
+        "risk_level": "critical",
+        "title": "Signal 3",
+        "url": "https://example.test/3"
+      },
+      {
+        "id": "a5",
+        "relevance_score": 0.5,
+        "risk_level": "high",
+        "title": "Signal 5",
+        "url": "https://example.test/5"
+      },
+      {
+        "id": "a2",
+        "relevance_score": 0.2,
+        "risk_level": "high",
+        "title": "Signal 2",
+        "url": "https://example.test/2"
+      },
+      {
+        "id": "a1",
+        "relevance_score": 0.1,
+        "risk_level": "medium",
+        "title": "Signal 1",
+        "url": "https://example.test/1"
+      },
+      {
+        "id": "a4",
+        "relevance_score": 0.4,
+        "risk_level": "low",
+        "title": "Signal 4",
+        "url": "https://example.test/4"
+      }
+    ],
+    "summary": "6 articles analyses. 3 signal(s) haut risque. Priorite: Signal 3; Signal 5; Signal 2.",
+    "title": "Synthese de veille RSS"
+  },
+  "rss_headers": {
+    "Accept": "application/rss+xml, application/xml, text/xml, */*",
+    "User-Agent": "Agentium-SENTINEL-CI/1.0 (+https://agentium.papai.ai)"
+  },
+  "safety_prompt": "You are a content safety filter for a geopolitical intelligence platform.\n\n## Content to check\n{content_summary}\n\n## Safety filter rules\n{filter_rules}\n\n## Instructions\nEvaluate if this content is safe to include in the intelligence dashboard.\nConsider the configured geopolitical alignment and sensitivity rules.\n\nReturn ONLY valid JSON:\n{{\n  \"safe\": true/false,\n  \"flag\": \"clear|flagged|blocked\",\n  \"reason\": \"brief explanation\"\n}}",
+  "synthesis_markdown": "# Synthese consolidee News Lab\n\n## Executive summary\n6 articles analyses. 3 signal(s) haut risque. Priorite: Signal 3; Signal 5; Signal 2.\n\n## KPIs\n- Active feeds: 2\n- Articles collected: 6\n- Articles analyzed: 6\n- High risk signals: 3\n\n## Risk distribution\n- Risk: {'low': 2, 'medium': 1, 'high': 2, 'critical': 1}\n\n## Sentiment distribution\n- Sentiment: {'neutral': 6}\n\n## Key findings\n- Summary 3\n- Summary 5\n- Signal 2\n- Summary 1\n- Signal 4\n\n## Recommended actions\n- Verifier les sources primaires avant diffusion cabinet.\n- Promouvoir les signaux confirmes vers la base Knowledge du workspace.\n- Relier les signaux haut risque aux vues Presse, Veille et Decisions de l'hyperviseur.\n\n## Source articles\n- Signal 3 (critical) - https://example.test/3\n- Signal 5 (high) - https://example.test/5\n- Signal 2 (high) - https://example.test/2\n- Signal 1 (medium) - https://example.test/1\n- Signal 4 (low) - https://example.test/4\n\n## Recent analyzed articles\n- Signal 0 | risk=low | score=0.0\n- Signal 1 | risk=medium | score=0.1\n- Signal 2 | risk=high | score=0.2\n- Signal 3 | risk=critical | score=0.30000000000000004\n- Signal 4 | risk=low | score=0.4\n- Signal 5 | risk=high | score=0.5\n"
+}

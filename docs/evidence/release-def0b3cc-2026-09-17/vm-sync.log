@@ -1,0 +1,12 @@
+From bitbucket.org:datategy-root/omnirag
+ * branch              demo/agentic -> FETCH_HEAD
+   c3f1fb73..def0b3cc  demo/agentic -> origin/demo/agentic
+Updating c3f1fb73..def0b3cc
+Fast-forward
+ docs/design/brd-system-ui-reference-lock.md        |    3 +
+ docs/evidence/capture-handoff-2026-09-17/README.md |   11 +-
+ docs/evidence/capture-handoff-2026-09-17/build.log |    8 +-
+ docs/evidence/capture-handoff-2026-09-17/unit.log  | 3029 ++++++++++----------
+ .../capture-published-chat.component.spec.ts       |   17 +-
+ .../knowledge/capture-published-chat.component.ts  |    9 +-
+ 6 files changed, 1550 insertions(+), 1527 deletions(-)

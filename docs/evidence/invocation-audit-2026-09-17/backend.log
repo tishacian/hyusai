@@ -1,0 +1,58 @@
+................                                                         [100%]
+=============================== warnings summary ===============================
+app/tests/api/test_object_perspective_api.py: 168 warnings
+app/tests/api/test_authorized_aggregate_surfaces.py: 315 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag/backend/.venv/lib/python3.14/site-packages/sqlalchemy/sql/schema.py:3624: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+app/tests/api/test_object_perspective_api.py: 12 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/object_perspective.py:1864: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return datetime.utcnow() - timedelta(days=WINDOW_DAYS[window])
+
+app/tests/api/test_object_perspective_api.py::test_capability_run_and_invocation_projection_routes
+app/tests/api/test_object_perspective_api.py::test_object_projection_routes_fail_closed_by_workspace_and_flag
+app/tests/api/test_object_perspective_api.py::test_all_projection_routes_compare_canonical_read_action
+app/tests/api/test_object_perspective_api.py::test_run_collection_stream_and_ledger_honor_independent_read_modes
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/object_perspective.py:182: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    generated_at = _iso(datetime.utcnow())
+
+app/tests/api/test_object_perspective_api.py::test_capability_run_and_invocation_projection_routes
+app/tests/api/test_object_perspective_api.py::test_all_projection_routes_compare_canonical_read_action
+app/tests/api/test_object_perspective_api.py::test_projection_read_shadow_is_non_blocking_and_enforce_is_authoritative
+app/tests/api/test_object_perspective_api.py::test_run_govern_resolves_real_legacy_approval_and_per_action_mode
+app/tests/api/test_object_perspective_api.py::test_run_govern_resolves_real_legacy_approval_and_per_action_mode
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/object_perspective.py:298: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    generated_at = _iso(datetime.utcnow())
+
+app/tests/api/test_object_perspective_api.py::test_capability_run_and_invocation_projection_routes
+app/tests/api/test_object_perspective_api.py::test_all_projection_routes_compare_canonical_read_action
+app/tests/api/test_object_perspective_api.py::test_projection_read_shadow_is_non_blocking_and_enforce_is_authoritative
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/object_perspective.py:396: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    generated_at = _iso(datetime.utcnow())
+
+app/tests/api/test_object_perspective_api.py: 22 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/audit_logger.py:61: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+app/tests/api/test_authorized_aggregate_surfaces.py::test_impact_aggregates_only_runs_allowed_to_the_subject
+app/tests/api/test_authorized_aggregate_surfaces.py::test_skill_catalog_runtime_metrics_compose_run_and_invocation_read
+app/tests/api/test_authorized_aggregate_surfaces.py::test_skill_metrics_query_count_is_constant_regardless_of_batch_size
+app/tests/api/test_authorized_aggregate_surfaces.py::test_skill_metrics_never_loads_invocation_payload_columns
+app/tests/api/test_authorized_aggregate_surfaces.py::test_skill_metrics_digests_the_iam_policy_once_per_request
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/tests/api/test_authorized_aggregate_surfaces.py:47: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/api/test_authorized_aggregate_surfaces.py::test_impact_aggregates_only_runs_allowed_to_the_subject
+app/tests/api/test_authorized_aggregate_surfaces.py::test_impact_aggregates_only_runs_allowed_to_the_subject
+app/tests/api/test_authorized_aggregate_surfaces.py::test_impact_aggregates_only_runs_allowed_to_the_subject
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/api/v1/endpoints/impact.py:30: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/api/test_authorized_aggregate_surfaces.py::test_skill_metrics_query_count_is_constant_regardless_of_batch_size
+app/tests/api/test_authorized_aggregate_surfaces.py::test_skill_metrics_never_loads_invocation_payload_columns
+app/tests/api/test_authorized_aggregate_surfaces.py::test_skill_metrics_digests_the_iam_policy_once_per_request
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/tests/api/test_authorized_aggregate_surfaces.py:232: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+16 passed, 540 warnings in 2.96s

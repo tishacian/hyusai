@@ -1,0 +1,29 @@
+sha256:9af11548d8ccbb669df7b98e08b1cf8977877ba5ded85443300629c215b04f93
+sha256:b082e1bfcb7bff20c25231766c3551f1579a894c53fca127dd59eff4f75d3905
+sha256:704c38925ee9ab6a21124f0080b5cdef34e6a94566d77aab3a6686f2c5a3a7c1
+storage-check passed: block stores and application binds remain on their protected devices
+storage-check passed: block stores and application binds remain on their protected devices
+ Container agentium-worker-cpu  Recreate
+ Container agentium-p4-maintenance  Recreate
+ Container agentium-beat  Recreate
+ Container agentium-frontend  Recreate
+ Container agentium-backend  Recreate
+ Container agentium-worker-recipes  Recreate
+ Container agentium-frontend  Recreated
+ Container agentium-p4-maintenance  Recreated
+ Container agentium-backend  Recreated
+ Container agentium-beat  Recreated
+ Container agentium-worker-recipes  Recreated
+ Container agentium-worker-cpu  Recreated
+ Container agentium-beat  Starting
+ Container agentium-worker-recipes  Starting
+ Container agentium-p4-maintenance  Starting
+ Container agentium-frontend  Starting
+ Container agentium-backend  Starting
+ Container agentium-worker-cpu  Starting
+ Container agentium-p4-maintenance  Started
+ Container agentium-frontend  Started
+ Container agentium-worker-cpu  Started
+ Container agentium-worker-recipes  Started
+ Container agentium-backend  Started
+ Container agentium-beat  Started

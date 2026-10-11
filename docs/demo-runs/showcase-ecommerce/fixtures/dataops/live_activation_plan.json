@@ -1,0 +1,10 @@
+{
+  "system_id": "f3ea83de-df89-45ec-8a85-c00d676b2713",
+  "expected_flow_sha256": "2cc25fce82a3ba58b51944580ea35d977d9b70519681f3e6c8c9cf481d961554",
+  "expected_release_id": "3e4f2bb8-6c49-4dd4-a307-16f240212563",
+  "model_id": "67ee9f56-0a79-4ad6-b550-a932fa0d6e78",
+  "model_version": 1,
+  "training_system_id": "04aaadef-e8d7-4614-aea0-454d08652e15",
+  "scoring_system_id": "7477fafa-574b-479f-aea3-b8a5ac1fb540",
+  "expected_scoring_flow_sha256": "38cf1c371a8f511681a8d41f08699d43ee262e786c6505b60d3f1086e2d20d9d"
+}

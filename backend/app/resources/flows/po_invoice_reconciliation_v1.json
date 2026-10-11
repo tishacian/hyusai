@@ -1,0 +1,128 @@
+{
+  "artifact": "po_invoice_reconciliation_v1",
+  "system": {
+    "name": "PO vs Invoice Reconciliation",
+    "objective": "Read a purchase-order spreadsheet and an invoice PDF, match line items, and return the variance.",
+    "execution_mode": "human_augmented",
+    "coordination_pattern": "single_agent",
+    "default_model": "gpt-4o-mini"
+  },
+  "system_settings": {
+    "seed_origin": "089_publish_nawa_recon"
+  },
+  "flow_definition": {
+    "schema_version": 2,
+    "nodes": [
+      {
+        "id": "source.manual",
+        "type": "source",
+        "kind": "source",
+        "label": "PO and invoice files",
+        "config": {
+          "ingress_kind": "manual",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "collection_slug": {
+                "type": "string",
+                "title": "Collection"
+              },
+              "po_file_id": {
+                "type": "string",
+                "title": "Purchase order file"
+              },
+              "invoice_file_id": {
+                "type": "string",
+                "title": "Invoice file"
+              },
+              "po_filename_pattern": {
+                "type": "string",
+                "title": "PO filename"
+              },
+              "invoice_filename_pattern": {
+                "type": "string",
+                "title": "Invoice filename"
+              },
+              "tolerance_pct": {
+                "type": "number",
+                "title": "Tolerance %",
+                "default": 2
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "task.extract_po",
+        "type": "task",
+        "kind": "task",
+        "label": "Read purchase order",
+        "config": {
+          "skill_slug": "spreadsheet_table_extract_v1",
+          "inputs_map": {
+            "file_id": { "node_id": "run", "path": ["po_file_id"] },
+            "collection_slug": { "node_id": "run", "path": ["collection_slug"] },
+            "filename_pattern": { "node_id": "run", "path": ["po_filename_pattern"] }
+          }
+        }
+      },
+      {
+        "id": "task.extract_invoice",
+        "type": "task",
+        "kind": "task",
+        "label": "Read invoice",
+        "config": {
+          "skill_slug": "invoice_document_extract_v1",
+          "inputs_map": {
+            "file_id": { "node_id": "run", "path": ["invoice_file_id"] },
+            "collection_slug": { "node_id": "run", "path": ["collection_slug"] },
+            "filename_pattern": { "node_id": "run", "path": ["invoice_filename_pattern"] }
+          }
+        }
+      },
+      {
+        "id": "task.reconcile",
+        "type": "task",
+        "kind": "task",
+        "label": "Match line items",
+        "config": {
+          "skill_slug": "line_items_reconcile_v1",
+          "inputs_map": {
+            "po_lines": { "node_id": "task.extract_po", "path": ["rows"] },
+            "invoice_lines": { "node_id": "task.extract_invoice", "path": ["line_items"] },
+            "po_reference": { "node_id": "task.extract_invoice", "path": ["po_reference"] },
+            "tolerance_pct": { "node_id": "run", "path": ["tolerance_pct"] }
+          }
+        }
+      },
+      {
+        "id": "sink.result",
+        "type": "sink",
+        "kind": "sink",
+        "label": "Reconciliation result",
+        "config": {
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "po_reference": { "type": "string" },
+              "matched_count": { "type": "integer" },
+              "flagged_count": { "type": "integer" },
+              "po_total": { "type": "number" },
+              "invoice_total": { "type": "number" },
+              "total_variance_pct": { "type": "number" },
+              "tolerance_pct": { "type": "number" },
+              "lines": { "type": "array", "items": { "type": "object" } }
+            }
+          }
+        }
+      }
+    ],
+    "edges": [
+      { "from": "source.manual", "to": "task.extract_po" },
+      { "from": "source.manual", "to": "task.extract_invoice" },
+      { "from": "task.extract_po", "to": "task.reconcile" },
+      { "from": "task.extract_invoice", "to": "task.reconcile" },
+      { "from": "task.reconcile", "to": "sink.result" }
+    ]
+  }
+}

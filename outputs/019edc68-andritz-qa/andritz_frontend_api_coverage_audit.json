@@ -1,0 +1,1324 @@
+{
+  "generated_at": "2026-06-24T03:54:09.651Z",
+  "scope": {
+    "workspace": "andritz",
+    "systems": [
+      "Chat Recherche",
+      "Knowledge Capture",
+      "Collections",
+      "SFTP Andritz"
+    ],
+    "safety": "static frontend API-reference and matrix audit only; no browser, backend, VM, SFTP, collection, vector or object-store mutation"
+  },
+  "matrix": {
+    "feature_count": 101
+  },
+  "frontend_api": {
+    "scoped_file_count": 14,
+    "reference_count": 111,
+    "uncovered_count": 0,
+    "missing_feature_ref_count": 0,
+    "references": [
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 333,
+        "method": "POST",
+        "path": "/voice/transcribe",
+        "raw": "${this.base}/voice/transcribe",
+        "feature_ids": [
+          "CHT-011",
+          "KCAP-012"
+        ],
+        "coverage_rule": "^\\/voice\\/transcribe"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 347,
+        "method": "POST",
+        "path": "/voice/synthesize",
+        "raw": "${this.base}/voice/synthesize",
+        "feature_ids": [
+          "CHT-012"
+        ],
+        "coverage_rule": "^\\/voice\\/synthesize"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 361,
+        "method": "GET",
+        "path": "/voice/runtimes",
+        "raw": "/voice/runtimes",
+        "feature_ids": [
+          "CHT-011",
+          "KCAP-009"
+        ],
+        "coverage_rule": "^\\/voice\\/runtimes"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 375,
+        "method": "GET",
+        "path": "/knowledge/guides",
+        "raw": "/knowledge/guides",
+        "feature_ids": [
+          "COL-011"
+        ],
+        "coverage_rule": "^\\/knowledge\\/guides"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 385,
+        "method": "POST",
+        "path": "/knowledge/guides",
+        "raw": "/knowledge/guides",
+        "feature_ids": [
+          "COL-011"
+        ],
+        "coverage_rule": "^\\/knowledge\\/guides"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 398,
+        "method": "PATCH",
+        "path": "/knowledge/guides/{id}",
+        "raw": "/knowledge/guides/${guideKey}",
+        "feature_ids": [
+          "COL-011"
+        ],
+        "coverage_rule": "^\\/knowledge\\/guides"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 417,
+        "method": "GET",
+        "path": "/documents/table-facts",
+        "raw": "/documents/table-facts",
+        "feature_ids": [
+          "COL-009",
+          "COL-013"
+        ],
+        "coverage_rule": "^\\/documents\\/table-facts"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 429,
+        "method": "POST",
+        "path": "/knowledge/table-query",
+        "raw": "/knowledge/table-query",
+        "feature_ids": [
+          "COL-009",
+          "COL-013"
+        ],
+        "coverage_rule": "^\\/knowledge\\/table-query"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 446,
+        "method": "GET",
+        "path": "/documents/document-facts",
+        "raw": "/documents/document-facts",
+        "feature_ids": [
+          "COL-010",
+          "CHT-020"
+        ],
+        "coverage_rule": "^\\/documents\\/document-facts"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 458,
+        "method": "POST",
+        "path": "/knowledge/document-query",
+        "raw": "/knowledge/document-query",
+        "feature_ids": [
+          "COL-010",
+          "CHT-020"
+        ],
+        "coverage_rule": "^\\/knowledge\\/document-query"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 462,
+        "method": "POST",
+        "path": "/knowledge-capture/plans",
+        "raw": "/knowledge-capture/plans",
+        "feature_ids": [
+          "KCAP-002",
+          "KCAP-004"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/plans"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 468,
+        "method": "POST",
+        "path": "/knowledge-capture/plan-source/extract",
+        "raw": "${this.base}/knowledge-capture/plan-source/extract",
+        "feature_ids": [
+          "KCAP-003"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/plan-source\\/extract"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 482,
+        "method": "GET",
+        "path": "/knowledge-capture/sessions",
+        "raw": "/knowledge-capture/sessions",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 504,
+        "method": "GET",
+        "path": "/knowledge-capture/fiches",
+        "raw": "/knowledge-capture/fiches",
+        "feature_ids": [
+          "KCAP-028"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/fiches"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 508,
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{id}/archive",
+        "raw": "/knowledge-capture/sessions/${sessionId}/archive",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 512,
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{id}/unarchive",
+        "raw": "/knowledge-capture/sessions/${sessionId}/unarchive",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 516,
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{id}",
+        "raw": "/knowledge-capture/sessions/${sessionId}",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 520,
+        "method": "GET",
+        "path": "/knowledge-capture/sessions/{id}/quality-backlog",
+        "raw": "/knowledge-capture/sessions/${sessionId}/quality-backlog",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 527,
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{id}/quality/defer",
+        "raw": "/knowledge-capture/sessions/${sessionId}/quality/defer",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 540,
+        "method": "PATCH",
+        "path": "/knowledge-capture/sessions/{id}/oracle-questions",
+        "raw": "/knowledge-capture/sessions/${sessionId}/oracle-questions",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 553,
+        "method": "PATCH",
+        "path": "/knowledge-capture/sessions/{id}/flags",
+        "raw": "/knowledge-capture/sessions/${sessionId}/flags",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 557,
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{id}/plan/dialogue-turn",
+        "raw": "/knowledge-capture/sessions/${sessionId}/plan/dialogue-turn",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 561,
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{id}/plan/finalize",
+        "raw": "/knowledge-capture/sessions/${sessionId}/plan/finalize",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 565,
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{id}/plan/topics",
+        "raw": "/knowledge-capture/sessions/${sessionId}/plan/topics",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 569,
+        "method": "PATCH",
+        "path": "/knowledge-capture/sessions/{id}/plan/topics",
+        "raw": "/knowledge-capture/sessions/${sessionId}/plan/topics",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 573,
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{id}/plan/validate-topics",
+        "raw": "/knowledge-capture/sessions/${sessionId}/plan/validate-topics",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 578,
+        "method": "GET",
+        "path": "/knowledge-capture/sessions/{id}/hint-queue",
+        "raw": "/knowledge-capture/sessions/${sessionId}/hint-queue",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 582,
+        "method": "GET",
+        "path": "/knowledge-capture/sessions/{id}/pause",
+        "raw": "/knowledge-capture/sessions/${sessionId}/pause",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 586,
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{id}/resume",
+        "raw": "/knowledge-capture/sessions/${sessionId}/resume",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 595,
+        "method": "GET",
+        "path": "/knowledge-capture/sessions/{id}/closure-sheet",
+        "raw": "/knowledge-capture/sessions/${sessionId}/closure-sheet",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 602,
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{id}/closure",
+        "raw": "/knowledge-capture/sessions/${sessionId}/closure",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 606,
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{id}/extend",
+        "raw": "/knowledge-capture/sessions/${sessionId}/extend",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 616,
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{id}/proposal/export",
+        "raw": "/knowledge-capture/sessions/${sessionId}/proposal/export",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 629,
+        "method": "POST",
+        "path": "/knowledge-capture/proposals/{id}/publish",
+        "raw": "/knowledge-capture/proposals/${proposalId}/publish",
+        "feature_ids": [
+          "KCAP-038"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/proposals(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 633,
+        "method": "PATCH",
+        "path": "/knowledge-capture/sessions/{id}/plan",
+        "raw": "/knowledge-capture/sessions/${sessionId}/plan",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 637,
+        "method": "PATCH",
+        "path": "/knowledge-capture/sessions/{id}/plan/approve",
+        "raw": "/knowledge-capture/sessions/${sessionId}/plan/approve",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 641,
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{id}/start",
+        "raw": "/knowledge-capture/sessions/${sessionId}/start",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 645,
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{id}/turns",
+        "raw": "/knowledge-capture/sessions/${sessionId}/turns",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 649,
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{id}/documents",
+        "raw": "/knowledge-capture/sessions/${sessionId}/documents",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 655,
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{id}/documents",
+        "raw": "/knowledge-capture/sessions/${sessionId}/documents",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 659,
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{id}/documents/view",
+        "raw": "/knowledge-capture/sessions/${sessionId}/documents/view",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 670,
+        "method": "GET",
+        "path": "/knowledge-capture/sessions/{id}/events",
+        "raw": "/knowledge-capture/sessions/${sessionId}/events",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 677,
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{id}/retrieval-prefetch",
+        "raw": "/knowledge-capture/sessions/${sessionId}/retrieval-prefetch",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 684,
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{id}/conversation-step",
+        "raw": "/knowledge-capture/sessions/${sessionId}/conversation-step",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 692,
+        "method": "PATCH",
+        "path": "/knowledge-capture/sessions/{id}/events/{id}/amend",
+        "raw": "/knowledge-capture/sessions/${sessionId}/events/${eventId}/amend",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 696,
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{id}/proposal",
+        "raw": "/knowledge-capture/sessions/${sessionId}/proposal",
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 704,
+        "method": "GET",
+        "path": "/knowledge-capture/proposals",
+        "raw": "/knowledge-capture/proposals",
+        "feature_ids": [
+          "KCAP-038"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/proposals(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 708,
+        "method": "PATCH",
+        "path": "/knowledge-capture/proposals/{id}/review",
+        "raw": "/knowledge-capture/proposals/${proposalId}/review",
+        "feature_ids": [
+          "KCAP-038"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/proposals(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 712,
+        "method": "PATCH",
+        "path": "/knowledge-capture/proposals/{id}/content",
+        "raw": "/knowledge-capture/proposals/${proposalId}/content",
+        "feature_ids": [
+          "KCAP-038"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/proposals(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 726,
+        "method": "PATCH",
+        "path": "/knowledge-capture/proposals/{id}/open-questions",
+        "raw": "/knowledge-capture/proposals/${proposalId}/open-questions",
+        "feature_ids": [
+          "KCAP-038"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/proposals(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 736,
+        "method": "POST",
+        "path": "/knowledge-capture/proposals/{id}/open-questions/{id}/answer",
+        "raw": "/knowledge-capture/proposals/${proposalId}/open-questions/${questionId}/answer",
+        "feature_ids": [
+          "KCAP-038"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/proposals(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 745,
+        "method": "POST",
+        "path": "/knowledge-capture/proposals/{id}/instruction",
+        "raw": "/knowledge-capture/proposals/${proposalId}/instruction",
+        "feature_ids": [
+          "KCAP-038"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/proposals(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/api.service.ts",
+        "line": 750,
+        "method": "POST",
+        "path": "/knowledge-capture/chat-correction",
+        "raw": "/knowledge-capture/chat-correction",
+        "feature_ids": [
+          "CHT-013"
+        ],
+        "coverage_rule": "^\\/knowledge-capture\\/chat-correction"
+      },
+      {
+        "file": "frontend-ng/src/app/core/livekit-conversation.service.ts",
+        "line": 280,
+        "method": "GET",
+        "path": "/livekit/config",
+        "raw": "/livekit/config",
+        "feature_ids": [
+          "CHT-019",
+          "KCAP-009"
+        ],
+        "coverage_rule": "^\\/livekit(?:\\/|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/livekit-conversation.service.ts",
+        "line": 289,
+        "method": "POST",
+        "path": "/livekit/token",
+        "raw": "/livekit/token",
+        "feature_ids": [
+          "CHT-019",
+          "KCAP-009"
+        ],
+        "coverage_rule": "^\\/livekit(?:\\/|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/core/livekit-conversation.service.ts",
+        "line": 332,
+        "method": "POST",
+        "path": "/livekit/sessions/{id}/agent/dispatch",
+        "raw": "/livekit/sessions/${encodeURIComponent(sessionId)}/agent/dispatch",
+        "feature_ids": [
+          "CHT-019",
+          "KCAP-009"
+        ],
+        "coverage_rule": "^\\/livekit(?:\\/|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 3519,
+        "method": "GET",
+        "path": "/sessions?",
+        "raw": "/sessions?status=active&limit=80",
+        "feature_ids": [
+          "CHT-014"
+        ],
+        "coverage_rule": "^\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 3542,
+        "method": "POST",
+        "path": "/sessions",
+        "raw": "/sessions",
+        "feature_ids": [
+          "CHT-014"
+        ],
+        "coverage_rule": "^\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 3565,
+        "method": "GET",
+        "path": "/sessions/{id}?",
+        "raw": "/sessions/${encodeURIComponent(sessionId)}?include_messages=true&include_jobs=true",
+        "feature_ids": [
+          "CHT-014"
+        ],
+        "coverage_rule": "^\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 3595,
+        "method": "PATCH",
+        "path": "/sessions/{id}",
+        "raw": "/sessions/${encodeURIComponent(session.id)}",
+        "feature_ids": [
+          "CHT-014"
+        ],
+        "coverage_rule": "^\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 3606,
+        "method": "DELETE",
+        "path": "/sessions/{id}",
+        "raw": "/sessions/${encodeURIComponent(session.id)}",
+        "feature_ids": [
+          "CHT-014"
+        ],
+        "coverage_rule": "^\\/sessions(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 3778,
+        "method": "GET",
+        "path": "/reasoning/templates",
+        "raw": "/reasoning/templates",
+        "feature_ids": [
+          "CHT-003",
+          "CHT-021"
+        ],
+        "coverage_rule": "^\\/reasoning\\/templates"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 3811,
+        "method": "GET",
+        "path": "/actions/effective",
+        "raw": "/actions/effective",
+        "feature_ids": [
+          "CHT-003",
+          "CHT-021"
+        ],
+        "coverage_rule": "^\\/actions\\/effective"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 3825,
+        "method": "GET",
+        "path": "/actions/effective",
+        "raw": "/actions/effective",
+        "feature_ids": [
+          "CHT-003",
+          "CHT-021"
+        ],
+        "coverage_rule": "^\\/actions\\/effective"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-workspace.component.ts",
+        "line": 933,
+        "method": "REFERENCE",
+        "path": "/systems",
+        "raw": "/systems",
+        "feature_ids": [
+          "KCAP-002",
+          "KCAP-004"
+        ],
+        "coverage_rule": "^\\/systems(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-workspace.component.ts",
+        "line": 989,
+        "method": "POST",
+        "path": "/documents/upload-batch",
+        "raw": "/api/v1/documents/upload-batch",
+        "feature_ids": [
+          "CHT-004",
+          "COL-019"
+        ],
+        "coverage_rule": "^\\/documents\\/upload-batch"
+      },
+      {
+        "file": "frontend-ng/src/app/features/chat/chat-workspace.component.ts",
+        "line": 1052,
+        "method": "GET",
+        "path": "/documents/{id}/metadata",
+        "raw": "/api/v1/documents/${documentId}/metadata",
+        "feature_ids": [
+          "COL-007",
+          "CHT-008"
+        ],
+        "coverage_rule": "^\\/documents\\/[^/]+\\/metadata"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1780,
+        "method": "GET",
+        "path": "/sftp/health",
+        "raw": "/sftp/health",
+        "feature_ids": [
+          "SFTP-015"
+        ],
+        "coverage_rule": "^\\/sftp\\/health"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1784,
+        "method": "GET",
+        "path": "/sftp/links",
+        "raw": "/sftp/links",
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ],
+        "coverage_rule": "^\\/sftp\\/links(?:\\/|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1794,
+        "method": "GET",
+        "path": "/sftp/deposits",
+        "raw": "/sftp/deposits",
+        "feature_ids": [
+          "SFTP-005"
+        ],
+        "coverage_rule": "^\\/sftp\\/deposits(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1806,
+        "method": "GET",
+        "path": "/documents/collections",
+        "raw": "/documents/collections",
+        "feature_ids": [
+          "COL-001"
+        ],
+        "coverage_rule": "^\\/documents\\/collections$"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1852,
+        "method": "GET",
+        "path": "/sftp/operations",
+        "raw": "/sftp/operations",
+        "feature_ids": [
+          "SFTP-010",
+          "SFTP-016"
+        ],
+        "coverage_rule": "^\\/sftp\\/operations"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1872,
+        "method": "POST",
+        "path": "/sftp/deposits/indexing-assist",
+        "raw": "/sftp/deposits/indexing-assist",
+        "feature_ids": [
+          "SFTP-007",
+          "SFTP-016"
+        ],
+        "coverage_rule": "^\\/sftp\\/deposits\\/indexing-assist"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1899,
+        "method": "GET",
+        "path": "/documents/jobs",
+        "raw": "/documents/jobs",
+        "feature_ids": [
+          "COL-015",
+          "SFTP-016",
+          "CHT-009"
+        ],
+        "coverage_rule": "^\\/documents\\/jobs"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1957,
+        "method": "POST",
+        "path": "/sftp/operations/reconcile",
+        "raw": "/sftp/operations/reconcile",
+        "feature_ids": [
+          "SFTP-010"
+        ],
+        "coverage_rule": "^\\/sftp\\/operations\\/reconcile"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 1986,
+        "method": "POST",
+        "path": "/sftp/operations/reconcile",
+        "raw": "/sftp/operations/reconcile",
+        "feature_ids": [
+          "SFTP-010"
+        ],
+        "coverage_rule": "^\\/sftp\\/operations\\/reconcile"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 2011,
+        "method": "POST",
+        "path": "/sftp/links",
+        "raw": "/sftp/links",
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ],
+        "coverage_rule": "^\\/sftp\\/links(?:\\/|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 2033,
+        "method": "POST",
+        "path": "/sftp/links/{id}/rotate",
+        "raw": "/sftp/links/${link.id}/rotate",
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ],
+        "coverage_rule": "^\\/sftp\\/links(?:\\/|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 2049,
+        "method": "POST",
+        "path": "/sftp/links/{id}/revoke",
+        "raw": "/sftp/links/${link.id}/revoke",
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ],
+        "coverage_rule": "^\\/sftp\\/links(?:\\/|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 2066,
+        "method": "POST",
+        "path": "/sftp/deposits/{id}/promote",
+        "raw": "/sftp/deposits/${file.id}/promote",
+        "feature_ids": [
+          "SFTP-008",
+          "SFTP-013"
+        ],
+        "coverage_rule": "^\\/sftp\\/deposits\\/[^/]+\\/promote"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 2107,
+        "method": "POST",
+        "path": "/sftp/deposits/promote-bulk",
+        "raw": "/sftp/deposits/promote-bulk",
+        "feature_ids": [
+          "SFTP-009",
+          "SFTP-013"
+        ],
+        "coverage_rule": "^\\/sftp\\/deposits\\/promote-bulk"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 2181,
+        "method": "GET",
+        "path": "/sftp/deposits/{id}/preview",
+        "raw": "/sftp/deposits/${file.id}/preview",
+        "feature_ids": [
+          "SFTP-006"
+        ],
+        "coverage_rule": "^\\/sftp\\/deposits\\/[^/]+\\/preview"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 2211,
+        "method": "GET",
+        "path": "/sftp/deposits/{id}/archive",
+        "raw": "/sftp/deposits/${file.id}/archive",
+        "feature_ids": [
+          "SFTP-006",
+          "SFTP-011"
+        ],
+        "coverage_rule": "^\\/sftp\\/deposits\\/[^/]+\\/archive"
+      },
+      {
+        "file": "frontend-ng/src/app/features/connectors/sftp/sftp-connector.component.ts",
+        "line": 2238,
+        "method": "GET",
+        "path": "/sftp/deposits/{id}/archive/member/preview",
+        "raw": "/sftp/deposits/${file.id}/archive/member/preview",
+        "feature_ids": [
+          "SFTP-006"
+        ],
+        "coverage_rule": "^\\/sftp\\/deposits\\/[^/]+\\/archive\\/member\\/preview"
+      },
+      {
+        "file": "frontend-ng/src/app/features/deposit/deposit-portal.component.ts",
+        "line": 208,
+        "method": "POST",
+        "path": "/deposit-links/{access_id}/session",
+        "raw": "/api/v1/deposit-links/${this.accessId()}/session",
+        "feature_ids": [
+          "SFTP-002"
+        ],
+        "coverage_rule": "^\\/deposit-links\\/[^/]+\\/session"
+      },
+      {
+        "file": "frontend-ng/src/app/features/deposit/deposit-portal.component.ts",
+        "line": 231,
+        "method": "GET",
+        "path": "/deposit-links/{access_id}/files",
+        "raw": "/api/v1/deposit-links/${this.accessId()}/files",
+        "feature_ids": [
+          "SFTP-002",
+          "SFTP-003"
+        ],
+        "coverage_rule": "^\\/deposit-links\\/[^/]+\\/files"
+      },
+      {
+        "file": "frontend-ng/src/app/features/deposit/deposit-portal.component.ts",
+        "line": 276,
+        "method": "POST",
+        "path": "/deposit-links/{access_id}/files",
+        "raw": "/api/v1/deposit-links/${this.accessId()}/files",
+        "feature_ids": [
+          "SFTP-002",
+          "SFTP-003"
+        ],
+        "coverage_rule": "^\\/deposit-links\\/[^/]+\\/files"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/embedding-map.component.ts",
+        "line": 384,
+        "method": "GET",
+        "path": "/documents/graph?",
+        "raw": "/api/v1/documents/graph?${params.toString()}",
+        "feature_ids": [
+          "COL-014"
+        ],
+        "coverage_rule": "^\\/documents\\/(?:graph|chunks|stats)"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 634,
+        "method": "REFERENCE",
+        "path": "/documents",
+        "raw": "/api/v1/documents",
+        "feature_ids": [
+          "COL-001",
+          "COL-005"
+        ],
+        "coverage_rule": "^\\/documents$"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 734,
+        "method": "GET",
+        "path": "/documents/collections",
+        "raw": "${this.base}/collections",
+        "feature_ids": [
+          "COL-001"
+        ],
+        "coverage_rule": "^\\/documents\\/collections$"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 807,
+        "method": "POST",
+        "path": "/documents/upload-batch",
+        "raw": "${this.base}/upload-batch",
+        "feature_ids": [
+          "CHT-004",
+          "COL-019"
+        ],
+        "coverage_rule": "^\\/documents\\/upload-batch"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 839,
+        "method": "POST",
+        "path": "/documents/collections?",
+        "raw": "${this.base}/collections?collection_name=${encodeURIComponent(name)}",
+        "feature_ids": [
+          "COL-005"
+        ],
+        "coverage_rule": "^\\/documents\\/collections(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 882,
+        "method": "DELETE",
+        "path": "/documents/collections/{id}",
+        "raw": "${this.base}/collections/${encodeURIComponent(name)}",
+        "feature_ids": [
+          "COL-005"
+        ],
+        "coverage_rule": "^\\/documents\\/collections(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 915,
+        "method": "GET",
+        "path": "/documents/list?",
+        "raw": "${this.base}/list?collection_name=${encodeURIComponent(name)}&limit=${this.browsePageSize}&offset=${safeOffset}",
+        "feature_ids": [
+          "COL-017",
+          "COL-023"
+        ],
+        "coverage_rule": "^\\/documents\\/list"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 949,
+        "method": "GET",
+        "path": "/documents/preview/{id}?",
+        "raw": "${this.base}/preview/${encodeURIComponent(d.document_id)}?collection_name=${encodeURIComponent(col)}",
+        "feature_ids": [
+          "COL-007",
+          "CHT-008",
+          "KCAP-016"
+        ],
+        "coverage_rule": "^\\/documents\\/(?:preview|file|raw|rich-preview|converted-preview)"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 974,
+        "method": "DELETE",
+        "path": "/documents/{id}?",
+        "raw": "${this.base}/${encodeURIComponent(d.document_id)}?collection_name=${encodeURIComponent(col)}",
+        "feature_ids": [
+          "COL-007",
+          "COL-004"
+        ],
+        "coverage_rule": "^\\/documents\\/[^/]+"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-base.component.ts",
+        "line": 1027,
+        "method": "POST",
+        "path": "/documents/search",
+        "raw": "${this.base}/search",
+        "feature_ids": [
+          "COL-008",
+          "CHT-002"
+        ],
+        "coverage_rule": "^\\/documents\\/search"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 1541,
+        "method": "REFERENCE",
+        "path": "/documents",
+        "raw": "/api/v1/documents",
+        "feature_ids": [
+          "COL-001",
+          "COL-005"
+        ],
+        "coverage_rule": "^\\/documents$"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 1915,
+        "method": "REFERENCE",
+        "path": "/documents/collections/{id}/inventory?",
+        "raw": "${this.base}/collections/${encodeURIComponent(this.kbId)}/inventory?${params.toString()}",
+        "feature_ids": [
+          "COL-005"
+        ],
+        "coverage_rule": "^\\/documents\\/collections(?:\\/|\\?|$)"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 1976,
+        "method": "GET",
+        "path": "/documents/collections/{id}/diagnostics",
+        "raw": "${this.base}/collections/${encodeURIComponent(this.kbId)}/diagnostics",
+        "feature_ids": [
+          "COL-006"
+        ],
+        "coverage_rule": "^\\/documents\\/collections\\/[^/]+\\/diagnostics"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 1996,
+        "method": "POST",
+        "path": "/documents/collections/{id}/retrieval-artifact-jobs",
+        "raw": "${this.base}/collections/${encodeURIComponent(this.kbId)}/retrieval-artifact-jobs",
+        "feature_ids": [
+          "COL-012"
+        ],
+        "coverage_rule": "^\\/documents\\/collections\\/[^/]+\\/retrieval-artifact-jobs"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 2019,
+        "method": "GET",
+        "path": "/documents/jobs/{id}",
+        "raw": "${this.base}/jobs/${encodeURIComponent(jobId)}",
+        "feature_ids": [
+          "COL-015",
+          "SFTP-016",
+          "CHT-009"
+        ],
+        "coverage_rule": "^\\/documents\\/jobs"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 2039,
+        "method": "REFERENCE",
+        "path": "/documents/{id}/rich-preview",
+        "raw": "${this.base}/${encodeURIComponent(doc.document_id)}/rich-preview",
+        "feature_ids": [
+          "COL-007",
+          "COL-004"
+        ],
+        "coverage_rule": "^\\/documents\\/[^/]+"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 2050,
+        "method": "REFERENCE",
+        "path": "/documents/{id}/rich-preview",
+        "raw": "${this.base}/${encodeURIComponent(selection.document_id)}/rich-preview",
+        "feature_ids": [
+          "COL-007",
+          "COL-004"
+        ],
+        "coverage_rule": "^\\/documents\\/[^/]+"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 2073,
+        "method": "REFERENCE",
+        "path": "/documents/chunks?",
+        "raw": "${this.base}/chunks?collection_name=${encodeURIComponent(this.kbId)}",
+        "feature_ids": [
+          "COL-014"
+        ],
+        "coverage_rule": "^\\/documents\\/(?:graph|chunks|stats)"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 2171,
+        "method": "GET",
+        "path": "/documents/collections",
+        "raw": "${this.base}/collections",
+        "feature_ids": [
+          "COL-001"
+        ],
+        "coverage_rule": "^\\/documents\\/collections$"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 2195,
+        "method": "GET",
+        "path": "/knowledge/scopes",
+        "raw": "/knowledge/scopes",
+        "feature_ids": [
+          "CHT-015",
+          "COL-021"
+        ],
+        "coverage_rule": "^\\/knowledge\\/scopes"
+      },
+      {
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-view.component.ts",
+        "line": 2204,
+        "method": "GET",
+        "path": "/documents/stats?",
+        "raw": "${this.base}/stats?collection_name=${q}",
+        "feature_ids": [
+          "COL-014"
+        ],
+        "coverage_rule": "^\\/documents\\/(?:graph|chunks|stats)"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 2177,
+        "method": "GET",
+        "path": "/knowledge/scopes",
+        "raw": "/knowledge/scopes",
+        "feature_ids": [
+          "CHT-015",
+          "COL-021"
+        ],
+        "coverage_rule": "^\\/knowledge\\/scopes"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 2178,
+        "method": "GET",
+        "path": "/documents/collections",
+        "raw": "/documents/collections",
+        "feature_ids": [
+          "COL-001"
+        ],
+        "coverage_rule": "^\\/documents\\/collections$"
+      },
+      {
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "line": 2539,
+        "method": "PATCH",
+        "path": "/knowledge/scopes",
+        "raw": "/knowledge/scopes",
+        "feature_ids": [
+          "CHT-015",
+          "COL-021"
+        ],
+        "coverage_rule": "^\\/knowledge\\/scopes"
+      }
+    ],
+    "uncovered": [],
+    "missing_feature_refs": []
+  },
+  "status": "pass"
+}

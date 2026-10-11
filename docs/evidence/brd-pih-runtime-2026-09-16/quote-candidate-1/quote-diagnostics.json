@@ -1,0 +1,50 @@
+[
+  {
+    "case_id": "case-normal",
+    "original_verdict": "passed",
+    "diagnostic": {
+      "verdict": "passed",
+      "assertions": [
+        {
+          "id": "quote-diagnostic",
+          "passed": true,
+          "path_found": true,
+          "quotes_examined": 7,
+          "quotes_not_found": 0
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "case-missing-field",
+    "original_verdict": "passed",
+    "diagnostic": {
+      "verdict": "passed",
+      "assertions": [
+        {
+          "id": "quote-diagnostic",
+          "passed": true,
+          "path_found": true,
+          "quotes_examined": 5,
+          "quotes_not_found": 0
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "case-instruction-in-source",
+    "original_verdict": "passed",
+    "diagnostic": {
+      "verdict": "passed",
+      "assertions": [
+        {
+          "id": "quote-diagnostic",
+          "passed": true,
+          "path_found": true,
+          "quotes_examined": 5,
+          "quotes_not_found": 0
+        }
+      ]
+    }
+  }
+]

@@ -1,0 +1,101 @@
+{{/*
+Model-family workers, the Compose profiles ml-ts and ml-deep. Each family has
+a training worker and a serving worker: the API waits on the serving queue,
+so it runs a threads pool whose threads share one cache of loaded models.
+CELERY_* from the ConfigMap describe the CPU worker; env wins over envFrom.
+*/}}
+{{- $root := . -}}
+{{- $families := list -}}
+{{- if .Values.mlTs.enabled -}}
+{{- $families = append $families (dict "runtime" "ml-ts" "image" .Values.image.mlTs "values" .Values.mlTs "resources" "mlTs" "queue" "ml_ts") -}}
+{{- end -}}
+{{- if .Values.mlDeep.enabled -}}
+{{- $families = append $families (dict "runtime" "ml-deep" "image" .Values.image.mlDeep "values" .Values.mlDeep "resources" "mlDeep" "queue" "ml_deep") -}}
+{{- end -}}
+{{- range $family := $families }}
+{{- range $serve := list false true }}
+{{- $name := printf "agentium-worker-%s%s" $family.runtime (ternary "-serve" "" $serve) }}
+{{- $deep := eq $family.runtime "ml-deep" }}
+{{- $volumes := and $deep (or $family.values.modelsClaim $root.Values.huggingface.enabled) }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "agentium.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ trimPrefix "agentium-" $name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
+      app.kubernetes.io/component: {{ trimPrefix "agentium-" $name }}
+  template:
+    metadata:
+      labels:
+        {{- include "agentium.labels" $root | nindent 8 }}
+        app.kubernetes.io/component: {{ trimPrefix "agentium-" $name }}
+    spec:
+      {{- include "agentium.imagePullSecrets" $root | nindent 6 }}
+      containers:
+        - name: worker
+          image: {{ $family.image | quote }}
+          {{- with index $root.Values.resources (printf "%s%s" $family.resources (ternary "Serve" "" $serve)) }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "agentium.fullname" $root }}-config
+            - secretRef:
+                name: {{ include "agentium.secretName" $root }}
+          env:
+            {{- include "agentium.appSecretEnv" $root | nindent 12 }}
+            - name: ML_RUNTIME
+              value: {{ $family.runtime | quote }}
+            - name: CELERY_APP
+              value: app.workers.celery_ml:celery_ml
+            - name: CELERY_QUEUES
+              value: {{ printf "%s%s" $family.queue (ternary "_rpc" "" $serve) | quote }}
+            - name: CELERY_CONCURRENCY
+              value: {{ ternary $family.values.serveConcurrency $family.values.concurrency $serve | quote }}
+            - name: CELERY_BEAT
+              value: "0"
+            {{- if $serve }}
+            - name: CELERY_POOL
+              value: threads
+            {{- end }}
+            {{- if $deep }}
+            - name: ML_PREDICT_CACHE_SIZE
+              value: "1"
+            - name: ML_DEEP_MODELS_DIR
+              value: /data/models
+            {{- include "agentium.hfOfflineEnv" $root | nindent 12 }}
+            {{- end }}
+          {{- if $volumes }}
+          volumeMounts:
+            {{- if $family.values.modelsClaim }}
+            - name: models
+              mountPath: /data/models
+              readOnly: true
+            {{- end }}
+            {{- include "agentium.hfVolumeMounts" (list $root "mlDeep") | nindent 12 }}
+          {{- end }}
+      {{- if $volumes }}
+      {{- if $root.Values.huggingface.enabled }}
+      securityContext:
+        fsGroup: {{ $root.Values.runtime.gid }}
+      {{- end }}
+      volumes:
+        {{- if $family.values.modelsClaim }}
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ $family.values.modelsClaim }}
+            readOnly: true
+        {{- end }}
+        {{- include "agentium.hfVolumes" (list $root "mlDeep") | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- end }}

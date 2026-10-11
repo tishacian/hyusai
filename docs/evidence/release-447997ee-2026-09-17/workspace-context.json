@@ -1,0 +1,25 @@
+{
+  "id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+  "slug": "agentium-showcase",
+  "role": "owner",
+  "role_template": "workspace_owner",
+  "mode": "portfolio",
+  "features": {
+    "rpa_bridge": true,
+    "experience_v1": true,
+    "hypervisor_v2": true,
+    "value_loop_v1": false,
+    "model_portal_beta": true,
+    "sap_hana_connector": true,
+    "enable_event_triggers": true,
+    "run_360_projection_v1": false,
+    "adoption_experience_v1": true,
+    "cockpit_router_axes_v3": true,
+    "cockpit_router_axes_v4": true,
+    "system_360_projection_v1": true,
+    "flow_v3_dag_authoritative": true,
+    "capability_360_projection_v1": false,
+    "skill_invocation_360_projection_v1": false,
+    "flow_workbench_v1": true
+  }
+}

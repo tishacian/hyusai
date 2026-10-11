@@ -1,0 +1,3327 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Le Fil — Contre-proposition · Capture de connaissance multimodale</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+
+/* === tokens/cockpit-tokens.css === */
+/* ============================================================================
+   AGENTIUM — Cockpit Design Tokens (Hybrid A+B)
+   --------------------------------------------------------------------------
+   Operating System for Intelligence.
+   Base: Concept A (Instrument Panel) — dense cockpit, precision, tabular nums.
+   Touches: Concept B (Living Organism) — generous glows, radial ambient on hero.
+   --------------------------------------------------------------------------
+   Drives every cockpit-grade surface (chrome, hypervisor, steering, run, …).
+   Coexists with the legacy Tailwind tokens in styles.scss; the cockpit grammar
+   only uses --ck-* variables to remain isolated and easily themable.
+   ============================================================================ */
+
+:root {
+  /* ---- SURFACES (deep cockpit blacks) ---- */
+  --ck-bg-void:      #05070a;
+  --ck-bg-base:      #07090c;
+  --ck-bg-panel:     #0c1014;
+  --ck-bg-panel-hi:  #11161c;
+  --ck-bg-inset:     #0a0d11;
+  --ck-bg-code:      #050709;
+
+  /* ---- STROKES ---- */
+  --ck-stroke-1:     rgba(255, 255, 255, 0.04);
+  --ck-stroke-2:     rgba(255, 255, 255, 0.08);
+  --ck-stroke-3:     rgba(255, 255, 255, 0.14);
+  --ck-stroke-hot:   rgba(125, 211, 252, 0.32);
+
+  /* ---- TEXT ---- */
+  --ck-fg-1:         #f2f5f8;
+  --ck-fg-2:         #c8cdd4;
+  --ck-fg-3:         #8891a0;
+  --ck-fg-4:         #7b8391;   /* AA: >=4.5:1 on dark panels (secondary/caption text) */
+  --ck-fg-5:         #606874;   /* faint tier: >=3:1 (large/bold text, UI elements, borders) */
+
+  /* ---- SIGNALS (semantic palette) ---- */
+  --ck-signal-pos:    #34d399;
+  --ck-signal-neg:    #ef5a6f;
+  --ck-signal-warn:   #f5b84a;
+  --ck-signal-cool:   #7dd3fc;
+  --ck-signal-violet: #a78bfa;
+  --ck-signal-ice:    #e0f2fe;
+
+  /* ---- GLOWS (touches Concept B: generous halos on live surfaces) ---- */
+  --ck-glow-cool:    0 0 32px rgba(125, 211, 252, 0.32);
+  --ck-glow-pos:     0 0 32px rgba(52, 211, 153, 0.28);
+  --ck-glow-violet:  0 0 32px rgba(167, 139, 250, 0.30);
+  --ck-glow-warn:    0 0 28px rgba(245, 184, 74, 0.28);
+  --ck-glow-neg:     0 0 28px rgba(239, 90, 111, 0.30);
+
+  /* ---- SHADOWS (depth, panels, popovers) ----
+     Dark cockpit: deep diffuse black. On light these get softened
+     in the `[data-theme="light"]` block below so panels don't read as
+     "punched out" on warm paper. Consumers MUST use var(--ck-shadow-*)
+     rather than inlining `rgba(0,0,0,0.5)` so the theme travels. */
+  --ck-shadow-panel:   0 20px 60px rgba(0, 0, 0, 0.50);
+  --ck-shadow-popover: 0 18px 40px rgba(0, 0, 0, 0.45);
+  --ck-shadow-card:    0 6px 18px rgba(0, 0, 0, 0.35);
+  /* Scrim beneath overlays (panels, modals, palette). */
+  --ck-scrim:          rgba(0, 0, 0, 0.45);
+
+  /* Text color to render on top of a saturated signal background
+     (ck-tag variant="solid", primary signal buttons). Dark theme →
+     bright signal bg → dark text reads best. Flipped on light. */
+  --ck-on-signal: #05070a;
+
+  /* Subtle tint for faintly-accented surfaces (neutral soft tag bg,
+     hover washes, empty-state wells). Dark theme uses a white wash;
+     light theme swaps to a black wash below. */
+  --ck-tint-faint: rgba(255, 255, 255, 0.04);
+  --ck-tint-soft:  rgba(255, 255, 255, 0.06);
+
+  /* ---- TYPE STACKS ---- */
+  --ck-font-sans: "Inter Tight", "Inter", -apple-system, "Helvetica Neue", system-ui, sans-serif;
+  --ck-font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* ---- RADII ---- */
+  --ck-radius-sm: 4px;
+  --ck-radius-md: 6px;
+  --ck-radius-lg: 10px;
+  --ck-radius-xl: 14px;
+
+  /* ---- MOTION ---- */
+  --ck-ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ck-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ck-dur-fast:    120ms;
+  --ck-dur-med:     240ms;
+  --ck-dur-slow:    520ms;
+
+  /* ---- LAYOUT ---- */
+  --ck-rail-w:        56px;
+  --ck-titlebar-h:    48px;
+  --ck-commandbar-h:  28px;
+}
+
+/* ============================================================================
+   Light variant — papier-chaud overrides for `[data-theme="light"]` and
+   the legacy `:not(.dark)` class to remain backward compatible during the
+   migration window.
+   ============================================================================ */
+html:not(.dark),
+[data-theme="light"] {
+  --ck-bg-void:     #e8e6df;
+  --ck-bg-base:     #f4f2eb;
+  --ck-bg-panel:    #fafaf6;
+  --ck-bg-panel-hi: #ffffff;
+  --ck-bg-inset:    #efede6;
+  --ck-bg-code:     #1a1c20;
+
+  --ck-stroke-1:    rgba(0, 0, 0, 0.06);
+  --ck-stroke-2:    rgba(0, 0, 0, 0.10);
+  --ck-stroke-3:    rgba(0, 0, 0, 0.18);
+  --ck-stroke-hot:  rgba(14, 116, 144, 0.40);
+
+  --ck-fg-1:        #0a0c10;
+  --ck-fg-2:        #2a2f36;
+  --ck-fg-3:        #5c6370;
+  --ck-fg-4:        #656b78;   /* AA: >=4.5:1 on light panels (secondary/caption text) */
+  --ck-fg-5:        #868d99;   /* faint tier: >=3:1 on panel surfaces */
+
+  --ck-signal-pos:    #0e9f6e;
+  --ck-signal-neg:    #d93a52;
+  --ck-signal-warn:   #c27803;
+  --ck-signal-cool:   #0e7490;
+  --ck-signal-violet: #7c3aed;
+  --ck-signal-ice:    #0c4a6e;
+
+  /* Glows are noisy on light surfaces — disable them by default. */
+  --ck-glow-cool:    0 0 0 transparent;
+  --ck-glow-pos:     0 0 0 transparent;
+  --ck-glow-violet:  0 0 0 transparent;
+  --ck-glow-warn:    0 0 0 transparent;
+  --ck-glow-neg:     0 0 0 transparent;
+
+  /* Softened shadows on warm paper — a 50 % black shadow would shout;
+     we drop the alpha to keep panels grounded without bruising. */
+  --ck-shadow-panel:   0 18px 48px rgba(17, 24, 39, 0.14), 0 2px 6px rgba(17, 24, 39, 0.08);
+  --ck-shadow-popover: 0 12px 32px rgba(17, 24, 39, 0.12), 0 2px 4px rgba(17, 24, 39, 0.06);
+  --ck-shadow-card:    0 4px 12px rgba(17, 24, 39, 0.08);
+  /* Scrim — stays dark-ish so the overlay reads as "modal" even on paper. */
+  --ck-scrim:          rgba(17, 24, 39, 0.28);
+
+  /* On light the signal tones are already dark-saturated (see the
+     --ck-signal-* block above — #0e9f6e, #0e7490…), so white text on
+     top of a solid pill is the only legible combo. */
+  --ck-on-signal: #ffffff;
+
+  /* Tints flip to a black wash so neutral-soft pills & hovers stay
+     visible against the warm paper. */
+  --ck-tint-faint: rgba(17, 24, 39, 0.05);
+  --ck-tint-soft:  rgba(17, 24, 39, 0.08);
+}
+
+/* === tokens/mission-tokens.css === */
+/* ============================================================================
+   SENTINEL-CI / MISSION ROOM — Design Tokens
+   --------------------------------------------------------------------------
+   Centralises the `--mission-*`, `--sentinel-*` and `--agentium-*` tokens
+   used by the Vice Premier Ministre cockpit. Loads AFTER cockpit-tokens so the
+   --ck-* palette stays the deep foundation while these tokens layer a
+   sovereign vert-ivoire / orange-stratégique chrome on top.
+
+   Rationale:
+   * Keep tokens **in one place** instead of duplicated inline `:host`
+     declarations in each mission-room component (they used to drift).
+   * Allow standalone components (chat drawer, signin variants, etc.) to
+     reuse the sovereign palette without depending on mission-room being
+     mounted as the parent.
+   * Preserve backward-compat: legacy aliases (`--mission-bg`, `--mission-text`,
+     `--mission-warn`, …) remain available for components already in flight.
+   ============================================================================ */
+
+:root {
+  /* ---- Surfaces (sovereign cockpit black with a faint green tint) ------- */
+  --mission-bg-base:    #05080c;
+  --mission-bg-grid:    rgba(101, 214, 110, 0.035);
+  --mission-bg:         var(--mission-bg-base);              /* legacy alias */
+  --mission-surface-1:  rgba(15, 24, 28, 0.94);              /* panels      */
+  --mission-surface-2:  rgba(18, 31, 28, 0.92);              /* raised      */
+  --mission-surface-3:  rgba(28, 44, 38, 0.92);              /* hovered     */
+  --mission-inset:      rgba(4, 8, 13, 0.84);
+  --mission-rail-bg:    linear-gradient(180deg, #05080c 0%, #06100a 100%);
+  --mission-panel:      linear-gradient(180deg, var(--mission-surface-1) 0%, rgba(10, 16, 19, 0.98) 100%);
+  --mission-panel-hi:   var(--mission-surface-2);
+
+  /* ---- Borders / strokes ----------------------------------------------- */
+  --mission-border-subtle: rgba(156, 184, 212, 0.10);
+  --mission-border:        rgba(156, 184, 212, 0.14);        /* default     */
+  --mission-border-strong: rgba(101, 214, 110, 0.30);
+
+  /* ---- Text ------------------------------------------------------------ */
+  --mission-text-primary:   #f4f7fb;
+  --mission-text-secondary: #c4ceda;
+  --mission-text-tertiary:  #8996a8;
+  --mission-text-disabled:  #596678;
+  /* legacy aliases (kept so existing inline styles keep working) */
+  --mission-text:        var(--mission-text-primary);
+  --mission-text-soft:   var(--mission-text-secondary);
+  --mission-text-muted:  var(--mission-text-tertiary);
+  --mission-text-faint:  var(--mission-text-disabled);
+
+  /* ---- SENTINEL palette (vert-ivoire institutionnel) ------------------- */
+  --sentinel-accent:        #65d66e;
+  --sentinel-accent-strong: #93ef74;
+  --sentinel-accent-soft:   rgba(101, 214, 110, 0.095);
+  --sentinel-accent-muted:  rgba(101, 214, 110, 0.38);
+  /* legacy aliases */
+  --mission-accent:         var(--sentinel-accent);
+  --mission-accent-strong:  var(--sentinel-accent-strong);
+  --mission-accent-wash:    var(--sentinel-accent-soft);
+  --mission-accent-muted:   var(--sentinel-accent-muted);
+
+  /* ---- Semantic signals + soft variants -------------------------------- */
+  --mission-success:        #3fd18d;
+  --mission-success-soft:   rgba(63, 209, 141, 0.10);
+  --mission-warning:        #f1b45a;
+  --mission-warning-soft:   rgba(241, 180, 90, 0.12);
+  --mission-critical:       #f06476;
+  --mission-critical-soft:  rgba(240, 100, 118, 0.12);
+  --mission-info:           #7dd3fc;
+  --mission-info-soft:      rgba(125, 211, 252, 0.10);
+  /* legacy aliases */
+  --mission-trust:          var(--mission-success);
+  --mission-trust-wash:     var(--mission-success-soft);
+  --mission-warn:           var(--mission-warning);
+  --mission-warn-wash:      var(--mission-warning-soft);
+  --mission-danger:         var(--mission-critical);
+  --mission-danger-wash:    var(--mission-critical-soft);
+
+  /* ---- SENTINEL orange-stratégique (alerts, "maintenant" markers) ------ */
+  --mission-orange:         #f28c38;
+  --mission-orange-soft:    rgba(242, 140, 56, 0.12);
+  --mission-orange-wash:    var(--mission-orange-soft);      /* legacy      */
+  --mission-gold:           #e3c681;
+
+  /* ---- AGENTIUM AYA (assistant signature) ------------------------------ */
+  --agentium-aya:           #f28c38;                         /* same hue as
+                                                                 orange so
+                                                                 AYA reads
+                                                                 as state actor
+                                                                 + assistant. */
+  --agentium-aya-soft:      rgba(242, 140, 56, 0.10);
+  --agentium-aya-halo:      0 0 0 4px rgba(242, 140, 56, 0.18);
+
+  /* ---- Typography ------------------------------------------------------ */
+  /* Reuse the cockpit stacks so the cockpit chrome and the mission room
+     keep the same letterforms — no extra font request, no FOUT. */
+  --mission-font-display: var(--ck-font-sans);
+  --mission-font-body:    var(--ck-font-sans);
+  --mission-font-mono:    var(--ck-font-mono);
+
+  /* Mission type scale (12px base, generous LH). Kept independent of the
+     legacy `--text-*` tokens so consumers can pick `--mission-text-md`
+     without trampling Tailwind utilities. */
+  --mission-text-xs:   11px;
+  --mission-text-sm:   13px;
+  --mission-text-base: 14px;
+  --mission-text-md:   16px;
+  --mission-text-lg:   20px;
+  --mission-text-xl:   28px;
+  --mission-text-2xl:  36px;
+  --mission-lh-body:   1.5;
+  --mission-lh-tight:  1.2;
+  --mission-tracking-tight: -0.01em;
+  --mission-tracking-micro: 0.14em;
+
+  /* ---- Spacing scale (4px base) ---------------------------------------- */
+  --mission-space-1:  4px;
+  --mission-space-2:  8px;
+  --mission-space-3:  12px;
+  --mission-space-4:  16px;
+  --mission-space-5:  20px;
+  --mission-space-6:  24px;
+  --mission-space-8:  32px;
+  --mission-space-10: 40px;
+  --mission-space-12: 48px;
+
+  /* ---- Radii ----------------------------------------------------------- */
+  --mission-radius-sm: 4px;
+  --mission-radius-md: 8px;
+  --mission-radius-lg: 12px;
+  --mission-radius-xl: 16px;
+  /* legacy aliases — many components still spell --mission-radius */
+  --mission-radius:    var(--mission-radius-md);
+
+  /* ---- Shadows --------------------------------------------------------- */
+  --mission-shadow-soft:     0 4px 14px rgba(0, 0, 0, 0.22);
+  --mission-shadow-elevated: 0 12px 30px rgba(0, 0, 0, 0.32);
+  --mission-shadow-floating: 0 24px 60px rgba(0, 0, 0, 0.46);
+  --mission-shadow-card:     var(--mission-shadow-soft);      /* legacy     */
+
+  /* ---- Motion ---------------------------------------------------------- */
+  --mission-ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --mission-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --mission-dur-fast:    120ms;
+  --mission-dur-base:    200ms;
+  --mission-dur-slow:    420ms;
+}
+
+/* ============================================================================
+   Reusable mission-room primitives
+   --------------------------------------------------------------------------
+   These classes are opt-in. Components that already author their own SCSS
+   keep working unchanged; new markup can lean on these helpers to stay
+   consistent without re-declaring borders/paddings every time.
+   ============================================================================ */
+
+/* Focus ring used across the cockpit (WCAG-friendly, sovereign tone). */
+.mission-focus-ring:focus-visible,
+.mission-focus-ring:focus {
+  outline: 2px solid var(--sentinel-accent);
+  outline-offset: 2px;
+}
+
+/* Clickable surface — neutral idle, accent-tinted hover, ring on focus. */
+.mission-surface-button {
+  cursor: pointer;
+  background: var(--mission-surface-2);
+  border: 1px solid var(--mission-border);
+  border-radius: var(--mission-radius-md);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  appearance: none;
+  transition:
+    border-color var(--mission-dur-fast) var(--mission-ease-out),
+    background var(--mission-dur-fast) var(--mission-ease-out),
+    box-shadow var(--mission-dur-fast) var(--mission-ease-out);
+}
+.mission-surface-button:hover {
+  border-color: var(--sentinel-accent-muted);
+  background: var(--mission-surface-3);
+}
+.mission-surface-button:focus-visible {
+  outline: 2px solid var(--sentinel-accent);
+  outline-offset: 2px;
+}
+
+.mission-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--mission-space-3);
+  min-width: 0;
+}
+.mission-panel-head-copy {
+  display: grid;
+  gap: var(--mission-space-1);
+  min-width: 0;
+}
+.mission-panel-kicker {
+  color: var(--mission-text-tertiary);
+  font-family: var(--mission-font-mono);
+  font-size: 10px;
+  letter-spacing: var(--mission-tracking-micro);
+  text-transform: uppercase;
+}
+.mission-panel-title {
+  margin: 0;
+  color: var(--mission-text-primary);
+  font-size: var(--mission-text-md);
+  font-weight: 650;
+  letter-spacing: var(--mission-tracking-tight);
+  line-height: var(--mission-lh-tight);
+}
+.mission-panel-subtitle {
+  margin: 0;
+  color: var(--mission-text-secondary);
+  font-size: var(--mission-text-sm);
+  line-height: var(--mission-lh-body);
+}
+
+.mission-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  min-height: 22px;
+  padding: 3px 9px;
+  border: 1px solid var(--mission-border);
+  border-radius: 999px;
+  background: rgba(4, 8, 13, 0.48);
+  color: var(--mission-text-secondary);
+  font-family: var(--mission-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.mission-status-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.86;
+}
+.mission-status-badge.is-live {
+  border-color: rgba(63, 209, 141, 0.45);
+  background: var(--mission-success-soft);
+  color: var(--mission-success);
+}
+.mission-status-badge.is-baseline {
+  border-color: rgba(241, 180, 90, 0.38);
+  background: var(--mission-warning-soft);
+  color: var(--mission-warning);
+}
+.mission-status-badge.is-advisory {
+  border-color: rgba(125, 211, 252, 0.34);
+  background: var(--mission-info-soft);
+  color: var(--mission-info);
+}
+.mission-status-badge.is-watch {
+  border-color: rgba(242, 140, 56, 0.42);
+  background: var(--mission-orange-soft);
+  color: var(--mission-orange);
+}
+.mission-status-badge.is-denied {
+  border-color: rgba(63, 209, 141, 0.45);
+  background: var(--mission-success-soft);
+  color: var(--mission-success);
+}
+
+.mission-metric-tile {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--mission-space-3);
+  border: 1px solid var(--mission-border);
+  border-radius: var(--mission-radius-md);
+  background: rgba(4, 8, 13, 0.56);
+}
+.mission-metric-tile > span,
+.mission-metric-label {
+  color: var(--mission-text-tertiary);
+  font-family: var(--mission-font-mono);
+  font-size: 9px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+.mission-metric-tile > strong,
+.mission-metric-value {
+  color: var(--mission-text-primary);
+  font-family: var(--mission-font-mono);
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.mission-metric-tile > small,
+.mission-metric-help {
+  color: var(--mission-text-tertiary);
+  font-size: 10px;
+  line-height: 1.35;
+}
+.mission-metric-tile.is-watch { border-color: rgba(241, 180, 90, 0.32); }
+.mission-metric-tile.is-critical { border-color: rgba(240, 100, 118, 0.34); }
+.mission-metric-tile.is-stable { border-color: rgba(63, 209, 141, 0.30); }
+
+.mission-action-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mission-space-2);
+  padding: var(--mission-space-4) var(--mission-space-5);
+  border-top: 1px solid var(--mission-border);
+  background: rgba(4, 8, 13, 0.62);
+}
+
+.mission-row-highlight {
+  border-left: 3px solid var(--mission-warning);
+  background: rgba(241, 180, 90, 0.06);
+}
+
+@keyframes mission-focus-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(101, 214, 110, 0.44), var(--mission-shadow-soft);
+    border-color: rgba(101, 214, 110, 0.54);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(101, 214, 110, 0), var(--mission-shadow-soft);
+  }
+  100% {
+    box-shadow: var(--mission-shadow-soft);
+  }
+}
+.mission-focus-pulse {
+  animation: mission-focus-pulse 1.9s var(--mission-ease-out) 1;
+}
+
+/* Skeleton loader (deferred animation respects prefers-reduced-motion). */
+.mission-skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(156, 184, 212, 0.06) 0%,
+    rgba(156, 184, 212, 0.16) 50%,
+    rgba(156, 184, 212, 0.06) 100%
+  );
+  background-size: 400px 100%;
+  animation: mission-shimmer 1.5s linear infinite;
+  border-radius: var(--mission-radius-sm);
+}
+@keyframes mission-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
+
+/* Critical chip pulse — used on Zone Nord status chip. Subtle enough that
+   COMEX viewers don't perceive it as marketing flicker. */
+@keyframes mission-pulse-critical {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(240, 100, 118, 0.45); }
+  50%      { box-shadow: 0 0 0 6px rgba(240, 100, 118, 0); }
+}
+.mission-pulse-critical {
+  animation: mission-pulse-critical 2.4s ease-in-out infinite;
+}
+
+/* AYA assistant accent — used as a left-border on AYA-authored surfaces. */
+.mission-aya-strip {
+  position: relative;
+}
+.mission-aya-strip::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, var(--agentium-aya), rgba(242, 140, 56, 0.18));
+}
+
+/* Reduced-motion: kill the cockpit pulses and shimmer so demo VPs with
+   vestibular preferences aren't distracted by the live chrome. */
+@media (prefers-reduced-motion: reduce) {
+  .mission-skeleton,
+  .mission-pulse-critical,
+  .mission-focus-pulse {
+    animation: none !important;
+  }
+}
+
+/* === tokens/cockpit-utilities.css === */
+/* ============================================================================
+   AGENTIUM — Cockpit Utility Classes
+   --------------------------------------------------------------------------
+   Drop-in helpers for cockpit-grade markup. All consume the --ck-* tokens
+   from cockpit-tokens.scss. Use ONLY inside cockpit components — legacy
+   pages keep using Tailwind utilities and design tokens from styles.scss.
+   ============================================================================ */
+
+/* ---------- Typography helpers ---------- */
+.ck-mono {
+  font-family: var(--ck-font-mono);
+  font-feature-settings: "tnum", "zero";
+}
+
+.ck-tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+.ck-label {
+  font-family: var(--ck-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ck-fg-4);
+}
+
+.ck-label-sm {
+  font-family: var(--ck-font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ck-fg-5);
+}
+
+/* ---------- Hairlines ---------- */
+.ck-hairline { background: var(--ck-stroke-2); }
+.ck-hairline-h { height: 1px; background: var(--ck-stroke-2); }
+.ck-hairline-v { width: 1px; background: var(--ck-stroke-2); }
+
+/* ---------- Surfaces ---------- */
+.ck-surface {
+  background: var(--ck-bg-panel);
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: var(--ck-radius-md);
+}
+
+.ck-surface-hi {
+  background: var(--ck-bg-panel-hi);
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: var(--ck-radius-md);
+}
+
+.ck-inset {
+  background: var(--ck-bg-inset);
+  border: 1px solid var(--ck-stroke-2);
+}
+
+/* ---------- Hero ambient — touches Concept B ---------- */
+/* Subtle radial gradient reserved for executive surfaces (Hypervisor hero,
+   Steering header, balance-sheet net-value tile). Never apply to dense
+   list/table views. */
+.ck-hero-ambient {
+  position: relative;
+  isolation: isolate;
+}
+.ck-hero-ambient::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(125, 211, 252, 0.06), transparent 60%),
+    radial-gradient(ellipse at 80% 70%, rgba(167, 139, 250, 0.04), transparent 55%);
+}
+
+/* ---------- Ambient grid (faint 48px graph paper background) ---------- */
+.ck-ambient-grid {
+  position: relative;
+  isolation: isolate;
+}
+.ck-ambient-grid::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.30;
+  background-image:
+    linear-gradient(var(--ck-stroke-1) 1px, transparent 1px),
+    linear-gradient(90deg, var(--ck-stroke-1) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* ---------- LIVE pulse ---------- */
+@keyframes ck-live-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+
+.ck-live-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ck-signal-pos);
+  /* Touches Concept B: double box-shadow (close + far) for richer glow. */
+  box-shadow:
+    0 0 6px var(--ck-signal-pos),
+    0 0 14px var(--ck-signal-pos);
+  animation: ck-live-pulse 1.6s var(--ck-ease-in-out) infinite;
+}
+.ck-live-dot.cool   { background: var(--ck-signal-cool);   box-shadow: 0 0 6px var(--ck-signal-cool),   0 0 14px var(--ck-signal-cool); }
+.ck-live-dot.violet { background: var(--ck-signal-violet); box-shadow: 0 0 6px var(--ck-signal-violet), 0 0 14px var(--ck-signal-violet); }
+.ck-live-dot.warn   { background: var(--ck-signal-warn);   box-shadow: 0 0 6px var(--ck-signal-warn),   0 0 14px var(--ck-signal-warn); }
+.ck-live-dot.neg    { background: var(--ck-signal-neg);    box-shadow: 0 0 6px var(--ck-signal-neg),    0 0 14px var(--ck-signal-neg); }
+.ck-live-dot.neutral { background: var(--ck-fg-4); box-shadow: none; animation: none; }
+
+/* ---------- Crosshair signal ---------- */
+.ck-glow-cool   { filter: drop-shadow(0 0 6px var(--ck-signal-cool)); }
+.ck-glow-pos    { filter: drop-shadow(0 0 6px var(--ck-signal-pos)); }
+.ck-glow-violet { filter: drop-shadow(0 0 6px var(--ck-signal-violet)); }
+
+/* ---------- Scrollbar (cockpit-flavored) ---------- */
+.ck-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ck-stroke-2) transparent;
+}
+.ck-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.ck-scroll::-webkit-scrollbar-track { background: transparent; }
+.ck-scroll::-webkit-scrollbar-thumb {
+  background: var(--ck-stroke-2);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.ck-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--ck-stroke-3);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+/* ---------- Side rail hover fly-out label ---------- */
+.ck-rail-item {
+  position: relative;
+  text-decoration: none;
+}
+
+.ck-rail-item:hover {
+  color: var(--ck-fg-1) !important;
+  background: var(--ck-bg-panel-hi) !important;
+}
+
+.ck-rail-flyout {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translate(-6px, -50%);
+  min-width: 168px;
+  padding: 8px 10px;
+  background: var(--ck-bg-panel-hi);
+  border: 1px solid var(--ck-stroke-3);
+  border-radius: 4px;
+  box-shadow: var(--ck-shadow-card);
+  opacity: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  white-space: nowrap;
+  transition:
+    opacity 120ms var(--ck-ease-out),
+    transform 120ms var(--ck-ease-out);
+  z-index: 40;
+}
+
+.ck-rail-item:hover .ck-rail-flyout,
+.ck-rail-item:focus-visible .ck-rail-flyout {
+  opacity: 1;
+  transform: translate(0, -50%);
+}
+
+/* ---------- Reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .ck-live-dot { animation: none; }
+  .ck-rail-flyout { transition: none; }
+}
+
+  </style>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body { background: var(--ck-bg-base); color: var(--ck-fg-1); font-family: var(--ck-font-sans);
+      -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; overflow: hidden; }
+    #root { position: absolute; inset: 0; }
+    a { color: inherit; }
+    ::selection { background: color-mix(in oklab, var(--ck-signal-cool) 32%, transparent); }
+    @keyframes anc-breathe { 0%,100%{opacity:1} 50%{opacity:.55} }
+    @keyframes cur-blink { 0%,100%{opacity:1} 50%{opacity:0} }
+    @keyframes mic-bar { 0%,100%{height:4px} 50%{height:18px} }
+    @media (prefers-reduced-motion: reduce) { *{animation:none !important} }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" data-src="tweaks-panel.jsx">
+// @ds-adherence-ignore -- omelette starter scaffold (raw elements/hex/px by design)
+
+/* BEGIN USAGE */
+// tweaks-panel.jsx
+// Reusable Tweaks shell + form-control helpers.
+// Exports (to window): useTweaks, TweaksPanel, TweakSection, TweakRow, TweakSlider,
+//   TweakToggle, TweakRadio, TweakSelect, TweakText, TweakNumber, TweakColor, TweakButton.
+//
+// Owns the host protocol (listens for __activate_edit_mode / __deactivate_edit_mode,
+// posts __edit_mode_available / __edit_mode_set_keys / __edit_mode_dismissed) so
+// individual prototypes don't re-roll it. Ships a consistent set of controls so you
+// don't hand-draw <input type="range">, segmented radios, steppers, etc.
+//
+// Usage (in an HTML file that loads React + Babel):
+//
+//   const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+//     "primaryColor": "#D97757",
+//     "palette": ["#D97757", "#29261b", "#f6f4ef"],
+//     "fontSize": 16,
+//     "density": "regular",
+//     "dark": false
+//   }/*EDITMODE-END*/;
+//
+//   function App() {
+//     const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+//     return (
+//       <div style={{ fontSize: t.fontSize, color: t.primaryColor }}>
+//         Hello
+//         <TweaksPanel>
+//           <TweakSection label="Typography" />
+//           <TweakSlider label="Font size" value={t.fontSize} min={10} max={32} unit="px"
+//                        onChange={(v) => setTweak('fontSize', v)} />
+//           <TweakRadio  label="Density" value={t.density}
+//                        options={['compact', 'regular', 'comfy']}
+//                        onChange={(v) => setTweak('density', v)} />
+//           <TweakSection label="Theme" />
+//           <TweakColor  label="Primary" value={t.primaryColor}
+//                        options={['#D97757', '#2A6FDB', '#1F8A5B', '#7A5AE0']}
+//                        onChange={(v) => setTweak('primaryColor', v)} />
+//           <TweakColor  label="Palette" value={t.palette}
+//                        options={[['#D97757', '#29261b', '#f6f4ef'],
+//                                  ['#475569', '#0f172a', '#f1f5f9']]}
+//                        onChange={(v) => setTweak('palette', v)} />
+//           <TweakToggle label="Dark mode" value={t.dark}
+//                        onChange={(v) => setTweak('dark', v)} />
+//         </TweaksPanel>
+//       </div>
+//     );
+//   }
+//
+// TweakRadio is the segmented control for 2–3 short options (auto-falls-back to
+// TweakSelect past ~16/~10 chars per label); reach for TweakSelect directly when
+// options are many or long. For color tweaks always curate 3-4 options rather than
+// a free picker; an option can also be a whole 2–5 color palette (the stored value
+// is the array). The Tweak* controls are a floor, not a ceiling — build custom
+// controls inside the panel if a tweak calls for UI they don't cover.
+/* END USAGE */
+// ─────────────────────────────────────────────────────────────────────────────
+
+const __TWEAKS_STYLE = `
+  .twk-panel{position:fixed;right:16px;bottom:16px;z-index:2147483646;width:280px;
+    max-height:calc(100vh - 32px);display:flex;flex-direction:column;
+    transform:scale(var(--dc-inv-zoom,1));transform-origin:bottom right;
+    background:rgba(250,249,247,.78);color:#29261b;
+    -webkit-backdrop-filter:blur(24px) saturate(160%);backdrop-filter:blur(24px) saturate(160%);
+    border:.5px solid rgba(255,255,255,.6);border-radius:14px;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset,0 12px 40px rgba(0,0,0,.18);
+    font:11.5px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;overflow:hidden}
+  .twk-hd{display:flex;align-items:center;justify-content:space-between;
+    padding:10px 8px 10px 14px;cursor:move;user-select:none}
+  .twk-hd b{font-size:12px;font-weight:600;letter-spacing:.01em}
+  .twk-x{appearance:none;border:0;background:transparent;color:rgba(41,38,27,.55);
+    width:22px;height:22px;border-radius:6px;cursor:default;font-size:13px;line-height:1}
+  .twk-x:hover{background:rgba(0,0,0,.06);color:#29261b}
+  .twk-body{padding:2px 14px 14px;display:flex;flex-direction:column;gap:10px;
+    overflow-y:auto;overflow-x:hidden;min-height:0;
+    scrollbar-width:thin;scrollbar-color:rgba(0,0,0,.15) transparent}
+  .twk-body::-webkit-scrollbar{width:8px}
+  .twk-body::-webkit-scrollbar-track{background:transparent;margin:2px}
+  .twk-body::-webkit-scrollbar-thumb{background:rgba(0,0,0,.15);border-radius:4px;
+    border:2px solid transparent;background-clip:content-box}
+  .twk-body::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.25);
+    border:2px solid transparent;background-clip:content-box}
+  .twk-row{display:flex;flex-direction:column;gap:5px}
+  .twk-row-h{flex-direction:row;align-items:center;justify-content:space-between;gap:10px}
+  .twk-lbl{display:flex;justify-content:space-between;align-items:baseline;
+    color:rgba(41,38,27,.72)}
+  .twk-lbl>span:first-child{font-weight:500}
+  .twk-val{color:rgba(41,38,27,.5);font-variant-numeric:tabular-nums}
+
+  .twk-sect{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+    color:rgba(41,38,27,.45);padding:10px 0 0}
+  .twk-sect:first-child{padding-top:0}
+
+  .twk-field{appearance:none;box-sizing:border-box;width:100%;min-width:0;height:26px;padding:0 8px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:7px;
+    background:rgba(255,255,255,.6);color:inherit;font:inherit;outline:none}
+  .twk-field:focus{border-color:rgba(0,0,0,.25);background:rgba(255,255,255,.85)}
+  select.twk-field{padding-right:22px;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='rgba(0,0,0,.5)' d='M0 0h10L5 6z'/></svg>");
+    background-repeat:no-repeat;background-position:right 8px center}
+
+  .twk-slider{appearance:none;-webkit-appearance:none;width:100%;height:4px;margin:6px 0;
+    border-radius:999px;background:rgba(0,0,0,.12);outline:none}
+  .twk-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+    width:14px;height:14px;border-radius:50%;background:#fff;
+    border:.5px solid rgba(0,0,0,.12);box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:default}
+  .twk-slider::-moz-range-thumb{width:14px;height:14px;border-radius:50%;
+    background:#fff;border:.5px solid rgba(0,0,0,.12);box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:default}
+
+  .twk-seg{position:relative;display:flex;padding:2px;border-radius:8px;
+    background:rgba(0,0,0,.06);user-select:none}
+  .twk-seg-thumb{position:absolute;top:2px;bottom:2px;border-radius:6px;
+    background:rgba(255,255,255,.9);box-shadow:0 1px 2px rgba(0,0,0,.12);
+    transition:left .15s cubic-bezier(.3,.7,.4,1),width .15s}
+  .twk-seg.dragging .twk-seg-thumb{transition:none}
+  .twk-seg button{appearance:none;position:relative;z-index:1;flex:1;border:0;
+    background:transparent;color:inherit;font:inherit;font-weight:500;min-height:22px;
+    border-radius:6px;cursor:default;padding:4px 6px;line-height:1.2;
+    overflow-wrap:anywhere}
+
+  .twk-toggle{position:relative;width:32px;height:18px;border:0;border-radius:999px;
+    background:rgba(0,0,0,.15);transition:background .15s;cursor:default;padding:0}
+  .twk-toggle[data-on="1"]{background:#34c759}
+  .twk-toggle i{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+    background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+  .twk-toggle[data-on="1"] i{transform:translateX(14px)}
+
+  .twk-num{display:flex;align-items:center;box-sizing:border-box;min-width:0;height:26px;padding:0 0 0 8px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:7px;background:rgba(255,255,255,.6)}
+  .twk-num-lbl{font-weight:500;color:rgba(41,38,27,.6);cursor:ew-resize;
+    user-select:none;padding-right:8px}
+  .twk-num input{flex:1;min-width:0;height:100%;border:0;background:transparent;
+    font:inherit;font-variant-numeric:tabular-nums;text-align:right;padding:0 8px 0 0;
+    outline:none;color:inherit;-moz-appearance:textfield}
+  .twk-num input::-webkit-inner-spin-button,.twk-num input::-webkit-outer-spin-button{
+    -webkit-appearance:none;margin:0}
+  .twk-num-unit{padding-right:8px;color:rgba(41,38,27,.45)}
+
+  .twk-btn{appearance:none;height:26px;padding:0 12px;border:0;border-radius:7px;
+    background:rgba(0,0,0,.78);color:#fff;font:inherit;font-weight:500;cursor:default}
+  .twk-btn:hover{background:rgba(0,0,0,.88)}
+  .twk-btn.secondary{background:rgba(0,0,0,.06);color:inherit}
+  .twk-btn.secondary:hover{background:rgba(0,0,0,.1)}
+
+  .twk-swatch{appearance:none;-webkit-appearance:none;width:56px;height:22px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:6px;padding:0;cursor:default;
+    background:transparent;flex-shrink:0}
+  .twk-swatch::-webkit-color-swatch-wrapper{padding:0}
+  .twk-swatch::-webkit-color-swatch{border:0;border-radius:5.5px}
+  .twk-swatch::-moz-color-swatch{border:0;border-radius:5.5px}
+
+  .twk-chips{display:flex;gap:6px}
+  .twk-chip{position:relative;appearance:none;flex:1;min-width:0;height:46px;
+    padding:0;border:0;border-radius:6px;overflow:hidden;cursor:default;
+    box-shadow:0 0 0 .5px rgba(0,0,0,.12),0 1px 2px rgba(0,0,0,.06);
+    transition:transform .12s cubic-bezier(.3,.7,.4,1),box-shadow .12s}
+  .twk-chip:hover{transform:translateY(-1px);
+    box-shadow:0 0 0 .5px rgba(0,0,0,.18),0 4px 10px rgba(0,0,0,.12)}
+  .twk-chip[data-on="1"]{box-shadow:0 0 0 1.5px rgba(0,0,0,.85),
+    0 2px 6px rgba(0,0,0,.15)}
+  .twk-chip>span{position:absolute;top:0;bottom:0;right:0;width:34%;
+    display:flex;flex-direction:column;box-shadow:-1px 0 0 rgba(0,0,0,.1)}
+  .twk-chip>span>i{flex:1;box-shadow:0 -1px 0 rgba(0,0,0,.1)}
+  .twk-chip>span>i:first-child{box-shadow:none}
+  .twk-chip svg{position:absolute;top:6px;left:6px;width:13px;height:13px;
+    filter:drop-shadow(0 1px 1px rgba(0,0,0,.3))}
+`;
+
+// ── useTweaks ───────────────────────────────────────────────────────────────
+// Single source of truth for tweak values. setTweak persists via the host
+// (__edit_mode_set_keys → host rewrites the EDITMODE block on disk).
+function useTweaks(defaults) {
+  const [values, setValues] = React.useState(defaults);
+  // Accepts either setTweak('key', value) or setTweak({ key: value, ... }) so a
+  // useState-style call doesn't write a "[object Object]" key into the persisted
+  // JSON block.
+  const setTweak = React.useCallback((keyOrEdits, val) => {
+    const edits = typeof keyOrEdits === 'object' && keyOrEdits !== null
+      ? keyOrEdits : { [keyOrEdits]: val };
+    setValues((prev) => ({ ...prev, ...edits }));
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits }, '*');
+    // Same-window signal so in-page listeners (deck-stage rail thumbnails)
+    // can react — the parent message only reaches the host, not peers.
+    window.dispatchEvent(new CustomEvent('tweakchange', { detail: edits }));
+  }, []);
+  return [values, setTweak];
+}
+
+// ── TweaksPanel ─────────────────────────────────────────────────────────────
+// Floating shell. Registers the protocol listener BEFORE announcing
+// availability — if the announce ran first, the host's activate could land
+// before our handler exists and the toolbar toggle would silently no-op.
+// The close button posts __edit_mode_dismissed so the host's toolbar toggle
+// flips off in lockstep; the host echoes __deactivate_edit_mode back which
+// is what actually hides the panel.
+function TweaksPanel({ title = 'Tweaks', children }) {
+  const [open, setOpen] = React.useState(false);
+  const dragRef = React.useRef(null);
+  const offsetRef = React.useRef({ x: 16, y: 16 });
+  const PAD = 16;
+
+  const clampToViewport = React.useCallback(() => {
+    const panel = dragRef.current;
+    if (!panel) return;
+    const w = panel.offsetWidth, h = panel.offsetHeight;
+    const maxRight = Math.max(PAD, window.innerWidth - w - PAD);
+    const maxBottom = Math.max(PAD, window.innerHeight - h - PAD);
+    offsetRef.current = {
+      x: Math.min(maxRight, Math.max(PAD, offsetRef.current.x)),
+      y: Math.min(maxBottom, Math.max(PAD, offsetRef.current.y)),
+    };
+    panel.style.right = offsetRef.current.x + 'px';
+    panel.style.bottom = offsetRef.current.y + 'px';
+  }, []);
+
+  React.useEffect(() => {
+    if (!open) return;
+    clampToViewport();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', clampToViewport);
+      return () => window.removeEventListener('resize', clampToViewport);
+    }
+    const ro = new ResizeObserver(clampToViewport);
+    ro.observe(document.documentElement);
+    return () => ro.disconnect();
+  }, [open, clampToViewport]);
+
+  React.useEffect(() => {
+    const onMsg = (e) => {
+      const t = e?.data?.type;
+      if (t === '__activate_edit_mode') setOpen(true);
+      else if (t === '__deactivate_edit_mode') setOpen(false);
+    };
+    window.addEventListener('message', onMsg);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  const dismiss = () => {
+    setOpen(false);
+    window.parent.postMessage({ type: '__edit_mode_dismissed' }, '*');
+  };
+
+  const onDragStart = (e) => {
+    const panel = dragRef.current;
+    if (!panel) return;
+    const r = panel.getBoundingClientRect();
+    const sx = e.clientX, sy = e.clientY;
+    const startRight = window.innerWidth - r.right;
+    const startBottom = window.innerHeight - r.bottom;
+    const move = (ev) => {
+      offsetRef.current = {
+        x: startRight - (ev.clientX - sx),
+        y: startBottom - (ev.clientY - sy),
+      };
+      clampToViewport();
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
+
+  if (!open) return null;
+  return (
+    <>
+      <style>{__TWEAKS_STYLE}</style>
+      <div ref={dragRef} className="twk-panel" data-omelette-chrome=""
+           style={{ right: offsetRef.current.x, bottom: offsetRef.current.y }}>
+        <div className="twk-hd" onMouseDown={onDragStart}>
+          <b>{title}</b>
+          <button className="twk-x" aria-label="Close tweaks"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={dismiss}>✕</button>
+        </div>
+        <div className="twk-body">
+          {children}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Layout helpers ──────────────────────────────────────────────────────────
+
+function TweakSection({ label, children }) {
+  return (
+    <>
+      <div className="twk-sect">{label}</div>
+      {children}
+    </>
+  );
+}
+
+function TweakRow({ label, value, children, inline = false }) {
+  return (
+    <div className={inline ? 'twk-row twk-row-h' : 'twk-row'}>
+      <div className="twk-lbl">
+        <span>{label}</span>
+        {value != null && <span className="twk-val">{value}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ── Controls ────────────────────────────────────────────────────────────────
+
+function TweakSlider({ label, value, min = 0, max = 100, step = 1, unit = '', onChange }) {
+  return (
+    <TweakRow label={label} value={`${value}${unit}`}>
+      <input type="range" className="twk-slider" min={min} max={max} step={step}
+             value={value} onChange={(e) => onChange(Number(e.target.value))} />
+    </TweakRow>
+  );
+}
+
+function TweakToggle({ label, value, onChange }) {
+  return (
+    <div className="twk-row twk-row-h">
+      <div className="twk-lbl"><span>{label}</span></div>
+      <button type="button" className="twk-toggle" data-on={value ? '1' : '0'}
+              role="switch" aria-checked={!!value}
+              onClick={() => onChange(!value)}><i /></button>
+    </div>
+  );
+}
+
+function TweakRadio({ label, value, options, onChange }) {
+  const trackRef = React.useRef(null);
+  const [dragging, setDragging] = React.useState(false);
+  // The active value is read by pointer-move handlers attached for the lifetime
+  // of a drag — ref it so a stale closure doesn't fire onChange for every move.
+  const valueRef = React.useRef(value);
+  valueRef.current = value;
+
+  // Segments wrap mid-word once per-segment width runs out. The track is
+  // ~248px (280 panel − 28 body pad − 4 seg pad), each button loses 12px
+  // to its own padding, and 11.5px system-ui averages ~6.3px/char — so 2
+  // options fit ~16 chars each, 3 fit ~10. Past that (or >3 options), fall
+  // back to a dropdown rather than wrap.
+  const labelLen = (o) => String(typeof o === 'object' ? o.label : o).length;
+  const maxLen = options.reduce((m, o) => Math.max(m, labelLen(o)), 0);
+  const fitsAsSegments = maxLen <= ({ 2: 16, 3: 10 }[options.length] ?? 0);
+  if (!fitsAsSegments) {
+    // <select> emits strings — map back to the original option value so the
+    // fallback stays type-preserving (numbers, booleans) like the segment path.
+    const resolve = (s) => {
+      const m = options.find((o) => String(typeof o === 'object' ? o.value : o) === s);
+      return m === undefined ? s : typeof m === 'object' ? m.value : m;
+    };
+    return <TweakSelect label={label} value={value} options={options}
+                        onChange={(s) => onChange(resolve(s))} />;
+  }
+  const opts = options.map((o) => (typeof o === 'object' ? o : { value: o, label: o }));
+  const idx = Math.max(0, opts.findIndex((o) => o.value === value));
+  const n = opts.length;
+
+  const segAt = (clientX) => {
+    const r = trackRef.current.getBoundingClientRect();
+    const inner = r.width - 4;
+    const i = Math.floor(((clientX - r.left - 2) / inner) * n);
+    return opts[Math.max(0, Math.min(n - 1, i))].value;
+  };
+
+  const onPointerDown = (e) => {
+    setDragging(true);
+    const v0 = segAt(e.clientX);
+    if (v0 !== valueRef.current) onChange(v0);
+    const move = (ev) => {
+      if (!trackRef.current) return;
+      const v = segAt(ev.clientX);
+      if (v !== valueRef.current) onChange(v);
+    };
+    const up = () => {
+      setDragging(false);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  return (
+    <TweakRow label={label}>
+      <div ref={trackRef} role="radiogroup" onPointerDown={onPointerDown}
+           className={dragging ? 'twk-seg dragging' : 'twk-seg'}>
+        <div className="twk-seg-thumb"
+             style={{ left: `calc(2px + ${idx} * (100% - 4px) / ${n})`,
+                      width: `calc((100% - 4px) / ${n})` }} />
+        {opts.map((o) => (
+          <button key={o.value} type="button" role="radio" aria-checked={o.value === value}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </TweakRow>
+  );
+}
+
+function TweakSelect({ label, value, options, onChange }) {
+  return (
+    <TweakRow label={label}>
+      <select className="twk-field" value={value} onChange={(e) => onChange(e.target.value)}>
+        {options.map((o) => {
+          const v = typeof o === 'object' ? o.value : o;
+          const l = typeof o === 'object' ? o.label : o;
+          return <option key={v} value={v}>{l}</option>;
+        })}
+      </select>
+    </TweakRow>
+  );
+}
+
+function TweakText({ label, value, placeholder, onChange }) {
+  return (
+    <TweakRow label={label}>
+      <input className="twk-field" type="text" value={value} placeholder={placeholder}
+             onChange={(e) => onChange(e.target.value)} />
+    </TweakRow>
+  );
+}
+
+function TweakNumber({ label, value, min, max, step = 1, unit = '', onChange }) {
+  const clamp = (n) => {
+    if (min != null && n < min) return min;
+    if (max != null && n > max) return max;
+    return n;
+  };
+  const startRef = React.useRef({ x: 0, val: 0 });
+  const onScrubStart = (e) => {
+    e.preventDefault();
+    startRef.current = { x: e.clientX, val: value };
+    const decimals = (String(step).split('.')[1] || '').length;
+    const move = (ev) => {
+      const dx = ev.clientX - startRef.current.x;
+      const raw = startRef.current.val + dx * step;
+      const snapped = Math.round(raw / step) * step;
+      onChange(clamp(Number(snapped.toFixed(decimals))));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  return (
+    <div className="twk-num">
+      <span className="twk-num-lbl" onPointerDown={onScrubStart}>{label}</span>
+      <input type="number" value={value} min={min} max={max} step={step}
+             onChange={(e) => onChange(clamp(Number(e.target.value)))} />
+      {unit && <span className="twk-num-unit">{unit}</span>}
+    </div>
+  );
+}
+
+// Relative-luminance contrast pick — checkmarks drawn over a swatch need to
+// read on both #111 and #fafafa without per-option configuration. Hex input
+// only (#rgb / #rrggbb); named or rgb()/hsl() colors fall through to "light".
+function __twkIsLight(hex) {
+  const h = String(hex).replace('#', '');
+  const x = h.length === 3 ? h.replace(/./g, (c) => c + c) : h.padEnd(6, '0');
+  const n = parseInt(x.slice(0, 6), 16);
+  if (Number.isNaN(n)) return true;
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  return r * 299 + g * 587 + b * 114 > 148000;
+}
+
+const __TwkCheck = ({ light }) => (
+  <svg viewBox="0 0 14 14" aria-hidden="true">
+    <path d="M3 7.2 5.8 10 11 4.2" fill="none" strokeWidth="2.2"
+          strokeLinecap="round" strokeLinejoin="round"
+          stroke={light ? 'rgba(0,0,0,.78)' : '#fff'} />
+  </svg>
+);
+
+// TweakColor — curated color/palette picker. Each option is either a single
+// hex string or an array of 1-5 hex strings; the card adapts — a lone color
+// renders solid, a palette renders colors[0] as the hero (left ~2/3) with the
+// rest stacked in a sharp column on the right. onChange emits the
+// option in the shape it was passed (string stays string, array stays array).
+// Without options it falls back to the native color input for back-compat.
+function TweakColor({ label, value, options, onChange }) {
+  if (!options || !options.length) {
+    return (
+      <div className="twk-row twk-row-h">
+        <div className="twk-lbl"><span>{label}</span></div>
+        <input type="color" className="twk-swatch" value={value}
+               onChange={(e) => onChange(e.target.value)} />
+      </div>
+    );
+  }
+  // Native <input type=color> emits lowercase hex per the HTML spec, so
+  // compare case-insensitively. String() guards JSON.stringify(undefined),
+  // which returns the primitive undefined (no .toLowerCase).
+  const key = (o) => String(JSON.stringify(o)).toLowerCase();
+  const cur = key(value);
+  return (
+    <TweakRow label={label}>
+      <div className="twk-chips" role="radiogroup">
+        {options.map((o, i) => {
+          const colors = Array.isArray(o) ? o : [o];
+          const [hero, ...rest] = colors;
+          const sup = rest.slice(0, 4);
+          const on = key(o) === cur;
+          return (
+            <button key={i} type="button" className="twk-chip" role="radio"
+                    aria-checked={on} data-on={on ? '1' : '0'}
+                    aria-label={colors.join(', ')} title={colors.join(' · ')}
+                    style={{ background: hero }}
+                    onClick={() => onChange(o)}>
+              {sup.length > 0 && (
+                <span>
+                  {sup.map((c, j) => <i key={j} style={{ background: c }} />)}
+                </span>
+              )}
+              {on && <__TwkCheck light={__twkIsLight(hero)} />}
+            </button>
+          );
+        })}
+      </div>
+    </TweakRow>
+  );
+}
+
+function TweakButton({ label, onClick, secondary = false }) {
+  return (
+    <button type="button" className={secondary ? 'twk-btn secondary' : 'twk-btn'}
+            onClick={onClick}>{label}</button>
+  );
+}
+
+Object.assign(window, {
+  useTweaks, TweaksPanel, TweakSection, TweakRow,
+  TweakSlider, TweakToggle, TweakRadio, TweakSelect,
+  TweakText, TweakNumber, TweakColor, TweakButton,
+});
+
+</script>
+
+<script type="text/babel" data-src="data.jsx">
+// data.jsx — contenu statique du prototype (documents, session, rapport, triage)
+// Domaine simulé : expertise géotechnique d'un chantier ("Résidence Belvédère — Lot 7").
+// Tout le copy est en français. Exporté sur window pour les autres scripts Babel.
+
+// ── Documents épinglables ─────────────────────────────────────────────────
+// `tint` pilote la teinte du placeholder rayé (aucune image réelle).
+const DOCS = {
+  rapport: {
+    id: 'rapport',
+    name: 'Rapport_geotech_Lot7.pdf',
+    kind: 'pdf',
+    pages: 24,
+    tint: 'cool',
+  },
+  sondages: {
+    id: 'sondages',
+    name: 'Sondages_carottage.pdf',
+    kind: 'pdf',
+    pages: 11,
+    tint: 'violet',
+  },
+  plan: {
+    id: 'plan',
+    name: 'Plan_implantation_v3.pdf',
+    kind: 'pdf',
+    pages: 3,
+    tint: 'warn',
+  },
+  photos: {
+    id: 'photos',
+    name: 'Photos_site_03-2026.zip',
+    kind: 'image',
+    pages: 18,
+    tint: 'pos',
+  },
+};
+
+// Vues précises (page / slide / zone) référencées pendant la séance.
+const VIEWS = {
+  v_coupe: { id: 'v_coupe', docId: 'rapport', page: 12, label: 'Coupe stratigraphique', sub: 'SP-1 → SP-4', shape: 'page' },
+  v_essais: { id: 'v_essais', docId: 'rapport', page: 8, label: 'Tableau essais pressio.', sub: 'EM / pl*', shape: 'page' },
+  v_fissure: { id: 'v_fissure', docId: 'photos', page: 7, label: 'Fissure pignon Est', sub: 'Cliché 07', shape: 'image' },
+  v_sp3: { id: 'v_sp3', docId: 'sondages', page: 3, label: 'Carottage SP-3', sub: '0–6 m', shape: 'page' },
+  v_implant: { id: 'v_implant', docId: 'plan', page: 1, label: 'Implantation bâti', sub: 'Plan masse', shape: 'page' },
+};
+
+// ── Script de la séance de capture (le Fil qui se déroule) ────────────────
+// gap = ms écoulés depuis l'événement précédent (avant mise à l'échelle vitesse).
+// type: phase | speak | oracle | pin | show | deictic | gesture | note
+function buildScript() {
+  return [
+    { type: 'phase', label: 'Contexte', gap: 0 },
+    { type: 'speak', gap: 200, pauseAfter: 600,
+      text: "Bon, on est sur le lot 7 de la résidence Belvédère, terrain en pente côté Est." },
+    { type: 'speak', gap: 300, pauseAfter: 500,
+      text: "Le sol c'est de l'argile limoneuse sur les six premiers mètres, puis on tombe sur un substratum marno-calcaire." },
+    { type: 'oracle', gap: 400, tag: 'profondeur',
+      q: "À quelle profondeur exacte est rencontré le substratum sur SP-3 ?" },
+    { type: 'pin', gap: 900, viewId: 'v_coupe' },
+    { type: 'speak', gap: 700, pauseAfter: 300,
+      text: "Si on regarde cette coupe, on voit bien le pendage des couches vers le talweg." },
+    { type: 'deictic', gap: -2600, viewId: 'v_coupe', confidence: 0.94,
+      phrase: 'cette coupe', anchorAfter: true },
+    { type: 'note', gap: 1400,
+      text: "Pendage ~8° NE — surveiller stabilité talus pendant terrassement." },
+    { type: 'phase', label: 'Sondages', gap: 600 },
+    { type: 'pin', gap: 300, viewId: 'v_sp3' },
+    { type: 'speak', gap: 700, pauseAfter: 400,
+      text: "Là sur le carottage de SP-3, le toit du marno-calcaire est à 5,80 mètres." },
+    { type: 'deictic', gap: -2400, viewId: 'v_sp3', confidence: 0.88,
+      phrase: 'le carottage de SP-3', anchorAfter: true },
+    { type: 'oracle', gap: 500, tag: 'fondations',
+      q: "Recommande-t-on des fondations profondes ou un radier compte tenu de pl* ?" },
+    { type: 'pin', gap: 900, viewId: 'v_essais' },
+    { type: 'speak', gap: 700, pauseAfter: 400,
+      text: "Les pressiomètres donnent une pression limite faible en surface, comme on le voit ici." },
+    // déictique AMBIGU : deux vues à l'écran (essais + sp3) → faible confiance
+    { type: 'deictic', gap: -2200, viewId: 'v_essais', confidence: 0.41,
+      phrase: 'comme on le voit ici', anchorAfter: true, ambiguousWith: 'v_sp3' },
+    { type: 'phase', label: 'Désordres', gap: 700 },
+    { type: 'pin', gap: 300, viewId: 'v_fissure' },
+    { type: 'speak', gap: 700, pauseAfter: 400,
+      text: "Et cette fissure sur le pignon Est, c'est typiquement un tassement différentiel." },
+    { type: 'deictic', gap: -2300, viewId: 'v_fissure', confidence: 0.91,
+      phrase: 'cette fissure', anchorAfter: true },
+    { type: 'note', gap: 1300,
+      text: "Lier au point bas de la coupe (p.12) — même zone que SP-3." },
+    { type: 'oracle', gap: 500, tag: 'risque',
+      q: "Le tassement observé est-il compatible avec un radier rigide ?" },
+    { type: 'speak', gap: 900, pauseAfter: 600,
+      text: "Donc ma reco c'est plutôt un système de pieux courts ancrés dans le substratum." },
+    { type: 'phase', label: 'Synthèse', gap: 400 },
+  ];
+}
+
+// ── Données figées de fin de séance (triage + indexation) ─────────────────
+// Niveau de partage PRÉ-DÉDUIT de l'usage (le triage ne fait que confirmer).
+const TRIAGE = [
+  { docId: 'rapport', pointed: 3, pinned: true, proposal: 'full',
+    reason: 'Pointé 3× (coupe, essais, tassement)', index: 'queued' },
+  { docId: 'sondages', pointed: 1, pinned: true, proposal: 'full',
+    reason: 'Pointé 1× (carottage SP-3)', index: 'queued' },
+  { docId: 'photos', pointed: 1, pinned: true, proposal: 'excerpt',
+    reason: 'Pointé 1× — cliché isolé', index: 'referenced' },
+  { docId: 'plan', pointed: 0, pinned: true, proposal: 'none',
+    reason: 'Épinglé, jamais pointé', index: 'none' },
+];
+
+// États d'indexation possibles (ordre = progression).
+const INDEX_STATES = {
+  none: { label: 'Non indexé', dot: 'neutral', fg: 'var(--ck-fg-4)' },
+  referenced: { label: 'Référencé', dot: 'cool', fg: 'var(--ck-signal-cool)' },
+  queued: { label: 'En file', dot: 'warn', fg: 'var(--ck-signal-warn)' },
+  indexing: { label: 'Indexation…', dot: 'violet', fg: 'var(--ck-signal-violet)' },
+  indexed: { label: 'Indexé', dot: 'pos', fg: 'var(--ck-signal-pos)' },
+};
+
+// ── Rapport publié (lecture + sources cliquables) ─────────────────────────
+// Chaque `src` pointe une VIEW + un instant du transcript (provenance bidir.).
+const REPORT = {
+  title: 'Étude géotechnique — Résidence Belvédère, Lot 7',
+  ref: 'GEO-2026-0712 · v1 · publié 25 juin 2026',
+  sections: [
+    {
+      h: 'Contexte & morphologie',
+      body: [
+        { t: "Le terrain présente une pente marquée vers l'Est, avec un pendage des couches d'environ 8° en direction du talweg." , src: 'v_coupe' },
+        { t: "La stratigraphie se compose d'une argile limoneuse sur les six premiers mètres surmontant un substratum marno-calcaire." , src: 'v_coupe' },
+      ],
+    },
+    {
+      h: 'Reconnaissance & essais',
+      body: [
+        { t: "Le toit du substratum marno-calcaire est rencontré à 5,80 m de profondeur au droit du sondage SP-3.", src: 'v_sp3' },
+        { t: "Les essais pressiométriques indiquent une pression limite faible dans les horizons superficiels.", src: 'v_essais' },
+      ],
+    },
+    {
+      h: 'Désordres observés',
+      body: [
+        { t: "Une fissuration du pignon Est traduit un tassement différentiel, localisé sur la même zone que le point bas de la coupe.", src: 'v_fissure' },
+      ],
+    },
+    {
+      h: 'Recommandation',
+      body: [
+        { t: "Un système de fondations profondes par pieux courts ancrés dans le substratum est préconisé, de préférence à un radier rigide.", src: null },
+      ],
+    },
+  ],
+};
+
+Object.assign(window, { DOCS, VIEWS, buildScript, TRIAGE, INDEX_STATES, REPORT });
+
+</script>
+
+<script type="text/babel" data-src="sim.jsx">
+// sim.jsx — moteur de simulation de la séance de capture.
+// Expose window.useSession(opts) : un hook qui déroule buildScript() dans le temps,
+// gère le streaming "provisoire → finalisé", les ancres déictiques selon le mode,
+// et renvoie l'état du Fil + les commandes (play / pause / restart).
+const { useState, useRef, useEffect, useCallback } = React;
+
+let __uid = 0;
+const uid = (p) => `${p}-${++__uid}`;
+
+// Horloge → libellé "mm:ss" (départ fictif 14:31).
+function clockLabel(ms) {
+  const base = 14 * 3600 + 31 * 60; // 14:31:00
+  const total = base + Math.floor(ms / 1000);
+  const h = Math.floor(total / 3600) % 24;
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(h)}:${p(m)}:${p(s)}`;
+}
+
+const TICK = 90;            // ms par tick d'horloge
+const WORDS_PER_TICK = 1.6; // débit de "frappe" de la parole streamée
+const FINALIZE_DELAY = 420; // provisoire → finalisé
+const HYBRID_CONFIRM = 4200; // ms avant auto-confirmation d'une ancre fantôme
+
+function useSession({ speed = 1, oracleOn = true, pointingMode = 'hybride' } = {}) {
+  // État exposé
+  const [feed, setFeed] = useState([]);       // entrées du Fil (speak / note / anchor)
+  const [scene, setScene] = useState([]);     // vues épinglées
+  const [activeView, setActiveView] = useState(null);
+  const [oracle, setOracle] = useState([]);   // pistes de l'oracle
+  const [phase, setPhase] = useState('—');
+  const [clock, setClock] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  const [done, setDone] = useState(false);
+  const [awaitingGesture, setAwaitingGesture] = useState(null); // mode manuel
+
+  // Refs internes au moteur (évitent les stale closures dans l'intervalle)
+  const script = useRef(buildScript());
+  const cursor = useRef(0);
+  const clockRef = useRef(0);
+  const nextAt = useRef(0);        // horloge à laquelle exécuter l'événement courant
+  const streaming = useRef(null);  // { id, words, shown, pauseAfter }
+  const opts = useRef({ speed, oracleOn, pointingMode });
+  useEffect(() => { opts.current = { speed, oracleOn, pointingMode }; }, [speed, oracleOn, pointingMode]);
+
+  const reset = useCallback(() => {
+    cursor.current = 0;
+    clockRef.current = 0;
+    nextAt.current = 0;
+    streaming.current = null;
+    setFeed([]); setScene([]); setActiveView(null); setOracle([]);
+    setPhase('—'); setClock(0); setDone(false); setAwaitingGesture(null);
+    setPlaying(true);
+  }, []);
+
+  // Confirme une ancre fantôme (hybride) ou en attente.
+  const confirmAnchor = useCallback((id) => {
+    setFeed((f) => f.map((e) => e.id === id && e.kind === 'anchor'
+      ? { ...e, status: 'confirmed' } : e));
+  }, []);
+  const discardAnchor = useCallback((id) => {
+    setFeed((f) => f.map((e) => e.id === id && e.kind === 'anchor'
+      ? { ...e, status: 'discarded' } : e));
+  }, []);
+  const rebindAnchor = useCallback((id, viewId) => {
+    setFeed((f) => f.map((e) => e.id === id && e.kind === 'anchor'
+      ? { ...e, viewId, status: 'confirmed', confidence: 1 } : e));
+  }, []);
+
+  // Geste explicite (mode manuel) : matérialise l'ancre en attente.
+  const fireGesture = useCallback(() => {
+    setAwaitingGesture((aw) => {
+      if (!aw) return null;
+      setFeed((f) => [...f, {
+        id: uid('anc'), kind: 'anchor', t: clockLabel(clockRef.current),
+        viewId: aw.viewId, confidence: 1, status: 'confirmed', phrase: aw.phrase,
+      }]);
+      return null;
+    });
+  }, []);
+
+  // Insertion manuelle d'une note par l'utilisateur (composer).
+  const addNote = useCallback((text) => {
+    if (!text.trim()) return;
+    setFeed((f) => [...f, {
+      id: uid('note'), kind: 'note', t: clockLabel(clockRef.current),
+      text: text.trim(), byUser: true,
+    }]);
+  }, []);
+
+  // Exécute un événement du script.
+  const runEvent = useCallback((ev) => {
+    const m = opts.current.pointingMode;
+    switch (ev.type) {
+      case 'phase':
+        setPhase(ev.label);
+        break;
+      case 'speak': {
+        const id = uid('sp');
+        const words = ev.text.split(' ');
+        streaming.current = { id, words, shown: 0, pauseAfter: ev.pauseAfter || 400 };
+        setFeed((f) => [...f, {
+          id, kind: 'speak', t: clockLabel(clockRef.current), text: '', final: false,
+        }]);
+        return true; // streaming pilote l'avancement
+      }
+      case 'oracle':
+        if (opts.current.oracleOn) {
+          setOracle((o) => [...o, {
+            id: uid('orc'), q: ev.q, tag: ev.tag, state: 'open',
+            t: clockLabel(clockRef.current),
+          }]);
+        }
+        break;
+      case 'pin': {
+        const view = VIEWS[ev.viewId];
+        setScene((s) => s.find((v) => v.id === view.id) ? s : [...s, view]);
+        setActiveView(view.id);
+        break;
+      }
+      case 'show':
+        setActiveView(ev.viewId);
+        break;
+      case 'deictic': {
+        if (m === 'manuel') {
+          // pas d'ancre tant que le geste n'est pas posé
+          setAwaitingGesture({ viewId: ev.viewId, phrase: ev.phrase });
+        } else {
+          const lowConf = ev.confidence < 0.7;
+          let status = 'confirmed';
+          if (m === 'hybride') status = 'pending';
+          else if (m === 'auto' && lowConf) status = 'lowconf';
+          setFeed((f) => [...f, {
+            id: uid('anc'), kind: 'anchor', t: clockLabel(clockRef.current),
+            viewId: ev.viewId, confidence: ev.confidence, status,
+            phrase: ev.phrase, ambiguousWith: ev.ambiguousWith || null,
+            confirmAt: status === 'pending' ? clockRef.current + HYBRID_CONFIRM : null,
+          }]);
+        }
+        break;
+      }
+      case 'gesture':
+        if (m === 'manuel') fireGesture();
+        break;
+      case 'note':
+        setFeed((f) => [...f, {
+          id: uid('note'), kind: 'note', t: clockLabel(clockRef.current), text: ev.text,
+        }]);
+        break;
+      default: break;
+    }
+    return false;
+  }, [fireGesture]);
+
+  // Boucle d'horloge
+  useEffect(() => {
+    const iv = setInterval(() => {
+      if (!playing) return;
+      const sp = opts.current.speed;
+      clockRef.current += TICK * sp;
+      setClock(clockRef.current);
+
+      // 1) auto-confirmation des ancres fantômes (hybride)
+      setFeed((f) => {
+        let changed = false;
+        const next = f.map((e) => {
+          if (e.kind === 'anchor' && e.status === 'pending'
+              && e.confirmAt != null && clockRef.current >= e.confirmAt) {
+            changed = true; return { ...e, status: 'confirmed' };
+          }
+          return e;
+        });
+        return changed ? next : f;
+      });
+
+      // 2) streaming de la parole en cours
+      if (streaming.current) {
+        const st = streaming.current;
+        st.shown = Math.min(st.words.length, st.shown + WORDS_PER_TICK * sp);
+        const shownInt = Math.floor(st.shown);
+        const text = st.words.slice(0, shownInt).join(' ');
+        setFeed((f) => f.map((e) => e.id === st.id ? { ...e, text } : e));
+        if (st.shown >= st.words.length) {
+          const id = st.id, pause = st.pauseAfter;
+          streaming.current = null;
+          setTimeout(() => {
+            setFeed((f) => f.map((e) => e.id === id ? { ...e, final: true } : e));
+          }, FINALIZE_DELAY);
+          nextAt.current = clockRef.current + pause;
+        }
+        return;
+      }
+
+      // 3) avancement du script
+      if (cursor.current >= script.current.length) {
+        if (!streaming.current) setDone(true);
+        return;
+      }
+      if (clockRef.current >= nextAt.current) {
+        const ev = script.current[cursor.current];
+        cursor.current += 1;
+        const isStreaming = runEvent(ev);
+        // gap de l'événement SUIVANT (négatif = rétro-daté, traité comme 0)
+        const nextEv = script.current[cursor.current];
+        const gap = nextEv ? Math.max(0, nextEv.gap) : 0;
+        if (!isStreaming) nextAt.current = clockRef.current + gap;
+      }
+    }, TICK);
+    return () => clearInterval(iv);
+  }, [playing, runEvent]);
+
+  return {
+    feed, scene, activeView, oracle, phase, clock, clockLabel,
+    playing, done, awaitingGesture,
+    setPlaying, restart: reset,
+    confirmAnchor, discardAnchor, rebindAnchor, fireGesture, addNote,
+    setOracleState: (id, state) =>
+      setOracle((o) => o.map((q) => q.id === id ? { ...q, state } : q)),
+  };
+}
+
+Object.assign(window, { useSession, clockLabel });
+
+</script>
+
+<script type="text/babel" data-src="ui.jsx">
+// ui.jsx — primitives partagées (icônes géométriques, placeholders rayés, chips).
+// Aucune illustration : les "pages/images" sont des placeholders hachurés + libellé mono.
+const { useState: useStateUI, useRef: useRefUI, useEffect: useEffectUI } = React;
+
+// ── Icônes (traits géométriques simples, currentColor) ────────────────────
+function Icon({ name, size = 16, style }) {
+  const s = { width: size, height: size, display: 'block', flex: 'none', ...style };
+  const p = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.5,
+    strokeLinecap: 'round', strokeLinejoin: 'round' };
+  const paths = {
+    mic: <><rect x="9" y="3" width="6" height="11" rx="3" {...p} /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" {...p} /></>,
+    pen: <path d="M4 20l4-1L20 7l-3-3L5 16l-1 4z" {...p} />,
+    target: <><circle cx="12" cy="12" r="7" {...p} /><path d="M12 2v4M12 18v4M2 12h4M18 12h4" {...p} /><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" /></>,
+    doc: <><path d="M6 3h8l4 4v14H6z" {...p} /><path d="M14 3v4h4M9 13h6M9 17h6" {...p} /></>,
+    image: <><rect x="4" y="5" width="16" height="14" rx="1.5" {...p} /><circle cx="9" cy="10" r="1.6" {...p} /><path d="M5 17l4-4 3 3 3-3 4 4" {...p} /></>,
+    question: <><circle cx="12" cy="12" r="9" {...p} /><path d="M9.5 9.5a2.5 2.5 0 1 1 3.2 2.4c-.7.3-1.2.9-1.2 1.6v.5" {...p} /><circle cx="11.5" cy="17" r="1" fill="currentColor" stroke="none" /></>,
+    check: <path d="M4 12l5 5L20 6" {...p} />,
+    x: <path d="M6 6l12 12M18 6L6 18" {...p} />,
+    undo: <path d="M9 7L4 12l5 5M4 12h11a5 5 0 0 1 0 10h-1" {...p} />,
+    wifioff: <><path d="M3 3l18 18" {...p} /><path d="M8.5 16.5a5 5 0 0 1 7 0M5 13a10 10 0 0 1 4-2.6M2 9a16 16 0 0 1 5-3M22 9a16 16 0 0 0-6.5-3.4" {...p} /><circle cx="12" cy="20" r="1" fill="currentColor" stroke="none" /></>,
+    play: <path d="M7 4l13 8-13 8z" {...p} fill="currentColor" />,
+    pause: <><rect x="6" y="4" width="4" height="16" rx="1" {...p} fill="currentColor" /><rect x="14" y="4" width="4" height="16" rx="1" {...p} fill="currentColor" /></>,
+    restart: <path d="M4 12a8 8 0 1 0 2.5-5.8M4 3v4h4" {...p} />,
+    pin: <path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6zM12 14v7" {...p} />,
+    arrow: <path d="M5 12h14M13 6l6 6-6 6" {...p} />,
+    layers: <path d="M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5M3 17l9 5 9-5" {...p} />,
+    spark: <path d="M12 3v6M12 15v6M3 12h6M15 12h6M6 6l3 3M15 15l3 3M18 6l-3 3M9 15l-3 3" {...p} />,
+    grid: <><rect x="4" y="4" width="7" height="7" rx="1" {...p} /><rect x="13" y="4" width="7" height="7" rx="1" {...p} /><rect x="4" y="13" width="7" height="7" rx="1" {...p} /><rect x="13" y="13" width="7" height="7" rx="1" {...p} /></>,
+    text: <path d="M5 7V5h14v2M12 5v14M9 19h6" {...p} />,
+    eye: <><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z" {...p} /><circle cx="12" cy="12" r="2.5" {...p} /></>,
+    flow: <><circle cx="6" cy="6" r="2.5" {...p} /><circle cx="18" cy="18" r="2.5" {...p} /><path d="M6 8.5v4a3 3 0 0 0 3 3h6.5" {...p} /></>,
+    book: <path d="M4 5a2 2 0 0 1 2-2h6v18H6a2 2 0 0 1-2-2zM12 3h6a2 2 0 0 1 2 2v14a2 2 0 0 0-2-2h-6" {...p} />,
+  };
+  return <svg viewBox="0 0 24 24" style={s} aria-hidden="true">{paths[name] || null}</svg>;
+}
+
+const TINT = {
+  cool: 'var(--ck-signal-cool)', violet: 'var(--ck-signal-violet)',
+  warn: 'var(--ck-signal-warn)', pos: 'var(--ck-signal-pos)', neg: 'var(--ck-signal-neg)',
+};
+
+// ── Placeholder de vue (page / image / slide) : hachures + libellé mono ────
+function ViewTile({ view, size = 'md', active = false, dim = false, onClick, style }) {
+  const doc = DOCS[view.docId];
+  const tint = TINT[doc.tint] || 'var(--ck-signal-cool)';
+  const dims = { sm: 52, md: 96, lg: 150, xl: 260 }[size] || 96;
+  const isImg = view.shape === 'image';
+  const stripe = isImg
+    ? `repeating-linear-gradient(135deg, ${tint}14 0 7px, transparent 7px 14px)`
+    : `repeating-linear-gradient(0deg, var(--ck-stroke-1) 0 11px, transparent 11px 12px)`;
+  return (
+    <button onClick={onClick} title={`${doc.name} · ${view.label}`} style={{
+      appearance: 'none', textAlign: 'left', cursor: onClick ? 'pointer' : 'default',
+      position: 'relative', width: '100%', aspectRatio: '4 / 3',
+      maxWidth: dims === 260 ? '100%' : dims * 1.33,
+      background: 'var(--ck-bg-inset)',
+      border: `1px solid ${active ? tint : 'var(--ck-stroke-2)'}`,
+      borderRadius: 'var(--ck-radius-md)', overflow: 'hidden',
+      boxShadow: active ? `0 0 0 1px ${tint}, 0 0 22px ${tint}40` : 'none',
+      opacity: dim ? 0.5 : 1, transition: 'opacity var(--ck-dur-med) var(--ck-ease-out), box-shadow var(--ck-dur-med)',
+      padding: 0, ...style,
+    }}>
+      <div style={{ position: 'absolute', inset: 0, background: stripe }} />
+      <div style={{ position: 'absolute', inset: 0,
+        background: `linear-gradient(160deg, ${tint}10, transparent 55%)` }} />
+      {/* étiquette */}
+      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0,
+        padding: '7px 9px', background: 'linear-gradient(0deg, var(--ck-bg-void) 30%, transparent)',
+        display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 10.5, color: 'var(--ck-fg-1)',
+          fontWeight: 600, lineHeight: 1.15 }}>{view.label}</span>
+        <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 9, color: 'var(--ck-fg-4)',
+          letterSpacing: '0.04em' }}>
+          {doc.kind === 'image' ? 'IMG' : 'p.' + view.page} · {view.sub}
+        </span>
+      </div>
+      {/* coin type */}
+      <div style={{ position: 'absolute', top: 6, left: 6, color: tint, opacity: 0.85 }}>
+        <Icon name={isImg ? 'image' : 'doc'} size={13} />
+      </div>
+      {active && (
+        <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', alignItems: 'center',
+          gap: 4, padding: '2px 6px', borderRadius: 999, background: 'var(--ck-bg-void)',
+          border: `1px solid ${tint}` }}>
+          <span style={{ width: 5, height: 5, borderRadius: '50%', background: tint,
+            boxShadow: `0 0 6px ${tint}` }} />
+          <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 8.5, letterSpacing: '0.1em',
+            color: tint, fontWeight: 700 }}>EN SCÈNE</span>
+        </div>
+      )}
+    </button>
+  );
+}
+
+// ── Bouton cockpit ────────────────────────────────────────────────────────
+function Btn({ children, onClick, variant = 'ghost', size = 'md', icon, disabled, style, title }) {
+  const [h, setH] = useStateUI(false);
+  const pad = size === 'sm' ? '5px 9px' : size === 'lg' ? '11px 18px' : '7px 13px';
+  const fs = size === 'sm' ? 11.5 : size === 'lg' ? 14 : 12.5;
+  const base = {
+    appearance: 'none', display: 'inline-flex', alignItems: 'center', gap: 7,
+    fontFamily: 'var(--ck-font-sans)', fontSize: fs, fontWeight: 550, padding: pad,
+    borderRadius: 'var(--ck-radius-md)', cursor: disabled ? 'not-allowed' : 'pointer',
+    border: '1px solid transparent', transition: 'all var(--ck-dur-fast) var(--ck-ease-out)',
+    letterSpacing: '0.01em', whiteSpace: 'nowrap', opacity: disabled ? 0.45 : 1, ...style,
+  };
+  const variants = {
+    primary: { background: h ? 'var(--ck-signal-cool)' : 'color-mix(in oklab, var(--ck-signal-cool) 88%, transparent)',
+      color: 'var(--ck-on-signal)', boxShadow: h ? 'var(--ck-glow-cool)' : 'none' },
+    solid: { background: h ? 'var(--ck-bg-panel-hi)' : 'var(--ck-bg-panel)',
+      color: 'var(--ck-fg-1)', borderColor: 'var(--ck-stroke-2)' },
+    ghost: { background: h ? 'var(--ck-tint-soft)' : 'transparent',
+      color: h ? 'var(--ck-fg-1)' : 'var(--ck-fg-2)', borderColor: 'var(--ck-stroke-2)' },
+    bare: { background: h ? 'var(--ck-tint-faint)' : 'transparent',
+      color: h ? 'var(--ck-fg-1)' : 'var(--ck-fg-3)', borderColor: 'transparent' },
+  };
+  return (
+    <button title={title} onClick={disabled ? undefined : onClick} disabled={disabled}
+      onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
+      style={{ ...base, ...variants[variant] }}>
+      {icon && <Icon name={icon} size={fs + 2} />}{children}
+    </button>
+  );
+}
+
+// ── Pastille d'état ───────────────────────────────────────────────────────
+function Dot({ kind = 'pos', live = false, size = 6 }) {
+  const c = { pos: 'var(--ck-signal-pos)', cool: 'var(--ck-signal-cool)',
+    violet: 'var(--ck-signal-violet)', warn: 'var(--ck-signal-warn)',
+    neg: 'var(--ck-signal-neg)', neutral: 'var(--ck-fg-4)' }[kind];
+  return <span className={live ? 'ck-live-dot ' + (kind === 'pos' ? '' : kind) : ''}
+    style={live ? {} : { display: 'inline-block', width: size, height: size, borderRadius: '50%',
+      background: c, flex: 'none' }} />;
+}
+
+// ── Étiquette mono ────────────────────────────────────────────────────────
+function Label({ children, style }) {
+  return <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 10, letterSpacing: '0.12em',
+    textTransform: 'uppercase', color: 'var(--ck-fg-4)', ...style }}>{children}</span>;
+}
+
+// ── Annotation (bulle de raisonnement, dans les maquettes) ────────────────
+function Annot({ n, children, style }) {
+  return (
+    <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', ...style }}>
+      <span style={{ flex: 'none', width: 19, height: 19, borderRadius: '50%',
+        border: '1px solid var(--ck-signal-cool)', color: 'var(--ck-signal-cool)',
+        fontFamily: 'var(--ck-font-mono)', fontSize: 10.5, fontWeight: 700,
+        display: 'grid', placeItems: 'center', marginTop: 1 }}>{n}</span>
+      <span style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--ck-fg-2)' }}>{children}</span>
+    </div>
+  );
+}
+
+Object.assign(window, { Icon, ViewTile, Btn, Dot, Label, Annot, TINT });
+
+</script>
+
+<script type="text/babel" data-src="capture.jsx">
+// capture.jsx — écran "Capture en direct" (le cœur). Mode Studio : chrome minimal,
+// Le Fil au centre, La Scène + l'Oracle en périphérie atténuée.
+const { useState: uS, useEffect: uE, useRef: uR } = React;
+
+// ── Chip d'ancre déictique (inline dans le Fil) ───────────────────────────
+function AnchorChip({ entry, scene, onConfirm, onDiscard, onRebind }) {
+  const [rebinding, setRebinding] = uS(false);
+  const [left, setLeft] = uS(0);
+  const view = VIEWS[entry.viewId];
+  const doc = DOCS[view.docId];
+  const tint = TINT[doc.tint];
+
+  // compte à rebours fantôme (hybride)
+  uE(() => {
+    if (entry.status !== 'pending' || entry.confirmAt == null) return;
+    const tick = () => setLeft(Math.max(0, Math.ceil((entry.confirmAt - (window.__clock || 0)) / 1000)));
+    tick(); const iv = setInterval(tick, 200); return () => clearInterval(iv);
+  }, [entry.status, entry.confirmAt]);
+
+  if (entry.status === 'discarded') {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12,
+        color: 'var(--ck-fg-5)', textDecoration: 'line-through', opacity: 0.6 }}>
+        <Icon name="target" size={13} /> {view.label} — pointage annulé
+      </span>
+    );
+  }
+
+  const pending = entry.status === 'pending';
+  const low = entry.status === 'lowconf';
+  const accent = low ? 'var(--ck-signal-warn)' : pending ? 'var(--ck-fg-3)' : tint;
+
+  return (
+    <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 6, maxWidth: 460 }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 10px',
+        borderRadius: 999, alignSelf: 'flex-start',
+        background: pending || low ? 'transparent' : `color-mix(in oklab, ${tint} 12%, transparent)`,
+        border: `1px ${pending || low ? 'dashed' : 'solid'} ${pending || low ? accent : tint + '88'}`,
+        color: 'var(--ck-fg-1)', animation: pending ? 'anc-breathe 2s ease-in-out infinite' : 'none' }}>
+        <Icon name="target" size={14} style={{ color: accent }} />
+        <span style={{ fontSize: 12.5, fontWeight: 600 }}>{view.label}</span>
+        <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 10, color: 'var(--ck-fg-4)' }}>
+          {doc.kind === 'image' ? 'IMG' : 'p.' + view.page} · {doc.name.replace('.pdf', '').replace('.zip', '')}
+        </span>
+        {!pending && !low && <Icon name="check" size={12} style={{ color: tint }} />}
+      </span>
+
+      {/* bandeau d'action selon le statut */}
+      {pending && !rebinding && (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, paddingLeft: 4 }}>
+          <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 10.5, color: 'var(--ck-fg-4)' }}>
+            confirmation auto dans {left}s
+          </span>
+          <ChipBtn onClick={() => onConfirm(entry.id)} accent="var(--ck-signal-pos)"><Icon name="check" size={11} /> Confirmer</ChipBtn>
+          <ChipBtn onClick={() => setRebinding(true)}><Icon name="target" size={11} /> Relier…</ChipBtn>
+          <ChipBtn onClick={() => onDiscard(entry.id)} accent="var(--ck-signal-neg)"><Icon name="x" size={11} /></ChipBtn>
+        </span>
+      )}
+      {low && !rebinding && (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, paddingLeft: 4 }}>
+          <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 10.5, color: 'var(--ck-signal-warn)' }}>
+            ⚠ association incertaine · « {entry.phrase} »
+          </span>
+          <ChipBtn onClick={() => setRebinding(true)} accent="var(--ck-signal-warn)"><Icon name="target" size={11} /> Corriger</ChipBtn>
+          <ChipBtn onClick={() => onConfirm(entry.id)}><Icon name="check" size={11} /> OK</ChipBtn>
+        </span>
+      )}
+      {rebinding && (
+        <span style={{ display: 'flex', flexWrap: 'wrap', gap: 6, paddingLeft: 4, alignItems: 'center' }}>
+          <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 10, color: 'var(--ck-fg-4)' }}>relier à :</span>
+          {scene.map((v) => (
+            <ChipBtn key={v.id} onClick={() => { onRebind(entry.id, v.id); setRebinding(false); }}
+              accent={v.id === entry.viewId ? 'var(--ck-signal-cool)' : undefined}>
+              {v.label}
+            </ChipBtn>
+          ))}
+          <ChipBtn onClick={() => setRebinding(false)}><Icon name="x" size={11} /></ChipBtn>
+        </span>
+      )}
+    </span>
+  );
+}
+
+function ChipBtn({ children, onClick, accent }) {
+  const [h, setH] = uS(false);
+  return (
+    <button onClick={onClick} onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
+      style={{ appearance: 'none', display: 'inline-flex', alignItems: 'center', gap: 4,
+        fontFamily: 'var(--ck-font-sans)', fontSize: 11, fontWeight: 550, padding: '3px 8px',
+        borderRadius: 'var(--ck-radius-sm)', cursor: 'pointer',
+        border: `1px solid ${accent || 'var(--ck-stroke-2)'}`,
+        background: h ? (accent ? `color-mix(in oklab, ${accent} 16%, transparent)` : 'var(--ck-tint-soft)') : 'transparent',
+        color: accent || 'var(--ck-fg-2)' }}>
+      {children}
+    </button>
+  );
+}
+
+// ── Entrée du Fil ─────────────────────────────────────────────────────────
+function FeedEntry({ e, fs, scene, onConfirm, onDiscard, onRebind }) {
+  const time = <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 10,
+    color: 'var(--ck-fg-5)', flex: 'none', width: 56, paddingTop: 4,
+    fontVariantNumeric: 'tabular-nums' }}>{e.t}</span>;
+
+  if (e.kind === 'speak') {
+    return (
+      <div style={{ display: 'flex', gap: 14 }}>
+        {time}
+        <p style={{ margin: 0, fontSize: fs, lineHeight: 1.62, textWrap: 'pretty',
+          color: e.final ? 'var(--ck-fg-1)' : 'var(--ck-fg-3)',
+          fontStyle: e.final ? 'normal' : 'italic' }}>
+          {e.text}
+          {!e.final && <span style={{ display: 'inline-block', width: 2, height: fs,
+            background: 'var(--ck-signal-cool)', marginLeft: 3, verticalAlign: 'text-bottom',
+            animation: 'cur-blink 1s steps(2) infinite' }} />}
+        </p>
+      </div>
+    );
+  }
+  if (e.kind === 'note') {
+    return (
+      <div style={{ display: 'flex', gap: 14 }}>
+        {time}
+        <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', padding: '8px 12px',
+          borderLeft: `2px solid ${e.byUser ? 'var(--ck-signal-cool)' : 'var(--ck-signal-violet)'}`,
+          background: 'var(--ck-tint-faint)', borderRadius: '0 var(--ck-radius-sm) var(--ck-radius-sm) 0',
+          maxWidth: 540 }}>
+          <Icon name="pen" size={14} style={{ color: e.byUser ? 'var(--ck-signal-cool)' : 'var(--ck-signal-violet)', marginTop: 2 }} />
+          <span style={{ fontSize: fs - 2, lineHeight: 1.5, color: 'var(--ck-fg-2)' }}>{e.text}</span>
+        </div>
+      </div>
+    );
+  }
+  if (e.kind === 'anchor') {
+    return (
+      <div style={{ display: 'flex', gap: 14 }}>
+        {time}
+        <AnchorChip entry={e} scene={scene} onConfirm={onConfirm} onDiscard={onDiscard} onRebind={onRebind} />
+      </div>
+    );
+  }
+  return null;
+}
+
+// ── Indicateur micro (barres animées) ─────────────────────────────────────
+function MicMeter({ active }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 2, height: 20 }}>
+      {[0, 1, 2, 3, 4].map((i) => (
+        <span key={i} style={{ width: 2.5, borderRadius: 2, background: active ? 'var(--ck-signal-cool)' : 'var(--ck-fg-5)',
+          height: active ? undefined : 4,
+          animation: active ? `mic-bar 0.9s ease-in-out ${i * 0.12}s infinite` : 'none' }} />
+      ))}
+    </div>
+  );
+}
+
+// ── Carte oracle ──────────────────────────────────────────────────────────
+function OracleCard({ q, onPin, onDismiss }) {
+  if (q.state === 'dismissed') return null;
+  const pinned = q.state === 'pinned';
+  return (
+    <div style={{ padding: '10px 11px', borderRadius: 'var(--ck-radius-md)',
+      border: `1px solid ${pinned ? 'var(--ck-signal-violet)88' : 'var(--ck-stroke-2)'}`,
+      background: pinned ? 'color-mix(in oklab, var(--ck-signal-violet) 9%, transparent)' : 'var(--ck-bg-inset)',
+      display: 'flex', flexDirection: 'column', gap: 7 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Icon name="spark" size={12} style={{ color: 'var(--ck-signal-violet)' }} />
+        <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 8.5, letterSpacing: '0.12em',
+          textTransform: 'uppercase', color: 'var(--ck-signal-violet)' }}>{q.tag}</span>
+        <span style={{ marginLeft: 'auto', fontFamily: 'var(--ck-font-mono)', fontSize: 9,
+          color: 'var(--ck-fg-5)' }}>{q.t}</span>
+      </div>
+      <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.45, color: 'var(--ck-fg-2)' }}>{q.q}</p>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <ChipBtn onClick={onPin} accent={pinned ? 'var(--ck-signal-violet)' : undefined}>
+          <Icon name="pin" size={11} /> {pinned ? 'À traiter' : 'Garder'}
+        </ChipBtn>
+        <ChipBtn onClick={onDismiss}><Icon name="x" size={11} /> Ignorer</ChipBtn>
+      </div>
+    </div>
+  );
+}
+
+// ── Écran de capture ──────────────────────────────────────────────────────
+function CaptureScreen({ tweaks, onFinish, offline, onToggleOffline }) {
+  const sess = useSession({ speed: tweaks.speed, oracleOn: tweaks.oracle, pointingMode: tweaks.pointing });
+  const [draft, setDraft] = uS('');
+  const feedRef = uR(null);
+
+  // clock global lu par les chips (compte à rebours)
+  uE(() => { window.__clock = sess.clock; }, [sess.clock]);
+
+  // auto-scroll du Fil
+  uE(() => { const el = feedRef.current; if (el) el.scrollTop = el.scrollHeight; }, [sess.feed]);
+
+  const fs = { compact: 15, regular: 17, comfy: 19 }[tweaks.density] || 17;
+  const activeView = sess.activeView ? VIEWS[sess.activeView] : null;
+  const refsCount = sess.feed.filter((e) => e.kind === 'anchor' && e.status === 'confirmed').length;
+  const aw = sess.awaitingGesture;
+
+  const submitNote = () => { if (draft.trim()) { sess.addNote(draft); setDraft(''); } };
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+      background: 'var(--ck-bg-base)' }}>
+      {/* barre de statut (calme) */}
+      <div style={{ height: 50, flex: 'none', display: 'flex', alignItems: 'center', gap: 14,
+        padding: '0 18px', borderBottom: '1px solid var(--ck-stroke-2)', background: 'var(--ck-bg-panel)' }}>
+        <Dot kind={offline ? 'warn' : 'neg'} live={!offline} />
+        <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 11, color: offline ? 'var(--ck-signal-warn)' : 'var(--ck-signal-neg)',
+          fontWeight: 700, letterSpacing: '0.08em' }}>{offline ? 'HORS-LIGNE · buffer local' : 'CAPTURE'}</span>
+        <span style={{ width: 1, height: 18, background: 'var(--ck-stroke-2)' }} />
+        <span style={{ fontSize: 13, color: 'var(--ck-fg-1)', fontWeight: 600 }}>Résidence Belvédère — Lot 7</span>
+        <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 12, color: 'var(--ck-fg-3)',
+          fontVariantNumeric: 'tabular-nums' }}>{clockLabel(sess.clock)}</span>
+        <Label style={{ marginLeft: 4 }}>{sess.phase}</Label>
+
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 10, color: 'var(--ck-fg-4)',
+            padding: '3px 8px', border: '1px solid var(--ck-stroke-2)', borderRadius: 999 }}>
+            pointage · {tweaks.pointing}
+          </span>
+          <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 10, color: 'var(--ck-fg-4)' }}>
+            {refsCount} réf.
+          </span>
+          <Btn size="sm" variant="bare" icon="wifioff" onClick={onToggleOffline}
+            title="Simuler une perte réseau">{offline ? 'Rétablir' : ''}</Btn>
+          <Btn size="sm" variant="bare" icon={sess.playing ? 'pause' : 'play'}
+            onClick={() => sess.setPlaying(!sess.playing)} />
+          <Btn size="sm" variant="bare" icon="restart" onClick={sess.restart} title="Rejouer" />
+          <Btn size="sm" variant="primary" icon="arrow" onClick={onFinish}>Terminer la capture</Btn>
+        </div>
+      </div>
+
+      {/* bandeau hors-ligne */}
+      {offline && (
+        <div style={{ flex: 'none', padding: '8px 18px', background: 'color-mix(in oklab, var(--ck-signal-warn) 12%, var(--ck-bg-panel))',
+          borderBottom: '1px solid var(--ck-signal-warn)44', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="wifioff" size={14} style={{ color: 'var(--ck-signal-warn)' }} />
+          <span style={{ fontSize: 12, color: 'var(--ck-fg-1)' }}>
+            Réseau perdu — <b>la capture continue en local</b>. Transcription et pointages sont mis en file, synchronisés à la reprise. Rien n'est perdu.
+          </span>
+        </div>
+      )}
+
+      {/* corps 3 colonnes */}
+      <div style={{ flex: 1, display: 'grid',
+        gridTemplateColumns: tweaks.oracle ? '58px 1fr 340px' : '58px 1fr 300px', minHeight: 0 }}>
+        {/* col 1 — spine temporelle */}
+        <div style={{ borderRight: '1px solid var(--ck-stroke-2)', background: 'var(--ck-bg-panel)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 16, gap: 2 }}>
+          <Icon name="mic" size={16} style={{ color: 'var(--ck-signal-cool)' }} />
+          <MicMeter active={sess.playing && !offline} />
+          <div style={{ flex: 1, width: 1, background: 'var(--ck-stroke-2)', marginTop: 14, position: 'relative' }}>
+            {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+              <span key={i} style={{ position: 'absolute', left: -2, top: `${i * 15}%`, width: 5, height: 1,
+                background: 'var(--ck-stroke-3)' }} />
+            ))}
+          </div>
+          <span style={{ writingMode: 'vertical-rl', fontFamily: 'var(--ck-font-mono)', fontSize: 8.5,
+            letterSpacing: '0.18em', color: 'var(--ck-fg-5)', textTransform: 'uppercase', padding: '8px 0' }}>
+            le fil
+          </span>
+        </div>
+
+        {/* col 2 — Le Fil + composer */}
+        <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0 }}>
+          <div ref={feedRef} className="ck-scroll" style={{ flex: 1, overflowY: 'auto', padding: '24px 30px',
+            display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {sess.feed.length === 0 && (
+              <div style={{ color: 'var(--ck-fg-4)', fontSize: 13, fontStyle: 'italic', marginTop: 20 }}>
+                En écoute… la parole et l'écrit s'inscrivent ici, sur un seul fil horodaté.
+              </div>
+            )}
+            {sess.feed.map((e) => (
+              <FeedEntry key={e.id} e={e} fs={fs} scene={sess.scene}
+                onConfirm={sess.confirmAnchor} onDiscard={sess.discardAnchor} onRebind={sess.rebindAnchor} />
+            ))}
+          </div>
+
+          {/* composer — modalité unique */}
+          <div style={{ flex: 'none', padding: '14px 30px 18px', borderTop: '1px solid var(--ck-stroke-2)',
+            background: 'var(--ck-bg-panel)' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12,
+              border: '1px solid var(--ck-stroke-3)', borderRadius: 'var(--ck-radius-lg)',
+              background: 'var(--ck-bg-inset)', padding: '10px 12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, paddingBottom: 2 }}>
+                <Icon name="mic" size={16} style={{ color: sess.playing && !offline ? 'var(--ck-signal-cool)' : 'var(--ck-fg-4)' }} />
+                <MicMeter active={sess.playing && !offline} />
+              </div>
+              <span style={{ width: 1, height: 22, background: 'var(--ck-stroke-2)' }} />
+              <textarea value={draft} onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitNote(); } }}
+                rows={1} placeholder="Écrire une note — s'insère dans le Fil  ·  la voix est captée en continu"
+                style={{ flex: 1, resize: 'none', border: 'none', outline: 'none', background: 'transparent',
+                  color: 'var(--ck-fg-1)', fontFamily: 'var(--ck-font-sans)', fontSize: 14, lineHeight: 1.5,
+                  maxHeight: 90 }} />
+              <Btn size="sm" variant={draft.trim() ? 'primary' : 'ghost'} icon="pen" onClick={submitNote}
+                disabled={!draft.trim()}>Insérer</Btn>
+            </div>
+            <div style={{ display: 'flex', gap: 16, marginTop: 7, paddingLeft: 4 }}>
+              <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 9.5, color: 'var(--ck-fg-5)' }}>↵ insérer</span>
+              <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 9.5, color: 'var(--ck-fg-5)' }}>⇧↵ nouvelle ligne</span>
+              <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 9.5, color: 'var(--ck-fg-5)' }}>voix ⇄ écrit : même flux</span>
+            </div>
+          </div>
+        </div>
+
+        {/* col 3 — La Scène + Oracle */}
+        <div style={{ borderLeft: '1px solid var(--ck-stroke-2)', background: 'var(--ck-bg-panel)',
+          display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          {/* Scène */}
+          <div style={{ flex: tweaks.oracle ? '1 1 56%' : '1 1 100%', display: 'flex', flexDirection: 'column',
+            minHeight: 0, overflow: 'hidden', padding: '14px 14px 10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flex: 'none' }}>
+              <Icon name="layers" size={13} style={{ color: 'var(--ck-fg-3)' }} />
+              <Label>La Scène · {sess.scene.length} pièce{sess.scene.length > 1 ? 's' : ''}</Label>
+            </div>
+            {/* vue active, agrandie */}
+            {activeView ? (
+              <div style={{ flex: '1 1 auto', minHeight: 0, marginBottom: 12, display: 'flex',
+                justifyContent: 'center' }}>
+                <div style={{ position: 'relative', height: '100%', maxWidth: '100%' }}>
+                  <ViewTile view={activeView} size="xl" active style={{ height: '100%', width: 'auto' }} />
+                  {/* mode manuel : cible pulsante à pointer */}
+                  {aw && aw.viewId === activeView.id && (
+                    <button onClick={sess.fireGesture} style={{ position: 'absolute', inset: 0,
+                      display: 'grid', placeItems: 'center', background: 'color-mix(in oklab, var(--ck-bg-void) 35%, transparent)',
+                      border: '2px dashed var(--ck-signal-cool)', borderRadius: 'var(--ck-radius-md)',
+                      cursor: 'pointer', appearance: 'none' }}>
+                      <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                        color: 'var(--ck-signal-cool)', animation: 'anc-breathe 1.4s ease-in-out infinite' }}>
+                        <Icon name="target" size={32} />
+                        <span style={{ fontSize: 11.5, fontWeight: 600 }}>Pointer cette vue</span>
+                        <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 9.5 }}>« {aw.phrase} »</span>
+                      </span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div style={{ flex: '1 1 auto', minHeight: 90, border: '1px dashed var(--ck-stroke-3)',
+                borderRadius: 'var(--ck-radius-md)', display: 'grid', placeItems: 'center',
+                color: 'var(--ck-fg-5)', fontSize: 12, marginBottom: 12 }}>aucune pièce montrée</div>
+            )}
+            {/* pellicule des autres pièces */}
+            <div className="ck-scroll" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4,
+              flex: 'none' }}>
+              {sess.scene.map((v) => (
+                <div key={v.id} style={{ flex: 'none', width: 84 }}>
+                  <ViewTile view={v} size="sm" dim={v.id !== sess.activeView}
+                    active={v.id === sess.activeView} onClick={() => {}} />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Oracle */}
+          {tweaks.oracle && (
+            <div style={{ flex: '1 1 44%', display: 'flex', flexDirection: 'column', minHeight: 0,
+              borderTop: '1px solid var(--ck-stroke-2)', padding: '14px 14px 14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <Icon name="spark" size={13} style={{ color: 'var(--ck-signal-violet)' }} />
+                <Label>Pistes de l'oracle</Label>
+                <span style={{ marginLeft: 'auto', fontFamily: 'var(--ck-font-mono)', fontSize: 9,
+                  color: 'var(--ck-fg-5)' }}>non bloquant</span>
+              </div>
+              <div className="ck-scroll" style={{ flex: 1, overflowY: 'auto', display: 'flex',
+                flexDirection: 'column', gap: 8 }}>
+                {sess.oracle.filter((q) => q.state !== 'dismissed').length === 0 && (
+                  <span style={{ color: 'var(--ck-fg-5)', fontSize: 12, fontStyle: 'italic' }}>
+                    L'oracle écoute… il déposera ici des questions d'approfondissement.
+                  </span>
+                )}
+                {sess.oracle.map((q) => (
+                  <OracleCard key={q.id} q={q}
+                    onPin={() => sess.setOracleState(q.id, q.state === 'pinned' ? 'open' : 'pinned')}
+                    onDismiss={() => sess.setOracleState(q.id, 'dismissed')} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { CaptureScreen });
+
+</script>
+
+<script type="text/babel" data-src="flows.jsx">
+// flows.jsx — écrans périphériques du parcours :
+// FinScreen (triage pré-rempli) · IndexScreen (indexation fond) ·
+// PiecesScreen (pièces & pointage + comparatif des 2 approches) · EdgeScreen (cas limites)
+const { useState: fS, useEffect: fE, useRef: fR } = React;
+
+const SHARE = {
+  full: { label: 'Entier', dot: 'pos' },
+  excerpt: { label: 'Extrait', dot: 'cool' },
+  none: { label: 'Aucun', dot: 'neutral' },
+};
+
+// petit segmenté inline
+function Seg({ value, options, onChange }) {
+  return (
+    <div style={{ display: 'inline-flex', padding: 2, borderRadius: 'var(--ck-radius-md)',
+      background: 'var(--ck-bg-void)', border: '1px solid var(--ck-stroke-2)', gap: 2 }}>
+      {options.map((o) => {
+        const on = o.value === value;
+        return (
+          <button key={o.value} onClick={() => onChange(o.value)} style={{ appearance: 'none',
+            display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px',
+            borderRadius: 'var(--ck-radius-sm)', cursor: 'pointer', border: 'none',
+            fontFamily: 'var(--ck-font-sans)', fontSize: 11.5, fontWeight: 550,
+            background: on ? 'var(--ck-bg-panel-hi)' : 'transparent',
+            color: on ? 'var(--ck-fg-1)' : 'var(--ck-fg-4)',
+            boxShadow: on ? 'var(--ck-shadow-card)' : 'none' }}>
+            <Dot kind={o.dot} size={5} />{o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Triage de fin (récapitulatif pré-rempli, pas de formulaire) ───────────
+function FinScreen({ onOpenReport }) {
+  const [rows, setRows] = fS(TRIAGE.map((r) => ({ ...r, choice: r.proposal })));
+  const shareCount = rows.filter((r) => r.choice !== 'none').length;
+  return (
+    <div className="ck-scroll" style={{ position: 'absolute', inset: 0, overflowY: 'auto',
+      background: 'var(--ck-bg-base)', display: 'flex', justifyContent: 'center' }}>
+      <div style={{ width: 'min(760px, 100%)', padding: '46px 28px 60px' }}>
+        <Label>Fin de séance · étape légère</Label>
+        <h1 style={{ margin: '12px 0 8px', fontSize: 28, fontWeight: 680, color: 'var(--ck-fg-1)',
+          letterSpacing: '-0.01em' }}>Confirmer ce qui est partagé</h1>
+        <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.55, color: 'var(--ck-fg-3)', maxWidth: 580 }}>
+          Le niveau de partage est <b style={{ color: 'var(--ck-fg-2)' }}>déduit de votre usage</b> pendant la séance.
+          Vous ne remplissez rien — vous corrigez si besoin. Tout reste réversible depuis le rapport.
+        </p>
+
+        <div style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {rows.map((r, i) => {
+            const doc = DOCS[r.docId];
+            const tint = TINT[doc.tint];
+            return (
+              <div key={r.docId} style={{ display: 'flex', alignItems: 'center', gap: 16,
+                padding: '14px 16px', borderRadius: 'var(--ck-radius-lg)',
+                border: '1px solid var(--ck-stroke-2)', background: 'var(--ck-bg-panel)',
+                opacity: r.choice === 'none' ? 0.62 : 1, transition: 'opacity var(--ck-dur-med)' }}>
+                <div style={{ width: 34, height: 42, flex: 'none', borderRadius: 'var(--ck-radius-sm)',
+                  border: `1px solid ${tint}66`, background: `repeating-linear-gradient(0deg, var(--ck-stroke-1) 0 5px, transparent 5px 6px)`,
+                  display: 'grid', placeItems: 'center', color: tint }}>
+                  <Icon name={doc.kind === 'image' ? 'image' : 'doc'} size={15} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 12.5, color: 'var(--ck-fg-1)',
+                    fontWeight: 600 }}>{doc.name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--ck-fg-4)', marginTop: 3 }}>{r.reason}</div>
+                </div>
+                <Seg value={r.choice} onChange={(v) => setRows((rs) => rs.map((x, j) => j === i ? { ...x, choice: v } : x))}
+                  options={[{ value: 'full', ...SHARE.full }, { value: 'excerpt', ...SHARE.excerpt }, { value: 'none', ...SHARE.none }]} />
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ marginTop: 22, padding: '14px 16px', borderRadius: 'var(--ck-radius-md)',
+          border: '1px solid var(--ck-stroke-2)', background: 'var(--ck-bg-inset)', display: 'flex',
+          gap: 11, alignItems: 'flex-start' }}>
+          <Icon name="layers" size={16} style={{ color: 'var(--ck-signal-violet)', marginTop: 1 }} />
+          <span style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--ck-fg-3)' }}>
+            L'<b style={{ color: 'var(--ck-fg-2)' }}>indexation lourde</b> (extraction + vectorisation) démarre en arrière-plan
+            <b style={{ color: 'var(--ck-fg-2)' }}> dès l'ouverture du rapport</b>. Vous lisez immédiatement ; les sources
+            deviennent cliquables au fil de l'indexation.
+          </span>
+        </div>
+
+        <div style={{ marginTop: 26, display: 'flex', alignItems: 'center', gap: 16 }}>
+          <Btn variant="primary" size="lg" icon="arrow" onClick={onOpenReport}>Ouvrir le rapport</Btn>
+          <span style={{ fontSize: 12.5, color: 'var(--ck-fg-4)' }}>
+            {shareCount} document{shareCount > 1 ? 's' : ''} partagé{shareCount > 1 ? 's' : ''} · indexation en file
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Indexation en arrière-plan ────────────────────────────────────────────
+function IndexScreen() {
+  const order = ['none', 'referenced', 'queued', 'indexing', 'indexed'];
+  const init = TRIAGE.filter((r) => r.proposal !== 'none')
+    .map((r) => ({ docId: r.docId, state: r.index, progress: r.index === 'referenced' ? 100 : 0 }));
+  const [items, setItems] = fS(init);
+  const [running, setRunning] = fS(true);
+
+  fE(() => {
+    if (!running) return;
+    const iv = setInterval(() => {
+      setItems((list) => {
+        // une seule indexation à la fois (file)
+        const idxIndexing = list.findIndex((x) => x.state === 'indexing');
+        if (idxIndexing >= 0) {
+          return list.map((x, i) => i === idxIndexing
+            ? (x.progress >= 100 ? { ...x, state: 'indexed' } : { ...x, progress: Math.min(100, x.progress + 9) })
+            : x);
+        }
+        const idxQueued = list.findIndex((x) => x.state === 'queued');
+        if (idxQueued >= 0) return list.map((x, i) => i === idxQueued ? { ...x, state: 'indexing', progress: 4 } : x);
+        return list;
+      });
+    }, 260);
+    return () => clearInterval(iv);
+  }, [running]);
+
+  const allDone = items.every((x) => x.state === 'indexed' || x.state === 'referenced');
+  const pct = Math.round(items.reduce((a, x) => a + (x.state === 'indexed' ? 100 : x.state === 'referenced' ? 100 : x.progress), 0) / items.length);
+
+  return (
+    <div className="ck-scroll" style={{ position: 'absolute', inset: 0, overflowY: 'auto',
+      background: 'var(--ck-bg-base)', display: 'flex', justifyContent: 'center' }}>
+      <div style={{ width: 'min(720px, 100%)', padding: '46px 28px 60px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Label>Moteur · arrière-plan</Label>
+          <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 7,
+            fontFamily: 'var(--ck-font-mono)', fontSize: 11, color: allDone ? 'var(--ck-signal-pos)' : 'var(--ck-signal-violet)' }}>
+            <Dot kind={allDone ? 'pos' : 'violet'} live={!allDone} /> {allDone ? 'terminé' : pct + '%'}
+          </span>
+        </div>
+        <h1 style={{ margin: '12px 0 8px', fontSize: 26, fontWeight: 680, color: 'var(--ck-fg-1)' }}>
+          Indexation discrète, jamais bloquante
+        </h1>
+        <p style={{ margin: '0 0 24px', fontSize: 14, lineHeight: 1.55, color: 'var(--ck-fg-3)', maxWidth: 560 }}>
+          Le rapport est <b style={{ color: 'var(--ck-fg-2)' }}>déjà ouvert et lisible</b>. Ce moteur tourne derrière —
+          un seul indicateur de pouls suffit. Aucune action requise.
+        </p>
+
+        {/* fil de progression global */}
+        <div style={{ height: 3, borderRadius: 999, background: 'var(--ck-stroke-2)', overflow: 'hidden', marginBottom: 26 }}>
+          <div style={{ height: '100%', width: pct + '%', background: 'var(--ck-signal-violet)',
+            boxShadow: 'var(--ck-glow-violet)', transition: 'width 0.26s linear' }} />
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {items.map((x) => {
+            const doc = DOCS[x.docId];
+            const st = INDEX_STATES[x.state];
+            return (
+              <div key={x.docId} style={{ display: 'flex', alignItems: 'center', gap: 14,
+                padding: '12px 15px', borderRadius: 'var(--ck-radius-md)',
+                border: '1px solid var(--ck-stroke-2)', background: 'var(--ck-bg-panel)' }}>
+                <Dot kind={st.dot} live={x.state === 'indexing'} />
+                <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 12.5, color: 'var(--ck-fg-1)',
+                  flex: 1, minWidth: 0 }}>{doc.name}</span>
+                {x.state === 'indexing' && (
+                  <div style={{ width: 120, height: 3, borderRadius: 999, background: 'var(--ck-stroke-2)', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: x.progress + '%', background: st.fg, transition: 'width 0.26s linear' }} />
+                  </div>
+                )}
+                <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 11, color: st.fg, width: 92,
+                  textAlign: 'right', fontWeight: 600 }}>{st.label}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ marginTop: 22, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {order.map((k) => (
+            <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
+              fontFamily: 'var(--ck-font-mono)', fontSize: 10.5, color: 'var(--ck-fg-4)' }}>
+              <Dot kind={INDEX_STATES[k].dot} size={5} /> {INDEX_STATES[k].label}
+            </span>
+          ))}
+          <Btn size="sm" variant="bare" icon="restart" style={{ marginLeft: 'auto' }}
+            onClick={() => { setItems(init.map((x) => ({ ...x, state: x.docId === 'photos' ? 'referenced' : 'queued', progress: 0 }))); setRunning(true); }}>
+            Rejouer
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Pièces & pointage : modèle + comparatif des 2 approches ───────────────
+function PointDemo({ mode, phrase, view, recommended }) {
+  const doc = DOCS[view.docId];
+  const tint = TINT[doc.tint];
+  const meta = {
+    auto: { title: 'Auto-détection', dot: 'cool',
+      desc: 'L\'ancre se pose seule dès la phrase déictique. Zéro action — mais une mauvaise association passe inaperçue.',
+      cost: 'Effort : nul', risk: 'Risque : faux positif silencieux' },
+    manuel: { title: 'Geste manuel', dot: 'warn',
+      desc: 'L\'expert tape la pièce (ou raccourci) pour pointer. Fiable à 100 % — mais demande une micro-action à chaque fois.',
+      cost: 'Effort : 1 tap', risk: 'Risque : oubli de pointer' },
+    hybride: { title: 'Fantôme auto-confirmé', dot: 'pos',
+      desc: 'L\'ancre apparaît en « fantôme » et se confirme seule après 4 s, sauf rejet. Non bloquant, réversible, sans spam.',
+      cost: 'Effort : nul (sauf correction)', risk: 'Risque : quasi nul' },
+  }[mode];
+  return (
+    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12,
+      padding: 16, borderRadius: 'var(--ck-radius-lg)',
+      border: `1px solid ${recommended ? 'var(--ck-signal-pos)66' : 'var(--ck-stroke-2)'}`,
+      background: 'var(--ck-bg-panel)', position: 'relative' }}>
+      {recommended && (
+        <span style={{ position: 'absolute', top: -10, left: 14, padding: '2px 9px', borderRadius: 999,
+          background: 'var(--ck-signal-pos)', color: 'var(--ck-on-signal)', fontFamily: 'var(--ck-font-mono)',
+          fontSize: 9, fontWeight: 700, letterSpacing: '0.1em' }}>RECO PAR DÉFAUT</span>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Dot kind={meta.dot} /><span style={{ fontSize: 13.5, fontWeight: 650, color: 'var(--ck-fg-1)' }}>{meta.title}</span>
+      </div>
+      {/* mini transcript */}
+      <div style={{ padding: 11, borderRadius: 'var(--ck-radius-md)', background: 'var(--ck-bg-inset)',
+        border: '1px solid var(--ck-stroke-2)', display: 'flex', flexDirection: 'column', gap: 9 }}>
+        <span style={{ fontSize: 12.5, color: 'var(--ck-fg-2)', lineHeight: 1.5 }}>
+          « …comme on le voit, <span style={{ color: tint, fontWeight: 600 }}>{phrase}</span>… »
+        </span>
+        {mode === 'manuel' ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 10px',
+            borderRadius: 999, border: '1px dashed var(--ck-signal-warn)', color: 'var(--ck-signal-warn)',
+            fontSize: 11.5, alignSelf: 'flex-start' }}>
+            <Icon name="target" size={13} /> en attente du geste…
+          </span>
+        ) : (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 10px',
+            borderRadius: 999, alignSelf: 'flex-start',
+            border: `1px ${mode === 'hybride' ? 'dashed var(--ck-fg-3)' : 'solid ' + tint + '88'}`,
+            background: mode === 'hybride' ? 'transparent' : `color-mix(in oklab, ${tint} 12%, transparent)`,
+            color: 'var(--ck-fg-1)', fontSize: 11.5,
+            animation: mode === 'hybride' ? 'anc-breathe 2s ease-in-out infinite' : 'none' }}>
+            <Icon name="target" size={13} style={{ color: mode === 'hybride' ? 'var(--ck-fg-3)' : tint }} />
+            {view.label} · p.{view.page}
+            {mode === 'hybride' && <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 9.5, color: 'var(--ck-fg-4)' }}>auto 4s</span>}
+            {mode === 'auto' && <Icon name="check" size={11} style={{ color: tint }} />}
+          </span>
+        )}
+      </div>
+      <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: 'var(--ck-fg-3)' }}>{meta.desc}</p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 'auto' }}>
+        <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 10, color: 'var(--ck-fg-4)' }}>{meta.cost}</span>
+        <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 10, color: 'var(--ck-fg-4)' }}>{meta.risk}</span>
+      </div>
+    </div>
+  );
+}
+
+function PiecesScreen() {
+  const views = [VIEWS.v_coupe, VIEWS.v_sp3, VIEWS.v_essais, VIEWS.v_fissure];
+  const [active, setActive] = fS('v_coupe');
+  return (
+    <div className="ck-scroll" style={{ position: 'absolute', inset: 0, overflowY: 'auto',
+      background: 'var(--ck-bg-base)', display: 'flex', justifyContent: 'center' }}>
+      <div style={{ width: 'min(940px, 100%)', padding: '40px 28px 60px' }}>
+        <Label>Pièces & pointage</Label>
+        <h1 style={{ margin: '12px 0 8px', fontSize: 26, fontWeight: 680, color: 'var(--ck-fg-1)' }}>
+          La Scène — plusieurs pièces, une seule « en scène »
+        </h1>
+        <p style={{ margin: '0 0 24px', fontSize: 14, lineHeight: 1.55, color: 'var(--ck-fg-3)', maxWidth: 620 }}>
+          Au lieu d'empiler des chips, les pièces vivent dans une <b style={{ color: 'var(--ck-fg-2)' }}>pellicule latérale</b>.
+          Une seule est « en scène » à la fois — c'est elle que le pointage référencera. Cliquez pour changer.
+        </p>
+
+        {/* démo scène */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 20, marginBottom: 40 }}>
+          <ViewTile view={VIEWS[active]} size="xl" active />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+            <Label>Pellicule · {views.length} épinglées</Label>
+            {views.map((v) => (
+              <div key={v.id} role="button" tabIndex={0} onClick={() => setActive(v.id)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActive(v.id); } }}
+                style={{ cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 10, padding: 8, borderRadius: 'var(--ck-radius-md)',
+                border: `1px solid ${v.id === active ? TINT[DOCS[v.docId].tint] : 'var(--ck-stroke-2)'}`,
+                background: v.id === active ? 'var(--ck-bg-panel-hi)' : 'var(--ck-bg-panel)', textAlign: 'left' }}>
+                <div style={{ width: 44, height: 33, flex: 'none', pointerEvents: 'none' }}><ViewTile view={v} size="sm" active={v.id === active} dim={v.id !== active} /></div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12, color: 'var(--ck-fg-1)', fontWeight: 550 }}>{v.label}</div>
+                  <div style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 9.5, color: 'var(--ck-fg-4)' }}>
+                    {DOCS[v.docId].name.replace(/\.(pdf|zip)/, '')} · {v.shape === 'image' ? 'img' : 'p.' + v.page}
+                  </div>
+                </div>
+                {v.id === active && <span style={{ marginLeft: 'auto', fontFamily: 'var(--ck-font-mono)',
+                  fontSize: 8.5, color: TINT[DOCS[v.docId].tint], fontWeight: 700 }}>EN SCÈNE</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <h2 style={{ margin: '0 0 6px', fontSize: 18, fontWeight: 650, color: 'var(--ck-fg-1)' }}>
+          Pointage : deux approches, une recommandation
+        </h2>
+        <p style={{ margin: '0 0 18px', fontSize: 13.5, lineHeight: 1.5, color: 'var(--ck-fg-3)', maxWidth: 620 }}>
+          Réponse directe à votre question ouverte « auto vs manuel ». Voici les deux extrêmes, puis l'option hybride
+          que je recommande par défaut (réglable dans les Tweaks).
+        </p>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'stretch', flexWrap: 'wrap' }}>
+          <PointDemo mode="auto" phrase="cette coupe" view={VIEWS.v_coupe} />
+          <PointDemo mode="manuel" phrase="cette coupe" view={VIEWS.v_coupe} />
+          <PointDemo mode="hybride" phrase="cette coupe" view={VIEWS.v_coupe} recommended />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Cas limites ───────────────────────────────────────────────────────────
+function EdgeCard({ icon, iconKind, title, children, mock }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', borderRadius: 'var(--ck-radius-lg)',
+      border: '1px solid var(--ck-stroke-2)', background: 'var(--ck-bg-panel)', overflow: 'hidden' }}>
+      <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid var(--ck-stroke-2)',
+        display: 'flex', alignItems: 'center', gap: 9 }}>
+        <Icon name={icon} size={16} style={{ color: `var(--ck-signal-${iconKind})` }} />
+        <span style={{ fontSize: 14, fontWeight: 650, color: 'var(--ck-fg-1)' }}>{title}</span>
+      </div>
+      <div style={{ padding: 16, background: 'var(--ck-bg-inset)', borderBottom: '1px solid var(--ck-stroke-2)',
+        minHeight: 116, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{mock}</div>
+      <p style={{ margin: 0, padding: '13px 16px', fontSize: 12.5, lineHeight: 1.5, color: 'var(--ck-fg-3)' }}>{children}</p>
+    </div>
+  );
+}
+
+function EdgeScreen() {
+  return (
+    <div className="ck-scroll" style={{ position: 'absolute', inset: 0, overflowY: 'auto',
+      background: 'var(--ck-bg-base)', display: 'flex', justifyContent: 'center' }}>
+      <div style={{ width: 'min(940px, 100%)', padding: '40px 28px 60px' }}>
+        <Label>Robustesse</Label>
+        <h1 style={{ margin: '12px 0 8px', fontSize: 26, fontWeight: 680, color: 'var(--ck-fg-1)' }}>Cas limites & états</h1>
+        <p style={{ margin: '0 0 26px', fontSize: 14, lineHeight: 1.55, color: 'var(--ck-fg-3)', maxWidth: 600 }}>
+          Tout est conçu pour rester <b style={{ color: 'var(--ck-fg-2)' }}>réversible et non bloquant</b>,
+          même quand ça dérape. Aucune modale en pleine séance.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+          <EdgeCard icon="target" iconKind="cool" title="Erreur de pointage"
+            mock={<div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', justifyContent: 'center' }}>
+              <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 10, color: 'var(--ck-fg-4)' }}>relier à :</span>
+              {[VIEWS.v_coupe, VIEWS.v_sp3].map((v) => (
+                <span key={v.id} style={{ padding: '4px 9px', borderRadius: 'var(--ck-radius-sm)', fontSize: 11,
+                  border: `1px solid ${v.id === 'v_sp3' ? 'var(--ck-signal-cool)' : 'var(--ck-stroke-2)'}`,
+                  color: v.id === 'v_sp3' ? 'var(--ck-signal-cool)' : 'var(--ck-fg-3)' }}>{v.label}</span>
+              ))}
+            </div>}>
+            Chaque ancre reste cliquable : <b style={{ color: 'var(--ck-fg-2)' }}>« Relier… »</b> rebascule la référence
+            vers une autre pièce de la Scène, sans casser le fil ni recharger.
+          </EdgeCard>
+
+          <EdgeCard icon="question" iconKind="warn" title="Déictique ambigu"
+            mock={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 10px',
+              borderRadius: 999, border: '1px dashed var(--ck-signal-warn)', color: 'var(--ck-signal-warn)', fontSize: 11.5 }}>
+              <Icon name="target" size={13} /> 2 vues à l'écran — « ici » ?
+            </span>}>
+            Si deux pièces sont en scène, la confiance chute : l'ancre s'affiche en
+            <b style={{ color: 'var(--ck-signal-warn)' }}> incertain</b> avec choix explicite, jamais une fausse certitude.
+          </EdgeCard>
+
+          <EdgeCard icon="wifioff" iconKind="warn" title="Perte réseau"
+            mock={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '7px 11px',
+              borderRadius: 'var(--ck-radius-md)', background: 'color-mix(in oklab, var(--ck-signal-warn) 14%, transparent)',
+              border: '1px solid var(--ck-signal-warn)44', color: 'var(--ck-fg-1)', fontSize: 11.5 }}>
+              <Icon name="wifioff" size={14} style={{ color: 'var(--ck-signal-warn)' }} /> Capture locale · file de synchro
+            </span>}>
+            La capture ne dépend pas du réseau : transcription et pointages sont <b style={{ color: 'var(--ck-fg-2)' }}>bufferisés
+            en local</b> puis synchronisés à la reprise. Bandeau discret, zéro interruption.
+          </EdgeCard>
+
+          <EdgeCard icon="restart" iconKind="pos" title="Reprise de séance"
+            mock={<div style={{ padding: '10px 13px', borderRadius: 'var(--ck-radius-md)', background: 'var(--ck-bg-panel)',
+              border: '1px solid var(--ck-stroke-2)', display: 'flex', flexDirection: 'column', gap: 8, minWidth: 200 }}>
+              <span style={{ fontSize: 12, color: 'var(--ck-fg-1)' }}>Séance interrompue à <b>14:38</b></span>
+              <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 10, color: 'var(--ck-fg-4)' }}>3 pièces · 5 réf · 2 notes</span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <span style={{ padding: '3px 9px', borderRadius: 'var(--ck-radius-sm)', fontSize: 10.5,
+                  background: 'var(--ck-signal-cool)', color: 'var(--ck-on-signal)', fontWeight: 600 }}>Reprendre</span>
+                <span style={{ padding: '3px 9px', borderRadius: 'var(--ck-radius-sm)', fontSize: 10.5,
+                  border: '1px solid var(--ck-stroke-2)', color: 'var(--ck-fg-3)' }}>Clôturer</span>
+              </div>
+            </div>}>
+            L'état du Fil est persistant. À la réouverture, une carte propose de
+            <b style={{ color: 'var(--ck-fg-2)' }}> reprendre exactement où on s'est arrêté</b> — contexte et scène restaurés.
+          </EdgeCard>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { FinScreen, IndexScreen, PiecesScreen, EdgeScreen });
+
+</script>
+
+<script type="text/babel" data-src="report.jsx">
+// report.jsx — lecture du rapport publié. Mode Cockpit (dense). Sources cliquables :
+// chaque affirmation porte un marqueur → ouvre l'inspecteur de provenance
+// (vue pointée + zone surlignée + retour à l'instant du transcript).
+const { useState: rS } = React;
+
+// instants de transcript associés aux sources (provenance bidirectionnelle)
+const SRC_MOMENT = {
+  v_coupe: '14:31:24', v_sp3: '14:32:58', v_essais: '14:33:41', v_fissure: '14:35:12',
+};
+
+function SourceMark({ n, view, active, onClick }) {
+  const tint = view ? TINT[DOCS[view.docId].tint] : 'var(--ck-fg-4)';
+  return (
+    <button onClick={onClick} title={view ? `${DOCS[view.docId].name} · p.${view.page}` : ''}
+      style={{ appearance: 'none', cursor: 'pointer', verticalAlign: 'super', marginLeft: 3,
+        display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 6px 1px 5px',
+        borderRadius: 999, lineHeight: 1,
+        border: `1px solid ${active ? tint : tint + '55'}`,
+        background: active ? `color-mix(in oklab, ${tint} 22%, transparent)` : `color-mix(in oklab, ${tint} 9%, transparent)`,
+        color: tint, fontFamily: 'var(--ck-font-mono)', fontSize: 9.5, fontWeight: 700 }}>
+      <Icon name="target" size={9} /> {n}
+    </button>
+  );
+}
+
+function ReportScreen() {
+  const [sel, setSel] = rS('v_coupe');
+  // n° de source par vue (ordre d'apparition)
+  const seq = []; REPORT.sections.forEach((s) => s.body.forEach((b) => { if (b.src && !seq.includes(b.src)) seq.push(b.src); }));
+  const numOf = (src) => seq.indexOf(src) + 1;
+  const selView = sel ? VIEWS[sel] : null;
+  const selDoc = selView ? DOCS[selView.docId] : null;
+  const selIndexed = sel === 'v_coupe' || sel === 'v_sp3' || sel === 'v_essais'; // photos = référencé seulement
+  const tint = selView ? TINT[selDoc.tint] : 'var(--ck-signal-cool)';
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, display: 'grid', gridTemplateColumns: '1fr 396px',
+      background: 'var(--ck-bg-base)' }}>
+      {/* document */}
+      <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, borderRight: '1px solid var(--ck-stroke-2)' }}>
+        {/* en-tête + pouls d'indexation */}
+        <div style={{ flex: 'none', padding: '16px 28px', borderBottom: '1px solid var(--ck-stroke-2)',
+          background: 'var(--ck-bg-panel)', display: 'flex', alignItems: 'center', gap: 14 }}>
+          <Icon name="book" size={17} style={{ color: 'var(--ck-fg-3)' }} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 650, color: 'var(--ck-fg-1)', whiteSpace: 'nowrap',
+              overflow: 'hidden', textOverflow: 'ellipsis' }}>{REPORT.title}</div>
+            <div style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 10, color: 'var(--ck-fg-4)', marginTop: 2 }}>{REPORT.ref}</div>
+          </div>
+          <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 7,
+            padding: '5px 10px', borderRadius: 999, border: '1px solid var(--ck-stroke-2)',
+            background: 'var(--ck-bg-inset)' }}>
+            <Dot kind="violet" live /><span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 10,
+              color: 'var(--ck-fg-3)' }}>indexation 2/3 · sources cliquables au fil</span>
+          </span>
+        </div>
+
+        {/* corps */}
+        <div className="ck-scroll ck-ambient-grid" style={{ flex: 1, overflowY: 'auto', padding: '34px 0' }}>
+          <div style={{ maxWidth: 660, margin: '0 auto', padding: '0 28px' }}>
+            {REPORT.sections.map((s, i) => (
+              <div key={i} style={{ marginBottom: 34 }}>
+                <h2 style={{ margin: '0 0 14px', fontSize: 12, fontWeight: 700, letterSpacing: '0.06em',
+                  textTransform: 'uppercase', color: 'var(--ck-signal-cool)',
+                  fontFamily: 'var(--ck-font-mono)' }}>{s.h}</h2>
+                {s.body.map((b, j) => (
+                  <p key={j} style={{ margin: '0 0 14px', fontSize: 15.5, lineHeight: 1.7, textWrap: 'pretty',
+                    color: 'var(--ck-fg-1)',
+                    background: b.src && b.src === sel ? `color-mix(in oklab, ${TINT[DOCS[VIEWS[b.src].docId].tint]} 9%, transparent)` : 'transparent',
+                    borderRadius: 'var(--ck-radius-sm)', padding: b.src && b.src === sel ? '4px 8px' : '0',
+                    margin: b.src && b.src === sel ? '0 -8px 14px' : '0 0 14px',
+                    transition: 'background var(--ck-dur-med)' }}>
+                    {b.t}
+                    {b.src
+                      ? <SourceMark n={numOf(b.src)} view={VIEWS[b.src]} active={b.src === sel} onClick={() => setSel(b.src)} />
+                      : <span style={{ marginLeft: 5, fontFamily: 'var(--ck-font-mono)', fontSize: 9.5,
+                          color: 'var(--ck-fg-5)', verticalAlign: 'super' }}>(synthèse)</span>}
+                  </p>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* inspecteur de provenance */}
+      <div style={{ display: 'flex', flexDirection: 'column', background: 'var(--ck-bg-panel)', minWidth: 0 }}>
+        <div style={{ flex: 'none', padding: '16px 18px', borderBottom: '1px solid var(--ck-stroke-2)',
+          display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon name="eye" size={15} style={{ color: 'var(--ck-fg-3)' }} />
+          <Label>Source & provenance</Label>
+        </div>
+
+        {selView ? (
+          <div className="ck-scroll" style={{ flex: 1, overflowY: 'auto', padding: 18, display: 'flex',
+            flexDirection: 'column', gap: 16 }}>
+            {/* vue pointée avec zone surlignée */}
+            <div style={{ position: 'relative' }}>
+              <ViewTile view={selView} size="xl" active />
+              {/* zone "pointée" surlignée */}
+              <div style={{ position: 'absolute', top: '26%', left: '14%', width: '46%', height: '34%',
+                border: `2px solid ${tint}`, borderRadius: 4, boxShadow: `0 0 0 9999px color-mix(in oklab, var(--ck-bg-void) 38%, transparent)`,
+                pointerEvents: 'none' }}>
+                <span style={{ position: 'absolute', top: -9, left: -1, padding: '1px 7px', borderRadius: 3,
+                  background: tint, color: 'var(--ck-on-signal)', fontFamily: 'var(--ck-font-mono)',
+                  fontSize: 8.5, fontWeight: 700, whiteSpace: 'nowrap' }}>ZONE POINTÉE</span>
+              </div>
+            </div>
+
+            {/* méta source */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name={selDoc.kind === 'image' ? 'image' : 'doc'} size={14} style={{ color: tint }} />
+                <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 12, color: 'var(--ck-fg-1)' }}>{selDoc.name}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Pill k="Vue">{selDoc.kind === 'image' ? 'cliché ' + selView.page : 'page ' + selView.page}</Pill>
+                <Pill k="Objet">{selView.label}</Pill>
+                <Pill k="Index" tint={selIndexed ? 'var(--ck-signal-pos)' : 'var(--ck-signal-cool)'}>
+                  {selIndexed ? 'indexé' : 'référencé'}
+                </Pill>
+              </div>
+            </div>
+
+            {/* retour à l'instant du transcript */}
+            <button style={{ appearance: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10,
+              padding: '11px 13px', borderRadius: 'var(--ck-radius-md)', textAlign: 'left',
+              border: '1px solid var(--ck-stroke-2)', background: 'var(--ck-bg-inset)', color: 'var(--ck-fg-2)' }}>
+              <Icon name="undo" size={15} style={{ color: 'var(--ck-signal-cool)' }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, color: 'var(--ck-fg-1)' }}>Revoir l'instant capté</div>
+                <div style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 10, color: 'var(--ck-fg-4)', marginTop: 2 }}>
+                  dit à {SRC_MOMENT[sel] || '—'} dans Le Fil
+                </div>
+              </div>
+              <Icon name="arrow" size={14} />
+            </button>
+
+            <p style={{ margin: 0, fontSize: 11.5, lineHeight: 1.5, color: 'var(--ck-fg-4)' }}>
+              Provenance bidirectionnelle : du rapport vers la pièce <i>et</i> vers le moment exact de la séance où
+              l'expert l'a pointée.
+            </p>
+          </div>
+        ) : (
+          <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: 'var(--ck-fg-5)', fontSize: 12.5 }}>
+            Cliquez une source dans le rapport
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Pill({ k, children, tint }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px',
+      borderRadius: 999, border: '1px solid var(--ck-stroke-2)', background: 'var(--ck-bg-inset)' }}>
+      <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 8.5, letterSpacing: '0.1em',
+        textTransform: 'uppercase', color: 'var(--ck-fg-5)' }}>{k}</span>
+      <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 10.5, color: tint || 'var(--ck-fg-2)', fontWeight: 600 }}>{children}</span>
+    </span>
+  );
+}
+
+Object.assign(window, { ReportScreen });
+
+</script>
+
+<script type="text/babel" data-src="doc.jsx">
+// doc.jsx — la contre-proposition écrite (mode DOC). Document cockpit lisible,
+// avec liens "→ Voir dans le prototype" qui basculent vers PROTO.
+const { useState: dS } = React;
+
+function Kicker({ children }) {
+  return <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 10.5, letterSpacing: '0.16em',
+    textTransform: 'uppercase', color: 'var(--ck-signal-cool)' }}>{children}</span>;
+}
+
+function DocSection({ n, title, children }) {
+  return (
+    <section style={{ marginBottom: 56, scrollMarginTop: 24 }} id={'sec-' + n}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 18,
+        paddingBottom: 12, borderBottom: '1px solid var(--ck-stroke-2)' }}>
+        <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 13, color: 'var(--ck-fg-5)',
+          fontWeight: 700 }}>{String(n).padStart(2, '0')}</span>
+        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 680, color: 'var(--ck-fg-1)',
+          letterSpacing: '-0.01em' }}>{title}</h2>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function P({ children, style }) {
+  return <p style={{ margin: '0 0 14px', fontSize: 14.5, lineHeight: 1.68, textWrap: 'pretty',
+    color: 'var(--ck-fg-2)', ...style }}>{children}</p>;
+}
+function B({ children }) { return <b style={{ color: 'var(--ck-fg-1)', fontWeight: 650 }}>{children}</b>; }
+
+function Goto({ onGoto, to, children }) {
+  return (
+    <span style={{ display: 'inline-block', margin: '4px 0' }}>
+      <Btn size="sm" variant="ghost" icon="arrow" onClick={() => onGoto(to)}>{children}</Btn>
+    </span>
+  );
+}
+
+// item d'analyse (verdict coloré)
+function Verdict({ kind, label, children }) {
+  const map = { keep: ['pos', 'On garde'], weak: ['warn', 'Faible'], risk: ['neg', 'Risqué'], cut: ['neutral', 'Superflu'] };
+  const [dot, def] = map[kind];
+  return (
+    <div style={{ display: 'flex', gap: 12, padding: '13px 15px', borderRadius: 'var(--ck-radius-md)',
+      border: '1px solid var(--ck-stroke-2)', background: 'var(--ck-bg-panel)', marginBottom: 9 }}>
+      <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 7, width: 104 }}>
+        <Dot kind={dot} /><span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 10,
+          letterSpacing: '0.08em', textTransform: 'uppercase', color: `var(--ck-signal-${dot === 'neutral' ? 'cool' : dot})`,
+          fontWeight: 700 }}>{label || def}</span>
+      </div>
+      <div style={{ flex: 1, fontSize: 13.5, lineHeight: 1.55, color: 'var(--ck-fg-2)' }}>{children}</div>
+    </div>
+  );
+}
+
+function Callout({ icon = 'spark', kind = 'violet', title, children }) {
+  return (
+    <div style={{ display: 'flex', gap: 13, padding: '15px 17px', borderRadius: 'var(--ck-radius-lg)',
+      border: `1px solid var(--ck-signal-${kind})44`, background: `color-mix(in oklab, var(--ck-signal-${kind}) 7%, var(--ck-bg-panel))`,
+      margin: '6px 0 18px' }}>
+      <Icon name={icon} size={18} style={{ color: `var(--ck-signal-${kind})`, marginTop: 1, flex: 'none' }} />
+      <div>
+        {title && <div style={{ fontSize: 13.5, fontWeight: 650, color: 'var(--ck-fg-1)', marginBottom: 4 }}>{title}</div>}
+        <div style={{ fontSize: 13.5, lineHeight: 1.6, color: 'var(--ck-fg-2)' }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// mini diagramme de flux (boîtes + flèches, formes simples)
+function FlowStep({ icon, label }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 7, flex: 1, minWidth: 78 }}>
+      <div style={{ width: 42, height: 42, borderRadius: 'var(--ck-radius-md)', display: 'grid', placeItems: 'center',
+        border: '1px solid var(--ck-stroke-3)', background: 'var(--ck-bg-inset)', color: 'var(--ck-signal-cool)' }}>
+        <Icon name={icon} size={18} />
+      </div>
+      <span style={{ fontSize: 11, color: 'var(--ck-fg-2)', textAlign: 'center', lineHeight: 1.3 }}>{label}</span>
+    </div>
+  );
+}
+function FlowArrow() {
+  return <Icon name="arrow" size={15} style={{ color: 'var(--ck-fg-5)', flex: 'none', marginTop: 13 }} />;
+}
+
+// composant du DS (carte)
+function DSItem({ name, role, states }) {
+  return (
+    <div style={{ padding: '13px 15px', borderRadius: 'var(--ck-radius-md)', border: '1px solid var(--ck-stroke-2)',
+      background: 'var(--ck-bg-panel)' }}>
+      <div style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 12, color: 'var(--ck-fg-1)', fontWeight: 600 }}>{name}</div>
+      <div style={{ fontSize: 12.5, lineHeight: 1.45, color: 'var(--ck-fg-3)', margin: '5px 0 8px' }}>{role}</div>
+      {states && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+        {states.map((s, i) => <span key={i} style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 9.5,
+          padding: '2px 7px', borderRadius: 999, border: '1px solid var(--ck-stroke-2)', color: 'var(--ck-fg-4)' }}>{s}</span>)}
+      </div>}
+    </div>
+  );
+}
+
+function CompareTable() {
+  const rows = [
+    ['Surface de saisie', 'Omni-composer + focus tray (notion de « tour »)', 'Le Fil unique : voix & écrit = événements horodatés, sans tour'],
+    ['Pointage déictique', 'Toast + Annuler (éphémère)', 'Ancre persistante & corrigeable in-situ ; fantôme auto-confirmé (hybride)'],
+    ['Multi-pièces', 'Chips empilés à piloter', 'La Scène : pellicule + une seule « en scène »'],
+    ['Fin de séance', 'Triage = formulaire à cocher', 'Récapitulatif pré-déduit de l\'usage (on confirme, on n\'auteur pas)'],
+    ['Direction visuelle', 'Cockpit dense uniforme', 'Bi-température : Studio (capture calme) ⇄ Cockpit (triage/rapport)'],
+  ];
+  return (
+    <div style={{ border: '1px solid var(--ck-stroke-2)', borderRadius: 'var(--ck-radius-lg)', overflow: 'hidden' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr 1fr', background: 'var(--ck-bg-panel-hi)',
+        borderBottom: '1px solid var(--ck-stroke-2)' }}>
+        {['Critère', 'Concept actuel', 'Ma proposition'].map((h, i) => (
+          <div key={i} style={{ padding: '11px 14px', fontFamily: 'var(--ck-font-mono)', fontSize: 10,
+            letterSpacing: '0.1em', textTransform: 'uppercase',
+            color: i === 2 ? 'var(--ck-signal-cool)' : 'var(--ck-fg-4)', fontWeight: 700,
+            borderLeft: i ? '1px solid var(--ck-stroke-2)' : 'none' }}>{h}</div>
+        ))}
+      </div>
+      {rows.map((r, i) => (
+        <div key={i} style={{ display: 'grid', gridTemplateColumns: '150px 1fr 1fr',
+          borderBottom: i < rows.length - 1 ? '1px solid var(--ck-stroke-2)' : 'none',
+          background: i % 2 ? 'var(--ck-bg-base)' : 'transparent' }}>
+          <div style={{ padding: '12px 14px', fontSize: 12.5, fontWeight: 600, color: 'var(--ck-fg-1)' }}>{r[0]}</div>
+          <div style={{ padding: '12px 14px', fontSize: 12.5, lineHeight: 1.5, color: 'var(--ck-fg-3)',
+            borderLeft: '1px solid var(--ck-stroke-2)' }}>{r[1]}</div>
+          <div style={{ padding: '12px 14px', fontSize: 12.5, lineHeight: 1.5, color: 'var(--ck-fg-1)',
+            borderLeft: '1px solid var(--ck-stroke-2)', background: 'color-mix(in oklab, var(--ck-signal-cool) 5%, transparent)' }}>{r[2]}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DocMode({ onGoto }) {
+  const TOC = [
+    [1, 'Résumé exécutif'], [2, 'Analyse critique'], [3, 'Architecture & flux'],
+    [4, 'Maquettes'], [5, 'Design system'], [6, 'Raisonnement (trade-offs)'],
+    [7, 'Comparatif'], [8, 'Questions ouvertes'],
+  ];
+  return (
+    <div className="ck-scroll" style={{ position: 'absolute', inset: 0, overflowY: 'auto',
+      background: 'var(--ck-bg-base)' }}>
+      <div style={{ maxWidth: 1080, margin: '0 auto', padding: '0 28px', display: 'grid',
+        gridTemplateColumns: '186px 1fr', gap: 40, alignItems: 'start' }}>
+        {/* TOC */}
+        <nav style={{ position: 'sticky', top: 0, paddingTop: 46, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <Kicker>Sommaire</Kicker>
+          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {TOC.map(([n, t]) => (
+              <a key={n} href={'#sec-' + n} style={{ display: 'flex', gap: 9, padding: '6px 8px',
+                borderRadius: 'var(--ck-radius-sm)', textDecoration: 'none', color: 'var(--ck-fg-3)', fontSize: 12.5 }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--ck-tint-faint)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 11, color: 'var(--ck-fg-5)' }}>{String(n).padStart(2, '0')}</span>
+                {t}
+              </a>
+            ))}
+          </div>
+          <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--ck-stroke-2)' }}>
+            <Btn size="sm" variant="primary" icon="play" onClick={() => onGoto('capture')}>Lancer le prototype</Btn>
+          </div>
+        </nav>
+
+        {/* corps */}
+        <div style={{ paddingTop: 46, paddingBottom: 80, maxWidth: 720 }}>
+          <Kicker>Contre-proposition UX/UI · capture de connaissance multimodale</Kicker>
+          <h1 style={{ margin: '14px 0 10px', fontSize: 34, fontWeight: 720, color: 'var(--ck-fg-1)',
+            letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+            Le Fil — capter comme une timeline, pas comme un formulaire
+          </h1>
+          <p style={{ margin: '0 0 8px', fontSize: 15, lineHeight: 1.6, color: 'var(--ck-fg-3)' }}>
+            Un regard neuf sur l'écran de captation écrit + parlé avec pièces jointes.
+          </p>
+
+          <DocSection n={1} title="Résumé exécutif">
+            <Callout icon="spark" kind="cool" title="La thèse, en 5 lignes">
+              La capture n'est pas une <i>saisie</i> mais une <B>timeline d'événements</B>. Voix, écrit, pièce montrée et
+              référence déictique sont quatre types d'événements sur <B>un seul Fil horodaté</B>. Je remplace l'« omni-composer +
+              focus tray » par ce Fil unique où l'écrit s'insère en ligne ; le toast déictique par une <B>ancre persistante,
+              corrigeable in-situ</B> (mode hybride « fantôme auto-confirmé ») ; et l'étape de triage par un <B>récapitulatif
+              pré-déduit de l'usage</B>. Côté visuel, un système <B>bi-température</B> : <i>Studio</i> (capture calme, peu de chrome)
+              ⇄ <i>Cockpit</i> (triage, rapport, indexation — dense et instrumenté).
+            </Callout>
+            <P>
+              Votre intuition de fond est juste : modalité unique, feedback non bloquant, indexation paresseuse. Je conserve ces
+              trois piliers. Je diverge sur la <B>matérialisation</B> : un champ d'action ne suffit pas à porter un discours continu,
+              un toast ne suffit pas à garantir une référence fiable, et un formulaire de triage trahit l'objectif de charge minimale.
+            </P>
+          </DocSection>
+
+          <DocSection n={2} title="Analyse critique de votre concept">
+            <P style={{ marginBottom: 16 }}>Ce qui tient, ce qui faiblit, ce qui risque, ce qui est superflu :</P>
+            <Verdict kind="keep">La <B>modalité unique</B> (parler ⊕ écrire) est la bonne intuition — je la pousse plus loin encore.</Verdict>
+            <Verdict kind="keep">Le <B>feedback non bloquant & réversible</B> est un principe sain : je le garde comme loi.</Verdict>
+            <Verdict kind="keep">Le <B>lazy indexing</B> (gros œuvre repoussé à la fin) est excellent : conservé tel quel.</Verdict>
+            <Verdict kind="weak">« Omni-composer + focus tray » mélange deux <B>gestes mentaux</B> (parler vs écrire) dans un même champ,
+              et ajoute des <B>chips à piloter</B> pendant qu'on parle — exactement la charge qu'on veut éviter.</Verdict>
+            <Verdict kind="weak">La notion de « pièces qui s'appliquent <B>au prochain tour</B> » est étrangère à un flux de parole
+              continu : il n'y a pas de tours quand on parle, juste un fil qui avance.</Verdict>
+            <Verdict kind="risk">La <B>confirmation déictique par toast</B> est éphémère, <B>spammable</B> si plusieurs références
+              s'enchaînent, et ne laisse <B>aucune trace navigable</B> pour corriger après coup.</Verdict>
+            <Verdict kind="cut">Le <B>triage-formulaire</B> en fin de séance : la décision peut être déduite de l'usage,
+              donc l'étape devient une simple confirmation.</Verdict>
+          </DocSection>
+
+          <DocSection n={3} title="Architecture d'information & flux">
+            <P><B>Une seule source de vérité : Le Fil.</B> Tout ce qui se passe en séance y est un événement horodaté.
+              Quatre types seulement :</P>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, margin: '4px 0 20px' }}>
+              <DSItem name="◇ parole" role="Transcription temps réel — provisoire (dim) puis finalisée." />
+              <DSItem name="✎ écrit" role="Note insérée en ligne, au même rang que la parole." />
+              <DSItem name="⬓ pièce" role="Vue épinglée / montrée (entre en Scène)." />
+              <DSItem name="⊹ référence" role="Ancre déictique liant un instant à une vue." />
+            </div>
+
+            <P><B>Parcours nominal</B> — du calme de bout en bout :</P>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, padding: '18px 16px', margin: '6px 0 18px',
+              borderRadius: 'var(--ck-radius-lg)', border: '1px solid var(--ck-stroke-2)', background: 'var(--ck-bg-panel)', flexWrap: 'wrap' }}>
+              <FlowStep icon="mic" label="Parler & écrire" /><FlowArrow />
+              <FlowStep icon="layers" label="Montrer une pièce" /><FlowArrow />
+              <FlowStep icon="target" label="Pointer (auto-confirmé)" /><FlowArrow />
+              <FlowStep icon="arrow" label="Terminer" /><FlowArrow />
+              <FlowStep icon="check" label="Confirmer le partage" /><FlowArrow />
+              <FlowStep icon="book" label="Lire le rapport" />
+            </div>
+
+            <P><B>États du pointage</B> : <code style={cd}>fantôme</code> → <code style={cd}>confirmé</code>, ou
+              <code style={cd}>incertain</code> (faible confiance) / <code style={cd}>annulé</code> (réversible).</P>
+            <P><B>Cas limites traités</B> : erreur de pointage (re-liaison), déictique ambigu (incertain explicite),
+              perte réseau (buffer local + reprise), reprise de séance (Fil persistant).</P>
+            <Goto onGoto={onGoto} to="edge">Voir les cas limites dans le prototype</Goto>
+          </DocSection>
+
+          <DocSection n={4} title="Maquettes (prototype cliquable)">
+            <P>Cinq écrans clés, en haute fidélité et animés. Les données « bougent » : transcription qui se déroule,
+              oracle qui dépose des questions, ancres qui se confirment.</P>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
+              {[['capture', 'mic', 'Capture en direct', 'Le Fil + composer + oracle + Scène'],
+                ['pieces', 'layers', 'Pièces & pointage', 'Scène multi-pièces + 2 approches'],
+                ['fin', 'check', 'Fin de séance', 'Triage pré-rempli'],
+                ['index', 'spark', 'Indexation', 'Moteur d\'arrière-plan'],
+                ['report', 'book', 'Rapport', 'Sources cliquables + provenance'],
+                ['edge', 'target', 'Cas limites', 'États de robustesse']].map(([id, ic, t, d]) => (
+                <button key={id} onClick={() => onGoto(id)} style={{ appearance: 'none', cursor: 'pointer', textAlign: 'left',
+                  padding: '14px 15px', borderRadius: 'var(--ck-radius-md)', border: '1px solid var(--ck-stroke-2)',
+                  background: 'var(--ck-bg-panel)', display: 'flex', flexDirection: 'column', gap: 7 }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--ck-stroke-hot)'; e.currentTarget.style.background = 'var(--ck-bg-panel-hi)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--ck-stroke-2)'; e.currentTarget.style.background = 'var(--ck-bg-panel)'; }}>
+                  <Icon name={ic} size={18} style={{ color: 'var(--ck-signal-cool)' }} />
+                  <span style={{ fontSize: 13.5, fontWeight: 650, color: 'var(--ck-fg-1)' }}>{t}</span>
+                  <span style={{ fontSize: 12, color: 'var(--ck-fg-4)', lineHeight: 1.4 }}>{d}</span>
+                </button>
+              ))}
+            </div>
+          </DocSection>
+
+          <DocSection n={5} title="Le design system proposé">
+            <P><B>Évolution visuelle : un système bi-température.</B> Le cockpit dense est idéal pour <i>surveiller</i> et
+              <i>trier</i> — mais la capture vive demande <B>moins</B>, pas plus. D'où deux régimes sur les mêmes tokens Agentium :</P>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, margin: '4px 0 18px' }}>
+              <div style={{ padding: 15, borderRadius: 'var(--ck-radius-lg)', border: '1px solid var(--ck-signal-cool)44',
+                background: 'color-mix(in oklab, var(--ck-signal-cool) 6%, var(--ck-bg-panel))' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>
+                  <Icon name="mic" size={15} style={{ color: 'var(--ck-signal-cool)' }} />
+                  <span style={{ fontSize: 13.5, fontWeight: 680, color: 'var(--ck-fg-1)' }}>Studio</span>
+                </div>
+                <span style={{ fontSize: 12.5, lineHeight: 1.55, color: 'var(--ck-fg-3)' }}>
+                  Capture. Chrome minimal, typo de transcription large, panneaux périphériques atténués qui s'éclairent au focus.
+                  L'attention va au discours.
+                </span>
+              </div>
+              <div style={{ padding: 15, borderRadius: 'var(--ck-radius-lg)', border: '1px solid var(--ck-stroke-3)',
+                background: 'var(--ck-bg-panel)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>
+                  <Icon name="grid" size={15} style={{ color: 'var(--ck-fg-2)' }} />
+                  <span style={{ fontSize: 13.5, fontWeight: 680, color: 'var(--ck-fg-1)' }}>Cockpit</span>
+                </div>
+                <span style={{ fontSize: 12.5, lineHeight: 1.55, color: 'var(--ck-fg-3)' }}>
+                  Triage, indexation, rapport. Dense, instrumenté, tabular-nums, grille ambiante. On lit, on inspecte, on décide.
+                </span>
+              </div>
+            </div>
+
+            <P><B>Composants clés</B> et leurs états :</P>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, marginBottom: 16 }}>
+              <DSItem name="Le Fil" role="Flux d'événements horodatés, auto-scroll." states={['provisoire', 'finalisé', 'note', 'ancre']} />
+              <DSItem name="AnchorChip" role="Référence déictique inline." states={['fantôme', 'confirmé', 'incertain', 'annulé']} />
+              <DSItem name="La Scène" role="Pièces épinglées en pellicule." states={['en scène', 'en pellicule', 'à pointer']} />
+              <DSItem name="Oracle lane" role="Pistes déposées, jamais modales." states={['ouverte', 'gardée', 'ignorée']} />
+              <DSItem name="Composer" role="Saisie écrite + pouls micro." states={['vide', 'frappe', 'micro actif']} />
+              <DSItem name="Triage recap" role="Partage pré-déduit, confirmable." states={['entier', 'extrait', 'aucun']} />
+              <DSItem name="Provenance" role="Vue pointée + zone + retour au Fil." states={['indexé', 'référencé']} />
+              <DSItem name="Index pulse" role="Pouls discret d'arrière-plan." states={['file', 'indexation', 'indexé']} />
+            </div>
+            <P><B>Micro-interactions</B> : respiration de l'ancre fantôme (2 s), barres micro réactives, compte à rebours
+              d'auto-confirmation, surlignage de l'affirmation à la sélection d'une source.
+              <B> Iconographie</B> : ⊹/cible = pointage, ✎ = écrit, micro = voix, étincelle = oracle, calques = scène/index.</P>
+            <Goto onGoto={onGoto} to="pieces">Voir les composants en action</Goto>
+          </DocSection>
+
+          <DocSection n={6} title="Raisonnement : pour chaque écart, le pourquoi">
+            <Trade ecart="Fil unique au lieu d'omni-composer + tray"
+              why="Un discours est un flux continu, pas une suite de tours. Le Fil supprime la notion de tour et le pilotage de chips."
+              tradeoff="On perd l'idée d'« appliquer au prochain tour » — compensé par la Scène qui rend l'état des pièces toujours visible." />
+            <Trade ecart="Ancre persistante (vs toast)"
+              why="Une référence doit survivre, être relue et corrigée. Une ancre inline est navigable ; un toast disparaît."
+              tradeoff="Léger surcroît de densité dans le Fil — assumé : c'est de la valeur, pas du bruit." />
+            <Trade ecart="Fantôme auto-confirmé (mode hybride par défaut)"
+              why="Concilie l'effort nul de l'auto-détection et la fiabilité du geste : on ne confirme que si on veut corriger."
+              tradeoff="Délai de 4 s avant validation ferme — réglable ; l'expert pressé peut passer en 100 % auto." />
+            <Trade ecart="Récapitulatif pré-déduit (vs triage-formulaire)"
+              why="Le niveau de partage se lit dans l'usage : pointé → entier, épinglé seul → extrait, jamais touché → exclu."
+              tradeoff="Le pré-réglage peut se tromper — mais corriger 1 ligne est plus rapide que remplir un formulaire vierge." />
+            <Trade ecart="Bi-température Studio/Cockpit"
+              why="La capture a besoin de calme ; le triage et le rapport de densité. Un seul régime sert mal les deux."
+              tradeoff="Deux régimes à maintenir — mais ils partagent 100 % des tokens, donc coût faible." />
+          </DocSection>
+
+          <DocSection n={7} title="Notre concept vs ma proposition">
+            <CompareTable />
+          </DocSection>
+
+          <DocSection n={8} title="Questions ouvertes">
+            <ol style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {['Détection déictique : à quel point le moteur ASR sait-il borner « cette / ici / comme on voit » à un instant fiable ? Le délai de 4 s du fantôme dépend de cette latence.',
+                'Multi-pièces simultanées : une seule vue « en scène » suffit-elle, ou faut-il pouvoir pointer une 2ᵉ vue sans la mettre au premier plan ?',
+                'Notes écrites : doivent-elles entrer dans l\'index/recherche au même titre que la parole, ou rester des annotations privées ?',
+                'Triage déduit : quel signal d\'usage prime si l\'expert pointe une pièce puis dit « ne pas partager celle-ci » à voix haute ?',
+                'Reprise de séance : quelle fenêtre de validité du buffer local hors-ligne avant d\'exiger une re-synchro explicite ?'].map((q, i) => (
+                <li key={i} style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--ck-fg-2)' }}>{q}</li>
+              ))}
+            </ol>
+          </DocSection>
+
+          <div style={{ paddingTop: 10, borderTop: '1px solid var(--ck-stroke-2)', display: 'flex', gap: 12, alignItems: 'center' }}>
+            <Btn variant="primary" icon="play" onClick={() => onGoto('capture')}>Ouvrir le prototype</Btn>
+            <span style={{ fontSize: 12.5, color: 'var(--ck-fg-4)' }}>Réglez le mode de pointage, l'oracle et la densité dans les Tweaks.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const cd = { fontFamily: 'var(--ck-font-mono)', fontSize: 12, padding: '1px 6px', borderRadius: 4,
+  background: 'var(--ck-bg-inset)', border: '1px solid var(--ck-stroke-2)', color: 'var(--ck-fg-2)' };
+
+function Trade({ ecart, why, tradeoff }) {
+  return (
+    <div style={{ padding: '14px 16px', borderRadius: 'var(--ck-radius-md)', border: '1px solid var(--ck-stroke-2)',
+      background: 'var(--ck-bg-panel)', marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <Icon name="flow" size={15} style={{ color: 'var(--ck-signal-cool)' }} />
+        <span style={{ fontSize: 13.5, fontWeight: 650, color: 'var(--ck-fg-1)' }}>{ecart}</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div><Label style={{ color: 'var(--ck-signal-pos)' }}>Pourquoi</Label>
+          <p style={{ margin: '5px 0 0', fontSize: 12.5, lineHeight: 1.5, color: 'var(--ck-fg-2)' }}>{why}</p></div>
+        <div><Label style={{ color: 'var(--ck-signal-warn)' }}>Trade-off</Label>
+          <p style={{ margin: '5px 0 0', fontSize: 12.5, lineHeight: 1.5, color: 'var(--ck-fg-3)' }}>{tradeoff}</p></div>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { DocMode });
+
+</script>
+
+<script type="text/babel" data-src="app.jsx">
+// app.jsx — coquille : navigation DOC ⇄ PROTO, sous-onglets d'écrans, Tweaks.
+const { useState: aS, useEffect: aE } = React;
+
+const SCREENS = [
+  { id: 'capture', label: 'Capture', icon: 'mic' },
+  { id: 'pieces', label: 'Pièces & pointage', icon: 'layers' },
+  { id: 'fin', label: 'Fin de séance', icon: 'check' },
+  { id: 'index', label: 'Indexation', icon: 'spark' },
+  { id: 'report', label: 'Rapport', icon: 'book' },
+  { id: 'edge', label: 'Cas limites', icon: 'target' },
+];
+
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "theme": "sombre",
+  "pointing": "hybride",
+  "oracle": true,
+  "density": "regular",
+  "speed": 1.2
+}/*EDITMODE-END*/;
+
+function NavTab({ active, onClick, icon, children, compact }) {
+  const [h, setH] = aS(false);
+  return (
+    <button onClick={onClick} onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
+      style={{ appearance: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7,
+        padding: compact ? '6px 10px' : '7px 13px', borderRadius: 'var(--ck-radius-md)', border: 'none',
+        fontFamily: 'var(--ck-font-sans)', fontSize: 12.5, fontWeight: active ? 650 : 520,
+        background: active ? 'var(--ck-bg-panel-hi)' : (h ? 'var(--ck-tint-faint)' : 'transparent'),
+        color: active ? 'var(--ck-fg-1)' : 'var(--ck-fg-3)', whiteSpace: 'nowrap',
+        boxShadow: active ? 'inset 0 0 0 1px var(--ck-stroke-2)' : 'none' }}>
+      {icon && <Icon name={icon} size={14} style={{ color: active ? 'var(--ck-signal-cool)' : 'inherit' }} />}
+      {children}
+    </button>
+  );
+}
+
+function App() {
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const [mode, setMode] = aS('doc');          // 'doc' | 'proto'
+  const [screen, setScreen] = aS('capture');
+  const [offline, setOffline] = aS(false);
+
+  // thème global
+  aE(() => {
+    const root = document.documentElement;
+    if (t.theme === 'sombre') { root.classList.add('dark'); root.setAttribute('data-theme', 'dark'); }
+    else { root.classList.remove('dark'); root.setAttribute('data-theme', 'light'); }
+  }, [t.theme]);
+
+  const goto = (target) => {
+    if (target === 'doc') { setMode('doc'); return; }
+    setMode('proto'); setScreen(target);
+  };
+
+  const tweaks = { pointing: t.pointing, oracle: t.oracle, density: t.density, speed: t.speed };
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+      fontFamily: 'var(--ck-font-sans)', background: 'var(--ck-bg-base)' }}>
+      {/* barre supérieure */}
+      <header style={{ height: 52, flex: 'none', display: 'flex', alignItems: 'center', gap: 16,
+        padding: '0 16px', borderBottom: '1px solid var(--ck-stroke-2)', background: 'var(--ck-bg-panel)',
+        zIndex: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <span style={{ width: 22, height: 22, borderRadius: 6, display: 'grid', placeItems: 'center',
+            background: 'linear-gradient(135deg, var(--ck-signal-cool), var(--ck-signal-violet))',
+            color: 'var(--ck-bg-void)' }}><Icon name="target" size={14} /></span>
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ck-fg-1)', letterSpacing: '-0.01em' }}>Le Fil</span>
+          <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 9.5, color: 'var(--ck-fg-5)',
+            padding: '2px 6px', border: '1px solid var(--ck-stroke-2)', borderRadius: 999 }}>contre-proposition</span>
+        </div>
+
+        {/* bascule DOC / PROTO */}
+        <div style={{ display: 'flex', gap: 2, padding: 2, borderRadius: 'var(--ck-radius-md)',
+          background: 'var(--ck-bg-void)', border: '1px solid var(--ck-stroke-2)' }}>
+          <NavTab active={mode === 'doc'} onClick={() => setMode('doc')} icon="text" compact>Doc</NavTab>
+          <NavTab active={mode === 'proto'} onClick={() => setMode('proto')} icon="eye" compact>Prototype</NavTab>
+        </div>
+
+        {/* sous-onglets prototype */}
+        {mode === 'proto' && (
+          <div className="ck-scroll" style={{ display: 'flex', gap: 2, overflowX: 'auto', flex: 1 }}>
+            {SCREENS.map((s) => (
+              <NavTab key={s.id} active={screen === s.id} onClick={() => setScreen(s.id)} icon={s.icon} compact>
+                {s.label}
+              </NavTab>
+            ))}
+          </div>
+        )}
+
+        {mode === 'doc' && (
+          <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontFamily: 'var(--ck-font-mono)', fontSize: 9.5, color: 'var(--ck-fg-5)' }}>
+              ⚙ Tweaks : pointage · oracle · densité · thème
+            </span>
+          </span>
+        )}
+      </header>
+
+      {/* corps */}
+      <main style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+        {mode === 'doc' && <DocMode onGoto={goto} />}
+        {mode === 'proto' && screen === 'capture' && (
+          <CaptureScreen tweaks={tweaks} onFinish={() => setScreen('fin')}
+            offline={offline} onToggleOffline={() => setOffline((o) => !o)} />
+        )}
+        {mode === 'proto' && screen === 'pieces' && <PiecesScreen />}
+        {mode === 'proto' && screen === 'fin' && <FinScreen onOpenReport={() => setScreen('report')} />}
+        {mode === 'proto' && screen === 'index' && <IndexScreen />}
+        {mode === 'proto' && screen === 'report' && <ReportScreen />}
+        {mode === 'proto' && screen === 'edge' && <EdgeScreen />}
+      </main>
+
+      {/* Tweaks */}
+      <TweaksPanel title="Tweaks">
+        <TweakSection label="Pointage déictique" />
+        <TweakRadio label="Mode" value={t.pointing}
+          options={[{ value: 'auto', label: 'Auto' }, { value: 'hybride', label: 'Hybride' }, { value: 'manuel', label: 'Manuel' }]}
+          onChange={(v) => setTweak('pointing', v)} />
+        <TweakSection label="Capture" />
+        <TweakToggle label="Oracle actif" value={t.oracle} onChange={(v) => setTweak('oracle', v)} />
+        <TweakRadio label="Densité du Fil" value={t.density}
+          options={['compact', 'regular', 'comfy']} onChange={(v) => setTweak('density', v)} />
+        <TweakSlider label="Vitesse simu" value={t.speed} min={0.5} max={2.5} step={0.1} unit="×"
+          onChange={(v) => setTweak('speed', v)} />
+        <TweakSection label="Apparence" />
+        <TweakRadio label="Thème" value={t.theme}
+          options={[{ value: 'sombre', label: 'Sombre' }, { value: 'clair', label: 'Clair' }]}
+          onChange={(v) => setTweak('theme', v)} />
+      </TweaksPanel>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+
+</script>
+
+</body>
+</html>

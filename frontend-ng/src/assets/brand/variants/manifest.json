@@ -1,0 +1,40 @@
+{
+  "variants": [
+    {
+      "id": "orbital-a",
+      "file": "01-orbital-a.svg",
+      "name": "Orbital A",
+      "rationale": "A stylized 'A' where one arm forms a subtle orbital path, suggesting orchestration and continuous feedback. The negative space defines the 'A' clearly, while the arc adds dynamism."
+    },
+    {
+      "id": "signal-a",
+      "file": "02-signal-a.svg",
+      "name": "Signal A",
+      "rationale": "A minimalist 'A' formed by two angular strokes, with a subtle 'signal' dot suggesting data flow, evaluation, or a focal point within an orchestrated system. Highly readable at small sizes."
+    },
+    {
+      "id": "loop-a",
+      "file": "03-loop-a.svg",
+      "name": "Loop A",
+      "rationale": "An 'A' where the crossbar is replaced by a subtle, continuous loop, emphasizing feedback and evaluation. The geometric precision and generous negative space ensure a premium feel."
+    },
+    {
+      "id": "nested-a",
+      "file": "04-nested-a.svg",
+      "name": "Nested A",
+      "rationale": "An 'A' formed by nested geometric shapes, creating a sense of precision and depth. The inner shape suggests a core system, while the outer defines the 'A'. This variant uses negative space effectively."
+    },
+    {
+      "id": "routed-a",
+      "file": "05-routed-a.svg",
+      "name": "Routed A",
+      "rationale": "A bold 'A' monogram with a single, clear 'routing' path that suggests flow and controlled orchestration. The path draws attention to a specific point, implying guidance or a signal."
+    },
+    {
+      "id": "precision-a",
+      "file": "06-precision-a.svg",
+      "name": "Precision A",
+      "rationale": "An elegant 'A' formed by precise, angled strokes, with a subtle implied connection or 'signal' point. This variant uses negative space to define the 'A' and is highly adaptable for single-color use."
+    }
+  ]
+}

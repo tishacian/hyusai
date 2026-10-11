@@ -1,0 +1,163 @@
+........................................................................ [ 48%]
+........................................................................ [ 97%]
+....                                                                     [100%]
+=============================== warnings summary ===============================
+app/tests/services/test_workspace_skill_contract_freeze.py: 158 warnings
+app/tests/services/test_flow_contracts.py: 28 warnings
+app/tests/services/test_agent_loop_runtime.py: 93 warnings
+app/tests/services/test_backfill_flow_publication_contracts.py: 129 warnings
+app/tests/api/test_flow_publication_api.py: 261 warnings
+app/tests/api/test_workspace_skill_brd_import.py: 85 warnings
+app/tests/api/test_brd_generated_pih.py: 84 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag/backend/.venv/lib/python3.14/site-packages/sqlalchemy/sql/schema.py:3624: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+app/tests/services/test_workspace_skill_contract_freeze.py: 3 warnings
+app/tests/services/test_agent_loop_runtime.py: 19 warnings
+app/tests/api/test_brd_generated_pih.py: 36 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/run_engine/engine.py:1051: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    started_at=datetime.utcnow(),
+
+app/tests/services/test_workspace_skill_contract_freeze.py: 3 warnings
+app/tests/services/test_agent_loop_runtime.py: 19 warnings
+app/tests/api/test_brd_generated_pih.py: 36 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/run_engine/engine.py:1172: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    invocation.completed_at = datetime.utcnow()
+
+app/tests/services/test_agent_loop_runtime.py: 102 warnings
+app/tests/api/test_brd_generated_pih.py: 180 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/run_engine/dag.py:4415: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    entry.setdefault("t", datetime.utcnow().isoformat())
+
+app/tests/services/test_agent_loop_runtime.py: 33 warnings
+app/tests/api/test_brd_generated_pih.py: 72 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/run_engine/dag.py:2184: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "t": datetime.utcnow().isoformat(),
+
+app/tests/services/test_agent_loop_runtime.py: 33 warnings
+app/tests/api/test_brd_generated_pih.py: 66 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/run_engine/dag.py:2494: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "t": datetime.utcnow().isoformat(),
+
+app/tests/services/test_agent_loop_runtime.py: 12 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/run_engine/dag.py:3349: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "t": datetime.utcnow().isoformat(),
+
+app/tests/services/test_agent_loop_runtime.py: 9 warnings
+app/tests/api/test_brd_generated_pih.py: 6 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/run_engine/engine.py:1319: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    run.completed_at = datetime.utcnow()
+
+app/tests/services/test_agent_loop_runtime.py: 3 warnings
+app/tests/api/test_brd_generated_pih.py: 12 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/run_engine/gate_ttl.py:57: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    base = now or datetime.utcnow()
+
+app/tests/services/test_agent_loop_runtime.py: 3 warnings
+app/tests/api/test_brd_generated_pih.py: 12 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/run_engine/dag.py:1733: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "t": datetime.utcnow().isoformat(),
+
+app/tests/services/test_backfill_flow_publication_contracts.py: 20 warnings
+app/tests/api/test_flow_publication_api.py: 32 warnings
+app/tests/api/test_workspace_skill_brd_import.py: 2 warnings
+app/tests/api/test_brd_generated_pih.py: 4 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/systems/flow_publication.py:376: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_backfill_flow_publication_contracts.py: 2 warnings
+app/tests/api/test_flow_publication_api.py: 11 warnings
+app/tests/api/test_workspace_skill_brd_import.py: 2 warnings
+app/tests/api/test_brd_generated_pih.py: 4 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/systems/flow_publication.py:638: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    draft.updated_at = datetime.utcnow()
+
+app/tests/services/test_backfill_flow_publication_contracts.py: 5 warnings
+app/tests/api/test_flow_publication_api.py: 20 warnings
+app/tests/api/test_workspace_skill_brd_import.py: 10 warnings
+app/tests/api/test_brd_generated_pih.py: 16 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/audit_logger.py:61: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+app/tests/services/test_backfill_flow_publication_contracts.py: 3 warnings
+app/tests/api/test_flow_publication_api.py: 7 warnings
+app/tests/api/test_workspace_skill_brd_import.py: 1 warning
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/systems/flow_publication.py:811: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    published_at = datetime.utcnow()
+
+app/tests/api/test_flow_publication_api.py: 2 warnings
+app/tests/api/test_workspace_skill_brd_import.py: 1 warning
+app/tests/api/test_brd_generated_pih.py: 12 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/systems/flow_publication.py:1011: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    started_at=datetime.utcnow(),
+
+app/tests/api/test_flow_publication_api.py::test_restore_changes_only_draft_and_draft_test_run_freezes_snapshot
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/systems/flow_publication.py:677: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    draft.updated_at = datetime.utcnow()
+
+app/tests/api/test_flow_publication_api.py::test_normal_run_freezes_published_pointer_contract_and_flow_at_insert
+app/tests/api/test_flow_publication_api.py::test_rerun_preserves_all_immutable_published_execution_evidence
+app/tests/api/test_workspace_skill_brd_import.py::test_reviewed_proposal_applies_once_to_draft_only
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/systems/flow_ingress.py:360: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    started_at=datetime.utcnow(),
+
+app/tests/api/test_flow_publication_api.py::test_normal_run_freezes_published_pointer_contract_and_flow_at_insert
+app/tests/api/test_flow_publication_api.py::test_rerun_preserves_all_immutable_published_execution_evidence
+app/tests/api/test_workspace_skill_brd_import.py::test_reviewed_proposal_applies_once_to_draft_only
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/systems/flow_ingress.py:367: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "t": datetime.utcnow().isoformat(),
+
+app/tests/api/test_flow_publication_api.py::test_rerun_preserves_all_immutable_published_execution_evidence
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/api/v1/endpoints/runs.py:1888: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    started_at=datetime.utcnow(),
+
+app/tests/api/test_workspace_skill_brd_import.py: 7 warnings
+app/tests/api/test_brd_generated_pih.py: 6 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/workspace_jobs.py:33: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/api/test_workspace_skill_brd_import.py: 7 warnings
+app/tests/api/test_brd_generated_pih.py: 12 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/workspace_jobs.py:117: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/api/test_workspace_skill_brd_import.py::test_brd_generation_is_durable_idempotent_and_validated
+app/tests/api/test_workspace_skill_brd_import.py::test_brd_generation_is_durable_idempotent_and_validated
+app/tests/api/test_workspace_skill_brd_import.py::test_brd_generation_is_durable_idempotent_and_validated
+app/tests/api/test_workspace_skill_brd_import.py::test_brd_generation_is_durable_idempotent_and_validated
+app/tests/api/test_workspace_skill_brd_import.py::test_brd_generation_is_durable_idempotent_and_validated
+app/tests/api/test_workspace_skill_brd_import.py::test_brd_generation_is_durable_idempotent_and_validated
+app/tests/api/test_workspace_skill_brd_import.py::test_brd_generation_is_durable_idempotent_and_validated
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/skills_registry/brd_generation.py:389: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    job.started_at = job.updated_at = datetime.utcnow()
+
+app/tests/api/test_workspace_skill_brd_import.py::test_brd_generation_is_durable_idempotent_and_validated
+app/tests/api/test_workspace_skill_brd_import.py::test_brd_generation_is_durable_idempotent_and_validated
+app/tests/api/test_workspace_skill_brd_import.py::test_brd_generation_is_durable_idempotent_and_validated
+app/tests/api/test_workspace_skill_brd_import.py::test_brd_generation_is_durable_idempotent_and_validated
+app/tests/api/test_workspace_skill_brd_import.py::test_brd_generation_is_durable_idempotent_and_validated
+app/tests/api/test_workspace_skill_brd_import.py::test_brd_generation_is_durable_idempotent_and_validated
+app/tests/api/test_workspace_skill_brd_import.py::test_brd_generation_is_durable_idempotent_and_validated
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/skills_registry/brd_generation.py:488: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    job.completed_at = job.updated_at = datetime.utcnow()
+
+app/tests/api/test_brd_generated_pih.py::test_generated_pih_proposal_executes_and_resumes[True-accepted]
+app/tests/api/test_brd_generated_pih.py::test_generated_pih_proposal_executes_and_resumes[True-accepted]
+app/tests/api/test_brd_generated_pih.py::test_generated_pih_proposal_executes_and_resumes[True-accepted]
+app/tests/api/test_brd_generated_pih.py::test_generated_pih_proposal_executes_and_resumes[True-rejected]
+app/tests/api/test_brd_generated_pih.py::test_generated_pih_proposal_executes_and_resumes[True-rejected]
+app/tests/api/test_brd_generated_pih.py::test_generated_pih_proposal_executes_and_resumes[True-rejected]
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/run_engine/engine.py:1863: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    run.completed_at = datetime.utcnow()
+
+app/tests/api/test_brd_generated_pih.py::test_generated_pih_proposal_executes_and_resumes[True-accepted]
+app/tests/api/test_brd_generated_pih.py::test_generated_pih_proposal_executes_and_resumes[True-accepted]
+app/tests/api/test_brd_generated_pih.py::test_generated_pih_proposal_executes_and_resumes[True-accepted]
+app/tests/api/test_brd_generated_pih.py::test_generated_pih_proposal_executes_and_resumes[True-rejected]
+app/tests/api/test_brd_generated_pih.py::test_generated_pih_proposal_executes_and_resumes[True-rejected]
+app/tests/api/test_brd_generated_pih.py::test_generated_pih_proposal_executes_and_resumes[True-rejected]
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/run_engine/engine.py:1866: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "t": datetime.utcnow().isoformat(),
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+148 passed, 1717 warnings in 44.60s

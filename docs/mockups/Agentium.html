@@ -1,0 +1,2170 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-concept="A">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Agentium · Operating System for Intelligence</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
+
+  <style>
+/* ============================================
+   AGENTIUM — Design Tokens
+   Operating System for Intelligence
+   ============================================ */
+
+:root {
+  /* — SURFACE — */
+  --bg-void:       #05070a;    /* the abyss behind everything */
+  --bg-base:       #07090c;    /* app background */
+  --bg-panel:      #0c1014;    /* raised surface */
+  --bg-panel-hi:   #11161c;    /* elevated surface */
+  --bg-inset:      #0a0d11;    /* recessed */
+  --bg-code:       #050709;    /* terminal / trace */
+
+  /* — STROKE — */
+  --stroke-1:      rgba(255,255,255,0.04);
+  --stroke-2:      rgba(255,255,255,0.08);
+  --stroke-3:      rgba(255,255,255,0.14);
+  --stroke-hot:    rgba(125,211,252,0.28);
+
+  /* — TEXT — */
+  --fg-1:          #f2f5f8;    /* headline */
+  --fg-2:          #c8cdd4;    /* body */
+  --fg-3:          #8891a0;    /* secondary */
+  --fg-4:          #5a6270;    /* tertiary */
+  --fg-5:          #3a4049;    /* muted */
+
+  /* — SIGNAL — */
+  --signal-pos:    #34d399;    /* value, confidence, success */
+  --signal-neg:    #ef5a6f;    /* risk, anomaly */
+  --signal-warn:   #f5b84a;    /* attention */
+  --signal-cool:   #7dd3fc;    /* system / steering / primary */
+  --signal-violet: #a78bfa;    /* intelligence / ai */
+  --signal-ice:    #e0f2fe;    /* high-emphasis cool */
+
+  /* glow halos */
+  --glow-cool:     0 0 24px rgba(125,211,252,0.28);
+  --glow-pos:      0 0 24px rgba(52,211,153,0.22);
+  --glow-violet:   0 0 24px rgba(167,139,250,0.25);
+
+  /* — TYPE — */
+  --font-sans: "Inter Tight", "Söhne", -apple-system, "Helvetica Neue", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* — GRID / SPACE — */
+  --u: 4px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+
+  /* — MOTION — */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 120ms;
+  --dur-med: 240ms;
+  --dur-slow: 520ms;
+}
+
+/* Light variant */
+[data-theme="light"] {
+  --bg-void:       #e8e6df;
+  --bg-base:       #f4f2eb;
+  --bg-panel:      #fafaf6;
+  --bg-panel-hi:   #ffffff;
+  --bg-inset:      #efede6;
+  --bg-code:       #1a1c20;
+
+  --stroke-1:      rgba(0,0,0,0.06);
+  --stroke-2:      rgba(0,0,0,0.10);
+  --stroke-3:      rgba(0,0,0,0.18);
+  --stroke-hot:    rgba(14,116,144,0.35);
+
+  --fg-1:          #0a0c10;
+  --fg-2:          #2a2f36;
+  --fg-3:          #5c6370;
+  --fg-4:          #8a909a;
+  --fg-5:          #b8bcc3;
+
+  --signal-pos:    #0e9f6e;
+  --signal-neg:    #d93a52;
+  --signal-warn:   #c27803;
+  --signal-cool:   #0e7490;
+  --signal-violet: #7c3aed;
+  --signal-ice:    #0c4a6e;
+
+  --glow-cool:     0 0 0 transparent;
+  --glow-pos:      0 0 0 transparent;
+  --glow-violet:   0 0 0 transparent;
+}
+
+/* ============================================
+   RESET / BASE
+   ============================================ */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: var(--font-sans);
+  font-feature-settings: "ss01", "cv11", "tnum";
+  background: var(--bg-base);
+  color: var(--fg-2);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior: none;
+}
+::selection { background: var(--signal-cool); color: var(--bg-base); }
+
+.mono { font-family: var(--font-mono); font-feature-settings: "tnum", "zero"; }
+.tnum { font-variant-numeric: tabular-nums; }
+
+button { font-family: inherit; cursor: pointer; }
+input, textarea { font-family: inherit; }
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--stroke-2); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--stroke-3); background-clip: padding-box; border: 2px solid transparent; }
+
+/* Utility */
+.hairline { background: var(--stroke-2); }
+.hairline-v { width: 1px; background: var(--stroke-2); }
+.hairline-h { height: 1px; background: var(--stroke-2); }
+
+/* Ambient live pulse */
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.live-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--signal-pos);
+  box-shadow: 0 0 8px var(--signal-pos);
+  animation: live-pulse 1.6s var(--ease-in-out) infinite;
+  display: inline-block;
+}
+.live-dot.cool { background: var(--signal-cool); box-shadow: 0 0 8px var(--signal-cool); }
+.live-dot.violet { background: var(--signal-violet); box-shadow: 0 0 8px var(--signal-violet); }
+.live-dot.warn { background: var(--signal-warn); box-shadow: 0 0 8px var(--signal-warn); }
+
+@keyframes stream-shift {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+@keyframes grid-drift {
+  0% { background-position: 0 0; }
+  100% { background-position: 48px 48px; }
+}
+
+/* Reactive motion-reduce respects brand word "alive" but not annoying */
+@media (prefers-reduced-motion: reduce) {
+  .live-dot { animation: none; }
+}
+
+/* ============================================
+   AGENTIUM — Concept Overlays
+   A: Instrument Panel (default tokens)
+   B: Living Organism (glows, curves, ambient pulse)
+   C: Architectural (monochrome, editorial, sharper)
+   D: Spatial OS (radical — deeper black, neon grid)
+   ============================================ */
+
+/* — Concept A is the baseline (tokens.css) — */
+
+/* — Concept B: LIVING ORGANISM — softer, glowy, biological — */
+[data-concept="B"] {
+  --bg-base:    #080a12;
+  --bg-panel:   #0d1120;
+  --bg-panel-hi:#121728;
+  --bg-inset:   #0a0d18;
+  --signal-cool: #a78bfa;
+  --signal-violet: #f0abfc;
+  --signal-pos: #22d3ee;
+  --stroke-hot: rgba(167,139,250,0.35);
+  --radius-md: 14px;
+  --radius-lg: 18px;
+}
+[data-concept="B"] body { background: radial-gradient(ellipse at 30% 20%, #12152a, var(--bg-base) 60%); }
+[data-concept="B"] .live-dot { box-shadow: 0 0 14px currentColor, 0 0 30px currentColor; }
+
+/* — Concept C: ARCHITECTURAL — editorial, sharp, monochrome — */
+[data-concept="C"] {
+  --bg-base:    #0a0a0a;
+  --bg-panel:   #111111;
+  --bg-panel-hi:#161616;
+  --bg-inset:   #0d0d0d;
+  --signal-cool: #ffffff;
+  --signal-violet: #d4d4d4;
+  --signal-pos: #a3e635;
+  --signal-neg: #ff4500;
+  --stroke-1: rgba(255,255,255,0.06);
+  --stroke-2: rgba(255,255,255,0.12);
+  --stroke-3: rgba(255,255,255,0.22);
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-sm: 0px;
+  --radius-xl: 0px;
+  --glow-cool: none;
+}
+[data-concept="C"] .mono { letter-spacing: 0.06em !important; }
+
+/* — Concept D: SPATIAL OS — radical, deep black, phosphor green grid — */
+[data-concept="D"] {
+  --bg-base:    #020307;
+  --bg-panel:   #05080d;
+  --bg-panel-hi:#0a0f14;
+  --bg-inset:   #030609;
+  --signal-cool: #7dd3fc;
+  --signal-violet: #c4f542;
+  --signal-pos: #c4f542;
+  --stroke-1: rgba(196,245,66,0.06);
+  --stroke-2: rgba(196,245,66,0.12);
+  --stroke-3: rgba(196,245,66,0.22);
+  --stroke-hot: rgba(196,245,66,0.45);
+  --glow-cool: 0 0 28px rgba(196,245,66,0.35);
+  --glow-pos:  0 0 28px rgba(196,245,66,0.35);
+}
+[data-concept="D"] body { background:
+  radial-gradient(circle at 20% 30%, rgba(196,245,66,0.04), transparent 50%),
+  radial-gradient(circle at 80% 70%, rgba(125,211,252,0.04), transparent 50%),
+  var(--bg-base);
+}
+
+</style>
+
+  <template id="__bundler_thumbnail">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+      <rect width="400" height="400" fill="#07090c"/>
+      <circle cx="200" cy="200" r="80" fill="none" stroke="#7dd3fc" stroke-width="1.5" opacity="0.5"/>
+      <circle cx="200" cy="200" r="40" fill="none" stroke="#7dd3fc" stroke-width="1.5"/>
+      <circle cx="200" cy="200" r="8" fill="#7dd3fc"/>
+      <path d="M200 80 V120 M200 280 V320 M80 200 H120 M280 200 H320" stroke="#7dd3fc" stroke-width="1.5" stroke-linecap="round"/>
+      <text x="200" y="360" fill="#7dd3fc" font-family="monospace" font-size="14" letter-spacing="4" text-anchor="middle">AGENTIUM</text>
+    </svg>
+  </template>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+
+// ===== primitives.jsx =====
+// ============================================
+// AGENTIUM — Shared primitives
+// ============================================
+
+const { useState, useEffect, useRef, useMemo, useCallback, createContext, useContext } = React;
+
+// ---------- Live number hook (reactive telemetry) ----------
+function useLiveNumber(base, { jitter = 0.02, interval = 1400, enabled = true } = {}) {
+  const [v, setV] = useState(base);
+  useEffect(() => {
+    setV(base);
+    if (!enabled) return;
+    const t = setInterval(() => {
+      const delta = (Math.random() - 0.5) * 2 * jitter * base;
+      setV(base + delta);
+    }, interval);
+    return () => clearInterval(t);
+  }, [base, jitter, interval, enabled]);
+  return v;
+}
+
+// ---------- Formatters ----------
+const fmt = {
+  money: (n) => {
+    const abs = Math.abs(n);
+    if (abs >= 1e9) return `${(n/1e9).toFixed(2)}B`;
+    if (abs >= 1e6) return `${(n/1e6).toFixed(2)}M`;
+    if (abs >= 1e3) return `${(n/1e3).toFixed(1)}k`;
+    return `${n.toFixed(2)}`;
+  },
+  pct: (n, d=1) => `${n >= 0 ? '+' : ''}${n.toFixed(d)}%`,
+  num: (n, d=0) => n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }),
+  ms: (n) => n < 1000 ? `${Math.round(n)}ms` : `${(n/1000).toFixed(2)}s`,
+};
+
+// ---------- Sparkline ----------
+function Spark({ data, color = 'var(--signal-cool)', height = 28, width = 120, glow = true, fill = true }) {
+  const max = Math.max(...data), min = Math.min(...data);
+  const range = max - min || 1;
+  const step = width / (data.length - 1);
+  const pts = data.map((v, i) => `${i * step},${height - ((v - min) / range) * height}`).join(' ');
+  const fillPts = `0,${height} ${pts} ${width},${height}`;
+  const gid = useRef(`g-${Math.random().toString(36).slice(2,8)}`).current;
+  return (
+    <svg width={width} height={height} style={{ display: 'block', overflow: 'visible' }}>
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.25" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {fill && <polygon points={fillPts} fill={`url(#${gid})`} />}
+      <polyline
+        points={pts}
+        fill="none"
+        stroke={color}
+        strokeWidth="1.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={glow ? { filter: `drop-shadow(0 0 4px ${color})` } : undefined}
+      />
+    </svg>
+  );
+}
+
+// ---------- Bar (tiny, tabular) ----------
+function MicroBar({ value, max = 100, color = 'var(--signal-cool)', w = 80, h = 4 }) {
+  const pct = Math.max(0, Math.min(100, (value / max) * 100));
+  return (
+    <div style={{ width: w, height: h, background: 'var(--stroke-1)', borderRadius: 2, overflow: 'hidden' }}>
+      <div style={{ width: `${pct}%`, height: '100%', background: color, boxShadow: `0 0 8px ${color}` }} />
+    </div>
+  );
+}
+
+// ---------- Glyphs (minimal, line-based) ----------
+const Glyph = {
+  Flow: () => <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="3" cy="3" r="1.5" stroke="currentColor"/><circle cx="11" cy="11" r="1.5" stroke="currentColor"/><path d="M4.5 3.5 L11 11" stroke="currentColor" strokeLinecap="round"/></svg>,
+  Pulse: () => <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 7 L4 7 L5.5 3 L7.5 11 L9 7 L13 7" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+  Cube: () => <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1 L12 3.5 V10.5 L7 13 L2 10.5 V3.5 Z M7 1 V7 M2 3.5 L7 7 L12 3.5" stroke="currentColor" strokeLinejoin="round"/></svg>,
+  Sliders: () => <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 1 V13 M11 1 V13 M3 5 L1 5 M3 5 L5 5 M11 9 L9 9 M11 9 L13 9" stroke="currentColor" strokeLinecap="round"/></svg>,
+  Focus: () => <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 4 V1 H4 M10 1 H13 V4 M13 10 V13 H10 M4 13 H1 V10" stroke="currentColor" strokeLinecap="round"/><circle cx="7" cy="7" r="2" stroke="currentColor"/></svg>,
+  Bolt: () => <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7.5 1 L3 8 H7 L6.5 13 L11 6 H7 Z" stroke="currentColor" strokeLinejoin="round"/></svg>,
+  Arrow: () => <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 7 H11 M7.5 3.5 L11 7 L7.5 10.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+  Ledger: () => <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 2 H12 V12 H2 Z M2 5 H12 M5 2 V12" stroke="currentColor"/></svg>,
+  Telemetry: () => <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 12 L4 8 L6 10 L9 4 L13 7" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"/><circle cx="13" cy="7" r="1.2" fill="currentColor"/></svg>,
+  Warn: () => <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1 L13 12 H1 Z M7 5 V8 M7 10 V10.5" stroke="currentColor" strokeLinejoin="round"/></svg>,
+  Check: () => <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7 L6 11 L12 3" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+  X: () => <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 3 L11 11 M11 3 L3 11" stroke="currentColor" strokeLinecap="round"/></svg>,
+  ZoomIn: () => <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4" stroke="currentColor"/><path d="M6 4 V8 M4 6 H8 M9 9 L12.5 12.5" stroke="currentColor" strokeLinecap="round"/></svg>,
+  ZoomOut: () => <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4" stroke="currentColor"/><path d="M4 6 H8 M9 9 L12.5 12.5" stroke="currentColor" strokeLinecap="round"/></svg>,
+};
+
+// ---------- Tag / Pill ----------
+function Tag({ children, tone = 'neutral', style }) {
+  const tones = {
+    neutral: { bg: 'var(--stroke-1)', fg: 'var(--fg-3)', bd: 'var(--stroke-2)' },
+    pos:     { bg: 'rgba(52,211,153,0.10)', fg: 'var(--signal-pos)', bd: 'rgba(52,211,153,0.25)' },
+    neg:     { bg: 'rgba(239,90,111,0.10)', fg: 'var(--signal-neg)', bd: 'rgba(239,90,111,0.25)' },
+    cool:    { bg: 'rgba(125,211,252,0.08)', fg: 'var(--signal-cool)', bd: 'rgba(125,211,252,0.25)' },
+    violet:  { bg: 'rgba(167,139,250,0.10)', fg: 'var(--signal-violet)', bd: 'rgba(167,139,250,0.28)' },
+    warn:    { bg: 'rgba(245,184,74,0.08)', fg: 'var(--signal-warn)', bd: 'rgba(245,184,74,0.25)' },
+  };
+  const t = tones[tone];
+  return (
+    <span className="mono" style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      padding: '2px 6px', borderRadius: 3,
+      fontSize: 10, letterSpacing: '0.04em', textTransform: 'uppercase',
+      background: t.bg, color: t.fg, border: `1px solid ${t.bd}`,
+      whiteSpace: 'nowrap',
+      ...style
+    }}>{children}</span>
+  );
+}
+
+// ---------- KeyCap ----------
+function Kbd({ children }) {
+  return <span className="mono" style={{
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    minWidth: 16, height: 16, padding: '0 4px',
+    fontSize: 10, color: 'var(--fg-3)',
+    background: 'var(--stroke-1)', border: '1px solid var(--stroke-2)',
+    borderRadius: 3,
+  }}>{children}</span>;
+}
+
+// Export to window
+Object.assign(window, { useLiveNumber, fmt, Spark, MicroBar, Glyph, Tag, Kbd });
+
+
+// ===== chrome.jsx =====
+// ============================================
+// AGENTIUM — Chrome & Semantic Zoom Navigator
+// ============================================
+
+const ZOOM_LEVELS = [
+  { id: 'portfolio', label: 'Portfolio', sub: 'All capabilities' },
+  { id: 'capability', label: 'Capability', sub: 'Customer Intelligence' },
+  { id: 'system',     label: 'System',     sub: 'Sentiment Routing v4.2' },
+  { id: 'skill',      label: 'Skill',      sub: 'Semantic Extraction' },
+  { id: 'run',        label: 'Run',        sub: 'RUN-8924A' },
+];
+
+const VIEWS = [
+  { id: 'hypervisor', label: 'Hypervisor',     glyph: 'Ledger',   desc: 'Executive cockpit' },
+  { id: 'zoom',       label: 'Zoom',           glyph: 'Focus',    desc: 'Semantic navigator' },
+  { id: 'steering',   label: 'Steering',       glyph: 'Sliders',  desc: 'Control plane' },
+  { id: 'builder',    label: 'Builder',        glyph: 'Flow',     desc: 'System canvas' },
+  { id: 'run',        label: 'Run',            glyph: 'Telemetry',desc: 'Execution detail' },
+];
+
+// ---------- Title bar ----------
+function TitleBar({ view, setView, systemState }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'stretch',
+      height: 48,
+      borderBottom: '1px solid var(--stroke-2)',
+      background: 'var(--bg-base)',
+      position: 'relative', zIndex: 10,
+    }}>
+      {/* Brand */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '0 18px', minWidth: 240,
+        borderRight: '1px solid var(--stroke-2)',
+      }}>
+        <BrandMark />
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg-1)', letterSpacing: '-0.01em' }}>Agentium</span>
+          <span className="mono" style={{ fontSize: 9, color: 'var(--fg-4)', marginTop: 3, letterSpacing: '0.08em', textTransform: 'uppercase' }}>OS / v4.2.1</span>
+        </div>
+      </div>
+
+      {/* Zoom breadcrumb */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '0 14px', flex: 1, overflow: 'hidden' }}>
+        {ZOOM_LEVELS.map((lv, i) => (
+          <React.Fragment key={lv.id}>
+            <button style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+              padding: '6px 10px', border: 'none', background: 'transparent',
+              color: i === 2 ? 'var(--fg-1)' : 'var(--fg-4)',
+              borderRadius: 4, cursor: 'pointer', textAlign: 'left',
+            }}>
+              <span className="mono" style={{
+                fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase',
+                color: i === 2 ? 'var(--signal-cool)' : 'var(--fg-5)',
+              }}>{lv.label}</span>
+              <span style={{ fontSize: 12, marginTop: 2, whiteSpace: 'nowrap', fontWeight: i === 2 ? 500 : 400 }}>{lv.sub}</span>
+            </button>
+            {i < ZOOM_LEVELS.length - 1 && (
+              <span style={{ color: 'var(--fg-5)', fontSize: 10 }}>›</span>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+
+      {/* System status */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 18, padding: '0 18px', borderLeft: '1px solid var(--stroke-2)' }}>
+        <StatusReadout label="THRPT" value={`${systemState.throughput.toFixed(1)}k/s`} color="var(--signal-cool)" />
+        <StatusReadout label="LATENCY" value={`${Math.round(systemState.latency)}ms`} color="var(--signal-violet)" />
+        <StatusReadout label="YIELD" value={`+${systemState.yield.toFixed(1)}%`} color="var(--signal-pos)" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: 14, borderLeft: '1px solid var(--stroke-2)' }}>
+          <span className="live-dot" />
+          <span className="mono" style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.08em' }}>LIVE</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatusReadout({ label, value, color }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1 }}>
+      <span className="mono" style={{ fontSize: 8, color: 'var(--fg-5)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{label}</span>
+      <span className="mono tnum" style={{ fontSize: 12, color, marginTop: 3, fontWeight: 500 }}>{value}</span>
+    </div>
+  );
+}
+
+function BrandMark() {
+  return (
+    <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+      <rect x="0.5" y="0.5" width="25" height="25" rx="4" stroke="var(--stroke-3)" fill="var(--bg-panel-hi)"/>
+      <circle cx="13" cy="13" r="7" stroke="var(--signal-cool)" strokeWidth="0.8" opacity="0.6"/>
+      <circle cx="13" cy="13" r="3.5" stroke="var(--signal-cool)" strokeWidth="0.8"/>
+      <circle cx="13" cy="13" r="1.5" fill="var(--signal-cool)"/>
+      <path d="M13 3 V6 M13 20 V23 M3 13 H6 M20 13 H23" stroke="var(--signal-cool)" strokeWidth="0.8" strokeLinecap="round" opacity="0.8"/>
+    </svg>
+  );
+}
+
+// ---------- Side rail (views) ----------
+function SideRail({ view, setView }) {
+  return (
+    <div style={{
+      width: 56, borderRight: '1px solid var(--stroke-2)',
+      background: 'var(--bg-base)',
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      padding: '12px 0', gap: 4,
+    }}>
+      {VIEWS.map(v => {
+        const G = Glyph[v.glyph];
+        const active = view === v.id;
+        return (
+          <button key={v.id}
+            onClick={() => setView(v.id)}
+            title={`${v.label} — ${v.desc}`}
+            style={{
+              width: 40, height: 40,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              border: '1px solid ' + (active ? 'var(--stroke-hot)' : 'transparent'),
+              background: active ? 'rgba(125,211,252,0.06)' : 'transparent',
+              color: active ? 'var(--signal-cool)' : 'var(--fg-4)',
+              borderRadius: 6,
+              transition: 'all 120ms',
+              position: 'relative',
+            }}
+          >
+            <G />
+            {active && <span style={{
+              position: 'absolute', left: -1, top: 10, bottom: 10, width: 2,
+              background: 'var(--signal-cool)', boxShadow: '0 0 8px var(--signal-cool)',
+              borderRadius: 2,
+            }}/>}
+          </button>
+        );
+      })}
+
+      <div style={{ flex: 1 }} />
+
+      <button style={{
+        width: 40, height: 40,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        border: '1px solid var(--stroke-2)', background: 'var(--bg-panel)',
+        color: 'var(--fg-3)', borderRadius: 6,
+        fontSize: 10,
+      }} className="mono">⌘K</button>
+    </div>
+  );
+}
+
+Object.assign(window, { TitleBar, SideRail, VIEWS, ZOOM_LEVELS });
+
+
+// ===== hypervisor.jsx =====
+// ============================================
+// AGENTIUM — Hypervisor (Executive Cockpit)
+// The hero view. Decision interface, not dashboard.
+// ============================================
+
+function Hypervisor({ systemState }) {
+  const netValue = useLiveNumber(14.2e6, { jitter: 0.003, interval: 2400 });
+  const roi = useLiveNumber(482, { jitter: 0.008, interval: 2000 });
+  const cost = useLiveNumber(2.94e6, { jitter: 0.004, interval: 2600 });
+  const vpc = useLiveNumber(4.83, { jitter: 0.006, interval: 2200 });
+
+  // Main sparkline (value curve)
+  const curve = useMemo(() => Array.from({ length: 80 }, (_, i) => {
+    const t = i / 80;
+    return 7 + 3*Math.sin(t * 6) + 4*t + Math.random()*0.4;
+  }), []);
+
+  const capabilities = [
+    { name: 'Customer Intelligence', roi: 840, value: 6.2e6, cost: 740e3, conf: 0.98, trend: [4,5,5,6,7,7,8,8,9,9,10,10,11,12,13,13,14], status: 'compounding' },
+    { name: 'Contract Analysis',     roi: 620, value: 3.8e6, cost: 610e3, conf: 0.94, trend: [3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,12], status: 'stable' },
+    { name: 'Lead Scoring',          roi: 410, value: 2.4e6, cost: 590e3, conf: 0.91, trend: [6,6,5,5,6,7,7,6,7,7,8,8,9,9,9,10,10], status: 'stable' },
+    { name: 'Invoice Reconciliation',roi: 305, value: 1.1e6, cost: 360e3, conf: 0.89, trend: [5,5,6,5,6,6,7,6,7,7,7,8,8,8,8,9,9], status: 'warming' },
+    { name: 'Fraud Detection',       roi: 178, value: 0.7e6, cost: 400e3, conf: 0.82, trend: [6,5,6,6,5,6,5,6,6,7,6,7,7,7,7,7,8], status: 'review' },
+  ];
+
+  const signals = [
+    { t: '0s',  txt: 'Autonomy threshold raised on Sentiment.Routing', tone: 'violet' },
+    { t: '12s', txt: 'Anomaly cleared: Triage p95 latency returned to 420ms', tone: 'pos' },
+    { t: '48s', txt: 'Lead Scoring ROI crossed +410% band', tone: 'pos' },
+    { t: '2m',  txt: 'Compute budget 65% consumed — projected to finish at 89%', tone: 'warn' },
+    { t: '4m',  txt: 'New skill deployed: Vendor.ID.Normalizer (shadow)', tone: 'cool' },
+    { t: '9m',  txt: 'Fraud Detection confidence dropped below 0.85', tone: 'neg' },
+  ];
+
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: '1fr 360px',
+      gridTemplateRows: '280px 1fr',
+      gap: 1,
+      height: '100%',
+      background: 'var(--stroke-2)',
+    }}>
+      {/* === HERO: VALUE PANEL === */}
+      <div style={{
+        gridColumn: '1', gridRow: '1',
+        background: 'var(--bg-base)',
+        padding: '24px 28px',
+        position: 'relative',
+        overflow: 'hidden',
+      }}>
+        {/* ambient grid */}
+        <div style={{
+          position: 'absolute', inset: 0, opacity: 0.3,
+          backgroundImage: 'linear-gradient(var(--stroke-1) 1px, transparent 1px), linear-gradient(90deg, var(--stroke-1) 1px, transparent 1px)',
+          backgroundSize: '48px 48px', pointerEvents: 'none',
+        }} />
+
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 4, position: 'relative' }}>
+          <span className="mono" style={{ fontSize: 10, color: 'var(--fg-4)', letterSpacing: '0.14em', textTransform: 'uppercase' }}>Net Value Generated</span>
+          <Tag tone="cool">QTD · Q2 · LIVE</Tag>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 32, position: 'relative' }}>
+          <div style={{
+            fontSize: 84, fontWeight: 300, lineHeight: 0.9,
+            letterSpacing: '-0.04em', color: 'var(--fg-1)',
+            fontFeatureSettings: '"tnum"',
+          }} className="tnum">
+            {fmt.money(netValue)}
+          </div>
+          <div style={{ paddingBottom: 14, display: 'flex', gap: 20 }}>
+            <StatReadout label="ROI" value={`${roi.toFixed(0)}%`} delta="+120bps" color="var(--signal-pos)" />
+            <StatReadout label="Cost" value={fmt.money(cost)} delta="65% of budget" color="var(--signal-violet)" />
+            <StatReadout label="$/compute" value={`${vpc.toFixed(2)}×`} delta="+0.14× WoW" color="var(--signal-cool)" />
+          </div>
+        </div>
+
+        {/* main curve */}
+        <div style={{ marginTop: 28, position: 'relative' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+            <span className="mono" style={{ fontSize: 10, color: 'var(--fg-4)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Value curve · 90d</span>
+            <div style={{ display: 'flex', gap: 14 }}>
+              <CurveKey color="var(--signal-cool)" label="Value" />
+              <CurveKey color="var(--signal-violet)" label="Cost" dashed />
+              <CurveKey color="var(--signal-pos)" label="Net" />
+            </div>
+          </div>
+          <ValueCurve height={130} />
+        </div>
+      </div>
+
+      {/* === RIGHT RAIL: AI BALANCE SHEET === */}
+      <div style={{
+        gridColumn: '2', gridRow: '1 / 3',
+        background: 'var(--bg-panel)',
+        padding: '22px 22px',
+        display: 'flex', flexDirection: 'column',
+        overflow: 'auto',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+          <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--fg-1)' }}>AI Balance Sheet</span>
+          <Tag>T-24H</Tag>
+        </div>
+
+        <Section title="Assets · Value Created" tone="pos" total="+$8.8M">
+          <LedgerLine name="Revenue acceleration" sub="Customer Intelligence" v="+$4.2M" pct={48} tone="pos" />
+          <LedgerLine name="Labor hour savings" sub="Contract · Invoice · Triage" v="+$3.1M" pct={35} tone="pos" />
+          <LedgerLine name="Risk avoidance" sub="Fraud · Compliance" v="+$1.5M" pct={17} tone="pos" />
+        </Section>
+
+        <Section title="Liabilities · Operating" tone="neg" total="−$2.9M">
+          <LedgerLine name="LLM inference" sub="1.4B tokens · mixed" v="−$1.8M" pct={62} tone="neg" />
+          <LedgerLine name="Vector storage" sub="4.2B embeddings" v="−$0.6M" pct={21} tone="neg" />
+          <LedgerLine name="Orchestration" sub="Control plane · HITL" v="−$0.5M" pct={17} tone="neg" />
+        </Section>
+
+        <div style={{
+          marginTop: 8, padding: '14px 14px',
+          background: 'var(--bg-inset)', border: '1px solid var(--stroke-2)',
+          borderRadius: 'var(--radius-md)',
+          display: 'flex', flexDirection: 'column', gap: 10,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span className="mono" style={{ fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Net position</span>
+            <Tag tone="pos">+482% ROI</Tag>
+          </div>
+          <div className="tnum" style={{ fontSize: 28, fontWeight: 300, color: 'var(--fg-1)', letterSpacing: '-0.02em' }}>
+            +{fmt.money(netValue - cost)}
+          </div>
+          <Spark data={curve} color="var(--signal-pos)" height={40} width={300} />
+        </div>
+
+        <div style={{ marginTop: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <span className="mono" style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Signal stream</span>
+            <span className="live-dot" />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {signals.map((s, i) => (
+              <div key={i} style={{
+                display: 'grid', gridTemplateColumns: '36px 10px 1fr',
+                gap: 8, padding: '6px 0',
+                borderTop: i === 0 ? 'none' : '1px solid var(--stroke-1)',
+                alignItems: 'start',
+              }}>
+                <span className="mono" style={{ fontSize: 10, color: 'var(--fg-5)' }}>−{s.t}</span>
+                <span style={{
+                  width: 6, height: 6, borderRadius: '50%', marginTop: 5,
+                  background: `var(--signal-${s.tone === 'cool' ? 'cool' : s.tone === 'violet' ? 'violet' : s.tone === 'neg' ? 'neg' : s.tone === 'warn' ? 'warn' : 'pos'})`,
+                  boxShadow: `0 0 6px var(--signal-${s.tone === 'cool' ? 'cool' : s.tone === 'violet' ? 'violet' : s.tone === 'neg' ? 'neg' : s.tone === 'warn' ? 'warn' : 'pos'})`,
+                }}/>
+                <span style={{ fontSize: 11, color: 'var(--fg-2)', lineHeight: 1.4 }}>{s.txt}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* === CAPABILITIES PORTFOLIO === */}
+      <div style={{
+        gridColumn: '1', gridRow: '2',
+        background: 'var(--bg-base)',
+        padding: '22px 28px', overflow: 'auto',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--fg-1)' }}>Capability Portfolio</span>
+            <span className="mono" style={{ fontSize: 10, color: 'var(--fg-4)' }}>5 active · 2 shadow · 1 deprecated</span>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Tag>YIELD</Tag>
+            <Tag>VOLUME</Tag>
+            <Tag>CONFIDENCE</Tag>
+          </div>
+        </div>
+
+        <div style={{
+          display: 'grid', gridTemplateColumns: '1fr', gap: 0,
+          border: '1px solid var(--stroke-2)',
+          borderRadius: 'var(--radius-md)', overflow: 'hidden',
+        }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1.6fr 80px 120px 1fr 90px 70px 28px',
+            gap: 14, padding: '10px 16px',
+            background: 'var(--bg-inset)',
+            borderBottom: '1px solid var(--stroke-2)',
+          }}>
+            {['Capability', 'ROI', 'Value', '90d Trend', 'Cost', 'Conf.', ''].map((h, i) => (
+              <span key={i} className="mono" style={{ fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>{h}</span>
+            ))}
+          </div>
+          {capabilities.map((c, i) => (
+            <CapabilityRow key={c.name} c={c} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CapabilityRow({ c }) {
+  const tone = c.roi >= 500 ? 'pos' : c.roi >= 300 ? 'cool' : c.roi >= 200 ? 'warn' : 'neg';
+  const statusColor = {
+    compounding: 'var(--signal-pos)',
+    stable: 'var(--signal-cool)',
+    warming: 'var(--signal-warn)',
+    review: 'var(--signal-neg)',
+  }[c.status];
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: '1.6fr 80px 120px 1fr 90px 70px 28px',
+      gap: 14, padding: '14px 16px',
+      borderTop: '1px solid var(--stroke-1)',
+      alignItems: 'center',
+      cursor: 'pointer',
+      transition: 'background 120ms',
+    }}
+    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-panel)'}
+    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ width: 4, height: 24, borderRadius: 1, background: statusColor, boxShadow: `0 0 6px ${statusColor}` }}/>
+        <div>
+          <div style={{ fontSize: 13, color: 'var(--fg-1)', fontWeight: 500 }}>{c.name}</div>
+          <div className="mono" style={{ fontSize: 10, color: 'var(--fg-4)', marginTop: 2, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{c.status}</div>
+        </div>
+      </div>
+      <span className="mono tnum" style={{ fontSize: 14, color: `var(--signal-${tone})`, fontWeight: 500 }}>{c.roi}%</span>
+      <span className="mono tnum" style={{ fontSize: 14, color: 'var(--fg-1)' }}>{fmt.money(c.value)}</span>
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        <Spark data={c.trend} color={`var(--signal-${tone})`} height={28} width={220} />
+      </div>
+      <span className="mono tnum" style={{ fontSize: 12, color: 'var(--fg-3)' }}>{fmt.money(c.cost)}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <MicroBar value={c.conf * 100} color={`var(--signal-${tone})`} w={40} />
+        <span className="mono tnum" style={{ fontSize: 10, color: 'var(--fg-3)' }}>{(c.conf*100).toFixed(0)}</span>
+      </div>
+      <span style={{ color: 'var(--fg-4)' }}><Glyph.Arrow /></span>
+    </div>
+  );
+}
+
+function StatReadout({ label, value, delta, color }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <span className="mono" style={{ fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.14em', textTransform: 'uppercase' }}>{label}</span>
+      <span className="mono tnum" style={{ fontSize: 20, color: 'var(--fg-1)', fontWeight: 400 }}>{value}</span>
+      <span className="mono" style={{ fontSize: 10, color }}>{delta}</span>
+    </div>
+  );
+}
+
+function CurveKey({ color, label, dashed }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ width: 14, height: 2, background: color, opacity: dashed ? 0.5 : 1,
+        borderTop: dashed ? `2px dashed ${color}` : 'none',
+        background: dashed ? 'transparent' : color,
+      }}/>
+      <span className="mono" style={{ fontSize: 9, color: 'var(--fg-4)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</span>
+    </div>
+  );
+}
+
+function Section({ title, tone, total, children }) {
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+        <span className="mono" style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>{title}</span>
+        <span className="mono tnum" style={{ fontSize: 12, color: `var(--signal-${tone})`, fontWeight: 500 }}>{total}</span>
+      </div>
+      <div>{children}</div>
+    </div>
+  );
+}
+
+function LedgerLine({ name, sub, v, pct, tone }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, padding: '8px 0', borderTop: '1px solid var(--stroke-1)', alignItems: 'center' }}>
+      <div>
+        <div style={{ fontSize: 12, color: 'var(--fg-2)' }}>{name}</div>
+        <div className="mono" style={{ fontSize: 10, color: 'var(--fg-4)', marginTop: 2 }}>{sub}</div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+        <span className="mono tnum" style={{ fontSize: 13, color: 'var(--fg-1)' }}>{v}</span>
+        <MicroBar value={pct} color={`var(--signal-${tone})`} w={60} h={3} />
+      </div>
+    </div>
+  );
+}
+
+// Value curve — the hero visualization
+function ValueCurve({ height = 120 }) {
+  const width = 900;
+  const { valuePts, costPts, netPts } = useMemo(() => {
+    const N = 90;
+    const valueArr = [], costArr = [], netArr = [];
+    let v = 3, c = 2;
+    for (let i = 0; i < N; i++) {
+      v += 0.12 + Math.sin(i/6) * 0.08 + (Math.random() - 0.3) * 0.15;
+      c += 0.03 + Math.sin(i/9) * 0.02 + (Math.random() - 0.5) * 0.05;
+      valueArr.push(v); costArr.push(c); netArr.push(v - c);
+    }
+    const step = width / (N - 1);
+    const max = Math.max(...valueArr) * 1.05;
+    const toPts = (arr) => arr.map((val, i) => `${i*step},${height - (val/max)*height}`).join(' ');
+    return { valuePts: toPts(valueArr), costPts: toPts(costArr), netPts: toPts(netArr) };
+  }, [height]);
+
+  return (
+    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ display: 'block' }}>
+      <defs>
+        <linearGradient id="vcg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--signal-cool)" stopOpacity="0.18" />
+          <stop offset="100%" stopColor="var(--signal-cool)" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id="netg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--signal-pos)" stopOpacity="0.16" />
+          <stop offset="100%" stopColor="var(--signal-pos)" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {/* grid */}
+      {[0, 0.25, 0.5, 0.75, 1].map(p => (
+        <line key={p} x1="0" x2={width} y1={height*p} y2={height*p} stroke="var(--stroke-1)" strokeWidth="1" />
+      ))}
+      {/* today marker */}
+      <line x1={width*0.7} x2={width*0.7} y1="0" y2={height} stroke="var(--signal-cool)" strokeWidth="0.8" strokeDasharray="2 3" opacity="0.5" />
+      <text x={width*0.7 + 4} y="12" fill="var(--signal-cool)" fontSize="9" fontFamily="var(--font-mono)" letterSpacing="0.1em">TODAY</text>
+
+      <polygon points={`0,${height} ${valuePts} ${width},${height}`} fill="url(#vcg)" />
+      <polygon points={`0,${height} ${netPts} ${width},${height}`} fill="url(#netg)" />
+      <polyline points={costPts} fill="none" stroke="var(--signal-violet)" strokeWidth="1.2" strokeDasharray="3 3" opacity="0.7" />
+      <polyline points={valuePts} fill="none" stroke="var(--signal-cool)" strokeWidth="1.6" style={{ filter: 'drop-shadow(0 0 4px var(--signal-cool))' }}/>
+      <polyline points={netPts} fill="none" stroke="var(--signal-pos)" strokeWidth="1.6" style={{ filter: 'drop-shadow(0 0 4px var(--signal-pos))' }}/>
+    </svg>
+  );
+}
+
+Object.assign(window, { Hypervisor });
+
+
+// ===== zoom.jsx =====
+// ============================================
+// AGENTIUM — Semantic Zoom Navigator
+// The radical concept: same object, 5 levels of abstraction.
+// ============================================
+
+const ZOOM_SCALES = [
+  { id: 0, name: 'PORTFOLIO', sub: 'Business outcomes' },
+  { id: 1, name: 'CAPABILITY', sub: 'Customer Intelligence' },
+  { id: 2, name: 'SYSTEM', sub: 'Sentiment Routing v4.2' },
+  { id: 3, name: 'SKILL', sub: 'Semantic Extraction' },
+  { id: 4, name: 'RUN', sub: 'RUN-8924A' },
+];
+
+function ZoomView({ onGoToSteering, onGoToRun }) {
+  const [zoom, setZoom] = useState(2);
+
+  return (
+    <div style={{
+      height: '100%', display: 'grid',
+      gridTemplateRows: '1fr 72px',
+      background: 'var(--bg-base)',
+      position: 'relative', overflow: 'hidden',
+    }}>
+      {/* grid bg */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        backgroundImage: 'radial-gradient(circle at 50% 50%, var(--stroke-1) 1px, transparent 1px)',
+        backgroundSize: '36px 36px', opacity: 0.5,
+        pointerEvents: 'none',
+      }}/>
+
+      {/* stage */}
+      <div style={{
+        position: 'relative', overflow: 'hidden',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        {/* left meta */}
+        <div style={{ position: 'absolute', left: 28, top: 28, display: 'flex', flexDirection: 'column', gap: 10, zIndex: 2 }}>
+          <span className="mono" style={{ fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.16em', textTransform: 'uppercase' }}>Semantic Zoom</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 28, color: 'var(--fg-1)', fontWeight: 300, letterSpacing: '-0.02em', lineHeight: 1 }}>{ZOOM_SCALES[zoom].name}</span>
+            <span className="mono" style={{ fontSize: 11, color: 'var(--signal-cool)', letterSpacing: '0.04em' }}>{ZOOM_SCALES[zoom].sub}</span>
+          </div>
+        </div>
+
+        {/* right meta */}
+        <div style={{ position: 'absolute', right: 28, top: 28, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, zIndex: 2 }}>
+          <Tag tone="cool">SAME OBJECT · DIFFERENT SCALE</Tag>
+          <span className="mono" style={{ fontSize: 10, color: 'var(--fg-4)' }}>Use ← → or scroll</span>
+        </div>
+
+        {/* The morphing scene */}
+        <div style={{ width: '100%', maxWidth: 900, height: '100%', position: 'relative' }}>
+          {zoom === 0 && <ScalePortfolio />}
+          {zoom === 1 && <ScaleCapability />}
+          {zoom === 2 && <ScaleSystem />}
+          {zoom === 3 && <ScaleSkill onConfigure={onGoToSteering} />}
+          {zoom === 4 && <ScaleRun onOpen={onGoToRun} />}
+        </div>
+      </div>
+
+      {/* Zoom ladder */}
+      <div style={{
+        borderTop: '1px solid var(--stroke-2)',
+        background: 'var(--bg-panel)',
+        padding: '0 28px',
+        display: 'flex', alignItems: 'center', gap: 8,
+      }}>
+        <button onClick={() => setZoom(Math.max(0, zoom-1))} disabled={zoom===0} style={zoomBtn(zoom===0)}><Glyph.ZoomOut /></button>
+        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: `repeat(${ZOOM_SCALES.length}, 1fr)`, gap: 6 }}>
+          {ZOOM_SCALES.map((s, i) => (
+            <button key={s.id} onClick={() => setZoom(i)} style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+              padding: '8px 10px',
+              background: i === zoom ? 'var(--bg-inset)' : 'transparent',
+              border: '1px solid ' + (i === zoom ? 'var(--stroke-hot)' : 'var(--stroke-2)'),
+              borderRadius: 4, cursor: 'pointer',
+              transition: 'all 160ms',
+            }}>
+              <span className="mono" style={{ fontSize: 9, color: i === zoom ? 'var(--signal-cool)' : 'var(--fg-5)', letterSpacing: '0.12em' }}>L{i}</span>
+              <span className="mono" style={{ fontSize: 11, color: i === zoom ? 'var(--fg-1)' : 'var(--fg-3)', marginTop: 2, letterSpacing: '0.04em' }}>{s.name}</span>
+            </button>
+          ))}
+        </div>
+        <button onClick={() => setZoom(Math.min(4, zoom+1))} disabled={zoom===4} style={zoomBtn(zoom===4)}><Glyph.ZoomIn /></button>
+      </div>
+    </div>
+  );
+}
+
+function zoomBtn(disabled) {
+  return {
+    width: 36, height: 36,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    background: 'var(--bg-inset)', border: '1px solid var(--stroke-2)',
+    color: disabled ? 'var(--fg-5)' : 'var(--fg-2)',
+    borderRadius: 4, cursor: disabled ? 'default' : 'pointer',
+    opacity: disabled ? 0.5 : 1,
+  };
+}
+
+// ——— L0: PORTFOLIO ———
+function ScalePortfolio() {
+  const caps = [
+    { name: 'Customer Intelligence', x: 0.2, y: 0.35, r: 62, roi: 840, tone: 'pos' },
+    { name: 'Contract Analysis',     x: 0.55, y: 0.22, r: 48, roi: 620, tone: 'pos' },
+    { name: 'Lead Scoring',          x: 0.78, y: 0.45, r: 40, roi: 410, tone: 'cool' },
+    { name: 'Invoice Recon',         x: 0.35, y: 0.68, r: 32, roi: 305, tone: 'cool' },
+    { name: 'Fraud Detection',       x: 0.65, y: 0.72, r: 28, roi: 178, tone: 'warn' },
+  ];
+  return (
+    <div style={{ position: 'absolute', inset: 0 }}>
+      <svg viewBox="0 0 900 600" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
+        {/* axes */}
+        <line x1="40" y1="570" x2="860" y2="570" stroke="var(--stroke-2)"/>
+        <line x1="40" y1="40" x2="40" y2="570" stroke="var(--stroke-2)"/>
+        <text x="860" y="590" fill="var(--fg-5)" fontSize="9" fontFamily="var(--font-mono)" letterSpacing="0.12em" textAnchor="end">COMPUTE COST →</text>
+        <text x="28" y="40" fill="var(--fg-5)" fontSize="9" fontFamily="var(--font-mono)" letterSpacing="0.12em" transform="rotate(-90, 28, 40)">VALUE ↑</text>
+
+        {caps.map((c, i) => (
+          <g key={i} transform={`translate(${40 + c.x*800}, ${40 + c.y*520})`}>
+            <circle r={c.r} fill={`var(--signal-${c.tone})`} opacity="0.08"/>
+            <circle r={c.r} fill="none" stroke={`var(--signal-${c.tone})`} strokeWidth="1" opacity="0.6"/>
+            <circle r={3} fill={`var(--signal-${c.tone})`} style={{ filter: `drop-shadow(0 0 6px var(--signal-${c.tone}))`}}/>
+            <text x={c.r+8} y="0" fill="var(--fg-1)" fontSize="12" fontFamily="var(--font-sans)" dominantBaseline="middle">{c.name}</text>
+            <text x={c.r+8} y="14" fill={`var(--signal-${c.tone})`} fontSize="11" fontFamily="var(--font-mono)" dominantBaseline="middle">{c.roi}% ROI</text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+// ——— L1: CAPABILITY ———
+function ScaleCapability() {
+  const systems = [
+    { name: 'Sentiment Routing', v: 4.2, runs: '1.2M', lat: 420, yield: '+840%', focus: true },
+    { name: 'Intent Classifier', v: 3.1, runs: '890k', lat: 280, yield: '+620%' },
+    { name: 'Response Generator', v: 2.8, runs: '640k', lat: 1200, yield: '+410%' },
+    { name: 'Escalation Engine', v: 1.9, runs: '180k', lat: 50, yield: '+180%' },
+  ];
+  return (
+    <div style={{ position: 'absolute', inset: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14, width: '100%', maxWidth: 700 }}>
+        {systems.map((s, i) => (
+          <div key={i} style={{
+            padding: 18,
+            background: s.focus ? 'var(--bg-inset)' : 'var(--bg-panel)',
+            border: '1px solid ' + (s.focus ? 'var(--stroke-hot)' : 'var(--stroke-2)'),
+            borderRadius: 6,
+            boxShadow: s.focus ? 'var(--glow-cool)' : 'none',
+            position: 'relative',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <div style={{ fontSize: 14, color: 'var(--fg-1)', fontWeight: 500 }}>{s.name}</div>
+                <div className="mono" style={{ fontSize: 10, color: 'var(--fg-4)', marginTop: 3 }}>v{s.v} · {s.runs} runs/mo</div>
+              </div>
+              <Tag tone="pos">{s.yield}</Tag>
+            </div>
+            <div style={{ marginTop: 14, display: 'flex', gap: 16 }}>
+              <MiniStat label="p95 LAT" v={`${s.lat}ms`} />
+              <MiniStat label="VOLUME" v={s.runs} />
+              <MiniStat label="YIELD" v={s.yield} color="var(--signal-pos)" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ——— L2: SYSTEM ———
+function ScaleSystem() {
+  return (
+    <div style={{ position: 'absolute', inset: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <svg viewBox="0 0 800 400" width="100%" height="100%" style={{ maxWidth: 900 }}>
+        <defs>
+          <marker id="arrow-c" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6" fill="var(--stroke-3)"/>
+          </marker>
+        </defs>
+        {/* nodes */}
+        {[
+          { x: 80,  y: 180, label: 'Trigger',       sub: 'Webhook', tone: 'violet' },
+          { x: 250, y: 100, label: 'OCR',           sub: '98% conf', tone: 'pos' },
+          { x: 250, y: 260, label: 'Semantic Ext.', sub: 'GPT-4o',   tone: 'cool', focus: true },
+          { x: 440, y: 180, label: 'Router',        sub: '3 paths',  tone: 'violet' },
+          { x: 620, y: 80,  label: 'HITL',          sub: '0.12 autonomy', tone: 'warn' },
+          { x: 620, y: 180, label: 'Emit',          sub: '+98.2% acc',   tone: 'pos' },
+          { x: 620, y: 280, label: 'Escalate',      sub: 'priority',     tone: 'neg' },
+        ].map((n, i) => (
+          <g key={i} transform={`translate(${n.x}, ${n.y})`}>
+            {n.focus && <rect x="-70" y="-26" width="140" height="52" rx="6" fill="none" stroke={`var(--signal-${n.tone})`} strokeWidth="1.5" opacity="0.4" style={{ filter: `drop-shadow(0 0 8px var(--signal-${n.tone}))` }}/>}
+            <rect x="-64" y="-22" width="128" height="44" rx="4" fill="var(--bg-panel)" stroke={`var(--stroke-${n.focus ? '3' : '2'})`}/>
+            <circle cx="-48" cy="0" r="3" fill={`var(--signal-${n.tone})`} style={{ filter: `drop-shadow(0 0 4px var(--signal-${n.tone}))` }}/>
+            <text x="-36" y="-3" fill="var(--fg-1)" fontSize="11" fontFamily="var(--font-sans)" fontWeight="500">{n.label}</text>
+            <text x="-36" y="11" fill="var(--fg-4)" fontSize="9" fontFamily="var(--font-mono)">{n.sub}</text>
+          </g>
+        ))}
+        {/* edges */}
+        {[
+          ['80,180', '250,100'], ['80,180', '250,260'],
+          ['250,100', '440,180'], ['250,260', '440,180'],
+          ['440,180', '620,80'], ['440,180', '620,180'], ['440,180', '620,280'],
+        ].map(([a, b], i) => (
+          <line key={i} x1={parseInt(a.split(',')[0])+64} y1={a.split(',')[1]} x2={parseInt(b.split(',')[0])-64} y2={b.split(',')[1]}
+            stroke="var(--stroke-3)" strokeWidth="1" markerEnd="url(#arrow-c)"/>
+        ))}
+        {/* data packet on hot edge */}
+        <circle r="3" fill="var(--signal-cool)" style={{ filter: 'drop-shadow(0 0 6px var(--signal-cool))' }}>
+          <animateMotion dur="2.8s" repeatCount="indefinite"
+            path="M314,260 L376,180"/>
+        </circle>
+      </svg>
+    </div>
+  );
+}
+
+// ——— L3: SKILL ———
+function ScaleSkill({ onConfigure }) {
+  return (
+    <div style={{ position: 'absolute', inset: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: '100%', maxWidth: 620, display: 'grid', gap: 14 }}>
+        <div style={{ padding: 20, background: 'var(--bg-panel)', border: '1px solid var(--stroke-3)', borderRadius: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <div>
+              <div className="mono" style={{ fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.14em' }}>SKILL · LLM NODE</div>
+              <div style={{ fontSize: 20, color: 'var(--fg-1)', fontWeight: 400, marginTop: 4 }}>Semantic Extraction</div>
+            </div>
+            <Tag tone="cool">GPT-4o · t=0.2</Tag>
+          </div>
+          <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
+            <Metric label="p50" v="240ms" />
+            <Metric label="p95" v="420ms" />
+            <Metric label="Conf." v="98.2%" color="var(--signal-pos)" />
+            <Metric label="$/call" v="$0.002" />
+          </div>
+        </div>
+        <div style={{ padding: 16, background: 'var(--bg-inset)', border: '1px solid var(--stroke-2)', borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', lineHeight: 1.7 }}>
+          <span style={{ color: 'var(--signal-violet)' }}>system</span>:<br/>
+          You are an expert financial analyst.<br/>
+          Extract: <span style={{ color: 'var(--signal-cool)' }}>[company, revenue_q3, risk_factors]</span>
+        </div>
+        <button onClick={onConfigure} style={{
+          padding: '10px 14px', background: 'var(--signal-cool)', color: 'var(--bg-void)',
+          border: 'none', borderRadius: 4, fontWeight: 500, fontSize: 12, letterSpacing: '0.02em',
+          justifySelf: 'start',
+        }}>Open Steering →</button>
+      </div>
+    </div>
+  );
+}
+
+// ——— L4: RUN ———
+function ScaleRun({ onOpen }) {
+  return (
+    <div style={{ position: 'absolute', inset: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: '100%', maxWidth: 620, padding: 22, background: 'var(--bg-panel)', border: '1px solid var(--stroke-3)', borderRadius: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <div>
+            <div className="mono" style={{ fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.14em' }}>RUN · INVOCATION</div>
+            <div style={{ fontSize: 20, color: 'var(--fg-1)', fontWeight: 400, marginTop: 4 }}>RUN-8924A</div>
+          </div>
+          <Tag tone="pos">COMPLETED · 1.42s</Tag>
+        </div>
+        <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
+          <Metric label="Items" v="42" />
+          <Metric label="Cost" v="$0.04" />
+          <Metric label="Saved" v="~15m" color="var(--signal-pos)" />
+          <Metric label="Conf." v="98.2%" color="var(--signal-pos)" />
+        </div>
+        <button onClick={onOpen} style={{
+          marginTop: 18, padding: '10px 14px', background: 'transparent', color: 'var(--signal-cool)',
+          border: '1px solid var(--signal-cool)', borderRadius: 4, fontSize: 12, letterSpacing: '0.02em',
+        }}>Inspect execution trace →</button>
+      </div>
+    </div>
+  );
+}
+
+function MiniStat({ label, v, color = 'var(--fg-1)' }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <span className="mono" style={{ fontSize: 8, color: 'var(--fg-5)', letterSpacing: '0.12em' }}>{label}</span>
+      <span className="mono tnum" style={{ fontSize: 13, color }}>{v}</span>
+    </div>
+  );
+}
+
+function Metric({ label, v, color = 'var(--fg-1)' }) {
+  return (
+    <div style={{ padding: '10px 12px', background: 'var(--bg-inset)', borderRadius: 4, border: '1px solid var(--stroke-1)' }}>
+      <div className="mono" style={{ fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.12em' }}>{label}</div>
+      <div className="mono tnum" style={{ fontSize: 15, color, marginTop: 4 }}>{v}</div>
+    </div>
+  );
+}
+
+Object.assign(window, { ZoomView });
+
+
+// ===== steering.jsx =====
+// ============================================
+// AGENTIUM — Steering Cockpit (Control Plane)
+// Three variants of the same control surface:
+//  A. Linear sliders with impact ghosts (conservative)
+//  B. Radial dials (aircraft cockpit)
+//  C. 2D tradeoff space (direct manipulation)
+// ============================================
+
+function SteeringView() {
+  const [variant, setVariant] = useState('A');
+  const [params, setParams] = useState({
+    resource: 0.65,     // 0 = lean, 1 = deep
+    velocity: 0.82,     // 0 = thorough, 1 = rapid
+    autonomy: 0.30,     // 0 = HITL, 1 = full autonomy
+  });
+
+  // Baseline values; deltas react live to params
+  const baseline = { roi: 482, cost: 2.94, risk: 0.12, latency: 420 };
+  const projected = useMemo(() => {
+    const r = params.resource, v = params.velocity, a = params.autonomy;
+    // Simple deterministic model — enough to feel alive
+    const roiDelta = (r - 0.5)*8 + (a - 0.3)*6 - (v - 0.5)*2;
+    const costDelta = (r - 0.5)*14 + (a - 0.3)*(-8) + (v - 0.5)*(-6);
+    const riskDelta = (a - 0.3)*0.18 + (v - 0.5)*0.08 - (r - 0.5)*0.04;
+    const latDelta = (v - 0.5)*(-180) + (r - 0.5)*40;
+    return {
+      roi: baseline.roi * (1 + roiDelta/100),
+      cost: baseline.cost * (1 + costDelta/100),
+      risk: Math.max(0.02, Math.min(0.95, baseline.risk + riskDelta)),
+      latency: Math.max(60, baseline.latency + latDelta),
+      roiDelta, costDelta, riskDelta, latDelta,
+    };
+  }, [params]);
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 420px', gap: 1, height: '100%', background: 'var(--stroke-2)' }}>
+      {/* — MAIN — */}
+      <div style={{ background: 'var(--bg-base)', padding: '24px 32px', overflow: 'auto', position: 'relative' }}>
+        {/* ambient grid */}
+        <div style={{
+          position: 'absolute', inset: 0, opacity: 0.25,
+          backgroundImage: 'linear-gradient(var(--stroke-1) 1px, transparent 1px), linear-gradient(90deg, var(--stroke-1) 1px, transparent 1px)',
+          backgroundSize: '48px 48px', pointerEvents: 'none',
+        }}/>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, position: 'relative' }}>
+          <div>
+            <span className="mono" style={{ fontSize: 10, color: 'var(--fg-4)', letterSpacing: '0.16em' }}>CONTROL PLANE</span>
+            <h1 style={{ fontSize: 32, color: 'var(--fg-1)', fontWeight: 300, margin: '6px 0 0', letterSpacing: '-0.02em' }}>Steering · Sentiment Routing</h1>
+            <p style={{ color: 'var(--fg-3)', fontSize: 13, margin: '8px 0 0', maxWidth: 520 }}>Adjust operational parameters in real-time. Changes propagate to live traffic within 300ms.</p>
+          </div>
+          <div style={{ display: 'flex', gap: 2, padding: 3, background: 'var(--bg-inset)', border: '1px solid var(--stroke-2)', borderRadius: 4 }}>
+            {['A','B','C'].map(v => (
+              <button key={v} onClick={() => setVariant(v)} style={{
+                padding: '6px 12px', fontSize: 11, fontWeight: 500, letterSpacing: '0.04em',
+                background: variant === v ? 'var(--bg-panel-hi)' : 'transparent',
+                color: variant === v ? 'var(--signal-cool)' : 'var(--fg-3)',
+                border: '1px solid ' + (variant === v ? 'var(--stroke-hot)' : 'transparent'),
+                borderRadius: 3,
+              }} className="mono">VAR · {v}</button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginTop: 28, position: 'relative' }}>
+          {variant === 'A' && <LinearVariant params={params} setParams={setParams} />}
+          {variant === 'B' && <RadialVariant params={params} setParams={setParams} />}
+          {variant === 'C' && <SpatialVariant params={params} setParams={setParams} />}
+        </div>
+
+        {/* Terminal */}
+        <div style={{ marginTop: 32, padding: '16px 18px', background: 'var(--bg-code)', border: '1px solid var(--stroke-2)', borderRadius: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <span className="mono" style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.12em' }}>LIVE OUTPUT STREAM</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="live-dot cool"/><span className="mono" style={{ fontSize: 10, color: 'var(--fg-4)' }}>LIVE</span></div>
+          </div>
+          <div className="mono" style={{ fontSize: 11, lineHeight: 1.9, color: 'var(--fg-3)' }}>
+            <div><span style={{ color: 'var(--fg-5)' }}>10:42:01 →</span> Modifying parameter <span style={{ color: 'var(--signal-cool)' }}>[resource_allocation]</span> to {params.resource.toFixed(2)}</div>
+            <div><span style={{ color: 'var(--fg-5)' }}>10:42:01 →</span> Re-balancing compute clusters across 8 regions</div>
+            <div><span style={{ color: 'var(--fg-5)' }}>10:42:02 ✓</span> <span style={{ color: 'var(--signal-pos)' }}>Validation passed.</span> Latency expected: {Math.round(projected.latency)}ms</div>
+            <div><span style={{ color: 'var(--fg-5)' }}>10:42:02 →</span> Shadow-running 12,400 requests against new params...</div>
+            <div><span style={{ color: 'var(--fg-5)' }}>10:42:03 ✓</span> <span style={{ color: 'var(--signal-pos)' }}>ROI delta confirmed:</span> <span style={{ color: 'var(--signal-pos)' }}>{fmt.pct(projected.roiDelta)}</span></div>
+            <div><span style={{ color: 'var(--fg-5)' }}>10:42:04 →</span> Awaiting commit authorization...</div>
+          </div>
+        </div>
+      </div>
+
+      {/* — IMPACT PROJECTION — */}
+      <div style={{ background: 'var(--bg-panel)', padding: '24px 22px', overflow: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+          <span className="mono" style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.14em' }}>IMPACT PROJECTION</span>
+          <Tag tone="cool">LIVE</Tag>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--fg-4)', marginBottom: 18 }}>Predicted deltas · next 24h rolling window</div>
+
+        <ImpactCard
+          label="Projected ROI"
+          base={`${baseline.roi.toFixed(0)}%`}
+          projected={`${projected.roi.toFixed(0)}%`}
+          delta={fmt.pct(projected.roiDelta, 1)}
+          tone={projected.roiDelta >= 0 ? 'pos' : 'neg'}
+        />
+        <ImpactCard
+          label="Compute cost"
+          base={`${fmt.money(baseline.cost*1e6)}/mo`}
+          projected={`${fmt.money(projected.cost*1e6)}/mo`}
+          delta={fmt.pct(projected.costDelta, 1)}
+          tone={projected.costDelta <= 0 ? 'pos' : 'warn'}
+          invert
+        />
+        <ImpactCard
+          label="p95 Latency"
+          base={`${Math.round(baseline.latency)}ms`}
+          projected={`${Math.round(projected.latency)}ms`}
+          delta={`${projected.latDelta >= 0 ? '+' : ''}${Math.round(projected.latDelta)}ms`}
+          tone={projected.latDelta <= 0 ? 'pos' : 'warn'}
+          invert
+        />
+        <ImpactCard
+          label="Anomaly risk"
+          base={`${(baseline.risk*100).toFixed(1)}%`}
+          projected={`${(projected.risk*100).toFixed(1)}%`}
+          delta={`${projected.riskDelta >= 0 ? '+' : ''}${(projected.riskDelta*100).toFixed(1)}pp`}
+          tone={projected.riskDelta <= 0 ? 'pos' : 'neg'}
+          invert
+        />
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
+          <button style={{
+            flex: 1, padding: '12px', background: 'var(--signal-cool)', color: 'var(--bg-void)',
+            border: 'none', borderRadius: 4, fontWeight: 500, fontSize: 12, letterSpacing: '0.04em', textTransform: 'uppercase',
+          }}>Commit Topology</button>
+          <button style={{
+            padding: '12px 14px', background: 'transparent', color: 'var(--fg-3)',
+            border: '1px solid var(--stroke-2)', borderRadius: 4, fontSize: 12,
+          }}>Revert</button>
+        </div>
+
+        <div style={{ marginTop: 24, padding: '12px 14px', background: 'var(--bg-inset)', border: '1px solid var(--stroke-2)', borderRadius: 4, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <span style={{ color: 'var(--signal-violet)', marginTop: 2 }}><Glyph.Bolt /></span>
+          <div>
+            <div style={{ fontSize: 12, color: 'var(--fg-2)', fontWeight: 500 }}>AI recommendation</div>
+            <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 4, lineHeight: 1.5 }}>Raise <span style={{ color: 'var(--signal-cool)' }}>autonomy</span> to 0.45 and lower <span style={{ color: 'var(--signal-cool)' }}>velocity</span> to 0.70. Est. +$4.2k/mo saved with nominal risk shift.</div>
+            <button style={{
+              marginTop: 10, padding: '4px 8px', background: 'transparent',
+              border: '1px solid var(--stroke-3)', borderRadius: 3, color: 'var(--fg-2)', fontSize: 10, letterSpacing: '0.08em',
+            }} className="mono">APPLY →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ImpactCard({ label, base, projected, delta, tone = 'pos', invert }) {
+  return (
+    <div style={{ padding: '14px 14px', background: 'var(--bg-inset)', border: '1px solid var(--stroke-2)', borderRadius: 6, marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <span className="mono" style={{ fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>{label}</span>
+        <span className="mono tnum" style={{ fontSize: 11, color: `var(--signal-${tone})`, fontWeight: 500 }}>{delta}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 10 }}>
+        <span className="mono tnum" style={{ fontSize: 10, color: 'var(--fg-5)', textDecoration: 'line-through' }}>{base}</span>
+        <span style={{ color: 'var(--fg-5)' }}>→</span>
+        <span className="mono tnum" style={{ fontSize: 20, color: 'var(--fg-1)', fontWeight: 400 }}>{projected}</span>
+      </div>
+    </div>
+  );
+}
+
+// ——— VARIANT A: LINEAR ———
+function LinearVariant({ params, setParams }) {
+  const rows = [
+    { key: 'resource', label: 'Resource allocation', sub: 'Compute depth vs operational budget', left: 'LEAN', right: 'DEEP', tone: 'cool' },
+    { key: 'velocity', label: 'Execution velocity', sub: 'Response threshold vs analytical depth', left: 'THOROUGH', right: 'RAPID', tone: 'violet' },
+    { key: 'autonomy', label: 'Autonomy threshold', sub: 'Human intervention required per action', left: 'HITL', right: 'FULL', tone: 'warn' },
+  ];
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>
+      {rows.map(r => {
+        const val = params[r.key];
+        return (
+          <div key={r.key}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+              <div>
+                <div style={{ fontSize: 15, color: 'var(--fg-1)', fontWeight: 500 }}>{r.label}</div>
+                <div style={{ fontSize: 11, color: 'var(--fg-4)', marginTop: 3 }}>{r.sub}</div>
+              </div>
+              <Tag tone={r.tone}>{(val*100).toFixed(0)}%</Tag>
+            </div>
+            <div style={{ position: 'relative', height: 36, display: 'flex', alignItems: 'center' }}>
+              <div style={{ position: 'absolute', left: 0, right: 0, height: 2, background: 'var(--stroke-2)' }}/>
+              <div style={{ position: 'absolute', left: 0, width: `${val*100}%`, height: 2, background: `var(--signal-${r.tone})`, boxShadow: `0 0 12px var(--signal-${r.tone})` }}/>
+              {/* ghost original */}
+              <div style={{ position: 'absolute', left: 0, width: '50%', height: 6, top: '50%', marginTop: -3, borderLeft: '1px dashed var(--stroke-3)', borderRight: '1px dashed var(--stroke-3)', pointerEvents: 'none' }}/>
+              <input type="range" min="0" max="1" step="0.01" value={val}
+                onChange={e => setParams(p => ({...p, [r.key]: parseFloat(e.target.value)}))}
+                style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%' }}/>
+              {/* thumb */}
+              <div style={{
+                position: 'absolute', left: `${val*100}%`, width: 16, height: 16,
+                marginLeft: -8, borderRadius: '50%', background: 'var(--fg-1)',
+                border: `2px solid var(--signal-${r.tone})`,
+                boxShadow: `0 0 12px var(--signal-${r.tone})`,
+                pointerEvents: 'none',
+              }}/>
+              {/* ticks */}
+              {[0,0.25,0.5,0.75,1].map(t => (
+                <span key={t} style={{ position: 'absolute', left: `${t*100}%`, width: 1, height: 6, background: 'var(--stroke-3)', bottom: 6 }}/>
+              ))}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+              <span className="mono" style={{ fontSize: 9, color: 'var(--fg-5)', letterSpacing: '0.12em' }}>{r.left}</span>
+              <span className="mono" style={{ fontSize: 9, color: 'var(--fg-5)', letterSpacing: '0.12em' }}>{r.right}</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ——— VARIANT B: RADIAL DIALS ———
+function RadialVariant({ params, setParams }) {
+  const dials = [
+    { key: 'resource', label: 'RESOURCE', sub: 'Lean → Deep', tone: 'cool' },
+    { key: 'velocity', label: 'VELOCITY', sub: 'Thorough → Rapid', tone: 'violet' },
+    { key: 'autonomy', label: 'AUTONOMY', sub: 'HITL → Full', tone: 'warn' },
+  ];
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20 }}>
+      {dials.map(d => <Dial key={d.key} d={d} val={params[d.key]} onChange={v => setParams(p => ({...p, [d.key]: v}))}/>)}
+    </div>
+  );
+}
+
+function Dial({ d, val, onChange }) {
+  const size = 220;
+  const r = size/2 - 22;
+  const cx = size/2, cy = size/2;
+  // arc from -135° to +135° (270° sweep)
+  const start = -135 * Math.PI/180, end = 135 * Math.PI/180;
+  const cur = start + val * (end - start);
+  const startPt = { x: cx + r*Math.cos(start), y: cy + r*Math.sin(start) };
+  const endPt = { x: cx + r*Math.cos(end), y: cy + r*Math.sin(end) };
+  const curPt = { x: cx + r*Math.cos(cur), y: cy + r*Math.sin(cur) };
+  const arc = (from, to) => {
+    const fp = { x: cx + r*Math.cos(from), y: cy + r*Math.sin(from) };
+    const tp = { x: cx + r*Math.cos(to), y: cy + r*Math.sin(to) };
+    const large = (to - from) > Math.PI ? 1 : 0;
+    return `M ${fp.x} ${fp.y} A ${r} ${r} 0 ${large} 1 ${tp.x} ${tp.y}`;
+  };
+  return (
+    <div style={{ padding: 18, background: 'var(--bg-panel)', border: '1px solid var(--stroke-2)', borderRadius: 8, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      <svg width={size} height={size} style={{ cursor: 'pointer' }}
+        onMouseDown={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const handle = (mv) => {
+            const dx = mv.clientX - (rect.left + cx), dy = mv.clientY - (rect.top + cy);
+            let ang = Math.atan2(dy, dx);
+            if (ang < start) ang = start;
+            if (ang > end) ang = end;
+            if (ang < -Math.PI/2 && dx < 0 && dy > 0) ang = end;
+            const v = Math.max(0, Math.min(1, (ang - start) / (end - start)));
+            onChange(v);
+          };
+          handle(e);
+          window.addEventListener('mousemove', handle);
+          window.addEventListener('mouseup', () => window.removeEventListener('mousemove', handle), { once: true });
+        }}>
+        <path d={arc(start, end)} stroke="var(--stroke-2)" strokeWidth="2" fill="none"/>
+        <path d={arc(start, cur)} stroke={`var(--signal-${d.tone})`} strokeWidth="3" fill="none" style={{ filter: `drop-shadow(0 0 6px var(--signal-${d.tone}))` }}/>
+        {/* ticks */}
+        {Array.from({ length: 27 }, (_, i) => {
+          const a = start + (i/26)*(end - start);
+          const r1 = r+5, r2 = r + (i % 5 === 0 ? 12 : 8);
+          return <line key={i} x1={cx + r1*Math.cos(a)} y1={cy + r1*Math.sin(a)} x2={cx + r2*Math.cos(a)} y2={cy + r2*Math.sin(a)} stroke="var(--stroke-3)" strokeWidth={i % 5 === 0 ? 1.2 : 0.8}/>;
+        })}
+        {/* needle */}
+        <line x1={cx} y1={cy} x2={curPt.x} y2={curPt.y} stroke={`var(--signal-${d.tone})`} strokeWidth="2" strokeLinecap="round" style={{ filter: `drop-shadow(0 0 4px var(--signal-${d.tone}))` }}/>
+        <circle cx={cx} cy={cy} r="22" fill="var(--bg-inset)" stroke="var(--stroke-3)"/>
+        <circle cx={cx} cy={cy} r="4" fill={`var(--signal-${d.tone})`}/>
+        <text x={cx} y={cy+50} textAnchor="middle" fill={`var(--signal-${d.tone})`} fontSize="22" fontFamily="var(--font-mono)" fontWeight="300">{(val*100).toFixed(0)}</text>
+        <text x={cx} y={cy+68} textAnchor="middle" fill="var(--fg-5)" fontSize="10" fontFamily="var(--font-mono)" letterSpacing="0.2em">%</text>
+      </svg>
+      <div className="mono" style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.16em', marginTop: 8 }}>{d.label}</div>
+      <div style={{ fontSize: 10, color: 'var(--fg-5)', marginTop: 4 }}>{d.sub}</div>
+    </div>
+  );
+}
+
+// ——— VARIANT C: SPATIAL ———
+function SpatialVariant({ params, setParams }) {
+  const boxRef = useRef(null);
+  const onDrag = (e) => {
+    const rect = boxRef.current.getBoundingClientRect();
+    const handle = (mv) => {
+      const x = Math.max(0, Math.min(1, (mv.clientX - rect.left) / rect.width));
+      const y = Math.max(0, Math.min(1, 1 - (mv.clientY - rect.top) / rect.height));
+      setParams(p => ({ ...p, resource: y, velocity: x }));
+    };
+    handle(e);
+    window.addEventListener('mousemove', handle);
+    window.addEventListener('mouseup', () => window.removeEventListener('mousemove', handle), { once: true });
+  };
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 220px', gap: 20 }}>
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+          <span className="mono" style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.14em' }}>TRADEOFF SURFACE · DRAG TO STEER</span>
+          <Tag>VELOCITY × RESOURCE</Tag>
+        </div>
+        <div ref={boxRef} onMouseDown={onDrag} style={{
+          position: 'relative', aspectRatio: '1.3 / 1', background: 'var(--bg-inset)',
+          border: '1px solid var(--stroke-2)', borderRadius: 6, cursor: 'crosshair', overflow: 'hidden',
+        }}>
+          {/* gradient heat */}
+          <div style={{ position: 'absolute', inset: 0,
+            background: 'radial-gradient(circle at 70% 30%, rgba(52,211,153,0.18), transparent 50%), radial-gradient(circle at 20% 80%, rgba(239,90,111,0.14), transparent 50%)',
+          }}/>
+          {/* grid */}
+          <div style={{ position: 'absolute', inset: 0,
+            backgroundImage: 'linear-gradient(var(--stroke-1) 1px, transparent 1px), linear-gradient(90deg, var(--stroke-1) 1px, transparent 1px)',
+            backgroundSize: '10% 10%',
+          }}/>
+          {/* current point */}
+          <div style={{
+            position: 'absolute', left: `${params.velocity*100}%`, top: `${(1-params.resource)*100}%`,
+            width: 16, height: 16, marginLeft: -8, marginTop: -8, borderRadius: '50%',
+            background: 'var(--fg-1)', border: '2px solid var(--signal-cool)',
+            boxShadow: '0 0 16px var(--signal-cool)',
+          }}/>
+          {/* crosshairs */}
+          <div style={{ position: 'absolute', left: `${params.velocity*100}%`, top: 0, bottom: 0, width: 1, background: 'rgba(125,211,252,0.3)' }}/>
+          <div style={{ position: 'absolute', top: `${(1-params.resource)*100}%`, left: 0, right: 0, height: 1, background: 'rgba(125,211,252,0.3)' }}/>
+          {/* axis labels */}
+          <span className="mono" style={{ position: 'absolute', top: 8, left: 10, fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.12em' }}>DEEP COMPUTE</span>
+          <span className="mono" style={{ position: 'absolute', bottom: 8, left: 10, fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.12em' }}>LEAN</span>
+          <span className="mono" style={{ position: 'absolute', bottom: 8, right: 10, fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.12em' }}>RAPID →</span>
+          <span className="mono" style={{ position: 'absolute', bottom: 8, left: '50%', transform: 'translateX(-50%)', fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.12em' }}>THOROUGH</span>
+          {/* zones */}
+          <span className="mono" style={{ position: 'absolute', top: '20%', right: '18%', fontSize: 9, color: 'var(--signal-pos)', letterSpacing: '0.12em' }}>OPTIMAL</span>
+          <span className="mono" style={{ position: 'absolute', bottom: '20%', left: '14%', fontSize: 9, color: 'var(--signal-neg)', letterSpacing: '0.12em' }}>STARVED</span>
+        </div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ padding: 12, background: 'var(--bg-inset)', border: '1px solid var(--stroke-2)', borderRadius: 4 }}>
+          <div className="mono" style={{ fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.12em' }}>AUTONOMY</div>
+          <input type="range" min="0" max="1" step="0.01" value={params.autonomy}
+            onChange={e => setParams(p => ({...p, autonomy: parseFloat(e.target.value)}))}
+            style={{ width: '100%', marginTop: 10, accentColor: '#f5b84a' }}/>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span className="mono" style={{ fontSize: 9, color: 'var(--fg-5)' }}>HITL</span>
+            <span className="mono tnum" style={{ fontSize: 12, color: 'var(--signal-warn)' }}>{(params.autonomy*100).toFixed(0)}%</span>
+            <span className="mono" style={{ fontSize: 9, color: 'var(--fg-5)' }}>FULL</span>
+          </div>
+        </div>
+        <div style={{ padding: 12, background: 'var(--bg-inset)', border: '1px solid var(--stroke-2)', borderRadius: 4 }}>
+          <div className="mono" style={{ fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.12em' }}>PRESETS</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
+            {[['Precision', 0.85, 0.25, 0.15], ['Balanced', 0.55, 0.60, 0.35], ['Throughput', 0.30, 0.90, 0.60]].map(([name, r, v, a]) => (
+              <button key={name} onClick={() => setParams({ resource: r, velocity: v, autonomy: a })} style={{
+                textAlign: 'left', padding: '6px 8px', background: 'transparent',
+                border: '1px solid var(--stroke-2)', borderRadius: 3, color: 'var(--fg-2)', fontSize: 11,
+              }}>{name}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { SteeringView });
+
+
+// ===== builder_run.jsx =====
+// ============================================
+// AGENTIUM — Builder Canvas
+// System topology editor. Nodes, edges, live telemetry.
+// ============================================
+
+function BuilderView() {
+  const [selected, setSelected] = useState('ext');
+
+  const nodes = {
+    trigger: { x: 60, y: 220, w: 170, h: 80, label: 'External Webhook', type: 'TRIGGER', tone: 'violet', stat: '12ms avg · 2.4k/s', icon: 'Bolt', active: true },
+    ocr:     { x: 290, y: 120, w: 170, h: 80, label: 'OCR Extraction',  type: 'SKILL', tone: 'pos', stat: '99.2% confidence', icon: 'Cube' },
+    ext:     { x: 290, y: 320, w: 200, h: 100, label: 'Semantic Extraction', type: 'LLM', tone: 'cool', stat: '98.2% confidence · GPT-4o', icon: 'Cube', focus: true },
+    router:  { x: 540, y: 220, w: 170, h: 80, label: 'Routing Logic',   type: 'LOGIC', tone: 'violet', stat: '3 branches · 5ms', icon: 'Flow' },
+    hitl:    { x: 780, y: 100, w: 170, h: 80, label: 'Human Review',    type: 'HITL',  tone: 'warn', stat: 'Queue: 2 items', icon: 'Warn' },
+    emit:    { x: 780, y: 220, w: 170, h: 80, label: 'Signal Emit',     type: 'OUTPUT',tone: 'pos', stat: '+98.2% acc · live', icon: 'Check' },
+    esc:     { x: 780, y: 340, w: 170, h: 80, label: 'Escalate',        type: 'OUTPUT',tone: 'neg', stat: 'Priority queue', icon: 'Arrow' },
+  };
+
+  const edges = [
+    ['trigger','ocr'], ['trigger','ext'],
+    ['ocr','router'], ['ext','router'],
+    ['router','hitl'], ['router','emit'], ['router','esc'],
+  ];
+
+  const sel = nodes[selected];
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', height: '100%', background: 'var(--stroke-2)', gap: 1 }}>
+      {/* canvas */}
+      <div style={{ position: 'relative', background: 'var(--bg-base)', overflow: 'hidden' }}>
+        {/* ambient dot grid */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          backgroundImage: 'radial-gradient(circle, var(--stroke-2) 1px, transparent 1px)',
+          backgroundSize: '24px 24px', opacity: 0.4,
+        }}/>
+
+        {/* toolbar */}
+        <div style={{ position: 'absolute', top: 16, left: 16, display: 'flex', flexDirection: 'column', gap: 4, zIndex: 2 }}>
+          {['Bolt','Cube','Flow','Sliders','Warn'].map(g => {
+            const G = Glyph[g];
+            return <button key={g} style={{
+              width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'var(--bg-panel)', border: '1px solid var(--stroke-2)', borderRadius: 4,
+              color: 'var(--fg-3)',
+            }}><G /></button>;
+          })}
+        </div>
+
+        {/* breadcrumb */}
+        <div style={{ position: 'absolute', top: 16, left: 72, display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', background: 'var(--bg-panel)', border: '1px solid var(--stroke-2)', borderRadius: 4, zIndex: 2 }}>
+          <span className="mono" style={{ fontSize: 10, color: 'var(--fg-4)' }}>Customer Intelligence</span>
+          <span style={{ color: 'var(--fg-5)' }}>›</span>
+          <span className="mono" style={{ fontSize: 10, color: 'var(--fg-4)' }}>Sentiment Routing</span>
+          <span style={{ color: 'var(--fg-5)' }}>›</span>
+          <span className="mono" style={{ fontSize: 10, color: 'var(--fg-1)' }}>Data Ingestion Flow</span>
+          <span className="live-dot" style={{ marginLeft: 6 }}/>
+        </div>
+
+        {/* zoom controls */}
+        <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', gap: 2, padding: 3, background: 'var(--bg-panel)', border: '1px solid var(--stroke-2)', borderRadius: 4, zIndex: 2 }}>
+          <button style={builderBtn}>⌖</button>
+          <button style={builderBtn}>−</button>
+          <button style={builderBtn}>82%</button>
+          <button style={builderBtn}>+</button>
+        </div>
+
+        {/* graph */}
+        <svg viewBox="0 0 1050 480" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style={{ position: 'absolute', inset: 0 }}>
+          <defs>
+            <marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+              <path d="M0,0 L6,3 L0,6" fill="var(--stroke-3)"/>
+            </marker>
+            <marker id="arr-hot" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+              <path d="M0,0 L6,3 L0,6" fill="var(--signal-cool)"/>
+            </marker>
+          </defs>
+          {/* edges */}
+          {edges.map(([a, b], i) => {
+            const A = nodes[a], B = nodes[b];
+            const x1 = A.x + A.w, y1 = A.y + A.h/2;
+            const x2 = B.x,       y2 = B.y + B.h/2;
+            const mx = (x1 + x2) / 2;
+            const d = `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
+            const hot = a === 'trigger' && b === 'ext';
+            return (
+              <g key={i}>
+                <path d={d} stroke={hot ? 'var(--signal-cool)' : 'var(--stroke-3)'} strokeWidth={hot ? 1.4 : 1} fill="none"
+                  markerEnd={hot ? 'url(#arr-hot)' : 'url(#arr)'}
+                  strokeDasharray={hot ? '0' : '3 3'}
+                  opacity={hot ? 1 : 0.6}
+                />
+                {hot && (
+                  <circle r="3" fill="var(--signal-cool)" style={{ filter: 'drop-shadow(0 0 6px var(--signal-cool))' }}>
+                    <animateMotion dur="2.4s" repeatCount="indefinite" path={d} />
+                  </circle>
+                )}
+              </g>
+            );
+          })}
+          {/* nodes */}
+          {Object.entries(nodes).map(([id, n]) => {
+            const G = Glyph[n.icon];
+            const focused = selected === id;
+            return (
+              <g key={id} transform={`translate(${n.x}, ${n.y})`} style={{ cursor: 'pointer' }} onClick={() => setSelected(id)}>
+                {focused && <rect x="-4" y="-4" width={n.w + 8} height={n.h + 8} rx="8" fill="none" stroke={`var(--signal-${n.tone})`} strokeWidth="1.2" opacity="0.45" style={{ filter: `drop-shadow(0 0 8px var(--signal-${n.tone}))` }}/>}
+                <rect x="0" y="0" width={n.w} height={n.h} rx="6"
+                  fill="var(--bg-panel)"
+                  stroke={focused ? `var(--signal-${n.tone})` : 'var(--stroke-2)'}
+                  strokeWidth={focused ? 1.2 : 1}
+                />
+                {/* top tone bar */}
+                <rect x="0" y="0" width={n.w} height="2" rx="1" fill={`var(--signal-${n.tone})`}/>
+                {/* label */}
+                <foreignObject x="12" y="10" width={n.w - 24} height={n.h - 20}>
+                  <div style={{ fontFamily: 'var(--font-sans)', color: 'var(--fg-1)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ color: `var(--signal-${n.tone})` }}><G /></span>
+                      <span className="mono" style={{ fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.14em' }}>{n.type}</span>
+                      {n.active && <span className="live-dot" style={{ marginLeft: 'auto' }}/>}
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 500, marginTop: 8 }}>{n.label}</div>
+                    <div className="mono" style={{ fontSize: 10, color: 'var(--fg-4)', marginTop: 4 }}>{n.stat}</div>
+                  </div>
+                </foreignObject>
+              </g>
+            );
+          })}
+        </svg>
+
+        {/* bottom terminal */}
+        <div style={{
+          position: 'absolute', left: 16, right: 16, bottom: 16,
+          background: 'var(--bg-code)', border: '1px solid var(--stroke-2)',
+          borderRadius: 4, padding: '10px 14px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span className="mono" style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.12em' }}>EXECUTION TERMINAL</span>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <Tag tone="pos">0 ERRORS</Tag>
+              <Tag tone="cool">14 INFO</Tag>
+            </div>
+          </div>
+          <div className="mono" style={{ fontSize: 10, lineHeight: 1.7, color: 'var(--fg-3)' }}>
+            <div><span style={{ color: 'var(--fg-5)' }}>10:42:01</span> <span style={{ color: 'var(--signal-violet)' }}>[System]</span> Initializing pipeline execution (Run r_992x)</div>
+            <div><span style={{ color: 'var(--fg-5)' }}>10:42:02</span> <span style={{ color: 'var(--signal-cool)' }}>[Webhook]</span> Payload 2.4kb received</div>
+            <div><span style={{ color: 'var(--fg-5)' }}>10:42:03</span> <span style={{ color: 'var(--signal-cool)' }}>[Extraction]</span> Routing to Semantic Extraction node</div>
+            <div><span style={{ color: 'var(--fg-5)' }}>10:42:04</span> <span style={{ color: 'var(--signal-pos)' }}>[Success]</span> Confidence 0.982 · 3 entities parsed</div>
+          </div>
+        </div>
+      </div>
+
+      {/* inspector */}
+      <div style={{ background: 'var(--bg-panel)', padding: '22px 22px', overflow: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+          <span className="mono" style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.14em' }}>NODE INSPECTOR</span>
+          <Tag tone={sel.tone}>{sel.type}</Tag>
+        </div>
+        <div style={{ fontSize: 18, color: 'var(--fg-1)', fontWeight: 400 }}>{sel.label}</div>
+        <div className="mono" style={{ fontSize: 10, color: 'var(--fg-4)', marginTop: 4 }}>id: node_{selected}_8f7a9</div>
+
+        <div style={{ marginTop: 22 }}>
+          <div className="mono" style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.12em', marginBottom: 10 }}>MODEL · GPT-4o Turbo</div>
+          <div style={{ padding: '10px 12px', background: 'var(--bg-inset)', border: '1px solid var(--stroke-2)', borderRadius: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 12, color: 'var(--fg-2)' }}>GPT-4o Turbo</span>
+            <span style={{ color: 'var(--fg-5)' }}>⌄</span>
+          </div>
+          <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <span className="mono" style={{ fontSize: 10, color: 'var(--fg-3)' }}>TEMPERATURE</span>
+            <span className="mono tnum" style={{ fontSize: 12, color: 'var(--signal-cool)' }}>0.20</span>
+          </div>
+          <div style={{ position: 'relative', height: 4, background: 'var(--stroke-2)', borderRadius: 2 }}>
+            <div style={{ position: 'absolute', left: 0, width: '20%', height: '100%', background: 'var(--signal-cool)', boxShadow: '0 0 8px var(--signal-cool)', borderRadius: 2 }}/>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 22 }}>
+          <div className="mono" style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.12em', marginBottom: 8 }}>SYSTEM PROMPT</div>
+          <div className="mono" style={{ padding: 12, background: 'var(--bg-code)', border: '1px solid var(--stroke-2)', borderRadius: 4, fontSize: 10.5, lineHeight: 1.7, color: 'var(--fg-3)' }}>
+            <span style={{ color: 'var(--signal-violet)' }}>You are an expert financial analyst.</span><br/>
+            Extract the following from input text:<br/>
+            <span style={{ color: 'var(--signal-cool)' }}>— Company name</span><br/>
+            <span style={{ color: 'var(--signal-cool)' }}>— Q3 revenue figures</span><br/>
+            <span style={{ color: 'var(--signal-cool)' }}>— Key risk factors</span>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 22 }}>
+          <div className="mono" style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.12em', marginBottom: 10 }}>LOCAL METRICS · 24H</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <Metric label="Latency p95" v="420ms" />
+            <Metric label="Success rate" v="99.8%" color="var(--signal-pos)" />
+            <Metric label="Tokens" v="1.2M" />
+            <Metric label="Cost" v="$240" />
+          </div>
+        </div>
+
+        <button style={{
+          marginTop: 22, width: '100%', padding: '10px', background: 'var(--signal-cool)', color: 'var(--bg-void)',
+          border: 'none', borderRadius: 4, fontWeight: 500, fontSize: 12, letterSpacing: '0.04em', textTransform: 'uppercase',
+        }}>Apply Changes</button>
+      </div>
+    </div>
+  );
+}
+
+const builderBtn = {
+  width: 32, height: 28, fontSize: 11,
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  background: 'transparent', border: '1px solid transparent',
+  color: 'var(--fg-3)', fontFamily: 'var(--font-mono)',
+};
+
+// ============================================
+// RUN DETAIL
+// ============================================
+
+function RunView() {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', height: '100%', background: 'var(--stroke-2)', gap: 1, overflow: 'auto' }}>
+      <div style={{ background: 'var(--bg-base)', padding: '24px 32px', overflow: 'auto' }}>
+        {/* header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+          <span className="mono" style={{ fontSize: 10, color: 'var(--fg-4)', letterSpacing: '0.14em' }}>← AGENT RUNS</span>
+          <span style={{ color: 'var(--fg-5)' }}>›</span>
+          <Tag>RUN-8924A</Tag>
+        </div>
+        <h1 style={{ fontSize: 32, color: 'var(--fg-1)', fontWeight: 300, margin: '6px 0 0', letterSpacing: '-0.02em' }}>Invoice Processing</h1>
+        <div style={{ fontSize: 12, color: 'var(--fg-4)', marginTop: 6 }}>Executed via Main Controller · 2m ago · Duration 1.42s</div>
+
+        {/* outcome */}
+        <div style={{ marginTop: 24, padding: 22, background: 'var(--bg-panel)', border: '1px solid var(--stroke-2)', borderRadius: 8, position: 'relative' }}>
+          {/* subtle glow ring for success */}
+          <div style={{ position: 'absolute', inset: -1, border: '1px solid rgba(52,211,153,0.22)', borderRadius: 9, pointerEvents: 'none' }}/>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <span className="mono" style={{ fontSize: 10, color: 'var(--fg-4)', letterSpacing: '0.14em' }}>OUTCOME · PRIMARY</span>
+              <div style={{ fontSize: 22, color: 'var(--fg-1)', fontWeight: 400, marginTop: 6, lineHeight: 1.3 }}>
+                Extracted 42 line items, reconciled against <span style={{ color: 'var(--signal-cool)' }}>PO-2023-881</span>.<br/>
+                Data posted to ERP staging table.
+              </div>
+            </div>
+            <Tag tone="pos">SUCCESS · COMMITTED</Tag>
+          </div>
+          <div style={{ marginTop: 22, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+            <OutcomeTile label="Items processed" v="42" />
+            <OutcomeTile label="Compute cost" v="$0.04" sub="−89% vs manual" color="var(--signal-cool)"/>
+            <OutcomeTile label="Time saved" v="~15m" sub="labor avoidance" color="var(--signal-pos)"/>
+            <OutcomeTile label="Confidence" v="98.2%" sub="threshold ≥99%" color="var(--signal-pos)" meter={0.982}/>
+          </div>
+          <div style={{ marginTop: 18, padding: '10px 14px', background: 'var(--bg-inset)', border: '1px solid var(--stroke-2)', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span className="mono" style={{ fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.12em' }}>VALUE ADDED</span>
+            <span className="mono tnum" style={{ fontSize: 14, color: 'var(--signal-pos)' }}>+$12.00</span>
+            <span style={{ flex: 1 }}/>
+            <span className="mono" style={{ fontSize: 9, color: 'var(--fg-4)' }}>MODEL: gpt-4-turbo · 4,333 tokens</span>
+          </div>
+        </div>
+
+        {/* trace */}
+        <div style={{ marginTop: 24, padding: 22, background: 'var(--bg-panel)', border: '1px solid var(--stroke-2)', borderRadius: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+            <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--fg-1)' }}>Execution trace</div>
+            <Tag>TOTAL 1.42s</Tag>
+          </div>
+
+          {[
+            { i: 1, name: 'Document Ingestion · OCR', sub: 'Extracted raw text blocks and layout geometry', ms: 300, tone: 'pos', meta: 'INV-442.PDF · 2.1MB' },
+            { i: 2, name: 'Semantic Extraction · LLM', sub: 'Mapped raw text to standard JSON schema', ms: 800, tone: 'cool', meta: 'GPT-4o · t=0.2', focus: true, code: true },
+            { i: 3, name: 'Validation · Reconciliation', sub: 'Line items summed. Vendor exists in ERP.', ms: 200, tone: 'pos', meta: 'No flags raised' },
+            { i: 4, name: 'Commit · ERP Staging', sub: 'Posted to staging.invoices. Batch ID 44a8e', ms: 120, tone: 'pos', meta: 'Idempotent write' },
+          ].map((s, i, arr) => (
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '24px 1fr 80px', gap: 14, position: 'relative' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative' }}>
+                <div style={{
+                  width: 22, height: 22, borderRadius: '50%',
+                  background: 'var(--bg-inset)', border: `1.5px solid var(--signal-${s.tone})`,
+                  boxShadow: s.focus ? `0 0 8px var(--signal-${s.tone})` : 'none',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: `var(--signal-${s.tone})`, fontFamily: 'var(--font-mono)', fontSize: 10,
+                }}>{s.i}</div>
+                {i < arr.length - 1 && <div style={{ width: 1, flex: 1, background: 'var(--stroke-2)', minHeight: 20 }}/>}
+              </div>
+              <div style={{ paddingBottom: 18 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                  <span style={{ fontSize: 13, color: 'var(--fg-1)', fontWeight: 500 }}>{s.name}</span>
+                  <Tag tone={s.tone}>{s.meta}</Tag>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--fg-4)', marginTop: 4 }}>{s.sub}</div>
+                {s.code && (
+                  <div className="mono" style={{ marginTop: 10, padding: 10, background: 'var(--bg-code)', border: '1px solid var(--stroke-2)', borderRadius: 4, fontSize: 10.5, lineHeight: 1.7, color: 'var(--fg-3)' }}>
+                    {'{'}<br/>
+                    &nbsp;&nbsp;<span style={{ color: 'var(--signal-cool)' }}>"vendor_id"</span>: <span style={{ color: 'var(--signal-pos)' }}>"V-8821"</span>,<br/>
+                    &nbsp;&nbsp;<span style={{ color: 'var(--signal-cool)' }}>"invoice_date"</span>: <span style={{ color: 'var(--signal-pos)' }}>"2023-10-24"</span>,<br/>
+                    &nbsp;&nbsp;<span style={{ color: 'var(--signal-cool)' }}>"total_amount"</span>: <span style={{ color: 'var(--signal-warn)' }}>4250.00</span>,<br/>
+                    &nbsp;&nbsp;<span style={{ color: 'var(--signal-cool)' }}>"line_items_count"</span>: <span style={{ color: 'var(--signal-warn)' }}>4</span><br/>
+                    {'}'}
+                  </div>
+                )}
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span className="mono tnum" style={{ fontSize: 12, color: 'var(--fg-2)' }}>{s.ms}ms</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* right rail */}
+      <div style={{ background: 'var(--bg-panel)', padding: '22px 22px', overflow: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <span className="mono" style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.14em' }}>TELEMETRY</span>
+          <Tag>GPT-4-TURBO-0125</Tag>
+        </div>
+        <TelemetryRow label="Duration" v="1.42s" />
+        <TelemetryRow label="Prompt tokens" v="3,492" />
+        <TelemetryRow label="Completion tokens" v="841" />
+        <TelemetryRow label="Total cost" v="$0.042" />
+        <TelemetryRow label="System uptime" v="99.9%" color="var(--signal-pos)"/>
+        <TelemetryRow label="Run token usage" v="1,420" />
+
+        <div style={{ marginTop: 20, padding: 14, background: 'var(--bg-inset)', border: '1px solid rgba(245,184,74,0.25)', borderRadius: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <span style={{ color: 'var(--signal-warn)' }}><Glyph.Warn /></span>
+            <span style={{ fontSize: 13, color: 'var(--fg-1)', fontWeight: 500 }}>Validation required</span>
+            <span className="live-dot warn" style={{ marginLeft: 'auto' }}/>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--fg-3)', lineHeight: 1.5, marginBottom: 12 }}>
+            One field fell below the 99% confidence threshold required for straight-through processing.
+          </div>
+          <div style={{ padding: '10px 12px', background: 'var(--bg-code)', borderRadius: 4, fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ color: 'var(--fg-4)' }}>FIELD: TAX_ID</span>
+              <span style={{ color: 'var(--signal-warn)' }}>CONF 82%</span>
+            </div>
+            <div>
+              <span style={{ color: 'var(--fg-5)', textDecoration: 'line-through' }}>12-345678</span>
+              <span style={{ color: 'var(--fg-4)' }}> → </span>
+              <span style={{ color: 'var(--signal-cool)' }}>12-845678</span>
+            </div>
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--fg-4)', marginTop: 10, lineHeight: 1.5 }}>Image quality poor. LLM corrected OCR error based on historical vendor data.</div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
+            <button style={{ flex: 1, padding: '8px', background: 'transparent', color: 'var(--fg-2)', border: '1px solid var(--stroke-3)', borderRadius: 3, fontSize: 11 }}>Reject</button>
+            <button style={{ flex: 1, padding: '8px', background: 'var(--signal-cool)', color: 'var(--bg-void)', border: 'none', borderRadius: 3, fontSize: 11, fontWeight: 500 }}>Approve</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OutcomeTile({ label, v, sub, color = 'var(--fg-1)', meter }) {
+  return (
+    <div style={{ padding: '12px 14px', background: 'var(--bg-inset)', border: '1px solid var(--stroke-2)', borderRadius: 4 }}>
+      <div className="mono" style={{ fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>{label}</div>
+      <div className="mono tnum" style={{ fontSize: 22, color, fontWeight: 400, marginTop: 6 }}>{v}</div>
+      {sub && <div className="mono" style={{ fontSize: 9, color: 'var(--fg-4)', marginTop: 4 }}>{sub}</div>}
+      {meter != null && <div style={{ marginTop: 8, height: 2, background: 'var(--stroke-2)', borderRadius: 1, overflow: 'hidden' }}>
+        <div style={{ width: `${meter*100}%`, height: '100%', background: color, boxShadow: `0 0 6px ${color}` }}/>
+      </div>}
+    </div>
+  );
+}
+
+function TelemetryRow({ label, v, color = 'var(--fg-1)' }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderTop: '1px solid var(--stroke-1)' }}>
+      <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>{label}</span>
+      <span className="mono tnum" style={{ fontSize: 12, color }}>{v}</span>
+    </div>
+  );
+}
+
+Object.assign(window, { BuilderView, RunView });
+
+
+// ===== app.jsx =====
+// ============================================
+// AGENTIUM — App shell, Tweaks, Concept switcher
+// ============================================
+
+function App() {
+  // Tweaks (persisted on page)
+  const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "concept": "A",
+    "theme": "dark",
+    "density": 2,
+    "motion": 7,
+    "accent": "cool"
+  }/*EDITMODE-END*/;
+
+  const [tweaks, setTweaks] = useState(() => {
+    try {
+      const saved = localStorage.getItem('agentium:tweaks');
+      if (saved) return { ...TWEAK_DEFAULTS, ...JSON.parse(saved) };
+    } catch {}
+    return TWEAK_DEFAULTS;
+  });
+  const [tweaksOpen, setTweaksOpen] = useState(false);
+
+  const [view, setView] = useState(() => localStorage.getItem('agentium:view') || 'hypervisor');
+  useEffect(() => { localStorage.setItem('agentium:view', view); }, [view]);
+
+  useEffect(() => {
+    try { localStorage.setItem('agentium:tweaks', JSON.stringify(tweaks)); } catch {}
+    document.documentElement.setAttribute('data-theme', tweaks.theme);
+    document.documentElement.setAttribute('data-concept', tweaks.concept);
+    document.documentElement.setAttribute('data-accent', tweaks.accent);
+  }, [tweaks]);
+
+  // Tweaks edit mode protocol
+  useEffect(() => {
+    const onMsg = (e) => {
+      if (e.data?.type === '__activate_edit_mode') setTweaksOpen(true);
+      if (e.data?.type === '__deactivate_edit_mode') setTweaksOpen(false);
+    };
+    window.addEventListener('message', onMsg);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  const updateTweak = (k, v) => {
+    setTweaks(t => ({ ...t, [k]: v }));
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { [k]: v } }, '*');
+  };
+
+  // Live system state for chrome
+  const throughput = useLiveNumber(2.4, { jitter: 0.04, interval: 1800 });
+  const latency = useLiveNumber(420, { jitter: 0.03, interval: 1400 });
+  const yieldPct = useLiveNumber(24.5, { jitter: 0.01, interval: 2400 });
+  const systemState = { throughput, latency, yield: yieldPct };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: 'var(--bg-base)', overflow: 'hidden' }}>
+      <TitleBar view={view} setView={setView} systemState={systemState} />
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
+        <SideRail view={view} setView={setView} />
+        <div data-screen-label={view.toUpperCase()} data-concept={tweaks.concept} style={{ flex: 1, minWidth: 0, overflow: 'hidden', position: 'relative' }}>
+          {view === 'hypervisor' && <Hypervisor systemState={systemState} />}
+          {view === 'zoom' && <ZoomView onGoToSteering={() => setView('steering')} onGoToRun={() => setView('run')} />}
+          {view === 'steering' && <SteeringView />}
+          {view === 'builder' && <BuilderView />}
+          {view === 'run' && <RunView />}
+
+          {/* Concept label (top-right floating) */}
+          <ConceptBadge concept={tweaks.concept} />
+        </div>
+      </div>
+
+      {tweaksOpen && <TweaksPanel tweaks={tweaks} onChange={updateTweak} onClose={() => setTweaksOpen(false)} />}
+
+      <BottomCommand view={view} />
+    </div>
+  );
+}
+
+function ConceptBadge({ concept }) {
+  const concepts = {
+    A: { name: 'Instrument Panel', sub: 'Precision · Dense cockpit' },
+    B: { name: 'Living Organism',  sub: 'Ambient · Biological pulse' },
+    C: { name: 'Architectural',    sub: 'Editorial · Monochrome' },
+    D: { name: 'Spatial OS',       sub: 'Radical · Semantic zoom' },
+  };
+  const c = concepts[concept] || concepts.A;
+  return (
+    <div style={{
+      position: 'absolute', bottom: 14, left: 18, zIndex: 3,
+      display: 'flex', alignItems: 'center', gap: 10,
+      padding: '6px 10px',
+      background: 'rgba(12,16,20,0.72)',
+      backdropFilter: 'blur(10px)',
+      border: '1px solid var(--stroke-2)',
+      borderRadius: 4,
+    }}>
+      <span className="mono" style={{ fontSize: 9, color: 'var(--fg-5)', letterSpacing: '0.14em' }}>CONCEPT · {concept}</span>
+      <span style={{ color: 'var(--fg-5)' }}>·</span>
+      <span style={{ fontSize: 11, color: 'var(--fg-2)', fontWeight: 500 }}>{c.name}</span>
+      <span className="mono" style={{ fontSize: 10, color: 'var(--fg-4)' }}>{c.sub}</span>
+    </div>
+  );
+}
+
+function BottomCommand({ view }) {
+  return (
+    <div style={{
+      height: 28, borderTop: '1px solid var(--stroke-2)',
+      background: 'var(--bg-panel)',
+      display: 'flex', alignItems: 'center', padding: '0 14px', gap: 18,
+    }}>
+      <span className="mono" style={{ fontSize: 10, color: 'var(--fg-4)', letterSpacing: '0.12em' }}>
+        <span style={{ color: 'var(--signal-pos)' }}>●</span> SYSTEM OPERATIONAL
+      </span>
+      <span className="mono" style={{ fontSize: 10, color: 'var(--fg-5)' }}>/{view}</span>
+      <span style={{ flex: 1 }}/>
+      <span className="mono" style={{ fontSize: 10, color: 'var(--fg-4)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Kbd>⌘</Kbd><Kbd>K</Kbd> Command
+      </span>
+      <span className="mono" style={{ fontSize: 10, color: 'var(--fg-4)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Kbd>⌘</Kbd><Kbd>Z</Kbd> Zoom
+      </span>
+      <span className="mono" style={{ fontSize: 10, color: 'var(--fg-4)' }}>v4.2.1-build-8829</span>
+    </div>
+  );
+}
+
+function TweaksPanel({ tweaks, onChange, onClose }) {
+  return (
+    <div style={{
+      position: 'fixed', bottom: 44, right: 18, width: 320, zIndex: 50,
+      background: 'var(--bg-panel-hi)', border: '1px solid var(--stroke-3)',
+      borderRadius: 8, padding: 18,
+      boxShadow: '0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(125,211,252,0.1)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Glyph.Sliders />
+          <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--fg-1)' }}>Tweaks</span>
+        </div>
+        <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: 'var(--fg-4)' }}><Glyph.X /></button>
+      </div>
+
+      <TweakRow label="Concept">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4 }}>
+          {['A','B','C','D'].map(c => (
+            <button key={c} onClick={() => onChange('concept', c)} style={{
+              padding: '8px 4px', fontSize: 11, fontWeight: 500,
+              background: tweaks.concept === c ? 'var(--signal-cool)' : 'var(--bg-inset)',
+              color: tweaks.concept === c ? 'var(--bg-void)' : 'var(--fg-3)',
+              border: '1px solid ' + (tweaks.concept === c ? 'var(--signal-cool)' : 'var(--stroke-2)'),
+              borderRadius: 3,
+            }} className="mono">{c}</button>
+          ))}
+        </div>
+        <div style={{ fontSize: 10, color: 'var(--fg-4)', marginTop: 6 }}>
+          {['Instrument Panel','Living Organism','Architectural','Spatial OS'][{A:0,B:1,C:2,D:3}[tweaks.concept]]}
+        </div>
+      </TweakRow>
+
+      <TweakRow label="Theme">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 4 }}>
+          {['dark','light'].map(t => (
+            <button key={t} onClick={() => onChange('theme', t)} style={{
+              padding: '8px', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em',
+              background: tweaks.theme === t ? 'var(--bg-panel)' : 'var(--bg-inset)',
+              color: tweaks.theme === t ? 'var(--fg-1)' : 'var(--fg-3)',
+              border: '1px solid ' + (tweaks.theme === t ? 'var(--stroke-hot)' : 'var(--stroke-2)'),
+              borderRadius: 3,
+            }} className="mono">{t}</button>
+          ))}
+        </div>
+      </TweakRow>
+
+      <TweakRow label="Accent">
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[
+            ['cool', '#7dd3fc'],
+            ['violet', '#a78bfa'],
+            ['pos', '#34d399'],
+            ['warn', '#f5b84a'],
+          ].map(([name, col]) => (
+            <button key={name} onClick={() => onChange('accent', name)} style={{
+              width: 36, height: 28, borderRadius: 3,
+              background: col, opacity: tweaks.accent === name ? 1 : 0.4,
+              border: '1px solid ' + (tweaks.accent === name ? 'var(--fg-1)' : 'transparent'),
+              cursor: 'pointer',
+            }}/>
+          ))}
+        </div>
+      </TweakRow>
+
+      <TweakRow label={`Density · ${tweaks.density}/10`}>
+        <input type="range" min="1" max="10" value={tweaks.density} onChange={e => onChange('density', parseInt(e.target.value))} style={{ width: '100%', accentColor: '#7dd3fc' }}/>
+      </TweakRow>
+
+      <TweakRow label={`Motion · ${tweaks.motion}/10`}>
+        <input type="range" min="1" max="10" value={tweaks.motion} onChange={e => onChange('motion', parseInt(e.target.value))} style={{ width: '100%', accentColor: '#7dd3fc' }}/>
+      </TweakRow>
+
+      <div style={{ marginTop: 14, padding: '10px 12px', background: 'var(--bg-inset)', borderRadius: 4, fontSize: 10, color: 'var(--fg-4)', lineHeight: 1.6 }}>
+        Cycle concepts A→D to see visual direction explorations. All views work in every concept. Light theme for comparison.
+      </div>
+    </div>
+  );
+}
+
+function TweakRow({ label, children }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div className="mono" style={{ fontSize: 10, color: 'var(--fg-4)', letterSpacing: '0.12em', marginBottom: 8, textTransform: 'uppercase' }}>{label}</div>
+      {children}
+    </div>
+  );
+}
+
+// MOUNT
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+
+
+</script>
+</body>
+</html>
