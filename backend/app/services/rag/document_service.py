@@ -5,15 +5,15 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from app.services.document_parser.factory import DocumentParserFactory
-from app.services.embedding.embedder import Embedder
-from app.services.retrieval.bm25_retriever import BM25Retriever
-from app.services.retrieval.ensemble_retriever import EnsembleConfig, EnsembleRetriever
-from app.services.retrieval.reranker_config import RerankerConfig
+from app.services.rag.ingest.parser.factory import DocumentParserFactory
+from app.services.rag.ingest.embedder import Embedder
+from app.services.rag.retrieval.bm25_retriever import BM25Retriever
+from app.services.rag.retrieval.ensemble_retriever import EnsembleConfig, EnsembleRetriever
+from app.services.rag.retrieval.reranker_config import RerankerConfig
 from app.services.vector_db.factory import VectorDBFactory
 
 try:
-    from app.services.retrieval.contextual_compression import (
+    from app.services.rag.retrieval.contextual_compression import (
         ContextualCompressionRetriever,
         ContextualConfig,
     )
@@ -32,7 +32,7 @@ from app.services.rag.embedding_generation import (
     resolve_binding,
 )
 from app.services.rag.retrieval_profiles import retrieval_profile_for
-from app.services.retrieval.fusion_method import FusionMethod
+from app.services.rag.retrieval.fusion_method import FusionMethod
 from app.services.tracing.rag_tracer import TraceStepType, get_tracer
 
 logger = get_logger(__name__)
@@ -282,7 +282,7 @@ class DocumentService:
             self.reranker = None
         elif use_reranker:
             try:
-                from app.services.retrieval.rerankers import make_reranker
+                from app.services.rag.retrieval.rerankers import make_reranker
 
                 # Pin the legacy ensemble reranker to the balanced (L-6) model:
                 # the RerankerConfig default is L-12, which otherwise loads a
@@ -308,7 +308,7 @@ class DocumentService:
 
         try:
             # Get chunking settings from app settings if not provided
-            from app.services.document_parser.chunker import ChunkingMethod
+            from app.services.rag.ingest.parser.chunker import ChunkingMethod
 
             # DocumentService doesn't have direct workspace_id — fall back to
             # the process-wide singleton. Callers that do have a workspace

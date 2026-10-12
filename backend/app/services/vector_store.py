@@ -4,7 +4,7 @@ import chromadb
 from chromadb.config import Settings
 from app.core.logging import get_logger
 from app.core.config import settings
-from app.services.embeddings import EmbeddingService
+from app.services.rag.ingest.embeddings import EmbeddingService
 
 logger = get_logger(__name__)
 

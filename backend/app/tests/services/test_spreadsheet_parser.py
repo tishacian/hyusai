@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.document_parser.base import DocumentType
-from app.services.document_parser.factory import DocumentParserFactory
+from app.services.rag.ingest.parser.base import DocumentType
+from app.services.rag.ingest.parser.factory import DocumentParserFactory
 
 
 @pytest.mark.asyncio
@@ -138,7 +138,7 @@ async def test_spreadsheet_parser_converts_legacy_xls_without_text_fallback(
         return type("Completed", (), {"returncode": 0, "stderr": b"", "stdout": b""})()
 
     monkeypatch.setattr(
-        "app.services.document_parser.parsers.spreadsheet_parser.subprocess.run",
+        "app.services.rag.ingest.parser.parsers.spreadsheet_parser.subprocess.run",
         fake_run,
     )
 

@@ -50,7 +50,7 @@ def _semaphore() -> asyncio.Semaphore:
 
 
 async def _embed_chunks(texts: list[str]) -> np.ndarray:
-    from app.services.embedding.embedder import get_shared_embedder
+    from app.services.rag.ingest.embedder import get_shared_embedder
 
     return await get_shared_embedder().embed_batch(
         [str(text or "")[:_CHUNK_EMBED_MAX_CHARS] for text in texts]

@@ -8,7 +8,7 @@ facet.
 """
 import pytest
 
-from app.services.document_parser.text_processor import TextProcessor
+from app.services.rag.ingest.parser.text_processor import TextProcessor
 
 
 def _tokens(text: str) -> list[str]:

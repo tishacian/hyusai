@@ -374,7 +374,7 @@ class ArtifactReranker:
     def __init__(self, *, workspace_id: str, artifact_id: str, config=None, db=None):
         import numpy as np
 
-        from app.services.retrieval.reranker_config import RerankerConfig
+        from app.services.rag.retrieval.reranker_config import RerankerConfig
 
         self.workspace_id, self.artifact_id = workspace_id, artifact_id
         self.config = config or RerankerConfig()
@@ -389,7 +389,7 @@ class ArtifactReranker:
             if self.engine == "reranker_onnx":
                 from dataclasses import replace
 
-                from app.services.retrieval.onnx_reranker import OnnxReranker
+                from app.services.rag.retrieval.onnx_reranker import OnnxReranker
 
                 # Loading bytes gives ONNX Runtime no filesystem origin. Graphs
                 # with external_data (including paths outside the selection)

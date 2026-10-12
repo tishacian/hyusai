@@ -28,7 +28,7 @@ from app.services.collection_source_backing import (
     source_locator,
 )
 from app.services.document_intelligence import clear_collection_document_facts
-from app.services.document_parser.factory import DocumentParserFactory
+from app.services.rag.ingest.parser.factory import DocumentParserFactory
 from app.services.knowledge_collections import (
     create_worker_job,
     document_manifest_key,

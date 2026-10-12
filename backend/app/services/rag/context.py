@@ -755,7 +755,7 @@ def _finalize_retrieval_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
     metrics["stage_timings"] = stage_timings
     metrics["candidate_counts"] = candidate_counts
     try:
-        from app.services.embedding.embedder import get_shared_embedder
+        from app.services.rag.ingest.embedder import get_shared_embedder
 
         embedder_info = get_shared_embedder().describe()
         metrics.setdefault("embedding_provider", embedder_info["provider"])
@@ -2977,7 +2977,7 @@ async def retrieve_rag_context(
 ) -> dict[str, Any]:
     """Run retrieval and attach request-local embedding provider evidence."""
 
-    from app.services.embedding.embedder import capture_embedding_provider_usage
+    from app.services.rag.ingest.embedder import capture_embedding_provider_usage
     from app.services.evaluation.judge import provider_usage_evidence
 
     workspace_id = str(request.get("workspace_id") or "") or None
