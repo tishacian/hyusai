@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[4]
 LAUNCHER = ROOT / "scripts" / "agentium-vm-deploy.sh"
 GATE = ROOT / "scripts" / "agentium-maintenance-gate.sh"
 SCRIPT = LAUNCHER.read_text(encoding="utf-8")
-DEFAULT_D = "/srv/agentium-data/release-a-deployments/release-a-2026-07-27-omnirag-demo"
+DEFAULT_D = "/srv/agentium-data/runtime-env/2026-10-12"
 
 
 def _shell_function(name: str) -> str:
@@ -61,7 +61,10 @@ def _run(tmp_path: Path, prelude: str, functions: list[str], call: str, env=None
     ("value", "expected"),
     [
         (None, DEFAULT_D),
-        ("/srv/agentium-data/runtime-env/2026-10-12", "/srv/agentium-data/runtime-env/2026-10-12"),
+        (
+            "/srv/agentium-data/release-a-deployments/release-a-2026-07-27-omnirag-demo",
+            "/srv/agentium-data/release-a-deployments/release-a-2026-07-27-omnirag-demo",
+        ),
         ("/srv/agentium-data/../etc", None),
         ("/home/ubuntu/omnirag/env", None),
         ("/srv/agentium-data", None),

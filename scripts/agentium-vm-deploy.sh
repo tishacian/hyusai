@@ -19,7 +19,8 @@
 # revision, database dump): `journal` prints it, and its previous_tag column is
 # the rollback target.
 #
-#   AGENTIUM_RUNTIME_ENV_DIR   frozen env bundle (default: the Release A one)
+#   AGENTIUM_RUNTIME_ENV_DIR   frozen env bundle (default: the one derived
+#                              from Release A for the 2026-10-12 storage move)
 #   AGENTIUM_GATE=1            close the public maintenance gate around
 #                              `migrate` and `up`; it stays closed on failure
 set -euo pipefail
@@ -30,7 +31,7 @@ fail() {
 }
 
 readonly DATA_ROOT=/srv/agentium-data
-readonly DEFAULT_RUNTIME_ENV_DIR="$DATA_ROOT/release-a-deployments/release-a-2026-07-27-omnirag-demo"
+readonly DEFAULT_RUNTIME_ENV_DIR="$DATA_ROOT/runtime-env/2026-10-12"
 
 runtime_env_dir() {
 	local dir="${AGENTIUM_RUNTIME_ENV_DIR:-$DEFAULT_RUNTIME_ENV_DIR}"
@@ -54,10 +55,9 @@ readonly HUB_BUNDLE_KEYS_ROOT="$DATA_ROOT/hf-bundle-keys"
 readonly OPENBAO_DATA_ROOT="$DATA_ROOT/openbao"
 readonly OPENBAO_BACKUPS_ROOT="$DATA_ROOT/openbao-backups"
 readonly OPENBAO_BOOTSTRAP="$R/scripts/agentium_openbao_bootstrap.py"
-readonly SECURE_DEPOSIT_ROOT=/home/ubuntu/omnirag/backend/data/secure_deposit
+readonly SECURE_DEPOSIT_ROOT=/srv/agentium-secure-deposit
 readonly EXPECTED_SECURE_SOURCE=/dev/sdc
-readonly FAISS_ROOT=/home/ubuntu/omnirag/backend/faiss_db
-readonly EXPECTED_ROOT_SOURCE=/dev/sda1
+readonly FAISS_ROOT="$DATA_ROOT/faiss_db"
 readonly DOCKER_SOCKET=unix:///var/run/docker.sock
 readonly DOCKER_VOLUME_ROOT=/var/lib/docker/volumes
 readonly COMPOSE_CLEAN_HOME=/home/ubuntu
@@ -291,7 +291,7 @@ storage_check() {
 	fi
 	assert_exact_backing_path \
 		"$SECURE_DEPOSIT_ROOT" "$EXPECTED_SECURE_SOURCE" "$SECURE_DEPOSIT_ROOT"
-	assert_exact_backing_path "$FAISS_ROOT" "$EXPECTED_ROOT_SOURCE" /
+	assert_protected_data_path "$FAISS_ROOT"
 	compose --profile infra --profile tools --profile sftp "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" "${OPENBAO_PROFILE[@]}" config --format json |
 		clean_exec python3 "$ENV_HELPER" vm-storage-compose-check
 	readonly_docker volume inspect agentium_minio_block |
@@ -473,6 +473,12 @@ gate-exit)
 	gate exit
 	;;
 journal) clean_exec cat -- "$JOURNAL" ;;
+# The SFTP server is outside `up` (its image is pinned by digest, not tagged
+# per release); this recreates it when its bind changes.
+sftp-up)
+	storage_check
+	compose --profile sftp up -d --no-build --no-deps --pull never agentium-sftp
+	;;
 catalog-check) catalog ;;
 catalog-apply)
 	storage_check
@@ -502,7 +508,7 @@ ml-ts-stop) compose --profile ml-ts rm --stop --force "${ML_TS_ALL[@]}" ;;
 ml-deep-stop) compose --profile ml-deep rm --stop --force "${ML_DEEP_ALL[@]}" ;;
 ps) compose "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" "${OPENBAO_PROFILE[@]}" ps ;;
 *)
-	echo "usage: $0 {images|storage-check|migrate|up|gate-exit|journal|catalog-check|catalog-apply|openbao-prepare|openbao-init|openbao-snapshot|openbao-status|ml-ts-stop|ml-deep-stop|ps}" >&2
+	echo "usage: $0 {images|storage-check|migrate|up|gate-exit|journal|sftp-up|catalog-check|catalog-apply|openbao-prepare|openbao-init|openbao-snapshot|openbao-status|ml-ts-stop|ml-deep-stop|ps}" >&2
 	exit 2
 	;;
 esac

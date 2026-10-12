@@ -173,12 +173,14 @@ sur place et taguées en local (`agentium-backend:local`, `agentium-frontend:loc
 
 La transition A/B n'est pas une migration de stockage :
 
-- PostgreSQL, l'état Keycloak persisté dans PostgreSQL, RabbitMQ et le bind
-  FAISS historique restent sur le filesystem racine `/dev/sda1` ;
-- Qdrant, MinIO et l'ObjectStore restent sous `/srv/agentium-data`, monté sur
+- PostgreSQL, l'état Keycloak persisté dans PostgreSQL et RabbitMQ restent sur
+  le filesystem racine `/dev/sda1` ;
+- Qdrant, MinIO, l'ObjectStore et, depuis la phase 4b (12/10), l'index FAISS
+  (`/srv/agentium-data/faiss_db`) restent sous `/srv/agentium-data`, monté sur
   `/dev/sdb` ;
-- le Secure Deposit SFTP reste sous
-  `/home/ubuntu/omnirag/backend/data/secure_deposit`, monté sur `/dev/sdc`.
+- le Secure Deposit SFTP est monté depuis la phase 4b sur
+  `/srv/agentium-secure-deposit` (`/dev/sdc`, par UUID dans fstab), hors de
+  `/home/ubuntu/omnirag`.
 
 Le GO Release A exige exactement trois sauvegardes fournisseur ou hors VM,
 distinctes et restaurées : une pour chacun de `/dev/sda1`, `/dev/sdb` et

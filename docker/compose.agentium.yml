@@ -176,8 +176,8 @@ services:
       # store read-only prevents a migration import/side effect from mutating
       # tenant data outside the database backup boundary.
       - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store:ro
-      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit:ro
-      - ${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db:ro
+      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/srv/agentium-secure-deposit}:/data/secure_deposit:ro
+      - ${AGENTIUM_FAISS_PATH:-/srv/agentium-data/faiss_db}:/data/faiss_db:ro
     command: ["alembic", "upgrade", "head"]
 
   agentium-backend:
@@ -209,8 +209,8 @@ services:
       LIVEKIT_VOICE_GATEWAY_WS_URL: ${LIVEKIT_VOICE_GATEWAY_WS_URL:-ws://agentium-backend:8000/api/v1/voice/sessions}
     volumes:
       - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
-      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit
-      - ${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db
+      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/srv/agentium-secure-deposit}:/data/secure_deposit
+      - ${AGENTIUM_FAISS_PATH:-/srv/agentium-data/faiss_db}:/data/faiss_db
     healthcheck:
       test: ["CMD-SHELL", "python -c 'import http.client; c=http.client.HTTPConnection(\"127.0.0.1\",8000,timeout=5); c.request(\"GET\",\"/health/live\"); raise SystemExit(0 if c.getresponse().status == 200 else 1)'"]
       interval: 10s
@@ -245,8 +245,8 @@ services:
       CELERY_BEAT: ${AGENTIUM_CELERY_BEAT:-1}
     volumes:
       - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
-      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit:ro
-      - ${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db
+      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/srv/agentium-secure-deposit}:/data/secure_deposit:ro
+      - ${AGENTIUM_FAISS_PATH:-/srv/agentium-data/faiss_db}:/data/faiss_db
       # Python recipe venv store + shared pip cache. Only the Celery worker
       # builds/executes inside it; the backend never mounts it.
       - ${AGENTIUM_RECIPE_ENVS_PATH:-/home/ubuntu/agentium-data/recipe_envs}:/data/recipe_envs
@@ -410,8 +410,8 @@ services:
       CELERY_CONCURRENCY: ${AGENTIUM_CELERY_CONCURRENCY:-2}
     volumes:
       - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
-      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit:ro
-      - ${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db
+      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/srv/agentium-secure-deposit}:/data/secure_deposit:ro
+      - ${AGENTIUM_FAISS_PATH:-/srv/agentium-data/faiss_db}:/data/faiss_db
     depends_on:
       agentium-rabbitmq:
         condition: service_healthy
@@ -433,7 +433,7 @@ services:
       SECURE_DEPOSIT_SFTP_HOST: 0.0.0.0
       SECURE_DEPOSIT_SFTP_PORT: 2222
     volumes:
-      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit
+      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/srv/agentium-secure-deposit}:/data/secure_deposit
     command: ["python", "-m", "app.cli.secure_deposit_sftp"]
     healthcheck:
       test: ["CMD-SHELL", "python -c 'import socket; s=socket.create_connection((\"127.0.0.1\",2222),5); s.close()'"]
