@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import re
 import shlex
@@ -19,7 +20,7 @@ VM_OVERLAY = ROOT / "docker" / "compose.agentium.vm-runtime.yml"
 LOCAL_OVERLAY = ROOT / "docker" / "compose.agentium.local-storage.yml"
 
 EXPECTED_ENV = {
-    "AGENTIUM_FAISS_PATH": "/home/ubuntu/omnirag/backend/faiss_db",
+    "AGENTIUM_FAISS_PATH": "/srv/agentium-data/faiss_db",
     "AGENTIUM_MINIO_VOLUME": "agentium_minio_block",
     "AGENTIUM_MINIO_VOLUME_EXTERNAL": "true",
     "AGENTIUM_ML_DEEP_MODELS_PATH": "/srv/agentium-data/ml-deep-models",
@@ -27,7 +28,7 @@ EXPECTED_ENV = {
     "AGENTIUM_QDRANT_VOLUME": "agentium_qdrant_block",
     "AGENTIUM_QDRANT_SNAPSHOT_PATH": "/srv/agentium-data/qdrant-snapshots",
     "AGENTIUM_RECIPE_ENVS_PATH": "/srv/agentium-data/recipe_envs",
-    "AGENTIUM_SECURE_DEPOSIT_PATH": ("/home/ubuntu/omnirag/backend/data/secure_deposit"),
+    "AGENTIUM_SECURE_DEPOSIT_PATH": "/srv/agentium-secure-deposit",
 }
 
 
@@ -825,7 +826,9 @@ def test_launcher_scrubs_shell_and_gates_only_closed_application_commands() -> N
     assert 'assert_protected_data_path "$OBJECT_STORE_ROOT"' in storage
     assert 'assert_protected_data_path "$RECIPE_ENVS_ROOT"' in storage
     assert '"$SECURE_DEPOSIT_ROOT" "$EXPECTED_SECURE_SOURCE" "$SECURE_DEPOSIT_ROOT"' in storage
-    assert '"$FAISS_ROOT" "$EXPECTED_ROOT_SOURCE" /' in storage
+    assert 'assert_protected_data_path "$FAISS_ROOT"' in storage
+    assert 'readonly FAISS_ROOT="$DATA_ROOT/faiss_db"' in script
+    assert "readonly SECURE_DEPOSIT_ROOT=/srv/agentium-secure-deposit" in script
     assert "volume inspect agentium_minio_block" in storage
     assert "volume inspect agentium_qdrant_block" in storage
     assert "inspect --type container" in storage
@@ -1247,3 +1250,105 @@ def test_launcher_guards_openbao_paths_only_on_request(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     assert subprocess.run(["bash", str(bad)], capture_output=True, text=True).returncode == 1
+
+
+def test_running_generation_may_still_use_the_previous_store_locations_only():
+    """The `up` that moves FAISS and the secure deposit runs its gate against
+    containers still bound to the old locations: those, and only those, pass.
+    The frozen environment and the rendered Compose accept the new ones alone."""
+
+    module = _module()
+    previous = module.VM_RUNTIME_PREVIOUS_SOURCES
+    assert previous == {
+        "AGENTIUM_FAISS_PATH": "/home/ubuntu/omnirag/backend/faiss_db",
+        "AGENTIUM_SECURE_DEPOSIT_PATH": "/home/ubuntu/omnirag/backend/data/secure_deposit",
+    }
+    containers = _active_containers()
+    for container in containers:
+        for mount in container["Mounts"]:
+            for key, old in previous.items():
+                if mount.get("Source") == EXPECTED_ENV[key]:
+                    mount["Source"] = old
+    module.assert_vm_active_storage_mounts(containers)
+
+    elsewhere = deepcopy(containers)
+    elsewhere[2]["Mounts"][2]["Source"] = "/home/ubuntu/faiss_db"
+    with pytest.raises(module.RuntimeEnvBundleError, match="mount identity differs"):
+        module.assert_vm_active_storage_mounts(elsewhere)
+
+    content = "".join(
+        f"{name}={previous.get(name, value)}\n" for name, value in EXPECTED_ENV.items()
+    ).encode()
+    with pytest.raises(module.RuntimeEnvBundleError, match="protected storage contract"):
+        module.assert_vm_storage_environment(content)
+
+    model = _compose_model()
+    next(
+        row
+        for row in model["services"]["agentium-backend"]["volumes"]
+        if row["target"] == "/data/faiss_db"
+    )["source"] = previous["AGENTIUM_FAISS_PATH"]
+    with pytest.raises(module.RuntimeEnvBundleError, match="source or access mode differs"):
+        module.assert_vm_compose_storage(model)
+
+
+def _source_bundle(root: Path) -> Path:
+    source = root / "release-a"
+    runtime = source / "runtime-env"
+    runtime.mkdir(parents=True)
+    (source / "compose.agentium.opened.yml").write_text("services: {}\n", encoding="utf-8")
+    (source / "compose.agentium.opened.yml").chmod(0o700)
+    module = _module()
+    values = module.VM_STORAGE_ENVIRONMENT | {
+        **module.VM_APPLICATION_STORAGE_ENVIRONMENT,
+        "AGENTIUM_FAISS_PATH": "/home/ubuntu/omnirag/backend/faiss_db",
+        "AGENTIUM_SECURE_DEPOSIT_PATH": "/home/ubuntu/omnirag/backend/data/secure_deposit",
+    }
+    (runtime / "compose.effective.env").write_text(
+        "# frozen\n"
+        + "".join(f"{key}={value}\n" for key, value in values.items())
+        + f"AGENTIUM_ENV_FILE={runtime}/source-001.env\nSECRET_REGISTRY_DEFAULT_BACKEND=db\n",
+        encoding="utf-8",
+    )
+    for name in ("source-001.env", "openbao-unseal.key", "manifest.json", "compose.effective.env.bak-x"):
+        (runtime / name).write_text(f"{name}\n", encoding="utf-8")
+    (runtime / "openbao-unseal.key").chmod(0o400)
+    return source
+
+
+def test_derived_bundle_moves_storage_paths_and_leaves_the_source_untouched(tmp_path: Path):
+    module = _module()
+    source = _source_bundle(tmp_path)
+    before = {p: p.read_bytes() for p in source.rglob("*") if p.is_file()}
+    target = tmp_path / "runtime-env" / "2026-10-12"
+
+    digest = module.derive_vm_bundle(source_dir=source, target_dir=target)
+
+    assert {p: p.read_bytes() for p in source.rglob("*") if p.is_file()} == before
+    effective = (target / "runtime-env" / "compose.effective.env").read_bytes()
+    module.assert_vm_storage_environment(effective)
+    text = effective.decode()
+    assert f"AGENTIUM_ENV_FILE={target}/runtime-env/source-001.env\n" in text
+    assert str(source) not in text and text.startswith("# frozen\n")
+    assert "SECRET_REGISTRY_DEFAULT_BACKEND=db\n" in text
+    assert sorted(p.name for p in (target / "runtime-env").iterdir()) == [
+        "compose.effective.env", "openbao-unseal.key", "source-001.env",
+    ]
+    assert (target / "runtime-env" / "openbao-unseal.key").stat().st_mode & 0o777 == 0o400
+    assert (target / "compose.agentium.opened.yml").stat().st_mode & 0o777 == 0o700
+    receipt = json.loads((target / "derived-from.json").read_text(encoding="utf-8"))
+    assert receipt["source_bundle"] == str(source)
+    assert receipt["environment_sha256"] == digest
+
+    with pytest.raises(module.RuntimeEnvBundleError, match="already exists"):
+        module.derive_vm_bundle(source_dir=source, target_dir=target)
+    assert not list(target.parent.glob(".*"))
+
+
+def test_launcher_recreates_sftp_behind_the_storage_gate():
+    script = LAUNCHER.read_text(encoding="utf-8")
+    assert re.fullmatch(
+        r"\s*storage_check\s*\n\s*compose --profile sftp up -d --no-build --no-deps "
+        r"--pull never agentium-sftp\s*",
+        _shell_case(script, "sftp-up"),
+    )

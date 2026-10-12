@@ -103,9 +103,10 @@ Une commande présente dans `app/cli` n'a pas de doublon dans un dossier de scri
 
 | Chemin | Rôle |
 |---|---|
-| `/srv/agentium-data` et ses sous-dossiers `deployments`, `hub-cache`, `minio`, `ml-deep-models`, `object_store`, `openbao`, `openbao-backups`, `qdrant`, `qdrant-snapshots`, `recipe_envs`, `release-a-deployments` | données de la plateforme (disque `sdb`) |
-| `/home/ubuntu/omnirag/backend/data/secure_deposit` | point de montage du dépôt sécurisé (disque `sdc`) ; déplacé en phase 4b |
-| `/home/ubuntu/omnirag/backend/faiss_db` | index FAISS ; déplacé en phase 4b |
+| `/srv/agentium-data` et ses sous-dossiers `deployments`, `faiss_db`, `hub-cache`, `minio`, `ml-deep-models`, `object_store`, `openbao`, `openbao-backups`, `qdrant`, `qdrant-snapshots`, `recipe_envs`, `release-a-deployments`, `runtime-env` | données de la plateforme (disque `sdb`) |
+| `/srv/agentium-secure-deposit` | point de montage du dépôt sécurisé (disque `sdc`, monté par UUID dans fstab) depuis la phase 4b |
+| `/srv/agentium-data/runtime-env/2026-10-12` | bundle d'env figé par défaut de `agentium-vm-deploy.sh` depuis la phase 4b, dérivé du bundle Release A (`derive-vm-bundle`) ; le bundle Release A reste intact |
+| `/home/ubuntu/omnirag/backend/data/secure_deposit`, `/home/ubuntu/omnirag/backend/faiss_db` | anciens emplacements (avant 4b), laissés en place jusqu'à la phase 4d ; `VM_RUNTIME_PREVIOUS_SOURCES` les tolère encore sur les conteneurs en cours |
 | `/var/lib/postgresql/data`, `/var/lib/rabbitmq`, `/var/lib/docker/volumes` | volumes des services |
 | `/etc/nginx/snippets/agentium-deploy-maintenance.conf`, `/var/lib/agentium/deploy-maintenance` | gate de maintenance |
 | `/etc/systemd/system/agentium-backend.service` et `agentium-backend.service.d/99-agentium-safe-runtime-env.conf` | chaîne safe ; retirés en phase 4c |

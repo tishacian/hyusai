@@ -75,7 +75,7 @@ def test_real_compose_overlays_cover_closed_and_opened_store_boundaries() -> Non
         assert closed_services[service]["restart"] == "no"
         assert opened_services[service]["restart"] == "no"
         assert opened_services[service]["volumes"] == [
-            "${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db"
+            "${AGENTIUM_FAISS_PATH:-/srv/agentium-data/faiss_db}:/data/faiss_db"
         ]
 
     closed_sftp = closed_services["agentium-sftp"]

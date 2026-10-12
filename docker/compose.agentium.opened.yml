@@ -8,18 +8,18 @@ services:
     environment:
       QDRANT_API_KEY: ${AGENTIUM_QDRANT_EFFECTIVE_API_KEY:?safe deployment Qdrant key missing}
     volumes:
-      - ${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db
+      - ${AGENTIUM_FAISS_PATH:-/srv/agentium-data/faiss_db}:/data/faiss_db
 
   agentium-worker-cpu:
     restart: "no"
     environment:
       QDRANT_API_KEY: ${AGENTIUM_QDRANT_EFFECTIVE_API_KEY:?safe deployment Qdrant key missing}
     volumes:
-      - ${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db
+      - ${AGENTIUM_FAISS_PATH:-/srv/agentium-data/faiss_db}:/data/faiss_db
 
   agentium-p4-maintenance:
     restart: "no"
     environment:
       QDRANT_API_KEY: ${AGENTIUM_QDRANT_EFFECTIVE_API_KEY:?safe deployment Qdrant key missing}
     volumes:
-      - ${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db
+      - ${AGENTIUM_FAISS_PATH:-/srv/agentium-data/faiss_db}:/data/faiss_db
