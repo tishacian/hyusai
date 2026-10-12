@@ -250,13 +250,11 @@ async def test_plan_shortcuts_simple_single_project_lookup_without_llm(
             "the deterministic single-project lane must not call the planner LLM"
         )
 
-    monkeypatch.setattr(wrappers, "_route_llm_complete", _unexpected_model_call)
+    monkeypatch.setattr(wrappers.skills, "_route_llm_complete", _unexpected_model_call)
     # The planner resolves the tenant from a workspace row to decide whether
     # the Andritz identifier grammar applies. These cases exercise Andritz
     # codes (BAO100, BCX200) and have no row, so bind the tenant they test.
-    monkeypatch.setattr(
-        wrappers,
-        "using_workspace_id_project_scheme",
+    monkeypatch.setattr(wrappers.skills, "using_workspace_id_project_scheme",
         lambda _workspace_id, **_kwargs: bind_project_reference_scheme("andritz"),
     )
 
@@ -285,7 +283,7 @@ async def test_plan_shortcut_uses_server_run_language_not_payload_override(monke
     async def _unexpected_model_call(*args, **kwargs):
         raise AssertionError("simple project summaries must not call the planner LLM")
 
-    monkeypatch.setattr(wrappers, "_route_llm_complete", _unexpected_model_call)
+    monkeypatch.setattr(wrappers.skills, "_route_llm_complete", _unexpected_model_call)
 
     out = await wrappers._chat_agentic_plan_v1(
         {"query": "résume BAO100", "response_language": "en"},
@@ -380,7 +378,7 @@ async def test_self_correct_escalate_deep_re_retrieves_and_grounds(monkeypatch):
             ]
         }
 
-    monkeypatch.setattr(wrappers, "_semantic_search_v1", fake_search)
+    monkeypatch.setattr(wrappers.skills, "_semantic_search_v1", fake_search)
     # The grounded synthesis call returns plain prose (not JSON).
     _install_fake_router(monkeypatch, "La largeur de travail est de 0.3 m [1].")
 
@@ -417,7 +415,7 @@ async def test_self_correct_escalate_deep_abstains_when_retrieval_empty(monkeypa
     async def fake_search_empty(payload, ctx=None):
         return {"results": []}
 
-    monkeypatch.setattr(wrappers, "_semantic_search_v1", fake_search_empty)
+    monkeypatch.setattr(wrappers.skills, "_semantic_search_v1", fake_search_empty)
     # Router would only be reached on a (forbidden) free generation.
     _install_fake_router(monkeypatch, "TEXTE LIBRE INTERDIT")
 
@@ -496,8 +494,8 @@ async def test_self_correct_escalate_deep_merges_original_context(monkeypatch):
         seen_context["contents"] = [c.get("content") for c in payload.get("context") or []]
         return {"answer": "Largeur 0,3 m, vitesse 10-20 m/min [1].", "citations": []}
 
-    monkeypatch.setattr(wrappers, "_semantic_search_v1", fake_search)
-    monkeypatch.setattr(wrappers, "_llm_rag_answer_v1", fake_generate)
+    monkeypatch.setattr(wrappers.skills, "_semantic_search_v1", fake_search)
+    monkeypatch.setattr(wrappers.skills, "_llm_rag_answer_v1", fake_generate)
 
     out = await wrappers._chat_self_correct_v1(
         {
@@ -528,8 +526,8 @@ async def test_self_correct_never_downgrades_grounded_draft(monkeypatch):
     async def fake_generate_abstains(payload, ctx=None):
         return {"answer": "Le contexte ne contient pas cette information.", "citations": []}
 
-    monkeypatch.setattr(wrappers, "_semantic_search_v1", fake_search)
-    monkeypatch.setattr(wrappers, "_llm_rag_answer_v1", fake_generate_abstains)
+    monkeypatch.setattr(wrappers.skills, "_semantic_search_v1", fake_search)
+    monkeypatch.setattr(wrappers.skills, "_llm_rag_answer_v1", fake_generate_abstains)
 
     grounded_draft = "Largeur de travail: 0,3 m; vitesse 10-20 m/min [2]."
     out = await wrappers._chat_self_correct_v1(
@@ -613,7 +611,7 @@ async def test_rag_answer_runs_generic_inventory_coverage_on_admitted_context(mo
             '{"evidence_ref":"E1","label":"capteur PT100"}]}'
         )
 
-    monkeypatch.setattr(wrappers, "_route_llm_complete", fake_complete)
+    monkeypatch.setattr(wrappers.skills, "_route_llm_complete", fake_complete)
     out = await wrappers._llm_rag_answer_v1(
         {
             "query": "quels sont les capteurs du projet ABC100 ?",
@@ -1441,7 +1439,7 @@ async def test_inventory_coverage_review_skips_when_run_deadline_has_no_reserve(
         called = True
         return '{"status":"complete","additions":[]}'
 
-    monkeypatch.setattr(wrappers, "_route_llm_complete", fake_complete)
+    monkeypatch.setattr(wrappers.skills, "_route_llm_complete", fake_complete)
     draft = "### (1) Projet\n- Capteur P-10 [1]\n### (2) Notices\n- Aucune."
     answer, meta = await wrappers._review_inventory_answer_coverage(
         query="quels sont les capteurs du projet ABC100 ?",
@@ -1482,7 +1480,7 @@ async def test_inventory_coverage_review_is_generic_and_uses_only_admitted_evide
             '{"evidence_ref":"E2","label":"brûleur BR-22"}]}'
         )
 
-    monkeypatch.setattr(wrappers, "_route_llm_complete", fake_complete)
+    monkeypatch.setattr(wrappers.skills, "_route_llm_complete", fake_complete)
     draft = "### (1) Projet\n- Brûleur BR-10 [2]\n### (2) Notices\n- BurnerBase [3]"
     answer, meta = await wrappers._review_inventory_answer_coverage(
         query="quels sont les brûleurs du projet ABC100 ?",

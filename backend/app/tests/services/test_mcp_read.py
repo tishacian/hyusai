@@ -304,7 +304,7 @@ def _named_ctx(monkeypatch):
     )
     db = MagicMock()
     monkeypatch.setattr(
-        wrappers,
+        wrappers.skills,
         "_calendar_db_and_workspace",
         lambda payload, ctx=None: (db, workspace),
     )
