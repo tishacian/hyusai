@@ -181,7 +181,7 @@ async def _run_embedding_reindex(job_id: str) -> dict:
     from app.services.huggingface.adapters import ArtifactEmbedder
     from app.services.huggingface.registry import register_usage, require_artifact
     from app.services.rag.vector_store_config import resolve_vector_db_type
-    from app.services.vector_db.factory import VectorDBFactory
+    from app.services.rag.index.factory import VectorDBFactory
 
     embedder = None
     target = None

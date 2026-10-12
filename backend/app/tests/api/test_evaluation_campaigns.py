@@ -425,7 +425,7 @@ def test_changed_model_refused_before_loading_corpus(db_session, monkeypatch):
     monkeypatch.setattr("app.db.base.SessionLocal", lambda: db_session)
     def forbid(*args, **kwargs):
         pytest.fail("A changed model must be rejected before corpus loading")
-    monkeypatch.setattr("app.services.vector_db.factory.VectorDBFactory.get_db",forbid)
+    monkeypatch.setattr("app.services.rag.index.factory.VectorDBFactory.get_db",forbid)
     assert campaigns.run_generation_job(created["id"])["status"] == "failed"
     job = db_session.get(WorkspaceJob, created["id"])
     assert "Model routing changed" in job.error

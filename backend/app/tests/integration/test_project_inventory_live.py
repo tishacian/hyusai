@@ -85,7 +85,7 @@ def _andritz_profile() -> dict[str, object]:
 
 def _require_spl_collection_loaded() -> None:
     """Skip (do not fail) when this Qdrant lacks the andritz SPL pilot data."""
-    from app.services.vector_db.factory import VectorDBFactory
+    from app.services.rag.index.factory import VectorDBFactory
 
     try:
         db = VectorDBFactory.get_db(

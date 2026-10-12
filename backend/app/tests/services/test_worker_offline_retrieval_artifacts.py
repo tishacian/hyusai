@@ -143,7 +143,7 @@ def test_qdrant_sparse_reindex_runs_vector_backfill(db_session, monkeypatch):
         return fake_db
 
     monkeypatch.setattr(settings, "rag_qdrant_sparse_enabled", True)
-    monkeypatch.setattr("app.services.vector_db.factory.VectorDBFactory.get_db", fake_get_db)
+    monkeypatch.setattr("app.services.rag.index.factory.VectorDBFactory.get_db", fake_get_db)
     workspace = Workspace(id="ws-qdrant-sparse", name="Qdrant Sparse", slug="qdrant-sparse")
     db_session.add(workspace)
     db_session.commit()

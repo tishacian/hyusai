@@ -32,7 +32,7 @@ from app.services.rag.bm25_store import (
     rebuild_bm25_artifact,
 )
 from app.services.worker_bm25 import run_bm25_rebuild
-from app.services.worker_ingest import (
+from app.services.rag.ingest.worker_ingest import (
     _finalize_linked_deposit_files,
     _incremental_document_inventory,
     run_document_ingest_index,
@@ -112,7 +112,7 @@ def test_worker_ingest_skips_terminal_job(db_session, monkeypatch):
     db_session.commit()
 
     monkeypatch.setattr(
-        "app.services.worker_ingest.DocumentParserFactory.get_parser",
+        "app.services.rag.ingest.worker_ingest.DocumentParserFactory.get_parser",
         lambda _path: pytest.fail("terminal jobs must not parse documents"),
     )
 
@@ -140,7 +140,7 @@ def test_worker_ingest_claim_is_idempotent_for_duplicate_delivery(
     job.status = "running"
     db_session.commit()
     monkeypatch.setattr(
-        "app.services.worker_ingest.DocumentParserFactory.get_parser",
+        "app.services.rag.ingest.worker_ingest.DocumentParserFactory.get_parser",
         lambda _path: pytest.fail("a duplicate delivery must not parse"),
     )
 
@@ -324,13 +324,13 @@ def test_worker_ingest_recovers_retained_sources_and_writes_ingested_text(
         return {"status": "ready", "chunk_count": 1}
 
     monkeypatch.setattr(
-        "app.services.worker_ingest.DocumentParserFactory.get_parser",
+        "app.services.rag.ingest.worker_ingest.DocumentParserFactory.get_parser",
         lambda _path: FakeParser(),
     )
     monkeypatch.setattr(
-        "app.services.worker_ingest.DocumentService", FakeDocumentService
+        "app.services.rag.ingest.worker_ingest.DocumentService", FakeDocumentService
     )
-    monkeypatch.setattr("app.services.worker_ingest.rebuild_bm25_artifact", fake_bm25)
+    monkeypatch.setattr("app.services.rag.ingest.worker_ingest.rebuild_bm25_artifact", fake_bm25)
 
     with pytest.raises(FileNotFoundError if missing_original else RuntimeError):
         run_document_ingest_index(job.id)
@@ -456,11 +456,11 @@ def test_worker_ingest_dedupes_identical_content(db_session, tmp_path, monkeypat
         return {"status": "ready", "chunk_count": 1}
 
     monkeypatch.setattr(
-        "app.services.worker_ingest.DocumentParserFactory.get_parser",
+        "app.services.rag.ingest.worker_ingest.DocumentParserFactory.get_parser",
         lambda _path: FakeParser(),
     )
-    monkeypatch.setattr("app.services.worker_ingest.DocumentService", FakeDocumentService)
-    monkeypatch.setattr("app.services.worker_ingest.rebuild_bm25_artifact", fake_bm25)
+    monkeypatch.setattr("app.services.rag.ingest.worker_ingest.DocumentService", FakeDocumentService)
+    monkeypatch.setattr("app.services.rag.ingest.worker_ingest.rebuild_bm25_artifact", fake_bm25)
 
     run_document_ingest_index(job.id)
 
@@ -554,11 +554,11 @@ def test_worker_ingest_preserves_identical_content_across_projects(
         return {"status": "ready", "chunk_count": 2}
 
     monkeypatch.setattr(
-        "app.services.worker_ingest.DocumentParserFactory.get_parser",
+        "app.services.rag.ingest.worker_ingest.DocumentParserFactory.get_parser",
         lambda _path: FakeParser(),
     )
-    monkeypatch.setattr("app.services.worker_ingest.DocumentService", FakeDocumentService)
-    monkeypatch.setattr("app.services.worker_ingest.rebuild_bm25_artifact", fake_bm25)
+    monkeypatch.setattr("app.services.rag.ingest.worker_ingest.DocumentService", FakeDocumentService)
+    monkeypatch.setattr("app.services.rag.ingest.worker_ingest.rebuild_bm25_artifact", fake_bm25)
 
     run_document_ingest_index(job.id)
 
@@ -619,7 +619,7 @@ def test_worker_ingest_duplicate_only_incremental_wave_completes(
     }
     db_session.commit()
     monkeypatch.setattr(
-        "app.services.worker_ingest.DocumentService",
+        "app.services.rag.ingest.worker_ingest.DocumentService",
         lambda *_args, **_kwargs: pytest.fail("duplicate-only wave must not embed"),
     )
 
@@ -752,11 +752,11 @@ def test_needlepunch_incremental_partial_failure_rolls_back_only_wave(
             return rollback_chunk_count
 
     monkeypatch.setattr(
-        "app.services.worker_ingest.DocumentParserFactory.get_parser",
+        "app.services.rag.ingest.worker_ingest.DocumentParserFactory.get_parser",
         lambda _path: FakeParser(),
     )
     monkeypatch.setattr(
-        "app.services.worker_ingest.DocumentService", FakeDocumentService
+        "app.services.rag.ingest.worker_ingest.DocumentService", FakeDocumentService
     )
 
     with pytest.raises(RuntimeError, match="verification failed"):
@@ -853,13 +853,13 @@ def test_worker_ingest_materialize_error_becomes_document_error(
         return {"status": "ready", "chunk_count": 1}
 
     monkeypatch.setattr(
-        "app.services.worker_ingest.DocumentParserFactory.get_parser",
+        "app.services.rag.ingest.worker_ingest.DocumentParserFactory.get_parser",
         lambda _path: FakeParser(),
     )
     monkeypatch.setattr(
-        "app.services.worker_ingest.DocumentService", FakeDocumentService
+        "app.services.rag.ingest.worker_ingest.DocumentService", FakeDocumentService
     )
-    monkeypatch.setattr("app.services.worker_ingest.rebuild_bm25_artifact", fake_bm25)
+    monkeypatch.setattr("app.services.rag.ingest.worker_ingest.rebuild_bm25_artifact", fake_bm25)
 
     result = run_document_ingest_index(job.id)
 
@@ -993,13 +993,13 @@ def test_worker_ingest_finalizes_deposit_file_and_records_wave_ledger(
         return {"status": "ready", "chunk_count": 2}
 
     monkeypatch.setattr(
-        "app.services.worker_ingest.DocumentParserFactory.get_parser",
+        "app.services.rag.ingest.worker_ingest.DocumentParserFactory.get_parser",
         lambda _path: FakeParser(),
     )
     monkeypatch.setattr(
-        "app.services.worker_ingest.DocumentService", FakeDocumentService
+        "app.services.rag.ingest.worker_ingest.DocumentService", FakeDocumentService
     )
-    monkeypatch.setattr("app.services.worker_ingest.rebuild_bm25_artifact", fake_bm25)
+    monkeypatch.setattr("app.services.rag.ingest.worker_ingest.rebuild_bm25_artifact", fake_bm25)
 
     result = run_document_ingest_index(job.id)
 
@@ -1207,13 +1207,13 @@ def test_worker_ingest_defers_large_bm25_to_worker_job(
         return "task-bm25"
 
     monkeypatch.setattr(
-        "app.services.worker_ingest.DocumentParserFactory.get_parser",
+        "app.services.rag.ingest.worker_ingest.DocumentParserFactory.get_parser",
         lambda _path: FakeParser(),
     )
     monkeypatch.setattr(
-        "app.services.worker_ingest.DocumentService", FakeDocumentService
+        "app.services.rag.ingest.worker_ingest.DocumentService", FakeDocumentService
     )
-    monkeypatch.setattr("app.services.worker_ingest.rebuild_bm25_artifact", fake_bm25)
+    monkeypatch.setattr("app.services.rag.ingest.worker_ingest.rebuild_bm25_artifact", fake_bm25)
     monkeypatch.setattr(
         "app.services.worker_dispatch.dispatch_worker_job", fake_dispatch
     )

@@ -190,7 +190,7 @@ async def test_qdrant_sparse_backend_delegates_to_vector_store(monkeypatch):
     fake_db = FakeVectorDb()
     monkeypatch.setattr(settings, "rag_qdrant_sparse_enabled", True)
     monkeypatch.setattr(
-        "app.services.vector_db.factory.VectorDBFactory.get_db",
+        "app.services.rag.index.factory.VectorDBFactory.get_db",
         lambda collection, db_type="qdrant", workspace_slug=None: fake_db,
     )
 

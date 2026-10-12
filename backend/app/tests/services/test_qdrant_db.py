@@ -10,7 +10,7 @@ import pytest
 
 from app.core.config import settings
 from app.services.rag.lexical_retrieval import parse_lexical_config
-from app.services.vector_db.qdrant_db import _PAYLOAD_INDEX_FIELDS, QdrantVectorDB
+from app.services.rag.index.qdrant_db import _PAYLOAD_INDEX_FIELDS, QdrantVectorDB
 
 
 def test_point_id_is_deterministic_per_collection():

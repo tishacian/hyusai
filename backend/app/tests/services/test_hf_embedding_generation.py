@@ -74,7 +74,7 @@ class MemoryVectors:
 @pytest.fixture
 def runtime(monkeypatch, collection):
     from app.services.huggingface import adapters
-    from app.services.vector_db.factory import VectorDBFactory
+    from app.services.rag.index.factory import VectorDBFactory
 
     old = MemoryVectors(
         [{"chunk_id": "a", "content": "first"}, {"chunk_id": "b", "content": "second"}]
@@ -313,7 +313,7 @@ async def test_document_service_pairs_artifact_and_physical_index_and_rechecks_c
     db_session, collection, registry, runtime, monkeypatch
 ):
     from app.services.rag.document_service import DocumentService
-    from app.services.vector_db.factory import VectorDBFactory
+    from app.services.rag.index.factory import VectorDBFactory
 
     names = []
 
