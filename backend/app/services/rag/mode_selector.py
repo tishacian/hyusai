@@ -7,7 +7,8 @@ still lives under ``src/`` (Streamlit).
 The FastAPI demo maps:
 - ``naive``     -> dense vector retrieval only (closest to "Naive RAG" in-service).
 - ``hybrid``    -> sparse + dense retrieval with RRF when policy allows it.
-- ``auto``      -> choose based on index size and query length.
+- ``auto``      -> choose based on index size and query length; a multi-hop query on
+                   the ``deep`` profile runs C-HAH when the backend is enabled.
 - ``hah``/``chah`` -> dedicated pipelines when enabled; else hybrid fallback with explicit reason.
 """
 from __future__ import annotations
@@ -19,12 +20,15 @@ from app.core.config import settings
 if TYPE_CHECKING:
     from app.services.rag.document_service import DocumentService
 
+AUTO_CHAH_LABEL = "chah_backend (auto)"
+
 
 async def resolve_retrieval_mode(
     doc_svc: Optional["DocumentService"],
     query: str,
     mode: Optional[str],
     latency_profile: Optional[str] = None,
+    multi_hop: bool = False,
 ) -> Tuple[bool, str, str]:
     """
     Returns:
@@ -108,6 +112,12 @@ async def resolve_retrieval_mode(
         )
 
     # auto
+    if multi_hop and profile == "deep" and settings.rag_hah_chah_enabled:
+        return (
+            True,
+            AUTO_CHAH_LABEL,
+            "Auto: multi-hop query on the deep profile -> C-HAH query variants + RRF merge.",
+        )
     q = query or ""
     q_len = len(q.strip())
     # Small corpus: dense-only often sufficient; cheaper and stable

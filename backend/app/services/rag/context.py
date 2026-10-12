@@ -53,7 +53,8 @@ from app.services.rag.knowledge_scopes import (
     resolve_knowledge_scope,
 )
 from app.services.rag.lexical_retrieval import analyze_query, lexical_match_details
-from app.services.rag.mode_selector import resolve_retrieval_mode
+from app.services.industrial_answer_profile import is_multi_hop_query
+from app.services.rag.mode_selector import AUTO_CHAH_LABEL, resolve_retrieval_mode
 from app.services.rag.pipeline_retrieval import retrieve_for_mode
 from app.services.rag.project_inventory import (
     build_project_inventory,
@@ -3468,8 +3469,9 @@ async def _retrieve_rag_context(
         retrieval_query,
         profile["rag_mode"],
         latency_profile=profile.get("latency_profile"),
+        multi_hop=is_multi_hop_query(retrieval_query),
     )
-    effective_mode = profile["rag_mode"]
+    effective_mode = "chah" if mode_label == AUTO_CHAH_LABEL else profile["rag_mode"]
     allow_hah_chah = settings.rag_hah_chah_enabled
     allow_legacy_hybrid = True
     deadline_seconds = float(settings.rag_fast_retrieval_deadline_seconds)
@@ -4305,8 +4307,9 @@ async def _retrieve_multi_collection_context(
                 retrieval_query,
                 profile["rag_mode"],
                 latency_profile=profile.get("latency_profile"),
+                multi_hop=is_multi_hop_query(retrieval_query),
             )
-            effective_mode = profile["rag_mode"]
+            effective_mode = "chah" if mode_label == AUTO_CHAH_LABEL else profile["rag_mode"]
             if planned_use_hybrid is not None:
                 use_hybrid = bool(planned_use_hybrid)
             if not allow_hah_chah and str(effective_mode or "").lower() in {
