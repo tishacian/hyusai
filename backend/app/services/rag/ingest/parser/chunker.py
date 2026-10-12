@@ -17,6 +17,24 @@ class ChunkingMethod(StrEnum):
     HIERARCHICAL = "hierarchical"
     MODEL_BASED = "model_based"
     SENTENCE_BOUNDARY = "sentence_boundary"
+    SENTENCE = "sentence"
+    MARKDOWN = "markdown"
+
+
+RANDOM_SEED = 42
+_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
+_ATX_HEADER_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t#]*$")
+_FENCE_RE = re.compile(r"^\s*(```|~~~)")
+
+
+def _split_sentences(text: str) -> List[str]:
+    try:
+        from nltk.tokenize import sent_tokenize
+
+        sentences = sent_tokenize(text)
+    except Exception:  # noqa: BLE001 - punkt_tab may be absent from the image
+        sentences = _SENTENCE_RE.split(text)
+    return [s.strip() for s in sentences if s and s.strip()]
 
 
 class DocumentChunker:
@@ -200,6 +218,126 @@ class DocumentChunker:
         
         return chunks
     
+    def _pack_sentences(self, sentences: List[str], chunk_size: int, overlap: int) -> List[str]:
+        chunks: List[str] = []
+        current: List[str] = []
+        length = 0
+        for sentence in sentences:
+            if len(sentence) > chunk_size:
+                if current:
+                    chunks.append(" ".join(current))
+                    current, length = [], 0
+                chunks.extend(self.fixed_chunking(sentence, chunk_size=chunk_size))
+                continue
+            if current and length + 1 + len(sentence) > chunk_size:
+                chunks.append(" ".join(current))
+                carried: List[str] = []
+                carried_len = 0
+                for previous in reversed(current):
+                    if carried_len + len(previous) + 1 > overlap:
+                        break
+                    carried.insert(0, previous)
+                    carried_len += len(previous) + 1
+                if carried and carried_len + len(sentence) > chunk_size:
+                    carried, carried_len = [], 0
+                current, length = carried, max(carried_len - 1, 0)
+            length += len(sentence) + (1 if current else 0)
+            current.append(sentence)
+        if current:
+            chunks.append(" ".join(current))
+        return chunks
+
+    def sentence_chunking(
+        self, text: str, chunk_size: Optional[int] = None, overlap: Optional[int] = None
+    ) -> List[str]:
+        """Pack whole sentences up to ``chunk_size``; overlap repeats trailing whole sentences."""
+        chunk_size = chunk_size or self.default_chunk_size
+        overlap = self.default_overlap if overlap is None else overlap
+        overlap = min(max(overlap, 0), chunk_size // 2)
+        if not text or not text.strip():
+            return []
+        return self._pack_sentences(_split_sentences(text), chunk_size, overlap)
+
+    def markdown_chunking(
+        self, text: str, chunk_size: Optional[int] = None, overlap: Optional[int] = None
+    ) -> List[str]:
+        """Split on ATX headers; each chunk is prefixed by its heading path."""
+        chunk_size = chunk_size or self.default_chunk_size
+        if not text or not text.strip():
+            return []
+        sections: List[tuple[List[str], List[str]]] = []
+        path: List[tuple[int, str]] = []
+        body: List[str] = []
+        in_fence = False
+
+        def flush() -> None:
+            if any(line.strip() for line in body):
+                sections.append(([title for _, title in path], list(body)))
+            body.clear()
+
+        for line in text.splitlines():
+            if _FENCE_RE.match(line):
+                in_fence = not in_fence
+            match = None if in_fence else _ATX_HEADER_RE.match(line)
+            if match:
+                flush()
+                level = len(match.group(1))
+                path = [(lvl, title) for lvl, title in path if lvl < level]
+                path.append((level, match.group(2).strip()))
+            else:
+                body.append(line)
+        flush()
+
+        chunks: List[str] = []
+        for titles, lines in sections:
+            content = "\n".join(lines).strip()
+            prefix = " > ".join(titles)
+            room = max(chunk_size - (len(prefix) + 2 if prefix else 0), chunk_size // 4)
+            if len(content) <= room:
+                pieces = [content]
+            else:
+                pieces = self.sentence_chunking(content, chunk_size=room, overlap=overlap)
+            chunks.extend(f"{prefix}\n\n{piece}" if prefix else piece for piece in pieces)
+        return chunks
+
+    def semantic_chunking(
+        self, text: str, chunk_size: Optional[int] = None, max_k: int = 10
+    ) -> List[str]:
+        """Cluster sentences by TF-IDF with KMeans, k picked by silhouette score."""
+        chunk_size = chunk_size or self.default_chunk_size
+        if not text or not text.strip():
+            return []
+        sentences = _split_sentences(text)
+        if len(sentences) < 4:
+            return self._pack_sentences(sentences, chunk_size, 0)
+        try:
+            import numpy as np
+            from sklearn.cluster import KMeans
+            from sklearn.feature_extraction.text import TfidfVectorizer
+            from sklearn.metrics import silhouette_score
+
+            X = TfidfVectorizer().fit_transform(sentences)
+            best_k, best_score = 2, -1.0
+            for k in range(2, min(max_k, len(sentences) - 1) + 1):
+                labels = KMeans(n_clusters=k, random_state=RANDOM_SEED, n_init=10).fit_predict(X)
+                if len(set(labels)) < 2:
+                    continue
+                score = silhouette_score(X, labels)
+                if score > best_score:
+                    best_k, best_score = k, score
+            labels = KMeans(n_clusters=best_k, random_state=RANDOM_SEED, n_init=10).fit_predict(X)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Semantic chunking unavailable ({e}), packing sentences instead")
+            return self._pack_sentences(sentences, chunk_size, 0)
+
+        clusters: dict[int, List[str]] = {}
+        for sentence, label in zip(sentences, np.asarray(labels).tolist()):
+            clusters.setdefault(label, []).append(sentence)
+        chunks: List[str] = []
+        for members in clusters.values():
+            chunks.extend(self._pack_sentences(members, chunk_size, 0))
+        return chunks
+
     def chunk(
         self,
         text: str,
@@ -222,6 +360,16 @@ class DocumentChunker:
         Returns:
             List of text chunks
         """
+        try:
+            method = ChunkingMethod(method)
+        except ValueError:
+            pass
+        if method == ChunkingMethod.SENTENCE:
+            return self.sentence_chunking(text, chunk_size=chunk_size, overlap=overlap)
+        if method == ChunkingMethod.MARKDOWN:
+            return self.markdown_chunking(text, chunk_size=chunk_size, overlap=overlap)
+        if method == ChunkingMethod.SEMANTIC:
+            return self.semantic_chunking(text, chunk_size=chunk_size)
         if method == ChunkingMethod.FIXED:
             return self.fixed_chunking(text, chunk_size=chunk_size)
         elif method == ChunkingMethod.RECURSIVE_CHARACTER:
