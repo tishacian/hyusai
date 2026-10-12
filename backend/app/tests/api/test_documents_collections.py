@@ -98,7 +98,7 @@ def test_list_collections_returns_ledger_items(db_session, monkeypatch):
     db_session.commit()
 
     monkeypatch.setattr(
-        "app.services.vector_db.factory.VectorDBFactory.list_collections_for_workspace",
+        "app.services.rag.index.factory.VectorDBFactory.list_collections_for_workspace",
         classmethod(lambda cls, db_type="qdrant", workspace_slug=None: []),
     )
 
@@ -142,7 +142,7 @@ def test_list_collections_handles_large_workspace_list_without_cross_workspace_l
         return ["manuals-000", "_internal", "legacy-extra"]
 
     monkeypatch.setattr(
-        "app.services.vector_db.factory.VectorDBFactory.list_collections_for_workspace",
+        "app.services.rag.index.factory.VectorDBFactory.list_collections_for_workspace",
         classmethod(fake_legacy),
     )
 
@@ -226,7 +226,7 @@ def test_collection_patch_updates_only_presentation_fields(db_session, tmp_path,
             return immutable["chunk_count"]
 
     monkeypatch.setattr(
-        "app.services.vector_db.factory.VectorDBFactory.get_db",
+        "app.services.rag.index.factory.VectorDBFactory.get_db",
         classmethod(lambda cls, *args, **kwargs: FakeVectorDB()),
     )
 
@@ -2002,7 +2002,7 @@ def test_collection_detail_exposes_storage_vector_and_bm25_diagnostics(
             return 7
 
     monkeypatch.setattr(
-        "app.services.vector_db.factory.VectorDBFactory.get_db",
+        "app.services.rag.index.factory.VectorDBFactory.get_db",
         classmethod(lambda cls, *args, **kwargs: FakeVectorDB()),
     )
 
@@ -2392,15 +2392,15 @@ def test_delete_collection_removes_ledger_and_store(
             return None
 
     monkeypatch.setattr(
-        "app.services.vector_db.factory.VectorDBFactory.list_collections",
+        "app.services.rag.index.factory.VectorDBFactory.list_collections",
         classmethod(lambda cls, db_type="faiss": [collection.vector_collection_name]),
     )
     monkeypatch.setattr(
-        "app.services.vector_db.factory.VectorDBFactory.get_db",
+        "app.services.rag.index.factory.VectorDBFactory.get_db",
         classmethod(lambda cls, *args, **kwargs: FakeVectorDB()),
     )
     monkeypatch.setattr(
-        "app.services.vector_db.factory.VectorDBFactory.clear_instance",
+        "app.services.rag.index.factory.VectorDBFactory.clear_instance",
         classmethod(lambda cls, *args, **kwargs: None),
     )
 

@@ -52,7 +52,7 @@ async def test_qdrant_lifecycle(require_qdrant):
         https=os.getenv("QDRANT_HTTPS", "").lower() in ("1", "true", "yes"),
     )
 
-    from app.services.vector_db.qdrant_db import QdrantVectorDB
+    from app.services.rag.index.qdrant_db import QdrantVectorDB
 
     db = QdrantVectorDB(collection_name=collection, client=client)
     try:

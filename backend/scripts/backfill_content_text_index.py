@@ -13,7 +13,7 @@ with ``wait=True`` and verifies ``get_collection(...).payload_schema`` reports
 ``content`` as a ``text`` index.
 
 Index params are the single source of truth in
-``app.services.vector_db.qdrant_db._content_text_index_schema`` (decided in the
+``app.services.rag.index.qdrant_db._content_text_index_schema`` (decided in the
 rollout's Phase 0 measurement: multilingual tokenizer, min/max token len 2/30,
 lowercase, on_disk).
 
@@ -39,7 +39,7 @@ import argparse
 import time
 
 from app.core.config import settings
-from app.services.vector_db.qdrant_db import (
+from app.services.rag.index.qdrant_db import (
     _CONTENT_TEXT_INDEX_FIELD,
     _content_text_index_schema,
 )

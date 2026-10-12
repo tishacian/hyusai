@@ -178,7 +178,7 @@ class QdrantSparseBackend:
     ) -> list[dict[str, Any]]:
         if not settings.rag_qdrant_sparse_enabled:
             return []
-        from app.services.vector_db.factory import VectorDBFactory
+        from app.services.rag.index.factory import VectorDBFactory
 
         started = time.time()
         try:

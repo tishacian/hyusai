@@ -62,7 +62,7 @@ def run_offline_retrieval_artifact_job(job_id: str) -> dict[str, Any]:
                     raise ValueError(f"Workspace for offline retrieval artifact job {job_id!r} not found")
                 update_job(db, job_id, progress=20, stage="qdrant_sparse_reindex")
                 db.commit()
-                from app.services.vector_db.factory import VectorDBFactory
+                from app.services.rag.index.factory import VectorDBFactory
 
                 vector_db = VectorDBFactory.get_db(collection.slug, db_type="qdrant", workspace_slug=workspace.slug)
                 import asyncio

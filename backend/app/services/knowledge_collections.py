@@ -23,7 +23,7 @@ from app.models.workspace import Workspace
 from app.services.collection_access import normalize_collection_access
 from app.services.object_store import ObjectStore, get_object_store
 from app.services.rag.bm25_store import bm25_artifact_key
-from app.services.vector_db.factory import VectorDBFactory
+from app.services.rag.index.factory import VectorDBFactory
 
 
 def slugify(value: str, fallback: str = "collection") -> str:
