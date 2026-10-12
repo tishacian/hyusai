@@ -247,28 +247,12 @@ agentium-lot6-system360-production:
     - install -m 0600 "$AGENTIUM_DEPLOY_KNOWN_HOSTS" "$HOME/.ssh/known_hosts"
     - test -n "$AGENTIUM_DEPLOY_HOST"
     - test -n "$AGENTIUM_PRODUCTION_URL"
-    - test -n "$AGENTIUM_LOT6_EXERCISE_QUERY"
     - test -n "$E2E_USERNAME"
     - test -n "$E2E_PASSWORD"
   script:
     - python3 scripts/agentium_compliance.py --check
     - npm --prefix frontend-ng ci
     - frontend-ng/node_modules/.bin/playwright install --with-deps chromium
-    - >-
-      ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$AGENTIUM_DEPLOY_HOST"
-      "set -eu; cd /home/ubuntu/omnirag;
-      git fetch origin demo/agentic -q;
-      test \"\$(git rev-parse origin/demo/agentic)\" = \"$CI_COMMIT_SHA\";
-      git show \"$CI_COMMIT_SHA:scripts/deploy-lot6-system360.sh\"
-      > \"/tmp/agentium-lot6-$CI_COMMIT_SHA.sh\";
-      chmod 0700 \"/tmp/agentium-lot6-$CI_COMMIT_SHA.sh\""
-    - >-
-      printf '%s' "$AGENTIUM_LOT6_EXERCISE_QUERY" |
-      ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$AGENTIUM_DEPLOY_HOST"
-      "/tmp/agentium-lot6-$CI_COMMIT_SHA.sh
-      --repo-dir /home/ubuntu/omnirag --branch demo/agentic
-      --sha $CI_COMMIT_SHA --exercise-query-stdin"
-    - touch .agentium-lot6-rollout-activated
     - mkdir -p frontend-ng/e2e/results/attestations frontend-ng/e2e/results/deployment
     - >-
       python3 scripts/agentium_deployment_attestation.py
@@ -306,15 +290,6 @@ agentium-lot6-system360-production:
       --deployment-attestation frontend-ng/e2e/results/attestations/lot6-deployment.json
       --behavior-attestation frontend-ng/e2e/results/attestations/lot6-behavior.json
       --output frontend-ng/e2e/results/attestations/lot6-trusted-compliance.json
-  after_script:
-    - |
-      if [ "$CI_JOB_STATUS" != "success" ] && [ -f .agentium-lot6-rollout-activated ]; then
-        mkdir -p frontend-ng/e2e/results/attestations
-        ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$AGENTIUM_DEPLOY_HOST" \
-          "docker exec -w /app/backend agentium-backend python -m scripts.rollout_system360_canary rollback --apply" \
-          > frontend-ng/e2e/results/attestations/lot6-failure-rollback.json \
-          2> frontend-ng/e2e/results/attestations/lot6-failure-rollback.err || true
-      fi
   environment:
     name: production
     url: $AGENTIUM_PRODUCTION_URL
