@@ -15,13 +15,35 @@
 #   export AGENTIUM_BACKEND_WORKERS=8         # default below
 #
 # Rollback to any iteration: AGENTIUM_IMAGE_TAG=<previous sha12>, then `up`.
+# Every `migrate` and `up` is recorded in $JOURNAL (tag, previous tag, verified
+# revision, database dump): `journal` prints it, and its previous_tag column is
+# the rollback target.
+#
+#   AGENTIUM_RUNTIME_ENV_DIR   frozen env bundle (default: the Release A one)
+#   AGENTIUM_GATE=1            close the public maintenance gate around
+#                              `migrate` and `up`; it stays closed on failure
 set -euo pipefail
 
-readonly D=/srv/agentium-data/release-a-deployments/release-a-2026-07-27-omnirag-demo
+fail() {
+	printf '%s\n' "$*" >&2
+	exit 1
+}
+
+readonly DATA_ROOT=/srv/agentium-data
+readonly DEFAULT_RUNTIME_ENV_DIR="$DATA_ROOT/release-a-deployments/release-a-2026-07-27-omnirag-demo"
+
+runtime_env_dir() {
+	local dir="${AGENTIUM_RUNTIME_ENV_DIR:-$DEFAULT_RUNTIME_ENV_DIR}"
+	[[ "$dir" == "$DATA_ROOT"/?* && "$dir" != *..* && "$dir" != *//* && "$dir" != */ ]] ||
+		fail "AGENTIUM_RUNTIME_ENV_DIR must be a directory under $DATA_ROOT"
+	printf '%s\n' "$dir"
+}
+
+D="$(runtime_env_dir)"
+readonly D
 readonly R=/srv/agentium-data/worktrees/demo-agentic
 readonly W="$R/docker"
 readonly ENV_HELPER="$R/scripts/agentium_runtime_env_bundle.py"
-readonly DATA_ROOT=/srv/agentium-data
 readonly EXPECTED_DATA_SOURCE=/dev/sdb
 readonly OBJECT_STORE_ROOT="$DATA_ROOT/object_store"
 readonly RECIPE_ENVS_ROOT="$DATA_ROOT/recipe_envs"
@@ -40,11 +62,10 @@ readonly DOCKER_SOCKET=unix:///var/run/docker.sock
 readonly DOCKER_VOLUME_ROOT=/var/lib/docker/volumes
 readonly COMPOSE_CLEAN_HOME=/home/ubuntu
 readonly COMPOSE_CLEAN_PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-
-fail() {
-	printf '%s\n' "$*" >&2
-	exit 1
-}
+readonly DEPLOYMENTS_ROOT="$DATA_ROOT/deployments"
+readonly JOURNAL="$DEPLOYMENTS_ROOT/journal.tsv"
+readonly MAINTENANCE_GATE="$R/scripts/agentium-maintenance-gate.sh"
+readonly BUILD_INFO_ATTEMPTS="${AGENTIUM_BUILD_INFO_ATTEMPTS:-30}"
 
 # Fail closed on an unset or malformed tag: the compose default (`local`) points
 # the backend at the stale pre-release-b image.
@@ -145,6 +166,12 @@ if [ "$OPENBAO" = 1 ]; then
 		AGENTIUM_OPENBAO_HUB_ENV_FILE="$D/runtime-env/openbao-hub-fetch.env"
 	)
 fi
+
+GATE="${AGENTIUM_GATE:-0}"
+case "$GATE" in
+0 | 1) ;;
+*) fail "AGENTIUM_GATE must be 0 or 1" ;;
+esac
 
 readonly_docker() {
 	clean_exec docker --host "$DOCKER_SOCKET" "$@"
@@ -303,20 +330,149 @@ catalog() {
 	compose run --rm --no-deps --pull never agentium-migrate python -m app.cli.reconcile_catalog "$@"
 }
 
+# One private directory per `migrate`/`up` on the data disk: it holds the
+# database dump and the maintenance gate's frozen orchestration state.
+start_run() {
+	local command="$1"
+	clean_exec install -d -m 0700 -- "$DEPLOYMENTS_ROOT"
+	assert_protected_data_path "$DEPLOYMENTS_ROOT"
+	RUN_ID="$(clean_exec date -u +%Y%m%dT%H%M%SZ)-$command"
+	RUN_DIR="$DEPLOYMENTS_ROOT/$RUN_ID"
+	clean_exec install -d -m 0700 -- "$RUN_DIR"
+	PREVIOUS_TAG="$(readonly_docker inspect --type container agentium-backend --format '{{.Config.Image}}' 2>/dev/null || true)"
+	PREVIOUS_TAG="${PREVIOUS_TAG##*:}"
+	PREVIOUS_TAG="${PREVIOUS_TAG:--}"
+}
+
+journal_append() {
+	local command="$1" revision="$2" backup="$3" result="$4"
+	if [[ ! -s "$JOURNAL" ]]; then
+		printf 'recorded_at\trun_id\tcommand\ttag\tprevious_tag\trevision\tbackup\tresult\n' >"$JOURNAL"
+	fi
+	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+		"$(clean_exec date -u +%Y-%m-%dT%H:%M:%SZ)" "$RUN_ID" "$command" "$TAG" \
+		"$PREVIOUS_TAG" "$revision" "$backup" "$result" >>"$JOURNAL"
+}
+
+# pg_dump -Fc, proven readable by pg_restore before it is published, then a
+# `.ready` marker carrying its digest and size. migrate never runs without it.
+backup_database() {
+	local temporary="$RUN_DIR/.postgres-pre-migrate.partial"
+	local backup="$RUN_DIR/postgres-pre-migrate.dump"
+	local digest bytes
+	(
+		umask 077
+		readonly_docker exec agentium-pg sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' >"$temporary"
+	) || fail "pg_dump failed; migrate not started"
+	[[ -s "$temporary" ]] || fail "pg_dump produced an empty archive; migrate not started"
+	readonly_docker exec -i agentium-pg pg_restore --list <"$temporary" >/dev/null ||
+		fail "pg_dump archive is unreadable; migrate not started"
+	clean_exec mv -- "$temporary" "$backup"
+	digest="$(clean_exec sha256sum -- "$backup")"
+	digest="${digest%% *}"
+	[[ "$digest" =~ ^[0-9a-f]{64}$ ]] || fail "pg_dump archive digest is invalid"
+	bytes="$(clean_exec stat -c %s -- "$backup")"
+	(
+		umask 077
+		printf 'format\t1\nsha256\t%s\nbytes\t%s\n' "$digest" "$bytes" >"$backup.ready"
+	)
+	BACKUP="$backup"
+}
+
+# The gate helper only mutates from a frozen copy next to its orchestration
+# metadata; requests to 127.0.0.2 stay open for the build-info probe.
+gate() {
+	local mode="$1"
+	clean_exec \
+		OMNIRAG_REPO_DIR="$R" \
+		AGENTIUM_SAFE_DEPLOY_ORCHESTRATED=1 \
+		AGENTIUM_SAFE_DEPLOYMENT_DIR="$RUN_DIR" \
+		AGENTIUM_SAFE_DEPLOYMENT_ID="$RUN_ID" \
+		AGENTIUM_SAFE_GATE_PURPOSE=launcher-open \
+		bash "$RUN_DIR/agentium-maintenance-gate.sh" "$mode"
+}
+
+gate_enter() {
+	local candidate
+	[ "$GATE" = 1 ] || return 0
+	candidate="$(clean_exec git -C "$R" rev-parse HEAD)"
+	[[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || fail "Cannot resolve the worktree revision for the gate"
+	clean_exec install -m 0700 -- "$MAINTENANCE_GATE" "$RUN_DIR/agentium-maintenance-gate.sh"
+	printf 'deployment_id\t%s\ncandidate_sha\t%s\n' "$RUN_ID" "$candidate" >"$RUN_DIR/metadata.tsv"
+	printf 'launcher\n' >"$RUN_DIR/phase"
+	gate enter
+	printf 'maintenance gate closed (run %s); if this command fails, reopen with: %s gate-exit %s\n' \
+		"$RUN_ID" "$0" "$RUN_ID" >&2
+}
+
+gate_leave() {
+	[ "$GATE" = 1 ] || return 0
+	gate exit
+}
+
+# The running backend must report the deployed revision, attested by its
+# image (revision_verified), before the deployment counts as done.
+verify_build_info() {
+	local expected="$TAG" attempt payload
+	[[ "$TAG" == demo-agentic ]] && expected="$(clean_exec git -C "$R" rev-parse HEAD)"
+	for ((attempt = 1; attempt <= BUILD_INFO_ATTEMPTS; attempt++)); do
+		if payload="$(readonly_docker exec agentium-backend python -I -c 'import http.client;c=http.client.HTTPConnection("127.0.0.1",8000,timeout=5);c.request("GET","/api/v1/build-info");r=c.getresponse();b=r.read(4097);assert r.status==200 and len(b)<=4096;print(b.decode())' 2>/dev/null)" &&
+			REVISION="$(printf '%s' "$payload" | clean_exec python3 -I -c '
+import json, re, sys
+info = json.load(sys.stdin)
+revision = info.get("revision") if isinstance(info, dict) else None
+if info.get("revision_verified") is not True or not isinstance(revision, str):
+    raise SystemExit(1)
+if re.fullmatch(r"[0-9a-f]{40}", revision) is None or not revision.startswith(sys.argv[1]):
+    raise SystemExit(1)
+print(revision)
+' "$expected")"; then
+			return 0
+		fi
+		sleep "${AGENTIUM_BUILD_INFO_INTERVAL:-5}"
+	done
+	return 1
+}
+
 case "${1:-}" in
 images) compose "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" "${OPENBAO_PROFILE[@]}" config --images ;;
 storage-check) storage_check ;;
 migrate)
 	storage_check
-	compose run --rm --no-deps --pull never agentium-migrate
+	start_run migrate
+	gate_enter
+	backup_database
+	journal_append migrate - "$BACKUP" started
+	compose run --rm --no-deps --pull never agentium-migrate || {
+		journal_append migrate - "$BACKUP" failed
+		fail "migrate failed; restore point: $BACKUP"
+	}
+	journal_append migrate - "$BACKUP" passed
+	gate_leave
 	;;
 up)
 	storage_check
+	start_run up
+	gate_enter
 	compose up -d --no-build --no-deps --pull never agentium-worker-recipes agentium-backend agentium-worker-cpu agentium-frontend agentium-p4-maintenance agentium-beat "${ML_TS_SERVICES[@]}" "${ML_DEEP_SERVICES[@]}" "${HUGGINGFACE_SERVICES[@]}" "${OPENBAO_SERVICES[@]}"
+	verify_build_info || {
+		journal_append up - - failed
+		fail "build-info did not report $TAG with revision_verified; roll back with AGENTIUM_IMAGE_TAG=$PREVIOUS_TAG $0 up"
+	}
+	journal_append up "$REVISION" - passed
+	gate_leave
 	# Said at the end of every switch, never blocking it: new code
 	# whose Skills the database lacks is a feature nobody can see.
 	catalog >/dev/null || printf '%s\n' "WARNING: catalog-check did not pass (verdict above); to bring the Skills catalog to this release: $0 catalog-apply" >&2
 	;;
+gate-exit)
+	RUN_ID="${2:-}"
+	[[ "$RUN_ID" =~ ^[0-9]{8}T[0-9]{6}Z-(migrate|up)$ && -f "$DEPLOYMENTS_ROOT/$RUN_ID/phase" ]] ||
+		fail "usage: $0 gate-exit <run-id from $JOURNAL>"
+	RUN_DIR="$DEPLOYMENTS_ROOT/$RUN_ID"
+	gate exit
+	;;
+journal) clean_exec cat -- "$JOURNAL" ;;
 catalog-check) catalog ;;
 catalog-apply)
 	storage_check
@@ -346,7 +502,7 @@ ml-ts-stop) compose --profile ml-ts rm --stop --force "${ML_TS_ALL[@]}" ;;
 ml-deep-stop) compose --profile ml-deep rm --stop --force "${ML_DEEP_ALL[@]}" ;;
 ps) compose "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" "${OPENBAO_PROFILE[@]}" ps ;;
 *)
-	echo "usage: $0 {images|storage-check|migrate|up|catalog-check|catalog-apply|openbao-prepare|openbao-init|openbao-snapshot|openbao-status|ml-ts-stop|ml-deep-stop|ps}" >&2
+	echo "usage: $0 {images|storage-check|migrate|up|gate-exit|journal|catalog-check|catalog-apply|openbao-prepare|openbao-init|openbao-snapshot|openbao-status|ml-ts-stop|ml-deep-stop|ps}" >&2
 	exit 2
 	;;
 esac

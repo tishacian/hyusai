@@ -538,7 +538,7 @@ exit)
 	require_orchestrator_context
 	phase="$(<"$SAFE_DEPLOYMENT_DIR/phase")"
 	case "$SAFE_GATE_PURPOSE:$phase" in
-	forward-open:opening_forward | forward-terminal-open:completed | rollback-open:rollback_opening | rollback-terminal-open:rolled_back | pre-closing-recover:prepared | pre-migration-recover:closing_intent | pre-migration-recover:closing | pre-migration-recover:maintenance_closed | pre-migration-recover:quiesced) ;;
+	launcher-open:launcher | forward-open:opening_forward | forward-terminal-open:completed | rollback-open:rollback_opening | rollback-terminal-open:rolled_back | pre-closing-recover:prepared | pre-migration-recover:closing_intent | pre-migration-recover:closing | pre-migration-recover:maintenance_closed | pre-migration-recover:quiesced) ;;
 	*) die "Ouverture du gate interdite pour purpose=$SAFE_GATE_PURPOSE phase=$phase" ;;
 	esac
 	case "$SAFE_GATE_PURPOSE:$phase" in
