@@ -79,7 +79,7 @@ def test_workspace_chat_capability_and_system_are_seeded(db_session):
     )
     assert system.capability_id == capability.id
     assert runtime_status("chat_trivial_bypass_v1") == "bound"
-    assert runtime_status("chat_grounding_policy_v1") == "stub"
+    assert runtime_status("chat_grounding_policy_v1") == "bound"
     assert runtime_status("chat_action_resolver_v1") == "stub"
 
     again = ensure_workspace_chat_system_default(db_session, workspace.id)
@@ -682,3 +682,28 @@ def test_chat_correction_endpoint_accepts_when_toggle_on(db_session, monkeypatch
     )
     assert response.status_code == 200
     assert response.json()["status"] == "pending_review"
+
+
+def test_grounding_policy_skill_resolves_the_workspace_policy(db_session):
+    import asyncio
+
+    from app.services.skills_registry.wrappers import resolve
+
+    workspace = Workspace(
+        id="ws-grounding-skill",
+        name="Grounding skill workspace",
+        slug="grounding-skill-workspace",
+        settings={"chat": {"grounding": {"allowed_modes": ["strict", "balanced"], "default_mode": "balanced"}}},
+    )
+    db_session.add(workspace)
+    db_session.commit()
+
+    skill = resolve("chat_grounding_policy_v1")
+    policy = asyncio.run(skill({"query": "bonjour"}, {"db": db_session, "workspace_id": workspace.id}))
+    assert policy["mode"] == "balanced"
+    assert policy["inherited_from"] == "workspace"
+    strict = asyncio.run(
+        skill({"query": "bonjour", "grounding_mode": "strict"}, {"db": db_session, "workspace_id": workspace.id})
+    )
+    assert strict["mode"] == "strict"
+    assert strict["reason"] == "request_override"

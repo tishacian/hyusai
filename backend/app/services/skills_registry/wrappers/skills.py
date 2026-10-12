@@ -447,6 +447,26 @@ async def _chat_trivial_bypass_v1(
     }
 
 
+async def _chat_grounding_policy_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.chat_grounding import resolve_grounding_policy
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        return resolve_grounding_policy(
+            query=str(payload.get("query") or ""),
+            workspace=workspace,
+            assistant_profile=payload.get("assistant_profile"),
+            requested_mode=payload.get("grounding_mode"),
+            context_id=payload.get("context_id"),
+        )
+    finally:
+        if owns_db:
+            db.close()
+
+
 async def _llm_rag_answer_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
