@@ -135,17 +135,17 @@ test('release theme and page links are safe, stable projections', () => {
   assert.equal(isInternalWorkHref('/work/my%20app/daily%2Fqueue', 'my app'), true);
   assert.equal(isInternalWorkHref('/work/my%20application', 'my app'), false);
   assert.equal(catalogLaunchHref({
-    experience: app({ slug: 'orders', theme: { live_href: '/legacy' } }),
+    experience: app({ slug: 'orders', theme: { live_href: '/apps/orders-classic' } }),
     channel: 'live',
     release: { id: 'r1', theme: {}, renderer_version: 'certified-components-0.1.0' },
-  }), '/legacy');
+  }), '/apps/orders-classic');
   assert.equal(catalogLaunchHref({
-    experience: app({ slug: 'orders', theme: { live_href: '/legacy' } }),
+    experience: app({ slug: 'orders', theme: { live_href: '/apps/orders-classic' } }),
     channel: 'live',
     release: { id: 'r2', theme: {}, renderer_version: 'certified-components-0.2.0' },
-  }), '/legacy');
+  }), '/apps/orders-classic');
   assert.equal(catalogLaunchHref({
-    experience: app({ slug: 'orders', theme: { live_href: '/legacy' } }),
+    experience: app({ slug: 'orders', theme: { live_href: '/apps/orders-classic' } }),
     channel: 'live',
     release: { id: 'r3', theme: {}, renderer_version: 'certified-components-9.9.9' },
   }), '/work/orders');

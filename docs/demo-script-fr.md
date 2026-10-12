@@ -8,7 +8,7 @@
 
 **Préparer :**
 - Navigateur ouvert sur l'URL (pas encore loggé)
-- 2 PDFs prêts pour l'upload (depuis `sample_data/`) :
+- 2 PDFs prêts pour l'upload (depuis `backend/app/seeds/sample_data/`) :
   - `Vendor_Qualification_Form_Temple.pdf`
   - `Supplier_Prequalification_IRW.pdf`
 - Cette note imprimée ou sur un écran secondaire

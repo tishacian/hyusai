@@ -1,15 +1,15 @@
 # File metadata utilities
-from docmeta.utils.file_metadata import get_file_common_metadata
+from .file_metadata import get_file_common_metadata
 
 # Keyword extraction utilities
-from docmeta.utils.keyword_extractor import (
+from .keyword_extractor import (
     clean_text,
     extract_keywords_tfidf,
     get_stopwords,
 )
 
 # Serialization utilities
-from docmeta.utils.serializers import (
+from .serializers import (
     DateTimeEncoder,
     format_metadata,
     save_json,
@@ -17,7 +17,7 @@ from docmeta.utils.serializers import (
 )
 
 # Text processing utilities
-from docmeta.utils.text_processing import (
+from .text_processing import (
     analyze_dict_structure,
     analyze_list_structure,
     count_text_statistics,
@@ -34,7 +34,7 @@ from docmeta.utils.text_processing import (
 )
 
 # Token counting utilities
-from docmeta.utils.token_counter import count_tokens
+from .token_counter import count_tokens
 
 __all__ = [
     # File metadata
