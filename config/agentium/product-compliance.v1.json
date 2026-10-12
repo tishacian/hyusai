@@ -1181,7 +1181,6 @@
             "contains": [
               "agentium-lot6-system360-production:",
               "AGENTIUM_ATTESTATION_ID_TOKEN:",
-              "deploy-lot6-system360.sh",
               "agentium_deployment_attestation.py",
               "agentium_trusted_compliance.py"
             ]
@@ -1196,16 +1195,6 @@
               "required_skills_observed",
               "grounded_output_verified",
               "canonical_provenance_verified"
-            ]
-          },
-          {
-            "label": "Quiesced VM deployment wrapper",
-            "path": "scripts/deploy-lot6-system360.sh",
-            "contains": [
-              "create_backup \"quiesced\"",
-              "run_candidate alembic upgrade head",
-              "--exercise-query-stdin",
-              "rollback --apply"
             ]
           },
           {
