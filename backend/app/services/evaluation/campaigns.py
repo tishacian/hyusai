@@ -436,7 +436,7 @@ def run_generation_job(job_id: str):
     from app.models.workspace import Workspace
     from app.models.user import User
     from app.services.model_plane.execution import resolve_model_execution
-    from app.services.vector_db.factory import VectorDBFactory
+    from app.services.rag.index.factory import VectorDBFactory
     from app.services.evaluation.giskard_adapter import generate_isolated
     from app.api.v1.endpoints.flow_workbench import _authorize
     db = SessionLocal()

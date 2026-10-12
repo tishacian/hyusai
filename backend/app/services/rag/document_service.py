@@ -10,7 +10,7 @@ from app.services.rag.ingest.embedder import Embedder
 from app.services.rag.retrieval.bm25_retriever import BM25Retriever
 from app.services.rag.retrieval.ensemble_retriever import EnsembleConfig, EnsembleRetriever
 from app.services.rag.retrieval.reranker_config import RerankerConfig
-from app.services.vector_db.factory import VectorDBFactory
+from app.services.rag.index.factory import VectorDBFactory
 
 try:
     from app.services.rag.retrieval.contextual_compression import (

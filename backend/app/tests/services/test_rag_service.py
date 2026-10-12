@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from app.services.rag.document_service import DocumentService, _document_extra_metadata
-from app.services.vector_db.factory import VectorDBFactory
+from app.services.rag.index.factory import VectorDBFactory
 
 
 class FakeVectorDB:
