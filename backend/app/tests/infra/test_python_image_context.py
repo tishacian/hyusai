@@ -45,7 +45,7 @@ RUNTIME_READS = [
     "docs/showcase-notices-knowledge-guide.md",
     "docs/andritz-notices-techniques-spl-knowledge-guide.md",
 ]
-RUNTIME_DIRECTORIES = ["src/metadata_extraction", "sample_data", "frontend"]
+RUNTIME_DIRECTORIES = ["backend/app/services/document_meta/docmeta", "backend/app/seeds/sample_data"]
 
 NEVER_SHIPPED = [
     "docker/env/agentium.env",

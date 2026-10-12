@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from typing import Any
 
-from docmeta.core.types import MetadataType
+from ..core.types import MetadataType
 
 
 class DateTimeEncoder(json.JSONEncoder):

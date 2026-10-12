@@ -1,23 +1,22 @@
-"""Adapter over the monorepo `src/metadata_extraction/docmeta` package.
+"""Adapter over the vendored ``docmeta`` package (``document_meta/docmeta``).
 
-Why this shim exists
---------------------
+Why this adapter exists
+-----------------------
 Before this module, chunk metadata stored in the vector DB was limited to
 what the document parser surfaced (filename, chunk index, char offsets). That
 was enough to retrieve text but not enough to answer "what is this document
 about?" or to render human-readable citations in the chat UI.
 
-The existing ``docmeta`` package in ``src/metadata_extraction`` already
-handles PDF / Office / ODT / text / markup / structured data / images and
-produces titles, authors, embedded + TF-IDF keywords, token counts, page
-counts, etc. Rather than duplicate that work we expose it to the backend via
-a single helper while keeping the original package as the canonical source.
+The ``docmeta`` package handles PDF / Office / ODT / text / markup /
+structured data / images and produces titles, authors, embedded + TF-IDF
+keywords, token counts, page counts, etc. This module exposes it to the
+backend through a single helper.
 
 Design notes
 ------------
-- We add ``src/metadata_extraction`` to ``sys.path`` lazily on first import.
-  The source package uses absolute imports (``from docmeta.X``), so a plain
-  sys.path shim is the least invasive option.
+- ``docmeta`` is imported lazily on first use: its extractors pull optional
+  parser deps, and a missing one must disable enrichment, not the import of
+  this module.
 - Every public call is wrapped in a broad ``try/except`` so that a missing
   optional dep (``nltk`` corpora, ``PyMuPDF`` on a slim image, ...) or a
   corrupt file never breaks the ingestion pipeline. We log the failure and
@@ -30,71 +29,30 @@ Design notes
 
 from __future__ import annotations
 
-import os
-import sys
-import threading
 from datetime import datetime
-from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-_SYS_PATH_LOCK = threading.Lock()
-_SYS_PATH_READY = False
+
+_extract_metadata: Callable[..., Any] | None = None
 
 
-def _ensure_docmeta_on_path() -> bool:
-    """Insert ``src/metadata_extraction`` into ``sys.path`` once.
-
-    Returns True if ``docmeta`` is importable after the call, False otherwise.
-    """
-    global _SYS_PATH_READY
-    if _SYS_PATH_READY:
-        return True
-
-    with _SYS_PATH_LOCK:
-        if _SYS_PATH_READY:
-            return True
-
-        # Resolve the monorepo root relative to this file.
-        # backend/app/services/document_meta/__init__.py -> repo root
-        here = Path(__file__).resolve()
-        repo_root = here.parents[4]  # document_meta -> services -> app -> backend -> root
-        candidate = repo_root / "src" / "metadata_extraction"
-
-        # In case we're deployed from a copy that relocates the backend, honour
-        # an explicit override so ops can point us at the right tree.
-        override = os.environ.get("DOCMETA_SRC_DIR")
-        if override:
-            candidate = Path(override)
-
-        if not candidate.is_dir():
-            logger.warning(
-                "docmeta source directory not found; metadata enrichment disabled",
-                candidate=str(candidate),
-            )
-            return False
-
-        path_str = str(candidate)
-        if path_str not in sys.path:
-            sys.path.insert(0, path_str)
-
+def _docmeta_extract() -> Callable[..., Any] | None:
+    """Return ``docmeta.core.extract_metadata``, or None if docmeta cannot load."""
+    global _extract_metadata
+    if _extract_metadata is None:
         try:
-            import docmeta  # noqa: F401
-            import docmeta.extractors  # noqa: F401 — triggers extension/MIME registration
-
-            _SYS_PATH_READY = True
-            logger.info("docmeta ready", path=path_str)
-            return True
+            from .docmeta import extractors  # noqa: F401 — triggers extension/MIME registration
+            from .docmeta.core import extract_metadata
         except Exception as e:  # pragma: no cover — env-dependent
-            logger.warning(
-                "docmeta import failed; metadata enrichment disabled",
-                error=str(e),
-                path=path_str,
-            )
-            return False
+            logger.warning("docmeta import failed; metadata enrichment disabled", error=str(e))
+            return None
+        _extract_metadata = extract_metadata
+        logger.info("docmeta ready")
+    return _extract_metadata
 
 
 def _normalise_value(value: Any) -> Any:
@@ -146,13 +104,8 @@ def extract_document_metadata(
         metadata. Returns ``{}`` if docmeta is unavailable or the extraction
         fails for any reason.
     """
-    if not _ensure_docmeta_on_path():
-        return {}
-
-    try:
-        from docmeta.core import extract_metadata  # type: ignore
-    except Exception as e:  # pragma: no cover
-        logger.warning("docmeta import failed at call-time", error=str(e))
+    extract_metadata = _docmeta_extract()
+    if extract_metadata is None:
         return {}
 
     try:

@@ -1,5 +1,5 @@
 # Import for convenience
-from docmeta.core.defaults import (
+from .defaults import (
     create_image_metadata,
     create_markup_metadata,
     create_office_metadata,
@@ -8,8 +8,8 @@ from docmeta.core.defaults import (
     create_structured_data_metadata,
     create_text_metadata,
 )
-from docmeta.core.factory import extract_metadata
-from docmeta.core.types import (
+from .factory import extract_metadata
+from .types import (
     FileMetaData,
     ImageMetaData,
     MarkupMetaData,
