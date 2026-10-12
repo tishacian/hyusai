@@ -56,6 +56,7 @@ const pureSpecs = [
   'src/app/features/experience/hub/automation-draft.model.spec.ts',
   'src/app/features/observability/observability-labels.spec.ts',
   'src/app/features/observability/observability-chart.vm.spec.ts',
+  'src/app/features/observability/public-bench.vm.spec.ts',
   'src/app/features/observability/observability-facets.spec.ts',
   'src/app/features/observability/observability.routes.spec.ts',
   'src/app/features/observability/traces-facet.spec.ts',

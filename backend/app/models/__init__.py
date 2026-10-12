@@ -230,6 +230,7 @@ __all__ = [
     "EvaluationCorrection",
     "SapWriteIntent",
     "ValueContract",
+    "RetrievalBenchRun",
 ]
 
 from app.models.automation_review import AutomationReview
@@ -241,3 +242,4 @@ from app.models.evaluation_campaign import EvaluationCampaign, EvaluationSuite
 from app.models.evaluation_correction import EvaluationCorrection
 from app.models.sap_write_intent import SapWriteIntent
 from app.models.value_contract import ValueContract
+from app.models.retrieval_bench_run import RetrievalBenchRun

@@ -46,6 +46,13 @@
         "reason": "Selects which getting-started journey a workspace shows: the NorthForge example in the synthetic Showcase, the journey on the workspace's own collections everywhere else. It grants no role, entitlement or document permission."
       },
       {
+        "path": "backend/app/services/rag/public_bench.py",
+        "expression": "Workspace.slug == PUBLIC_BENCH_WORKSPACE_SLUG",
+        "occurrences": 1,
+        "category": "provisioning_identity",
+        "reason": "The public retrieval bench seeds and replays a frozen HotpotQA corpus in the dedicated workspace it owns; it grants no role, entitlement or document permission and changes no tenant behavior."
+      },
+      {
         "path": "backend/app/services/mission_room/provisioning.py",
         "expression": "Workspace.slug == OCTOCITY_WORKSPACE_SLUG",
         "occurrences": 1,
