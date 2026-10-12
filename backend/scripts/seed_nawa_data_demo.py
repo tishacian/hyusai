@@ -130,16 +130,22 @@ CHURN_SKILL_SLUGS = [
     "ml_train_sklearn_v1",
     "ml_batch_score_v1",
     "ml_predict_v1",
+    # The digest between the scoring node and the brief. A recipe rather than a
+    # transform because it measures the base without writing a table, and a
+    # node the capability has not claimed is a graph the walker refuses.
+    "python_recipe_v1",
     "azure_llm_v1",
 ]
 RADIO_SKILL_SLUGS = ["dbt_transform_v1"]
 #: The board reads and computes; it neither trains, scores nor writes a table.
 #: Two skills is the whole of it, and that is the claim its capability makes.
 BOARD_SKILL_SLUGS = ["system_run_read_v1", "python_recipe_v1"]
-#: The desk's own two: the planner, and the writer that phrases the verdict. The
-#: third skill it may call is the published model, which has no slug until the
-#: model card publishes it — so it is bound to the System by id, not claimed here.
-DESK_SKILL_SLUGS = ["decide_next_v1", "azure_llm_v1"]
+#: The desk's own three: the planner, the writer that phrases the verdict, and
+#: the recipe that resolves a subscriber from the number a stakeholder typed and
+#: composes the answer afterwards. The fourth skill it may call is the published
+#: model, which has no slug until the model card publishes it — so it is bound to
+#: the System by id, not claimed here.
+DESK_SKILL_SLUGS = ["decide_next_v1", "azure_llm_v1", "python_recipe_v1"]
 
 # ---------------------------------------------------------------------------
 # The Polars feature node's script
@@ -313,19 +319,380 @@ models:
               values: ['critical', 'watch', 'healthy']
 """
 
-#: The synthesis prompt of the last node before the sink. Written as a literal
-#: on the node so the demo can edit it live in the inspector. English, like
-#: every other string the audience reads: the agentic half of the canvas has to
-#: speak the same language as the data half.
-BRIEF_PROMPT = (
-    "You are a retention analyst at a Moroccan telecom operator. "
-    "From the churn scoring table that has just been produced "
-    "(columns: msisdn, region, plan, contract, tenure_months, arpu_mad, "
-    "prediction, confidence, score_1), write an English brief of at most "
-    "8 lines for the retention committee: the three segments most at risk, the "
-    "estimated monthly revenue at stake, and one retention action per segment. "
-    "Quote figures, not generalities."
+# ---------------------------------------------------------------------------
+# The arithmetic the board and the brief are both written against
+# ---------------------------------------------------------------------------
+
+#: Read twice, by two scripts, on two nodes — so written once, here, and
+#: concatenated into both.
+#:
+#: The demo now quotes the same money figure in two blocks inches apart on one
+#: page: a measured tile and a written brief. Mirroring the arithmetic in two
+#: scripts would have them agree today and disagree the first time one of them
+#: is edited — and the version that would drift is the one nobody re-derives by
+#: hand, which is the narrative. Sharing it textually rather than by import is
+#: not a preference: the recipe plane is a sandbox with no database, no object
+#: store and no path back into this repository, so a fragment of source is the
+#: only thing two scripts running there can actually have in common.
+SCORED_BASE_ARITHMETIC = '''
+#: Stated in words wherever the figure appears, because a monetary claim
+#: without its definition is the one number in a committee that always gets
+#: challenged. Measured ARPU, modelled weighting, one month: the sentence says
+#: which half is which.
+REVENUE_LABEL = (
+    "One month of recurring revenue from the flagged subscribers, each "
+    "subscriber's measured ARPU multiplied by the model's predicted "
+    "probability that they leave. The revenue is measured; the weighting is "
+    "modelled."
 )
+
+
+def _number(value):
+    """A float, treating an absent cell as zero rather than as a failure.
+
+    A hole in ARPU cannot reach here — the cleaning node drops those rows — so
+    the only way to arrive is a column the caller does not model. Zero keeps
+    one odd row out of the totals instead of emptying the answer.
+    """
+
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _score_column(row):
+    """The probability column the scoring node added, found by its convention.
+
+    ``ml_batch_score_v1`` writes ``score_<positive class>``, so the column name
+    carries which class the number is about. Reading it is what keeps the
+    positive class out of these scripts as a literal. Two columns, or none,
+    means this is not the table they were written against, and saying so is
+    better than reporting a confident zero.
+    """
+
+    names = sorted(name for name in row if name.startswith("score_"))
+    if len(names) != 1:
+        raise ValueError(
+            "the scored base must carry exactly one score_<class> column, "
+            "found: " + (", ".join(names) or "none")
+        )
+    return names[0]
+
+
+def _rate_pct(numerator, denominator):
+    """A percentage with one decimal, or None when there is nothing to divide."""
+
+    if not denominator:
+        return None
+    return round(100.0 * numerator / denominator, 1)
+
+
+def _at_stake(row, score_column):
+    """One subscriber's month of revenue, weighted by their predicted departure.
+
+    A function rather than the same expression written twice, because the total
+    is quoted on a tile and in a paragraph beside it. Rounding once over the
+    sum instead of once per subscriber differs by centimes — and a page that
+    contradicts itself by centimes is a page whose every figure gets checked by
+    hand from then on.
+    """
+
+    return round(_number(row.get("arpu_mad")) * _number(row.get(score_column)), 2)
+
+
+def base_figures(rows):
+    """Everything two readings of one scored base have to agree about.
+
+    Flagged is the model's own verdict — ``prediction`` against the class the
+    score column is named for — never a threshold a script here invented. Both
+    rates are *observed* churn from the ``churn`` column rather than
+    predictions, so the gap between them is the ranking being right rather than
+    the model agreeing with itself.
+
+    ``flagged`` and ``score_column`` come back with the totals because each
+    caller projects the flagged rows differently: one into a call list, the
+    other into segments. What neither may do is re-decide who is flagged.
+    """
+
+    if not rows:
+        raise ValueError(
+            "the scored base is empty; there is nothing measured to report"
+        )
+
+    score_column = _score_column(rows[0])
+    # The class the score is about, read off the column the model itself named.
+    positive = score_column[len("score_") :]
+
+    base_size = len(rows)
+    churned = sum(1 for row in rows if _number(row.get("churn")) >= 0.5)
+
+    # The riskiest tenth, by the model's own ranking, judged on what those
+    # subscribers actually did. Measured, not predicted: this is the number
+    # that says the ranking is worth acting on.
+    by_score = sorted(
+        rows, key=lambda row: _number(row.get(score_column)), reverse=True
+    )
+    decile_size = max(1, base_size // 10)
+    decile = by_score[:decile_size]
+    decile_churned = sum(1 for row in decile if _number(row.get("churn")) >= 0.5)
+
+    flagged = [row for row in rows if str(row.get("prediction")) == positive]
+    revenue = sum(_at_stake(row, score_column) for row in flagged)
+
+    return {
+        "score_column": score_column,
+        "positive": positive,
+        "flagged": flagged,
+        "base_size": base_size,
+        "subscribers_at_risk": len(flagged),
+        "revenue_at_stake_mad": round(revenue, 2),
+        # A tile and a prompt both render whatever they are handed, verbatim.
+        # "72314.04" is a float that leaked onto a slide; the centimes are
+        # noise at this scale and the separator is the difference between a
+        # figure a room reads and one it has to parse. The unrounded number
+        # stays beside it for the provenance table and for anything that
+        # computes.
+        "revenue_at_stake_display": f"{round(revenue):,}",
+        "riskiest_decile_churn_pct": _rate_pct(decile_churned, decile_size),
+        "riskiest_decile_size": decile_size,
+        "base_churn_pct": _rate_pct(churned, base_size),
+    }
+'''
+
+
+def _compiled_main(code: str, *, name: str):
+    """One recipe's ``main`` as a callable, compiled from the seeded source.
+
+    The script is the artifact that runs: it is what the recipe plane executes
+    and what an operator edits in the node inspector. Tests that
+    re-implemented its arithmetic would be testing a copy, so they compile this
+    one instead and call it with a frame they built by hand.
+    """
+
+    namespace: dict[str, Any] = {}
+    exec(compile(code, f"<{name}>", "exec"), namespace)  # noqa: S102
+    return namespace["main"]
+
+
+# ---------------------------------------------------------------------------
+# The retention brief's digest
+# ---------------------------------------------------------------------------
+
+#: What the brief is told to do, and nothing about what it is told. The figures
+#: are computed and appended by the node below; this is only the task.
+#:
+#: The previous version of this string asked an LLM to "quote figures, not
+#: generalities" and handed it no figures — ``azure_llm_v1`` receives a prompt
+#: and nothing else — so it quoted invented ones, on a page that showed the
+#: measured ones two blocks away. An instruction to be specific, without
+#: anything to be specific about, is an instruction to fabricate.
+BRIEF_INSTRUCTION = (
+    "You are a retention analyst at a Moroccan telecom operator, writing for "
+    "the retention committee. Write an English brief of at most 8 lines: name "
+    "the segments most at risk, say what one month of their revenue is worth, "
+    "and give one retention action per segment. "
+    "Every number in what you write must be copied from the measured figures "
+    "below, which are the whole of what is known about this base. You have no "
+    "other source and no way to check one: if a figure is not in that list "
+    "then it is not known, and a brief that leaves it out is right where a "
+    "brief that estimates it is wrong."
+)
+
+#: The columns the digest's arithmetic reads, and no more — every one of them
+#: crosses into the recipe sandbox as JSON on each run of the pipeline. Six
+#: rather than the board's eight because a brief names segments instead of
+#: subscribers: it never prints a line number and never sorts by tenure, so it
+#: is not handed either.
+DIGEST_COLUMNS = (
+    "region",
+    "plan",
+    "arpu_mad",
+    "churn",
+    "prediction",
+    "score_1",
+)
+
+#: The view the digest reads its rows under.
+DIGEST_SOURCE_VIEW = "scored"
+
+#: Raw, and it has to be: the joiner below is an escape, and this script is
+#: itself a Python string in the seed. Written unraw, ``\n`` would arrive at
+#: the recipe plane already interpreted — as a real line break inside a string
+#: literal, which is a syntax error rather than a wrong answer.
+DIGEST_CODE = '''"""Measure the base the brief is about, and compose its prompt.
+
+The node this runs on exists because the writer downstream cannot see a single
+row. ``azure_llm_v1`` takes a prompt and returns a completion; handed an
+instruction to quote figures and no figures, it supplies its own — and the
+business page then shows an invented total next to a measured one, which is
+worse than showing no narrative at all.
+
+So the figures are measured here, from the rows the pipeline has just scored,
+and travel to the writer as text inside the prompt. Nothing else about the
+brief changes: it is still written by a model, still eight lines, still a
+retention brief. What it no longer chooses is the numbers.
+
+Three segments rather than seven, and ranked by money rather than headcount,
+because the brief exists to be acted on in the meeting it is read in.
+"""
+''' + SCORED_BASE_ARITHMETIC + r'''
+
+#: A committee funds one campaign or two out of one meeting. Seven segments is
+#: a list nobody chooses from, and the tail of it is noise.
+TOP_SEGMENTS = 3
+
+
+def _segments(flagged, score_column):
+    """The at-risk cohorts a campaign would actually be aimed at.
+
+    Region and plan together: region alone sends one message to seven markets,
+    and plan alone hides that prepaid and postpaid leave for different reasons.
+    Ranked by what is at stake rather than by headcount, for the same reason
+    the call list is — a large segment of cheap lines is not the first campaign
+    to fund — and the labels break ties, so two reads of one table name the
+    same three.
+    """
+
+    cohorts = {}
+    for row in flagged:
+        key = (str(row.get("region") or "unknown"), str(row.get("plan") or "unknown"))
+        cohorts.setdefault(key, []).append(row)
+
+    segments = []
+    for (region, plan), cohort in cohorts.items():
+        segments.append(
+            {
+                "region": region,
+                "plan": plan,
+                "subscribers": len(cohort),
+                "mean_arpu_mad": round(
+                    sum(_number(row.get("arpu_mad")) for row in cohort) / len(cohort),
+                    2,
+                ),
+                "mean_score": round(
+                    sum(_number(row.get(score_column)) for row in cohort)
+                    / len(cohort),
+                    4,
+                ),
+                "revenue_at_stake_mad": round(
+                    sum(_at_stake(row, score_column) for row in cohort), 2
+                ),
+            }
+        )
+    segments.sort(
+        key=lambda item: (
+            -item["revenue_at_stake_mad"],
+            item["region"],
+            item["plan"],
+        )
+    )
+    return segments[:TOP_SEGMENTS]
+
+
+def main(inputs):
+    instruction = str(inputs.get("instruction") or "").strip()
+    if not instruction:
+        # The figures without the task would be a table of numbers sent to a
+        # writer with nothing asked of it. Refusing here is what makes an
+        # emptied prompt on the node a failed run rather than a strange brief.
+        raise ValueError(
+            "the brief's instruction is empty; the writer would be handed "
+            "figures and no task"
+        )
+
+    scored = inputs.get("scored") or {}
+    rows = scored.get("rows") or []
+    model = scored.get("model") or {}
+
+    # A pin follows the newest ready version of its lineage, which is the right
+    # rule for a board somebody refreshes at lunchtime and the wrong one here:
+    # this node runs *inside* the run that produced the table, so "newest" and
+    # "the one the node upstream just wrote" have to be the same table. When
+    # they differ, something between them did not do what it was asked, and the
+    # figures on hand describe a base one run old — which is the failure this
+    # whole node exists to prevent, arriving by a different door.
+    written = str(inputs.get("scored_dataset_id") or "").strip()
+    read = str((scored.get("dataset") or {}).get("dataset_id") or "").strip()
+    if written and read and written != read:
+        raise ValueError(
+            "the scored table read here (" + read + ") is not the one this "
+            "run's scoring node reported (" + written + "); the brief would "
+            "describe a base the pipeline did not just produce"
+        )
+
+    figures = base_figures(rows)
+    segments = _segments(figures["flagged"], figures["score_column"])
+
+    lines = [
+        instruction,
+        "",
+        "Measured figures — the whole of what is known about this base:",
+        "- Subscribers scored: {}".format(figures["base_size"]),
+        "- Flagged by the model as about to leave: {}".format(
+            figures["subscribers_at_risk"]
+        ),
+        "- Revenue at stake: {} MAD. {}".format(
+            figures["revenue_at_stake_display"], REVENUE_LABEL
+        ),
+        "- Churn observed across the whole base: {}%".format(
+            figures["base_churn_pct"]
+        ),
+        "- Churn observed among the {} subscribers the model ranks riskiest: "
+        "{}%".format(
+            figures["riskiest_decile_size"], figures["riskiest_decile_churn_pct"]
+        ),
+    ]
+    name = str(model.get("name") or "").strip()
+    if name:
+        version = model.get("version")
+        lines.append(
+            "- Scored by: {}{}".format(
+                name, "" if version is None else " version {}".format(version)
+            )
+        )
+
+    if segments:
+        lines.append("")
+        lines.append(
+            "The largest at-risk segments, by the revenue their departure "
+            "would put at stake:"
+        )
+        for item in segments:
+            lines.append(
+                "- {} / {}: {} flagged, mean ARPU {} MAD, mean predicted "
+                "probability of leaving {}, {} MAD at stake".format(
+                    item["region"],
+                    item["plan"],
+                    item["subscribers"],
+                    item["mean_arpu_mad"],
+                    item["mean_score"],
+                    item["revenue_at_stake_mad"],
+                )
+            )
+
+    return {
+        "figures": {
+            "base_size": figures["base_size"],
+            "subscribers_at_risk": figures["subscribers_at_risk"],
+            "revenue_at_stake_mad": figures["revenue_at_stake_mad"],
+            "revenue_at_stake_display": figures["revenue_at_stake_display"],
+            "base_churn_pct": figures["base_churn_pct"],
+            "riskiest_decile_churn_pct": figures["riskiest_decile_churn_pct"],
+            "riskiest_decile_size": figures["riskiest_decile_size"],
+            "model_name": model.get("name"),
+            "model_version": model.get("version"),
+            "segments": segments,
+        },
+        "prompt": "\n".join(lines),
+    }
+'''
+
+
+def digest_main():
+    """The digest recipe's ``main``, compiled from the seeded source."""
+
+    return _compiled_main(DIGEST_CODE, name="digest_recipe")
 
 
 # ---------------------------------------------------------------------------
@@ -353,19 +720,39 @@ BOARD_COLUMNS = (
 BOARD_SOURCE_VIEW = "scored"
 
 
-def scored_slug() -> str:
-    """The lineage the board reads, named the way a pin names one.
+def _lineage_slug(name: str) -> str:
+    """One dataset lineage, named the way a pin names one.
 
     By slug rather than by dataset id, and derived from the name rather than
     looked up, for the same reason the pipeline's own nodes pin slugs: a pin
-    follows the newest ready version of that lineage. Every re-score mints a
-    version, and a board pinned to an id would keep reporting the base as it
-    stood the day it was seeded.
+    follows the newest ready version of that lineage. Every re-clean and every
+    re-score mints a version, and a node pinned to an id would keep reading the
+    base as it stood the day it was seeded.
     """
 
     from app.services.tabular_datasets import slugify
 
-    return slugify(SCORED_DATASET_NAME)
+    return slugify(name)
+
+
+def scored_slug() -> str:
+    """The lineage the board and the brief's digest read."""
+
+    return _lineage_slug(SCORED_DATASET_NAME)
+
+
+def cleaned_slug() -> str:
+    """The lineage the desk resolves a subscriber out of.
+
+    Not a parameter of ``desk_flow`` on purpose. Which table holds the
+    subscriber a stakeholder is asking about is a fact about this demo, not a
+    choice a caller gets to make: the model's twenty columns exist in exactly
+    one table here, and a desk pointed at another one would resolve numbers to
+    rows the model cannot accept.
+    """
+
+    return _lineage_slug(CLEAN_DATASET_NAME)
+
 
 #: The board's arithmetic, authored rather than hidden in a platform skill:
 #: every figure a stakeholder will challenge is a line somebody can open in the
@@ -381,7 +768,12 @@ number somebody typed last month is worse than a board with no number on it.
 The two rate figures travel together on purpose. A decile churn rate on its own
 sounds like a model result; next to the base rate it *is* one, because the gap
 between them is the only part that the model can claim.
+
+The counting itself is not written here — it is the fragment below, which the
+pipeline's own digest node carries verbatim. The board and the brief sit inches
+apart on the page and are read as one claim, so they are one arithmetic.
 """
+''' + SCORED_BASE_ARITHMETIC + '''
 
 #: Beyond this the table stops being a call list and becomes a data export.
 TOP_AT_RISK = 20
@@ -396,36 +788,12 @@ BANDS = (
     (0.75, 1.01, "75-100%"),
 )
 
-#: Stated in words on the page, because a monetary claim without its definition
-#: is the one figure in a committee that always gets challenged. Measured ARPU,
-#: modelled weighting, one month: the sentence says which half is which.
-REVENUE_LABEL = (
-    "One month of recurring revenue from the flagged subscribers, each "
-    "subscriber's measured ARPU multiplied by the model's predicted "
-    "probability that they leave. The revenue is measured; the weighting is "
-    "modelled."
-)
-
 NO_BRIEF = (
     "The retention brief is written by the last node of the Churn Radar "
     "pipeline. That pipeline has not produced one yet, so there is nothing to "
     "quote here. The figures above are this board's own arithmetic and stand "
     "without it."
 )
-
-
-def _number(value):
-    """A float, treating an absent cell as zero rather than as a failure.
-
-    A hole in ARPU cannot reach here — the cleaning node drops those rows — so
-    the only way to arrive is a column the board does not model. Zero keeps one
-    odd row out of the totals instead of emptying the page.
-    """
-
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
 
 
 def _msisdn(value):
@@ -444,74 +812,27 @@ def _msisdn(value):
     return str(value)
 
 
-def _score_column(row):
-    """The probability column the scoring node added, found by its convention.
-
-    ``ml_batch_score_v1`` writes ``score_<positive class>``, so the column name
-    carries which class the number is about. Reading it is what keeps the
-    positive class out of this script as a literal. Two columns, or none, means
-    this is not the table the board was written against, and saying so is
-    better than reporting a confident zero.
-    """
-
-    names = sorted(name for name in row if name.startswith("score_"))
-    if len(names) != 1:
-        raise ValueError(
-            "the scored base must carry exactly one score_<class> column, "
-            "found: " + (", ".join(names) or "none")
-        )
-    return names[0]
-
-
-def _rate_pct(numerator, denominator):
-    """A percentage with one decimal, or None when there is nothing to divide."""
-
-    if not denominator:
-        return None
-    return round(100.0 * numerator / denominator, 1)
-
-
 def main(inputs):
     scored = inputs.get("scored") or {}
     rows = scored.get("rows") or []
-    if not rows:
-        raise ValueError("the scored base is empty; there is no board to draw")
     model = scored.get("model") or {}
 
-    score_column = _score_column(rows[0])
-    # The class the score is about, read off the column the model itself named.
-    positive = score_column[len("score_") :]
-
-    base_size = len(rows)
-    churned = sum(1 for row in rows if _number(row.get("churn")) >= 0.5)
-
-    # The riskiest tenth, by the model's own ranking, judged on what those
-    # subscribers actually did. Measured, not predicted: this is the number
-    # that says the ranking is worth acting on.
-    by_score = sorted(rows, key=lambda row: _number(row.get(score_column)), reverse=True)
-    decile_size = max(1, base_size // 10)
-    decile = by_score[:decile_size]
-    decile_churned = sum(1 for row in decile if _number(row.get("churn")) >= 0.5)
-
-    # Flagged is the model's own verdict, not a threshold this script invented.
-    flagged = [row for row in rows if str(row.get("prediction")) == positive]
+    figures = base_figures(rows)
+    score_column = figures["score_column"]
 
     at_risk = []
-    for row in flagged:
-        score = _number(row.get(score_column))
-        arpu = _number(row.get("arpu_mad"))
+    for row in figures["flagged"]:
         at_risk.append(
             {
                 "msisdn": _msisdn(row.get("msisdn")),
                 "region": row.get("region"),
                 "plan": row.get("plan"),
                 "tenure_months": row.get("tenure_months"),
-                "arpu_mad": round(arpu, 2),
-                "score": round(score, 4),
-                "revenue_at_stake_mad": round(arpu * score, 2),
+                "arpu_mad": round(_number(row.get("arpu_mad")), 2),
+                "score": round(_number(row.get(score_column)), 4),
+                "revenue_at_stake_mad": _at_stake(row, score_column),
             }
         )
-    revenue_at_stake = sum(entry["revenue_at_stake_mad"] for entry in at_risk)
     # By what is at stake rather than by probability: a near-certain departure
     # on a 40 MAD line is not the call to make first. The msisdn breaks ties so
     # two refreshes of the same table list the same subscribers in the same
@@ -533,18 +854,13 @@ def main(inputs):
 
     return {
         "summary": {
-            "subscribers_at_risk": len(flagged),
-            "base_size": base_size,
-            "revenue_at_stake_mad": round(revenue_at_stake, 2),
-            # A tile renders whatever it is handed, verbatim. "72314.04" is a
-            # float that leaked onto a slide; the centimes are noise at this
-            # scale and the separator is the difference between a figure a room
-            # reads and one it has to parse. The unrounded number stays beside
-            # it for the provenance table and for anything that computes.
-            "revenue_at_stake_display": f"{round(revenue_at_stake):,}",
+            "subscribers_at_risk": figures["subscribers_at_risk"],
+            "base_size": figures["base_size"],
+            "revenue_at_stake_mad": figures["revenue_at_stake_mad"],
+            "revenue_at_stake_display": figures["revenue_at_stake_display"],
             "revenue_at_stake_label": REVENUE_LABEL,
-            "riskiest_decile_churn_pct": _rate_pct(decile_churned, decile_size),
-            "base_churn_pct": _rate_pct(churned, base_size),
+            "riskiest_decile_churn_pct": figures["riskiest_decile_churn_pct"],
+            "base_churn_pct": figures["base_churn_pct"],
             "model_name": model.get("name"),
             "model_version": model.get("version"),
             "model_metric_key": model.get("metric_key"),
@@ -558,17 +874,9 @@ def main(inputs):
 
 
 def board_main():
-    """The recipe's ``main`` as a callable, compiled from the seeded source.
+    """The board recipe's ``main``, compiled from the seeded source."""
 
-    The script above is the artifact that runs: it is what the recipe plane
-    executes and what an operator edits in the node inspector. Tests that
-    re-implemented its arithmetic would be testing a copy, so they compile this
-    one instead and call it with a frame they built by hand.
-    """
-
-    namespace: dict[str, Any] = {}
-    exec(compile(BOARD_CODE, "<board_recipe>", "exec"), namespace)  # noqa: S102
-    return namespace["main"]
+    return _compiled_main(BOARD_CODE, name="board_recipe")
 
 
 #: What the run's ``output_ref`` promises, and therefore what a block may bind
@@ -944,7 +1252,7 @@ def ensure_datasets(
 
 
 def churn_flow(*, raw_slug: str, model_slug: str, features: list[str]) -> dict[str, Any]:
-    """source → clean (SQL) → features (Polars) → fit → score → brief → sink.
+    """source → clean (SQL) → features (Polars) → fit → score → digest → brief → sink.
 
     ``schema_version: 3`` without ``io_mode: strict``, which is the shape the
     Flow Builder writes: the walker then hands each node the merged output of its
@@ -954,6 +1262,14 @@ def churn_flow(*, raw_slug: str, model_slug: str, features: list[str]) -> dict[s
     The scoring node has two parents on purpose. The fit before it is what orders
     them; the feature table beside it is what it actually scores — a model
     reference carries no rows.
+
+    That same "a reference carries no rows" is why the digest sits between the
+    scoring node and the writer. ``azure_llm_v1`` takes a prompt and returns a
+    completion; a dataset envelope on its input port is not something it can
+    read. So the node before it reads the table by pin, measures it, and hands
+    the writer the figures as text. A recipe rather than a transform because it
+    measures without writing: a transform would mint a dataset version of the
+    digest on every run of the pipeline.
     """
 
     return {
@@ -1065,28 +1381,81 @@ def churn_flow(*, raw_slug: str, model_slug: str, features: list[str]) -> dict[s
                 },
             },
             {
+                "id": "task.digest",
+                "kind": "task",
+                "type": "task",
+                "label": "Measure the base",
+                "position": {"x": 1220, "y": 220},
+                "config": {
+                    "skill_slug": "python_recipe_v1",
+                    "params": {
+                        "code": DIGEST_CODE,
+                        # The task, on the node, where an operator can edit it
+                        # live in the inspector — which is where the prompt used
+                        # to be. What moved out of the inspector's reach is the
+                        # *figures*, and that is the whole point of this node.
+                        "instruction": BRIEF_INSTRUCTION,
+                        "sources": [
+                            {
+                                "dataset_slug": scored_slug(),
+                                "view": DIGEST_SOURCE_VIEW,
+                                "columns": list(DIGEST_COLUMNS),
+                            }
+                        ],
+                    },
+                    # Overlay mode does not merge ``config.params`` implicitly,
+                    # so the instruction is read back through the node's own
+                    # namespace — the route the prompt took before, for the same
+                    # reason. ``scored_dataset_id`` is the freshness check: the
+                    # pin resolves the newest version of the lineage, and this
+                    # says which version the scoring node in *this* run wrote.
+                    "inputs_map": {
+                        "instruction": {
+                            "node_id": "node",
+                            "path": ["config", "params", "instruction"],
+                        },
+                        "scored_dataset_id": {
+                            "node_id": "task.score",
+                            "path": ["dataset_id"],
+                        },
+                    },
+                },
+                "data": {
+                    "description": (
+                        "Counts the base the brief is about — flagged "
+                        "subscribers, revenue at stake, both churn rates, the "
+                        "three segments worth funding — and composes the "
+                        "prompt around those figures. The writer downstream "
+                        "sees no rows, so anything it is not handed here it "
+                        "would have to invent."
+                    )
+                },
+            },
+            {
                 "id": "task.brief",
                 "kind": "task",
                 "type": "llm",
                 "label": "Retention brief",
-                "position": {"x": 1220, "y": 220},
+                "position": {"x": 1460, "y": 220},
                 "config": {
                     "skill_slug": "azure_llm_v1",
-                    "params": {"prompt": BRIEF_PROMPT},
-                    # Overlay mode does not merge `config.params` implicitly, so the
-                    # prompt is read back through the node's own namespace. That is
-                    # also what makes an inspector edit reach the run.
+                    # No ``params.prompt``. The node used to carry the whole
+                    # prompt as a literal and ``azure_llm_v1`` receives nothing
+                    # else — so a string asking for figures, with no figures in
+                    # it, was a string asking to be made up. The prompt now
+                    # arrives measured, from the node before.
                     "inputs_map": {
                         "prompt": {
-                            "node_id": "node",
-                            "path": ["config", "params", "prompt"],
+                            "node_id": "task.digest",
+                            "path": ["prompt"],
                         }
                     },
                 },
                 "data": {
                     "description": (
                         "The agentic plane consumes the data plane: a written "
-                        "brief on the segments at risk, in the same canvas."
+                        "brief on the segments at risk, in the same canvas. "
+                        "Every number in it was measured by the node before."
                     )
                 },
             },
@@ -1094,7 +1463,7 @@ def churn_flow(*, raw_slug: str, model_slug: str, features: list[str]) -> dict[s
                 "id": "sink",
                 "kind": "sink",
                 "label": "Result",
-                "position": {"x": 1460, "y": 220},
+                "position": {"x": 1700, "y": 220},
             },
         ],
         "edges": [
@@ -1103,7 +1472,8 @@ def churn_flow(*, raw_slug: str, model_slug: str, features: list[str]) -> dict[s
             {"from": "task.features", "to": "task.train", "kind": "data"},
             {"from": "task.train", "to": "task.score", "kind": "data"},
             {"from": "task.features", "to": "task.score", "kind": "data"},
-            {"from": "task.score", "to": "task.brief", "kind": "data"},
+            {"from": "task.score", "to": "task.digest", "kind": "data"},
+            {"from": "task.digest", "to": "task.brief", "kind": "data"},
             {"from": "task.brief", "to": "sink", "kind": "data"},
         ],
     }
