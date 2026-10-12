@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from app.services.embedding import embedder as embedder_module
-from app.services.embedding.embedder import (
+from app.services.rag.ingest.embedder import (
     Embedder,
     EmbeddingUnavailable,
     capture_embedding_provider_usage,

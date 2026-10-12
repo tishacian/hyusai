@@ -27,7 +27,7 @@ class ResponseEvaluator:
 
     def _get_embedder(self):
         if self._embedder is None:
-            from app.services.embedding.embedder import Embedder
+            from app.services.rag.ingest.embedder import Embedder
             self._embedder = Embedder()
         return self._embedder
 

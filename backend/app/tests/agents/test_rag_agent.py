@@ -81,7 +81,7 @@ async def test_rag_agent_uses_planned_retrieval_context(monkeypatch):
     # The agent reports the shared embedder; the real one is fail-closed
     # without a provider credential, which retrieval is stubbed out of here.
     monkeypatch.setattr(
-        "app.services.embedding.embedder.get_shared_embedder", lambda: _FakeEmbedder()
+        "app.services.rag.ingest.embedder.get_shared_embedder", lambda: _FakeEmbedder()
     )
 
     agent = object.__new__(RAGAgent)

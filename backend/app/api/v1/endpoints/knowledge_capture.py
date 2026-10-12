@@ -197,8 +197,8 @@ async def _extract_plan_source_text(upload: UploadFile) -> Dict[str, Any]:
 
         document_type = "text"
         try:
-            import app.services.document_parser.parsers  # noqa: F401
-            from app.services.document_parser.factory import DocumentParserFactory
+            import app.services.rag.ingest.parser.parsers  # noqa: F401
+            from app.services.rag.ingest.parser.factory import DocumentParserFactory
 
             parser = DocumentParserFactory.get_parser(temp_path)
             parsed = await parser.parse(temp_path, chunk_size=2000, chunk_overlap=100, use_ocr=False)

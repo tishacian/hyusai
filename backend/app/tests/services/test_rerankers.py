@@ -4,8 +4,8 @@ import types
 
 import pytest
 
-from app.services.retrieval import rerankers
-from app.services.retrieval.reranker_config import RerankerConfig
+from app.services.rag.retrieval import rerankers
+from app.services.rag.retrieval.reranker_config import RerankerConfig
 
 MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
@@ -63,10 +63,10 @@ def test_make_reranker_builds_the_onnx_engine_from_the_models_dir(host, monkeypa
         def __init__(self, config, *, models_dir):
             built.update(config=config, models_dir=models_dir)
 
-    module = types.ModuleType("app.services.retrieval.onnx_reranker")
+    module = types.ModuleType("app.services.rag.retrieval.onnx_reranker")
     module.OnnxReranker = FakeOnnx
     module.has_model_files = lambda *args: True
-    monkeypatch.setitem(sys.modules, "app.services.retrieval.onnx_reranker", module)
+    monkeypatch.setitem(sys.modules, "app.services.rag.retrieval.onnx_reranker", module)
     config = RerankerConfig(model_name=MODEL, max_length=256)
     assert isinstance(rerankers.make_reranker(config), FakeOnnx)
     assert built == {"config": config, "models_dir": str(tmp_path)}
@@ -79,9 +79,9 @@ def test_make_reranker_builds_flash_reranker_when_torch_is_chosen(host, monkeypa
         def __init__(self, config):
             self.config = config
 
-    module = types.ModuleType("app.services.retrieval.flash_reranker")
+    module = types.ModuleType("app.services.rag.retrieval.flash_reranker")
     module.FlashReranker = FakeFlash
-    monkeypatch.setitem(sys.modules, "app.services.retrieval.flash_reranker", module)
+    monkeypatch.setitem(sys.modules, "app.services.rag.retrieval.flash_reranker", module)
     reranker = rerankers.make_reranker(RerankerConfig(model_name=MODEL))
     assert isinstance(reranker, FakeFlash) and reranker.config.model_name == MODEL
 

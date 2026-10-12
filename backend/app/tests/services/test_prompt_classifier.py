@@ -208,7 +208,7 @@ async def test_canonical_embeddings_cached_per_model(monkeypatch):
             return rng.normal(size=(len(texts), 8)).astype(np.float32)
 
     monkeypatch.setattr(
-        "app.services.embedding.embedder.get_shared_embedder", lambda: FakeEmbedder()
+        "app.services.rag.ingest.embedder.get_shared_embedder", lambda: FakeEmbedder()
     )
     classifier_module._canonical_embedding_cache.pop("fake-model", None)
 

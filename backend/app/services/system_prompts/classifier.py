@@ -261,7 +261,7 @@ def classify_prompt_type_fast(query: str) -> PromptTypeDecision:
 
 
 async def _coherence_scores(query: str) -> dict[SystemPromptType, float]:
-    from app.services.embedding.embedder import get_shared_embedder
+    from app.services.rag.ingest.embedder import get_shared_embedder
 
     embedder = get_shared_embedder()
     model_name = getattr(embedder, "model_name", "default")

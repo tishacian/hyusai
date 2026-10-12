@@ -8,8 +8,8 @@ import pytest
 from app.models.knowledge_collection import KnowledgeCollection
 from app.models.workspace import Workspace
 from app.services.document_intelligence import ensure_document_artifacts, replace_document_facts
-from app.services.document_parser.parsers.image_parser import ImageParser
-from app.services.document_parser.parsers.pdf_parser_advanced import AdvancedPDFParser
+from app.services.rag.ingest.parser.parsers.image_parser import ImageParser
+from app.services.rag.ingest.parser.parsers.pdf_parser_advanced import AdvancedPDFParser
 from app.services.ocr import build_ocr_config, extract_ocr_for_image, resolve_ocr_config_for_workspace
 
 
@@ -33,7 +33,7 @@ async def test_image_parser_turns_ocr_blocks_into_chunks_and_artifacts(tmp_path,
             "warnings": [],
         }
 
-    monkeypatch.setattr("app.services.document_parser.parsers.image_parser.extract_ocr_for_image", fake_ocr)
+    monkeypatch.setattr("app.services.rag.ingest.parser.parsers.image_parser.extract_ocr_for_image", fake_ocr)
 
     parsed = await ImageParser().parse(str(image_path))
 
