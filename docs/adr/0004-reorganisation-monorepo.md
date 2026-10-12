@@ -81,6 +81,20 @@ Un chemin présent à la fois dans un script ou une image (`scripts/`, `docker/`
 `deploy/`) et dans `backend/app/tests/infra` ne bouge que dans un lot qui modifie les
 deux. La carte ci-dessous est l'inventaire au `c71f6704`.
 
+### D6 — Trois dossiers de scripts, un rôle chacun — **Acté**
+
+- `backend/scripts/` : travail sur les données de l'application (seeds, backfills,
+  audits, bancs), lancé depuis `backend/` ;
+- `scripts/` : release et VM (`agentium-*.sh`, `agentium_*.py`, déploiement,
+  compliance, gates de QA), lancé depuis la racine ;
+- `backend/app/cli/` : points d'entrée embarqués dans l'image, lancés par
+  `python -m app.cli.<nom>`.
+
+Une commande présente dans `app/cli` n'a pas de doublon dans un dossier de scripts :
+`scripts/generate_sentinel_ci_reports.py` est retiré au profit de
+`app.cli.build_sentinel_reports`. La règle figure aussi dans
+[CONTRIBUTING.md](../../CONTRIBUTING.md).
+
 ---
 
 ## Carte des chemins gelés
