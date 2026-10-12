@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import stat
 import sys
 from collections.abc import Mapping, Sequence
@@ -62,13 +63,11 @@ VM_STORAGE_ENVIRONMENT = {
     "AGENTIUM_QDRANT_SNAPSHOT_PATH": "/srv/agentium-data/qdrant-snapshots",
 }
 VM_APPLICATION_STORAGE_ENVIRONMENT = {
-    "AGENTIUM_FAISS_PATH": "/home/ubuntu/omnirag/backend/faiss_db",
+    "AGENTIUM_FAISS_PATH": "/srv/agentium-data/faiss_db",
     "AGENTIUM_ML_DEEP_MODELS_PATH": "/srv/agentium-data/ml-deep-models",
     "AGENTIUM_OBJECT_STORE_PATH": "/srv/agentium-data/object_store",
     "AGENTIUM_RECIPE_ENVS_PATH": "/srv/agentium-data/recipe_envs",
-    "AGENTIUM_SECURE_DEPOSIT_PATH": (
-        "/home/ubuntu/omnirag/backend/data/secure_deposit"
-    ),
+    "AGENTIUM_SECURE_DEPOSIT_PATH": "/srv/agentium-secure-deposit",
 }
 VM_HUB_STORAGE_ENVIRONMENT = {
     "AGENTIUM_HUB_CACHE_PATH": "/srv/agentium-data/hub-cache",
@@ -176,6 +175,14 @@ VM_OPTIONAL_PROFILE_SERVICES = frozenset(
 # once no pre-contract generation can still be running.
 VM_RUNTIME_TRANSITIONAL_TARGETS = {
     ("agentium-worker-cpu", "/data/recipe_envs"),
+}
+# Sources the running generation may still use for a moved store: the
+# pre-mutation gate accepts them on running containers only, so the `up` that
+# moves the store can pass it. Rendered Compose and the frozen environment
+# accept the new source alone. Remove an entry once no older generation runs.
+VM_RUNTIME_PREVIOUS_SOURCES = {
+    "AGENTIUM_FAISS_PATH": "/home/ubuntu/omnirag/backend/faiss_db",
+    "AGENTIUM_SECURE_DEPOSIT_PATH": "/home/ubuntu/omnirag/backend/data/secure_deposit",
 }
 VM_DOCKER_VOLUME_ROOT = "/var/lib/docker/volumes"
 
@@ -633,7 +640,12 @@ def assert_vm_active_storage_mounts(payload: Any) -> None:
             target: (
                 "bind",
                 None,
-                environments[environment_key],
+                (environments[environment_key],)
+                + tuple(
+                    source
+                    for source in (VM_RUNTIME_PREVIOUS_SOURCES.get(environment_key),)
+                    if source
+                ),
                 not read_only,
             )
             for target, (environment_key, read_only) in required.items()
@@ -665,7 +677,11 @@ def assert_vm_active_storage_mounts(payload: Any) -> None:
                 row.get("Type") != kind
                 or row.get("RW") is not read_write
                 or (volume_name is not None and row.get("Name") != volume_name)
-                or (source is not None and row.get("Source") != source)
+                or (
+                    source is not None
+                    and row.get("Source")
+                    not in (source if isinstance(source, tuple) else (source,))
+                )
             ):
                 raise RuntimeEnvBundleError("VM active storage mount identity differs")
 
@@ -1548,6 +1564,84 @@ def bundle_role_value(
     return values[key]
 
 
+DERIVED_BUNDLE_FILES = ("compose.agentium.opened.yml",)
+DERIVED_SKIPPED_RUNTIME_FILES = re.compile(r"^manifest\.json$|\.bak")
+
+
+def derive_vm_bundle(*, source_dir: Path, target_dir: Path) -> str:
+    """Copy a VM deployment env bundle to a new directory on the current storage paths.
+
+    The source bundle is left untouched, so pointing the launcher back at it is
+    the rollback. Files keep their mode and ownership (the OpenBao unseal key
+    belongs to the OpenBao container user); references to the source bundle
+    are rebased onto the target and the application storage paths are set to
+    VM_APPLICATION_STORAGE_ENVIRONMENT. Returns the new environment's digest.
+    """
+
+    for path in (source_dir, target_dir):
+        if not path.is_absolute() or ".." in path.parts:
+            raise RuntimeEnvBundleError("bundle directories must be absolute and canonical")
+    if target_dir.exists() or target_dir.is_symlink():
+        raise RuntimeEnvBundleError("target bundle already exists")
+    source_runtime = source_dir / "runtime-env"
+    effective_name = "compose.effective.env"
+    content, _ = _read_regular_file(
+        source_runtime / effective_name, label="source VM Compose environment"
+    )
+    old_prefix = f"{source_runtime}/"
+    new_prefix = f"{target_dir / 'runtime-env'}/"
+    lines = []
+    for line in content.decode("utf-8").splitlines(keepends=True):
+        key, separator, value = line.partition("=")
+        key = key.strip()
+        if separator and key in VM_APPLICATION_STORAGE_ENVIRONMENT:
+            line = f"{key}={VM_APPLICATION_STORAGE_ENVIRONMENT[key]}\n"
+        elif separator and value.startswith(old_prefix):
+            line = f"{key}={new_prefix}{value[len(old_prefix):]}"
+        lines.append(line)
+    derived = "".join(lines).encode("utf-8")
+    if str(source_dir).encode() in derived:
+        raise RuntimeEnvBundleError("derived environment still references the source bundle")
+    assert_vm_storage_environment(derived)
+
+    temporary = target_dir.parent / f".{target_dir.name}.{os.getpid()}"
+    target_dir.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temporary.mkdir(mode=0o700)
+    try:
+        (temporary / "runtime-env").mkdir(mode=0o700)
+        copies = [(source_dir / name, temporary / name) for name in DERIVED_BUNDLE_FILES]
+        for entry in sorted(source_runtime.iterdir()):
+            if entry.name == effective_name or DERIVED_SKIPPED_RUNTIME_FILES.search(entry.name):
+                continue
+            copies.append((entry, temporary / "runtime-env" / entry.name))
+        for source, target in copies:
+            source_stat = source.lstat()
+            if not stat.S_ISREG(source_stat.st_mode):
+                raise RuntimeEnvBundleError("source bundle contains a non-regular file")
+            _write_private(target, source.read_bytes())
+            os.chown(target, source_stat.st_uid, source_stat.st_gid)
+            os.chmod(target, stat.S_IMODE(source_stat.st_mode))
+        _write_private(temporary / "runtime-env" / effective_name, derived)
+        _write_private(
+            temporary / "derived-from.json",
+            json.dumps(
+                {
+                    "source_bundle": str(source_dir),
+                    "source_environment_sha256": _sha256_bytes(content),
+                    "environment_sha256": _sha256_bytes(derived),
+                },
+                indent=2,
+                sort_keys=True,
+            ).encode()
+            + b"\n",
+        )
+        os.rename(temporary, target_dir)
+    except BaseException:
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise
+    return _sha256_bytes(derived)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1585,6 +1679,9 @@ def _parser() -> argparse.ArgumentParser:
         "--name", choices=tuple(sorted(VM_BIND_BACKED_VOLUMES)), required=True
     )
     subparsers.add_parser("vm-storage-runtime-check")
+    derive = subparsers.add_parser("derive-vm-bundle")
+    derive.add_argument("--from-bundle-dir", type=Path, required=True)
+    derive.add_argument("--bundle-dir", type=Path, required=True)
     for command in (freeze, verify, role_path, value):
         command.add_argument("--sha", required=True)
         command.add_argument("--deployment-id", required=True)
@@ -1638,6 +1735,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             assert_vm_storage_environment(content)
             return 0
+        elif args.command == "derive-vm-bundle":
+            digest = derive_vm_bundle(
+                source_dir=args.from_bundle_dir, target_dir=args.bundle_dir
+            )
         elif args.command == "vm-storage-compose-check":
             assert_vm_compose_storage(
                 _read_json_stdin(label="rendered VM Compose model")
