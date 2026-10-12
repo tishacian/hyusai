@@ -21,7 +21,7 @@ Source contract: [`config/agentium/product-compliance.v1.json`](../config/agenti
 | 5 | `LOT5-CANONICAL-CONTRACTS` — Canonical workspace contracts replace implicit tenant branching progressively | `full_stack` | ✅ 7/7 required | ✅ 2/2 required | ❌ 2/3 required | ✅ 8/8 required | `node`, `pytest` | 🟡 Partial |
 | 5 | `LOT5-COMPLIANCE-GOVERNANCE` — Product claims are computed and external evidence cannot self-promote | `governance` | ✅ 3/3 required | — | — | ✅ 1/1 required | `pytest` | 🟠 Static verified |
 | 6 | `LOT6-NAV-ONE-SCALE-PER-AXIS` — Cockpit navigation uses one scale per axis | `frontend` | ✅ 3/3 required | — | ❌ 1/2 required | ❌ 1/2 required | `node`, `playwright` | 🟡 Partial |
-| 6 | `LOT6-SYSTEM360-PERSPECTIVES` — One marked System exposes four distinct, evidence-backed perspectives | `full_stack` | ✅ 5/5 required | ✅ 1/1 required | ✅ 1/1 required | ✅ 1/1 required | `playwright` | 🟠 Static verified |
+| 6 | `LOT6-SYSTEM360-PERSPECTIVES` — One marked System exposes four distinct, evidence-backed perspectives | `full_stack` | ✅ 4/4 required | ✅ 1/1 required | ✅ 1/1 required | ✅ 1/1 required | `playwright` | 🟠 Static verified |
 | 6 | `LOT6-P4-DURABLE-SUBFLOWS` — Durable Celery subflows preserve delegated Run identity | `backend` | ✅ 6/6 required | — | — | ✅ 4/4 required | `pytest` | 🟠 Static verified |
 | 7 | `LOT7-OBJECT-GRAPH-PROJECTIONS` — Capability, Run and SkillInvocation expose governed object perspectives | `full_stack` | ❌ 7/8 required | ✅ 2/2 required | ✅ 1/1 required | ✅ 7/7 required | `playwright`, `pytest` | 🟡 Partial |
 | 7 | `LOT7-AUTHORIZATION-ROLLOUT` — Action-level authorization advances through compat, shadow and enforce | `api` | ✅ 4/4 required | ✅ 2/2 required | — | ✅ 6/6 required | `pytest` | 🟠 Static verified |
@@ -192,7 +192,6 @@ A marker-discovered System keeps one canonical identity while Build, Operate, St
 - **implementation / PASS** — [System perspective read model](../backend/app/services/system_perspective.py)
 - **implementation / PASS** — [Protected runtime evidence pipeline](../.gitlab-ci.yml)
 - **implementation / PASS** — [Ordered structural rollout state machine](../backend/scripts/rollout_system360_canary.py)
-- **implementation / PASS** — [Quiesced VM deployment wrapper](../scripts/deploy-lot6-system360.sh)
 - **implementation / PASS** — [Authenticated evidence state derivation](../scripts/agentium_trusted_compliance.py)
 - **api / PASS** — [Marker-gated System perspective endpoint](../backend/app/api/v1/endpoints/systems.py)
 - **frontend / PASS** — [Typed four-lens System projection](../frontend-ng/src/app/features/systems/system-perspective.component.ts)
