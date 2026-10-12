@@ -12,7 +12,7 @@ import pytest
 import sqlalchemy as sa
 from cryptography.fernet import Fernet
 
-from app.services.client360_pdr import (
+from app.tenants.andritz.client360.pdr import (
     _decrypt_smtp_password,
     reencrypt_workspace_smtp_password,
 )

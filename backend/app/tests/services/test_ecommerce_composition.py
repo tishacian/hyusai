@@ -23,12 +23,13 @@ from app.models.system_binding import SystemBinding
 from app.models.tabular import MLModel, TabularDataset
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
-from app.services import ecommerce_claims, tabular_predict
-from app.services import ecommerce_composition as composition
-from app.services import ecommerce_composition_upgrade as activation
-from app.services import ecommerce_triage as triage
+from app.services import tabular_predict
+from app.services.ecommerce import claims as ecommerce_claims
+from app.services.ecommerce import composition as composition
+from app.services.ecommerce import composition_upgrade as activation
+from app.services.ecommerce import triage as triage
 from app.services.chains.dag_validator import validate_flow
-from app.services.ecommerce_install import install
+from app.services.ecommerce.install import install
 from app.services.experience import bindings
 from app.services.flow_data_sources import bound_data_sources
 from app.services.run_engine import dag

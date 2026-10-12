@@ -39,7 +39,7 @@ from app.services.knowledge_collections import (
     update_job,
     upsert_collection_source,
 )
-from app.services.notice_wave_state import (
+from app.services.notices.wave_state import (
     NoticeWaveBaselineError,
     notice_wave_baseline,
     restore_notice_wave_baseline,

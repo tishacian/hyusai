@@ -22,7 +22,7 @@ from app.models.skill import Skill
 from app.models.system import System
 from app.models.workspace import Workspace
 from app.schemas.canonical import WorkspaceFamily
-from app.services.client360_contract import (
+from app.tenants.andritz.client360.contract import (
     CLIENT360_AGENT_ROUTING_CONTRACT,
     CLIENT360_CAPABILITY_SLUG,
     CLIENT360_MVP_CONTRACT,

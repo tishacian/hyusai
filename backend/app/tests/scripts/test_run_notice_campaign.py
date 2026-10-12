@@ -10,7 +10,7 @@ from app.models.secure_deposit import DepositAccessLink, DepositFile
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.knowledge_collections import create_collection, create_worker_job
-from app.services.notice_campaign_guard import NoticeCampaignGateError
+from app.services.notices.campaign_guard import NoticeCampaignGateError
 from scripts import run_notice_campaign
 
 

@@ -39,10 +39,10 @@ from app.models.workspace import (  # noqa: E402
     WorkspaceMember,
     WorkspaceMemberAppEntitlement,
 )
-from app.services.client360_contract import (  # noqa: E402
+from app.tenants.andritz.client360.contract import (  # noqa: E402
     CLIENT360_SYSTEM_VARIANT,
 )
-from app.services.client360_pdr import resolve_client360_authority  # noqa: E402
+from app.tenants.andritz.client360.pdr import resolve_client360_authority  # noqa: E402
 from app.services.iam.app_entitlements import CLIENT360_APP  # noqa: E402
 from app.services.iam.decision_plane import candidate_config_sha256  # noqa: E402
 

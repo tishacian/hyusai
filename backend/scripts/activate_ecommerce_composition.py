@@ -7,7 +7,7 @@ import sys
 from app.db.base import SessionLocal
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services.ecommerce_composition_upgrade import upgrade
+from app.services.ecommerce.composition_upgrade import upgrade
 
 
 def main():

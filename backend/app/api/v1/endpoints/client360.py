@@ -16,10 +16,10 @@ from app.db.base import get_db
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.action_plans import serialize_action_item
-from app.services.client360_alerts import alerts_payload
-from app.services.client360_chat import handle_client360_chat_query
-from app.services.client360_contract import CLIENT360_INSTALLED_BASE_COLLECTION_SLUG
-from app.services.client360_pdr import (
+from app.tenants.andritz.client360.alerts import alerts_payload
+from app.tenants.andritz.client360.chat import handle_client360_chat_query
+from app.tenants.andritz.client360.contract import CLIENT360_INSTALLED_BASE_COLLECTION_SLUG
+from app.tenants.andritz.client360.pdr import (
     campaign_stats,
     client360_mail_settings_payload,
     client360_scope,
@@ -50,7 +50,7 @@ from app.services.client360_pdr import (
     summary_payload,
     upsert_mapping_rule,
 )
-from app.services.client360_spl_adapter import (
+from app.tenants.andritz.client360.spl_adapter import (
     preview_archive_mvp_orphan_sources,
     sync_sources_from_collection,
 )

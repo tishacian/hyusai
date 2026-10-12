@@ -9,7 +9,7 @@ from app.models.capability import Capability
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
-from app.services.client360_contract import (
+from app.tenants.andritz.client360.contract import (
     CLIENT360_CAPABILITY_SLUG,
     CLIENT360_SYSTEM_VARIANT,
 )
@@ -123,7 +123,7 @@ def test_client360_mail_settings_encrypt_password_and_refuse_encrypted_write(
 ) -> None:
     from cryptography.fernet import Fernet
 
-    from app.services.client360_pdr import (
+    from app.tenants.andritz.client360.pdr import (
         CLIENT360_SMTP_ENV_MASTER_KEY,
         CLIENT360_SMTP_ENV_MASTER_KEY_FALLBACK,
         _decrypt_smtp_password,

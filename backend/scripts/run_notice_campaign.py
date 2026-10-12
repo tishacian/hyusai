@@ -25,16 +25,16 @@ from app.models.secure_deposit import DepositFile
 from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
 from app.services.knowledge_collections import update_job
-from app.services.notice_campaign_guard import (
+from app.services.notices.campaign_guard import (
     NoticeCampaignGateError,
     assert_notice_disk_capacity,
     verify_notice_collection_gate,
 )
-from app.services.notice_campaign_recovery import (
+from app.services.notices.campaign_recovery import (
     quarantine_notice_collection,
     rollback_rejected_notice_wave,
 )
-from app.services.notice_wave_importer import (
+from app.services.notices.wave_importer import (
     DEFAULT_NOTICE_COLLECTION,
     NOTICE_SOURCE_PROFILES,
     NoticePlanDriftError,
@@ -44,7 +44,7 @@ from app.services.notice_wave_importer import (
     execute_notice_wave_plan,
     fail_queued_notice_job,
 )
-from app.services.notice_wave_state import (
+from app.services.notices.wave_state import (
     NoticeWaveBaselineError,
     notice_wave_baseline,
 )

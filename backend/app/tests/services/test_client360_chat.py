@@ -6,7 +6,8 @@ from uuid import uuid4
 
 from app.models.client360 import Client360DataSource, Client360Opportunity
 from app.models.workspace import Workspace
-from app.services import client360_chat, client360_pdr
+from app.tenants.andritz.client360 import chat as client360_chat
+from app.tenants.andritz.client360 import pdr as client360_pdr
 from app.services.actions.registry import ANDRITZ_ACTIONS
 
 
