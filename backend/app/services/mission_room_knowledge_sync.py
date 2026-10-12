@@ -402,6 +402,7 @@ async def sync_markdown_documents_to_collection(
     *,
     collection_slug: str,
     documents: dict[str, str],
+    origin: str = "mission_room.fixtures",
 ) -> dict[str, Any]:
     definition = COLLECTION_DEFS.get(collection_slug) or {
         "name": collection_slug,
@@ -449,7 +450,7 @@ async def sync_markdown_documents_to_collection(
         collection=collection,
         ingest_result=ingest_result,
         document_names=[path.name for path in local_paths],
-        origin="mission_room.fixtures",
+        origin=origin,
     )
     bm25 = await rebuild_bm25_artifact(collection=collection, vector_db=doc_service.vector_db, store=store)
 
@@ -460,7 +461,7 @@ async def sync_markdown_documents_to_collection(
     collection.chunking_params = {
         "chunk_size": app_settings.get("ragChunkSize", 1000),
         "chunk_overlap": app_settings.get("ragChunkOverlap", 200),
-        "sync_source": "mission_room.fixtures",
+        "sync_source": origin,
     }
     update_collection_status(
         db,

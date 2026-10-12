@@ -363,7 +363,7 @@ Release schema v2 binds the exact repository revision, populated SBOM, SLSA buil
 
 ## Residual workspace-slug branch debt
 
-Inventory schema v1 declares **4 occurrence(s)** across **4 expression(s)**. Any new, removed, duplicated or edited branch fails `--check` until this versioned debt list is reviewed explicitly.
+Inventory schema v1 declares **5 occurrence(s)** across **5 expression(s)**. Any new, removed, duplicated or edited branch fails `--check` until this versioned debt list is reviewed explicitly.
 
 Runtime scan roots: `backend/app`, `frontend-ng/src/app`. Excluded paths: `backend/app/tests`, `backend/app/cli`. Excluded suffixes: `*.spec.ts`.
 
@@ -373,6 +373,7 @@ Alembic migrations and repository utilities under `backend/scripts` are outside 
 |---|---|---:|---|---|
 | [`backend/app/api/v1/endpoints/auth.py`](../backend/app/api/v1/endpoints/auth.py) | `workspace.slug == SHOWCASE_WORKSPACE_SLUG` | 1 | `ui_compatibility` | The NorthForge example is offered only inside the synthetic Showcase workspace with a ready tenant-scoped corpus; every other workspace gets the client\_sources journey on its own collections. This eligibility check grants no role, entitlement or document permission. |
 | [`backend/app/schemas/adoption.py`](../backend/app/schemas/adoption.py) | `slug == SHOWCASE_WORKSPACE_SLUG` | 1 | `ui_compatibility` | Selects which getting-started journey a workspace shows: the NorthForge example in the synthetic Showcase, the journey on the workspace's own collections everywhere else. It grants no role, entitlement or document permission. |
+| [`backend/app/services/rag/public_bench.py`](../backend/app/services/rag/public_bench.py) | `Workspace.slug == PUBLIC_BENCH_WORKSPACE_SLUG` | 1 | `provisioning_identity` | The public retrieval bench seeds and replays a frozen HotpotQA corpus in the dedicated workspace it owns; it grants no role, entitlement or document permission and changes no tenant behavior. |
 | [`backend/app/services/mission_room/provisioning.py`](../backend/app/services/mission_room/provisioning.py) | `Workspace.slug == OCTOCITY_WORKSPACE_SLUG` | 1 | `provisioning_identity` | The explicit, idempotent Octocity provisioning command locates the workspace identity it owns; runtime presentation and authorization use the Mission Room profile instead. |
 | [`backend/app/services/mission_room/provisioning.py`](../backend/app/services/mission_room/provisioning.py) | `Workspace.slug == SENTINEL_WORKSPACE_SLUG` | 1 | `provisioning_identity` | The explicit, idempotent Sentinel provisioning command locates the workspace identity it owns; runtime behavior is family/profile/action-pack driven. |
 

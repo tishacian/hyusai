@@ -17,6 +17,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { observabilityText, observabilityNumber } from './observability-labels';
 import { observabilitySystemId } from './observability-facets';
 import { QualityEvidenceChartsComponent } from './quality-evidence-charts.component';
+import { PublicBenchPanelComponent } from './public-bench-panel.component';
 import { BaseChartDirective } from 'ng2-charts';
 import type { ChartConfiguration, ChartData } from 'chart.js';
 import { ToastrService } from 'ngx-toastr';
@@ -78,6 +79,7 @@ const PALETTE = {
     FormsModule,
     BaseChartDirective,
     QualityEvidenceChartsComponent,
+    PublicBenchPanelComponent,
     IconComponent,
     StatReadoutComponent,
     EmptyStateComponent,
@@ -145,6 +147,7 @@ const PALETTE = {
     </div>
     @if(loadError()){<p role="alert">{{i18n.t('observability.charts.load_error')}}</p>}
     <app-quality-evidence-charts [rows]="history()" />
+    <app-public-bench-panel />
 
     <!-- Vague E / E1 — Threshold monitoring strip (7d aggregate).
          Sits above the per-run tiles because "are we drifting over time?"

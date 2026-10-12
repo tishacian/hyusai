@@ -957,6 +957,17 @@ def refresh_macro_indicators_task(workspace_slug: str = "sentinel-ci", force: bo
     return {"status": "ok", **result}
 
 
+@celery_app.task(name="agentium.public_retrieval_bench")
+def public_retrieval_bench_task(limit: int | None = None) -> dict:
+    """Nightly public retrieval bench (HotpotQA subset) via Celery beat."""
+    from app.db.base import SessionLocal
+    from app.services.rag.public_bench import run_public_bench, serialize_bench_run
+
+    with SessionLocal() as db:
+        run = asyncio.run(run_public_bench(db, limit=limit))
+        return serialize_bench_run(run)
+
+
 @celery_app.task(name="agentium.scheduler_tick")
 def scheduler_tick_task() -> dict:
     """Celery beat entrypoint: fire due schedules + sweep expired HITL gates."""
