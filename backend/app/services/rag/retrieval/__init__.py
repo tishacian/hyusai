@@ -2,7 +2,6 @@
 from app.services.rag.retrieval.fusion_method import FusionMethod
 from app.services.rag.retrieval.ensemble_config import EnsembleConfig
 from app.services.rag.retrieval.ensemble_retriever import EnsembleRetriever
-from app.services.rag.retrieval.retrieval_plan import QueryAnalysis, RetrievalPlan, RetrievalContext, ReasoningType
 from app.services.rag.retrieval.bm25_retriever import BM25Retriever
 from app.services.rag.retrieval.reranker_config import RerankerConfig
 
@@ -20,10 +19,6 @@ __all__ = [
     "RerankerConfig",
     "ContextualCompressionRetriever",
     "ContextualConfig",
-    "QueryAnalysis",
-    "RetrievalPlan",
-    "RetrievalContext",
-    "ReasoningType",
     "BM25Retriever",
 ]
 
