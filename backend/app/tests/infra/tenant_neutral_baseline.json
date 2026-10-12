@@ -16,8 +16,18 @@
       "kind": "adapter",
       "why": "Andritz migration marker."
     },
-    "backend/app/api/v1/endpoints/chat.py": {
-      "count": 5,
+    "backend/app/api/v1/endpoints/chat/agentic.py": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Andritz migration marker and provenance-bound retrieval, selected by family."
+    },
+    "backend/app/api/v1/endpoints/chat/retrieval.py": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Andritz migration marker and provenance-bound retrieval, selected by family."
+    },
+    "backend/app/api/v1/endpoints/chat/sessions.py": {
+      "count": 3,
       "kind": "adapter",
       "why": "Andritz migration marker and provenance-bound retrieval, selected by family."
     },
