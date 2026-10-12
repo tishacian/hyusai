@@ -13,7 +13,6 @@ A flexible microservice for extracting metadata from various document types, des
 - Extract keywords using TF-IDF for improved document searchability and RAG retrieval
 - Performance timing for extraction processes
 - Extensible factory architecture for adding support for new file types
-- Command-line interface for batch processing and integration
 - JSON serialization for easy integration with other systems
 
 
@@ -22,7 +21,7 @@ A flexible microservice for extracting metadata from various document types, des
 ### Python API
 
 ```python
-from docmeta.core import extract_metadata
+from app.services.document_meta.docmeta.core import extract_metadata
 
 # Basic metadata extraction
 metadata = extract_metadata("path/to/file.pdf")
@@ -37,21 +36,9 @@ metadata = extract_metadata("path/to/file.pdf", extract_keywords_language="frenc
 metadata = extract_metadata("path/to/file.pdf", count_tokens_flag=True, extract_keywords_language="english")
 ```
 
-### Command-line Interface
-
-```bash
-# Extract metadata from all PDFs in a directory
-python manually_test_pdf.py --data-dir my_documents --output-dir metadata_output
-
-# Count tokens in PDFs (useful for RAG systems)
-python manually_test_pdf.py --count-tokens
-
-# Extract keywords using TF-IDF (specify language, e.g., english, french)
-python manually_test_pdf.py --extract-keywords [language]
-
-# Use both token counting and keyword extraction
-python manually_test_pdf.py --count-tokens --extract-keywords [language]
-```
+The backend calls it through `app.services.document_meta.extract_document_metadata`,
+which never raises. The manual batch CLI (`manually_test_pdf.py`) is read at the tag
+`archive/omnirag-rd` under `src/metadata_extraction/`.
 
 ## Supported File Types
 - PDF (`.pdf`)

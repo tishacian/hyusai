@@ -1036,7 +1036,7 @@ def list_document_facts(
 
 
 def _find_original_file(document_id: str, filename: str) -> Optional[str]:
-    """Find the original file in uploads/ or sample_data/."""
+    """Find the original file in uploads/ or the seeded sample_data/."""
     # 1) Check uploads/ (persisted uploaded files)
     for entry in os.listdir(UPLOADS_DIR):
         if entry.startswith(document_id):
@@ -1044,13 +1044,10 @@ def _find_original_file(document_id: str, filename: str) -> Optional[str]:
             if os.path.isfile(candidate):
                 return candidate
 
-    # 2) Check sample_data/ (pre-loaded seed docs)
+    # 2) Check app/seeds/sample_data/ (pre-loaded seed docs)
     sample_dir = os.path.join(
-        os.path.dirname(
-            os.path.dirname(
-                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-            )
-        ),
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+        "seeds",
         "sample_data",
     )
     candidate = os.path.join(sample_dir, filename)
@@ -1192,7 +1189,7 @@ def _resolve_original_bytes(
 
     Knowledge collections (web drop / SFTP / SPL wave promotions) keep
     originals in the object store under ``original_key``; legacy uploads land
-    in ``uploads/`` or ``sample_data/``. Try the object store first, then the
+    in ``uploads/`` or ``app/seeds/sample_data/``. Try the object store first, then the
     local filesystem.
     """
     try:

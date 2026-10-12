@@ -9,11 +9,11 @@ import mimetypes
 import os
 from typing import Any
 
-from docmeta.core.types import FileMetaData, MetadataExtractor, MetadataType
-from docmeta.utils.file_metadata import get_file_common_metadata
-from docmeta.utils.keyword_extractor import extract_keywords_tfidf
-from docmeta.utils.text_processing import validate_file_exists
-from docmeta.utils.token_counter import count_tokens
+from .types import FileMetaData, MetadataExtractor, MetadataType
+from ..utils.file_metadata import get_file_common_metadata
+from ..utils.keyword_extractor import extract_keywords_tfidf
+from ..utils.text_processing import validate_file_exists
+from ..utils.token_counter import count_tokens
 
 # Registry of extractors by file extension
 EXTENSION_EXTRACTORS: dict[str, MetadataExtractor] = {}

@@ -105,7 +105,6 @@ def test_writer_routes_include_deployment_maintenance_gate(
 
     for location in (
         "location ^~ /kc/ {",
-        "location /legacy/ {",
         "location ^~ /api/v1/deposit-links/ {",
         "location ^~ /api/v1/voice/sessions/ {",
         "location /api/ {",

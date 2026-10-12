@@ -12,8 +12,8 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-from docmeta.core.defaults import create_markup_metadata  # returns dict[str, Any]
-from docmeta.utils.text_processing import get_file_extension
+from ..core.defaults import create_markup_metadata  # returns dict[str, Any]
+from ..utils.text_processing import get_file_extension
 
 # Configure logger
 logger = logging.getLogger(__name__)
