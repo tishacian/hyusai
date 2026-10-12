@@ -81,6 +81,26 @@
       "kind": "family",
       "why": "WorkspaceFamily values."
     },
+    "backend/app/seeds/experience_dual_run.py": {
+      "count": 86,
+      "kind": "demo",
+      "why": "Lot 8 dual-run seeds."
+    },
+    "backend/app/seeds/hana_demo_rows.py": {
+      "count": 133,
+      "kind": "demo",
+      "why": "PIH hydro rows for the HANA seed and the connector's in-memory fallback."
+    },
+    "backend/app/seeds/sentinel_calendar.py": {
+      "count": 6,
+      "kind": "demo",
+      "why": "Sentinel CI institutional calendar events."
+    },
+    "backend/app/seeds/sentinel_reports.py": {
+      "count": 6,
+      "kind": "demo",
+      "why": "Prefet report name and strategic-report text."
+    },
     "backend/app/services/action_plans.py": {
       "count": 3,
       "kind": "adapter",
@@ -161,20 +181,10 @@
       "kind": "adapter",
       "why": "Client360, an Andritz capability."
     },
-    "backend/app/services/connectors/hana/demo_rows.py": {
-      "count": 133,
-      "kind": "demo",
-      "why": "PIH hydro rows for the HANA seed and the connector's in-memory fallback."
-    },
     "backend/app/services/experience/bindings.py": {
       "count": 2,
       "kind": "adapter",
       "why": "Experience keys of customer applications."
-    },
-    "backend/app/services/experience/dual_run_seeds.py": {
-      "count": 86,
-      "kind": "demo",
-      "why": "Lot 8 dual-run seeds."
     },
     "backend/app/services/experience/keys.py": {
       "count": 39,
@@ -233,8 +243,8 @@
     },
     "backend/app/services/rag/retrieval_golden.py": {
       "count": 1,
-      "kind": "demo",
-      "why": "Andritz golden dataset path."
+      "kind": "tooling",
+      "why": "Andritz golden dataset path; stays with the evaluator as tooling (ADR 0003)."
     },
     "backend/app/services/rag/source_facets.py": {
       "count": 2,
@@ -247,9 +257,9 @@
       "why": "Andritz project scheme binding (ADR 0002)."
     },
     "backend/app/services/sentinel_ci_reports.py": {
-      "count": 14,
-      "kind": "demo",
-      "why": "Sentinel CI report pre-render."
+      "count": 8,
+      "kind": "adapter",
+      "why": "Renders and stores Sentinel CI reports; the scenario text lives in app/seeds/sentinel_reports.py."
     },
     "backend/app/services/skills_registry/brd_generation.py": {
       "count": 3,
@@ -258,13 +268,13 @@
     },
     "backend/app/services/skills_registry/seed.py": {
       "count": 5,
-      "kind": "demo",
+      "kind": "fixture",
       "why": "Seeded Mission Room skills (AYA voice and advisory) in the shared catalogue."
     },
     "backend/app/services/skills_registry/wrappers.py": {
       "count": 1,
-      "kind": "demo",
-      "why": "The Sentinel CI meeting scenario in the schedule-meeting skill; the ANDRITZ corpus anchors moved to app/tenants/andritz."
+      "kind": "fixture",
+      "why": "The Sentinel CI meeting scenario in the schedule-meeting skill."
     },
     "backend/app/services/spl_wave_importer.py": {
       "count": 2,
@@ -307,9 +317,9 @@
       "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
     },
     "backend/app/services/workspace_calendar.py": {
-      "count": 11,
-      "kind": "demo",
-      "why": "Sentinel CI calendar seed event inside the calendar service."
+      "count": 5,
+      "kind": "adapter",
+      "why": "Shifts and serves the Sentinel CI calendar; the events live in app/seeds/sentinel_calendar.py."
     },
     "backend/app/services/workspace_features.py": {
       "count": 1,
@@ -438,8 +448,8 @@
     },
     "frontend-ng/src/app/features/chat/assistant-draft-drawer.component.ts": {
       "count": 11,
-      "kind": "demo",
-      "why": "Sentinel CI Mission Room scenarios (social pulse, Sahel, rumour) in the shared draft drawer; other drafts speak neutrally."
+      "kind": "fixture",
+      "why": "Sentinel CI Mission Room scenarios in the shared draft drawer."
     },
     "frontend-ng/src/app/features/chat/chat-overlay.component.ts": {
       "count": 2,
