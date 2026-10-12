@@ -1,9 +1,9 @@
 # Agentium release process — `demo/agentic` → VM `omnirag-demo`
 
-> Scope: the **iteration release loop** — shipping a pushed commit of
-> `demo/agentic` to the demo VM. Milestone releases (signed attestations,
-> SFTP/infra changes, storage moves) go through the full orchestrator instead:
-> [`ops/agentium-safe-vm-deployment.md`](./ops/agentium-safe-vm-deployment.md).
+> Scope: shipping a pushed commit of `demo/agentic` to the demo VM through
+> `scripts/agentium-vm-deploy.sh`, the only deployment path since the Release A
+> safe chain was retired (2026-10-12; its journal is archived in
+> [`archive/2026/ops/agentium-safe-vm-deployment.md`](./archive/2026/ops/agentium-safe-vm-deployment.md)).
 > A release is an explicit GO: nothing here authorizes a commit, push, or
 > deployment by itself.
 
@@ -96,7 +96,7 @@ release.
 
 `<base>` is the Python base image pinned by digest. Read it once from the image
 the VM already qualified, and record it in the release notes. A compose build
-(`deploy-vm.sh`) reads the same value from `AGENTIUM_PYTHON_BASE_IMAGE`:
+(`docker compose build`) reads the same value from `AGENTIUM_PYTHON_BASE_IMAGE`:
 
 ```bash
 sudo docker image inspect python:3.12-slim --format '{{index .RepoDigests 0}}'
@@ -303,25 +303,19 @@ and all volumes. Record any capacity maintenance in the release evidence.
 
 ## 5. Migrations — only if the slice contains one
 
-If `backend/alembic/versions/` gained a file, take a checksummed dump first,
-then migrate. If not, skip to §6.
+If `backend/alembic/versions/` gained a file, migrate. If not, skip to §6.
 
 ```bash
-# Window directory for this release's evidence (named after the slice,
-# e.g. experience-deployments, flow-publication-deployments)
-D=/srv/agentium-data/<slice>-deployments/$(date +%F)-<sha12>
-sudo mkdir -p "$D"
-
-# Dump from inside the pg container, then copy out and checksum
-sudo docker exec agentium-pg pg_dump -U agentium -d agentium -Fc -f /tmp/pre-<sha12>.dump
-sudo docker cp agentium-pg:/tmp/pre-<sha12>.dump "$D/"
-sudo sha256sum "$D/pre-<sha12>.dump" | sudo tee "$D/pre-<sha12>.dump.sha256"
-sudo touch "$D/.ready"
-
-# Migrate (runs the storage gate first, then the one-off agentium-migrate)
 DEPLOY=/srv/agentium-data/worktrees/demo-agentic/scripts/agentium-vm-deploy.sh
 sudo env AGENTIUM_IMAGE_TAG=<sha12> "$DEPLOY" migrate
 ```
+
+`migrate` runs the storage gate, then takes the dump itself: `pg_dump -Fc`,
+proven readable by `pg_restore --list`, published as
+`/srv/agentium-data/deployments/<run-id>/postgres-pre-migrate.dump` with a
+`.ready` marker (sha256, size). No readable dump, no migration. The run is
+appended to `/srv/agentium-data/deployments/journal.tsv` with the dump path.
+Add `AGENTIUM_GATE=1` to close the public maintenance gate for the duration.
 
 Verify the Alembic head advanced to the expected revision before switching.
 
@@ -334,14 +328,14 @@ the MinIO bucket. Restoring the dump above and nothing else gives back a registr
 of dangling URIs: `/predict` answers `ML_ARTIFACT_MISSING`, dataset previews
 fail, and the failure is silent until someone clicks.
 
-So from that revision on, replace the block above with:
+So from that revision on, also take a data-plane window before `migrate`:
 
 ```bash
 DUMP=/srv/agentium-data/worktrees/demo-agentic/scripts/agentium-data-plane-dump.sh
 sudo "$DUMP" <sha12> <slice>
 ```
 
-It takes the same `pg_dump`, adds a dump of the `mlflow` registry database,
+It takes its own `pg_dump`, adds a dump of the `mlflow` registry database,
 mirrors out the `tabular/`, `ml/` and (from revision 106) retained `brd/` prefixes of every workspace the registry
 actually references, checksums each part, and then verifies that every artifact
 the registry names is present in the window. Retained BRD originals must also match their recorded SHA-256; a missing or corrupt original blocks the window. `.ready` appears only if that check
@@ -385,7 +379,18 @@ sudo env AGENTIUM_IMAGE_TAG=<sha12> "$DEPLOY" up
 `agentium-worker-ml-ts-serve` when `AGENTIUM_ML_TS=1` (§4b) — with
 `--no-build --pull never`, so the images from §4 must exist at the tag.
 Infrastructure containers (pg, Keycloak, Qdrant, MinIO, RabbitMQ, SFTP,
-LiveKit) are never touched by this path.
+LiveKit) are never touched by this path; `sftp-up` recreates SFTP alone when
+its bind changes.
+
+`up` then waits for the backend's `/api/v1/build-info` to report the tag's
+revision with `revision_verified: true` and fails otherwise, naming the tag it
+replaced. Success or failure, the run lands in the journal (tag, previous tag,
+verified revision). `AGENTIUM_GATE=1` holds the maintenance gate closed until
+that proof passes; on failure it stays closed until
+`"$DEPLOY" gate-exit <run-id>`.
+
+The frozen env bundle defaults to `/srv/agentium-data/runtime-env/2026-10-12`;
+`AGENTIUM_RUNTIME_ENV_DIR` selects another one under `/srv/agentium-data`.
 
 ### 6b. Catalog — when the slice adds or changes a canonical Skill
 
@@ -456,9 +461,11 @@ SET settings = jsonb_set(COALESCE(settings, '{}'::json)::jsonb,
 
 Images are immutable per iteration, the database is not. Two cases:
 
-- **No migration in the slice**: point the stack back at the previous tag.
+- **No migration in the slice**: point the stack back at the previous tag —
+  the `previous_tag` column of the journal.
 
   ```bash
+  sudo tail -3 /srv/agentium-data/deployments/journal.tsv
   sudo env AGENTIUM_IMAGE_TAG=<previous sha12> "$DEPLOY" up
   ```
 
@@ -492,16 +499,16 @@ the rollback address.
 
 - Never `rsync`/`scp` code to the VM; never build from a dirty worktree.
 - Never `--profile infra` in a routine release (it recreates pg/Keycloak/Qdrant).
-- Never touch `agentium-sftp` or LiveKit outside the orchestrated procedures.
+- Never touch `agentium-sftp` or LiveKit outside `agentium-vm-deploy.sh`.
 - Never `docker volume prune` on the VM.
 - Never move the `demo-agentic` tag as part of an iteration release.
 - Never force-push `demo/agentic`.
 
 ## 12. After the release
 
-Write the iteration down in `docs/ops/agentium-safe-vm-deployment.md` (that
-file doubles as the deployment journal): SHA released, images built, dump
-location if any, canary result, rollback address. If the release changed the
+The VM journal (`/srv/agentium-data/deployments/journal.tsv`) already records
+the tag, the previous tag, the verified revision and the dump; write the rest
+(images built, canary result) in the release note. If the release changed the
 operator surface, update the affected runbooks in the same commit.
 
 Nawa **PR to PO** desk (`/work/pr-to-po?workspace=nawa&lang=en`) — present to

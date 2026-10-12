@@ -40,6 +40,14 @@ des garde-fous de la chaîne safe y est reportée (phase 4a : dump `pg_dump -Fc`
 safe (`deploy-agentium-safe.sh`, `deploy-vm.sh`, l'unité systemd) est retirée ensuite
 (phase 4c), avec ses tests de contrat.
 
+État au 12/10/2026 : fait. L'exécuteur Release A (`deploy-agentium-release-a-safe.sh`)
+et ses tests restent : il relit `deploy-vm.sh`, l'installeur et l'unité systemd au SHA
+Release A (`git show`), pas au HEAD, donc leur retrait du HEAD ne le casse pas. La liste
+`_ALLOWED_PATHS` filtre les chemins du diff Release A historique et ne demande pas que
+ces fichiers existent : elle reste en v7, sans profil v8. Le runner de canaris
+`run-agentium-safe-canaries.sh` reste aussi, son test couvrant les collecteurs
+d'attestation encore utilisés.
+
 ### D2 — La SPA vanilla `/legacy/` est retirée — **Acté**
 
 Sur environ 14 jours de logs nginx, la route `/legacy/` n'a reçu que des requêtes de
@@ -109,7 +117,6 @@ Une commande présente dans `app/cli` n'a pas de doublon dans un dossier de scri
 | `/home/ubuntu/omnirag/backend/data/secure_deposit`, `/home/ubuntu/omnirag/backend/faiss_db` | anciens emplacements (avant 4b), laissés en place jusqu'à la phase 4d ; `VM_RUNTIME_PREVIOUS_SOURCES` les tolère encore sur les conteneurs en cours |
 | `/var/lib/postgresql/data`, `/var/lib/rabbitmq`, `/var/lib/docker/volumes` | volumes des services |
 | `/etc/nginx/snippets/agentium-deploy-maintenance.conf`, `/var/lib/agentium/deploy-maintenance` | gate de maintenance |
-| `/etc/systemd/system/agentium-backend.service` et `agentium-backend.service.d/99-agentium-safe-runtime-env.conf` | chaîne safe ; retirés en phase 4c |
 
 ### Chemins du dépôt
 
@@ -119,8 +126,8 @@ Une commande présente dans `app/cli` n'a pas de doublon dans un dossier de scri
 | Nginx | `deploy/nginx/agentium.conf`, `agentium-container-backend.conf`, `agentium-container-frontend.conf`, `agentium-deploy-maintenance.conf` |
 | Dépendances | `backend/requirements*.txt`, `backend/constraints-demo-*.txt`, `backend/rag_models.lock.json`, `frontend-ng/package-lock.json` |
 | Backend | `backend/alembic`, `backend/app/main.py`, `backend/app/core/config.py`, `backend/app/core/settings_manager.py`, les services et endpoints `secure_deposit*`, `settings*`, `livekit_service.py`, `rag_preset_service.py`, `system_catalog_bindings.py`, `workspace_blueprints.py`, `backend/keycloak/` |
-| Scripts | `scripts/agentium-*.sh`, `scripts/agentium_*.py`, `scripts/deploy-agentium-safe.sh`, `scripts/deploy-vm.sh`, `scripts/run-agentium-safe-canaries.sh`, `backend/scripts/{audit_post_canary_database,audit_qdrant_write_barrier,fetch_rag_models,qualify_giskard_raget}.py` |
-| Configuration | `config/agentium/release-a-evidence-authorities.v1.json`, `deploy/agentium-backend.service` |
+| Scripts | `scripts/agentium-*.sh`, `scripts/agentium_*.py`, `scripts/run-agentium-safe-canaries.sh`, `backend/scripts/{audit_post_canary_database,audit_qdrant_write_barrier,fetch_rag_models,qualify_giskard_raget}.py` |
+| Configuration | `config/agentium/release-a-evidence-authorities.v1.json` |
 | Canaries | `frontend-ng/e2e/tests/{09,11,16,17}-*.spec.ts`, `frontend-ng/e2e/fixtures/{accessibility-matrix,experience-canary}.ts` |
 | Docs lues par du code | `docs/agentium-compliance-matrix.md`, `docs/mental-model.md`, `docs/adr/0003-generalisation-frontieres.md` |
 | Ponts omnirag | `data/hkunlp_embeddings.npy`, `src/metadata_extraction`, `connections`, `sample_data`, `frontend` (retirés en phases 1 et 2) |
