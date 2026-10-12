@@ -94,6 +94,7 @@ outputs/
 presentations/
 archive/
 docs/evidence/
+docs/archive/
 docs/**/*.png
 docs/**/*.jpg
 docs/**/*.jpeg

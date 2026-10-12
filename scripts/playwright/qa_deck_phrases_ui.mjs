@@ -24,7 +24,7 @@ const EMAIL = process.env.AGENTIUM_EMAIL || '';
 const PASSWORD = process.env.AGENTIUM_PASSWORD || '';
 const OUT_DIR =
   process.env.OUT_DIR ||
-  join(process.cwd(), 'docs/status-screenshots/2026-05-25-qa-trame-v2');
+  join(process.cwd(), 'artifacts/qa/qa-trame-v2');
 const WORKSPACE = 'sentinel-ci';
 
 if (!EMAIL || !PASSWORD) {

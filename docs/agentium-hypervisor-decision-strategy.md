@@ -18,7 +18,7 @@
 > [`deck-agentium-decision-adoption.md`](./deck-agentium-decision-adoption.md).
 >
 > Pack Office (régénérer avec
-> `python3 docs/render/build_hypervisor_decision_pack.py`) :
+> `python3 docs/archive/2026/render/build_hypervisor_decision_pack.py`) :
 > [`agentium-hypervisor-decision-strategy.fr.docx`](./agentium-hypervisor-decision-strategy.fr.docx),
 > [`deck-agentium-decision-adoption.fr.pptx`](./deck-agentium-decision-adoption.fr.pptx).
 > English twins:

@@ -1,6 +1,6 @@
 # Luma — historique, textes et charge pour le showcase
 
-Ce pack prépare les données du [parcours commun](../../SHOWCASE-EVOLUTION-2026-10-09.md).
+Ce pack prépare les données du [parcours commun](../../../../archive/2026/demo-runs/showcase-ecommerce/SHOWCASE-EVOLUTION-2026-10-09.md).
 Il ne modifie ni PostgreSQL, ni un System, ni un modèle. **Tout est synthétique** :
 les clôtures et les motifs sont générés, aucune revue humaine n'est attestée.
 Les IDs, dates et preuves des dossiers de présentation `RC-1042/1043/1044` ainsi

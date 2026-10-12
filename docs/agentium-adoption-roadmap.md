@@ -321,7 +321,7 @@ All are **not scheduled / not signed** for this local branch.
 
 ## Local verification
 
-Results and screenshots: [local review evidence](evidence/adoption-local/README.md).
+Results and screenshots: [local review evidence](archive/2026/evidence/adoption-local/README.md).
 
 Frontend: `check:i18n`, `check:nav-links`, `check:ui-chrome`, `test:unit`,
 `build:prod`. Backend: the adoption, migration, assistant/config/authorization,

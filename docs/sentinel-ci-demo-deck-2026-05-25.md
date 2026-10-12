@@ -156,7 +156,7 @@ Durée cible : 5 min · 6 étapes · fil rouge **Centre International de Formati
 `Resolver : conf 0.88 (probe post-deploy)`
 `Status : [PASS post-deploy]`
 
-![Carte stratégie · focus zone Nord + projet Centre Drones Napié (briefing opérationnel ouvert)](status-screenshots/2026-05-25-postdeploy/19-aya-focus-nord-napie.png)
+![Carte stratégie · focus zone Nord + projet Centre Drones Napié (briefing opérationnel ouvert)](archive/2026/status-screenshots/2026-05-25-postdeploy/19-aya-focus-nord-napie.png)
 
 ---
 
@@ -175,7 +175,7 @@ Durée cible : 5 min · 6 étapes · fil rouge **Centre International de Formati
 `Resolver : conf 1.05 (probe post-deploy — variante `explique le cargo`)`
 `Status : [PASS post-deploy]` · 16 vessels AIS confirmés · webcam APM 200 image/jpeg
 
-![Mission Control · carte + webcam APM Apapa Gate #1 (cargo demo Port Vridi) — 16/16 flux terrain](status-screenshots/2026-05-25-postdeploy/17-aya-vessel-cargo.png)
+![Mission Control · carte + webcam APM Apapa Gate #1 (cargo demo Port Vridi) — 16/16 flux terrain](archive/2026/status-screenshots/2026-05-25-postdeploy/17-aya-vessel-cargo.png)
 
 ---
 
@@ -194,7 +194,7 @@ Durée cible : 5 min · 6 étapes · fil rouge **Centre International de Formati
 `Resolver : conf 1.05 (probe post-deploy)`
 `Status : [PASS post-deploy]` — action vague-1.5 confirmée déployée
 
-![Mission Control · Maritime / douanes — Port d'Abidjan Vridi + brief opérationnel Nord 72 % (post-deploy)](status-screenshots/2026-05-25-postdeploy/16-aya-port-webcam.png)
+![Mission Control · Maritime / douanes — Port d'Abidjan Vridi + brief opérationnel Nord 72 % (post-deploy)](archive/2026/status-screenshots/2026-05-25-postdeploy/16-aya-port-webcam.png)
 
 ---
 
@@ -214,7 +214,7 @@ Durée cible : 5 min · 6 étapes · fil rouge **Centre International de Formati
 `Resolver : conf 0.94 (probe post-deploy)`
 `Status : [PASS post-deploy]`
 
-![AYA · brouillon mail dérogation douanière (reasoning trail visible, structure « Objet · Monsieur/Madame le Chef des Douanes »)](status-screenshots/2026-05-25-postdeploy/18-aya-mail-derogation.png)
+![AYA · brouillon mail dérogation douanière (reasoning trail visible, structure « Objet · Monsieur/Madame le Chef des Douanes »)](archive/2026/status-screenshots/2026-05-25-postdeploy/18-aya-mail-derogation.png)
 
 > *Légende : capture post-deploy — AYA streame le brouillon advisory (structure formelle, citations à compléter par le Cabinet). Drawer email dédié `customs_derogation` activable via le bouton « Préparer email dérogation » du drawer PV (plan B clic).*
 
@@ -341,7 +341,7 @@ Durée cible : 7 min · 9 étapes · enjeu **diversification cacao + transformat
 
 > *Note narratif : le PDF stratégique fait 12 p. (~15 KB) — c'est une **synthèse cacao**, pas le rapport préfet de 70 p. Aligner la phrase de présentation : « rapport de diversification cacao prêt pour validation advisory ».*
 
-![Page décisions · package cacao-diversification — 3 arbitrages matin · barres comparaison option terrain · bandeau « Brouillon advisory »](status-screenshots/2026-05-25-postdeploy/20-aya-rapport-strategique.png)
+![Page décisions · package cacao-diversification — 3 arbitrages matin · barres comparaison option terrain · bandeau « Brouillon advisory »](archive/2026/status-screenshots/2026-05-25-postdeploy/20-aya-rapport-strategique.png)
 
 ---
 
@@ -362,7 +362,7 @@ Durée cible : 7 min · 9 étapes · enjeu **diversification cacao + transformat
 `Resolver : conf 0.92 (probe post-deploy)`
 `Status : [PASS post-deploy]`
 
-![Meeting Préfet Nawa · chrono live · form « Proposer un point ODJ » (placeholder « Point cacao - diversification anacarde ») prêt à recevoir la proposition AYA](status-screenshots/2026-05-25-postdeploy/21-aya-odj-cacao.png)
+![Meeting Préfet Nawa · chrono live · form « Proposer un point ODJ » (placeholder « Point cacao - diversification anacarde ») prêt à recevoir la proposition AYA](archive/2026/status-screenshots/2026-05-25-postdeploy/21-aya-odj-cacao.png)
 
 ---
 

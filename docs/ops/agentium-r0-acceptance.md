@@ -21,8 +21,8 @@ Aucune acceptation utilisateur n’est présumée.
 | Lisibilité | Capture réelle inspectée : exécution terminée, aucune approbation ni confiance inventée ; opérations Python et LLM visibles |
 | FR/EN et thèmes | Matrice Work/Studio de 24 captures sur le frontend précédent ; corrections runtime suivantes sans modification de ces écrans |
 
-[Résultats et capture du runtime](../evidence/runtime-7532d449-2026-09-16/README.md).
-[Matrice visuelle Work/Studio](../evidence/roadmap-r0-2026-09-16/README.md).
+[Résultats et capture du runtime](../archive/2026/evidence/runtime-7532d449-2026-09-16/README.md).
+[Matrice visuelle Work/Studio](../archive/2026/evidence/roadmap-r0-2026-09-16/README.md).
 
 Le dépôt est sur Bitbucket. **Aucune CI distante n'est active**, selon confirmation
 du responsable le 16 septembre. Une attestation GitLab n'est donc pas attendue.

@@ -22,7 +22,7 @@ S2 complet (Nawa → ODJ → meeting → option B) **PASS** de bout en bout. Pla
 | **HEAD local** | `ae4f4fea` sur `demo/agentic` (sync origin, pas de commits locaux en avance) |
 | **Déployé ?** | **Partiellement** — tip prod ≥ Vague 1+3 (cockpit 8 KPI, chip Nord, ODJ/meeting REST, webcam proxy 200/86 KB). Commits récents `6335d460` (show_maritime_traffic), légende **Port Vridi · cargo demo** cockpit, rendu PDF inline : **non observés en prod**. |
 | **Harness** | `scripts/playwright/qa_trame_full.mjs` |
-| **Screenshots** | `docs/status-screenshots/2026-05-25-qa-trame/` (+ `qa-results.json`) |
+| **Screenshots** | `docs/archive/2026/status-screenshots/2026-05-25-qa-trame/` (+ `qa-results.json`) |
 | **Sondes API** | `POST /actions/resolve` — `montre la situation au port` → **no_match conf 0.0** ; webcam `HEAD apm-apapa-gate-1` → **200 / 85985 o** |
 
 ---

@@ -25,7 +25,7 @@ import {
 
 const OUT_DIR =
   process.env.OUT_DIR ||
-  '/Users/thib/Developer/PAPAI/omnirag/docs/status-screenshots/2026-05-25-qa-trame';
+  join(process.cwd(), 'artifacts/qa/qa-trame');
 
 async function clickZoneNord(page) {
   for (const sel of ['text=/Zone Nord.*Tendue/i', 'text=Zone Nord', '[class*="chip"]:has-text("Nord")']) {
