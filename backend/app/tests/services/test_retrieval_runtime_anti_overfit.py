@@ -14,6 +14,7 @@ def test_runtime_retrieval_does_not_import_golden_cases():
     )
     excluded = {
         app_root / "services" / "rag" / "offline_eval.py",
+        app_root / "services" / "rag" / "public_bench.py",
         app_root / "services" / "rag" / "retrieval_golden.py",
     }
 

@@ -209,6 +209,25 @@ async def get_dimensions():
     return {"dimensions": DIMENSION_LABELS}
 
 
+@router.get("/public-bench/runs")
+async def public_bench_runs(
+    limit: int = Query(10, ge=1, le=60),
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    from app.models.retrieval_bench_run import RetrievalBenchRun
+    from app.services.rag.public_bench import PUBLIC_BENCH_NAME, serialize_bench_run
+
+    runs = (
+        db.query(RetrievalBenchRun)
+        .filter(RetrievalBenchRun.bench == PUBLIC_BENCH_NAME)
+        .order_by(RetrievalBenchRun.started_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return {"bench": PUBLIC_BENCH_NAME, "runs": [serialize_bench_run(run) for run in runs]}
+
+
 @router.get("/latest")
 async def latest_evaluation(
     agent_id: Optional[str] = None,

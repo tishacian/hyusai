@@ -71,4 +71,8 @@ celery_app.conf.beat_schedule = {
         "task": "agentium.recipe_env_sweep",
         "schedule": 60 * 60,
     },
+    "public-retrieval-bench-24h": {
+        "task": "agentium.public_retrieval_bench",
+        "schedule": 24 * 60 * 60,
+    },
 }
