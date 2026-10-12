@@ -82,7 +82,7 @@ MLflow produite par 0.14.0. Les deux autres cas (calibration/seuil et clustering
 conservent leurs prédictions. Ce résultat interdit d'affirmer une compatibilité
 générale ou d'élargir silencieusement la confiance des anciens modèles.
 Les nouveaux exports 0.16.0 déclarent ce type et sont qualifiés par le profil
-précis du lecteur. [Preuve résumée](evidence/probabl-skops-compatibility.json).
+précis du lecteur. [Preuve résumée](archive/2026/evidence/probabl-skops-compatibility.json).
 
 Les contrôles complémentaires couvrent les cinq fréquences forecasting publiées
 (`h`, `D`, `W`, `MS`, `QS`), les dépendances pyfunc sortant du bundle, le namespace

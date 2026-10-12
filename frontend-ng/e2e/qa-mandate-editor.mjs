@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {chromium, expect} from '@playwright/test';
 import {mkdirSync, writeFileSync} from 'node:fs';
 const base = process.env.BASE ?? 'http://localhost:4200';
-const out = process.env.OUT ?? '../docs/reports/mandate-experience/editor-qa';
+const out = process.env.OUT ?? '../artifacts/qa/mandate-experience/editor-qa';
 mkdirSync(out, {recursive:true});
 const workspace = {id:'ws-qa',slug:'showcase',name:'Showcase',role:'admin',role_template:'workspace_admin',mode:'builder',is_active:true,settings:{features:{adoption_experience_v1:true,flow_publication_v1:true}}};
 const user = {id:'qa-user',username:'qa',email:'qa@example.test',role:'admin',roles:['admin','owner'],is_active:true,workspaces:[workspace]};

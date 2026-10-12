@@ -2673,7 +2673,7 @@ restent à faire — c'est l'étape suivante du plan, hors fenêtre.
 La configuration NAWA, le System « PO vs Invoice Reconciliation » (v3 publiée,
 sha `d3b03ec6…`) et les trois chemins d'ingress (manuel, `deposit.promoted`,
 cron) ont été répétés de bout en bout — détails, chiffres et check-list dans
-`docs/demo-runs/2026-08-10-nawa-po-invoice-recon/DEMO-SCRIPT.md`. Deux pièges
+`docs/archive/2026/demo-runs/2026-08-10-nawa-po-invoice-recon/DEMO-SCRIPT.md`. Deux pièges
 d'infrastructure découverts en chemin, à connaître au-delà de cette démo.
 
 ### Le conteneur `agentium-p4-maintenance` sert une image ancienne — et son rôle est OFF par défaut
@@ -3669,7 +3669,7 @@ verdict Needs Review, audit `938e5860…`, 0 appel LLM. Le cron quotidien contin
 de produire son run à 07:00 UTC (`951c838a…` le 13/08, `e5668f9e…` le 12/08).
 
 Le script présentateur à jour est
-`docs/demo-runs/2026-08-13-nawa-po-invoice-recon-v2/DEMO-SCRIPT.md`.
+`docs/archive/2026/demo-runs/2026-08-13-nawa-po-invoice-recon-v2/DEMO-SCRIPT.md`.
 
 ## Itération du 13/08 (midi) — déployée sur `0a3534f2`, vague de résorption i18n P0→P3
 
@@ -6292,8 +6292,8 @@ Contrôle navigateur authentifié sur Showcase, après rechargement : la fiche
 montre séparément son prix catalogue `$0.00`, les tarifs EUR et le tarif
 `Voice Realtime Speak` sous la forme `< $0.0001`.
 
-[Avant](../evidence/skill-cost-2026-09-15/skill-before.png) ·
-[Après](../evidence/skill-cost-2026-09-15/skill-after.png).
+[Avant](../archive/2026/evidence/skill-cost-2026-09-15/skill-before.png) ·
+[Après](../archive/2026/evidence/skill-cost-2026-09-15/skill-after.png).
 
 ### Canaris carakai : comparaison avant/après
 
@@ -6425,11 +6425,11 @@ modèle. Aucun nouveau changement backend ; les 294 tests de la première
 validation couvrent le backend inchangé.
 
 Captures réelles sur `b3a50bac` :
-[Providers](../evidence/llm-portal-live-2026-09-15/providers.png),
-[Skill](../evidence/llm-portal-live-2026-09-15/skill-execution.png),
-[éditeur](../evidence/llm-portal-live-2026-09-15/skill-editor.png),
-[Flow](../evidence/llm-portal-live-2026-09-15/flow-skill-settings.png),
-[Run et invocation](../evidence/llm-portal-live-2026-09-15/run-evidence.png).
+[Providers](../archive/2026/evidence/llm-portal-live-2026-09-15/providers.png),
+[Skill](../archive/2026/evidence/llm-portal-live-2026-09-15/skill-execution.png),
+[éditeur](../archive/2026/evidence/llm-portal-live-2026-09-15/skill-editor.png),
+[Flow](../archive/2026/evidence/llm-portal-live-2026-09-15/flow-skill-settings.png),
+[Run et invocation](../archive/2026/evidence/llm-portal-live-2026-09-15/run-evidence.png).
 
 ### Bascule finale — `30db8c07cc10`
 
@@ -6458,8 +6458,8 @@ Le clic réel sur **Use in a Skill**, dans Chrome authentifié sur Showcase,
 ouvre maintenant `/skills?lens=govern&provider=openai&model=gpt-4o-mini&create=llm…`.
 Le formulaire montre OpenAI et `gpt-4o-mini` présélectionnés dans Execution.
 Le brouillon a été fermé sans création de Skill. Captures :
-[catalogue final](../evidence/llm-portal-live-2026-09-15/catalog.png) et
-[passage vers la Skill](../evidence/llm-portal-live-2026-09-15/model-to-skill.png).
+[catalogue final](../archive/2026/evidence/llm-portal-live-2026-09-15/catalog.png) et
+[passage vers la Skill](../archive/2026/evidence/llm-portal-live-2026-09-15/model-to-skill.png).
 
 Le runner carakai est aligné sur ce SHA par bundle incrémental b3 → 30db,
 SHA256 `239e3653a2ef2048e683458ddc9328994a83a39a241a445b948fb50a8246a918`.
@@ -6566,7 +6566,7 @@ The cleanup failure confirmed immutable release deletion protection. Test-only
 bd160451 verifies exact EXPERIENCE_RELEASED and retains the explicitly authorized
 Showcase test release; its focused Studio rerun passed against unchanged 196164eb.
 24 real Work/Studio visual matrix captures and both provenance revisions are in
-[the evidence index](../evidence/roadmap-r0-2026-09-16/README.md).
+[the evidence index](../archive/2026/evidence/roadmap-r0-2026-09-16/README.md).
 R0 is not closed: worker concurrency, failed-check/outcome clarity, semantic
 evaluation and human trials retain their stated limitations. No independent
 CI or signed promotion attestation is claimed.
@@ -6592,7 +6592,7 @@ returned the original Run IDs; new outcomes did not manufacture approval or
 confidence. The live screenshot was reviewed from fresh Chromium on carakai;
 native browser control timed out. This is not human adoption acceptance.
 
-[Evidence, exact Run IDs and limits](../evidence/runtime-7532d449-2026-09-16/README.md).
+[Evidence, exact Run IDs and limits](../archive/2026/evidence/runtime-7532d449-2026-09-16/README.md).
 Build logs: `/srv/agentium-data/runtime-deployments/2026-09-16-7532d4491a23/`.
 Drain recipe jobs before rolling back/removing their consumer. No historical
 outcome rewrite, adoption-default switch or customer theme change.
@@ -6602,7 +6602,7 @@ outcome rewrite, adoption-default switch or customer theme change.
 
 Deployed `f63f1eaf7e023e7ea5c428995c44ca0a3ad202ff` from pushed `demo/agentic`. Backend, worker (including optional Giskard SDK) and frontend images built on omnirag-demo with immutable tag `f63f1eaf7e02`. Database migrated from 105 to 107 after paired checksummed backup `/srv/agentium-data/brd-system-deployments/2026-09-16-f63f1eaf7e02` reached `.ready`.
 
-Public build-info matches; frontend/backend healthy; dedicated CPU and recipe workers running. Carakai canaries: 10 passed, two expected local-contract skips. [Release evidence](../evidence/brd-release-candidate-2026-09-16/deployment.md). Full manual BRD UI and end-to-end R1 acceptance remain open.
+Public build-info matches; frontend/backend healthy; dedicated CPU and recipe workers running. Carakai canaries: 10 passed, two expected local-contract skips. [Release evidence](../archive/2026/evidence/brd-release-candidate-2026-09-16/deployment.md). Full manual BRD UI and end-to-end R1 acceptance remain open.
 
 Previous runtime was `7532d4491a239d0e2285303cb12447ceac7419c2`. It is not an unconditional rollback target: new BRD-origin execution contracts need compatible readers. Fix forward or disable affected authoring/execution while preserving compatible readers; do not restore the database over new writes. No customer flag default or NAWA theme change.
 
@@ -6618,7 +6618,7 @@ traceback or exception.
 
 Carakai iteration canaries: **10 passed, 2 intentional local-fixture skips**
 (2.1 minutes), including Work, Studio, Hypervisor and exact-Run observability.
-[Evidence and image digests](../evidence/brd-r1-correction-release-2026-09-16/README.md).
+[Evidence and image digests](../archive/2026/evidence/brd-r1-correction-release-2026-09-16/README.md).
 Hard-reloaded Chrome reaches sign-in; authenticated manual smoke remains pending.
 No adoption-default or NAWA theme change. This does not close R1 or R0 human acceptance.
 
@@ -6637,7 +6637,7 @@ revision verified, no startup traceback/exception.
 
 Local gates: 1,466 frontend tests, 147 scoped backend tests, i18n/nav/chrome and
 production build pass. Carakai canaries: 10 passed, 2 intentional local-fixture
-skips (2.2 minutes). [Evidence](../evidence/brd-tool-freeze-release-2026-09-16/README.md).
+skips (2.2 minutes). [Evidence](../archive/2026/evidence/brd-tool-freeze-release-2026-09-16/README.md).
 Authenticated manual Chrome smoke awaits reconnection. NorthForge BRD acceptance
 is not closed: absence/refusal planner behavior and human-review scenarios remain
 unqualified. No default activation or NAWA theme change.
@@ -6671,7 +6671,7 @@ Carakai: 10 passed / 2 intentional local-contract skips, artifacts
 `/tmp/iteration-canaries-20260916T162826Z.DLuWBE`. Manual Chrome smoke remains
 unqualified because the available Agentium tabs are signed out.
 Rollback tag: `7951e698cb04`; no database restore.
-Evidence: [observed-decision release](../evidence/hitl-observed-decision-2026-09-16/README.md).
+Evidence: [observed-decision release](../archive/2026/evidence/hitl-observed-decision-2026-09-16/README.md).
 
 ### 2026-09-16 — generated BRD review contracts
 
@@ -6680,7 +6680,7 @@ Three immutable images built on omnirag-demo; optional Giskard SDK retained.
 Storage gate passed, no migration. Exact public SHA verified, backend healthy,
 homepage 200, startup exceptions zero. Carakai: 10 passed, 2 intended skips.
 Rollback tag: `89f8e09aa820`. Authenticated manual acceptance remains open.
-Evidence: [BRD review contract release](../evidence/brd-review-contract-2026-09-16/README.md).
+Evidence: [BRD review contract release](../archive/2026/evidence/brd-review-contract-2026-09-16/README.md).
 
 ### 2026-09-16 — durable Golden dispatch and frozen AgentLoop tools
 
@@ -6692,7 +6692,7 @@ Rollback tag: `f6b73cff68da`; no database restoration.
 Six canonical Golden Runs use one durable dispatch each; identical POST replay
 returns their original IDs. Five reach final review, one pauses at the planner.
 No human decision or application publication was performed. Authenticated manual
-acceptance remains open. [Evidence](../evidence/brd-durable-tools-2026-09-16/README.md).
+acceptance remains open. [Evidence](../archive/2026/evidence/brd-durable-tools-2026-09-16/README.md).
 
 
 ### 2026-09-16 — BRD publication handoff and evaluation provenance
@@ -6716,7 +6716,7 @@ Previous images: `cd8f23f27af6`. Preserve recent writes; an older renderer does 
 establish the new Work constraints. Authenticated manual smoke, new handoff
 screenshots/video, second-user application consumption and human baseline remain
 open. No NAWA theme or adoption-default change. R0/R1 are not closed.
-[Release evidence](../evidence/brd-work-publication-2026-09-16/README.md).
+[Release evidence](../archive/2026/evidence/brd-work-publication-2026-09-16/README.md).
 
 ### 2026-09-16 — spreadsheet citation cells and Golden verdicts
 
@@ -6727,7 +6727,7 @@ Carakai: 10 passed, 2 intentional skips, artifacts
 `/tmp/iteration-canaries-20260916T202721Z.BF559u`.
 Three retained real Golden previews establish passed, failed and unevaluated
 verdicts with identical-request replay. Manual/human acceptance remained open.
-Rollback: `b4fde677a75a`. [Evidence](../evidence/release-6f8f8169-2026-09-16/README.md).
+Rollback: `b4fde677a75a`. [Evidence](../archive/2026/evidence/release-6f8f8169-2026-09-16/README.md).
 
 ### 2026-09-16 — recoverable source indexing and constrained image builds
 
@@ -6756,7 +6756,7 @@ maintenance logs: `/srv/agentium-data/roadmap-deployments/2026-09-16-c399f2bec1c
 Manual smoke, live UI capture, R0 human sessions and complete R1/R2 acceptance
 remain open. No NAWA theme or adoption-default change.
 Rollback: **`6f8f81696db0`**, preserving all current writes.
-[Release and recovery evidence](../evidence/release-c399f2be-2026-09-16/README.md).
+[Release and recovery evidence](../archive/2026/evidence/release-c399f2be-2026-09-16/README.md).
 
 ### 2026-09-17 — missing-original diagnosis and real document checks
 
@@ -6774,7 +6774,7 @@ The failure is retained; the bounded preview correction requires another release
 No re-upload, human decision or BRD-generated application publication is claimed.
 Manual R0 smoke and human baseline remain open. NAWA and adoption defaults unchanged.
 Rollback: **`c399f2bec1ca`**, without reverting writes.
-[Release evidence](../evidence/release-37056391-2026-09-17/README.md).
+[Release evidence](../archive/2026/evidence/release-37056391-2026-09-17/README.md).
 
 ### 2026-09-17 — readable retrieved Excel ranges and actual OCR proof
 
@@ -6796,7 +6796,7 @@ canaries succeeded without changing credentials. Only one OCR job was created.
 This verifies the specific source-format references, not general OCR accuracy,
 Capture's complete journey or human acceptance. R0/R1 remain open; NAWA theme
 and adoption default unchanged. Rollback: **`37056391d6cc`**, preserving writes.
-[Release evidence](../evidence/release-bb467f53-2026-09-17/README.md).
+[Release evidence](../archive/2026/evidence/release-bb467f53-2026-09-17/README.md).
 
 
 ### 2026-09-17 — Capture publication continuity (4771d53a)
@@ -6806,7 +6806,7 @@ three immutable VM images, 162 backend and 1,493 frontend tests. Storage, exact
 public identities and health verified; carakai 10 passed, 2 intentional skips.
 No migration. A real text amendment survives generation, but the report contains
 unrelated inventory; it remains pending review. No publication of that fixture.
-Rollback `bb467f534d40`. [Evidence](../evidence/release-4771d53a-2026-09-17/README.md).
+Rollback `bb467f534d40`. [Evidence](../archive/2026/evidence/release-4771d53a-2026-09-17/README.md).
 
 ### 2026-09-17 — Capture context and evidence selection (fd9238fa)
 
@@ -6822,7 +6822,7 @@ retrieval pass. Fresh conversation fails: workspace default scope wins over its
 selected Context. Failed Run retained; no invented user acceptance or voice proof.
 The original failed proposal and retained R1 decisions remain untouched.
 NAWA and activation defaults unchanged. Rollback `4771d53ae2a0`, preserving writes.
-[Evidence](../evidence/release-fd9238fa-2026-09-17/README.md).
+[Evidence](../archive/2026/evidence/release-fd9238fa-2026-09-17/README.md).
 
 
 ### 2026-09-17 — selected Capture collection survives chat defaults (f9bb4294)
@@ -6842,7 +6842,7 @@ source. The old failed Run is preserved. The canonical collection inventory
 still reports zero; ledger synchronization remains to correct. This is one
 technical text qualification, not voice, repetition or human acceptance.
 NAWA theme and activation defaults unchanged. Rollback `fd9238fa6e4a`.
-[Evidence](../evidence/release-f9bb4294-2026-09-17/README.md).
+[Evidence](../archive/2026/evidence/release-f9bb4294-2026-09-17/README.md).
 
 
 ### 2026-09-17 — Capture publication source ledger (447997ee)
@@ -6859,7 +6859,7 @@ one ready source/chunk with matching checksum, and fresh sourced answer/Run.
 Chrome smoke verified Operational Analysis → exact new Run and Quality → proof,
 but exposed Work-to-Studio/System-stage URL encoding defects. Fix pending.
 R0 human sessions and closure decision remain open; no R1 decision was changed.
-[Evidence and current screenshots](../evidence/release-447997ee-2026-09-17/README.md).
+[Evidence and current screenshots](../archive/2026/evidence/release-447997ee-2026-09-17/README.md).
 
 
 ### 2026-09-17 — preserve Work/System query context (4771f15b)
@@ -6875,7 +6875,7 @@ Chrome confirms Work ↔ Studio, System preset links, and new numerical Run
 9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3 with exact runtime revision.
 The timeline-to-invocation shortcut still targets a disabled perspective; the
 canonical Run audit is readable. That defect, video and human R0 sessions remain
-open. No R1 decision changed. [Evidence](../evidence/release-4771f15b-2026-09-17/README.md).
+open. No R1 decision changed. [Evidence](../archive/2026/evidence/release-4771f15b-2026-09-17/README.md).
 
 ### 2026-09-17 — accessible invocation audit (970f4512)
 
@@ -6891,7 +6891,7 @@ warm-up. Offline worker SDK qualification passed.
 Chrome opened the retained numerical-check invocation and verified its exact
 output, but exposed a remaining navigation-resolver 360 dependency. The audit
 is readable; the System/Run breadcrumbs still disappear in this release.
-[Evidence and both canary attempts](../evidence/release-970f4512-2026-09-17/README.md).
+[Evidence and both canary attempts](../archive/2026/evidence/release-970f4512-2026-09-17/README.md).
 
 ### 2026-09-17 — preserve invocation ancestry (ab15d204)
 
@@ -6906,7 +6906,7 @@ Worker SDK fixture passed. Chrome confirms exact Run audit, System/Run ancestry,
 reload, return/history and an unavailable invocation with retry. The retained
 Run keeps its historical execution SHA. No R1 decision or published System changed.
 The outcome-card absent-value display, video and R0 human baseline remain open.
-[Evidence](../evidence/release-ab15d204-2026-09-17/README.md).
+[Evidence](../archive/2026/evidence/release-ab15d204-2026-09-17/README.md).
 
 
 ### 2026-09-17 — qualified and responsive outcome readouts (c19d30e8 → 4baa9f5d)
@@ -6923,7 +6923,7 @@ Final real FR/EN, light/dark, 390 px and keyboard checks pass for the outcome ca
 New Work Run 5369c2b1 completes on 4baa9f5d with exact NorthForge numerical output;
 PIH configuration/Flow and Quality → Run → passage are inspected. Retained R1
 reviews are untouched. Generic PIH Design summary, video and R0 human acceptance
-remain open. [Final evidence](../evidence/release-4baa9f5d-2026-09-17/README.md).
+remain open. [Final evidence](../archive/2026/evidence/release-4baa9f5d-2026-09-17/README.md).
 
 
 ### 2026-09-17 — Design shows the canonical draft (18741f94)
@@ -6939,7 +6939,7 @@ Five new sequential Work Runs pass the NorthForge numerical reference and
 idempotent replay on this exact runtime. Desktop Chrome confirms Design r3 →
 Flow Builder r3 → back, with published v1 explicit and unchanged. New Design
 copy is FR/EN; existing header copy and 390 px sticky-header layout have limits.
-No retained R1 gate changed. [Evidence](../evidence/release-18741f94-2026-09-17/README.md).
+No retained R1 gate changed. [Evidence](../archive/2026/evidence/release-18741f94-2026-09-17/README.md).
 
 
 ### 17 September — def0b3cc Capture handoff / responsive Design
@@ -6948,7 +6948,7 @@ Pushed `demo/agentic`, three immutable images built on omnirag-demo, idle jobs
 and workers checked before switch, exact public frontend/backend SHA and healthy
 services verified. Carakai: 10 passes, 2 intentional skips. Giskard worker fixture
 passes with mocked providers. Rollback: 18741f94fb6c. No migration or flag change.
-[Release record](../evidence/release-def0b3cc-2026-09-17/README.md) records the
+[Release record](../archive/2026/evidence/release-def0b3cc-2026-09-17/README.md) records the
 successful narrow Design check and failed live Capture sourced-answer test.
 The latter remains open for correction; it is not a successful R2 qualification.
 
@@ -6963,7 +6963,7 @@ Rollback: `0f06b4eb5f6b`. No migration, permission, flag or native NAWA theme ch
 
 The fresh hybrid Capture Run now cites the actual 6-bar passage; a second Run
 acknowledges an absent serial number. The preceding actual Giskard/OpenAI report
-remains attributed to 0f06b4eb. [Release evidence and retained Runs](../evidence/release-d05e84b1-2026-09-17/README.md).
+remains attributed to 0f06b4eb. [Release evidence and retained Runs](../archive/2026/evidence/release-d05e84b1-2026-09-17/README.md).
 Browser smoke awaits reconnection; R0 baseline, video and owner decision remain open.
 
 
@@ -6974,7 +6974,7 @@ Iteration deployed from pushed `demo/agentic` SHA
 Three immutable VM builds, zero active/reserved work before switch, storage and
 six services healthy, exact public frontend/backend revisions; carakai 10 pass,
 2 intentional exclusions. No migration, policy, flag or NAWA branding change.
-[Evidence and actual generation review](../evidence/release-1e374c3c-2026-09-17/README.md).
+[Evidence and actual generation review](../archive/2026/evidence/release-1e374c3c-2026-09-17/README.md).
 The fresh proposal remains unapplied because its test questions contain oracle
 answers. Old R1 Runs/human gates are untouched. R0 human acceptance remains open.
 
@@ -6988,7 +6988,7 @@ Carakai: 10 passes, 2 intentional exclusions. Rollback: `1e374c3c1b71`.
 No migration, permission, flag or NAWA theme change. The unchanged generated
 history case now retrieves the actual 30/55-minute source in one call and passes.
 Local engine review was simulated; production R1 decisions remain untouched.
-[Release evidence](../evidence/release-e30230ae-2026-09-17/README.md).
+[Release evidence](../archive/2026/evidence/release-e30230ae-2026-09-17/README.md).
 R0 human sessions/video and complete R1 acceptance remain open.
 
 
@@ -7014,7 +7014,7 @@ and offline image qualification remain present.
 
 Previous compatible image tag: `43a33dcd8cc8`. Pre-mandate workers are not a
 compatible rollback for newly published frozen-policy contracts. Do not restore
-the backup over later writes. [Release evidence, actual screenshots and URLs](../evidence/release-6f6d10c0-2026-09-17/README.md).
+the backup over later writes. [Release evidence, actual screenshots and URLs](../archive/2026/evidence/release-6f6d10c0-2026-09-17/README.md).
 R0 human acceptance and complete Rx qualification remain separate.
 
 
@@ -7027,7 +7027,7 @@ NAWA theme change was made. Storage check, exact backend revision, HTTP 200,
 healthy backend/frontend containers and zero backend exception matches passed.
 Carakai source and SHA marker were advanced to the same revision; iteration
 canaries passed 10/10 with two intentional local-contract skips.
-[Release evidence and canary artifacts](../evidence/release-d82ffeba-2026-09-18/README.md).
+[Release evidence and canary artifacts](../archive/2026/evidence/release-d82ffeba-2026-09-18/README.md).
 The operator still needs a hard-reloaded authenticated browser check of the new
 object-context chip; no SPARK-089 correction/comparison qualification is claimed.
 
@@ -7041,7 +7041,7 @@ NAWA theme change was made. Storage check, exact backend revision, HTTP 200,
 zero backend exception matches and healthy frontend passed. Carakai source and
 SHA marker were advanced to the same revision; iteration canaries passed 10/10
 with two intentional local-contract skips.
-[Release evidence and captures](../evidence/release-428e596e-2026-09-18/README.md).
+[Release evidence and captures](../archive/2026/evidence/release-428e596e-2026-09-18/README.md).
 The operator should still hard-reload and qualify drag, keyboard, persistence,
 narrow/full-screen and light/dark behavior on the desktop.
 
@@ -7055,7 +7055,7 @@ was deployed from three immutable VM images at tag `701cecc2e587`; rollback is
 `428e596e2e89`. No migration, workspace flag or NAWA theme change occurred.
 Storage check, exact public revision, HTTP 200, zero backend exception matches
 and carakai 10/10 canaries passed with two intentional local-contract skips.
-[Release evidence](../evidence/release-701cecc2-2026-09-18/README.md).
+[Release evidence](../archive/2026/evidence/release-701cecc2-2026-09-18/README.md).
 
 
 ### 2026-09-18 — collapsible conversation history, f313a03a
@@ -7067,7 +7067,7 @@ changing the active session; the preference is local. No migration, workspace
 flag or NAWA theme change occurred. Storage, public revision, HTTP 200, zero
 backend exception matches and carakai 10/10 passed with two intentional
 local-contract skips.
-[Release evidence](../evidence/release-f313a03a-2026-09-18/README.md).
+[Release evidence](../archive/2026/evidence/release-f313a03a-2026-09-18/README.md).
 
 
 ### 2026-09-18 — hidden conversation rail honored, c6119850
@@ -7078,7 +7078,7 @@ no longer overrides the hidden state, so the conversation column really
 disappears and leaves the reopen rail. No migration, flag, or NAWA theme
 change. Storage, exact public revision, HTTP 200, zero backend exception
 matches, and 10/10 carakai canaries passed with two intentional local-contract
-skips. [Release evidence](../evidence/release-c6119850-2026-09-18/README.md).
+skips. [Release evidence](../archive/2026/evidence/release-c6119850-2026-09-18/README.md).
 
 
 ### 2026-09-18 — compact advanced chat controls, 1b414249
@@ -7090,7 +7090,7 @@ single row and expand on explicit request; the preference is local. No
 migration, workspace flag, or NAWA theme change occurred. Storage, public
 revision, HTTP 200, zero backend exception matches, and carakai 10/10 passed
 with two intentional local-contract skips.
-[Release evidence](../evidence/release-1b414249-2026-09-18/README.md).
+[Release evidence](../archive/2026/evidence/release-1b414249-2026-09-18/README.md).
 
 
 ### 2026-09-21 — automation-first draft, 8ffa3de9
@@ -7104,7 +7104,7 @@ proves draft admission through the canonical draft-test path. No migration,
 workspace flag, or NAWA theme change occurred. Storage, public revision, HTTP
 200, zero backend exception matches, and carakai 10/10 passed with two
 intentional local-contract skips.
-[Release evidence](../evidence/release-8ffa3de9-2026-09-21/README.md).
+[Release evidence](../archive/2026/evidence/release-8ffa3de9-2026-09-21/README.md).
 The SPARK-365 process-owner run remains the human acceptance gate.
 
 ### 2026-09-21 — draft hash alignment, ce842f7a
@@ -7130,7 +7130,7 @@ second labelled verb. Existing autosave, draft hashing and explicit publication
 review are unchanged. No migration, workspace flag, or NAWA theme change
 occurred. Storage, public revision, HTTP 200, zero backend exception matches,
 and carakai 10/10 passed with two intentional local-contract skips.
-[Release evidence](../evidence/release-d4a75119-2026-09-22/README.md).
+[Release evidence](../archive/2026/evidence/release-d4a75119-2026-09-22/README.md).
 
 
 ### 2026-09-22 — preparation provider and rights, ab96ff7c
@@ -7144,7 +7144,7 @@ unchecked. No migration, workspace flag, or NAWA theme change occurred.
 Storage, public revision `revision_verified=true`, HTTP 200, zero backend
 exception matches in the switch window, and carakai 10 passed with two
 intentional skips.
-[Release evidence](../evidence/release-ab96ff7c-2026-09-22/README.md).
+[Release evidence](../archive/2026/evidence/release-ab96ff7c-2026-09-22/README.md).
 
 
 ### 2026-09-22 — automation reservation loop, b14fe69d
@@ -7158,7 +7158,7 @@ a result from another automation is refused. No workspace flag or NAWA theme
 change. Storage, public revision `revision_verified=true`, HTTP 200, zero
 backend exception matches in the switch window, and carakai 10 passed with
 two intentional skips.
-[Release evidence](../evidence/release-b14fe69d-2026-09-22/README.md).
+[Release evidence](../archive/2026/evidence/release-b14fe69d-2026-09-22/README.md).
 
 
 ### 2026-09-22 — dossier versions and proof, 76a7e9db
@@ -7171,7 +7171,7 @@ attached as proof. A paused run is labelled as waiting for a person. No
 workspace flag or NAWA theme change. Storage, public revision
 `revision_verified=true`, HTTP 200, zero backend exception matches in the
 switch window, and carakai 10 passed with two intentional skips.
-[Release evidence](../evidence/release-76a7e9db-2026-09-22/README.md).
+[Release evidence](../archive/2026/evidence/release-76a7e9db-2026-09-22/README.md).
 
 
 ### 2026-09-22 — frozen chart and shared proof, 3f2b300f
@@ -7183,7 +7183,7 @@ proof is present. Work, the conversation tool and the API read one proof
 identity. No workspace flag or NAWA theme change. Storage, public revision
 `revision_verified=true`, HTTP 200, zero backend exception matches in the
 switch window, and carakai 10 passed with two intentional skips.
-[Release evidence](../evidence/release-3f2b300f-2026-09-22/README.md).
+[Release evidence](../archive/2026/evidence/release-3f2b300f-2026-09-22/README.md).
 
 
 ### 2026-09-22 — conversation proof, 26928471
@@ -7196,7 +7196,7 @@ Storage and public revision `revision_verified=true` were checked. Backend
 exception matches in the switch window stayed at zero. Carakai 10 passed
 with two intentional skips. Artifacts
 `/tmp/iteration-canaries-20260922T164415Z.W74ZNC`.
-[Release evidence](../evidence/release-26928471-2026-09-22/README.md).
+[Release evidence](../archive/2026/evidence/release-26928471-2026-09-22/README.md).
 
 
 ### 2026-09-22 — runner reachability, c629f5af
@@ -7208,7 +7208,7 @@ the runner ready. Silence blocks it. A failed ask stays unperformed. No
 workspace flag or NAWA theme change. Storage, public revision
 `revision_verified=true`, HTTP 200, zero backend exception matches in the
 switch window, and carakai 10 passed with two intentional skips.
-[Release evidence](../evidence/release-c629f5af-2026-09-22/README.md).
+[Release evidence](../archive/2026/evidence/release-c629f5af-2026-09-22/README.md).
 
 
 ### 2026-09-22 — pinned object survives reload, 0dd15330
@@ -7220,7 +7220,7 @@ after leaving its page. Workspace reset still clears the pin. No workspace
 flag or NAWA theme change. Storage, public revision `revision_verified=true`,
 HTTP 200, zero backend exception matches in the switch window, and carakai
 10 passed with two intentional skips.
-[Release evidence](../evidence/release-0dd15330-2026-09-22/README.md).
+[Release evidence](../archive/2026/evidence/release-0dd15330-2026-09-22/README.md).
 
 
 ### 2026-09-22 — edit plan reaches the catalog, 76d4d97e
@@ -7232,7 +7232,7 @@ one edge object is read as a single edge. No workspace flag or NAWA theme
 change. Storage, public revision `revision_verified=true`, HTTP 200, zero
 backend exception matches in the switch window, and carakai 10 passed with
 two intentional skips.
-[Release evidence](../evidence/release-76d4d97e-2026-09-22/README.md).
+[Release evidence](../archive/2026/evidence/release-76d4d97e-2026-09-22/README.md).
 
 
 ### 2026-09-22 — unattended write stays sealed, 65b66219
@@ -7245,7 +7245,7 @@ unfinished so a later decision can resume it. No workspace flag or NAWA
 theme change. Storage, public revision `revision_verified=true`, HTTP 200,
 zero backend exception matches in the switch window, and carakai 10 passed
 with two intentional skips.
-[Release evidence](../evidence/release-65b66219-2026-09-22/README.md).
+[Release evidence](../archive/2026/evidence/release-65b66219-2026-09-22/README.md).
 
 
 ### 2026-09-23 — tenant-neutral defaults, 13105802

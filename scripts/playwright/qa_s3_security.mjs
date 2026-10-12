@@ -29,7 +29,7 @@ import {
 
 const OUT_DIR =
   process.env.OUT_DIR ||
-  '/Users/thib/Developer/PAPAI/omnirag/docs/status-screenshots/2026-05-25-qa-s3-trame';
+  join(process.cwd(), 'artifacts/qa/qa-s3-trame');
 
 /** @param {import('playwright').Page} page */
 export async function runS3SecuritySteps(page, state, outDir, { includeV21 = true } = {}) {

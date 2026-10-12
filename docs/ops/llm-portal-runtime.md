@@ -87,16 +87,16 @@ These captures show the implemented production frontend with the local validatio
 
 Shared catalogue and direct entry into Skill authoring:
 
-![Model catalogue](../evidence/llm-portal-runtime-2026-09-15/catalog-desktop.png)
+![Model catalogue](../archive/2026/evidence/llm-portal-runtime-2026-09-15/catalog-desktop.png)
 
 Saved Azure connection metadata, explicit connection test and readable configuration actions:
 
-![Azure connection](../evidence/llm-portal-runtime-2026-09-15/provider-azure-desktop.png)
+![Azure connection](../archive/2026/evidence/llm-portal-runtime-2026-09-15/provider-azure-desktop.png)
 
 Recorded result and evidence on a narrow screen:
 
-![Run result](../evidence/llm-portal-runtime-2026-09-15/test-result-mobile.png)
+![Run result](../archive/2026/evidence/llm-portal-runtime-2026-09-15/test-result-mobile.png)
 
 Skill execution settings, including the preserved historical provider identity:
 
-![Skill execution editor](../evidence/skill-execution-visibility-2026-09-15/skill-execution-editor.png)
+![Skill execution editor](../archive/2026/evidence/skill-execution-visibility-2026-09-15/skill-execution-editor.png)

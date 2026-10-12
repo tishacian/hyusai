@@ -124,10 +124,10 @@ amont, exporte le contexte, supprime la copie de provisionnement et recharge
 uniquement l'export ; tolérance `rtol=atol=1e-6`. Un environnement sans seccomp ne
 reçoit pas de preuve offline positive.
 
-La [preuve locale conservée](evidence/probabl-tabicl-offline.json) contient les
+La [preuve locale conservée](archive/2026/evidence/probabl-tabicl-offline.json) contient les
 versions, les deux parités et les pics mémoire observés sous blocage seccomp.
 Cette vérification réduite ne qualifie pas tous les profils : le
-[diagnostic de parité P6](evidence/probabl-tabicl-parity-diagnostic.json) conserve
+[diagnostic de parité P6](archive/2026/evidence/probabl-tabicl-parity-diagnostic.json) conserve
 l'échec ultérieur de régression sans cache, jusqu'à `3,6621e-4` d'écart absolu
 et 59 violations sur 120 sorties au seuil inchangé `rtol=atol=1e-6`.
 Les contrôles excluent une mutation des données ou des sorties ; la cause

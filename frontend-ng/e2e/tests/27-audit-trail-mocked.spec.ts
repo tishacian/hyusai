@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page, type Route } from '@playwright/test';
 
 const enabled = process.env['E2E_CHROME_V2_MOCKED'] === '1';
-const shots = process.env['E2E_SHOT_DIR'] ?? '../docs/reports/l37-audit/captures';
+const shots = process.env['E2E_SHOT_DIR'] ?? '../artifacts/qa/l37-audit/captures';
 test.use({ serviceWorkers: 'block', video: 'off', viewport: { width: 1440, height: 1000 } });
 const workspace = { id: 'ws-l37', name: 'Audit demo', slug: 'audit-demo', role: 'admin', role_template: 'workspace_admin', settings: {} };
 const user = { id: 'user-l37', email: 'ada@example.test', role: 'admin', is_active: true, mfa_enabled: false, first_name: 'Ada', last_name: 'Lovelace', workspaces: [workspace] };

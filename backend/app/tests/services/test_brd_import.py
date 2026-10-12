@@ -164,7 +164,7 @@ def test_the_shipped_template_parses_without_complaint():
 
     template = (
         Path(__file__).resolve().parents[4]
-        / "docs/render/out/Datategy-Template-Business-Requirements.docx"
+        / "docs/archive/2026/render/out/Datategy-Template-Business-Requirements.docx"
     )
     if not template.exists():  # pragma: no cover - the repo ships it
         pytest.skip("template not present in this checkout")

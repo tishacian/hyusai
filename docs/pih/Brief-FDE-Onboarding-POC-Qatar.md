@@ -98,7 +98,7 @@ Briques importantes pour le POC :
 - **Méthodologie de capture** : la chaîne est outillée de bout en bout —
   grille d'intake (`docs/pih/Use-Case-Intake-Template-PIH.xlsx`) pour le
   triage, puis les templates méthodologie delivery (alignés ISO/IEC 42001 &
-  12792, dans `docs/render/out/`) : **Business Requirements** (personas,
+  12792, dans `docs/archive/2026/render/out/`) : **Business Requirements** (personas,
   As-Is → To-Be, KPIs) → **Target Operating Model** (value streams
   humain+agent, HITL, RACI) → build → **QA Acceptance Record** (PV de recette
   avec gates golden-set pour le go-live). Utilise-les tels quels : c'est notre

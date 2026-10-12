@@ -14,7 +14,7 @@ The optional Giskard worker adapter generates proposed test cases and evaluates 
 
 ## Visual delivery
 
-[Paper and illustrated journey](../ui/observability/README.md) includes six principal views, unavailable/mobile/dark variants and the chart dashboard. Local application captures use synthetic API fixtures; they are not production evaluation results.
+[Paper and illustrated journey](../archive/2026/ui/observability/README.md) includes six principal views, unavailable/mobile/dark variants and the chart dashboard. Local application captures use synthetic API fixtures; they are not production evaluation results.
 
 The charts use Cockpit tokens. No NAWA theme change is included.
 
@@ -25,7 +25,7 @@ The charts use Cockpit tokens. No NAWA theme change is included.
 - Production build passed with existing bundle budget and CommonJS warnings.
 - `check:i18n`, `check:nav-links --fail-closed`, `check:ui-chrome` and `git diff --check` passed.
 - Additive migration chain has one head: `105_evaluation_corrections`, after `104_evaluation_campaigns`.
-- Visual fixture results are recorded in [visual-report.json](../ui/observability/screenshots/visual-report.json).
+- Visual fixture results are recorded in [visual-report.json](../archive/2026/ui/observability/screenshots/visual-report.json).
 
 ## Release qualification still required
 
