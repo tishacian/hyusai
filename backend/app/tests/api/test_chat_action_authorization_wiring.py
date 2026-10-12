@@ -25,7 +25,7 @@ def test_registry_chat_wrapper_forwards_resolved_system_to_executor(monkeypatch)
         captured.append(kwargs)
         return {"action": "authorized", "content": "ok"}
 
-    monkeypatch.setattr(chat, "handle_registry_chat_action", _handle)
+    monkeypatch.setattr(chat.agentic, "handle_registry_chat_action", _handle)
 
     result = asyncio.run(
         chat._try_registry_chat_action(

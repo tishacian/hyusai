@@ -54,8 +54,10 @@ def _client(db_session, workspace: Workspace, user: User, orchestrator, monkeypa
     app.dependency_overrides[chat.get_current_workspace] = lambda: workspace
     app.dependency_overrides[chat.get_current_user] = lambda: user
     app.dependency_overrides[chat.get_db] = lambda: db_session
-    monkeypatch.setattr(chat, "get_orchestrator", lambda: orchestrator)
-    monkeypatch.setattr(chat, "schedule_eval", lambda _run_id: None)
+    for module in (chat.completion, chat.stream):
+        monkeypatch.setattr(module, "get_orchestrator", lambda: orchestrator)
+    for module in (chat.sessions, chat.agentic, chat.completion, chat.stream):
+        monkeypatch.setattr(module, "schedule_eval", lambda _run_id: None)
     return TestClient(app)
 
 

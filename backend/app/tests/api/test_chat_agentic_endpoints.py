@@ -192,8 +192,10 @@ def _client(
     app.dependency_overrides[chat.get_current_user] = lambda: user
     app.dependency_overrides[chat.get_db] = lambda: db_session
     monkeypatch.setattr(chat.settings, "enable_agentic_chat", True)
-    monkeypatch.setattr(chat, "get_orchestrator", lambda: orchestrator)
-    monkeypatch.setattr(chat, "schedule_eval", scheduled.append)
+    for module in (chat.completion, chat.stream):
+        monkeypatch.setattr(module, "get_orchestrator", lambda: orchestrator)
+    for module in (chat.sessions, chat.agentic, chat.completion, chat.stream):
+        monkeypatch.setattr(module, "schedule_eval", scheduled.append)
     return TestClient(app)
 
 
@@ -276,7 +278,8 @@ def _install_terminal_agentic_execution(
             "error": error,
         }
 
-    monkeypatch.setattr(chat, "iter_agentic_run_events", _events)
+    for module in (chat.completion, chat.stream):
+        monkeypatch.setattr(module, "iter_agentic_run_events", _events)
 
 
 def _sse_payloads(response_text: str) -> list[dict[str, Any]]:
@@ -389,11 +392,12 @@ def test_stream_persistence_failure_never_generates_a_second_classic_answer(
         status="completed",
         answer="BCX200 pump P-101 is rated at 22 kW [1].",
     )
-    monkeypatch.setattr(
-        chat,
-        "_persist_agentic_chat_turn",
-        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("history unavailable")),
-    )
+    for module in (chat.completion, chat.stream):
+        monkeypatch.setattr(
+            module,
+            "_persist_agentic_chat_turn",
+            lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("history unavailable")),
+        )
 
     def _classic_must_not_be_resolved():
         raise AssertionError("persistence failure must not generate a classic answer")
@@ -405,7 +409,8 @@ def test_stream_persistence_failure_never_generates_a_second_classic_answer(
         orchestrator=None,
         scheduled=scheduled,
     )
-    monkeypatch.setattr(chat, "get_orchestrator", _classic_must_not_be_resolved)
+    for module in (chat.completion, chat.stream):
+        monkeypatch.setattr(module, "get_orchestrator", _classic_must_not_be_resolved)
 
     response = client.post(
         "/chat/stream",
@@ -564,7 +569,8 @@ def test_stream_policy_terminal_emits_safe_final_without_classic_fallback_or_eva
         orchestrator=None,
         scheduled=scheduled,
     )
-    monkeypatch.setattr(chat, "get_orchestrator", _classic_must_not_be_resolved)
+    for module in (chat.completion, chat.stream):
+        monkeypatch.setattr(module, "get_orchestrator", _classic_must_not_be_resolved)
 
     response = client.post(
         "/chat/stream",
@@ -625,7 +631,8 @@ def test_completion_uses_the_same_agentic_policy_runtime_and_canonical_run(
         orchestrator=None,
         scheduled=scheduled,
     )
-    monkeypatch.setattr(chat, "get_orchestrator", _classic_must_not_be_resolved)
+    for module in (chat.completion, chat.stream):
+        monkeypatch.setattr(module, "get_orchestrator", _classic_must_not_be_resolved)
 
     response = client.post(
         "/chat/completion",

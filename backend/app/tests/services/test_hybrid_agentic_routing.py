@@ -60,7 +60,7 @@ def _fake_db_returning(fresh):
 
 
 def _install_system(monkeypatch, system):
-    monkeypatch.setattr(chat, "_lookup_agentic_chat_system", lambda db, ws: system)
+    monkeypatch.setattr(chat.agentic, "_lookup_agentic_chat_system", lambda db, ws: system)
 
 
 def _install_execute_run_dag(monkeypatch, *, side_effect=None, result=None):
@@ -138,7 +138,7 @@ async def test_legacy_hybrid_dispatch_delegates_run_creation_to_chat_boundary(mo
         captured.update(kwargs)
         return SimpleNamespace(id="boundary-run")
 
-    monkeypatch.setattr(chat, "create_chat_adapter_run", _create_boundary)
+    monkeypatch.setattr(chat.agentic, "create_chat_adapter_run", _create_boundary)
 
     payload = await chat._maybe_agentic_chat_completion(
         db,
