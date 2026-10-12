@@ -1,13 +1,13 @@
 # Import all extractors
 # Register extractors with the factory
-from docmeta.core.factory import register_extractor
-from docmeta.extractors.image import extract_image_metadata
-from docmeta.extractors.markup import extract_markup_metadata
-from docmeta.extractors.office import extract_office_metadata
-from docmeta.extractors.opendocument import extract_opendocument_metadata
-from docmeta.extractors.pdf import extract_pdf_metadata
-from docmeta.extractors.structured_data import extract_structured_data_metadata
-from docmeta.extractors.text import extract_text_metadata
+from ..core.factory import register_extractor
+from .image import extract_image_metadata
+from .markup import extract_markup_metadata
+from .office import extract_office_metadata
+from .opendocument import extract_opendocument_metadata
+from .pdf import extract_pdf_metadata
+from .structured_data import extract_structured_data_metadata
+from .text import extract_text_metadata
 
 # Register PDF extractor
 register_extractor(

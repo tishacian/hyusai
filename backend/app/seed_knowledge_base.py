@@ -11,8 +11,7 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-SAMPLE_DIR = Path(__file__).resolve().parent.parent.parent / "sample_data"
-OPEX_PDF = Path(__file__).resolve().parent.parent.parent / "OPEX.pdf"
+SAMPLE_DIR = Path(__file__).resolve().parent / "seeds" / "sample_data"
 
 
 async def seed_knowledge_base():

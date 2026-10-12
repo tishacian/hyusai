@@ -66,7 +66,7 @@ the place of record. Rules:
 | `scripts/` | active | Deployment and operations scripts (`agentium-vm-deploy.sh`, `run-iteration-canaries.sh`, orchestrator) |
 | `docs/` | active | Architecture, runbooks, lot plans. Docs are part of the deliverable: ship them with the code they describe |
 | `deploy/` | active | systemd units, Keycloak redeploy scripts |
-| `frontend/`, `src/metadata_extraction/`, `sample_data/` | bridges | Last OmniRAG-era pieces still wired (the `/legacy/` SPA, document metadata extraction, demo documents); they move under `backend/` or go away in phase 2 of [ADR 0004](adr/0004-reorganisation-monorepo.md). Do not build on them. The rest of OmniRAG is read at the tag `archive/omnirag-rd` |
+| `archive/omnirag-rd` (tag) | historical | The pre-Agentium OmniRAG code (`src/`, `benchmarking/`, the `/legacy/` SPA). Not in the tree; see [ADR 0004](adr/0004-reorganisation-monorepo.md) |
 
 ## 4. Local setup
 

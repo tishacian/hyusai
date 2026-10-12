@@ -34,11 +34,10 @@ Then follow [CONTRIBUTING.md](CONTRIBUTING.md) and the
 | `docs/` | architecture, runbooks, ADRs (`docs/adr/`), compliance matrix; historical docs under `docs/archive/` |
 | `run_celery.sh`, `start.sh` | worker entry point of the Python images, local demo launcher |
 
-Two bridges from the OmniRAG era are still wired and move under `backend/` in the
-next lot: `src/metadata_extraction/` (document metadata extraction) and
-`sample_data/` (demo documents). The vanilla SPA `frontend/` (served under
-`/legacy/`) is retired in the same lot. See
-[ADR 0004](docs/adr/0004-reorganisation-monorepo.md).
+The last OmniRAG-era pieces still in use live under `backend/`: the document
+metadata extractor in `backend/app/services/document_meta/docmeta/` and the demo
+documents in `backend/app/seeds/sample_data/`. The vanilla SPA once served under
+`/legacy/` is retired. See [ADR 0004](docs/adr/0004-reorganisation-monorepo.md).
 
 ## Who do I talk to?
 
