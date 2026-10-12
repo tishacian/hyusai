@@ -516,7 +516,7 @@ async def test_multi_hop_propagates_authoritative_scope_to_every_search(monkeypa
         calls.append(payload)
         return {"results": [], "raw_chunks_retrieved": 0, "collections_touched": []}
 
-    monkeypatch.setattr(wrappers, "_semantic_search_v1", _search)
+    monkeypatch.setattr(wrappers.skills, "_semantic_search_v1", _search)
     scope = {
         "retrieval_filters": {"document_id": ["doc-1", "doc-2"]},
         "authoritative_collections": ["manuals", "tickets"],

@@ -2,7 +2,7 @@
 
 Each entry in `SEED_SKILLS` is a wrapper around an existing OmniRAG
 endpoint. The actual `invoke()` callable is registered in
-`backend/app/services/skills_registry/wrappers.py`; here we only declare
+`backend/app/services/skills_registry/wrappers/`; here we only declare
 the typed contracts so the registry is queryable from `/skills` without
 the runtime needing to be alive.
 """
