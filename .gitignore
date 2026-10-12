@@ -20,7 +20,7 @@ __pycache__/
 # Cursor IDE / agent local state (debug logs, session artifacts)
 .cursor/
 
-# Stray uv lockfile (project standardizes on poetry.lock + requirements/*.txt)
+# Stray uv lockfile (project standardizes on poetry.lock + backend/requirements*.txt)
 uv.lock
 
 # MS Office temporary lock files (e.g. ~$document.docx), incl. nested paths
@@ -53,8 +53,6 @@ src/models
 # two roots hold runtime bytes (asset caches, the local object store, recipe
 # venvs, secure deposit, Qdrant snapshots).
 /data/
-!/data/hkunlp_embeddings.npy
-!/data/url_suffixes.npy
 /backend/data/
 .trash
 pdfs/
@@ -95,10 +93,6 @@ downloads/
 
 # Node modules installed under helper scripts (playwright local harness).
 node_modules/
-
-# Demo deck binary artifacts (kept local; the build_deck.py generator is tracked).
-demo-assets/**/*.png
-demo-assets/**/*.pptx
 
 # PIH product doc build outputs (generators under docs/archive/2026/render/ are tracked).
 docs/archive/2026/render/out/*.docx
