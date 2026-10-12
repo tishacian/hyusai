@@ -14,7 +14,7 @@ import json
 
 from app.db.base import SessionLocal
 from app.models.workspace import Workspace
-from app.services.client360_contract import (
+from app.tenants.andritz.client360.contract import (
     CLIENT360_INSTALLED_BASE_COLLECTION_NAME,
     CLIENT360_INSTALLED_BASE_COLLECTION_SLUG,
 )

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from app.services.client360_contract import CLIENT360_ADDRESSABLE_WEIGHTS
-from app.services.client360_forecast import (
+from app.tenants.andritz.client360.contract import CLIENT360_ADDRESSABLE_WEIGHTS
+from app.tenants.andritz.client360.forecast import (
     CONFIDENCE_CONSTRUCTION_YEAR,
     CONFIDENCE_LAST_PURCHASE,
     FORECAST_DISCLAIMER,

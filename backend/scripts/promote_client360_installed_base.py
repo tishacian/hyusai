@@ -43,12 +43,12 @@ from app.models.client360 import Client360DataSource
 from app.models.secure_deposit import DepositFile
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services.client360_contract import (
+from app.tenants.andritz.client360.contract import (
     CLIENT360_INSTALLED_BASE_COLLECTION_NAME,
     CLIENT360_INSTALLED_BASE_COLLECTION_SLUG,
     CLIENT360_PILOT_DATASET_MARKER,
 )
-from app.services.client360_spl_adapter import (
+from app.tenants.andritz.client360.spl_adapter import (
     preview_archive_mvp_orphan_sources,
     rehydrate_pilot_mvp_into_collection,
     sync_sources_from_collection,

@@ -16,9 +16,9 @@ from app.models.knowledge_collection import (
 from app.models.secure_deposit import DepositAccessLink, DepositFile
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services import notice_wave_importer as notice_wave_importer_service
+from app.services.notices import wave_importer as notice_wave_importer_service
 from app.services.knowledge_collections import document_manifest_key, original_key
-from app.services.notice_wave_importer import (
+from app.services.notices.wave_importer import (
     DEFAULT_NOTICE_COLLECTION,
     LARGE_SOURCE_BYTES,
     MAX_BYTES_PER_WAVE,
@@ -709,7 +709,7 @@ def test_zip_campaign_hashes_safe_members_and_never_recurses(
     deposit.sha256 = hashlib.sha256(archive_bytes).hexdigest()
     db_session.commit()
     monkeypatch.setattr(
-        "app.services.notice_wave_importer._staged_path",
+        "app.services.notices.wave_importer._staged_path",
         lambda _deposit: archive_path,
     )
 
@@ -783,7 +783,7 @@ def test_zip_campaign_rejects_high_ratio_archive_as_a_whole(
     deposit.sha256 = hashlib.sha256(archive_bytes).hexdigest()
     db_session.commit()
     monkeypatch.setattr(
-        "app.services.notice_wave_importer._staged_path",
+        "app.services.notices.wave_importer._staged_path",
         lambda _deposit: archive_path,
     )
 
@@ -819,7 +819,7 @@ def test_zip_archive_that_spans_waves_keeps_members_eligible_and_bounded(
     deposit.sha256 = hashlib.sha256(archive_bytes).hexdigest()
     db_session.commit()
     monkeypatch.setattr(
-        "app.services.notice_wave_importer._staged_path",
+        "app.services.notices.wave_importer._staged_path",
         lambda _deposit: archive_path,
     )
 
@@ -874,7 +874,7 @@ def test_zip_waves_never_mix_members_from_distinct_deposits(
         archive_by_id[file_id] = archive_path
     db_session.commit()
     monkeypatch.setattr(
-        "app.services.notice_wave_importer._staged_path",
+        "app.services.notices.wave_importer._staged_path",
         lambda deposit: archive_by_id[str(deposit.id)],
     )
 
@@ -916,7 +916,7 @@ def test_execute_zip_wave_writes_validated_member_locator(
     collection = _add_authoritative_collection(db_session, workspace=workspace)
     db_session.commit()
     monkeypatch.setattr(
-        "app.services.notice_wave_importer._staged_path",
+        "app.services.notices.wave_importer._staged_path",
         lambda _deposit: archive_path,
     )
 

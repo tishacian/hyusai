@@ -7534,7 +7534,7 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
 
 def _claim_tool(mode: str):
     async def call(payload, ctx=None):
-        from app.services.ecommerce_claims import invoke
+        from app.services.ecommerce.claims import invoke
 
         return await invoke(mode, payload, ctx)
 
@@ -7542,56 +7542,56 @@ def _claim_tool(mode: str):
 
 
 async def _ecommerce_sla_features_v1(payload, ctx=None):
-    from app.services.ecommerce_triage import invoke
+    from app.services.ecommerce.triage import invoke
 
     return await invoke(payload, ctx)
 
 
 async def _ecommerce_sla_dataset_v1(payload, ctx=None):
-    from app.services.ecommerce_triage import invoke
+    from app.services.ecommerce.triage import invoke
 
     return await invoke(payload, ctx, batch=True)
 
 
 _REGISTRY["ecommerce_sla_features_v1"] = (
     _ecommerce_sla_features_v1,
-    "app.services.ecommerce_triage",
+    "app.services.ecommerce.triage",
     "bound",
 )
 _REGISTRY["ecommerce_sla_dataset_v1"] = (
     _ecommerce_sla_dataset_v1,
-    "app.services.ecommerce_triage",
+    "app.services.ecommerce.triage",
     "bound",
 )
 
 
 async def _ecommerce_sav_dataset_v1(payload, ctx=None):
-    from app.services.ecommerce_composition import invoke_dataset
+    from app.services.ecommerce.composition import invoke_dataset
 
     return await invoke_dataset(payload, ctx)
 
 
 async def _ecommerce_sav_context_v1(payload, ctx=None):
-    from app.services.ecommerce_composition import invoke_context
+    from app.services.ecommerce.composition import invoke_context
 
     return await invoke_context(payload, ctx)
 
 
 _REGISTRY["ecommerce_sav_dataset_v1"] = (
     _ecommerce_sav_dataset_v1,
-    "app.services.ecommerce_composition",
+    "app.services.ecommerce.composition",
     "bound",
 )
 _REGISTRY["ecommerce_sav_context_v1"] = (
     _ecommerce_sav_context_v1,
-    "app.services.ecommerce_composition",
+    "app.services.ecommerce.composition",
     "bound",
 )
 
 
 _REGISTRY.update(
     {
-        slug: (_claim_tool(mode), "app.services.ecommerce_claims", "bound")
+        slug: (_claim_tool(mode), "app.services.ecommerce.claims", "bound")
         for mode, slug in {
             "snapshot": "postgresql_claim_snapshot_v1",
             "policy": "ecommerce_policy_evidence_v1",

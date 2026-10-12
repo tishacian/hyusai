@@ -14,7 +14,7 @@ from app.models.workspace import (
     WorkspaceMember,
     WorkspaceMemberAppEntitlement,
 )
-from app.services.client360_contract import (
+from app.tenants.andritz.client360.contract import (
     CLIENT360_CAPABILITY_SLUG,
     CLIENT360_SYSTEM_VARIANT,
 )

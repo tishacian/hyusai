@@ -11,7 +11,7 @@ import pytest
 
 from app.services.chains.dag_validator import validate_flow
 from app.services.connectors.generic.postgresql_claims import CLAIM_RESOURCES
-from app.services.ecommerce_flow_sources import with_data_sources
+from app.services.ecommerce.flow_sources import with_data_sources
 from app.services.flow_data_sources import (
     bound_data_sources,
     connector_reference,
@@ -91,8 +91,7 @@ def test_source_contract_rejects_credentials_connection_values_and_caller_sql(pa
 
 @pytest.mark.asyncio
 async def test_sql_snapshot_records_frozen_source_and_refuses_missing_binding(monkeypatch):
-    from app.services import ecommerce_claims as claims
-
+    from app.services.ecommerce import claims as claims
     graph = flow()
     run = SimpleNamespace(flow_snapshot=graph)
     monkeypatch.setattr(claims, "_run", lambda *_: (object(), run, {}, "RC-1043"))
@@ -118,7 +117,7 @@ async def test_sql_snapshot_records_frozen_source_and_refuses_missing_binding(mo
 async def test_declared_document_sources_cannot_fall_back_to_implicit_retrieval(
     monkeypatch, sources
 ):
-    from app.services import ecommerce_claims as claims
+    from app.services.ecommerce import claims as claims
     from app.services.skills_registry import wrappers
 
     graph = with_data_sources(flow(), ["luma-maison-regles"])
@@ -229,9 +228,9 @@ def test_upgrade_is_reviewable_atomic_and_retargets_work_to_new_immutable_versio
     from app.models.system_version import SystemVersion
     from app.models.user import User
     from app.models.workspace import Workspace, WorkspaceMember
-    from app.services import ecommerce_claims as claims
-    from app.services import ecommerce_install as install_module
-    from app.services.ecommerce_source_upgrade import upgrade
+    from app.services.ecommerce import claims as claims
+    from app.services.ecommerce import install as install_module
+    from app.services.ecommerce.source_upgrade import upgrade
     from app.services.experience import bindings
 
     workspace = Workspace(id=str(uuid4()), name="Luma", slug="source-upgrade-qa", settings={})
@@ -357,7 +356,7 @@ def test_upgrade_is_reviewable_atomic_and_retargets_work_to_new_immutable_versio
 
 
 def test_upgrade_refuses_unpublished_business_edits():
-    from app.services.ecommerce_flow_sources import reviewed_source_base
+    from app.services.ecommerce.flow_sources import reviewed_source_base
 
     published, draft = flow(), flow()
     next(n for n in draft["nodes"] if n["id"] == "loop.investigate")["config"]["budget"][

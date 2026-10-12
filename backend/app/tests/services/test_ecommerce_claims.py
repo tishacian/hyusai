@@ -11,7 +11,7 @@ import pytest
 
 from app.models.claim_trial import ClaimTrial
 from app.services import claims_benchmark as bench
-from app.services import ecommerce_claims as claims
+from app.services.ecommerce import claims as claims
 from app.services.connectors.generic import postgresql_claims as pg
 
 FIXTURES = Path(__file__).resolve().parents[4] / "docs/demo-runs/showcase-ecommerce/fixtures"
@@ -204,7 +204,7 @@ def test_install_uses_native_immutable_publication(db_session, monkeypatch):
     from app.models.system_version import SystemVersion
     from app.models.user import User
     from app.models.workspace import Workspace, WorkspaceMember
-    from app.services.ecommerce_install import install
+    from app.services.ecommerce.install import install
 
     workspace = Workspace(id="claims-install", name="Claims", slug="claims-install", settings={})
     user = User(id="claims-owner", username="claims-owner", email="claims-owner@example.invalid")

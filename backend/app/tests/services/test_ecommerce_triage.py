@@ -13,9 +13,9 @@ from app.models.run import Run
 from app.models.system import System
 from app.models.tabular import MLModel, TabularDataset
 from app.models.workspace import Workspace
-from app.services import ecommerce_triage as triage
+from app.services.ecommerce import triage as triage
 from app.services.chains.dag_validator import validate_flow
-from app.services.ecommerce_triage_flows import fresh_scoring, with_triage
+from app.services.ecommerce.triage_flows import fresh_scoring, with_triage
 from app.services.flow_data_sources import bound_data_sources
 from app.services.tabular_datasets import read_rows, register_frame
 from app.services.tabular_transforms import run_sql_transform
@@ -207,8 +207,9 @@ def test_activation_is_reviewed_then_publishes_both_flows_and_a_frozen_work_rele
     from app.models.skill import Skill
     from app.models.user import User
     from app.models.workspace import WorkspaceMember
-    from app.services import ecommerce_claims, ecommerce_triage_upgrade
-    from app.services.ecommerce_install import install
+    from app.services.ecommerce import claims as ecommerce_claims
+    from app.services.ecommerce import triage_upgrade as ecommerce_triage_upgrade
+    from app.services.ecommerce.install import install
     from app.services.experience import bindings
     from app.services.skills_registry.seed import SEED_SKILLS
     from app.services.systems import flow_publication
@@ -459,7 +460,7 @@ async def test_batch_skill_emits_a_real_dataset_and_satisfies_its_published_outp
 ):
     from jsonschema import validate
 
-    from app.services.ecommerce_skill_catalog import CLAIM_SKILLS
+    from app.services.ecommerce.skill_catalog import CLAIM_SKILLS
     from app.services.skills_registry.wrappers import resolve
 
     ws, _, _, run = scored
