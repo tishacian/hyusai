@@ -63,18 +63,9 @@ frontend-ng/dist/
 docs/status-screenshots/
 knowledge-bases/*
 **.db
-src/models/
 
 # Unnecessary code
-benchmarking/
-install.sh
-tests/
 .pre-commit-config.yaml
-
-# Data
-data/
-!data/hkunlp_embeddings.npy
-!data/url_suffixes.npy
 
 # Secrets
 **/secrets/

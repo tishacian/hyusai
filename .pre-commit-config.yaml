@@ -10,12 +10,6 @@ repos:
       - id: destroyed-symlinks
       - id: mixed-line-ending
       - id: trailing-whitespace
-        exclude: |
-          (?x)^(
-            benchmarking/customchain.*\.py|
-            src/system_prompts/en.py|
-            src/system_prompts/fr.py
-          )$
       - id: forbid-submodules
       - id: check-merge-conflict
       - id: end-of-file-fixer
@@ -44,9 +38,7 @@ repos:
         args:
           - --fix
           - --select=I,F401,E402,UP006
-        exclude: ^benchmarking/
       - id: ruff-format
-        exclude: ^benchmarking/
   - repo: local
     hooks:
       - id: agentium-compliance

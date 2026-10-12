@@ -66,7 +66,7 @@ the place of record. Rules:
 | `scripts/` | active | Deployment and operations scripts (`agentium-vm-deploy.sh`, `run-iteration-canaries.sh`, orchestrator) |
 | `docs/` | active | Architecture, runbooks, lot plans. Docs are part of the deliverable: ship them with the code they describe |
 | `deploy/` | active | systemd units, Keycloak redeploy scripts |
-| `frontend/`, `src/`, `main.py`, `archive/` | historical | Pre-Agentium OmniRAG surfaces. Do not build on them |
+| `frontend/`, `src/metadata_extraction/`, `sample_data/` | bridges | Last OmniRAG-era pieces still wired (the `/legacy/` SPA, document metadata extraction, demo documents); they move under `backend/` or go away in phase 2 of [ADR 0004](adr/0004-reorganisation-monorepo.md). Do not build on them. The rest of OmniRAG is read at the tag `archive/omnirag-rd` |
 
 ## 4. Local setup
 
@@ -75,9 +75,11 @@ Prerequisites: Docker Desktop, Python 3.12, Node ≥ 22.
 **Backend**
 
 ```bash
-python -m venv venv && source venv/bin/activate
-pip install -r requirements/celery.txt -r requirements/cpu.txt -r requirements/test.txt
-cd backend && uvicorn app.main:app --reload        # http://localhost:8000
+cd backend
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt -c constraints-demo-app.txt
+pip install pytest pytest-asyncio pytest-xdist
+uvicorn app.main:app --reload                      # http://localhost:8000
 ```
 
 `backend/.env` holds your local config. It is gitignored — keep it that way.

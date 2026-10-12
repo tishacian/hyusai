@@ -26,6 +26,10 @@ Note that the default values in this document are those set on python side. They
 
 ### Standalone Interface
 
+The Streamlit standalone interface (`src/standalone_interface/`, the `image/` logos)
+is no longer in the tree; it can be read at the tag `archive/omnirag-rd`. The
+variables below are kept for that history only.
+
 Standalone Interface is only available if `IS_STANDALONE` is set to `True`.
 
 - `PAGE_ICON` (str)

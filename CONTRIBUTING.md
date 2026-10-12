@@ -10,13 +10,16 @@ The following are some guidelines on how new code should be written. Following t
 - Use the [numpy docstring standard](https://numpydoc.readthedocs.io/en/latest/format.html#docstring-standard) in all your docstrings.
 - Prefix your branch so that its content is clear. Read the [confluence page](https://datategy.atlassian.net/wiki/spaces/PAPAI/pages/294913/Git+Flow+Updates#Branch-naming-convention) on branch naming convention.
 - Use the [conventional commit standard](https://www.conventionalcommits.org/en/v1.0.0/) in all your commits.
-- Install and use the pre-commit hooks if not done automatically with `install.sh`.
+- Install and use the pre-commit hooks: `pip install pre-commit && pre-commit install`.
 - Don't use LLM coding assistant that uses your data for training.
 
 ### After you finished developing
 
 - Create a Pull Request from your branch to `develop`.
 - Give a clear title to your PR. You can use the same prefix as for your branch.
+
+The full workflow (repository map, local setup, tests, deployment) is in the
+[contributor guide](docs/agentium-contributor-guide.md).
 
 ## Accessing Internal Packages
 
@@ -52,31 +55,43 @@ pip install <package-name>
 
 ## Development Setup
 
-To set up your local development environment with all necessary tools for code quality and testing, follow these steps.
-
-Run the dependencies installation script `install.sh`:
-```
-bash ./install.sh
-```
-
-## Running Unit Tests Locally
-
-Unit tests are executed using pytest. Before running them, you must install the required dependency sets.
-
-### 1. Install Required Dependencies
-
-From the project root, inside your local .venv install the following requirements files:
-```
-pip install -r requirements/celery.txt -r requirements/cpu.txt -r requirements/test.txt
-```
-
-### 2. Run the Full Test Suite
+The backend runs on Python 3.12, the frontend on Node 22 or later.
 
 ```
-pytest
+cd backend
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt -c constraints-demo-app.txt
+pip install pytest pytest-asyncio pytest-xdist
 ```
 
-### 3. Advanced pytest Usage
+```
+cd frontend-ng
+npm ci
+```
+
+`backend/.env` holds your local configuration. It is gitignored; no secret ever
+enters the repository.
+
+## Running Tests Locally
+
+From `backend/`:
+
+```
+pytest app/tests/infra -q      # contracts of the images, the VM chain and the repository
+pytest -n 8 app/tests          # the full backend suite
+```
+
+From the repository root:
+
+```
+python scripts/agentium_compliance.py --check
+```
+
+From `frontend-ng/`, when you touch the frontend:
+
+```
+npx ng test
+```
 
 For more advanced use cases (running specific tests, markers, fixtures, parallel execution, debugging, etc.), refer to the official pytest documentation:
 https://docs.pytest.org/en/stable/how-to/usage.html

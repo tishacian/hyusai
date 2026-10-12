@@ -1,3 +1,0 @@
-llama_cpp_python~=0.3.8  # cpu llm model
-huggingface-hub          # downloader for cpu llm model
-torch
