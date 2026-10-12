@@ -16,7 +16,7 @@ from app.models.expert_capture import ExpertCaptureSession
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
-from app.services.client360_contract import (
+from app.tenants.andritz.client360.contract import (
     CLIENT360_CAPABILITY_SLUG,
     CLIENT360_SYSTEM_VARIANT,
 )

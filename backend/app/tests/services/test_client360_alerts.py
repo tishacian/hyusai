@@ -5,13 +5,13 @@ from uuid import uuid4
 
 from app.models.client360 import Client360MailDraft, Client360Opportunity
 from app.models.workspace import Workspace
-from app.services.client360_alerts import (
+from app.tenants.andritz.client360.alerts import (
     DEFAULT_ALERT_THRESHOLDS,
     alert_thresholds,
     alerts_payload,
     compute_alerts,
 )
-from app.services.client360_pdr import summary_payload
+from app.tenants.andritz.client360.pdr import summary_payload
 
 
 NOW = datetime(2026, 7, 8, 12, 0, 0)

@@ -10,7 +10,7 @@ from pathlib import Path
 from app.db.base import SessionLocal
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services.ecommerce_install import install
+from app.services.ecommerce.install import install
 
 
 def main():

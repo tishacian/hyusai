@@ -12,8 +12,8 @@ from app.models.secure_deposit import DepositAccessLink, DepositFile
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.knowledge_collections import create_collection, create_worker_job
-from app.services.notice_campaign_guard import NoticeCampaignGateError
-from app.services.notice_campaign_recovery import rollback_rejected_notice_wave
+from app.services.notices.campaign_guard import NoticeCampaignGateError
+from app.services.notices.campaign_recovery import rollback_rejected_notice_wave
 from app.services.object_store import get_object_store
 from app.services.rag.bm25_store import bm25_artifact_key
 
@@ -153,15 +153,15 @@ async def test_postflight_recovery_restores_exact_baseline(db_session, monkeypat
             return 3
 
     monkeypatch.setattr(
-        "app.services.notice_campaign_recovery.get_resolved_settings",
+        "app.services.notices.campaign_recovery.get_resolved_settings",
         lambda **_kwargs: {},
     )
     monkeypatch.setattr(
-        "app.services.notice_campaign_recovery.resolve_vector_db_type",
+        "app.services.notices.campaign_recovery.resolve_vector_db_type",
         lambda _settings: "qdrant",
     )
     monkeypatch.setattr(
-        "app.services.notice_campaign_recovery.DocumentService",
+        "app.services.notices.campaign_recovery.DocumentService",
         FakeDocumentService,
     )
 
@@ -170,7 +170,7 @@ async def test_postflight_recovery_restores_exact_baseline(db_session, monkeypat
         return {"collection_status": "ready", "qdrant_chunk_count": 3}
 
     monkeypatch.setattr(
-        "app.services.notice_campaign_recovery.verify_notice_collection_gate",
+        "app.services.notices.campaign_recovery.verify_notice_collection_gate",
         fake_verify_baseline,
     )
     store = get_object_store()
@@ -241,15 +241,15 @@ async def test_postflight_recovery_quarantines_when_delete_is_unconfirmed(
             return 5
 
     monkeypatch.setattr(
-        "app.services.notice_campaign_recovery.get_resolved_settings",
+        "app.services.notices.campaign_recovery.get_resolved_settings",
         lambda **_kwargs: {},
     )
     monkeypatch.setattr(
-        "app.services.notice_campaign_recovery.resolve_vector_db_type",
+        "app.services.notices.campaign_recovery.resolve_vector_db_type",
         lambda _settings: "qdrant",
     )
     monkeypatch.setattr(
-        "app.services.notice_campaign_recovery.DocumentService",
+        "app.services.notices.campaign_recovery.DocumentService",
         FakeDocumentService,
     )
 
@@ -346,19 +346,19 @@ async def test_postflight_recovery_keeps_quarantine_when_baseline_is_invalid(
         raise NoticeCampaignGateError("baseline_source_chunk_drift")
 
     monkeypatch.setattr(
-        "app.services.notice_campaign_recovery.get_resolved_settings",
+        "app.services.notices.campaign_recovery.get_resolved_settings",
         lambda **_kwargs: {},
     )
     monkeypatch.setattr(
-        "app.services.notice_campaign_recovery.resolve_vector_db_type",
+        "app.services.notices.campaign_recovery.resolve_vector_db_type",
         lambda _settings: "qdrant",
     )
     monkeypatch.setattr(
-        "app.services.notice_campaign_recovery.DocumentService",
+        "app.services.notices.campaign_recovery.DocumentService",
         FakeDocumentService,
     )
     monkeypatch.setattr(
-        "app.services.notice_campaign_recovery.verify_notice_collection_gate",
+        "app.services.notices.campaign_recovery.verify_notice_collection_gate",
         reject_baseline,
     )
 

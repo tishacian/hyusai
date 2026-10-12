@@ -21,6 +21,11 @@
       "kind": "adapter",
       "why": "Andritz migration marker and provenance-bound retrieval, selected by family."
     },
+    "backend/app/api/v1/endpoints/client360.py": {
+      "count": 5,
+      "kind": "adapter",
+      "why": "Client360 API, importing its adapters from their Andritz home."
+    },
     "backend/app/api/v1/endpoints/maps.py": {
       "count": 6,
       "kind": "adapter",
@@ -161,25 +166,35 @@
       "kind": "adapter",
       "why": "Andritz and Sentinel CI vocabularies, selected by family."
     },
-    "backend/app/services/client360_chat.py": {
-      "count": 6,
+    "backend/app/services/client360_alerts.py": {
+      "count": 1,
       "kind": "adapter",
-      "why": "Client360, an Andritz capability."
+      "why": "Historical import path of a Client360 module, now under app/tenants/andritz/client360 (ADR 0004)."
+    },
+    "backend/app/services/client360_chat.py": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Historical import path of a Client360 module, now under app/tenants/andritz/client360 (ADR 0004)."
     },
     "backend/app/services/client360_contract.py": {
-      "count": 3,
+      "count": 1,
       "kind": "adapter",
-      "why": "Client360, an Andritz capability."
+      "why": "Historical import path of a Client360 module, now under app/tenants/andritz/client360 (ADR 0004)."
+    },
+    "backend/app/services/client360_forecast.py": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Historical import path of a Client360 module, now under app/tenants/andritz/client360 (ADR 0004)."
     },
     "backend/app/services/client360_pdr.py": {
-      "count": 8,
+      "count": 1,
       "kind": "adapter",
-      "why": "Client360, an Andritz capability."
+      "why": "Historical import path of a Client360 module, now under app/tenants/andritz/client360 (ADR 0004)."
     },
     "backend/app/services/client360_spl_adapter.py": {
-      "count": 5,
+      "count": 1,
       "kind": "adapter",
-      "why": "Client360, an Andritz capability."
+      "why": "Historical import path of a Client360 module, now under app/tenants/andritz/client360 (ADR 0004)."
     },
     "backend/app/services/experience/bindings.py": {
       "count": 2,
@@ -226,7 +241,7 @@
       "kind": "demo",
       "why": "Sentinel CI knowledge sync."
     },
-    "backend/app/services/notice_wave_importer.py": {
+    "backend/app/services/notices/wave_importer.py": {
       "count": 1,
       "kind": "adapter",
       "why": "Andritz notice importer."
@@ -287,7 +302,7 @@
       "why": "Andritz Client360 surface label."
     },
     "backend/app/services/systems/bootstrap.py": {
-      "count": 26,
+      "count": 27,
       "kind": "adapter",
       "why": "Andritz FSE System bootstrap, selected by family."
     },
@@ -345,6 +360,36 @@
       "count": 6,
       "kind": "adapter",
       "why": "Andritz wording of the grounded-answer and agentic-chat prompts, selected by family."
+    },
+    "backend/app/tenants/andritz/client360/alerts.py": {
+      "count": 2,
+      "kind": "adapter",
+      "why": "Client360, an Andritz capability."
+    },
+    "backend/app/tenants/andritz/client360/chat.py": {
+      "count": 11,
+      "kind": "adapter",
+      "why": "Client360, an Andritz capability."
+    },
+    "backend/app/tenants/andritz/client360/contract.py": {
+      "count": 3,
+      "kind": "adapter",
+      "why": "Client360, an Andritz capability."
+    },
+    "backend/app/tenants/andritz/client360/forecast.py": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Client360, an Andritz capability."
+    },
+    "backend/app/tenants/andritz/client360/pdr.py": {
+      "count": 14,
+      "kind": "adapter",
+      "why": "Client360, an Andritz capability."
+    },
+    "backend/app/tenants/andritz/client360/spl_adapter.py": {
+      "count": 7,
+      "kind": "adapter",
+      "why": "Client360, an Andritz capability."
     },
     "backend/app/tenants/andritz/corpus_anchors.py": {
       "count": 1,

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from app.models.capability import Capability
 from app.models.skill import Skill
-from app.services.ecommerce_skill_catalog import CLAIM_SKILLS
+from app.services.ecommerce.skill_catalog import CLAIM_SKILLS
 from app.services.ml_methodology import skill_definitions as ml_methodology_skills
 
 RETRIEVAL_POLICY_PROPERTIES: dict[str, Any] = {

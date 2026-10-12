@@ -13,7 +13,7 @@ from app.models.claim_trial import ClaimTrial
 from app.models.decision import Decision
 from app.models.run import Run, SkillInvocation
 from app.models.workspace import Workspace, WorkspaceMember
-from app.services import ecommerce_claims as claims
+from app.services.ecommerce import claims as claims
 from app.services.connectors.generic import postgresql_claims as pg
 
 

@@ -12,7 +12,7 @@ from app.models.claim_action import ClaimAction
 from app.models.run import Run
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services import ecommerce_claims as claims
+from app.services.ecommerce import claims as claims
 from app.services.connectors.generic import postgresql_claims as pg
 from app.services.experience import lifecycle
 
@@ -51,7 +51,7 @@ def triage(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    from app.services.ecommerce_triage import read_triage
+    from app.services.ecommerce.triage import read_triage
 
     _access(db, workspace, user)
     return read_triage(db, workspace)

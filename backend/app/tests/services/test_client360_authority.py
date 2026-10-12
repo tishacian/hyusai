@@ -5,11 +5,11 @@ import pytest
 from app.models.capability import Capability
 from app.models.system import System
 from app.models.workspace import Workspace
-from app.services.client360_contract import (
+from app.tenants.andritz.client360.contract import (
     CLIENT360_CAPABILITY_SLUG,
     CLIENT360_SYSTEM_VARIANT,
 )
-from app.services.client360_pdr import resolve_client360_authority
+from app.tenants.andritz.client360.pdr import resolve_client360_authority
 
 
 def _workspace(db_session, suffix: str) -> Workspace:
