@@ -12,6 +12,15 @@ import pathlib
 import tempfile
 from urllib.parse import unquote, urlsplit
 
+# faiss and torch each ship their own libomp on macOS.  Once an xdist worker
+# has run a faiss index, the first multi-threaded torch op (a sentence
+# transformer encode) segfaults the worker.  A single OpenMP thread never
+# enters the duplicated runtime.  Must be set before any parallel region runs;
+# the other two keep tokenizers and the Objective-C runtime fork-safe.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+os.environ.setdefault("OBJC_DISABLE_INITIALIZE_FORK_SAFETY", "YES")
+
 # ---------------------------------------------------------------------------
 # Test DSN — must be set before the first `from app.*` import happens.
 # ---------------------------------------------------------------------------
