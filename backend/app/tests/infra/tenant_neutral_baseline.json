@@ -241,8 +241,23 @@
       "kind": "adapter",
       "why": "Mission Room extension and its Sentinel CI / Octocity variants, selected by the installed extension or the family."
     },
-    "backend/app/services/mission_room.py": {
-      "count": 398,
+    "backend/app/services/mission_room/fixtures.py": {
+      "count": 72,
+      "kind": "demo",
+      "why": "Sentinel CI mission-room scenario content."
+    },
+    "backend/app/services/mission_room/payloads.py": {
+      "count": 112,
+      "kind": "demo",
+      "why": "Sentinel CI mission-room scenario content."
+    },
+    "backend/app/services/mission_room/profile.py": {
+      "count": 60,
+      "kind": "demo",
+      "why": "Sentinel CI mission-room scenario content."
+    },
+    "backend/app/services/mission_room/provisioning.py": {
+      "count": 165,
       "kind": "demo",
       "why": "Sentinel CI mission-room scenario content."
     },

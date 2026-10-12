@@ -46,14 +46,14 @@
         "reason": "Selects which getting-started journey a workspace shows: the NorthForge example in the synthetic Showcase, the journey on the workspace's own collections everywhere else. It grants no role, entitlement or document permission."
       },
       {
-        "path": "backend/app/services/mission_room.py",
+        "path": "backend/app/services/mission_room/provisioning.py",
         "expression": "Workspace.slug == OCTOCITY_WORKSPACE_SLUG",
         "occurrences": 1,
         "category": "provisioning_identity",
         "reason": "The explicit, idempotent Octocity provisioning command locates the workspace identity it owns; runtime presentation and authorization use the Mission Room profile instead."
       },
       {
-        "path": "backend/app/services/mission_room.py",
+        "path": "backend/app/services/mission_room/provisioning.py",
         "expression": "Workspace.slug == SENTINEL_WORKSPACE_SLUG",
         "occurrences": 1,
         "category": "provisioning_identity",
