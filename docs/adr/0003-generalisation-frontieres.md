@@ -54,7 +54,7 @@ son compte exact et une catégorie :
 | `family` | les noms de famille canoniques | reste |
 | `tooling` | exemples en ligne de commande | reste |
 | `fixture` | contenu ou règle d'un client dans un module générique | **0** |
-| `demo` | contenu de démo scénarisé parmi les services | déplacé vers les seeds |
+| `demo` | contenu de démo scénarisé | vit sous `app/seeds/` ; seule exception, le scénario du pack Mission Room (fichiers déclarés) |
 | `client-app` | application client, dans son dossier `features/<client>/` | lot 2 : hors de ce dossier = **0** |
 | `composition` | les deux listes des applications client d'un build : leurs surfaces (`core/client-applications.ts`) et leurs routes (`core/client-application-routes.ts`) | une ligne par application |
 
