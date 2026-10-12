@@ -1,7 +1,7 @@
 /**
  * The demonstration of 29 July 2026, played end to end against the engine.
  *
- * Four moments, in this order, from `docs/demo-runs/2026-07-29-nawa-itsd/`
+ * Four moments, in this order, from `docs/archive/2026/demo-runs/2026-07-29-nawa-itsd/`
  * (`MEMO-CLICS.md` §1, recapped in `COMPILATION-NAWA-WE.md` §5):
  *
  *   1. `I lost my password.`                                     → the desk offers the reset

@@ -1,6 +1,6 @@
 """Print every figure a manual rebuild of the Nawa data/ML use case must land on.
 
-The companion to ``docs/demo-runs/2026-08-25-nawa-data-ml/PAPAI-MIRROR.md``, which
+The companion to ``docs/archive/2026/demo-runs/2026-08-25-nawa-data-ml/PAPAI-MIRROR.md``, which
 describes how to rebuild the churn and radio pipelines by hand on another
 platform. That note quotes row counts, band counts and metrics; an operator
 rebuilding the case needs to *check* them, and a figure copied into prose is a

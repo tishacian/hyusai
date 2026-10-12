@@ -373,6 +373,6 @@ the Marp deck used to present it:
   [`deck-agentium-decision-adoption.en.md`](./deck-agentium-decision-adoption.en.md) (EN)
 - PowerPoint: [`deck-agentium-decision-adoption.fr.pptx`](./deck-agentium-decision-adoption.fr.pptx),
   [`deck-agentium-decision-adoption.en.pptx`](./deck-agentium-decision-adoption.en.pptx)
-- Rebuild: `python3 docs/render/build_hypervisor_decision_pack.py`
+- Rebuild: `python3 docs/archive/2026/render/build_hypervisor_decision_pack.py`
 
 It does not replace this reference or the adoption acceptance contract.

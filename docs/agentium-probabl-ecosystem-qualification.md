@@ -74,8 +74,8 @@ reproductible, y compris sans tuning.
 
 La recette [ml_qualify_preprocessing.py](../scripts/ml_qualify_preprocessing.py)
 rejoue les six combinaisons classification/régression × auto/string/minhash.
-Les preuves [ancien runtime](evidence/probabl-preprocessing-base.json) et
-[runtime candidat](evidence/probabl-preprocessing-candidate.json) montrent des
+Les preuves [ancien runtime](archive/2026/evidence/probabl-preprocessing-base.json) et
+[runtime candidat](archive/2026/evidence/probabl-preprocessing-candidate.json) montrent des
 scores et empreintes de prédictions identiques, avec rechargement MLflow/skops.
 Les temps observés sur cette machine partagée ne constituent pas un benchmark
 comparatif de vitesse.
@@ -102,7 +102,7 @@ avec son plafond propre de 256 Mio vérifié avant toute copie. Les intentions
 shadow historiques sans cette identité sont annulées explicitement ; aucune
 ancre n'est reconstruite à partir des fichiers téléchargés.
 
-La [qualification croisée](evidence/probabl-skops-compatibility.json) ne permet
+La [qualification croisée](archive/2026/evidence/probabl-skops-compatibility.json) ne permet
 **pas** une migration générale 0.14.0 → 0.16.0 : deux exports sur huit passent
 avec parité, six exports HistGradientBoosting sont refusés par skops.
 Les nouveaux exports 0.16.0 portent le type qualifié requis ; cela ne certifie
@@ -126,7 +126,7 @@ autonome ; un ancien bundle sans cette notice doit être repackagé et réimport
 avant de produire un nouvel export. Aucune sérialisation pickle d'estimateur
 TabICL ni aucun téléchargement implicite n'est utilisé.
 
-La [preuve hors réseau](evidence/probabl-tabicl-offline.json) compare l'amont,
+La [preuve hors réseau](archive/2026/evidence/probabl-tabicl-offline.json) compare l'amont,
 la conversion et le rechargement autonome pour classification et régression,
 avec tolérance `1e-6`, après suppression de la copie source. Seccomp refuse les
 connexions/envois avec `EPERM`. Les pics de 634 et 701 Mio sont ceux de petits
@@ -164,7 +164,7 @@ refuse toute régression pour ce pilote ; les résultats expérimentaux des autr
 tâches restent conservés sans rétablir cette admission. La classification
 conserve ses deux profils candidats, sous les flags et grants du pilote.
 
-Les [preuves diagnostiques P6](evidence/probabl-pilot-2026-10-11/README.md)
+Les [preuves diagnostiques P6](archive/2026/evidence/probabl-pilot-2026-10-11/README.md)
 conservent les 51 cas terminés du premier développement : 48 évalués, trois
 échecs de parité et 57 non évalués après arrêt. Elles sont liées au code de
 campagne par l'empreinte `8a0878cf988e99992e07520268bcd4ccf02d630749185a081925e0d5f8511d03` et n'autorisent aucune
@@ -191,7 +191,7 @@ aussi la nouvelle notice signée transmise par le packaging produit.
 
 ## Décision comparative P6
 
-La [campagne révisée complète](evidence/probabl-pilot-2026-10-11/revision-2/README.md)
+La [campagne révisée complète](archive/2026/evidence/probabl-pilot-2026-10-11/revision-2/README.md)
 conserve les 108 lignes de développement : **97 évaluées, deux échecs de parité
 avec cache et neuf exclusions prévues**. La sélection exige les trois partitions
 réussies ; les réserves finales des tâches linéaire et Friedman restent donc

@@ -9,7 +9,7 @@ désormais draft r3 et publication v1 ; son en-tête à 390 px est corrigé et v
 Dernier runtime attesté : `e30230aea3f58518bbe2219a5b2dbbdd757bab2f`
 sur `demo/agentic`. Bascule, identités publiques frontend/backend et santé
 vérifiées ; canaries : **10 réussis, 2 exclusions prévues**. Voir les
-[preuves de qualification](../evidence/release-e30230ae-2026-09-17/README.md).
+[preuves de qualification](../archive/2026/evidence/release-e30230ae-2026-09-17/README.md).
 Ce document référence les vérifications consignées ; il ne vaut pas recette humaine.
 
 Périmètre : [sortie R0 de la roadmap](../agentium-delivery-roadmap.md),
@@ -20,12 +20,12 @@ historiques ; le [statut courant](brd-system-roadmap-progress.md) fait référen
 
 | Critère R0 | Preuve conservée | État |
 |---|---|---|
-| Gates locaux du candidat e30230ae | [Qualification locale et images](../evidence/release-e30230ae-2026-09-17/README.md) : 1 513 tests frontend ; 230 tests backend, 3 essais fournisseur opt-in ignorés ; i18n 8 078 clés, liens, chrome et build réussis | Prouvé localement pour ce candidat |
-| Build VM, stockage, santé et identité du runtime | [Release e30230ae](../evidence/release-e30230ae-2026-09-17/README.md) : trois images immuables ; SHA public exact côté frontend et backend ; HTTP 200 | Prouvé pour e30230ae |
-| Canaries requis, dont Work, Studio et accès au Run | [Log carakai e30230ae](../evidence/release-e30230ae-2026-09-17/canaries.log) : 10 réussis, 2 contrats locaux volontairement ignorés | Prouvé pour e30230ae |
+| Gates locaux du candidat e30230ae | [Qualification locale et images](../archive/2026/evidence/release-e30230ae-2026-09-17/README.md) : 1 513 tests frontend ; 230 tests backend, 3 essais fournisseur opt-in ignorés ; i18n 8 078 clés, liens, chrome et build réussis | Prouvé localement pour ce candidat |
+| Build VM, stockage, santé et identité du runtime | [Release e30230ae](../archive/2026/evidence/release-e30230ae-2026-09-17/README.md) : trois images immuables ; SHA public exact côté frontend et backend ; HTTP 200 | Prouvé pour e30230ae |
+| Canaries requis, dont Work, Studio et accès au Run | [Log carakai e30230ae](../archive/2026/evidence/release-e30230ae-2026-09-17/canaries.log) : 10 réussis, 2 contrats locaux volontairement ignorés | Prouvé pour e30230ae |
 | Exemple Showcase reproductible et configuration consignée | [Inventaire R0](brd-system-roadmap-progress.md#r0-live-qualification--16-september-2026) : System, Experience, Flow publié et binding ; [recette](agentium-r0-acceptance.md) : quatre ordres NorthForge, 120/155/+35 minutes, trois retards, NF-04 +25 | Vérifié dans Chrome : nouveau Run 5369c2b1 sur 4baa9f5d, chiffres attendus et lien exact ; ancien Run 9b73e4e5 inchangé |
-| Répétitions et résultat honnête | [Runtime 7532d449](../evidence/runtime-7532d449-2026-09-16/README.md) : cinq répétitions réussies, paire concurrente, redémarrage gracieux, replay sans doublon et absence d'approbation/confiance inventée | Cinq nouvelles exécutions réussies sur 18741f94 : [réponses conservées](../evidence/release-18741f94-2026-09-17/sequential.json). Concurrence et redémarrage restent historiques |
-| Parcours manuels, liens et captures actualisées | [Work → Run](../evidence/roadmap-r0-2026-09-16/manual-work-path.md) sur e09bde5c ; [24 captures Work/Studio](../evidence/roadmap-r0-2026-09-16/README.md) sur 196164eb ; [capture du Run](../evidence/runtime-7532d449-2026-09-16/run.png) sur 7532d449 | Work ↔ Studio, invocation et fil d’Ariane corrigés ; [nouveaux résultat, Run, PIH et Quality](../evidence/release-18741f94-2026-09-17/README.md) ; absence/zéro corrigé ; Design et Flow r3 alignés ; en-tête à 390 px corrigé et vérifié sur def0b3cc |
+| Répétitions et résultat honnête | [Runtime 7532d449](../archive/2026/evidence/runtime-7532d449-2026-09-16/README.md) : cinq répétitions réussies, paire concurrente, redémarrage gracieux, replay sans doublon et absence d'approbation/confiance inventée | Cinq nouvelles exécutions réussies sur 18741f94 : [réponses conservées](../archive/2026/evidence/release-18741f94-2026-09-17/sequential.json). Concurrence et redémarrage restent historiques |
+| Parcours manuels, liens et captures actualisées | [Work → Run](../archive/2026/evidence/roadmap-r0-2026-09-16/manual-work-path.md) sur e09bde5c ; [24 captures Work/Studio](../archive/2026/evidence/roadmap-r0-2026-09-16/README.md) sur 196164eb ; [capture du Run](../archive/2026/evidence/runtime-7532d449-2026-09-16/run.png) sur 7532d449 | Work ↔ Studio, invocation et fil d’Ariane corrigés ; [nouveaux résultat, Run, PIH et Quality](../archive/2026/evidence/release-18741f94-2026-09-17/README.md) ; absence/zéro corrigé ; Design et Flow r3 alignés ; en-tête à 390 px corrigé et vérifié sur def0b3cc |
 | Baseline métier/développeur | [Fiche et consignes](agentium-r0-acceptance.md#baseline-avec-les-participants--à-exécuter) ; aucune session renseignée | 0/5 métier, 0/5 développeur |
 | Décision du responsable | Aucune décision de clôture enregistrée | En attente des éléments précédents |
 
@@ -42,7 +42,7 @@ une collection synthétique dédiée : échec, restauration de l’original, mê
 repris, passage retrouvé et absence de duplication. Cette preuve ne remplace ni
 le smoke manuel, ni les sessions humaines, ni la recette complète de R2.
 
-Le [smoke Chrome du 17 septembre](../evidence/release-ab15d204-2026-09-17/README.md)
+Le [smoke Chrome du 17 septembre](../archive/2026/evidence/release-ab15d204-2026-09-17/README.md)
 reprend les preuves Work ↔ Studio et des liens d'étapes System ; le Run numérique
 conservé a été exécuté sur 4771f15b.
 Le parcours Quality → Run → passage est capturé sur 447997ee. Sur ab15d204,
@@ -51,7 +51,7 @@ après rechargement et retour arrière. L'absence est explicite et peut être re
 Sur 4baa9f5d, la carte affiche — pour la valeur absente et son efficacité, et
 qualifie les coûts calculés. Les trois parcours ont été ouverts : nouvelle exécution
 Work, Flow/configuration PIH, Quality → Run → passages. Sur 18741f94, Design lit le même draft r3 que le Flow Builder et affiche
-explicitement la version publiée v1 ; aucune version n’a été remplacée. Les [captures](../evidence/release-18741f94-2026-09-17/README.md)
+explicitement la version publiée v1 ; aucune version n’a été remplacée. Les [captures](../archive/2026/evidence/release-18741f94-2026-09-17/README.md)
 sont actualisées ; la vidéo n'a pas été réalisée (commande QuickTime désactivée).
 
 ## Actions restantes

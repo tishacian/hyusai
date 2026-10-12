@@ -39,7 +39,7 @@ done
 AGENTIUM_HOST="${AGENTIUM_HOST:-https://agentium.papai.ai}"
 WORKSPACE_SLUG="${WORKSPACE_SLUG:-sentinel-ci}"
 QA_GATE_DATE="${QA_GATE_DATE:-$(TZ=Africa/Abidjan date +%Y-%m-%d)}"
-GATE_DIR="${QA_GATE_DIR:-docs/status-screenshots/${QA_GATE_DATE}-qa-gate}"
+GATE_DIR="${QA_GATE_DIR:-artifacts/qa/${QA_GATE_DATE}-qa-gate}"
 case "$GATE_DIR" in
   /*) ;;
   *) GATE_DIR="$ROOT/$GATE_DIR" ;;

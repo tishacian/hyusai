@@ -122,7 +122,7 @@ en français et en anglais. Aucun appel fournisseur facturé n’est effectué p
 cette recette locale.
 
 Résultats de qualification conservés dans
-[la preuve synthétique](reports/ml-lot4-distillation-qualification.json) :
+[la preuve synthétique](archive/2026/reports/ml-lot4-distillation-qualification.json) :
 
 | Tickets | Lignes test | Accord modèle/LLM | Accord modèle/revue | Coût LLM estimé / 1 000 | Coût modèle déclaré / 1 000 |
 |---:|---:|---:|---:|---:|---:|

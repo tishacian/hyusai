@@ -100,10 +100,13 @@ node_modules/
 demo-assets/**/*.png
 demo-assets/**/*.pptx
 
-# PIH product doc build outputs (generators under docs/render/ are tracked).
-docs/render/out/*.docx
-docs/render/out/*.pptx
-docs/render/assets/diagrams/
+# PIH product doc build outputs (generators under docs/archive/2026/render/ are tracked).
+docs/archive/2026/render/out/*.docx
+docs/archive/2026/render/out/*.pptx
+docs/archive/2026/render/assets/diagrams/
+
+# QA scripts write their screenshots and probes here by default.
+artifacts/qa/
 
 # PIH business/proposal binaries — kept local, never tracked (may contain
 # commercial pricing/offers). Markdown notes under docs/pih/ stay tracked.

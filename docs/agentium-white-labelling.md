@@ -69,7 +69,7 @@ Base SHA: `7a4924f7dd406b831ca0b2eafd110d079b664330`; uncommitted implementation
 - Production build and `check:i18n`, `check:nav-links`, `check:ui-chrome` pass.
 - Browser checks use the existing canary 16 with synthetic API fixtures. They
   exercise onboarding compatibility, brand editing, image import, reload and
-  a release whose theme differs from the current draft. See [local evidence](evidence/white-labelling-local/README.md)
+  a release whose theme differs from the current draft. See [local evidence](archive/2026/evidence/white-labelling-local/README.md)
   for the final browser result and screenshots.
 
 The mock browser checks do not attest a deployed client workspace or a live

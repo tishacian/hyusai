@@ -4,7 +4,7 @@ import { chromium } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 
 const base = process.env.BASE ?? 'http://localhost:4200';
-const out = process.env.OUT ?? '../docs/reports/mandate-experience/visual-qa';
+const out = process.env.OUT ?? '../artifacts/qa/mandate-experience/visual-qa';
 mkdirSync(out, {recursive: true});
 const workspace = {id: 'ws-qa', slug: 'showcase', name: 'Showcase', role: 'admin', role_template: 'workspace_admin', mode: 'builder', is_active: true, settings: {features: {adoption_experience_v1: true}}};
 const user = {id: 'qa-user', username: 'qa', email: 'qa@example.test', role: 'admin', roles: ['admin', 'owner'], is_active: true, first_name: 'QA', last_name: 'Local', workspaces: [workspace]};
