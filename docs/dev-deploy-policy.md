@@ -6,9 +6,11 @@
 > arbre git sale, rebuild à partir d'une copie périmée, VM désynchronisée de
 > `origin`).
 >
-> Pour toute opération de production, y compris cutover Nginx, protection
-> MinIO/Qdrant, adoption SFTP ou migration de stockage, la référence exécutable
-> unique est `docs/ops/agentium-safe-vm-deployment.md`. Le runbook historique
+> Pour toute opération de production, la référence exécutable unique est
+> `scripts/agentium-vm-deploy.sh` (§6). La chaîne safe de la Release A
+> (`deploy-agentium-safe.sh`, `deploy-vm.sh`, unité systemd `agentium-backend`)
+> est retirée depuis le 12/10/2026 ; son journal est archivé dans
+> `docs/archive/2026/ops/agentium-safe-vm-deployment.md`. Le runbook historique
 > `docs/agentium-dockerization-runbook.md` reste une source d'architecture, pas
 > une procédure opérateur. Cette note couvre le cycle **quotidien** code →
 > commit → deploy une fois la Release A attestée.
@@ -41,7 +43,7 @@ de `/dev/sda1`, `/dev/sdb` et `/dev/sdc` non attestée, preuve SFTP
 non authentifiée et dérive persistée d'une session du workspace `test` vers un
 System Andritz. La procédure quotidienne ci-dessous ne devient exécutable
 qu'après l'attestation de la Release A décrite dans le
-[runbook VM sûr](./ops/agentium-safe-vm-deployment.md). La construction des
+[runbook VM sûr](archive/2026/ops/agentium-safe-vm-deployment.md). La construction des
 deux historiques isolés est détaillée dans le
 [plan Git A/B](./ops/agentium-release-a-b-git-plan-2026-07-22.md).
 
@@ -158,16 +160,16 @@ sur place et taguées en local (`agentium-backend:local`, `agentium-frontend:loc
 | Élément | Valeur |
 |---|---|
 | Hôte SSH | `omnirag-demo` |
-| Dossier de déploiement | `/home/ubuntu/omnirag` (checkout git) |
-| Dossier compose | `/home/ubuntu/omnirag/docker` |
-| Fichier compose | `compose.agentium.yml` |
-| Env conteneurs | `docker/env/agentium.vm.env` (gitignored, **jamais** dans un commit) |
-| `AGENTIUM_ENV_FILE` | `./env/agentium.vm.env` — **relatif au dossier `docker/`** |
+| Worktree de build | `/srv/agentium-data/worktrees/demo-agentic` (root, fast-forward uniquement) |
+| Lanceur | `scripts/agentium-vm-deploy.sh`, exécuté en root |
+| Fichiers compose | `docker/compose.agentium.yml`, `$D/compose.agentium.opened.yml`, `docker/compose.agentium.vm-runtime.yml` (+ overlays opt-in) |
+| Bundle d'env figé `D` | `AGENTIUM_RUNTIME_ENV_DIR`, par défaut `/srv/agentium-data/runtime-env/2026-10-12` |
+| Journal des déploiements | `/srv/agentium-data/deployments/journal.tsv` |
 
-> Piège vécu : `AGENTIUM_ENV_FILE=./env/agentium.vm.env` est relatif à `docker/`,
-> donc le fichier est `docker/env/agentium.vm.env`, pas `env/` à la racine.
-> Sans le bon env file, le backend démarre avec `agentium.env.example` et échoue
-> sur l'auth Postgres.
+> Les secrets ne vivent que dans `$D/runtime-env/` (root, 0600). Un nouveau
+> bundle se dérive d'un ancien (`agentium_runtime_env_bundle.py
+> derive-vm-bundle`) ; l'ancien n'est jamais modifié et reste la cible de
+> rollback.
 
 ### Topologie de stockage à conserver
 
@@ -189,55 +191,33 @@ remplace pas cette preuve.
 
 ### Procédure standard (chemin unique)
 
-L'orchestrateur est propriétaire du fetch/reset épinglé, du build, de la
-quiescence backend/worker/SFTP, des dumps, des migrations, des attestations et
-du rollback. Il s'arrête en `validation_pending`, puis suit exactement
-`sftp_canary_pending -> sftp_canary_active_recorded -> sftp_canary_recorded ->
-opening_forward -> completed` via `arm-sftp-canary`, `record-sftp-active`,
-`record-sftp-final` et `finalize`. `resume` ne fournit aucune preuve et ne
-rouvre aucun writer : il réconcilie seulement une transaction interrompue. Le
-control plane backend/Keycloak utilisé pour créer et révoquer le principal
-jetable reste non public et est arrêté avant les snapshots SFTP. La procédure
-complète — y compris les quatre identités de workspace explicites, le dry-run
-du backfill, les deux reprises et le rollback — est documentée uniquement dans
-[`ops/agentium-safe-vm-deployment.md`](./ops/agentium-safe-vm-deployment.md).
+1. Pousser le commit sur `origin/demo/agentic`, puis avancer le worktree de
+   build en fast-forward.
+2. Construire les images `agentium-*:<sha12>` dans les budgets de taille
+   (`scripts/agentium-image-budget.sh`).
+3. `AGENTIUM_IMAGE_TAG=<sha12> agentium-vm-deploy.sh storage-check`.
+4. Si `backend/alembic` a changé : `migrate`. Le lanceur fait d'abord un
+   `pg_dump -Fc` vérifié par `pg_restore --list`, publié avec un marqueur
+   `.ready` (digest, taille) sous `/srv/agentium-data/deployments/<run-id>/` ;
+   sans dump, pas de migration.
+5. Vérifier qu'aucun Run n'est actif, puis `up`. `up` attend que
+   `/api/v1/build-info` du backend annonce la révision du tag avec
+   `revision_verified=true`, sinon il échoue en indiquant le tag précédent.
+6. `catalog-check`, puis la vérification post-déploiement du §4.
 
-Ne recopier ici aucune commande abrégée : omettre les identités canaris ou le
-digest du dry-run transforme une transaction vérifiable en procédure ambiguë.
-
-`scripts/deploy-vm.sh --build-only/--activate-only` reste une primitive interne.
-Il ne constitue plus, seul, une transaction de production sûre et ne doit
-jamais être invoqué directement par l'opérateur.
-
-Le protocole sûr journalise une transaction monotone. Les états, métadonnées et
-artefacts privés sont publiés atomiquement ; les dumps ne sont utilisables
-qu'avec leur checksum et leur marqueur `.ready`. Une reprise pré-migration passe
-par `recovering_pre_migration`, et un rollback persiste `rollback_closing` avant
-sa première mutation. Une reprise qui rencontre cette intention refuse de
-repartir vers l'avant.
-
-La fermeture suit un ordre crash-safe non interchangeable : restart policies
-durables `no` et unités writers désactivées, gate HTTP persistant, barrières
-ingress IPv4/IPv6, drainage et arrêt des writers, puis seulement
-`closing_intent` publié et fsyncé. Ainsi, un reboot après `closing_intent` ne
-peut pas faire repartir un writer automatiquement.
-
-Une reprise après la frontière publique applique le même niveau d'exclusion :
-elle reclôt les ingress, draine les sessions existantes, quiesce SFTP et
-Keycloak, arrête backend/worker/P4/LiveKit, exige RabbitMQ vide et PostgreSQL
-sans connexion applicative, puis seulement remonte le Secure Deposit en lecture
-seule. Un remount forcé pendant un upload ou un Run est interdit.
+Avec `AGENTIUM_GATE=1`, `migrate` et `up` ferment le gate de maintenance public
+pendant la mutation ; un échec le laisse fermé et
+`AGENTIUM_IMAGE_TAG=<sha12> agentium-vm-deploy.sh gate-exit <run-id>` le rouvre. Chaque `migrate` et `up`
+ajoute une ligne au journal TSV (`journal` l'affiche) ; sa colonne
+`previous_tag` est la cible de rollback : `AGENTIUM_IMAGE_TAG=<previous_tag> up`,
+plus la restauration du dump si une migration irréversible est passée.
 
 ### Ne touche pas à l'infra par accident
 - N'utilise **pas** le profil `infra` (`--profile infra`) en déploiement courant :
   il recrée Postgres / Keycloak / Qdrant.
-- Ne redémarre/recrée **jamais** `agentium-sftp` manuellement. L'orchestrateur
-  le pause, vérifie les descripteurs d'upload et conserve l'ID d'image validé
-  en Release A. Release B ne construit ni ne recrée SFTP ; elle redémarre
-  exactement cette image après ses preuves sous gate. Seul le rollback
-  transactionnel peut recréer le conteneur, depuis l'ID exact de l'override v3,
-  sans toucher au bind `/dev/sdc`, puis après une nouvelle preuve fermée et une
-  preuve du port publié loopback par le runtime précédent.
+- Ne recrée `agentium-sftp` qu'avec `agentium-vm-deploy.sh sftp-up`, hors
+  upload en cours : son image reste celle épinglée par digest dans
+  `compose.agentium.vm-runtime.yml`, et `up` ne la touche pas.
 - Toute modification SFTP est un lot séparé avec rollback propre et canari
   positif prouvant le login **et** l'ouverture du subsystem avant exposition.
   Le banner loopback ou la méthode `none` ne suffisent jamais à remplacer
@@ -375,53 +355,34 @@ ssh omnirag-demo 'curl -fsSI http://localhost:8081/ | head -1'
 | Oublier `AGENTIUM_ENV_FILE` | Backend démarre sur `agentium.env.example` → auth Postgres échoue | Toujours exporter `./env/agentium.vm.env` depuis `docker/` |
 | Commiter secrets / instrumentation debug | Fuite + bruit en prod | `.gitignore` + nettoyage avant commit |
 | Vérifier seulement le SHA du checkout hôte | L'image ou le processus systemd en cours peut différer du checkout | Vérifier les `build-info` backend/frontend et `revision_verified=true` |
-| Invoquer `deploy-vm.sh` directement | Build/activation sans journal, quiescence, inventaires ni rollback transactionnel | Toujours passer par l'orchestrateur sûr après GO explicite |
+| `docker compose up` à la main sur la VM | Ni contrôle de stockage, ni dump, ni vérification build-info, ni journal | Toujours passer par `agentium-vm-deploy.sh` |
 | Prendre le banner SFTP pour un test métier | Aucun credential ni subsystem SFTP n'a été utilisé | Conserver le plafond `runner_verified` et utiliser un principal canari jetable pour la preuve positive |
 | Réparer une dérive tenant par seed/reconcile | Mutation non bornée des données Andritz | Qualifier, sauvegarder et corriger par décision opérateur auditée |
 
 ---
 
-## 6. Orchestrateur de déploiement unique
+## 6. Lanceur de déploiement unique
 
-`scripts/deploy-agentium-safe.sh` est l'unique entrée opérateur. Il compose les
-primitives de build et d'activation avec les protections données et le gate de
-validation. Il arrive sur la VM par git, jamais par `scp`.
+`scripts/agentium-vm-deploy.sh` est l'unique entrée opérateur. Il arrive sur la
+VM par git (worktree de build), jamais par `scp`, et s'exécute en root avec un
+environnement nettoyé (`env -i`) : aucune variable ambiante ne peut rediriger
+Compose ou le stockage.
 
-La livraison locale suit le §2 uniquement après une autorisation explicite et
-avec une liste de fichiers stageés contrôlée. Ne pas transformer ce runbook en
-commande chaînée commit/push.
+Avant toute mutation (`migrate`, `up`, `catalog-apply`, `sftp-up`), il refuse un
+stockage qui a quitté ses disques : `/srv/agentium-data` doit être le point de
+montage de `/dev/sdb` et chaque magasin un dossier réel dessus, le dépôt
+sécurisé le point de montage de `/dev/sdc`, les volumes MinIO/Qdrant les binds
+attendus, et les conteneurs en cours leurs montages contractuels. Il n'appelle
+jamais `docker volume prune`, un seed ni le profil `infra`.
 
-La commande VM complète n'est pas répétée ici : elle exige quatre identités de
-workspace, un `deployment-id`, puis le digest du dry-run Workspace Apps. Utiliser
-la séquence copiée depuis le runbook opératoire, jamais une version abrégée.
-Le premier `preflight` exige d'abord les chemins privés et SHA-256 explicites du
-manifeste Release A et de sa policy de revue, puis ceux de l'attestation
-opérationnelle Release A. Les deux gates sont indépendants : l'attestation ne
-remplace pas le manifeste. Les phases suivantes utilisent exclusivement les
-copies figées et revalident leurs reçus liés au SHA précédent.
-
-Avant le push, le déploiement et l'attestation de la Release A, le worktree A
-propre doit avoir produit un `review-template`, fait renseigner cette revue
-sémantique, exécuté `seal-review`, puis créé et vérifié son manifeste privé avec
-`create` et `verify`. Ce manifeste lie le SHA live fixe, le SHA A, les blobs et
-digests exacts du diff et l'empreinte de la policy fail-closed ; une liste
-`git diff` relue informellement ne le remplace pas. Les commandes complètes sont celles du
-[plan Git A/B](./ops/agentium-release-a-b-git-plan-2026-07-22.md) et le fichier
-reste hors dépôt.
-
-L'orchestrateur refuse une VM sale, une branche distante différente, un gate
-Nginx absent, un montage déplacé, un espace disque insuffisant, un upload SFTP
-ouvert, une dérive de binding entre tenants et un artefact de validation
-déclaratif/non relié aux snapshots. Son inventaire PostgreSQL v2 traite toutes
-les lignes en espace constant, borne les artefacts et ne sérialise que les
-empreintes des lignes contrôlées par le ledger. Il n'appelle jamais
-`docker volume prune`, un seed ou le profil `infra`.
+Les garde-fous repris de la chaîne safe sont le dump vérifié avant `migrate`, le
+gate de maintenance optionnel, la preuve `build-info` après `up` et le journal
+TSV (§3). Les preuves Release A (manifeste de diff, attestations, canaris SFTP)
+restent l'historique de la Release A : l'exécuteur
+`deploy-agentium-release-a-safe.sh` relit ses aides au SHA Release A, pas au
+HEAD, et le profil `_ALLOWED_PATHS` v7 n'a pas changé.
 
 > Audit de dérive à la demande (sans déployer) :
 > ```bash
-> ssh omnirag-demo 'cd /home/ubuntu/omnirag && git status --short --branch && docker ps --format "table {{.Names}}\t{{.Status}}"'
+> ssh omnirag-demo 'sudo tail -5 /srv/agentium-data/deployments/journal.tsv; docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"'
 > ```
-
-Il n'existe volontairement aucune procédure manuelle « équivalente » : débrayer
-la quiescence, les attestations ou l'état de rollback change le niveau de sûreté
-et exige un runbook d'incident distinct.

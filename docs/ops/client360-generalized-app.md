@@ -150,7 +150,7 @@ bash scripts/deploy-vm.sh --sha <full_sha> --services "agentium-frontend"
 ```
 
 Two-phase when needed: `--build-only` then `--activate-only` on the same SHA
-(see [agentium-safe-vm-deployment.md](./agentium-safe-vm-deployment.md)). Never
+(see [agentium-safe-vm-deployment.md](../archive/2026/ops/agentium-safe-vm-deployment.md)). Never
 hotfix with `docker cp` / in-container edits.
 
 ## Operator cheat-sheet (copy/paste)

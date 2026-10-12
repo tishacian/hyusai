@@ -863,14 +863,13 @@
             ]
           },
           {
-            "label": "Database-aware immutable image rollback",
-            "path": "scripts/deploy-vm.sh",
+            "label": "Journaled image rollback behind a pre-migration dump",
+            "path": "scripts/agentium-vm-deploy.sh",
             "contains": [
-              "printf 'format\\t3\\n'",
-              "printf 'database_revision\\t%s\\n'",
-              "actual_database_revision=\"$(current_database_revision)\"",
-              "Rollback images refusé",
-              "ensure_rollback_image_override \"$state_file\""
+              "pg_dump -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -Fc",
+              "pg_dump archive is unreadable; migrate not started",
+              "printf 'recorded_at\\trun_id\\tcommand\\ttag\\tprevious_tag\\trevision\\tbackup\\tresult\\n'",
+              "roll back with AGENTIUM_IMAGE_TAG=$PREVIOUS_TAG $0 up"
             ]
           }
         ],
@@ -993,10 +992,12 @@
             "runner": "pytest"
           },
           {
-            "label": "Database revision rollback guard test",
-            "path": "backend/app/tests/infra/test_agentium_compliance_contract.py",
+            "label": "Pre-migration dump and rollback journal tests",
+            "path": "backend/app/tests/infra/test_agentium_vm_deploy_guards.py",
             "contains": [
-              "test_vm_image_rollback_is_bound_to_the_recorded_database_revision"
+              "test_migrate_backup_publishes_only_a_verified_dump",
+              "test_migrate_dumps_before_migrating_and_journals_the_outcome",
+              "test_journal_records_tag_previous_tag_and_revision"
             ],
             "runner": "pytest"
           }
@@ -1046,15 +1047,6 @@
             "contains": [
               "agentium-compliance:",
               "python3 scripts/agentium_compliance.py --check"
-            ]
-          },
-          {
-            "label": "Pinned-checkout deployment static gate",
-            "path": "scripts/deploy-vm.sh",
-            "contains": [
-              "DEPLOY_SHA=\"$(git rev-parse HEAD)\"",
-              "python3 \"$REPO_DIR/scripts/agentium_compliance.py\" --check",
-              "before loading"
             ]
           }
         ],

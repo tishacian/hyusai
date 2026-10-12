@@ -633,21 +633,6 @@ def test_sha_bound_report_rejects_ignored_or_untracked_proof_inputs(
         )
 
 
-def test_vm_image_rollback_is_bound_to_the_recorded_database_revision() -> None:
-    script = (ROOT / "scripts" / "deploy-vm.sh").read_text(encoding="utf-8")
-    rollback = script.split("rollback_from_state() {", 1)[1].split(
-        '\n}\n\nif [[ -n "$ROLLBACK_STATE" ]]', 1
-    )[0]
-
-    assert "printf 'format\\t3\\n'" in script
-    assert "printf 'database_revision\\t%s\\n'" in script
-    assert 'actual_database_revision="$(current_database_revision)"' in rollback
-    assert '[[ "$actual_database_revision" == "$expected_database_revision" ]]' in rollback
-    assert rollback.index('actual_database_revision="$(current_database_revision)"') < (
-        rollback.index('docker tag "$rollback_ref" "$image_ref"')
-    )
-
-
 def test_generated_block_replacement_requires_unique_markers() -> None:
     compliance = _load_compliance_module()
     begin = "<!-- BEGIN GENERATED -->"

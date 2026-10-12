@@ -217,7 +217,7 @@ active le SHA exact. Il ne rouvre rien avant les canaris et la comparaison des
 invariants PostgreSQL, Qdrant et Secure Deposit. Ne jamais lancer un
 `alembic upgrade head`, un Compose ou un reset SFTP ad hoc. Le déroulé et le
 rollback de référence sont dans le
-[`runbook de déploiement sûr`](./ops/agentium-safe-vm-deployment.md).
+[`runbook de déploiement sûr`](archive/2026/ops/agentium-safe-vm-deployment.md).
 
 Ne pas supposer que les fichiers SFTP sont dans Git : ils vivent dans le dépôt
 sécurisé de la VM, indexés dans Postgres/Qdrant.

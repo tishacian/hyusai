@@ -71,7 +71,7 @@ déployée fournit la valeur à passer à l'application.
 ## Livraison et catalogue
 
 1. Déployer la livraison finale de `demo/agentic` synchronisée sur Bitbucket avec
-   le [runbook VM sûr](../../../../ops/agentium-safe-vm-deployment.md). Reconstruire
+   le [runbook VM sûr](../../../../archive/2026/ops/agentium-safe-vm-deployment.md). Reconstruire
    et livrer backend, workers concernés et frontend. Conserver les runtimes
    `ml-ts`/`ml-deep` et le serving nécessaires aux modèles déjà entraînés ;
    les poids Chronos restent locaux. Vérifier les révisions frontend/backend

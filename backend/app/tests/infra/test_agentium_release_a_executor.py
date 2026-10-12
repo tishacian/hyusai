@@ -1829,15 +1829,12 @@ def test_runtime_oci_verifier_functionally_rejects_container_substitution(
 def test_rollback_replays_immutable_state_and_host_bytecode_is_never_ignored() -> None:
     script = EXECUTOR.read_text(encoding="utf-8")
     rollback = _function(script, "rollback_impl")
-    deployer = (ROOT / "scripts" / "deploy-vm.sh").read_text(encoding="utf-8")
     assert rollback.index("set_phase rollback_restoring") < rollback.index(
         'bash "$FROZEN_DEPLOYER"'
     )
     assert 'if [[ "$(git -C "$LIVE_REPO" rev-parse HEAD)" == "$RELEASE_A_SHA"' not in rollback
     assert 'env -i PATH="$COMPOSE_CLEAN_PATH"' in rollback
     assert "grep -vE 'uvicorn\\.log|\\.pyc$'" not in script
-    assert "grep -vE 'uvicorn\\.log|\\.pyc$'" not in deployer
-    assert "assert_no_host_python_bytecode" in deployer
 
 
 def test_executor_uses_v2_postgresql_row_state_inventory_at_every_boundary() -> None:
