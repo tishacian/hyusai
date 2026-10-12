@@ -21,8 +21,8 @@ from app.models.rag_preset import RagPreset
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services import client360_pdr as client360_module
-from app.services.client360_pdr import (
+from app.tenants.andritz.client360 import pdr as client360_module
+from app.tenants.andritz.client360.pdr import (
     _estimate_unit_price,
     _index_purchase_costs,
     _index_purchase_lead_times,
@@ -744,7 +744,7 @@ def test_run_engine_purges_obsolete_customer_keys(db_session) -> None:
 
 
 def test_canonicalize_source_record_keeps_forecast_anchor_fields() -> None:
-    from app.services.client360_pdr import _canonicalize_source_record
+    from app.tenants.andritz.client360.pdr import _canonicalize_source_record
 
     sales = _canonicalize_source_record(
         {
@@ -2269,7 +2269,7 @@ def test_customer_payload_enriches_projects_machines_purchases_and_next_due(
     import sys
     import types
 
-    fake_forecast = types.ModuleType("app.services.client360_forecast")
+    fake_forecast = types.ModuleType("app.tenants.andritz.client360.forecast")
 
     def customer_next_due(db, workspace, *, customer_key=None, customer_name=None):
         return [
@@ -2282,7 +2282,7 @@ def test_customer_payload_enriches_projects_machines_purchases_and_next_due(
         ]
 
     fake_forecast.customer_next_due = customer_next_due
-    monkeypatch.setitem(sys.modules, "app.services.client360_forecast", fake_forecast)
+    monkeypatch.setitem(sys.modules, "app.tenants.andritz.client360.forecast", fake_forecast)
 
     payload = customer_payload(db_session, workspace, "septona")
 
@@ -2311,7 +2311,7 @@ def test_customer_payload_next_due_empty_without_forecast_module(
     real_import = builtins.__import__
 
     def _block_forecast(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == "app.services.client360_forecast" or (
+        if name == "app.tenants.andritz.client360.forecast" or (
             name == "app.services" and fromlist and "client360_forecast" in fromlist
         ):
             raise ImportError("forecast deferred")

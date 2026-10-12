@@ -9,16 +9,16 @@ import pytest
 
 from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource
 from app.models.workspace import Workspace
-from app.services.client360_contract import CLIENT360_INSTALLED_BASE_COLLECTION_SLUG
-from app.services.client360_pdr import classify_data_source
+from app.tenants.andritz.client360.contract import CLIENT360_INSTALLED_BASE_COLLECTION_SLUG
+from app.tenants.andritz.client360.pdr import classify_data_source
 from app.models.client360 import Client360DataSource
-from app.services.client360_contract import CLIENT360_PILOT_DATASET_MARKER
-from app.services.client360_pdr import (
+from app.tenants.andritz.client360.contract import CLIENT360_PILOT_DATASET_MARKER
+from app.tenants.andritz.client360.pdr import (
     client360_scope,
     normalize_customer_key,
     registry_customer_key,
 )
-from app.services.client360_spl_adapter import (
+from app.tenants.andritz.client360.spl_adapter import (
     aggregate_purchase_history_records,
     aggregate_sales_orders_records,
     aggregate_spc_records,
@@ -545,7 +545,7 @@ def test_aggregate_spc_joins_registry_country() -> None:
 
 
 def test_client360_scope_mode_pilot_and_all() -> None:
-    from app.services.client360_pdr import _scope_skip_reason
+    from app.tenants.andritz.client360.pdr import _scope_skip_reason
 
     pilot_ws = Workspace(
         id=str(uuid4()),
@@ -740,7 +740,7 @@ def test_sync_from_collection_dry_run_with_xlsx_fixture(db_session, tmp_path, mo
         return Path(xlsx_path), source.id, None
 
     monkeypatch.setattr(
-        "app.services.client360_spl_adapter._materialize_collection_file",
+        "app.tenants.andritz.client360.spl_adapter._materialize_collection_file",
         fake_materialize,
     )
 
@@ -871,7 +871,7 @@ def test_sync_phase1_skips_purchase_history(db_session, tmp_path, monkeypatch) -
         return Path(xlsx_path), source.id, None
 
     monkeypatch.setattr(
-        "app.services.client360_spl_adapter._materialize_collection_file",
+        "app.tenants.andritz.client360.spl_adapter._materialize_collection_file",
         fake_materialize,
     )
 
@@ -928,7 +928,7 @@ def test_sync_include_purchase_history_upserts_other(
         return Path(xlsx_path), source.id, None
 
     monkeypatch.setattr(
-        "app.services.client360_spl_adapter._materialize_collection_file",
+        "app.tenants.andritz.client360.spl_adapter._materialize_collection_file",
         fake_materialize,
     )
 
@@ -1018,7 +1018,7 @@ def test_sync_phase1_skips_spc_without_flag(db_session, tmp_path, monkeypatch) -
         return Path(xlsx_path), source.id, None
 
     monkeypatch.setattr(
-        "app.services.client360_spl_adapter._materialize_collection_file",
+        "app.tenants.andritz.client360.spl_adapter._materialize_collection_file",
         fake_materialize,
     )
 
@@ -1073,7 +1073,7 @@ def test_sync_include_spc_aggregates(db_session, tmp_path, monkeypatch) -> None:
         return Path(xlsx_path), source.id, None
 
     monkeypatch.setattr(
-        "app.services.client360_spl_adapter._materialize_collection_file",
+        "app.tenants.andritz.client360.spl_adapter._materialize_collection_file",
         fake_materialize,
     )
 
@@ -1142,7 +1142,7 @@ def test_sync_project_registry_always(db_session, tmp_path, monkeypatch) -> None
         return Path(xlsx_path), source.id, None
 
     monkeypatch.setattr(
-        "app.services.client360_spl_adapter._materialize_collection_file",
+        "app.tenants.andritz.client360.spl_adapter._materialize_collection_file",
         fake_materialize,
     )
 

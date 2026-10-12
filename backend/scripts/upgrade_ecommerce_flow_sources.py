@@ -6,7 +6,7 @@ import json
 from app.db.base import SessionLocal
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services.ecommerce_source_upgrade import upgrade
+from app.services.ecommerce.source_upgrade import upgrade
 
 
 def main():

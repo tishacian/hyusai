@@ -14,7 +14,7 @@ import pytest
 from app.models.huggingface import HFPlatformConfig
 from app.models.secret import Secret, SecretVersion
 from app.models.workspace import Workspace
-from app.services.client360_pdr import _encrypt_smtp_password, _smtp_stored_password
+from app.tenants.andritz.client360.pdr import _encrypt_smtp_password, _smtp_stored_password
 from app.services.connectors.generic import service as generic
 from app.services.connectors.hana import service as hana
 from app.services.connectors.mcp import service as mcp

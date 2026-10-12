@@ -7,7 +7,7 @@ import pytest
 from app.models.knowledge_collection import KnowledgeCollectionSource
 from app.models.workspace import Workspace
 from app.services.knowledge_collections import create_collection
-from app.services.notice_campaign_guard import (
+from app.services.notices.campaign_guard import (
     NoticeCampaignGateError,
     assert_notice_disk_capacity,
     verify_notice_collection_gate,
@@ -36,7 +36,7 @@ def test_disk_capacity_gate_fails_closed_for_missing_path(tmp_path):
 
 def test_disk_capacity_gate_enforces_optional_absolute_floor(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "app.services.notice_campaign_guard.shutil.disk_usage",
+        "app.services.notices.campaign_guard.shutil.disk_usage",
         lambda _path: SimpleNamespace(total=1_000, used=500, free=500),
     )
 
@@ -55,7 +55,7 @@ def test_disk_capacity_gate_enforces_optional_absolute_floor(tmp_path, monkeypat
 
 def test_disk_capacity_gate_applies_x2_growth_projection(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "app.services.notice_campaign_guard.shutil.disk_usage",
+        "app.services.notices.campaign_guard.shutil.disk_usage",
         lambda _path: SimpleNamespace(total=1_000, used=500, free=500),
     )
 
@@ -110,15 +110,15 @@ def _patch_qdrant_gate(
             return total_count
 
     monkeypatch.setattr(
-        "app.services.notice_campaign_guard.get_resolved_settings",
+        "app.services.notices.campaign_guard.get_resolved_settings",
         lambda **_kwargs: {},
     )
     monkeypatch.setattr(
-        "app.services.notice_campaign_guard.resolve_vector_db_type",
+        "app.services.notices.campaign_guard.resolve_vector_db_type",
         lambda _settings: "qdrant",
     )
     monkeypatch.setattr(
-        "app.services.notice_campaign_guard.DocumentService",
+        "app.services.notices.campaign_guard.DocumentService",
         FakeDocumentService,
     )
 

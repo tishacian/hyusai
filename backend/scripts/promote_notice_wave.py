@@ -27,7 +27,7 @@ from app.db.base import SessionLocal
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.iam.manifest import REVIEW_ROLES
-from app.services.notice_wave_importer import (
+from app.services.notices.wave_importer import (
     DEFAULT_NOTICE_COLLECTION,
     NOTICE_SOURCE_PROFILES,
     build_notice_wave_plan,

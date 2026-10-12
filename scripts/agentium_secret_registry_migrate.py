@@ -55,7 +55,7 @@ def _dict(value: Any) -> dict[str, Any] | None:
 
 def workspace_targets(settings: dict[str, Any]) -> list[Target]:
     """Secret fields of one (mutable) settings copy, in migration order."""
-    from app.services.client360_pdr import _decrypt_smtp_password
+    from app.tenants.andritz.client360.pdr import _decrypt_smtp_password
     from app.services.connectors.generic import service as generic
     from app.services.connectors.hana import service as hana
     from app.services.connectors.mcp import service as mcp
