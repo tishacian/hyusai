@@ -25,7 +25,7 @@ async def test_rpa_dispatch_wrapper_calls_service(monkeypatch):
     )
     db = MagicMock()
     monkeypatch.setattr(
-        wrappers,
+        wrappers.skills,
         "_calendar_db_and_workspace",
         lambda payload, ctx=None: (db, workspace),
     )
@@ -78,7 +78,7 @@ async def test_rpa_dispatch_rejects_disabled_workspace(monkeypatch):
     )
     db = MagicMock()
     monkeypatch.setattr(
-        wrappers,
+        wrappers.skills,
         "_calendar_db_and_workspace",
         lambda payload, ctx=None: (db, workspace),
     )
@@ -96,7 +96,7 @@ async def test_rpa_dispatch_rejects_unconfigured(monkeypatch):
     workspace = SimpleNamespace(id="ws-1", slug="agentium-showcase", settings={})
     db = MagicMock()
     monkeypatch.setattr(
-        wrappers,
+        wrappers.skills,
         "_calendar_db_and_workspace",
         lambda payload, ctx=None: (db, workspace),
     )

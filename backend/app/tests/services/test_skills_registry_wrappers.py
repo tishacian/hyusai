@@ -154,7 +154,7 @@ async def test_typed_evaluation_routes_judge_scores(monkeypatch):
                 "metadata": {},
             }
 
-    monkeypatch.setattr(wrappers, "get_judge_service", lambda: Judge())
+    monkeypatch.setattr(wrappers.skills, "get_judge_service", lambda: Judge())
 
     result = await wrappers._evaluate_v1(
         {

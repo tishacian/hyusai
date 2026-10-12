@@ -298,7 +298,7 @@ async def test_live_northforge_candidate(db_session, tmp_path, monkeypatch):
     draft = db_session.query(SystemFlowDraft).filter_by(system_id=applied.json()['system_id']).one()
     async def complete(prompt, model, ctx):
         return remote_completion(prompt, evidence, 4000)['completion']
-    monkeypatch.setattr(wrappers, '_route_llm_complete', complete)
+    monkeypatch.setattr(wrappers.skills, '_route_llm_complete', complete)
     async def model_response(payload, ctx=None):
         return remote_completion(payload['prompt'], evidence, 4000)
     async def retrieve(payload, ctx=None):

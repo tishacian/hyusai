@@ -286,7 +286,7 @@
       "kind": "fixture",
       "why": "Seeded Mission Room skills (AYA voice and advisory) in the shared catalogue."
     },
-    "backend/app/services/skills_registry/wrappers.py": {
+    "backend/app/services/skills_registry/wrappers/skills.py": {
       "count": 1,
       "kind": "fixture",
       "why": "The Sentinel CI meeting scenario in the schedule-meeting skill."

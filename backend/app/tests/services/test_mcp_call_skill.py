@@ -48,7 +48,7 @@ async def test_named_skills_reject_free_tool_sql_and_server_id(monkeypatch):
     )
     db = MagicMock()
     monkeypatch.setattr(
-        wrappers,
+        wrappers.skills,
         "_calendar_db_and_workspace",
         lambda payload, ctx=None: (db, workspace),
     )
@@ -74,7 +74,7 @@ async def test_side_effect_payload_is_rejected(monkeypatch):
     workspace = SimpleNamespace(id="ws-1", slug="nawa", settings={})
     db = MagicMock()
     monkeypatch.setattr(
-        wrappers,
+        wrappers.skills,
         "_calendar_db_and_workspace",
         lambda payload, ctx=None: (db, workspace),
     )
@@ -99,7 +99,7 @@ async def test_unconfigured_workspace_fails_closed(monkeypatch):
     )
     db = MagicMock()
     monkeypatch.setattr(
-        wrappers,
+        wrappers.skills,
         "_calendar_db_and_workspace",
         lambda payload, ctx=None: (db, workspace),
     )
@@ -127,7 +127,7 @@ async def test_free_write_tool_rides_the_gate_not_the_transport(monkeypatch):
     workspace = _enabled_workspace()
     db = MagicMock()
     monkeypatch.setattr(
-        wrappers, "_calendar_db_and_workspace", lambda payload, ctx=None: (db, workspace)
+        wrappers.skills, "_calendar_db_and_workspace", lambda payload, ctx=None: (db, workspace)
     )
     from app.services.connectors.mcp import client as mcp_client
     from app.services.connectors.mcp import service as mcp_service
@@ -163,7 +163,7 @@ async def test_free_write_tool_stays_sealed_even_with_the_flag_on(monkeypatch):
     workspace = _enabled_workspace(sap_write_unsealed=True)
     db = MagicMock()
     monkeypatch.setattr(
-        wrappers, "_calendar_db_and_workspace", lambda payload, ctx=None: (db, workspace)
+        wrappers.skills, "_calendar_db_and_workspace", lambda payload, ctx=None: (db, workspace)
     )
     from app.services.connectors.mcp import client as mcp_client
     from app.services.connectors.mcp import service as mcp_service
@@ -317,7 +317,7 @@ async def test_named_skills_ignore_the_upstream_trace_in_overlay_mode(monkeypatc
     workspace = _enabled_workspace()
     db = MagicMock()
     monkeypatch.setattr(
-        wrappers, "_calendar_db_and_workspace", lambda payload, ctx=None: (db, workspace)
+        wrappers.skills, "_calendar_db_and_workspace", lambda payload, ctx=None: (db, workspace)
     )
     from app.services.connectors.mcp import client as mcp_client
     from app.services.connectors.mcp import service as mcp_service
@@ -372,7 +372,7 @@ async def test_named_skill_flattens_trace(monkeypatch):
     )
     db = MagicMock()
     monkeypatch.setattr(
-        wrappers,
+        wrappers.skills,
         "_calendar_db_and_workspace",
         lambda payload, ctx=None: (db, workspace),
     )

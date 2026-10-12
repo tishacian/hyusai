@@ -214,7 +214,7 @@ async def test_llm_rag_answer_accumulates_generation_and_review_calls(
         await wrappers._route_llm_complete("review", model, ctx)
         return str(draft), {"status": "reviewed"}
 
-    monkeypatch.setattr(wrappers, "_review_inventory_answer_coverage", review)
+    monkeypatch.setattr(wrappers.skills, "_review_inventory_answer_coverage", review)
     ctx = {"default_model": "openai:gpt-test"}
     output = await wrappers._llm_rag_answer_v1(
         {
