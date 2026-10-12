@@ -840,13 +840,13 @@ def test_launcher_scrubs_shell_and_gates_only_closed_application_commands() -> N
         assert runtime_container in storage
     assert "compose up" not in storage
     assert "compose run" not in storage
-    assert re.fullmatch(
-        r"\s*storage_check\s*(?:;|\n)\s*"
-        r"compose run --rm --no-deps --pull never agentium-migrate\s*",
+    assert re.match(
+        r"\s*storage_check\s*\n\s*start_run migrate\s*\n\s*gate_enter\s*\n\s*backup_database\s*\n"
+        r".*\n\s*compose run --rm --no-deps --pull never agentium-migrate \|\|",
         _shell_case(script, "migrate"),
     )
     assert re.match(
-        r"\s*storage_check\s*(?:;|\n)\s*"
+        r"\s*storage_check\s*\n\s*start_run up\s*\n\s*gate_enter\s*\n\s*"
         r"compose up -d --no-build --no-deps --pull never "
         r"agentium-worker-recipes agentium-backend agentium-worker-cpu agentium-frontend\b",
         _shell_case(script, "up"),
