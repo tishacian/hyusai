@@ -176,7 +176,10 @@ SEEDS_HOME = "backend/app/seeds/"
 # list can only shrink.
 PACK_SCENARIOS = frozenset(
     {
-        "backend/app/services/mission_room.py",
+        "backend/app/services/mission_room/fixtures.py",
+        "backend/app/services/mission_room/payloads.py",
+        "backend/app/services/mission_room/profile.py",
+        "backend/app/services/mission_room/provisioning.py",
         "backend/app/services/actions/packs/mission_room.py",
         "backend/app/services/mission_room_knowledge_sync.py",
         "frontend-ng/src/app/features/mission-room/mission-room.component.ts",
