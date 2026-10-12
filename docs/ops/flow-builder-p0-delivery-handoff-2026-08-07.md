@@ -106,7 +106,7 @@ rollback : restaurer le dump frais sous writers fermés ou appliquer un roll-for
 ## Reçu à compléter à la reprise
 
 Complété le 07/08/2026 après déploiement. Détail complet dans
-`docs/ops/agentium-safe-vm-deployment.md`, section « Flow Builder P0 (07/08) ».
+`docs/archive/2026/ops/agentium-safe-vm-deployment.md`, section « Flow Builder P0 (07/08) ».
 
 - commit frontend : `9b0a116a25e46b9303d850a518cc992ab78359e4`
   (`feat(flow): complete operator workbench authoring UX`), qui porte cette note ;

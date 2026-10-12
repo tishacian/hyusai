@@ -3,7 +3,7 @@
 > **Archive de rollout.** Les commandes de cette note décrivent la livraison
 > historique du Lot 5 et ne sont plus le chemin opératoire courant. Tout
 > nouveau déploiement passe par le
-> [runbook VM sûr](./ops/agentium-safe-vm-deployment.md), qui inclut SFTP, les
+> [runbook VM sûr](archive/2026/ops/agentium-safe-vm-deployment.md), qui inclut SFTP, les
 > attestations de stockage et le rollback v3.
 
 Date du candidat : 2026-07-15

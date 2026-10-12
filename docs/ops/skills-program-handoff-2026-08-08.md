@@ -27,7 +27,7 @@ Branche `codex/flow-builder-p0-integration`. Plan de référence :
 > | Rollback | images `5c1f8838ac66` conservées, dump du 10/08 vérifié |
 >
 > Les observables complets, les deux pièges rencontrés et ce que la fenêtre **ne**
-> prouve pas sont dans [`agentium-safe-vm-deployment.md`](./agentium-safe-vm-deployment.md),
+> prouve pas sont dans [`agentium-safe-vm-deployment.md`](../archive/2026/ops/agentium-safe-vm-deployment.md),
 > section *Fenêtre exécutée le 10/08*.
 
 La VM sert toujours `5c1f8838ac665706dfeecd79cc35ff63f55bb51a` sur les trois images
@@ -48,7 +48,7 @@ reste « images seulement » ; il n'y a rien à défaire côté base.
 > `manual 59, chat 16, event 1`. Le retour arrière « images seulement » est
 > **prouvé** avec `084` appliquée. En revanche le downgrade de `084` après le
 > backfill est destructeur. La procédure exécutable et tous les chiffres sont dans
-> [`agentium-safe-vm-deployment.md`](./agentium-safe-vm-deployment.md), section
+> [`agentium-safe-vm-deployment.md`](../archive/2026/ops/agentium-safe-vm-deployment.md), section
 > *Bascule `flow_publication_v1` — procédure exécutable, mesurée en combiné le 09/08*.
 > Ce fichier reste le récit ; la procédure ne se lit plus ici.
 

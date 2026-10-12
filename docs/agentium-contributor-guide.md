@@ -183,5 +183,5 @@ commit. A dirty `git status` is not a parking lot: finish or stash.
 6. [`agentium-realignment-plan.md`](./agentium-realignment-plan.md) — the drift matrix and target decisions the reference implements.
 7. [`dev-deploy-policy.md`](./dev-deploy-policy.md) — the git/deploy policy and its anti-patterns.
 8. [`agentium-release-process.md`](./agentium-release-process.md) — how a commit reaches the VM.
-9. [`ops/agentium-safe-vm-deployment.md`](./ops/agentium-safe-vm-deployment.md) — the full operator runbook (milestones, incidents, storage protections).
+9. [`archive/2026/ops/agentium-safe-vm-deployment.md`](archive/2026/ops/agentium-safe-vm-deployment.md) — the Release A safe-chain runbook and deployment journal up to 2026-10-12, archived (milestones, incidents, storage protections).
 10. [`agent-loop-openclaw-dev-plan.md`](./agent-loop-openclaw-dev-plan.md) — AgentLoop contract (deterministic envelope, non-deterministic interior). Lands on `demo/agentic`; deploy remains the release process.
