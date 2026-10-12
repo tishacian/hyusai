@@ -103,7 +103,7 @@ class RAGAgent(BaseAgent):
         # provider/model/dimension instead of a simulated placeholder.
         embedding_start = time.time()
         embedding_id = f"embedding-{id(query)}"
-        from app.services.embedding.embedder import get_shared_embedder
+        from app.services.rag.ingest.embedder import get_shared_embedder
 
         embedder_info = get_shared_embedder().describe()
         embedding_description = (

@@ -50,15 +50,15 @@ CASES = [
 
 def _child(engine: str, model: str, max_length: int, candidates: int) -> dict:
     from app.core.config import settings
-    from app.services.retrieval.reranker_config import RerankerConfig
+    from app.services.rag.retrieval.reranker_config import RerankerConfig
 
     config = RerankerConfig(model_name=model, max_length=max_length)
     if engine == "onnx":
-        from app.services.retrieval.onnx_reranker import OnnxReranker
+        from app.services.rag.retrieval.onnx_reranker import OnnxReranker
 
         reranker = OnnxReranker(config, models_dir=settings.rag_models_dir)
     else:
-        from app.services.retrieval.flash_reranker import FlashReranker
+        from app.services.rag.retrieval.flash_reranker import FlashReranker
 
         reranker = FlashReranker(config)
     card = [math.log(p / (1 - p)) if 0 < p < 1 else float("nan") for p in reranker.score(CARD_QUERY, CARD_PASSAGES)]

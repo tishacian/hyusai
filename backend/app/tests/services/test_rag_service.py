@@ -63,7 +63,7 @@ def fake_vector_db(monkeypatch):
     def no_reranker(_config):
         raise ImportError("This ingestion test does not provision a reranker")
 
-    monkeypatch.setattr("app.services.retrieval.rerankers.make_reranker", no_reranker)
+    monkeypatch.setattr("app.services.rag.retrieval.rerankers.make_reranker", no_reranker)
     vector_db = FakeVectorDB()
     monkeypatch.setattr(
         VectorDBFactory,

@@ -155,7 +155,7 @@ def score_collection_passages(
     """
     from app.services.huggingface.adapters import ArtifactReranker
     from app.services.rag.cross_encoder_stage import _score_passages
-    from app.services.retrieval.reranker_config import RerankerConfig
+    from app.services.rag.retrieval.reranker_config import RerankerConfig
 
     groups = {}
     for index, metadata in enumerate(metadatas):

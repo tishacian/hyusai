@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from app.core.config import settings
-from app.services.retrieval.onnx_reranker import MODEL_FILE, TOKENIZER_FILE
+from app.services.rag.retrieval.onnx_reranker import MODEL_FILE, TOKENIZER_FILE
 
 ROOT = Path(__file__).resolve().parents[4]
 MANIFEST = ROOT / "backend" / "rag_models.lock.json"

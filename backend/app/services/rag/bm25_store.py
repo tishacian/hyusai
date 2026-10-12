@@ -9,7 +9,7 @@ from typing import Any
 from app.core.config import settings
 from app.models.knowledge_collection import KnowledgeCollection
 from app.services.object_store import ObjectStore, get_object_store
-from app.services.retrieval.bm25_retriever import BM25Retriever
+from app.services.rag.retrieval.bm25_retriever import BM25Retriever
 
 BM25_ARTIFACT_FORMAT_VERSION = 1
 

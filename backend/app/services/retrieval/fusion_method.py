@@ -1,17 +1,11 @@
-"""Fusion methods for combining multiple retrieval results"""
-from enum import Enum
+"""Historical import path of ``app.services.rag.retrieval.fusion_method`` (ADR 0004, phase 3).
 
+Aliased in ``sys.modules`` so imports, string references and patches made
+through this path reach the real module.
+"""
 
-class FusionMethod(Enum):
-    """Fusion methods for combining BM25 and dense retrieval results"""
-    RRF = "rrf"  # Reciprocal Rank Fusion
-    WEIGHTED_LINEAR = "weighted_linear"
-    QUERY_ADAPTIVE = "query_adaptive"
-    SCORE_ADAPTIVE = "score_adaptive"
-    HARMONIC_MEAN = "harmonic_mean"
-    GEOMETRIC_MEAN = "geometric_mean"
-    MIN_MAX_FUSION = "min_max_fusion"
-    RANK_FUSION = "rank_fusion"
-    COMBSUM = "combsum"
-    COMBMNZ = "combmnz"
+import sys
 
+from app.services.rag.retrieval import fusion_method as _module
+
+sys.modules[__name__] = _module

@@ -13,10 +13,10 @@ from app.services.document_intelligence import (
     replace_document_facts,
     resolve_document_profile,
 )
-from app.services.document_parser.parsers.docx_parser import DocxParser
-from app.services.document_parser.parsers.office_doc_parser import OfficeDocParser
-from app.services.document_parser.parsers.pptx_parser import PptxParser
-from app.services.document_parser.factory import DocumentParserFactory
+from app.services.rag.ingest.parser.parsers.docx_parser import DocxParser
+from app.services.rag.ingest.parser.parsers.office_doc_parser import OfficeDocParser
+from app.services.rag.ingest.parser.parsers.pptx_parser import PptxParser
+from app.services.rag.ingest.parser.factory import DocumentParserFactory
 
 
 def _seed_collection(db_session) -> tuple[Workspace, KnowledgeCollection]:

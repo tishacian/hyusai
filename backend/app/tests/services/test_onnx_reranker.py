@@ -9,9 +9,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from app.services.retrieval import onnx_reranker
-from app.services.retrieval.onnx_reranker import OnnxReranker, has_model_files
-from app.services.retrieval.reranker_config import RerankerConfig
+from app.services.rag.retrieval import onnx_reranker
+from app.services.rag.retrieval.onnx_reranker import OnnxReranker, has_model_files
+from app.services.rag.retrieval.reranker_config import RerankerConfig
 
 MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 

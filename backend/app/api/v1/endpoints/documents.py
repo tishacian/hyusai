@@ -2420,7 +2420,7 @@ async def create_collection(
             if hasattr(vector_db, "_save"):
                 vector_db._save()
         elif db_type == "qdrant":
-            from app.services.embedding.embedder import Embedder
+            from app.services.rag.ingest.embedder import Embedder
 
             dim = Embedder().get_dimension()
             await vector_db.create_index(dim)

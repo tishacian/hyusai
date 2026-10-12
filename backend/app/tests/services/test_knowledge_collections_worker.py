@@ -1340,7 +1340,7 @@ async def test_bm25_artifact_envelope_roundtrip_legacy_and_staleness(
     # Legacy bare-retriever artifacts remain readable.
     import pickle
 
-    from app.services.retrieval.bm25_retriever import BM25Retriever
+    from app.services.rag.retrieval.bm25_retriever import BM25Retriever
 
     legacy = BM25Retriever()
     legacy.fit(["alpha"], ["c1"], [{"content": "alpha"}])
