@@ -158,7 +158,7 @@
 
 | Issue | Fix |
 |-------|-----|
-| Server down | SSH to VM: `bash /home/ubuntu/omnirag/run.sh` |
+| Server down | SSH to VM, then from `/srv/agentium-data/worktrees/demo-agentic`: `sudo env AGENTIUM_IMAGE_TAG=<sha12> scripts/agentium-vm-deploy.sh up` (with the deployed overlay flags) |
 | Blank page | Check: `curl http://217.182.104.99:8000/health` |
 | Chat error | Check logs: `tail -50 /home/ubuntu/omnirag/server.log` |
 | OpenAI error | Verify key: `grep OPENAI_API_KEY /home/ubuntu/omnirag/backend/.env` |
