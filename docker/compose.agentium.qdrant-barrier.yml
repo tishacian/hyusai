@@ -4,8 +4,8 @@ services:
       QDRANT_API_KEY: ${AGENTIUM_QDRANT_EFFECTIVE_API_KEY:?safe deployment Qdrant key missing}
     volumes:
       - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store:ro
-      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit:ro
-      - ${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db:ro
+      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/srv/agentium-secure-deposit}:/data/secure_deposit:ro
+      - ${AGENTIUM_FAISS_PATH:-/srv/agentium-data/faiss_db}:/data/faiss_db:ro
 
   agentium-backend:
     restart: "no"
@@ -13,8 +13,8 @@ services:
       QDRANT_API_KEY: ${AGENTIUM_QDRANT_EFFECTIVE_API_KEY:?safe deployment Qdrant key missing}
     volumes:
       - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store:ro
-      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit:ro
-      - ${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db:ro
+      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/srv/agentium-secure-deposit}:/data/secure_deposit:ro
+      - ${AGENTIUM_FAISS_PATH:-/srv/agentium-data/faiss_db}:/data/faiss_db:ro
 
   agentium-worker-cpu:
     restart: "no"
@@ -22,8 +22,8 @@ services:
       QDRANT_API_KEY: ${AGENTIUM_QDRANT_EFFECTIVE_API_KEY:?safe deployment Qdrant key missing}
     volumes:
       - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store:ro
-      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit:ro
-      - ${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db:ro
+      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/srv/agentium-secure-deposit}:/data/secure_deposit:ro
+      - ${AGENTIUM_FAISS_PATH:-/srv/agentium-data/faiss_db}:/data/faiss_db:ro
 
   agentium-p4-maintenance:
     restart: "no"
@@ -31,10 +31,10 @@ services:
       QDRANT_API_KEY: ${AGENTIUM_QDRANT_EFFECTIVE_API_KEY:?safe deployment Qdrant key missing}
     volumes:
       - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store:ro
-      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit:ro
-      - ${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db:ro
+      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/srv/agentium-secure-deposit}:/data/secure_deposit:ro
+      - ${AGENTIUM_FAISS_PATH:-/srv/agentium-data/faiss_db}:/data/faiss_db:ro
 
   agentium-sftp:
     restart: "no"
     volumes:
-      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit:ro
+      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/srv/agentium-secure-deposit}:/data/secure_deposit:ro

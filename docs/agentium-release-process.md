@@ -36,8 +36,9 @@ Two paths on the VM, don't confuse them:
 
 - `/srv/agentium-data/worktrees/demo-agentic` — the **build worktree**. This is
   what you advance and build from.
-- `/home/ubuntu/omnirag` — the historical checkout, still the **mount anchor**
-  for live containers (FAISS, secure deposit, Keycloak files). Never delete or
+- `/home/ubuntu/omnirag` — the historical checkout. FAISS and the secure
+  deposit left it in phase 4b, but `agentium-kc` (realm export, theme) and
+  `agentium-livekit` (server config) still bind files from it. Never delete or
   reset it casually.
 
 ## 2. Pre-flight (local)

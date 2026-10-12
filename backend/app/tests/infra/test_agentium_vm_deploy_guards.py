@@ -66,7 +66,7 @@ def _run(tmp_path: Path, prelude: str, functions: list[str], call: str, env=None
             "/srv/agentium-data/release-a-deployments/release-a-2026-07-27-omnirag-demo",
         ),
         ("/srv/agentium-data/../etc", None),
-        ("/home/ubuntu/omnirag/env", None),
+        ("/home/ubuntu/agentium-env", None),
         ("/srv/agentium-data", None),
         ("/srv/agentium-data/runtime-env/", None),
         ("relative/env", None),

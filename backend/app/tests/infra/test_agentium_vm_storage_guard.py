@@ -1252,29 +1252,29 @@ def test_launcher_guards_openbao_paths_only_on_request(tmp_path: Path) -> None:
     assert subprocess.run(["bash", str(bad)], capture_output=True, text=True).returncode == 1
 
 
-def test_running_generation_may_still_use_the_previous_store_locations_only():
-    """The `up` that moves FAISS and the secure deposit runs its gate against
-    containers still bound to the old locations: those, and only those, pass.
-    The frozen environment and the rendered Compose accept the new ones alone."""
+def test_running_containers_on_the_pre_4b_store_locations_are_rejected():
+    """FAISS and the secure deposit moved in phase 4b: running containers,
+    the frozen environment and the rendered Compose accept the new sources only."""
 
     module = _module()
-    previous = module.VM_RUNTIME_PREVIOUS_SOURCES
-    assert previous == {
+    assert not hasattr(module, "VM_RUNTIME_PREVIOUS_SOURCES")
+    previous = {
         "AGENTIUM_FAISS_PATH": "/home/ubuntu/omnirag/backend/faiss_db",
         "AGENTIUM_SECURE_DEPOSIT_PATH": "/home/ubuntu/omnirag/backend/data/secure_deposit",
     }
-    containers = _active_containers()
-    for container in containers:
-        for mount in container["Mounts"]:
-            for key, old in previous.items():
-                if mount.get("Source") == EXPECTED_ENV[key]:
-                    mount["Source"] = old
-    module.assert_vm_active_storage_mounts(containers)
-
-    elsewhere = deepcopy(containers)
-    elsewhere[2]["Mounts"][2]["Source"] = "/home/ubuntu/faiss_db"
-    with pytest.raises(module.RuntimeEnvBundleError, match="mount identity differs"):
-        module.assert_vm_active_storage_mounts(elsewhere)
+    module.assert_vm_active_storage_mounts(_active_containers())
+    for key, old in previous.items():
+        containers = _active_containers()
+        moved = [
+            mount
+            for container in containers
+            for mount in container["Mounts"]
+            if mount.get("Source") == EXPECTED_ENV[key]
+        ]
+        assert moved
+        moved[0]["Source"] = old
+        with pytest.raises(module.RuntimeEnvBundleError, match="mount identity differs"):
+            module.assert_vm_active_storage_mounts(containers)
 
     content = "".join(
         f"{name}={previous.get(name, value)}\n" for name, value in EXPECTED_ENV.items()

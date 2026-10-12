@@ -114,7 +114,7 @@ Une commande présente dans `app/cli` n'a pas de doublon dans un dossier de scri
 | `/srv/agentium-data` et ses sous-dossiers `deployments`, `faiss_db`, `hub-cache`, `minio`, `ml-deep-models`, `object_store`, `openbao`, `openbao-backups`, `qdrant`, `qdrant-snapshots`, `recipe_envs`, `release-a-deployments`, `runtime-env` | données de la plateforme (disque `sdb`) |
 | `/srv/agentium-secure-deposit` | point de montage du dépôt sécurisé (disque `sdc`, monté par UUID dans fstab) depuis la phase 4b |
 | `/srv/agentium-data/runtime-env/2026-10-12` | bundle d'env figé par défaut de `agentium-vm-deploy.sh` depuis la phase 4b, dérivé du bundle Release A (`derive-vm-bundle`) ; le bundle Release A reste intact |
-| `/home/ubuntu/omnirag/backend/data/secure_deposit`, `/home/ubuntu/omnirag/backend/faiss_db` | anciens emplacements (avant 4b), laissés en place jusqu'à la phase 4d ; `VM_RUNTIME_PREVIOUS_SOURCES` les tolère encore sur les conteneurs en cours |
+| `/home/ubuntu/omnirag` | ancien checkout. Depuis la phase 4d, le garde de stockage refuse ses anciens emplacements FAISS et dépôt sécurisé sur les conteneurs en cours. Le renommage en `.retired` attend que `agentium-kc`, `agentium-livekit` (fichiers montés depuis ce dossier) et les worktrees `/home/ubuntu/p4-candidates/*` (gitdir dans son `.git`) en soient sortis |
 | `/var/lib/postgresql/data`, `/var/lib/rabbitmq`, `/var/lib/docker/volumes` | volumes des services |
 | `/etc/nginx/snippets/agentium-deploy-maintenance.conf`, `/var/lib/agentium/deploy-maintenance` | gate de maintenance |
 

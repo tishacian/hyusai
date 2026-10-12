@@ -258,7 +258,7 @@ agentium-lot6-system360-production:
       python3 scripts/agentium_deployment_attestation.py
       --sha "$CI_COMMIT_SHA"
       --host "$AGENTIUM_DEPLOY_HOST"
-      --repo-dir /home/ubuntu/omnirag
+      --repo-dir /srv/agentium-data/worktrees/demo-agentic
       --branch demo/agentic
       --environment production
       --base-url "$AGENTIUM_PRODUCTION_URL"
