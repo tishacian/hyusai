@@ -79,7 +79,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Plan B clic** : Accepter « Voir le PV ? » après S1.5, ou chip **PV douanes 18 mai** sous la fiche cargo.
 
-![Drawer PV douanes · page 2 OCR](status-screenshots/2026-05-25-qa-trame/S1-03-pv-douanes.png)
+![Drawer PV douanes · page 2 OCR](archive/2026/status-screenshots/2026-05-25-qa-trame/S1-03-pv-douanes.png)
 
 *Preuve traçable — document lisible dans le drawer Cabinet.*
 
@@ -226,7 +226,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Plan B clic** : Reformuler : « génère le rapport stratégique » *(AYA only)*.
 
-![Drawer rapport stratégique cacao](status-screenshots/2026-05-25-qa-trame/S2-12-rapport-strategique.png)
+![Drawer rapport stratégique cacao](archive/2026/status-screenshots/2026-05-25-qa-trame/S2-12-rapport-strategique.png)
 
 *Livrable prêt pour la réunion — preuve traçable.*
 

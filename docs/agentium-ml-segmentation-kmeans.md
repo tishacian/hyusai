@@ -95,7 +95,7 @@ Le cas Nawa agrège 14 jours de données horaires en une ligne par cellule pour
 du taux de coupure et de l’énergie. Cette agrégation est un choix explicite du
 jeu de qualification ; l’entraînement ne l’effectue pas automatiquement.
 Les mesures observées sont consignées dans
-`docs/reports/ml-segmentation-kmeans-qualification.json`. Elles qualifient un
+`docs/archive/2026/reports/ml-segmentation-kmeans-qualification.json`. Elles qualifient un
 générateur de démonstration et ne constituent pas une validation métier.
 
 Résultat Nawa : trois groupes de **46, 20 et 6 cellules**, silhouette **0,731**

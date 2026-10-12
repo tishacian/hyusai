@@ -10,7 +10,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const OUT = path.join(__dirname, '../../docs/render/assets/screenshots');
+const OUT = path.join(__dirname, '../../artifacts/qa/pih-screenshots');
 const BASE = process.env.E2E_BASE_URL ?? 'https://agentium.papai.ai';
 
 const USER = process.env.E2E_USERNAME;

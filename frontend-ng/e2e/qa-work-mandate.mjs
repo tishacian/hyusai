@@ -4,7 +4,7 @@ import { chromium } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 
 const base = process.env.BASE ?? 'http://localhost:4200';
-const out = process.env.OUT ?? '../docs/reports/mandate-experience/visual-qa';
+const out = process.env.OUT ?? '../artifacts/qa/mandate-experience/visual-qa';
 mkdirSync(out, { recursive: true });
 const browser = await chromium.launch(process.env.E2E_CHROMIUM_EXECUTABLE ? { executablePath: process.env.E2E_CHROMIUM_EXECUTABLE } : {});
 const report = [];

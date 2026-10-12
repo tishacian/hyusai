@@ -23,7 +23,7 @@ import { runS3SecuritySteps } from './qa_s3_security.mjs';
 
 const OUT_DIR =
   process.env.OUT_DIR ||
-  `/Users/thib/Developer/PAPAI/omnirag/docs/status-screenshots/${new Date().toISOString().slice(0, 10)}-qa-gate`;
+  join(process.cwd(), `artifacts/qa/${new Date().toISOString().slice(0, 10)}-qa-gate`);
 
 async function main() {
   await mkdir(OUT_DIR, { recursive: true });

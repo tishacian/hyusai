@@ -45,7 +45,7 @@ WORKSPACE = os.environ.get("WORKSPACE_SLUG", "sentinel-ci")
 EMAIL = _required_env("AGENTIUM_EMAIL")
 PASSWORD = _required_env("AGENTIUM_PASSWORD")
 TIMEOUT = float(os.environ.get("PROBE_TIMEOUT", "12.0"))
-OUTPUT_PATH = os.environ.get("PROBE_OUTPUT", "docs/status-screenshots/cedeao-index-probe.json")
+OUTPUT_PATH = os.environ.get("PROBE_OUTPUT", "artifacts/qa/cedeao-index-probe.json")
 
 REQUIRED_FIELDS = (
     "live",

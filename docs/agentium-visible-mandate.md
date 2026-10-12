@@ -43,7 +43,7 @@ Les composants sont partagés entre Chat, Work, System et Run. Ils utilisent les
 
 ## État de la livraison
 
-Développement intégré dans `demo/agentic` et déployé le 17 septembre 2026. Le [rapport de release](evidence/release-6f6d10c0-2026-09-17/README.md) distingue les vérifications distantes et les Runs réellement exécutés. Les captures de recette locale montrent les composants compilés avec des données synthétiques interceptées ; elles ne constituent pas des preuves d’exécution en production.
+Développement intégré dans `demo/agentic` et déployé le 17 septembre 2026. Le [rapport de release](archive/2026/evidence/release-6f6d10c0-2026-09-17/README.md) distingue les vérifications distantes et les Runs réellement exécutés. Les captures de recette locale montrent les composants compilés avec des données synthétiques interceptées ; elles ne constituent pas des preuves d’exécution en production.
 
 L’éditeur M4 est disponible dans **System → Contexte**, pour les membres autorisés à administrer le System et lorsque la publication de Flow est activée. Les autres membres conservent le résumé de lecture.
 
@@ -64,6 +64,6 @@ L’ancien actuateur de l’Hyperviseur qui modifie directement une policy coura
 
 Avant activation distante, les API et workers doivent tous comprendre le contrat enrichi. Revenir à un ancien worker qui rejette ce contrat ne constitue pas un rollback compatible des nouvelles versions publiées. Les anciens Runs et écritures doivent être conservés.
 
-La qualification locale et ses captures sont conservées dans [le rapport de recette](reports/mandate-experience/README.md). La qualification sur de vrais Runs et la bascule suivent [le processus de release](agentium-release-process.md), depuis `demo/agentic`.
+La qualification locale et ses captures sont conservées dans [le rapport de recette](archive/2026/reports/mandate-experience/README.md). La qualification sur de vrais Runs et la bascule suivent [le processus de release](agentium-release-process.md), depuis `demo/agentic`.
 
 Référence de conception : [Paper — Autonomie, mandat, décisions et preuves](https://app.paper.design/file/01KZXGRFVFWR9G56P5FVDBD4X1/7-0).

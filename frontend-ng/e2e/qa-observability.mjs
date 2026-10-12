@@ -2,7 +2,7 @@
 import { chromium } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 const base=process.env.BASE || 'http://127.0.0.1:4205';
-const out=process.env.OUT || '../docs/ui/observability/screenshots';mkdirSync(out,{recursive:true});
+const out=process.env.OUT || '../artifacts/qa/observability/screenshots';mkdirSync(out,{recursive:true});
 const workspace={id:'ws-qa',slug:'showcase',name:'Showcase',role:'admin',role_template:'workspace_admin',mode:'builder',is_active:true,settings:{features:{adoption_experience_v1:true}}};
 const user={id:'qa-user',username:'qa',email:'qa@example.test',role:'admin',roles:['admin','owner'],is_active:true,first_name:'QA',last_name:'Local',workspaces:[workspace]};
 const evaluations=Array.from({length:20},(_,i)=>({id:'eval-'+i,run_id:'run-'+i,system_id:'northforge',created_at:new Date(Date.UTC(2026,8,15,8,i)).toISOString(),status:i===8?'failed':'completed',composite_score:i===8?null:i===9?42:83+i%12,scores:i===8?{}:{grounding:i===9?26:80+i%15,accuracy:i===9?52:86+i%9,completeness:89+i%10}})).reverse();

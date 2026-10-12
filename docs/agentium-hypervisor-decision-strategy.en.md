@@ -13,7 +13,7 @@
 > [`deck-agentium-decision-adoption.en.md`](./deck-agentium-decision-adoption.en.md).
 >
 > Office pack (rebuild with
-> `python3 docs/render/build_hypervisor_decision_pack.py`):
+> `python3 docs/archive/2026/render/build_hypervisor_decision_pack.py`):
 > [`agentium-hypervisor-decision-strategy.en.docx`](./agentium-hypervisor-decision-strategy.en.docx),
 > [`deck-agentium-decision-adoption.en.pptx`](./deck-agentium-decision-adoption.en.pptx).
 > French twins: [`agentium-hypervisor-decision-strategy.md`](./agentium-hypervisor-decision-strategy.md),

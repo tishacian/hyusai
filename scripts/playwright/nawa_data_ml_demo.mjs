@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Films the Nawa data/ML demo — the seven beats of
- * `docs/demo-runs/2026-08-25-nawa-data-ml/DEMO-SCRIPT.md`, in order, against a
+ * `docs/archive/2026/demo-runs/2026-08-25-nawa-data-ml/DEMO-SCRIPT.md`, in order, against a
  * live deployment.
  *
  * Committed rather than improvised because the recording is evidence: a video

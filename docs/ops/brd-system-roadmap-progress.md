@@ -3,7 +3,7 @@
 ## Current delivery status — 17 September 2026
 
 - **Live application: `e30230ae` on `demo/agentic`.** The
-  [release evidence](../evidence/release-e30230ae-2026-09-17/README.md) records
+  [release evidence](../archive/2026/evidence/release-e30230ae-2026-09-17/README.md) records
   exact public SHA, healthy images, **10 carakai passes and 2 intentional skips**.
 - R1 generation now separates operator questions, expected facts and reviewer
   procedures; the contaminated proposal de87d014 remains unapplied. A new real-
@@ -42,7 +42,7 @@
   verified against the same retained job, retrieved hit and original checksum.
   Cited windows expand to at most 40×40, favoring the selection over context.
   Larger references remain explicitly partial; untargeted previews stay unchanged.
-- The preceding [37056391 release](../evidence/release-37056391-2026-09-17/README.md)
+- The preceding [37056391 release](../archive/2026/evidence/release-37056391-2026-09-17/README.md)
   verified structured missing-original diagnosis, restoration/retry history,
   retrieval and idempotent replay, plus native PDF page/original provenance.
   A real image-only scan on bb467f53 also retrieves its invoice/amount/page and
@@ -63,14 +63,14 @@
   frozen authored tool contracts and durable Golden dispatch are deployed.
   The retained six-run NorthForge batch produces five briefings; all await
   explicit review. Its missing-equipment case pauses at the planner. A later
-  [unchanged-draft probe](../evidence/golden-verdicts-2026-09-16/README.md)
+  [unchanged-draft probe](../archive/2026/evidence/golden-verdicts-2026-09-16/README.md)
   retrieves the history, reports absent equipment and reaches final human
   review. That is one successful preparation, not completion of the suite.
   All official verdicts remain pending. The brittle refusal-word assertion and
   historical corpus-manifest limitation remain documented; new BRD suites now
   snapshot and check their collection manifests without rewriting old evidence.
   No live human decision has been submitted and no generated application published.
-- Earlier isolated-engine results remain [historical evidence](../evidence/northforge-brd-2026-09-16/README.md);
+- Earlier isolated-engine results remain [historical evidence](../archive/2026/evidence/northforge-brd-2026-09-16/README.md);
   they do not establish production publication, human review or second-user use.
 - R2/R3/R5/R6 are not complete; R4 now has numerical and review preparation. DataOps
   preparation follows the R1 foundation; generalization waits for R2 contracts.
@@ -84,7 +84,7 @@ Scope: [accepted roadmap](../agentium-delivery-roadmap.md).
 
 ## Deployed c399f2be — recoverable ingestion
 
-The [missing-original refinement](../evidence/ingestion-diagnostics-2026-09-16/README.md)
+The [missing-original refinement](../archive/2026/evidence/ingestion-diagnostics-2026-09-16/README.md)
 is now deployed in 37056391 with a real recovery check. It adds confirmed source
 diagnosis and FR/EN restoration guidance, retaining raw errors and historical
 attempts. No historical error is rewritten.
@@ -96,8 +96,8 @@ are refused. A broker outage remains visible and recoverable. Source inventory
 failures no longer become empty collections. FR/EN, narrow/dark presentation,
 107 backend tests and 1,486 unique frontend tests are qualified locally.
 
-[Implementation and captures](../evidence/ingestion-recovery-2026-09-16/README.md).
-[Live release and recovery proof](../evidence/release-c399f2be-2026-09-16/README.md)
+[Implementation and captures](../archive/2026/evidence/ingestion-recovery-2026-09-16/README.md).
+[Live release and recovery proof](../archive/2026/evidence/release-c399f2be-2026-09-16/README.md)
 confirm one real broker/worker attempt after source restoration, retained failure
 history, retrieval and duplicate-request replay. Live UI acceptance, OCR/Excel,
 worker interruption and the remaining R2 Capture path are still open.
@@ -111,18 +111,18 @@ row 830. Invalid or missing referenced cells fail explicitly; partial ranges
 remain labelled. PDF/OCR page aliases are resolved consistently. Shared preview
 labels are FR/EN and its surfaces use existing theme tokens.
 
-[Implementation and visual evidence](../evidence/document-cell-preview-2026-09-16/README.md):
+[Implementation and visual evidence](../archive/2026/evidence/document-cell-preview-2026-09-16/README.md):
 63 unique backend tests, 1,479 frontend tests plus a final focused rerun, guards,
 production build and local real-component FR/light + EN/dark mobile captures.
 Deployed with the server Golden-verdict correction; see the
-[release and three real Golden cases](../evidence/release-6f8f8169-2026-09-16/README.md).
+[release and three real Golden cases](../archive/2026/evidence/release-6f8f8169-2026-09-16/README.md).
 R2 ingestion/recovery and live source qualification remain open.
 
 ## Deployed b4fde677 — Work handoff and evaluation evidence
 
 `b4fde677a75a7a9f6ab30898882104c37582709b` is deployed from pushed
 `demo/agentic`. **Runtime verified; 10 canaries passed, 2 intentional skips.**
-The [release evidence](../evidence/brd-work-publication-2026-09-16/README.md)
+The [release evidence](../archive/2026/evidence/brd-work-publication-2026-09-16/README.md)
 owns the runtime qualification record.
 
 - **Flow → explicit activation → application draft.** The Application toolbar
@@ -167,7 +167,7 @@ are not rescored. Local qualification: 68 backend and 1,478 frontend tests,
 FR/EN 8,000 keys, navigation/chrome guards, production build and two rendered
 language/theme/width checks passed. **Not deployed**; runtime remains b4fde677.
 
-The [real NorthForge absence probe](../evidence/golden-verdicts-2026-09-16/README.md)
+The [real NorthForge absence probe](../archive/2026/evidence/golden-verdicts-2026-09-16/README.md)
 reaches final briefing review on b4fde677: it selects history, identifies the
 missing equipment and produces a sourced absence answer. Its two recorded raw
 planner decisions need no normalization. This is one successful preparation,
@@ -250,8 +250,8 @@ exact 4 orders, 120 planned minutes, 155 actual minutes, +35 net minutes,
 one LLM invocation, numerical check true, human validation false, and no
 duplicate Run on replay of the same idempotency key. The model used the existing
 OpenAI deployment default. These checks do not evaluate the prose semantically.
-Evidence: [480864e5](../evidence/roadmap-r0-2026-09-16/sequential-480864e5.json),
-[e09bde5c](../evidence/roadmap-r0-2026-09-16/sequential-e09bde5c.json).
+Evidence: [480864e5](../archive/2026/evidence/roadmap-r0-2026-09-16/sequential-480864e5.json),
+[e09bde5c](../archive/2026/evidence/roadmap-r0-2026-09-16/sequential-e09bde5c.json).
 
 Manual Chrome check on e09bde5c: Work displayed 4 / 35 / 3 and the generated
 explanation. “Inspect this result” opened exactly
@@ -266,7 +266,7 @@ Language of generated answers is therefore not qualified as following the UI.
    worker slots while awaiting recipes submitted to that same queue. A recipe
    hit its waiting deadline. The two remaining synthetic recipe tasks were
    cancelled explicitly via their canonical API to free the worker. No customer
-   task was cancelled. [Persisted failed evidence](../evidence/roadmap-r0-2026-09-16/concurrent-run-failure.json).
+   task was cancelled. [Persisted failed evidence](../archive/2026/evidence/roadmap-r0-2026-09-16/concurrent-run-failure.json).
    A dedicated executor queue/consumer or durable nonblocking orchestration
    must be designed and qualified with its deployment/storage/rollback gates;
    increasing concurrency alone does not remove the deadlock.
@@ -306,7 +306,7 @@ implemented by this release.
 
 Runtime cf90acb0 passed the main-landmark and mobile-width checks. Its five
 sequential executions passed in 27–32 seconds:
-[exact Run evidence](../evidence/roadmap-r0-2026-09-16/sequential-cf90acb0.json).
+[exact Run evidence](../archive/2026/evidence/roadmap-r0-2026-09-16/sequential-cf90acb0.json).
 The API and frontend build-info both matched; root returned HTTP 200 and the
 backend/frontend were healthy with no startup exception detected.
 
@@ -330,7 +330,7 @@ and the production build passed before integration on demo/agentic.
 
 **Live: 196164eb5b8098dca49cf54a7c06c4df05cc8b79.** Five sequential
 Runs passed in 23–31 seconds, with the same Flow version and no duplicate on
-idempotent replay. [Evidence and actual screenshots](../evidence/roadmap-r0-2026-09-16/README.md).
+idempotent replay. [Evidence and actual screenshots](../archive/2026/evidence/roadmap-r0-2026-09-16/README.md).
 
 The full source-matched iteration returned **9 passed, 1 failed, 2 intentional
 skips**. The sole remaining failure was Studio cleanup: the test incorrectly
@@ -386,7 +386,7 @@ separating declared ROI projection from approval. The 54 storage tests and
 **7532d449 is live on demo/agentic.** Both concurrent pairs passed, including a
 graceful recipe-worker restart; five sequential Runs and idempotent replays
 passed. Iteration canaries: 10 passed, two intentional local-contract skips.
-New Runs show no inferred approval or confidence. [Release evidence](../evidence/runtime-7532d449-2026-09-16/README.md).
+New Runs show no inferred approval or confidence. [Release evidence](../archive/2026/evidence/runtime-7532d449-2026-09-16/README.md).
 Abrupt worker loss, real-provider Giskard and human adoption acceptance remain
 outside this completed deployment qualification.
 
@@ -534,7 +534,7 @@ Validation: 35 targeted frontend tests passed; i18n passed with 7,970 keys;
 nav-link and UI-chrome guards passed; production build passed with existing bundle
 and CommonJS warnings. The actual component passed 12 controlled visual states
 (FR/EN, light/dark, 1280/390/320 px), with no horizontal overflow and creation
-blocked before review. [Captures](../evidence/brd-system-ui-2026-09-16/README.md).
+blocked before review. [Captures](../archive/2026/evidence/brd-system-ui-2026-09-16/README.md).
 These are local fixture renders, not live BRD-generation results. Full dialog
 keyboard/focus, live job recovery and download remain acceptance checks.
 
@@ -589,7 +589,7 @@ and executor instructions, canonical case schema and published category enums.
 Failed output/validation retains available usage evidence. Business outcomes
 are accepted and displayed in requirement coverage alongside requirements and
 constraints. Evidence and remaining acceptance limits:
-`docs/evidence/brd-generation-2026-09-16/README.md`.
+`docs/archive/2026/evidence/brd-generation-2026-09-16/README.md`.
 
 This is not deployed R1 acceptance: runtime execution/HITL/assertions and the
 NorthForge family remain to qualify.
@@ -644,7 +644,7 @@ A fresh candidate produced a correct sourced normal-case summary through three
 real model calls and a local canonical Run/HITL cycle. Its proposed assertion
 paths were wrong and semantic prohibitions were inadequately represented by
 lexical exclusions. These are retained as failures, not rewritten to pass.
-Evidence: `docs/evidence/brd-pih-runtime-2026-09-16/README.md`. No production
+Evidence: `docs/archive/2026/evidence/brd-pih-runtime-2026-09-16/README.md`. No production
 publication or human-user acceptance is claimed.
 
 
@@ -794,7 +794,7 @@ available. A dedicated intervention-history collection is absent. Prepared the
 history from the existing four Operational Analysis records, with missing causes
 and equipment explicit, plus distinct notice/history and refusal cases. One
 fixture test passes. Evidence and the generated Markdown are in
-`docs/evidence/northforge-intervention-2026-09-16/`. Ingestion, pinned tool setup
+`docs/archive/2026/evidence/northforge-intervention-2026-09-16/`. Ingestion, pinned tool setup
 and actual AgentLoop selection remain open; no production mutation was made.
 
 
@@ -802,7 +802,7 @@ and actual AgentLoop selection remain open; no production mutation was made.
 
 The canonical upload/worker pipeline indexed the synthetic history successfully.
 A real scoped search returns NF-04 with 30 planned and 55 actual minutes and its
-source identity. Evidence: `docs/evidence/northforge-intervention-2026-09-16/ingestion-and-search.json`.
+source identity. Evidence: `docs/archive/2026/evidence/northforge-intervention-2026-09-16/ingestion-and-search.json`.
 The dedicated collection is now available for the second read tool. Native
 AgentLoop tool choice and the BRD-generated System are still unqualified.
 
@@ -835,7 +835,7 @@ this assertion and avoids isolated-word bans that penalize disclaimers.
 51 scoped tests passed before the final source-reference regression; 43 campaign
 and generation tests passed after it. Offline application to the unchanged live
 PIH answers examined 6/4/11 quotes and found 0/0/5 missing, respectively. Evidence:
-`docs/evidence/brd-release-candidate-2026-09-16/quote-diagnostic.json`.
+`docs/archive/2026/evidence/brd-release-candidate-2026-09-16/quote-diagnostic.json`.
 This is a separate diagnostic: historical suite criteria, Run statuses and human
 decisions were not changed. New code is not deployed. Runtime quality gates,
 reviewable test revisions and a fresh successful generated suite remain open.
