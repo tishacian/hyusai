@@ -181,8 +181,7 @@ La transition A/B n'est pas une migration de stockage :
   (`/srv/agentium-data/faiss_db`) restent sous `/srv/agentium-data`, monté sur
   `/dev/sdb` ;
 - le Secure Deposit SFTP est monté depuis la phase 4b sur
-  `/srv/agentium-secure-deposit` (`/dev/sdc`, par UUID dans fstab), hors de
-  `/home/ubuntu/omnirag`.
+  `/srv/agentium-secure-deposit` (`/dev/sdc`, par UUID dans fstab).
 
 Le GO Release A exige exactement trois sauvegardes fournisseur ou hors VM,
 distinctes et restaurées : une pour chacun de `/dev/sda1`, `/dev/sdb` et

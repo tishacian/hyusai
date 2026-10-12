@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 MODE="${1:-}"
-REPO_DIR="${OMNIRAG_REPO_DIR:-/home/ubuntu/omnirag}"
+REPO_DIR="${OMNIRAG_REPO_DIR:-/srv/agentium-data/worktrees/demo-agentic}"
 GATE_DIR="${AGENTIUM_MAINTENANCE_DIR:-/var/lib/agentium}"
 GATE_FILE="$GATE_DIR/deploy-maintenance"
 SNIPPET_SOURCE="${AGENTIUM_MAINTENANCE_SNIPPET_SOURCE:-$REPO_DIR/deploy/nginx/agentium-deploy-maintenance.conf}"

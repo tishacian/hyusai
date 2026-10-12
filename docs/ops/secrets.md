@@ -98,7 +98,7 @@ bootstrap).
 4. **Update Keycloak env** (inject the new password on next redeploy) :
 
    ```bash
-   cd /home/ubuntu/omnirag/deploy
+   cd /srv/agentium-data/worktrees/demo-agentic/deploy
    sudo KC_DB_PASSWORD='<new>' ./redeploy-keycloak.sh
    ```
 

@@ -16,7 +16,7 @@ unset PYTHONBREAKPOINT PYTHONHOME PYTHONINSPECT PYTHONOPTIMIZE PYTHONPATH PYTHON
 
 EXPECTED_SHA=""
 DEPLOYMENT_ID=""
-REPO_DIR="${OMNIRAG_REPO_DIR:-/home/ubuntu/omnirag}"
+REPO_DIR="${OMNIRAG_REPO_DIR:-/srv/agentium-data/worktrees/demo-agentic}"
 BRANCH="demo/agentic"
 STATE_ROOT="${AGENTIUM_SAFE_DEPLOY_STATE_DIR:-/srv/agentium-data/deployments}"
 DATA_ROOT="${AGENTIUM_DATA_ROOT:-/srv/agentium-data}"
@@ -831,7 +831,7 @@ refresh_storage_proof() {
 		--container agentium-rabbitmq
 	)
 	secure_deposit="$(read_env_value AGENTIUM_SECURE_DEPOSIT_PATH)"
-	secure_deposit="${secure_deposit:-/home/ubuntu/omnirag/backend/data/secure_deposit}"
+	secure_deposit="${secure_deposit:-/srv/agentium-secure-deposit}"
 	configured="$(read_env_value AGENTIUM_QDRANT_ENV_FILE)"
 	[[ "$configured" == "$ENV_BUNDLE_DIR"/* ]] || die "Env Qdrant hors bundle figé"
 	qdrant_env="$configured"
