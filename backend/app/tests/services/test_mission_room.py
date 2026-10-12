@@ -318,7 +318,7 @@ def test_sentinel_existing_workspace_locks_before_seed_mutations(db_session, mon
         return locked
 
     monkeypatch.setattr(
-        "app.services.mission_room.lock_workspace_for_app_entitlement_mutation",
+        "app.services.mission_room.provisioning.lock_workspace_for_app_entitlement_mutation",
         _tracking_lock,
     )
 
@@ -407,7 +407,7 @@ def test_octocity_existing_entitlement_workspace_locks_and_grants_seed_owner(
         return locked
 
     monkeypatch.setattr(
-        "app.services.mission_room.lock_workspace_for_app_entitlement_mutation",
+        "app.services.mission_room.provisioning.lock_workspace_for_app_entitlement_mutation",
         _tracking_lock,
     )
     monkeypatch.setenv("OCTOCITY_OWNER_EMAILS", owner_email)
