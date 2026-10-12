@@ -176,14 +176,6 @@ VM_OPTIONAL_PROFILE_SERVICES = frozenset(
 VM_RUNTIME_TRANSITIONAL_TARGETS = {
     ("agentium-worker-cpu", "/data/recipe_envs"),
 }
-# Sources the running generation may still use for a moved store: the
-# pre-mutation gate accepts them on running containers only, so the `up` that
-# moves the store can pass it. Rendered Compose and the frozen environment
-# accept the new source alone. Remove an entry once no older generation runs.
-VM_RUNTIME_PREVIOUS_SOURCES = {
-    "AGENTIUM_FAISS_PATH": "/home/ubuntu/omnirag/backend/faiss_db",
-    "AGENTIUM_SECURE_DEPOSIT_PATH": "/home/ubuntu/omnirag/backend/data/secure_deposit",
-}
 VM_DOCKER_VOLUME_ROOT = "/var/lib/docker/volumes"
 
 
@@ -640,12 +632,7 @@ def assert_vm_active_storage_mounts(payload: Any) -> None:
             target: (
                 "bind",
                 None,
-                (environments[environment_key],)
-                + tuple(
-                    source
-                    for source in (VM_RUNTIME_PREVIOUS_SOURCES.get(environment_key),)
-                    if source
-                ),
+                environments[environment_key],
                 not read_only,
             )
             for target, (environment_key, read_only) in required.items()
@@ -677,11 +664,7 @@ def assert_vm_active_storage_mounts(payload: Any) -> None:
                 row.get("Type") != kind
                 or row.get("RW") is not read_write
                 or (volume_name is not None and row.get("Name") != volume_name)
-                or (
-                    source is not None
-                    and row.get("Source")
-                    not in (source if isinstance(source, tuple) else (source,))
-                )
+                or (source is not None and row.get("Source") != source)
             ):
                 raise RuntimeEnvBundleError("VM active storage mount identity differs")
 
