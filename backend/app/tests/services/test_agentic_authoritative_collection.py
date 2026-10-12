@@ -314,7 +314,7 @@ async def test_multi_hop_all_backend_failures_remain_technical(monkeypatch):
     async def _unavailable(*_args, **_kwargs):
         raise ConnectionError("vector backend unavailable")
 
-    monkeypatch.setattr(wrappers, "_semantic_search_v1", _unavailable)
+    monkeypatch.setattr(wrappers.skills, "_semantic_search_v1", _unavailable)
 
     result = await wrappers._multi_hop_retrieve_v1(
         {

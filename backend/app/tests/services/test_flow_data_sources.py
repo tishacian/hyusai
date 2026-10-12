@@ -130,7 +130,7 @@ async def test_declared_document_sources_cannot_fall_back_to_implicit_retrieval(
         lambda *_: [(None, None, SimpleNamespace(slug="luma-maison-regles"))],
     )
     retrieval = Mock()
-    monkeypatch.setattr(wrappers, "_semantic_search_v1", retrieval)
+    monkeypatch.setattr(wrappers.skills, "_semantic_search_v1", retrieval)
     with pytest.raises(ValueError, match="CLAIM_SOURCE_OUTSIDE_FLOW_BINDING"):
         await claims._evidence(
             None,

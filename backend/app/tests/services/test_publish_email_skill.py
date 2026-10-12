@@ -104,7 +104,7 @@ async def test_role_agent_returns_strict_json_object(monkeypatch):
         assert "summary" in payload["prompt"]
         return {"completion": '```json\n{"summary":"ok","recommendation":"buy"}\n```'}
 
-    monkeypatch.setattr(wrappers, "_workspace_llm_v1", fake_llm)
+    monkeypatch.setattr(wrappers.skills, "_workspace_llm_v1", fake_llm)
 
     result = await wrappers._role_agent_v1(
         {

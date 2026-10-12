@@ -172,7 +172,7 @@ async def test_native_planner_normalization_is_retained_in_invocation_trace(db_s
     async def complete(prompt, model, ctx):
         return json.dumps({**raw, "rationale": "Read the permitted source"})
 
-    monkeypatch.setattr(wrappers, "_route_llm_complete", complete)
+    monkeypatch.setattr(wrappers.skills, "_route_llm_complete", complete)
     _install(monkeypatch, {"decide_next_v1": wrappers._decide_next_v1})
     flow = json.loads(json.dumps(LOOP_FLOW))
     flow["nodes"][1]["config"]["skill_allowlist"] = ["azure_llm_v1"]

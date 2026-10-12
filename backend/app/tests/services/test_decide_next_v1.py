@@ -100,7 +100,7 @@ async def test_wrapper_prompt_contains_only_allowlisted_slugs(monkeypatch):
             }
         )
 
-    monkeypatch.setattr(wrappers, "_route_llm_complete", fake_complete)
+    monkeypatch.setattr(wrappers.skills, "_route_llm_complete", fake_complete)
     out = await wrappers._decide_next_v1(
         {
             "goal": {"objective": "reset password", "done_when": ["audit_log_v1"]},
@@ -123,7 +123,7 @@ async def test_wrapper_garbage_completion_blocks(monkeypatch):
     async def fake_complete(prompt, model, ctx, **kwargs):
         return "sorry I cannot"
 
-    monkeypatch.setattr(wrappers, "_route_llm_complete", fake_complete)
+    monkeypatch.setattr(wrappers.skills, "_route_llm_complete", fake_complete)
     out = await wrappers._decide_next_v1({"visible_skills": VISIBLE}, {})
     assert out["next_skill"] is None
     assert out["needs_human"] is True
@@ -146,7 +146,7 @@ async def test_wrapper_records_decision_provenance_without_changing_output(
     async def fake_complete(prompt, model, ctx, **kwargs):
         return json.dumps({**raw, "rationale": "private model rationale", "human_prompt": "private question"})
 
-    monkeypatch.setattr(wrappers, "_route_llm_complete", fake_complete)
+    monkeypatch.setattr(wrappers.skills, "_route_llm_complete", fake_complete)
     ctx = {}
     out = await wrappers._decide_next_v1({"visible_skills": VISIBLE}, ctx)
 
@@ -172,7 +172,7 @@ async def test_wrapper_records_failure_origin_without_completion_or_error_text(m
             raise RuntimeError("private provider failure")
         return "private invalid completion"
 
-    monkeypatch.setattr(wrappers, "_route_llm_complete", fake_complete)
+    monkeypatch.setattr(wrappers.skills, "_route_llm_complete", fake_complete)
     ctx = {}
     out = await wrappers._decide_next_v1({"visible_skills": VISIBLE}, ctx)
 
