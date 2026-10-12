@@ -95,3 +95,17 @@ npx ng test
 
 For more advanced use cases (running specific tests, markers, fixtures, parallel execution, debugging, etc.), refer to the official pytest documentation:
 https://docs.pytest.org/en/stable/how-to/usage.html
+
+## Where a script goes
+
+Three folders, one role each ([ADR 0004](docs/adr/0004-reorganisation-monorepo.md), D6):
+
+- `backend/scripts/`: data work run against the application (seeds, backfills,
+  audits, benchmarks), started with `python scripts/<name>.py` from `backend/`.
+- `scripts/`: release and VM operations (`agentium-*.sh`, `agentium_*.py`,
+  deployment, compliance, QA gates), run from the repository root.
+- `backend/app/cli/`: entry points that ship in the image, run with
+  `python -m app.cli.<name>`.
+
+A command that already exists in `app/cli` is not duplicated in either scripts
+folder.
