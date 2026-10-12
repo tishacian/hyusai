@@ -322,8 +322,11 @@ because they live in Postgres (`deposit_access_links`). It also preserves the
 server host key and all staged files by mounting the same host path:
 
 ```text
-/home/ubuntu/omnirag/backend/data/secure_deposit:/data/secure_deposit
+/srv/agentium-secure-deposit:/data/secure_deposit
 ```
+
+(Until the 2026-10-12 storage move the same `/dev/sdc` filesystem was mounted
+on `/home/ubuntu/omnirag/backend/data/secure_deposit`.)
 
 Test first on a private host port while the systemd daemon still owns `2222`:
 
