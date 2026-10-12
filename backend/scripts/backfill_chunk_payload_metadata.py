@@ -20,7 +20,7 @@ from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollec
 from app.models.workspace import Workspace
 from app.services.knowledge_collections import document_manifest_key
 from app.services.object_store import get_object_store
-from app.services.vector_db.factory import VectorDBFactory
+from app.services.rag.index.factory import VectorDBFactory
 
 _BACKFILL_KEYS = ("project_code", "machine", "wave_id", "content_sha256", "source_family", "archive_name")
 

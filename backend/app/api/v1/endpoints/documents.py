@@ -2315,7 +2315,7 @@ async def list_collections(
     richer Agentium metadata is returned under ``items``.
     """
     try:
-        from app.services.vector_db.factory import VectorDBFactory
+        from app.services.rag.index.factory import VectorDBFactory
 
         db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
 
@@ -2380,7 +2380,7 @@ async def create_collection(
 ):
     """Create a workspace-scoped collection ledger row and vector collection."""
     try:
-        from app.services.vector_db.factory import VectorDBFactory
+        from app.services.rag.index.factory import VectorDBFactory
 
         db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
         requested_name = (payload.name if payload else collection_name) or ""
@@ -3253,7 +3253,7 @@ async def delete_collection(
     try:
         from urllib.parse import unquote
 
-        from app.services.vector_db.factory import VectorDBFactory
+        from app.services.rag.index.factory import VectorDBFactory
 
         collection_name = unquote(collection_name)
         # Deleting needs write access: 404 when unreadable, 403 for viewers.

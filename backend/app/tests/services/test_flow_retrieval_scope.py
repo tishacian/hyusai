@@ -15,8 +15,8 @@ from app.services.rag.corpus_planner import CorpusPlan
 from app.services.run_engine.dag import DagNode, _apply_retrieval_node_scope
 from app.services.skills_registry import wrappers
 from app.services.skills_registry.wrappers import _rag_runtime_kwargs
-from app.services.vector_db.chroma_db import _filters_to_chroma_where
-from app.services.vector_db.faiss_db import _metadata_matches_filters
+from app.services.rag.index.chroma_db import _filters_to_chroma_where
+from app.services.rag.index.faiss_db import _metadata_matches_filters
 
 
 def _flow(config: dict) -> dict:

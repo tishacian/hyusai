@@ -8,12 +8,12 @@ import pytest
 
 from app.core.config import settings
 from app.models.workspace import Workspace
-from app.services.vector_db.faiss_db import FAISSVectorDB
-from app.services.vector_db.faiss_to_qdrant import (
+from app.services.rag.index.faiss_db import FAISSVectorDB
+from app.services.rag.index.faiss_to_qdrant import (
     load_faiss_snapshot,
     migrate_faiss_snapshot_to_qdrant,
 )
-from app.services.vector_db.qdrant_db import QdrantVectorDB
+from app.services.rag.index.qdrant_db import QdrantVectorDB
 
 
 pytest.importorskip("faiss")

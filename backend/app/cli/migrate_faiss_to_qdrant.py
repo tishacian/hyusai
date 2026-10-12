@@ -6,8 +6,8 @@ import json
 import sys
 from typing import Any
 
-from app.services.vector_db.factory import VectorDBFactory
-from app.services.vector_db.faiss_to_qdrant import (
+from app.services.rag.index.factory import VectorDBFactory
+from app.services.rag.index.faiss_to_qdrant import (
     MigrationReport,
     migrate_faiss_collection_to_qdrant,
     run_migration,

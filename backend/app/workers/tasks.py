@@ -12,7 +12,7 @@ from app.services.secure_deposit_operations import run_sftp_reconciliation_job
 from app.services.visual_intelligence import run_visual_capture_job
 from app.services.worker_bm25 import run_bm25_rebuild
 from app.services.worker_deep_retrieval import run_deep_retrieval, run_workspace_deep_retrieval
-from app.services.worker_ingest import run_document_ingest_index
+from app.services.rag.ingest.worker_ingest import run_document_ingest_index
 from app.services.worker_offline_retrieval_artifacts import run_offline_retrieval_artifact_job
 from app.workers.celery_app import celery_app
 

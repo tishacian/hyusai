@@ -23,7 +23,7 @@ from typing import Any, Mapping
 
 from app.core.logging import get_logger
 from app.services.rag.corpus_planner import _query_terms
-from app.services.vector_db.factory import VectorDBFactory
+from app.services.rag.index.factory import VectorDBFactory
 
 logger = get_logger(__name__)
 

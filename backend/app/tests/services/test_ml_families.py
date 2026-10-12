@@ -594,7 +594,7 @@ def test_the_family_image_app_registers_the_training_task_and_nothing_else():
         "from app.workers.celery_ml import celery_ml\n"
         "celery_ml.loader.import_default_modules()\n"
         "tasks = sorted(name for name in celery_ml.tasks if name.startswith('agentium.'))\n"
-        "heavy = sorted(m for m in sys.modules if m.startswith(('app.services.rag', 'app.services.worker_ingest', 'torch', 'transformers')))\n"
+        "heavy = sorted(m for m in sys.modules if m.startswith(('app.services.rag', 'app.services.rag.ingest.worker_ingest', 'torch', 'transformers')))\n"
         "print('PROBE ' + json.dumps({'tasks': tasks, 'heavy': heavy}))\n"
     )
     result = subprocess.run(
