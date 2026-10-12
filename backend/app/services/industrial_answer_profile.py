@@ -284,6 +284,10 @@ _MULTIHOP_RE = re.compile(
     r"[^?.!\n]{0,90}\b(?:combien|quels?|quelles?|how\s+many|how\s+much|which)\b",
     re.IGNORECASE,
 )
+
+
+def is_multi_hop_query(text: str | None) -> bool:
+    return bool(_MULTIHOP_RE.search(text or ""))
 _PRECISE_FACT_RE = re.compile(
     r"^\s*(quelle?|quels?|quelles?|what|which|combien|how\s+much|how\s+many|pression|pressure|largeur|width|vitesse|speed)\b",
     re.IGNORECASE,
