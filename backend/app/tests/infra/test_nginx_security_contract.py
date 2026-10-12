@@ -124,16 +124,6 @@ def test_deployment_maintenance_gate_uses_a_dedicated_canary_destination() -> No
     assert 'Retry-After "60" always' in gate
 
 
-def test_safe_deployer_rejects_secondary_proxies_around_loopback_bypass() -> None:
-    deployer = (REPO_ROOT / "scripts/deploy-agentium-safe.sh").read_text()
-
-    assert "assert_nginx_unique_edge_topology" in deployer
-    assert "protected upstream outside canonical site" in deployer
-    assert "duplicate Agentium server_name" in deployer
-    assert "proxy_pass|grpc_pass|fastcgi_pass|uwsgi_pass" in deployer
-    assert "assert_nginx_unique_edge_topology\n" in deployer
-
-
 def test_realtime_control_plane_is_behind_the_deployment_gate() -> None:
     config = (REPO_ROOT / "deploy/nginx/agentium-container-frontend.conf").read_text()
     start = config.index("location ^~ /livekit/ {")

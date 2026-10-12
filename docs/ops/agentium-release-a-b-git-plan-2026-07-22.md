@@ -2,7 +2,7 @@
 
 Ce document décrit la transition révisée depuis le runtime réellement actif
 `154fd98822439747846cd941dce1bf8191f379b2`. Il complète le
-[runbook de déploiement sûr](./agentium-safe-vm-deployment.md) ; il ne donne
+[runbook de déploiement sûr](../archive/2026/ops/agentium-safe-vm-deployment.md) ; il ne donne
 aucune autorisation de commit, push ou déploiement.
 
 Il s'agit d'un plan de construction, pas de l'état d'une release publiée. La

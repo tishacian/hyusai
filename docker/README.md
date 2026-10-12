@@ -54,5 +54,5 @@ the routing default.
 Use `AGENTIUM_ENV_FILE` to point
 to a non-committed env file. On the demo VM, use
 `scripts/agentium-vm-deploy.sh storage-check` and follow
-`docs/ops/agentium-safe-vm-deployment.md`; `migrate` and `up` run that
-read-only gate automatically.
+`docs/agentium-release-process.md`; `migrate` and `up` run that read-only gate
+automatically.

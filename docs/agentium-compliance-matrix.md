@@ -19,7 +19,7 @@ Source contract: [`config/agentium/product-compliance.v1.json`](../config/agenti
 | 5 | `LOT5-WORKSPACE-BLUEPRINT-V2` — Workspace Blueprint v2 migrates portable experience safely | `full_stack` | ❌ 1/2 required | ✅ 1/1 required | ✅ 2/2 required | ✅ 3/3 required | `node`, `pytest` | 🟡 Partial |
 | 5 | `LOT5-SURFACE-CATALOG-COVERAGE` — API catalog coverage uses the production router as oracle | `api` | ✅ 1/1 required | ✅ 1/1 required | — | ✅ 1/1 required | `pytest` | 🟠 Static verified |
 | 5 | `LOT5-CANONICAL-CONTRACTS` — Canonical workspace contracts replace implicit tenant branching progressively | `full_stack` | ✅ 7/7 required | ✅ 2/2 required | ❌ 2/3 required | ✅ 8/8 required | `node`, `pytest` | 🟡 Partial |
-| 5 | `LOT5-COMPLIANCE-GOVERNANCE` — Product claims are computed and external evidence cannot self-promote | `governance` | ✅ 4/4 required | — | — | ✅ 1/1 required | `pytest` | 🟠 Static verified |
+| 5 | `LOT5-COMPLIANCE-GOVERNANCE` — Product claims are computed and external evidence cannot self-promote | `governance` | ✅ 3/3 required | — | — | ✅ 1/1 required | `pytest` | 🟠 Static verified |
 | 6 | `LOT6-NAV-ONE-SCALE-PER-AXIS` — Cockpit navigation uses one scale per axis | `frontend` | ✅ 3/3 required | — | ❌ 1/2 required | ❌ 1/2 required | `node`, `playwright` | 🟡 Partial |
 | 6 | `LOT6-SYSTEM360-PERSPECTIVES` — One marked System exposes four distinct, evidence-backed perspectives | `full_stack` | ✅ 5/5 required | ✅ 1/1 required | ✅ 1/1 required | ✅ 1/1 required | `playwright` | 🟠 Static verified |
 | 6 | `LOT6-P4-DURABLE-SUBFLOWS` — Durable Celery subflows preserve delegated Run identity | `backend` | ✅ 6/6 required | — | — | ✅ 4/4 required | `pytest` | 🟠 Static verified |
@@ -149,7 +149,7 @@ Workspace, System, application and action-pack vocabularies are canonical at dat
 - **implementation / PASS** — [Reversible one-shot canonical backfill](../backend/alembic/versions/058_canonical_workspace_system_contracts.py)
 - **implementation / PASS** — [Versioned residual slug-debt gate](../scripts/agentium_compliance.py)
 - **implementation / PASS** — [Lot 5 canonical cleanup and rollout contract](../docs/agentium-navigation-lot-5-cleanup-governance.md)
-- **implementation / PASS** — [Database-aware immutable image rollback](../scripts/deploy-vm.sh)
+- **implementation / PASS** — [Journaled image rollback behind a pre-migration dump](../scripts/agentium-vm-deploy.sh)
 - **api / PASS** — [Workspace mutation schema canonicalization](../backend/app/api/v1/endpoints/auth.py)
 - **api / PASS** — [System mutation schema canonicalization](../backend/app/api/v1/endpoints/systems.py)
 - **frontend / PASS** — [Canonical frontend System contract projection](../frontend-ng/src/app/core/canonical-api.service.ts)
@@ -162,7 +162,7 @@ Workspace, System, application and action-pack vocabularies are canonical at dat
 - **tests / PASS** — [Canonical migration round-trip and audit contract](../backend/app/tests/services/test_migration_058_canonical_workspace_system_contracts.py)
 - **tests / PASS** — [Mission Room profile isolation remains configuration-driven](../frontend-ng/src/app/features/mission-room/mission-room.extension.spec.ts)
 - **tests / PASS** — [Slug debt inventory drift tests](../backend/app/tests/infra/test_agentium_compliance_contract.py)
-- **tests / PASS** — [Database revision rollback guard test](../backend/app/tests/infra/test_agentium_compliance_contract.py)
+- **tests / PASS** — [Pre-migration dump and rollback journal tests](../backend/app/tests/infra/test_agentium_vm_deploy_guards.py)
 
 ### `LOT5-COMPLIANCE-GOVERNANCE` — Product claims are computed and external evidence cannot self-promote
 
@@ -171,7 +171,6 @@ One machine-readable manifest derives repository states, rejects manual formal b
 - **implementation / PASS** — [Compliance generator and checker](../scripts/agentium_compliance.py)
 - **implementation / PASS** — [State-free product compliance manifest](../config/agentium/product-compliance.v1.json)
 - **implementation / PASS** — [Repository CI compliance gate](../.gitlab-ci.yml)
-- **implementation / PASS** — [Pinned-checkout deployment static gate](../scripts/deploy-vm.sh)
 - **tests / PASS** — [Static compliance governance tests](../backend/app/tests/infra/test_agentium_compliance_contract.py)
 
 ### `LOT6-NAV-ONE-SCALE-PER-AXIS` — Cockpit navigation uses one scale per axis
