@@ -649,7 +649,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--sha", required=True)
     parser.add_argument("--branch", default="demo/agentic")
     parser.add_argument("--alembic-revision", required=True)
-    parser.add_argument("--repo-dir", type=Path, default=Path("/home/ubuntu/omnirag"))
+    parser.add_argument("--repo-dir", type=Path, default=Path("/srv/agentium-data/worktrees/demo-agentic"))
     parser.add_argument("--deployment-dir", type=Path, required=True)
     return parser.parse_args(argv)
 

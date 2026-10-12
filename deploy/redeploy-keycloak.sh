@@ -4,9 +4,9 @@
 # env, and DB connection as currently configured on the VM.
 #
 # Requires the theme tree to already exist at:
-#   /home/ubuntu/omnirag/backend/keycloak/themes/agentium
+#   /srv/agentium-data/worktrees/demo-agentic/backend/keycloak/themes/agentium
 # and the realm export at:
-#   /home/ubuntu/omnirag/backend/keycloak/realm-export.json
+#   /srv/agentium-data/worktrees/demo-agentic/backend/keycloak/realm-export.json
 #
 # Run: sudo ./redeploy-keycloak.sh
 
@@ -15,7 +15,7 @@ set -euo pipefail
 CONTAINER="${CONTAINER:-agentium-kc}"
 IMAGE="${IMAGE:-quay.io/keycloak/keycloak:26.1.4}"
 NET="${NET:-agentium-net}"
-REPO_ROOT="${REPO_ROOT:-/home/ubuntu/omnirag}"
+REPO_ROOT="${REPO_ROOT:-/srv/agentium-data/worktrees/demo-agentic}"
 THEME_DIR="${REPO_ROOT}/backend/keycloak/themes/agentium"
 REALM_EXPORT="${REPO_ROOT}/backend/keycloak/realm-export.json"
 
