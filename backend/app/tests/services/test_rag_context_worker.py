@@ -37,7 +37,7 @@ def unavailable_baked_reranker(monkeypatch):
     and HF adapter tests separately exercise model scoring and validation.
     """
     from app.services.rag import cross_encoder_stage
-    from app.services.retrieval import rerankers
+    from app.services.rag.retrieval import rerankers
 
     def unavailable(_config):
         raise ImportError("This context test does not provision a baked-in reranker")

@@ -1,6 +1,6 @@
 """Importing the RAG path must not reach for torch.
 
-Until this guard, ``app.services.retrieval`` imported ``flash_reranker`` at
+Until this guard, ``app.services.rag.retrieval`` imported ``flash_reranker`` at
 package import, which imports torch and transformers at module scope; through
 the documents router that ran in every uvicorn worker and every Celery worker
 at start-up. Now the engine is chosen when a rerank is first asked for.
@@ -17,10 +17,10 @@ from pathlib import Path
 BACKEND = Path(__file__).resolve().parents[3]
 FORBIDDEN = ("torch", "torchvision", "transformers")
 MODULES = (
-    "app.services.retrieval",
-    "app.services.retrieval.contextual_compression",
-    "app.services.retrieval.rerankers",
-    "app.services.retrieval.onnx_reranker",
+    "app.services.rag.retrieval",
+    "app.services.rag.retrieval.contextual_compression",
+    "app.services.rag.retrieval.rerankers",
+    "app.services.rag.retrieval.onnx_reranker",
     "app.services.rag.cross_encoder_stage",
     "app.services.rag.document_service",
 )
@@ -53,8 +53,8 @@ def test_rag_import_path_never_attempts_torch():
 
 
 def test_flash_reranker_stays_reachable_from_the_package():
-    """The lazy export keeps ``from app.services.retrieval import FlashReranker``."""
-    import app.services.retrieval as retrieval
+    """The lazy export keeps ``from app.services.rag.retrieval import FlashReranker``."""
+    import app.services.rag.retrieval as retrieval
 
     assert "FlashReranker" in retrieval.__all__
     engine = retrieval.FlashReranker  # None where torch is not installed

@@ -51,7 +51,7 @@ def require_qdrant():
 
 @pytest.fixture
 def require_embedder():
-    from app.services.embedding.embedder import Embedder, EmbeddingUnavailable
+    from app.services.rag.ingest.embedder import Embedder, EmbeddingUnavailable
 
     try:
         Embedder()

@@ -14,7 +14,7 @@ from app.models.run import Run, SkillInvocation
 from app.models.skill import Skill
 from app.models.system import System
 from app.models.workspace import Workspace
-from app.services.embedding.embedder import Embedder
+from app.services.rag.ingest.embedder import Embedder
 from app.services.evaluation.judge import (
     DIMENSIONS,
     provider_usage_evidence,
