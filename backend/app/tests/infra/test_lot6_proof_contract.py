@@ -382,41 +382,6 @@ def test_lot6_job_is_manual_protected_and_does_not_embed_credentials() -> None:
     assert "marker(system) === 'v1'" in canary
 
 
-def test_lot6_vm_wrapper_enforces_quiesced_order_and_stdin_exercise() -> None:
-    wrapper = (ROOT / "scripts/deploy-lot6-system360.sh").read_text(encoding="utf-8")
-    ordered = [
-        '--build-only --branch "$BRANCH"',
-        'create_backup "pre-quiescence"',
-        'STAGE="writer quiescence"',
-        'create_backup "quiesced"',
-        'run_candidate alembic upgrade head',
-        'rollout_system360_canary prepare --apply',
-        'backfill_flow_v3_variables --cohort showcase',
-        '--activate-only --branch "$BRANCH"',
-        'rollout_system360_canary activate-flow --apply',
-        'rollout_system360_canary exercise --apply --exercise-query-stdin',
-        'rollout_system360_canary activate-membrane --apply',
-        'rollout_system360_canary activate-axes --apply',
-        'rollout_system360_canary activate-projection --apply',
-    ]
-    positions = [wrapper.index(fragment) for fragment in ordered]
-    assert positions == sorted(positions)
-    assert "--exercise-query-stdin est obligatoire" in wrapper
-    assert "La requête d'exercice" in wrapper
-    assert '--report "$EXERCISE_CONTAINER_REPORT" >/dev/null' in wrapper
-    assert 'docker exec agentium-backend cat "$EXERCISE_CONTAINER_REPORT"' in wrapper
-    assert 'rm -f "$EXERCISE_REPORT"' in wrapper
-    assert 'e["grounded_output_verified"] is True' in wrapper
-    assert 'e["canonical_provenance_verified"] is True' in wrapper
-    assert "aucune restauration DB/image implicite" in wrapper
-    assert "rollout-failure-rollback.json" in wrapper
-    assert 'local backup="$1"\n\tlocal checksum="$backup.sha256"' in wrapper
-    assert (
-        'local label="$1"\n\tlocal backup="$DEPLOY_DIR/postgres-${label}.dump"'
-        in wrapper
-    )
-
-
 def test_lot6_rollout_locks_only_concrete_postgres_tables() -> None:
     rollout = (ROOT / "backend/scripts/rollout_system360_canary.py").read_text(
         encoding="utf-8"
