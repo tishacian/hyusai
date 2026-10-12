@@ -44,9 +44,8 @@ RUNTIME_READS = [
     "docs/demo-data/sentinel-ci-kb/rapport-prefet-nawa-2026-05-10.md",
     "docs/showcase-notices-knowledge-guide.md",
     "docs/andritz-notices-techniques-spl-knowledge-guide.md",
-    "data/hkunlp_embeddings.npy",
 ]
-RUNTIME_DIRECTORIES = ["src/metadata_extraction", "connections", "sample_data", "frontend"]
+RUNTIME_DIRECTORIES = ["src/metadata_extraction", "sample_data", "frontend"]
 
 NEVER_SHIPPED = [
     "docker/env/agentium.env",
@@ -56,7 +55,6 @@ NEVER_SHIPPED = [
     "backend/venv/bin/python",
     ".claude/worktrees/agent/backend/app/main.py",
     "frontend-ng/src/main.ts",
-    "outputs/report.html",
     "docs/evidence/release/worker-build.md",
     "docs/render/deck.pptx",
     "docs/status/screen.png",
