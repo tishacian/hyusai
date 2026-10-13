@@ -1,0 +1,37 @@
+{
+  "baseline": "ad10dbc2",
+  "test": "app/tests/services/test_tabicl_pilot.py::test_converted_bundle_uses_existing_offline_store_and_grant",
+  "baseline_result": "failed",
+  "baseline_error": "HF_RUNTIME_MISSING: The adapter requires tabicl.",
+  "baseline_log": "/tmp/dataops-tabicl-baseline-ad10dbc2.log",
+  "venv": "/workspace/omnirag/.venv",
+  "same_runtime_failure_confirmed": true,
+  "unchanged_files_vs_baseline": [
+    "backend/app/tests/services/test_tabicl_pilot.py",
+    "backend/app/services/huggingface/adapters.py",
+    "backend/app/services/ml/local_models.py",
+    "backend/requirements_ml_deep.txt",
+    "backend/constraints-demo-ml-deep.txt"
+  ],
+  "required_optional_packages": {
+    "torch": "2.14.0+cpu",
+    "tabicl": "2.2.0",
+    "safetensors": "0.8.0",
+    "einops": "0.8.2"
+  },
+  "versions_during_root_install": {
+    "torch": "2.14.0+cpu",
+    "torchvision": null,
+    "transformers": null,
+    "tabicl": null,
+    "safetensors": null,
+    "einops": null,
+    "numpy": "2.5.2",
+    "scipy": "1.18.1",
+    "scikit-learn": "1.9.0",
+    "pandas": "2.3.3",
+    "huggingface-hub": "1.29.0"
+  },
+  "baseline_worktree_removed": true,
+  "installed_by_this_probe": false
+}
