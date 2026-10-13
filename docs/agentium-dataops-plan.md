@@ -1617,6 +1617,48 @@ Analyse du 2026-10-13. Les versions et dates viennent des sources citées en §2
 - **DuckLake** colle le mieux à notre pile (Postgres + Parquet + DuckDB). Il est **à surveiller**, mais encore jeune et sans Spark. On réexamine à DuckLake 1.1, ou dès qu'un connecteur Spark existe.
 - Le plan garde une porte de sortie : une table Delta à version unique **reste une liste de fichiers Parquet lisible sans Delta** (`dataset_files`).
 
+#### 29.2.1 Pourquoi Iceberg exige un catalogue, et pas Delta
+
+**Comment Iceberg commite.** L'état d'une table Iceberg est un arbre de métadonnées :
+
+```
+fichier de métadonnées (vN.metadata.json : schéma, partitions, liste des snapshots, snapshot courant)
+  → manifest list (Avro, un par snapshot)
+    → manifests (Avro)
+      → fichiers de données (Parquet)
+```
+
+- **Chaque commit écrit un nouveau fichier de métadonnées complet.** La table « courante » n'est rien d'autre qu'un **pointeur** vers le dernier de ces fichiers.
+- La spécification fonde l'isolation sur un **échange atomique de ce pointeur** (*compare-and-swap*) : un écrivain ne réussit que si le pointeur désigne toujours la version qu'il a lue. Sinon il relit et réessaie (concurrence optimiste).
+- **Ce pointeur n'est pas dans le stockage objet : il est dans le catalogue.** Hive Metastore, catalogue JDBC/SQL, catalogue REST (Polaris, Lakekeeper, UC OSS…), Glue ou Nessie : chacun garde l'association `nom de table → emplacement de la métadonnée courante` et réalise l'échange atomique.
+- **Le stockage objet seul ne suffit pas.** Le catalogue « Hadoop », fondé sur les fichiers, repose sur un **renommage atomique** (`version-hint.text`). La documentation d'Iceberg le réserve à HDFS ou à un système équivalent, et le dit **non sûr en écritures concurrentes sur S3**, où un renommage est une copie suivie d'une suppression. MinIO est dans ce cas.
+- **Même la lecture dépend du catalogue pour trouver la version courante.** Sans lui, il faut donner le chemin exact du fichier de métadonnées :
+  - DuckDB : `iceberg_scan('…/vN.metadata.json')`, ou deviner la version en option explicitement « non sûre » ;
+  - pyiceberg : `StaticTable`, en lecture seule ;
+  - Polars : `scan_iceberg(chemin)`.
+
+  Les écrivains (pyiceberg, Spark) passent toujours par un objet catalogue.
+
+**Comment Delta commite.** Le journal est **dans le stockage** : `_delta_log/00000000000000000N.json`.
+- Un commit consiste à créer le fichier N+1 **s'il n'existe pas** : put conditionnel `If-None-Match`, que MinIO prend en charge, ou un verrou externe pour les anciens S3.
+- Tout lecteur liste le journal (et ses checkpoints) pour trouver la version courante.
+- **Le catalogue est optionnel.** Delta 4.x ajoute des tables « gérées par catalogue », où Unity Catalog arbitre les commits pour les transactions multi-tables et la gouvernance. Le protocole fonctionne sans.
+
+**Ce que cela imposerait à Agentium si l'on choisissait Iceberg**
+
+| Option de catalogue | Ce qu'elle implique | Verdict |
+|---|---|---|
+| Service REST (Apache Polaris, Lakekeeper, UC OSS en Iceberg REST) | Service de plus (Java ou Rust) avec sa base, sa haute disponibilité, ses sauvegardes et ses montées de version. Ses comptes et son RBAC sont à synchroniser avec l'IAM d'Agentium. Les pods de calcul doivent le joindre (NetworkPolicy, identifiants) | Coût d'exploitation sans bénéfice interne : nous avons déjà un catalogue |
+| Catalogue JDBC/SQL dans le Postgres d'Agentium (`SqlCatalog` de pyiceberg, `JdbcCatalog` de Spark) | Pas de nouveau service. Mais **le runner et le driver Spark doivent accéder à la base de l'application**, ce qui contredit le principe 3 (pas de secret applicatif dans le calcul) et couple les runners au schéma de la base | Refusé pour des raisons de sécurité |
+| Catalogue éphémère par exécution (SQLite ou en mémoire dans le runner, chemin de métadonnées stocké dans la ligne du dataset) | Possible pour une table écrite une fois par un écrivain unique, mais **à contre-courant** du design d'Iceberg. Fragile côté Spark (catalogue Hadoop sur S3) | Bricolage, non retenu |
+| Lecture seule par chemin de métadonnées | Suffit pour lire, pas pour écrire | Partiel |
+
+**Conclusion.**
+- Avec Iceberg, la fonction de catalogue est **obligatoire pour écrire** et **nécessaire pour retrouver la version courante**. Pour Agentium, cela signifie soit un service en plus, soit l'exposition de sa base aux pods de calcul.
+- Avec Delta, la table se suffit à elle-même dans le stockage, et le catalogue d'Agentium reste le seul catalogue.
+- L'atout d'Iceberg (un catalogue partagé par de nombreux moteurs et écrivains concurrents) répond à un besoin que notre stockage interne n'a pas : un écrivain unique par version, et un catalogue applicatif déjà présent.
+- **On reconsidère Iceberg si un client exige d'interroger les datasets Agentium depuis Snowflake, Trino ou Dremio.** Il s'agirait alors d'une **couche d'exposition** (catalogue REST Polaris, ou UniForm), pas de notre format interne.
+
 ### 29.3 Intégration de Delta (remplace le manifeste de §11)
 
 | Aspect | Choix |
