@@ -21,9 +21,11 @@
 # ML_REGISTRY_ENABLED=false) but it is always reported.
 #
 # Scope comes from the registry, not from a path glob. Only workspaces that own
-# datasets, models or BRDs are mirrored, and only their `tabular/`, `ml/` and retained `brd/` prefixes
-# — never a whole workspace, which would drag in knowledge collections an order
-# of magnitude larger for nothing.
+# datasets, models, BRDs or governed assets are mirrored. Their complete
+# workspace prefixes are required: A1 may refer to source/evidence objects
+# outside tabular/, ml/ or brd/. Unreferenced workspaces are not copied.
+# Writers and purges must be suspended for the whole window: SQL dumps, registry
+# export and object mirroring are not a distributed atomic snapshot.
 #
 # Usage (on the VM, as root):
 #   sudo scripts/agentium-data-plane-dump.sh <sha12> [slice]
@@ -37,6 +39,7 @@
 # presence — not the directory's existence — is what says the window is
 # restorable.
 set -euo pipefail
+umask 077
 
 readonly DATA_ROOT=/srv/agentium-data
 readonly PG_CONTAINER=agentium-pg
@@ -83,7 +86,7 @@ readonly REGISTRY_DUMP="$WINDOW/pre-$SHA-$REGISTRY_DB.dump"
 [ -e "$WINDOW/.ready" ] && fail "$WINDOW is already a completed window"
 
 query() {
-	docker exec "$PG_CONTAINER" psql -U "$DB_USER" -d "$DB" -At -c "$1"
+	docker exec "$PG_CONTAINER" psql -X -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB" -At -c "$1"
 }
 
 # One `mc` command inside the MinIO container. `mc` ships in that image and the
@@ -156,10 +159,12 @@ PLANE_TABLES=$(query "select count(*) from information_schema.tables
                       where table_name in ('tabular_datasets', 'ml_models')")
 BRD_TABLE=$(query "select count(*) from information_schema.tables
                    where table_schema = 'public' and table_name = 'brd_documents'")
+ASSET_TABLE=$(query "select count(*) from information_schema.tables where table_schema = 'public' and table_name = 'asset_versions'")
+COLLECTION_TABLE=$(query "select count(*) from information_schema.tables where table_schema = 'public' and table_name = 'knowledge_collections'")
 OBJECTS=0
 WORKSPACES=""
 
-if [ "$PLANE_TABLES" -eq 0 ] && [ "$BRD_TABLE" -eq 0 ]; then
+if [ "$PLANE_TABLES" -eq 0 ] && [ "$BRD_TABLE" -eq 0 ] && [ "$ASSET_TABLE" -eq 0 ]; then
 	# A database from before the plane landed. Said out loud, because an empty
 	# objects/ is otherwise indistinguishable from a mirror that failed.
 	printf 'objects: none — this database predates the data plane (no 096/097)\n'
@@ -175,15 +180,33 @@ else
 	if [ "$BRD_TABLE" -ne 0 ]; then
 		WORKSPACE_QUERY="$WORKSPACE_QUERY union select workspace_id from brd_documents"
 	fi
+	if [ "$ASSET_TABLE" -ne 0 ]; then
+		WORKSPACE_QUERY="$WORKSPACE_QUERY union select workspace_id from asset_versions"
+	fi
 	WORKSPACES=$(query "$WORKSPACE_QUERY order by 1")
 fi
+
+# Keep the exact references verified below beside the dumps. This sidecar is
+# usable offline after copying objects into a restore staging directory; do not
+# query a different/live database and call that verification of this window.
+REGISTRY_QUERY="select null::text as record where false"
+if [ "$PLANE_TABLES" -ne 0 ]; then
+	REGISTRY_QUERY="$REGISTRY_QUERY union all select json_build_object('type', 'dataset', 'row', to_jsonb(t))::text from tabular_datasets t where status = 'ready'"
+	REGISTRY_QUERY="$REGISTRY_QUERY union all select json_build_object('type', 'model', 'row', to_jsonb(t))::text from ml_models t where status = 'ready'"
+fi
+if [ "$ASSET_TABLE" -ne 0 ]; then
+	REGISTRY_QUERY="$REGISTRY_QUERY union all select json_build_object('type', 'asset', 'row', to_jsonb(t))::text from asset_versions t"
+fi
+if [ "$COLLECTION_TABLE" -ne 0 ] && [ "$ASSET_TABLE" -ne 0 ]; then
+	REGISTRY_QUERY="$REGISTRY_QUERY union all select json_build_object('type', 'document_set', 'row', to_jsonb(t))::text from knowledge_collections t where status = 'ready' and workspace_id in (select workspace_id from asset_versions)"
+fi
+query "$REGISTRY_QUERY" >"$WINDOW/reference-registry.jsonl"
+(cd "$WINDOW" && sha256sum reference-registry.jsonl) >"$WINDOW/reference-registry.jsonl.sha256"
 
 if [ -n "$WORKSPACES" ]; then
 	total=0
 	for workspace in $WORKSPACES; do
-		for kind in tabular ml brd; do
-			total=$((total + $(prefix_bytes "dump/$BUCKET/workspaces/$workspace/$kind")))
-		done
+		total=$((total + $(prefix_bytes "dump/$BUCKET/workspaces/$workspace")))
 	done
 	printf 'objects: %s MB across %s workspace(s)\n' \
 		"$((total / 1024 / 1024))" "$(printf '%s\n' "$WORKSPACES" | wc -l)"
@@ -193,11 +216,9 @@ if [ -n "$WORKSPACES" ]; then
 	docker exec "$MINIO_CONTAINER" rm -rf "$STAGE"
 	docker exec "$MINIO_CONTAINER" mkdir -p "$STAGE"
 	for workspace in $WORKSPACES; do
-		for kind in tabular ml brd; do
-			mc_in_minio mirror --quiet \
-				"dump/$BUCKET/workspaces/$workspace/$kind" \
-				"$STAGE/workspaces/$workspace/$kind" >/dev/null 2>&1 || true
-		done
+		mc_in_minio mirror --quiet \
+			"dump/$BUCKET/workspaces/$workspace" \
+			"$STAGE/workspaces/$workspace" >/dev/null 2>&1 || fail "workspace artifact mirror failed"
 	done
 
 	mkdir -p "$WINDOW/objects"
@@ -228,6 +249,10 @@ if [ "$PLANE_TABLES" -ne 0 ] && [ -n "$WORKSPACES" ]; then
 	# model row names a directory whose MLmodel file is what the loader opens.
 	while IFS= read -r key; do
 		[ -n "$key" ] || continue
+		if [[ "$key" == */delta ]]; then
+			python3 "$(dirname "$0")/agentium_validate_delta_backup.py" "$WINDOW/objects/$key" || missing=$((missing + 1))
+			continue
+		fi
 		[ -f "$WINDOW/objects/$key" ] || {
 			printf 'MISSING dataset object %s\n' "$key" >&2
 			missing=$((missing + 1))
@@ -302,6 +327,19 @@ if [ "$BRD_TABLE" -ne 0 ]; then
 	done <<<"$BRD_ROWS"
 fi
 
+# A1 is content-addressed: compare SQL envelopes with the copied canonical
+# manifests and stream every declared object's digest. Delta logs and each
+# committed part must match their recorded hashes, including same-size damage.
+# Failure blocks .ready; the retained sidecar can be checked again after restore.
+GOVERNED_VERIFIED=false
+if python3 "$(dirname "$0")/agentium_validate_delta_backup.py" \
+	--objects-root "$WINDOW/objects" --registry "$WINDOW/reference-registry.jsonl" \
+	>"$WINDOW/governed-verification.json"; then
+	GOVERNED_VERIFIED=true
+else
+	missing=$((missing + 1))
+fi
+
 cat >"$WINDOW/MANIFEST.json" <<EOF
 {
   "sha12": "$SHA",
@@ -318,12 +356,15 @@ cat >"$WINDOW/MANIFEST.json" <<EOF
   "registry_artifacts_missing": $missing,
   "report_states": $REPORT_STATES,
   "report_states_missing": $REPORT_STATES_MISSING,
-  "evaluation_partitions": $EVALUATION_PARTITIONS
+  "evaluation_partitions": $EVALUATION_PARTITIONS,
+  "reference_registry": "reference-registry.jsonl",
+  "governed_bytes_verified": $GOVERNED_VERIFIED,
+  "consistency_requires_suspended_writers": true
 }
 EOF
 
 [ "$missing" -eq 0 ] ||
-	fail "$missing artifact(s) the registry names are absent from this window — do NOT migrate against it"
+	fail "$missing artifact check(s) found missing or inconsistent bytes in this window — do NOT migrate against it"
 
 touch "$WINDOW/.ready"
 printf 'ready: %s\n' "$WINDOW"

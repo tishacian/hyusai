@@ -135,6 +135,10 @@ VM_BIND_BACKED_VOLUMES = {
 VM_APPLICATION_STORAGE_MOUNTS["agentium-worker-recipes"] = dict(
     VM_APPLICATION_STORAGE_MOUNTS["agentium-worker-cpu"]
 )
+# Same again for the data transforms (Polars and dbt build in the recipe venvs).
+VM_APPLICATION_STORAGE_MOUNTS["agentium-worker-dataops"] = dict(
+    VM_APPLICATION_STORAGE_MOUNTS["agentium-worker-cpu"]
+)
 # The forecasting workers (profile ml-ts): they read training datasets and write
 # model directories, so they need the object store and nothing else — no
 # secure deposit, no FAISS index, no recipe venvs.
@@ -559,12 +563,12 @@ def assert_vm_active_storage_mounts(payload: Any) -> None:
         "agentium-minio",
         "qdrant",
     } | (set(VM_APPLICATION_STORAGE_MOUNTS) - {"agentium-migrate"})
-    # The pre-switch inventory can still be from the release before this worker.
-    if isinstance(payload, list) and not any(
-        isinstance(row, dict) and row.get("Name") == "/agentium-worker-recipes"
-        for row in payload
-    ):
-        expected_container_names.discard("agentium-worker-recipes")
+    # The pre-switch inventory can still be from the release before these workers.
+    for pooled in ("agentium-worker-recipes", "agentium-worker-dataops"):
+        if isinstance(payload, list) and not any(
+            isinstance(row, dict) and row.get("Name") == f"/{pooled}" for row in payload
+        ):
+            expected_container_names.discard(pooled)
     # An opt-in profile's containers are inspected only where they exist.
     present = (
         {row.get("Name") for row in payload if isinstance(row, dict)}

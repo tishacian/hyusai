@@ -348,7 +348,7 @@ sudo "$DUMP" <sha12> <slice>
 ```
 
 It takes its own `pg_dump`, adds a dump of the `mlflow` registry database,
-mirrors out the `tabular/`, `ml/` and (from revision 106) retained `brd/` prefixes of every workspace the registry
+mirrors the complete object prefix of every workspace the data-plane or A1 registry
 actually references, checksums each part, and then verifies that every artifact
 the registry names is present in the window. Retained BRD originals must also match their recorded SHA-256; a missing or corrupt original blocks the window. `.ready` appears only if that check
 passed — so `.ready`, not the directory, is what says the window can be restored
@@ -356,9 +356,13 @@ from. It also runs safely against a pre-096 database, where it reports that ther
 is no plane and skips the mirror rather than writing an empty `objects/` that
 would look like a failed mirror.
 
-Do not substitute `mc mirror` of the whole `workspaces/` prefix: knowledge
-collections are an order of magnitude larger and are rebuilt from their sources,
-not restored.
+Do not substitute an unscoped mirror of all `workspaces/`: unrelated workspaces
+remain excluded. Within a referenced workspace, A1 evidence may live outside
+the original tabular/ML/BRD directories. The retained reference registry checks
+A1 manifest/object hashes and Delta log/part hashes, both before `.ready` and
+after a restore. Suspend writers and purges throughout the window: the SQL
+dumps and object mirror are not an atomic distributed snapshot. Follow the
+[offline verification and restore procedure](ops/agentium-data-plane-provisioning.md#backups-the-dump-is-now-three-parts).
 
 **One provisioning step this slice adds:** a `mlflow` database on the same
 instance, backing the MLflow Model Registry.

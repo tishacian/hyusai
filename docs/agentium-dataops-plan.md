@@ -1,147 +1,107 @@
-# Plan DataOps d'Agentium — préparation de données no-code, calcul éphémère piloté, connecteurs paramétrables
+# Plan DataOps et juge typé d’Agentium
 
-> **Référence fonctionnelle** : papAI (`~/Developer/DATATEGY/papai-latest/spark-service` et `core`, Spark 3.5.8 / Scala 2.13). On s'en inspire, sans copier son code.
-> **Base** : `demo/agentic` (origin = 11ead0e1 au 2026-10-12, à la publication de ce plan).
-> **Emplacement** : ce document est `docs/agentium-dataops-plan.md`. L'audit des connecteurs cité en D7 est `docs/ops/connector-framework-audit-2026-09-22.md`.
-> **Règles** :
-> - toute fusion dans `demo/agentic` attend l'accord explicite de l'utilisateur, à chaque fois ;
-> - pousser avec une refspec explicite ;
-> - utiliser `/opt/homebrew/bin/git` ;
-> - lancer `build:prod` une seule fois par lot ;
-> - pas plus de 2 ou 3 agents en parallèle ;
-> - relire les numéros de migration au moment d'implémenter.
->
-> Ce plan intègre la revue critique du 2026-10-12, confrontée au code : 5 points critiques, 15 importants et les mineurs.
->
-> **Mise à jour du 2026-10-13** : analyse de l'écosystème open source de Databricks (§29).
-> - **Delta Lake** (via delta-rs) devient le format des versions de dataset produites par DataOps : D3, §11.
-> - **Unity Catalog**, **Delta Sharing** et **Databricks SQL** deviennent des profils de connecteur : D7.
-> - **Iceberg** devient une couche d'interopérabilité optionnelle, à activer sur besoin (§30), notamment pour Snowflake.
+> **État du 13 octobre 2026** : implémentation locale sur `codex/dataops-typed-judge`, à partir de `66ce576b482e931a180673d9eca76fbe9e84cb0b` du miroir GitHub. Aucun déploiement, aucune fusion ni qualification fournisseur n’est affirmé ici.
+> **Recette** : workspace Showcase, sans client pilote exigé ; scoring quotidien de 2 millions de lignes, recette haute à 3 millions. Narration de plusieurs centaines de pages/images est **différée à la demande de l’utilisateur**. La route envisagée est Gemini via OpenRouter ; son raccordement et sa qualification viendront plus tard.
+> **Lecture** : les §§0–4 décrivent le lot effectivement construit. Les §§5–30 conservent le détail de conception historique : les contrats HTTP, paramètres et limites d’exécution actuels sont ceux des schémas et services cités en §3. Les placements éphémères et connecteurs décrits dans ces annexes restent des extensions conditionnelles.
 
----
+## 0. Ordre, état et critères de sortie
 
-## 0. Lecture rapide
+La restructuration rend le dépôt reprenable, testable et déployable. Elle reste un préalable de livraison. La préparation, l’interface et le stockage en plusieurs parts gardent leur place ; les promesses, les actifs documentaires/référentiels et le juge typé complètent le plan.
 
-| Lot | Objectif | État | Dépend de | PR prévues |
-|---|---|---|---|---|
-| **S0** | Correctifs de sécurité préalables, hors DataOps : HANA (écriture, mot de passe de repli, TLS, erreurs), garde SSRF en mode rapport | À faire, **en premier** | — | 1 |
-| **D0** | Moteur SQL assaini : DuckDB hors de l'API, runner autonome, file `dataops` | **Fait** sur `feat/dataops-d0-engine` (e0cdab0a, 71014222). Non fusionné : finitions (§23) | — | 1 |
-| **D1a** | Moteur de préparation : spec, compilateur, typage, formules, catalogue, tests golden, runner v2 | À faire | D0 | 4 (a à d) |
-| **D1b** | Flow et API : Skill `data_prep_v1`, ports, aperçu, échantillon persisté, validation | À faire | D1a | 2 |
-| **D2** | Interface no-code : palette, nœuds, ateliers, formules | À faire | D1b | 4 |
-| **D3** | Stockage à l'échelle : versions en **tables Delta Lake** (delta-rs), commit atomique, profil en flux, téléchargement | À faire | D1b | 3 |
-| **D4** | Calcul éphémère T1 : `compute_runs`, Job k8s, quotas, coût, chart 0.3.0, Terraform | À faire | D3 | 4 |
-| **D5** | Spark éphémère T2 : opérateur ASF, runner PySpark, parité | À faire | D4 | 3 |
-| **D6** | Compléments : types sémantiques, JSON, fusion de chaînes, incrémental | Selon la demande | D2, D3 | — |
-| **D7** | Connecteurs de bases paramétrables : profils déclaratifs (dont Unity Catalog, Delta Sharing, Databricks SQL, Snowflake), import à l'échelle, nœud d'export | À faire | D3 (D4 pour l'échelle) | 4 |
-| **I1 / I2** (optionnels) | Iceberg sur besoin : cible de connecteur dans le catalogue REST du client (I1), puis exposition des datasets Agentium (I2, Polaris optionnel). §30 | Sur demande client | D7 (I1), D3 (I2) | 2 + 3 |
-
-**Ordre** : S0 → D0 → D1a → D1b → D2, avec D3 en parallèle de D2. Puis D4 → D5. D7 peut démarrer après D3. D6 selon la demande.
-
----
-
-## 1. Contexte
-
-**Agentium aujourd'hui**
-- Toute transformation s'écrit en code : SQL DuckDB (`sql_transform_v1`), Polars ou dbt. Seul l'enrichissement historique est déclaratif.
-- D0 a sorti le SQL du processus API : runner autonome, file `dataops`, spill, écriture en flux.
-- Restent :
-  - le plafond de 5 M de lignes ;
-  - un seul fichier Parquet par version ;
-  - un profil calculé en chargeant la table en mémoire ;
-  - aucun calcul dynamique ;
-  - un chart Helm 0.2.0 jamais installé, sans RBAC ni autoscaler ;
-  - des connecteurs de bases écrits à la main (PostgreSQL plafonné à 10 000 lignes, HANA), sans modèle de connexion, et des failles de sécurité HANA et SSRF (S0).
-
-**papAI comme référence**, inventaire complet en annexe A :
-- 36 types d'instructions, 26 étapes de nettoyage, un langage de formules, 24 types sémantiques et 738 cas de test de référence ;
-- trois modes d'exécution : aperçu dans un Spark local partagé, pod éphémère `local[*]`, Spark sur Kubernetes dimensionné par un ClusterTemplate ;
-- des pièges à ne pas reproduire (§26).
-
-**But.** Une préparation de données no-code complète, avec un nœud Flow par opération. Elle tourne par défaut sur DuckDB. La même spec passe sur un pod éphémère ou un Spark éphémère quand la taille l'exige, et la plateforme pilote le cycle de vie, le coût et les quotas. Les connecteurs de bases deviennent paramétrables, sans développement par base.
-
----
-
-## 2. Décisions
-
-| # | Décision | Choix retenu | Raison |
+| Lot | Livrable et recette | État local | Condition de clôture en environnement |
 |---|---|---|---|
-| D-1 | Placements | **T0** runner DuckDB en sous-processus (VM et k8s), **T1** le même runner dans un Job k8s, **T2** PySpark sur SparkApplication | Frugal par défaut, montée en échelle sans réécrire la spec |
-| D-2 | Spark sur k8s | **Apache Spark Kubernetes Operator** (ASF 1.0.0 du 2026-07-26, chart 1.8.0), CRD `spark.apache.org/v1` `SparkApplication`, derrière un adaptateur `SparkLauncher` | Opérateur officiel avec une API stable. Kubeflow reste branchable |
-| D-3 | Canvas | **Un nœud par opération** : Préparer, Joindre des tables, Empiler, Agréger/Pivoter, Dépivoter, Découper, Échantillonner | Le pipeline se lit sur le canvas |
-| D-4 | Ordre | No-code sur DuckDB d'abord, abstraction de moteur prévue dès D1 | Valeur immédiate, y compris sur VM |
-| D-5 | PySpark ou Scala | **PySpark « SQL d'abord »** : notre compilateur produit le SQL, aucune UDF Python | Le langage du driver ne change pas la performance. Scala imposait des épinglages coûteux |
-| D-6 | Recettes papAI | **Pas d'import** : référence seulement | Contrat propre, bizarreries corrigées |
-| D-7 | Sémantique | **SQL standard par défaut**, comportements papAI en options explicites | Prévisible et portable |
-| D-8 | Formules | **Expressions SQL typées** sur liste d'autorisation (`sqlglot`) | Plus riche que papAI, sûr, portable |
-| D-9 | Entrées et sorties externes | **Lot D7** : connecteurs paramétrables, import à l'échelle, export | Demande explicite : configuration, pas développement |
-| D-10 | Noms | Skill **`data_prep_v1`**, bloc **`_data_prep`**, package `services/dataops/` | `_recipe` est déjà pris (`dag.py:2223`) |
-| D-11 | Câblage | **Entrées par port construites par le walker et écrites dans le bloc graph-owned** (`_data_prep.inputs`). Jamais dans l'entrée fusionnée | Mode strict, fuite de contexte et usurpation par l'amont (revue C1) |
-| D-12 | Ports | Sortie unique **`out`**. Ports d'entrée et de sortie **persistés** par opération. Arêtes multi-ports **obligatoirement** nommées | Les ports implicites et l'ordre des arêtes ne sont pas fiables (revue C2) |
-| D-13 | Dates | Format neutre `strftime`, traduit pour Spark par le shim. `TimeZone='UTC'` imposé partout | Une seule syntaxe, pas de dépendance à l'hôte |
-| D-14 | Hasard et ordre | Tirages seedés par hachage canonique. **Départage obligatoire par empreinte de ligne** dans tout ordre qui choisit des lignes | Déterminisme et parité entre moteurs |
-| D-15 | Noms de colonnes | Conservés et quotés. Collisions refusées, y compris de casse | DuckDB ignore la casse. Spark reçoit `caseSensitive=false` |
-| D-16 | Ligne d'exécution | D1/D2 : `RecipeExecution` (kind `data_prep`). **D4 : `compute_runs`** pour SQL et data_prep, avec double lecture pendant une release | Pas de migration avant le besoin |
-| D-17 | Connexions | Table `connections`, plusieurs instances par profil, secrets uniquement par références au registre, **écriture verrouillée à la naissance** | Recommandations de l'audit des connecteurs |
-| D-18 | Pilotes de bases | Pilotes Python natifs (SQLAlchemy, ADBC) dans le worker et le runner. **JDBC seulement sur Spark**. Longue traîne via MCP | « Pas de JDBC dans le processus Python » (audit) |
-| D-19 | Regex | **Sous-ensemble RE2**, commun aux trois moteurs : validé à la compilation, remplacements `\1` traduits pour Spark | Python `re`, RE2 (DuckDB) et Java divergent |
-| D-20 | Statistiques globales | Compilées en `CROSS JOIN (SELECT agg …)`, jamais en `OVER ()` | Sur Spark, `OVER ()` envoie tout dans une seule partition (revue I3) |
-| D-21 | Format de stockage des sorties DataOps | **Delta Lake** : une table Delta par version de dataset, écrite une seule fois, par **delta-rs** (`deltalake`, sans JVM) en T0/T1 et par delta-spark en T2. Remplace le manifeste maison | Seul format qui combine une écriture Python sans JVM ni service de catalogue, la lecture native par DuckDB, Polars et Spark, et l'interopérabilité avec les clients Databricks (§29.2) |
-| D-22 | Unity Catalog OSS | **Pas comme catalogue interne.** Profil de connecteur `unity_catalog` (UC OSS et Databricks UC), en lecture d'abord | Agentium a déjà catalogue, lignage et IAM. UC OSS 0.6 n'a pas encore lignage, ABAC ni audit, et ajouterait un service Java (§29.1) |
-| D-23 | Delta Sharing et Databricks SQL | **Clients** seulement : profils `delta_sharing` (lecture des partages reçus) et `databricks_sql` (SQL Warehouse) | Valeur immédiate pour les clients Databricks. Le serveur de partage ouvert est réservé au développement |
-| D-24 | Spark Declarative Pipelines, Photon, DBR | **Non adoptés** | Le Flow Agentium est l'orchestrateur. Photon et DBR sont propriétaires |
-| D-25 | Iceberg | **Couche d'interopérabilité optionnelle** (§30) : I1, cible de connecteur dans le catalogue REST du client, sans catalogue à exploiter chez nous ; I2, exposition des datasets (Polaris optionnel). **Pas de format interne Iceberg** | L'interopérabilité ouverte de Snowflake passe par Iceberg et les catalogues REST (catalog-linked databases). Le profil `snowflake` natif (I0) couvre déjà les besoins avec copie |
+| **R0** | Terminer les phases de l’ADR 0004 ; modules et wrappers dans leurs packages ; build reproductible | Nouvelle structure utilisée pour tout ce lot | Toutes les phases livrées et `build-info` correspondant à la révision réellement déployée ; non vérifié sur VM ici |
+| **S0** | Écritures HANA réservées aux admins, drapeau fermé, suppression du mot de passe de plateforme de repli, TLS vérifié, erreurs expurgées, politique réseau | Implémenté et testé ; SSRF en mode rapport par défaut | Recette HANA/TLS et passage à `enforce` après inventaire ; révocation externe du token Docker Hub papAI à confirmer |
+| **D0** | Runner DuckDB hors API, file `dataops`, environnement minimal, budgets mémoire/spill, mort du parent | Modifications de l’ancienne branche D0 reportées dans la nouvelle structure | Worker déployé et smoke réel ; pas de fusion implicite de l’ancienne branche |
+| **C0** | Contrats des usages, unité de travail, sortie, recette et destination | [Scoring](agentium-showcase-scoring-contract.md) prêt ; [narration](agentium-showcase-narration-contract.md) conservé comme brouillon différé | Scoring dans Showcase avec vrais source, modèle et responsable |
+| **A1** | Actifs immuables dataset/model/document_set/reference, filiation, qualifications, « à requalifier » | Implémenté ; droits natifs, hashes et propagation aux descendants testés | Migration 126, ObjectStore partagé, sauvegarde/restauration vérifiée |
+| **P1** | Promesse versionnée par System, responsable, calendrier, entrées fraîches, tentatives, budgets, incidents | Implémenté ; fenêtres indépendantes d’un Run et raccordement au scheduler publié | Installer le watchdog extérieur ; vérifier les incidents et les leases en environnement |
+| **D1a** | Spec v1, compilateur sûr, huit opérations, catalogue de 59 actions uniques, types, déterminisme | Implémenté ; sémantique et refus testés | Limites et distributions du workspace confirmées |
+| **D1b** | API, `data_prep_v1`, bloc graph-owned, ports explicites, aperçu borné | Implémenté ; parcours publié réel testé jusqu’au reçu | Activation ciblée `dataops` et publication du System |
+| **D2** | Préparation no-code, inspecteurs Flow, éditeur/lecture du juge, Work | Implémenté ; tests, TypeScript, contrôles UI et build production réussis | Recette dans un navigateur de l’environnement livré |
+| **D3** | Une table Delta immuable par version, parts en flux, profils, échantillons, lecteurs compatibles | Implémenté ; plusieurs parts réellement exercées à 3 M de lignes | Restaurer SQL + objets + journaux sur le stockage cible ; aucun downgrade lecteur avant rollback des écrivains |
+| **M1** | Scoring en batches bornés, modèle/version figés, identifiants et colonnes conservés, aucun appel LLM par ligne | Implémenté ; modèles tabulaires/clustering, régression et intervalles natifs | Qualification sur modèle et données Showcase réels |
+| **J1/J2** | Questions réellement posées, réponses typées, abstention, preuves, coût, calibration indépendante et seuil humain | Implémenté avec `evaluate_v2` ; `evaluate_v1` reste versionné | Gemini/OpenRouter, transport vision et corpus à qualifier plus tard ; aucune confiance de substitution |
+| **W1** | Candidat exact, revue liée à trois empreintes, publication atomique, reçu et téléchargement vérifié | Implémenté ; test complet avec vraie décision humaine persistée | Destination actuelle `work:showcase-scoring` ; système externe à traiter lorsqu’il est désigné |
+| **N1** | Adaptation du moteur externe narration aux mêmes contrats | Hors lot actif ; flag fermé et seed brouillon | Reprise seulement lorsque demandée, avec moteur et route de modèle qualifiés |
+| **D4/D5/D6/D7/I1/I2** | Kubernetes éphémère, Spark, extensions et autres connecteurs/Iceberg | Différés | Besoin mesuré qui dépasse le socle permanent ; le Helm de déploiement client reste utile dès maintenant |
+
+**Ordre de livraison** : R0 + S0 + reprise D0 ; C0 en parallèle ; A1 + P1 ; D1a/D1b/D2/D3 + M1 ; J1/J2 et W1. Les contrats et le socle d’actifs se prêtent au travail parallèle, avec deux ou trois agents au maximum. L’unification complète des deux usages sera reçue lors de la reprise de narration ; le scoring utilise déjà les mêmes actifs, fenêtres, budgets, revue et reçus.
+
+## 1. Contrats de service et socle commun
+
+Chaque contrat publié appartient à un System et à un responsable actif du workspace. Il déclare calendrier, échéance, budget cumulé, entrées, schéma de sortie et destination. Une nouvelle révision ne modifie pas une fenêtre déjà ouverte. Les transitions couvrent les quatre promesses : entrées à jour, traitement complet, résultat accepté, livraison reçue.
+
+Une source se sélectionne par `ServiceDefinition.inputs` : `payload_key`, `kind`, `logical_key`, fraîcheur maximale, qualification requise et politique optionnelle. `representation: native_id` fournit l’identifiant natif d’un dataset/modèle ; `asset_ref` fournit la référence gouvernée. Le serveur choisit la dernière version autorisée lors de l’ouverture, vérifie sa fraîcheur et sa qualification, puis fige références et qualifications dans `ServiceWindow.input_snapshot_json`. Une reprise conserve ces références ; une requalification intervenue depuis l’inspection bloque son usage. Le Flow Showcase n’épingle pas l’ancien dataset par-dessus cette entrée quotidienne.
+
+Les actifs conservent manifeste, objets, références natives, parents et empreintes. La qualification est une version indépendante ; « à requalifier » se propage aux descendants sans modifier l’historique. Un actif gouverné retient ses versions natives. Les preuves et les téléchargements revérifient les droits natifs ; un reçu ne crée aucun droit supplémentaire.
+
+Les fenêtres existent même si aucun Run ne démarre. Le tick publié crée les périodes, fige les entrées et envoie le vrai SystemVersion par l’ingress/outbox existant. Les tentatives et checkpoints utilisent leases et fences. Un worker perdu, une source périmée, une revue en retard ou une livraison absente crée un incident durable attribué au responsable. Les incidents se consultent dans Work ; aucun canal email ou Slack n’est implicitement ajouté.
+
+Le ledger partagé réserve les dépenses avant appel, par fenêtre/stage/clé idempotente. Coûts inconnus et appels interrompus gardent leur réserve ; les usages non mesurés restent `null`. Un dépassement ou une facture contradictoire bloque la publication. Les allocations par stage sont facultatives et leur somme ne dépasse pas l’enveloppe globale. Voir [les promesses](ops/service-contracts.md) et [le budget partagé](ops/service-window-budget.md).
+
+## 2. Parcours de préparation, scoring et juge
+
+### Préparation et stockage
+
+La spec v1 ferme les champs, borne étapes/sorties et expose `prepare`, `join`, `union`, `aggregate`, `pivot`, `unpivot`, `split`, `sample`. Les 59 actions incluent les alias compatibles ; elles ne désignent pas 59 algorithmes indépendants. Le compilateur quote les identifiants, refuse les collisions de casse, valide les expressions SQL par liste d’autorisation et impose UTC. Les tirages et départages sont déterministes. Les sels de hash sont des secrets de workspace dédiés, référencés par version ; le navigateur ne reçoit jamais leurs valeurs.
+
+L’inférence de types se fait sur un schéma vide. L’aperçu lit exclusivement l’échantillon persisté ou l’ancien aperçu stocké, avec bornes de taille, concurrence et durée ; il ne matérialise pas le dataset complet. En exécution, le runner lit des fichiers locaux vérifiés dans DuckDB avec spill, écrit des batches et ne détient ni session applicative ni secret de connexion. Les sources, la spec et les modèles sont figés à la soumission. Les fences d’exécution empêchent une annulation ou un timeout de rendre ensuite les sorties `ready`.
+
+Les sorties sont des tables Delta distinctes par version, chacune écrite une seule fois avec commit 0. Les fichiers sont immuables et le journal est publié en dernier ; les sorties d’un même nœud deviennent prêtes dans une transaction SQL unique. Le lecteur autorise seulement les fichiers annoncés, vérifie hashes/protocole/chemins et sait lire les anciens Parquet. La mise à jour des lecteurs précède l’activation des écrivains Delta. Fermer le flag d’écriture n’efface aucune version Delta.
+
+### Scoring quotidien
+
+Le parcours publié est entrée → `data_prep_v1` → `ml_batch_score_v1` → sortie gouvernée. Le worker charge un vrai modèle natif une fois et score par batches de 65 536 lignes. Il conserve les identifiants et colonnes sources, ajoute prédictions/intervalles sans collision, contrôle cardinalité et valeurs finies, et limite le journal à 64 exemples. Toute erreur échoue le lot ; aucune ligne n’est exclue silencieusement.
+
+La recette haute réelle du 13 octobre a traversé ingestion, préparation et scoring avec **3 000 000 de lignes synthétiques variées**, 32 colonnes d’entrée puis 35 de sortie et 6 parts Delta à chaque phase : **271,26 s**, zéro ligne exclue, pic RSS observable **3,25 GiB**. Un superviseur RSS avait un seuil de 4 GiB. Cela ne qualifie ni un cgroup 4 GiB, ni un quota 2 CPU, ni S3, ni la qualité métier du modèle. Le [runbook Showcase](ops/dataops-showcase.md) décrit la mesure et ses limites.
+
+Un autre test passe par le vrai SystemVersion publié, l’ingress/outbox, le DAG, la préparation et le modèle natif sur 5 000 lignes. Une nouvelle source gouvernée arrive après publication, avec une colonne supplémentaire : la fenêtre choisit et fige cette version, le Flow conserve la colonne et les identifiants, les prédictions concordent avec l’API native. Le test réconcilie ensuite la fenêtre, persiste une revue humaine, publie le reçu idempotent et vérifie les octets téléchargés.
+
+### Juge typé et approbation
+
+`evaluate_v2` pose les questions `boolean`, `choice`, `multi_choice`, `score`, `probability`, avec critères et preuves. Les réponses distinguent `answered`, `abstained`, `invalid`. Les citations textuelles sont vérifiées par offsets/extrait ; les images demandent les octets autorisés, un transport qualifié et une citation par hash/zone/description. La route vient du Model Plane gouverné, jamais de champs privés fournis par le payload.
+
+La qualité, une probabilité demandée et la confiance sont distinctes. Sans corpus qualifié concordant avec rubrique/modèle/source/langue/tâche, `confidence = null`. La calibration demande deux annotateurs humains distincts, adjudication par un troisième si nécessaire, séparation par famille, premier essai enregistré et test indépendant verrouillé. Elle mesure précision, rappel, défauts critiques manqués, couverture et métriques probabilistes applicables. J2450 vise les erreurs de traduction ; il n’est pas un score général de narration.
+
+Le moteur de service applique le seuil d’approbation : une confiance inconnue ne peut déclencher une publication automatique. Work vérifie `expected_fence`, le digest du candidat et le digest de qualification, puis la complétude technique, la politique et le budget. Revue et reçu sont liés à ce résultat exact. Voir [le plan du juge](agentium-typed-judge-plan.md) et [le protocole de qualification](ops/typed-judge-qualification.md). Le raccordement Gemini via OpenRouter est différé ; les tests de transport ne constituent pas une qualification du fournisseur réel.
+
+## 3. Carte de l’implémentation après restructuration
+
+Les chemins ci-dessous sont relatifs au dépôt ; ils remplacent les anciens renvois au fichier monolithique des wrappers.
+
+| Domaine | Fichiers de référence |
+|---|---|
+| Contrats DataOps | `backend/app/schemas/data_prep.py`, `backend/app/services/dataops/compiler.py`, `operations.py`, `steps.py` |
+| Runner et cycle de vie | `backend/app/resources/dataops_runner.py`, `backend/app/services/dataops/sql_execution.py`, `preparation.py`, `watchdog.py`, `backend/app/workers/tasks.py` |
+| Aperçu, stockage et scoring | `backend/app/services/dataops/preview.py`, `storage.py`, `ingestion.py`, `scoring.py`, `backend/app/services/tabular_datasets.py` |
+| API DataOps | `backend/app/api/v1/endpoints/dataops.py` : catalog, compile, preview, executions, cancel, validate-expression, hash-salts |
+| Flow et Skills | `backend/app/services/run_engine/dag.py`, `execution_contract.py`, `backend/app/services/skills_registry/wrappers/skills.py`, `wrappers/registry.py`, `skills_registry/seed.py`, `skill_effects.py` |
+| Actifs et promesses | `backend/app/models/service_contract.py`, `backend/app/schemas/service_contract.py`, `backend/app/services/governed_assets.py`, `service_promises.py`, `service_engine.py`, `window_budget.py`, `backend/alembic/versions/126_service_contracts.py` |
+| API Work | `backend/app/api/v1/endpoints/service_contracts.py` : assets/sources, contracts, windows/candidate/objects, review, publication, receipts/download, incidents |
+| Juge et calibration | `backend/app/schemas/typed_evaluation.py`, `backend/app/services/evaluation/typed_judge.py`, `typed_calibration.py`, `backend/app/api/v1/endpoints/typed_calibration.py`, `backend/app/services/model_plane/execution.py` |
+| Interface | `frontend-ng/src/app/features/data/`, `features/orchestration/flow/flow-dataops-inspector.component.ts`, `features/experience/work/service-delivery.*`, `features/runs/skill-invocation-view.component.ts` |
+| Showcase et exploitation | `backend/scripts/seed_dataops_showcase.py`, `benchmark_dataops_showcase.py`, `dataops_watchdog.py`, `ops/helm/agentium/values-dataops-showcase.yaml`, `scripts/agentium-data-plane-dump.sh` |
+| S0 | `backend/app/api/v1/endpoints/hana.py`, `backend/app/services/connectors/hana/service.py`, `network_policy.py`, [runbook HANA](ops/hana-security-s0.md) |
+
+## 4. Activation et livraison vérifiable
+
+Les options d’écriture et de service restent fermées par défaut. `dataops_enabled`, `dataops_write_delta_enabled`, `ml_score_streaming_enabled` et `service_contracts_enabled` sont des réglages serveur ; certaines options existent aussi sous `workspace.settings.features`. Un payload de Run ne les ouvre pas. `narration_enabled=false` conserve ce parcours hors lot, même si sa Skill existe en bêta.
+
+1. Livrer les lecteurs, la migration 126 et les workers permanents selon le processus de release ; contrôler la révision de `build-info`.
+2. Vérifier ObjectStore partagé, secrets dédiés, rétention et restauration sur le stockage cible. Conserver les limites mémoire/spill et la concurrence 1 du worker `dataops`.
+3. Activer les features seulement pour Showcase, fournir ses vrais datasets/modèle/responsable et préparer les contrats avec le seed. Une source ou un modèle incomplet conserve le service en brouillon ; le seed ne crée aucun résultat ni approbation factice.
+4. Installer le watchdog indépendant, publier le System et son contrat, provoquer une fenêtre absente/entrée périmée/worker perdu et contrôler l’incident attribué.
+5. Exécuter les recettes scoring 2 M/3 M en environnement, comparer cardinalités/prédictions/ressources, inspecter les objets, réaliser la revue humaine et le reçu Work.
+6. Conserver les rapports, la révision livrée et les preuves de restauration. Gemini/OpenRouter, narration, HANA réel et Kubernetes installé demandent leurs propres qualifications ; les tests locaux ne les remplacent pas.
+
+Le Helm client fournit un worker permanent et le watchdog ; il n’implémente pas le calcul Kubernetes à la demande. Spark, autres profils de connecteurs et Iceberg attendent une demande et des volumes observés.
 
 ---
 
-## 3. Principes non négociables
+# Référence de conception détaillée antérieure
 
-1. **Frugal par défaut.** T1 et T2 ne servent que si la taille ou la politique l'exige.
-2. **Une spec, un compilateur, trois placements.**
-3. **Rien d'applicatif dans le calcul.** Les runners sont autonomes, sans secret applicatif, et lisent un manifeste.
-4. **Déterminisme.** Pas de fonction non déterministe. Un départage par empreinte de ligne dans chaque ordre qui choisit des lignes. Sur un `mode` à égalité, la plus petite valeur gagne.
-5. **Typage visible à chaque étape**, identique entre conception et exécution, car les types viennent de la même source (le pied de page Parquet).
-6. **Pas de bizarrerie papAI reproduite en silence.** Les écarts sont documentés au catalogue.
-7. **Rétrocompatibilité.** Nœuds, datasets et lecteurs existants inchangés.
-8. **Toute limite est un réglage**, et tout refus a un code (annexe B).
-9. **Statut honnête.** Une exécution n'est « réussie » qu'une fois toutes ses sorties validées et commitées, de façon atomique.
-10. **Sobriété de l'interface (Tokens v2).**
-
----
-
-## 4. Architecture cible
-
-```
-          CONCEPTION (navigateur)                          EXÉCUTION (walker → worker → calcul)
- ┌───────────────────────────────────────┐       ┌──────────────────────────────────────────────────────┐
- │ Nœud data_prep_v1 (spec, ports)       │       │ walker : _data_prep_port_inputs → _data_prep.inputs  │
- │  catalog / preview / compile /        │       │ wrapper _data_prep_v1 : compile → placement → soumet │
- │  validate-expression / pivot-values   │       │   → suit la ligne (bail) → enveloppe {outputs}        │
- └──────────────┬────────────────────────┘       └──────────────┬───────────────────────────────────────┘
-                │ échantillons persistés seulement               │ manifeste (ObjectStore)
- ┌──────────────▼────────────────────────┐       ┌──────────────▼───────────────────────────────────────┐
- │ services/dataops/                     │       │ T0 resources/dataops_runner.py (sous-processus)      │
- │  spec · catalog · compile · typing    │       │ T1 même runner, Job k8s, E/S S3                      │
- │  formula · functions · dialects       │       │ T2 resources/spark_runner.py + profil DuckDB après    │
- │  preview · sampling · placement       │       └──────────────┬───────────────────────────────────────┘
- │  compute/ (D4) · spark/ (D5)          │                      │ parts + résumé + profil + échantillon
- └───────────────────────────────────────┘       ┌──────────────▼───────────────────────────────────────┐
-                                                 │ commit atomique de N sorties (une transaction)        │
-                                                 │ filiation : opération, étapes, placement, métriques   │
-                                                 └──────────────────────────────────────────────────────┘
-```
-
-**Flux de bout en bout**
-1. **Conception** : l'aperçu compile la spec et l'exécute sur les **échantillons persistés** des entrées (§9).
-2. **Publication** : le validateur vérifie les specs, les ports et les limites, sans base de données.
-3. **Exécution** :
-   - le walker construit les entrées par port dans le bloc ;
-   - le wrapper compile, choisit le placement, soumet et suit la ligne ;
-   - le runner écrit en staging ;
-   - la plateforme valide et commite les N sorties en une fois.
-4. **Résultat** : l'enveloppe porte un dataset par port, et le badge du nœud expose `outputs{port: dataset_id}`.
-
----
+Les sections suivantes sont conservées pour les choix sémantiques et les extensions futures. Elles décrivent aussi des contrats proposés avant l’implémentation. En cas de différence avec le code, utiliser le §3 et les schémas versionnés actuels. Les tableaux de lots, déploiement et « reste à faire » de cette référence ne remplacent pas l’état du §0.
 
 ## 5. Contrat de spécification d'un nœud
 
@@ -977,7 +937,7 @@ Aucune UDF Python.
 - Catégorie `Data`, capacité `tabular_transforms` (`:3818-3840`).
 - `execution.mode: sync`, `timeout_ms` aligné sur `dataops_max_timeout_s`, `retryable: true`, `idempotent: true`.
 - `output_schema = {properties: {out: …}}`.
-- Une ligne dans `_REGISTRY` (`wrappers.py:7253`) et dans `SKILL_CATEGORIES`.
+- Une ligne dans `_REGISTRY` (`services/skills_registry/wrappers/registry.py`) et dans `SKILL_CATEGORIES`.
 
 **DAG** (`dag.py`)
 - `_DATA_PREP_SKILL_SLUG`, `_DATA_PREP_PARAM_KEYS`.
@@ -1191,7 +1151,7 @@ Codes d'erreur en annexe B.
 
 1. **Écritures HANA**
    - `POST /hana/query` laisse tout membre exécuter du DML, avec `allow_writes` lu dans le corps (`hana.py:44-48,112-134`).
-   - La Skill `sap_hana_query_v1` lit `allow_writes` dans sa charge utile (`wrappers.py:1355-1380`).
+   - La Skill `sap_hana_query_v1` lit `allow_writes` dans sa charge utile (`services/skills_registry/wrappers/skills.py`).
    - **Correctif** : écriture réservée aux administrateurs, derrière un drapeau ; Skill en lecture seule.
 2. **Mot de passe de plateforme HANA** : `HANA_CONNECTOR_PASSWORD`, repli **global** envoyé à n'importe quel hôte configuré par un administrateur de workspace (`hana/service.py:33,140,163-165`). Il est **récupérable** puisque le certificat n'est pas vérifié (`:237`). **Correctif** : supprimer le repli, ou le lier à un hôte fixé par la plateforme.
 3. **HANA, divers**
@@ -2058,7 +2018,7 @@ L'abstraction de format (`dataset_files`, `open_dataset_arrow`, §11) limite le 
 - **Interface sobre (Tokens v2)** : neutre par défaut, l'ambre et le rouge réservés aux vrais signaux.
 - `/api/v1/build-info` est une attestation publique à forme exacte : ne rien y ajouter.
 - Nouvelle dépendance Python : `backend/requirements.txt` + pin dans `backend/constraints-demo-app.txt` (vérifié par `test_demo_dependency_constraints.py`). Mesurer les images (`scripts/agentium-image-budget.sh`).
-- Nouvelle Skill : entrée dans `seed.py`, ligne `_REGISTRY` dans `wrappers.py`, `SKILL_CATEGORIES`, capacité. Le test `test_every_seeded_slug_has_a_wrapper_and_a_category` doit rester vert.
+- Nouvelle Skill : entrée dans `seed.py`, ligne `_REGISTRY` dans `services/skills_registry/wrappers/registry.py`, `SKILL_CATEGORIES`, capacité. Le test `test_every_seeded_slug_has_a_wrapper_and_a_category` doit rester vert.
 - Nouveau bloc graph-owned : `_GRAPH_OWNED_BLOCKS` (`dag.py`) + `GRAPH_OWNED_CONFIG_SKILLS` (`execution_contract.py`). Leur égalité est testée dans `test_run_engine_dag_graph.py`.
 - Nouveau service Compose ou worker : le reporter dans
   - `scripts/agentium-vm-deploy.sh` (liste de `up`, contrôle de stockage) ;

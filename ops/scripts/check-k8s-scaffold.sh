@@ -38,7 +38,7 @@ grep -q 'name: CELERY_BROKER_URL' /tmp/agentium-helm.yaml ||
 	fail "workers must receive CELERY_BROKER_URL"
 grep -q 'KEYCLOAK_URL:' /tmp/agentium-helm.yaml ||
 	fail "pods must receive KEYCLOAK_URL"
-grep -q 'CELERY_QUEUES: "cpu,recipes"' /tmp/agentium-helm.yaml ||
+grep -q 'CELERY_QUEUES: "cpu,recipes,dataops"' /tmp/agentium-helm.yaml ||
 	fail "the only worker must also listen on the recipes queue"
 grep -q -- '--import-realm' /tmp/agentium-helm.yaml ||
 	fail "keycloak must import the realm its readiness probe requests"

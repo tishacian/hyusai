@@ -179,6 +179,16 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     description: 'Tabular datasets, column profiles, transformations and lineage.',
   },
   {
+    id: 'data-preparation', label: 'Data preparation', route: '/data/preparation', lens: 'build',
+    object: 'Dataset', scope: 'workspace', apiPrefix: '/api/v1/dataops', status: 'canonical',
+    audience: 'workspace-user', description: 'Versioned data preparation, bounded previews and executions.',
+  },
+  {
+    id: 'work-services', label: 'Service deliveries', route: '/work/services', lens: 'operate',
+    object: 'System', scope: 'workspace', apiPrefix: '/api/v1/service-contracts', status: 'canonical',
+    audience: 'workspace-user', description: 'Daily service promises, human review and delivery receipts.',
+  },
+  {
     id: 'models',
     label: 'Models',
     route: '/models',

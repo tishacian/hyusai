@@ -1,0 +1,60 @@
+{{- if .Values.dataopsWorker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentium-worker-dataops
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker-dataops
+spec:
+  replicas: {{ .Values.dataopsWorker.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: worker-dataops
+  template:
+    metadata:
+      labels:
+        {{- include "agentium.labels" . | nindent 8 }}
+        app.kubernetes.io/component: worker-dataops
+    spec:
+      {{- include "agentium.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: worker
+          image: {{ .Values.image.worker | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          resources:
+            {{- toYaml .Values.resources.dataopsWorker | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "agentium.fullname" . }}-config
+            - secretRef:
+                name: {{ include "agentium.secretName" . }}
+            {{- include "agentium.openbaoEnvFrom" (list . "worker") | nindent 12 }}
+          env:
+            {{- include "agentium.appSecretEnv" . | nindent 12 }}
+            {{- include "agentium.openbaoEnv" (list .) | nindent 12 }}
+            - name: CELERY_QUEUES
+              value: dataops
+            - name: CELERY_CONCURRENCY
+              value: "1"
+            - name: CELERY_BEAT
+              value: "0"
+            - name: DATAOPS_DUCKDB_MEMORY_MB
+              value: "1024"
+            - name: DATAOPS_DUCKDB_THREADS
+              value: "2"
+            - name: DATAOPS_SPILL_MAX_MB
+              value: "4096"
+            - name: DATAOPS_RUNNER_MEMORY_LIMIT_MB
+              value: "3072"
+            - name: TMPDIR
+              value: /scratch
+          volumeMounts:
+            - name: scratch
+              mountPath: /scratch
+      volumes:
+        - name: scratch
+          emptyDir:
+            sizeLimit: {{ .Values.dataopsWorker.scratchSizeLimit }}
+{{- end }}

@@ -6,13 +6,14 @@ import asyncio
 from datetime import datetime
 from typing import Callable, TypeVar
 
+from app.core.config import settings as runtime_settings
 from app.services.rag.context import run_rag_retrieve_context
 from app.services.rag.embedding_generation import run_embedding_reindex
+from app.services.rag.ingest.worker_ingest import run_document_ingest_index
 from app.services.secure_deposit_operations import run_sftp_reconciliation_job
 from app.services.visual_intelligence import run_visual_capture_job
 from app.services.worker_bm25 import run_bm25_rebuild
 from app.services.worker_deep_retrieval import run_deep_retrieval, run_workspace_deep_retrieval
-from app.services.rag.ingest.worker_ingest import run_document_ingest_index
 from app.services.worker_offline_retrieval_artifacts import run_offline_retrieval_artifact_job
 from app.workers.celery_app import celery_app
 
@@ -886,6 +887,25 @@ def tabular_dbt_execute(self, execution_id: str) -> dict:
     return {**result, "task_id": str(self.request.id)}
 
 
+@celery_app.task(
+    name="agentium.dataops_sql_execute",
+    bind=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def dataops_sql_execute(self, execution_id: str) -> dict:
+    """Settle one SQL transform on the DuckDB runner (dataops queue).
+
+    The statement travels on the execution row, like a dbt project: the row is
+    what the walker polls, and it was validated before it was queued.
+    """
+
+    from app.services.dataops.sql_execution import run_sql_execution
+
+    result = run_sql_execution(execution_id)
+    return {**result, "task_id": str(self.request.id)}
+
+
 @celery_app.task(name="agentium.recipe_env_build")
 def recipe_env_build(env_id: str) -> dict:
     """Explicit prebuild of one recipe venv (inspector 'prepare now')."""
@@ -1002,3 +1022,29 @@ def brd_generation(job_id: str) -> dict:
     from app.services.skills_registry.brd_generation import run_generation_job
 
     return run_generation_job(job_id)
+
+
+@celery_app.task(
+    name="agentium.dataops_prepare",
+    acks_late=True,
+    reject_on_worker_lost=True,
+    time_limit=runtime_settings.dataops_t0_max_timeout_s + 60,
+    soft_time_limit=runtime_settings.dataops_t0_max_timeout_s + 30,
+)
+def dataops_prepare_task(execution_id: str):
+    from app.services.dataops.preparation import run_preparation
+
+    return run_preparation(execution_id)
+
+
+@celery_app.task(
+    name="agentium.dataops_score",
+    acks_late=True,
+    reject_on_worker_lost=True,
+    time_limit=runtime_settings.dataops_t0_max_timeout_s + 60,
+    soft_time_limit=runtime_settings.dataops_t0_max_timeout_s + 30,
+)
+def dataops_score_task(execution_id: str):
+    from app.services.dataops.scoring import run_score
+
+    return run_score(execution_id)

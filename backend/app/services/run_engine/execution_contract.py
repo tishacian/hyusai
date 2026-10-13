@@ -34,6 +34,9 @@ GRAPH_OWNED_CONFIG_SKILLS: frozenset[str] = frozenset(
     {
         "python_recipe_v1",
         "sql_transform_v1",
+        "data_prep_v1",
+        "evaluate_v2",
+        "narration_run_v1",
         "polars_transform_v1",
         "dbt_transform_v1",
         "ml_train_sklearn_v1",

@@ -169,6 +169,13 @@ def db_session():
 
     # Order matters for FK constraints.
     _TRUNCATE_ORDER = [
+        "delivery_receipts",
+        "service_incidents",
+        "service_attempts",
+        "service_windows",
+        "service_contracts",
+        "asset_qualifications",
+        "asset_versions",
         "secret_versions",
         "secrets",
         "hub_import_requests",

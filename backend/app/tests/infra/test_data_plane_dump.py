@@ -258,6 +258,7 @@ def harness(tmp_path, probe_databases):
         encoding="utf-8",
     )
     script.chmod(0o755)
+    shutil.copy2(ROOT / "scripts/agentium_validate_delta_backup.py", tmp_path)
 
     (binaries / "docker").write_text(FAKE_DOCKER, encoding="utf-8")
     (binaries / "docker").chmod(0o755)
@@ -375,7 +376,7 @@ def test_the_mirror_is_scoped_from_the_registry_and_not_from_the_bucket(harness)
     stranger = harness["bucket"] / "workspaces/ws-2/knowledge/collections/c/big.bin"
     stranger.parent.mkdir(parents=True, exist_ok=True)
     stranger.write_bytes(b"x" * 4096)
-    # ...and a prefix of the *same* workspace that the plane does not own.
+    # The same workspace's evidence may be referenced by an A1 manifest.
     other = harness["bucket"] / "workspaces/ws-1/knowledge/collections/c/also.bin"
     other.parent.mkdir(parents=True, exist_ok=True)
     other.write_bytes(b"y" * 2048)
@@ -388,7 +389,7 @@ def test_the_mirror_is_scoped_from_the_registry_and_not_from_the_bucket(harness)
         for path in (window / "objects").rglob("*")
         if path.is_file()
     }
-    assert not any("knowledge" in name for name in copied), copied
+    assert "workspaces/ws-1/knowledge/collections/c/also.bin" in copied
     assert not any(name.startswith("workspaces/ws-2") for name in copied), copied
 
 
