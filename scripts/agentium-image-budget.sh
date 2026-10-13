@@ -8,8 +8,9 @@
 # release that suddenly shares none has rebuilt the multi-gigabyte stack twice.
 #
 # The forecasting image (agentium-ml-ts) and the LiveKit sidecar
-# (agentium-livekit-agent, rebuilt only for `agentium-vm-deploy.sh livekit-up`)
-# are optional: reported when present, never required.
+# (agentium-livekit-agent) are optional: reported when present. Wherever the
+# Compose realtime profile runs (the VM, see scripts/agentium-vm-build.sh),
+# AGENTIUM_IMAGE_REQUIRE_LIVEKIT_AGENT=1 makes a missing sidecar a failure.
 #
 # A budget is enforced only when its variable is set, in MB:
 #   AGENTIUM_IMAGE_BUDGET_MB_BACKEND, AGENTIUM_IMAGE_BUDGET_MB_WORKER,
@@ -30,7 +31,7 @@ printf 'image\tsize_mb\tbudget_mb\tverdict\n'
 for name in backend worker frontend ml-ts livekit-agent; do
 	image="agentium-${name}:${tag}"
 	if ! bytes="$(docker image inspect --format '{{.Size}}' "$image" 2>/dev/null)"; then
-		if [[ "$name" == "ml-ts" || "$name" == "livekit-agent" ]]; then
+		if [[ "$name" == "ml-ts" || ("$name" == "livekit-agent" && "${AGENTIUM_IMAGE_REQUIRE_LIVEKIT_AGENT:-0}" != 1) ]]; then
 			printf '%s\t-\t-\tnot built (optional)\n' "$image"
 			continue
 		fi

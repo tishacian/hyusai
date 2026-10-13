@@ -28,7 +28,7 @@ VM doit correspondre à un commit poussé. Le code arrive sur la VM **par `git`*
 jamais par `rsync`, `scp`, ou édition directe.
 
 ```
-local (branche)  ──commit──>  origin/demo/agentic  ──git fetch+reset──>  VM  ──docker build+up──>  conteneurs
+local (branche)  ──commit──>  origin/demo/agentic  ──agentium-vm-build.sh──>  images <sha12>  ──agentium-vm-deploy.sh up──>  conteneurs
 ```
 
 Si tu ne peux pas répondre à « quel commit tourne sur la VM ? » avec un SHA, le
@@ -190,10 +190,14 @@ remplace pas cette preuve.
 
 ### Procédure standard (chemin unique)
 
-1. Pousser le commit sur `origin/demo/agentic`, puis avancer le worktree de
-   build en fast-forward.
-2. Construire les images `agentium-*:<sha12>` dans les budgets de taille
-   (`scripts/agentium-image-budget.sh`).
+1. Pousser le commit sur `origin/demo/agentic`.
+2. Sur la VM, en `ubuntu`, `scripts/agentium-vm-build.sh <sha40>` dans sa
+   version au `<sha40>` (`docs/agentium-release-process.md` §3) : verrou,
+   fetch puis `merge --ff-only` du worktree de build par `sudo -n` (jamais de
+   reset), les sept images `agentium-*:<sha12>` sidecar LiveKit compris, le
+   label de révision de chacune, puis les budgets de taille
+   (`scripts/agentium-image-budget.sh`, sidecar requis). Il remplace
+   `/tmp/deploy-reorg.sh`, non versionné, laissé sur la VM et plus utilisé.
 3. `AGENTIUM_IMAGE_TAG=<sha12> agentium-vm-deploy.sh storage-check`.
 4. Si `backend/alembic` a changé : `migrate`. Le lanceur fait d'abord un
    `pg_dump -Fc` vérifié par `pg_restore --list`, publié avec un marqueur
@@ -202,7 +206,9 @@ remplace pas cette preuve.
 5. Vérifier qu'aucun Run n'est actif, puis `up`. `up` attend que
    `/api/v1/build-info` du backend annonce la révision du tag avec
    `revision_verified=true`, sinon il échoue en indiquant le tag précédent.
-6. `catalog-check`, puis la vérification post-déploiement du §4.
+6. Si le tag du sidecar change : 0 room LiveKit et 0 session sidecar, puis
+   `livekit-up`.
+7. `catalog-check`, puis la vérification post-déploiement du §4.
 
 Avec `AGENTIUM_GATE=1`, `migrate` et `up` ferment le gate de maintenance public
 pendant la mutation ; un échec le laisse fermé et
@@ -256,7 +262,7 @@ sont recréés que par `agentium-vm-deploy.sh livekit-up` : Compose du worktree,
 bundle gelé (les clés `LIVEKIT_*` et `OPENAI_API_KEY` viennent de
 `compose.effective.env`), `--wait`, et seuls les services dont la config rendue
 a changé. Le sidecar est construit depuis `livekit-agent/` au tag `<sha12>`
-(`docs/vm-deploy-chat-runbook.md`). Recréer coupe les sessions en cours :
+par `scripts/agentium-vm-build.sh`, avec les autres images. Recréer coupe les sessions en cours :
 vérifier avant `active_sessions: 0` sur le `/healthz` du sidecar et 0 run actif.
 Dans une transaction Release A, l'orchestrateur capture leur image, leur état,
 leurs ports et leur restart policy, ferme l'ingress UDP/TCP, draine les
