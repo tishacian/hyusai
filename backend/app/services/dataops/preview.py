@@ -11,7 +11,6 @@ from collections import OrderedDict
 from pathlib import Path
 
 from app.core.config import settings
-from app.services.dataops.compiler import quote
 from app.services.dataops.secrets import hash_parameters
 from app.services.dataops.storage import file_digest
 from app.services.object_store import get_object_store
@@ -165,136 +164,63 @@ def infer_schema(compiled, datasets, spec):
 
 
 def _preview(compiled, datasets, spec, *, limit=None, output_port=None):
-    import duckdb
-    import pyarrow as pa
-    import pyarrow.parquet as pq
+    """Only authorization-bound sample bytes cross into a fresh bounded process."""
+    from dataclasses import asdict
+
+    from app.services.dataops.preview_runner import run_isolated
 
     if output_port and output_port not in {output.port for output in spec.outputs}:
         raise ValueError("DATAPREP_OUTPUT_PORT_INVALID")
-
     if not _slots.acquire(blocking=False):
         raise ValueError("DATAPREP_PREVIEW_BUSY")
-    conn = duckdb.connect()
-    timer = threading.Timer(settings.dataops_preview_timeout_s, conn.interrupt)
-    timer.daemon = True
     try:
-        conn.execute(f"SET memory_limit='{settings.dataops_preview_memory_mb}MB'")
-        conn.execute("SET threads=1")
-        conn.execute("SET TimeZone='UTC'")
-        conn.execute("SET temp_directory=''")
-        total = 0
-        counts = {}
         with tempfile.TemporaryDirectory(prefix="prep-preview-") as tmp:
-            for port, dataset in datasets.items():
+            inputs = {}
+            for index, (port, dataset) in enumerate(datasets.items()):
                 info = (dataset.lineage_json or {}).get("sample")
-                if info:
-                    path = get_object_store().copy_to_local(
-                        info["key"], Path(tmp) / port / "sample.parquet", max_bytes=16 * 1024**2
-                    )
-                    if file_digest(path) != info["sha256"]:
-                        raise ValueError("DATAPREP_SAMPLE_CHANGED")
-                    parquet = pq.ParquetFile(path)
-                    expanded = sum(
-                        parquet.metadata.row_group(i).total_byte_size
-                        for i in range(parquet.metadata.num_row_groups)
-                    )
-                    if expanded > settings.dataops_preview_input_mb * 1024**2:
-                        raise ValueError("DATAPREP_SAMPLE_MEMORY_LIMIT")
-                    batches = []
-                    rows = 0
-                    for batch in parquet.iter_batches(batch_size=1000, use_threads=False):
-                        take = min(batch.num_rows, min(10000, settings.dataops_sample_rows) - rows)
-                        if take <= 0:
-                            break
-                        batches.append(batch.slice(0, take))
-                        rows += take
-                    table = pa.Table.from_batches(batches, schema=parquet.schema_arrow)
-                else:
+                if not info:
                     raise ValueError("DATAPREP_SAMPLE_REQUIRED")
-                total += table.nbytes
-                if total > settings.dataops_preview_input_mb * 1024**2:
-                    raise ValueError("DATAPREP_SAMPLE_MEMORY_LIMIT")
-                counts[port] = {
-                    "rows": table.num_rows,
+                path = get_object_store().copy_to_local(
+                    info["key"], Path(tmp) / f"input-{index}.parquet", max_bytes=16 * 1024**2
+                )
+                if file_digest(path) != info["sha256"]:
+                    raise ValueError("DATAPREP_SAMPLE_CHANGED")
+                inputs[port] = {
+                    "path": str(path),
                     "of_rows": dataset.row_count,
-                    "method": info["method"] if info else "legacy_profile_preview",
+                    "version": dataset.version,
+                    "method": info["method"],
                 }
-                conn.register("__sample", table)
-                conn.execute(f"CREATE TEMP TABLE {quote(port)} AS SELECT * FROM __sample")
-                conn.unregister("__sample")
-            conn.execute("SET enable_external_access=false")
-            conn.execute("SET lock_configuration=true")
-            timer.start()
-            import sqlglot
-            from sqlglot import exp
-
-            def execute(sql):
-                used = {
-                    n.name for n in sqlglot.parse_one(sql, read="duckdb").find_all(exp.Placeholder)
-                }
-                parameters = {k: v for k, v in compiled.preview_parameters.items() if k in used}
-                return conn.execute(sql, parameters)
-
-            execute(f"CREATE TEMP TABLE __preview_output AS {compiled.sql}")
-            from app.services.dataops.compiler import literal
-
-            predicate = (
-                f" WHERE __dp_output={literal(output_port)}"
-                if output_port and spec.operation == "split"
-                else ""
+            # Execution salts are never permitted at the preview boundary, including
+            # when this helper is called internally rather than through the API.
+            if any(v != "[preview-redacted]" for v in compiled.preview_parameters.values()):
+                raise ValueError("DATAPREP_PREVIEW_PARAMETERS_INVALID")
+            job = {
+                "compiled": asdict(compiled),
+                "inputs": inputs,
+                "operation": spec.operation,
+                "steps": [
+                    {
+                        "id": step.id,
+                        "action": step.action,
+                        "enabled": step.enabled,
+                        "params": step.params
+                        if step.action in {"cast", "parse_date", "parse_number"}
+                        else {},
+                    }
+                    for step in spec.steps
+                ],
+                "limit": min(200, max(1, int(limit or settings.tabular_preview_rows))),
+                "output_port": output_port,
+                "sample_rows": min(10000, settings.dataops_sample_rows),
+                "input_mb": settings.dataops_preview_input_mb,
+                "memory_mb": settings.dataops_preview_memory_mb,
+            }
+            return run_isolated(
+                job,
+                Path(tmp),
+                memory_mb=settings.dataops_preview_memory_mb,
+                timeout_s=settings.dataops_preview_timeout_s,
             )
-            result = conn.execute(
-                f"SELECT {','.join(quote(n) for n in compiled.columns)} FROM __preview_output{predicate} LIMIT {min(200, max(1, int(limit or settings.tabular_preview_rows)))}"
-            ).to_arrow_table()
-            if spec.operation == "split":
-                output_counts = {
-                    port: count
-                    for port, count in conn.execute(
-                        "SELECT __dp_output,count(*) FROM __preview_output GROUP BY __dp_output"
-                    ).fetchall()
-                }
-            else:
-                output_counts = {
-                    "out": conn.execute("SELECT count(*) FROM __preview_output").fetchone()[0]
-                }
-            from app.services.dataops.preview_stats import conversion_counters, profile
-
-            stats = profile(conn, result.schema, predicate)
-            steps = conversion_counters(conn, compiled, spec, execute)
-        return {
-            "rows": result.to_pylist(),
-            "schema": [
-                {"name": f.name, "dtype": str(f.type), "nullable": f.nullable}
-                for f in result.schema
-            ],
-            "sample": True,
-            "stats": stats,
-            "stats_scope": "sample",
-            "sample_metadata": {
-                "method": "persisted",
-                "inputs": counts,
-                "max_rows_per_input": min(10000, settings.dataops_sample_rows),
-            },
-            "fingerprint": compiled.fingerprint,
-            "output_schema": list(compiled.output_schema),
-            "step_schemas": list(compiled.step_schemas),
-            "warnings": list(compiled.warnings),
-            "counters": {
-                "inputs": {port: value["rows"] for port, value in counts.items()},
-                "outputs": output_counts,
-                "steps": steps,
-            },
-            "sample_info": {
-                "rows": sum(value["rows"] for value in counts.values()),
-                "of_rows": sum(value["of_rows"] or 0 for value in counts.values()),
-                "version": {port: dataset.version for port, dataset in datasets.items()},
-            },
-        }
-    except duckdb.InterruptException:
-        raise ValueError("DATAPREP_PREVIEW_TIMEOUT") from None
-    except duckdb.Error as exc:
-        raise ValueError("DATAPREP_TYPE_MISMATCH: " + str(exc).splitlines()[0][:240]) from None
     finally:
-        timer.cancel()
-        conn.close()
         _slots.release()

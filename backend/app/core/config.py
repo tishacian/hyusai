@@ -673,8 +673,9 @@ class Settings(BaseSettings):
     # for the result and the spill files.
     dataops_max_output_mb: int = Field(default=4096, ge=16)
     dataops_sql_timeout_s: float = Field(default=300.0, ge=1.0)
-    # The workshop's Test button runs in the web process, on a thread: a smaller
-    # budget and no spill, because a preview that needs a disk is a run.
+    # Workshop previews run in a fresh process, without spill. This is DuckDB's
+    # budget; the strict OS address-space limit also reserves 512 MiB for native
+    # library mappings (see dataops.preview_runner), before importing them.
     dataops_preview_memory_mb: int = Field(default=512, ge=64)
     # Polars transform node. Author code runs on the venv interpreter, so the
     # engine itself has to be IN the venv: this pin is prepended to the node's
