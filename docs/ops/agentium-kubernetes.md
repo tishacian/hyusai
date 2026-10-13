@@ -5,7 +5,8 @@ The demo VM remains Docker Compose. This document is the map from that
 Compose stack to the managed-cluster path (OVH MKS first, AKS twin). Chart
 0.2.0 covers the stack as deployed on the VM on 11/10/2026: model-family
 workers, Hugging Face, secret registry and optional OpenBao. Chart 0.3.0
-adds realtime voice (LiveKit and its sidecar), off by default.
+adds realtime voice (LiveKit and its sidecar), off by default; 0.3.1 moves
+LiveKit signalling to its own host.
 
 ## Why this shape
 
@@ -39,7 +40,7 @@ validate → terraform plan → terraform apply (manual lab)
 | `agentium-kc` | Deployment + Service | on, state in the Postgres database `keycloak` |
 | `agentium-beat` | — | later (`beat` profile) |
 | `agentium-sftp` | — | later (`sftp` profile) |
-| `agentium-livekit` | Deployment + Services `agentium-livekit` (`:7880`) and, in `loadBalancer` mode, `agentium-livekit-rtc`; ConfigMap; Ingress `/livekit` | off (`livekit.enabled`) |
+| `agentium-livekit` | Deployment + Services `agentium-livekit` (`:7880`) and, in `loadBalancer` mode, `agentium-livekit-rtc`; ConfigMap; Ingress `/` on `livekit.host` | off (`livekit.enabled`) |
 | `agentium-livekit-agent` | Deployment + Service `agentium-livekit-agent` (`:8090`) | off (`livekit.enabled`, then `livekit.agent.enabled`) |
 | `agentium-livekit-redis` | — (external `livekit.redis.address`, more than one replica only) | off |
 
@@ -53,10 +54,13 @@ Ingress paths copy `deploy/nginx/agentium-container-frontend.conf`:
 - `/` → frontend `:8080`
 - `/api` → backend `:8000`
 - `/kc` → Keycloak `:8080`
-- `/livekit/` → LiveKit `:7880`, prefix stripped (only with `livekit.enabled`)
 - hidden-path regex (`/.env`, `/.git`, `/assets/.secret`) → `404`, same
   contract as `docs/ops/ingress-proxy-contract.md`. `/kc/` and
   `/.well-known/acme-challenge/` stay reachable.
+
+With `livekit.enabled`, LiveKit `:7880` has its own host (`livekit.host`)
+at `/`, not the VM's `/livekit/` path. No Ingress carries `use-regex` or
+`rewrite-target`; the chart refuses them in `ingress.annotations`.
 
 Lab/prod values set `createSecret: false` and `existingSecret`. Placeholders
 in `values.yaml` exist only so `helm template` works locally.
@@ -213,12 +217,21 @@ through the same port-forward. Order for an existing deployment: migrate
 `agentium-livekit-agent`. The demo VM keeps running them through
 `scripts/agentium-vm-deploy.sh livekit-up`; nothing here changes it.
 
-- Signalling (HTTP/WebSocket `:7880`) goes through the ingress at
-  `/livekit/`, prefix stripped, as `deploy/nginx/agentium-container-frontend.conf`
-  does. The browser URL is `livekit.publicUrl`, otherwise
-  `ws(s)://<ingress.host>/livekit`. The rewrite needs a second Ingress on
-  the same host, and ingress-nginx then matches every path of that host as
-  a case-insensitive regex (`/api` also matches `/apiX`).
+- Signalling (HTTP/WebSocket `:7880`) goes through the ingress on its own
+  host, `livekit.host` (required, different from `ingress.host`), at `/`
+  with no rewrite and one-hour read/send timeouts for the WebSocket. The VM
+  keeps `/livekit/` on its nginx; the chart cannot, because an ingress-nginx
+  rewrite turns every path of its host into a regex. The browser URL is
+  `livekit.publicUrl`, otherwise `wss://<livekit.host>` (`ws://` without
+  `livekit.tls`); the frontend reads it from `/api/v1/livekit/config`, so
+  the image is the same on the VM and the cluster.
+- Before turning it on: a DNS record for `livekit.host` to the ingress
+  controller's address (as for `ingress.host`), and, when `ingress.tls` is
+  set, `livekit.tls` (same shape, e.g. Secret `agentium-lab-livekit-tls`)
+  with a certificate for that host. The chart refuses an `https` app with a
+  `ws://` LiveKit. A cert-manager issuer set in `ingress.annotations` also
+  applies to the LiveKit Ingress and fills that Secret; without cert-manager
+  create it as `kubernetes.io/tls`.
 - The API gets `LIVEKIT_ENABLED`, `LIVEKIT_URL`, `LIVEKIT_INTERNAL_URL`
   (`http://agentium-livekit:7880`), `LIVEKIT_AGENT_DISPATCH_URL`
   (`http://agentium-livekit-agent:8090/dispatch`) and
@@ -262,7 +275,8 @@ Media never crosses the ingress. Two modes, `livekit.network.mode`:
 - Redis only for more than one replica, and the chart does not run it
   (`agentium-livekit-redis` is the Compose `realtime-scale` profile).
 - Release refusals: no `livekit.existingSecret`, the application Secret as
-  `livekit.existingSecret`, an unknown mode, `loadBalancer` without its
+  `livekit.existingSecret`, no `livekit.host` or the main host, `ingress.tls`
+  without `livekit.tls`, an unknown mode, `loadBalancer` without its
   address or with several replicas, several replicas without Redis, TURN
   without domain or certificate.
 
@@ -350,10 +364,10 @@ workspace to another provider.
   rendered and checked by `ops/scripts/check-k8s-scaffold.sh`, not run. RWX
   provisioning, the OpenBao NetworkPolicy (it needs a CNI that enforces
   policies) and the port-forward bootstrap are unproven on MKS and AKS.
-- LiveKit (0.3.0) is rendered and checked, not run. Unproven on MKS and
-  AKS: UDP through either provider's LoadBalancer (mixed TCP/UDP on one
-  Service), STUN discovery from a host-network pod, the AKS host-port
-  allowance, the `/livekit` rewrite with WebSockets on Application Routing,
+- LiveKit (0.3.0; own host since 0.3.1) is rendered and checked, not run.
+  Unproven on MKS and AKS: UDP through either provider's LoadBalancer (mixed
+  TCP/UDP on one Service), STUN discovery from a host-network pod, the AKS
+  host-port allowance, WebSockets on the LiveKit host through Application Routing,
   the sidecar's media path to a host-network LiveKit, LiveKit and Node as
   non-root on a read-only root filesystem, and TURN.
 - The chart's Qdrant has no API key, unlike the VM. Add one before Qdrant

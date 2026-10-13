@@ -305,9 +305,11 @@ for out in /tmp/agentium-helm-lk-host.yaml /tmp/agentium-helm-lk-lb.yaml; do
 	fi
 	grep -A3 'name: LIVEKIT_API_SECRET' "$out" | grep -q 'name: agentium-lab-livekit' ||
 		fail "the LiveKit secret must come from livekit.existingSecret by key ($out)"
-	grep -qF 'path: /livekit(/|$)(.*)' "$out" || fail "the ingress must route /livekit as the VM nginx does ($out)"
-	# shellcheck disable=SC2016 # a literal nginx capture group, not a shell variable
-	grep -qF 'rewrite-target: /$2' "$out" || fail "/livekit must reach LiveKit with the prefix stripped ($out)"
+	if grep -qE 'nginx\.ingress\.kubernetes\.io/(use-regex|rewrite-target)|ImplementationSpecific' "$out"; then
+		fail "no Ingress may use a regex or a rewrite: ingress-nginx applies it to every path of the host ($out)"
+	fi
+	grep -q 'LIVEKIT_URL: "ws://livekit.lab-agentium.example"' "$out" ||
+		fail "the browser must reach LiveKit at livekit.host ($out)"
 	grep -q 'LIVEKIT_AGENT_DISPATCH_URL: http://agentium-livekit-agent:8090/dispatch' "$out" ||
 		fail "the API must dispatch to the in-cluster sidecar ($out)"
 	grep -q 'LIVEKIT_INTERNAL_URL: http://agentium-livekit:7880' "$out" ||
@@ -316,6 +318,28 @@ for out in /tmp/agentium-helm-lk-host.yaml /tmp/agentium-helm-lk-lb.yaml; do
 	sized="$(grep -cE '^ +cpu: ' "$out" || true)"
 	[ "$containers" = "$sized" ] || fail "every realtime container must declare requests ($sized/$containers)"
 done
+for values in values-lab-ovh.yaml values-lab-aks.yaml; do
+	ingress="$(lk "$values" --set livekit.network.mode=hostNetwork --show-only templates/ingress.yaml)"
+	main_host="$(sed -n '/^  name: agentium$/,/^---/p' <<<"$ingress" | sed -n 's/^ *- host: "\(.*\)"$/\1/p')"
+	livekit="$(sed -n '/^  name: agentium-livekit$/,$p' <<<"$ingress")"
+	livekit_host="$(sed -n 's/^ *- host: "\(.*\)"$/\1/p' <<<"$livekit")"
+	[ -n "$livekit_host" ] && [ "$livekit_host" != "$main_host" ] ||
+		fail "$values: LiveKit needs its own host on the ingress (got '$livekit_host', main '$main_host')"
+	[ "$(grep -E '^ +- path: ' <<<"$livekit")" = "          - path: /" ] ||
+		fail "$values: the LiveKit Ingress must serve / alone"
+	grep -q 'pathType: Prefix' <<<"$livekit" || fail "$values: the LiveKit path must be a plain prefix"
+	grep -q 'proxy-read-timeout: "3600"' <<<"$livekit" || fail "$values: LiveKit WebSockets need a long read timeout"
+done
+rendered="$(lk values-lab-ovh.yaml --set 'ingress.tls[0].secretName=agentium-lab-tls' \
+	--set 'livekit.tls[0].secretName=agentium-lab-livekit-tls' --set 'livekit.tls[0].hosts[0]=livekit.lab-agentium.example' \
+	--set 'ingress.annotations.cert-manager\.io/cluster-issuer=letsencrypt' --show-only templates/ingress.yaml \
+	--show-only templates/configmap.yaml)"
+grep -q 'LIVEKIT_URL: "wss://livekit.lab-agentium.example"' <<<"$rendered" ||
+	fail "with TLS the browser must reach LiveKit over wss://"
+grep -q 'secretName: agentium-lab-livekit-tls' <<<"$(sed -n '/^  name: agentium-livekit$/,$p' <<<"$rendered")" ||
+	fail "the LiveKit Ingress must carry livekit.tls"
+[ "$(grep -c 'cert-manager.io/cluster-issuer: letsencrypt' <<<"$rendered")" = 2 ] ||
+	fail "both Ingresses must get the certificate issuer from ingress.annotations"
 for app in livekit livekit-agent; do
 	for out in "$(lk values-lab-ovh.yaml --show-only "templates/${app}.yaml")" \
 		"$(lk_lb --show-only "templates/${app}.yaml")"; do
@@ -386,6 +410,14 @@ refuse_lk "several LiveKit replicas behind one LoadBalancer must be refused" val
 	--set livekit.network.loadBalancer.ip=203.0.113.10 --set livekit.replicas=2 --set livekit.redis.address=redis:6379
 refuse_lk "TURN without a certificate must be refused" values-lab-ovh.yaml \
 	--set livekit.turn.enabled=true --set livekit.turn.domain=turn.example.test
+refuse_lk "LiveKit without its host must be refused" values-lab-ovh.yaml --set livekit.host=
+refuse_lk "LiveKit on the main host must be refused" values-lab-ovh.yaml --set livekit.host=lab-agentium.example
+refuse_lk "an https app with a ws:// LiveKit must be refused" values-lab-ovh.yaml \
+	--set 'ingress.tls[0].secretName=agentium-lab-tls'
+if helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+	--set 'ingress.annotations.nginx\.ingress\.kubernetes\.io/use-regex=true' >/dev/null 2>&1; then
+	fail "a regex annotation on the main Ingress must be refused"
+fi
 
 helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
 	-f "$ROOT/ops/helm/agentium/values-lab-ovh.yaml" \
