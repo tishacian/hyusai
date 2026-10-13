@@ -286,13 +286,54 @@ def test_keycloak_is_recreated_only_through_the_worktree_compose() -> None:
         assert "redeploy-keycloak.sh" not in doc.read_text(encoding="utf-8"), doc
 
 
+def test_livekit_sidecar_is_built_from_the_repo_and_recreated_through_the_worktree_compose() -> None:
+    """agentium-livekit-agent was a hand-made container from a retired checkout
+    that no command recreated, so an OpenAI key rotation never reached it."""
+    agent = _merged_service("agentium-livekit-agent")
+    assert agent["image"] == "agentium-livekit-agent:${AGENTIUM_IMAGE_TAG:-local}"
+    assert agent["build"]["context"] == ".."
+    assert agent["build"]["dockerfile"] == "./docker/Dockerfile.agentium-livekit-agent"
+    assert (ROOT / "livekit-agent" / "src" / "agent.mjs").is_file()
+    assert (ROOT / "livekit-agent" / "package-lock.json").is_file()
+    assert agent["profiles"] == ["realtime"]
+    assert agent["restart"] == "unless-stopped"
+    assert agent["networks"] == ["agentium-net"]
+    assert not {"volumes", "ports", "env_file"} & set(agent)
+    assert agent["environment"]["OPENAI_API_KEY"] == "${OPENAI_API_KEY:-}"
+    assert "127.0.0.1:8090/healthz" in agent["healthcheck"]["test"][1]
+
+    server = _merged_service("agentium-livekit")
+    assert server["restart"] == "unless-stopped"
+    assert server["volumes"] == [
+        "./livekit/agentium-livekit.yaml:/etc/livekit/agentium-livekit.yaml:ro"
+    ]
+    assert 'readonly R=/srv/agentium-data/worktrees/demo-agentic\nreadonly W="$R/docker"\n' in SCRIPT
+    assert '--env-file "$D/runtime-env/compose.effective.env"' in _shell_function("compose")
+
+    assert re.fullmatch(
+        r"\s*storage_check\s*\n\s*compose --profile realtime up -d --no-build --no-deps --pull never "
+        r"--wait --wait-timeout 300 agentium-livekit agentium-livekit-agent",
+        _shell_case("livekit-up"),
+    )
+    assert "|keycloak-up|livekit-up|" in SCRIPT
+    for script in (*ROOT.joinpath("deploy").rglob("*.sh"), *ROOT.joinpath("scripts").rglob("*.sh")):
+        text = script.read_text(encoding="utf-8")
+        assert "docker run" not in text or "livekit" not in text, script
+
+
+def test_missing_keycloak_client_secret_log_points_at_the_frozen_bundle() -> None:
+    auth = (ROOT / "backend" / "app" / "api" / "v1" / "endpoints" / "auth.py").read_text(encoding="utf-8")
+    assert "backend/.env" not in auth
+    assert '"AGENTIUM_ENV_FILE (source-001.env of the frozen runtime env "' in auth
+
+
 def test_secrets_runbook_rotates_through_the_frozen_bundle() -> None:
     doc = (ROOT / "docs" / "ops" / "secrets.md").read_text(encoding="utf-8")
     assert "/home/ubuntu/omnirag" not in doc
     assert "backend/.env" not in doc
     assert not re.search(r"systemctl\b.*agentium-backend", doc)
     assert f"B={DEFAULT_D}/runtime-env\n" in doc
-    commands = set(re.findall(r"^\s*deploy ([a-z][a-z-]*)", doc, re.M))
-    assert {"up", "keycloak-up", "sftp-up", "ps"} <= commands
+    commands = set(re.findall(r"^\s*(?:[A-Z_]+=\S+ )*deploy ([a-z][a-z-]*)", doc, re.M))
+    assert {"up", "keycloak-up", "sftp-up", "livekit-up", "ps"} <= commands
     usage = re.search(r"usage: \$0 \{([^}]*)\}", SCRIPT)
     assert usage is not None and commands <= set(usage.group(1).split("|"))

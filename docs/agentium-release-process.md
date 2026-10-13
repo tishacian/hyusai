@@ -36,9 +36,10 @@ Two paths on the VM, don't confuse them:
 
 - `/srv/agentium-data/worktrees/demo-agentic` — the **build worktree**. This is
   what you advance and build from.
-- `/home/ubuntu/omnirag` — the historical checkout. FAISS and the secure
-  deposit left it in phase 4b, but `agentium-kc` (realm export, theme) and
-  `agentium-livekit` (server config) still bind files from it. Never delete or
+- `/home/ubuntu/omnirag.retired` — the historical checkout, renamed from
+  `/home/ubuntu/omnirag`. No container binds files from it any more
+  (`agentium-kc` and `agentium-livekit` bind from the build worktree since
+  2026-10-13), but stale Compose labels may still name it. Never delete or
   reset it casually.
 
 ## 2. Pre-flight (local)
@@ -154,6 +155,11 @@ running the script:
 export AGENTIUM_IMAGE_BUDGET_MB_BACKEND=1160 AGENTIUM_IMAGE_BUDGET_MB_WORKER=1800 \
   AGENTIUM_IMAGE_BUDGET_MB_FRONTEND=40 AGENTIUM_IMAGE_BUDGET_MB_ML_TS=1240
 ```
+
+The LiveKit sidecar image (`agentium-livekit-agent`, Node, built from
+`livekit-agent/`) is built only for a release that runs `livekit-up`; the
+script reports it when present. Reference, 2026-10-13: 99 MB, budget
+`AGENTIUM_IMAGE_BUDGET_MB_LIVEKIT_AGENT=110`.
 
 PR 2d (budgeted tabular tuning) adds `optuna==5.0.0` and
 `colorlog==6.12.0` to the common requirements/constraints, preserving the versions already
@@ -381,8 +387,11 @@ sudo env AGENTIUM_IMAGE_TAG=<sha12> "$DEPLOY" up
 `--no-build --pull never`, so the images from §4 must exist at the tag.
 Infrastructure containers (pg, Keycloak, Qdrant, MinIO, RabbitMQ, SFTP,
 LiveKit) are never touched by this path; `sftp-up` recreates SFTP alone when
-its bind changes, and `keycloak-up` recreates Keycloak alone (env rotation,
-theme or realm export change). The VM runtime overlay declares
+its bind changes, `keycloak-up` recreates Keycloak alone (env rotation,
+theme or realm export change), and `livekit-up` recreates `agentium-livekit`
+and its sidecar `agentium-livekit-agent` (image `agentium-livekit-agent:<sha12>`
+built from `livekit-agent/`) when their rendered configuration changed, with
+`--wait`, outside any live session. The VM runtime overlay declares
 `restart: unless-stopped` for Keycloak and LiveKit as for the application
 services, so they come back after a reboot; the Release A executor's
 `restart: no` is a transaction-only posture.
