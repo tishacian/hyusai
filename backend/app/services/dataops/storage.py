@@ -332,12 +332,16 @@ def settle_files(
     if size > settings.dataops_max_output_mb * 1024**2:
         raise ValueError("DATASET_OUTPUT_BUDGET_EXCEEDED")
     if delta_root is not None:
+        # Delta returns canonical file URIs (e.g. /private/var on macOS),
+        # while TemporaryDirectory may preserve a symlink such as /var.
+        delta_root = delta_root.resolve(strict=True)
         key = f"{prefix}/delta"
         log = delta_root / "_delta_log/00000000000000000000.json"
         parts = {}
         for path in paths:
             if path.name == "empty-profile.parquet":
                 continue
+            path = path.resolve(strict=True)
             relative = path.relative_to(delta_root).as_posix()
             parts[relative] = file_digest(path)
             store.write_file(f"{key}/{relative}", path)
