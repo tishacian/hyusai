@@ -60,3 +60,23 @@ variable "enable_web_app_routing" {
   type    = bool
   default = true
 }
+
+variable "media_node_pool" {
+  description = "Optional LiveKit media pool with public node IPs, labelled and tainted agentium.io/media=livekit. Ports match Helm livekit.rtc and livekit.network.hostNetwork."
+  type = object({
+    enabled        = bool
+    name           = optional(string, "media")
+    vm_size        = optional(string, "Standard_D4s_v5")
+    node_count     = optional(number, 1)
+    udp_port_start = optional(number, 50000)
+    udp_port_end   = optional(number, 50100)
+    rtc_tcp_port   = optional(number, 7881)
+  })
+  default = { enabled = false }
+}
+
+variable "livekit_public_ip" {
+  description = "Reserve the static public IP <cluster_name>-livekit for Helm livekit.network.loadBalancer.ip."
+  type        = bool
+  default     = false
+}

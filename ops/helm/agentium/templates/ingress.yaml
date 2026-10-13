@@ -56,4 +56,42 @@ spec:
                 name: agentium-frontend
                 port:
                   name: http
+{{- if .Values.livekit.enabled }}
+{{/*
+/livekit/ → LiveKit :7880 with the prefix stripped, as the VM nginx does. The
+rewrite is per Ingress, hence a second one on the same host. ingress-nginx
+then matches every path of the host as a case-insensitive regex.
+*/}}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "agentium.fullname" . }}-livekit
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: livekit
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+spec:
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- toYaml .Values.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /livekit(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: agentium-livekit
+                port:
+                  name: http
+{{- end }}
 {{- end }}

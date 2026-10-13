@@ -12,4 +12,5 @@ module "cluster" {
   max_nodes          = var.max_nodes
   ingress_class      = var.ingress_class
   storage_class      = var.storage_class
+  media_nodepool     = var.media_nodepool
 }

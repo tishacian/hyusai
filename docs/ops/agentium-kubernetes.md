@@ -4,7 +4,8 @@ Status: IaC + CI on `demo/agentic`, dormant behind `AGENTIUM_LAB_ENABLED`.
 The demo VM remains Docker Compose. This document is the map from that
 Compose stack to the managed-cluster path (OVH MKS first, AKS twin). Chart
 0.2.0 covers the stack as deployed on the VM on 11/10/2026: model-family
-workers, Hugging Face, secret registry and optional OpenBao.
+workers, Hugging Face, secret registry and optional OpenBao. Chart 0.3.0
+adds realtime voice (LiveKit and its sidecar), off by default.
 
 ## Why this shape
 
@@ -38,7 +39,9 @@ validate → terraform plan → terraform apply (manual lab)
 | `agentium-kc` | Deployment + Service | on, state in the Postgres database `keycloak` |
 | `agentium-beat` | — | later (`beat` profile) |
 | `agentium-sftp` | — | later (`sftp` profile) |
-| `agentium-livekit*` | — | later (`realtime` profiles) |
+| `agentium-livekit` | Deployment + Services `agentium-livekit` (`:7880`) and, in `loadBalancer` mode, `agentium-livekit-rtc`; ConfigMap; Ingress `/livekit` | off (`livekit.enabled`) |
+| `agentium-livekit-agent` | Deployment + Service `agentium-livekit-agent` (`:8090`) | off (`livekit.enabled`, then `livekit.agent.enabled`) |
+| `agentium-livekit-redis` | — (external `livekit.redis.address`, more than one replica only) | off |
 
 Service DNS names keep the Compose hostnames (`agentium-backend`,
 `agentium-pg`, `agentium-rabbitmq`, …) so existing env files do not have to
@@ -50,6 +53,7 @@ Ingress paths copy `deploy/nginx/agentium-container-frontend.conf`:
 - `/` → frontend `:8080`
 - `/api` → backend `:8000`
 - `/kc` → Keycloak `:8080`
+- `/livekit/` → LiveKit `:7880`, prefix stripped (only with `livekit.enabled`)
 - hidden-path regex (`/.env`, `/.git`, `/assets/.secret`) → `404`, same
   contract as `docs/ops/ingress-proxy-contract.md`. `/kc/` and
   `/.well-known/acme-challenge/` stay reachable.
@@ -74,6 +78,8 @@ release creates none of them and no value is ever committed.
 | `huggingface.bundleSigning.existingSecret` (optional) | worker and hub-fetch, mounted read-only at `/run/hf-bundle-keys` | the Ed25519 private key file named by `huggingface.bundleSigning.keyFile` |
 | `openbao.appRoleSecrets.backend` / `.worker` / `.hubFetch` | backend + migrate / worker / hub-fetch, through `envFrom` after the application Secret | `OPENBAO_ROLE_ID`, `OPENBAO_SECRET_ID` |
 | `openbao.server.unsealKeySecret` | the in-cluster OpenBao only, mounted read-only | `unseal.key` (64 hex characters) |
+| `livekit.existingSecret` (lab: `agentium-lab-livekit`) | LiveKit and the API, by key | `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` (32 characters or more); optional `LIVEKIT_REDIS_PASSWORD` |
+| `livekit.turn.tlsSecret` (optional) | LiveKit only, mounted read-only | `kubernetes.io/tls` for `livekit.turn.domain` |
 
 ```bash
 # Env files kept outside the repository, one KEY=value per line.
@@ -83,8 +89,8 @@ kubectl -n agentium create secret generic agentium-lab-minio-root \
 ```
 
 - An install or upgrade whose application Secret still holds
-  `MINIO_ROOT_PASSWORD`, `OPENBAO_ROLE_ID`, `OPENBAO_SECRET_ID` or
-  `HF_TABULAR_DELETE_SECRET_KEY` is refused. The check uses `lookup`, so
+  `MINIO_ROOT_PASSWORD`, `OPENBAO_ROLE_ID`, `OPENBAO_SECRET_ID`,
+  `HF_TABULAR_DELETE_SECRET_KEY` or `LIVEKIT_API_SECRET` is refused. The check uses `lookup`, so
   `helm template` cannot see it; only a release against the cluster does.
 - `helm template` with `createSecret: true` (local only) generates a random
   `SECRET_REGISTRY_FERNET_KEY` once and keeps it across upgrades through
@@ -200,13 +206,90 @@ through the same port-forward. Order for an existing deployment: migrate
 (`124_secret_registry`), then `scripts/agentium_secret_registry_migrate.py`
 (`--dry-run`, then `--backup`), then switch `defaultBackend`.
 
+## LiveKit (realtime voice)
+
+`livekit.enabled` is the Compose profile `realtime`: `agentium-livekit`
+(config of `docker/livekit/agentium-livekit.yaml`, same server version) and
+`agentium-livekit-agent`. The demo VM keeps running them through
+`scripts/agentium-vm-deploy.sh livekit-up`; nothing here changes it.
+
+- Signalling (HTTP/WebSocket `:7880`) goes through the ingress at
+  `/livekit/`, prefix stripped, as `deploy/nginx/agentium-container-frontend.conf`
+  does. The browser URL is `livekit.publicUrl`, otherwise
+  `ws(s)://<ingress.host>/livekit`. The rewrite needs a second Ingress on
+  the same host, and ingress-nginx then matches every path of that host as
+  a case-insensitive regex (`/api` also matches `/apiX`).
+- The API gets `LIVEKIT_ENABLED`, `LIVEKIT_URL`, `LIVEKIT_INTERNAL_URL`
+  (`http://agentium-livekit:7880`), `LIVEKIT_AGENT_DISPATCH_URL`
+  (`http://agentium-livekit-agent:8090/dispatch`) and
+  `LIVEKIT_VOICE_GATEWAY_WS_URL` from the ConfigMap, and the two keys by
+  reference from `livekit.existingSecret`. Webhooks are signed with the same
+  key, so `LIVEKIT_WEBHOOK_API_KEY` / `_SECRET` are not needed.
+- The sidecar is the Compose service: port `8090`, `/healthz` probes, no
+  volume, read-only root filesystem, non-root. The room token arrives in the
+  `/dispatch` body, so it holds no LiveKit key; it reads `OPENAI_API_KEY`
+  alone from the application Secret (optional: without it, batch STT). A
+  NetworkPolicy admits the API alone. One replica: sessions live in memory.
+  Image `image.livekitAgent`, built from `livekit-agent/`.
+
+Media never crosses the ingress. Two modes, `livekit.network.mode`:
+
+| | `hostNetwork` (lab-ovh default) | `loadBalancer` (lab-aks default) |
+|---|---|---|
+| Media | UDP `50000-50100` + TCP `7881` on the node's own address, as on the VM | one UDP port (`7882`, ICE mux) + TCP `7881` behind a LoadBalancer Service, `externalTrafficPolicy: Local` |
+| Address advertised | discovered by STUN (`use_external_ip`) | `livekit.network.loadBalancer.ip`, reserved beforehand (`NODE_IP`) |
+| Placement | `nodeSelector` / `tolerations` (`agentium.io/media=livekit`), one pod per node | any node |
+| Replicas | several, with `livekit.redis.address` | one |
+| Needs | nodes with a public address and a firewall that opens the media ports | a provider LoadBalancer that carries UDP |
+
+- `hostNetwork` binds `7880` on the node too. Keep it closed at the node
+  firewall: the ingress reaches it over the cluster network. NetworkPolicies
+  do not cover host-network pods, so the chart renders none for LiveKit in
+  that mode.
+- `loadBalancer`: a NetworkPolicy admits signalling from the ingress
+  controller namespace (`livekit.ingressControllerNamespace`), the API and
+  the sidecar, and media from anywhere. One address cannot front several
+  LiveKit nodes, so more than one replica is refused.
+- Annotations: lab-ovh sets the Public Cloud Load Balancer
+  (`loadbalancer.ovhcloud.com/class: octavia`), which needs an MKS cluster on
+  a private network with a gateway; `cluster-ovh-mks` creates neither, hence
+  `hostNetwork` there. lab-aks names the Terraform address
+  (`service.beta.kubernetes.io/azure-pip-name: agentium-lab-aks-livekit`).
+- TURN (`livekit.turn.enabled`, off): LiveKit's embedded TURN on TLS `5349`
+  and UDP `3478`, certificate from `livekit.turn.tlsSecret`. `turn.domain`
+  must resolve to the media address. It does not listen on 443, so a client
+  network that allows only 443 still fails.
+- Redis only for more than one replica, and the chart does not run it
+  (`agentium-livekit-redis` is the Compose `realtime-scale` profile).
+- Release refusals: no `livekit.existingSecret`, the application Secret as
+  `livekit.existingSecret`, an unknown mode, `loadBalancer` without its
+  address or with several replicas, several replicas without Redis, TURN
+  without domain or certificate.
+
+Terraform (all off by default, nothing applied by this change):
+`cluster-ovh-mks` `media_nodepool` adds a tainted media pool; the module has
+no OpenStack provider and manages no security group, so check that the
+project's node security group lets the UDP range in. `cluster-aks`
+`livekit_public_ip` reserves the static address for `loadBalancer`
+(output `livekit_public_ip`), and `media_node_pool` adds a pool with public
+node IPs and the UDP range and `7881` allowed as host ports for
+`hostNetwork`. Port values there must match the chart's.
+
+```bash
+# Keys stay out of the repository; the secret needs 32 characters or more.
+kubectl -n agentium create secret generic agentium-lab-livekit \
+  --from-env-file=agentium-lab-livekit.env
+```
+
 ## Images
 
 `ops/scripts/build-lab-images.sh` always builds frontend, backend and
 worker. `AGENTIUM_LAB_OPTIONAL_IMAGES` (CI variable) adds `ml-ts`,
-`ml-deep` and/or `hub-fetch`; `hub-fetch` also builds backend and worker
-with `INSTALL_HF_RAG=1`. The digest overlay then sets `image.mlTs`,
-`image.mlDeep` and `image.hubFetch`.
+`ml-deep`, `hub-fetch` and/or `livekit-agent`; `hub-fetch` also builds
+backend and worker with `INSTALL_HF_RAG=1`. The digest overlay then sets
+`image.mlTs`, `image.mlDeep`, `image.hubFetch` and `image.livekitAgent`.
+The LiveKit server image is the public `livekit/livekit-server` tag, as in
+Compose.
 
 ## GitLab
 
@@ -267,5 +350,11 @@ workspace to another provider.
   rendered and checked by `ops/scripts/check-k8s-scaffold.sh`, not run. RWX
   provisioning, the OpenBao NetworkPolicy (it needs a CNI that enforces
   policies) and the port-forward bootstrap are unproven on MKS and AKS.
+- LiveKit (0.3.0) is rendered and checked, not run. Unproven on MKS and
+  AKS: UDP through either provider's LoadBalancer (mixed TCP/UDP on one
+  Service), STUN discovery from a host-network pod, the AKS host-port
+  allowance, the `/livekit` rewrite with WebSockets on Application Routing,
+  the sidecar's media path to a host-network LiveKit, LiveKit and Node as
+  non-root on a read-only root filesystem, and TURN.
 - The chart's Qdrant has no API key, unlike the VM. Add one before Qdrant
   holds shared data.

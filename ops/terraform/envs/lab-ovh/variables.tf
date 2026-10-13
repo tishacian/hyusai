@@ -52,3 +52,14 @@ variable "storage_class" {
   type    = string
   default = "csi-cinder-high-speed"
 }
+
+variable "media_nodepool" {
+  description = "LiveKit media pool for Helm livekit.network.mode=hostNetwork. Off by default."
+  type = object({
+    enabled     = bool
+    name        = optional(string, "media")
+    flavor_name = optional(string, "b3-8")
+    nodes       = optional(number, 1)
+  })
+  default = { enabled = false }
+}

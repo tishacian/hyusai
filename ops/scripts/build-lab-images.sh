@@ -3,9 +3,10 @@
 # Not a release GO. Images stay off :local.
 #
 # frontend, backend and worker are always built. AGENTIUM_LAB_OPTIONAL_IMAGES
-# adds any of "ml-ts ml-deep hub-fetch", for a release that enables mlTs,
-# mlDeep or huggingface. hub-fetch also builds backend and worker with
-# INSTALL_HF_RAG=1, as docker/compose.agentium.huggingface.yml does.
+# adds any of "ml-ts ml-deep hub-fetch livekit-agent", for a release that
+# enables mlTs, mlDeep, huggingface or livekit. hub-fetch also builds backend
+# and worker with INSTALL_HF_RAG=1, as docker/compose.agentium.huggingface.yml
+# does.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -19,7 +20,7 @@ REGISTRY="${REGISTRY%/}"
 
 for component in $OPTIONAL; do
 	case "$component" in
-	ml-ts | ml-deep | hub-fetch) ;;
+	ml-ts | ml-deep | hub-fetch | livekit-agent) ;;
 	*)
 		printf 'unknown optional image %s\n' "$component" >&2
 		exit 1
@@ -46,7 +47,7 @@ build_push() {
 	local tag="${REGISTRY}/agentium-${component}:${SHA}"
 	local extra=()
 	extra+=(--build-arg "AGENTIUM_IMAGE_REVISION=${SHA}")
-	if [[ "$component" != "frontend" ]]; then
+	if [[ "$component" != "frontend" && "$component" != "livekit-agent" ]]; then
 		: "${PIP_INDEX_URL:?PIP_INDEX_URL is required for ${component}}"
 		extra+=(--build-arg "PIP_INDEX_URL=${PIP_INDEX_URL}")
 	fi
@@ -58,10 +59,16 @@ build_push() {
 	digest_of "$tag"
 }
 
-declare -A KEYS=(
-	[frontend]=frontend [backend]=backend [worker]=worker
-	[ml - ts]=mlTs [ml - deep]=mlDeep [hub - fetch]=hubFetch
-)
+# Not an associative array: shfmt rewrites an [ml-ts] subscript as arithmetic.
+values_key() {
+	case "$1" in
+	ml-ts) printf 'mlTs' ;;
+	ml-deep) printf 'mlDeep' ;;
+	hub-fetch) printf 'hubFetch' ;;
+	livekit-agent) printf 'livekitAgent' ;;
+	*) printf '%s' "$1" ;;
+	esac
+}
 
 mkdir -p "$(dirname "$OUT")"
 {
@@ -71,7 +78,7 @@ mkdir -p "$(dirname "$OUT")"
 # shellcheck disable=SC2086 # OPTIONAL is a validated, space-separated list
 for component in frontend backend worker $OPTIONAL; do
 	ref="$(build_push "$component")"
-	printf '  %s: %s\n' "${KEYS[$component]}" "$ref" >>"$OUT.tmp"
+	printf '  %s: %s\n' "$(values_key "$component")" "$ref" >>"$OUT.tmp"
 	printf '%s %s\n' "$component" "$ref" >&2
 done
 mv "$OUT.tmp" "$OUT"

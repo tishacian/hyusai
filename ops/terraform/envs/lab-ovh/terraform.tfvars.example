@@ -8,3 +8,5 @@ min_nodes          = 3
 max_nodes          = 3
 ingress_class      = "nginx"
 storage_class      = "csi-cinder-high-speed"
+# Realtime (Helm livekit, hostNetwork mode): a tainted media pool.
+# media_nodepool = { enabled = true, nodes = 1 }
