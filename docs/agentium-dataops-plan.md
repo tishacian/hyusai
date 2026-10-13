@@ -16,6 +16,7 @@
 > **Mise à jour du 2026-10-13** : analyse de l'écosystème open source de Databricks (§29).
 > - **Delta Lake** (via delta-rs) devient le format des versions de dataset produites par DataOps : D3, §11.
 > - **Unity Catalog**, **Delta Sharing** et **Databricks SQL** deviennent des profils de connecteur : D7.
+> - **Iceberg** devient une couche d'interopérabilité optionnelle, à activer sur besoin (§30), notamment pour Snowflake.
 
 ---
 
@@ -32,7 +33,8 @@
 | **D4** | Calcul éphémère T1 : `compute_runs`, Job k8s, quotas, coût, chart 0.3.0, Terraform | À faire | D3 | 4 |
 | **D5** | Spark éphémère T2 : opérateur ASF, runner PySpark, parité | À faire | D4 | 3 |
 | **D6** | Compléments : types sémantiques, JSON, fusion de chaînes, incrémental | Selon la demande | D2, D3 | — |
-| **D7** | Connecteurs de bases paramétrables : profils déclaratifs (dont Unity Catalog, Delta Sharing, Databricks SQL), import à l'échelle, nœud d'export | À faire | D3 (D4 pour l'échelle) | 4 |
+| **D7** | Connecteurs de bases paramétrables : profils déclaratifs (dont Unity Catalog, Delta Sharing, Databricks SQL, Snowflake), import à l'échelle, nœud d'export | À faire | D3 (D4 pour l'échelle) | 4 |
+| **I1 / I2** (optionnels) | Iceberg sur besoin : cible de connecteur dans le catalogue REST du client (I1), puis exposition des datasets Agentium (I2, Polaris optionnel). §30 | Sur demande client | D7 (I1), D3 (I2) | 2 + 3 |
 
 **Ordre** : S0 → D0 → D1a → D1b → D2, avec D3 en parallèle de D2. Puis D4 → D5. D7 peut démarrer après D3. D6 selon la demande.
 
@@ -88,6 +90,7 @@
 | D-22 | Unity Catalog OSS | **Pas comme catalogue interne.** Profil de connecteur `unity_catalog` (UC OSS et Databricks UC), en lecture d'abord | Agentium a déjà catalogue, lignage et IAM. UC OSS 0.6 n'a pas encore lignage, ABAC ni audit, et ajouterait un service Java (§29.1) |
 | D-23 | Delta Sharing et Databricks SQL | **Clients** seulement : profils `delta_sharing` (lecture des partages reçus) et `databricks_sql` (SQL Warehouse) | Valeur immédiate pour les clients Databricks. Le serveur de partage ouvert est réservé au développement |
 | D-24 | Spark Declarative Pipelines, Photon, DBR | **Non adoptés** | Le Flow Agentium est l'orchestrateur. Photon et DBR sont propriétaires |
+| D-25 | Iceberg | **Couche d'interopérabilité optionnelle** (§30) : I1, cible de connecteur dans le catalogue REST du client, sans catalogue à exploiter chez nous ; I2, exposition des datasets (Polaris optionnel). **Pas de format interne Iceberg** | L'interopérabilité ouverte de Snowflake passe par Iceberg et les catalogues REST (catalog-linked databases). Le profil `snowflake` natif (I0) couvre déjà les besoins avec copie |
 
 ---
 
@@ -1566,7 +1569,8 @@ Configuration réservée aux administrateurs du workspace, catalogue ouvert aux 
 | D3 | Format Delta des versions (protocole minimal, commit, lecture par liste de fichiers), purge, procédure en deux releases |
 | D4 | `docs/ops/agentium-kubernetes.md` (namespace de calcul, RBAC, NetworkPolicy, profils, quotas), runbooks (reaper, annulation, quotas, Terraform), `docs/ops/secrets.md` (identité compute, STS) |
 | D5 | Opérateur Spark (Ansible), montée de version de Kubernetes, image Spark |
-| D7 | **Guide d'écriture d'un profil de connecteur**, page Connexions, procédure de reprise des connexions, profils Databricks (Unity Catalog, Delta Sharing, SQL) |
+| D7 | **Guide d'écriture d'un profil de connecteur**, page Connexions, procédure de reprise des connexions, profils Databricks (Unity Catalog, Delta Sharing, SQL) et Snowflake |
+| I1 / I2 | Guide Iceberg : profils `iceberg_rest`, procédure Snowflake (catalog-linked database), exposition et composant Polaris |
 
 ---
 
@@ -1732,6 +1736,107 @@ fichier de métadonnées (vN.metadata.json : schéma, partitions, liste des snap
 
 ---
 
+## 30. Iceberg optionnel, à activer sur besoin (cible Snowflake et lakehouses ouverts)
+
+> **Principe.** Delta reste le format **interne** (D-21). Iceberg n'est **pas** un second format interne. C'est une **couche d'interopérabilité**, activée par drapeau et par niveau, quand un client l'exige. Rien n'est à exploiter tant qu'elle n'est pas activée.
+
+### 30.1 Pourquoi Iceberg est la bonne voie vers Snowflake
+
+- **Snowflake mise sur Iceberg et les catalogues REST pour son interopérabilité ouverte :**
+  - **écriture dans des tables Iceberg gérées par un catalogue externe**, via les *catalog-linked databases*, compatibles avec tout catalogue REST (Databricks UC, AWS Glue, Snowflake Open Catalog) : GA en octobre 2025 ;
+  - catalogue REST Amazon S3 Tables : GA le 2026-08-10 ;
+  - endpoint Iceberg REST *Horizon*, pour que Spark, Trino, DuckDB ou PyIceberg lisent ces tables : préversion le 2026-08-18.
+- **Snowflake ne s'appuie pas sur Delta pour cela.** Si l'on veut que Snowflake lise ou écrive les mêmes fichiers que nous, sans copie, le passage obligé est Iceberg avec un catalogue REST.
+- **Mais la plupart des besoins Snowflake ne demandent pas Iceberg.** Lire une table Snowflake ou y pousser un dataset préparé (append, overwrite, upsert) passe par le **profil `snowflake` natif de D7**, avec le pilote Python et `MERGE` généré. C'est le **niveau I0**, livré avec D7.
+
+### 30.2 Niveaux d'activation
+
+| Niveau | Quoi | Catalogue à exploiter par nous | Quand l'activer |
+|---|---|---|---|
+| **I0** (D7, toujours) | Profil `snowflake` natif : lecture, `append`, `overwrite`, `upsert` par `MERGE`, avec copie | Aucun | Dès D7 |
+| **I1** | **Iceberg comme cible de connecteur**. Famille de profils `iceberg_rest` : lire et écrire des tables Iceberg **dans le catalogue REST du client** (Snowflake Open Catalog, Apache Polaris, AWS Glue / S3 Tables, Databricks UC en Iceberg REST, Lakekeeper, Nessie). Snowflake les voit ensuite par une catalog-linked database | **Aucun : c'est celui du client** | Un client a un lakehouse Iceberg ou veut un partage sans copie avec Snowflake |
+| **I2** | **Exposition des datasets Agentium en Iceberg** : métadonnées Iceberg posées sur les mêmes fichiers Parquet que la version Delta, enregistrées dans un catalogue REST | Le catalogue du client, **ou** un composant optionnel **Apache Polaris** déployé avec Agentium | Un client veut interroger les datasets Agentium **sur place** depuis Snowflake, Trino ou Dremio, **et** le stockage lui est accessible |
+| **I3** | Iceberg comme format interne | — | **Non prévu.** Voir les critères de réexamen (§30.6) |
+
+### 30.3 Niveau I1 : Iceberg comme cible de connecteur
+
+- **Famille `iceberg_rest`**, à côté de `sqlalchemy`, `adbc`, `uc_rest` et `spark_jdbc` (D7.3).
+  - Moteur T0/T1 : **pyiceberg** (Python pur et pyarrow ; 0.11.0 sortie le 2026-02-09), dans le runner connecteur.
+  - Moteur T2 : `iceberg-spark-runtime` configuré sur le catalogue REST.
+  - Alternative à évaluer : l'extension DuckDB `iceberg` (écriture via catalogue REST, `MERGE INTO` annoncé en 1.5.3). Elle devrait être **pré-installée dans l'image**, puisque le scellement interdit `INSTALL`.
+- **Paramètres du profil**
+  - `catalog_uri`, `warehouse`, `namespace`, `table` ;
+  - authentification : OAuth2 *client credentials*, jeton porteur, ou SigV4 pour S3 Tables, avec les secrets dans le registre ;
+  - options : `credential_vending: true` (préféré) ou identifiants de stockage du client en `secret` ; `nested_namespaces`.
+- **Opérations**
+  - Lecture : scan Arrow, avec prédicats poussés au catalogue (planification côté serveur depuis Iceberg 1.11).
+  - Écriture : `append`, `overwrite` (table entière ou filtrée), `upsert` (API native si pyiceberg l'offre, sinon staging puis réécriture filtrée), création de table depuis le schéma Arrow.
+  - Mêmes règles qu'en D7.4 : connexion `read_write` activée par un administrateur, aperçu à sec, HITL si la politique l'exige.
+- **Données** : une copie des fichiers de notre MinIO vers le stockage du client, faite par le runner avec les identifiants délivrés par son catalogue. Ensuite, Snowflake lit et écrit **sans copie**.
+- **Sécurité** : garde de sortie (D7.4), NetworkPolicy vers l'endpoint du catalogue et le stockage du client, identifiants délivrés par le catalogue et de courte durée. Pas de clé de stockage permanente quand le catalogue sait en délivrer.
+
+### 30.4 Niveau I2 : exposition des datasets Agentium en Iceberg
+
+- **Métadonnées sans réécriture des données**
+  - Une version Delta (protocole minimal, noms physiques = noms logiques) est enregistrée comme table Iceberg **sur les mêmes fichiers Parquet**, par l'ajout de fichiers existants (`add_files` de pyiceberg, à confirmer au spike S-I-1).
+  - Le *name mapping* compense l'absence d'identifiants de champs Iceberg dans nos Parquet (S-I-3).
+  - Déclenchement : au commit, si le dataset est marqué « exposé », ou à la demande (action « Publier en Iceberg »).
+- **Catalogue** : celui du client (Polaris, Snowflake Open Catalog, Glue) si les fichiers sont dans son stockage. Sinon, **composant optionnel Apache Polaris** (projet Apache de premier niveau depuis le 2026-02-18) :
+  - persistance dans une **base dédiée**, pas celle de l'application ;
+  - un catalogue Polaris par workspace exposé ;
+  - rôles dérivés de l'IAM Agentium ;
+  - credential vending vers notre stockage ;
+  - activé par `polaris.enabled` dans le chart.
+- **Pas d'UniForm.**
+  - Selon la documentation Delta, UniForm exige le *column mapping* (protocole lecteur 2 / écrivain 7). Or le column mapping renomme les colonnes physiques des Parquet, ce qui casse la lecture par liste de fichiers (§11) et le protocole minimal (D-21).
+  - Côté open source, UniForm passe par delta-spark ; sa prise en charge par delta-rs n'est pas confirmée.
+- **Condition préalable incontournable : le stockage doit être joignable par le consommateur.** Un MinIO privé chez le client n'est en général pas joignable par Snowflake (SaaS). L'exposition I2 suppose donc un stockage cloud (S3, ADLS, GCS) ou l'emplacement du client. Sinon, I1 est la seule voie.
+
+### 30.5 Livraison
+
+| Niveau | PR | Prérequis | Drapeaux | Critères d'acceptation (lab) |
+|---|---|---|---|---|
+| I1 | 2 : lecture, puis écriture | D7 (connexions, runner connecteur), D3 | `connector_iceberg_enabled` | Écrire un dataset dans un Polaris de lab et dans un compte Snowflake de lab (Open Catalog), puis le relire depuis Snowflake via une catalog-linked database, et depuis DuckDB : mêmes lignes, même schéma. Upsert de 100 000 lignes : comptes exacts |
+| I2 | 3 : métadonnées Iceberg sur une version Delta ; composant Polaris (chart, base dédiée, rôles) ; action « Publier » et filiation | I1, D3, D4 si identifiants par exécution | `dataops_iceberg_exposure_enabled`, `polaris.enabled` | Un dataset Agentium interrogé sur place par Snowflake et Trino. Aucune copie des fichiers de données. Révocation de l'exposition effective |
+
+### 30.6 Critères pour réexaminer I3 (Iceberg comme format interne)
+
+On réouvre la question si au moins deux de ces conditions sont réunies :
+- **la majorité des clients** exigent l'exposition I2 ;
+- Delta adopte nativement l'arbre de métadonnées Iceberg (la proposition « Delta 5 / Iceberg v4 » n'est encore qu'une proposition) ;
+- delta-rs ou DuckDB perdent leur avance sur l'écriture Python sans service ;
+- un catalogue REST devient de toute façon obligatoire chez nous, par exemple pour I2.
+
+L'abstraction de format (`dataset_files`, `open_dataset_arrow`, §11) limite le coût d'une bascule.
+
+### 30.7 Spikes
+
+| Spike | Question |
+|---|---|
+| S-I-1 | Capacités de pyiceberg sur la version épinglée : `append`, `overwrite` filtré, upsert natif, `add_files`, OAuth2, credential vending ; testées sur Polaris et Snowflake Open Catalog |
+| S-I-2 | Bout en bout avec Snowflake : catalog-linked database, lecture et écriture d'une table écrite par Agentium, espaces de noms imbriqués |
+| S-I-3 | Identifiants de champs et *name mapping* pour `add_files` sur nos Parquet |
+| S-I-4 | Extension DuckDB `iceberg` comme écrivain alternatif : pré-installation hors ligne, `MERGE INTO` |
+| S-I-5 | Polaris : persistance dans une base dédiée, correspondance avec les rôles d'Agentium, credential vending vers MinIO |
+
+### 30.8 Sources
+
+- [Snowflake : écriture dans les tables Iceberg gérées en externe (catalog-linked databases), GA oct. 2025](https://docs.snowflake.com/release-notes/2025/other/2025-10-17-iceberg-external-writes-cld-ga)
+- [Snowflake : Write support for externally managed Iceberg tables](https://docs.snowflake.com/en/user-guide/tables-iceberg-externally-managed-writes)
+- [Snowflake : intégration du catalogue REST Amazon S3 Tables, GA 2026-08-10](https://docs.snowflake.com/en/release-notes/2026/other/2026-08-10-amazon-s3-tables-iceberg-rest-catalog-integration-ga)
+- [Snowflake : Horizon Iceberg REST pour moteurs externes, préversion 2026-08-18](https://docs.snowflake.com/en/release-notes/2026/other/2026-08-18-externally-managed-iceberg-tables-horizon-irc-preview)
+- [Snowflake : Apache Iceberg tables](https://docs.snowflake.com/en/user-guide/tables-iceberg)
+- [Snowflake : configurer une intégration de catalogue](https://docs.snowflake.com/en/user-guide/tables-iceberg-configure-catalog-integration)
+- [Snowflake : CREATE ICEBERG TABLE (catalogue REST)](https://docs.snowflake.com/en/sql-reference/sql/create-iceberg-table-rest)
+- [Apache Iceberg : procès-verbaux du board (PyIceberg 0.11.0)](https://whimsy-vm9.apache.org/board/minutes/Iceberg.html)
+- [Apache Iceberg en 2026 : catalogues et évolutions (RisingWave)](https://risingwave.com/blog/apache-iceberg-streaming-2026)
+- [État des catalogues Iceberg, juin 2026](https://amdatalakehouse.substack.com/p/the-state-of-apache-iceberg-catalogs)
+- [Delta Lake : UniForm (exigences)](https://docs.delta.io/3.1.0/delta-uniform.html)
+- [Delta Lake : UniForm (documentation courante)](https://docs.delta.io/delta-uniform/)
+- [Apache Polaris projet de premier niveau](https://www.dremio.com/press-releases/apache-polaris-graduates-to-top-level-apache-project-establishing-the-open-catalog-standard-for-apache-iceberg/)
+
+---
+
 ## Annexe A — Couverture de papAI
 
 **Instructions d'import et d'export**
@@ -1850,6 +1955,11 @@ fichier de métadonnées (vN.metadata.json : schéma, partitions, liste des snap
 - `dataops_spark_enabled`
 - `dataops_core_hour_usd`, `dataops_gb_hour_usd`
 - `dataops_default_timeout_{local,pod,spark}_s`
+
+**Nouveaux, Iceberg (§30)**
+- `connector_iceberg_enabled`
+- `dataops_iceberg_exposure_enabled`
+- `polaris.enabled` (chart)
 
 **Nouveaux, workspace**
 - Drapeau `features.data_prep`
