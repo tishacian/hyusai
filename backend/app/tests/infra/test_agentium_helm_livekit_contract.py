@@ -49,8 +49,9 @@ def test_lab_values_pick_the_network_mode_their_provider_supports() -> None:
     assert (
         "service.beta.kubernetes.io/azure-pip-name" in aks["network"]["loadBalancer"]["annotations"]
     )
-    for lab in (ovh, aks):
+    for name, lab in (("values-lab-ovh.yaml", ovh), ("values-lab-aks.yaml", aks)):
         assert lab["existingSecret"] == "agentium-lab-livekit"
+        assert lab["host"] and lab["host"] != _values(name)["ingress"]["host"]
 
 
 def test_chart_livekit_follows_the_compose_services() -> None:
@@ -85,6 +86,90 @@ def test_lab_images_build_the_sidecar() -> None:
     assert "livekit-agent) printf 'livekitAgent'" in script
     assert "declare -A" not in script
     assert (ROOT / "docker" / "Dockerfile.agentium-livekit-agent").is_file()
+
+
+def _helm(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["helm", "template", "agentium", str(CHART), "--namespace", "agentium", *args],
+        capture_output=True,
+        text=True,
+    )
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("-f", str(CHART / "values-lab-ovh.yaml")),
+        (
+            "-f",
+            str(CHART / "values-lab-aks.yaml"),
+            "--set",
+            "livekit.network.loadBalancer.ip=203.0.113.10",
+        ),
+    ],
+)
+def test_livekit_has_its_own_host_and_no_ingress_rewrites(args: tuple[str, ...]) -> None:
+    rendered = _helm(*args, "--set", "livekit.enabled=true")
+    assert rendered.returncode == 0, rendered.stderr
+    docs = [doc for doc in yaml.safe_load_all(rendered.stdout) if doc]
+    ingresses = {doc["metadata"]["name"]: doc for doc in docs if doc["kind"] == "Ingress"}
+    assert set(ingresses) == {"agentium", "agentium-livekit"}
+    for ingress in ingresses.values():
+        annotations = ingress["metadata"].get("annotations") or {}
+        assert not [key for key in annotations if key.endswith(("/use-regex", "/rewrite-target"))]
+        for rule in ingress["spec"]["rules"]:
+            assert {path["pathType"] for path in rule["http"]["paths"]} <= {"Prefix", "Exact"}
+
+    (main,) = ingresses["agentium"]["spec"]["rules"]
+    (livekit,) = ingresses["agentium-livekit"]["spec"]["rules"]
+    assert livekit["host"] != main["host"]
+    assert [(p["path"], p["pathType"]) for p in livekit["http"]["paths"]] == [("/", "Prefix")]
+    assert livekit["http"]["paths"][0]["backend"]["service"]["name"] == "agentium-livekit"
+    assert "/livekit" not in yaml.safe_dump(ingresses["agentium"])
+
+    configmap = next(
+        doc
+        for doc in docs
+        if doc["kind"] == "ConfigMap" and doc["metadata"]["name"] == "agentium-config"
+    )
+    assert configmap["data"]["LIVEKIT_URL"] == f"ws://{livekit['host']}"
+    assert configmap["data"]["LIVEKIT_INTERNAL_URL"] == "http://agentium-livekit:7880"
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_livekit_signalling_is_wss_with_tls() -> None:
+    rendered = _helm(
+        "-f",
+        str(CHART / "values-lab-ovh.yaml"),
+        "--set",
+        "livekit.enabled=true",
+        "--set",
+        "ingress.tls[0].secretName=agentium-lab-tls",
+        "--set",
+        "livekit.tls[0].secretName=agentium-lab-livekit-tls",
+        "--show-only",
+        "templates/configmap.yaml",
+    )
+    assert rendered.returncode == 0, rendered.stderr
+    assert 'LIVEKIT_URL: "wss://livekit.lab-agentium.example"' in rendered.stdout
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ("livekit.host=", "livekit.host is required"),
+        ("livekit.host=lab-agentium.example", "livekit.host must differ from ingress.host"),
+        ("ingress.tls[0].secretName=agentium-lab-tls", "livekit.tls is required"),
+    ],
+)
+def test_realtime_without_a_livekit_host_is_refused(override: str, message: str) -> None:
+    rendered = _helm(
+        "-f", str(CHART / "values-lab-ovh.yaml"), "--set", "livekit.enabled=true", "--set", override
+    )
+    assert rendered.returncode != 0
+    assert message in rendered.stderr
 
 
 @pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")

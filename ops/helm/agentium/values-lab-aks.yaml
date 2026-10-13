@@ -31,6 +31,9 @@ rabbitmq:
 livekit:
   enabled: false
   existingSecret: agentium-lab-livekit
+  # A DNS record to the ingress controller, as for ingress.host. With
+  # ingress.tls set, add tls: [{secretName: agentium-lab-livekit-tls, hosts: [<host>]}].
+  host: livekit.lab-agentium.example
   # Application Routing runs its controller here.
   ingressControllerNamespace: app-routing-system
   network:

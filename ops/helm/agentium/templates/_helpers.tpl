@@ -80,12 +80,12 @@ under `helm template`, so this only bites on a real install or upgrade.
 {{- end -}}
 {{- end -}}
 
-{{/* Signalling URL as a browser reaches it: /livekit on the ingress. */}}
+{{/* Signalling URL as a browser reaches it: livekit.host on the ingress. */}}
 {{- define "agentium.livekitPublicUrl" -}}
 {{- if .Values.livekit.publicUrl -}}
 {{- trimSuffix "/" .Values.livekit.publicUrl -}}
 {{- else -}}
-{{- printf "%s://%s/livekit" (ternary "wss" "ws" (not (empty .Values.ingress.tls))) .Values.ingress.host -}}
+{{- printf "%s://%s" (ternary "wss" "ws" (not (empty .Values.livekit.tls))) .Values.livekit.host -}}
 {{- end -}}
 {{- end -}}
 
@@ -281,6 +281,11 @@ Refuse a release that cannot work or that would widen a credential's reach.
 Rendered once, from the ConfigMap.
 */}}
 {{- define "agentium.validate" -}}
+{{- range $key := list "nginx.ingress.kubernetes.io/use-regex" "nginx.ingress.kubernetes.io/rewrite-target" -}}
+{{- if hasKey ($.Values.ingress.annotations | default dict) $key -}}
+{{- fail (printf "ingress.annotations must not set %s: ingress-nginx would match every path of the host as a regex" $key) -}}
+{{- end -}}
+{{- end -}}
 {{- if not (has .Values.secretRegistry.defaultBackend (list "db" "openbao")) -}}
 {{- fail "secretRegistry.defaultBackend must be db or openbao" -}}
 {{- end -}}
@@ -315,6 +320,13 @@ Rendered once, from the ConfigMap.
 {{- $_ := $lk.existingSecret | required "livekit.existingSecret is required: the chart never creates the LiveKit keys" -}}
 {{- if eq $lk.existingSecret (include "agentium.secretName" .) -}}
 {{- fail "livekit.existingSecret must not be the application Secret: every application pod loads that Secret whole" -}}
+{{- end -}}
+{{- $_ := $lk.host | required "livekit.host is required: LiveKit signalling has its own host on the ingress" -}}
+{{- if eq $lk.host .Values.ingress.host -}}
+{{- fail "livekit.host must differ from ingress.host: LiveKit is served at / on its own host" -}}
+{{- end -}}
+{{- if and .Values.ingress.tls (not $lk.tls) -}}
+{{- fail "livekit.tls is required when ingress.tls is set: an https page cannot open ws://" -}}
 {{- end -}}
 {{- if not (has $lk.network.mode (list "hostNetwork" "loadBalancer")) -}}
 {{- fail "livekit.network.mode must be hostNetwork or loadBalancer" -}}

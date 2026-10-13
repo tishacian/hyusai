@@ -217,7 +217,7 @@ ingress:
   #   - secretName: agentium-tls
   #     hosts: [agentium.example]
 # Realtime voice, Compose profile realtime: agentium-livekit (signalling on
-# the ingress at /livekit, media over UDP) and agentium-livekit-agent, the
+# the ingress at livekit.host, media over UDP) and agentium-livekit-agent, the
 # sidecar the API POSTs /dispatch to. Off by default.
 livekit:
   enabled: false
@@ -227,8 +227,18 @@ livekit:
   # Keys: LIVEKIT_API_KEY, LIVEKIT_API_SECRET (32 characters or more),
   # optionally LIVEKIT_REDIS_PASSWORD. Required when enabled.
   existingSecret: ""
-  # Browser URL of the signalling endpoint. Empty derives
-  # ws(s)://<ingress.host>/livekit from ingress.host and ingress.tls.
+  # Signalling host, a DNS name of its own pointing at the ingress controller
+  # like ingress.host, served at /. Required when enabled; must differ from
+  # ingress.host.
+  host: ""
+  # TLS for host, same shape as ingress.tls. Required when ingress.tls is set.
+  # A cert-manager issuer in ingress.annotations also applies to this host.
+  tls: []
+  # tls:
+  #   - secretName: agentium-livekit-tls
+  #     hosts: [livekit.agentium.example]
+  # Browser URL of the signalling endpoint. Empty derives wss://<host>
+  # (ws:// without livekit.tls).
   publicUrl: ""
   # One replica needs no Redis. More need redis.address and hostNetwork:
   # each LiveKit node advertises its own media address.
