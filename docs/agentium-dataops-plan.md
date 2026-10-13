@@ -12,6 +12,10 @@
 > - relire les numéros de migration au moment d'implémenter.
 >
 > Ce plan intègre la revue critique du 2026-10-12, confrontée au code : 5 points critiques, 15 importants et les mineurs.
+>
+> **Mise à jour du 2026-10-13** : analyse de l'écosystème open source de Databricks (§29).
+> - **Delta Lake** (via delta-rs) devient le format des versions de dataset produites par DataOps : D3, §11.
+> - **Unity Catalog**, **Delta Sharing** et **Databricks SQL** deviennent des profils de connecteur : D7.
 
 ---
 
@@ -24,11 +28,11 @@
 | **D1a** | Moteur de préparation : spec, compilateur, typage, formules, catalogue, tests golden, runner v2 | À faire | D0 | 4 (a à d) |
 | **D1b** | Flow et API : Skill `data_prep_v1`, ports, aperçu, échantillon persisté, validation | À faire | D1a | 2 |
 | **D2** | Interface no-code : palette, nœuds, ateliers, formules | À faire | D1b | 4 |
-| **D3** | Stockage à l'échelle : versions en plusieurs parts, commit atomique, profil en flux, téléchargement | À faire | D1b | 3 |
+| **D3** | Stockage à l'échelle : versions en **tables Delta Lake** (delta-rs), commit atomique, profil en flux, téléchargement | À faire | D1b | 3 |
 | **D4** | Calcul éphémère T1 : `compute_runs`, Job k8s, quotas, coût, chart 0.3.0, Terraform | À faire | D3 | 4 |
 | **D5** | Spark éphémère T2 : opérateur ASF, runner PySpark, parité | À faire | D4 | 3 |
 | **D6** | Compléments : types sémantiques, JSON, fusion de chaînes, incrémental | Selon la demande | D2, D3 | — |
-| **D7** | Connecteurs de bases paramétrables : profils déclaratifs, import à l'échelle, nœud d'export | À faire | D3 (D4 pour l'échelle) | 4 |
+| **D7** | Connecteurs de bases paramétrables : profils déclaratifs (dont Unity Catalog, Delta Sharing, Databricks SQL), import à l'échelle, nœud d'export | À faire | D3 (D4 pour l'échelle) | 4 |
 
 **Ordre** : S0 → D0 → D1a → D1b → D2, avec D3 en parallèle de D2. Puis D4 → D5. D7 peut démarrer après D3. D6 selon la demande.
 
@@ -80,6 +84,10 @@
 | D-18 | Pilotes de bases | Pilotes Python natifs (SQLAlchemy, ADBC) dans le worker et le runner. **JDBC seulement sur Spark**. Longue traîne via MCP | « Pas de JDBC dans le processus Python » (audit) |
 | D-19 | Regex | **Sous-ensemble RE2**, commun aux trois moteurs : validé à la compilation, remplacements `\1` traduits pour Spark | Python `re`, RE2 (DuckDB) et Java divergent |
 | D-20 | Statistiques globales | Compilées en `CROSS JOIN (SELECT agg …)`, jamais en `OVER ()` | Sur Spark, `OVER ()` envoie tout dans une seule partition (revue I3) |
+| D-21 | Format de stockage des sorties DataOps | **Delta Lake** : une table Delta par version de dataset, écrite une seule fois, par **delta-rs** (`deltalake`, sans JVM) en T0/T1 et par delta-spark en T2. Remplace le manifeste maison | Seul format qui combine une écriture Python sans JVM ni service de catalogue, la lecture native par DuckDB, Polars et Spark, et l'interopérabilité avec les clients Databricks (§29.2) |
+| D-22 | Unity Catalog OSS | **Pas comme catalogue interne.** Profil de connecteur `unity_catalog` (UC OSS et Databricks UC), en lecture d'abord | Agentium a déjà catalogue, lignage et IAM. UC OSS 0.6 n'a pas encore lignage, ABAC ni audit, et ajouterait un service Java (§29.1) |
+| D-23 | Delta Sharing et Databricks SQL | **Clients** seulement : profils `delta_sharing` (lecture des partages reçus) et `databricks_sql` (SQL Warehouse) | Valeur immédiate pour les clients Databricks. Le serveur de partage ouvert est réservé au développement |
+| D-24 | Spark Declarative Pipelines, Photon, DBR | **Non adoptés** | Le Flow Agentium est l'orchestrateur. Photon et DBR sont propriétaires |
 
 ---
 
@@ -629,7 +637,7 @@ Les valeurs sont jointes par `\x1f`. `__row_fp = md5(canonique(toutes les colonn
 ```json
 {"views": [{"name": "in", "paths": ["…/part-0.parquet", "…"]}], "aliases": {…},
  "sql": "…", "params": {"salt": "…"},
- "outputs": [{"port": "train", "dir": "…/out_train"}, {"port": "test", "dir": "…/out_test"}],
+ "outputs": [{"port": "train", "dir": "…/out_train", "format": "delta"}, {"port": "test", "dir": "…/out_test", "format": "delta"}],
  "route_column": "__dp_output",
  "io": {"kind": "local"},
  "row_limit": …, "max_output_bytes": …, "part_max_bytes": 536870912,
@@ -678,28 +686,25 @@ Un placement forcé est soumis à la politique du workspace. Les opérations ref
 
 ## 11. Stockage (D3)
 
-**Disposition**
-- Ancienne forme : `…/datasets/<id>/data.parquet`, inchangée.
-- Nouvelle forme : `…/<id>/parts/part-NNNNN.parquet`, plus `…/<id>/_manifest.json` :
-
-  ```json
-  {"format": "agentium-parquet-parts/1",
-   "parts": [{"key", "rows", "bytes", "sha256"}],
-   "rows", "bytes", "schema", "produced_by_run"}
-  ```
-
-- `storage_key` désigne `data.parquet` ou `_manifest.json`. La forme se reconnaît au suffixe, sans migration.
-- **Les lecteurs utilisent uniquement la liste explicite de parts du manifeste**, jamais un listage de `parts/`, puisque des orphelins peuvent subsister.
+**Disposition** (D-21, détail en §29.3)
+- **Ancienne forme**, inchangée : `…/datasets/<id>/data.parquet`.
+- **Nouvelle forme** : une **table Delta Lake par version**, dans `…/datasets/<id>/delta/` :
+  - fichiers Parquet ;
+  - journal `_delta_log/00000000000000000000.json`, **unique commit (version 0)**, écrit en dernier par un écrivain unique.
+- **Protocole minimal** (`minReaderVersion` 1, `minWriterVersion` 2, ni deletion vectors ni column mapping) : la table est lisible par tout lecteur Delta, et aussi comme simple liste de fichiers Parquet.
+- **`storage_key`** désigne `data.parquet` ou le dossier `delta`. La forme se reconnaît au suffixe, sans migration.
+- **Les lecteurs utilisent uniquement la liste des fichiers actifs du journal Delta**, jamais un listage du dossier, puisque des orphelins peuvent subsister.
+- **Pas de `VACUUM`** : chaque table n'a qu'une version.
 
 **Déploiement en deux temps** (revue I8) :
 1. Release N : **les lecteurs** acceptent les deux formes.
-2. Release N+1 : on active `dataops_write_parts_enabled`, qui fait écrire en parts. Une image antérieure à D3 ne sait pas lire les parts : le retour arrière se fait en désactivant ce drapeau, et les versions déjà écrites en parts restent lisibles par N.
+2. Release N+1 : on active `dataops_write_delta_enabled`, qui fait écrire en Delta. Une image antérieure à D3 ne sait pas lire Delta : le retour arrière se fait en désactivant ce drapeau, et les versions déjà écrites en Delta restent lisibles par N.
 
 **Helpers** (`tabular_datasets.py`) :
-- `dataset_files(dataset) -> list[key]` ;
+- `dataset_files(dataset) -> list[key]` : pour Delta, les fichiers actifs du journal (`DeltaTable.file_uris()`). Les lecteurs qui acceptent une liste de Parquet fonctionnent donc **sans connaître Delta** ;
 - `materialize_dataset(dataset, dir) -> list[Path]` ;
-- `dataset_digest(dataset)`, inchangé pour l'ancienne forme, ce qui garde les empreintes stockées ;
-- `open_dataset_arrow(dataset)`, pour un scan paresseux local ou S3.
+- `dataset_digest(dataset)` : inchangé pour l'ancienne forme, ce qui garde les empreintes stockées ; pour Delta, `sha256` du commit 0, qui contient chemins, tailles et statistiques ;
+- `open_dataset_arrow(dataset)` : pour Delta, `DeltaTable(uri, storage_options).to_pyarrow_dataset()`, scan paresseux local ou S3. DuckDB scellé l'enregistre **sans extension**.
 
 **Lecteurs à adapter** (inventaire complet, revue I8)
 
@@ -714,14 +719,14 @@ Un placement forcé est soumis à la politique du workspace. Les opérations ref
 | Empreintes : `ml_retraining.py:337-342`, `llm_dataset_labeling.py:325-340`, `llm_label_review.py:54` | `dataset_digest` |
 | Polars (`tabular_polars.py:341-356`, `polars_harness.py:81`) et dbt (`tabular_dbt.py:518-542`, `dbt_harness.py:103`) | Listes de fichiers |
 | `work_datasets.read_projected_rows` (`:193-232`) | `open_dataset_arrow` |
-| Dump (`scripts/agentium-data-plane-dump.sh:228-238`) et son test (`test_data_plane_dump.py:296`) | Parts du manifeste |
+| Dump (`scripts/agentium-data-plane-dump.sh:228-238`) et son test (`test_data_plane_dump.py:296`) | Dossier Delta complet : journal et fichiers actifs |
 
 **Commit atomique**
 1. Les N versions sont réservées (`ingesting`).
-2. Les parts sont écrites par sortie.
-3. La plateforme valide les lignes, le schéma et les sha256.
-4. Elle écrit les manifestes, puis passe les N versions en `ready` **dans une transaction**.
-5. En cas d'échec, toutes passent en `failed`, et les orphelins sont supprimés par le **job de purge existant** : rôle `tabular-purge` (`scripts/agentium_hf_storage_policies.py:94-112`), étendu à `datasets/*/parts/*`.
+2. Le runner écrit une table Delta par sortie : fichiers, puis commit 0, avec un **put conditionnel** (`If-None-Match`, pris en charge par MinIO). L'option delta-rs exacte est fixée au spike S-D3-1.
+3. La plateforme lit chaque commit et valide les lignes, le schéma et les statistiques.
+4. Elle passe les N versions en `ready` **dans une transaction**.
+5. En cas d'échec, toutes passent en `failed`. Les tables orphelines sont supprimées par le **job de purge existant** : rôle `tabular-purge` (`scripts/agentium_hf_storage_policies.py:94-112`), étendu à `datasets/*/delta/*`.
 
 **Préalable MinIO** :
 - **inventorier les appelants de suppression** (dont `notice_campaign_recovery.py:452`, un `delete_prefix` non protégé) ;
@@ -735,6 +740,8 @@ Un placement forcé est soumis à la politique du workspace. Les opérations ref
 - `histogram` : 12 intervalles de largeur égale ;
 - `top_values` (6), `mean_length`, `preview` (50 lignes) ;
 - **ajout des quartiles `q25`, `q50`, `q75`**, clés supplémentaires rétrocompatibles (parité avec le `SummaryVo` de papAI).
+
+**Statistiques du journal Delta** : min, max et nombre de NULL par fichier. Elles servent à l'élagage dans l'aperçu et les filtres.
 
 **L'algorithme du runner devient la référence.** Le test de parité avec `profile_frame` tolère les égalités de `hist` et de `value_counts`, et la version de polars est épinglée.
 
@@ -926,7 +933,7 @@ spec:
 1. Lire le manifeste.
 2. Lire les entrées avec `spark.read.parquet(liste de parts)` et les déclarer en vues.
 3. Exécuter `spark.sql(sql_spark, args=params)`.
-4. **Écrire un chemin par sortie**, directement dans les `parts/` de chaque dataset réservé : le DataFrame est filtré par `__dp_output` et mis en cache. On n'utilise pas `partitionBy` vers un préfixe commun.
+4. **Écrire en Delta, un chemin par sortie** : `df.write.format("delta").mode("errorifexists")`, dans le dossier `delta/` de chaque dataset réservé. Le DataFrame est filtré par `__dp_output` et mis en cache. Écrivain unique : le LogStore S3 par défaut suffit. L'image embarque **delta-spark 4.4** (prise en charge de Spark 4.2).
 5. Écrire `result.json`.
 
 Aucune UDF Python.
@@ -1140,7 +1147,7 @@ Codes d'erreur en annexe B.
 | D0 | Non | Non | Backend et worker | Correctif de `check-k8s-scaffold`, `consumer_timeout` | Revert : le SQL revient en process |
 | D1b | Non | Oui | Backend et worker | Job Helm de réconciliation du catalogue | Drapeau `data_prep` du workspace désactivé |
 | D2 | Non | Non | Frontend | — | Drapeau |
-| D3 | Non | Non | Backend et worker | Politique MinIO, purge | `dataops_write_parts_enabled=false` |
+| D3 | Non | Non | Backend et worker (+ `deltalake`, budget mesuré) | Politique MinIO, purge | `dataops_write_delta_enabled=false` |
 | D4 | `compute_runs` | Non | + runner | Chart 0.3.0, Terraform, `consumer_timeout` | `dataops_compute_enabled=false` ; downgrade alembic après drainage |
 | D5 | Non | Non | + Spark | Ansible `spark_operator`, Kubernetes ≥ 1.34 | `dataops_spark_enabled=false` |
 | D7 | `connections` (schéma) + **commande applicative** de reprise des données | Oui | Pilotes dans les images worker et runner | NetworkPolicy des connexions | Anciennes clés `settings` lues en repli pendant une release |
@@ -1371,6 +1378,9 @@ test: {query: "SELECT 1"}
 | `bigquery` | `google-cloud-bigquery` + `sqlalchemy-bigquery` | API Storage (Arrow) | `merge` | — |
 | `sap_hana` | hdbcli + `sqlalchemy-hana` | curseur | `upsert_statement` | **Générateur sqlglot propre à HANA** : aucun dialecte HANA connu, à vérifier sur la version épinglée (S-D7-2). Certificat vérifié par défaut |
 | `duckdb_parquet` | duckdb | natif | — | Lecture seule |
+| `unity_catalog` | API REST UC (httpx) + `deltalake` | Identifiants temporaires (credential vending), puis lecture Delta | Plus tard (tables gérées par le catalogue) | UC OSS 0.6 et Databricks UC. Famille `uc_rest` (§29.4) |
+| `delta_sharing` | `delta-sharing` | Arrow | — | Lecture seule des partages reçus. Profil de partage en `secret_file` |
+| `databricks_sql` | `databricks-sql-connector` + dialecte SQLAlchemy `databricks` | curseur / Arrow | `merge` | SQL Warehouse. Licences à valider (S-D7-3) |
 
 Les pilotes forment une couche dédiée des images worker et runner, avec un budget mesuré.
 
@@ -1489,6 +1499,8 @@ Configuration réservée aux administrateurs du workspace, catalogue ouvert aux 
 | Suppressions MinIO cassées par l'alignement | Inventaire préalable, identité de purge |
 | Taille des images (pilotes) | Couches dédiées, budgets |
 | Licences des pilotes | Spike S-D7-3 avant de livrer |
+| Delta : taille de la roue `deltalake`, fonctionnalités de protocole que certains lecteurs ignorent | Budget d'image. Protocole minimal sans deletion vectors ni column mapping |
+| Dépendance à l'écosystème Databricks | Delta est un projet de la Linux Foundation au protocole publié, avec plusieurs implémentations indépendantes (delta-rs, DuckDB, Spark). La lecture par liste de fichiers reste possible sans Delta |
 
 ---
 
@@ -1505,7 +1517,11 @@ Configuration réservée aux administrateurs du workspace, catalogue ouvert aux 
 | S-D5-2 | `translate` et formats de date sur Spark | D5 |
 | S-D5-3 | Committer magic sur MinIO | D5 |
 | S-D5-4 | Coût et démarrage d'un petit job (seuil de T2) | D5 |
+| S-D3-1 | delta-rs sur MinIO : option exacte du put conditionnel, écriture en flux de N sorties en une passe, taille de fichier cible | D3 |
+| S-D3-2 | Lecture par liste de fichiers (protocole minimal), statistiques du journal, coût de l'empreinte | D3 |
 | S-D7-1 à 4 | Voir D7.6 | D7 |
+| S-D7-5 | UC OSS 0.6 et Databricks UC : API REST, credential vending vers S3, Azure et MinIO | D7 |
+| S-D7-6 | Client Delta Sharing : roue `delta-kernel-rust-sharing-wrapper` disponible pour linux/amd64 | D7 |
 
 ---
 
@@ -1535,6 +1551,8 @@ Configuration réservée aux administrateurs du workspace, catalogue ouvert aux 
 - Calcul éphémère sur VM, et GPU.
 - Sources non relationnelles (MongoDB, Elasticsearch, Cassandra) et import HTTP générique, qui restent couverts par les connecteurs REST et MCP.
 - Paramètres SQL de `SqlExtension`.
+- Unity Catalog OSS comme catalogue interne, et serveur Delta Sharing fournisseur (§29.5).
+- Spark Declarative Pipelines, Photon, Databricks Runtime, DBSQL (§29.5).
 
 ---
 
@@ -1545,10 +1563,130 @@ Configuration réservée aux administrateurs du workspace, catalogue ouvert aux 
 | S0 | `docs/ops/secrets.md` (repli HANA retiré), note de sécurité |
 | D0 | `docs/agentium-release-process.md` (déjà fait), `docs/ops/agentium-kubernetes.md` (files) |
 | D1b / D2 | **Guide utilisateur** : opérations, étapes, formules, codes d'erreur, échantillon. Release process : drapeau, `catalog-apply` / Job Helm |
-| D3 | Format des parts et du manifeste, purge, procédure en deux releases |
+| D3 | Format Delta des versions (protocole minimal, commit, lecture par liste de fichiers), purge, procédure en deux releases |
 | D4 | `docs/ops/agentium-kubernetes.md` (namespace de calcul, RBAC, NetworkPolicy, profils, quotas), runbooks (reaper, annulation, quotas, Terraform), `docs/ops/secrets.md` (identité compute, STS) |
 | D5 | Opérateur Spark (Ansible), montée de version de Kubernetes, image Spark |
-| D7 | **Guide d'écriture d'un profil de connecteur**, page Connexions, procédure de reprise des connexions |
+| D7 | **Guide d'écriture d'un profil de connecteur**, page Connexions, procédure de reprise des connexions, profils Databricks (Unity Catalog, Delta Sharing, SQL) |
+
+---
+
+## 29. Écosystème open source de Databricks et formats de table
+
+Analyse du 2026-10-13. Les versions et dates viennent des sources citées en §29.7. **Un point contradictoire entre sources est marqué « à vérifier » et rattaché à un spike.**
+
+### 29.1 Inventaire et verdict
+
+| Projet (origine Databricks) | Licence et gouvernance | État vérifié | Verdict pour Agentium | Où |
+|---|---|---|---|---|
+| **Delta Lake** (protocole, delta-spark) | Apache 2.0, Linux Foundation | 4.4.x : Spark 4.2, API UC Delta Table, colonnes identité et générées. 4.1.0 le 2026-03-01 : Spark 4.1, tables gérées par catalogue | **Adopté** comme format des versions produites par DataOps | D3 (§11), D5 |
+| **delta-rs / `deltalake`** (Rust et Python, sans JVM) | Apache 2.0, projet delta-io | Python 1.6.6 (2026-09-24), crate 0.32.4. La 1.0 a apporté CDF, contraintes, évolution de schéma pour tous les écrivains et deletion vectors. MinIO listé comme stockage pris en charge | **Adopté** : écriture et lecture en T0/T1 et dans l'API | D3, D7 |
+| Extension DuckDB **`delta`** | MIT (DuckDB) | Non expérimentale depuis le 2026-05-07 : lecture, `INSERT` (plusieurs `INSERT` d'une transaction = une version Delta), voyage dans le temps. Pas d'`UPDATE`, `DELETE` ni `MERGE` | **Optionnelle.** Le produit lit via delta-rs → Arrow, sans extension, ce qui reste compatible avec le scellement (`INSTALL` bloqué) | §10 |
+| **Unity Catalog OSS** | Apache 2.0, LF AI & Data | 0.6.0 (2026-08-20) : API REST ouverte, Iceberg REST, credential vending. Lignage, ABAC et audit encore sur la feuille de route | **Pas comme catalogue interne.** **Adopté comme cible de connecteur** (UC OSS et Databricks UC) | D7 |
+| Extension DuckDB **`unity_catalog`** | MIT | `ATTACH` vers UC OSS ou Databricks, `INSERT` ; pas de DDL (`CREATE TABLE` passe par Spark ou la CLI UC) | Optionnelle (lab, diagnostic) | D7 |
+| **Delta Sharing** (protocole, connecteur Python `delta-sharing` 1.3.x) | Protocole ouvert (delta-io). Serveur de référence « pour le développement ». **Licence du dépôt à vérifier** | Client stable. Dépendance `delta-kernel-rust-sharing-wrapper` : roue absente sur certaines plateformes | **Client adopté** (profil `delta_sharing`, lecture des partages reçus). **Fournisseur hors périmètre** | D7, §27 |
+| **Databricks SQL** (`databricks-sql-connector`, dialecte SQLAlchemy `databricks`) | Open source, licence à vérifier (S-D7-3) | Stable | **Adopté** comme profil `databricks_sql` (SQL Warehouse) | D7 |
+| **MLflow** | Apache 2.0, Linux Foundation | Déjà en production (3.15.2) | Déjà intégré | Plan ML |
+| **Apache Spark** | Apache 2.0, ASF | 4.2, pris en charge par Delta 4.4 | Déjà retenu pour T2 | D5 |
+| **Spark Declarative Pipelines** (ex-DLT, donné à Apache Spark, SPIP-51727) | Apache 2.0, ASF | Annoncé en juin 2025, intégration dans Spark en cours. Release exacte à vérifier | **Non adopté** : le Flow est l'orchestrateur. SDP dupliquerait le DAG et lierait les pipelines à Spark | §27 |
+| **Delta Kernel** (Java, Rust) | Apache 2.0 | Utilisé en interne par delta-rs et DuckDB | Indirect | — |
+| Photon, Databricks Runtime, DBSQL, Lakehouse Federation, DLT managé, UniForm managé | Propriétaires | — | **Exclus** | §27 |
+
+### 29.2 Pourquoi Delta Lake est l'état de l'art *pour nos contraintes*
+
+**Nos contraintes**
+1. Écrire en Python, sans JVM, depuis un runner autonome (T0/T1).
+2. **Aucun service de catalogue supplémentaire** : le catalogue d'Agentium (Postgres : datasets, versions, filiation, IAM) reste la source de vérité.
+3. Lecture native par les trois moteurs du plan : DuckDB, Polars, Spark.
+4. Interopérabilité avec les clients qui ont déjà un lakehouse.
+5. Frugalité et maturité.
+
+| Critère | **Delta Lake** | Apache Iceberg | DuckLake | Apache Hudi | Manifeste maison (version précédente du plan) |
+|---|---|---|---|---|---|
+| Gouvernance | Linux Foundation, protocole publié | ASF, spec v3 (statut GA variable selon les sources) ; catalogue de référence **Apache Polaris**, projet de premier niveau depuis le 2026-02-18 | DuckDB Foundation (MIT) ; **1.0 le 2026-04-13**, « prête pour la production » ; 1.1 annoncée en septembre ou au 2026-10-21 | ASF | — |
+| Écriture Python sans JVM | **Oui** (delta-rs 1.6) | Oui (pyiceberg) | Oui (DuckDB) | Surtout JVM | Oui |
+| Commit sans service de catalogue | **Oui** : journal dans le stockage, put conditionnel | **Non** : catalogue (REST ou SQL) requis pour l'atomicité | **Non** : base SQL requise (notre Postgres conviendrait) | Oui | Oui (Postgres) |
+| Spark natif (T2) | **Oui** (delta-spark 4.4, Spark 4.2) | Oui | **Non** : pas de connecteur Spark mûr, ce qui casserait la parité T0/T2 | Oui | Non (lecture Parquet seulement) |
+| DuckDB | Lecture + `INSERT`, non expérimental (mai 2026) | Lecture (extension `iceberg`) | Natif | Limité | Lecture Parquet |
+| Polars | `scan_delta` / `write_delta` | `scan_iceberg` | Via DuckDB | — | Lecture Parquet |
+| Interopérabilité clients | **Clients Databricks** (UC, Delta Sharing) ; UniForm donne une lecture Iceberg (côté Databricks) | Écosystème multi-éditeurs le plus large (Snowflake, Trino, Dremio…) | Écosystème DuckDB | Plus réduit | Aucune |
+| Coût d'intégration | Une roue Python, aucun service | Un service de catalogue en plus | Couplage à DuckDB, pas de Spark | JVM | Code maison à maintenir |
+
+**Conclusion**
+- **Delta Lake est le seul format qui satisfait les cinq contraintes à la fois.** Il remplace notre manifeste maison, qui réinventait un journal de commit sans interopérabilité.
+- **Iceberg** est l'autre état de l'art, avec l'écosystème multi-éditeurs le plus large. Il imposerait un catalogue REST (Polaris ou équivalent) en plus de celui d'Agentium.
+- **DuckLake** colle le mieux à notre pile (Postgres + Parquet + DuckDB). Il est **à surveiller**, mais encore jeune et sans Spark. On réexamine à DuckLake 1.1, ou dès qu'un connecteur Spark existe.
+- Le plan garde une porte de sortie : une table Delta à version unique **reste une liste de fichiers Parquet lisible sans Delta** (`dataset_files`).
+
+### 29.3 Intégration de Delta (remplace le manifeste de §11)
+
+| Aspect | Choix |
+|---|---|
+| Granularité | **Une table Delta par version de dataset**, écrite une fois (version 0), par un seul écrivain. Le modèle de versions d'Agentium reste inchangé, et il n'y a aucun conflit de commit concurrent |
+| Commit | Fichiers Parquet, puis `_delta_log/00000000000000000000.json` en dernier, par put conditionnel (`If-None-Match`, pris en charge par MinIO). Option delta-rs exacte : spike S-D3-1. Le commit Agentium des N lignes `ready` reste une transaction Postgres |
+| Protocole | Minimal (reader 1 / writer 2), **sans deletion vectors ni column mapping** : lisible par tout lecteur Delta, et comme simple liste de Parquet |
+| Écriture T0/T1 | `deltalake.write_deltalake(uri, RecordBatchReader, mode="error", storage_options=…)`, une par sortie. Avec un split, la passe unique alimente N flux, ou bien on écrit les parts puis on commite. Choix au spike S-D3-1 |
+| Écriture T2 | `df.write.format("delta")` (delta-spark 4.4 dans l'image Spark) |
+| Lecture | delta-rs `to_pyarrow_dataset()` → `connection.register` (DuckDB scellé, sans extension) ; Polars `scan_delta` ; Spark `format("delta")` ; anciens lecteurs : `dataset_files()` |
+| Statistiques | Min, max et NULL par fichier, issus du journal : élagage dans l'aperçu et les filtres |
+| Empreinte | `sha256` du commit 0 |
+| Rétention | Pas de `VACUUM` : une seule version par table |
+| Plus tard (D6) | **Tables vivantes** : Delta muable avec `MERGE` et CDF, pour l'incrémental et l'upsert de D7. Lecture Iceberg (UniForm) si la version ouverte le permet |
+
+### 29.4 Unity Catalog, Delta Sharing et Databricks SQL dans D7
+
+- **Profil `unity_catalog`** (famille `uc_rest`, client HTTP du dépôt).
+  - Paramètres : `endpoint`, `token` (secret), `catalog`, `schema`.
+  - Introspection par l'API REST UC : catalogues, schémas, tables, colonnes.
+  - Lecture : **demande d'identifiants temporaires** (credential vending), puis lecture des fichiers par delta-rs (S3, ADLS, GCS).
+  - Fonctionne sur UC OSS et sur Databricks UC.
+  - Écriture plus tard, via les tables gérées par le catalogue (UC arbitre les commits).
+- **Profil `delta_sharing`** : profil de partage en `secret_file` ; liste des partages, schémas et tables ; lecture en Arrow ; lecture seule.
+- **Profil `databricks_sql`** : dialecte SQLAlchemy `databricks` sur SQL Warehouse ; lecture, et upsert par `MERGE` généré.
+- Garde de sortie, codes d'erreur et règles d'écriture de D7.4 inchangés.
+- **Le credential vending d'UC valide le choix fait pour T1** : identifiants objet par exécution, via STS (S-D4-2).
+
+### 29.5 Ce qui n'est pas adopté, et pourquoi
+
+| Projet | Raison |
+|---|---|
+| **UC OSS comme catalogue interne** | Il dupliquerait le catalogue, la filiation et l'IAM d'Agentium. La version 0.x n'a ni lignage, ni ABAC, ni audit, et ajoute un service Java. **À réexaminer** si un client exige qu'Agentium expose ses datasets à des moteurs tiers par une API de catalogue standard. Apache Polaris (Iceberg REST) est alors l'autre candidat |
+| **Serveur Delta Sharing fournisseur** | Le serveur ouvert est destiné au développement. Partager des datasets Agentium vers l'extérieur viendra avec un serveur de production (UC OSS ou dédié), sur demande client |
+| **Spark Declarative Pipelines** | Le Flow est l'orchestrateur. On ne double pas le DAG |
+| **Photon, DBR, DBSQL, Lakehouse Federation, UniForm managé** | Propriétaires |
+
+### 29.6 Conséquences sur le plan
+
+- **D3**
+  - Nouvelle dépendance `deltalake` (pin dans les contraintes, budget d'image).
+  - Le drapeau `dataops_write_parts_enabled` devient `dataops_write_delta_enabled`.
+  - Spikes S-D3-1 et S-D3-2.
+- **D5** : delta-spark 4.4 dans l'image Spark ; écriture Delta native.
+- **D7** : profils `unity_catalog`, `delta_sharing`, `databricks_sql` ; spikes S-D7-5 et S-D7-6.
+- **D6** : tables vivantes, et UniForm sous réserve.
+- **Documentation (§28)** : format Delta des versions, et guide des profils Databricks.
+
+### 29.7 Sources
+
+- [Delta Lake 4.1.0 Released](https://delta.io/blog/2026-03-01-delta-lake-4-1-0-released/)
+- [Releases delta-io/delta (4.4.x)](https://github.com/delta-io/delta/releases)
+- [deltalake sur PyPI](https://pypi.org/project/deltalake/)
+- [deltalake sur docs.rs](https://docs.rs/crate/deltalake/latest)
+- [Delta Lake 4.0 Preview (delta-rs 1.0)](https://delta.io/blog/delta-lake-4-0/)
+- [DuckDB — Delta Grows Up: Writes, Unity Catalog and Time Travel (2026-05-07)](https://duckdb.org/2026/05/07/delta-uc-updates)
+- [DuckDB — extension delta](https://duckdb.org/docs/current/core_extensions/delta.html)
+- [Unity Catalog (Wikipedia, 0.6.0)](https://en.wikipedia.org/wiki/Unity_Catalog)
+- [Open sourcing Unity Catalog](https://www.databricks.com/blog/open-sourcing-unity-catalog)
+- [Accès externe à Unity Catalog via API ouvertes](https://www.databricks.com/blog/secure-external-access-unity-catalog-assets-open-apis)
+- [Limites d'Unity Catalog en 2026 (Atlan)](https://atlan.com/know/databricks-unity-catalog-limitations/)
+- [DuckLake v1.0 (2026-04-13)](https://duckdb.org/2026/04/13/ducklake-10)
+- [DuckLake — calendrier de release](https://ducklake.select/release_calendar)
+- [Apache Polaris devient projet de premier niveau (2026-02-18)](https://www.dremio.com/press-releases/apache-polaris-graduates-to-top-level-apache-project-establishing-the-open-catalog-standard-for-apache-iceberg/)
+- [Snowflake — Apache Polaris et l'Iceberg REST Catalog](https://www.snowflake.com/en/blog/engineering/apache-polaris-iceberg-rest-catalog/?lang=de)
+- [Iceberg vs Delta vs Hudi 2026 (RisingWave)](https://risingwave.com/blog/apache-iceberg-vs-delta-lake-vs-hudi-2026/)
+- [delta-sharing sur PyPI](https://pypi.org/project/delta-sharing/)
+- [Spark Declarative Pipelines (InfoQ, juillet 2025)](https://www.infoq.com/news/2025/07/databricks-declarative-pipelines)
+- [Écritures conditionnelles MinIO](https://www.min.io/blog/leading-the-way-minios-conditional-write-feature-for-modern-data-workloads)
+- [object_store — S3ConditionalPut (MinIO, mode etag)](https://docs.tvix.dev/rust/object_store/aws/enum.S3ConditionalPut.html)
 
 ---
 
@@ -1664,7 +1802,7 @@ Configuration réservée aux administrateurs du workspace, catalogue ouvert aux 
 - `dataops_max_timeout_s`, `dataops_t0_max_timeout_s`
 - `dataops_preview_timeout_s`, `dataops_preview_concurrency`
 - `dataops_max_steps`, `dataops_max_union_inputs`, `dataops_max_pivot_values`
-- `dataops_sample_rows`, `dataops_part_max_mb`, `dataops_write_parts_enabled`
+- `dataops_sample_rows`, `dataops_part_max_mb`, `dataops_write_delta_enabled`
 - `dataops_local_max_bytes`, `dataops_local_hard_max_bytes`, `dataops_pod_max_bytes`
 - `dataops_compute_enabled`, `dataops_compute_namespace`, `dataops_compute_single_tenant`
 - `dataops_spark_enabled`
