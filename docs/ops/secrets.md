@@ -10,16 +10,106 @@ This document covers the **prod `omnirag-demo`** VM (`agentium.papai.ai`).
 Dev laptops use local `.env` files checked against `docker/test_env_files/`
 with placeholders — never production secrets.
 
+## Runtime env bundle on the VM
+
+The backend, its workers, the SFTP server, the Hub worker and Keycloak
+are containers created by `scripts/agentium-vm-deploy.sh` from the
+frozen env bundle named by its `DEFAULT_RUNTIME_ENV_DIR`, currently
+`/srv/agentium-data/runtime-env/2026-10-12`. Its files sit in
+`runtime-env/`, root-owned, `0600`. A container reads its environment
+once, at creation: editing a file changes nothing until the matching
+`agentium-vm-deploy.sh` command recreates the container, and a
+`docker restart` keeps the old environment.
+
+`compose.effective.env` is the `--env-file` of every Compose call. It only
+feeds interpolation; its `AGENTIUM_*ENV_FILE` keys name the file each
+service loads. On 2026-10-13:
+
+| File | Named by | Read by |
+| ---- | -------- | ------- |
+| `source-001.env` | `AGENTIUM_ENV_FILE` | `agentium-backend`, `agentium-migrate`, `agentium-worker-cpu`, `agentium-worker-recipes`, `agentium-worker-ml-ts(-serve)`, `agentium-worker-ml-deep(-serve)`, `agentium-beat`, `agentium-p4-maintenance`, `agentium-sftp` |
+| `huggingface-worker.env` | `AGENTIUM_HUB_ENV_FILE` | `agentium-hub-fetch` |
+| `source-003.env` | `AGENTIUM_KEYCLOAK_ENV_FILE` | `agentium-kc` (`KC_*` settings only) |
+| `source-002.env` | `AGENTIUM_QDRANT_ENV_FILE` | `qdrant` (API keys) |
+| `openbao-{backend,worker,hub-fetch}.env` | `agentium-vm-deploy.sh` | AppRole of backend/migrate, cpu/recipes workers, Hub worker |
+| `compose.effective.env` | `--env-file` | Interpolation only: `AGENTIUM_POSTGRES_PASSWORD` → `agentium-pg`, `OPENAI_API_KEY` → `agentium-livekit-agent`, paths |
+| `source-000.env` | — | Nothing: the Compose env the bundle was frozen from (provenance) |
+| `source-004.env` | — | Nothing: frozen env of the retired systemd backend (`DATABASE_URL` on `localhost`), kept for provenance |
+
+`compose.effective.env`, `source-000.env` and `source-004.env` repeat
+`DATABASE_URL` and `KEYCLOAK_CLIENT_SECRET` without any container reading
+them there. Update them in the same edit anyway: the bundle contract of
+`scripts/agentium_runtime_env_bundle.py` requires every PostgreSQL
+password copy to agree, and an inert copy left on an old value is the one
+somebody carries into the next bundle. `derived-from.json` records the
+digest of `compose.effective.env` at derivation time; nothing re-verifies
+it after an edit.
+
+`DATABASE_URL` and `KEYCLOAK_CLIENT_SECRET` cannot move to OpenBao: the
+backend reads them as plain settings at start-up, while OpenBao
+(`SECRET_REGISTRY_DEFAULT_BACKEND=openbao`) only resolves the `secret://`
+references of the secret registry, which needs the database first.
+
+**Shell setup**, used by the procedures below:
+
+```bash
+ssh omnirag-demo
+B=/srv/agentium-data/runtime-env/2026-10-12/runtime-env
+sudo grep -E '^AGENTIUM_[A-Z_]*ENV_FILE=' "$B/compose.effective.env"   # paths only
+TAG=$(docker inspect --format '{{.Config.Image}}' agentium-backend); TAG=${TAG##*:}
+deploy() {
+  sudo env AGENTIUM_IMAGE_TAG="$TAG" \
+    AGENTIUM_ML_TS=1 AGENTIUM_ML_DEEP=1 AGENTIUM_HUGGINGFACE=1 AGENTIUM_OPENBAO=1 \
+    /srv/agentium-data/worktrees/demo-agentic/scripts/agentium-vm-deploy.sh "$@"
+}
+```
+
+`TAG` is the deployed `<sha12>`: `up` fails closed without a tag and, given
+the running one, swaps no image. It recreates only the services whose
+rendered configuration changed, so an edited env file recreates exactly
+the services that load it. Keep the four flags as deployed: dropping one
+removes its overlay, and `up` would recreate the backend without it.
+
+**Checking that the copies agree.** This prints one line per copy with a
+group letter, never a value or a digest. `pg` is the PostgreSQL `agentium`
+password (URL-decoded from each `DATABASE_URL`, plus
+`AGENTIUM_POSTGRES_PASSWORD` and `KC_DB_PASSWORD`), `kc` the Keycloak
+client secret. Pass a backup directory before `"$B"` to tell the old
+value (`A`) from the new one (`B`):
+
+```bash
+sudo python3 - "$B" <<'PY'
+import hashlib, pathlib, sys, urllib.parse
+password = lambda url: urllib.parse.unquote(urllib.parse.urlsplit(url).password or "")
+keys = {"DATABASE_URL": ("pg", password), "AGENTIUM_POSTGRES_PASSWORD": ("pg", str),
+        "KC_DB_PASSWORD": ("pg", str), "KEYCLOAK_CLIENT_SECRET": ("kc", str)}
+groups = {}
+for directory in sys.argv[1:]:
+    for path in sorted(pathlib.Path(directory).glob("*.env")):
+        for line in path.read_text().splitlines():
+            key, _, value = line.partition("=")
+            if key in keys:
+                kind, extract = keys[key]
+                seen = groups.setdefault(kind, {})
+                digest = hashlib.sha256(extract(value.strip().strip("'\"")).encode()).digest()
+                print(kind, seen.setdefault(digest, chr(65 + len(seen))), f"{path}:{key}")
+PY
+```
+
+On 2026-10-13 all nine `pg` copies and all four `kc` copies printed `A`,
+and every running container matched the bundle.
+
 ## Secret inventory
 
 | Name | Where it's used | Storage on VM | Rotation cadence | Procedure |
 | ---- | --------------- | ------------- | ---------------- | --------- |
 | **Keycloak master admin** (`tib-admin`) | `kcadm.sh` login, `bootstrap-smtp.sh`, realm imports | Not persisted on VM | 180 j | `deploy/rotate-keycloak-admin.sh` |
-| **Keycloak DB password** (`KC_DB_PASSWORD`) | Keycloak ↔ Postgres | `docker inspect agentium-kc` env | 180 j | Section *PG rotation* below |
-| **Postgres `agentium` password** (`POSTGRES_PASSWORD`) | Backend + Keycloak (shared user) | `docker inspect agentium-pg` env + `backend/.env` `DATABASE_URL` | 180 j | Section *PG rotation* below |
-| **SMTP** (`noreply@datategy.net`) | Keycloak realm SMTP (password reset), backend notifications | `backend/.env` + Keycloak realm config | 180 j or on staff change | OVH Manager → Email → change password → update `backend/.env` + realm |
-| **OpenAI API key** | Backend LLM calls, judge service, voice API | `backend/.env` (`OPENAI_API_KEY`) | 90 j or on abuse alert | `platform.openai.com/api-keys` → rotate → update `backend/.env` → restart |
-| **Fernet key** (`SHAREPOINT_CONNECTOR_FERNET_KEY`) | Encrypt SharePoint session captures at rest | `backend/.env` | **Never rotate** — rotation invalidates every stored session, forcing operators to re-capture OTP. Only regenerate if a key compromise is suspected. | `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| **Keycloak DB password** (`KC_DB_PASSWORD`) | Keycloak ↔ Postgres | `AGENTIUM_KEYCLOAK_ENV_FILE` (`source-003.env`); same value as the Postgres `agentium` password | 180 j | Section *PG rotation* below |
+| **Postgres `agentium` password** (`POSTGRES_PASSWORD`) | Backend, workers, SFTP, Hub worker + Keycloak (shared user) | Database (authority) + bundle copies: `DATABASE_URL`, `AGENTIUM_POSTGRES_PASSWORD`, `KC_DB_PASSWORD` | 180 j | Section *PG rotation* below |
+| **Keycloak client secret** (`KEYCLOAK_CLIENT_SECRET`) | Backend admin API as `core-resource-server` | `AGENTIUM_ENV_FILE` (`source-001.env`) | 180 j | Section *Keycloak client_secret* below |
+| **SMTP** (`noreply@datategy.net`) | Keycloak realm SMTP (password reset), backend notifications | `AGENTIUM_ENV_FILE` (`SMTP_USER`, `SMTP_PASSWORD`) + Keycloak realm config | 180 j or on staff change | OVH Manager → Email → change password → update `AGENTIUM_ENV_FILE` (and its inert copies) + realm → `deploy up` |
+| **OpenAI API key** | Backend LLM calls, judge service, voice API, realtime STT sidecar | `AGENTIUM_ENV_FILE` + `compose.effective.env` (`OPENAI_API_KEY`) | 90 j or on abuse alert | `platform.openai.com/api-keys` → rotate → update both files (and the inert copies) → `deploy up`. `agentium-livekit-agent` gets the key by interpolation and no deploy command recreates it: it keeps the old key until recreated |
+| **Fernet key** (`SHAREPOINT_CONNECTOR_FERNET_KEY`) | Encrypt SharePoint session captures at rest | `AGENTIUM_ENV_FILE` | **Never rotate** — rotation invalidates every stored session, forcing operators to re-capture OTP. Only regenerate if a key compromise is suspected. | `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
 | **JWT signing keys** (Keycloak realm) | Token signing for `papai-org` realm | Keycloak DB | On suspected compromise | Admin console → Realm settings → Keys → Re-generate + Archive old |
 | **Secret registry key** (`SECRET_REGISTRY_FERNET_KEY`) | Encrypts `db`-backend secrets of the registry (connector tokens, SMTP, flow secrets) | Runtime env bundle | **Never rotate in place** — every `secret_versions.ciphertext` depends on it. Falls back to `CONNECTOR_SECRETS_FERNET_KEY` when unset. | Generate like the Fernet key above; see [agentium-secret-registry.md](../agentium-secret-registry.md) |
 | **OpenBao unseal key** (`openbao-unseal.key`) | Static auto-unseal of `agentium-openbao` (`AGENTIUM_OPENBAO=1`) | `<deployment>/runtime-env/` (0400) | Never — snapshots are sealed with it | Created by `agentium-vm-deploy.sh openbao-prepare`; copy off-VM to the vault |
@@ -69,77 +159,123 @@ one glance.
 
 ## Postgres password rotation procedure
 
-**Risk.** 30 s of downtime on backend + Keycloak while containers
-reconnect. No data loss. **Never attempt without** the current PG
-password in hand, or a fallback plan via `docker exec agentium-pg
-psql -U postgres` (the super-user login remains valid under
-`POSTGRES_USER=postgres`'s default password from the initial volume
-bootstrap).
+**Risk.** One role, `agentium` (superuser), serves the backend, every
+worker, the SFTP server, the Hub worker and Keycloak. PostgreSQL checks
+the password only when a connection opens: once it changes, open
+connections keep working, but every new one from a container that still
+carries the old value fails (the backend pool recycles its connections
+every 5 min). Keep that window short: edit the bundle first (nothing
+reads it until a recreate), change the password in the database, then
+recreate every client right away. No data loss. While
+`COLLECTION_ACCESS_SIGNING_KEY` is unset (the case on 2026-10-13), the
+retrieval-identity signing key is derived from `DATABASE_URL`: an identity
+signed before the switch no longer verifies after it, so rerun the deep
+retrievals in flight. Lost both passwords? `docker exec -it agentium-pg
+psql -U agentium -d agentium` goes through the container's Unix socket,
+which `pg_hba.conf` trusts (`local all all trust`); there is no
+`postgres` role.
 
-1. **Generate the new password** locally (or in your vault's password
-   generator). 24+ chars, alphanumeric + symbols that don't break a
-   URL (avoid `#`, `@`, `:` which collide with `DATABASE_URL`
-   parsing unless URL-encoded).
-2. **Apply on the DB :**
-
-   ```bash
-   ssh omnirag-demo
-   docker exec -i agentium-pg psql -U agentium -d agentium <<SQL
-   ALTER USER agentium WITH PASSWORD '<new>';
-   SQL
-   ```
-
-3. **Update `backend/.env` on the VM :**
-
-   ```bash
-   sudo sed -i "s|DATABASE_URL=postgresql://agentium:[^@]*@|DATABASE_URL=postgresql://agentium:<new>@|" /home/ubuntu/omnirag/backend/.env
-   ```
-
-4. **Update Keycloak env and recreate it** :
-
-   Keycloak reads its secrets (`KC_DB_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`,
-   `SMTP_USER`, `SMTP_PASSWORD`, ...) from the env file named by
-   `AGENTIUM_KEYCLOAK_ENV_FILE` in the frozen bundle's
-   `runtime-env/compose.effective.env` (root, `0600`). Edit the value
-   there with `sudoedit` (never echo it), then recreate the container
-   through the worktree Compose:
+1. **Generate the new password** in your vault's password generator and
+   save it there before anything else. Use 32+ characters from
+   `[A-Za-z0-9]`: such a value needs no URL-encoding in `DATABASE_URL`
+   and contains nothing Compose interpolates or dotenv parses. If you keep
+   other characters, percent-encode them inside each `DATABASE_URL` only
+   (`@` → `%40`, `:` → `%3A`, `/` → `%2F`, `%` → `%25`) and put the raw
+   value in `AGENTIUM_POSTGRES_PASSWORD` and `KC_DB_PASSWORD`; never use
+   `$`, quotes, `#` or whitespace.
+2. **Back up the bundle copies** (shell setup from *Runtime env bundle on
+   the VM*):
 
    ```bash
-   sudo env AGENTIUM_IMAGE_TAG=<deployed sha12> \
-     AGENTIUM_ML_TS=1 AGENTIUM_ML_DEEP=1 AGENTIUM_HUGGINGFACE=1 AGENTIUM_OPENBAO=1 \
-     /srv/agentium-data/worktrees/demo-agentic/scripts/agentium-vm-deploy.sh keycloak-up
+   BACKUP=/root/pg-rotation-$(date +%F)
+   sudo install -d -m 0700 "$BACKUP"
+   sudo cp -p "$B"/{source-001.env,huggingface-worker.env,source-003.env,compose.effective.env,source-000.env,source-004.env} "$BACKUP"/
    ```
 
-   `keycloak-up` runs the storage check, then
+3. **Edit every copy with `sudoedit`** (never `sed`, `echo` or a heredoc
+   carrying the value):
+
+   ```bash
+   sudoedit "$B/source-001.env" "$B/huggingface-worker.env" "$B/source-003.env" \
+     "$B/compose.effective.env" "$B/source-000.env" "$B/source-004.env"
+   ```
+
+   | File | Keys | Read by |
+   | ---- | ---- | ------- |
+   | `source-001.env` | `DATABASE_URL`, `AGENTIUM_POSTGRES_PASSWORD` | Backend, migrate, workers, beat, p4-maintenance, SFTP |
+   | `huggingface-worker.env` | `DATABASE_URL` | Hub worker |
+   | `source-003.env` | `KC_DB_PASSWORD` | Keycloak |
+   | `compose.effective.env` | `AGENTIUM_POSTGRES_PASSWORD`, `DATABASE_URL` | `agentium-pg` interpolation (only initialises an empty volume); nothing |
+   | `source-000.env` | `DATABASE_URL`, `AGENTIUM_POSTGRES_PASSWORD` | Nothing (provenance) |
+   | `source-004.env` | `DATABASE_URL` (on `localhost`) | Nothing (provenance) |
+
+   Only the password segment of each URL changes
+   (`postgresql://agentium:<new>@…`). Then run the copy check with
+   `"$BACKUP" "$B"`: all nine `pg` lines under `$B` must share one
+   letter, different from the backup's.
+
+4. **Change it in the database.** psql's `\password` prompts twice and
+   sends only a SCRAM verifier: the value never reaches the shell
+   history, `ps` or the server log.
+
+   ```bash
+   docker exec -it agentium-pg psql -U agentium -d agentium -c '\password agentium'
+   ```
+
+5. **Recreate every client right away:**
+
+   ```bash
+   deploy up            # backend, cpu/recipes/ML workers, beat, p4-maintenance, Hub worker
+   deploy keycloak-up   # agentium-kc
+   deploy sftp-up       # agentium-sftp
+   ```
+
+   `up` recreates the services whose environment changed (the frontend
+   and OpenBao stay as they are), waits for the backend's build-info to
+   report `$TAG` with `revision_verified`, and records the run in the
+   deployment journal. `keycloak-up` runs the storage check, then
    `compose --profile infra up --force-recreate --wait agentium-kc`: same
    `127.0.0.1` port binding, healthcheck, `agentium-net` network,
    read-only theme/realm mounts and `unless-stopped` policy as every
    other Compose render, and it returns only once the healthcheck
    passes. (It replaces the `deploy/redeploy-keycloak` script, retired
    on 2026-10-13: it recreated the container with `docker run`,
-   published `0.0.0.0:8080` and dropped the healthcheck.)
+   published `0.0.0.0:8080` and dropped the healthcheck.) `sftp-up`
+   recreates the SFTP server from its digest-pinned image: it sits
+   outside `up`, yet opens a database session for every login.
+   `agentium-migrate` is a one-off container that reads the new file at
+   its next run; `agentium-pg` is not recreated.
 
-5. **Restart the backend :**
-
-   ```bash
-   sudo systemctl restart agentium-backend
-   ```
-
-6. **Verify :**
+6. **Verify** (each command prints a status, never a credential):
 
    ```bash
-   curl -s -o /dev/null -w '%{http_code}' https://agentium.papai.ai/api/v1/health
-   curl -s -o /dev/null -w '%{http_code}' https://agentium.papai.ai/kc/health/ready
+   curl -s https://agentium.papai.ai/api/v1/health/ready \
+     | python3 -c 'import json, sys; print(json.load(sys.stdin)["checks"]["database"])'   # {'status': 'ok'}
+   curl -s https://agentium.papai.ai/api/v1/build-info   # revision starts with $TAG, "revision_verified": true
+   curl -s -o /dev/null -w '%{http_code}\n' https://agentium.papai.ai/kc/realms/papai-org   # 200
+   docker logs --since 10m agentium-pg 2>&1 | grep -c 'password authentication failed'   # 0
+   deploy ps   # every client above shows a fresh "Up" time
    ```
+
+   `/api/v1/health/ready` runs a `select 1` through the freshly created
+   pool. A non-zero count means a client still carries the old value:
+   rerun the copy check.
 
 7. **Record in the vault :** update `agentium-prod/postgres/agentium-pw`
-   `value` + `rotated_at`.
+   and `agentium-prod/keycloak/db-password` (same value) `value` +
+   `rotated_at`.
 
-**Rollback.** If the backend fails to connect : the previous value is
-still in the vault's history. Revert step 3, restart backend. Step 2's
-change is instantaneous and non-reversible without the old password,
-so **never commit step 2 before step 1 has produced a value you've
-saved to the vault**.
+**Rollback.** A client failing after step 5 almost always means one copy
+is wrong (a typo, an unencoded character): rerun the copy check, fix the
+copy that differs with `sudoedit`, and rerun the command that recreates
+its reader (`up`, `keycloak-up` or `sftp-up`). To return to the previous
+password: `sudo sh -c 'cp -p "$1"/*.env "$2"/' _ "$BACKUP" "$B"` (the
+glob has to expand as root), set the previous value from
+the vault's history with step 4's `\password`, then rerun the three
+commands of step 5. Step 4 is instantaneous and cannot be undone without
+a password in hand, so **never run step 4 before step 1 has saved the
+new value to the vault**; the trusted socket login of the Risk paragraph
+is the last resort.
 
 ## Keycloak client_secret (`core-resource-server`)
 
@@ -163,21 +299,58 @@ validation, and the realm-native "Forgot password ?" link on the
 Keycloak page all keep working **without** this secret (they use
 the public validation flow and the realm SMTP config directly).
 
-**Current state on `omnirag-demo` (2026-04-24) :** the secret is
-**unset** — admin API is intentionally disabled in prod until a
-first client actually needs backend-driven signup. Enabling it is
-a 3-step task :
+The backend authenticates as `KEYCLOAK_RESOURCE_SERVER_ID`
+(`core-resource-server`); `KEYCLOAK_CLIENT_ID` (`core-service`) is the
+public login client and has no secret.
 
-1. Admin console → Clients → `core-resource-server` → Credentials
-   tab → "Regenerate secret". Copy the value.
-2. `sudo sed -i '$a KEYCLOAK_CLIENT_SECRET=<value>'
-   /home/ubuntu/omnirag/backend/.env` (or edit by hand).
-3. `sudo systemctl restart agentium-backend`.
+**Current state on `omnirag-demo` (2026-10-13) :** the secret is
+**set** in `AGENTIUM_ENV_FILE` (`source-001.env`), so the admin API is
+enabled. `compose.effective.env`, `source-000.env` and `source-004.env`
+hold inert copies of the same value (the `kc` lines of the copy check).
 
 Rotate it every 180 j like the other creds, or immediately on
 suspected leak. The old secret is invalidated the moment the new
 one is generated — there is no parallel-validity window in
-Keycloak. Coordinate with a backend bounce.
+Keycloak — so run steps 2 to 4 together:
+
+1. **Back up the copies** (shell setup from *Runtime env bundle on the
+   VM*):
+
+   ```bash
+   BACKUP=/root/kc-client-rotation-$(date +%F)
+   sudo install -d -m 0700 "$BACKUP"
+   sudo cp -p "$B"/{source-001.env,compose.effective.env,source-000.env,source-004.env} "$BACKUP"/
+   ```
+
+2. Admin console → Clients → `core-resource-server` → Credentials
+   tab → "Regenerate secret". Paste the value straight into the vault.
+   From here on, backend admin calls answer 503 until step 4.
+3. **Edit the copies with `sudoedit`** (never `sed` or `echo`):
+
+   ```bash
+   sudoedit "$B/source-001.env" "$B/compose.effective.env" "$B/source-000.env" "$B/source-004.env"
+   ```
+
+   Set `KEYCLOAK_CLIENT_SECRET=<value>`: `source-001.env` is the copy the
+   backend reads, the other three are the inert copies. Run the copy check
+   with `"$BACKUP" "$B"`: all four `kc` lines under `$B` must share one
+   letter, different from the backup's.
+4. **Recreate the backend:** `deploy up`. It recreates every
+   `AGENTIUM_ENV_FILE` service (only the backend calls the admin API) and
+   proves build-info. `agentium-sftp` carries the variable too but never
+   calls the admin API; it picks the new value up at its next `sftp-up`.
+5. **Verify:** the health and build-info checks of the Postgres
+   procedure's step 6, then exercise one admin path (e.g.
+   `POST /auth/reset-password` for a test account) and check that
+   `docker logs --since 10m agentium-backend 2>&1 | grep -cE 'Admin token request returned|Failed to get admin token|client_secret not configured'`
+   prints `0`.
+6. **Record in the vault:** `rotated_at`.
+
+**Rollback.** Keycloak keeps no previous secret: the one replaced in
+step 2 is gone for good. If the backend still fails, its copy in
+`source-001.env` is wrong: fix it and rerun `deploy up`. Regenerating
+again and repeating steps 3 and 4 is the only other way out; the backup
+only protects the rest of those files from a bad edit.
 
 ## DKIM / SPF / DMARC
 
@@ -219,7 +392,10 @@ whatever the person could have seen.
 - [`../agentium-secret-registry.md`](../agentium-secret-registry.md) — secret
   registry, flow `secret` node, connector migration, OpenBao
 - `deploy/rotate-keycloak-admin.sh` — master admin CLI
-- `scripts/agentium-vm-deploy.sh keycloak-up` — recreates `agentium-kc`
-  through the worktree Compose with the frozen bundle's Keycloak env file
+- `scripts/agentium-vm-deploy.sh up` / `keycloak-up` / `sftp-up` —
+  recreate the application services, `agentium-kc` and `agentium-sftp`
+  through the worktree Compose with the frozen bundle
+- `scripts/agentium_runtime_env_bundle.py` — bundle contract (which copies
+  must agree)
 - `backend/keycloak/keycloak.env` + `docker/test_env_files/keycloak.env`
   — dev placeholders, never populated with real creds in-repo
