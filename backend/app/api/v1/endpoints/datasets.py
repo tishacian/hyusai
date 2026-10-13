@@ -447,6 +447,7 @@ async def reingest_dataset(
 ):
     """Retry a failed ingest without re-uploading the file."""
 
+    db.query(Workspace).filter_by(id=workspace.id).with_for_update().one()
     try:
         dataset = get_dataset(db, dataset_id=dataset_id, workspace_id=workspace.id)
     except TabularError as exc:
@@ -490,3 +491,43 @@ async def delete_dataset(
     except TabularError as exc:
         _raise_tabular(exc)
     return {"dataset": serialize_dataset(dataset)}
+
+
+@router.get("/{dataset_id}/download")
+async def download_dataset(
+    dataset_id: str, format: str = Query(default="parquet", pattern="^(parquet|csv)$"),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user), db: DBSession = Depends(get_db),
+):
+    from fastapi.responses import StreamingResponse
+
+    from app.services.dataops.exports import stream_dataset
+    from app.services.tabular_datasets import open_dataset_arrow
+
+    try:
+        dataset = get_dataset(db, dataset_id=dataset_id, workspace_id=workspace.id)
+        if dataset.status != "ready":
+            raise TabularError(code="DATASET_NOT_READY", message="Only ready datasets can be downloaded.", status_code=409)
+        arrow = await run_in_threadpool(open_dataset_arrow, dataset)
+    except TabularError as exc:
+        _raise_tabular(exc)
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(409, detail={"code": "DATASET_EXPORT_UNAVAILABLE", "message": "The committed dataset cannot be read."}) from exc
+    return StreamingResponse(stream_dataset(dataset, format=format, arrow=arrow),
+                             media_type="text/csv" if format == "csv" else "application/vnd.apache.parquet",
+                             headers={"Content-Disposition": f'attachment; filename="dataset.{format}"'})
+
+
+@router.post("/{dataset_id}/purge", status_code=202)
+async def request_dataset_purge(
+    dataset_id: str, workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user), db: DBSession = Depends(get_db),
+):
+    from app.services.dataops.purge import request_purge
+    try:
+        job = request_purge(db, workspace=workspace, user=user, dataset_id=dataset_id)
+        db.commit()
+    except TabularError as exc:
+        db.rollback()
+        _raise_tabular(exc)
+    return {"job_id": job.id, "status": job.status, "dataset_id": dataset_id}

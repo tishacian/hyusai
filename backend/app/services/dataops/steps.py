@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from functools import lru_cache
 
 EXTENDED_STEPS = (
     "select_columns",
@@ -35,6 +36,7 @@ EXTENDED_STEPS = (
     "length",
     "negate_boolean",
     "bin_numeric",
+    "bin",
     "formula",
     "conditional_column",
     "map_values",
@@ -63,18 +65,32 @@ def _regex(pattern):
         or re.search(r"\(\?[=!<]|\\[1-9]", pattern)
     ):
         raise ValueError("DATAPREP_REGEX_INVALID")
+    return _compiled_regex(pattern)
+
+
+@lru_cache(maxsize=256)
+def _compiled_regex(pattern):
+    import duckdb
+
     try:
-        return re.compile(pattern)
-    except re.error:
+        metadata = re.compile(pattern)
+        with duckdb.connect(config={"threads": 1, "memory_limit": "32MB"}) as conn:
+            conn.execute("SET enable_external_access=false")
+            conn.execute("SELECT regexp_matches('', ?)", [pattern]).fetchone()
+        return metadata
+    except (re.error, RecursionError, duckdb.Error):
         raise ValueError("DATAPREP_REGEX_INVALID") from None
 
 
-def apply_step(sql, columns, action, p):
+def apply_step(sql, columns, action, p, schema=None):
     from app.services.dataops.compiler import _names, _require, expression
     from app.services.dataops.compiler import literal as lit
     from app.services.dataops.compiler import quote as q
 
     source = f"({sql}) AS data"
+    from app.services.dataops.types import fingerprint
+
+    row_fp = fingerprint(columns, schema)
 
     def ensure(name):
         if name not in columns:
@@ -113,8 +129,7 @@ def apply_step(sql, columns, action, p):
             if direction not in {"ASC", "DESC"}:
                 raise ValueError("DATAPREP_ORDER_INVALID")
             parts.append(f"{q(name)} {direction} NULLS LAST")
-        packed = "struct_pack(" + ",".join(f"{q(n)}:={q(n)}" for n in columns) + ")"
-        return ",".join([*parts, f"sha256(to_json({packed}))"])
+        return ",".join([*parts, row_fp])
 
     def condition(params):
         terms = []
@@ -158,6 +173,19 @@ def apply_step(sql, columns, action, p):
                 values = item.get("values")
                 if not isinstance(values, list) or not 1 <= len(values) <= 1000:
                     raise ValueError("DATAPREP_FILTER_VALUES_INVALID")
+
+                def normalize_value(v):
+                    if not isinstance(v, str):
+                        return v
+                    if item.get("normalize_accents"):
+                        v = "".join(
+                            c
+                            for c in unicodedata.normalize("NFKD", v)
+                            if not unicodedata.combining(c)
+                        )
+                    return v.lower() if item.get("case_sensitive") is False else v
+
+                values = [normalize_value(v) for v in values]
                 term = f"{value} {'NOT IN' if op == 'not_in' else 'IN'} ({','.join(lit(v) for v in values)})"
             elif op == "between":
                 values = item.get("values")
@@ -219,6 +247,10 @@ def apply_step(sql, columns, action, p):
     elif action == "copy_column":
         _require(p, {"column", "output", "position"}, {"column", "output"})
         sql = project({}, extras={p["output"]: ensure(p["column"])})
+        if p.get("position", "after_input") == "after_input":
+            columns.remove(p["output"])
+            columns.insert(columns.index(p["column"]) + 1, p["output"])
+            sql = f"SELECT {','.join(q(n) for n in columns)} FROM ({sql})"
     elif action == "concat_columns":
         _require(p, {"columns", "separator", "output", "nulls"}, {"columns", "output"})
         names = _names(p["columns"], columns)
@@ -270,7 +302,7 @@ def apply_step(sql, columns, action, p):
                 suffix += 1
             mapping[name] = value
             used.add(value.casefold())
-        return apply_step(sql, columns, "rename_columns", {"mapping": mapping})
+        return apply_step(sql, columns, "rename_columns", {"mapping": mapping}, schema)
     elif action == "add_column":
         _require(p, {"output", "value", "type", "position"}, {"output", "value", "type"})
         types = {
@@ -283,9 +315,10 @@ def apply_step(sql, columns, action, p):
             "timestamp": "TIMESTAMP",
             "timestamp_tz": "TIMESTAMPTZ",
         }
-        if p["type"] not in types:
-            raise ValueError("DATAPREP_TYPE_INVALID")
-        sql = project({}, extras={p["output"]: f"CAST({lit(p['value'])} AS {types[p['type']]})"})
+        from app.services.dataops.types import portable_type
+
+        dtype = types.get(p["type"]) or portable_type({"dtype": p["type"]})
+        sql = project({}, extras={p["output"]: f"CAST({lit(p['value'])} AS {dtype})"})
     elif action in {
         "parse_date",
         "format_date",
@@ -451,12 +484,20 @@ def apply_step(sql, columns, action, p):
             summary = f"SELECT {aggs} FROM {source}" + (
                 " GROUP BY " + ",".join(q(n) for n in partitions) if partitions else ""
             )
-            projection = ",".join(
-                f"coalesce(data.{q(n)},agg.{q('__fill_' + str(names.index(n)))}) AS {q(n)}"
-                if n in names
-                else f"data.{q(n)}"
-                for n in columns
-            )
+            from app.services.dataops.types import portable_type
+
+            fields = {f["name"]: f for f in schema or []}
+            projection = []
+            for n in columns:
+                if n in names:
+                    replacement = f"agg.{q('__fill_' + str(names.index(n)))}"
+                    dtype = portable_type(fields[n]) if n in fields else None
+                    if method in {"mean", "median"} and dtype in {"INTEGER", "BIGINT"}:
+                        replacement = f"CAST(round({replacement}) AS {dtype})"
+                    projection.append(f"coalesce(data.{q(n)},{replacement}) AS {q(n)}")
+                else:
+                    projection.append(f"data.{q(n)}")
+            projection = ",".join(projection)
             join = " LEFT JOIN " if partitions else " CROSS JOIN "
             predicate = (
                 " ON "
@@ -470,7 +511,9 @@ def apply_step(sql, columns, action, p):
     elif action in {"filter_rows", "flag_rows", "filter_range", "filter_expression"}:
         if action == "filter_expression":
             _require(p, {"expression"}, {"expression"})
-            term = expression(p["expression"], columns)
+            from app.services.dataops.formulas import formula_source
+
+            term, source = formula_source(p["expression"], columns, source)
         elif action == "filter_range":
             _require(p, {"column", "min", "max", "min_inclusive", "max_inclusive"}, {"column"})
             value = ensure(p["column"])
@@ -504,7 +547,7 @@ def apply_step(sql, columns, action, p):
                 },
             )
         else:
-            sql = f"SELECT * FROM {source} WHERE {term}"
+            sql = f"SELECT {','.join(q(n) for n in columns)} FROM {source} WHERE {term}"
     elif action == "text_transform":
         _require(p, {"columns", "operation"}, {"columns", "operation"})
         names = _names(p["columns"], columns)
@@ -657,7 +700,7 @@ def apply_step(sql, columns, action, p):
                 term = f"len(regexp_extract_all({value},{lit(pattern)}))"
             else:
                 term = (
-                    f"(length({value})-length(replace({value},{lit(pattern)},'')))/{len(pattern)}"
+                    f"(length({value})-length(replace({value},{lit(pattern)},'')))//{len(pattern)}"
                 )
             sql = project({}, extras={p["output"]: term})
     elif action in {"negate_boolean", "mask"}:
@@ -682,6 +725,68 @@ def apply_step(sql, columns, action, p):
                     for n in names
                 }
             )
+    elif action == "bin":
+        _require(
+            p,
+            {"column", "mode", "width", "min", "max", "edges", "n", "labels", "output"},
+            {"column", "mode", "output"},
+        )
+        value = ensure(p["column"])
+        mode = p["mode"]
+        if mode == "edges":
+            edges = p.get("edges", [])
+            if (
+                len(edges) < 2
+                or any(type(v) not in {int, float} for v in edges)
+                or any(a >= b for a, b in zip(edges, edges[1:]))
+            ):
+                raise ValueError("DATAPREP_BINS_INVALID")
+            bounds = [lit(v) for v in edges]
+        elif mode == "quantiles":
+            n = p.get("n")
+            if type(n) is not int or not 2 <= n <= 200:
+                raise ValueError("DATAPREP_BINS_INVALID")
+            bounds = [f"__dp_bins.{q('__bin_' + str(i))}" for i in range(n + 1)]
+            stats = ",".join(
+                f"quantile_cont({value},{i / n}) AS {q('__bin_' + str(i))}" for i in range(n + 1)
+            )
+            source += f" CROSS JOIN (SELECT {stats} FROM {source}) __dp_bins"
+        elif mode == "fixed_width":
+            width = p.get("width")
+            if type(width) not in {int, float} or width <= 0:
+                raise ValueError("DATAPREP_BINS_INVALID")
+            width_sql = lit(width)
+            lo, hi = p.get("min"), p.get("max")
+            if lo is not None and hi is not None and lo >= hi:
+                raise ValueError("DATAPREP_BINS_INVALID")
+            low = lit(lo) if lo is not None else "__dp_bins.__bin_min"
+            high = lit(hi) if hi is not None else "__dp_bins.__bin_max"
+            stats = f"SELECT min({value}) AS __bin_min,max({value})+{width_sql} AS __bin_max FROM {source}"
+            source += f" CROSS JOIN ({stats}) __dp_bins"
+            index = f"floor(({value}-{low})/{width_sql})"
+            left = f"({low}+{index}*{width_sql})"
+            right = f"least({high},{left}+{width_sql})"
+            term = f"CASE WHEN {value} IS NULL THEN NULL WHEN {value}<{low} THEN '<min' WHEN {value}>={high} THEN '>=max' ELSE '['||CAST({left} AS VARCHAR)||';'||CAST({right} AS VARCHAR)||'[' END"
+            if p.get("labels"):
+                labels = p["labels"]
+                term = f"CASE WHEN {value} IS NULL THEN NULL WHEN {value}<{low} THEN '<min' WHEN {value}>={high} THEN '>=max' ELSE list_extract([{','.join(lit(v) for v in labels)}],CAST({index} AS BIGINT)+1) END"
+            sql = project({}, extras={p["output"]: term})
+            return sql, columns
+        else:
+            raise ValueError("DATAPREP_BIN_MODE_INVALID")
+        labels = p.get("labels")
+        if labels and len(labels) != len(bounds) - 1:
+            raise ValueError("DATAPREP_BIN_LABELS_INVALID")
+        cases = []
+        for index, (left, right) in enumerate(zip(bounds, bounds[1:])):
+            label = (
+                lit(labels[index])
+                if labels
+                else f"'['||CAST({left} AS VARCHAR)||';'||CAST({right} AS VARCHAR)||'['"
+            )
+            cases.append(f"WHEN {value}>={left} AND {value}<{right} THEN {label}")
+        term = f"CASE WHEN {value} IS NULL THEN NULL WHEN {value}<{bounds[0]} THEN '<min' WHEN {value}>={bounds[-1]} THEN '>=max' {' '.join(cases)} ELSE NULL END"
+        sql = project({}, extras={p["output"]: term})
     elif action == "bin_numeric":
         _require(p, {"column", "breaks", "labels", "output"}, {"column", "breaks", "output"})
         value = ensure(p["column"])
@@ -703,7 +808,10 @@ def apply_step(sql, columns, action, p):
         sql = project({}, extras={p["output"]: f"CASE {' '.join(cases)} ELSE NULL END"})
     elif action == "formula":
         _require(p, {"output", "expression", "position"}, {"output", "expression"})
-        sql = project({}, extras={p["output"]: expression(p["expression"], columns)})
+        from app.services.dataops.formulas import formula_source
+
+        term, source = formula_source(p["expression"], columns, source)
+        sql = project({}, extras={p["output"]: term})
     elif action == "conditional_column":
         _require(p, {"output", "cases", "else"}, {"output", "cases"})
         cases = []
@@ -750,27 +858,39 @@ def apply_step(sql, columns, action, p):
         for name in names:
             term = q(name)
             if dtype in {"INTEGER", "BIGINT"}:
-                term = f"{'round' if rounding == 'round_half_up' else 'trunc'}({cast}({term} AS DOUBLE))"
+                field = next((f for f in schema or [] if f["name"] == name), {})
+                numeric = field.get("kind") in {"integer", "float"}
+                if numeric:
+                    term = f"{'round' if rounding == 'round_half_up' else 'trunc'}({term})"
+                elif rounding == "truncate":
+                    # Decimal text is truncated before numeric conversion, preserving
+                    # int64 limits even when its fractional tail exceeds DOUBLE precision.
+                    term = f"CASE WHEN regexp_full_match({term},'[+-]?[0-9]+(\\.[0-9]*)?') THEN {cast}(split_part({term},'.',1) AS {dtype}) ELSE {cast}(trunc({cast}({term} AS DOUBLE)) AS {dtype}) END"
             values[name] = f"{cast}({term} AS {dtype})"
         sql = project(values)
     elif action in {"deduplicate", "dedup"}:
         _require(p, {"columns", "keep", "order_by"})
         names = _names(p.get("columns", columns), columns)
-        keep = p.get("keep", "first")
-        if keep not in {"first", "last", "none"}:
+        keep = p.get("keep", "smallest_fp")
+        if keep not in {"first", "last", "none", "smallest_fp"}:
             raise ValueError("DATAPREP_DEDUP_MODE_INVALID")
         partition = ",".join(q(n) for n in names)
         if keep == "none":
-            sql = f"SELECT * FROM {source} QUALIFY count(*) OVER(PARTITION BY {partition})=1"
+            ranked = (
+                f"SELECT *,count(*) OVER(PARTITION BY {partition}) AS __dp_dedup_rank FROM {source}"
+            )
         else:
-            ordering = order(p) if p.get("order_by") else ",".join(q(n) for n in columns)
+            ordering = order(p) if keep in {"first", "last"} else row_fp
             if keep == "last":
                 ordering = (
                     ordering.replace(" ASC", " __REV")
                     .replace(" DESC", " ASC")
                     .replace(" __REV", " DESC")
                 )
-            sql = f"SELECT * FROM {source} QUALIFY row_number() OVER(PARTITION BY {partition} ORDER BY {ordering})=1"
+            ranked = f"SELECT *,row_number() OVER(PARTITION BY {partition} ORDER BY {ordering}) AS __dp_dedup_rank FROM {source}"
+        if "__dp_dedup_rank" in columns:
+            raise ValueError("DATAPREP_RESERVED_COLUMN")
+        sql = f"SELECT {','.join(q(n) for n in columns)} FROM ({ranked}) WHERE __dp_dedup_rank=1"
     elif action == "sort":
         _require(p, {"keys", "columns", "descending"})
         from app.services.dataops.operations import ordering
@@ -779,7 +899,7 @@ def apply_step(sql, columns, action, p):
             {"column": n, "direction": "desc" if p.get("descending", False) else "asc"}
             for n in p.get("columns", [])
         ]
-        sql = f"SELECT * FROM {source} ORDER BY {ordering(items, columns)}"
+        sql = f"SELECT * FROM {source} ORDER BY {ordering(items, columns)},{row_fp}"
     elif action in {"round", "math"}:
         _require(p, {"columns", "decimals", "mode", "function"}, {"columns"})
         names = _names(p["columns"], columns)
@@ -943,6 +1063,19 @@ def apply_step(sql, columns, action, p):
         partitions = p.get("partition_by", [])
         if partitions:
             _names(partitions, columns)
+        if function in {"count", "sum"} and not p.get("order_by"):
+            value = ensure(p["column"]) if p.get("column") else "*"
+            if function == "sum" and value == "*":
+                raise ValueError("DATAPREP_COLUMN_REQUIRED")
+            if partitions:
+                term = (
+                    f"{function}({value}) OVER(PARTITION BY {','.join(q(n) for n in partitions)})"
+                )
+            else:
+                summary = f"SELECT {function}({value}) AS __dp_window_stat FROM {source}"
+                source += f" CROSS JOIN ({summary}) __dp_window_stats"
+                term = "__dp_window_stats.__dp_window_stat"
+            return project({}, extras={p["output"]: term}), columns
         window = (
             ("PARTITION BY " + ",".join(q(n) for n in partitions) + " " if partitions else "")
             + "ORDER BY "
@@ -969,6 +1102,8 @@ def apply_step(sql, columns, action, p):
             "cumulative_count",
             "moving_mean",
             "moving_sum",
+            "count",
+            "sum",
         }:
             func = {
                 "cumulative_sum": "sum",
@@ -976,6 +1111,8 @@ def apply_step(sql, columns, action, p):
                 "cumulative_count": "count",
                 "moving_mean": "avg",
                 "moving_sum": "sum",
+                "count": "count",
+                "sum": "sum",
             }[function]
             term = f"{func}({column or '*'})"
             if function.startswith("moving"):

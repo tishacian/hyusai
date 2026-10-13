@@ -2220,7 +2220,11 @@ _LABEL_SKILL_SLUGS = frozenset({"llm_label_dataset_v1"})
 # data because the invariant is the same for all of them, and repeating it is how
 # one eventually stops being stripped on the other nodes.
 _GRAPH_OWNED_BLOCKS: tuple[tuple[str, frozenset, tuple[str, ...]], ...] = (
-    ("_data_prep", frozenset({"data_prep_v1"}), ("data_prep",)),
+    (
+        "_data_prep",
+        frozenset({"data_prep_v1"}),
+        ("data_prep", "spec", "sources", "outputs", "placement", "timeout_s"),
+    ),
     ("_typed_evaluation", frozenset({"evaluate_v2"}), ("typed_evaluation",)),
     ("_narration", frozenset({"narration_run_v1"}), ("narration",)),
     ("_recipe", frozenset({_RECIPE_SKILL_SLUG}), _RECIPE_PARAM_KEYS),
@@ -2286,6 +2290,10 @@ def _apply_graph_owned_config(
         },
         "node_id": node.id,
     }
+    if key == "_data_prep":
+        from app.services.dataops.flow import _prep_config
+
+        node_input[key] = {"data_prep": _prep_config({"config": config}), "node_id": node.id}
     # In strict mode the palette-params merge may also have seeded the raw config
     # keys as plain input defaults; drop them so the node's data inputs stay
     # data only.
@@ -4749,6 +4757,37 @@ def _node_data_badge(
     if rows_out is not None:
         badge["rows_out"] = rows_out
     if isinstance(output, dict):
+        # The preparation worker returns the resolved input versions and each
+        # written output, including empty branches. Publish only their public
+        # references, not SQL, schema, storage keys or graph-owned input blocks.
+        import math
+
+        for direction, total_key in (("inputs", "rows_in"), ("outputs", "rows_out")):
+            references = output.get(direction)
+            if not isinstance(references, dict):
+                continue
+            ports: dict[str, dict[str, Any]] = {}
+            for port, reference in references.items():
+                if not isinstance(port, str) or not isinstance(reference, dict):
+                    continue
+                identifier = reference.get("dataset_id")
+                if not isinstance(identifier, str) or not identifier:
+                    continue
+                public = {"dataset_id": identifier}
+                rows = reference.get("rows")
+                if (
+                    isinstance(rows, (int, float))
+                    and not isinstance(rows, bool)
+                    and math.isfinite(rows)
+                    and rows >= 0
+                    and rows == int(rows)
+                ):
+                    public["rows"] = int(rows)
+                ports[port] = public
+            if ports:
+                badge[direction] = ports
+                if len(ports) == len(references) and all("rows" in p for p in ports.values()):
+                    badge[total_key] = sum(p["rows"] for p in ports.values())
         # The dataset a node WROTE, so the surface reading the badge can open it
         # without another walk of the graph. Datasets travel by reference here,
         # which is exactly why the reference is worth lifting: the canvas can

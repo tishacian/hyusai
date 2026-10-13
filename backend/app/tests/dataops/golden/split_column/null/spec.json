@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "operation": "prepare",
+  "params": {
+    "steps": [
+      {
+        "id": "golden",
+        "kind": "split_column",
+        "params": {
+          "column": "a",
+          "separator": ":",
+          "outputs": [
+            "b",
+            "c"
+          ]
+        }
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "port": "out",
+      "name": "Golden"
+    }
+  ]
+}

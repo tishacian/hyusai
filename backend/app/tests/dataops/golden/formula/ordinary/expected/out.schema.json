@@ -1,0 +1,12 @@
+[
+  {
+    "name": "a",
+    "dtype": "double",
+    "nullable": true
+  },
+  {
+    "name": "b",
+    "dtype": "double",
+    "nullable": true
+  }
+]

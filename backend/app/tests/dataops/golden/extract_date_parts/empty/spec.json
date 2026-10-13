@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "operation": "prepare",
+  "params": {
+    "steps": [
+      {
+        "id": "golden",
+        "kind": "extract_date_parts",
+        "params": {
+          "column": "a",
+          "parts": [
+            "iso_day_of_week"
+          ]
+        }
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "port": "out",
+      "name": "Golden"
+    }
+  ]
+}

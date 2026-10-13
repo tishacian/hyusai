@@ -123,6 +123,9 @@ class Settings(BaseSettings):
     hana_insecure_tls_allowed_hosts: str = ""
     dataops_enabled: bool = False
     dataops_write_delta_enabled: bool = False
+    dataops_max_steps: int = Field(default=200, ge=1, le=200)
+    dataops_max_union_inputs: int = Field(default=16, ge=2, le=16)
+    dataops_max_pivot_values: int = Field(default=200, ge=1, le=200)
     dataops_batch_rows: int = Field(default=65536, ge=1024, le=1048576)
     dataops_part_max_mb: int = Field(default=128, ge=8, le=1024)
     dataops_t0_max_timeout_s: int = Field(default=900, ge=30, le=7200)

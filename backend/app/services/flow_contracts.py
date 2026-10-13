@@ -951,12 +951,13 @@ def compile_execution_contract(
                         "additionalProperties": True,
                     }
             elif raw_skill_slug == "data_prep_v1":
-                from app.schemas.data_prep import DataPrepSpec
+                from app.schemas.data_prep import bind_spec
+                from app.services.dataops.flow import _prep_config
 
                 params = config.get("params") or {}
-                data = config.get("data_prep") or params.get("data_prep") or {}
                 try:
-                    prep = DataPrepSpec.model_validate(data.get("spec"))
+                    data = _prep_config(node)
+                    prep = bind_spec(data.get("spec"), data.get("outputs"))
                 except ValueError as exc:
                     raise FlowContractError(
                         code="data_prep_spec_invalid", message=str(exc), path=f"nodes/{node_id}"

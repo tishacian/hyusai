@@ -7296,6 +7296,7 @@ async def _data_prep_v1(payload, ctx=None):
 
     from app.core.config import settings
     from app.db.base import SessionLocal
+    from app.schemas.data_prep import bind_spec
     from app.services.dataops.preparation import submit_preparation
 
     block = payload.get("_data_prep")
@@ -7308,10 +7309,12 @@ async def _data_prep_v1(payload, ctx=None):
             row = submit_preparation(
                 db,
                 workspace_id=ctx["workspace_id"],
-                spec=config.get("spec"),
+                spec=bind_spec(config.get("spec"), config.get("outputs")),
                 inputs=block.get("inputs") or config.get("inputs") or {},
                 run_id=ctx.get("run_id"),
                 node_id=block.get("node_id"),
+                placement=config.get("placement", "auto"),
+                timeout_s=config.get("timeout_s"),
             )
             return row.id
 

@@ -1048,3 +1048,21 @@ def dataops_score_task(execution_id: str):
     from app.services.dataops.scoring import run_score
 
     return run_score(execution_id)
+
+
+@celery_app.task(
+    name="agentium.dataops_build_sample", acks_late=True, reject_on_worker_lost=True,
+    time_limit=runtime_settings.dataops_t0_max_timeout_s + 60,
+    soft_time_limit=runtime_settings.dataops_t0_max_timeout_s + 30,
+)
+def dataops_build_sample_task(job_id: str):
+    from app.services.dataops.samples import run_sample
+
+    return run_sample(job_id)
+
+
+@celery_app.task(name="agentium.dataops_sample_recovery", acks_late=True, reject_on_worker_lost=True)
+def dataops_sample_recovery_task():
+    from app.services.dataops.samples import recover_samples
+
+    return recover_samples()

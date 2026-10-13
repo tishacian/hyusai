@@ -482,7 +482,7 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         "workspace-user",
         "Platform",
         ("/data", "/data/:id"),
-        notes="Tabular datasets: ingest, column profile, SQL preview and lineage.",
+        notes="Tabular datasets: ingest, profile, SQL preview, lineage and workspace-scoped streaming CSV/Parquet downloads. Physical purge requests require a workspace administrator and execute under a separate storage identity.",
     ),
     SurfaceMetadata(
         "/api/v1/dataops",

@@ -12,6 +12,7 @@ from app.models.workspace_job import WorkspaceJob
 from app.services import llm_label_review as review
 from app.services.tabular_datasets import read_frame, register_frame, serialize_dataset
 from app.tests.api.test_runs_hitl_auth import _seed_pending_run
+from app.tests.dataset_bytes import overwrite_legacy_fixture
 from app.tests.services.test_tabular_datasets import object_store_root  # noqa: F401
 
 
@@ -117,8 +118,7 @@ def test_changed_source_and_wrong_workspace_are_refused(db_session, review_case)
     case = review_case
     with pytest.raises(review.TabularError):
         review.make_binding(db_session, workspace_id=str(uuid4()), dataset_id=case.source.id)
-    register_frame(db_session, workspace_id=case.workspace.id, name=case.source.name, into=case.source,
-                   frame=read_frame(case.source).with_columns(pl.lit("changed").alias("ticket")))
+    overwrite_legacy_fixture(case.source, read_frame(case.source).with_columns(pl.lit("changed").alias("ticket")))
     db_session.commit()
     with pytest.raises(review.TabularError) as error:
         review.review_page(db_session, case.decision)
@@ -135,8 +135,7 @@ def test_review_cannot_be_forged_by_automatic_approval_or_changed_output(db_sess
         review.training_provenance(db_session, output, "topic")
     assert error.value.code == "LABEL_REVIEW_HUMAN_REQUIRED"
     confirm(db_session, case, output)
-    register_frame(db_session, workspace_id=case.workspace.id, name=output.name, into=output,
-                   frame=read_frame(output).with_columns(pl.lit("billing").alias("topic")))
+    overwrite_legacy_fixture(output, read_frame(output).with_columns(pl.lit("billing").alias("topic")))
     db_session.commit()
     with pytest.raises(review.TabularError) as error:
         review.training_provenance(db_session, output, "topic")

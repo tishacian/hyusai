@@ -385,39 +385,37 @@ def _read_source(path: Path, fmt: str) -> Any:
     )
 
 
-def materialize(
-    dataset: TabularDataset, destination: Path, *, max_bytes: int | None = None
-) -> Path:
-    """Copy a dataset's Parquet out of the ObjectStore into a scratch file."""
+def dataset_files(dataset: TabularDataset) -> list[str]:
+    from app.services.dataops.storage import dataset_files as files
+    return files(dataset)
 
+
+def materialize_dataset(dataset: TabularDataset, directory: Path, *, max_bytes: int | None = None) -> list[Path]:
+    from app.services.dataops.storage import materialize_files
     if not dataset.storage_key:
-        raise TabularError(
-            code="DATASET_NOT_READY",
-            message="The dataset has no materialized Parquet yet.",
-            status_code=409,
-        )
-    from app.services.dataops.storage import is_delta, materialize_files
+        raise TabularError(code="DATASET_NOT_READY", message="The dataset has no committed data.", status_code=409)
+    return materialize_files(dataset, directory, max_bytes=max_bytes)
 
+
+def dataset_digest(dataset: TabularDataset) -> str:
+    from app.services.dataops.storage import dataset_digest as digest
+    return digest(dataset)
+
+
+def open_dataset_arrow(dataset: TabularDataset):
+    from app.services.dataops.storage import open_dataset_arrow as open_arrow
+    return open_arrow(dataset)
+
+
+def materialize(dataset: TabularDataset, destination: Path, *, max_bytes: int | None = None) -> Path:
+    """Legacy single-file API. Multipart callers must use materialize_dataset."""
+    from app.services.dataops.storage import is_delta
     if is_delta(dataset):
-        import pyarrow.dataset as ds
-        import pyarrow.parquet as pq
-
-        with tempfile.TemporaryDirectory(prefix="delta-materialize-") as tmp:
-            paths = materialize_files(dataset, Path(tmp), max_bytes=max_bytes)
-            reader = ds.dataset([str(p) for p in paths], format="parquet").scanner(
-                batch_size=settings.dataops_batch_rows, use_threads=False
-            )
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            with pq.ParquetWriter(
-                destination, reader.projected_schema, compression="zstd"
-            ) as writer:
-                for batch in reader.to_batches():
-                    writer.write_batch(batch)
-        return destination
-    store = get_object_store()
-    if max_bytes is not None:
-        return store.copy_to_local(dataset.storage_key, destination, max_bytes=max_bytes)
-    return store.copy_to_local(dataset.storage_key, destination)
+        raise TabularError(code="DATASET_MULTIPART_REQUIRES_FILE_LIST",
+                           message="Use materialize_dataset for a Delta dataset.", status_code=409)
+    if not dataset.storage_key:
+        raise TabularError(code="DATASET_NOT_READY", message="The dataset has no committed data.", status_code=409)
+    return get_object_store().copy_to_local(dataset.storage_key, destination, max_bytes=max_bytes)
 
 
 def read_frame(dataset: TabularDataset, *, columns: list[str] | None = None) -> Any:
@@ -426,7 +424,7 @@ def read_frame(dataset: TabularDataset, *, columns: list[str] | None = None) -> 
     import polars as pl
 
     with tempfile.TemporaryDirectory(prefix="agentium-tabular-") as tmp:
-        local = materialize(dataset, Path(tmp) / "data.parquet")
+        local = materialize_dataset(dataset, Path(tmp))
         return pl.read_parquet(local, columns=columns)
 
 
@@ -453,7 +451,7 @@ def read_rows(
     import polars as pl
 
     with tempfile.TemporaryDirectory(prefix="agentium-tabular-") as tmp:
-        local = materialize(dataset, Path(tmp) / "data.parquet")
+        local = materialize_dataset(dataset, Path(tmp))
         scan = pl.scan_parquet(local)
         if columns:
             available = set(scan.collect_schema().names())
@@ -538,7 +536,7 @@ def read_page(
         # step too far should see "no more rows", not an error dialog.
         return {"rows": [], "offset": start, "limit": size, "total": total}
     with tempfile.TemporaryDirectory(prefix="agentium-tabular-") as tmp:
-        local = materialize(dataset, Path(tmp) / "data.parquet")
+        local = materialize_dataset(dataset, Path(tmp))
         frame = pl.scan_parquet(local).slice(start, size).collect()
     rows = [
         {key: _preview_scalar(value) for key, value in row.items()}
@@ -685,7 +683,12 @@ def ingest_dataset(dataset_id: str) -> dict[str, Any]:
         dataset = db.query(TabularDataset).filter(TabularDataset.id == dataset_id).first()
         if dataset is None:
             return {"id": dataset_id, "status": "missing"}
-        if dataset.status in ("ready", "deleted"):
+        from app.models.workspace import Workspace
+        db.query(Workspace).filter_by(id=dataset.workspace_id).with_for_update().one()
+        db.refresh(dataset)
+        # The workspace lock makes the pending -> ingesting claim exclusive.
+        # A redelivered message must not write the same immutable version twice.
+        if dataset.status in ("ready", "deleted", "ingesting"):
             return {"id": dataset_id, "status": dataset.status}
         if not dataset.upload_key:
             _fail(db, dataset, "dataset_no_upload")
@@ -726,11 +729,17 @@ def ingest_dataset(dataset_id: str) -> dict[str, Any]:
                             message=f"The file has more than {max_columns} columns.",
                         )
                     mark_step(db, dataset, "profiling", rows=frame.height)
-                    profile = profile_frame(frame)
                     mark_step(db, dataset, "writing", rows=frame.height)
-                    key, size = _write_frame(
-                        frame, workspace_id=dataset.workspace_id, dataset_id=dataset.id
+                    register_frame(
+                        db, workspace_id=dataset.workspace_id, name=dataset.name,
+                        frame=frame, into=dataset,
                     )
+                    profile = {
+                        "row_count": dataset.row_count, "column_count": dataset.column_count,
+                        "schema": dataset.schema_json, "stats": dataset.stats_json,
+                        "preview": dataset.preview_json,
+                    }
+                    key, size = dataset.storage_key, dataset.size_bytes
         except TabularError as exc:
             _fail(db, dataset, exc.code.lower())
             return {"id": dataset_id, "status": "failed", "code": exc.code}
@@ -925,14 +934,31 @@ def register_frame(
         )
         db.add(dataset)
     else:
+        if dataset.workspace_id != workspace_id or dataset.status != "ingesting":
+            raise TabularError(
+                code="DATASET_IMMUTABLE_VERSION",
+                message="Only a reserved dataset in this workspace can receive its first output.",
+                status_code=409,
+            )
         # A reserved row carried everything except what the frame decides.
         dataset.lineage_json = dict(lineage or dataset.lineage_json or {})
     db.flush()
 
-    profile = profile_frame(frame)
-    key, size = _write_frame(frame, workspace_id=workspace_id, dataset_id=dataset.id)
-    _settle_registered(db, dataset, profile=profile, key=key, size=size)
-    return dataset
+    from app.services.dataops.storage import settle_files, write_batches
+
+    with tempfile.TemporaryDirectory(prefix="registered-frame-") as tmp:
+        root = Path(tmp)
+        if settings.dataops_write_delta_enabled:
+            table = frame.to_arrow()
+            paths = write_batches(
+                root, table.to_batches(max_chunksize=settings.dataops_batch_rows),
+                schema=table.schema, delta=True,
+            )
+            return settle_files(db, dataset, paths, delta_root=root)
+        # Keep the legacy Polars encoding and its historical byte fingerprint.
+        local = root / "data.parquet"
+        frame.write_parquet(local, compression="zstd")
+        return settle_files(db, dataset, [local], profile=profile_frame(frame))
 
 
 def _settle_registered(
@@ -962,24 +988,20 @@ def register_parquet_file(
 ) -> TabularDataset:
     """Persist a Parquet file a runner already wrote, as a ready dataset version.
 
-    The file is uploaded as written rather than read into a frame and written
-    again: the runner streamed it batch by batch so that its size never had to
-    fit in memory, and re-encoding it here would undo that. Only the profile
-    still reads the table, which is the next thing to move to the runner.
+    Legacy storage uploads its bytes unchanged. Delta storage converts it in
+    bounded batches into immutable parts. Profiling runs in the supervised
+    storage subprocess; neither path collects the full table in this process.
     """
 
     import pyarrow.dataset as ds
 
     from app.services.dataops.storage import profile_files, settle_files, write_batches
 
-    profile = profile_files([Path(path)])
-    if (
-        profile["row_count"] > settings.tabular_transform_max_rows
-        and not settings.dataops_write_delta_enabled
-    ):
-        raise TabularError(
-            code="DATASET_TOO_LARGE", message="Result exceeds the legacy row ceiling"
-        )
+    if Path(path).stat().st_size > settings.dataops_max_output_mb * 1024**2:
+        raise TabularError(code="DATASET_TOO_LARGE", message="Result exceeds the output byte budget.")
+    profile = None if settings.dataops_write_delta_enabled else profile_files([Path(path)])
+    if profile is not None and profile["row_count"] > settings.tabular_transform_max_rows:
+        raise TabularError(code="DATASET_TOO_LARGE", message="Result exceeds the legacy row ceiling")
     dataset = reserve_frame(
         db,
         workspace_id=workspace_id,
@@ -996,15 +1018,14 @@ def register_parquet_file(
         with tempfile.TemporaryDirectory(prefix="delta-register-") as tmp:
             root = Path(tmp)
             scanner = ds.dataset(str(path), format="parquet").scanner(
-                batch_size=settings.dataops_batch_rows, use_threads=False
+                batch_size=settings.dataops_batch_rows, use_threads=False,
+                batch_readahead=0, fragment_readahead=0,
             )
             paths = write_batches(
                 root, scanner.to_batches(), schema=scanner.projected_schema, delta=True
             )
             return settle_files(db, dataset, paths, delta_root=root)
-    key = get_object_store().write_file(_parquet_key(workspace_id, dataset.id), Path(path))
-    _settle_registered(db, dataset, profile=profile, key=key, size=int(Path(path).stat().st_size))
-    return dataset
+    return settle_files(db, dataset, [Path(path)], profile=profile)
 
 
 def soft_delete(db: DBSession, dataset: TabularDataset) -> TabularDataset:
@@ -1012,33 +1033,24 @@ def soft_delete(db: DBSession, dataset: TabularDataset) -> TabularDataset:
 
     The production object policy is append-only (versioned bucket, no delete
     grant), so the row is the authority and byte reclamation belongs to the
-    storage lifecycle. Best-effort removal still runs for local deployments.
+    dedicated purge job, including local deployments.
     """
 
-    from app.models.service_contract import AssetVersion
+    from app.models.workspace import Workspace
+    from app.services.dataops.purge import retain_guard
 
-    governed = db.query(AssetVersion).filter_by(workspace_id=dataset.workspace_id).all()
-    if any(
-        any(
-            ref.get("kind") == "dataset" and ref.get("id") == dataset.id
-            for ref in asset.manifest_json.get("native_refs", [])
-        )
-        for asset in governed
-    ):
+    db.query(Workspace).filter_by(id=dataset.workspace_id).with_for_update().one()
+    db.refresh(dataset)
+    if dataset.status == "ingesting":
         raise TabularError(
-            code="DATASET_GOVERNED_VERSION_IN_USE",
-            message="This immutable version is retained by a governed asset.",
+            code="DATASET_BUSY",
+            message="Wait for ingestion to finish before retiring this version.",
             status_code=409,
         )
+    retain_guard(db, dataset)
     dataset.status = "deleted"
     dataset.status_detail = None
     dataset.updated_at = datetime.utcnow()
-    store = get_object_store()
-    if store.backend == "local":
-        try:
-            store.delete_prefix(dataset_prefix(dataset.workspace_id, dataset.id))
-        except Exception:  # noqa: BLE001 - row flip stays authoritative
-            logger.debug("tabular: local delete skipped", dataset_id=dataset.id)
     db.commit()
     return dataset
 
@@ -1300,6 +1312,10 @@ __all__ = [
     "ingest_dataset",
     "mark_step",
     "materialize",
+    "materialize_dataset",
+    "dataset_files",
+    "dataset_digest",
+    "open_dataset_arrow",
     "next_version",
     "profile_frame",
     "read_frame",

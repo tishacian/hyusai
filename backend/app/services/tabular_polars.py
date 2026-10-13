@@ -72,7 +72,7 @@ from app.services.recipe_executions import (
 from app.services.tabular_datasets import (
     TabularError,
     dataset_reference,
-    materialize,
+    materialize_dataset,
     profile_frame,
     register_frame,
 )
@@ -343,13 +343,13 @@ def _write_manifest(
 ) -> dict[str, Any]:
     """Materialize the inputs as Parquet and describe them for the harness."""
 
-    inputs: dict[str, str] = {}
+    inputs: dict[str, list[str]] = {}
     for index, source in enumerate(sources):
-        local = materialize(source.dataset, scratch / f"in_{index}.parquet")
-        inputs[source.view] = str(local)
-        inputs[f"input_{index + 1}"] = str(local)
+        local = materialize_dataset(source.dataset, scratch / f"in_{index}")
+        inputs[source.view] = [str(path) for path in local]
+        inputs[f"input_{index + 1}"] = [str(path) for path in local]
         if index == 0:
-            inputs.setdefault("input", str(local))
+            inputs.setdefault("input", [str(path) for path in local])
     manifest: dict[str, Any] = {
         "inputs": inputs,
         "output_path": str(scratch / "out.parquet"),

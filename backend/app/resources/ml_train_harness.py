@@ -841,13 +841,13 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     if not isinstance(manifest, dict):
         return _fail(5, "ml_manifest_not_object")
 
-    data_path = manifest.get("data_path")
+    data_path = manifest.get("data_paths") or manifest.get("data_path")
     model_dir = manifest.get("model_dir")
     target = manifest.get("target")
     features = manifest.get("features")
     task = manifest.get("task")
     if (
-        not isinstance(data_path, str)
+        not (isinstance(data_path, str) or (isinstance(data_path, list) and data_path and all(isinstance(p, str) and p for p in data_path)))
         or not isinstance(model_dir, str)
         or not isinstance(target, str)
         or not isinstance(features, list)

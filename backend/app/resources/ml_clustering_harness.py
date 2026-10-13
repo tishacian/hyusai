@@ -350,7 +350,7 @@ def main(argv=None) -> int:
 
         progress("reading")
         frame = read_frame(
-            manifest["data_path"],
+            (manifest.get("data_paths") or manifest["data_path"]),
             manifest["features"],
             min_rows=int(manifest.get("min_rows", 40)),
             clusters=clusters,

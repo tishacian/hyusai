@@ -1,0 +1,12 @@
+[
+  {
+    "name": "a",
+    "dtype": "timestamp[us]",
+    "nullable": true
+  },
+  {
+    "name": "b",
+    "dtype": "timestamp[us]",
+    "nullable": true
+  }
+]

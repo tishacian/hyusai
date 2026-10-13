@@ -20,6 +20,7 @@ from app.models.service_contract import AssetVersion, ServiceAttempt, ServiceWin
 from app.models.skill import Skill
 from app.models.system_version import SystemVersion
 from app.models.tabular import MLPrediction, TabularDataset
+from app.schemas.data_prep import DataPrepSpec
 from app.services import governed_assets as assets
 from app.services import service_engine, service_promises, tabular_predict
 from app.services.dataops.asset_lineage import dataset_manifest
@@ -107,10 +108,20 @@ async def test_published_scoring_flow_delivers_verified_work_receipt_and_portabl
         second_prep = copy.deepcopy(next(n for n in graph["nodes"] if n["id"] == "prepare"))
         second_prep["id"] = "prepare-again"
         second_prep["config"]["params"]["data_prep"]["spec"]["outputs"][0]["name"] += " again"
+        # Exercise the editor's canonical configuration beside a migrated legacy node.
+        canonical = DataPrepSpec.model_validate(
+            second_prep["config"]["params"]["data_prep"]["spec"]
+        )
+        second_prep["config"]["params"] = {
+            "spec": canonical.canonical(),
+            "outputs": [output.model_dump() for output in canonical.outputs],
+            "sources": [],
+            "placement": "local",
+        }
         graph["nodes"].insert(2, second_prep)
-        next(n for n in graph["nodes"] if n["id"] == "score")["config"]["inputs_map"][
-            "dataset_id"
-        ]["node_id"] = "prepare-again"
+        next(n for n in graph["nodes"] if n["id"] == "score")["config"]["inputs_map"]["dataset_id"][
+            "node_id"
+        ] = "prepare-again"
         for edge in graph["edges"]:
             if edge["from"] == "prepare":
                 edge["from"] = "prepare-again"
@@ -230,9 +241,7 @@ async def test_published_scoring_flow_delivers_verified_work_receipt_and_portabl
         second_prep_execution = next(row for row in executions if row.node_id == "prepare-again")
         score = next(row for row in executions if row.node_id == "score")
         assert prep.input_json["inputs"] == {"in": source.id}
-        assert second_prep_execution.input_json["inputs"] == {
-            "in": prep.output_json["dataset_id"]
-        }
+        assert second_prep_execution.input_json["inputs"] == {"in": prep.output_json["dataset_id"]}
         assert score.input_json["dataset_id"] == second_prep_execution.output_json["dataset_id"]
         assert score.input_json["served_id"] == model.id
 

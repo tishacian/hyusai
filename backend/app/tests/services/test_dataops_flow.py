@@ -109,6 +109,20 @@ def test_conflicting_graph_config_is_not_accepted_by_publication():
     assert reasons(flow) == {"GRAPH_CONFIG_CONFLICT"}
 
 
+def test_canonical_editor_configuration_uses_external_outputs_and_pinned_sources():
+    flow = prep_flow(incoming=[])
+    flow["nodes"][1]["config"]["params"] = {
+        "spec": {"version": 1, "operation": "prepare", "params": {"steps": []}},
+        "outputs": [{"port": "out", "name": "Prepared"}],
+        "sources": [{"port": "in", "dataset_id": "immutable-version"}],
+        "placement": "local",
+        "timeout_s": 300,
+    }
+    assert data_prep_issues(flow) == []
+    flow["edges"].append({"from": "source", "to": "prep", "to_port": "in"})
+    assert "DATAPREP_INPUT_PORT_DUPLICATE" in reasons(flow)
+
+
 @pytest.mark.parametrize("location", ["node", "config", "params", "data_prep"])
 def test_inputs_map_is_forbidden_even_when_empty(location):
     flow = prep_flow()
@@ -129,7 +143,7 @@ def test_inputs_map_is_forbidden_even_when_empty(location):
         {"version": 2},
         {"operation": "invented"},
         {"outputs": []},
-        {"steps": [{"action": "trim"}] * 101},
+        {"steps": [{"action": "trim"}] * 201},
         {"seed": -1},
     ],
 )

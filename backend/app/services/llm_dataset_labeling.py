@@ -9,15 +9,15 @@ evidence independently.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
+import tempfile
+import time
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime
-from decimal import Decimal, ROUND_CEILING
-import hashlib
-import json
+from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
-import tempfile
-import time
 from typing import Any
 from uuid import uuid4
 
@@ -303,11 +303,19 @@ async def label_dataset(payload: dict[str, Any], ctx: dict[str, Any]) -> dict[st
 
 
 async def _run(db, payload, config, spec, ctx, execution):
+    import polars as pl
+
     from app.services.object_store import get_object_store
     from app.services.skills_registry.wrappers import _workspace_llm_v1
-    from app.services.tabular_datasets import dataset_prefix, materialize, register_frame, reserve_frame, resolve_dataset_ref
+    from app.services.tabular_datasets import (
+        dataset_digest,
+        dataset_prefix,
+        materialize_dataset,
+        register_frame,
+        reserve_frame,
+        resolve_dataset_ref,
+    )
     from app.services.workspace_jobs import create_workspace_job, transition_job
-    import polars as pl
 
     workspace, user = _authorize(db, ctx)
     initial_calls = len((ctx.get("_provider_usage_v1") or {}).get("calls", []))
@@ -322,10 +330,10 @@ async def _run(db, payload, config, spec, ctx, execution):
     if not source.row_count or source.row_count > spec.max_rows or (source.size_bytes or 0) > MAX_SOURCE_BYTES:
         raise LabelingError("LABELING_DATASET_TOO_LARGE", "Use a nonempty dataset within the row limit and 32 MB size limit.")
     with tempfile.TemporaryDirectory(prefix="label-source-") as scratch:
-        path = materialize(source, Path(scratch) / "source.parquet")
-        if path.stat().st_size > MAX_SOURCE_BYTES:
+        path = materialize_dataset(source, Path(scratch) / "source", max_bytes=MAX_SOURCE_BYTES)
+        if sum(p.stat().st_size for p in path) > MAX_SOURCE_BYTES:
             raise LabelingError("LABELING_DATASET_TOO_LARGE", "The dataset exceeds 32 MB.")
-        source_hash = _sha(path.read_bytes())
+        source_hash = dataset_digest(source)
         frame = pl.scan_parquet(path).head(spec.max_rows + 1).collect()
     if frame.height != source.row_count or frame.height > spec.max_rows:
         raise LabelingError("LABELING_SOURCE_CHANGED", "The source dataset no longer matches its profile.")

@@ -148,7 +148,7 @@ openbao:
     # chart never generates or owns it.
     unsealKeySecret: ""
     unsealKeyKey: unseal.key
-    # Only API, worker, migrate and hub-fetch pods may reach the server.
+    # Only API, worker, migrate, catalog-reconcile and hub-fetch may reach it.
     networkPolicy: true
     persistence:
       enabled: true
@@ -159,6 +159,13 @@ migrate:
   # post-install so the Secret and Postgres STS exist before the Job runs.
   hook: post-install,post-upgrade
   waitForPostgres: true
+catalogReconcile:
+  # Uses the release's backend image, secrets and resources.migrate. Runs after
+  # successful migration (hook weight 10 > 5); migrate.enabled=false skips it.
+  enabled: true
+  backoffLimit: 1
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 600
 rabbitmq:
   enabled: true
   image: rabbitmq:4.1-management

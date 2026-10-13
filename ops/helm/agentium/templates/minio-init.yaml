@@ -75,6 +75,7 @@ spec:
               done
 
               mc mb --ignore-existing "agentium/$MINIO_BUCKET"
+              mc version enable "agentium/$MINIO_BUCKET"
 
               cat > /tmp/policy.json <<JSON
               {
@@ -90,9 +91,20 @@ spec:
                     "Action": [
                       "s3:GetObject",
                       "s3:PutObject",
-                      "s3:DeleteObject"
+                      "s3:AbortMultipartUpload",
+                      "s3:ListMultipartUploadParts"
                     ],
                     "Resource": ["arn:aws:s3:::$MINIO_BUCKET/*"]
+                  },
+                  {
+                    "Effect": "Deny",
+                    "Action": ["s3:DeleteObject", "s3:DeleteObjectVersion"],
+                    "Resource": ["arn:aws:s3:::$MINIO_BUCKET/*"]
+                  },
+                  {
+                    "Effect": "Deny",
+                    "Action": ["s3:PutObject", "s3:AbortMultipartUpload"],
+                    "Resource": ["arn:aws:s3:::$MINIO_BUCKET/hub/blobs/*", "arn:aws:s3:::$MINIO_BUCKET/hub/tmp/*"]
                   }
                 ]
               }

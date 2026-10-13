@@ -1,0 +1,17 @@
+[
+  {
+    "name": "a",
+    "dtype": "timestamp[us]",
+    "nullable": true
+  },
+  {
+    "name": "b",
+    "dtype": "timestamp[us]",
+    "nullable": true
+  },
+  {
+    "name": "n",
+    "dtype": "int64",
+    "nullable": true
+  }
+]

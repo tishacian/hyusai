@@ -29,7 +29,6 @@ snake_case slug.
 
 from __future__ import annotations
 
-import hashlib
 import re
 import tempfile
 import threading
@@ -46,8 +45,9 @@ from app.core.logging import get_logger
 from app.models.tabular import TabularDataset
 from app.services.tabular_datasets import (
     TabularError,
+    dataset_digest,
     dataset_reference,
-    materialize,
+    materialize_dataset,
     profile_frame,
     register_frame,
     resolve_dataset_ref,
@@ -395,11 +395,11 @@ def execute_sql(
             for index, source in enumerate(sources):
                 try:
                     if max_input_bytes is None:
-                        local = materialize(source.dataset, root / f"{source.view}.parquet")
+                        local = materialize_dataset(source.dataset, root / source.view)
                     else:
-                        local = materialize(
+                        local = materialize_dataset(
                             source.dataset,
-                            root / f"{source.view}.parquet",
+                            root / source.view,
                             max_bytes=max_input_bytes,
                         )
                 except ValueError as exc:
@@ -409,23 +409,22 @@ def execute_sql(
                             message="A source exceeds the enrichment byte budget.",
                         ) from exc
                     raise
-                if max_input_bytes is not None and local.stat().st_size > max_input_bytes:
+                if max_input_bytes is not None and sum(path.stat().st_size for path in local) > max_input_bytes:
                     raise TabularError(
                         code="ENRICHMENT_INPUT_TOO_LARGE",
                         message="A source exceeds the enrichment byte budget.",
                     )
                 if source_evidence is not None:
-                    with local.open("rb") as handle:
-                        digest = hashlib.file_digest(handle, "sha256").hexdigest()
+                    digest = dataset_digest(source.dataset)
                     source_evidence[source.view] = {
                         "sha256": digest,
-                        "size_bytes": local.stat().st_size,
+                        "size_bytes": sum(path.stat().st_size for path in local),
                     }
                 # Scanned lazily through Arrow, which reads the file itself: the
                 # seal below closes duckdb's own filesystem, so the author's
                 # statement still cannot reach any path, but a preview reading
                 # five rows of two columns no longer loads the whole table.
-                connection.register(source.view, pa_dataset.dataset(str(local), format="parquet"))
+                connection.register(source.view, pa_dataset.dataset([str(path) for path in local], format="parquet"))
                 if max_input_rows is not None:
                     count = connection.execute(f'SELECT count(*) FROM "{source.view}"').fetchone()[
                         0

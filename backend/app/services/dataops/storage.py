@@ -25,36 +25,131 @@ def is_delta(dataset) -> bool:
     return bool(dataset.storage_key and dataset.storage_key.endswith("/delta"))
 
 
-def delta_manifest(dataset) -> dict[str, Any]:
-    """Only the committed log determines the files that belong to a version."""
-    store = get_object_store()
-    key = dataset.storage_key
-    if not key or not is_delta(dataset):
-        raise ValueError("DATASET_NOT_DELTA")
-    log = store.read_bytes(f"{key}/_delta_log/00000000000000000000.json")
-    expected = (dataset.lineage_json or {}).get("storage", {}).get("log_sha256")
-    if expected and hashlib.sha256(log).hexdigest() != expected:
-        raise ValueError("DATASET_INTEGRITY_FAILED")
-    files, metadata = [], None
+def _parse_delta_log(log: bytes) -> dict[str, Any]:
+    """Accept only the deliberately small immutable Delta protocol we write."""
+    files, metadata, protocol = [], None, None
+    seen = set()
     for line in log.decode("utf-8").splitlines():
         action = json.loads(line)
         if "metaData" in action:
+            if metadata is not None:
+                raise ValueError("DATASET_DELTA_METADATA_INVALID")
             metadata = action["metaData"]
         if "remove" in action:
             raise ValueError("DATASET_MUTABLE_DELTA_REFUSED")
         if "protocol" in action:
             protocol = action["protocol"]
-            if protocol.get("minReaderVersion", 1) > 1:
+            if (
+                protocol.get("minReaderVersion") != 1
+                or protocol.get("minWriterVersion") != 2
+                or protocol.get("readerFeatures")
+                or protocol.get("writerFeatures")
+            ):
                 raise ValueError("DATASET_DELTA_PROTOCOL_UNSUPPORTED")
         if "add" in action:
             item = action["add"]
-            relative = PurePosixPath(item["path"])
-            if relative.is_absolute() or ".." in relative.parts or "\\" in str(relative):
+            raw = item["path"]
+            relative = PurePosixPath(raw)
+            from urllib.parse import unquote
+
+            if (
+                not raw
+                or relative.is_absolute()
+                or ".." in relative.parts
+                or "\\" in raw
+                or str(relative) != raw
+                or unquote(raw) != raw
+                or raw in seen
+                or not raw.endswith(".parquet")
+            ):
                 raise ValueError("DATASET_PART_PATH_INVALID")
-            files.append({"path": str(relative), "size": int(item["size"])})
-    if metadata is None:
+            if item.get("deletionVector") or type(item.get("size")) is not int or item["size"] < 0:
+                raise ValueError("DATASET_DELTA_PROTOCOL_UNSUPPORTED")
+            seen.add(raw)
+            files.append({"path": raw, "size": item["size"]})
+    if metadata is None or protocol is None:
         raise ValueError("DATASET_DELTA_METADATA_REQUIRED")
+    config = metadata.get("configuration") or {}
+    if (
+        config.get("delta.columnMapping.mode", "none") != "none"
+        or str(config.get("delta.enableDeletionVectors", "false")).lower() != "false"
+        or metadata.get("partitionColumns")
+    ):
+        raise ValueError("DATASET_DELTA_PROTOCOL_UNSUPPORTED")
     return {"files": files, "log": log, "metadata": metadata}
+
+
+def delta_manifest(dataset) -> dict[str, Any]:
+    """Only commit zero determines active files, never a directory listing."""
+    store = get_object_store()
+    key = dataset.storage_key
+    if not key or not is_delta(dataset):
+        raise ValueError("DATASET_NOT_DELTA")
+    # The journal is bounded independently of the data and never read_bytes().
+    with tempfile.TemporaryDirectory(prefix="delta-journal-") as tmp:
+        path = store.copy_to_local(
+            f"{key}/_delta_log/00000000000000000000.json",
+            Path(tmp) / "commit.json",
+            max_bytes=16 * 1024**2,
+        )
+        log = path.read_bytes()
+    if store.exists(f"{key}/_delta_log/00000000000000000001.json"):
+        raise ValueError("DATASET_MUTABLE_DELTA_REFUSED")
+    expected = (dataset.lineage_json or {}).get("storage", {}).get("log_sha256")
+    if expected and hashlib.sha256(log).hexdigest() != expected:
+        raise ValueError("DATASET_INTEGRITY_FAILED")
+    return _parse_delta_log(log)
+
+
+def dataset_files(dataset) -> list[str]:
+    """ObjectStore keys; Delta membership comes exclusively from commit zero."""
+    if not dataset.storage_key:
+        raise ValueError("DATASET_NOT_READY")
+    if not is_delta(dataset):
+        return [dataset.storage_key]
+    return [f"{dataset.storage_key}/{item['path']}" for item in delta_manifest(dataset)["files"]]
+
+
+def open_dataset_arrow(dataset):
+    """Lazy Arrow dataset over active parts, with native local/S3 range reads."""
+    import pyarrow.dataset as ds
+
+    from app.services.object_store import settings as store_settings
+
+    store = get_object_store()
+    if is_delta(dataset):
+        from deltalake import DeltaTable
+
+        delta_manifest(dataset)  # integrity/protocol guard before exposing the snapshot
+        options = None
+        if store.backend == "s3":
+            options = {"AWS_REGION": "us-east-1"}
+            for name, value in {
+                "AWS_ENDPOINT_URL": store_settings.object_store_s3_endpoint_url,
+                "AWS_ACCESS_KEY_ID": store_settings.object_store_s3_access_key,
+                "AWS_SECRET_ACCESS_KEY": store_settings.object_store_s3_secret_key,
+            }.items():
+                if value:
+                    options[name] = value
+            if (store_settings.object_store_s3_endpoint_url or "").startswith("http://"):
+                options["AWS_ALLOW_HTTP"] = "true"
+        location = (
+            str(store._local_path(dataset.storage_key))
+            if store.backend == "local"
+            else store.uri(dataset.storage_key)
+        )
+        return DeltaTable(location, version=0, storage_options=options).to_pyarrow_dataset()
+    if not dataset.storage_key:
+        raise ValueError("DATASET_NOT_READY")
+    if store.backend == "local":
+        return ds.dataset(str(store._local_path(dataset.storage_key)), format="parquet")
+    import pyarrow.fs as fs
+
+    return ds.dataset(
+        store._remote_key(dataset.storage_key),
+        format="parquet",
+        filesystem=fs.PyFileSystem(fs.FSSpecHandler(store._fsspec())),
+    )
 
 
 def materialize_files(dataset, directory: Path, *, max_bytes: int | None = None) -> list[Path]:
@@ -97,31 +192,47 @@ def materialize_files(dataset, directory: Path, *, max_bytes: int | None = None)
 def iter_dataset_batches(
     dataset, *, columns: list[str] | None = None, batch_size: int | None = None
 ):
-    import pyarrow.dataset as ds
-
-    with tempfile.TemporaryDirectory(prefix="dataset-batches-") as tmp:
-        files = materialize_files(dataset, Path(tmp))
-        scanner = ds.dataset([str(p) for p in files], format="parquet").scanner(
-            columns=columns,
-            batch_size=batch_size or settings.dataops_batch_rows,
-            use_threads=False,
-            batch_readahead=0,
-            fragment_readahead=0,
-        )
-        yield from scanner.to_batches()
+    # Lazy range reads must preserve the input ceiling previously enforced by
+    # materialize_files, without downloading or listing uncommitted objects.
+    size = (
+        sum(part["size"] for part in delta_manifest(dataset)["files"])
+        if is_delta(dataset)
+        else get_object_store().size(dataset.storage_key)
+    )
+    if size is None or size > settings.dataops_max_input_mb * 1024**2:
+        raise ValueError("DATASET_INPUT_BUDGET_EXCEEDED")
+    scanner = open_dataset_arrow(dataset).scanner(
+        columns=columns,
+        batch_size=batch_size or settings.dataops_batch_rows,
+        use_threads=False,
+        batch_readahead=0,
+        fragment_readahead=0,
+    )
+    yield from scanner.to_batches()
 
 
 def dataset_digest(dataset) -> str:
     if is_delta(dataset):
         manifest = delta_manifest(dataset)
-        parts = (dataset.lineage_json or {}).get("storage", {}).get("parts", {})
-        return hashlib.sha256(
-            json.dumps(
-                {"log": hashlib.sha256(manifest["log"]).hexdigest(), "parts": parts}, sort_keys=True
-            ).encode()
-        ).hexdigest()
+        return hashlib.sha256(manifest["log"]).hexdigest()
     with tempfile.TemporaryDirectory(prefix="dataset-digest-") as tmp:
         return file_digest(materialize_files(dataset, Path(tmp))[0])
+
+
+def dataset_digest_matches(dataset, expected: str) -> bool:
+    """Read compatibility for already queued pre-D3 Delta execution fingerprints."""
+    if dataset_digest(dataset) == expected:
+        return True
+    if not is_delta(dataset):
+        return False
+    manifest = delta_manifest(dataset)
+    parts = (dataset.lineage_json or {}).get("storage", {}).get("parts", {})
+    previous = hashlib.sha256(
+        json.dumps(
+            {"log": hashlib.sha256(manifest["log"]).hexdigest(), "parts": parts}, sort_keys=True
+        ).encode()
+    ).hexdigest()
+    return previous == expected
 
 
 def identity_digest(dataset):
@@ -147,30 +258,69 @@ def identity_digest(dataset):
     ).hexdigest()
 
 
-def persist_sample(dataset, paths):
+def persist_sample(dataset, paths, *, reuse_identical=False):
     import pyarrow.dataset as ds
     import pyarrow.parquet as pq
 
     store = get_object_store()
     with tempfile.TemporaryDirectory(prefix="dataset-sample-") as tmp:
         path = Path(tmp) / "sample.parquet"
-        table = (
-            ds.dataset([str(p) for p in paths], format="parquet")
-            .scanner(
-                use_threads=False,
-                batch_size=settings.dataops_sample_rows,
-                batch_readahead=0,
-                fragment_readahead=0,
-            )
-            .head(settings.dataops_sample_rows)
-        )
-        if table.nbytes > settings.dataops_preview_input_mb * 1024**2:
-            raise ValueError("DATAPREP_SAMPLE_MEMORY_LIMIT")
+        import pyarrow as pa
+
+        arrow = ds.dataset([str(p) for p in paths], format="parquet")
+        maximum = min(settings.dataops_preview_input_mb * 1024**2, 8 * 1024**2)
+        import numpy as np
+
+        total = sum(pq.read_metadata(part).num_rows for part in paths)
+        rng = np.random.default_rng(42)
+        indices = rng.choice(total, size=min(total, settings.dataops_sample_rows), replace=False)
+        # Choosing a uniform subset of known row indices is equivalent to a
+        # seeded reservoir, independent of part boundaries. If wide cells exceed
+        # the byte ceiling, reduce the subset uniformly and replay the scan;
+        # keeping the first rows that fit would bias the sample toward the head.
+        while True:
+            ordered = np.sort(indices)
+            selected, used, offset, cursor = [], 0, 0, 0
+            oversized = False
+            for batch in arrow.scanner(
+                use_threads=False, batch_size=1024,
+                batch_readahead=0, fragment_readahead=0,
+            ).to_batches():
+                stop = int(np.searchsorted(ordered, offset + batch.num_rows, side="left"))
+                if stop > cursor:
+                    # take copies selected cells; slice would retain the entire
+                    # input batch's buffers even for a tiny selection.
+                    candidate = batch.take(pa.array(ordered[cursor:stop] - offset))
+                    if used + candidate.nbytes > maximum:
+                        oversized = True
+                        break
+                    selected.append(candidate)
+                    used += candidate.nbytes
+                cursor, offset = stop, offset + batch.num_rows
+                if cursor == len(ordered):
+                    break
+            if not oversized:
+                if cursor != len(ordered):
+                    raise ValueError("DATASET_SAMPLE_CARDINALITY_CHANGED")
+                break
+            if len(indices) <= 1:
+                raise ValueError("DATAPREP_SAMPLE_ROW_TOO_LARGE")
+            indices = rng.choice(indices, size=max(1, len(indices) // 2), replace=False)
+        table = pa.Table.from_batches(selected, schema=arrow.schema)
         pq.write_table(table, path, compression="zstd")
         if path.stat().st_size > 16 * 1024**2:
             raise ValueError("DATAPREP_SAMPLE_BUDGET_EXCEEDED")
         key = f"workspaces/{dataset.workspace_id}/tabular/datasets/{dataset.id}/sample.parquet"
-        store.write_once(key, path.read_bytes())
+        try:
+            store.write_once(key, path.read_bytes())
+        except Exception:
+            if not reuse_identical:
+                raise
+            # Recovery may find bytes committed before the DB transaction.
+            # Never overwrite them or trust existence without byte identity.
+            existing = store.copy_to_local(key, Path(tmp) / "existing.parquet", max_bytes=16 * 1024**2)
+            if file_digest(existing) != file_digest(path):
+                raise ValueError("DATAPREP_SAMPLE_CHANGED") from None
         dataset.lineage_json = {
             **(dataset.lineage_json or {}),
             "sample": {
@@ -178,165 +328,142 @@ def persist_sample(dataset, paths):
                 "sha256": file_digest(path),
                 "size_bytes": path.stat().st_size,
                 "rows": table.num_rows,
-                "method": "head",
+                "method": "reservoir_seeded",
+                "seed": 42,
                 "version": 1,
             },
         }
 
 
 def profile_files(paths: list[Path]) -> dict[str, Any]:
-    """SQL aggregates spill; the only values collected are bounded display data."""
-    import duckdb
-    import polars as pl
-    import pyarrow.dataset as ds
+    """All producer profiles share wall/virtual-memory/CPU subprocess limits."""
+    import sys
 
-    from app.services.tabular_datasets import _column_kind, _json_scalar
+    from app.services.recipe_executions import supervise_harness
 
-    with tempfile.TemporaryDirectory(prefix="dataset-profile-") as tmp:
-        conn = duckdb.connect()
-        try:
-            conn.execute(f"SET memory_limit='{settings.dataops_duckdb_memory_mb}MB'")
-            conn.execute(f"SET threads={settings.dataops_duckdb_threads}")
-            conn.execute("SET TimeZone='UTC'")
-            conn.execute("SET temp_directory=?", [tmp])
-            conn.execute(f"SET max_temp_directory_size='{settings.dataops_spill_max_mb}MB'")
-            arrow = ds.dataset([str(p) for p in paths], format="parquet")
-            # The managed DuckDB table can spill under memory_limit. An Arrow
-            # dataset registration would prefetch outside that memory budget.
-            from app.services.dataops.compiler import literal
-
-            inputs = ",".join(literal(str(p)) for p in paths)
-            conn.execute(f"CREATE TEMP TABLE data AS SELECT * FROM read_parquet([{inputs}])")
-            conn.execute("SET enable_external_access=false")
-            conn.execute("SET lock_configuration=true")
-            count = conn.execute("SELECT count(*) FROM data").fetchone()[0]
-            dtypes = pl.from_arrow(arrow.schema.empty_table()).schema
-            schema, stats = [], {}
-            for name, dtype in dtypes.items():
-                quoted = '"' + name.replace('"', '""') + '"'
-                kind = _column_kind(dtype)
-                nulls, distinct = conn.execute(
-                    f"SELECT count(*)-count({quoted}),count(DISTINCT {quoted}) FROM data"
-                ).fetchone()
-                info = {
-                    "kind": kind,
-                    "nulls": nulls,
-                    "null_ratio": round(nulls / count, 4) if count else 0.0,
-                    "distinct": distinct + int(nulls > 0),
+    with tempfile.TemporaryDirectory(prefix="dataset-profile-runner-") as tmp:
+        root = Path(tmp)
+        request = root / "request.json"
+        result = root / "result.json"
+        request.write_text(
+            json.dumps(
+                {
+                    "paths": [str(p.resolve()) for p in paths],
+                    "memory_mb": settings.dataops_duckdb_memory_mb,
+                    "threads": settings.dataops_duckdb_threads,
+                    "spill_mb": settings.dataops_spill_max_mb,
+                    "preview_rows": settings.tabular_preview_rows,
                 }
-                schema.append(
-                    {"name": name, "kind": kind, "dtype": str(dtype), "nullable": nulls > 0}
-                )
-                if kind in {"integer", "float", "datetime"}:
-                    low, high = conn.execute(
-                        f"SELECT min({quoted}),max({quoted}) FROM data"
-                    ).fetchone()
-                    info.update(min=_json_scalar(low), max=_json_scalar(high))
-                if kind in {"integer", "float"}:
-                    mean, std, q25, q50, q75 = conn.execute(
-                        f"SELECT avg({quoted}),stddev_samp({quoted}),quantile_cont({quoted},0.25),quantile_cont({quoted},0.5),quantile_cont({quoted},0.75) FROM data"
-                    ).fetchone()
-                    info.update(
-                        mean=_json_scalar(mean),
-                        std=_json_scalar(std),
-                        q25=_json_scalar(q25),
-                        q50=_json_scalar(q50),
-                        q75=_json_scalar(q75),
-                    )
-                    if low is not None and high is not None and high != low:
-                        bins = conn.execute(
-                            f"SELECT least(11,greatest(0,floor(({quoted}-?)/?)))::INT AS bin,count(*) FROM data WHERE {quoted} IS NOT NULL GROUP BY bin ORDER BY bin",
-                            [float(low), (float(high) - float(low)) / 12],
-                        ).fetchall()
-                        info["histogram"] = [
-                            {
-                                "lower": float(low) + i * (float(high) - float(low)) / 12,
-                                "upper": float(low) + (i + 1) * (float(high) - float(low)) / 12,
-                                "count": dict(bins).get(i, 0),
-                            }
-                            for i in range(12)
-                        ]
-                    else:
-                        info["histogram"] = []
-                if kind in {"string", "boolean"}:
-                    values = conn.execute(
-                        f"SELECT {quoted},count(*) AS n FROM data WHERE {quoted} IS NOT NULL GROUP BY {quoted} ORDER BY n DESC,{quoted} LIMIT 6"
-                    ).fetchall()
-                    info["top_values"] = [{"value": _json_scalar(v), "count": n} for v, n in values]
-                if kind == "string":
-                    info["mean_length"] = _json_scalar(
-                        conn.execute(f"SELECT avg(length({quoted})) FROM data").fetchone()[0]
-                    )
-                stats[name] = info
-            preview = (
-                conn.execute(f"SELECT * FROM data LIMIT {int(settings.tabular_preview_rows)}")
-                .fetch_arrow_table()
-                .to_pylist()
             )
-            return {
-                "row_count": count,
-                "column_count": len(schema),
-                "schema": schema,
-                "stats": stats,
-                "preview": [{k: _json_scalar(v) for k, v in row.items()} for row in preview],
-            }
-        finally:
-            conn.close()
+        )
+        run = supervise_harness(
+            [
+                sys.executable,
+                str(Path(__file__).resolve().parents[2] / "resources/dataops_storage.py"),
+                str(request),
+                str(result),
+            ],
+            venv_python=Path(sys.executable),
+            scratch=root,
+            timeout_s=settings.dataops_sql_timeout_s,
+            memory_limit_mb=settings.dataops_runner_memory_limit_mb,
+            cpu_limit_s=int(settings.dataops_sql_timeout_s * settings.dataops_duckdb_threads) + 30,
+            fsize_limit_mb=max(16, settings.dataops_spill_max_mb),
+        )
+        if run.status is not None or run.exit_code != 0:
+            raise ValueError("DATASET_PROFILE_BUDGET_OR_EXECUTION_FAILED")
+        if result.stat().st_size > 16 * 1024**2:
+            raise ValueError("DATASET_PROFILE_RESULT_TOO_LARGE")
+        return json.loads(result.read_text())
 
 
 def write_batches(directory: Path, batches: Iterable, *, schema, delta: bool = False) -> list[Path]:
     """Write bounded batches; Delta generates one immutable commit, never append."""
-    import pyarrow as pa
     import pyarrow.parquet as pq
 
     directory.mkdir(parents=True, exist_ok=True)
     if delta:
-        from deltalake import write_deltalake
+        from app.resources.dataops_storage import PartWriter
 
-        reader = pa.RecordBatchReader.from_batches(schema, batches)
-        write_deltalake(
-            str(directory),
-            reader,
-            mode="error",
-            target_file_size=settings.dataops_part_max_mb * 1024**2,
-        )
-        from deltalake import DeltaTable
-
-        files = [Path(uri) for uri in DeltaTable(str(directory)).file_uris()]
-        if not files:
-            # Profile zero-row output without adding a file outside the log.
-            output = directory / "empty-profile.parquet"
-            pq.write_table(schema.empty_table(), output)
-            return [output]
-        return files
+        writer = PartWriter(directory, schema, target_bytes=settings.dataops_part_max_mb * 1024**2)
+        try:
+            for batch in batches:
+                writer.write_batch(batch)
+                if writer.size_bytes > settings.dataops_max_output_mb * 1024**2:
+                    raise ValueError("DATASET_OUTPUT_BUDGET_EXCEEDED")
+            writer.close()
+        except Exception:
+            # Close the current Parquet footer without publishing a Delta commit.
+            writer.abort()
+            raise
+        if writer.size_bytes > settings.dataops_max_output_mb * 1024**2:
+            raise ValueError("DATASET_OUTPUT_BUDGET_EXCEEDED")
+        return writer.paths
     output = directory / "data.parquet"
     with pq.ParquetWriter(output, schema, compression="zstd") as writer:
         for batch in batches:
             writer.write_batch(batch)
+            if output.stat().st_size > settings.dataops_max_output_mb * 1024**2:
+                raise ValueError("DATASET_OUTPUT_BUDGET_EXCEEDED")
     return [output]
 
 
 def settle_files(
-    db, dataset, paths: list[Path], *, delta_root: Path | None = None, on_profile=None
+    db, dataset, paths: list[Path], *, delta_root: Path | None = None, on_profile=None, profile=None
 ):
     from app.services.tabular_datasets import _apply_profile
 
     if dataset.status != "ingesting":
         raise ValueError("DATASET_OUTPUT_NOT_RESERVED")
     store = get_object_store()
-    profile = profile_files(paths)
+    size = sum(
+        p.stat().st_size for p in paths if delta_root is None or p.name != "empty-profile.parquet"
+    )
+    if size > settings.dataops_max_output_mb * 1024**2:
+        raise ValueError("DATASET_OUTPUT_BUDGET_EXCEEDED")
+    profile = profile if profile is not None else profile_files(paths)
     if on_profile is not None:
         on_profile(profile)
     prefix = f"workspaces/{dataset.workspace_id}/tabular/datasets/{dataset.id}"
-    size = sum(p.stat().st_size for p in paths)
-    if size > settings.dataops_max_output_mb * 1024**2:
-        raise ValueError("DATASET_OUTPUT_BUDGET_EXCEEDED")
     if delta_root is not None:
         # Delta returns canonical file URIs (e.g. /private/var on macOS),
         # while TemporaryDirectory may preserve a symlink such as /var.
         delta_root = delta_root.resolve(strict=True)
         key = f"{prefix}/delta"
         log = delta_root / "_delta_log/00000000000000000000.json"
+        if log.stat().st_size > 16 * 1024**2:
+            raise ValueError("DATASET_DELTA_LOG_TOO_LARGE")
+        manifest = _parse_delta_log(log.read_bytes())
+        actual = {
+            p.resolve().relative_to(delta_root).as_posix(): p
+            for p in paths
+            if p.name != "empty-profile.parquet"
+        }
+        if set(actual) != {item["path"] for item in manifest["files"]}:
+            raise ValueError("DATASET_DELTA_PARTS_MISMATCH")
+        import pyarrow.parquet as pq
+
+        rows = 0
+        for item in manifest["files"]:
+            path = actual[item["path"]]
+            if path.stat().st_size != item["size"]:
+                raise ValueError("DATASET_DELTA_PART_SIZE_MISMATCH")
+            from deltalake import Schema
+
+            actual_schema = json.loads(Schema.from_arrow(pq.read_schema(path)).to_json())
+            declared_schema = json.loads(manifest["metadata"]["schemaString"])
+            if actual_schema != declared_schema:
+                raise ValueError("DATASET_SCHEMA_MISMATCH")
+            rows += pq.read_metadata(path).num_rows
+        if rows != profile["row_count"]:
+            raise ValueError("DATASET_CARDINALITY_MISMATCH")
+        from deltalake import DeltaTable
+
+        committed = DeltaTable(str(delta_root), version=0).to_pyarrow_dataset()
+        if len(committed.schema) != profile["column_count"] or committed.schema.names != [
+            col["name"] for col in profile["schema"]
+        ]:
+            raise ValueError("DATASET_SCHEMA_MISMATCH")
         parts = {}
         for path in paths:
             if path.name == "empty-profile.parquet":

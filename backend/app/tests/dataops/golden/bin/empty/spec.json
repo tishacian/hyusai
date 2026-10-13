@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "operation": "prepare",
+  "params": {
+    "steps": [
+      {
+        "id": "golden",
+        "kind": "bin",
+        "params": {
+          "column": "a",
+          "mode": "edges",
+          "edges": [
+            0,
+            2,
+            4
+          ],
+          "labels": [
+            "low",
+            "high"
+          ],
+          "output": "b"
+        }
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "port": "out",
+      "name": "Golden"
+    }
+  ]
+}
