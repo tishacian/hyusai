@@ -9,3 +9,7 @@ acr_name               = "agentiumlabacr"
 ingress_class          = "webapprouting.kubernetes.azure.com"
 storage_class          = "managed-csi"
 enable_web_app_routing = true
+# Realtime (Helm livekit): a static IP for loadBalancer mode, or a media pool
+# with public node IPs for hostNetwork mode.
+# livekit_public_ip = true
+# media_node_pool   = { enabled = true, node_count = 1 }

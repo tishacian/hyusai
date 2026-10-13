@@ -10,6 +10,7 @@ image:
   mlTs: agentium-ml-ts:local
   mlDeep: agentium-ml-deep:local
   hubFetch: agentium-hub-fetch:local
+  livekitAgent: agentium-livekit-agent:local
 # UID/GID the Agentium images run as (USER_UID/USER_GID build args). Pods that
 # mount a Secret file or a shared volume use them as fsGroup.
 runtime:
@@ -215,9 +216,65 @@ ingress:
   # tls:
   #   - secretName: agentium-tls
   #     hosts: [agentium.example]
-# Compose profiles. Stay off until the chart grows matching templates.
+# Realtime voice, Compose profile realtime: agentium-livekit (signalling on
+# the ingress at /livekit, media over UDP) and agentium-livekit-agent, the
+# sidecar the API POSTs /dispatch to. Off by default.
 livekit:
   enabled: false
+  # Same version as docker/compose.agentium.yml.
+  image: livekit/livekit-server:v1.12.0
+  # Secret the chart never creates, read by key by LiveKit and the API only.
+  # Keys: LIVEKIT_API_KEY, LIVEKIT_API_SECRET (32 characters or more),
+  # optionally LIVEKIT_REDIS_PASSWORD. Required when enabled.
+  existingSecret: ""
+  # Browser URL of the signalling endpoint. Empty derives
+  # ws(s)://<ingress.host>/livekit from ingress.host and ingress.tls.
+  publicUrl: ""
+  # One replica needs no Redis. More need redis.address and hostNetwork:
+  # each LiveKit node advertises its own media address.
+  replicas: 1
+  redis:
+    # host:port of a Redis the chart does not run.
+    address: ""
+  rtc:
+    tcpPort: 7881
+  network:
+    # hostNetwork: media on the node's own public address, UDP ports
+    # portRangeStart..portRangeEnd, one LiveKit pod per node.
+    # loadBalancer: media on one UDP port behind a LoadBalancer Service.
+    mode: hostNetwork
+    hostNetwork:
+      portRangeStart: 50000
+      portRangeEnd: 50100
+      # Dedicated media nodes (optional Terraform pool, label and taint
+      # agentium.io/media=livekit).
+      nodeSelector: {}
+      tolerations: []
+    loadBalancer:
+      udpPort: 7882
+      # Public IP reserved for the Service. LiveKit advertises it to clients,
+      # so it must be known before the pod starts. Required in this mode.
+      ip: ""
+      annotations: {}
+      loadBalancerSourceRanges: []
+  # Embedded TURN for clients whose network drops UDP. domain must resolve
+  # to the media address and match the certificate in tlsSecret
+  # (kubernetes.io/tls).
+  turn:
+    enabled: false
+    domain: ""
+    tlsSecret: ""
+    tlsPort: 5349
+    udpPort: 3478
+  # Signalling (7880) only from the ingress controller, the API and the
+  # sidecar; media ports from anywhere. Rendered in loadBalancer mode only:
+  # policies do not cover host-network pods. The sidecar's policy admits the
+  # API alone.
+  networkPolicy: true
+  ingressControllerNamespace: ingress-nginx
+  agent:
+    enabled: true
+# Compose profiles. Stay off until the chart grows matching templates.
 sftp:
   enabled: false
 beat:
@@ -339,6 +396,12 @@ resources:
     requests: {cpu: 250m, memory: 512Mi}
     limits: {memory: 2Gi}
   openbao:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {memory: 512Mi}
+  livekit:
+    requests: {cpu: 500m, memory: 512Mi}
+    limits: {memory: 2Gi}
+  livekitAgent:
     requests: {cpu: 100m, memory: 128Mi}
     limits: {memory: 512Mi}
 # A single-replica stateful service cannot be evicted without losing data, so

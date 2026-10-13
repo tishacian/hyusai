@@ -1,0 +1,310 @@
+{{- if .Values.livekit.enabled }}
+{{- $lk := .Values.livekit }}
+{{- $hostNetwork := eq $lk.network.mode "hostNetwork" }}
+{{/*
+agentium-livekit, Compose profile realtime with docker/livekit/agentium-livekit.yaml.
+Signalling (HTTP/WebSocket :7880) goes through the ingress at /livekit; media
+reaches the pod directly, on the node's own address (hostNetwork) or behind a
+LoadBalancer Service (loadBalancer). Keys come from livekit.existingSecret.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agentium.fullname" . }}-livekit
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: livekit
+data:
+  livekit.yaml: |
+    port: 7880
+    rtc:
+      tcp_port: {{ $lk.rtc.tcpPort }}
+      {{- if $hostNetwork }}
+      port_range_start: {{ $lk.network.hostNetwork.portRangeStart }}
+      port_range_end: {{ $lk.network.hostNetwork.portRangeEnd }}
+      use_external_ip: true
+      {{- else }}
+      udp_port: {{ $lk.network.loadBalancer.udpPort }}
+      # NODE_IP advertises the LoadBalancer address; STUN would find the egress one.
+      use_external_ip: false
+      {{- end }}
+      allow_tcp_fallback: true
+    room:
+      auto_create: false
+      empty_timeout: 60
+      departure_timeout: 20
+      enabled_codecs:
+        - mime: audio/opus
+        - mime: video/vp8
+    audio:
+      active_level: 30
+      min_percentile: 40
+      update_interval: 500
+    webhook:
+      api_key: __LIVEKIT_WEBHOOK_API_KEY__
+      urls:
+        - http://agentium-backend:{{ .Values.backend.port }}/api/v1/livekit/webhooks
+    {{- if $lk.turn.enabled }}
+    turn:
+      enabled: true
+      domain: {{ $lk.turn.domain | quote }}
+      tls_port: {{ $lk.turn.tlsPort }}
+      udp_port: {{ $lk.turn.udpPort }}
+      cert_file: /etc/livekit-turn/tls.crt
+      key_file: /etc/livekit-turn/tls.key
+    {{- end }}
+    logging:
+      level: info
+      pion_level: error
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentium-livekit
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: livekit
+spec:
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: livekit
+  ports:
+    - name: http
+      port: 7880
+      targetPort: http
+{{- if not $hostNetwork }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentium-livekit-rtc
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: livekit
+  {{- with $lk.network.loadBalancer.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: LoadBalancer
+  loadBalancerIP: {{ $lk.network.loadBalancer.ip | quote }}
+  # Media must reach the node that runs LiveKit, without a second NAT.
+  externalTrafficPolicy: Local
+  {{- with $lk.network.loadBalancer.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: livekit
+  ports:
+    - name: rtc-udp
+      protocol: UDP
+      port: {{ $lk.network.loadBalancer.udpPort }}
+      targetPort: rtc-udp
+    - name: rtc-tcp
+      protocol: TCP
+      port: {{ $lk.rtc.tcpPort }}
+      targetPort: rtc-tcp
+    {{- if $lk.turn.enabled }}
+    - name: turn-tls
+      protocol: TCP
+      port: {{ $lk.turn.tlsPort }}
+      targetPort: turn-tls
+    - name: turn-udp
+      protocol: UDP
+      port: {{ $lk.turn.udpPort }}
+      targetPort: turn-udp
+    {{- end }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentium-livekit
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: livekit
+spec:
+  replicas: {{ $lk.replicas }}
+  # A surge pod would need the same host ports or the same LoadBalancer address.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: livekit
+  template:
+    metadata:
+      labels:
+        {{- include "agentium.labels" . | nindent 8 }}
+        app.kubernetes.io/component: livekit
+      annotations:
+        checksum/config: {{ toYaml $lk | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      {{- if $hostNetwork }}
+      hostNetwork: true
+      # The webhook target agentium-backend is a cluster name.
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- with $lk.network.hostNetwork.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $lk.network.hostNetwork.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/instance: {{ .Release.Name }}
+                  app.kubernetes.io/component: livekit
+              topologyKey: kubernetes.io/hostname
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      containers:
+        - name: livekit
+          image: {{ $lk.image | quote }}
+          {{- with .Values.resources.livekit }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          # The webhook key is the API key, substituted at start as in Compose.
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              awk -v key="$LIVEKIT_API_KEY" '{ gsub("__LIVEKIT_WEBHOOK_API_KEY__", key); print }' \
+                /etc/livekit/livekit.yaml > /tmp/livekit.yaml
+              exec /livekit-server --config /tmp/livekit.yaml
+          env:
+            {{- include "agentium.livekitApiEnv" . | trim | nindent 12 }}
+            - name: LIVEKIT_KEYS
+              value: "$(LIVEKIT_API_KEY): $(LIVEKIT_API_SECRET)"
+            {{- if not $hostNetwork }}
+            - name: NODE_IP
+              value: {{ $lk.network.loadBalancer.ip | quote }}
+            {{- end }}
+            {{- with $lk.redis.address }}
+            - name: REDIS_HOST
+              value: {{ . | quote }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $lk.existingSecret }}
+                  key: LIVEKIT_REDIS_PASSWORD
+                  optional: true
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 7880
+            - name: rtc-tcp
+              containerPort: {{ $lk.rtc.tcpPort }}
+            {{- if not $hostNetwork }}
+            - name: rtc-udp
+              containerPort: {{ $lk.network.loadBalancer.udpPort }}
+              protocol: UDP
+            {{- end }}
+            {{- if $lk.turn.enabled }}
+            - name: turn-tls
+              containerPort: {{ $lk.turn.tlsPort }}
+            - name: turn-udp
+              containerPort: {{ $lk.turn.udpPort }}
+              protocol: UDP
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/livekit
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            {{- if $lk.turn.enabled }}
+            - name: turn-tls
+              mountPath: /etc/livekit-turn
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "agentium.fullname" . }}-livekit
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+        {{- if $lk.turn.enabled }}
+        - name: turn-tls
+          secret:
+            secretName: {{ $lk.turn.tlsSecret }}
+            defaultMode: 0440
+        {{- end }}
+{{- if and $lk.networkPolicy (not $hostNetwork) }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agentium-livekit
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: livekit
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: livekit
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $lk.ingressControllerNamespace | quote }}
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/instance
+                operator: In
+                values: [{{ .Release.Name | quote }}]
+              - key: app.kubernetes.io/component
+                operator: In
+                values: ["backend", "livekit-agent"]
+      ports:
+        - port: 7880
+          protocol: TCP
+    - ports:
+        - port: {{ $lk.network.loadBalancer.udpPort }}
+          protocol: UDP
+        - port: {{ $lk.rtc.tcpPort }}
+          protocol: TCP
+        {{- if $lk.turn.enabled }}
+        - port: {{ $lk.turn.tlsPort }}
+          protocol: TCP
+        - port: {{ $lk.turn.udpPort }}
+          protocol: UDP
+        {{- end }}
+{{- end }}
+{{- end }}

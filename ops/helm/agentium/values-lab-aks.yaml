@@ -3,12 +3,9 @@
 # file + that overlay.
 createSecret: false
 existingSecret: agentium-lab
-
 storageClass: managed-csi
-
 image:
   pullPolicy: Always
-
 ingress:
   enabled: true
   className: webapprouting.kubernetes.azure.com
@@ -16,7 +13,6 @@ ingress:
   # Hidden-path snippet is ingress-nginx. Install nginx on AKS to enforce it;
   # Application Routing ignores the annotation.
   hiddenPathGuard: true
-
 postgres:
   persistence:
     storageClass: managed-csi
@@ -32,9 +28,18 @@ qdrant:
 rabbitmq:
   persistence:
     storageClass: managed-csi
-
 livekit:
   enabled: false
+  existingSecret: agentium-lab-livekit
+  # Application Routing runs its controller here.
+  ingressControllerNamespace: app-routing-system
+  network:
+    # AKS nodes have no public address by default. Set loadBalancer.ip to the
+    # Terraform output livekit_public_ip (livekit_public_ip = true).
+    mode: loadBalancer
+    loadBalancer:
+      annotations:
+        service.beta.kubernetes.io/azure-pip-name: agentium-lab-aks-livekit
 sftp:
   enabled: false
 beat:

@@ -47,6 +47,21 @@ data:
   {{ $key }}: {{ $value | quote }}
   {{- end }}
   {{- end }}
+  {{- if .Values.livekit.enabled }}
+  LIVEKIT_ENABLED: "true"
+  LIVEKIT_URL: {{ include "agentium.livekitPublicUrl" . | quote }}
+  LIVEKIT_INTERNAL_URL: http://agentium-livekit:7880
+  LIVEKIT_VOICE_GATEWAY_WS_URL: {{ printf "ws://agentium-backend:%v/api/v1/voice/sessions" .Values.backend.port | quote }}
+  {{- if .Values.livekit.agent.enabled }}
+  LIVEKIT_AGENT_DISPATCH_URL: http://agentium-livekit-agent:8090/dispatch
+  {{- end }}
+  {{- with .Values.livekit.redis.address }}
+  LIVEKIT_REDIS_ADDRESS: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.livekit.turn.enabled }}
+  LIVEKIT_TURN_MODE: embedded_tls
+  {{- end }}
+  {{- end }}
   {{- if .Values.ollama.enabled }}
   OLLAMA_BASE_URL: http://agentium-ollama:11434
   DEFAULT_PROVIDER: ollama

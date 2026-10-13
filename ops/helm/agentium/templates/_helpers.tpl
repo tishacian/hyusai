@@ -63,9 +63,9 @@ under `helm template`, so this only bites on a real install or upgrade.
 {{- end -}}
 {{- end -}}
 {{/* Role credentials belong to the one role that uses them. */}}
-{{- range $key := list "OPENBAO_ROLE_ID" "OPENBAO_SECRET_ID" "HF_TABULAR_DELETE_SECRET_KEY" -}}
+{{- range $key := list "OPENBAO_ROLE_ID" "OPENBAO_SECRET_ID" "HF_TABULAR_DELETE_SECRET_KEY" "LIVEKIT_API_SECRET" -}}
 {{- if hasKey $data $key -}}
-{{- fail (printf "Secret %s holds %s. Move it to its role Secret (openbao.appRoleSecrets, huggingface.hubFetch.existingSecret): every application pod loads that Secret whole." $.Values.existingSecret $key) -}}
+{{- fail (printf "Secret %s holds %s. Move it to its role Secret (openbao.appRoleSecrets, huggingface.hubFetch.existingSecret, livekit.existingSecret): every application pod loads that Secret whole." $.Values.existingSecret $key) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -78,6 +78,31 @@ under `helm template`, so this only bites on a real install or upgrade.
 {{- else -}}
 {{- printf "%s://%s" (ternary "https" "http" (not (empty .Values.ingress.tls))) .Values.ingress.host -}}
 {{- end -}}
+{{- end -}}
+
+{{/* Signalling URL as a browser reaches it: /livekit on the ingress. */}}
+{{- define "agentium.livekitPublicUrl" -}}
+{{- if .Values.livekit.publicUrl -}}
+{{- trimSuffix "/" .Values.livekit.publicUrl -}}
+{{- else -}}
+{{- printf "%s://%s/livekit" (ternary "wss" "ws" (not (empty .Values.ingress.tls))) .Values.ingress.host -}}
+{{- end -}}
+{{- end -}}
+
+{{/* LiveKit keys, by key from livekit.existingSecret: LiveKit and the API only. */}}
+{{- define "agentium.livekitApiEnv" -}}
+{{- if .Values.livekit.enabled }}
+- name: LIVEKIT_API_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.livekit.existingSecret }}
+      key: LIVEKIT_API_KEY
+- name: LIVEKIT_API_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.livekit.existingSecret }}
+      key: LIVEKIT_API_SECRET
+{{- end }}
 {{- end -}}
 
 {{- define "agentium.imagePullSecrets" -}}
@@ -283,6 +308,31 @@ Rendered once, from the ConfigMap.
 {{- if not (or $volume.existingClaim $volume.storageClass) -}}
 {{- fail (printf "huggingface.%s needs existingClaim or a ReadWriteMany storageClass: several pods share it" $name) -}}
 {{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.livekit.enabled -}}
+{{- $lk := .Values.livekit -}}
+{{- $_ := $lk.existingSecret | required "livekit.existingSecret is required: the chart never creates the LiveKit keys" -}}
+{{- if eq $lk.existingSecret (include "agentium.secretName" .) -}}
+{{- fail "livekit.existingSecret must not be the application Secret: every application pod loads that Secret whole" -}}
+{{- end -}}
+{{- if not (has $lk.network.mode (list "hostNetwork" "loadBalancer")) -}}
+{{- fail "livekit.network.mode must be hostNetwork or loadBalancer" -}}
+{{- end -}}
+{{- if eq $lk.network.mode "loadBalancer" -}}
+{{- $_ := $lk.network.loadBalancer.ip | required "livekit.network.loadBalancer.ip is required: LiveKit advertises that address to clients" -}}
+{{- if gt (int $lk.replicas) 1 -}}
+{{- fail "one LoadBalancer address cannot front several LiveKit nodes: use livekit.network.mode=hostNetwork for more than one replica" -}}
+{{- end -}}
+{{- else if gt (int $lk.network.hostNetwork.portRangeStart) (int $lk.network.hostNetwork.portRangeEnd) -}}
+{{- fail "livekit.network.hostNetwork.portRangeStart must not exceed portRangeEnd" -}}
+{{- end -}}
+{{- if and (gt (int $lk.replicas) 1) (not $lk.redis.address) -}}
+{{- fail "livekit.redis.address is required for more than one LiveKit replica" -}}
+{{- end -}}
+{{- if $lk.turn.enabled -}}
+{{- $_ := $lk.turn.domain | required "livekit.turn.domain is required when TURN is enabled" -}}
+{{- $_ := $lk.turn.tlsSecret | required "livekit.turn.tlsSecret is required when TURN is enabled" -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

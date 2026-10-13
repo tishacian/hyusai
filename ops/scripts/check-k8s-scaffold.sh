@@ -275,6 +275,118 @@ refuse "a Hub cache without a shared volume must be refused" --set huggingface.c
 refuse "OpenBao without the worker AppRole must be refused" --set openbao.appRoleSecrets.worker=
 refuse "an in-cluster OpenBao without its unseal key Secret must be refused" --set openbao.server.unsealKeySecret=
 
+# Realtime (Compose profile realtime) is off everywhere until a release turns
+# it on, and then it names Secrets only.
+for values in "" values-local.yaml values-lab-ovh.yaml values-lab-aks.yaml; do
+	args=()
+	[ -n "$values" ] && args=(-f "$ROOT/ops/helm/agentium/$values")
+	rendered="$(helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium ${args[@]+"${args[@]}"})"
+	if grep -qE 'agentium-livekit|LIVEKIT_|/livekit|hostNetwork|protocol: UDP' <<<"$rendered"; then
+		fail "${values:-values.yaml} must not render LiveKit by default"
+	fi
+done
+lk() {
+	local values="$1"
+	shift
+	helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+		-f "$ROOT/ops/helm/agentium/$values" --set livekit.enabled=true "$@"
+}
+lk_lb() {
+	lk values-lab-aks.yaml --set livekit.network.loadBalancer.ip=203.0.113.10 "$@"
+}
+lk values-lab-ovh.yaml >/tmp/agentium-helm-lk-host.yaml
+lk_lb >/tmp/agentium-helm-lk-lb.yaml
+for out in /tmp/agentium-helm-lk-host.yaml /tmp/agentium-helm-lk-lb.yaml; do
+	for present in agentium-livekit agentium-livekit-agent; do
+		grep -q "name: ${present}\$" "$out" || fail "realtime must render $present ($out)"
+	done
+	if grep -q '^kind: Secret$' "$out"; then
+		fail "realtime must reference the LiveKit Secret, never create it ($out)"
+	fi
+	grep -A3 'name: LIVEKIT_API_SECRET' "$out" | grep -q 'name: agentium-lab-livekit' ||
+		fail "the LiveKit secret must come from livekit.existingSecret by key ($out)"
+	grep -qF 'path: /livekit(/|$)(.*)' "$out" || fail "the ingress must route /livekit as the VM nginx does ($out)"
+	# shellcheck disable=SC2016 # a literal nginx capture group, not a shell variable
+	grep -qF 'rewrite-target: /$2' "$out" || fail "/livekit must reach LiveKit with the prefix stripped ($out)"
+	grep -q 'LIVEKIT_AGENT_DISPATCH_URL: http://agentium-livekit-agent:8090/dispatch' "$out" ||
+		fail "the API must dispatch to the in-cluster sidecar ($out)"
+	grep -q 'LIVEKIT_INTERNAL_URL: http://agentium-livekit:7880' "$out" ||
+		fail "the API must reach LiveKit in-cluster ($out)"
+	containers="$(grep -cE '^ +image: ' "$out" || true)"
+	sized="$(grep -cE '^ +cpu: ' "$out" || true)"
+	[ "$containers" = "$sized" ] || fail "every realtime container must declare requests ($sized/$containers)"
+done
+for app in livekit livekit-agent; do
+	for out in "$(lk values-lab-ovh.yaml --show-only "templates/${app}.yaml")" \
+		"$(lk_lb --show-only "templates/${app}.yaml")"; do
+		if grep -A1 -- '- secretRef:' <<<"$out" | grep -q 'name: agentium-lab$'; then
+			fail "$app must not load the application Secret whole"
+		fi
+		grep -q 'readOnlyRootFilesystem: true' <<<"$out" || fail "$app must run on a read-only root filesystem"
+		grep -q 'runAsNonRoot: true' <<<"$out" || fail "$app must not run as root"
+	done
+done
+agent="$(lk values-lab-ovh.yaml --show-only templates/livekit-agent.yaml)"
+if grep -qE 'hostPath|hostNetwork|volumes:|volumeMounts:' <<<"$agent"; then
+	fail "the sidecar mounts nothing and stays off the host network, as in Compose"
+fi
+grep -A4 'name: OPENAI_API_KEY' <<<"$agent" | grep -q 'name: agentium-lab$' ||
+	fail "the sidecar must read OPENAI_API_KEY from the application Secret by key"
+if grep -q 'LIVEKIT_API' <<<"$agent"; then
+	fail "the sidecar gets its room token from the dispatch, not the LiveKit keys"
+fi
+grep -q 'path: /healthz' <<<"$agent" || fail "the sidecar probes must match the Compose healthcheck"
+for app in worker migrate p4-maintenance; do
+	if grep -q 'agentium-lab-livekit' <<<"$(lk values-lab-ovh.yaml --show-only "templates/${app}.yaml")"; then
+		fail "$app must not receive the LiveKit keys"
+	fi
+done
+# hostNetwork: media on the node, no LoadBalancer, no UDP Service port.
+grep -q 'hostNetwork: true' /tmp/agentium-helm-lk-host.yaml || fail "hostNetwork mode must run LiveKit on the host network"
+grep -q 'dnsPolicy: ClusterFirstWithHostNet' /tmp/agentium-helm-lk-host.yaml ||
+	fail "a host-network LiveKit must still resolve agentium-backend"
+grep -q 'port_range_start: 50000' /tmp/agentium-helm-lk-host.yaml || fail "hostNetwork mode must use the UDP port range"
+grep -q 'agentium.io/media: livekit' /tmp/agentium-helm-lk-host.yaml || fail "lab-ovh LiveKit must land on media nodes"
+if grep -qE 'type: LoadBalancer|protocol: UDP|udp_port:' /tmp/agentium-helm-lk-host.yaml; then
+	fail "hostNetwork mode must not expose UDP through a Service"
+fi
+# loadBalancer: one UDP port on a reserved address, never the host network.
+grep -q 'type: LoadBalancer' /tmp/agentium-helm-lk-lb.yaml || fail "loadBalancer mode must render the LoadBalancer Service"
+grep -q 'udp_port: 7882' /tmp/agentium-helm-lk-lb.yaml || fail "loadBalancer mode must use one UDP port"
+grep -A1 'name: NODE_IP' /tmp/agentium-helm-lk-lb.yaml | grep -q '203.0.113.10' ||
+	fail "loadBalancer mode must advertise the LoadBalancer address"
+grep -q 'azure-pip-name' /tmp/agentium-helm-lk-lb.yaml || fail "lab-aks must carry its LoadBalancer annotation"
+grep -q 'name: agentium-livekit$' <(grep -A3 'kind: NetworkPolicy' /tmp/agentium-helm-lk-lb.yaml) ||
+	fail "loadBalancer mode must restrict LiveKit signalling"
+if grep -qE 'hostNetwork|port_range_start' /tmp/agentium-helm-lk-lb.yaml; then
+	fail "loadBalancer mode must not use the host network"
+fi
+rendered="$(lk values-lab-ovh.yaml --set livekit.network.mode=loadBalancer \
+	--set livekit.network.loadBalancer.ip=198.51.100.7)"
+grep -q 'loadbalancer.ovhcloud.com/class: octavia' <<<"$rendered" ||
+	fail "lab-ovh must carry its LoadBalancer annotation"
+rendered="$(lk values-lab-ovh.yaml --set livekit.turn.enabled=true --set livekit.turn.domain=turn.example.test \
+	--set livekit.turn.tlsSecret=agentium-lab-livekit-turn)"
+grep -q 'secretName: agentium-lab-livekit-turn' <<<"$rendered" ||
+	fail "TURN must read its certificate from livekit.turn.tlsSecret"
+grep -q 'port: 5349' <<<"$rendered" || fail "TURN/TLS must listen when TURN is enabled"
+refuse_lk() {
+	local why="$1"
+	shift
+	if lk "$@" >/dev/null 2>&1; then
+		fail "$why"
+	fi
+}
+refuse_lk "LiveKit without its Secret must be refused" values-lab-ovh.yaml --set livekit.existingSecret=
+refuse_lk "LiveKit on the application Secret must be refused" values-lab-ovh.yaml --set livekit.existingSecret=agentium-lab
+refuse_lk "an unknown LiveKit network mode must be refused" values-lab-ovh.yaml --set livekit.network.mode=nodePort
+refuse_lk "loadBalancer mode without its address must be refused" values-lab-aks.yaml
+refuse_lk "several LiveKit replicas without Redis must be refused" values-lab-ovh.yaml --set livekit.replicas=2
+refuse_lk "several LiveKit replicas behind one LoadBalancer must be refused" values-lab-aks.yaml \
+	--set livekit.network.loadBalancer.ip=203.0.113.10 --set livekit.replicas=2 --set livekit.redis.address=redis:6379
+refuse_lk "TURN without a certificate must be refused" values-lab-ovh.yaml \
+	--set livekit.turn.enabled=true --set livekit.turn.domain=turn.example.test
+
 helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
 	-f "$ROOT/ops/helm/agentium/values-lab-ovh.yaml" \
 	>/tmp/agentium-helm-lab-ovh.yaml
