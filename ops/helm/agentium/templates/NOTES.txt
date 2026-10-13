@@ -5,6 +5,9 @@ Ingress host: {{ .Values.ingress.host }}
   /            → agentium-frontend
   /api         → agentium-backend
   /kc          → agentium-kc
+{{- if .Values.livekit.enabled }}
+  /livekit/    → agentium-livekit :7880 (prefix stripped)
+{{- end }}
   hidden-path  → 404 (ingress-nginx snippet; see docs/ops/ingress-proxy-contract.md)
 
 Secret: {{ include "agentium.secretName" . }}
@@ -21,6 +24,17 @@ Hugging Face: hub-fetch reads {{ .Values.huggingface.hubFetch.existingSecret }} 
 {{- end }}
 {{- if or .Values.mlTs.enabled .Values.mlDeep.enabled }}
 Model-family workers:{{ if .Values.mlTs.enabled }} ml-ts{{ end }}{{ if .Values.mlDeep.enabled }} ml-deep{{ end }}
+{{- end }}
+{{- if .Values.livekit.enabled }}
+LiveKit: keys from {{ .Values.livekit.existingSecret }}, signalling {{ include "agentium.livekitPublicUrl" . }}
+{{- if eq .Values.livekit.network.mode "hostNetwork" }}
+  media: hostNetwork, UDP {{ .Values.livekit.network.hostNetwork.portRangeStart }}-{{ .Values.livekit.network.hostNetwork.portRangeEnd }} and TCP {{ .Values.livekit.rtc.tcpPort }} on each LiveKit node; the node firewall must open them and keep 7880 closed
+{{- else }}
+  media: LoadBalancer {{ .Values.livekit.network.loadBalancer.ip }}, UDP {{ .Values.livekit.network.loadBalancer.udpPort }} and TCP {{ .Values.livekit.rtc.tcpPort }}
+{{- end }}
+{{- if .Values.livekit.turn.enabled }}
+  TURN: {{ .Values.livekit.turn.domain }} TLS {{ .Values.livekit.turn.tlsPort }}, UDP {{ .Values.livekit.turn.udpPort }}
+{{- end }}
 {{- end }}
 {{- if not .Values.keycloak.bootstrapAdmin.email }}
 Keycloak realm has no user: set keycloak.bootstrapAdmin.email at first install.

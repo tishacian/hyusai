@@ -13,4 +13,6 @@ module "cluster" {
   ingress_class          = var.ingress_class
   storage_class          = var.storage_class
   enable_web_app_routing = var.enable_web_app_routing
+  media_node_pool        = var.media_node_pool
+  livekit_public_ip      = var.livekit_public_ip
 }

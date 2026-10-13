@@ -23,3 +23,7 @@ output "cluster_id" {
 output "acr_login_server" {
   value = module.cluster.acr_login_server
 }
+
+output "livekit_public_ip" {
+  value = module.cluster.livekit_public_ip
+}

@@ -3,18 +3,14 @@
 # Deploy with values.yaml + this file + that overlay.
 createSecret: false
 existingSecret: agentium-lab
-
 storageClass: csi-cinder-high-speed
-
 image:
   pullPolicy: Always
-
 ingress:
   enabled: true
   className: nginx
   host: lab-agentium.example
   hiddenPathGuard: true
-
 postgres:
   persistence:
     storageClass: csi-cinder-high-speed
@@ -30,9 +26,26 @@ qdrant:
 rabbitmq:
   persistence:
     storageClass: csi-cinder-high-speed
-
 livekit:
   enabled: false
+  existingSecret: agentium-lab-livekit
+  network:
+    # MKS nodes carry a public address. Pair with the Terraform media_nodepool.
+    mode: hostNetwork
+    hostNetwork:
+      nodeSelector:
+        agentium.io/media: livekit
+      tolerations:
+        - key: agentium.io/media
+          operator: Equal
+          value: livekit
+          effect: NoSchedule
+    # Public Cloud Load Balancer (Octavia): needs an MKS cluster on a private
+    # network with a gateway, which cluster-ovh-mks does not create.
+    loadBalancer:
+      annotations:
+        loadbalancer.ovhcloud.com/class: octavia
+        loadbalancer.ovhcloud.com/flavor: small
 sftp:
   enabled: false
 beat:
