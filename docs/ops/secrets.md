@@ -12,8 +12,9 @@ with placeholders — never production secrets.
 
 ## Runtime env bundle on the VM
 
-The backend, its workers, the SFTP server, the Hub worker and Keycloak
-are containers created by `scripts/agentium-vm-deploy.sh` from the
+The backend, its workers, the SFTP server, the Hub worker, Keycloak,
+LiveKit and its realtime STT sidecar (`agentium-livekit-agent`) are
+containers created by `scripts/agentium-vm-deploy.sh` from the
 frozen env bundle named by its `DEFAULT_RUNTIME_ENV_DIR`, currently
 `/srv/agentium-data/runtime-env/2026-10-12`. Its files sit in
 `runtime-env/`, root-owned, `0600`. A container reads its environment
@@ -32,7 +33,7 @@ service loads. On 2026-10-13:
 | `source-003.env` | `AGENTIUM_KEYCLOAK_ENV_FILE` | `agentium-kc` (`KC_*` settings only) |
 | `source-002.env` | `AGENTIUM_QDRANT_ENV_FILE` | `qdrant` (API keys) |
 | `openbao-{backend,worker,hub-fetch}.env` | `agentium-vm-deploy.sh` | AppRole of backend/migrate, cpu/recipes workers, Hub worker |
-| `compose.effective.env` | `--env-file` | Interpolation only: `AGENTIUM_POSTGRES_PASSWORD` → `agentium-pg`, `OPENAI_API_KEY` → `agentium-livekit-agent`, paths |
+| `compose.effective.env` | `--env-file` | Interpolation only: `AGENTIUM_POSTGRES_PASSWORD` → `agentium-pg`, `OPENAI_API_KEY` → `agentium-livekit-agent`, `LIVEKIT_*` keys → `agentium-livekit`, paths |
 | `source-000.env` | — | Nothing: the Compose env the bundle was frozen from (provenance) |
 | `source-004.env` | — | Nothing: frozen env of the retired systemd backend (`DATABASE_URL` on `localhost`), kept for provenance |
 
@@ -74,7 +75,7 @@ removes its overlay, and `up` would recreate the backend without it.
 group letter, never a value or a digest. `pg` is the PostgreSQL `agentium`
 password (URL-decoded from each `DATABASE_URL`, plus
 `AGENTIUM_POSTGRES_PASSWORD` and `KC_DB_PASSWORD`), `kc` the Keycloak
-client secret. Pass a backup directory before `"$B"` to tell the old
+client secret, `ai` the OpenAI API key. Pass a backup directory before `"$B"` to tell the old
 value (`A`) from the new one (`B`):
 
 ```bash
@@ -82,7 +83,8 @@ sudo python3 - "$B" <<'PY'
 import hashlib, pathlib, sys, urllib.parse
 password = lambda url: urllib.parse.unquote(urllib.parse.urlsplit(url).password or "")
 keys = {"DATABASE_URL": ("pg", password), "AGENTIUM_POSTGRES_PASSWORD": ("pg", str),
-        "KC_DB_PASSWORD": ("pg", str), "KEYCLOAK_CLIENT_SECRET": ("kc", str)}
+        "KC_DB_PASSWORD": ("pg", str), "KEYCLOAK_CLIENT_SECRET": ("kc", str),
+        "OPENAI_API_KEY": ("ai", str)}
 groups = {}
 for directory in sys.argv[1:]:
     for path in sorted(pathlib.Path(directory).glob("*.env")):
@@ -96,8 +98,8 @@ for directory in sys.argv[1:]:
 PY
 ```
 
-On 2026-10-13 all nine `pg` copies and all four `kc` copies printed `A`,
-and every running container matched the bundle.
+On 2026-10-13 all nine `pg` copies, all four `kc` copies and all four
+`ai` copies printed `A`, and every running container matched the bundle.
 
 ## Secret inventory
 
@@ -108,7 +110,7 @@ and every running container matched the bundle.
 | **Postgres `agentium` password** (`POSTGRES_PASSWORD`) | Backend, workers, SFTP, Hub worker + Keycloak (shared user) | Database (authority) + bundle copies: `DATABASE_URL`, `AGENTIUM_POSTGRES_PASSWORD`, `KC_DB_PASSWORD` | 180 j | Section *PG rotation* below |
 | **Keycloak client secret** (`KEYCLOAK_CLIENT_SECRET`) | Backend admin API as `core-resource-server` | `AGENTIUM_ENV_FILE` (`source-001.env`) | 180 j | Section *Keycloak client_secret* below |
 | **SMTP** (`noreply@datategy.net`) | Keycloak realm SMTP (password reset), backend notifications | `AGENTIUM_ENV_FILE` (`SMTP_USER`, `SMTP_PASSWORD`) + Keycloak realm config | 180 j or on staff change | OVH Manager → Email → change password → update `AGENTIUM_ENV_FILE` (and its inert copies) + realm → `deploy up` |
-| **OpenAI API key** | Backend LLM calls, judge service, voice API, realtime STT sidecar | `AGENTIUM_ENV_FILE` + `compose.effective.env` (`OPENAI_API_KEY`) | 90 j or on abuse alert | `platform.openai.com/api-keys` → rotate → update both files (and the inert copies) → `deploy up`. `agentium-livekit-agent` gets the key by interpolation and no deploy command recreates it: it keeps the old key until recreated |
+| **OpenAI API key** | Backend LLM calls, judge service, voice API, realtime STT sidecar | `AGENTIUM_ENV_FILE` + `compose.effective.env` (`OPENAI_API_KEY`) | 90 j or on abuse alert | Section *OpenAI API key* below: `deploy up` for the backend and workers, `deploy livekit-up` for `agentium-livekit-agent`, which gets the key by interpolation from `compose.effective.env` |
 | **Fernet key** (`SHAREPOINT_CONNECTOR_FERNET_KEY`) | Encrypt SharePoint session captures at rest | `AGENTIUM_ENV_FILE` | **Never rotate** — rotation invalidates every stored session, forcing operators to re-capture OTP. Only regenerate if a key compromise is suspected. | `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
 | **JWT signing keys** (Keycloak realm) | Token signing for `papai-org` realm | Keycloak DB | On suspected compromise | Admin console → Realm settings → Keys → Re-generate + Archive old |
 | **Secret registry key** (`SECRET_REGISTRY_FERNET_KEY`) | Encrypts `db`-backend secrets of the registry (connector tokens, SMTP, flow secrets) | Runtime env bundle | **Never rotate in place** — every `secret_versions.ciphertext` depends on it. Falls back to `CONNECTOR_SECRETS_FERNET_KEY` when unset. | Generate like the Fernet key above; see [agentium-secret-registry.md](../agentium-secret-registry.md) |
@@ -352,6 +354,61 @@ step 2 is gone for good. If the backend still fails, its copy in
 again and repeating steps 3 and 4 is the only other way out; the backup
 only protects the rest of those files from a bad edit.
 
+## OpenAI API key
+
+The backend and its workers read `OPENAI_API_KEY` from
+`AGENTIUM_ENV_FILE` (`source-001.env`); the realtime STT sidecar
+`agentium-livekit-agent` gets it by interpolation from
+`compose.effective.env`. `source-000.env` and `source-004.env` hold inert
+copies (the four `ai` lines of the copy check). OpenAI keeps the old key
+valid until it is revoked, so recreate every reader first and revoke last:
+
+1. **Create a new key** at `platform.openai.com/api-keys` and paste it
+   straight into the vault.
+2. **Back up the copies** (shell setup from *Runtime env bundle on the
+   VM*):
+
+   ```bash
+   BACKUP=/root/openai-rotation-$(date +%F)
+   sudo install -d -m 0700 "$BACKUP"
+   sudo cp -p "$B"/{source-001.env,compose.effective.env,source-000.env,source-004.env} "$BACKUP"/
+   ```
+
+3. **Edit the copies with `sudoedit`** (never `sed` or `echo`), then run
+   the copy check with `"$BACKUP" "$B"`: the four `ai` lines under `$B`
+   must share one letter, different from the backup's.
+
+   ```bash
+   sudoedit "$B/source-001.env" "$B/compose.effective.env" "$B/source-000.env" "$B/source-004.env"
+   ```
+
+4. **Recreate the readers:**
+
+   ```bash
+   deploy up   # backend and workers
+   docker exec agentium-livekit-agent node -e "fetch('http://127.0.0.1:8090/healthz').then(r=>r.json()).then(b=>console.log(b.active_sessions))"   # 0, else wait for the call to end
+   LK=$(docker inspect --format '{{.Config.Image}}' agentium-livekit-agent)
+   TAG="${LK##*:}" deploy livekit-up   # the sidecar keeps its image, takes the new key
+   ```
+
+   `livekit-up` runs the storage check, then
+   `compose --profile realtime up --wait` on `agentium-livekit` and
+   `agentium-livekit-agent`: Compose recreates only the one whose rendered
+   configuration changed (here the sidecar) and returns once it is
+   healthy. A recreated sidecar drops its live sessions, hence the
+   `active_sessions` check. `TAG` is the sidecar's own `<sha12>` so its
+   image does not change; shipping new sidecar code is a release step
+   (deploy runbook).
+5. **Verify:** the health and build-info checks of the Postgres
+   procedure's step 6, and
+   `docker inspect -f '{{.State.Health.Status}} {{.HostConfig.RestartPolicy.Name}}' agentium-livekit-agent`
+   prints `healthy unless-stopped`.
+6. **Revoke the old key** in the OpenAI dashboard, then record
+   `rotated_at` in the vault.
+
+**Rollback.** Until step 6 the old key still works: copy the backup back
+(`sudo sh -c 'cp -p "$1"/*.env "$2"/' _ "$BACKUP" "$B"`) and rerun step 4.
+
 ## DKIM / SPF / DMARC
 
 Separate runbook at [`email-deliverability.md`](./email-deliverability.md).
@@ -392,9 +449,10 @@ whatever the person could have seen.
 - [`../agentium-secret-registry.md`](../agentium-secret-registry.md) — secret
   registry, flow `secret` node, connector migration, OpenBao
 - `deploy/rotate-keycloak-admin.sh` — master admin CLI
-- `scripts/agentium-vm-deploy.sh up` / `keycloak-up` / `sftp-up` —
-  recreate the application services, `agentium-kc` and `agentium-sftp`
-  through the worktree Compose with the frozen bundle
+- `scripts/agentium-vm-deploy.sh up` / `keycloak-up` / `sftp-up` /
+  `livekit-up` — recreate the application services, `agentium-kc`,
+  `agentium-sftp` and LiveKit with its sidecar through the worktree
+  Compose with the frozen bundle
 - `scripts/agentium_runtime_env_bundle.py` — bundle contract (which copies
   must agree)
 - `backend/keycloak/keycloak.env` + `docker/test_env_files/keycloak.env`
