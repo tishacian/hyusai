@@ -15,6 +15,7 @@ IMAGE_CONTRACTS = {
     "agentium-frontend": "docker/Dockerfile.agentium-frontend",
     "agentium-worker-cpu": "docker/Dockerfile.agentium-worker",
     "agentium-worker-ml-ts": "docker/Dockerfile.agentium-ml-ts",
+    "agentium-livekit-agent": "docker/Dockerfile.agentium-livekit-agent",
 }
 
 

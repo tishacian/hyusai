@@ -7,12 +7,14 @@
 # images share: both Dockerfiles open on an identical Python prefix, so a
 # release that suddenly shares none has rebuilt the multi-gigabyte stack twice.
 #
-# The forecasting image (agentium-ml-ts) is optional: built only where the
-# ml-ts profile runs, reported when present, never required.
+# The forecasting image (agentium-ml-ts) and the LiveKit sidecar
+# (agentium-livekit-agent, rebuilt only for `agentium-vm-deploy.sh livekit-up`)
+# are optional: reported when present, never required.
 #
 # A budget is enforced only when its variable is set, in MB:
 #   AGENTIUM_IMAGE_BUDGET_MB_BACKEND, AGENTIUM_IMAGE_BUDGET_MB_WORKER,
-#   AGENTIUM_IMAGE_BUDGET_MB_FRONTEND, AGENTIUM_IMAGE_BUDGET_MB_ML_TS
+#   AGENTIUM_IMAGE_BUDGET_MB_FRONTEND, AGENTIUM_IMAGE_BUDGET_MB_ML_TS,
+#   AGENTIUM_IMAGE_BUDGET_MB_LIVEKIT_AGENT
 # Record the sizes this prints in the release notes, then set each budget a few
 # percent above them; the release process says where.
 set -euo pipefail
@@ -25,10 +27,10 @@ layers_of() {
 }
 
 printf 'image\tsize_mb\tbudget_mb\tverdict\n'
-for name in backend worker frontend ml-ts; do
+for name in backend worker frontend ml-ts livekit-agent; do
 	image="agentium-${name}:${tag}"
 	if ! bytes="$(docker image inspect --format '{{.Size}}' "$image" 2>/dev/null)"; then
-		if [[ "$name" == "ml-ts" ]]; then
+		if [[ "$name" == "ml-ts" || "$name" == "livekit-agent" ]]; then
 			printf '%s\t-\t-\tnot built (optional)\n' "$image"
 			continue
 		fi
