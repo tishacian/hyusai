@@ -33,7 +33,8 @@ validate → terraform plan → terraform apply (manual lab)
 | `agentium-hub-fetch` | Deployment `agentium-hub-fetch` (`hub_fetch`) + RWX PVCs `hub-cache`, `hub-bundles` | off (`huggingface.enabled`) |
 | `agentium-openbao` | StatefulSet + Service `agentium-openbao`, NetworkPolicy | off (`openbao.enabled` + `openbao.server.enabled`) |
 | `agentium-p4-maintenance` | Deployment `agentium-p4-maintenance` | on |
-| `agentium-migrate` | Job `agentium-migrate` | on (`post-install,post-upgrade`, waits for Postgres, `alembic upgrade head`, currently `124_secret_registry`) |
+| `agentium-migrate` | Job `agentium-migrate` | on (`post-install,post-upgrade`, waits for Postgres, `alembic upgrade head`) |
+| VM `catalog-apply` | Job `agentium-catalog-reconcile` | on with `migrate.enabled` and `catalogReconcile.enabled`, after successful migration |
 | `agentium-rabbitmq` | StatefulSet + Service | on |
 | `agentium-pg` | StatefulSet + Service | on (lab). Turn off when using an external DB |
 | `agentium-minio` | StatefulSet + Service | on |
@@ -53,6 +54,21 @@ The permanent worker consumes only `cpu,recipes`; the chart refuses adding
 `dataops` to that pool. SQL/DataOps tasks require the separate Deployment even
 when the optional preparation UI is disabled. `check-k8s-scaffold.sh` verifies
 both consumers and counts resource requests independently of CPU limits.
+
+The catalog Job runs `python -m app.cli.reconcile_catalog --apply` from the
+release's backend image. Helm waits for the migration hook (weight 5) before
+the catalog hook (weight 10), on both install and upgrade. It uses the same
+ConfigMap, application Secret, backend OpenBao role and `resources.migrate`.
+It has one retry and a 300 s deadline; failure fails the Helm operation. This
+matches the VM's explicit `catalog-apply` command and preserves the reconciler's
+idempotence. A different `migrate.hook` is refused while this Job is enabled.
+
+Setting either `migrate.enabled=false` or `catalogReconcile.enabled=false`
+skips this Job. Operators who manage migration outside Helm must explicitly
+reconcile the catalog afterward with the same release image. The chart's legacy
+`config.STARTUP_RECONCILIATION=enabled` remains configurable; when startup writes
+are disabled, the hook is the deployment's catalog reconciliation step. These
+checks validate rendered manifests; no cluster execution is implied.
 
 Compose and Helm set RabbitMQ `consumer_timeout` to 3 600 000 ms (one hour).
 This exceeds the known 1 830 s `acks_late` subflow limit and the 900 s DataOps
@@ -93,12 +109,12 @@ release creates none of them and no value is ever committed.
 
 | Secret | Read by | Keys |
 |---|---|---|
-| `existingSecret` (lab: `agentium-lab`) | backend, worker, ml-ts, ml-deep, migrate, p4-maintenance through `envFrom`; Postgres, RabbitMQ and Keycloak by key; hub-fetch by key for the database, broker and registry key only | required: `POSTGRES_PASSWORD`, `RABBITMQ_DEFAULT_PASS`, `OBJECT_STORE_S3_SECRET_KEY`, `KEYCLOAK_CLIENT_SECRET`, `SECRET_REGISTRY_FERNET_KEY`; `AGENTIUM_BOOTSTRAP_ADMIN_PASSWORD` when `keycloak.bootstrapAdmin.email` is set; then every application key the deployment uses (`OPENAI_API_KEY`, `CONNECTOR_SECRETS_FERNET_KEY`, `LLM_PORTAL_FERNET_KEY`, the API's read-only `HF_S3_ACCESS_KEY` / `HF_S3_SECRET_KEY`, `SECURE_DEPOSIT_SESSION_SECRET`, `SMTP_PASSWORD`, …) |
+| `existingSecret` (lab: `agentium-lab`) | backend, worker, ml-ts, ml-deep, migrate, catalog-reconcile, p4-maintenance through `envFrom`; Postgres, RabbitMQ and Keycloak by key; hub-fetch by key for the database, broker and registry key only | required: `POSTGRES_PASSWORD`, `RABBITMQ_DEFAULT_PASS`, `OBJECT_STORE_S3_SECRET_KEY`, `KEYCLOAK_CLIENT_SECRET`, `SECRET_REGISTRY_FERNET_KEY`; `AGENTIUM_BOOTSTRAP_ADMIN_PASSWORD` when `keycloak.bootstrapAdmin.email` is set; then every application key the deployment uses (`OPENAI_API_KEY`, `CONNECTOR_SECRETS_FERNET_KEY`, `LLM_PORTAL_FERNET_KEY`, the API's read-only `HF_S3_ACCESS_KEY` / `HF_S3_SECRET_KEY`, `SECURE_DEPOSIT_SESSION_SECRET`, `SMTP_PASSWORD`, …) |
 | `minio.existingRootSecret` (lab: `agentium-lab-minio-root`) | MinIO and its init Job only | `MINIO_ROOT_PASSWORD` |
 | `secretRegistry.fernetKey.secretName` (optional) | every Agentium pod, by key | `SECRET_REGISTRY_FERNET_KEY` (or `secretRegistry.fernetKey.key`). Empty means the application Secret |
 | `huggingface.hubFetch.existingSecret` (lab: `agentium-lab-hub-fetch`) | hub-fetch only, through `envFrom` | `HF_S3_ACCESS_KEY`, `HF_S3_SECRET_KEY` (writer identity), `CONNECTOR_SECRETS_FERNET_KEY`, `LLM_PORTAL_FERNET_KEY`; optional `OBJECT_STORE_S3_ACCESS_KEY` / `OBJECT_STORE_S3_SECRET_KEY`, `HF_TABULAR_DELETE_ACCESS_KEY` / `HF_TABULAR_DELETE_SECRET_KEY` |
 | `huggingface.bundleSigning.existingSecret` (optional) | worker and hub-fetch, mounted read-only at `/run/hf-bundle-keys` | the Ed25519 private key file named by `huggingface.bundleSigning.keyFile` |
-| `openbao.appRoleSecrets.backend` / `.worker` / `.hubFetch` | backend + migrate / worker / hub-fetch, through `envFrom` after the application Secret | `OPENBAO_ROLE_ID`, `OPENBAO_SECRET_ID` |
+| `openbao.appRoleSecrets.backend` / `.worker` / `.hubFetch` | backend + migrate + catalog-reconcile / worker / hub-fetch, through `envFrom` after the application Secret | `OPENBAO_ROLE_ID`, `OPENBAO_SECRET_ID` |
 | `openbao.server.unsealKeySecret` | the in-cluster OpenBao only, mounted read-only | `unseal.key` (64 hex characters) |
 | `livekit.existingSecret` (lab: `agentium-lab-livekit`) | LiveKit and the API, by key | `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` (32 characters or more); optional `LIVEKIT_REDIS_PASSWORD` |
 | `livekit.turn.tlsSecret` (optional) | LiveKit only, mounted read-only | `kubernetes.io/tls` for `livekit.turn.domain` |
@@ -192,13 +208,13 @@ refused.
 
 `openbao.enabled` wires the clients: `OPENBAO_ADDR`, `OPENBAO_MOUNT`,
 `OPENBAO_TIMEOUT_SECONDS`, and one AppRole Secret per role, as on the VM:
-`backend` for the API and the migrate Job, `worker` for the worker,
+`backend` for the API, migrate and catalog-reconcile Jobs, `worker` for the worker,
 `hubFetch` for hub-fetch. ml-ts, ml-deep and p4-maintenance get none.
 `openbao.addr` points at an external OpenBao; with
 `openbao.server.enabled` the chart runs the single-node server of
 `docker/compose.agentium.openbao.yml` instead (same digest, raft on a PVC,
 static-key auto-unseal, declarative file audit, read-only root filesystem,
-a NetworkPolicy that admits only the API, worker, migrate and hub-fetch
+a NetworkPolicy that admits only the API, worker, migrate, catalog-reconcile and hub-fetch
 pods). Its readiness is `bao status`, so it stays unready until initialised.
 
 First install of the in-cluster server, from an operator workstation:

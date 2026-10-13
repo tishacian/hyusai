@@ -2,7 +2,8 @@
 
 Ce document accompagne le [plan DataOps d’origine](agentium-dataops-plan.md),
 restauré à l’identique de `ad10dbc2`. Il consigne les demandes de cette conversation
-et les écarts de l’implémentation `45ccc915`. Le code n’est pas une autorité qui
+et les écarts de l’implémentation initiale `45ccc915`, puis les travaux de reprise.
+Le code n’est pas une autorité qui
 permet de redéfinir après coup un critère de recette.
 
 ## Origine des amendements
@@ -46,10 +47,10 @@ sur `45ccc915`. Son historique ne doit pas être réécrit pour effacer les erre
 | Domaine | État et critère restant |
 |---|---|
 | R0/S0/D0 | Structure reprise et garde-fous en code ; le déploiement, son build-info, HANA vivant et la révocation du token Docker Hub de papAI ne sont pas attestés par les tests locaux. |
-| D1a | Opérations et actions implémentées ; écarts de spec, typage, formules et corpus golden signalés par la revue. D1a n’est pas déclaré intégralement reçu. |
-| D1b | API/Flow présents ; publication et drapeaux corrigés par le suivi de revue, sans déclarer terminées toutes les exigences du lot. |
-| D2 | Formulaires et inspecteurs présents ; palette, ateliers et recette navigateur du plan restent à livrer. D2 n’est pas terminé. |
-| D3 | Versions Delta immuables et scoring en batches présents ; les lecteurs historiques matérialisent encore un Parquet unique, sans prouver une lecture multi-parts native partout. Téléchargement dataset et purge restent à recevoir. D3 n’est pas terminé. |
+| D1a | Reprise : 46 contrats d’étapes fermés, 74 fonctions, typage physique, formules restreintes, sélecteurs et corpus golden indépendant. La couverture des cas métier et toutes les recettes du plan ne sont pas acquises par cette seule couverture du catalogue. |
+| D1b | API/Flow repris pour la configuration canonique, sources épinglées, schémas par étape, aperçu récursif, compteurs et profil sur échantillon. Rattrapage des anciens échantillons par tâche DataOps et cache d’aperçu livrés avec tests ciblés. Hook Helm de réconciliation ajouté et testé au rendu ; aucune exécution sur cluster n’est attestée. |
+| D2 | Palette des sept opérations, ateliers dédiés, éditeur de formules, historique et conversion SQL livrés. Recettes navigateur mockées FR/EN et suites existantes passées ; elles ne constituent pas une recette contre un backend déployé. |
+| D3 | Lecteurs natifs multi-parts, profil borné, téléchargement en flux, retraite sans suppression et purge par identité distincte livrés. Le commit natif delta-rs remplace le journal maison : parts écrites puis commit0 natif sans réencodage, conformément à D-21/§29.3. MinIO réel local et une sortie synthétique de plus de 3 Gio qualifiés avec réservoir final, sous cgroup client 4 Gio/2 CPU. Spark/Unity et la migration d’un bucket de production ne sont pas qualifiés. |
 | Actifs/promesses/juge | Extension demandée, implémentée sur la branche et soumise à la revue ; aucun statut de production ni qualification fournisseur ne découle du nombre de tests. |
 | Narration | Différée. Catalogue masqué, runtime fermé et absence de seed de parcours tant que le drapeau est désactivé. |
 | D4/D5/D6/D7/I1/I2 | Différés par demande explicite ; leur absence reste visible dans le plan d’origine et n’est pas présentée comme une implémentation. |
@@ -84,5 +85,11 @@ restent préférables aux numéros de ligne.
 | Déploiement et worker permanent | `scripts/agentium-vm-deploy.sh`, `ops/helm/agentium/templates/{worker-dataops,dataops-watchdog}.yaml`, `ops/scripts/check-k8s-scaffold.sh` |
 
 Le découpage de modules prévu par D1a reste une cible ; tous les noms du plan ne
-correspondent pas à un module livré. Le Job Helm `migrate.yaml` lance Alembic et
-ne constitue pas le hook de réconciliation du catalogue prévu par D1b.
+correspondent pas à un module livré. Le nouveau Job Helm `catalog-reconcile.yaml`
+lance la réconciliation après `migrate.yaml` (poids 10 après 5). Le rendu est
+vérifié ; son exécution en déploiement reste à qualifier.
+
+Le [guide de préparation](agentium-dataops-guide.md), le
+[runbook de stockage](agentium-dataops-storage.md) et les
+[preuves de reprise](evidence/dataops-completion-2026-10-13/) décrivent ces ajouts
+sans modifier les critères du plan ni les constats historiques de la revue.

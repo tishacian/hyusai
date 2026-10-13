@@ -1,0 +1,22 @@
+...........................................                              [100%]
+=============================== warnings summary ===============================
+app/tests/services/test_dataops_multipart.py: 14 warnings
+app/tests/services/test_dataops_preparation.py: 125 warnings
+  /workspace/omnirag/.venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3627: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+app/tests/services/test_dataops_multipart.py: 2 warnings
+app/tests/services/test_dataops_preparation.py: 31 warnings
+  /workspace/omnirag/backend/app/services/dataops/storage.py:497: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    dataset.ingested_at = datetime.utcnow()
+
+app/tests/services/test_dataops_preparation.py: 11 warnings
+  /workspace/omnirag/backend/app/services/dataops/preparation.py:214: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    .values(status="running", started_at=datetime.utcnow())
+
+app/tests/services/test_dataops_preparation.py: 11 warnings
+  /workspace/omnirag/backend/app/services/recipe_executions.py:204: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    execution.finished_at = datetime.utcnow()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+43 passed, 194 warnings in 29.45s

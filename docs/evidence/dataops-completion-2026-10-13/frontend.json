@@ -1,0 +1,70 @@
+{
+  "base_revision": "224b464cd48a57e65c8353723b27099bbae42db5",
+  "working_tree_snapshot": true,
+  "directory": "frontend-ng",
+  "environment": {
+    "TMPDIR": "/workspace/tmp-d2",
+    "GOMEMLIMIT": "3GiB",
+    "GOMAXPROCS": "2"
+  },
+  "verifications": {
+    "unit_full": {
+      "passed": 2193,
+      "scope": "before final recursive-input serializer fix",
+      "log": "/tmp/d2-unit-final-state.log",
+      "sha256": "9e00390b752d4d4f8a5bf55a86caaf9a01bfdf5cd93f7028f70b0c162dece373",
+      "bytes": 188619
+    },
+    "unit_final_targeted": {
+      "passed": 97,
+      "log": "/tmp/d2-targeted-final.log",
+      "sha256": "3fb484cc2778e5cd62ccbc95d50e60b303b5616c6f04955830686d9b418ef110",
+      "bytes": 9244
+    },
+    "e2e_regressions": {
+      "passed_existing_31_32_49": 12,
+      "failed_old_50": 2,
+      "superseded_by": "e2e_50_final",
+      "log": "/tmp/d2-e2e-final.log",
+      "sha256": "10447952e92edcd35c3b0734fd72c97cf2e5a791e303d2adf6cbfedd16d1e85a",
+      "bytes": 10860
+    },
+    "e2e_50_final": {
+      "passed": 2,
+      "languages": [
+        "fr",
+        "en"
+      ],
+      "log": "/tmp/d2-e2e50-verified.log",
+      "sha256": "39227fffe7759f1809350fde324843c1d0b55bf474e1e36c517be6478f2c969c",
+      "bytes": 806
+    },
+    "i18n": {
+      "keys": 12104,
+      "exit_code": 0,
+      "log": "/tmp/d2-i18n-verified.log",
+      "sha256": "cfb516c80426424ba6524235c7d2972482a831aac99667e7d4c20b979ca8047e",
+      "bytes": 215
+    },
+    "build_prod": {
+      "exit_code": 0,
+      "log": "/tmp/d2-build-prod.log",
+      "sha256": "343705b9ae62e2bf3bd6cc3a0bb41ea6827deae52439d735a28299ecf91bd159",
+      "bytes": 9908
+    }
+  },
+  "source_diff_sha256": "9ea44eda0bc8a7ae368309164905adf32d8f790fce0d91fbf26894186f55b894",
+  "source_diff_bytes": 456837,
+  "commands": [
+    "npm run test:unit",
+    "FLOW_UNIT_FILTER=flow-data-prep,dataops,flow.types,flow-palette,flow-node-run npm run test:unit",
+    "E2E_BASE_URL=http://127.0.0.1:4200 E2E_CHROME_V2_MOCKED=1 npx playwright test e2e/tests/{50-flow-data-prep-mocked,31-models-forecast-mocked,32-flow-forecast-mocked,49-flow-historical-enrichment-mocked}.spec.ts",
+    "E2E_BASE_URL=http://127.0.0.1:4200 E2E_CHROME_V2_MOCKED=1 npx playwright test e2e/tests/50-flow-data-prep-mocked.spec.ts",
+    "npm run check:i18n",
+    "npm run build:prod"
+  ],
+  "limits": [
+    "Mocked browser services; no live customer integration or deployment.",
+    "Full unit suite preceded the final recursive serializer fix; 97 targeted tests and production build cover the final frontend."
+  ]
+}

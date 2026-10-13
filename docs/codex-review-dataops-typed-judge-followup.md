@@ -5,7 +5,70 @@ porte sur `45ccc915`. Ce suivi consigne les correctifs qui la suivent. Le premie
 bilan de livraison surestimait les suites ciblées et la conformité au plan.
 **La branche n'est toujours pas déclarée fusionnable ou déployable.**
 
-## Traitement des cinq points bloquants
+## Reprise des lots D1a, D1b, D2 et D3
+
+Les correctifs historiques ci-dessous portent sur les révisions qui y sont
+nommées. Une nouvelle reprise est enregistrée dans `37f361c5` (backend et
+stockage) et `a22442c8` (ateliers frontend). Les preuves correspondantes sont
+regroupées dans [le répertoire de qualification](evidence/dataops-completion-2026-10-13/).
+Le plan original et la revue indépendante restent strictement inchangés.
+
+- Le compilateur expose 46 contrats d'étapes et 74 fonctions, des sélecteurs
+  bornés, les schémas physiques par étape, des règles explicites de collision
+  et une inférence qui n'évalue pas les constantes sur une table vide. Le corpus
+  comprend 138 cas ordinaires/NULL/vides et 46 schémas attendus indépendants.
+  Les recettes `prepare_history` et Nawa A2 donnent les mêmes schémas et
+  empreintes de lignes que les SQL existants. Le Flow publié
+  Préparer→Joindre→Découper→deux SQL passe en modes strict et overlay, avec
+  badges par port : **266 tests ciblés réussis**, voir
+  [compiler-flow.json](evidence/dataops-completion-2026-10-13/compiler-flow.json).
+- L'aperçu utilise les échantillons persistés et autorise chaque source du
+  workspace avant consultation du cache. Les anciens datasets demandent une
+  construction au worker, avec intention durable, reprise périodique bornée,
+  bail d'exécution et exclusion de la purge. Les **15 tests de reprise/cache**
+  passent après correction du profil des valeurs NaN/Infinity. Ces valeurs sont
+  signalées dans le profil et sérialisées en NULL dans la grille.
+- Les sept opérations ont une entrée dans la palette ; les ateliers, les
+  formules, l'historique, l'aperçu de préfixe et la conversion SQL sont livrés.
+  **2 193 tests unitaires** passent avant la dernière correction du sérialiseur
+  récursif ; **97 tests ciblés**, la construction production et les recettes
+  navigateur mockées FR/EN portent sur le frontend final. Le périmètre exact
+  est conservé dans [frontend.json](evidence/dataops-completion-2026-10-13/frontend.json).
+- Delta utilise le commit natif delta-rs après écriture des parts, sans
+  réencodage ni construction maison des actions JSON. Les lecteurs natifs,
+  profils bornés, téléchargements en flux et purge séparée sont livrés.
+  **47 tests ciblés**, dont quatre sur MinIO réel, passent. Une sortie de
+  **3 248 348 018 octets en 25 parts** a été écrite, échantillonnée, livrée,
+  relue, vérifiée et profilée en **84,679 s**, dans un client limité à
+  **4 Gio/2 CPU**, sans OOM. Cette mesure synthétique de stockage ne remplace
+  pas le benchmark de scoring ; son périmètre est détaillé dans
+  [d3-validation.json](evidence/dataops-completion-2026-10-13/d3-validation.json).
+
+La première suite complète diagnostique de cette reprise donne **8 838 réussites,
+145 ignorés et cinq échecs** en 741,63 s. Le contrôle physique du clustering
+appelait encore une API Parquet mono-fichier ; il additionne désormais les
+footers avant chargement, en conservant les plafonds globaux. Deux tests de
+sécurité/intégrité interceptaient l'ancien point d'entrée de matérialisation :
+le premier intercepte la nouvelle API et le second corrompt réellement le
+fichier de sa fixture. L'attendu IAM vérifie maintenant exactement les deux
+préfixes de purge autorisés, l'absence de PUT et l'interdiction de suppression
+pour l'application. Enfin, le contrôle des sources confondait un rapport HTML
+Playwright généré avec du code : ce rapport a été archivé hors de l'arbre source,
+sans changer le contrôle. Les **39 tests ciblés de ces régressions passent**
+après `cc8c0e3a` et `75795e45`. La passe diagnostique avait chargé les tests avant
+ces modifications ; elle ne qualifie pas le code final.
+
+Ces preuves ne ferment pas tous les critères du plan : restent notamment les
+types limites pour chaque étape, la matrice complète des options/coercions,
+les cardinalités détaillées des jointures, la découverte complète asynchrone
+des valeurs de pivot, certaines recettes navigateur SQL/Polars/dbt et la
+recette déployée. L'implémentation combine des émetteurs SQL et des AST sqlglot ;
+une construction exclusivement native en AST et une parité Spark ne sont pas
+attestées. HANA vivant, l'historique Alembic depuis zéro et la révocation du
+token papAI gardent leurs limites historiques. Narration et le fournisseur
+Gemini/OpenRouter restent différés.
+
+## Historique — traitement des cinq points bloquants
 
 | Point | Traitement et preuve |
 |---|---|
@@ -46,7 +109,7 @@ bilan de livraison surestimait les suites ciblées et la conformité au plan.
 - Le timeout RabbitMQ passe à une heure dans Compose et Helm. La recréation
   nécessaire du broker est documentée ; elle n'a pas été exécutée.
 
-## Vérification locale
+## Historique — vérification locale à `54c30f9d`
 
 Les commandes sont lancées depuis le dépôt, sauf indication. Les tests utilisent
 les bases SQLite isolées par processus prévues par `conftest.py`, le stockage
@@ -113,7 +176,7 @@ sépare les observations de l'inférence de synchronisation.
 Les chemins absolus figurant dans ces JSON désignent des traces locales ; seuls
 leurs résumés structurés sont conservés dans le dépôt.
 
-## Limites qui restent ouvertes
+## Historique — limites constatées avant la reprise des lots
 
 La tentative Docker a duré 396,7 secondes et fini avec le code 130. L'annulation
 a été déclenchée au seuil de 3 GiB libres ; la copie `vfs` s'est poursuivie
