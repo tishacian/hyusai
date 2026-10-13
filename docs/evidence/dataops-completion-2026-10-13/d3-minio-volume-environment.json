@@ -1,0 +1,27 @@
+{
+  "server_binary": [
+    {
+      "component": "minio",
+      "tag": "RELEASE.2025-04-22T22-12-26Z",
+      "sha256": "53e2a2cb16c5366ea6fbbc479c19ddb4c6a0948273e752f740fb1fbf27bb817c",
+      "bytes": 118849720
+    },
+    {
+      "component": "mc",
+      "tag": "RELEASE.2025-04-16T18-13-26Z",
+      "sha256": "ac90da87a35641be5a0ac75d49de5161ddb47d629b5ba01261b0ae9e00aea15f",
+      "bytes": 30179512
+    }
+  ],
+  "container_id": "76b350030855a45334798498e1c353e83f4b7bd1b643eac50aa87a6fa1a7744a",
+  "carrier_image_id": "sha256:c8e887bbf3b6fec95a5ff97435d611119ac6e55491cd077db9fdc6b7637bdd47",
+  "memory_bytes": 536870912,
+  "memory_swap_bytes": 536870912,
+  "nano_cpus": 1000000000,
+  "bind_source": "/workspace/.d3-minio-at3_ygnb/data",
+  "client_tmpdir": "/workspace/.d3-storage-scratch",
+  "filesystem": "overlay",
+  "endpoint_scope": "127.0.0.1 random port",
+  "application_delete_denied": true,
+  "bucket_versioned": true
+}
