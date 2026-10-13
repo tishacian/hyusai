@@ -25,10 +25,11 @@ import signal
 import subprocess
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy.orm import Session as DBSession
@@ -56,9 +57,7 @@ RECIPE_EXECUTE_TASK = "agentium.recipe_execute"
 RECIPE_ENV_BUILD_TASK = "agentium.recipe_env_build"
 RECIPE_ENV_SWEEP_TASK = "agentium.recipe_env_sweep"
 
-_HARNESS_PATH = (
-    Path(__file__).resolve().parent.parent / "resources" / "recipe_harness.py"
-)
+_HARNESS_PATH = Path(__file__).resolve().parent.parent / "resources" / "recipe_harness.py"
 _CANCEL_POLL_INTERVAL_S = 0.5
 
 
@@ -120,9 +119,7 @@ def create_execution(
     return execution
 
 
-def dispatch_execution(
-    db: DBSession, execution: RecipeExecution, *, code: str
-) -> str:
+def dispatch_execution(db: DBSession, execution: RecipeExecution, *, code: str) -> str:
     """Enqueue the Celery task; eager mode runs it inline (dev/tests)."""
 
     if settings.worker_eager_mode:
@@ -145,6 +142,13 @@ def dispatch_execution(
 def request_cancel(db: DBSession, execution: RecipeExecution) -> RecipeExecution:
     """Cooperative cancel; a still-queued task is also revoked best-effort."""
 
+    execution = (
+        db.query(RecipeExecution)
+        .filter_by(id=execution.id, workspace_id=execution.workspace_id)
+        .with_for_update()
+        .populate_existing()
+        .one()
+    )
     if execution.status in RECIPE_EXECUTION_TERMINAL_STATUSES:
         return execution
     execution.cancel_requested = True
@@ -156,10 +160,25 @@ def request_cancel(db: DBSession, execution: RecipeExecution) -> RecipeExecution
 
                 celery_app.control.revoke(task_id)
             except Exception:  # noqa: BLE001 - DB flag stays authoritative
-                logger.warning(
-                    "recipe_executions: revoke failed", execution_id=execution.id
-                )
+                logger.warning("recipe_executions: revoke failed", execution_id=execution.id)
         finalize_execution(execution, status="cancelled", error="cancel_requested")
+        spec = execution.input_json or {}
+        if spec.get("kind") in {"data_prep", "ml_stream_score"}:
+            from app.models.tabular import TabularDataset
+
+            output_ids = list(spec.get("outputs", {}).values())
+            if spec.get("output_id"):
+                output_ids.append(spec["output_id"])
+            for identifier in output_ids:
+                reserved = db.get(TabularDataset, identifier)
+                if (
+                    reserved
+                    and reserved.workspace_id == execution.workspace_id
+                    and reserved.status == "ingesting"
+                ):
+                    reserved.status = "failed"
+                    reserved.error = "DATAOPS_CANCELLED"
+
     db.commit()
     return execution
 
@@ -205,15 +224,9 @@ def serialize_execution(execution: RecipeExecution) -> dict[str, Any]:
         "stderr_tail": execution.stderr_tail,
         "output_json": execution.output_json,
         "error": execution.error,
-        "created_at": execution.created_at.isoformat()
-        if execution.created_at
-        else None,
-        "started_at": execution.started_at.isoformat()
-        if execution.started_at
-        else None,
-        "finished_at": execution.finished_at.isoformat()
-        if execution.finished_at
-        else None,
+        "created_at": execution.created_at.isoformat() if execution.created_at else None,
+        "started_at": execution.started_at.isoformat() if execution.started_at else None,
+        "finished_at": execution.finished_at.isoformat() if execution.finished_at else None,
         "duration_ms": execution.duration_ms,
     }
 
@@ -322,7 +335,8 @@ def harness_error_line(stderr_tail: str, fallback: str) -> str:
 def cancel_requested(db: DBSession, execution_id: str) -> bool:
     """Re-read the cooperative cancel flag (the supervisor's stop condition)."""
 
-    db.expire_all()
+    # Scalar SELECT reads the current flag without discarding pending output
+    # metadata or terminal state in this worker transaction.
     value = (
         db.query(RecipeExecution.cancel_requested)
         .filter(RecipeExecution.id == execution_id)
@@ -331,9 +345,7 @@ def cancel_requested(db: DBSession, execution_id: str) -> bool:
     return bool(value)
 
 
-def ensure_env_ready(
-    db: DBSession, execution: RecipeExecution
-) -> Optional[PythonEnv]:
+def ensure_env_ready(db: DBSession, execution: RecipeExecution) -> PythonEnv | None:
     """Bring the row's venv to ``ready``, flipping the row to ``env_building``.
 
     Returns ``None`` after finalizing the execution as failed, so the caller's
@@ -382,11 +394,7 @@ def run_recipe_execution(execution_id: str, code: str) -> dict[str, Any]:
     from app.db.base import SessionLocal
 
     with SessionLocal() as db:
-        execution = (
-            db.query(RecipeExecution)
-            .filter(RecipeExecution.id == execution_id)
-            .first()
-        )
+        execution = db.query(RecipeExecution).filter(RecipeExecution.id == execution_id).first()
         if execution is None:
             return {"id": execution_id, "status": "missing"}
         if execution.status in RECIPE_EXECUTION_TERMINAL_STATUSES:
@@ -394,9 +402,7 @@ def run_recipe_execution(execution_id: str, code: str) -> dict[str, Any]:
         if execution.status == "running":
             # acks_late redelivery of a lost worker. The script may already
             # have produced side effects; fail closed instead of replaying.
-            finalize_execution(
-                execution, status="failed", error="recipe_worker_lost_after_claim"
-            )
+            finalize_execution(execution, status="failed", error="recipe_worker_lost_after_claim")
             db.commit()
             return {"id": execution_id, "status": "failed"}
         if not settings.recipe_execution_enabled:
@@ -412,11 +418,7 @@ def run_recipe_execution(execution_id: str, code: str) -> dict[str, Any]:
         if env is None:
             return {"id": execution_id, "status": execution.status}
         if cancel_requested(db, execution_id):
-            execution = (
-                db.query(RecipeExecution)
-                .filter(RecipeExecution.id == execution_id)
-                .first()
-            )
+            execution = db.query(RecipeExecution).filter(RecipeExecution.id == execution_id).first()
             finalize_execution(execution, status="cancelled", error="cancel_requested")
             db.commit()
             return {"id": execution_id, "status": "cancelled"}
@@ -435,11 +437,7 @@ def run_recipe_execution(execution_id: str, code: str) -> dict[str, Any]:
         )
 
         db.expire_all()
-        execution = (
-            db.query(RecipeExecution)
-            .filter(RecipeExecution.id == execution_id)
-            .first()
-        )
+        execution = db.query(RecipeExecution).filter(RecipeExecution.id == execution_id).first()
         execution.stdout_tail = stdout_tail
         execution.stderr_tail = stderr_tail
         execution.output_json = output
@@ -520,9 +518,7 @@ def supervise_harness(
         else settings.recipe_execution_memory_limit_mb
     )
     cpu_budget = int(
-        cpu_limit_s
-        if cpu_limit_s is not None
-        else settings.recipe_execution_cpu_limit_s
+        cpu_limit_s if cpu_limit_s is not None else settings.recipe_execution_cpu_limit_s
     )
     fsize_budget = int(fsize_limit_mb)
 
@@ -650,9 +646,7 @@ def _run_supervised(
         shutil.rmtree(scratch, ignore_errors=True)
 
 
-def resolve_env_for_spec(
-    db: DBSession, *, workspace_id: str, spec: EnvSpec
-) -> PythonEnv:
+def resolve_env_for_spec(db: DBSession, *, workspace_id: str, spec: EnvSpec) -> PythonEnv:
     return resolve_env(db, workspace_id=workspace_id, spec=spec)
 
 

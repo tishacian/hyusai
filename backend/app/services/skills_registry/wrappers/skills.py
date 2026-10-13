@@ -8,13 +8,13 @@ slugs onto them lives in :mod:`.registry`.
 from __future__ import annotations
 
 import base64
-import importlib
 import re
 import uuid
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Mapping, Optional
+from typing import Any
 
 from app.core.logging import get_logger
 from app.services.evaluation.judge import (
@@ -31,9 +31,13 @@ from app.services.rag.project_references import (
     using_workspace_id_project_scheme,
 )
 from app.services.skills_registry.binding import (
-    SkillBindingError,
-    SkillCallable,
-    is_workspace_skill_slug,
+    SkillBindingError as SkillBindingError,
+)
+from app.services.skills_registry.binding import (
+    SkillCallable as SkillCallable,
+)
+from app.services.skills_registry.binding import (
+    is_workspace_skill_slug as is_workspace_skill_slug,
 )
 from app.tenants import family_hook
 
@@ -66,7 +70,7 @@ def _provider_usage_scope(ctx: dict[str, Any]) -> dict[str, Any]:
     return accumulator
 
 
-def ctx_secret(ctx: Optional[dict[str, Any]], slot: str):
+def ctx_secret(ctx: dict[str, Any] | None, slot: str):
     """Secret granted to this invocation by a flow ``secret`` node, or ``None``.
 
     Returns a ``SecretValue``; call ``reveal()`` only where the clear value is
@@ -224,7 +228,7 @@ def _retrieval_token_path(
     return False
 
 
-def _resolve_workspace_slug(payload: dict[str, Any], ctx: dict[str, Any]) -> Optional[str]:
+def _resolve_workspace_slug(payload: dict[str, Any], ctx: dict[str, Any]) -> str | None:
     """Resolve the workspace slug, falling back to a DB lookup by id.
 
     Parity with the classic ``/chat`` path which always sets ``workspace_slug``.
@@ -262,7 +266,7 @@ def _resolve_workspace_slug(payload: dict[str, Any], ctx: dict[str, Any]) -> Opt
     return resolved
 
 
-def _model_name(*candidates: Any) -> Optional[str]:
+def _model_name(*candidates: Any) -> str | None:
     """The first candidate that is actually the *name* of a model.
 
     ``model`` is one of the most collided-on keys on the wire. The DAG walker
@@ -376,7 +380,7 @@ def _rag_runtime_kwargs(payload: dict[str, Any], ctx: dict[str, Any]) -> dict[st
 # ---------------------------------------------------------------------------
 # Fallbacks
 # ---------------------------------------------------------------------------
-async def _stub(payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+async def _stub(payload: dict[str, Any], ctx: dict[str, Any] | None = None) -> dict[str, Any]:
     """Degraded placeholder for skills whose runtime is not yet available."""
     logger.info("skills_registry: stub invocation", payload_keys=list(payload.keys()))
     return {
@@ -388,7 +392,7 @@ async def _stub(payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None) -
 
 async def _translation_showcase_stub(
     payload: dict[str, Any],
-    ctx: Optional[dict[str, Any]] = None,
+    ctx: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Structured simulation for showcase Translation Suite stages.
 
@@ -432,7 +436,7 @@ async def _translation_showcase_stub(
 # Concrete wrappers
 # ---------------------------------------------------------------------------
 async def _chat_trivial_bypass_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.chat_trivial_bypass import maybe_trivial_bypass
 
@@ -448,7 +452,7 @@ async def _chat_trivial_bypass_v1(
 
 
 async def _chat_grounding_policy_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.chat_grounding import resolve_grounding_policy
 
@@ -468,7 +472,7 @@ async def _chat_grounding_policy_v1(
 
 
 async def _llm_rag_answer_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     # Preserve an explicitly supplied empty dict: provider usage is accumulated
     # in this invocation-local context before being projected to the ledger.
@@ -593,7 +597,7 @@ async def _llm_rag_answer_v1(
 
 
 async def _semantic_search_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.collection_access import (
         request_identity_for_context,
@@ -884,7 +888,7 @@ def _merge_multi_hop_searches(
 
 
 async def _multi_hop_retrieve_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Parallel multi-hop retrieval over decomposed sub-queries (Phase 4).
 
@@ -1003,7 +1007,7 @@ async def _multi_hop_retrieve_v1(
 
 
 async def _document_ingestion_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.rag.document_service import DocumentService
 
@@ -1021,7 +1025,7 @@ async def _document_ingestion_v1(
 
 
 async def _eval_radar_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.evaluation.judge import get_judge_service
 
@@ -1051,7 +1055,7 @@ async def _eval_radar_v1(
 
 
 async def _claim_audit_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.evaluation.judge import get_judge_service
 
@@ -1096,7 +1100,7 @@ async def _claim_audit_v1(
 
 
 async def _intelligence_batch_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Run the intelligence batch for the workspace the skill runs for.
 
@@ -1157,7 +1161,7 @@ async def _intelligence_batch_v1(
     }
 
 
-def _workspace_from_context(payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None) -> Any:
+def _workspace_from_context(payload: dict[str, Any], ctx: dict[str, Any] | None = None) -> Any:
     ctx = ctx or {}
     workspace_id = ctx.get("workspace_id") or payload.get("workspace_id") or "demo-workspace"
     workspace_slug = ctx.get("workspace_slug") or payload.get("workspace_slug") or "workspace"
@@ -1166,7 +1170,7 @@ def _workspace_from_context(payload: dict[str, Any], ctx: Optional[dict[str, Any
 
 
 async def _ministerial_briefing_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.mission_room import briefing_payload
 
@@ -1180,7 +1184,7 @@ async def _ministerial_briefing_v1(
 
 
 async def _news_signal_synthesis_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.mission_room import news_payload
 
@@ -1194,7 +1198,7 @@ async def _news_signal_synthesis_v1(
 
 
 async def _project_risk_explainer_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.mission_room import projects_payload
 
@@ -1220,7 +1224,7 @@ async def _project_risk_explainer_v1(
 
 
 async def _territorial_signal_map_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.mission_room import map_payload
 
@@ -1234,7 +1238,7 @@ async def _territorial_signal_map_v1(
 
 
 async def _scenario_generate_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.scenario_engine import generate_scenarios
 
@@ -1252,7 +1256,7 @@ async def _scenario_generate_v1(
 
 
 async def _scenario_compare_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.scenario_engine import compare_scenarios
 
@@ -1260,7 +1264,7 @@ async def _scenario_compare_v1(
 
 
 async def _scenario_recommend_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.scenario_engine import recommend_scenario
 
@@ -1276,7 +1280,7 @@ async def _scenario_recommend_v1(
 
 
 async def _instruction_draft_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.mission_room import draft_instruction_payload
 
@@ -1294,7 +1298,7 @@ async def _instruction_draft_v1(
 
 
 def _calendar_db_and_workspace(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> tuple[Any, Any]:
     from app.db.base import SessionLocal
     from app.models.workspace import Workspace
@@ -1321,7 +1325,7 @@ def _calendar_db_and_workspace(
 
 
 async def _calendar_read_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.workspace_calendar import list_events, serialize_event
 
@@ -1363,7 +1367,7 @@ def _hana_rows_as_context(columns: list[Any], rows: list[Any]) -> list[dict[str,
 
 
 async def _sap_hana_query_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.connectors.hana import service as hana_service
 
@@ -1379,7 +1383,7 @@ async def _sap_hana_query_v1(
             sql=str(payload.get("sql") or ""),
             params=payload.get("params"),
             max_rows=int(max_rows) if max_rows is not None else 200,
-            allow_writes=bool(payload.get("allow_writes")),
+            allow_writes=False,
         )
         # Chainable to llm_rag_answer_v1 via inputs_map.context ← task.hana.context
         result["context"] = _hana_rows_as_context(
@@ -1393,7 +1397,7 @@ async def _sap_hana_query_v1(
 
 
 async def _rpa_dispatch_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.connectors.rpa import service as rpa_service
 
@@ -1444,7 +1448,7 @@ def _named_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return cleaned
 
 
-def _mcp_write_ctx(ctx: Optional[dict[str, Any]]) -> tuple[str, str | None]:
+def _mcp_write_ctx(ctx: dict[str, Any] | None) -> tuple[str, str | None]:
     """Actor and run for the write ledger — a run-engine skill signs as its run."""
     ctx = ctx or {}
     run_id = str(ctx.get("run_id") or "") or None
@@ -1456,7 +1460,7 @@ def _mcp_write_ctx(ctx: Optional[dict[str, Any]]) -> tuple[str, str | None]:
 
 def _mcp_write(
     payload: dict[str, Any],
-    ctx: Optional[dict[str, Any]],
+    ctx: dict[str, Any] | None,
     *,
     server_id: str,
     tool: str,
@@ -1612,7 +1616,7 @@ _REJECTED_DECISION = frozenset({"rejected"})
 
 def _gate_decision(
     payload: Mapping[str, Any],
-    ctx: Optional[dict[str, Any]],
+    ctx: dict[str, Any] | None,
     *,
     statuses: frozenset[str],
 ) -> Any:
@@ -1656,7 +1660,7 @@ def _gate_decision(
 
 def _gated_write(
     payload: Mapping[str, Any],
-    ctx: Optional[dict[str, Any]],
+    ctx: dict[str, Any] | None,
     *,
     statuses: frozenset[str],
     pr_id: str,
@@ -1720,7 +1724,7 @@ def _mcp_trace(result: dict[str, Any]) -> dict[str, Any]:
 
 async def _mcp_invoke(
     payload: dict[str, Any],
-    ctx: Optional[dict[str, Any]],
+    ctx: dict[str, Any] | None,
     *,
     server_id: str,
     contract_tool: str,
@@ -1770,7 +1774,7 @@ async def _mcp_invoke(
 
 
 async def _mcp_call_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     if payload.get("_side_effect") is not None:
         raise ValueError("arguments._side_effect is not allowed; the write-set is code")
@@ -1787,7 +1791,7 @@ async def _mcp_call_v1(
     )
 
 
-def _named_mcp_server(payload: dict[str, Any], ctx: Optional[dict[str, Any]], server_id: str):
+def _named_mcp_server(payload: dict[str, Any], ctx: dict[str, Any] | None, server_id: str):
     from app.services.connectors.mcp import service as mcp_service
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -1801,7 +1805,7 @@ def _named_mcp_server(payload: dict[str, Any], ctx: Optional[dict[str, Any]], se
 
 
 async def _sap_list_approved_prs_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     payload = _named_payload(payload)
     from app.services.connectors.mcp.read import (
@@ -1834,7 +1838,7 @@ async def _sap_list_approved_prs_v1(
 
 
 async def _sap_check_budget_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     payload = _named_payload(payload)
     from app.services.connectors.mcp.errors import McpError, McpToolUnknown
@@ -1893,7 +1897,7 @@ async def _sap_check_budget_v1(
 
 
 async def _sap_get_justification_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     payload = _named_payload(payload)
     from app.services.connectors.mcp import service as mcp_service
@@ -1919,7 +1923,7 @@ async def _sap_get_justification_v1(
 
 
 async def _sap_reject_pr_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     payload = _named_payload(payload)
     from app.services.connectors.mcp.read import (
@@ -1946,7 +1950,7 @@ async def _sap_reject_pr_v1(
 
 
 async def _hikma_list_pos_by_type_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     payload = _named_payload(payload)
     from app.services.connectors.mcp.errors import McpError, McpToolUnknown
@@ -2040,7 +2044,7 @@ async def _hikma_list_pos_by_type_v1(
 
 
 async def _sap_create_po_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     payload = _named_payload(payload)
     from app.services.connectors.mcp.poc import build_bapi_po_payload
@@ -2140,7 +2144,7 @@ async def _sap_create_po_v1(
 
 
 async def _sap_handle_rejection_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     payload = _named_payload(payload)
     from app.services.connectors.mcp.read import (
@@ -2280,7 +2284,7 @@ def _recipe_source_envelopes(workspace_id: str, declared: Any) -> dict[str, dict
 
 
 async def _python_recipe_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Dispatch an author-written Python script to the Celery recipe plane.
 
@@ -2370,7 +2374,7 @@ async def _python_recipe_v1(
 
 
 async def _system_run_read_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Hand a graph the result another System already produced.
 
@@ -2412,9 +2416,9 @@ async def _system_run_read_v1(
 
 
 async def _sql_transform_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    """Run the node's graph-owned SQL over its dataset inputs (duckdb, in-process).
+    """Run the node's graph-owned SQL over its dataset inputs.
 
     The statement and the output name are authoritative graph configuration
     injected as ``_transform`` by the DAG walker
@@ -2423,14 +2427,20 @@ async def _sql_transform_v1(
     from the payload (upstream dataset envelopes) and from the pins declared on
     the node.
 
-    Execution is offloaded to a thread: duckdb is synchronous and CPU-bound, and
-    the walker's event loop still has other nodes to settle.
+    The statement runs on the worker plane, not here: this wrapper often runs in
+    the web process, and a SQL node is the work that grows with the data. It
+    stages a ``RecipeExecution``, the DuckDB runner settles it on the
+    ``dataops`` queue, and the wrapper follows the row like the Polars node.
+    Only the historical enrichment, which carries its own row, byte and time
+    bounds, still executes in-process.
     """
     import asyncio
+    import time as time_mod
 
     from app.db.base import SessionLocal
+    from app.models.recipe import RECIPE_EXECUTION_TERMINAL_STATUSES, RecipeExecution
+    from app.services.dataops.sql_execution import clamp_timeout, submit_sql_run
     from app.services.tabular_datasets import TabularError
-    from app.services.tabular_transforms import run_sql_transform
 
     ctx = ctx or {}
     transform = payload.get("_transform")
@@ -2446,13 +2456,14 @@ async def _sql_transform_v1(
     inputs = {key: value for key, value in payload.items() if not key.startswith("_")}
     sources = transform.get("sources")
 
-    def _run() -> dict[str, Any]:
-        with SessionLocal() as db:
-            # The DAG projects every transform key, so a plain SQL node
-            # carries ``enrichment: None``.
-            if transform.get("enrichment") is not None:
-                from app.services.tabular_enrichment import run_enrichment_transform
+    # The DAG projects every transform key, so a plain SQL node carries
+    # ``enrichment: None``.
+    if transform.get("enrichment") is not None:
 
+        def _enrich() -> dict[str, Any]:
+            from app.services.tabular_enrichment import run_enrichment_transform
+
+            with SessionLocal() as db:
                 return run_enrichment_transform(
                     db,
                     workspace_id=str(workspace_id),
@@ -2461,25 +2472,62 @@ async def _sql_transform_v1(
                     run_id=ctx.get("run_id"),
                     node_id=str(transform.get("node_id") or "") or None,
                 )
-            return run_sql_transform(
+
+        try:
+            return await asyncio.to_thread(_enrich)
+        except TabularError as exc:
+            raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+    timeout_s = clamp_timeout(transform.get("timeout_s"))
+
+    def _submit() -> tuple[str, bool]:
+        with SessionLocal() as db:
+            execution = submit_sql_run(
                 db,
                 workspace_id=str(workspace_id),
                 sql=transform.get("sql"),
                 output_name=str(transform.get("output_name") or "sql result"),
                 declared=sources if isinstance(sources, list) else None,
                 payload=inputs,
+                timeout_s=timeout_s,
                 run_id=ctx.get("run_id"),
                 node_id=str(transform.get("node_id") or "") or None,
             )
+            return execution.id, execution.status in RECIPE_EXECUTION_TERMINAL_STATUSES
 
     try:
-        return await asyncio.to_thread(_run)
+        # Off the loop: validation and source resolution read the database,
+        # and eager mode (dev/tests) runs the whole statement inside this call.
+        execution_id, already_settled = await asyncio.to_thread(_submit)
     except TabularError as exc:
         raise ValueError(f"{exc.code}: {exc.message}") from exc
 
+    if already_settled:
+        with SessionLocal() as db:
+            row = db.query(RecipeExecution).filter(RecipeExecution.id == execution_id).first()
+            status, output, error = (
+                row.status,
+                row.output_json if isinstance(row.output_json, dict) else None,
+                row.error,
+            )
+    else:
+        # The runner enforces its own limits; this outer deadline only protects
+        # the walker from a stuck plane (a queue nobody consumes).
+        deadline = time_mod.monotonic() + timeout_s + 30.0
+        status, output, error, _ = await _await_managed_execution(execution_id, deadline=deadline)
+
+    if status == "succeeded":
+        return dict(output or {})
+    detail = (error or "").strip()
+    if ":" in detail.split(" ", 1)[0]:
+        # Already a coded reason (``SQL_EXECUTION_FAILED: …``): the node's
+        # failure reads the same as the workshop's.
+        raise ValueError(detail[:480])
+    raise RuntimeError(f"sql_transform_{status}: {detail}"[:480])
+
 
 async def _polars_transform_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Dispatch the node's graph-owned Polars script to the worker plane.
 
@@ -2563,7 +2611,7 @@ async def _polars_transform_v1(
 
 
 async def _dbt_transform_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Dispatch the node's graph-owned dbt project to the worker plane.
 
@@ -2655,7 +2703,7 @@ async def _hf_dataset_import_v1(payload, ctx=None):
 
 
 async def _llm_label_dataset_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Label a workspace dataset using only the node's graph-owned settings."""
     if not ctx or not ctx.get("workspace_id"):
@@ -2799,7 +2847,7 @@ async def _ml_retrain_model_v1(payload, ctx=None):
 
 
 async def _ml_train_sklearn_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Fit the node's graph-owned model spec on its upstream dataset.
 
@@ -2978,7 +3026,7 @@ def _resolve_model(db, spec: dict[str, Any], workspace_id: str):
 
 
 async def _ml_predict_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Answer one record: the Skill a published model runs as.
 
@@ -3028,7 +3076,7 @@ async def _ml_predict_v1(
 
 
 async def _ml_batch_score_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Score the upstream dataset into a new versioned one.
 
@@ -3069,6 +3117,39 @@ async def _ml_batch_score_v1(
                 node_id=str(spec.get("node_id") or "") or None,
             )
 
+    from app.core.config import settings as app_settings
+    from app.services.dataops.rollout import enabled as dataops_enabled
+
+    with SessionLocal() as rollout_db:
+        stream_enabled = dataops_enabled(rollout_db, workspace_id, "ml_score_streaming_enabled")
+    if stream_enabled:
+        import time
+
+        from app.services.dataops.scoring import submit_score
+
+        def submit():
+            with SessionLocal() as db:
+                model = _resolve_model(db, spec, workspace_id)
+                row = submit_score(
+                    db,
+                    workspace_id=workspace_id,
+                    model_id=model.id,
+                    dataset_ref=dataset_ref,
+                    version=spec.get("pinned_version"),
+                    output_name=spec.get("output_name"),
+                    run_id=ctx.get("run_id"),
+                    node_id=spec.get("node_id"),
+                )
+                return row.id
+
+        identifier = await asyncio.to_thread(submit)
+        status, output, error, _ = await _await_managed_execution(
+            identifier, deadline=time.monotonic() + app_settings.dataops_t0_max_timeout_s + 30
+        )
+        if status != "succeeded":
+            raise ValueError(error or f"ML_SCORE_{status}")
+        return output
+
     try:
         return await asyncio.to_thread(_run)
     except TabularError as exc:
@@ -3076,7 +3157,7 @@ async def _ml_batch_score_v1(
 
 
 async def _ml_forecast_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Forecast every series of a trained model into a new versioned dataset.
 
@@ -3240,7 +3321,7 @@ def _first_dataset_ref(payload: dict[str, Any]) -> dict[str, Any] | None:
 
 
 async def _calendar_create_event_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.workspace_calendar import calendar_write_policy, create_event, serialize_event
 
@@ -3284,7 +3365,7 @@ async def _calendar_create_event_v1(
 
 
 async def _calendar_update_event_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.workspace_calendar import calendar_write_policy, serialize_event, update_event
 
@@ -3319,7 +3400,7 @@ async def _calendar_update_event_v1(
 
 
 async def _calendar_cancel_event_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.workspace_calendar import calendar_write_policy, cancel_event, serialize_event
 
@@ -3347,7 +3428,7 @@ async def _calendar_cancel_event_v1(
 
 
 async def _calendar_daily_summary_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from datetime import date as dt_date
 
@@ -3364,7 +3445,7 @@ async def _calendar_daily_summary_v1(
 
 
 async def _action_plan_create_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.action_plans import (
         action_planner_write_policy,
@@ -3401,7 +3482,7 @@ async def _action_plan_create_v1(
 
 
 async def _action_plan_reschedule_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.action_plans import (
         action_planner_write_policy,
@@ -3429,7 +3510,7 @@ async def _action_plan_reschedule_v1(
 
 
 async def _action_plan_status_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.action_plans import list_action_items, serialize_action_item, summary_payload
 
@@ -3452,7 +3533,7 @@ async def _action_plan_status_v1(
 
 
 async def _action_plan_cancel_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.action_plans import (
         action_planner_write_policy,
@@ -3480,7 +3561,7 @@ async def _action_plan_cancel_v1(
 
 
 async def _time_context_set_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.demo_time_context import demo_time_context_defaults
     from app.services.iam.app_entitlements import (
@@ -3522,7 +3603,7 @@ async def _time_context_set_v1(
 
 
 async def _briefing_priorities_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.mission_room import ATTENTION_REQUIRED, cockpit_payload
 
@@ -3552,7 +3633,7 @@ async def _briefing_priorities_v1(
             db.close()
 
 
-def _ctx_workspace_family(ctx: Optional[dict[str, Any]]) -> str:
+def _ctx_workspace_family(ctx: dict[str, Any] | None) -> str:
     """The stamped family of the workspace a skill runs for.
 
     The run engine puts it in ``ctx``. A caller that did not (a direct
@@ -3602,7 +3683,7 @@ _DEMO_SKILL_UNAVAILABLE = {
 
 
 async def _family_demo_skill(
-    name: str, payload: dict[str, Any], ctx: Optional[dict[str, Any]]
+    name: str, payload: dict[str, Any], ctx: dict[str, Any] | None
 ) -> dict[str, Any]:
     """Run a family's scripted demo skill, or refuse for any other workspace.
 
@@ -3618,25 +3699,25 @@ async def _family_demo_skill(
 
 
 async def _summarize_long_document_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     return await _family_demo_skill("summarize_long_document", payload, ctx)
 
 
 async def _generate_recommendations_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     return await _family_demo_skill("generate_recommendations", payload, ctx)
 
 
 async def _draft_email_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     return await _family_demo_skill("draft_email", payload, ctx)
 
 
 async def _causal_drill_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Drill the evidence graph following ``caused_by`` from ``last_focus``.
 
@@ -3684,7 +3765,7 @@ async def _causal_drill_v1(
 
 
 async def _schedule_meeting_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.demo_time_context import resolve_demo_date
     from app.services.workspace_calendar import summary_payload
@@ -3725,7 +3806,7 @@ async def _schedule_meeting_v1(
 
 
 async def _territorial_action_window_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.mission_room import map_payload
 
@@ -3746,7 +3827,7 @@ async def _territorial_action_window_v1(
 
 
 async def _map_layer_read_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.workspace_maps import mission_room_map_payload
 
@@ -3777,7 +3858,7 @@ def _workspace_map_for_skill(db: Any, workspace: Any, payload: dict[str, Any]) -
 
 
 async def _map_zone_score_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.workspace_jobs import create_workspace_job, serialize_job
     from app.services.workspace_maps import score_map_zones
@@ -3804,7 +3885,7 @@ async def _map_zone_score_v1(
 
 
 async def _map_signal_attach_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from uuid import uuid4
 
@@ -3851,7 +3932,7 @@ async def _map_signal_attach_v1(
 
 
 async def _map_recommendation_generate_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.workspace_maps import mission_room_map_payload
 
@@ -3873,7 +3954,7 @@ async def _map_recommendation_generate_v1(
 
 
 async def _map_command_apply_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.workspace_maps import build_map_command
 
@@ -3900,7 +3981,7 @@ async def _map_command_apply_v1(
 
 
 async def _source_registry_refresh_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.mission_room import cockpit_payload
 
@@ -3920,7 +4001,7 @@ async def _source_registry_refresh_v1(
 
 
 async def _osint_signal_prioritize_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.mission_room import news_payload
 
@@ -3940,7 +4021,7 @@ async def _osint_signal_prioritize_v1(
 
 
 async def _rumor_origin_trace_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.mission_room import news_payload
 
@@ -3962,7 +4043,7 @@ async def _rumor_origin_trace_v1(
 
 
 async def _evidence_graph_build_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.mission_room import evidence_graph_payload
 
@@ -3976,7 +4057,7 @@ async def _evidence_graph_build_v1(
 
 
 async def _situation_posture_score_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.mission_room import cockpit_payload
 
@@ -3998,7 +4079,7 @@ async def _situation_posture_score_v1(
 
 
 async def _maritime_snapshot_read_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.workspace_maps import ensure_workspace_map_seed, mission_room_map_payload
 
@@ -4021,7 +4102,7 @@ async def _maritime_snapshot_read_v1(
 
 
 async def _decision_option_rank_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.mission_room import decisions_payload
 
@@ -4050,7 +4131,7 @@ async def _decision_option_rank_v1(
 
 
 async def _draft_response_email_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.mission_room import draft_instruction_payload
 
@@ -4072,7 +4153,7 @@ async def _draft_response_email_v1(
 
 
 async def _visual_source_read_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.visual_intelligence import dashboard_payload, ensure_visual_intelligence_seed
 
@@ -4087,7 +4168,7 @@ async def _visual_source_read_v1(
 
 
 async def _visual_snapshot_capture_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.visual_intelligence import (
         dispatch_visual_capture_job,
@@ -4118,7 +4199,7 @@ async def _visual_snapshot_capture_v1(
 
 
 async def _visual_snapshot_analyze_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.models.workspace_visual import WorkspaceVisualObservation
     from app.services.visual_intelligence import serialize_observation
@@ -4145,7 +4226,7 @@ async def _visual_snapshot_analyze_v1(
 
 
 async def _visual_observation_sync_knowledge_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.models.workspace_visual import WorkspaceVisualObservation
     from app.services.visual_intelligence import (
@@ -4176,7 +4257,7 @@ async def _visual_observation_sync_knowledge_v1(
 
 
 async def _sharepoint_ingestion_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     # Real ingestion goes through the OAuth/MSAL flow in
     # `app.services.connectors.sharepoint_otp.ingester`. Triggering that
@@ -4197,11 +4278,11 @@ async def _sharepoint_ingestion_v1(
 
 
 async def _voice_transcribe_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.voice_runtime import get_voice_runtime_provider
 
-    provider = get_voice_runtime_provider((payload.get("provider") or "cascade_openai"))
+    provider = get_voice_runtime_provider(payload.get("provider") or "cascade_openai")
     audio_bytes = _audio_bytes_from_payload(payload)
     result = await provider.transcribe(
         audio_bytes,
@@ -4219,11 +4300,11 @@ async def _voice_transcribe_v1(
 
 
 async def _voice_tts_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.voice_runtime import get_voice_runtime_provider
 
-    provider = get_voice_runtime_provider((payload.get("provider") or "cascade_openai"))
+    provider = get_voice_runtime_provider(payload.get("provider") or "cascade_openai")
     result = await provider.synthesize_bytes(
         payload["text"],
         voice=payload.get("voice"),
@@ -4240,7 +4321,7 @@ async def _voice_tts_v1(
 
 
 async def _voice_realtime_session_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.voice_runtime import (
         build_openai_realtime_session,
@@ -4276,7 +4357,7 @@ async def _voice_realtime_session_v1(
 
 
 async def _voice_realtime_transcribe_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.voice_runtime import get_voice_runtime_provider
 
@@ -4305,7 +4386,7 @@ async def _voice_realtime_transcribe_v1(
 
 
 async def _voice_realtime_speak_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.voice_runtime import get_voice_runtime_provider
 
@@ -4330,7 +4411,7 @@ async def _voice_realtime_speak_v1(
 
 
 async def _voice_realtime_translate_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.voice_runtime import get_voice_runtime_provider
 
@@ -4354,7 +4435,7 @@ async def _voice_realtime_translate_v1(
 
 
 async def _voice_oracle_turn_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.knowledge_capture import evaluate_expert_answer
 
@@ -4373,7 +4454,7 @@ async def _voice_oracle_turn_v1(
 
 
 async def _voice_tandem_oracle_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.voice_tandem_oracle import VoiceTandemOracle
 
@@ -4448,7 +4529,7 @@ def _audio_bytes_from_payload(payload: dict[str, Any]) -> bytes:
 
 
 async def _knowledge_gap_analysis_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.knowledge_capture import build_knowledge_gaps
 
@@ -4463,7 +4544,7 @@ async def _knowledge_gap_analysis_v1(
 
 
 async def _expert_interview_plan_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.knowledge_capture import build_interview_plan
 
@@ -4479,7 +4560,7 @@ async def _expert_interview_plan_v1(
 
 
 async def _expert_answer_evaluator_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.knowledge_capture import evaluate_expert_answer
 
@@ -4491,7 +4572,7 @@ async def _expert_answer_evaluator_v1(
 
 
 async def _capture_structuring_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     # The persisted endpoint uses `structure_capture_payload` on an ORM
     # session. The skill contract also supports already-serialized session
@@ -4534,7 +4615,7 @@ async def _capture_structuring_v1(
 
 
 async def _audit_log_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Persist a compliance event through the shared audit writer.
 
@@ -4665,7 +4746,7 @@ async def _workspace_llm_v1(payload, ctx=None):
 
 
 async def _chain_naive_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.rag.chains import answer_naive
 
@@ -4680,7 +4761,7 @@ async def _chain_naive_v1(
 
 
 async def _chain_hybrid_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.rag.chains import answer_hybrid
 
@@ -4695,7 +4776,7 @@ async def _chain_hybrid_v1(
 
 
 async def _chain_mixed_hah_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     from app.services.rag.chains import answer_mixed_hah
 
@@ -4829,7 +4910,7 @@ def _is_inventory_query(query: str) -> bool:
     return bool(_INVENTORY_RE.search(query or ""))
 
 
-def _project_inventory_passage(inventory: Any) -> Optional[dict[str, Any]]:
+def _project_inventory_passage(inventory: Any) -> dict[str, Any] | None:
     """Turn the project_code facet into a top authoritative context passage.
 
     ``retrieve_rag_context`` attaches the exhaustive cross-project enumeration
@@ -5004,7 +5085,7 @@ def _assess_clarify_gate(
     return {"has_project_code": has_project, "ambiguous": ambiguous, "allow_clarify": ambiguous}
 
 
-def _resolve_model_preferences(model: Optional[str]) -> dict[str, Any]:
+def _resolve_model_preferences(model: str | None) -> dict[str, Any]:
     """Map a (possibly provider-prefixed) model string to ModelRouter prefs.
 
     Provider-neutral: produces ``{"provider","model"}`` for
@@ -5038,10 +5119,10 @@ def _resolve_model_preferences(model: Optional[str]) -> dict[str, Any]:
 
 async def _route_llm_complete(
     prompt: str,
-    model: Optional[str],
+    model: str | None,
     ctx: dict[str, Any],
     *,
-    generation_options: Optional[dict[str, Any]] = None,
+    generation_options: dict[str, Any] | None = None,
 ) -> str:
     """Single-shot completion resolved through ``ModelRouter`` (provider-neutral).
 
@@ -5133,7 +5214,7 @@ async def _route_llm_complete(
     return str(result or "").strip()
 
 
-def _loads_lenient_json(text: str) -> Optional[dict[str, Any]]:
+def _loads_lenient_json(text: str) -> dict[str, Any] | None:
     """Best-effort JSON-object recovery from an LLM completion.
 
     Tolerates ```json fences, surrounding prose and trailing commas by
@@ -5398,7 +5479,7 @@ def _build_inventory_coverage_review_prompt(
     )
 
 
-def _inventory_section_markers(answer: str) -> tuple[Optional[int], Optional[int]]:
+def _inventory_section_markers(answer: str) -> tuple[int | None, int | None]:
     """Locate the exact Markdown contract, never ordinary numbered list rows."""
     first_match = re.search(r"(?m)^\s{0,3}###\s+\(1\)(?:\s|$)", answer)
     if first_match is None:
@@ -5690,7 +5771,7 @@ async def _review_inventory_answer_coverage(
     query: str,
     passages: list[dict[str, Any]],
     draft: Any,
-    model: Optional[str],
+    model: str | None,
     ctx: dict[str, Any],
     lang_target: Any,
 ) -> tuple[str, dict[str, Any]]:
@@ -5748,7 +5829,7 @@ async def _review_inventory_answer_coverage(
             ),
             timeout=timeout_seconds,
         )
-    except (TimeoutError, asyncio.TimeoutError):
+    except TimeoutError:
         return rendered_draft, {"status": "timeout"}
     except Exception as exc:  # noqa: BLE001 - keep the grounded draft on audit failure.
         logger.warning("inventory coverage: review failed", error=str(exc))
@@ -5849,8 +5930,8 @@ _GENERIC_GROUNDED_ANSWER_PREAMBLE = (
 def _build_grounded_answer_prompt(
     query: str,
     passages: list[dict[str, Any]],
-    lang_target: Optional[str],
-    answer_profile: Optional[str],
+    lang_target: str | None,
+    answer_profile: str | None,
     *,
     family: str = "generic",
 ) -> str:
@@ -5910,7 +5991,7 @@ _NO_CONTEXT_MESSAGES = {
 }
 
 
-def _no_context_message(lang_target: Optional[str]) -> str:
+def _no_context_message(lang_target: str | None) -> str:
     lang = str(lang_target or "fr").strip().lower()[:2]
     return _NO_CONTEXT_MESSAGES.get(lang, _NO_CONTEXT_MESSAGES["fr"])
 
@@ -6162,7 +6243,7 @@ def _deterministic_single_project_plan(
     has_history: bool,
     ctx: dict[str, Any],
     known_project_codes: set[str] | None = None,
-) -> Optional[dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Return a deterministic lane plan for a conservative project lookup.
 
     The response language is taken from the server-owned chat Run input.  When
@@ -6458,7 +6539,7 @@ def _coerce_plan(
 
 
 async def _decide_next_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """JSON-only next-skill choice inside a mandate-filtered catalog."""
 
@@ -6506,7 +6587,7 @@ async def _decide_next_v1(
 
 
 async def _skill_search_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Search only the mandate-visible skill catalog."""
 
@@ -6527,7 +6608,7 @@ async def _skill_search_v1(
 
 
 async def _chat_agentic_plan_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Provider-neutral agentic planner (LLM via ModelRouter).
 
@@ -6660,7 +6741,7 @@ def _pick_self_correct_action(
 
 
 async def _chat_self_correct_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Provider-neutral bounded self-correction reactor (LLM via ModelRouter).
 
@@ -6786,7 +6867,7 @@ async def _chat_self_correct_v1(
 
 
 async def _response_eval_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Wrapper around ``ResponseEvaluator`` — SOURCE UNIQUE of the 0-100 composite.
 
@@ -6830,7 +6911,7 @@ async def _response_eval_v1(
 
 
 async def _grounding_check_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Refuse a claim whose source id is absent from the retrieved evidence.
 
@@ -6894,7 +6975,7 @@ def _typed_evaluation_answers(
 
 
 async def _evaluate_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Run the native judge mid-flow and expose typed, routable verdicts."""
     ctx = ctx or {}
@@ -6986,7 +7067,7 @@ async def _evaluate_v1(
 
 
 async def _publish_email_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Send email only after a settled human gate and only to members."""
     import html as html_lib
@@ -7039,7 +7120,7 @@ async def _publish_email_v1(
 
 
 async def _role_agent_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Run one role prompt and return only its JSON object."""
     import json as json_lib
@@ -7207,3 +7288,119 @@ async def _reconciliation_report_v1(
         "verdict": verdict,
         "flagged_count": int(reconciliation.get("flagged_count") or 0),
     }
+
+
+async def _data_prep_v1(payload, ctx=None):
+    import asyncio
+    import time
+
+    from app.core.config import settings
+    from app.db.base import SessionLocal
+    from app.services.dataops.preparation import submit_preparation
+
+    block = payload.get("_data_prep")
+    if not isinstance(block, dict) or not ctx or not ctx.get("workspace_id"):
+        raise ValueError("DATAPREP_GRAPH_CONFIG_REQUIRED")
+    config = block.get("data_prep") or {}
+
+    def submit():
+        with SessionLocal() as db:
+            row = submit_preparation(
+                db,
+                workspace_id=ctx["workspace_id"],
+                spec=config.get("spec"),
+                inputs=block.get("inputs") or config.get("inputs") or {},
+                run_id=ctx.get("run_id"),
+                node_id=block.get("node_id"),
+            )
+            return row.id
+
+    identifier = await asyncio.to_thread(submit)
+    status, output, error, _ = await _await_managed_execution(
+        identifier, deadline=time.monotonic() + settings.dataops_t0_max_timeout_s + 30
+    )
+    if status != "succeeded":
+        raise ValueError(error or f"DATAPREP_{status}")
+    return output
+
+
+async def _evaluate_v2(payload, ctx=None):
+    import asyncio
+
+    from app.services.evaluation.typed_judge import typed_evaluate
+
+    block = payload.get("_typed_evaluation")
+    if (
+        not isinstance(block, dict)
+        or not ctx
+        or not ctx.get("workspace_id")
+        or not ctx.get("run_id")
+    ):
+        raise ValueError("TYPED_EVALUATION_GRAPH_CONFIG_REQUIRED")
+    config = dict(block.get("typed_evaluation") or {})
+    data = {key: value for key, value in payload.items() if not key.startswith("_")}
+    config.update({key: data[key] for key in ("evidence", "subject_ref") if key in data})
+    from app.db.base import SessionLocal
+    from app.services.service_engine import window_for_run
+
+    with SessionLocal() as db:
+        window = window_for_run(db, ctx["run_id"], ctx["workspace_id"])
+        config["batch_key"] = str(window.id if window else ctx["run_id"])
+    config["request_key"] = (
+        __import__("hashlib")
+        .sha256((str(ctx["run_id"]) + ":" + str(block.get("node_id"))).encode())
+        .hexdigest()
+    )
+    from app.services.evaluation.typed_judge import prepare_typed_judge_context
+
+    profile_ref = config.pop("profile_ref", None)
+    vision_route_ref = config.pop("vision_route_ref", None)
+    batch_mode = config.pop("batch_mode", "single")
+    if batch_mode not in {"single", "per_unit"}:
+        raise ValueError("JUDGE_BATCH_MODE_INVALID")
+    reference = data.get("asset_ref")
+    if batch_mode == "per_unit":
+        if not reference:
+            raise ValueError("JUDGE_BATCH_ASSET_REQUIRED")
+        from app.core.config import settings
+        from app.services.evaluation.document_judge import judge_document_set
+
+        return await asyncio.wait_for(
+            judge_document_set(
+                config, ctx, reference, profile_ref=profile_ref, vision_route_ref=vision_route_ref
+            ),
+            timeout=settings.dataops_t0_max_timeout_s,
+        )
+    if reference and "evidence" not in data:
+        from app.models.run import Run
+        from app.models.user import User
+        from app.models.workspace import Workspace
+        from app.services.evaluation.document_judge import evidence_for_asset
+
+        with SessionLocal() as db:
+            run = db.get(Run, ctx["run_id"])
+            actor = db.get(User, ctx.get("user_id") or run.initiated_by_user_id)
+            if actor is None:
+                raise ValueError("JUDGE_ASSET_ACTOR_REQUIRED")
+            asset, config["evidence"] = evidence_for_asset(
+                db, db.get(Workspace, ctx["workspace_id"]), actor, reference
+            )
+            config["subject_ref"] = asset.digest
+    safe_ctx = prepare_typed_judge_context(
+        config, ctx, profile_ref=profile_ref, vision_route_ref=vision_route_ref
+    )
+    return await typed_evaluate(config, safe_ctx)
+
+
+async def _narration_run_v1(payload, ctx=None):
+    from app.services.dataops.narration import run_narration
+
+    if not ctx or not ctx.get("workspace_id") or not isinstance(payload.get("_narration"), dict):
+        raise ValueError("NARRATION_GRAPH_CONFIG_REQUIRED")
+    from app.db.base import SessionLocal
+    from app.services.dataops.rollout import enabled
+
+    with SessionLocal() as db:
+        if not enabled(db, ctx["workspace_id"], "narration_enabled"):
+            raise ValueError("NARRATION_DEFERRED")
+    return await run_narration(payload, ctx)

@@ -103,7 +103,6 @@ async def upload_dataset(
 ):
     """Stage a file and queue its ingest; the row status is the tracker."""
 
-    payload = await file.read()
     try:
         dataset = create_upload(
             db,
@@ -111,7 +110,7 @@ async def upload_dataset(
             name=(name or "").strip() or (file.filename or "dataset"),
             filename=file.filename or "upload.csv",
             content_type=file.content_type,
-            payload=payload,
+            source_file=file.file,
             description=(description or "").strip() or None,
             created_by=getattr(user, "id", None),
         )
@@ -169,7 +168,10 @@ async def preview_sql_transform(
                 db, workspace_id=workspace.id, declared=declared, payload=None
             )
             return {"preview": None, "sources": source_catalog(sources)}
-        result = preview_sql(
+        # duckdb is synchronous: on a thread, or one slow preview stalls every
+        # request this process is serving.
+        result = await run_in_threadpool(
+            preview_sql,
             db,
             workspace_id=workspace.id,
             sql=body.sql,
@@ -449,6 +451,8 @@ async def reingest_dataset(
         dataset = get_dataset(db, dataset_id=dataset_id, workspace_id=workspace.id)
     except TabularError as exc:
         _raise_tabular(exc)
+    if dataset.status not in {"failed","pending"}:
+        raise HTTPException(409,detail={"code":"DATASET_IMMUTABLE_VERSION","message":"Upload a new version to change a ready dataset."})
     if not dataset.upload_key:
         raise HTTPException(
             status_code=409,
@@ -481,5 +485,8 @@ async def delete_dataset(
         dataset = get_dataset(db, dataset_id=dataset_id, workspace_id=workspace.id)
     except TabularError as exc:
         _raise_tabular(exc)
-    dataset = soft_delete(db, dataset)
+    try:
+        dataset = soft_delete(db,dataset)
+    except TabularError as exc:
+        _raise_tabular(exc)
     return {"dataset": serialize_dataset(dataset)}

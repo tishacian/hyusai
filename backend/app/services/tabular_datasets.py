@@ -32,10 +32,11 @@ import re
 import tempfile
 import time
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy.orm import Session as DBSession
@@ -395,6 +396,24 @@ def materialize(
             message="The dataset has no materialized Parquet yet.",
             status_code=409,
         )
+    from app.services.dataops.storage import is_delta, materialize_files
+
+    if is_delta(dataset):
+        import pyarrow.dataset as ds
+        import pyarrow.parquet as pq
+
+        with tempfile.TemporaryDirectory(prefix="delta-materialize-") as tmp:
+            paths = materialize_files(dataset, Path(tmp), max_bytes=max_bytes)
+            reader = ds.dataset([str(p) for p in paths], format="parquet").scanner(
+                batch_size=settings.dataops_batch_rows, use_threads=False
+            )
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with pq.ParquetWriter(
+                destination, reader.projected_schema, compression="zstd"
+            ) as writer:
+                for batch in reader.to_batches():
+                    writer.write_batch(batch)
+        return destination
     store = get_object_store()
     if max_bytes is not None:
         return store.copy_to_local(dataset.storage_key, destination, max_bytes=max_bytes)
@@ -535,7 +554,7 @@ def _write_frame(frame: Any, *, workspace_id: str, dataset_id: str) -> tuple[str
         local = Path(tmp) / "data.parquet"
         frame.write_parquet(local, compression="zstd")
         size = int(local.stat().st_size)
-        store.write_bytes(key, local.read_bytes())
+        store.write_file(key, local)
     return key, size
 
 
@@ -551,7 +570,8 @@ def create_upload(
     name: str,
     filename: str,
     content_type: str | None,
-    payload: bytes,
+    payload: bytes | None = None,
+    source_file=None,
     description: str | None = None,
     created_by: str | None = None,
 ) -> TabularDataset:
@@ -563,14 +583,22 @@ def create_upload(
             message="The data plane is not enabled on this deployment.",
             status_code=409,
         )
-    if not payload:
+    if payload is None and source_file is None:
         raise TabularError(code="DATASET_EMPTY", message="The uploaded file is empty.")
     limit = int(settings.tabular_upload_max_bytes)
-    if len(payload) > limit:
+    if source_file is not None:
+        source_file.seek(0, 2)
+        upload_size = source_file.tell()
+        source_file.seek(0)
+    else:
+        upload_size = len(payload or b"")
+    if upload_size == 0:
+        raise TabularError(code="DATASET_EMPTY", message="The uploaded file is empty.")
+    if upload_size > limit:
         raise TabularError(
             code="DATASET_TOO_LARGE",
             message=f"The file exceeds the {limit // 1024 // 1024} MB upload limit.",
-            details={"size_bytes": len(payload), "limit_bytes": limit},
+            details={"size_bytes": upload_size, "limit_bytes": limit},
         )
     fmt = detect_format(filename, content_type)
     label = (name or Path(filename or "").stem or "dataset").strip()[:200]
@@ -587,13 +615,31 @@ def create_upload(
         status_detail=INGEST_STEPS[0],
         original_filename=str(filename or "")[:400],
         content_type=(content_type or None),
-        size_bytes=len(payload),
+        size_bytes=upload_size,
         created_by=created_by,
         parent_ids=[],
         lineage_json={"format": fmt},
     )
     dataset.upload_key = _upload_key(workspace_id, dataset.id, filename or "")
-    get_object_store().write_bytes(dataset.upload_key, payload)
+    if source_file is not None:
+        with tempfile.TemporaryDirectory(prefix="dataset-upload-") as tmp:
+            staged = Path(tmp) / "upload"
+            copied = 0
+            with staged.open("wb") as target:
+                while chunk := source_file.read(1024**2):
+                    copied += len(chunk)
+                    if copied > limit:
+                        raise TabularError(
+                            code="DATASET_TOO_LARGE", message="Upload budget exceeded."
+                        )
+                    target.write(chunk)
+            if copied != upload_size:
+                raise TabularError(
+                    code="DATASET_UPLOAD_CHANGED", message="The upload changed during staging."
+                )
+            get_object_store().write_file(dataset.upload_key, staged)
+    else:
+        get_object_store().write_bytes(dataset.upload_key, payload)
     db.add(dataset)
     db.flush()
     return dataset
@@ -651,25 +697,40 @@ def ingest_dataset(dataset_id: str) -> dict[str, Any]:
         try:
             with tempfile.TemporaryDirectory(prefix="agentium-ingest-") as tmp:
                 local = get_object_store().copy_to_local(
-                    dataset.upload_key, Path(tmp) / f"source.{fmt}"
+                    dataset.upload_key,
+                    Path(tmp) / f"source.{fmt}",
+                    max_bytes=settings.tabular_upload_max_bytes,
                 )
-                frame = _read_source(local, fmt)
-                if frame.height == 0:
-                    raise TabularError(code="DATASET_EMPTY", message="The file has no data rows.")
-                max_columns = int(settings.tabular_max_columns)
-                if frame.width > max_columns:
-                    raise TabularError(
-                        code="DATASET_TOO_WIDE",
-                        message=f"The file has more than {max_columns} columns.",
+                if fmt in {"csv", "parquet"}:
+                    from app.services.dataops.ingestion import ingest_arrow
+
+                    ingest_arrow(db, dataset, local, fmt, Path(tmp) / "canonical")
+                    profile = {
+                        "row_count": dataset.row_count,
+                        "column_count": dataset.column_count,
+                        "schema": dataset.schema_json,
+                        "stats": dataset.stats_json,
+                        "preview": dataset.preview_json,
+                    }
+                    key, size = dataset.storage_key, dataset.size_bytes
+                else:
+                    frame = _read_source(local, fmt)
+                    if frame.height == 0:
+                        raise TabularError(
+                            code="DATASET_EMPTY", message="The file has no data rows."
+                        )
+                    max_columns = int(settings.tabular_max_columns)
+                    if frame.width > max_columns:
+                        raise TabularError(
+                            code="DATASET_TOO_WIDE",
+                            message=f"The file has more than {max_columns} columns.",
+                        )
+                    mark_step(db, dataset, "profiling", rows=frame.height)
+                    profile = profile_frame(frame)
+                    mark_step(db, dataset, "writing", rows=frame.height)
+                    key, size = _write_frame(
+                        frame, workspace_id=dataset.workspace_id, dataset_id=dataset.id
                     )
-                mark_step(db, dataset, "profiling", rows=frame.height)
-                profile = profile_frame(frame)
-                mark_step(db, dataset, "writing", rows=frame.height)
-                key, size = _write_frame(
-                    frame,
-                    workspace_id=dataset.workspace_id,
-                    dataset_id=dataset.id,
-                )
         except TabularError as exc:
             _fail(db, dataset, exc.code.lower())
             return {"id": dataset_id, "status": "failed", "code": exc.code}
@@ -870,6 +931,13 @@ def register_frame(
 
     profile = profile_frame(frame)
     key, size = _write_frame(frame, workspace_id=workspace_id, dataset_id=dataset.id)
+    _settle_registered(db, dataset, profile=profile, key=key, size=size)
+    return dataset
+
+
+def _settle_registered(
+    db: DBSession, dataset: TabularDataset, *, profile: dict[str, Any], key: str, size: int
+) -> None:
     _apply_profile(dataset, profile)
     dataset.storage_key = key
     dataset.size_bytes = size
@@ -877,6 +945,65 @@ def register_frame(
     dataset.status_detail = None
     dataset.ingested_at = datetime.utcnow()
     db.flush()
+
+
+def register_parquet_file(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    name: str,
+    path: Path,
+    source: str = "transform",
+    produced_by: str | None = None,
+    parent_ids: Iterable[str] | None = None,
+    run_id: str | None = None,
+    node_id: str | None = None,
+    lineage: dict[str, Any] | None = None,
+) -> TabularDataset:
+    """Persist a Parquet file a runner already wrote, as a ready dataset version.
+
+    The file is uploaded as written rather than read into a frame and written
+    again: the runner streamed it batch by batch so that its size never had to
+    fit in memory, and re-encoding it here would undo that. Only the profile
+    still reads the table, which is the next thing to move to the runner.
+    """
+
+    import pyarrow.dataset as ds
+
+    from app.services.dataops.storage import profile_files, settle_files, write_batches
+
+    profile = profile_files([Path(path)])
+    if (
+        profile["row_count"] > settings.tabular_transform_max_rows
+        and not settings.dataops_write_delta_enabled
+    ):
+        raise TabularError(
+            code="DATASET_TOO_LARGE", message="Result exceeds the legacy row ceiling"
+        )
+    dataset = reserve_frame(
+        db,
+        workspace_id=workspace_id,
+        name=name,
+        source=source,
+        produced_by=produced_by,
+        parent_ids=parent_ids,
+        run_id=run_id,
+        node_id=node_id,
+        lineage=lineage,
+        commit=False,
+    )
+    if settings.dataops_write_delta_enabled:
+        with tempfile.TemporaryDirectory(prefix="delta-register-") as tmp:
+            root = Path(tmp)
+            scanner = ds.dataset(str(path), format="parquet").scanner(
+                batch_size=settings.dataops_batch_rows, use_threads=False
+            )
+            paths = write_batches(
+                root, scanner.to_batches(), schema=scanner.projected_schema, delta=True
+            )
+            return settle_files(db, dataset, paths, delta_root=root)
+    key = get_object_store().write_file(_parquet_key(workspace_id, dataset.id), Path(path))
+    _settle_registered(db, dataset, profile=profile, key=key, size=int(Path(path).stat().st_size))
     return dataset
 
 
@@ -888,6 +1015,21 @@ def soft_delete(db: DBSession, dataset: TabularDataset) -> TabularDataset:
     storage lifecycle. Best-effort removal still runs for local deployments.
     """
 
+    from app.models.service_contract import AssetVersion
+
+    governed = db.query(AssetVersion).filter_by(workspace_id=dataset.workspace_id).all()
+    if any(
+        any(
+            ref.get("kind") == "dataset" and ref.get("id") == dataset.id
+            for ref in asset.manifest_json.get("native_refs", [])
+        )
+        for asset in governed
+    ):
+        raise TabularError(
+            code="DATASET_GOVERNED_VERSION_IN_USE",
+            message="This immutable version is retained by a governed asset.",
+            status_code=409,
+        )
     dataset.status = "deleted"
     dataset.status_detail = None
     dataset.updated_at = datetime.utcnow()
@@ -949,6 +1091,7 @@ _PUBLIC_LINEAGE_KEYS = (
     "label_review",
     "postgresql",
     "engine",
+    "placement",
     "model",
     "added_columns",
     "output_model",
@@ -1077,6 +1220,25 @@ def resolve_dataset_ref(
     resolver that honoured only one silently ignored half the pins ever written.
     """
 
+    if isinstance(ref, dict) and ref.get("asset_id"):
+        from app.services.governed_assets import (
+            GovernanceError,
+            current_qualification,
+            resolve_asset_ref,
+        )
+
+        governed = resolve_asset_ref(db, workspace_id, ref)
+        qualification = current_qualification(db, workspace_id, governed.id)
+        if qualification and qualification.status in {"rejected", "needs_requalification"}:
+            raise GovernanceError("ASSET_QUALIFICATION_REQUIRED")
+        native = [
+            entry
+            for entry in governed.manifest_json.get("native_refs", [])
+            if entry.get("kind") == "dataset"
+        ]
+        if len(native) != 1:
+            raise GovernanceError("ASSET_DATASET_REF_REQUIRED")
+        ref = {"dataset_id": native[0]["id"]}
     dataset_id: str | None = None
     slug: str | None = None
     if isinstance(ref, str):

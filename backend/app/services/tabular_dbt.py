@@ -416,7 +416,7 @@ def dispatch_dbt_execution(db: DBSession, execution: RecipeExecution) -> str:
     async_result = celery_app.send_task(
         DBT_EXECUTE_TASK,
         args=(execution.id,),
-        queue=settings.celery_task_default_queue,
+        queue=settings.celery_dataops_queue,
     )
     execution.celery_task_id = async_result.id
     db.commit()

@@ -51,6 +51,8 @@ spec:
             - name: management
               containerPort: 15672
           env:
+            - name: RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS
+              value: "-rabbit consumer_timeout 1200000"
             - name: RABBITMQ_DEFAULT_USER
               value: {{ .Values.rabbitmq.user | quote }}
             - name: RABBITMQ_DEFAULT_PASS

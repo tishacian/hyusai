@@ -33,7 +33,7 @@ import hashlib
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
@@ -115,7 +115,7 @@ from .variable_pool import (
 logger = get_logger(__name__)
 
 
-def _system_for_run(db: DBSession, run: Run) -> Optional[System]:
+def _system_for_run(db: DBSession, run: Run) -> System | None:
     """Resolve a Run's System without ever crossing its workspace boundary."""
 
     return (
@@ -134,7 +134,7 @@ def resolve_hitl_decision_for_run(
     run: Run,
     decision_id: str,
     lock: bool = False,
-) -> Optional[Decision]:
+) -> Decision | None:
     """Resolve a Decision owned by this Run or any scoped descendant.
 
     Nested in-process subflows propagate the deepest child's Decision to each
@@ -200,13 +200,13 @@ def delegation_key(
 # ---------------------------------------------------------------------------
 # Public dispatch helper
 # ---------------------------------------------------------------------------
-def _workspace_strict_dag_enabled(workspace: Optional[Workspace]) -> bool:
+def _workspace_strict_dag_enabled(workspace: Workspace | None) -> bool:
     """Compatibility wrapper for callers that imported the old helper."""
 
     return workspace_strict_dag_enabled(workspace)
 
 
-def should_use_dag(system: System, workspace: Optional[Workspace] = None) -> bool:
+def should_use_dag(system: System, workspace: Workspace | None = None) -> bool:
     """Return True when ``system.flow_definition`` is a v2+ DAG with real
     control nodes. Accepts ``schema_version >= 2`` (v2 *and* the v3
     variable-membrane shape — the typed-port / ``VariableRef`` extensions
@@ -230,9 +230,9 @@ class DagNode:
     id: str
     type: str
     kind: str
-    label: Optional[str]
+    label: str | None
     config: dict[str, Any]
-    skill_slug: Optional[str]
+    skill_slug: str | None
     data: dict[str, Any]
 
 
@@ -241,9 +241,9 @@ class DagEdge:
     source: str
     target: str
     kind: str  # 'data' | 'control' | 'branch'
-    branch_label: Optional[str]
-    from_port: Optional[str]
-    to_port: Optional[str]
+    branch_label: str | None
+    from_port: str | None
+    to_port: str | None
 
 
 @dataclass
@@ -257,7 +257,7 @@ class DagGraph:
     in_edges: dict[str, list[DagEdge]] = field(default_factory=dict)
 
     @classmethod
-    def from_flow_definition(cls, flow: dict[str, Any]) -> "DagGraph":
+    def from_flow_definition(cls, flow: dict[str, Any]) -> DagGraph:
         raw_nodes = flow.get("nodes") or []
         raw_edges = flow.get("edges") or []
         nodes: dict[str, DagNode] = {}
@@ -415,7 +415,7 @@ class WalkerState:
     pending_counts: dict[str, int] = field(default_factory=dict)
     # Edges that a decision / fork declared inactive — consumed by the
     # dependency-count ticker so downstream nodes can still schedule.
-    dead_edges: set[tuple[str, str, Optional[str]]] = field(default_factory=set)
+    dead_edges: set[tuple[str, str, str | None]] = field(default_factory=set)
     ctx: dict[str, Any] = field(default_factory=dict)
     invocation_ids: list[str] = field(default_factory=list)
     start_monotonic: float = 0.0
@@ -436,7 +436,7 @@ class WalkerState:
     # ``breakpoints`` is shared across modes — operators can preset
     # breakpoints even when starting in ``step`` mode so Continue jumps
     # directly to the next flag.
-    debug_mode: Optional[str] = None
+    debug_mode: str | None = None
     breakpoints: set[str] = field(default_factory=set)
 
     # P4 follow-up — subflow resume bookkeeping. Maps a ``subflow`` node id to
@@ -469,7 +469,7 @@ class WalkerState:
         }
 
     @classmethod
-    def from_payload(cls, payload: dict[str, Any]) -> "WalkerState":
+    def from_payload(cls, payload: dict[str, Any]) -> WalkerState:
         state = cls()
         state.node_outputs = dict(payload.get("node_outputs") or {})
         state.done = set(payload.get("done") or [])
@@ -584,7 +584,7 @@ def _contract_ingress_selection(
 async def execute_run_dag(run_id: str) -> dict[str, Any]:
     """Walk a v2 DAG flow, executing nodes as their dependencies settle."""
     db: DBSession = SessionLocal()
-    run: Optional[Run] = None
+    run: Run | None = None
     try:
         run = db.query(Run).filter(Run.id == run_id).first()
         if not run:
@@ -776,7 +776,7 @@ async def execute_run_dag(run_id: str) -> dict[str, Any]:
 async def resume_run_dag(
     run_id: str,
     *,
-    decision_id: Optional[str] = None,
+    decision_id: str | None = None,
 ) -> dict[str, Any]:
     """Resume a run paused at a ``hitl`` node.
 
@@ -1115,7 +1115,7 @@ async def _walk(
     state: WalkerState,
     *,
     system: System,
-    capability: Optional[Capability],
+    capability: Capability | None,
     control,
     adaptive,
 ) -> dict[str, Any]:
@@ -1278,12 +1278,12 @@ def _enforce_terminal_membrane(
     state: WalkerState,
     *,
     system: System,
-    capability: Optional[Capability],
+    capability: Capability | None,
     control,
     invocations: list[SkillInvocation],
     duration_ms: float,
     last_output: Any,
-) -> Optional[dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Apply the authoritative v2 egress/provenance contract before publish.
 
     The graph is already fully settled at this point, but ``Run.output_ref`` is
@@ -1675,7 +1675,7 @@ def _emit_debug_pause(db: DBSession, run: Run, state: WalkerState, node_id: str)
 
 
 async def resume_run_dag_debug(
-    run_id: str, *, action: str, breakpoints: Optional[list[str]] = None
+    run_id: str, *, action: str, breakpoints: list[str] | None = None
 ) -> dict[str, Any]:
     """Resume a Run paused by the step debugger.
 
@@ -1955,7 +1955,7 @@ def _emit_subflow_pause(
     }
 
 
-def _terminal_run_before_pause(db: DBSession, run: Run) -> Optional[dict[str, Any]]:
+def _terminal_run_before_pause(db: DBSession, run: Run) -> dict[str, Any] | None:
     """Serialize durable pauses with coordinator-owned terminal states.
 
     A race/any coordinator can cancel a branch while that branch is still
@@ -1987,7 +1987,7 @@ def _selector_targets_asset(selector: Any, asset_ids: set[str]) -> bool:
     return bool(segs) and segs[0] in asset_ids
 
 
-def _effective_inputs_map(node: DagNode, graph: DagGraph) -> Optional[dict[str, Any]]:
+def _effective_inputs_map(node: DagNode, graph: DagGraph) -> dict[str, Any] | None:
     """Return the node's ``inputs_map`` with asset-sourced refs gated by the flag.
 
     GATE SEAM (Phase 2 ``p2-binding``): a ``VariableRef`` whose SOURCE node has
@@ -2220,6 +2220,9 @@ _LABEL_SKILL_SLUGS = frozenset({"llm_label_dataset_v1"})
 # data because the invariant is the same for all of them, and repeating it is how
 # one eventually stops being stripped on the other nodes.
 _GRAPH_OWNED_BLOCKS: tuple[tuple[str, frozenset, tuple[str, ...]], ...] = (
+    ("_data_prep", frozenset({"data_prep_v1"}), ("data_prep",)),
+    ("_typed_evaluation", frozenset({"evaluate_v2"}), ("typed_evaluation",)),
+    ("_narration", frozenset({"narration_run_v1"}), ("narration",)),
     ("_recipe", frozenset({_RECIPE_SKILL_SLUG}), _RECIPE_PARAM_KEYS),
     ("_transform", _TRANSFORM_SKILL_SLUGS, _TRANSFORM_PARAM_KEYS),
     ("_train", _TRAIN_SKILL_SLUGS, _TRAIN_PARAM_KEYS),
@@ -2235,7 +2238,7 @@ _GRAPH_OWNED_BLOCKS: tuple[tuple[str, frozenset, tuple[str, ...]], ...] = (
 )
 
 
-def _passthrough_without_recipe(data: Optional[dict[str, Any]]) -> dict[str, Any]:
+def _passthrough_without_recipe(data: dict[str, Any] | None) -> dict[str, Any]:
     """Task failure envelopes pass upstream data through; the graph-owned
     ``_recipe``, ``_transform``, ``_train``, ``_predict``, ``_forecast`` and ``_label`` blocks are
     configuration (the full script, statement text, training spec or model
@@ -2270,8 +2273,17 @@ def _apply_graph_owned_config(
         return
     config = node.config if isinstance(node.config, dict) else {}
     params = config.get("params") if isinstance(config.get("params"), dict) else {}
+    if key in {"_data_prep", "_typed_evaluation", "_narration"}:
+        for name in param_keys:
+            if name in config and name in params and config[name] != params[name]:
+                raise ValueError("GRAPH_CONFIG_CONFLICT")
     node_input[key] = {
-        **{name: params.get(name) for name in param_keys},
+        **{
+            name: params.get(name, config.get(name))
+            if key in {"_data_prep", "_typed_evaluation", "_narration"}
+            else params.get(name)
+            for name in param_keys
+        },
         "node_id": node.id,
     }
     # In strict mode the palette-params merge may also have seeded the raw config
@@ -2495,6 +2507,41 @@ async def _execute_node(
             param_keys=_block_params,
         )
 
+    if node.skill_slug == "data_prep_v1":
+        declared = node_input["_data_prep"].get("data_prep") or {}
+        pins = dict(declared.get("inputs") or {})
+        for edge in graph.in_edges.get(node.id, []):
+            if (
+                edge.source,
+                edge.target,
+                edge.branch_label,
+            ) in state.dead_edges or edge.kind != "data":
+                continue
+            upstream = state.node_outputs.get(edge.source)
+            if not isinstance(upstream, dict):
+                continue
+            port = edge.to_port or "in"
+            if "outputs" in upstream:
+                if not edge.from_port or edge.from_port not in upstream["outputs"]:
+                    return {"output": {}, "terminal_error": "DATAPREP_SOURCE_PORT_REQUIRED"}
+                reference = upstream["outputs"][edge.from_port]
+            else:
+                reference = upstream
+            if "dataset_id" not in reference:
+                native = reference.get("dataset_ref") or reference.get("asset_ref") or reference
+                if isinstance(native, dict) and native.get("asset_id"):
+                    from app.services.tabular_datasets import dataset_reference, resolve_dataset_ref
+
+                    reference = dataset_reference(
+                        resolve_dataset_ref(db, workspace_id=run.workspace_id, ref=native)
+                    )
+                else:
+                    return {"output": {}, "terminal_error": "DATAPREP_DATASET_REQUIRED"}
+            if port in pins and pins[port].get("dataset_id") != reference.get("dataset_id"):
+                return {"output": {}, "terminal_error": "DATAPREP_INPUT_PORT_DUPLICATE"}
+            pins[port] = reference
+        node_input["_data_prep"]["inputs"] = pins
+
     invocations_before = len(state.invocation_ids)
     result: dict[str, Any] = {}
     try:
@@ -2693,7 +2740,7 @@ async def _run_task(
     state: WalkerState,
     *,
     control,
-    upstream: Optional[dict[str, Any]] = None,
+    upstream: dict[str, Any] | None = None,
     resolved: bool = False,
 ) -> dict[str, Any]:
     slug = node.skill_slug
@@ -2741,7 +2788,7 @@ async def _run_task(
 
 def _decision_ctx(
     state: WalkerState,
-    merged_input: Optional[dict[str, Any]],
+    merged_input: dict[str, Any] | None,
     *,
     strict: bool,
 ) -> dict[str, Any]:
@@ -2761,9 +2808,9 @@ def _run_decision(
     state: WalkerState,
     merged_input: dict[str, Any],
     *,
-    pool: Optional[VariablePool] = None,
+    pool: VariablePool | None = None,
     strict: bool = False,
-    unbound_inputs: Optional[list[str]] = None,
+    unbound_inputs: list[str] | None = None,
 ) -> dict[str, Any]:
     """Resolve one Decision route, failing closed on every ambiguous outcome.
 
@@ -2818,7 +2865,7 @@ def _run_decision(
                 "terminal_error": f"decision_condition_error:{node.id}",
             }
 
-    chosen: Optional[str] = None
+    chosen: str | None = None
     for position, (index, label, condition) in enumerate(branch_specs):
         if chosen is not None:
             evaluations.append(
@@ -3133,7 +3180,7 @@ async def _run_retry(
     state: WalkerState,
     *,
     control,
-    upstream: Optional[dict[str, Any]] = None,
+    upstream: dict[str, Any] | None = None,
     resolved: bool = False,
 ) -> dict[str, Any]:
     config = node.config or {}
@@ -3147,7 +3194,7 @@ async def _run_retry(
     if not slug:
         return {"output": upstream or {}}
     last_output = upstream or {}
-    last_error: Optional[str] = None
+    last_error: str | None = None
     for attempt in range(1, max_attempts + 1):
         invocation = await _execute_task_node(
             db,
@@ -3237,9 +3284,9 @@ async def _run_loop(
     state: WalkerState,
     *,
     control,
-    upstream: Optional[dict[str, Any]] = None,
+    upstream: dict[str, Any] | None = None,
     resolved: bool = False,
-    pool: Optional[VariablePool] = None,
+    pool: VariablePool | None = None,
 ) -> dict[str, Any]:
     config = node.config or {}
     max_iterations = _runtime_positive_int(
@@ -3346,7 +3393,7 @@ async def _run_agent_loop(
     state: WalkerState,
     *,
     control,
-    upstream: Optional[dict[str, Any]] = None,
+    upstream: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Bounded think → gate → act loop. Does not call ``_run_loop``."""
 
@@ -3526,7 +3573,7 @@ async def _run_agent_loop(
             "output": output,
         }
 
-    def _persist_resume(next_turn: int, extra: Optional[dict[str, Any]] = None) -> None:
+    def _persist_resume(next_turn: int, extra: dict[str, Any] | None = None) -> None:
         loops[node.id] = {
             "observations": observations,
             "next_turn": next_turn,
@@ -3536,7 +3583,7 @@ async def _run_agent_loop(
         }
         state.ctx["_agent_loop"] = loops
 
-    def _output(*, exit_value: Optional[str]) -> dict[str, Any]:
+    def _output(*, exit_value: str | None) -> dict[str, Any]:
         return {
             "goal": goal,
             "observations": observations,
@@ -3771,7 +3818,7 @@ def _run_hitl(
     state: WalkerState,
     *,
     control=None,
-    upstream: Optional[dict[str, Any]] = None,
+    upstream: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Persist a ``proposed`` Decision, then ask the walker to pause.
 
@@ -3936,7 +3983,7 @@ async def _run_subflow(
     state: WalkerState,
     *,
     control,
-    upstream: Optional[dict[str, Any]] = None,
+    upstream: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Delegate to the target System as a real child ``Run`` (P4).
 
@@ -4047,7 +4094,7 @@ async def _run_subflow(
 
     child_input = _build_subflow_input(config, upstream or {}, state.pool)
     timeout_seconds = config.get("timeout_seconds")
-    deadline_at: Optional[str] = None
+    deadline_at: str | None = None
     if timeout_seconds is not None:
         try:
             timeout_seconds = float(timeout_seconds)
@@ -4288,7 +4335,7 @@ async def _continue_subflow_child(
     state: WalkerState,
     child_id: str,
     target_id: str,
-) -> Optional[dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Resume or reuse an already-spawned subflow child (idempotent replay).
 
     Returns the node outcome dict, or ``None`` when the recorded child run no
@@ -4433,7 +4480,7 @@ def _seed_pool(
     run: Run,
     system: System,
     *,
-    workspace: Optional[Workspace] = None,
+    workspace: Workspace | None = None,
 ) -> None:
     """Seed all built-ins with real, tenant-scoped runtime values.
 
@@ -4571,6 +4618,21 @@ def _merge_predecessor_outputs(
         if edge.source not in state.node_outputs:
             continue
         upstream = state.node_outputs[edge.source]
+        if (
+            isinstance(upstream, dict)
+            and src is not None
+            and src.skill_slug == "data_prep_v1"
+            and isinstance(upstream.get("outputs"), dict)
+        ):
+            outputs = upstream["outputs"]
+            if edge.from_port:
+                if edge.from_port not in outputs:
+                    raise ValueError("DATAPREP_SOURCE_PORT_UNKNOWN")
+                upstream = outputs[edge.from_port]
+            elif len(outputs) == 1:
+                upstream = next(iter(outputs.values()))
+            else:
+                raise ValueError("DATAPREP_SOURCE_PORT_REQUIRED")
         if isinstance(upstream, dict):
             merged.update(upstream)
         else:
@@ -4609,7 +4671,7 @@ def _collect_terminal_output(graph: DagGraph, state: WalkerState) -> Any:
     return dict(state.ctx.get("input") or {})
 
 
-def _envelope_rows(payload: Any) -> Optional[int]:
+def _envelope_rows(payload: Any) -> int | None:
     """Row count of the first dataset envelope in a payload, if there is one.
 
     Datasets travel by reference (``{dataset_id, rows, schema}``), so the size
@@ -4618,7 +4680,7 @@ def _envelope_rows(payload: Any) -> Optional[int]:
     input dataset.
     """
 
-    def _rows(candidate: Any) -> Optional[int]:
+    def _rows(candidate: Any) -> int | None:
         if not isinstance(candidate, dict) or not candidate.get("dataset_id"):
             return None
         rows = candidate.get("rows")
@@ -4640,7 +4702,7 @@ def _envelope_rows(payload: Any) -> Optional[int]:
     return None
 
 
-def _metric_block(payload: Any) -> Optional[dict[str, Any]]:
+def _metric_block(payload: Any) -> dict[str, Any] | None:
     """A ``{key, value}`` primary metric, as a model reference carries it."""
 
     if not isinstance(payload, dict):
@@ -4658,8 +4720,8 @@ def _metric_block(payload: Any) -> Optional[dict[str, Any]]:
 
 
 def _node_data_badge(
-    node_input: Optional[dict[str, Any]], result: dict[str, Any]
-) -> Optional[dict[str, Any]]:
+    node_input: dict[str, Any] | None, result: dict[str, Any]
+) -> dict[str, Any] | None:
     """What the canvas badges a settled node with, read off its envelopes.
 
     The numbers are not computed here and they are not new: a transform node
@@ -4719,7 +4781,7 @@ def _summarise_node_execution(
     result: dict[str, Any],
     state: WalkerState,
     invocations_before: int,
-    node_input: Optional[dict[str, Any]] = None,
+    node_input: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Distil whatever the handler returned into a few SSE-friendly fields.
 

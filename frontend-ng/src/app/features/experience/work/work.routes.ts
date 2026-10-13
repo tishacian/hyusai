@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 
 export const workRoutes: Routes = [
+  { path: 'services', loadComponent: () => import('./service-delivery.component').then(m => m.ServiceDeliveryComponent) },
   { path: 'reclamations/studio', loadComponent: () => import('./claims-studio.component').then(m => m.ClaimsStudioComponent) },
   { path: 'getting-started', loadComponent: () => import('./adoption-journey.component').then(m => m.AdoptionPageComponent) },
   {

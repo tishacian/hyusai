@@ -59,6 +59,7 @@ type OriginFilter = 'all' | DatasetSource;
       [kpis]="kpis()"
     >
       <div actions class="flex items-center gap-1.5">
+        <a [navLink]="{ surface: 'data-preparation' }" class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm">{{ i18n.t('dataops.title') }}</a>
         <a
           [navLink]="{ surface: 'models' }"
           class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
