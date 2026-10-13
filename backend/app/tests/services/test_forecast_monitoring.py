@@ -231,12 +231,13 @@ def test_request_journals_step_and_interval_without_changing_response(db_session
     assert all(row["interval_level"] == .9 for row in saved.output_json)
 
 
-def test_corrupt_parquet_is_a_coded_refusal(db_session, observed, monkeypatch):
+def test_corrupt_parquet_is_a_coded_refusal(db_session, observed):
+    from app.services.object_store import get_object_store
+
     dataset = actuals(db_session, observed)
-    def corrupt(dataset, destination):
-        destination.write_bytes(b"not parquet")
-        return destination
-    monkeypatch.setattr(service, "materialize", corrupt)
+    store = get_object_store()
+    assert store.backend == "local" and dataset.storage_key.endswith(".parquet")
+    store._local_path(dataset.storage_key).write_bytes(b"not parquet")
     with pytest.raises(TabularError, match="ML_FORECAST_ACTUALS_UNAVAILABLE"):
         associate(db_session, observed, dataset)
 
