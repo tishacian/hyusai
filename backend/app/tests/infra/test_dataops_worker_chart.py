@@ -61,3 +61,38 @@ def test_shared_worker_cannot_accidentally_consume_dataops():
     )
     assert result.returncode != 0
     assert "worker.queues must exclude dataops" in result.stderr
+
+
+@pytest.mark.skipif(not HELM, reason="Helm is required to render broker configuration")
+def test_broker_ack_deadline_exceeds_existing_bounded_late_ack_tasks():
+    import ast
+    import re
+
+    tree = ast.parse((ROOT / "backend/app/workers/tasks.py").read_text())
+    deadlines = [
+        node.value.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.keyword)
+        and node.arg == "time_limit"
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, int)
+    ]
+    assert max(deadlines) >= 1830  # The long existing subflow resume must be covered.
+    compose = yaml.safe_load((ROOT / "docker/compose.agentium.yml").read_text())
+    configured = compose["services"]["agentium-rabbitmq"]["environment"][
+        "RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS"
+    ]
+    broker = next(
+        row
+        for row in render()
+        if row["kind"] == "StatefulSet" and row["metadata"]["name"] == "agentium-rabbitmq"
+    )
+    environment = broker["spec"]["template"]["spec"]["containers"][0]["env"]
+    rendered = next(
+        value["value"]
+        for value in environment
+        if value["name"] == "RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS"
+    )
+    assert configured == rendered
+    timeout_ms = int(re.search(r"consumer_timeout (\d+)", rendered).group(1))
+    assert timeout_ms >= (max(deadlines) + 300) * 1000

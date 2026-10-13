@@ -68,9 +68,7 @@ def _path(root, key, workspace_id=None):
 def _file(path, sha256=None, size=None):
     if path.is_symlink() or not path.is_file():
         raise ValueError("missing object")
-    if size is not None and (
-        type(size) is not int or size < 0 or path.stat().st_size != size
-    ):
+    if size is not None and (type(size) is not int or size < 0 or path.stat().st_size != size):
         raise ValueError("object size mismatch")
     if sha256 is not None:
         _sha(sha256)
@@ -131,13 +129,67 @@ def _rows(registry):
                 raise ValueError("registry row too large")
             record = json.loads(line)
             kind, row = record["type"], record["row"]
-            if kind not in {"dataset", "model", "document_set", "asset"}:
+            if kind not in {"dataset", "model", "document_set", "asset", "brd"}:
                 raise ValueError("unknown registry type")
             identity = (kind, row["workspace_id"], row["id"])
             if identity in rows:
                 raise ValueError("duplicate registry identity")
             rows[identity] = row
     return rows
+
+
+def copy_plan(registry):
+    """Select exact objects/directories named by SQL; no workspace-wide mirror."""
+    rows = _rows(registry)
+    selected = {}
+
+    def add(key, workspace, kind="file", required=True):
+        if not isinstance(key, str) or any(ord(character) < 32 for character in key):
+            raise ValueError("invalid copy key")
+        _path(Path("/backup-plan"), key, workspace)
+        previous = selected.get(key)
+        selected[key] = {
+            "key": key,
+            "kind": "prefix"
+            if kind == "prefix" or previous and previous["kind"] == "prefix"
+            else "file",
+            "required": required or bool(previous and previous["required"]),
+        }
+
+    for (kind, workspace, _), row in rows.items():
+        if kind == "dataset":
+            key = row.get("storage_key")
+            if key:
+                add(key, workspace, "prefix" if key.endswith("/delta") else "file")
+            sample = (row.get("lineage_json") or {}).get("sample")
+            if sample:
+                add(sample["key"], workspace)
+        elif kind == "model":
+            if row.get("status") == "ready" and row.get("model_uri"):
+                add(row["model_uri"], workspace, "prefix")
+            metrics = row.get("metrics_json") or {}
+            for section, required in (("report", False), ("evaluation", True)):
+                artifact = metrics.get(section) or {}
+                if artifact.get("key"):
+                    add(artifact["key"], workspace, required=required)
+        elif kind == "brd":
+            add(row["storage_key"], workspace)
+        elif kind == "asset":
+            add(row["manifest_key"], workspace)
+            for obj in row["manifest_json"].get("objects", []):
+                add(obj["key"], workspace)
+            for ref in row["manifest_json"].get("native_refs", []):
+                if ref["kind"] == "document_set":
+                    native = rows.get(("document_set", workspace, ref["id"]))
+                    if native is None:
+                        raise ValueError("native collection missing from copy registry")
+                    add(native["artifact_prefix"], workspace, "prefix")
+    prefixes = {key for key, item in selected.items() if item["kind"] == "prefix"}
+    return [
+        item
+        for key, item in sorted(selected.items())
+        if not any(str(parent) in prefixes for parent in PurePosixPath(key).parents)
+    ]
 
 
 def _asset_ref(row):
@@ -217,9 +269,7 @@ def validate_registry(objects_root, registry):
             ):
                 raise ValueError("asset manifest key mismatch")
             expected = canonical(body)
-            path = _file(
-                _path(root, row["manifest_key"], workspace_id), sha, len(expected)
-            )
+            path = _file(_path(root, row["manifest_key"], workspace_id), sha, len(expected))
             if path.read_bytes() != expected:
                 raise ValueError("asset manifest bytes mismatch")
             manifest = body["manifest"]
@@ -258,22 +308,16 @@ def validate_registry(objects_root, registry):
                     or target.get("status") != "ready"
                 ):
                     raise ValueError("native reference missing")
-                if ref.get("version") is not None and ref["version"] != target.get(
-                    "version"
-                ):
+                if ref.get("version") is not None and ref["version"] != target.get("version"):
                     raise ValueError("native version mismatch")
-                actual = digest(
-                    {field: target.get(field) for field in NATIVE_FIELDS[ref["kind"]]}
-                )
+                actual = digest({field: target.get(field) for field in NATIVE_FIELDS[ref["kind"]]})
                 if ref.get("identity_digest") != actual:
                     raise ValueError("native identity mismatch")
                 if ref["kind"] == "model":
                     _file(_path(root, target["model_uri"] + "/MLmodel", workspace_id))
                 elif ref["kind"] == "document_set":
                     prefix = _path(root, target["artifact_prefix"], workspace_id)
-                    if not prefix.is_dir() or not any(
-                        p.is_file() for p in prefix.rglob("*")
-                    ):
+                    if not prefix.is_dir() or not any(p.is_file() for p in prefix.rglob("*")):
                         raise ValueError("native collection artifacts missing")
                 report["native_references"] += 1
             report["assets"] += 1
@@ -300,14 +344,14 @@ def main(argv=None):
     parser.add_argument("directory", nargs="?")
     parser.add_argument("--objects-root", type=Path)
     parser.add_argument("--registry", type=Path)
+    parser.add_argument("--copy-plan", action="store_true", help="emit kind, required, key as TSV")
     args = parser.parse_args(argv)
     try:
-        if args.registry and args.objects_root and not args.directory:
-            print(
-                json.dumps(
-                    validate_registry(args.objects_root, args.registry), sort_keys=True
-                )
-            )
+        if args.copy_plan and args.registry and not args.objects_root and not args.directory:
+            for item in copy_plan(args.registry):
+                print(f"{item['kind']}\t{int(item['required'])}\t{item['key']}")
+        elif args.registry and args.objects_root and not args.directory and not args.copy_plan:
+            print(json.dumps(validate_registry(args.objects_root, args.registry), sort_keys=True))
         elif args.directory and not args.registry and not args.objects_root:
             validate(args.directory)
         else:

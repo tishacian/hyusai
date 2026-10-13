@@ -27,6 +27,7 @@ validate → terraform plan → terraform apply (manual lab)
 | `agentium-frontend` | Deployment + Service `agentium-frontend` | on |
 | `agentium-backend` | Deployment + Service `agentium-backend` | on |
 | `agentium-worker-cpu` + `agentium-worker-recipes` | Deployment `agentium-worker` (queues `cpu,recipes`) | on, embedded beat |
+| `agentium-worker-dataops` | Deployment `agentium-worker-dataops` (queue `dataops`) | on, concurrency 1, no Beat, limits 4 GiB / 2 CPU |
 | `agentium-worker-ml-ts` / `-serve` | Deployments `agentium-worker-ml-ts` / `-serve` (`ml_ts` / `ml_ts_rpc`) | off (`mlTs.enabled`) |
 | `agentium-worker-ml-deep` / `-serve` | Deployments `agentium-worker-ml-deep` / `-serve` (`ml_deep` / `ml_deep_rpc`) | off (`mlDeep.enabled`) |
 | `agentium-hub-fetch` | Deployment `agentium-hub-fetch` (`hub_fetch`) + RWX PVCs `hub-cache`, `hub-bundles` | off (`huggingface.enabled`) |
@@ -47,6 +48,23 @@ validate → terraform plan → terraform apply (manual lab)
 Service DNS names keep the Compose hostnames (`agentium-backend`,
 `agentium-pg`, `agentium-rabbitmq`, …) so existing env files do not have to
 be rewritten for the first cut.
+
+The permanent worker consumes only `cpu,recipes`; the chart refuses adding
+`dataops` to that pool. SQL/DataOps tasks require the separate Deployment even
+when the optional preparation UI is disabled. `check-k8s-scaffold.sh` verifies
+both consumers and counts resource requests independently of CPU limits.
+
+Compose and Helm set RabbitMQ `consumer_timeout` to 3 600 000 ms (one hour).
+This exceeds the known 1 830 s `acks_late` subflow limit and the 900 s DataOps
+limit with room for acknowledgements. Some evaluation tasks have no hard task
+limit: one hour is not a guarantee for an unbounded task, which still needs an
+explicit task/queue policy before longer runs are qualified.
+
+Changing this environment value requires recreating the broker. The VM release
+script's normal `up` path does not recreate RabbitMQ; a reviewed maintenance
+operation must drain/check outstanding deliveries, recreate the broker with its
+persistent volume, and verify the effective timeout before resuming workers.
+That broker recreation is outside this correction and has not been executed.
 
 Ingress paths copy `deploy/nginx/agentium-container-frontend.conf`:
 
