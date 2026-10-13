@@ -1,7 +1,12 @@
+import { DataOpsApi } from '@app/features/data/dataops.api';
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
 import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
 import { I18nService } from '@app/core/i18n.service';
-import { DataPrepEditorComponent } from '@app/features/data/data-prep-editor.component';
+import { FlowDataPrepWorkshopComponent } from './flow-data-prep-workshop.component';
+import { prepSummary } from './flow-data-prep.vm';
+import { FlowRunService } from './flow-run.service';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { NavLinkDirective } from '@app/shared/cockpit';
 import { TypedJudgeEditorComponent } from '@app/features/data/typed-judge-editor.component';
 import { DataService, type DatasetDto } from '@app/features/data/data.service';
 import { newJudgeDraft, prepDraftFromNode, prepNodePatch, type PrepDraft, type TypedJudgeDraft } from '@app/features/data/dataops.models';
@@ -9,21 +14,37 @@ import { FlowStore } from './flow.store';
 
 @Component({
   selector: 'app-flow-dataops-inspector', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DataPrepEditorComponent, TypedJudgeEditorComponent],
+  imports: [FlowDataPrepWorkshopComponent, TypedJudgeEditorComponent, NavLinkDirective], styleUrl: '../../data/dataops-editor.scss',
   template: `@if (slug() === 'data_prep_v1') {
     @if (failed()) { <p role="alert">{{ i18n.t('dataops.error.load') }}</p> }
-    <app-data-prep-editor [value]="prep()" [datasets]="datasets()" (valueChange)="savePrep($event)" />
+    @if(workspace.surfaceFeatureEnabled('data-preparation')) {
+      <p class="dp-note" data-testid="prep-summary">{{i18n.t(summary().key,{count:summary().count})}}</p>
+      <button class="dp-button" type="button" data-testid="open-prep-workshop" (click)="opened.set(true)">{{i18n.t('dataops.open_workshop')}}</button>
+      @for(out of prep().spec.outputs;track $index;let n=$index){<label class="dp-field"><span>{{i18n.t('dataops.output_name')}} · {{out.port}}</span><input class="dp-input" [value]="out.name" (change)="name(n,val($event))" /></label>}
+      <details><summary>{{i18n.t('dataops.advanced')}}</summary><label class="dp-field"><span>{{i18n.t('dataops.placement')}}</span><select class="dp-input" [value]="prep().placement??'auto'" (change)="placement(val($event))">@for(mode of placements();track mode){<option [value]="mode">{{mode}}</option>}</select></label><label class="dp-field"><span>{{i18n.t('dataops.timeout')}}</span><input class="dp-input" type="number" min="1" max="86400" [value]="prep().timeout_s??''" (change)="timeout(val($event))" /></label></details>
+      @if(written().length){<label class="dp-field"><span>{{i18n.t('dataops.written_output')}}</span><select class="dp-input" [value]="selectedWrittenPort()" (change)="selectedPort.set(val($event))">@for(out of written();track out.port){<option [value]="out.port">{{out.port}}</option>}</select></label>@if(writtenId();as id){<a class="dp-button" [navLink]="{type:'dataset',ref:id}">{{i18n.t('dataops.open_written_output')}}</a>}}
+      @if(opened()){<app-flow-data-prep-workshop [node]="node()" (close)="opened.set(false)" />}
+    }
   } @else if (slug() === 'evaluate_v2') { <app-typed-judge-editor [value]="judge()" (valueChange)="saveJudge($event)" /> }`,
 })
 export class FlowDataOpsInspectorComponent {
   readonly node = input.required<CanonicalFlowNode>(); readonly i18n = inject(I18nService);
+  readonly workspace=inject(WorkspaceService); private readonly run=inject(FlowRunService); readonly opened=signal(false); readonly selectedPort=signal('out'); readonly placements=signal(['auto','local']); private readonly api=inject(DataOpsApi);
+  readonly summary=computed(()=>prepSummary(this.node()));
+  readonly written=computed(()=>{const data=this.run.nodeRuns()[this.node().id]?.data;return Object.entries(data?.outputs??{}).flatMap(([port,ref])=>{const id=typeof ref==='string'?ref:ref.dataset_id;return id?[{port,id}]:[];});});
+  readonly selectedWrittenPort=computed(()=>this.written().some(out=>out.port===this.selectedPort())?this.selectedPort():this.written()[0]?.port??'');
+  readonly writtenId=computed(()=>this.written().find(out=>out.port===this.selectedWrittenPort())?.id??null);
+  val(e:Event):string{return(e.target as HTMLInputElement).value;}
+  name(index:number,name:string):void{const draft=structuredClone(this.prep());draft.spec.outputs[index].name=name;this.savePrep(draft);}
+  placement(value:string):void{this.savePrep({...this.prep(),placement:value});}
+  timeout(value:string):void{this.savePrep({...this.prep(),timeout_s:value.trim()?Number(value):null});}
   private readonly store = inject(FlowStore); private readonly data = inject(DataService);
   readonly datasets = signal<DatasetDto[]>([]); readonly failed = signal(false);
   readonly slug = computed(() => (this.node().config as Record<string, unknown>)?.['skill_slug']);
   readonly prep = computed(() => prepDraftFromNode(this.node()));
   readonly judge = computed(() => ((this.node().config as Record<string, unknown>)?.['typed_evaluation'] as TypedJudgeDraft | undefined) ?? newJudgeDraft());
   constructor() { effect(() => { if (this.slug() === 'data_prep_v1') void this.loadDatasets(); }); }
-  private async loadDatasets(): Promise<void> { this.failed.set(false); try { this.datasets.set(await this.data.refresh()); } catch { this.failed.set(true); } }
+  private async loadDatasets(): Promise<void> { this.failed.set(false); try { const [datasets,catalog]=await Promise.all([this.data.refresh(),this.api.catalog()]);this.datasets.set(datasets);this.placements.set([...new Set(['auto',...(catalog.feature?.placements??catalog.placements)])]); } catch { this.failed.set(true); } }
   savePrep(value: PrepDraft): void { this.store.patchNode(this.node().id, prepNodePatch(this.node(), value)); }
   saveJudge(value: TypedJudgeDraft): void { this.store.updateNodeConfig(this.node().id, 'typed_evaluation', value); }
 }

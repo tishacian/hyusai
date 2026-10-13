@@ -19,7 +19,7 @@ import { PrepParamsComponent } from './prep-params.component';
       <label class="dp-field"><span>{{ i18n.t('dataops.seed') }}</span><input class="dp-input" type="number" min="0" max="2147483647" step="1" [value]="value().spec.seed" (input)="seed(number($event))" /></label>
     }
     @if (value().spec.operation === 'prepare') { <section class="dp-section"><h3>{{ i18n.t('dataops.steps') }}</h3>
-      @for (step of value().spec.steps; track $index; let n = $index) {
+      @for (step of value().spec.steps; track step.id ?? $index; let n = $index) {
         <div class="dp-section"><div class="dp-row"><label class="dp-field"><span>{{ i18n.t('dataops.step') }} {{ n + 1 }}</span><select class="dp-input" [value]="step.action" (change)="stepAction(n, val($event))">@for (action of actions; track action) { <option [value]="action">{{ i18n.t('dataops.step.' + action) }}</option> }</select></label>
           <button type="button" class="dp-button" [disabled]="n === 0" (click)="move(n, -1)" [attr.aria-label]="i18n.t('dataops.up')">↑</button>
           <button type="button" class="dp-button" [disabled]="n === value().spec.steps.length - 1" (click)="move(n, 1)" [attr.aria-label]="i18n.t('dataops.down')">↓</button>
@@ -27,7 +27,7 @@ import { PrepParamsComponent } from './prep-params.component';
           <app-prep-params [kind]="step.action" [params]="step.params" [columns]="columnsBefore(n)" (paramsChange)="stepParams(n, $event)" />
         </div>
       }
-      <button type="button" class="dp-button" [disabled]="value().spec.steps.length >= 100" (click)="addStep()">{{ i18n.t('dataops.add_step') }}</button>
+      <button type="button" class="dp-button" [disabled]="value().spec.steps.length >= 200" (click)="addStep()">{{ i18n.t('dataops.add_step') }}</button>
     </section> }
     <section class="dp-section"><h3>{{ i18n.t('dataops.outputs') }}</h3>
       @for (out of value().spec.outputs; track $index; let n = $index) {
@@ -59,10 +59,10 @@ export class DataPrepEditorComponent {
   removeInput(port: string): void { this.change(d => { delete d.inputs[port]; }); }
   params(params: Record<string, unknown>): void { this.change(d => { d.spec.params = params; }); }
   seed(seed: number): void { this.change(d => { d.spec.seed = seed; }); }
-  addStep(): void { if (this.value().spec.operation !== 'prepare' || this.value().spec.steps.length >= 100) return; this.change(d => d.spec.steps.push({ action: 'select', params: { columns: this.columnsBefore(d.spec.steps.length) } })); }
+  addStep(): void { if (this.value().spec.operation !== 'prepare' || this.value().spec.steps.length >= 200) return; this.change(d => d.spec.steps.push({ id:crypto.randomUUID(), enabled:true, comment:'', action: 'select', params: { columns: this.columnsBefore(d.spec.steps.length) } })); }
   remove(index: number): void { this.change(d => d.spec.steps.splice(index, 1)); }
   move(index: number, direction: -1 | 1): void { this.valueChange.emit(movePrepStep(this.value(), index, direction)); }
-  stepAction(index: number, action: string): void { this.change(d => { d.spec.steps[index] = { action: action as PrepAction, params: prepStepDefaults(action) }; }); }
+  stepAction(index: number, action: string): void { this.change(d => { d.spec.steps[index] = { ...d.spec.steps[index], id:d.spec.steps[index].id??crypto.randomUUID(), action: action as PrepAction, params: prepStepDefaults(action) }; }); }
   stepParams(index: number, params: Record<string, unknown>): void { this.change(d => { d.spec.steps[index].params = params; }); }
   outputField(index: number, key: 'port' | 'name' | 'append_version_of', value: string): void { this.change(d => { if (key === 'append_version_of' && !value) delete d.spec.outputs[index][key]; else d.spec.outputs[index][key] = value; }); }
   ratio(index: number): number { return ((this.value().spec.params['ratios'] ?? []) as number[])[index] ?? 0; }

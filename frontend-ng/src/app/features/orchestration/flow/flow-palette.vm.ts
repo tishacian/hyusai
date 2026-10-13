@@ -64,6 +64,7 @@ export interface PaletteCapabilitySource {
 export const UNCARRIED_CAPABILITY_SLUG = '__uncarried__';
 
 export function paletteItemSlug(item: PaletteItem): string {
+  if (item.key) return item.key;
   const slug = item.config?.['skill_slug'];
   const source = item.config?.['connector_id'] ?? item.config?.['collection_slug'];
   return typeof slug === 'string' ? slug : typeof source === 'string' && source ? source : item.type;

@@ -1,20 +1,24 @@
 import type { CanonicalFlowNode, NodePort } from '@app/core/flow-serializer.service';
 import { validatePrepParams } from './prep-fields';
-import type { TabularColumn, TabularRow } from '@app/shared/ui/data-table.vm';
+import type { TabularColumn, TabularColumnStats, TabularRow } from '@app/shared/ui/data-table.vm';
 
 export type PrepOperation = 'prepare' | 'join' | 'union' | 'aggregate' | 'pivot' | 'unpivot' | 'split' | 'sample';
-export type PrepAction = 'select_columns' | 'drop_columns' | 'rename_columns' | 'select' | 'drop' | 'rename' | 'cast' | 'fill_null' | 'drop_null' | 'filter' | 'derive' | 'sort' | 'deduplicate' | 'trim' | 'upper' | 'lower' | 'replace' | 'date_format' | 'hash' | 'move_columns' | 'copy_column' | 'concat_columns' | 'normalize_column_names' | 'add_column' | 'parse_date' | 'format_date' | 'from_epoch' | 'parse_number' | 'to_boolean' | 'drop_nulls' | 'fill_nulls' | 'filter_rows' | 'filter_range' | 'filter_expression' | 'flag_rows' | 'text_transform' | 'replace_values' | 'split_column' | 'extract_regex' | 'count_occurrences' | 'substring' | 'pad' | 'length' | 'negate_boolean' | 'bin_numeric' | 'formula' | 'conditional_column' | 'map_values' | 'window' | 'mask' | 'dedup' | 'round' | 'math' | 'extract_date_parts' | 'date_diff' | 'date_add' | 'truncate_date' | 'convert_timezone' | 'scale';
-export interface PrepStep { action: PrepAction; params: Record<string, unknown>; }
+export type PrepAction = 'bin' | 'select_columns' | 'drop_columns' | 'rename_columns' | 'select' | 'drop' | 'rename' | 'cast' | 'fill_null' | 'drop_null' | 'filter' | 'derive' | 'sort' | 'deduplicate' | 'trim' | 'upper' | 'lower' | 'replace' | 'date_format' | 'hash' | 'move_columns' | 'copy_column' | 'concat_columns' | 'normalize_column_names' | 'add_column' | 'parse_date' | 'format_date' | 'from_epoch' | 'parse_number' | 'to_boolean' | 'drop_nulls' | 'fill_nulls' | 'filter_rows' | 'filter_range' | 'filter_expression' | 'flag_rows' | 'text_transform' | 'replace_values' | 'split_column' | 'extract_regex' | 'count_occurrences' | 'substring' | 'pad' | 'length' | 'negate_boolean' | 'bin_numeric' | 'formula' | 'conditional_column' | 'map_values' | 'window' | 'mask' | 'dedup' | 'round' | 'math' | 'extract_date_parts' | 'date_diff' | 'date_add' | 'truncate_date' | 'convert_timezone' | 'scale';
+export interface PrepStep { id?: string; enabled?: boolean; comment?: string; action: PrepAction; params: Record<string, unknown>; }
 export interface PrepOutput { port: string; name: string; append_version_of?: string | null; }
 export interface DataPrepSpec { version: 1; operation: PrepOperation; steps: PrepStep[]; params: Record<string, unknown>; outputs: PrepOutput[]; seed: number; }
-export interface DatasetRef { dataset_id: string; }
-export interface PrepDraft { spec: DataPrepSpec; inputs: Record<string, DatasetRef>; }
-export interface PrepCatalog { version: number; operations: PrepOperation[]; steps: PrepAction[]; placements: string[]; spec_schema: Record<string, unknown>; }
-export interface PrepCompilation { sql: string; fingerprint: string; schema: TabularColumn[]; columns: string[]; ports: string[]; }
-export interface PrepPreview { rows: TabularRow[]; schema: TabularColumn[]; sample: true; sample_metadata?: Record<string, unknown>; }
+export interface DatasetRef { dataset_id: string; dataset_slug?: string; upstream?: {spec: unknown; inputs: Record<string, DatasetRef>; outputs?: PrepOutput[]; output_port?: string}; }
+export interface PrepDraft { spec: DataPrepSpec; inputs: Record<string, DatasetRef>; placement?: string; timeout_s?: number | null; }
+export interface PrepCatalog { feature?: {enabled:boolean;placements?:string[]}; step_definitions?: import('./prep-fields').PrepStepDefinition[]; functions?: Array<{name:string; label_key?:string}>; version: number; operations: PrepOperation[]; steps: PrepAction[]; placements: string[]; spec_schema: Record<string, unknown>; }
+export interface PrepCompilation { sources?: Array<{port:string;dataset_id:string}>; sql_export?: string; sql_export_allowed?: boolean; sql_export_by_port?: Record<string,string>; sql: string; fingerprint: string; schema: TabularColumn[]; columns: string[]; ports: string[]; }
+export interface PrepPreview { output_schema?:TabularColumn[];stats_scope?:'sample'; rows: TabularRow[]; schema: TabularColumn[]; sample: true; sample_metadata?: Record<string, unknown>;
+  sample_info?: {rows: number; of_rows: number; version: unknown}; stats?: Record<string, TabularColumnStats>; duration_ms?: number;
+  step_schemas?: Array<{id: string; index: number; enabled: boolean; schema: TabularColumn[]; schema_diff?: {added?: string[]; removed?: string[]; changed?: string[]}}>;
+  warnings?: Array<string | {code: string; step_id?: string}>; counters?: Record<string, unknown>; counts?: Record<string, number>;
+}
 export interface PrepExecution { id: string; status: string; stage?: string; error?: string | null; output_json?: Record<string, unknown> | null; output?: Record<string, unknown>; }
-export const PREP_OPERATIONS: PrepOperation[] = ['prepare', 'join', 'union', 'aggregate', 'pivot', 'unpivot', 'split', 'sample'];
-export const PREP_ACTIONS: PrepAction[] = ['select_columns', 'drop_columns', 'rename_columns', 'select', 'drop', 'rename', 'cast', 'fill_null', 'drop_null', 'filter', 'derive', 'sort', 'deduplicate', 'trim', 'upper', 'lower', 'replace', 'date_format', 'hash', 'move_columns', 'copy_column', 'concat_columns', 'normalize_column_names', 'add_column', 'parse_date', 'format_date', 'from_epoch', 'parse_number', 'to_boolean', 'drop_nulls', 'fill_nulls', 'filter_rows', 'filter_range', 'filter_expression', 'flag_rows', 'text_transform', 'replace_values', 'split_column', 'extract_regex', 'count_occurrences', 'substring', 'pad', 'length', 'negate_boolean', 'bin_numeric', 'formula', 'conditional_column', 'map_values', 'window', 'mask', 'dedup', 'round', 'math', 'extract_date_parts', 'date_diff', 'date_add', 'truncate_date', 'convert_timezone', 'scale'];
+export const PREP_OPERATIONS: PrepOperation[] = ['prepare', 'join', 'union', 'aggregate', 'unpivot', 'split', 'sample'];
+export const PREP_ACTIONS: PrepAction[] = ['bin', 'select_columns', 'drop_columns', 'rename_columns', 'select', 'drop', 'rename', 'cast', 'fill_null', 'drop_null', 'filter', 'derive', 'sort', 'deduplicate', 'trim', 'upper', 'lower', 'replace', 'date_format', 'hash', 'move_columns', 'copy_column', 'concat_columns', 'normalize_column_names', 'add_column', 'parse_date', 'format_date', 'from_epoch', 'parse_number', 'to_boolean', 'drop_nulls', 'fill_nulls', 'filter_rows', 'filter_range', 'filter_expression', 'flag_rows', 'text_transform', 'replace_values', 'split_column', 'extract_regex', 'count_occurrences', 'substring', 'pad', 'length', 'negate_boolean', 'bin_numeric', 'formula', 'conditional_column', 'map_values', 'window', 'mask', 'dedup', 'round', 'math', 'extract_date_parts', 'date_diff', 'date_add', 'truncate_date', 'convert_timezone', 'scale'];
 export const PREVIEW_ROW_LIMIT = 100;
 
 export function newPrepDraft(): PrepDraft {
@@ -24,7 +28,7 @@ export function prepInputPorts(operation: PrepOperation): string[] {
   return operation === 'join' ? ['left', 'right'] : operation === 'union' ? ['in_1', 'in_2'] : ['in'];
 }
 export function prepDraftPorts(draft: PrepDraft): string[] {
-  return draft.spec.operation === 'union' ? [...new Set(['in_1', 'in_2', ...Object.keys(draft.inputs)])].sort() : prepInputPorts(draft.spec.operation);
+  return draft.spec.operation === 'union' ? [...new Set(['in_1', 'in_2', ...Object.keys(draft.inputs)])].sort((a,b) => Number(a.slice(3))-Number(b.slice(3))) : prepInputPorts(draft.spec.operation);
 }
 export function changePrepOperation(draft: PrepDraft, operation: PrepOperation): PrepDraft {
   const next = structuredClone(draft);
@@ -65,10 +69,12 @@ export function prepColumnsBefore(draft: PrepDraft, left: string[], right: strin
     columns = [...columns.filter(name => !((params['columns'] ?? []) as string[]).includes(name)), String(params['name_column'] ?? 'variable'), String(params['value_column'] ?? 'value')];
   }
   for (const step of draft.spec.steps.slice(0, index)) {
+    if (step.enabled === false) continue;
     const p = step.params, action = step.action;
-    const selected = (p['columns'] as string[] | undefined) ?? [];
+    const selector = p['columns'];
+    const selected: string[] = Array.isArray(selector) ? selector : selector && typeof selector === 'object' ? (Array.isArray((selector as Record<string,unknown>)['names']) ? (selector as {names:string[]}).names : [...columns]) : [];
     const output = p['output'] ?? p['name'];
-    if (action === 'rename' || action === 'rename_columns') columns = columns.map(c => ((p['mapping'] ?? {}) as Record<string, string>)[c] ?? c);
+    if (action === 'rename' || action === 'rename_columns') {const mapping=Array.isArray(p['mapping'])?Object.fromEntries((p['mapping'] as Array<{from:string;to:string}>).map(row=>[row.from,row.to])):(p['mapping']??{}) as Record<string,string>;columns=columns.map(c=>mapping[c]??c);}
     else if (action === 'select' || action === 'select_columns') columns = selected;
     else if (action === 'drop' || action === 'drop_columns') columns = columns.filter(c => !selected.includes(c));
     else if (action === 'move_columns') {
@@ -101,7 +107,7 @@ export function prepRequest(draft: PrepDraft): PrepDraft {
   if (!draft.spec.outputs.every(output => output.name.trim() && output.name.length <= 200) || new Set(draft.spec.outputs.map(o => o.name)).size !== draft.spec.outputs.length) throw new Error('dataops.error.output_name');
   if (!prepDraftPorts(draft).every(port => draft.inputs[port]?.dataset_id)) throw new Error('dataops.error.inputs');
   if (!draft.spec.outputs.every(o => /^[a-z][a-z0-9_]{0,63}$/.test(o.port)) || (draft.spec.operation !== 'split' && (draft.spec.outputs.length !== 1 || draft.spec.outputs[0].port !== 'out'))) throw new Error('dataops.error.ports');
-  if (!Number.isInteger(draft.spec.seed) || draft.spec.seed < 0 || draft.spec.seed > 2147483647 || draft.spec.steps.length > 100 || (draft.spec.operation !== 'prepare' && draft.spec.steps.length)) throw new Error('dataops.error.parameters');
+  if (!Number.isInteger(draft.spec.seed) || draft.spec.seed < 0 || draft.spec.seed > 2147483647 || draft.spec.steps.length > 200 || (draft.spec.operation !== 'prepare' && draft.spec.steps.length)) throw new Error('dataops.error.parameters');
   if (!validatePrepParams(draft.spec.operation,draft.spec.params) || draft.spec.steps.some(step => !PREP_ACTIONS.includes(step.action) || !validatePrepParams(step.action,step.params))) throw new Error('dataops.error.parameters');
   if (draft.spec.operation === 'split') {
     const ratios = draft.spec.params['ratios'];
@@ -114,6 +120,16 @@ export function prepRequest(draft: PrepDraft): PrepDraft {
 export function prepDraftFromNode(node: CanonicalFlowNode): PrepDraft {
   const config = (node.config ?? {}) as Record<string, unknown>;
   const params = config['params'] as Record<string, unknown> | undefined;
+  if (params?.['spec']) {
+    const spec = params['spec'] as {version: 1; operation: PrepOperation; params: Record<string, unknown>};
+    const inner = {...spec.params};
+    const steps = ((inner['steps'] ?? []) as Array<PrepStep & {kind?: PrepAction}>).map(step => ({...step, action: step.kind ?? step.action}));
+    delete inner['steps'];
+    const pins = (params['sources'] ?? []) as Array<{port: string; dataset_id?: string; dataset_slug?: string}>;
+    const inputs = Object.fromEntries((node.inputs ?? []).map(port => [port.name, {dataset_id: ''}]));
+    for (const pin of pins) inputs[pin.port] = {dataset_id: pin.dataset_id ?? '', ...(pin.dataset_slug ? {dataset_slug: pin.dataset_slug} : {})};
+    return structuredClone({spec: {version: spec.version, operation: spec.operation, params: inner, steps, outputs: (params['outputs'] ?? [{port: 'out', name: ''}]) as PrepOutput[], seed: Number(inner['seed'] ?? 42)}, inputs, placement: String(params['placement'] ?? 'auto'), timeout_s: params['timeout_s'] as number | null ?? null});
+  }
   return structuredClone((config['data_prep'] ?? params?.['data_prep']) as PrepDraft | undefined ?? newPrepDraft());
 }
 export function prepNodePatch(node: CanonicalFlowNode, draft: PrepDraft): Partial<CanonicalFlowNode> {
@@ -126,8 +142,23 @@ export function prepNodePatch(node: CanonicalFlowNode, draft: PrepDraft): Partia
     delete (params as Record<string, unknown>)['inputs_map'];
     delete (params as Record<string, unknown>)['data_prep'];
   }
-  config['data_prep'] = structuredClone(draft);
+  if (params && typeof params === 'object' && 'spec' in params) {
+    delete config['data_prep'];
+    config['params'] = {...params, ...canonicalPrepParams(draft)};
+  } else config['data_prep'] = structuredClone(draft);
   return { config, inputs, outputs };
+}
+/** New Flow nodes use the plan's wire contract; legacy readers remain lossless. */
+export function canonicalPrepParams(draft: PrepDraft): Record<string, unknown> {
+  const params = structuredClone(draft.spec.params);
+  if (draft.spec.operation === 'prepare') params['steps'] = draft.spec.steps.map(step => ({
+    id: step.id ?? crypto.randomUUID(), kind: step.action, enabled: step.enabled !== false, comment: step.comment ?? '', params: structuredClone(step.params),
+  }));
+  if (draft.spec.operation === 'sample' || draft.spec.operation === 'split') params['seed'] = draft.spec.seed;
+  return {spec: {version: 1, operation: draft.spec.operation, params},
+    outputs: structuredClone(draft.spec.outputs), sources: Object.entries(draft.inputs).flatMap<Record<string,string>>(([port, ref]) =>
+      ref.dataset_id ? [{port, dataset_id: ref.dataset_id}] : ref.dataset_slug ? [{port, dataset_slug: ref.dataset_slug}] : []),
+    placement: draft.placement ?? 'auto', timeout_s: draft.timeout_s ?? null};
 }
 export function boundedPreview(preview: PrepPreview): PrepPreview {
   return { ...preview, rows: preview.rows.slice(0, PREVIEW_ROW_LIMIT), schema: preview.schema.slice(0, 100) };
