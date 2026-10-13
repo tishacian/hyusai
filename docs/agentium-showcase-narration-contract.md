@@ -1,6 +1,6 @@
 # Contrat documentaire narration — Showcase (brouillon différé)
 
-> Hors lot actif à la demande de l’utilisateur le 13 octobre 2026. `narration_enabled=false` et le seed conserve ce service en brouillon. Gemini via OpenRouter est la route envisagée pour une reprise future ; aucun raccordement ni qualification du moteur/fournisseur n’est livré dans ce lot. Les sections ci-dessous décrivent la recette future.
+> Hors lot actif à la demande de l’utilisateur le 13 octobre 2026. `narration_enabled=false` : le Skill est masqué et le seed ne crée pas ce parcours. Les brouillons déjà présents ne sont pas activés. Gemini via OpenRouter est la route envisagée pour une reprise future ; aucun raccordement ni qualification du moteur/fournisseur n’est livré dans ce lot. Les sections ci-dessous décrivent la recette future.
 
 La chaîne `narration` conserve son moteur externe. Agentium possède les contrats, les actifs, l’exécution gouvernée, la revue et le reçu. Le Showcase sert de recette, sans client pilote requis.
 
