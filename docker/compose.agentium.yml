@@ -126,6 +126,8 @@ services:
     build:
       context: ..
       dockerfile: ./docker/Dockerfile.agentium-livekit-agent
+      args:
+        AGENTIUM_IMAGE_REVISION: ${AGENTIUM_IMAGE_REVISION:-unknown}
     container_name: agentium-livekit-agent
     restart: unless-stopped
     profiles: ["realtime"]

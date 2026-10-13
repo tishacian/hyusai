@@ -114,6 +114,26 @@ sur la VM, `cd frontend-ng && npx playwright test` (Node ≥ 18).
 - **Keycloak** : redeploy = `scripts/agentium-vm-deploy.sh keycloak-up`
   (Compose du worktree, cf. `docs/ops/secrets.md`) ; rotation admin =
   `deploy/rotate-keycloak-admin.sh` — hors périmètre d’un simple “push code”.
+- **LiveKit + sidecar STT** (`agentium-livekit`, `agentium-livekit-agent`) :
+  hors `up`, recréés seulement par `scripts/agentium-vm-deploy.sh livekit-up`
+  (Compose du worktree, `--wait`, seuls les services dont la config rendue a
+  changé). Le sidecar est construit depuis `livekit-agent/` au tag `<sha12>` :
+
+  ```bash
+  cd /srv/agentium-data/worktrees/demo-agentic
+  docker build -f docker/Dockerfile.agentium-livekit-agent \
+    --build-arg AGENTIUM_IMAGE_REVISION="$(git rev-parse HEAD)" \
+    -t agentium-livekit-agent:"$(git rev-parse --short=12 HEAD)" .
+  AGENTIUM_IMAGE_BUDGET_MB_LIVEKIT_AGENT=110 scripts/agentium-image-budget.sh "$(git rev-parse --short=12 HEAD)"
+  ```
+
+  Avant `livekit-up` : 0 session active
+  (`/healthz` du sidecar → `active_sessions: 0`) et 0 run actif ; un
+  recreate coupe les appels en cours. Le sidecar ne s'enregistre pas
+  auprès de LiveKit au démarrage : le backend lui POSTe `/dispatch` à
+  chaque session, il rejoint alors la room. Rollback : rejouer
+  `livekit-up` avec `AGENTIUM_IMAGE_TAG=<sha12 précédent>` (garder l'image
+  précédente). Rotation de la clé OpenAI : `docs/ops/secrets.md`.
 
 ---
 

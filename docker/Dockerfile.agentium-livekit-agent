@@ -12,6 +12,9 @@ ENV LIVEKIT_AGENT_HOST=0.0.0.0 \
 
 RUN npm run check && npm test
 
+ARG AGENTIUM_IMAGE_REVISION=unknown
+LABEL org.opencontainers.image.revision="${AGENTIUM_IMAGE_REVISION}"
+
 EXPOSE 8090
 
 CMD ["npm", "run", "start"]

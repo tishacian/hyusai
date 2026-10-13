@@ -217,6 +217,9 @@ plus la restauration du dump si une migration irréversible est passée.
 - Ne recrée `agentium-kc` qu'avec `agentium-vm-deploy.sh keycloak-up` (Compose
   du worktree, `127.0.0.1`, healthcheck, `unless-stopped`) ; jamais par
   `docker run`.
+- Ne recrée `agentium-livekit` / `agentium-livekit-agent` qu'avec
+  `agentium-vm-deploy.sh livekit-up`, hors session active ; jamais par
+  `docker run`.
 - Ne recrée `agentium-sftp` qu'avec `agentium-vm-deploy.sh sftp-up`, hors
   upload en cours : son image reste celle épinglée par digest dans
   `compose.agentium.vm-runtime.yml`, et `up` ne la touche pas.
@@ -248,11 +251,16 @@ Sur la VM demo mono-domaine, l'ingress public LiveKit peut rester sur
 vers `127.0.0.1:7880`. Le sous-domaine `livekit.agentium.papai.ai` n'est pas
 obligatoire tant que le certificat/DNS dedie n'existe pas.
 
-LiveKit n'est jamais construit, recréé ou arrêté par une commande Compose
-isolée en production. L'orchestrateur capture son image, son état, ses ports et
-sa restart policy, ferme l'ingress UDP/TCP, draine les participants, puis
-restaure exactement cet état après validation. Toute modification de clés,
-plage UDP ou profil `realtime` fait partie du SHA et de la transaction complète.
+En production, `agentium-livekit` et son sidecar `agentium-livekit-agent` ne
+sont recréés que par `agentium-vm-deploy.sh livekit-up` : Compose du worktree,
+bundle gelé (les clés `LIVEKIT_*` et `OPENAI_API_KEY` viennent de
+`compose.effective.env`), `--wait`, et seuls les services dont la config rendue
+a changé. Le sidecar est construit depuis `livekit-agent/` au tag `<sha12>`
+(`docs/vm-deploy-chat-runbook.md`). Recréer coupe les sessions en cours :
+vérifier avant `active_sessions: 0` sur le `/healthz` du sidecar et 0 run actif.
+Dans une transaction Release A, l'orchestrateur capture leur image, leur état,
+leurs ports et leur restart policy, ferme l'ingress UDP/TCP, draine les
+participants, puis restaure exactement cet état après validation.
 
 Ne pas sourcer tout `env/agentium.vm.env` : certains champs peuvent contenir des
 espaces non quotés et les secrets ne doivent pas apparaître dans l'historique du
@@ -370,7 +378,7 @@ VM par git (worktree de build), jamais par `scp`, et s'exécute en root avec un
 environnement nettoyé (`env -i`) : aucune variable ambiante ne peut rediriger
 Compose ou le stockage.
 
-Avant toute mutation (`migrate`, `up`, `catalog-apply`, `sftp-up`, `keycloak-up`), il refuse un
+Avant toute mutation (`migrate`, `up`, `catalog-apply`, `sftp-up`, `keycloak-up`, `livekit-up`), il refuse un
 stockage qui a quitté ses disques : `/srv/agentium-data` doit être le point de
 montage de `/dev/sdb` et chaque magasin un dossier réel dessus, le dépôt
 sécurisé le point de montage de `/dev/sdc`, les volumes MinIO/Qdrant les binds

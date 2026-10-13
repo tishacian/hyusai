@@ -2506,7 +2506,10 @@ async def _get_admin_token() -> Optional[str]:
         logger.error(
             "Keycloak client_secret not configured — admin API calls "
             "(signup, password reset, user management) are disabled. "
-            "Set KEYCLOAK_CLIENT_SECRET in backend/.env."
+            "Set KEYCLOAK_CLIENT_SECRET in the env file named by "
+            "AGENTIUM_ENV_FILE (source-001.env of the frozen runtime env "
+            "bundle on the VM), then recreate the backend; see "
+            "docs/ops/secrets.md."
         )
         return None
 
