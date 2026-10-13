@@ -14,6 +14,8 @@ from app.models.capability import Capability
 from app.models.skill import Skill
 from app.models.workspace import Workspace
 
+_SKILL_FEATURE_GATES = {"narration_run_v1": "narration_enabled"}
+
 
 @dataclass(frozen=True)
 class WorkspaceCatalogPolicy:
@@ -198,10 +200,13 @@ class SkillVisibility:
     ``universal_hidden``        carried by the universal tier, hidden here
     ``capability_not_enabled``  carried by a capability to enable by name
     ``unclaimed``               no capability reachable from here claims it
+    ``feature_disabled``        rollout is closed, before any catalog override
 
-    The last four are the lever that would surface the row, in the ``gaps``
+    The carrier reasons name the lever that would surface the row, in the ``gaps``
     vocabulary of :class:`CoverageGap`. ``key`` is that lever's key — the
     industry slug, the capability slug, or empty when the lever takes none.
+    A disabled feature instead names its rollout key; catalog curation cannot
+    lift this prerequisite.
     """
 
     visible: bool
@@ -242,7 +247,8 @@ def skill_visibility(
         blocked_reason, key = (blocked_levers or {}).get(skill_id, ("unclaimed", ""))
         return SkillVisibility(False, blocked_reason, key=key)
     carriers = (capability_index or {}).get(skill_id, ())
-    return SkillVisibility(visible, reason, carriers if visible else ())
+    key = _SKILL_FEATURE_GATES.get(str(skill.slug or ""), "") if reason == "feature_disabled" else ""
+    return SkillVisibility(visible, reason, carriers if visible else (), key=key)
 
 
 def skill_is_visible(
@@ -253,6 +259,18 @@ def skill_is_visible(
 ) -> bool:
     policy = policy or workspace_catalog_policy(workspace)
     return _skill_verdict(skill, workspace, visible_skill_ids, policy)[0]
+
+
+def _disabled_skill_feature(skill: Skill, workspace: Workspace) -> str | None:
+    key = _SKILL_FEATURE_GATES.get(str(skill.slug or ""))
+    if not key:
+        return None
+    from app.core.config import settings
+
+    features = _as_dict((workspace.settings or {}).get("features"))
+    if not getattr(settings, key) and features.get(key) is not True:
+        return key
+    return None
 
 
 def _skill_verdict(
@@ -266,12 +284,8 @@ def _skill_verdict(
 
     slug = str(skill.slug or "")
     skill_id = str(skill.id or "")
-    if slug == "narration_run_v1":
-        from app.core.config import settings
-
-        features = (workspace.settings or {}).get("features", {})
-        if not settings.narration_enabled and features.get("narration_enabled") is not True:
-            return False, "feature_disabled"
+    if _disabled_skill_feature(skill, workspace):
+        return False, "feature_disabled"
     if slug in policy.hidden_skills or skill_id in policy.hidden_skills:
         return False, "hidden_override"
     if skill.workspace_id == workspace.id:
@@ -351,6 +365,9 @@ class CoverageGap:
     universal tier), ``capability`` (enable or un-hide ``key``) or
     ``unclaimed`` — no capability reachable from this workspace claims these
     skills at all, so no tier decision will ever surface them.
+
+    ``feature`` identifies a closed rollout prerequisite, not a catalog action.
+    Enabling the feature still leaves ordinary carrier/curation rules in force.
 
     A skill blocked by several carriers appears under each lever that would
     surface it, because each answers "what shows up if I do this".
@@ -501,7 +518,12 @@ def catalog_coverage(
             category_visible[category] = category_visible.get(category, 0) + 1
         else:
             filtered_reasons[decision.reason] = filtered_reasons.get(decision.reason, 0) + 1
-        if decision.reason in CARRIER_BLOCKED_REASONS:
+        if decision.reason == "feature_disabled":
+            gap_skills.setdefault(("feature", decision.key), set()).add(slug)
+            gap_caps.setdefault(("feature", decision.key), set()).update(
+                str(cap.slug or cap.id or "") for cap in carriers
+            )
+        elif decision.reason in CARRIER_BLOCKED_REASONS:
             for lever, key, cap_slug in _levers_for(carriers, cap_decisions):
                 gap_skills.setdefault((lever, key), set()).add(slug)
                 if cap_slug:
@@ -615,7 +637,10 @@ def _audit_overrides(
                         and (slug in policy.enabled_skills or str(skill.id) in policy.enabled_skills)
                     )
                 )
-                effective = otherwise_visible if kind == "hidden" else not otherwise_visible
+                effective = (
+                    (otherwise_visible if kind == "hidden" else not otherwise_visible)
+                    and _disabled_skill_feature(skill, workspace) is None
+                )
                 status = "effective" if effective else "redundant"
             out.append(
                 CatalogOverride(
