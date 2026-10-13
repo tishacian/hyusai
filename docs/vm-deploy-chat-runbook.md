@@ -27,6 +27,12 @@ Si ton serveur utilise encore `/srv/agentium/omnirag` et `.venv`, adapte les `cd
 
 ---
 
+> Le stack Compose de `agentium.papai.ai` se déploie par
+> `scripts/agentium-vm-build.sh <sha40>` puis `scripts/agentium-vm-deploy.sh`
+> (`storage-check`, `migrate` si besoin, `up`, `livekit-up` si le sidecar
+> change de tag, `catalog-check`) : voir `docs/agentium-release-process.md`
+> §3–§6. Le flux systemd ci-dessous est historique.
+
 ## Flux standard (après merge / push Git)
 
 ### 1. Côté dépôt (machine locale ou CI)
@@ -117,14 +123,14 @@ sur la VM, `cd frontend-ng && npx playwright test` (Node ≥ 18).
 - **LiveKit + sidecar STT** (`agentium-livekit`, `agentium-livekit-agent`) :
   hors `up`, recréés seulement par `scripts/agentium-vm-deploy.sh livekit-up`
   (Compose du worktree, `--wait`, seuls les services dont la config rendue a
-  changé). Le sidecar est construit depuis `livekit-agent/` au tag `<sha12>` :
+  changé). Le sidecar est construit depuis `livekit-agent/` au tag `<sha12>`
+  par `scripts/agentium-vm-build.sh`, avec les six autres images et dans son
+  budget (110 MB) :
 
   ```bash
-  cd /srv/agentium-data/worktrees/demo-agentic
-  docker build -f docker/Dockerfile.agentium-livekit-agent \
-    --build-arg AGENTIUM_IMAGE_REVISION="$(git rev-parse HEAD)" \
-    -t agentium-livekit-agent:"$(git rev-parse --short=12 HEAD)" .
-  AGENTIUM_IMAGE_BUDGET_MB_LIVEKIT_AGENT=110 scripts/agentium-image-budget.sh "$(git rev-parse --short=12 HEAD)"
+  R=/srv/agentium-data/worktrees/demo-agentic
+  sudo git -C "$R" fetch -q origin demo/agentic
+  bash <(git -C "$R" show <sha40>:scripts/agentium-vm-build.sh) <sha40>
   ```
 
   Avant `livekit-up` : 0 session active
