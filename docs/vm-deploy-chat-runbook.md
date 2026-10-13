@@ -111,8 +111,9 @@ sur la VM, `cd frontend-ng && npx playwright test` (Node ≥ 18).
   même venv pour `pip` / `alembic` évite les surprises.
 - **Orchestrateur** : certaines routes exigent l’orchestrateur initialisé ; les
   smokes qui touchent au chat complet le vérifient implicitement.
-- **Keycloak** : rotation / redeploy = scripts sous `deploy/`
-  (`redeploy-keycloak.sh`, etc.) — hors périmètre d’un simple “push code”.
+- **Keycloak** : redeploy = `scripts/agentium-vm-deploy.sh keycloak-up`
+  (Compose du worktree, cf. `docs/ops/secrets.md`) ; rotation admin =
+  `deploy/rotate-keycloak-admin.sh` — hors périmètre d’un simple “push code”.
 
 ---
 

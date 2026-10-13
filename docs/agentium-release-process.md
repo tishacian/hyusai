@@ -381,7 +381,11 @@ sudo env AGENTIUM_IMAGE_TAG=<sha12> "$DEPLOY" up
 `--no-build --pull never`, so the images from §4 must exist at the tag.
 Infrastructure containers (pg, Keycloak, Qdrant, MinIO, RabbitMQ, SFTP,
 LiveKit) are never touched by this path; `sftp-up` recreates SFTP alone when
-its bind changes.
+its bind changes, and `keycloak-up` recreates Keycloak alone (env rotation,
+theme or realm export change). The VM runtime overlay declares
+`restart: unless-stopped` for Keycloak and LiveKit as for the application
+services, so they come back after a reboot; the Release A executor's
+`restart: no` is a transaction-only posture.
 
 `up` then waits for the backend's `/api/v1/build-info` to report the tag's
 revision with `revision_verified: true` and fails otherwise, naming the tag it

@@ -11,10 +11,14 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[4]
 LAUNCHER = ROOT / "scripts" / "agentium-vm-deploy.sh"
 GATE = ROOT / "scripts" / "agentium-maintenance-gate.sh"
+RELEASE_A = ROOT / "scripts" / "deploy-agentium-release-a-safe.sh"
+BASE_COMPOSE = ROOT / "docker" / "compose.agentium.yml"
+VM_OVERLAY = ROOT / "docker" / "compose.agentium.vm-runtime.yml"
 SCRIPT = LAUNCHER.read_text(encoding="utf-8")
 DEFAULT_D = "/srv/agentium-data/runtime-env/2026-10-12"
 
@@ -237,3 +241,46 @@ def test_gate_is_opt_in_and_driven_through_the_frozen_helper() -> None:
     assert 'bash "$RUN_DIR/agentium-maintenance-gate.sh" "$mode"' in gate
     assert "launcher-open:launcher |" in GATE.read_text(encoding="utf-8")
     assert "gate-exit|journal|" in SCRIPT
+
+
+def _merged_service(name: str) -> dict:
+    base = yaml.safe_load(BASE_COMPOSE.read_text(encoding="utf-8"))["services"][name]
+    overlay = yaml.safe_load(VM_OVERLAY.read_text(encoding="utf-8"))["services"].get(name, {})
+    return {**base, **overlay}
+
+
+def test_containers_release_a_parks_at_restart_no_come_back_after_a_reboot() -> None:
+    """Release A sets restart=no on these only inside its transaction; at rest
+    the VM render must bring every one of them back after a reboot."""
+    body = RELEASE_A.read_text(encoding="utf-8").split("\ndisable_writer_restarts() {\n", 1)[1]
+    parked = re.search(r"for service in ([^;]+); do", body).group(1).split()
+    assert {"agentium-kc", "agentium-livekit", "agentium-livekit-agent"} <= set(parked)
+    for service in parked:
+        assert _merged_service(service)["restart"] == "unless-stopped", service
+    overlay = yaml.safe_load(VM_OVERLAY.read_text(encoding="utf-8"))["services"]
+    for service in ("agentium-kc", "agentium-livekit", "agentium-livekit-agent"):
+        assert overlay[service] == {"restart": "unless-stopped"}
+
+
+def test_keycloak_is_recreated_only_through_the_worktree_compose() -> None:
+    kc = _merged_service("agentium-kc")
+    assert kc["ports"] and all(port.startswith("127.0.0.1:") for port in kc["ports"])
+    assert kc["healthcheck"]["test"][0] == "CMD-SHELL" and "/kc/realms/" in kc["healthcheck"]["test"][1]
+    assert kc["networks"] == ["agentium-net"]
+    assert kc["restart"] == "unless-stopped"
+    assert sorted(kc["volumes"]) == [
+        "../backend/keycloak/realm-export.json:/opt/keycloak/data/import/realm.json:ro",
+        "../backend/keycloak/themes/agentium:/opt/keycloak/themes/agentium:ro",
+    ]
+    assert re.fullmatch(
+        r"\s*storage_check\s*\n\s*compose --profile infra up -d --no-build --no-deps --pull never "
+        r"--force-recreate --wait --wait-timeout 300 agentium-kc",
+        _shell_case("keycloak-up"),
+    )
+    assert "|sftp-up|keycloak-up|" in SCRIPT
+    assert not (ROOT / "deploy" / "redeploy-keycloak.sh").exists()
+    for script in (*ROOT.joinpath("deploy").rglob("*.sh"), *ROOT.joinpath("scripts").rglob("*.sh")):
+        text = script.read_text(encoding="utf-8")
+        assert "docker run" not in text or not re.search(r"agentium-kc|keycloak/keycloak", text), script
+    for doc in (*ROOT.joinpath("docs", "ops").glob("*.md"), ROOT / "docs" / "vm-deploy-chat-runbook.md"):
+        assert "redeploy-keycloak.sh" not in doc.read_text(encoding="utf-8"), doc

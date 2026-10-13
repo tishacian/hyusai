@@ -95,20 +95,29 @@ bootstrap).
    sudo sed -i "s|DATABASE_URL=postgresql://agentium:[^@]*@|DATABASE_URL=postgresql://agentium:<new>@|" /home/ubuntu/omnirag/backend/.env
    ```
 
-4. **Update Keycloak env** (inject the new password on next redeploy) :
+4. **Update Keycloak env and recreate it** :
+
+   Keycloak reads its secrets (`KC_DB_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`,
+   `SMTP_USER`, `SMTP_PASSWORD`, ...) from the env file named by
+   `AGENTIUM_KEYCLOAK_ENV_FILE` in the frozen bundle's
+   `runtime-env/compose.effective.env` (root, `0600`). Edit the value
+   there with `sudoedit` (never echo it), then recreate the container
+   through the worktree Compose:
 
    ```bash
-   cd /srv/agentium-data/worktrees/demo-agentic/deploy
-   sudo KC_DB_PASSWORD='<new>' ./redeploy-keycloak.sh
+   sudo env AGENTIUM_IMAGE_TAG=<deployed sha12> \
+     AGENTIUM_ML_TS=1 AGENTIUM_ML_DEEP=1 AGENTIUM_HUGGINGFACE=1 AGENTIUM_OPENBAO=1 \
+     /srv/agentium-data/worktrees/demo-agentic/scripts/agentium-vm-deploy.sh keycloak-up
    ```
 
-   The redeploy script filters `KC_BOOTSTRAP_ADMIN_*` automatically
-   since Vague E / E0 and supports env-var overrides for rotatable
-   secrets via its `OVERRIDABLE_VARS` mechanism (`KC_DB_PASSWORD`,
-   `KEYCLOAK_ADMIN_PASSWORD`, `SMTP_USER`, `SMTP_PASSWORD`). Any var
-   in that list exported in the shell replaces the value captured
-   from the existing container; otherwise the old value is preserved.
-   First full cycle validated on 2026-04-24 during PG rotation.
+   `keycloak-up` runs the storage check, then
+   `compose --profile infra up --force-recreate --wait agentium-kc`: same
+   `127.0.0.1` port binding, healthcheck, `agentium-net` network,
+   read-only theme/realm mounts and `unless-stopped` policy as every
+   other Compose render, and it returns only once the healthcheck
+   passes. (It replaces the `deploy/redeploy-keycloak` script, retired
+   on 2026-10-13: it recreated the container with `docker run`,
+   published `0.0.0.0:8080` and dropped the healthcheck.)
 
 5. **Restart the backend :**
 
@@ -210,7 +219,7 @@ whatever the person could have seen.
 - [`../agentium-secret-registry.md`](../agentium-secret-registry.md) — secret
   registry, flow `secret` node, connector migration, OpenBao
 - `deploy/rotate-keycloak-admin.sh` — master admin CLI
-- `deploy/redeploy-keycloak.sh` — rebuilds `agentium-kc` with current env
-  (filters out `KC_BOOTSTRAP_ADMIN_*` since Vague E / E0)
+- `scripts/agentium-vm-deploy.sh keycloak-up` — recreates `agentium-kc`
+  through the worktree Compose with the frozen bundle's Keycloak env file
 - `backend/keycloak/keycloak.env` + `docker/test_env_files/keycloak.env`
   — dev placeholders, never populated with real creds in-repo
