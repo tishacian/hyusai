@@ -5,10 +5,13 @@ Ingress host: {{ .Values.ingress.host }}
   /            → agentium-frontend
   /api         → agentium-backend
   /kc          → agentium-kc
-{{- if .Values.livekit.enabled }}
-  /livekit/    → agentium-livekit :7880 (prefix stripped)
-{{- end }}
   hidden-path  → 404 (ingress-nginx snippet; see docs/ops/ingress-proxy-contract.md)
+{{- if .Values.livekit.enabled }}
+
+LiveKit host: {{ .Values.livekit.host }}
+  /            → agentium-livekit :7880 (no rewrite)
+  needs a DNS record to the ingress controller{{ if .Values.livekit.tls }} and a certificate for it (livekit.tls){{ end }}
+{{- end }}
 
 Secret: {{ include "agentium.secretName" . }}
   (createSecret={{ .Values.createSecret }}; loaded whole by application pods)

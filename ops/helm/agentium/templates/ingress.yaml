@@ -58,9 +58,9 @@ spec:
                   name: http
 {{- if .Values.livekit.enabled }}
 {{/*
-/livekit/ → LiveKit :7880 with the prefix stripped, as the VM nginx does. The
-rewrite is per Ingress, hence a second one on the same host. ingress-nginx
-then matches every path of the host as a case-insensitive regex.
+LiveKit signalling on its own host at /, so no Ingress needs a rewrite: in
+ingress-nginx a rewrite turns every path of its host into a regex.
+ingress.annotations (e.g. a cert-manager issuer) apply here too.
 */}}
 ---
 apiVersion: networking.k8s.io/v1
@@ -71,23 +71,20 @@ metadata:
     {{- include "agentium.labels" . | nindent 4 }}
     app.kubernetes.io/component: livekit
   annotations:
-    nginx.ingress.kubernetes.io/use-regex: "true"
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    {{- $websocket := dict "nginx.ingress.kubernetes.io/proxy-read-timeout" "3600" "nginx.ingress.kubernetes.io/proxy-send-timeout" "3600" "nginx.ingress.kubernetes.io/proxy-buffering" "off" }}
+    {{- toYaml (merge $websocket (deepCopy (.Values.ingress.annotations | default dict))) | nindent 4 }}
 spec:
   ingressClassName: {{ .Values.ingress.className | quote }}
-  {{- if .Values.ingress.tls }}
+  {{- with .Values.livekit.tls }}
   tls:
-    {{- toYaml .Values.ingress.tls | nindent 4 }}
+    {{- toYaml . | nindent 4 }}
   {{- end }}
   rules:
-    - host: {{ .Values.ingress.host | quote }}
+    - host: {{ .Values.livekit.host | quote }}
       http:
         paths:
-          - path: /livekit(/|$)(.*)
-            pathType: ImplementationSpecific
+          - path: /
+            pathType: Prefix
             backend:
               service:
                 name: agentium-livekit
