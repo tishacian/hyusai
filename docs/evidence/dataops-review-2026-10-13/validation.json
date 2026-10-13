@@ -1,0 +1,152 @@
+{
+  "recorded_at_utc": "2026-10-13T20:46:33.392135+00:00",
+  "source_revision": "54c30f9dba6e8b26be9a154c26da73b8b9b2824f",
+  "scope": "Local full backend collection and frontend unit/build checks. Does not qualify deployment, live HANA, S3, a provider, production image sizes or 3M daily rows.",
+  "runtime": {
+    "python": "3.12.14",
+    "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+    "node": "v24.19.0"
+  },
+  "packages": {
+    "pytest": "9.1.1",
+    "pytest-xdist": "3.8.0",
+    "sqlglot": "30.22.0",
+    "deltalake": "1.6.6",
+    "arro3-core": "0.9.1",
+    "torch": "2.14.0+cpu",
+    "tabicl": "2.2.0",
+    "safetensors": "0.8.0",
+    "einops": "0.8.2",
+    "skforecast": "0.25.0",
+    "statsmodels": "0.14.6",
+    "numba": "0.68.0"
+  },
+  "checks": [
+    {
+      "name": "supervisor_cleanup_regression",
+      "source_revision": "54c30f9dba6e8b26be9a154c26da73b8b9b2824f",
+      "passed": 20,
+      "exit_code": 0,
+      "original_test_body_unchanged": true,
+      "cpu_measurement_function_unchanged": true,
+      "local_log": "/tmp/probabl-cleanup-after.log",
+      "sha256": "816e7e8a7f3d20b24066197c44311fcd6f119ed24398de79c56acc191b72635c"
+    },
+    {
+      "name": "backend",
+      "cwd": "backend",
+      "command": "../.venv/bin/pytest -q -n 4 --dist=loadfile",
+      "exit_code": 0,
+      "passed": 8540,
+      "skipped": 132,
+      "warnings": 135190,
+      "seconds": 651.88,
+      "local_log": "/tmp/dataops-review-backend-complete.log",
+      "sha256": "c0bb055b624e3d318c0b64204599e199689dd5020b888d84afcce8c4c59a4a49"
+    },
+    {
+      "name": "frontend_unit",
+      "source_revision": "bcd8642309a732e0c771340bb725870cd57a8f04",
+      "cwd": "frontend-ng",
+      "command": "TMPDIR=/workspace/dataops-frontend-test-tmp GOMEMLIMIT=3GiB GOMAXPROCS=2 npm run test:unit",
+      "exit_code": 0,
+      "passed": 2172,
+      "failed": 0,
+      "skipped": 0,
+      "test_duration_ms": 69976.761767,
+      "local_log": "/tmp/dataops-review-frontend-verified-retry.log",
+      "sha256": "e6ee54f5ae68ab9a07b66d07d3b4857e26651df8f3476618db3bfbdc020be1ac"
+    },
+    {
+      "name": "frontend_build",
+      "source_revision": "bcd8642309a732e0c771340bb725870cd57a8f04",
+      "cwd": "frontend-ng",
+      "command": "TMPDIR=/workspace/dataops-frontend-test-tmp GOMEMLIMIT=3GiB GOMAXPROCS=2 npm run build:prod",
+      "exit_code": 0,
+      "seconds": 150.136,
+      "warnings": [
+        "Angular template diagnostics",
+        "Initial bundle warning threshold exceeded",
+        "Component style warning thresholds exceeded",
+        "CommonJS dagre optimization warning"
+      ],
+      "local_log": "/tmp/dataops-review-build-verified.log",
+      "sha256": "280f11619a3e03945f8cdcb3451da0d082ee69ea9c5d3d3c4081039474a54ca8"
+    },
+    {
+      "name": "compliance",
+      "command": ".venv/bin/python scripts/agentium_compliance.py --check",
+      "exit_code": 0,
+      "static_verified": 16,
+      "claims": 22,
+      "runner_attestations": "separate",
+      "local_log": "/tmp/dataops-review-compliance-verified.log",
+      "sha256": "8b9f0352050cb74dd52847480f4586a9c60f9371ad890b08fc04d9edcdc7f3cc"
+    },
+    {
+      "name": "environment_dependencies",
+      "command": "uv pip check --python .venv/bin/python",
+      "exit_code": 0,
+      "local_log": "/tmp/dataops-review-pip-check.log",
+      "sha256": "bfa17b7f3857b3150ee3b4e567ba91f4cdb097bc9b8d45dd0cb2315e2be2f723"
+    },
+    {
+      "name": "kubernetes_current",
+      "command": "ops/scripts/check-k8s-scaffold.sh",
+      "exit_code": 0,
+      "local_log": "/tmp/dataops-k8s-current.log",
+      "sha256": "15bcea02482e509ecbed47ad2fc267c571351eda447beea4d91f17b70f85dfbe"
+    },
+    {
+      "name": "kubernetes_baseline",
+      "revision": "ad10dbc2",
+      "command": "ops/scripts/check-k8s-scaffold.sh",
+      "exit_code": 0,
+      "local_log": "/tmp/dataops-k8s-baseline.log",
+      "sha256": "2855eef782da923671b63fa68a6b1bc338d4420e45045d8e6c5280dd7b84e1f8"
+    },
+    {
+      "name": "kubernetes_corrected_script_on_baseline",
+      "revision": "ad10dbc2",
+      "exit_code": 0,
+      "local_log": "/tmp/dataops-k8s-corrected-on-baseline.log",
+      "sha256": "2855eef782da923671b63fa68a6b1bc338d4420e45045d8e6c5280dd7b84e1f8"
+    }
+  ],
+  "preserved_documents_sha256": {
+    "docs/agentium-dataops-plan.md": "9a2f31a09cdb93918c754a93d5b28ba0e370f4a8ae1cbc020201c662bc35b6ab",
+    "docs/codex-review-dataops-typed-judge.md": "2c3b460db55e58bf1a89e95aa78d4ed5af7cfe3a36752b2eccf49c2033fb5dd2"
+  },
+  "non_passing_attempts": [
+    {
+      "scope": "controlled_supervisor_regression_before_fix",
+      "result": "1 failed",
+      "mechanism": "Delay SIGKILL delivery to the real descendant while the leader is terminated; the unmodified old runner returns before the delayed kill.",
+      "local_log": "/tmp/probabl-cleanup-before.log",
+      "sha256": "b57bbdbddc74bc45208ead46fa3bce817b71a2d228aace5038ebb4a12914d002"
+    },
+    {
+      "scope": "second_full_backend",
+      "result": "8532 passed, 1 failed, 132 skipped",
+      "resolution": "The child-group termination assertion observed a descendant still runnable after asynchronous SIGKILL. The runner and test were identical on the baseline, but this assertion was not reproduced there. Add a bounded termination barrier without weakening the assertion.",
+      "local_log": "/tmp/dataops-review-backend-verified.log",
+      "sha256": "cb5c28b7d42f25fd3ccd553e823ab4f46169bea32fad7ea32bb01a1f9339e89b"
+    },
+    {
+      "scope": "previous_full_backend",
+      "result": "8520 passed, 2 failed, 132 skipped",
+      "resolution": "Catalog feature gap corrected; missing optional TabICL runtime reproduced on ad10dbc2 and installed under existing constraints.",
+      "local_log": "/tmp/dataops-review-backend-final.log",
+      "sha256": "7179850eb53cafca35cb286cc58062dc42970dbb640312baf07b7c17cc597e9a"
+    },
+    {
+      "scope": "frontend_before_test_execution",
+      "result": "esbuild temporary output ran out of /tmp space",
+      "resolution": "Move test temporary directory to workspace disk; same unchanged source and suite.",
+      "local_log": "/tmp/dataops-review-frontend-verified.log",
+      "sha256": "235f90aa6de3d18342a04cbbd9dbb210ccd43aa40cbb0beb7bb155d645818c70"
+    }
+  ],
+  "trace_retention": "Local raw logs are not committed. This file preserves their summaries and hashes. Image and PostgreSQL qualification scopes have separate reports in this directory.",
+  "merge_or_deployment_approved": false
+}

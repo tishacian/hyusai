@@ -45,13 +45,13 @@ sur `45ccc915`. Son historique ne doit pas être réécrit pour effacer les erre
 
 | Domaine | État et critère restant |
 |---|---|
-| R0/S0/D0 | Structure reprise et garde-fous en code ; le déploiement, son build-info et HANA vivant ne sont pas qualifiés par les tests locaux. |
+| R0/S0/D0 | Structure reprise et garde-fous en code ; le déploiement, son build-info, HANA vivant et la révocation du token Docker Hub de papAI ne sont pas attestés par les tests locaux. |
 | D1a | Opérations et actions implémentées ; écarts de spec, typage, formules et corpus golden signalés par la revue. D1a n’est pas déclaré intégralement reçu. |
-| D1b | API/Flow présents ; publication et drapeaux nécessitent les corrections de la revue puis leurs tests. |
+| D1b | API/Flow présents ; publication et drapeaux corrigés par le suivi de revue, sans déclarer terminées toutes les exigences du lot. |
 | D2 | Formulaires et inspecteurs présents ; palette, ateliers et recette navigateur du plan restent à livrer. D2 n’est pas terminé. |
 | D3 | Versions Delta immuables et scoring en batches présents ; les lecteurs historiques matérialisent encore un Parquet unique, sans prouver une lecture multi-parts native partout. Téléchargement dataset et purge restent à recevoir. D3 n’est pas terminé. |
 | Actifs/promesses/juge | Extension demandée, implémentée sur la branche et soumise à la revue ; aucun statut de production ni qualification fournisseur ne découle du nombre de tests. |
-| Narration | Différée. Le catalogue et les chemins actifs doivent respecter ce choix. |
+| Narration | Différée. Catalogue masqué, runtime fermé et absence de seed de parcours tant que le drapeau est désactivé. |
 | D4/D5/D6/D7/I1/I2 | Différés par demande explicite ; leur absence reste visible dans le plan d’origine et n’est pas présentée comme une implémentation. |
 
 Les suites ciblées du premier lot ne remplaçaient pas une suite complète. Les
@@ -61,3 +61,28 @@ antérieures de volume ne qualifient ni la branche corrigée, ni une VM/limite
 cgroup, ni S3. La décision sur HANA Showcase reste ouverte avant déploiement :
 certificat valide, démonstration explicite ou exception TLS précise. Le
 durcissement n’est pas retiré pour rétablir implicitement une démonstration.
+
+Le [suivi des corrections](codex-review-dataops-typed-judge-followup.md) consigne
+les tests réellement exécutés et les qualifications encore bloquées.
+
+## Références après la restructuration
+
+Les numéros de ligne du plan original sont historiques. Cette table actualise
+les points d'entrée sans modifier la spécification ; les noms de fonctions
+restent préférables aux numéros de ligne.
+
+| Référence historique | Chemin actuel, relatif à la racine du dépôt |
+|---|---|
+| `wrappers.py`, fonctions et `_REGISTRY` | `backend/app/services/skills_registry/wrappers/skills.py` et `wrappers/registry.py` |
+| `dag.py`, fusion et configuration du graphe | `backend/app/services/run_engine/dag.py` ; `_merge_predecessor_outputs`, `_GRAPH_OWNED_BLOCKS` |
+| `execution_contract.py` | `backend/app/services/run_engine/execution_contract.py` ; la compilation publiée est dans `backend/app/services/flow_contracts.py` |
+| `dag_validator.py`, `data_prep_issues` | `backend/app/services/chains/dag_validator.py` et `backend/app/services/dataops/flow.py` |
+| HANA | `backend/app/api/v1/endpoints/hana.py`, `backend/app/services/connectors/hana/service.py` et `network_policy.py` |
+| Spec, compilation, runner DataOps | `backend/app/schemas/data_prep.py`, `backend/app/services/dataops/{compiler,steps,operations,preparation,sql_execution}.py`, `backend/app/resources/dataops_runner.py` ; tâches dans `backend/app/workers/tasks.py` |
+| Dataset, `RecipeExecution`, stockage | `backend/app/models/{tabular,recipe}.py`, `backend/app/services/tabular_datasets.py` et `backend/app/services/dataops/storage.py` |
+| Migration des actifs/promesses | `backend/alembic/versions/126_service_contracts.py` après `125_retrieval_bench_runs` ; elle ne remplace pas la migration future `compute_runs` de D4 |
+| Déploiement et worker permanent | `scripts/agentium-vm-deploy.sh`, `ops/helm/agentium/templates/{worker-dataops,dataops-watchdog}.yaml`, `ops/scripts/check-k8s-scaffold.sh` |
+
+Le découpage de modules prévu par D1a reste une cible ; tous les noms du plan ne
+correspondent pas à un module livré. Le Job Helm `migrate.yaml` lance Alembic et
+ne constitue pas le hook de réconciliation du catalogue prévu par D1b.
