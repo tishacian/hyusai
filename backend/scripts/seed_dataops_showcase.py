@@ -129,8 +129,15 @@ def narration_flow(
     )
 
 
+def narration_enabled(workspace):
+    features = (workspace.settings or {}).get("features", {})
+    return settings.narration_enabled or features.get("narration_enabled") is True
+
+
 def _catalog(db, workspace):
-    slugs = {"data_prep_v1", "ml_batch_score_v1", "narration_run_v1", "evaluate_v2"}
+    slugs = {"data_prep_v1", "ml_batch_score_v1"}
+    if narration_enabled(workspace):
+        slugs.update({"narration_run_v1", "evaluate_v2"})
     rows = db.query(Skill).filter(Skill.slug.in_(slugs)).all()
     policy = workspace_catalog_policy(workspace)
     by_slug = {
@@ -361,6 +368,8 @@ def seed(
             raise ValueError("SHOWCASE_VISION_ROUTE_INVALID")
     results = []
     for key, expected in WORKLOADS:
+        if key.startswith("narration") and not narration_enabled(workspace):
+            continue
         source_bindings = []
         if key.startswith("scoring"):
             reasons = list(model_reasons)
@@ -430,7 +439,7 @@ def seed(
             slugs = ["data_prep_v1", "ml_batch_score_v1"]
         else:
             reasons = []
-            if not settings.narration_enabled:
+            if not narration_enabled(workspace):
                 reasons.append("NARRATION_DEFERRED")
             if source is None:
                 reasons.append("NARRATION_SOURCE_REQUIRED")
@@ -591,6 +600,11 @@ def seed(
         "workspace_id": workspace.id,
         "owner_user_id": owner.id,
         "workloads": results,
+        "deferred_workloads": [
+            key
+            for key, _ in WORKLOADS
+            if key.startswith("narration") and not narration_enabled(workspace)
+        ],
         "runs_created": 0,
         "decisions_created": 0,
         "observed_at": datetime.now(UTC).isoformat(),

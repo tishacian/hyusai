@@ -18,7 +18,17 @@ from app.services.governed_assets import GovernanceError
 from app.services.recipe_executions import request_cancel, serialize_execution
 from app.services.tabular_datasets import TabularError
 
-router = APIRouter()
+
+def require_dataops(
+    workspace: Workspace = Depends(get_current_workspace), db: Session = Depends(get_db)
+):
+    from app.services.dataops.rollout import enabled
+
+    if not enabled(db, workspace.id, "dataops_enabled"):
+        raise HTTPException(404, detail={"code": "DATAPREP_DISABLED"})
+
+
+router = APIRouter(dependencies=[Depends(require_dataops)])
 
 
 class PrepRequest(BaseModel):

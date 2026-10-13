@@ -52,7 +52,9 @@ _FUNCTIONS = {
     "SUBSTRING",
     "REPLACE",
     "STRFTIME",
+    "TIME_TO_STR",  # sqlglot canonical name for DuckDB strftime
     "DATE_TRUNC",
+    "TIMESTAMP_TRUNC",
     "EXTRACT",
     "GREATEST",
     "LEAST",
@@ -66,9 +68,11 @@ _FUNCTIONS = {
     "CASE",
     "IF",
     "STRPOS",
+    "STR_POSITION",
     "SPLIT_PART",
     "REGEXP_REPLACE",
     "REGEXP_MATCHES",
+    "REGEXP_LIKE",
 }
 _TYPES = {
     "VARCHAR",
@@ -152,6 +156,8 @@ def compile_prep(
     spec: DataPrepSpec, schemas: dict[str, list[dict]], *, identities: dict | None = None
 ) -> CompiledPrep:
     operation, params = spec.operation, spec.params
+    if operation == "union" and not 2 <= len(schemas) <= 16:
+        raise ValueError("DATAPREP_INPUT_PORTS_INVALID")
     required = (
         {"left", "right"}
         if operation == "join"

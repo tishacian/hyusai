@@ -1,6 +1,6 @@
 """Type inference reads no rows; previews use sealed bounded persisted samples."""
 
-import re
+import io
 import tempfile
 import threading
 from pathlib import Path
@@ -15,32 +15,44 @@ _slots = threading.BoundedSemaphore(1)
 
 
 def native_schema(dataset):
-    import pyarrow as pa
+    """Read authoritative types from the Delta log or bounded Parquet footer.
 
-    fields = []
-    for field in dataset.schema_json:
-        name, dtype = field["name"], field.get("dtype", "")
-        kind = field.get("kind")
-        if dtype.startswith("Decimal"):
-            digits = re.findall(r"\d+", dtype)
-            value = (
-                pa.decimal128(int(digits[0]), int(digits[1]))
-                if len(digits) >= 2
-                else pa.decimal128(38, 6)
-            )
-        elif dtype == "Date":
-            value = pa.date32()
-        elif kind == "datetime" or dtype.startswith("Datetime"):
-            value = pa.timestamp("us", tz="UTC" if "UTC" in dtype else None)
-        else:
-            value = {
-                "integer": pa.int64(),
-                "float": pa.float64(),
-                "boolean": pa.bool_(),
-                "date": pa.date32(),
-            }.get(kind, pa.string())
-        fields.append(pa.field(name, value))
-    return pa.schema(fields)
+    Profiling JSON is presentation metadata: it can lose decimal precision,
+    timestamp units and nullability and must not determine compiled SQL types.
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from app.services.dataops.storage import delta_manifest, is_delta
+
+    if is_delta(dataset):
+        from deltalake import Schema
+
+        manifest = delta_manifest(dataset)
+        return pa.schema(Schema.from_json(manifest["metadata"]["schemaString"]).to_arrow())
+    store = get_object_store()
+    if store.backend == "local":
+        source = store._local_path(dataset.storage_key).open("rb")
+    else:
+        source = store._fsspec().open(
+            store._remote_key(dataset.storage_key), "rb", block_size=65536, cache_type="none"
+        )
+    with source:
+        source.seek(0, 2)
+        size = source.tell()
+        if size < 12:
+            raise ValueError("DATAPREP_PARQUET_FOOTER_INVALID")
+        source.seek(-8, 2)
+        trailer = source.read(8)
+        length = int.from_bytes(trailer[:4], "little")
+        if trailer[4:] != b"PAR1" or not 0 < length <= min(size - 12, 8 * 1024**2):
+            raise ValueError("DATAPREP_PARQUET_FOOTER_INVALID")
+        source.seek(-8 - length, 2)
+        footer = source.read(length)
+        if len(footer) != length:
+            raise ValueError("DATAPREP_PARQUET_FOOTER_INVALID")
+    # A schema reader needs metadata only, never a row group from the source.
+    return pq.read_schema(io.BytesIO(b"PAR1" + footer + trailer))
 
 
 def infer_schema(compiled, datasets, spec):

@@ -27,6 +27,7 @@ import {
 } from '@app/shared/cockpit/object-header.component';
 import { ToastrService } from 'ngx-toastr';
 import { I18nService } from '@app/core/i18n.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { formatBytes } from '@app/shared/ui/data-table.vm';
 import { DataService, isDatasetActive, type DatasetDto } from './data.service';
 import {
@@ -59,7 +60,9 @@ type OriginFilter = 'all' | DatasetSource;
       [kpis]="kpis()"
     >
       <div actions class="flex items-center gap-1.5">
-        <a [navLink]="{ surface: 'data-preparation' }" class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm">{{ i18n.t('dataops.title') }}</a>
+        @if (workspace.surfaceFeatureEnabled('data-preparation')) {
+          <a [navLink]="{ surface: 'data-preparation' }" class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm">{{ i18n.t('dataops.title') }}</a>
+        }
         <a
           [navLink]="{ surface: 'models' }"
           class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
@@ -369,6 +372,7 @@ type OriginFilter = 'all' | DatasetSource;
 })
 export class DataListComponent implements OnInit {
   readonly i18n = inject(I18nService);
+  protected readonly workspace = inject(WorkspaceService);
   protected readonly data = inject(DataService);
   private readonly toast = inject(ToastrService);
   private readonly destroyRef = inject(DestroyRef);

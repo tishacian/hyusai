@@ -308,6 +308,10 @@ def publish_window(
 ):
     _access(db, workspace, user, admin=True)
     window = _call(db, services.get_window, workspace.id, window_id, lock=True)
+    # A human caller carries the reviewed generation, not the worker's secret lease.
+    # Never replace that caller-supplied fence with the current database value.
+    if window.fence != body.fence:
+        raise HTTPException(409, detail={"code": "SERVICE_STALE_LEASE"})
     row = _call(
         db,
         services.publish_delivery,

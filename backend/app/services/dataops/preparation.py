@@ -34,7 +34,7 @@ from app.services.tabular_datasets import (
 
 
 def compile_inputs(db, workspace_id: str, spec: DataPrepSpec, inputs: dict):
-    if not isinstance(inputs, dict) or not inputs or len(inputs) > 8:
+    if not isinstance(inputs, dict) or not inputs or len(inputs) > 16:
         raise ValueError("DATAPREP_INPUT_PORTS_INVALID")
     datasets = {
         port: resolve_dataset_ref(db, workspace_id=workspace_id, ref=ref)

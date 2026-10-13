@@ -257,6 +257,23 @@ def upgrade():
 
 
 def downgrade():
+    # Keep additive tables when they contain audit facts. A rollback of application
+    # code must not silently erase accepted qualifications or delivery receipts.
+    connection = op.get_bind()
+    for table in (
+        "service_incidents",
+        "delivery_receipts",
+        "service_attempts",
+        "service_windows",
+        "service_contracts",
+        "asset_qualifications",
+        "asset_versions",
+    ):
+        if connection.execute(sa.text(f'SELECT 1 FROM "{table}" LIMIT 1')).first():
+            raise RuntimeError(
+                "126_service_contracts downgrade refused: governed records exist; "
+                "keep the additive schema when rolling back application code"
+            )
     op.drop_table("service_incidents")
     op.drop_table("delivery_receipts")
     op.drop_table("service_attempts")

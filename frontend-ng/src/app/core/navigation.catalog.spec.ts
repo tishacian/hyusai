@@ -23,6 +23,7 @@ import {
   navigationSurfaceUrl,
   pathAllowedBySurfaceIds,
   resolveNavLink,
+  surfaceFeatureEnabled,
   isObjectLens,
   type HierarchyObjectType,
   HYPERVISOR_FACETS,
@@ -35,6 +36,24 @@ const EMPTY_ANCESTRY = {
   skillInvocationId: null,
   skillRef: null,
 };
+
+test('DataOps navigation uses resolved rollout flags and stays closed before workspace hydration', () => {
+  for (const [surface, key, fallback] of [
+    ['data-preparation', 'dataops_enabled', 'data'],
+    ['work-services', 'service_contracts', 'work'],
+  ]) {
+    assert.equal(agentiumSurfaceById(surface)?.featureGate?.fallbackSurface, fallback);
+    assert.equal(surfaceFeatureEnabled(surface, null), false);
+    assert.equal(surfaceFeatureEnabled(surface, {}), false);
+    assert.equal(surfaceFeatureEnabled(surface, {settings:{features:{[key]:'true'}}}), false);
+    assert.equal(surfaceFeatureEnabled(surface, {settings:{features:{[key]:true}}}), true);
+    assert.equal(surfaceFeatureEnabled(surface, {settings:{features:{[key]:false}},effective_features:{[key]:true}}), true, 'global activation is resolved by the server');
+    assert.equal(surfaceFeatureEnabled(surface, {settings:{features:{[key]:true}},effective_features:{[key]:false}}), false, 'server revocation is authoritative');
+    assert.equal(surfaceFeatureEnabled(fallback, {}), true, 'the parent surface remains available');
+  }
+  assert.equal(surfaceFeatureEnabled('work-services', {effective_features:{dataops_enabled:true}}), false);
+  assert.equal(surfaceFeatureEnabled('data-preparation', {effective_features:{service_contracts:true}}), false);
+});
 
 function flowSection() {
   const build = COCKPIT_VERBS.find((verb) => verb.key === 'build')!;

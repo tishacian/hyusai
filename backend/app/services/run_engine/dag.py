@@ -2522,11 +2522,19 @@ async def _execute_node(
                 continue
             port = edge.to_port or "in"
             if "outputs" in upstream:
-                if not edge.from_port or edge.from_port not in upstream["outputs"]:
+                outputs = upstream["outputs"]
+                if not isinstance(outputs, dict):
                     return {"output": {}, "terminal_error": "DATAPREP_SOURCE_PORT_REQUIRED"}
-                reference = upstream["outputs"][edge.from_port]
+                source_port = edge.from_port
+                if not source_port and len(outputs) == 1:
+                    source_port = next(iter(outputs))
+                if source_port not in outputs:
+                    return {"output": {}, "terminal_error": "DATAPREP_SOURCE_PORT_REQUIRED"}
+                reference = outputs[source_port]
             else:
                 reference = upstream
+            if not isinstance(reference, dict):
+                return {"output": {}, "terminal_error": "DATAPREP_DATASET_REQUIRED"}
             if "dataset_id" not in reference:
                 native = reference.get("dataset_ref") or reference.get("asset_ref") or reference
                 if isinstance(native, dict) and native.get("asset_id"):

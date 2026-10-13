@@ -4,7 +4,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { DataPrepEditorComponent } from '@app/features/data/data-prep-editor.component';
 import { TypedJudgeEditorComponent } from '@app/features/data/typed-judge-editor.component';
 import { DataService, type DatasetDto } from '@app/features/data/data.service';
-import { newJudgeDraft, newPrepDraft, prepNodePatch, type PrepDraft, type TypedJudgeDraft } from '@app/features/data/dataops.models';
+import { newJudgeDraft, prepDraftFromNode, prepNodePatch, type PrepDraft, type TypedJudgeDraft } from '@app/features/data/dataops.models';
 import { FlowStore } from './flow.store';
 
 @Component({
@@ -20,7 +20,7 @@ export class FlowDataOpsInspectorComponent {
   private readonly store = inject(FlowStore); private readonly data = inject(DataService);
   readonly datasets = signal<DatasetDto[]>([]); readonly failed = signal(false);
   readonly slug = computed(() => (this.node().config as Record<string, unknown>)?.['skill_slug']);
-  readonly prep = computed(() => ((this.node().config as Record<string, unknown>)?.['data_prep'] as PrepDraft | undefined) ?? newPrepDraft());
+  readonly prep = computed(() => prepDraftFromNode(this.node()));
   readonly judge = computed(() => ((this.node().config as Record<string, unknown>)?.['typed_evaluation'] as TypedJudgeDraft | undefined) ?? newJudgeDraft());
   constructor() { effect(() => { if (this.slug() === 'data_prep_v1') void this.loadDatasets(); }); }
   private async loadDatasets(): Promise<void> { this.failed.set(false); try { this.datasets.set(await this.data.refresh()); } catch { this.failed.set(true); } }

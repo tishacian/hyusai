@@ -96,6 +96,7 @@ export function prepColumnsBefore(draft: PrepDraft, left: string[], right: strin
   return [...new Set(columns.filter(Boolean))];
 }
 export function prepRequest(draft: PrepDraft): PrepDraft {
+  if (draft.spec.operation === 'union' && prepDraftPorts(draft).length > 16) throw new Error('dataops.error.ports');
   if (draft.spec.outputs.length > 8 || !draft.spec.outputs.length || new Set(draft.spec.outputs.map(output => output.port)).size !== draft.spec.outputs.length) throw new Error('dataops.error.ports');
   if (!draft.spec.outputs.every(output => output.name.trim() && output.name.length <= 200) || new Set(draft.spec.outputs.map(o => o.name)).size !== draft.spec.outputs.length) throw new Error('dataops.error.output_name');
   if (!prepDraftPorts(draft).every(port => draft.inputs[port]?.dataset_id)) throw new Error('dataops.error.inputs');
@@ -110,10 +111,23 @@ export function prepRequest(draft: PrepDraft): PrepDraft {
   if (new TextEncoder().encode(serialized).length > 256000) throw new Error('dataops.error.parameters');
   return structuredClone(draft);
 }
+export function prepDraftFromNode(node: CanonicalFlowNode): PrepDraft {
+  const config = (node.config ?? {}) as Record<string, unknown>;
+  const params = config['params'] as Record<string, unknown> | undefined;
+  return structuredClone((config['data_prep'] ?? params?.['data_prep']) as PrepDraft | undefined ?? newPrepDraft());
+}
 export function prepNodePatch(node: CanonicalFlowNode, draft: PrepDraft): Partial<CanonicalFlowNode> {
   const inputs: NodePort[] = prepDraftPorts(draft).map(name => ({ name, schema: 'object', required: true }));
   const outputs: NodePort[] = draft.spec.outputs.map(output => ({ name: output.port, schema: 'object' }));
-  return { config: { ...(node.config ?? {}), data_prep: structuredClone(draft) }, inputs, outputs };
+  const config = structuredClone(node.config ?? {}) as Record<string, unknown>;
+  delete config['inputs_map'];
+  const params = config['params'];
+  if (params && typeof params === 'object' && !Array.isArray(params)) {
+    delete (params as Record<string, unknown>)['inputs_map'];
+    delete (params as Record<string, unknown>)['data_prep'];
+  }
+  config['data_prep'] = structuredClone(draft);
+  return { config, inputs, outputs };
 }
 export function boundedPreview(preview: PrepPreview): PrepPreview {
   return { ...preview, rows: preview.rows.slice(0, PREVIEW_ROW_LIMIT), schema: preview.schema.slice(0, 100) };
