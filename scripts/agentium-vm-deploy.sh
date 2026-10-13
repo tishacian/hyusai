@@ -479,6 +479,12 @@ sftp-up)
 	storage_check
 	compose --profile sftp up -d --no-build --no-deps --pull never agentium-sftp
 	;;
+# Keycloak is outside `up` too. Its secrets come from the env file named by
+# AGENTIUM_KEYCLOAK_ENV_FILE in the frozen bundle: rotate there, then run this.
+keycloak-up)
+	storage_check
+	compose --profile infra up -d --no-build --no-deps --pull never --force-recreate --wait --wait-timeout 300 agentium-kc
+	;;
 catalog-check) catalog ;;
 catalog-apply)
 	storage_check
@@ -508,7 +514,7 @@ ml-ts-stop) compose --profile ml-ts rm --stop --force "${ML_TS_ALL[@]}" ;;
 ml-deep-stop) compose --profile ml-deep rm --stop --force "${ML_DEEP_ALL[@]}" ;;
 ps) compose "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" "${OPENBAO_PROFILE[@]}" ps ;;
 *)
-	echo "usage: $0 {images|storage-check|migrate|up|gate-exit|journal|sftp-up|catalog-check|catalog-apply|openbao-prepare|openbao-init|openbao-snapshot|openbao-status|ml-ts-stop|ml-deep-stop|ps}" >&2
+	echo "usage: $0 {images|storage-check|migrate|up|gate-exit|journal|sftp-up|keycloak-up|catalog-check|catalog-apply|openbao-prepare|openbao-init|openbao-snapshot|openbao-status|ml-ts-stop|ml-deep-stop|ps}" >&2
 	exit 2
 	;;
 esac
