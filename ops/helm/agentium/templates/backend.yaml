@@ -39,6 +39,7 @@ spec:
           env:
             {{- include "agentium.appSecretEnv" . | nindent 12 }}
             {{- include "agentium.openbaoEnv" (list .) | nindent 12 }}
+            {{- include "agentium.livekitApiEnv" . | nindent 12 }}
             {{- if .Values.huggingface.enabled }}
             {{- include "agentium.hfOfflineEnv" . | nindent 12 }}
             {{- end }}

@@ -58,3 +58,23 @@ variable "enable_web_app_routing" {
   type    = bool
   default = true
 }
+
+variable "media_node_pool" {
+  description = "LiveKit media pool for Helm livekit.network.mode=hostNetwork. Off by default."
+  type = object({
+    enabled        = bool
+    name           = optional(string, "media")
+    vm_size        = optional(string, "Standard_D4s_v5")
+    node_count     = optional(number, 1)
+    udp_port_start = optional(number, 50000)
+    udp_port_end   = optional(number, 50100)
+    rtc_tcp_port   = optional(number, 7881)
+  })
+  default = { enabled = false }
+}
+
+variable "livekit_public_ip" {
+  description = "Static IP for Helm livekit.network.mode=loadBalancer. Off by default."
+  type        = bool
+  default     = false
+}

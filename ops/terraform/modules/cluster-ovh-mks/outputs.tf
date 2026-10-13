@@ -23,3 +23,7 @@ output "cluster_id" {
 output "nodepool_id" {
   value = ovh_cloud_project_kube_nodepool.default.id
 }
+
+output "media_nodepool_id" {
+  value = var.media_nodepool.enabled ? ovh_cloud_project_kube_nodepool.media[0].id : ""
+}

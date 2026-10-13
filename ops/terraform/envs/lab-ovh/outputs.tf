@@ -19,3 +19,7 @@ output "cluster_name" {
 output "cluster_id" {
   value = module.cluster.cluster_id
 }
+
+output "media_nodepool_id" {
+  value = module.cluster.media_nodepool_id
+}

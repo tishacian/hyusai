@@ -46,6 +46,17 @@ variable "max_nodes" {
   default = 3
 }
 
+variable "media_nodepool" {
+  description = "Optional LiveKit media pool, labelled and tainted agentium.io/media=livekit."
+  type = object({
+    enabled     = bool
+    name        = optional(string, "media")
+    flavor_name = optional(string, "b3-8")
+    nodes       = optional(number, 1)
+  })
+  default = { enabled = false }
+}
+
 variable "ingress_class" {
   description = "IngressClass the Helm chart should target. OVH labs install ingress-nginx."
   type        = string

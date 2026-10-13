@@ -23,3 +23,7 @@ output "cluster_id" {
 output "acr_login_server" {
   value = var.create_acr ? azurerm_container_registry.this[0].login_server : ""
 }
+
+output "livekit_public_ip" {
+  value = var.livekit_public_ip ? azurerm_public_ip.livekit[0].ip_address : ""
+}

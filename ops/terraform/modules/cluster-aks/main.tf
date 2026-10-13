@@ -28,6 +28,48 @@ resource "azurerm_kubernetes_cluster" "this" {
   }
 }
 
+# LiveKit media nodes (Helm livekit.network.mode=hostNetwork). AKS nodes have
+# no public address and the managed NSG drops host ports unless the pool
+# allows them.
+resource "azurerm_kubernetes_cluster_node_pool" "media" {
+  count = var.media_node_pool.enabled ? 1 : 0
+
+  name                  = var.media_node_pool.name
+  kubernetes_cluster_id = azurerm_kubernetes_cluster.this.id
+  vm_size               = var.media_node_pool.vm_size
+  node_count            = var.media_node_pool.node_count
+  enable_node_public_ip = true
+  node_labels = {
+    "agentium.io/media" = "livekit"
+  }
+  node_taints = ["agentium.io/media=livekit:NoSchedule"]
+
+  node_network_profile {
+    allowed_host_ports {
+      port_start = var.media_node_pool.udp_port_start
+      port_end   = var.media_node_pool.udp_port_end
+      protocol   = "UDP"
+    }
+    allowed_host_ports {
+      port_start = var.media_node_pool.rtc_tcp_port
+      port_end   = var.media_node_pool.rtc_tcp_port
+      protocol   = "TCP"
+    }
+  }
+}
+
+# Static address for Helm livekit.network.mode=loadBalancer. In the node
+# resource group, where the cluster identity may attach it to its LoadBalancer.
+resource "azurerm_public_ip" "livekit" {
+  count = var.livekit_public_ip ? 1 : 0
+
+  name                = "${var.cluster_name}-livekit"
+  resource_group_name = azurerm_kubernetes_cluster.this.node_resource_group
+  location            = azurerm_resource_group.this.location
+  allocation_method   = "Static"
+  sku                 = "Standard"
+}
+
 resource "azurerm_container_registry" "this" {
   count               = var.create_acr ? 1 : 0
   name                = var.acr_name
