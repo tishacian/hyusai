@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 import os
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -37,6 +38,7 @@ from scripts import seed_dataops_showcase as showcase
 def setup(db_session, monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "object_store_backend", "local")
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))
+    monkeypatch.setattr(settings, "narration_enabled", False)
     monkeypatch.setattr(settings, "dataops_enabled", True)
     monkeypatch.setattr(settings, "ml_score_streaming_enabled", True)
     workspace = Workspace(
@@ -91,14 +93,12 @@ def test_missing_configuration_stays_draft_and_replay_creates_no_facts(db_sessio
         value["contract_id"] for value in second["workloads"]
     ]
     assert all(not row["ready"] and not row["published"] for row in second["workloads"])
-    assert {"JUDGE_CONFIG_REQUIRED", "JUDGE_PROFILE_REQUIRED"} <= set(
-        second["workloads"][2]["reasons"]
-    )
+    assert second["deferred_workloads"] == ["narration-500"]
     assert (
-        db_session.query(System).filter_by(workspace_id=workspace.id, status="draft").count() == 3
+        db_session.query(System).filter_by(workspace_id=workspace.id, status="draft").count() == 2
     )
     assert db_session.query(SystemVersion).filter_by(workspace_id=workspace.id).count() == 0
-    assert db_session.query(ServiceContract).filter_by(workspace_id=workspace.id).count() == 3
+    assert db_session.query(ServiceContract).filter_by(workspace_id=workspace.id).count() == 2
     assert db_session.query(Run).filter_by(workspace_id=workspace.id).count() == 0
     assert db_session.query(Decision).filter_by(workspace_id=workspace.id).count() == 0
     for system in db_session.query(System).filter_by(workspace_id=workspace.id):
@@ -144,6 +144,7 @@ def test_narration_draft_explains_image_route_and_malformed_source(
     db_session, setup, monkeypatch, malformed
 ):
     workspace, owner = setup
+    monkeypatch.setattr(settings, "narration_enabled", True)
     content = b"actual source image fixture"
     key = f"workspaces/{workspace.id}/sources/image.bin"
     get_object_store().write_once(key, content)
@@ -222,6 +223,9 @@ def test_ready_scoring_publishes_real_compiled_flow_and_versioned_service(
     assert db_session.query(SystemVersion).filter_by(system_id=system.id).count() == 1
 
 
+@pytest.mark.skipif(
+    sys.platform != "linux", reason="Process-tree RSS sampling requires Linux /proc"
+)
 def test_benchmark_uses_real_preparation_and_native_model(db_session, setup, artifact):
     workspace, owner = setup
     model = _register(db_session, workspace, artifact)

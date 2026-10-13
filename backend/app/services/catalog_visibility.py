@@ -266,6 +266,12 @@ def _skill_verdict(
 
     slug = str(skill.slug or "")
     skill_id = str(skill.id or "")
+    if slug == "narration_run_v1":
+        from app.core.config import settings
+
+        features = (workspace.settings or {}).get("features", {})
+        if not settings.narration_enabled and features.get("narration_enabled") is not True:
+            return False, "feature_disabled"
     if slug in policy.hidden_skills or skill_id in policy.hidden_skills:
         return False, "hidden_override"
     if skill.workspace_id == workspace.id:

@@ -1085,6 +1085,7 @@ def serialize_dataset(dataset: TabularDataset, *, include_preview: bool = False)
 # A curated list rather than the whole bag: the block also holds the authored
 # statement, and a dataset page is not where a Flow's program is published.
 _PUBLIC_LINEAGE_KEYS = (
+    "prep",
     "enrichment",
     "huggingface",
     "labeling",

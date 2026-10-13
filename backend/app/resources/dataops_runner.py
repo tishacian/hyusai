@@ -16,9 +16,9 @@ everything it needs from a manifest:
 Three things differ from the in-process engine it replaces, and they are the
 point of moving it:
 
-* inputs are scanned lazily through ``pyarrow.dataset``: projection and filter
-  push down, so a statement reading two columns of a wide table never loads the
-  rest, and nothing is copied into a duckdb table first;
+* native DuckDB scans copy the authorized input Parquet files into temporary
+  tables before sealing external access. This copy can spill to disk and is part
+  of the execution budget; it does not materialize the input in Python;
 * the result streams to Parquet batch by batch, so the runner's memory is the
   engine's working set, not the size of the answer;
 * past its memory budget duckdb spills to ``temp_directory`` instead of

@@ -843,6 +843,7 @@ async def get_me(user: User = Depends(get_current_user), db: DBSession = Depends
                     "slug": ws.slug,
                     "role": m.role,
                     "mode": getattr(ws, "mode", "executive") or "executive",
+                    "effective_features": _effective_workspace_features(db, ws),
                     "app_entitlements": list_member_app_entitlements(db, m),
                     "workspace_app_runtime": safe_workspace_app_runtime_payload(ws, db=db),
                 }
@@ -1121,7 +1122,7 @@ def _effective_workspace_features(
     """Return server-resolved managed flags without mutating persisted settings."""
 
     revision = str(settings.agentium_image_revision or "").strip().lower()
-    return {
+    effective = {
         feature: authoritative_projection_enabled(
             db,
             workspace,
@@ -1130,6 +1131,15 @@ def _effective_workspace_features(
         )
         for projection, feature in FEATURE_BY_PROJECTION.items()
     }
+    stored = (workspace.settings or {}).get("features", {})
+    stored = stored if isinstance(stored, Mapping) else {}
+    effective.update(
+        dataops_enabled=bool(settings.dataops_enabled or stored.get("dataops_enabled") is True),
+        service_contracts=bool(
+            settings.service_contracts_enabled or stored.get("service_contracts") is True
+        ),
+    )
+    return effective
 
 
 def _lock_workspace_and_role_for_membership_mutation(

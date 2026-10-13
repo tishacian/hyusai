@@ -1,23 +1,39 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
-import { boundedPreview, changePrepOperation, changeQuestionType, executionDatasets, movePrepStep, newJudgeDraft, newPrepDraft, newQuestion, prepColumnsBefore, prepDraftPorts, prepNodePatch, prepRequest, typedResult, validateJudgeDraft, validateQuestions } from './dataops.models';
+import { boundedPreview, changePrepOperation, changeQuestionType, executionDatasets, movePrepStep, newJudgeDraft, newPrepDraft, newQuestion, prepColumnsBefore, prepDraftFromNode, prepDraftPorts, prepNodePatch, prepRequest, typedResult, validateJudgeDraft, validateQuestions } from './dataops.models';
 import { hashSaltOptions, prepFieldDefault, prepFields, prepNumber, prepParamChange, prepStepDefaults, prepStepParamChange } from './prep-fields';
 import type { SecretMeta } from '@app/shared/secrets/secrets.api';
 
-test('changing prepare to join preserves the pinned version and publishes matching Flow ports without losing bindings', () => {
+test('changing prepare to join preserves pinned versions and runtime settings and removes forbidden generic selectors', () => {
   const initial = newPrepDraft(); initial.inputs = {in: {dataset_id: 'left-v7'}}; initial.spec.outputs[0].name = 'joined';
   const join = changePrepOperation(initial, 'join'); join.inputs['right'] = {dataset_id: 'right-v2'};
   const node = {id: 'prep', config: {skill_slug: 'data_prep_v1', inputs_map: {left: 'upstream.out'}, timeout_s: 900}} as unknown as CanonicalFlowNode;
   const patch = prepNodePatch(node, join);
   assert.deepEqual(patch.inputs?.map(p => p.name), ['left', 'right']);
   assert.deepEqual(patch.outputs?.map(p => p.name), ['out']);
-  assert.deepEqual((patch.config as any).inputs_map, {left: 'upstream.out'});
+  assert.equal(Object.hasOwn(patch.config!, 'inputs_map'), false);
   assert.equal((patch.config as any).timeout_s, 900);
   assert.deepEqual((patch.config as any).data_prep.inputs, {left: {dataset_id: 'left-v7'}, right: {dataset_id: 'right-v2'}});
   join.inputs['left'].dataset_id = 'mutated';
   assert.equal((patch.config as any).data_prep.inputs.left.dataset_id, 'left-v7');
   assert.deepEqual(initial.inputs, {in: {dataset_id: 'left-v7'}});
+  assert.deepEqual((node.config as any).inputs_map, {left: 'upstream.out'});
+});
+
+test('editing a seeded nested preparation preserves its draft and writes one graph-owned configuration', () => {
+  const original = newPrepDraft(); original.spec.outputs[0].name = 'Seeded'; original.inputs = {in:{dataset_id:'v7'}};
+  const node = {id:'prep',config:{skill_slug:'data_prep_v1',params:{data_prep:original,inputs_map:{in:'old.out'},timeout_s:900}}} as unknown as CanonicalFlowNode;
+  const draft = prepDraftFromNode(node);
+  assert.deepEqual(draft,original);
+  draft.spec.outputs[0].name = 'Updated';
+  const patch = prepNodePatch(node,draft);
+  assert.deepEqual((patch.config as any).params,{timeout_s:900});
+  assert.equal((patch.config as any).data_prep.spec.outputs[0].name,'Updated');
+  assert.deepEqual((patch.config as any).data_prep.inputs,{in:{dataset_id:'v7'}});
+  assert.equal(original.spec.outputs[0].name,'Seeded');
+  assert.deepEqual((node.config as any).params.inputs_map,{in:'old.out'});
+  assert.deepEqual(prepDraftFromNode({...node,config:patch.config}),draft);
 });
 
 test('union retains all selected input ports; split publishes each named output and resets irrelevant parameters', () => {
@@ -34,6 +50,15 @@ test('compilation request refuses missing versions and duplicate output ports an
   draft.inputs = {in: {dataset_id: 'version-1'}};
   const request = prepRequest(draft); request.spec.outputs[0].name = 'changed'; assert.equal(draft.spec.outputs[0].name, 'result');
   draft.spec.outputs.push({port: 'out', name: 'second'}); assert.throws(() => prepRequest(draft), /ports/);
+});
+
+test('union requests accept sixteen inputs and reject a seventeenth before submission', () => {
+  const draft = changePrepOperation(newPrepDraft(), 'union');
+  draft.spec.outputs[0].name = 'Combined';
+  draft.inputs = Object.fromEntries(Array.from({length:16}, (_, index) => [`in_${index + 1}`, {dataset_id:`version-${index + 1}`} ]));
+  assert.equal(Object.keys(prepRequest(draft).inputs).length,16);
+  draft.inputs['in_17'] = {dataset_id:'version-17'};
+  assert.throws(() => prepRequest(draft),/ports/);
 });
 
 test('join and ordered transformations offer the columns actually available at each step', () => {

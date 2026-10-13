@@ -91,13 +91,30 @@ async def test_published_scoring_flow_delivers_verified_work_receipt_and_portabl
             s.db, s.workspace.id, "dataset", "showcase:pipeline-input", dataset_manifest(source)
         )
         assets.record_qualification(
-            s.db, s.workspace.id, assets.asset_ref(first_source_asset),
-            status="qualified", policy={"authority": "source_integrity"}, evidence={},
+            s.db,
+            s.workspace.id,
+            assets.asset_ref(first_source_asset),
+            status="qualified",
+            policy={"authority": "source_integrity"},
+            evidence={},
         )
         expected = tabular_predict.predict_rows(
             s.db, model, original.select(model.features).head(8).to_dicts()
         )["predictions"]
         graph = seed.scoring_flow(skills, "pipeline-test", source, model)
+        # Two real preparations exercise implicit single-output routing. A
+        # consumer of split outputs must still name the selected branch.
+        second_prep = copy.deepcopy(next(n for n in graph["nodes"] if n["id"] == "prepare"))
+        second_prep["id"] = "prepare-again"
+        second_prep["config"]["params"]["data_prep"]["spec"]["outputs"][0]["name"] += " again"
+        graph["nodes"].insert(2, second_prep)
+        next(n for n in graph["nodes"] if n["id"] == "score")["config"]["inputs_map"][
+            "dataset_id"
+        ]["node_id"] = "prepare-again"
+        for edge in graph["edges"]:
+            if edge["from"] == "prepare":
+                edge["from"] = "prepare-again"
+        graph["edges"].append({"from": "prepare", "to": "prepare-again"})
         system = seed._system(
             s.db,
             s.workspace,
@@ -125,8 +142,12 @@ async def test_published_scoring_flow_delivers_verified_work_receipt_and_portabl
             s.db, s.workspace.id, "dataset", "showcase:pipeline-input", dataset_manifest(source)
         )
         assets.record_qualification(
-            s.db, s.workspace.id, assets.asset_ref(source_asset),
-            status="qualified", policy={"authority": "source_integrity"}, evidence={},
+            s.db,
+            s.workspace.id,
+            assets.asset_ref(source_asset),
+            status="qualified",
+            policy={"authority": "source_integrity"},
+            evidence={},
         )
         original_digest = dataset_digest(source)
         now = datetime.utcnow()
@@ -138,10 +159,14 @@ async def test_published_scoring_flow_delivers_verified_work_receipt_and_portabl
             {
                 "starts_on": now.date().isoformat(),
                 "deadline": "23:59",
-                "inputs": [{
-                    "payload_key": "dataset_id", "kind": "dataset",
-                    "logical_key": "showcase:pipeline-input", "representation": "native_id",
-                }],
+                "inputs": [
+                    {
+                        "payload_key": "dataset_id",
+                        "kind": "dataset",
+                        "logical_key": "showcase:pipeline-input",
+                        "representation": "native_id",
+                    }
+                ],
                 "output_schema": {
                     "type": "object",
                     "required": ["dataset_id", "scored_rows"],
@@ -190,17 +215,25 @@ async def test_published_scoring_flow_delivers_verified_work_receipt_and_portabl
             .order_by(SkillInvocation.started_at)
             .all()
         )
-        assert [call.skill_slug for call in invocations] == ["data_prep_v1", "ml_batch_score_v1"]
+        assert [call.skill_slug for call in invocations] == [
+            "data_prep_v1",
+            "data_prep_v1",
+            "ml_batch_score_v1",
+        ]
         assert all(call.status == "completed" for call in invocations), [
             (call.status, call.error) for call in invocations
         ]
         executions = s.db.query(RecipeExecution).filter_by(run_id=run.id).all()
         assert {row.input_json["kind"] for row in executions} == {"data_prep", "ml_stream_score"}
         assert all(row.status == "succeeded" for row in executions)
-        prep = next(row for row in executions if row.input_json["kind"] == "data_prep")
-        score = next(row for row in executions if row.input_json["kind"] == "ml_stream_score")
+        prep = next(row for row in executions if row.node_id == "prepare")
+        second_prep_execution = next(row for row in executions if row.node_id == "prepare-again")
+        score = next(row for row in executions if row.node_id == "score")
         assert prep.input_json["inputs"] == {"in": source.id}
-        assert score.input_json["dataset_id"] == prep.output_json["dataset_id"]
+        assert second_prep_execution.input_json["inputs"] == {
+            "in": prep.output_json["dataset_id"]
+        }
+        assert score.input_json["dataset_id"] == second_prep_execution.output_json["dataset_id"]
         assert score.input_json["served_id"] == model.id
 
         output = s.db.get(TabularDataset, run.output_ref["dataset_id"])

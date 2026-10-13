@@ -748,6 +748,7 @@ def compile_execution_contract(
     allowed_skill_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     """Compile immutable ingress/node/output schemas for one accepted Flow."""
+    from app.services.dataops.flow import data_prep_issues
     from app.services.flow_data_sources import data_source_issues, describe_issue
     from app.services.ml_methodology import validate_methodology_flow
     from app.services.tabular_datasets import TabularError
@@ -756,6 +757,13 @@ def compile_execution_contract(
         validate_methodology_flow(dict(flow))
     except TabularError as exc:
         raise FlowContractError(code=exc.code.lower(), message=exc.message, path="nodes") from exc
+
+    prep_issues = data_prep_issues(flow)
+    if prep_issues:
+        node_id, reason = prep_issues[0]
+        raise FlowContractError(
+            code="data_prep_invalid", message=reason, path=f"nodes/{node_id}/config"
+        )
 
     source_issues = data_source_issues(flow)
     if source_issues:

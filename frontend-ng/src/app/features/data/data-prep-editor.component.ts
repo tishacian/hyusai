@@ -13,7 +13,7 @@ import { PrepParamsComponent } from './prep-params.component';
     <div class="dp-grid">@for (port of ports(); track port) {
       <div><label class="dp-field"><span>{{ i18n.t('dataops.input') }} · {{ port }}</span><select class="dp-input" [value]="value().inputs[port]?.dataset_id ?? ''" (change)="dataset(port, val($event))"><option value="">{{ i18n.t('dataops.choose') }}</option>@for (row of datasets(); track row.id) { <option [value]="row.id" [disabled]="row.status !== 'ready'">{{ row.name }} · v{{ row.version }}</option> }</select></label>@if (value().spec.operation === 'union' && port !== 'in_1' && port !== 'in_2') { <button type="button" class="dp-button" (click)="removeInput(port)">{{ i18n.t('dataops.remove') }}</button> }</div>
     }</div>
-    @if (value().spec.operation === 'union') { <button type="button" class="dp-button" (click)="addInput()">{{ i18n.t('dataops.add_input') }}</button> }
+    @if (value().spec.operation === 'union') { <button type="button" class="dp-button" [disabled]="ports().length >= 16" (click)="addInput()">{{ i18n.t('dataops.add_input') }}</button> }
     <app-prep-params [kind]="value().spec.operation" [params]="value().spec.params" [columns]="columns()" [rightColumns]="rightColumns()" (paramsChange)="params($event)" />
     @if (value().spec.operation === 'split' || value().spec.operation === 'sample') {
       <label class="dp-field"><span>{{ i18n.t('dataops.seed') }}</span><input class="dp-input" type="number" min="0" max="2147483647" step="1" [value]="value().spec.seed" (input)="seed(number($event))" /></label>
@@ -55,7 +55,7 @@ export class DataPrepEditorComponent {
   }
   operation(value: string): void { this.valueChange.emit(changePrepOperation(this.value(), value as PrepOperation)); }
   dataset(port: string, id: string): void { this.change(d => { d.inputs[port] = { dataset_id: id }; }); }
-  addInput(): void { this.change(d => { let n = 3; while (d.inputs[`in_${n}`]) n++; d.inputs[`in_${n}`] = { dataset_id: '' }; }); }
+  addInput(): void { if (this.value().spec.operation !== 'union' || this.ports().length >= 16) return; this.change(d => { let n = 3; while (d.inputs[`in_${n}`]) n++; d.inputs[`in_${n}`] = { dataset_id: '' }; }); }
   removeInput(port: string): void { this.change(d => { delete d.inputs[port]; }); }
   params(params: Record<string, unknown>): void { this.change(d => { d.spec.params = params; }); }
   seed(seed: number): void { this.change(d => { d.spec.seed = seed; }); }

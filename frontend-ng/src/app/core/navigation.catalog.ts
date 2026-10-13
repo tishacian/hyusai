@@ -58,6 +58,8 @@ export interface AgentiumSurfaceRoute {
    * chrome: Work opens it in a new tab rather than inside Work.
    */
   standalone?: boolean;
+  /** Server-resolved rollout flag; the fallback remains an available parent surface. */
+  featureGate?: { key: 'dataops_enabled' | 'service_contracts'; fallbackSurface: string };
 }
 
 /**
@@ -182,11 +184,13 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     id: 'data-preparation', label: 'Data preparation', route: '/data/preparation', lens: 'build',
     object: 'Dataset', scope: 'workspace', apiPrefix: '/api/v1/dataops', status: 'canonical',
     audience: 'workspace-user', description: 'Versioned data preparation, bounded previews and executions.',
+    featureGate: { key: 'dataops_enabled', fallbackSurface: 'data' },
   },
   {
     id: 'work-services', label: 'Service deliveries', route: '/work/services', lens: 'operate',
     object: 'System', scope: 'workspace', apiPrefix: '/api/v1/service-contracts', status: 'canonical',
     audience: 'workspace-user', description: 'Daily service promises, human review and delivery receipts.',
+    featureGate: { key: 'service_contracts', fallbackSurface: 'work' },
   },
   {
     id: 'models',
@@ -908,6 +912,20 @@ export function workspaceFamily(settings: unknown): string {
 export function surfaceOfferedToFamily(surfaceId: string, family: string): boolean {
   const families = agentiumSurfaceById(surfaceId)?.families;
   return !families?.length || families.includes(family);
+}
+
+/** A resolved server flag wins over persisted settings, including an explicit false. */
+export function surfaceFeatureEnabled(
+  surfaceId: string,
+  workspace: { settings?: Record<string, unknown> | null; effective_features?: Record<string, boolean> } | null | undefined,
+): boolean {
+  const gate = agentiumSurfaceById(surfaceId)?.featureGate;
+  if (!gate) return true;
+  const effective = workspace?.effective_features;
+  if (effective && Object.prototype.hasOwnProperty.call(effective, gate.key)) return effective[gate.key] === true;
+  const stored = workspace?.settings?.['features'];
+  return !!stored && typeof stored === 'object' && !Array.isArray(stored)
+    && (stored as Record<string, unknown>)[gate.key] === true;
 }
 
 export function agentiumSurfaceRoute(surfaceId: string): string {
