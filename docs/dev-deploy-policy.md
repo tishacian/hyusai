@@ -214,6 +214,9 @@ plus la restauration du dump si une migration irréversible est passée.
 ### Ne touche pas à l'infra par accident
 - N'utilise **pas** le profil `infra` (`--profile infra`) en déploiement courant :
   il recrée Postgres / Keycloak / Qdrant.
+- Ne recrée `agentium-kc` qu'avec `agentium-vm-deploy.sh keycloak-up` (Compose
+  du worktree, `127.0.0.1`, healthcheck, `unless-stopped`) ; jamais par
+  `docker run`.
 - Ne recrée `agentium-sftp` qu'avec `agentium-vm-deploy.sh sftp-up`, hors
   upload en cours : son image reste celle épinglée par digest dans
   `compose.agentium.vm-runtime.yml`, et `up` ne la touche pas.
@@ -367,12 +370,13 @@ VM par git (worktree de build), jamais par `scp`, et s'exécute en root avec un
 environnement nettoyé (`env -i`) : aucune variable ambiante ne peut rediriger
 Compose ou le stockage.
 
-Avant toute mutation (`migrate`, `up`, `catalog-apply`, `sftp-up`), il refuse un
+Avant toute mutation (`migrate`, `up`, `catalog-apply`, `sftp-up`, `keycloak-up`), il refuse un
 stockage qui a quitté ses disques : `/srv/agentium-data` doit être le point de
 montage de `/dev/sdb` et chaque magasin un dossier réel dessus, le dépôt
 sécurisé le point de montage de `/dev/sdc`, les volumes MinIO/Qdrant les binds
 attendus, et les conteneurs en cours leurs montages contractuels. Il n'appelle
-jamais `docker volume prune`, un seed ni le profil `infra`.
+jamais `docker volume prune` ni un seed, et le profil `infra` seulement via
+`keycloak-up`, pour le seul service `agentium-kc`.
 
 Les garde-fous repris de la chaîne safe sont le dump vérifié avant `migrate`, le
 gate de maintenance optionnel, la preuve `build-info` après `up` et le journal

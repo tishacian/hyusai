@@ -137,5 +137,6 @@ set -a; source /etc/agentium/kc-admin.env; set +a
 
 - `docs/ops/email-deliverability.md` — where `SMTP_USER` /
   `SMTP_PASSWORD` get wired in alongside `KC_ADMIN` / `KC_ADMIN_PASSWORD`.
-- `deploy/redeploy-keycloak.sh` — recreates the container; does not
-  touch the DB, so the rotated admin survives.
+- `scripts/agentium-vm-deploy.sh keycloak-up` — recreates the container
+  through the worktree Compose; does not touch the DB, so the rotated
+  admin survives.
