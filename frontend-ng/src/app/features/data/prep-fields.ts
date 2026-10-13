@@ -1,5 +1,5 @@
 import type { SecretMeta } from '@app/shared/secrets/secrets.api';
-export interface Field { key: string; kind: 'text' | 'column' | 'columns' | 'number' | 'boolean' | 'list' | 'select' | 'literal' | 'collection' | 'numbers' | 'secret' | 'literals' | 'options'; min?: number; max?: number; integer?: boolean; default?: unknown; options?: string[]; children?: Field[]; }
+export interface Field { key: string; kind: 'selector' | 'order' | 'text' | 'column' | 'columns' | 'number' | 'boolean' | 'list' | 'select' | 'literal' | 'collection' | 'numbers' | 'secret' | 'literals' | 'options'; labelKey?: string; maxLength?: number; maxItems?: number; min?: number; max?: number; integer?: boolean; default?: unknown; options?: string[]; children?: Field[]; }
 const column = (key = 'column'): Field => ({ key, kind: 'column' });
 const columns = (key = 'columns'): Field => ({ key, kind: 'columns' });
 const text = (key: string): Field => ({ key, kind: 'text' });
@@ -10,6 +10,11 @@ const boolean=(key:string):Field=>({key,kind:'boolean'});
 const literal=(key:string):Field=>({key,kind:'literal'});
 const collection=(key:string,children:Field[]):Field=>({key,kind:'collection',children});
 export const PREP_FIELDS: Record<string, Field[]> = {
+  aggregate_groups: [columns('group_by')],
+  pivot_options: [column(),{key:'values',kind:'literals'},select('naming',['{value}','{value}_{op}_{column}']),text('null_label'),select('others',['drop','column']),text('others_label')],
+  unpivot_v1: [columns('id_columns'),columns('value_columns'),text('name_column'),text('value_column'),boolean('drop_nulls')],
+  split_order: [columns('key'),columns('stratify_by'),columns('order_by')],
+  sample_order: [columns('order_by'),columns('stratify_by')],
 
   move_columns:[columns(),select('position',['start','end','before','after']),column('anchor')],
   copy_column:[column(),text('output')],concat_columns:[columns(),text('separator'),text('output'),select('nulls',['skip','empty','propagate'])],
@@ -93,6 +98,8 @@ export function validatePrepParams(kind: string, params: Record<string, unknown>
 
 export function prepStepParamChange(kind: string, params: Record<string, unknown>, key: string, value: unknown): Record<string, unknown> {
   const next = prepParamChange(params,key,value);
+  if (kind === 'split_order' && key === 'key' && Array.isArray(value) && !value.length) delete next[key];
+  if (kind === 'hash' && key === 'salt' && value === 'none') { delete next['salt_secret_ref']; delete next['salt_version']; }
   if (kind === 'replace_values' && key === 'match' && value !== 'exact') next['normalize_accents'] = false;
   if (kind === 'parse_date' && key === 'preset' && value) delete next['format'];
   if (kind === 'parse_date' && key === 'format' && value) delete next['preset'];
@@ -104,3 +111,41 @@ export function hashSaltOptions(secrets: SecretMeta[]): Array<{name:string; ref:
   return secrets.filter(secret => secret.scope === 'workspace' && secret.kind === 'generic' && secret.metadata?.['purpose'] === 'dataops_hash_salt' && !secret.disabled_at && secret.value_set)
     .flatMap(secret => secret.versions.filter(version => !version.destroyed_at).map(version => ({name:secret.name,ref:secret.ref.split('#')[0]+'#'+version.version,version:version.version})));
 }
+
+export interface PrepFieldDefinition {key: string; name?: string; label_key: string; schema: Record<string,unknown>; required?: boolean;}
+export interface PrepStepDefinition {kind: string; group: string; label_key: string; params_schema: Record<string,unknown>; fields: PrepFieldDefinition[];}
+function schemaField(key: string, schema: Record<string,unknown>, known?: Field): Field {
+  const variants=(schema['oneOf']??[]) as Array<Record<string,unknown>>;
+  const selector=variants.some(value=>value['type']==='object'&&!!(value['properties'] as Record<string,unknown>)?.['mode']);
+  const items=schema['items'] as Record<string,unknown>|undefined;
+  const order=key==='order_by'||key==='keys'&&!!items;
+  const options=schema['enum'] as string[]|undefined;
+  let kind:Field['kind']=selector?'selector':order?'order':known?.kind??'text';
+  if(!selector&&!order){
+    if(options)kind='select';else if(schema['type']==='boolean')kind='boolean';else if(schema['type']==='integer'||schema['type']==='number')kind='number';
+    else if(Array.isArray(schema['type']))kind='literal';
+    else if(items){if(items['type']==='object')kind='collection';else if(Array.isArray(items['type']))kind='literals';else if(items['type']==='number')kind='numbers';else if(items['enum'])kind='options';else if(!known)kind=['partition_by','columns','stratify_by'].includes(key)?'columns':'list';}
+  }
+  const children=items?.['properties'] as Record<string,Record<string,unknown>>|undefined;
+  return {...known,key,kind,...(options?{options}:{}),...(items?.['enum']?{options:items['enum'] as string[]}:{}),min:schema['minimum'] as number|undefined,max:schema['maximum'] as number|undefined,integer:schema['type']==='integer',maxLength:schema['maxLength'] as number|undefined,maxItems:schema['maxItems'] as number|undefined,...(children?{children:Object.entries(children).map(([name,child])=>schemaField(name,child,known?.children?.find(field=>field.key===name)))}:{})};
+}
+export function catalogPrepFields(definition:PrepStepDefinition):Field[]{
+  const known=prepFields(definition.kind);
+  return definition.fields.filter(field=>!(definition.kind==='rename_columns'&&field.key==='mapping')&&!(definition.kind==='cast'&&['column','type'].includes(field.key)))
+    .map(field=>({...schemaField(field.key,field.schema,known.find(value=>value.key===field.key)),labelKey:field.label_key}));
+}
+
+/** A missing union source is NULL; bind real names by port, never by array position. */
+export function prepBindingSources(value: unknown): Record<string,string> {
+  if(Array.isArray(value))return Object.fromEntries(value.filter(row=>row&&typeof row.port==='string'&&typeof row.column==='string').map(row=>[row.port,row.column]));
+  return value&&typeof value==='object'?Object.fromEntries(Object.entries(value).filter((entry):entry is [string,string]=>typeof entry[1]==='string')):{};
+}
+export function prepSplitConditionOutputs(ports: string[], rows: Array<Record<string,unknown>>, fallback: string): Array<Record<string,unknown>> {
+  return ports.filter(port=>port!==fallback).map(port=>({port,filter:rows.find(row=>row['port']===port)?.['filter']??''}));
+}
+
+export function prepRenameRows(value:unknown):Array<[string,string]> {
+  return Array.isArray(value)?value.map(row=>[String(row.from??''),String(row.to??'')]):Object.entries((value??{}) as Record<string,string>);
+}
+
+export const PREP_SELECTOR_KINDS=['integer','float','string','boolean','date','datetime','other'] as const;

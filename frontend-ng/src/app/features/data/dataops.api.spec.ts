@@ -83,3 +83,26 @@ test('authorized service assets load in bounded pages and late workspace metadat
   h.calls[0].response.next({items:[],total:75,offset:25,limit:25}); assert.equal((await first).total,75);
   const late = h.work.assets(50); h.switch(); h.calls[1].response.next({items:[],total:75,offset:50,limit:25}); await assert.rejects(late,/workspace_changed/); h.destroy();
 });
+
+test('Flow preview separates outputs, sends the selected stable step and preserves explicit disabled state', async () => {
+  const h=harness(),draft=newPrepDraft();draft.spec.steps=[{id:'11111111-1111-4111-8111-111111111111',action:'formula',enabled:false,comment:'Review',params:{output:'total',expression:'amount*2'}}];draft.spec.outputs[0].name='Prepared';
+  const pending=h.data.previewFlow(draft,{in:{dataset_id:'version-7'}},draft.spec.steps[0].id);
+  assert.equal(h.calls[0].url,'/api/v1/dataops/preview');const body=h.calls[0].body as any;assert.equal(body.limit,100);assert.equal(body.step_id,draft.spec.steps[0].id);assert.equal(body.spec.steps,undefined);assert.equal(body.spec.outputs,undefined);assert.deepEqual(body.outputs,draft.spec.outputs);assert.equal(body.spec.params.steps[0].enabled,false);assert.equal(body.spec.params.steps[0].kind,'formula');
+  h.calls[0].response.next({rows:[],schema:[],sample:true});await pending;h.destroy();
+});
+test('Flow upstream preview strips the empty direct reference and binds the selected output port', async () => {
+ const h=harness(),draft=newPrepDraft();const upstream={spec:{version:1,operation:'split',params:{}},inputs:{in:{dataset_id:'version-2'}},outputs:[{port:'train',name:'Train'},{port:'test',name:'Test'}],output_port:'test'};
+ const pending=h.data.previewFlow(draft,{in:{dataset_id:'',upstream}});assert.deepEqual((h.calls[0].body as any).inputs,{in:{upstream}});h.calls[0].response.next({rows:[],schema:[],sample:true});await pending;h.destroy();
+});
+
+test('split preview sends the exact selected port separately from the saved spec', async()=>{
+ const h=harness(),draft=newPrepDraft();draft.spec.operation='split';const pending=h.data.previewFlow(draft,{in:{dataset_id:'v3'}},undefined,'test');const body=h.calls[0].body as any;assert.equal(body.output_port,'test');assert.equal(body.spec.output_port,undefined);assert.equal(body.step_id,undefined);h.calls[0].response.next({rows:[],schema:[],sample:true});await pending;h.destroy();
+});
+
+test('nested Flow preparation references are canonical at every level, including a split selection',async()=>{
+ const h=harness(),draft=newPrepDraft();const leaf={spec:{version:1,operation:'split',params:{}},inputs:{in:{dataset_id:'v3'}},outputs:[{port:'train',name:'Train'},{port:'test',name:'Test'}],output_port:'test'};
+ const middle={spec:{version:1,operation:'prepare',params:{steps:[]}},inputs:{in:{dataset_id:'',upstream:leaf}},outputs:[{port:'out',name:'Prepared'}],output_port:'out'};
+ const pending=h.data.previewFlow(draft,{in:{dataset_id:'',upstream:middle}});const inputs=(h.calls[0].body as any).inputs;
+ assert.deepEqual(Object.keys(inputs.in),['upstream']);assert.deepEqual(Object.keys(inputs.in.upstream.inputs.in),['upstream']);assert.equal(inputs.in.upstream.inputs.in.upstream.output_port,'test');assert.deepEqual(inputs.in.upstream.inputs.in.upstream.inputs,{in:{dataset_id:'v3'}});
+ h.calls[0].response.next({rows:[],schema:[],sample:true});await pending;h.destroy();
+});

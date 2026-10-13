@@ -181,3 +181,20 @@ test('judge draft validates budget ceilings and never treats blank or fractional
   }
   assert.ok(validateJudgeDraft({...draft,tariff:{...draft.tariff,input_per_million:1001}}).includes('dataops.error.judge_tariff'));
 });
+
+import { prepBindingSources, prepSplitConditionOutputs, prepRenameRows, PREP_SELECTOR_KINDS } from './prep-fields';
+test('union bindings preserve port identity and split conditions omit the fallback and ratios', () => {
+ assert.deepEqual(prepBindingSources([{port:'in_2',column:'code'},{port:'in_1',column:'id'}]),{in_2:'code',in_1:'id'});
+ assert.deepEqual(prepBindingSources({in_1:'id',in_2:null}),{in_1:'id'});
+ assert.deepEqual(prepSplitConditionOutputs(['yes','no'],[{port:'yes',ratio:0.5,filter:'amount > 0'},{port:'no',ratio:0.5}],'no'),[{port:'yes',filter:'amount > 0'}]);
+});
+
+test('the rename editor reads canonical ordered mappings without replacing their source names by indices',()=>{
+ assert.deepEqual(prepRenameRows([{from:'old',to:'new'}]),[['old','new']]);assert.deepEqual(prepRenameRows({old:'new'}),[['old','new']]);
+});
+
+test('numeric selectors use the compiler float kind and clearing a key preserves the full row default',()=>{
+ assert.ok(PREP_SELECTOR_KINDS.includes('float'));assert.equal((PREP_SELECTOR_KINDS as readonly string[]).includes('decimal'),false);
+ assert.deepEqual(prepStepParamChange('split_order',{key:['id']},'key',[]),{});
+ assert.deepEqual(prepStepParamChange('hash',{salt:'workspace',salt_secret_ref:'secret://workspace/salt#3',salt_version:3},'salt','none'),{salt:'none'});
+});

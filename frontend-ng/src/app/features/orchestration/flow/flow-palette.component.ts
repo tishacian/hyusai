@@ -79,6 +79,7 @@ const MOST_USED_LIMIT = 5;
         [class.is-active]="active"
         [class.is-unavailable]="!!item.unavailableReason"
         [attr.data-tone]="item.tone"
+        [attr.data-testid]="item.key ? 'palette-'+item.key : null"
         [disabled]="!!item.unavailableReason"
         [title]="detail(item)"
         [id]="optionId || null"
@@ -690,6 +691,7 @@ export class FlowPaletteComponent {
   /** Structural labels are chrome (`flow.palette.label.<type>`); catalog
    *  skill names stay data and keep the raw `item.label`. */
   protected itemName(item: PaletteItem): string {
+    if (item.labelKey) return this.i18n.t(item.labelKey);
     if (item.kind === 'asset' && (item.config?.['connector_id'] || item.config?.['collection_slug'])) return item.label;
     const key = `flow.palette.label.${item.type}`;
     const label = this.i18n.t(key);

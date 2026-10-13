@@ -236,6 +236,7 @@ const PAGE_SIZE = 50;
 
         <ck-tab id="lineage" [label]="i18n.t('data.detail.tab.lineage')">
           <div class="space-y-4" data-testid="lineage-graph">
+            @if(prepLineage();as prep){<section class="ck-lineage-card" data-testid="prep-lineage"><strong>{{i18n.t('dataops.lineage')}}</strong>@if(prep.operation){<p>{{i18n.t('dataops.lineage_operation')}} · {{i18n.t('dataops.operation.'+prep.operation)}}</p>}@if(prep.placement){<p>{{i18n.t('dataops.lineage_placement')}} · {{prep.placement}}</p>}@for(step of prepLineageSteps();track step.kind){<p>{{i18n.t('dataops.step.'+step.kind)}} · {{step.count}}</p>}@if(prep.spec_version){<p>{{i18n.t('dataops.lineage_spec')}} · {{prep.spec_version}}</p>}</section>}
             <div class="ck-lineage-graph" [attr.aria-label]="i18n.t('data.detail.tab.lineage')">
               <section class="ck-lineage-col">
                 <div class="ck-section-label">{{ i18n.t('data.lineage.source') }}</div>
@@ -651,6 +652,8 @@ export class DataViewComponent implements OnInit {
     return this.offset() + this.previewRows().length < total;
   });
 
+  protected readonly prepLineageSteps=computed(()=>{const counts=new Map<string,number>();for(const step of this.dataset()?.lineage?.prep?.spec?.params?.steps??[]){const kind=step.kind??step.action;if(kind&&step.enabled!==false)counts.set(kind,(counts.get(kind)??0)+1);}return [...counts].map(([kind,count])=>({kind,count}));});
+  protected readonly prepLineage = computed(()=>{const row=this.dataset();return row?.lineage?.prep??(row?.produced_by==='data_prep_v1'&&row.lineage?.operation?row.lineage:null);});
   protected readonly parents = computed(() => this.detail()?.lineage.parents ?? []);
   protected readonly children = computed(() => this.detail()?.lineage.children ?? []);
   protected readonly versions = computed(() => this.detail()?.versions ?? []);
