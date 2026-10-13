@@ -5,8 +5,9 @@ import { ApiService } from '@app/core/api.service';
 /** Which lever releases a group of skills. ``industry`` and ``universal`` are
  *  tier decisions that move many skills at once; ``capability`` names one row;
  *  ``unclaimed`` means no capability reachable here claims them at all, so only
- *  a per-skill override can. */
-export type CoverageLever = 'industry' | 'universal' | 'capability' | 'unclaimed';
+ *  a per-skill override can. ``feature`` is a rollout prerequisite that cannot
+ *  be changed through catalog curation. */
+export type CoverageLever = 'industry' | 'universal' | 'capability' | 'unclaimed' | 'feature';
 
 export interface CoverageGap {
   lever: CoverageLever;

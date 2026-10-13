@@ -133,6 +133,31 @@ def test_allowing_an_industry_closes_its_gap(db_session):
     ).json()["summary"]["visible"] == 3
 
 
+def test_closed_feature_is_reported_and_stays_closed_after_a_catalog_override(db_session, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "narration_enabled", False)
+    workspace, user = _seed(db_session)
+    db_session.add(Skill(id="skill-narration", slug="narration_run_v1", name="Document narration"))
+    db_session.commit()
+    client = _client(db_session, workspace, user)
+    for response in (
+        client.get("/catalog/curation"),
+        client.patch("/catalog/curation", json={"enabled_skills": ["narration_run_v1"]}),
+    ):
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["summary"]["filtered_reasons"]["feature_disabled"] == 1
+        assert next(gap for gap in payload["gaps"] if gap["lever"] == "feature") == {
+            "lever": "feature", "key": "narration_enabled", "skills": 1,
+            "skill_slugs": ["narration_run_v1"], "capabilities": [],
+        }
+        row = next(row for row in payload["skills"] if row["slug"] == "narration_run_v1")
+        assert row["visible"] is False and row["reason"] == "feature_disabled"
+    assert payload["overrides"][0]["status"] == "redundant"
+    assert "features" not in workspace.settings
+
+
 def test_stating_no_industry_is_persisted_rather_than_inferred_back(db_session):
     workspace, user = _seed(
         db_session,

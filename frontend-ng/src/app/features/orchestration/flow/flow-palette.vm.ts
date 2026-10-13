@@ -238,6 +238,8 @@ export function explainVisibilityReason(
   industriesConfigured = false,
 ): string {
   switch (reason) {
+    case 'feature_disabled':
+      return 'this functionality is disabled; catalog overrides cannot enable it';
     case 'industry_not_allowed':
       if (!key) return 'carried by an industry this workspace has not enabled';
       return industriesConfigured
