@@ -284,3 +284,15 @@ def test_keycloak_is_recreated_only_through_the_worktree_compose() -> None:
         assert "docker run" not in text or not re.search(r"agentium-kc|keycloak/keycloak", text), script
     for doc in (*ROOT.joinpath("docs", "ops").glob("*.md"), ROOT / "docs" / "vm-deploy-chat-runbook.md"):
         assert "redeploy-keycloak.sh" not in doc.read_text(encoding="utf-8"), doc
+
+
+def test_secrets_runbook_rotates_through_the_frozen_bundle() -> None:
+    doc = (ROOT / "docs" / "ops" / "secrets.md").read_text(encoding="utf-8")
+    assert "/home/ubuntu/omnirag" not in doc
+    assert "backend/.env" not in doc
+    assert not re.search(r"systemctl\b.*agentium-backend", doc)
+    assert f"B={DEFAULT_D}/runtime-env\n" in doc
+    commands = set(re.findall(r"^\s*deploy ([a-z][a-z-]*)", doc, re.M))
+    assert {"up", "keycloak-up", "sftp-up", "ps"} <= commands
+    usage = re.search(r"usage: \$0 \{([^}]*)\}", SCRIPT)
+    assert usage is not None and commands <= set(usage.group(1).split("|"))
