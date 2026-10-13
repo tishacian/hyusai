@@ -62,6 +62,21 @@ def test_demo_constraints_cover_declared_requirements(kind):
 PYTHON_IMAGES = ("backend", "worker", "ml-ts", "ml-deep")
 
 
+def test_dataops_delta_transitives_are_pinned_in_both_runtimes():
+    app = _constraints("app")
+    giskard = _constraints("giskard")
+    for requirement in (
+        "sqlglot>=30.22.0,<31",
+        "deltalake>=1.6.6,<2",
+        "arro3-core>=0.5.0",
+        "deprecated>=1.2.18",
+    ):
+        dependency = Requirement(requirement)
+        assert dependency.name in app and dependency.name in giskard
+        assert app[dependency.name] == giskard[dependency.name]
+        assert dependency.specifier.contains(app[dependency.name])
+
+
 def test_api_and_worker_build_one_shared_python_stack():
     """The worker fits what the API unpickles, so they share one interpreter build.
 

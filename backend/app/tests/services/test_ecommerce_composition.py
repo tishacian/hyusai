@@ -24,11 +24,11 @@ from app.models.tabular import MLModel, TabularDataset
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services import tabular_predict
+from app.services.chains.dag_validator import validate_flow
 from app.services.ecommerce import claims as ecommerce_claims
 from app.services.ecommerce import composition as composition
 from app.services.ecommerce import composition_upgrade as activation
 from app.services.ecommerce import triage as triage
-from app.services.chains.dag_validator import validate_flow
 from app.services.ecommerce.install import install
 from app.services.experience import bindings
 from app.services.flow_data_sources import bound_data_sources
@@ -101,6 +101,8 @@ def luma_artifact(tmp_path_factory):
 def environment(db_session, tmp_path, monkeypatch, luma_artifact):
     monkeypatch.setattr(settings, "object_store_backend", "local")
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))
+    # Execute the real dedicated DataOps worker inline, without a RabbitMQ service.
+    monkeypatch.setattr(settings, "worker_eager_mode", True)
     tabular_predict.reset_cache()
     workspace = Workspace(id="composed-ws", slug="composed-ws", name="Showcase", settings={})
     actor = User(id="composed-owner", username="composed-owner", email="owner@example.invalid")

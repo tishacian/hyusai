@@ -237,6 +237,50 @@ def test_delta_legacy_reader_and_atomic_split(db_session, plane, monkeypatch):
     )
 
 
+def test_delta_settlement_accepts_a_symlinked_temporary_directory(db_session, plane, tmp_path):
+    workspace, _ = plane
+    physical = tmp_path / "physical"
+    physical.mkdir()
+    linked = tmp_path / "linked"
+    linked.symlink_to(physical, target_is_directory=True)
+    delta_root = linked / "delta"
+    target = reserve_frame(db_session, workspace_id=workspace.id, name="Linked Delta", commit=False)
+    table = pa.table({"id": [1, 2], "value": [1.5, None]})
+    paths = write_batches(delta_root, table.to_batches(), schema=table.schema, delta=True)
+
+    # Delta's Rust reader returns canonical paths even when its input uses an alias.
+    assert delta_root != delta_root.resolve()
+    assert all(path.is_relative_to(delta_root.resolve()) for path in paths)
+    settle_files(db_session, target, paths, delta_root=delta_root)
+    db_session.commit()
+
+    assert target.status == "ready"
+    assert read_frame(target).to_dicts() == table.to_pylist()
+    assert all(
+        not key.startswith("/") and ".." not in key.split("/")
+        for key in target.lineage_json["storage"]["parts"]
+    )
+
+
+def test_delta_settlement_refuses_a_file_symlink_outside_its_commit(db_session, plane, tmp_path):
+    workspace, _ = plane
+    table = pa.table({"id": [1, 2]})
+    external = write_batches(tmp_path / "external", table.to_batches(), schema=table.schema)[0]
+    delta_root = tmp_path / "delta"
+    write_batches(delta_root, table.to_batches(), schema=table.schema, delta=True)
+    escape = delta_root / "outside.parquet"
+    escape.symlink_to(external)
+    target = reserve_frame(db_session, workspace_id=workspace.id, name="Escape", commit=False)
+
+    with pytest.raises(ValueError, match="not in the subpath"):
+        settle_files(db_session, target, [escape], delta_root=delta_root)
+
+    assert target.status == "ingesting"
+    assert not get_object_store().list_keys(
+        f"workspaces/{workspace.id}/tabular/datasets/{target.id}"
+    )
+
+
 def test_failed_split_publishes_no_ready_output(db_session, plane, monkeypatch):
     from app.services.dataops import preparation
 
