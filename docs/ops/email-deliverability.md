@@ -100,7 +100,8 @@ If still in spam after DKIM is live:
   `SMTP_PASSWORD`.
 - Email theme is under
   `backend/keycloak/themes/agentium/email/` and mounted into the
-  container via `deploy/redeploy-keycloak.sh`. Realm fields
+  container read-only by the `agentium-kc` Compose service (recreate
+  with `scripts/agentium-vm-deploy.sh keycloak-up`). Realm fields
   `emailTheme` / `loginTheme` / `accountTheme` are set to `agentium`.
 
 ## 4. Lower DMARC temporarily? (not recommended)
