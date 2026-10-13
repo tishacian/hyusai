@@ -21,7 +21,7 @@ is not a VM switch. The iteration loop below is the only path; there is no
 sidecar deploy for a `cursor/…` or `feat/…` branch.
 
 ```
-local gates ──push──> origin/demo/agentic ──fetch+ff──> VM worktree ──docker build──> images:<sha12> ──up──> live
+local gates ──push──> origin/demo/agentic ──agentium-vm-build.sh──> images:<sha12> ──agentium-vm-deploy.sh up──> live
 ```
 
 ## 1. The machines
@@ -69,10 +69,11 @@ The adoption flag's default switch and retirement are separate release changes:
 see [adoption rollout decisions](agentium-adoption-roadmap.md#default-switch-and-retirement).
 An optional walkthrough remains optional after the flag is removed.
 
-## 3. Advance the VM build worktree
+## 3. Advance the VM build worktree and build the images
 
-The worktree is root-administered and its tracking refs are **not** the ones
-you fetch — always merge `FETCH_HEAD`, and always with `--ff-only`:
+One script does both, `scripts/agentium-vm-build.sh <sha40>`, run as `ubuntu`
+(docker group) on the VM. Run its copy at `<sha40>`, never the one the worktree
+holds before the build: that one is the previous release's.
 
 A Cloud Agent without a key accepted by `ubuntu@217.182.104.99` cannot
 run this section. Authorize the agent's pubkey (or inject the operator
@@ -81,48 +82,58 @@ a hard stop — never `rsync`/`scp` the tree to skip it.
 
 ```bash
 ssh omnirag-demo
-sudo git -C /srv/agentium-data/worktrees/demo-agentic fetch origin demo/agentic
-sudo git -C /srv/agentium-data/worktrees/demo-agentic merge --ff-only FETCH_HEAD
-sudo git -C /srv/agentium-data/worktrees/demo-agentic status --porcelain   # must be empty
+R=/srv/agentium-data/worktrees/demo-agentic
+sudo git -C "$R" fetch -q origin demo/agentic
+bash <(git -C "$R" show <sha40>:scripts/agentium-vm-build.sh) <sha40> 2>&1 | tee /tmp/build-<sha12>.log
 ```
 
-(`sudo -u ubuntu git …` fails on this worktree — use plain `sudo`.)
+It holds a lock (`/tmp/agentium-vm-build.lock`, one build at a time), then:
 
-## 4. Build the three images
+1. advances the root-administered worktree with `sudo -n`: fetch, refuse a
+   `<sha40>` that is not on `origin/demo/agentic`, `merge --ff-only <sha40>`
+   (never a reset), `chmod -R a+rX` so the docker client can read the files
+   root created, and refuse a dirty tree or a HEAD other than `<sha40>`;
+2. builds the seven images `agentium-{backend,worker,frontend,ml-ts,ml-deep,hub-fetch,livekit-agent}:<sha12>`,
+   every image the VM Compose tags `${AGENTIUM_IMAGE_TAG}` (the VM runs the
+   realtime profile, so the sidecar too), each with
+   `AGENTIUM_IMAGE_REVISION=<sha40>`; the Python images with the pinned base
+   (`AGENTIUM_PYTHON_BASE_IMAGE`, default the digest qualified on the VM),
+   `PIP_INDEX_URL=https://pypi.org/simple`, `USER_UID/GID=1000`, the backend and
+   worker with `INSTALL_HF_RAG=1`, the worker with `INSTALL_GISKARD_RAGET=true`.
+   A failed build is retried once;
+3. refuses an image whose `org.opencontainers.image.revision` label is not
+   `<sha40>`;
+4. runs `scripts/agentium-image-budget.sh <sha12>` with the sidecar required
+   (`AGENTIUM_IMAGE_REQUIRE_LIVEKIT_AGENT=1`) and the budgets below
+   (`AGENTIUM_IMAGE_BUDGET_MB_*` overrides one).
 
-Built on the VM, from the worktree, tagged with the **immutable 12-hex** SHA
-prefix (the deploy script rejects anything else). The four common build-args
-are mandatory, plus `PYTHON_BASE_IMAGE` for the two Python images. The moving
-tag `demo-agentic` is the rollback pointer — do **not** move it during the
-release.
+| Image | Budget (MB) |
+|---|---|
+| backend | 1400 |
+| worker | 1760 |
+| frontend | 40 |
+| ml-ts | 1240 |
+| livekit-agent | 110 |
 
-`<base>` is the Python base image pinned by digest. Read it once from the image
-the VM already qualified, and record it in the release notes. A compose build
-(`docker compose build`) reads the same value from `AGENTIUM_PYTHON_BASE_IMAGE`:
+It ends with `build ok: 7 images at <sha12>`. It reads no env bundle and no
+secret, and changes nothing that runs: §5 and §6 do, as root.
+
+The moving tag `demo-agentic` is the rollback pointer — do **not** move it
+during the release. To read the pinned base of an image the VM already
+qualified, and record it in the release notes (a `docker compose build` reads
+the same value from `AGENTIUM_PYTHON_BASE_IMAGE`):
 
 ```bash
 sudo docker image inspect python:3.12-slim --format '{{index .RepoDigests 0}}'
 # python@sha256:… → pass it as python:3.12-slim@sha256:…
 ```
 
-```bash
-cd /srv/agentium-data/worktrees/demo-agentic
-for svc in backend worker frontend; do
-  extra_args=()
-  if [ "$svc" = worker ]; then
-    extra_args+=(--build-arg INSTALL_GISKARD_RAGET=true)
-  fi
-  if [ "$svc" != frontend ]; then
-    extra_args+=(--build-arg PYTHON_BASE_IMAGE=<base>)
-  fi
-  sudo docker build -f docker/Dockerfile.agentium-$svc \
-    --build-arg AGENTIUM_IMAGE_REVISION=<sha40> \
-    --build-arg PIP_INDEX_URL=https://pypi.org/simple \
-    --build-arg USER_UID=1000 --build-arg USER_GID=1000 \
-    "${extra_args[@]}" -t agentium-$svc:<sha12> .
-done
-scripts/agentium-image-budget.sh <sha12>
-```
+The untracked `/tmp/deploy-reorg.sh` that built and deployed earlier releases is
+superseded; it stays on the VM with a note next to it and is not run any more.
+
+(`sudo -u ubuntu git …` fails on this worktree — use plain `sudo`.)
+
+## 4. About the images
 
 The demo worker currently includes the optional Giskard SDK. Preserve
 `--build-arg INSTALL_GISKARD_RAGET=true` on its build (the Dockerfile default
@@ -131,7 +142,7 @@ RAGET subprocess runs on; the build proves it did not leak into the worker's
 main interpreter, then runs `pip check` and the offline SDK qualification on
 the venv. It does not establish a live provider campaign.
 
-Build all three even for a frontend-only change: the single tag drives the
+All seven are built even for a frontend-only change: the single tag drives the
 whole stack at switch time.
 
 The API and worker Dockerfiles open on an identical prefix (base image, OS
@@ -148,18 +159,12 @@ worker 1714 MB, frontend 28 MB, 10 shared layers.
 
 Reference, release `fd53b43d` (API without torch, forecasting on): backend
 1102 MB, worker 1714 MB, frontend 28 MB, ml-ts 1181 MB; 9 layers shared between
-the API and the worker, 9 between the API and ml-ts. Budgets to export before
-running the script:
-
-```bash
-export AGENTIUM_IMAGE_BUDGET_MB_BACKEND=1160 AGENTIUM_IMAGE_BUDGET_MB_WORKER=1800 \
-  AGENTIUM_IMAGE_BUDGET_MB_FRONTEND=40 AGENTIUM_IMAGE_BUDGET_MB_ML_TS=1240
-```
+the API and the worker, 9 between the API and ml-ts. The budgets in force are
+the defaults of `agentium-vm-build.sh` (§3).
 
 The LiveKit sidecar image (`agentium-livekit-agent`, Node, built from
-`livekit-agent/`) is built only for a release that runs `livekit-up`; the
-script reports it when present. Reference, 2026-10-13: 99 MB, budget
-`AGENTIUM_IMAGE_BUDGET_MB_LIVEKIT_AGENT=110`.
+`livekit-agent/`) follows the release tag like the others; `livekit-up` (§6)
+moves the running sidecar onto it. Reference, 2026-10-13: 99 MB, budget 110.
 
 PR 2d (budgeted tabular tuning) adds `optuna==5.0.0` and
 `colorlog==6.12.0` to the common requirements/constraints, preserving the versions already
@@ -378,13 +383,15 @@ what the registry buys that `ml_models` cannot, are in
 DEPLOY=/srv/agentium-data/worktrees/demo-agentic/scripts/agentium-vm-deploy.sh
 sudo env AGENTIUM_IMAGE_TAG=<sha12> "$DEPLOY" storage-check
 sudo env AGENTIUM_IMAGE_TAG=<sha12> "$DEPLOY" up
+# 0 LiveKit room and 0 sidecar session first: moves the sidecar to <sha12>
+sudo env AGENTIUM_IMAGE_TAG=<sha12> "$DEPLOY" livekit-up
 ```
 
 `up` recreates exactly `agentium-backend`, `agentium-worker-cpu`,
 `agentium-worker-recipes`, `agentium-frontend`, `agentium-p4-maintenance`,
 `agentium-beat` — plus `agentium-worker-ml-ts` and
 `agentium-worker-ml-ts-serve` when `AGENTIUM_ML_TS=1` (§4b) — with
-`--no-build --pull never`, so the images from §4 must exist at the tag.
+`--no-build --pull never`, so the images from §3 must exist at the tag.
 Infrastructure containers (pg, Keycloak, Qdrant, MinIO, RabbitMQ, SFTP,
 LiveKit) are never touched by this path; `sftp-up` recreates SFTP alone when
 its bind changes, `keycloak-up` recreates Keycloak alone (env rotation,
@@ -500,7 +507,7 @@ the rollback address.
   12 hex chars. An 8-char prefix is rejected by the deploy script.
 - **Worktree refs.** `merge --ff-only origin/demo/agentic` reports "Already up
   to date" while the worktree is behind — the clone's tracking ref doesn't
-  move. Fetch then merge `FETCH_HEAD` (§3).
+  move. `agentium-vm-build.sh` merges the fetched `<sha40>` itself (§3).
 - **Env file path.** `AGENTIUM_ENV_FILE=./env/agentium.vm.env` is relative to
   `docker/`. The deploy script wires the frozen effective env itself; never
   source the env file into your shell.
