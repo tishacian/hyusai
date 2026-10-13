@@ -1,7 +1,9 @@
 # Agentium — plan du juge typé
 
-État du code au 13 octobre 2026. Ce document décrit le contrat livré, ses limites
-et les preuves nécessaires avant activation. Il complète le
+État proposé au 13 octobre 2026. Ce document a été rédigé pendant
+l’implémentation, à la suite de la demande de juge typé dans la conversation.
+Il n’est pas une spécification antérieure au code. Il décrit le contrat proposé,
+les limites observées et les preuves nécessaires avant activation. Il complète le
 [plan DataOps](agentium-dataops-plan.md), le
 [protocole de qualification](ops/typed-judge-qualification.md) et le
 [budget partagé des fenêtres](ops/service-window-budget.md).
