@@ -11,7 +11,7 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 
-from app.schemas.data_prep import DataPrepSpec
+from app.schemas.data_prep import DataPrepSpec, bind_spec
 from app.services.flow_skill_binding import FlowSkillBindingError, resolve_flow_skill_binding
 from app.services.tabular_datasets import slugify
 
@@ -51,10 +51,43 @@ def _prep_config(node: Mapping[str, Any]) -> Mapping[str, Any]:
     ):
         raise ValueError("GRAPH_CONFIG_CONFLICT")
     prep = config.get("data_prep") or params.get("data_prep")
+    if "spec" in params:
+        canonical = {
+            key: params[key]
+            for key in ("spec", "sources", "outputs", "placement", "timeout_s")
+            if key in params
+        }
+        if prep and prep != canonical:
+            raise ValueError("GRAPH_CONFIG_CONFLICT")
+        prep = canonical
     if not isinstance(prep, Mapping):
         raise ValueError("DATAPREP_CONFIG_REQUIRED")
     if any("inputs_map" in holder for holder in (node, config, params, prep)):
         raise ValueError("DATAPREP_INPUTS_MAP_FORBIDDEN")
+    prep = dict(prep)
+    if "sources" in prep:
+        sources = prep["sources"]
+        if not isinstance(sources, list):
+            raise ValueError("DATAPREP_INPUTS_INVALID")
+        pins = {}
+        for source in sources:
+            if not isinstance(source, Mapping) or not isinstance(source.get("port"), str):
+                raise ValueError("DATAPREP_INPUTS_INVALID")
+            port = source["port"]
+            if port in pins:
+                raise ValueError("DATAPREP_INPUT_PORT_DUPLICATE")
+            reference = {k: v for k, v in source.items() if k != "port"}
+            if set(reference) not in ({"dataset_id"}, {"dataset_slug"}):
+                raise ValueError("DATAPREP_INPUTS_INVALID")
+            pins[port] = reference
+        if prep.get("inputs") and prep["inputs"] != pins:
+            raise ValueError("DATAPREP_INPUTS_CONFLICT")
+        prep["inputs"] = pins
+    if prep.get("placement", "auto") not in {"auto", "local"}:
+        raise ValueError("DATAPREP_PLACEMENT_UNAVAILABLE")
+    timeout = prep.get("timeout_s")
+    if timeout is not None and (type(timeout) is not int or timeout <= 0):
+        raise ValueError("DATAPREP_TIMEOUT_INVALID")
     return prep
 
 
@@ -89,7 +122,7 @@ def data_prep_issues(flow: Mapping[str, Any]) -> list[tuple[str, str]]:
         try:
             config = _prep_config(node)
             try:
-                spec = DataPrepSpec.model_validate(config.get("spec"))
+                spec = bind_spec(config.get("spec"), config.get("outputs"))
             except (TypeError, ValueError) as exc:
                 raise ValueError("DATAPREP_SPEC_INVALID") from exc
             preps[node_id] = (node, spec)

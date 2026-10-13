@@ -59,3 +59,75 @@ def receipt_bundle(asset, receipt, destination: Path):
             ),
         )
     return destination
+
+
+class _ChunkSink:
+    """Forward-only Arrow sink drained after each bounded record batch."""
+
+    def __init__(self, max_bytes):
+        self.position = 0
+        self.chunks = []
+        self.closed = False
+        self.max_bytes = max_bytes
+
+    def writable(self):
+        return True
+
+    def tell(self):
+        return self.position
+
+    def write(self, data):
+        self.position += len(data)
+        if self.position > self.max_bytes:
+            raise ValueError("DATASET_EXPORT_BUDGET_EXCEEDED")
+        # Copy Arrow-owned buffers before the producer can reuse them.
+        self.chunks.append(bytes(data))
+        return len(data)
+
+    def flush(self):
+        pass
+
+    def close(self):
+        self.closed = True
+
+    def drain(self):
+        chunks, self.chunks = self.chunks, []
+        yield from chunks
+
+
+def stream_dataset(dataset, *, format: str, arrow=None):
+    """Generate CSV or one portable Parquet without a consolidated scratch file.
+
+    The Parquet writer is forward-only. The HTTP response yields between batches,
+    so consumer backpressure also bounds reading and encoding of the next batch.
+    """
+    import pyarrow.csv as csv
+    import pyarrow.parquet as pq
+
+    from app.services.dataops.storage import open_dataset_arrow
+
+    if format not in {"csv", "parquet"}:
+        raise ValueError("DATASET_EXPORT_FORMAT_INVALID")
+    arrow = arrow if arrow is not None else open_dataset_arrow(dataset)
+    sink = _ChunkSink(settings.dataops_max_output_mb * 1024**2)
+    writer = (
+        pq.ParquetWriter(sink, arrow.schema, compression="zstd")
+        if format == "parquet"
+        else csv.CSVWriter(sink, arrow.schema)
+    )
+    try:
+        yield from sink.drain()
+        scanner = arrow.scanner(
+            batch_size=min(settings.dataops_batch_rows, 1024),
+            use_threads=False,
+            batch_readahead=0,
+            fragment_readahead=0,
+        )
+        for batch in scanner.to_batches():
+            writer.write_batch(batch)
+            yield from sink.drain()
+        writer.close()
+        yield from sink.drain()
+    finally:
+        writer.close()
+        sink.close()

@@ -126,6 +126,8 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             if not isinstance(name, str) or not isinstance(path, (str, list)):
                 return _fail(5, "dataops_manifest_bad_view")
             paths = path if isinstance(path, list) else [path]
+            if not paths or not all(isinstance(p, str) and p for p in paths):
+                return _fail(5, "dataops_manifest_bad_view")
             inputs = ",".join(_literal(p) for p in paths)
             connection.execute(
                 f"CREATE TEMP TABLE {_quote(name)} AS SELECT * FROM read_parquet([{inputs}])"
@@ -193,7 +195,7 @@ def _run_outputs(connection, manifest, result_path, started):
     outputs = manifest["outputs"]
     if not isinstance(outputs, list) or not outputs or len(outputs) > 8:
         return _fail(5, "dataops_outputs_invalid")
-    writers, counts, paths = {}, {}, {}
+    writers, counts, paths, delta_writers = {}, {}, {}, {}
     total, total_bytes = 0, 0
     try:
         reader = connection.execute(manifest["sql"], _parameters()).to_arrow_reader(_BATCH_ROWS)
@@ -205,7 +207,17 @@ def _run_outputs(connection, manifest, result_path, started):
                 return _fail(5, "dataops_outputs_invalid")
             path = Path(output["path"])
             path.parent.mkdir(parents=True, exist_ok=True)
-            writers[port] = pq.ParquetWriter(path, schema, compression="zstd")
+            if output.get("format") == "delta":
+                from dataops_storage import PartWriter
+
+                writers[port] = PartWriter(
+                    path,
+                    schema,
+                    target_bytes=int(manifest.get("part_target_bytes") or 128 * 1024**2),
+                )
+                delta_writers[port] = writers[port]
+            else:
+                writers[port] = pq.ParquetWriter(path, schema, compression="zstd")
             counts[port], paths[port] = 0, str(path)
         for batch in reader:
             total += batch.num_rows
@@ -229,19 +241,47 @@ def _run_outputs(connection, manifest, result_path, started):
                 port = next(iter(writers))
                 writers[port].write_batch(batch)
                 counts[port] += batch.num_rows
-            total_bytes = sum(Path(p).stat().st_size for p in paths.values())
+            total_bytes = sum(
+                delta_writers[port].size_bytes if port in delta_writers else Path(p).stat().st_size
+                for port, p in paths.items()
+            )
             if manifest.get("max_output_bytes") and total_bytes > manifest["max_output_bytes"]:
                 return _fail(3, "SQL_OUTPUT_TOO_LARGE")
         for writer in writers.values():
             writer.close()
         writers.clear()
+        connection.close()
+        from dataops_storage import profile_files
+
+        engine = manifest.get("duckdb") or {}
+        summaries = {}
+        for port, path in paths.items():
+            parts = delta_writers[port].paths if port in delta_writers else [Path(path)]
+            byte_count = sum(p.stat().st_size for p in parts)
+            total_bytes = sum(w.size_bytes for w in delta_writers.values()) + sum(
+                Path(p).stat().st_size for name, p in paths.items() if name not in delta_writers
+            )
+            if manifest.get("max_output_bytes") and total_bytes > manifest["max_output_bytes"]:
+                return _fail(3, "SQL_OUTPUT_TOO_LARGE")
+            profile = profile_files(
+                parts,
+                memory_mb=int(engine.get("memory_mb") or 256),
+                threads=int(engine.get("threads") or 1),
+                spill_mb=int(engine.get("max_temp_mb") or 0),
+            )
+            summaries[port] = {
+                "rows": counts[port],
+                "path": path,
+                "paths": [str(p) for p in parts],
+                "profile": profile,
+                "delta_root": path if port in delta_writers else None,
+                "bytes": byte_count,
+            }
         Path(result_path).write_text(
             json.dumps(
                 {
                     "rows": total,
-                    "outputs": {
-                        port: {"rows": counts[port], "path": path} for port, path in paths.items()
-                    },
+                    "outputs": summaries,
                     "duration_ms": round((time.monotonic() - started) * 1000, 1),
                 }
             )
@@ -251,7 +291,10 @@ def _run_outputs(connection, manifest, result_path, started):
         return _fail(1, f"SQL_EXECUTION_FAILED: {_first_line(exc)}")
     finally:
         for writer in writers.values():
-            writer.close()
+            if hasattr(writer, "abort"):
+                writer.abort()
+            else:
+                writer.close()
         connection.close()
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 
 from app.services.dataops.compiler import (
     _columns,
@@ -38,18 +39,9 @@ def ordering(items, columns):
 
 
 def _type(fields):
-    kinds = {f.get("kind") for f in fields}
-    if len(kinds - {None}) > 1 and not kinds <= {"integer", "float"}:
-        raise ValueError("DATAPREP_UNION_TYPES")
-    kind = next(iter(kinds)) if len(kinds) == 1 else "float"
-    return {
-        "integer": "BIGINT",
-        "float": "DOUBLE",
-        "string": "VARCHAR",
-        "boolean": "BOOLEAN",
-        "datetime": "TIMESTAMP",
-        "date": "DATE",
-    }.get(kind, "VARCHAR")
+    from app.services.dataops.types import common_type
+
+    return common_type(fields)
 
 
 def aggregate(item, columns, *, value_override=None):
@@ -93,7 +85,10 @@ def aggregate(item, columns, *, value_override=None):
             raise ValueError("DATAPREP_QUANTILE_INVALID")
         term = f"CAST(quantile_cont({value},{p}) AS DOUBLE)"
     elif op in {"first", "last", "string_agg"}:
+        from app.services.dataops.types import fingerprint
+
         order = ordering(item.get("order_by"), columns)
+        order += "," + fingerprint(columns)
         term = f"{op}({value}{',' + lit(item.get('sep', ',')) if op == 'string_agg' else ''} ORDER BY {order})"
     elif op == "mode":
         term = f"mode({value} ORDER BY {value})"
@@ -122,6 +117,8 @@ def relational(spec, schemas):
         keys = p.get("on", p.get("keys", []))
         if not keys and how != "cross":
             raise ValueError("DATAPREP_JOIN_KEYS_REQUIRED")
+        if keys and how == "cross":
+            raise ValueError("DATAPREP_CROSS_JOIN_KEYS_FORBIDDEN")
         conditions = []
         for pair in keys:
             _require(pair, {"left", "right", "op"}, {"left", "right"})
@@ -187,7 +184,9 @@ def relational(spec, schemas):
     if op == "union":
         _require(p, {"distinct", "mode", "allow_missing", "bindings"})
         mode = p.get("mode", "by_name")
-        ports = sorted(schemas)
+        ports = sorted(
+            schemas, key=lambda p: (int(p[3:]) if re.fullmatch(r"in_\d+", p) else 1000, p)
+        )
         if mode not in {"by_name", "by_position", "bindings"}:
             raise ValueError("DATAPREP_UNION_MODE_INVALID")
         if mode == "by_position":
@@ -200,9 +199,20 @@ def relational(spec, schemas):
             bindings = {}
             for b in p.get("bindings", []):
                 _require(b, {"output", "sources"}, {"output", "sources"})
-                if not isinstance(b["sources"], dict) or set(b["sources"]) - set(ports):
+                sources = b["sources"]
+                if isinstance(sources, list):
+                    if any(
+                        not isinstance(s, dict) or set(s) != {"port", "column"} for s in sources
+                    ) or len({s["port"] for s in sources}) != len(sources):
+                        raise ValueError("DATAPREP_UNION_BINDINGS_INVALID")
+                    sources = {s["port"]: s["column"] for s in sources}
+                if (
+                    not isinstance(sources, dict)
+                    or set(sources) - set(ports)
+                    or b["output"] in bindings
+                ):
                     raise ValueError("DATAPREP_UNION_BINDINGS_INVALID")
-                bindings[b["output"]] = b["sources"]
+                bindings[b["output"]] = sources
             columns = list(bindings)
             if not columns:
                 raise ValueError("DATAPREP_UNION_BINDINGS_INVALID")
@@ -230,24 +240,118 @@ def relational(spec, schemas):
         )
         return (f"SELECT DISTINCT * FROM ({sql})" if p.get("distinct") else sql), columns
     if op == "aggregate":
-        _require(p, {"group_by", "aggregates", "aggregations"})
+        _require(p, {"group_by", "aggregates", "aggregations", "pivot"})
         groups = p.get("group_by", [])
         if groups:
             _names(groups, columns)
+        pivot = p.get("pivot")
         items = p.get("aggregations", p.get("aggregates", []))
+        if pivot:
+            _require(
+                pivot,
+                {
+                    "column",
+                    "values",
+                    "aggregations",
+                    "naming",
+                    "null_label",
+                    "others",
+                    "others_label",
+                },
+                {"column", "values"},
+            )
+            if pivot["column"] not in columns:
+                raise ValueError("DATAPREP_COLUMN_UNKNOWN")
+            items = pivot.get("aggregations", items)
         if not isinstance(items, list) or not items:
             raise ValueError("DATAPREP_AGGREGATES_REQUIRED")
         projection = [q(n) for n in groups]
         result = list(groups)
         for item in items:
-            term, name = aggregate(item, columns)
-            if name.casefold() in {n.casefold() for n in result}:
-                raise ValueError("DATAPREP_COLUMN_COLLISION")
-            projection.append(term + " AS " + q(name))
-            result.append(name)
+            if not pivot:
+                terms = [aggregate(item, columns)]
+            else:
+                import sqlglot
+                from sqlglot import exp
+
+                values = pivot["values"]
+                from app.core.config import settings
+
+                if (
+                    not isinstance(values, list)
+                    or not 1 <= len(values) <= settings.dataops_max_pivot_values
+                    or len({(type(v).__name__, str(v)) for v in values}) != len(values)
+                ):
+                    raise ValueError("DATAPREP_PIVOT_VALUES_INVALID")
+                predicates = [
+                    (
+                        str(v) if v is not None else pivot.get("null_label", "(vide)"),
+                        f"{q(pivot['column'])} IS NOT DISTINCT FROM {lit(v)}",
+                    )
+                    for v in values
+                ]
+                if pivot.get("others", "drop") not in {"drop", "column"}:
+                    raise ValueError("DATAPREP_PIVOT_OTHERS_INVALID")
+                if pivot.get("others") == "column":
+                    predicates.append(
+                        (
+                            pivot.get("others_label", "others"),
+                            "NOT (" + " OR ".join(predicate for _, predicate in predicates) + ")",
+                        )
+                    )
+                terms = []
+                for label, predicate in predicates:
+                    naming = pivot.get("naming", "{value}_{op}_{column}")
+                    name = (
+                        naming.replace("{value}", label)
+                        .replace("{op}", item.get("op", item.get("function", "")))
+                        .replace("{column}", item.get("column") or "rows")
+                    )
+                    term, _ = aggregate({**item, "output": name}, columns)
+                    tree = sqlglot.parse_one(term, read="duckdb")
+                    condition = sqlglot.parse_one(predicate, read="duckdb")
+                    tree = tree.transform(
+                        lambda node: (
+                            exp.Filter(
+                                this=node.copy(), expression=exp.Where(this=condition.copy())
+                            )
+                            if isinstance(node, exp.AggFunc)
+                            else node
+                        )
+                    )
+                    terms.append((tree.sql(dialect="duckdb"), name))
+            for term, name in terms:
+                if name.casefold() in {n.casefold() for n in result}:
+                    raise ValueError("DATAPREP_COLUMN_COLLISION")
+                projection.append(term + " AS " + q(name))
+                result.append(name)
         return f'SELECT {",".join(projection)} FROM "in"' + (
             " GROUP BY " + ",".join(q(n) for n in groups) if groups else ""
         ), result
+    if op == "unpivot":
+        _require(
+            p,
+            {"columns", "id_columns", "value_columns", "name_column", "value_column", "drop_nulls"},
+        )
+        melting = _names(p.get("value_columns", p.get("columns")), columns)
+        keep = (
+            _names(p["id_columns"], columns)
+            if p.get("id_columns")
+            else [n for n in columns if n not in melting]
+        )
+        if set(keep) & set(melting):
+            raise ValueError("DATAPREP_UNPIVOT_COLUMNS_OVERLAP")
+        name_column, value_column = p.get("name_column", "variable"), p.get("value_column", "value")
+        names = [*keep, name_column, value_column]
+        if len(set(n.casefold() for n in names)) != len(names):
+            raise ValueError("DATAPREP_COLUMN_COLLISION")
+        dtype = _type([f for f in schemas["in"] if f["name"] in melting])
+        sql = " UNION ALL ".join(
+            f'SELECT {",".join([*(q(n) for n in keep), lit(n) + " AS " + q(name_column), "CAST(" + q(n) + " AS " + dtype + ") AS " + q(value_column)])} FROM "in"'
+            + (f" WHERE {q(n)} IS NOT NULL" if p.get("drop_nulls") else "")
+            for n in melting
+        )
+        return sql, names
     if op in {"sample", "split"}:
         _require(
             p,
@@ -302,8 +406,10 @@ def relational(spec, schemas):
         if any(n.startswith("__dp_") for n in columns):
             raise ValueError("DATAPREP_RESERVED_COLUMN")
 
+        from app.services.dataops.types import fingerprint
+
         def pack(names):
-            return "to_json(struct_pack(" + ",".join(q(n) + ":=" + q(n) for n in names) + "))"
+            return fingerprint(names, schemas["in"])
 
         row_fp = pack(columns)
         order = (
@@ -316,7 +422,10 @@ def relational(spec, schemas):
             + row_fp
         )
         partition = "PARTITION BY " + ",".join(q(n) for n in strata) + " " if strata else ""
-        ranked = f'SELECT *,row_number() OVER({partition}ORDER BY {order}) AS __dp_rank,count(*) OVER({partition.strip()}) AS __dp_total FROM "in"'
+        if strata:
+            ranked = f'SELECT *,row_number() OVER({partition}ORDER BY {order}) AS __dp_rank,count(*) OVER({partition.strip()}) AS __dp_total FROM "in"'
+        else:
+            ranked = f'SELECT data.*,row_number() OVER(ORDER BY {order}) AS __dp_rank,stats.__dp_total FROM "in" data CROSS JOIN (SELECT count(*) AS __dp_total FROM "in") stats'
         if op == "sample":
             n = p.get("n", p.get("rows"))
             fraction = p.get("fraction")
@@ -328,6 +437,26 @@ def relational(spec, schemas):
                 type(fraction) not in {float, int} or not 0 <= fraction <= 1
             ):
                 raise ValueError("DATAPREP_SAMPLE_FRACTION_INVALID")
+            if strata:
+                # Largest remainders preserve proportional strata AND the exact global
+                # sample size, including tiny strata and n smaller than their count.
+                groups = ",".join(q(name) for name in strata)
+                counts = f'SELECT {groups},count(*) AS __dp_n FROM "in" GROUP BY {groups}'
+                target = (
+                    f"least({n},__dp_global_n)"
+                    if n is not None
+                    else f"round(__dp_global_n*{fraction})"
+                )
+                bases = f'SELECT counts.*,CAST(floor(__dp_n*({target})/nullif(__dp_global_n,0)) AS BIGINT) AS __dp_base,(__dp_n*({target}))%nullif(__dp_global_n,0) AS __dp_remainder,CAST({target} AS BIGINT) AS __dp_target FROM ({counts}) counts CROSS JOIN (SELECT count(*) AS __dp_global_n FROM "in") totals'
+                total_base = f"SELECT sum(__dp_base) AS __dp_base_total FROM ({bases})"
+                quotas = f"SELECT bases.*,__dp_base+CASE WHEN row_number() OVER(ORDER BY __dp_remainder DESC,{fingerprint(strata, schemas['in'])})<=__dp_target-__dp_base_total THEN 1 ELSE 0 END AS __dp_quota FROM ({bases}) bases CROSS JOIN ({total_base}) totals"
+                predicate = " AND ".join(
+                    f"data.{q(name)} IS NOT DISTINCT FROM quotas.{q(name)}" for name in strata
+                )
+                return (
+                    f"SELECT {','.join('data.' + q(name) for name in columns)} FROM ({ranked}) data JOIN ({quotas}) quotas ON {predicate} WHERE data.__dp_rank<=quotas.__dp_quota",
+                    columns,
+                )
             limit = str(n) if n is not None else f"round(__dp_total*{fraction})"
             return (
                 f"SELECT {','.join(q(n) for n in columns)} FROM ({ranked}) WHERE __dp_rank<={limit}",
@@ -335,7 +464,12 @@ def relational(spec, schemas):
             )
         ratios = p.get("ratios")
         if ratios is None and p.get("outputs"):
-            ratios = [o.get("ratio") for o in p["outputs"]]
+            if len({o.get("port") for o in p["outputs"]}) != len(p["outputs"]) or {
+                o.get("port") for o in p["outputs"]
+            } != {o.port for o in spec.outputs}:
+                raise ValueError("DATAPREP_OUTPUT_PORT_INVALID")
+            by_port = {o["port"]: o.get("ratio") for o in p["outputs"]}
+            ratios = [by_port[o.port] for o in spec.outputs]
         if (
             not isinstance(ratios, list)
             or len(ratios) != len(spec.outputs)

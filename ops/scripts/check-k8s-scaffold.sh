@@ -63,7 +63,30 @@ grep -q -- '--import-realm' /tmp/agentium-helm.yaml ||
 cmp -s "$ROOT/backend/keycloak/realm-export.json" \
 	"$ROOT/ops/helm/agentium/files/realm-export.json" ||
 	fail "chart realm export drifted from backend/keycloak/realm-export.json"
-for app in backend worker migrate p4-maintenance; do
+catalog_apps=()
+if grep -q '^catalogReconcile:' "$ROOT/ops/helm/agentium/values.yaml"; then
+	catalog_apps=(catalog-reconcile)
+	catalog="$(helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+		--show-only templates/catalog-reconcile.yaml)"
+	grep -q 'kind: Job' <<<"$catalog" || fail "catalog reconciliation requires a Job"
+	grep -q 'helm.sh/hook: post-install,post-upgrade' <<<"$catalog" ||
+		fail "catalog reconciliation must run on install and upgrade"
+	grep -q 'helm.sh/hook-weight: "10"' <<<"$catalog" ||
+		fail "catalog reconciliation must follow migration weight 5"
+	grep -qF 'command: ["python", "-m", "app.cli.reconcile_catalog", "--apply"]' <<<"$catalog" ||
+		fail "catalog reconciliation must apply the release's canonical catalog"
+	for flag in migrate.enabled catalogReconcile.enabled; do
+		if helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+			--set "$flag=false" | grep -q 'name: agentium-catalog-reconcile$'; then
+			fail "$flag=false must skip catalog reconciliation"
+		fi
+	done
+	if helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+		--set migrate.hook=pre-upgrade >/dev/null 2>&1; then
+		fail "catalog reconciliation must refuse an unordered migration hook"
+	fi
+fi
+for app in backend worker migrate p4-maintenance "${catalog_apps[@]}"; do
 	if helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
 		--show-only "templates/${app}.yaml" | grep -q 'MINIO_ROOT_PASSWORD'; then
 		fail "$app must not receive the MinIO root password"
@@ -262,13 +285,13 @@ fi
 if full --show-only templates/hub-fetch.yaml | grep -A1 -- '- secretRef:' | grep -q 'name: agentium-lab$'; then
 	fail "hub-fetch must not load the application Secret whole"
 fi
-for app in backend worker migrate p4-maintenance ml-workers; do
+for app in backend worker migrate p4-maintenance ml-workers "${catalog_apps[@]}"; do
 	if full --show-only "templates/${app}.yaml" | grep -q 'agentium-lab-hub-fetch'; then
 		fail "$app must not receive the hub-fetch credentials"
 	fi
 done
 # One AppRole per role: the worker never holds the API's write role.
-for app in backend migrate; do
+for app in backend migrate "${catalog_apps[@]}"; do
 	full --show-only "templates/${app}.yaml" | grep -q 'name: agentium-lab-openbao-backend' ||
 		fail "$app must load the backend AppRole"
 done

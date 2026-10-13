@@ -78,7 +78,7 @@ def main(argv: list[str]) -> int:
     inputs = {}
     try:
         for name, path in sources.items():
-            inputs[str(name)] = pl.read_parquet(str(path))
+            inputs[str(name)] = pl.read_parquet(path if isinstance(path, list) else str(path))
     except Exception as exc:  # noqa: BLE001 - a bad input is our fault, not the author's
         return _fail(6, f"polars_input_unreadable: {exc}")
 

@@ -207,7 +207,7 @@ spec:
                 values: [{{ .Release.Name | quote }}]
               - key: app.kubernetes.io/component
                 operator: In
-                values: ["backend", "worker", "migrate", "hub-fetch"]
+                values: ["backend", "worker", "migrate", "catalog-reconcile", "hub-fetch"]
       ports:
         - port: 8200
 {{- end }}

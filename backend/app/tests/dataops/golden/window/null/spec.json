@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "operation": "prepare",
+  "params": {
+    "steps": [
+      {
+        "id": "golden",
+        "kind": "window",
+        "params": {
+          "output": "b",
+          "function": "row_number",
+          "order_by": [
+            "a"
+          ]
+        }
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "port": "out",
+      "name": "Golden"
+    }
+  ]
+}

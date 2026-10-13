@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "operation": "prepare",
+  "params": {
+    "steps": [
+      {
+        "id": "golden",
+        "kind": "convert_timezone",
+        "params": {
+          "column": "a",
+          "from": "UTC",
+          "to": "Europe/Paris"
+        }
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "port": "out",
+      "name": "Golden"
+    }
+  ]
+}

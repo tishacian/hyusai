@@ -42,7 +42,7 @@ from app.services.recipe_executions import (
 from app.services.tabular_datasets import (
     TabularError,
     dataset_reference,
-    materialize,
+    materialize_dataset,
     register_parquet_file,
 )
 from app.services.tabular_transforms import (
@@ -148,11 +148,11 @@ def dispatch_sql_execution(db: DBSession, execution: RecipeExecution) -> str:
 def write_manifest(scratch: Path, sources: list[TransformSource], *, sql: str) -> dict[str, Any]:
     """Materialize the inputs and describe them, with the budgets, for the runner."""
 
-    views: list[dict[str, str]] = []
+    views: list[dict[str, Any]] = []
     names: set[str] = set()
     for index, source in enumerate(sources):
-        local = materialize(source.dataset, scratch / f"in_{index}.parquet")
-        views.append({"name": source.view, "path": str(local)})
+        local = materialize_dataset(source.dataset, scratch / f"in_{index}")
+        views.append({"name": source.view, "paths": [str(path) for path in local]})
         names.add(source.view)
     # Same addressing as the workshop preview: every input is also ``input_N``
     # and the first one is also ``input``, unless a view already owns the name.

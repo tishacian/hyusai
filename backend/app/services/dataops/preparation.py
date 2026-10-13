@@ -19,10 +19,10 @@ from app.schemas.data_prep import DataPrepSpec
 from app.services.dataops.compiler import compile_prep
 from app.services.dataops.storage import (
     dataset_digest,
+    dataset_digest_matches,
     identity_digest,
     materialize_files,
     settle_files,
-    write_batches,
 )
 from app.services.recipe_executions import cancel_requested, finalize_execution, supervise_harness
 from app.services.tabular_datasets import (
@@ -42,12 +42,16 @@ def compile_inputs(db, workspace_id: str, spec: DataPrepSpec, inputs: dict):
     }
     if any(dataset.status != "ready" for dataset in datasets.values()):
         raise ValueError("DATASET_NOT_READY")
-    schemas = {port: dataset.schema_json for port, dataset in datasets.items()}
+    from app.services.dataops.preview import native_schema
+    from app.services.dataops.types import describe
+
+    arrow_schemas = {port: native_schema(dataset) for port, dataset in datasets.items()}
+    schemas = {port: describe(schema) for port, schema in arrow_schemas.items()}
     identities = {
         port: {"id": dataset.id, "version": dataset.version, "digest": identity_digest(dataset)}
         for port, dataset in datasets.items()
     }
-    return compile_prep(spec, schemas, identities=identities), datasets
+    return compile_prep(spec, schemas, identities=identities, arrow_schemas=arrow_schemas), datasets
 
 
 def submit_preparation(
@@ -59,12 +63,22 @@ def submit_preparation(
     run_id: str | None = None,
     node_id: str | None = None,
     request_key: str | None = None,
+    placement: str = "auto",
+    timeout_s: int | None = None,
 ):
     from app.services.dataops.rollout import enabled
 
     if not enabled(db, workspace_id, "dataops_enabled"):
         raise ValueError("DATAPREP_DISABLED")
+    if placement not in {"auto", "local"}:
+        raise ValueError("DATAPREP_PLACEMENT_UNAVAILABLE")
+    if timeout_s is not None and (
+        type(timeout_s) is not int or not 1 <= timeout_s <= settings.dataops_t0_max_timeout_s
+    ):
+        raise ValueError("DATAPREP_TIMEOUT_INVALID")
     spec = spec if isinstance(spec, DataPrepSpec) else DataPrepSpec.model_validate(spec)
+    if len({slugify(output.name) for output in spec.outputs}) != len(spec.outputs):
+        raise ValueError("DATAPREP_OUTPUT_NAME_DUPLICATE")
     compiled, datasets = compile_inputs(db, workspace_id, spec, inputs)
     identity = (
         hashlib.sha256(
@@ -127,6 +141,22 @@ def submit_preparation(
                 "fingerprint": compiled.fingerprint,
                 "placement": "local",
                 "operation": spec.operation,
+                "prep": {
+                    "operation": spec.operation,
+                    "spec_version": spec.version,
+                    "spec": spec.canonical(),
+                    "fingerprint": compiled.fingerprint,
+                    "placement": "local",
+                    "output_port": output.port,
+                    "inputs": {
+                        port: {
+                            "dataset_id": dataset.id,
+                            "version": dataset.version,
+                            "rows": dataset.row_count,
+                        }
+                        for port, dataset in datasets.items()
+                    },
+                },
             },
             commit=False,
         )
@@ -137,7 +167,7 @@ def submit_preparation(
         run_id=run_id,
         node_id=node_id,
         status="queued",
-        timeout_s=settings.dataops_t0_max_timeout_s,
+        timeout_s=timeout_s or settings.dataops_t0_max_timeout_s,
         code_sha256=compiled.fingerprint,
         input_json={
             "kind": "data_prep",
@@ -171,7 +201,6 @@ def submit_preparation(
 
 
 def run_preparation(execution_id: str):
-    import pyarrow.dataset as ds
 
     from app.db.base import SessionLocal
 
@@ -197,7 +226,7 @@ def run_preparation(execution_id: str):
                     dataset = resolve_dataset_ref(
                         db, workspace_id=row.workspace_id, ref={"dataset_id": identifier}
                     )
-                    if dataset_digest(dataset) != config["input_digests"][port]:
+                    if not dataset_digest_matches(dataset, config["input_digests"][port]):
                         raise ValueError("DATAPREP_INPUT_CHANGED")
                     views.append(
                         {
@@ -212,14 +241,28 @@ def run_preparation(execution_id: str):
                     "views": views,
                     "sql": config["sql"],
                     "outputs": [
-                        {"port": p, "path": str(root / "out" / p / "data.parquet")}
+                        {
+                            "port": p,
+                            "path": str(
+                                root
+                                / "out"
+                                / p
+                                / (
+                                    "delta"
+                                    if settings.dataops_write_delta_enabled
+                                    else "data.parquet"
+                                )
+                            ),
+                            "format": "delta"
+                            if settings.dataops_write_delta_enabled
+                            else "parquet",
+                        }
                         for p in config["outputs"]
                     ],
                     "route_column": "__dp_output" if spec.operation == "split" else None,
-                    "row_limit": 0
-                    if settings.dataops_write_delta_enabled
-                    else settings.tabular_transform_max_rows,
+                    "row_limit": 0,
                     "max_output_bytes": settings.dataops_max_output_mb * 1024**2,
+                    "part_target_bytes": settings.dataops_part_max_mb * 1024**2,
                     "duckdb": {
                         "memory_mb": settings.dataops_duckdb_memory_mb,
                         "threads": settings.dataops_duckdb_threads,
@@ -271,27 +314,23 @@ def run_preparation(execution_id: str):
                 )
                 if row.status != "running" or row.cancel_requested:
                     raise ValueError("DATAPREP_FENCE_LOST")
+                summary = json.loads((root / "result.json").read_text())
                 envelope = {}
                 for port, identifier in config["outputs"].items():
                     target = db.get(TabularDataset, identifier)
-                    path = root / "out" / port / "data.parquet"
-                    if settings.dataops_write_delta_enabled:
-                        delta_root = root / "delta" / port
-                        scanner = ds.dataset(str(path), format="parquet").scanner(
-                            batch_size=settings.dataops_batch_rows,
-                            use_threads=False,
-                            batch_readahead=0,
-                            fragment_readahead=0,
-                        )
-                        paths = write_batches(
-                            delta_root,
-                            scanner.to_batches(),
-                            schema=scanner.projected_schema,
-                            delta=True,
-                        )
-                        settle_files(db, target, paths, delta_root=delta_root)
-                    else:
-                        settle_files(db, target, [path])
+                    output = summary["outputs"][port]
+                    paths = [Path(p).resolve(strict=True) for p in output["paths"]]
+                    authorized = (root / "out" / port).resolve()
+                    if any(not path.is_relative_to(authorized) for path in paths):
+                        raise ValueError("DATAPREP_OUTPUT_PATH_INVALID")
+                    delta_root = (
+                        Path(output["delta_root"]).resolve() if output.get("delta_root") else None
+                    )
+                    if delta_root is not None and delta_root != authorized / "delta":
+                        raise ValueError("DATAPREP_OUTPUT_PATH_INVALID")
+                    settle_files(
+                        db, target, paths, delta_root=delta_root, profile=output["profile"]
+                    )
                     envelope[port] = dataset_reference(target)
                 if cancel_requested(db, execution_id):
                     raise ValueError("DATAPREP_CANCELLED")
@@ -304,6 +343,13 @@ def run_preparation(execution_id: str):
                     "operation": spec.operation,
                     "placement": "local",
                     "fingerprint": row.code_sha256,
+                    "inputs": {
+                        port: {
+                            "dataset_id": identifier,
+                            "rows": db.get(TabularDataset, identifier).row_count,
+                        }
+                        for port, identifier in config["inputs"].items()
+                    },
                 }
                 finalize_execution(row, status="succeeded", exit_code=0)
                 db.commit()
@@ -324,8 +370,21 @@ def run_preparation(execution_id: str):
         return {"id": execution_id, "status": row.status, "output": row.output_json}
 
 
-def preview_preparation(db, *, workspace_id: str, spec: DataPrepSpec, inputs: dict):
+def preview_preparation(
+    db,
+    *,
+    workspace_id: str,
+    spec: DataPrepSpec,
+    inputs: dict,
+    step_id=None,
+    limit=None,
+    output_port=None,
+):
     from app.services.dataops.preview import preview
+    from app.services.dataops.preview_graph import compile_preview_graph
 
-    compiled, datasets = compile_inputs(db, workspace_id, spec, inputs)
-    return preview(compiled, datasets, spec)
+    compiled, datasets = compile_preview_graph(db, workspace_id, spec, inputs, step_id=step_id)
+    from app.services.dataops.samples import ensure_samples
+
+    ensure_samples(db, workspace_id, datasets)
+    return preview(compiled, datasets, spec, limit=limit, output_port=output_port)

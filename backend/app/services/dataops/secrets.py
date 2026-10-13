@@ -6,7 +6,7 @@ from app.services.secrets import registry
 def hash_parameters(spec, db=None, *, workspace_id=None, run_id=None, node_id=None):
     result = {}
     for i, step in enumerate(spec.steps):
-        if step.action != "hash":
+        if step.action != "hash" or not step.enabled or step.params.get("salt") == "none":
             continue
         ref = step.params.get("salt_secret_ref")
         try:
@@ -15,6 +15,8 @@ def hash_parameters(spec, db=None, *, workspace_id=None, run_id=None, node_id=No
             raise ValueError(exc.code) from None
         if parsed.scope != "workspace" or parsed.version is None:
             raise ValueError("DATAPREP_HASH_PINNED_WORKSPACE_SALT_REQUIRED")
+        if step.params.get("salt_version") is not None and step.params["salt_version"] != parsed.version:
+            raise ValueError("DATAPREP_HASH_SALT_VERSION_MISMATCH")
         if db is None:
             # Preview does not expose a pseudonym or resolve a secret.
             result[f"dp_salt_{i}"] = "[preview-redacted]"

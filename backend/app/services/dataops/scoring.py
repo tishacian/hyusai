@@ -17,6 +17,7 @@ from app.models.recipe import RECIPE_EXECUTION_TERMINAL_STATUSES, RecipeExecutio
 from app.models.tabular import MLModel, MLPrediction, TabularDataset
 from app.services.dataops.storage import (
     dataset_digest,
+    dataset_digest_matches,
     iter_dataset_batches,
     settle_files,
     write_batches,
@@ -291,7 +292,7 @@ def run_score(execution_id):
             dataset = resolve_dataset_ref(
                 db, workspace_id=row.workspace_id, ref={"dataset_id": spec["dataset_id"]}
             )
-            if dataset_digest(dataset) != spec["dataset_digest"]:
+            if not dataset_digest_matches(dataset, spec["dataset_digest"]):
                 raise ValueError("ML_SCORE_INPUT_CHANGED")
             output = db.get(TabularDataset, spec["output_id"])
             entry = load_pipeline(served)

@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import dataclass
+import threading
+from collections import OrderedDict
+from dataclasses import dataclass, field
 from typing import Any
 
 import sqlglot
@@ -15,7 +17,7 @@ from app.schemas.data_prep import DataPrepSpec
 
 
 def quote(name: str) -> str:
-    if not isinstance(name, str) or not name or len(name) > 256 or "\x00" in name:
+    if not isinstance(name, str) or not name or len(name) > 255 or "\x00" in name:
         raise ValueError("DATAPREP_IDENTIFIER_INVALID")
     return '"' + name.replace('"', '""') + '"'
 
@@ -35,6 +37,55 @@ def literal(value: Any) -> str:
 
 
 _FUNCTIONS = {
+    "AND",
+    "OR",
+    "TRUNC",
+    "TRUNCATE",
+    "CBRT",
+    "LOG10",
+    "LOG2",
+    "SIGN",
+    "MOD",
+    "PI",
+    "SIN",
+    "COS",
+    "TAN",
+    "ASIN",
+    "ACOS",
+    "ATAN",
+    "ATAN2",
+    "CONCAT_WS",
+    "LEFT",
+    "RIGHT",
+    "LPAD",
+    "RPAD",
+    "PAD",  # sqlglot canonical node for lpad/rpad
+    "STARTS_WITH",
+    "ENDS_WITH",
+    "CONTAINS",
+    "REGEXP_EXTRACT",
+    "REMOVE_ACCENTS",
+    "INITCAP",
+    "DATE_PART",
+    "DATEDIFF",
+    "DATE_ADD",
+    "MAKE_DATE",
+    "DATE_FROM_PARTS",
+    "PARSE_DATE",
+    "FORMAT_DATE",
+    "YEAR",
+    "MONTH",
+    "DAY",
+    "HOUR",
+    "ISO_WEEK",
+    "ISO_DAY_OF_WEEK",
+    "COL_MEAN",
+    "COL_SUM",
+    "COL_MIN",
+    "COL_MAX",
+    "COL_STD",
+    "COL_MEDIAN",
+    "COL_COUNT",
     "ABS",
     "ROUND",
     "CEIL",
@@ -88,32 +139,112 @@ _TYPES = {
 
 
 def expression(text: str, columns: list[str]) -> str:
-    if not isinstance(text, str) or not text or len(text) > 4096:
+    from app.services.dataops.typed_compiler import PrepCompileError
+
+    try:
+        return _expression(text, columns)
+    except PrepCompileError:
+        raise
+    except ValueError as exc:
+        raise PrepCompileError(str(exc), position={"line": 1, "column": 1}) from None
+
+
+def _expression(text: str, columns: list[str]) -> str:
+    if not isinstance(text, str) or not text or len(text) > 4000:
         raise ValueError("DATAPREP_EXPRESSION_INVALID")
-    trees = sqlglot.parse(text, read="duckdb")
+    try:
+        trees = sqlglot.parse(text, read="duckdb")
+    except sqlglot.errors.ParseError as exc:
+        from app.services.dataops.typed_compiler import PrepCompileError
+
+        error = exc.errors[0] if exc.errors else {}
+        raise PrepCompileError(
+            "DATAPREP_EXPRESSION_INVALID",
+            position={"line": error.get("line", 1), "column": error.get("col", 1)},
+        ) from None
     if len(trees) != 1 or trees[0] is None:
         raise ValueError("DATAPREP_SINGLE_EXPRESSION_REQUIRED")
     tree = trees[0]
     if sum(1 for _ in tree.walk()) > 256:
         raise ValueError("DATAPREP_EXPRESSION_TOO_COMPLEX")
     for node in tree.walk():
+
+        def reject(message):
+            from app.services.dataops.typed_compiler import PrepCompileError
+
+            raise PrepCompileError(
+                message,
+                position={"line": node.meta.get("line", 1), "column": node.meta.get("col", 1)},
+            )
+
+        if node.depth > 64:
+            raise ValueError("DATAPREP_EXPRESSION_TOO_COMPLEX")
         if isinstance(
             node, (exp.Query, exp.DDL, exp.DML, exp.Table, exp.Window, exp.Command, exp.Placeholder)
         ):
-            raise ValueError("DATAPREP_EXPRESSION_FORBIDDEN")
+            reject("DATAPREP_EXPRESSION_FORBIDDEN")
         if isinstance(node, exp.Column) and (node.name not in columns or node.table):
-            raise ValueError(f"DATAPREP_COLUMN_UNKNOWN: {node.name}")
+            reject(f"DATAPREP_COLUMN_UNKNOWN: {node.name}")
         if isinstance(node, exp.Func):
             name = node.name.upper() if isinstance(node, exp.Anonymous) else node.sql_name().upper()
             if name not in _FUNCTIONS:
-                raise ValueError(f"DATAPREP_FUNCTION_FORBIDDEN: {name}")
+                reject(f"DATAPREP_FUNCTION_FORBIDDEN: {name}")
+        elif type(node).__name__ not in {
+            "Column",
+            "Identifier",
+            "Literal",
+            "Boolean",
+            "Null",
+            "Paren",
+            "Neg",
+            "Not",
+            "Add",
+            "Sub",
+            "Mul",
+            "Div",
+            "Mod",
+            "Pow",
+            "EQ",
+            "NEQ",
+            "LT",
+            "LTE",
+            "GT",
+            "GTE",
+            "Is",
+            "In",
+            "Between",
+            "Like",
+            "ILike",
+            "DataType",
+            "DataTypeParam",
+            "Var",
+        }:
+            reject("DATAPREP_EXPRESSION_FORBIDDEN")
+        if isinstance(node, exp.DataType):
+            import re
+
+            if not re.fullmatch(
+                r"(?:VARCHAR|TEXT|DOUBLE|FLOAT|BIGINT|INT|INTEGER|BOOLEAN|DATE|TIMESTAMP|TIMESTAMPTZ|TIMESTAMP WITH TIME ZONE|DECIMAL(?:\(\d+(?:,\s*\d+)?\))?)",
+                node.sql(dialect="duckdb"),
+            ):
+                raise ValueError("DATAPREP_TYPE_INVALID")
         if isinstance(node, exp.Column):
             node.set("this", exp.Identifier(this=node.name, quoted=True))
-    return tree.sql(dialect="duckdb")
+    from app.services.dataops.formulas import apply_shims
+
+    return apply_shims(tree).sql(dialect="duckdb")
+
+
+COMPILER_VERSION = "1.1.0"
 
 
 def canonical_spec(spec: DataPrepSpec, inputs: dict[str, Any]) -> str:
-    data = {"spec": spec.model_dump(mode="json"), "inputs": inputs}
+    data = {
+        "compiler": COMPILER_VERSION,
+        "spec": spec.canonical(),
+        "inputs": inputs,
+        "outputs": [o.model_dump(mode="json") for o in spec.outputs],
+    }
     return hashlib.sha256(
         json.dumps(
             data, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False
@@ -134,6 +265,10 @@ def _require(params: dict, allowed: set[str], required: set[str] = frozenset()):
 
 
 def _names(values, columns):
+    if isinstance(values, dict):
+        from app.services.dataops.selectors import resolve_selector
+
+        values = resolve_selector(values, [{"name": n} for n in columns])
     if (
         not isinstance(values, list)
         or not values
@@ -150,13 +285,21 @@ class CompiledPrep:
     port_inputs: tuple[str, ...]
     fingerprint: str
     columns: tuple[str, ...]
+    output_schema: tuple[dict, ...] = ()
+    step_schemas: tuple[dict, ...] = ()
+    warnings: tuple[dict, ...] = ()
+    step_queries: dict[str, str] = field(default_factory=dict)
+    preview_parameters: dict[str, str] = field(default_factory=dict)
+    input_query: str = ""
 
 
-def compile_prep(
+def _compile_raw(
     spec: DataPrepSpec, schemas: dict[str, list[dict]], *, identities: dict | None = None
 ) -> CompiledPrep:
     operation, params = spec.operation, spec.params
-    if operation == "union" and not 2 <= len(schemas) <= 16:
+    from app.core.config import settings
+
+    if operation == "union" and not 2 <= len(schemas) <= settings.dataops_max_union_inputs:
         raise ValueError("DATAPREP_INPUT_PORTS_INVALID")
     required = (
         {"left", "right"}
@@ -171,7 +314,7 @@ def compile_prep(
     sql = f"SELECT * FROM {quote(sorted(required)[0])}"
     if operation == "prepare":
         _require(params, set())
-    elif operation in {"join", "union", "aggregate", "sample", "split"}:
+    elif operation in {"join", "union", "aggregate", "unpivot", "sample", "split"}:
         from app.services.dataops.operations import relational
 
         sql, columns = relational(spec, schemas)
@@ -222,7 +365,7 @@ def compile_prep(
         from app.services.dataops.steps import EXTENDED_STEPS, apply_step
 
         if action in EXTENDED_STEPS:
-            sql, columns = apply_step(sql, columns, action, p)
+            sql, columns = apply_step(sql, columns, action, p, schemas.get("in"))
             continue
         source = f"({sql}) AS data"
         if action == "hash":
@@ -230,20 +373,51 @@ def compile_prep(
 
             _require(
                 p,
-                {"columns", "column", "name", "output", "salt_secret_ref", "algorithm"},
-                {"salt_secret_ref"},
+                {
+                    "columns",
+                    "column",
+                    "name",
+                    "output",
+                    "salt_secret_ref",
+                    "algorithm",
+                    "salt",
+                    "salt_version",
+                    "suffix",
+                },
             )
             if p.get("algorithm", "sha256") != "sha256":
                 raise ValueError("DATAPREP_HASH_ALGORITHM_UNSUPPORTED")
             hash_parameters(spec)
             names = _names(p.get("columns") or [p.get("column")], columns)
             target = p.get("output", p.get("name"))
+            if target in {None, "replace", "suffix"}:
+                from app.services.dataops.types import canonical_value
+
+                fields = {f["name"]: f for f in schemas["in"]}
+                salt = "''" if p.get("salt") == "none" else f"$dp_salt_{step_index}"
+                values = {
+                    n: f"sha256({salt} || {canonical_value(n, fields.get(n))})" for n in names
+                }
+                if target == "suffix":
+                    suffix = p.get("suffix", "_hash")
+                    extras = {n + suffix: value for n, value in values.items()}
+                    if any(n.casefold() in {c.casefold() for c in columns} for n in extras):
+                        raise ValueError("DATAPREP_COLUMN_COLLISION")
+                    projection = [quote(n) for n in columns] + [
+                        v + " AS " + quote(n) for n, v in extras.items()
+                    ]
+                    columns.extend(extras)
+                else:
+                    projection = [values.get(n, quote(n)) + " AS " + quote(n) for n in columns]
+                sql = f"SELECT {','.join(projection)} FROM {source}"
+                continue
             if not target or target.casefold() in {n.casefold() for n in columns}:
                 raise ValueError("DATAPREP_COLUMN_COLLISION")
             packed = (
                 "to_json(struct_pack(" + ",".join(quote(n) + ":=" + quote(n) for n in names) + "))"
             )
-            sql = f"SELECT *,sha256(to_json(struct_pack(salt:=$dp_salt_{step_index},value:={packed}))) AS {quote(target)} FROM {source}"
+            salt = "''" if p.get("salt") == "none" else f"$dp_salt_{step_index}"
+            sql = f"SELECT *,sha256(to_json(struct_pack(salt:={salt},value:={packed}))) AS {quote(target)} FROM {source}"
             columns.append(target)
             continue
         if action in {"select", "drop", "drop_null", "deduplicate"}:
@@ -323,15 +497,82 @@ def compile_prep(
     )
 
 
+_COMPILE_CACHE = OrderedDict()
+_COMPILE_CACHE_LOCK = threading.Lock()
+_COMPILE_CACHE_BYTES = 0
+
+
+def compile_prep(spec, schemas, *, identities=None, arrow_schemas=None):
+    from app.core.config import settings
+    from app.services.dataops.typed_compiler import compile_typed
+
+    global _COMPILE_CACHE_BYTES
+    if len(spec.steps) > settings.dataops_max_steps:
+        raise ValueError("DATAPREP_STEPS_LIMIT")
+    key = canonical_spec(
+        spec,
+        {
+            "identities": identities or {},
+            "schemas": schemas,
+            "native": bool(arrow_schemas),
+            "limits": [
+                settings.dataops_max_steps,
+                settings.dataops_max_union_inputs,
+                settings.dataops_max_pivot_values,
+            ],
+        },
+    )
+    with _COMPILE_CACHE_LOCK:
+        if key in _COMPILE_CACHE:
+            _COMPILE_CACHE.move_to_end(key)
+            return _COMPILE_CACHE[key][0]
+    compiled = compile_typed(spec, schemas, identities=identities, arrow_schemas=arrow_schemas)
+    size = (
+        len(compiled.sql.encode())
+        + len(compiled.input_query.encode())
+        + sum(len(sql.encode()) for sql in compiled.step_queries.values())
+        + len(json.dumps(compiled.step_schemas).encode())
+    )
+    if size <= 8 * 1024**2:
+        with _COMPILE_CACHE_LOCK:
+            if key not in _COMPILE_CACHE:
+                while _COMPILE_CACHE and (
+                    len(_COMPILE_CACHE) >= 32 or _COMPILE_CACHE_BYTES + size > 8 * 1024**2
+                ):
+                    _, (_, removed) = _COMPILE_CACHE.popitem(last=False)
+                    _COMPILE_CACHE_BYTES -= removed
+                _COMPILE_CACHE[key] = (compiled, size)
+                _COMPILE_CACHE_BYTES += size
+    return compiled
+
+
 def catalog() -> dict:
+    from app.core.config import settings
+    from app.services.dataops.contracts import step_catalog
+    from app.services.dataops.formulas import function_catalog
+
     return {
         "version": 1,
+        "compiler_version": COMPILER_VERSION,
+        "feature": {"enabled": True, "placements": ["auto", "local"]},
+        "step_definitions": step_catalog(),
+        "functions": function_catalog(),
+        "limits": {
+            "steps": settings.dataops_max_steps,
+            "spec_bytes": 256000,
+            "union_inputs": settings.dataops_max_union_inputs,
+            "split_outputs": 8,
+            "pivot_values": settings.dataops_max_pivot_values,
+            "expression_chars": 4000,
+            "expression_depth": 64,
+            "preview_rows": 10000,
+        },
+        "kinds": ["integer", "float", "string", "boolean", "date", "datetime", "other"],
         "operations": [
             "prepare",
             "join",
             "union",
             "aggregate",
-            "pivot",
             "unpivot",
             "split",
             "sample",
