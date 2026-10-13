@@ -33,7 +33,8 @@ services:
     volumes:
       - agentium_rabbitmq:/var/lib/rabbitmq
     environment:
-      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit consumer_timeout 1200000"
+      # Keep acks_late tasks (including the 1830 s subflow resume) alive.
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit consumer_timeout 3600000"
       RABBITMQ_DEFAULT_USER: ${AGENTIUM_RABBITMQ_USER:-guest}
       RABBITMQ_DEFAULT_PASS: ${AGENTIUM_RABBITMQ_PASSWORD:-guest}
     healthcheck:

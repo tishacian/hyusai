@@ -154,12 +154,22 @@ distributed snapshot. The script does not stop these services itself. Without
 this operational boundary, successful byte checks cannot establish that the
 dump and objects describe the same instant.
 
-From A1/Delta onward, the mirror takes the complete prefix of every workspace
-referenced by datasets, models, retained BRDs or governed assets. A1 evidence
-can live outside `tabular/`, `ml/` and `brd/`; workspaces with no such references
-remain excluded. The existing 8 GiB staging ceiling still applies. Larger
-workspaces require a deliberately provisioned backup path, not a bypass of the
-ceiling or a partial mirror presented as complete.
+The retained `object-copy-plan.tsv` selects dataset objects/Delta directories,
+native model directories and named reports, retained BRD originals, plus every
+A1 manifest and its declared objects. A collection directory is added only
+when an A1 native reference names that collection. A1 evidence can therefore
+live outside `tabular/`, `ml/` and `brd/` without copying an unrelated 150 GiB
+knowledge tree in the same workspace. Overlapping directories and duplicate
+object references are deduplicated.
+
+Before any object copy, the script measures only these selected targets. An
+unknown required size aborts; a missing optional report state is skipped and
+reported. The 8 GiB object ceiling remains unchanged. The destination filesystem
+and MinIO staging filesystem must each have room for two copies plus a 1 GiB
+reserve, conservatively covering the case where both paths share one disk.
+Larger referenced corpora require a deliberately provisioned backup path, not
+a bypass of the ceiling or a partial mirror presented as complete. Preflight
+failures leave no `.ready` marker and may occur before `MANIFEST.json` exists.
 
 The window now retains `reference-registry.jsonl`, its checksum, and
 `governed-verification.json`. The offline verifier compares every A1 SQL envelope

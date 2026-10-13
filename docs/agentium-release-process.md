@@ -348,17 +348,20 @@ sudo "$DUMP" <sha12> <slice>
 ```
 
 It takes its own `pg_dump`, adds a dump of the `mlflow` registry database,
-mirrors the complete object prefix of every workspace the data-plane or A1 registry
-actually references, checksums each part, and then verifies that every artifact
+copies the exact objects and native artifact directories the data-plane or A1
+registry references, checksums each part, and then verifies that every artifact
 the registry names is present in the window. Retained BRD originals must also match their recorded SHA-256; a missing or corrupt original blocks the window. `.ready` appears only if that check
 passed — so `.ready`, not the directory, is what says the window can be restored
 from. It also runs safely against a pre-096 database, where it reports that there
 is no plane and skips the mirror rather than writing an empty `objects/` that
 would look like a failed mirror.
 
-Do not substitute an unscoped mirror of all `workspaces/`: unrelated workspaces
-remain excluded. Within a referenced workspace, A1 evidence may live outside
-the original tabular/ML/BRD directories. The retained reference registry checks
+Do not substitute an unscoped workspace mirror: unrelated knowledge collections
+remain excluded even within a workspace that has an A1 asset. Its manifests
+select additional evidence objects or explicitly referenced native collection
+directories. The copy plan is measured before copying, capped at 8 GiB, and
+requires space for two copies plus a 1 GiB reserve on both staging/destination
+filesystems. The retained reference registry checks
 A1 manifest/object hashes and Delta log/part hashes, both before `.ready` and
 after a restore. Suspend writers and purges throughout the window: the SQL
 dumps and object mirror are not an atomic distributed snapshot. Follow the

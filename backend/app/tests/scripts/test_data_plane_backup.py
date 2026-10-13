@@ -349,14 +349,27 @@ elif command[0] == 'pg_dump':
     pathlib.Path(command[command.index('-f') + 1]).write_bytes(b'transport-double-not-a-real-pg-dump')
 elif command[0] == 'printenv':
     print('bucket')
+elif command[0] == 'df':
+    if os.environ.get('BACKUP_TEST_FREE_KB'):
+        print('Filesystem 1024-blocks Used Available Capacity Mounted on')
+        print('fixture 999999999 0 ' + os.environ['BACKUP_TEST_FREE_KB'] + ' 0% /')
+    else:
+        subprocess.run(command, check=True)
 elif command[0] == 'sh':
     mc = command[command.index('mc') + 1:]
     verb = mc[0]
     source = bucket / mc[2].removeprefix('dump/bucket/')
+    with open(os.environ['BACKUP_TEST_MC_LOG'], 'a') as output:
+        output.write(json.dumps({'verb': verb, 'key': mc[2].removeprefix('dump/bucket/')}) + '\n')
     if verb == 'du':
-        print(json.dumps({'size': sum(p.stat().st_size for p in source.rglob('*') if p.is_file())}))
+        if not source.exists() or os.environ.get('BACKUP_TEST_SIZE_UNAVAILABLE'):
+            sys.exit(1)
+        size = source.stat().st_size if source.is_file() else sum(p.stat().st_size for p in source.rglob('*') if p.is_file())
+        print(json.dumps({'size': size}))
     elif verb == 'mirror':
         shutil.copytree(source, mc[3], dirs_exist_ok=True)
+    elif verb == 'cp':
+        shutil.copy2(source, mc[3])
     else:
         raise RuntimeError('Unexpected mc operation')
 else:
@@ -365,15 +378,10 @@ else:
 """
 
 
-@pytest.mark.parametrize("corrupt", [False, True])
-def test_actual_dump_shell_marks_ready_only_after_a1_byte_verification(restored, tmp_path, corrupt):
+def _run_dump(restored, tmp_path, extra_env=None):
     import os
 
-    bucket, registry, records = restored
-    if corrupt:
-        obj = bucket / records[1]["row"]["manifest_json"]["objects"][0]["key"]
-        content = obj.read_bytes()
-        obj.write_bytes(bytes([content[0] ^ 1]) + content[1:])
+    bucket, registry, _ = restored
     data_root = tmp_path / "data-root"
     data_root.mkdir()
     script = tmp_path / "dump.sh"
@@ -401,10 +409,23 @@ def test_actual_dump_shell_marks_ready_only_after_a1_byte_verification(restored,
             "PATH": str(binaries) + os.pathsep + os.environ["PATH"],
             "BACKUP_TEST_REGISTRY": str(registry),
             "BACKUP_TEST_BUCKET": str(bucket),
+            "BACKUP_TEST_MC_LOG": str(tmp_path / "mc-calls.jsonl"),
+            **(extra_env or {}),
         },
         timeout=30,
     )
     window = next((data_root / "offline-test-deployments").iterdir())
+    return result, window
+
+
+@pytest.mark.parametrize("corrupt", [False, True])
+def test_actual_dump_shell_marks_ready_only_after_a1_byte_verification(restored, tmp_path, corrupt):
+    bucket, registry, records = restored
+    if corrupt:
+        obj = bucket / records[1]["row"]["manifest_json"]["objects"][0]["key"]
+        content = obj.read_bytes()
+        obj.write_bytes(bytes([content[0] ^ 1]) + content[1:])
+    result, window = _run_dump(restored, tmp_path)
     manifest = json.loads((window / "MANIFEST.json").read_text())
     assert (window / ".ready").exists() is not corrupt
     assert manifest["governed_bytes_verified"] is not corrupt
@@ -412,3 +433,114 @@ def test_actual_dump_shell_marks_ready_only_after_a1_byte_verification(restored,
     if not corrupt:
         assert json.loads((window / "governed-verification.json").read_text())["assets"] == 2
         assert (window / "reference-registry.jsonl").read_bytes() == registry.read_bytes()
+
+
+def test_dump_copies_only_referenced_evidence_and_not_150gib_knowledge_tree(restored, tmp_path):
+    bucket, registry, records = restored
+    huge = bucket / "workspaces/ws-1/knowledge-collections/unrelated/large.bin"
+    huge.parent.mkdir(parents=True)
+    with huge.open("wb") as output:
+        output.truncate(150 * 1024**3)  # Sparse file: stat is real, no 150 GiB allocation.
+    key = "workspaces/ws-1/knowledge-collections/referenced/page.txt"
+    content = b"one referenced source"
+    _write(bucket / key, content)
+    asset = _asset(
+        bucket,
+        "ws-1",
+        "explicit-page",
+        {
+            "objects": [
+                {
+                    "key": key,
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                    "size_bytes": len(content),
+                }
+            ]
+        },
+    )
+    records.append({"type": "asset", "row": asset})
+    _registry(registry, records)
+    result, window = _run_dump(restored, tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert (window / "objects" / key).read_bytes() == content
+    assert not (window / "objects" / huge.relative_to(bucket)).exists()
+    calls = [json.loads(line) for line in (tmp_path / "mc-calls.jsonl").read_text().splitlines()]
+    assert all(
+        call["key"] not in {"workspaces/ws-1", "workspaces/ws-1/knowledge-collections"}
+        for call in calls
+    )
+
+
+def test_copy_plan_includes_only_governed_native_collection_and_retained_evaluation(restored):
+    bucket, registry, records = restored
+    collection = {
+        "id": "collection-1",
+        "workspace_id": "ws-1",
+        "status": "ready",
+        "active_generation": "generation-1",
+        "artifact_prefix": "workspaces/ws-1/knowledge-collections/collection-1/generation-1",
+        "document_names": ["source.txt"],
+        "embedding_model": "configured-model",
+    }
+    page = collection["artifact_prefix"] + "/source.txt"
+    native = {
+        "kind": "document_set",
+        "id": collection["id"],
+        "identity_digest": verify.digest(
+            {field: collection[field] for field in verify.NATIVE_FIELDS["document_set"]}
+        ),
+    }
+    asset = _asset(
+        bucket,
+        "ws-1",
+        "collection-source",
+        {"native_refs": [native], "objects": [{"key": page}]},
+    )
+    retained = "workspaces/ws-1/ml/evaluation/retained.parquet"
+    archived_model = {
+        "id": "model-archived",
+        "workspace_id": "ws-1",
+        "status": "archived",
+        "model_uri": "workspaces/ws-1/ml/artifacts/archived",
+        "metrics_json": {"evaluation": {"key": retained}},
+    }
+    records.extend(
+        [
+            {"type": "document_set", "row": collection},
+            {
+                "type": "document_set",
+                "row": {
+                    **collection,
+                    "id": "unreferenced",
+                    "artifact_prefix": "workspaces/ws-1/knowledge-collections/unreferenced",
+                },
+            },
+            {"type": "asset", "row": asset},
+            {"type": "model", "row": archived_model},
+        ]
+    )
+    _registry(registry, records)
+    plan = {item["key"]: item for item in verify.copy_plan(registry)}
+    assert plan[collection["artifact_prefix"]]["kind"] == "prefix"
+    assert page not in plan  # The selected generation already contains the page.
+    assert plan[retained] == {"key": retained, "kind": "file", "required": True}
+    assert archived_model["model_uri"] not in plan
+    assert "workspaces/ws-1/knowledge-collections/unreferenced" not in plan
+
+
+@pytest.mark.parametrize("reason", ["space", "unknown", "size"])
+def test_preflight_refuses_before_any_object_copy(restored, tmp_path, reason):
+    bucket, _, records = restored
+    environment = {}
+    if reason == "space":
+        environment["BACKUP_TEST_FREE_KB"] = "1"
+    elif reason == "unknown":
+        environment["BACKUP_TEST_SIZE_UNAVAILABLE"] = "1"
+    else:
+        key = records[1]["row"]["manifest_json"]["objects"][0]["key"]
+        with (bucket / key).open("wb") as output:
+            output.truncate(9 * 1024**3)
+    result, window = _run_dump(restored, tmp_path, environment)
+    assert result.returncode != 0 and not (window / ".ready").exists()
+    calls = [json.loads(line) for line in (tmp_path / "mc-calls.jsonl").read_text().splitlines()]
+    assert not any(call["verb"] in {"cp", "mirror"} for call in calls)
