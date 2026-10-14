@@ -142,20 +142,60 @@ Les révisions OCI de ces cinq images sont
 `ad10dbc2b6cb464c8e7c6b19af8ffc46a3b3fb3b`. Le descripteur du backend est le
 manifeste `sha256:edc26ba7f12f32f5c06ddeb138ff6486faa89e807a1542e7c96087a7a20f376e`.
 Backend/worker et backend/ml-ts partagent chacun neuf couches.
-`docker image ls` affiche 5,42 Go pour ce backend, tandis que son `.Size` vaut
-1 422 295 390 octets : l'affichage de la liste ne doit pas remplacer la métrique
-lue par le contrôle de release.
+Le contrôle de release lit `.Size`, soit 1 422 295 390 octets pour ce backend.
+Une valeur d'affichage de `docker image ls` rapportée lors du diagnostic n'est
+pas conservée dans le bundle et n'est donc pas utilisée comme preuve ici.
 
 L'[inventaire](evidence/dataops-vm-check-2026-10-14/vm-state.json) examine les
-identifiants, tags et révisions de **204 images Agentium**. Aucun tag ou label
-ne correspond à `bd724044` ni `a90272c1`. Les contrôles de ces tags échouent pour
+identifiants, tags et révisions de **204 images Agentium**. Il conserve le
+compteur, les révisions backend et le résultat de recherche vide, mais pas la
+liste exhaustive des 204 images qui permettrait de rejouer cette recherche.
+Aucun tag ou label correspondant à `bd724044` ou `a90272c1` n'est rapporté.
+Les contrôles de ces tags échouent pour
 images manquantes ; ils ne constatent pas un dépassement. Le script de budget
 passe pour la référence déployée, mais **aucun verdict VM sur le candidat n'est
 possible**. Les calculs OCI de 1 283/1 636 Mio ne deviennent pas des mesures VM.
 L'espace libre sur `/` est de 137 494 495 232 octets au relevé ; aucune archive
 n'a été transférée ou chargée et aucune image n'a été construite, tirée ou purgée.
-Les identifiants et dates de démarrage des cinq conteneurs contrôlés sont
+Les identifiants d'images, noms et dates de démarrage des cinq conteneurs contrôlés sont
 [identiques après les sondes](evidence/dataops-vm-check-2026-10-14/containers-after.txt).
+
+### Mesure du candidat à effectuer sans bascule de services
+
+Les deux archives OCI déjà construites portent la révision `bd724044` et les
+tags `agentium-backend:dataops-review` / `agentium-worker:dataops-review`.
+Le [manifeste de transmission](evidence/dataops-image-reconciliation-2026-10-14/candidate-oci-transfer-manifest.json)
+conserve leurs tailles, SHA256 calculés sur les archives entières, descripteurs,
+configurations et couches ordonnées. Il ne constate aucun transfert ou import.
+
+Depuis l'environnement local autorisé, la mesure doit suivre ces étapes :
+
+1. Confirmer l'espace disponible sur le stockage de staging et celui de Docker,
+   relever l'état des conteneurs et vérifier que les deux tags d'import sont
+   absents. Arrêter en cas de collision de tag. Les archives totalisent 2,85 Gio ;
+   archives, contenus compressés et couches décompressées représentent ensemble
+   environ 13,91 Gio, hors métadonnées et sans déduction des couches partagées.
+2. Transférer les deux archives intactes dans un répertoire dédié et vérifier
+   leurs SHA256 contre le manifeste. Docker 29.1.3 avec containerd prévoit
+   [l'import OCI natif](https://github.com/moby/moby/blob/docker-v29.1.3/daemon/containerd/image_exporter.go#L243)
+   ; aucune conversion en Docker-archive n'est nécessaire.
+3. Charger les archives l'une après l'autre avec `docker --host=unix:///var/run/docker.sock
+   image load --platform linux/amd64 --input CHEMIN_ARCHIVE`. Ce chargement
+   ajoute des images au stockage, sans démarrer de conteneur.
+4. Vérifier le descripteur, la plateforme, la révision et les `diff_ids` ordonnés
+   contre le manifeste, puis lancer le collecteur sur le tag `dataops-review`.
+   Conserver les tailles `.Size`, les verdicts backend/worker et les couches
+   communes. Les plafonds restent 1 400/1 760 Mio.
+5. Conserver aussi le retour global du script : les autres images de cette
+   qualification partielle sont absentes, donc il peut échouer malgré deux
+   verdicts individuels corrects. Ne pas compléter artificiellement la release
+   en retaguant des images de production. Relever à nouveau l'état des conteneurs.
+
+Ce protocole ne construit ni ne démarre de service ; aucune commande de bascule,
+de redémarrage ou de purge n'y figure. Les archives mesurent l'artefact `bd724044`,
+dont les sources applicatives sont identiques à `6d9395e3`, sans le renommer comme
+une nouvelle construction de ce dernier commit. La qualification VM reste ouverte
+tant que ces opérations et leurs résultats n'ont pas été consignés.
 
 ## HANA Showcase : échec SQL reproduit, cause non établie
 
@@ -188,9 +228,12 @@ Les deux opérations du candidat échouent avant toute lecture SQL :
   aucune ligne et aucun `source=hana_live`.
 
 Le pilote retourne `-10709`, `RTE:[200121]`, « Invalid connect reply » avec une
-réponse **HTTP 400** reçue à la place du protocole SAP HANA. L'échec se produit
-avant authentification/lecture ; il ne démontre ni un mauvais mot de passe ni
-un rejet du certificat par le pilote.
+réponse **HTTP 400** reçue à la place du protocole SAP HANA. `dbapi.connect`
+échoue sans retourner de session ; aucune requête SQL n'est exécutée. Le relevé
+ne situe pas précisément l'échec dans la négociation et ne qualifie ni les
+identifiants ni la confiance TLS propre au pilote. Les indicateurs d'erreur
+d'authentification et de certificat du JSON proviennent de recherches de mots
+dans l'exception, pas d'une trace des étapes du protocole.
 
 Une [sonde différentielle](evidence/dataops-vm-check-2026-10-14/hana-showcase-sni-diagnostic.json)
 a ajouté uniquement `sslSNIHostname=destination.host` en mémoire, en conservant
@@ -203,8 +246,23 @@ correctif de ce type n'est conservé. Il reste à vérifier côté SAP que cette
 adresse expose bien le service SQL de l'instance attendue et ses conditions
 d'accès, puis refaire le test hdbcli strict et la lecture bornée.
 
+La prochaine vérification utile est une lecture du panneau SAP HANA Cloud :
+endpoint SQL exact avec son port, identifiant et état de l'instance, exposition
+publique/privée et restrictions d'accès. Les événements de connexion ou de routage
+du **14 octobre, 09:00–09:05 heure de Paris** peuvent aider à localiser le rejet.
+Ces métadonnées ne nécessitent aucun mot de passe SQL. Si elles correspondent
+à la configuration enregistrée, il faut diagnostiquer le rejet au point d'entrée
+SAP avant de multiplier les tentatives du pilote. Le certificat wildcard valide
+ne prouve pas à lui seul que l'instance SQL attendue est disponible.
+
 Le blocage HANA reste ouvert. Activer une exception TLS n'est pas justifié par
 ces résultats. Aucun choix parmi les modes suivants n'est appliqué :
+
+Le 14 octobre, l'utilisateur indique que l'instance est probablement indisponible
+et qu'il s'agissait d'un essai SAP HANA Cloud de 30 jours. L'expiration du trial
+devient une hypothèse prioritaire ; elle n'est pas confirmée par un relevé du
+panneau SAP. Le choix entre démo explicite et nouvelle instance opérationnelle
+reste en attente ; aucune configuration de workspace n'est modifiée.
 
 | Choix exclusif | Configuration | Preuve ou limite |
 |---|---|---|
