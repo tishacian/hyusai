@@ -190,6 +190,7 @@ const storeSpecs = [
   'src/app/features/connectors/huggingface/huggingface-lifecycle.component.spec.ts',
   'src/app/features/knowledge/collection-models.component.spec.ts',
   'src/app/features/connectors/huggingface/huggingface-connector.component.spec.ts',
+  'src/app/features/connectors/hana/hana-connector.component.spec.ts',
   'src/app/features/models/models-shadow.service.spec.ts',
   'src/app/features/models/models-monitoring.service.spec.ts',
   'src/app/features/models/forecast-actuals.component.spec.ts',

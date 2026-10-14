@@ -1,8 +1,11 @@
 # DataOps — tailles d'images et choix HANA, 14 octobre 2026
 
 Ce diagnostic suit la demande de comparer la référence `ad10dbc2` et le candidat
-`bd724044`, puis de choisir le comportement HANA Showcase. Le candidat est le
-runtime qualifié ; les commits suivants de la branche ajoutent ses preuves.
+`bd724044`, puis de choisir le comportement HANA Showcase. Cette révision reste
+la référence des images backend et worker construites. Les ajouts suivants
+conservent leurs preuves ; la décision HANA s'accompagne désormais d'un correctif
+frontend, qualifié séparément ci-dessous. Les images candidates n'ont pas encore
+été mesurées sur la VM.
 Le plan original et la revue indépendante restent inchangés. Aucune hausse de
 plafond, fusion ou mise en production n'est décidée ici. Les autres lots du plan
 restent hors de cette vérification.
@@ -255,33 +258,66 @@ Ces métadonnées ne nécessitent aucun mot de passe SQL. Si elles correspondent
 SAP avant de multiplier les tentatives du pilote. Le certificat wildcard valide
 ne prouve pas à lui seul que l'instance SQL attendue est disponible.
 
-Le blocage HANA reste ouvert. Activer une exception TLS n'est pas justifié par
-ces résultats. Aucun choix parmi les modes suivants n'est appliqué :
-
 Le 14 octobre, l'utilisateur indique que l'instance est probablement indisponible
 et qu'il s'agissait d'un essai SAP HANA Cloud de 30 jours. L'expiration du trial
 devient une hypothèse prioritaire ; elle n'est pas confirmée par un relevé du
-panneau SAP. Le choix entre démo explicite et nouvelle instance opérationnelle
-reste en attente ; aucune configuration de workspace n'est modifiée.
+panneau SAP.
 
-| Choix exclusif | Configuration | Preuve ou limite |
-|---|---|---|
-| Certificat valide, recommandé | `encrypt=true`, `ssl_validate_certificate=true`, `demo_mode=false` | Vérifier nom DNS, dates, chaîne et confiance effective de `hdbcli`, puis une lecture réelle. |
-| Démo explicite | `demo_mode=true`, TLS strict conservé | C'est un repli après tentative de connexion : une connexion réussie utilise encore HANA vivant. Le repli porte `source=demo_dataset`. |
-| Exception TLS pour l'hôte | `HANA_ALLOW_INSECURE_TLS=true`, nom exact dans `HANA_INSECURE_TLS_ALLOWED_HOSTS`, puis `ssl_validate_certificate=false`, `encrypt=true`, `demo_mode=false` | Le trafic reste chiffré, mais l'identité du serveur n'est plus vérifiée. La liste serveur s'applique à l'hôte pour tous les workspaces et n'expire pas automatiquement. |
+### Décision du 14 octobre : démo explicite pour Showcase
 
-Deux limites du code doivent accompagner ce choix. Le formulaire HANA n'envoie
-ni `demo_mode` ni `ssl_validate_certificate` ; sa sauvegarde rétablit les valeurs
-par défaut de l'API, donc peut annuler une démo ou une exception configurée par
-ailleurs. Son bouton de test utilise la configuration enregistrée, même si le
-formulaire a été modifié sans sauvegarde.
+L'utilisateur choisit **`demo_mode=true`, TLS strict conservé** pour la prochaine
+livraison de `agentium-showcase`. Le choix de service est tranché ; son activation
+sur la VM reste différée jusqu'à la qualification des images candidates. La
+configuration effectivement relevée plus haut précède cette décision et n'a
+pas été modifiée par les travaux locaux.
 
-Autre écart à conserver explicitement : le runbook `docs/ops/hana-security-s0.md`
-dit que les erreurs d'authentification/TLS ne déclenchent pas la démo. Dans
+| Périmètre | Valeur retenue |
+|---|---|
+| Workspace | `agentium-showcase` uniquement |
+| Configuration du connecteur | `demo_mode=true`, `encrypt=true`, `ssl_validate_certificate=true` |
+| Garde serveur | `HANA_ALLOW_INSECURE_TLS=false`, `HANA_WRITES_ENABLED=false` conservés |
+| Hôte, port, compte et secret existants | Conservés ; aucun secret de plateforme ajouté |
+| Autres workspaces | Aucune activation automatique ; défaut `demo_mode=false` |
+
+Le contrat choisi est un **repli explicite**, pas un mode hors ligne : query et
+preview essaient d'abord HANA. Un résultat synthétique porte
+`source=demo_dataset`, et l'aperçu l'annonce comme démonstration. Une connexion
+qui redevient disponible peut produire `source=hana_live`. `/hana/test` reste
+un test de la configuration enregistrée contre HANA réel, sans repli ; son
+échec ne doit pas devenir un faux succès de connexion. `demo_mode` n'interdit
+pas à lui seul les écritures, d'où le maintien de la garde serveur désactivée.
+
+L'indisponibilité du HANA vivant n'est pas résolue ni présentée comme telle.
+La future recette Showcase devra vérifier le repli déclaré, sa persistance à
+la sauvegarde et les gardes d'accès, selon la
+[procédure d'activation](ops/hana-security-s0.md#showcase--démo-explicite-retenue-le-14-octobre-2026).
+
+Le formulaire HANA a été corrigé pour conserver `demo_mode`, `encrypt` et
+`ssl_validate_certificate` au chargement et à la sauvegarde. Il expose le choix
+du repli, garde des valeurs strictes pour une ancienne configuration et signale
+une éventuelle exception existante sans ajouter de commande pour désactiver TLS.
+Le bouton « Tester la connexion enregistrée » annonce son périmètre et n'envoie
+aucun champ ni mot de passe non enregistré. Un aperçu synthétique ne transforme
+pas un échec HANA en succès de connexion.
+
+La [validation locale de ce correctif](evidence/hana-showcase-demo-2026-10-14/README.md)
+comprend 10 tests de composant HANA, inclus dans **2 204 tests frontend réussis**,
+les contrôles i18n/navigation/interface et un `build:prod` réussi. **48 tests
+backend HANA ciblés** passent également sous garde réseau, sans sollicitation
+réseau. Aucun code backend ni Dockerfile n'est modifié pour ce choix. La suite
+backend complète n'est pas relancée. Le build frontend ne constitue pas une
+mesure de son image Docker ; une livraison doit embarquer et qualifier ce
+frontend corrigé, pas lui attribuer les preuves d'un ancien frontend.
+
+Un écart de qualification reste explicitement conservé : la formulation initiale
+du runbook S0 promettait qu'une erreur d'authentification/TLS ne déclencherait
+jamais la démo. Dans
 `backend/app/services/connectors/hana/service.py`, toutes les exceptions de
 `dbapi.connect` deviennent pourtant `HANA_CONNECTION_FAILED`, donc peuvent
 déclencher le repli si `demo_mode=true`. Les refus de politique réseau et TLS
-restent distincts. Ce constat ne modifie ni le contrat ni le comportement attendu.
+restent distincts. Le runbook précise cette limite : le choix de démonstration
+ne qualifie ni les identifiants ni la confiance TLS du pilote, et ne relâche
+pas ses paramètres TLS.
 
 Les sondes passent par les fonctions de service et une transaction PostgreSQL
 `READ ONLY`, pas par `/api/v1/hana/config` ou `/hana/test` en HTTP authentifié.
@@ -292,5 +328,7 @@ utilisés. Les [48 tests HANA ciblés](evidence/dataops-vm-check-2026-10-14/hana
 passent localement ; ce résultat n'est pas une lecture HANA réussie ni une
 nouvelle exécution de la suite backend complète.
 
-Aucune exception TLS ni démo n'est activée par cette note. Le choix de l'utilisateur
-et sa vérification restent nécessaires avant tout déploiement.
+Aucune exception TLS ni démo n'est activée sur la VM par cette note. Le choix
+de l'utilisateur est enregistré ; la qualification des images, l'activation
+différée du workspace et sa recette restent nécessaires avant de déclarer la
+livraison prête. Aucune fusion ni aucun déploiement n'est effectué ici.
