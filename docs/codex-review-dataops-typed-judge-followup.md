@@ -34,8 +34,13 @@ ne constitue pas un `docker image inspect` de la VM de déploiement.
 | Worker | 4 903 956 499 | 4 676 | 1 760 | Dépassé |
 
 Les archives OCI complètes pèsent respectivement 1 346 070 528 et
-1 716 421 120 octets ; leur taille compressée n'est pas celle que contrôle
-le budget. Les constructions durent 104,179 s et 674,854 s. Les imports de
+1 716 421 120 octets ; leur taille n'est pas un relevé du budget sur la VM.
+Le mode de stockage Docker doit être identifié : `inspect.Size` utilise les
+contenus stockés, dont les couches généralement compressées, avec containerd
+dans Docker 28.4, et les charges utiles
+décompressées avec le stockage classique. Voir le
+[diagnostic des deux blocages de release](dataops-release-blockers-2026-10-14.md).
+Les constructions durent 104,179 s et 674,854 s. Les imports de
 `app.main` et des dépendances épinglées passent, sans réseau ni lifespan.
 Dans chaque image, un vrai aperçu de sample réussit, une expansion excessive
 reçoit `DATAPREP_PREVIEW_TIMEOUT` à cinq secondes, puis une autre formule
@@ -68,8 +73,9 @@ Le [rapport](evidence/dataops-completion-2026-10-13/scoring-3m.json) et sa
 conservent les cardinalités, versions, paramètres, empreintes et ressources.
 Le conteneur d'essai est retiré et le constructeur dédié arrêté.
 
-Les budgets restent bloquants. HANA vivant et les critères de recette encore
-ouverts ci-dessous restent à traiter. Aucune fusion ni modification de VM
+Le contrôle des budgets sur la VM reste ouvert ; les dépassements ci-dessus
+concernent la comptabilité classique. HANA vivant et les critères de recette
+encore ouverts ci-dessous restent à traiter. Aucune fusion ni modification de VM
 n'a été effectuée ; narration et Gemini/OpenRouter restent différés.
 
 ## Reprise des lots D1a, D1b, D2 et D3
