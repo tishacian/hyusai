@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   CONNECTORS,
+  hasConnectorRuntime,
   readAppToggles,
   writeAppToggle,
 } from './resources.catalog';
@@ -85,4 +86,18 @@ test('every credential field of the catalog is typed as a secret', () => {
   );
   const webhookFieldsOnOurSide = ['telegram.webhook_url', 'rpa_bridge.callback_webhook_url'];
   assert.deepEqual(mistyped.filter((field) => !webhookFieldsOnOurSide.includes(field)), []);
+});
+
+test('catalogue distinguishes existing surfaces, third-party tools and requests without certification claims', () => {
+  const status = (id: string) => CONNECTORS.find((row) => row.id === id)!.status;
+  for (const id of ['dynamics365', 'teams', 'outlook', 'telegram', 'whatsapp', 'smtp', 'mqtt', 's3', 'elasticsearch']) {
+    assert.equal(status(id), 'on-request', id);
+    assert.equal(hasConnectorRuntime(CONNECTORS.find((row) => row.id === id)!), false);
+  }
+  for (const id of ['postgresql', 'sap_hana', 'sftp', 'sharepoint', 'huggingface']) {
+    assert.equal(status(id), 'unverified', id);
+    assert.equal(hasConnectorRuntime(CONNECTORS.find((row) => row.id === id)!), true);
+  }
+  assert.equal(status('mcp'), 'third-party');
+  assert.equal(CONNECTORS.some((row) => ['available', 'active', 'verified', 'certified'].includes(row.status)), false);
 });

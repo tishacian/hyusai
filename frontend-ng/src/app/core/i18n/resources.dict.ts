@@ -341,7 +341,7 @@ export const RESOURCES_FR = {
   'resources.kpi.models': 'Modèles',
   'resources.kpi.providers': 'Fournisseurs',
   'resources.kpi.connectors': 'Connecteurs',
-  'resources.kpi.connectors.hint': '{configured} configurés · {coming} à venir',
+  'resources.kpi.connectors.hint': '{configured} configurés · {coming} sur demande',
   'resources.kpi.apps': 'Apps activées',
   'resources.kpi.apps.hint': 'Aller à /apps · {count} disponibles',
   'resources.kpi.apps.title':
@@ -422,11 +422,11 @@ export const RESOURCES_FR = {
 
   // --- /resources — Connectors tab ---------------------------------
   'resources.connectors.banner.title':
-    'Configuration seulement · la plupart des connecteurs sont des entrées de catalogue',
-  'resources.connectors.banner.before': 'Seuls les connecteurs marqués',
-  'resources.connectors.banner.connected': 'connecté',
+    'État du catalogue et configurations',
+  'resources.connectors.banner.before': 'Une configuration',
+  'resources.connectors.banner.connected': 'enregistrée',
   'resources.connectors.banner.after':
-    "(pastille verte) sont câblés de bout en bout. Les autres gardent leur configuration sur le serveur, secrets en écriture seule ; aucune exécution ne s'en sert encore.",
+    "ne prouve ni une connexion active ni une certification. Les intégrations sur demande conservent leurs paramètres existants.",
   'resources.connectors.banner.request': 'Demander',
 
   // --- /resources — portal errors & toasts -------------------------
@@ -473,6 +473,13 @@ export const RESOURCES_FR = {
   'connectors.status.connected': 'connecté',
   'connectors.status.configured': 'configuré',
   'connectors.status.configuration_only': 'Configuration uniquement',
+  'connectors.status.unverified': 'Non vérifié',
+  'connectors.status.third_party': 'Tiers',
+  'connectors.status.on_request': 'Sur demande',
+  'connectors.kpi.listed': 'Référencés',
+  'connectors.kpi.existing': 'Accès existants',
+  'connectors.kpi.on_request': 'Sur demande',
+  'connectors.drawer.on_request': 'Intégration sur demande. Les paramètres enregistrés restent accessibles ; ils ne prouvent pas qu’un parcours utilise cette connexion.',
   'connectors.status.ready': 'prêt',
   'connectors.status.available': 'disponible',
   'connectors.status.beta': 'bêta',
@@ -1185,7 +1192,7 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
   'resources.kpi.models': 'Models',
   'resources.kpi.providers': 'Providers',
   'resources.kpi.connectors': 'Connectors',
-  'resources.kpi.connectors.hint': '{configured} configured · {coming} coming',
+  'resources.kpi.connectors.hint': '{configured} configured · {coming} on request',
   'resources.kpi.apps': 'Apps enabled',
   'resources.kpi.apps.hint': 'Go to /apps · {count} available',
   'resources.kpi.apps.title':
@@ -1266,11 +1273,11 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
 
   // --- /resources — Connectors tab ---------------------------------
   'resources.connectors.banner.title':
-    'Configuration only · most connectors are catalog placeholders',
-  'resources.connectors.banner.before': 'Only connectors marked',
-  'resources.connectors.banner.connected': 'connected',
+    'Catalogue status and saved settings',
+  'resources.connectors.banner.before': 'A configuration that is',
+  'resources.connectors.banner.connected': 'saved',
   'resources.connectors.banner.after':
-    '(green pulse) are wired end-to-end. Others keep their setup on the server, secrets write-only; no run uses them yet.',
+    'does not demonstrate a live connection or certification. Integrations on request retain their existing settings.',
   'resources.connectors.banner.request': 'Request',
 
   // --- /resources — portal errors & toasts -------------------------
@@ -1317,6 +1324,13 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
   'connectors.status.connected': 'connected',
   'connectors.status.configured': 'configured',
   'connectors.status.configuration_only': 'Configuration only',
+  'connectors.status.unverified': 'Unverified',
+  'connectors.status.third_party': 'Third party',
+  'connectors.status.on_request': 'On request',
+  'connectors.kpi.listed': 'Listed',
+  'connectors.kpi.existing': 'Existing access',
+  'connectors.kpi.on_request': 'On request',
+  'connectors.drawer.on_request': 'Integration on request. Saved settings remain accessible; they do not demonstrate that a Flow uses this connection.',
   'connectors.status.ready': 'ready',
   'connectors.status.available': 'available',
   'connectors.status.beta': 'beta',
