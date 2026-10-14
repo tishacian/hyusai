@@ -61,9 +61,15 @@ sont consignés dans le suivi de correction de la revue. Une allocation texte
 excessive a également démontré que la limite DuckDB ne suffisait pas à protéger
 l'API : `940bc43b` déplace le calcul d'aperçu dans un processus soumis à une
 limite système stricte, avec une recette distincte de refus et de terminaison.
-Les mesures locales
-antérieures de volume ne qualifient ni la branche corrigée, ni une VM/limite
-cgroup, ni S3. La décision sur HANA Showcase reste ouverte avant déploiement :
+Les mesures du premier lot restent historiques. La reprise possède désormais
+ses propres preuves de suite complète, de stockage MinIO sous cgroup et de
+construction d'images, avec leurs révisions et limites de périmètre. Sur
+`bd724044`, les **8 864 tests réussis et 145 ignorés** ne ferment pas tous les
+critères du plan. Les mesures OCI finales donnent **3 567 Mio pour le backend**
+et **4 676 Mio pour le worker**, comparables à la comptabilité Docker classique ;
+les plafonds de 1 400 et 1 760 Mio restent inchangés et dépassés. Voir le suivi
+pour le benchmark de scoring et la distinction entre recette locale et VM.
+La décision sur HANA Showcase reste ouverte avant déploiement :
 certificat valide, démonstration explicite ou exception TLS précise. Le
 durcissement n’est pas retiré pour rétablir implicitement une démonstration.
 

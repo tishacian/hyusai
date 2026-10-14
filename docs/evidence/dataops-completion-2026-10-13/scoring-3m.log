@@ -1,0 +1,31 @@
+.                                                                        [100%]
+=============================== warnings summary ===============================
+app/tests/scripts/test_dataops_showcase.py: 27 warnings
+  /workspace/hyusai/.venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3627: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+app/tests/scripts/test_dataops_showcase.py::test_benchmark_uses_real_preparation_and_native_model
+app/tests/scripts/test_dataops_showcase.py::test_benchmark_uses_real_preparation_and_native_model
+app/tests/scripts/test_dataops_showcase.py::test_benchmark_uses_real_preparation_and_native_model
+  /workspace/hyusai/backend/app/services/dataops/storage.py:497: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    dataset.ingested_at = datetime.utcnow()
+
+app/tests/scripts/test_dataops_showcase.py::test_benchmark_uses_real_preparation_and_native_model
+  /workspace/hyusai/backend/app/services/dataops/preparation.py:214: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    .values(status="running", started_at=datetime.utcnow())
+
+app/tests/scripts/test_dataops_showcase.py::test_benchmark_uses_real_preparation_and_native_model
+app/tests/scripts/test_dataops_showcase.py::test_benchmark_uses_real_preparation_and_native_model
+  /workspace/hyusai/backend/app/services/recipe_executions.py:204: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    execution.finished_at = datetime.utcnow()
+
+app/tests/scripts/test_dataops_showcase.py::test_benchmark_uses_real_preparation_and_native_model
+  /workspace/hyusai/backend/app/services/dataops/scoring.py:272: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    .values(status="running", started_at=datetime.utcnow())
+
+app/tests/scripts/test_dataops_showcase.py::test_benchmark_uses_real_preparation_and_native_model
+  /workspace/hyusai/backend/app/services/dataops/scoring.py:403: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    served.last_predict_at = datetime.utcnow()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 35 warnings in 344.57s (0:05:44)

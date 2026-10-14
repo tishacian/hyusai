@@ -1,9 +1,76 @@
-# Suivi de la revue DataOps et juge typé — 13 octobre 2026
+# Suivi de la revue DataOps et juge typé — 13–14 octobre 2026
 
 La [revue indépendante](codex-review-dataops-typed-judge.md) reste inchangée : elle
 porte sur `45ccc915`. Ce suivi consigne les correctifs qui la suivent. Le premier
 bilan de livraison surestimait les suites ciblées et la conformité au plan.
 **La branche n'est toujours pas déclarée fusionnable ou déployable.**
+
+## Qualification finale du 14 octobre
+
+Le code a été figé sur `bd72404472bfd57c01cc2e4a9747ff5e3049814f` pendant
+la suite complète, les constructions et les mesures ci-dessous. Les commits
+de preuves qui suivent ne changent pas ce runtime.
+
+La suite backend Linux donne **8 864 réussites, 145 ignorés et aucun échec**
+en **952,48 s**, avec quatre workers et sans exclusion par sélection. Les
+16 tests d'isolation des aperçus sont inclus. La conformité passe
+(16/22 affirmations vérifiables statiquement ; attestations de runner distinctes),
+ainsi que la cohérence des 232 dépendances. Le contrôle Helm/Terraform/Ansible
+avait passé sur les sources de déploiement inchangées. Le
+[manifeste final](evidence/dataops-completion-2026-10-13/validation-final.json)
+et les [traces compressées avec empreintes](evidence/dataops-completion-2026-10-13/final-suite/files.json)
+conservent les résultats et le périmètre des tests ignorés.
+
+Les deux images Linux/amd64 ont été réellement construites avec les options
+de release : RAG activé dans les deux, Giskard activé dans le worker. Leurs
+couches OCI sont vérifiées par empreinte compressée et `diff_id` décompressé.
+La somme des charges utiles des couches utilise la comptabilité Docker classique,
+calibrée exactement sur les quatre couches de la base Python locale. Elle
+ne constitue pas un `docker image inspect` de la VM de déploiement.
+
+| Image | Octets comparables Docker classique | Mio entiers | Plafond inchangé | Résultat |
+|---|---:|---:|---:|---|
+| Backend | 3 741 006 259 | 3 567 | 1 400 | Dépassé |
+| Worker | 4 903 956 499 | 4 676 | 1 760 | Dépassé |
+
+Les archives OCI complètes pèsent respectivement 1 346 070 528 et
+1 716 421 120 octets ; leur taille compressée n'est pas celle que contrôle
+le budget. Les constructions durent 104,179 s et 674,854 s. Les imports de
+`app.main` et des dépendances épinglées passent, sans réseau ni lifespan.
+Dans chaque image, un vrai aperçu de sample réussit, une expansion excessive
+reçoit `DATAPREP_PREVIEW_TIMEOUT` à cinq secondes, puis une autre formule
+réussit sans cache. Trois enfants distincts sont observés. Les limites restent
+512 Mio pour DuckDB, 1 Gio d'espace virtuel pour l'enfant et cinq secondes.
+Ce smoke qualifie le refus par échéance ; la preuve de refus mémoire du runtime
+local est conservée séparément. La première tentative backend, qui exigeait
+uniquement le code mémoire, est archivée avec son script. Le
+[bundle d'images](evidence/dataops-completion-2026-10-13/image-final/bundle-index.json)
+conserve les métadonnées OCI exactes, les commandes, les résultats et leurs limites.
+
+Le benchmark final traite **3 000 000 de lignes sans exclusion** en
+**330,552 s** pour le pipeline : ingestion 76,344 s, préparation 91,121 s et
+scoring 163,022 s. Le test pytest dure 344,57 s et son enveloppe complète
+353,480 s, entraînement de fixture et démarrage compris. Les entrées
+synthétiques variées comportent 32 colonnes, dont 28 supplémentaires ; le modèle
+natif produit 35 colonnes en **sept parts Delta**, pour 859 998 846 octets.
+
+Le conteneur est limité à **4 Gio, sans swap, et 2 CPU**, sans réseau. Son pic
+mémoire cgroup est exactement 4 294 967 296 octets, avec 2 018 événements `max`,
+aucun `oom` et aucun `oom_kill`. Le RSS échantillonné de l'arbre des processus
+atteint 2 139 041 792 octets ; il ne mesure pas la même chose que le cgroup.
+L'essai utilise un conteneur Python porteur et le venv qualifié monté en lecture
+seule, avec Python 3.12.14 ; les smokes d'images utilisent Python 3.12.13.
+La qualification porte sur l'ingestion, la préparation et le scoring natif
+locaux. La recette à ce volume par un Flow publié et une livraison reçue reste
+ouverte (`receipts_created=0`), de même que la qualité métier du modèle.
+Le [rapport](evidence/dataops-completion-2026-10-13/scoring-3m.json) et sa
+[supervision](evidence/dataops-completion-2026-10-13/scoring-3m-cgroup.json)
+conservent les cardinalités, versions, paramètres, empreintes et ressources.
+Le conteneur d'essai est retiré et le constructeur dédié arrêté.
+
+Les budgets restent bloquants. HANA vivant et les critères de recette encore
+ouverts ci-dessous restent à traiter. Aucune fusion ni modification de VM
+n'a été effectuée ; narration et Gemini/OpenRouter restent différés.
 
 ## Reprise des lots D1a, D1b, D2 et D3
 
@@ -98,8 +165,9 @@ horloge locale contrôlée, conserve une vraie annulation `asyncio` et vérifie
 les budgets successifs de 60 puis 20 ms, ainsi que la première collection et
 l'absence d'un troisième appel. Les **100 tests du fichier RAG passent**, sans
 modification de son runtime. Le [diagnostic](evidence/dataops-completion-2026-10-13/rag-deadline.json)
-conserve l'échec et la comparaison de blobs. Une nouvelle suite complète est
-nécessaire sur cette correction ; la passe interrompue n'est pas une qualification.
+conserve l'échec et la comparaison de blobs. La relance finale sur `bd724044`
+donne **8 864 réussites, 145 ignorés et aucun échec** en **952,48 s**, comme
+consigné en tête de ce suivi ; la passe interrompue n'est pas une qualification.
 
 Une première image backend a été construite sur `64a10ba9`, avec RAG activé
 selon le script de release. La somme des charges utiles de ses couches est de
@@ -117,8 +185,9 @@ la couche Hugging Face 933 Mio et le reste de la couche applicative 1 673 Mio.
 Les choix Docker/release sont identiques à `ad10dbc2`, mais aucune taille
 historique n'a été reconstruite. Le [bundle diagnostique](evidence/dataops-completion-2026-10-13/image-diagnostic/bundle-index.json)
 conserve les couches mesurées, leur intégrité et le périmètre du smoke. Les
-images finales sont à reconstruire sur le code et le contexte corrigés ; les
-budgets ne sont pas relevés à partir de ce diagnostic.
+images finales ont ensuite été construites sur `bd724044` : leurs mesures et
+smokes sont détaillés en tête de ce suivi. Les deux plafonds restent dépassés
+et n'ont pas été relevés.
 
 Ces preuves ne ferment pas tous les critères du plan : restent notamment les
 types limites pour chaque étape, la matrice complète des options/coercions,
