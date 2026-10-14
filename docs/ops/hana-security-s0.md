@@ -64,9 +64,18 @@ modifie pas le pare-feu de production.
 
 Le repli vers les tables synthétiques exige `demo_mode=true` dans la configuration
 HANA du workspace et reste marqué `source=demo_dataset`. Par défaut une connexion
-indisponible échoue. Une erreur d'autorisation, de TLS ou de politique réseau ne
-devient jamais un résultat de démonstration. Activer ce mode uniquement sur les
-workspaces de démonstration concernés.
+indisponible échoue. Les refus d'autorisation applicative et les refus de politique
+`HANA_TLS_REQUIRED` / `HANA_DESTINATION_DENIED` ne déclenchent pas ce repli.
+Activer ce mode uniquement sur les workspaces de démonstration concernés.
+
+**Limite de qualification conservée :** la formulation initiale promettait que
+toute erreur d'authentification ou de certificat resterait distincte d'une panne.
+Le pilote ne fournit pas encore cette distinction au service : les exceptions
+de `dbapi.connect` deviennent toutes `HANA_CONNECTION_FAILED`, code éligible au
+repli explicite en lecture. Une démo réussie ne qualifie donc ni le compte HANA
+ni le certificat vu par le pilote. Le chiffrement et la vérification TLS restent
+actifs ; aucun essai avec certificat non vérifié n'est ajouté. `/hana/test`
+n'a pas de repli et reste le contrôle de connexion HANA réel.
 
 Les tests isolés couvrent autorisation membre/admin/drapeau, erreurs contenant
 un faux secret, absence du mot de passe global, TLS, pin DNS, métadonnées,
@@ -74,6 +83,50 @@ réponses DNS mixtes, réseaux internes, SQL et repli explicite. Ils ne constitu
 pas une qualification sur une instance HANA réelle : le certificat et la
 transaction en lecture seule doivent être vérifiés avec le pilote déployé lors
 de la recette, ainsi que la connectivité des destinations internes inventoriées.
+
+## Showcase : démo explicite retenue le 14 octobre 2026
+
+Le propriétaire de la livraison a choisi le repli de démonstration pour
+`agentium-showcase`, l'ancienne instance d'essai étant probablement indisponible.
+L'[analyse et les preuves](../dataops-release-blockers-2026-10-14.md) conservent
+le diagnostic ; l'expiration du trial n'est pas confirmée dans le panneau SAP.
+Cette décision n'active aucune configuration sur la VM et ne vaut pas une
+autorisation de fusion ou de déploiement.
+
+Après qualification des images candidates et dans le cadre de la livraison :
+
+1. Comme administrateur de `agentium-showcase`, relire `/api/v1/hana/config`
+   dans le contexte de ce workspace. Conserver l'hôte, le port, le compte et
+   le secret enregistrés ; ne pas extraire ce dernier.
+2. Enregistrer `demo_mode=true`, `encrypt=true`,
+   `ssl_validate_certificate=true`. La sauvegarde `/api/v1/hana/config` exige
+   l'hôte, le port et le compte ; reprendre leurs valeurs lues, omettre le champ
+   `password` pour garder le secret existant. Ne jamais envoyer
+   `password_encrypted`. Conserver `HANA_ALLOW_INSECURE_TLS=false` et
+   `HANA_WRITES_ENABLED=false` côté serveur.
+3. Relire la configuration et vérifier ces trois booléens ainsi que
+   `password_set=true`. Une nouvelle sauvegarde du formulaire doit conserver
+   le choix, sans réintroduire le mot de passe masqué dans le formulaire.
+4. Avec HANA indisponible, vérifier un aperçu et une lecture bornée sur une
+   table de démonstration, par exemple `SELECT * FROM DEMO_MAINTENANCE_ORDERS`
+   avec `max_rows=1`, `allow_writes=false`. Attendre `source=demo_dataset` et
+   l'indication visible de données de démonstration dans l'aperçu. Ne pas
+   interpréter un résultat synthétique comme une lecture de l'instance SAP.
+5. Vérifier que le test de connexion enregistrée expose encore l'échec vivant
+   lorsque l'instance est indisponible. Les refus d'accès HTTP, de politique
+   TLS/réseau et la garde d'écriture doivent rester des refus. Les autres
+   workspaces conservent leur configuration ; ce mode n'est pas semé globalement.
+
+Le repli tente d'abord HANA, donc peut attendre l'échéance de connexion. Il reste
+soumis à la politique réseau et aux bornes du moteur de données synthétiques ;
+il ne rend pas toute requête SQL valide et ne garantit pas un fonctionnement
+hors ligne. Si HANA redevient accessible, la source doit être affichée comme
+vivante. Pour retirer le repli, enregistrer `demo_mode=false` en conservant
+les deux paramètres TLS à `true` ; cette procédure ne recrée pas une instance SAP.
+
+Les scripts de seed ne sont pas utilisés pour cette activation : ils ont un
+périmètre plus large et certains écrivent dans HANA. Ne pas modifier directement
+la base de production pour contourner les contrôles du connecteur.
 
 ## Action hors dépôt encore nécessaire
 

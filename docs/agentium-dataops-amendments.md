@@ -67,11 +67,21 @@ construction d'images, avec leurs révisions et limites de périmètre. Sur
 `bd724044`, les **8 864 tests réussis et 145 ignorés** ne ferment pas tous les
 critères du plan. Les mesures OCI finales donnent **3 567 Mio pour le backend**
 et **4 676 Mio pour le worker**, comparables à la comptabilité Docker classique ;
-les plafonds de 1 400 et 1 760 Mio restent inchangés et dépassés. Voir le suivi
-pour le benchmark de scoring et la distinction entre recette locale et VM.
-La décision sur HANA Showcase reste ouverte avant déploiement :
-certificat valide, démonstration explicite ou exception TLS précise. Le
-durcissement n’est pas retiré pour rétablir implicitement une démonstration.
+ces valeurs dépassent les plafonds numériques de 1 400 et 1 760 Mio, inchangés.
+Le relevé VM du 14 octobre établit toutefois une comptabilité différente avec
+Docker 29/containerd : les images de production mesurent 1 356 et 1 709 Mio ;
+les candidates y sont absentes et leur budget reste **non qualifié**. Les tailles
+OCI décompressées ne permettent donc pas de conclure à un dépassement sur la VM.
+La [réconciliation des mesures](dataops-release-blockers-2026-10-14.md) fait foi
+sur ce point. Voir le suivi pour le benchmark de scoring et ses limites.
+
+Le 14 octobre, l'utilisateur choisit la démonstration explicite pour HANA
+Showcase : `demo_mode=true`, chiffrement et vérification TLS conservés, écritures
+désactivées. La décision est prise ; son activation reste différée jusqu'à la
+qualification des images candidates. Le formulaire conserve désormais ces
+paramètres, et le test de connexion reste un test HANA réel. La
+[recette locale](evidence/hana-showcase-demo-2026-10-14/README.md) ne vaut pas une
+activation sur la VM ni une qualification de l'instance SAP.
 
 Le [suivi des corrections](codex-review-dataops-typed-judge-followup.md) consigne
 les tests réellement exécutés et les qualifications encore bloquées.
