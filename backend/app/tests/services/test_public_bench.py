@@ -108,10 +108,11 @@ def test_nightly_task_is_scheduled_by_beat():
     assert "agentium.public_retrieval_bench" in celery_app.tasks
 
 
-def test_migration_126_extends_the_single_head():
+def test_connector_migrations_extend_the_single_head():
     root = Path(__file__).resolve().parents[3]
     script = ScriptDirectory.from_config(Config(str(root / "alembic.ini")))
-    head = "126_service_contracts"
+    head = "132_connector_sync"
     assert script.get_heads() == [head]
     assert len(head) <= 32
-    assert script.get_revision(head).down_revision == "125_retrieval_bench_runs"
+    assert script.get_revision(head).down_revision == "131_connector_writes"
+    assert script.get_revision("126_service_contracts").down_revision == "125_retrieval_bench_runs"

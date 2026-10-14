@@ -4,6 +4,7 @@ Scopes and references
 ---------------------
 * ``platform``  — ``secret://platform/<name>``
 * ``workspace`` — ``secret://workspace/<name>`` (workspace taken from the consumer)
+* ``user``      — ``secret://user/<user_id>/<name>`` (workspace from the consumer)
 * ``system``    — ``secret://system/<system_id>/<name>``
 
 An optional ``#<version>`` pins a version; otherwise the current one is used.
@@ -42,7 +43,7 @@ import re
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from sqlalchemy.orm import Session
 
@@ -50,6 +51,8 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.secret import SECRET_BACKENDS, SECRET_KINDS, SECRET_SCOPES, Secret, SecretVersion
 from app.models.system import System
+from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceMember
 from app.services.audit_logger import emit_audit_event
 from app.services.secrets.backends.base import get_backend
 from app.services.secrets.values import SecretRegistryError, SecretValue
@@ -61,7 +64,8 @@ MAX_VALUE_LENGTH = 16384
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,119}$")
 _REF_RE = re.compile(
     r"^secret://(?:(?P<scope>platform|workspace)/(?P<name>[^/#]+)"
-    r"|system/(?P<system_id>[^/#]+)/(?P<sname>[^/#]+))(?:#(?P<version>[1-9][0-9]*))?$"
+    r"|system/(?P<system_id>[^/#]+)/(?P<sname>[^/#]+)"
+    r"|user/(?P<user_id>[a-zA-Z0-9_-]{1,36})/(?P<uname>[^/#]+))(?:#(?P<version>[1-9][0-9]*))?$"
 )
 
 
@@ -78,9 +82,12 @@ class SecretRef:
     name: str
     system_id: str | None = None
     version: int | None = None
+    user_id: str | None = None
 
     def __str__(self) -> str:
         owner = f"system/{self.system_id}" if self.scope == "system" else self.scope
+        if self.scope == "user":
+            owner = f"user/{self.user_id}"
         suffix = f"#{self.version}" if self.version else ""
         return f"{REF_PREFIX}{owner}/{self.name}{suffix}"
 
@@ -95,6 +102,7 @@ class SecretConsumer:
     system_id: str | None = None
     run_id: str | None = None
     node_id: str | None = None
+    user_id: str | None = None
 
 
 def parse_ref(ref: str) -> SecretRef:
@@ -102,7 +110,9 @@ def parse_ref(ref: str) -> SecretRef:
     if not match:
         raise SecretRegistryError("SECRET_INVALID_REF", "expected secret://<scope>/<name>[#v]")
     version = int(match["version"]) if match["version"] else None
-    if match["system_id"]:
+    if match["user_id"]:
+        ref_obj = SecretRef("user", match["uname"], version=version, user_id=match["user_id"])
+    elif match["system_id"]:
         ref_obj = SecretRef("system", match["sname"], match["system_id"], version)
     else:
         ref_obj = SecretRef(match["scope"], match["name"], None, version)
@@ -112,7 +122,7 @@ def parse_ref(ref: str) -> SecretRef:
 
 
 def ref_for(secret: Secret) -> str:
-    return str(SecretRef(secret.scope, secret.name, secret.system_id))
+    return str(SecretRef(secret.scope, secret.name, secret.system_id, user_id=secret.user_id))
 
 
 def create(
@@ -129,6 +139,8 @@ def create(
     description: str | None = None,
     metadata: dict[str, Any] | None = None,
     expires_at: datetime | None = None,
+    user_id: str | None = None,
+    commit: bool = True,
 ) -> dict[str, Any]:
     if scope not in SECRET_SCOPES:
         raise SecretRegistryError("SECRET_INVALID", "unknown scope")
@@ -139,7 +151,14 @@ def create(
     backend_name = backend or settings.secret_registry_default_backend or "db"
     if backend_name not in SECRET_BACKENDS:
         raise SecretRegistryError("SECRET_INVALID", "unknown backend")
-    workspace_id, system_id, owner_key = _owner(db, scope, workspace_id, system_id)
+    if scope == "user":
+        if system_id or not user_id or actor != user_id:
+            raise SecretRegistryError("SECRET_SCOPE_VIOLATION", "user secret requires its owner")
+        owner_key = user_owner_key(db, workspace_id, user_id)
+    else:
+        if user_id:
+            raise SecretRegistryError("SECRET_SCOPE_VIOLATION", "user_id requires user scope")
+        workspace_id, system_id, owner_key = _owner(db, scope, workspace_id, system_id)
     secret_value = _coerce_value(value)
     meta = _clean_metadata(metadata)
 
@@ -157,6 +176,7 @@ def create(
         workspace_id=workspace_id,
         system_id=system_id,
         owner_key=owner_key,
+        user_id=user_id,
         name=name,
         kind=kind,
         backend=backend_name,
@@ -169,7 +189,8 @@ def create(
     )
     _store_version(db, secret, 1, secret_value, actor)
     _audit(db, secret, "secret.created", actor, {"version": 1})
-    db.commit()
+    if commit:
+        db.commit()
     logger.info("secret_registry.created", secret_id=secret.id, scope=scope, backend=backend_name)
     return _metadata(db, secret)
 
@@ -181,8 +202,13 @@ def rotate(
     value: str | SecretValue,
     actor: str,
     expires_at: Any = UNSET,
+    commit: bool = True,
 ) -> dict[str, Any]:
     secret = _get(db, secret_id)
+    if secret.scope == "user" and actor != secret.user_id:
+        raise SecretRegistryError(
+            "SECRET_SCOPE_VIOLATION", "only the owner can rotate a personal secret"
+        )
     if secret.disabled_at is not None:
         raise SecretRegistryError("SECRET_DISABLED", secret.id)
     secret_value = _coerce_value(value)
@@ -193,7 +219,8 @@ def rotate(
     if expires_at is not UNSET:
         secret.expires_at = expires_at
     _audit(db, secret, "secret.rotated", actor, {"version": new_version})
-    db.commit()
+    if commit:
+        db.commit()
     logger.info("secret_registry.rotated", secret_id=secret.id, version=new_version)
     return _metadata(db, secret)
 
@@ -209,11 +236,15 @@ def list_metadata(
     workspace_id: str | None = None,
     system_id: str | None = None,
     include_disabled: bool = False,
+    user_id: str | None = None,
 ) -> list[dict[str, Any]]:
     if scope not in SECRET_SCOPES:
         raise SecretRegistryError("SECRET_INVALID", "unknown scope")
     query = db.query(Secret).filter(Secret.scope == scope)
-    if scope == "workspace":
+    if scope == "user":
+        owner_key = user_owner_key(db, workspace_id, user_id)
+        query = query.filter(Secret.owner_key == owner_key)
+    elif scope == "workspace":
         query = query.filter(Secret.workspace_id == workspace_id)
     elif scope == "system":
         if system_id:
@@ -237,7 +268,7 @@ def disable(db: Session, secret_id: str, *, actor: str) -> dict[str, Any]:
 
 
 def destroy(
-    db: Session, secret_id: str, *, actor: str, version: int | None = None
+    db: Session, secret_id: str, *, actor: str, version: int | None = None, commit: bool = True
 ) -> dict[str, Any]:
     """Erase stored material. ``version=None`` destroys every version and
     disables the secret; rows stay for audit and history."""
@@ -266,7 +297,8 @@ def destroy(
         {"versions": sorted(r.version for r in rows)},
         severity="warning",
     )
-    db.commit()
+    if commit:
+        db.commit()
     return _metadata(db, secret)
 
 
@@ -298,6 +330,29 @@ def resolve(db: Session, ref: str, *, consumer: SecretConsumer) -> SecretValue:
 
 
 # --------------------------------------------------------------------------- internals
+
+
+def user_owner_key(db: Session, workspace_id: str | None, user_id: str | None) -> str:
+    """Recheck membership every time: removal immediately closes all personal tokens."""
+    if not workspace_id or not user_id:
+        raise SecretRegistryError("SECRET_SCOPE_VIOLATION", "user scope needs a workspace and user")
+    member = (
+        db.query(WorkspaceMember.id).filter_by(workspace_id=workspace_id, user_id=user_id).first()
+    )
+    workspace = db.get(Workspace, workspace_id, populate_existing=True)
+    user = db.get(User, user_id, populate_existing=True)
+    if user is None or not user.is_active:
+        raise SecretRegistryError("SECRET_SCOPE_VIOLATION", "inactive user")
+    if (
+        not member
+        or workspace is None
+        or workspace.deleted_at is not None
+        or not workspace.is_active
+    ):
+        raise SecretRegistryError(
+            "SECRET_SCOPE_VIOLATION", "user is not an active workspace member"
+        )
+    return str(uuid5(NAMESPACE_URL, f"agentium:secret-user:{workspace_id}:{user_id}"))
 
 
 def _owner(db: Session, scope: str, workspace_id, system_id):
@@ -369,7 +424,13 @@ def _get(db: Session, secret_id: str) -> Secret:
 
 
 def _find(db: Session, parsed: SecretRef, consumer: SecretConsumer) -> Secret:
-    if parsed.scope == "platform":
+    if parsed.scope == "user":
+        if consumer.user_id != parsed.user_id:
+            raise SecretRegistryError(
+                "SECRET_SCOPE_VIOLATION", "personal secret used by another identity"
+            )
+        owner_key = user_owner_key(db, consumer.workspace_id, consumer.user_id)
+    elif parsed.scope == "platform":
         owner_key = "platform"
     elif parsed.scope == "workspace":
         if not consumer.workspace_id:
@@ -415,6 +476,7 @@ def _metadata(db: Session, secret: Secret) -> dict[str, Any]:
         "scope": secret.scope,
         "workspace_id": secret.workspace_id,
         "system_id": secret.system_id,
+        "user_id": secret.user_id,
         "name": secret.name,
         "kind": secret.kind,
         "backend": secret.backend,
@@ -445,6 +507,7 @@ def _base_details(secret: Secret) -> dict[str, Any]:
         "ref": ref_for(secret),
         "scope": secret.scope,
         "system_id": secret.system_id,
+        "user_id": secret.user_id,
         "backend": secret.backend,
     }
 

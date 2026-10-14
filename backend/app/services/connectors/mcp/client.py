@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any
 from uuid import uuid4
 
 import httpx
 
 from app.services.connectors.http_transport import destination_for_url, pinned_client
+from app.services.connectors.legacy_network import network_scoped
 from app.services.connectors.mcp.contract import (
     TOOLS_LIST_CAP,
     contract_gap,
@@ -27,7 +29,7 @@ DEFAULT_TIMEOUT_S = 20.0
 PROTOCOL_VERSION = "2024-11-05"
 
 
-def _headers(token: str, session_id: Optional[str] = None) -> dict[str, str]:
+def _headers(token: str, session_id: str | None = None) -> dict[str, str]:
     headers = {
         "Accept": "application/json, text/event-stream",
         "Content-Type": "application/json",
@@ -39,7 +41,7 @@ def _headers(token: str, session_id: Optional[str] = None) -> dict[str, str]:
     return headers
 
 
-def _parse_sse_json(text: str) -> Optional[dict[str, Any]]:
+def _parse_sse_json(text: str) -> dict[str, Any] | None:
     for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line.startswith("data:"):
@@ -83,15 +85,16 @@ def _rpc_error(body: Mapping[str, Any], *, default_code: str = "mcp_call_failed"
     raise McpCallFailed("MCP server refused the call", code=default_code)
 
 
+@network_scoped
 def jsonrpc(
     server: Mapping[str, Any],
     method: str,
-    params: Optional[Mapping[str, Any]] = None,
+    params: Mapping[str, Any] | None = None,
     *,
     timeout_s: float = DEFAULT_TIMEOUT_S,
-    session_id: Optional[str] = None,
-    request_id: Optional[str] = None,
-) -> tuple[dict[str, Any], Optional[str]]:
+    session_id: str | None = None,
+    request_id: str | None = None,
+) -> tuple[dict[str, Any], str | None]:
     """POST one JSON-RPC method. Returns (result object, session id)."""
     url = str(server.get("url") or "").strip()
     if not url:
@@ -154,7 +157,7 @@ def list_tools(
     server: Mapping[str, Any],
     *,
     timeout_s: float = DEFAULT_TIMEOUT_S,
-    session_id: Optional[str] = None,
+    session_id: str | None = None,
     cap: int = TOOLS_LIST_CAP,
 ) -> dict[str, Any]:
     started = time.perf_counter()
@@ -219,7 +222,7 @@ def call_tool(
     server: Mapping[str, Any],
     *,
     contract_tool: str,
-    arguments: Optional[Mapping[str, Any]] = None,
+    arguments: Mapping[str, Any] | None = None,
     timeout_s: float = DEFAULT_TIMEOUT_S,
 ) -> dict[str, Any]:
     """``tools/list`` then ``tools/call``. Trace names the server and both tool names."""

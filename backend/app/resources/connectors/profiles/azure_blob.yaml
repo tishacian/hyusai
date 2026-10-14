@@ -1,0 +1,63 @@
+key: azure_blob
+version: 1
+label_key: connections.profile.azure_blob
+family: object_store
+dialect: azure_blob
+packages:
+- httpx
+parameters:
+- key: bucket
+  type: string
+  required: true
+- key: prefix
+  type: string
+  default: ''
+- key: account
+  type: string
+  required: true
+- key: endpoint
+  type: string
+  advanced: true
+- key: auth_mode
+  type: enum
+  choices:
+  - account_key
+  - sas
+  - service_principal
+  default: account_key
+- key: account_key
+  type: secret
+  required: true
+  when:
+    auth_mode:
+    - account_key
+- key: sas_token
+  type: secret
+  required: true
+  when:
+    auth_mode:
+    - sas
+- key: tenant_id
+  type: string
+  required: true
+  when:
+    auth_mode:
+    - service_principal
+- key: client_id
+  type: string
+  required: true
+  when:
+    auth_mode:
+    - service_principal
+- key: client_secret
+  type: secret
+  required: true
+  when:
+    auth_mode:
+    - service_principal
+capabilities:
+  read: true
+  consistency: snapshot
+  watch: true
+  export_files: true
+  write_outcome_check: conditional_put

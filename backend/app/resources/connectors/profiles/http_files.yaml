@@ -1,0 +1,18 @@
+key: http_files
+version: 1
+label_key: connections.profile.http_files
+family: object_store
+dialect: http_files
+packages:
+- httpx
+parameters:
+- key: url
+  type: string
+  required: true
+- key: filename
+  type: string
+- key: bearer_token
+  type: secret
+capabilities:
+  read: true
+  consistency: none

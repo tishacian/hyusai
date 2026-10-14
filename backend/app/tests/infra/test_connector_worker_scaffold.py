@@ -58,7 +58,7 @@ def test_helm_reserves_separate_processes_and_bounded_scratch():
         assert env["CELERY_QUEUES"] == POOLS[name]
         assert env["CELERY_APP"] == "app.workers.celery_connectors:celery_connectors"
         assert env["CELERY_CONCURRENCY"] == "1" and env["CELERY_BEAT"] == "0"
-        assert spec["volumes"][0]["emptyDir"]["sizeLimit"] == "512Mi"
+        assert spec["volumes"][0]["emptyDir"]["sizeLimit"] == "20Gi"
         assert container["resources"]["limits"]["cpu"] == "1"
 
 
@@ -113,7 +113,7 @@ def test_compose_keeps_two_pools_opt_in_with_minimal_storage(tmp_path):
         assert service["image"] == IMAGE
         assert service["environment"]["CELERY_QUEUES"] == queue
         assert service["environment"]["CELERY_BEAT"] == "0"
-        assert [mount["target"] for mount in service["volumes"]] == ["/data/object_store"]
+        assert sorted(mount["target"] for mount in service["volumes"]) == ["/data/connector_scratch", "/data/object_store"]
         assert not service.get("ports")
 
 
@@ -164,6 +164,7 @@ def test_vm_bundle_treats_connectors_as_optional_but_checks_present_mounts():
         assert name in module.VM_OPTIONAL_PROFILE_SERVICES
         assert module.VM_APPLICATION_STORAGE_MOUNTS[name] == {
             "/data/object_store": ("AGENTIUM_OBJECT_STORE_PATH", False),
+            "/data/connector_scratch": ("AGENTIUM_CONNECTOR_SCRATCH_PATH", False),
         }
 
 

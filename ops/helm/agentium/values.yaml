@@ -51,7 +51,7 @@ dataopsWorker:
 connectorWorkers:
   enabled: false
   image: ""
-  scratchSizeLimit: 512Mi
+  scratchSizeLimit: 20Gi
 dataopsWatchdog:
   enabled: false
   schedule: "*/5 * * * *"

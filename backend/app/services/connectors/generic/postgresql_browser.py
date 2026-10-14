@@ -14,7 +14,7 @@ import logging
 import math
 import time
 from contextlib import contextmanager
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -23,6 +23,7 @@ from app.models.tabular import TabularDataset
 from app.models.workspace import Workspace
 from app.services import tabular_datasets as datasets
 from app.services.connectors.generic.service import get_config
+from app.services.connectors.legacy_network import network_scope
 from app.services.connectors.network_policy import (
     ConnectorNetworkError,
     postgresql_connection_options,
@@ -87,14 +88,15 @@ def _connection(workspace):
         port = int(values.get("port") or 5432)
         if not 1 <= port <= 65535:
             raise PostgresBrowseError("PG_NOT_CONFIGURED", 409)
-        connection = psycopg2.connect(
-            **postgresql_connection_options(values["host"], port),
-            dbname=values["database"],
-            user=values["username"],
-            password=secrets["password"],
-            connect_timeout=5,
-            application_name="agentium-postgresql-explorer",
-        )
+        with network_scope(config):
+            connection = psycopg2.connect(
+                **postgresql_connection_options(values["host"], port),
+                dbname=values["database"],
+                user=values["username"],
+                password=secrets["password"],
+                connect_timeout=5,
+                application_name="agentium-postgresql-explorer",
+            )
         # Catalog rechecks must see DDL committed while we acquired the table
         # lock. The SELECT cursor owns one row snapshot; ACCESS SHARE holds
         # the relation/schema stable through that read.
@@ -169,7 +171,7 @@ def catalog(workspace) -> dict[str, Any]:
             raise PostgresBrowseError("PG_CATALOG_TOO_LARGE")
     return {
         "tables": tables,
-        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checked_at": datetime.now(UTC).isoformat(),
         "limits": {
             "preview_rows": MAX_PREVIEW_ROWS,
             "import_rows": MAX_IMPORT_ROWS,
@@ -269,7 +271,7 @@ def _value(value: Any, pg_type: str) -> Any:
     if pg_type in {"numeric", "uuid", "time", "timetz", "interval"}:
         return str(value)
     if isinstance(value, datetime) and value.tzinfo:
-        return value.astimezone(timezone.utc)
+        return value.astimezone(UTC)
     if isinstance(value, float) and not math.isfinite(value):
         raise PostgresBrowseError("PG_UNSUPPORTED_VALUE")
     return value
@@ -404,7 +406,7 @@ def read(
         if importing and truncated:
             raise PostgresBrowseError("PG_IMPORT_ROW_LIMIT", 413)
         rows = rows[:limit]
-        captured_at = datetime.now(timezone.utc).isoformat()
+        captured_at = datetime.now(UTC).isoformat()
     json_rows = [{k: _json_value(v) for k, v in row.items()} for row in rows]
     return {
         "schema": selected,

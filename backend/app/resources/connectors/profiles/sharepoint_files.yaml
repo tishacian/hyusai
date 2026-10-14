@@ -1,0 +1,67 @@
+key: sharepoint_files
+version: 1
+label_key: connections.profile.sharepoint_files
+family: object_store
+dialect: sharepoint_files
+packages:
+- httpx
+parameters:
+- key: drive_id
+  type: string
+  required: true
+- key: prefix
+  type: string
+  default: ''
+- key: tenant_id
+  type: string
+  required: true
+- key: client_id
+  type: string
+  required: true
+- key: client_secret
+  type: secret
+  required: true
+  when:
+    auth_mode:
+    - oauth_client_credentials
+- key: download_hosts
+  type: json
+  required: true
+- key: auth_mode
+  type: enum
+  choices:
+  - oauth_client_credentials
+  - oauth_user
+  default: oauth_client_credentials
+- key: base_url
+  type: string
+  default: https://graph.microsoft.com
+  pattern: https://graph\.microsoft\.com/?
+- key: allowed_origins
+  type: json
+  default:
+  - https://graph.microsoft.com
+  - https://login.microsoftonline.com
+- key: authorization_endpoint
+  type: string
+  required: true
+  when:
+    auth_mode:
+    - oauth_user
+- key: token_endpoint
+  type: string
+  required: true
+  when:
+    auth_mode:
+    - oauth_user
+- key: scopes
+  type: json
+  default:
+  - Files.Read
+  - offline_access
+  when:
+    auth_mode:
+    - oauth_user
+capabilities:
+  read: true
+  consistency: none

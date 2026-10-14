@@ -38,6 +38,7 @@ import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
       <ck-back-link [fallback]="{ surface: 'resources' }" />
     </app-section-header>
 
+    @if (frameworkEnabled()) { <a [navLink]="{ leaf: 'connector-connections' }" class="ck-btn ck-btn-accent mb-5">{{ i18n.t('connections.title') }}</a> }
     <section class="grid gap-3 md:grid-cols-4 mb-5">
       <div class="rounded-md border border-white/10 bg-white/[0.03] p-3">
         <div class="text-[10px] uppercase tracking-[0.16em] text-gray-500">{{ i18n.t('connectors.kpi.listed') }}</div>
@@ -211,6 +212,7 @@ export class ConnectorsPageComponent implements OnInit, OnDestroy {
   /** Server state of the connectors set up through the generic drawer. */
   readonly configs = signal<Record<string, GenericConnectorConfig>>({});
   readonly canConfigure = signal(false);
+  readonly frameworkEnabled = signal(false);
   readonly activeConfig = computed(() => {
     const connector = this.activeConnector();
     return connector ? this.configs()[connector.id] ?? null : null;
@@ -252,10 +254,15 @@ export class ConnectorsPageComponent implements OnInit, OnDestroy {
     this.activeConnector.set(null);
     this.configs.set({});
     this.canConfigure.set(false);
+    this.frameworkEnabled.set(false);
   }
 
   private loadConnectors(): void {
     const request = this.workspaceView.beginRequest();
+    this.api.get<{ profiles: unknown[] }>('/connections/profiles', undefined, { workspaceSlug: request.scope.workspaceSlug }).subscribe({
+      next: value => { if (this.workspaceView.isCurrent(request)) this.frameworkEnabled.set(Array.isArray(value.profiles)); },
+      error: () => { if (this.workspaceView.isCurrent(request)) this.frameworkEnabled.set(false); },
+    });
     this.api
       .get<GenericConnectorList>('/connectors', undefined, { workspaceSlug: request.scope.workspaceSlug })
       .subscribe({
