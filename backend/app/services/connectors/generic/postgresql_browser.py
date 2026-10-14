@@ -23,6 +23,10 @@ from app.models.tabular import TabularDataset
 from app.models.workspace import Workspace
 from app.services import tabular_datasets as datasets
 from app.services.connectors.generic.service import get_config
+from app.services.connectors.network_policy import (
+    ConnectorNetworkError,
+    postgresql_connection_options,
+)
 
 MAX_TABLES = 500
 MAX_COLUMNS = 128
@@ -84,8 +88,7 @@ def _connection(workspace):
         if not 1 <= port <= 65535:
             raise PostgresBrowseError("PG_NOT_CONFIGURED", 409)
         connection = psycopg2.connect(
-            host=values["host"],
-            port=port,
+            **postgresql_connection_options(values["host"], port),
             dbname=values["database"],
             user=values["username"],
             password=secrets["password"],
@@ -104,6 +107,8 @@ def _connection(workspace):
         yield connection, config
     except PostgresBrowseError:
         raise
+    except ConnectorNetworkError as exc:
+        raise PostgresBrowseError(exc.code, exc.status_code) from None
     except Exception as exc:
         # Driver strings can contain connection details; only closed codes leave
         # this boundary. It also covers decryption/configuration failures.
@@ -119,7 +124,7 @@ def _connection(workspace):
             stage,
             type(exc).__name__,
             sqlstate or "-",
-            exc_info=None if driver_error else exc,
+            exc_info=None,
         )
         if sqlstate == "42501":
             raise PostgresBrowseError("PG_PERMISSION_DENIED", 403, sqlstate) from None

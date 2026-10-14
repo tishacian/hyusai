@@ -286,3 +286,19 @@ def test_rest_api_rejection_reads_as_auth_failed(monkeypatch):
 
     assert result["status"] == "auth_failed"
     assert result["detail"] == "HTTP 401"
+
+
+@pytest.fixture(autouse=True)
+def connector_test_dns(monkeypatch):
+    # These tests replace the database/HTTP driver; resolve its test hostname
+    # locally too, while leaving the production destination policy in place.
+    import socket
+
+    from app.services.connectors import network_policy
+
+    monkeypatch.setattr(
+        network_policy.socket, "getaddrinfo",
+        lambda host, port, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))
+        ],
+    )

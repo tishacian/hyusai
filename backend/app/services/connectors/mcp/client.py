@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import httpx
 
+from app.services.connectors.http_transport import destination_for_url, pinned_client
 from app.services.connectors.mcp.contract import (
     TOOLS_LIST_CAP,
     contract_gap,
@@ -20,6 +21,7 @@ from app.services.connectors.mcp.errors import (
     McpUnreachable,
 )
 from app.services.connectors.mcp.oauth import access_token_for_server
+from app.services.connectors.network_policy import ConnectorNetworkError
 
 DEFAULT_TIMEOUT_S = 20.0
 PROTOCOL_VERSION = "2024-11-05"
@@ -77,8 +79,8 @@ def _rpc_error(body: Mapping[str, Any], *, default_code: str = "mcp_call_failed"
     message = str(err.get("message") or "MCP call failed")
     code = err.get("code")
     if code in (-32601, "MethodNotFound") or "unknown tool" in message.lower():
-        raise McpToolUnknown(message)
-    raise McpCallFailed(f"{message} (rpc={code})", code=default_code)
+        raise McpToolUnknown("MCP tool is unavailable")
+    raise McpCallFailed("MCP server refused the call", code=default_code)
 
 
 def jsonrpc(
@@ -94,6 +96,14 @@ def jsonrpc(
     url = str(server.get("url") or "").strip()
     if not url:
         raise McpUnreachable("MCP server url is empty")
+    try:
+        checked_url, destination = destination_for_url(
+            url,
+            require_https=bool(server.get("token"))
+            or server.get("auth_mode") in {"oauth_client_credentials", "inherit"},
+        )
+    except ConnectorNetworkError as exc:
+        raise McpUnreachable("MCP destination refused", code=exc.code) from None
     token = access_token_for_server(server)
     payload = {
         "jsonrpc": "2.0",
@@ -102,18 +112,20 @@ def jsonrpc(
         "params": dict(params) if isinstance(params, Mapping) else {},
     }
     try:
-        with httpx.Client(timeout=timeout_s, follow_redirects=True) as client:
+        with pinned_client(checked_url, destination, timeout=timeout_s) as client:
             response = client.post(url, headers=_headers(token, session_id), json=payload)
-    except httpx.TimeoutException as exc:
-        raise McpUnreachable(f"MCP server timed out calling {method}") from exc
-    except httpx.RequestError as exc:
-        raise McpUnreachable(f"MCP server unreachable: {exc}") from exc
+    except ConnectorNetworkError as exc:
+        raise McpUnreachable("MCP destination refused", code=exc.code) from None
+    except httpx.TimeoutException:
+        raise McpUnreachable("MCP server timed out") from None
+    except httpx.RequestError:
+        raise McpUnreachable("MCP connection failed") from None
 
     next_session = response.headers.get("mcp-session-id") or session_id
+    if 300 <= response.status_code < 400:
+        raise McpUnreachable("MCP redirect refused", code="CONNECTOR_REDIRECT_DENIED")
     if response.status_code >= 400:
-        raise McpUnreachable(
-            f"MCP server HTTP {response.status_code} on {method}: {response.text[:300]}"
-        )
+        raise McpUnreachable("MCP server rejected the request")
     body = _read_jsonrpc(response)
     _rpc_error(body)
     result = body.get("result")
@@ -199,7 +211,7 @@ def _unwrap_call_result(result: Mapping[str, Any]) -> Any:
                 return {"text": joined, "is_error": bool(result.get("isError"))}
             return parsed
     if result.get("isError"):
-        raise McpCallFailed(str(result.get("error") or "MCP tool returned isError"))
+        raise McpCallFailed("MCP tool returned an error")
     return dict(result)
 
 
