@@ -26,9 +26,11 @@ Les empreintes des couches compressées et leurs `diff_ids` décompressés sont
 vérifiés. La construction de la référence a duré 745,031 s. C'est une
 reconstruction du source historique aujourd'hui, pas une mesure de l'artefact
 historiquement déployé. Les tests du candidat ne lui sont pas attribués.
-Le chiffre de **1 356 Mio** communiqué pour la production n'a pas été relevé
-à nouveau dans cette session. Il ne doit pas être soustrait à une mesure OCI
-sans identifier le même artefact et le même mode de stockage.
+Le relevé SSH du 14 octobre confirme **1 356 Mio** pour le backend réellement
+présent en production, avec Docker **29.1.3**, stockage **containerd/overlayfs**
+(`driver-type=io.containerd.snapshotter.v1`). Ce chiffre est produit par
+`docker image inspect .Size`, comme le script de budget. Il ne doit pas être
+soustrait aux charges utiles OCI décompressées ci-dessus.
 
 L'[attribution par couche](evidence/dataops-image-reconciliation-2026-10-14/baseline-ad10dbc2/backend-comparison.json)
 explique exactement les 154 697 613 octets supplémentaires :
@@ -55,7 +57,8 @@ on ne prétend pas que toutes les couches système ont le même contenu.
 Le [bundle de 59 fichiers](evidence/dataops-image-reconciliation-2026-10-14/baseline-ad10dbc2/bundle-index.json)
 conserve les commandes, entrées, métadonnées, traces compressées et empreintes.
 Le constructeur dédié est arrêté ; les archives et le checkout sont conservés.
-Aucune commande n'a été exécutée sur la VM.
+Cette reconstruction locale n'avait exécuté aucune commande sur la VM ;
+le relevé SSH décrit ci-dessous a ensuite mesuré les images existantes.
 
 Le script `scripts/agentium-image-budget.sh` lit `docker image inspect .Size`,
 puis divise par 1 048 576 avec troncature. Il est identique entre la référence et
@@ -72,8 +75,11 @@ Cette distinction compte : dans Docker 28.4, le
 calcule `inspect.Size` en additionnant les tailles des contenus référencés :
 manifestes, configurations et couches dans leur forme stockée, généralement
 compressée.
-Le mode de stockage de la VM n'est pas encore relevé. La taille du fichier tar
-OCI n'est pas non plus exactement cette somme : elle inclut son propre emballage.
+Le stockage containerd de la VM est maintenant confirmé par `docker info`.
+La référence de code citée concerne Docker 28.4, pas la version 29.1.3 relevée :
+elle explique la distinction de métriques mais ne remplace pas la mesure.
+La taille du fichier tar OCI n'est pas non plus exactement cette somme :
+elle inclut son propre emballage.
 La [vérification du code Docker](evidence/dataops-image-reconciliation-2026-10-14/docker-accounting.json)
 conserve la version et l'empreinte consultées.
 
@@ -89,7 +95,8 @@ Reconstruire `ad10dbc2` avec les mêmes paramètres permet de mesurer le surcro�
 du candidat. Si les deux reconstructions sont proches, cela ne prouve pas à soi
 seul une erreur de méthode : l'artefact historiquement déployé peut aussi différer
 par sa base, ses options, ses dépendances ou son contexte de construction.
-Le relevé sur la VM doit identifier les images et le stockage avant de conclure.
+Le relevé sur la VM identifie désormais l'artefact historique déployé et le
+stockage. Il ne qualifie pas une image candidate absente.
 
 Le [collecteur en lecture seule](evidence/dataops-image-reconciliation-2026-10-14/measure_vm_images.py)
 fixe le socket Docker local, recueille version/stockage, identifiants et révisions
@@ -115,12 +122,89 @@ n'a pas réussi. Il ne faut pas charger les archives sur la VM sans avoir vérif
 l'espace disponible et préparé un protocole de mesure isolé. L'accès SSH demandé
 sert aux mesures, pas à une bascule de services.
 
-## HANA Showcase : décision encore ouverte
+## Relevé Docker sur `omnirag-demo`
 
-Aucun essai vivant ne démontre actuellement que le certificat est invalide.
-Le risque `HANA_CONNECTION_FAILED` de la revue doit être vérifié avec la
-configuration effective du workspace, la destination et le client HANA du
-runtime. Les valeurs historiques de la revue ne valent pas relevé courant.
+Le [rapport SSH](evidence/dataops-vm-check-2026-10-14/docker-images.json),
+relevé à 08:58 heure de Paris, utilise le collecteur versionné sans modification.
+L'empreinte du script de budget de la VM est identique à celle attendue :
+`1abd2f02b780fff2190099833bffc7a631c34aad2b397018112a2b9e25aa1366`.
+Tous les plafonds d'origine sont imposés au processus de contrôle.
+
+| Image `ad10dbc2b6cb` | `.Size`, octets | Mio entiers | Plafond Mio | Verdict |
+|---|---:|---:|---:|---|
+| backend | 1 422 295 390 | 1 356 | 1 400 | OK |
+| worker | 1 792 603 614 | 1 709 | 1 760 | OK |
+| frontend | 29 899 091 | 28 | 40 | OK |
+| ml-ts | 1 229 944 394 | 1 172 | 1 240 | OK |
+| livekit-agent | 104 374 853 | 99 | 110 | OK |
+
+Les révisions OCI de ces cinq images sont
+`ad10dbc2b6cb464c8e7c6b19af8ffc46a3b3fb3b`. Le descripteur du backend est le
+manifeste `sha256:edc26ba7f12f32f5c06ddeb138ff6486faa89e807a1542e7c96087a7a20f376e`.
+Backend/worker et backend/ml-ts partagent chacun neuf couches.
+`docker image ls` affiche 5,42 Go pour ce backend, tandis que son `.Size` vaut
+1 422 295 390 octets : l'affichage de la liste ne doit pas remplacer la métrique
+lue par le contrôle de release.
+
+L'[inventaire](evidence/dataops-vm-check-2026-10-14/vm-state.json) examine les
+identifiants, tags et révisions de **204 images Agentium**. Aucun tag ou label
+ne correspond à `bd724044` ni `a90272c1`. Les contrôles de ces tags échouent pour
+images manquantes ; ils ne constatent pas un dépassement. Le script de budget
+passe pour la référence déployée, mais **aucun verdict VM sur le candidat n'est
+possible**. Les calculs OCI de 1 283/1 636 Mio ne deviennent pas des mesures VM.
+L'espace libre sur `/` est de 137 494 495 232 octets au relevé ; aucune archive
+n'a été transférée ou chargée et aucune image n'a été construite, tirée ou purgée.
+Les identifiants et dates de démarrage des cinq conteneurs contrôlés sont
+[identiques après les sondes](evidence/dataops-vm-check-2026-10-14/containers-after.txt).
+
+## HANA Showcase : échec SQL reproduit, cause non établie
+
+Le [relevé du candidat](evidence/dataops-vm-check-2026-10-14/hana-showcase.json)
+utilise les deux modules HANA exacts de `a90272c1`, chargés seulement en mémoire
+dans un processus `docker exec` séparé du backend existant. Le pilote est celui
+du runtime déployé, **hdbcli 2.29.27**. Aucun fichier n'est installé sur la VM.
+Ce contrôle du service ne qualifie ni l'image candidate complète ni les routes
+HTTP et leurs contrôles d'accès.
+
+La configuration du workspace `agentium-showcase` confirme : connecteur activé,
+`encrypt=true`, `password_set=true`, secret résolu côté serveur. Les clés
+`ssl_validate_certificate` et `demo_mode` ne sont pas enregistrées ; le candidat
+applique donc **`true` et `false`**. Les drapeaux effectifs restent
+`hana_allow_insecure_tls=false`, `hana_writes_enabled=false` et
+`hana_network_policy_mode=report`. Aucun secret n'est exporté.
+
+Le [contrôle TLS indépendant](evidence/dataops-vm-check-2026-10-14/tls-peer.json)
+depuis le même conteneur réussit avec `ssl.create_default_context`, nom DNS
+vérifié et TLS 1.3. Le certificat SAP SE est émis par
+`DigiCert G5 TLS RSA4096 SHA384 2021 CA1`, valable du **8 octobre 2026** au
+**23 avril 2027** ; son SAN couvre `*.hna1.prod-us10.hanacloud.ondemand.com`.
+Il n'y a donc pas de preuve d'un certificat invalide à cette destination lors
+de la sonde. Ce contrôle OpenSSL ne prouve pas à lui seul la confiance de hdbcli.
+
+Les deux opérations du candidat échouent avant toute lecture SQL :
+
+- `test_connection` (lecture de DUMMY sans repli) : `HANA_CONNECTION_FAILED`, 502.
+- `SELECT 1 FROM DUMMY`, `max_rows=1`, `allow_writes=false` : même résultat,
+  aucune ligne et aucun `source=hana_live`.
+
+Le pilote retourne `-10709`, `RTE:[200121]`, « Invalid connect reply » avec une
+réponse **HTTP 400** reçue à la place du protocole SAP HANA. L'échec se produit
+avant authentification/lecture ; il ne démontre ni un mauvais mot de passe ni
+un rejet du certificat par le pilote.
+
+Une [sonde différentielle](evidence/dataops-vm-check-2026-10-14/hana-showcase-sni-diagnostic.json)
+a ajouté uniquement `sslSNIHostname=destination.host` en mémoire, en conservant
+l'IP épinglée et la validation TLS : même HTTP 400. Une connexion diagnostique
+avec le nom DNS, sans épinglage et avec TLS strict, échoue aussi de la même façon.
+La distinction entre `sslHostNameInCertificate` et `sslSNIHostname` est décrite
+par [SAP](https://help.sap.com/docs/r/f1b440ded6144a54ada97ff95dac7adf/2.16/en-US/f6fb06ffe4484f6fa61f10082b11663d.html).
+Ces essais ne suffisent pas à attribuer la cause au SNI ou à l'épinglage ; aucun
+correctif de ce type n'est conservé. Il reste à vérifier côté SAP que cette
+adresse expose bien le service SQL de l'instance attendue et ses conditions
+d'accès, puis refaire le test hdbcli strict et la lecture bornée.
+
+Le blocage HANA reste ouvert. Activer une exception TLS n'est pas justifié par
+ces résultats. Aucun choix parmi les modes suivants n'est appliqué :
 
 | Choix exclusif | Configuration | Preuve ou limite |
 |---|---|---|
@@ -141,13 +225,14 @@ dit que les erreurs d'authentification/TLS ne déclenchent pas la démo. Dans
 déclencher le repli si `demo_mode=true`. Les refus de politique réseau et TLS
 restent distincts. Ce constat ne modifie ni le contrat ni le comportement attendu.
 
-La lecture autorisée de `/api/v1/hana/config` doit relever seulement les paramètres
-non secrets et `password_set`. Un contrôle OpenSSL de la chaîne et du nom ne
-suffit pas à prouver la confiance du pilote. `/hana/test` effectue une lecture de
-`DUMMY` avec le secret résolu côté serveur, sans repli ; une requête bornée
-`SELECT 1 FROM DUMMY`, avec écritures interdites, doit ensuite rendre
-`source=hana_live`. Les scripts de seed ne sont pas des outils de diagnostic :
-ils modifient la configuration et certains écrivent dans HANA.
+Les sondes passent par les fonctions de service et une transaction PostgreSQL
+`READ ONLY`, pas par `/api/v1/hana/config` ou `/hana/test` en HTTP authentifié.
+Le [script de reproduction](evidence/dataops-vm-check-2026-10-14/check_hana_vm.py)
+conserve seulement la configuration non secrète, `password_set`, les paramètres
+TLS et des erreurs expurgées du mot de passe. Les scripts de seed n'ont pas été
+utilisés. Les [48 tests HANA ciblés](evidence/dataops-vm-check-2026-10-14/hana-tests.txt)
+passent localement ; ce résultat n'est pas une lecture HANA réussie ni une
+nouvelle exécution de la suite backend complète.
 
 Aucune exception TLS ni démo n'est activée par cette note. Le choix de l'utilisateur
 et sa vérification restent nécessaires avant tout déploiement.
