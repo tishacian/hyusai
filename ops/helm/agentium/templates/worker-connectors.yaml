@@ -31,7 +31,7 @@ spec:
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
           resources:
             requests: {cpu: 250m, memory: 512Mi, ephemeral-storage: 512Mi}
-            limits: {cpu: "1", memory: {{ $pool.memory }}, ephemeral-storage: 1Gi}
+            limits: {cpu: "1", memory: {{ $pool.memory }}, ephemeral-storage: {{ $.Values.connectorWorkers.scratchSizeLimit }}}
           envFrom:
             - configMapRef:
                 name: {{ include "agentium.fullname" $ }}-config
@@ -54,6 +54,8 @@ spec:
             - name: CELERY_BEAT
               value: "0"
             - name: TMPDIR
+              value: /scratch
+            - name: CONNECTOR_SCRATCH_DIR
               value: /scratch
           volumeMounts:
             - name: scratch

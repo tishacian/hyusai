@@ -1,0 +1,41 @@
+key: mongodb
+version: 1
+label_key: connections.profile.mongodb
+family: document
+dialect: mongodb
+packages:
+- pymongo
+parameters:
+- key: host
+  type: host
+  required: true
+- key: port
+  type: integer
+  default: 27017
+  min: 1
+  max: 65535
+- key: database
+  type: string
+  required: true
+- key: username
+  type: string
+  required: true
+- key: password
+  type: secret
+  required: true
+- key: auth_source
+  type: string
+- key: marker_collection
+  type: string
+  default: agentium_operations
+  advanced: true
+- key: flatten_paths
+  type: json
+  default: []
+  advanced: true
+capabilities:
+  read: true
+  consistency: none
+  write_append: true
+  write_upsert: true
+  write_outcome_check: marker_table

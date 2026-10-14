@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-10-14 · Connectors roadmap candidate (not deployed)
+
+- Add governed multi-instance connections, personal OAuth and secret scopes,
+  version-bound System delegations, a shared local compute registry, and isolated
+  connector workers. Data, tool and lakehouse adapters expose explicit capabilities.
+- Bind write approval to immutable input/target contracts and a successful preview.
+  Unknown outcomes require reconciliation or explicit human abandonment; no blind replay.
+  Add incremental checkpoints, immutable object/Delta exports and object-watch Flow triggers.
+- Add the Connections UI, agent read/write-request Skills, evidence-bound badges,
+  migrations 127–132 and an opt-in certification campaign for the VM operator.
+- No profile is certified by these development tests. No deployment, budget increase,
+  production exception or HANA qualification is included. Fabric/Entra, cloud bulk
+  staging and unsupported lakehouse features remain explicit limits.
+  BigQuery and object/HTTP/lakehouse observations lack the server version required
+  by the current proof contract; an operator report cannot replace that missing identity.
+  See [implementation status](docs/agentium-connectors-implementation.md) and
+  [delegated certification](docs/agentium-connectors-certification-handoff.md).
+
 ## 2026-10-14 · DataOps candidate (not deployed)
 
 - Raise the VM build's backend image budget from **1400 to 1480 MiB** and the

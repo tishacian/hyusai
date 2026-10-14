@@ -18,11 +18,13 @@ import json
 import logging
 import os
 import re
-from typing import TYPE_CHECKING, Any, Mapping, Optional
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.services.connectors.legacy_network import bind_config
 from app.services.connectors.mcp.contract import (
     ALLOWED_AUTH_MODES,
     ALLOWED_TRANSPORTS,
@@ -61,13 +63,13 @@ class EncryptionNotConfigured(RuntimeError):
     """Fernet master key missing or invalid."""
 
 
-def is_workspace_enabled(workspace: "Workspace") -> bool:
+def is_workspace_enabled(workspace: Workspace) -> bool:
     from app.services.workspace_features import feature_enabled
 
     return feature_enabled(workspace, FEATURE_FLAG)
 
 
-def _read(workspace: "Workspace", stored: Any, consumer_id: str) -> str:
+def _read(workspace: Workspace, stored: Any, consumer_id: str) -> str:
     return (
         read_secret_field(
             stored,
@@ -81,7 +83,7 @@ def _read(workspace: "Workspace", stored: Any, consumer_id: str) -> str:
     )
 
 
-def _seal(db: Optional[DBSession], workspace_id: Optional[str], value: str, *parts: str) -> Any:
+def _seal(db: DBSession | None, workspace_id: str | None, value: str, *parts: str) -> Any:
     return write_secret_field(
         db if workspace_id else None,
         value,
@@ -93,7 +95,7 @@ def _seal(db: Optional[DBSession], workspace_id: Optional[str], value: str, *par
     )
 
 
-def _connectors(workspace: "Workspace") -> dict[str, Any]:
+def _connectors(workspace: Workspace) -> dict[str, Any]:
     settings = workspace.settings if isinstance(workspace.settings, Mapping) else {}
     raw = settings.get("connectors")
     return dict(raw) if isinstance(raw, Mapping) else {}
@@ -241,13 +243,13 @@ def _normalize_server_id(raw: Any) -> str:
     return server_id
 
 
-def _blob(workspace: "Workspace") -> dict[str, Any]:
+def _blob(workspace: Workspace) -> dict[str, Any]:
     stored = _connectors(workspace).get(CONNECTOR_KEY)
     stored = dict(stored) if isinstance(stored, Mapping) else {}
     return stored
 
 
-def _raw_servers(workspace: "Workspace") -> list[dict[str, Any]]:
+def _raw_servers(workspace: Workspace) -> list[dict[str, Any]]:
     blob = _blob(workspace)
     raw = blob.get("servers")
     if not isinstance(raw, list):
@@ -259,7 +261,7 @@ def _raw_servers(workspace: "Workspace") -> list[dict[str, Any]]:
     return out
 
 
-def _raw_shared_auth(workspace: "Workspace") -> dict[str, Any]:
+def _raw_shared_auth(workspace: Workspace) -> dict[str, Any]:
     raw = _blob(workspace).get("shared_auth")
     return dict(raw) if isinstance(raw, Mapping) else {}
 
@@ -273,7 +275,7 @@ def _shared_oauth_from_env() -> dict[str, str]:
     }
 
 
-def get_decrypted_oauth_secret(workspace: "Workspace", server_id: str = "") -> str:
+def get_decrypted_oauth_secret(workspace: Workspace, server_id: str = "") -> str:
     wanted = str(server_id or "").strip()
     if wanted:
         for item in _raw_servers(workspace):
@@ -296,7 +298,7 @@ def get_decrypted_oauth_secret(workspace: "Workspace", server_id: str = "") -> s
     return _shared_oauth_from_env()["oauth_client_secret"]
 
 
-def _public_shared_auth(workspace: "Workspace") -> dict[str, Any]:
+def _public_shared_auth(workspace: Workspace) -> dict[str, Any]:
     stored = _raw_shared_auth(workspace)
     env = _shared_oauth_from_env()
     token_url = str(stored.get("oauth_token_url") or "").strip().rstrip("/") or env["oauth_token_url"]
@@ -308,7 +310,7 @@ def _public_shared_auth(workspace: "Workspace") -> dict[str, Any]:
         or stored.get("oauth_client_id")
         or stored.get("oauth_client_secret_encrypted")
     ):
-        credential_source: Optional[str] = "workspace"
+        credential_source: str | None = "workspace"
     elif env["oauth_token_url"] or env["oauth_client_id"] or env["oauth_client_secret"]:
         credential_source = "env"
     else:
@@ -368,7 +370,7 @@ def _public_server(stored: Mapping[str, Any], *, shared: Mapping[str, Any]) -> d
         stored, server_id=server_id, shared=shared, inherit=auth_mode == AUTH_INHERIT
     )
     if url or token_blob or stored.get("oauth_client_secret_encrypted"):
-        credential_source: Optional[str] = "workspace"
+        credential_source: str | None = "workspace"
     elif env_url or env_token:
         credential_source = "env"
     elif auth_mode == AUTH_INHERIT and shared.get("credential_source"):
@@ -408,7 +410,7 @@ def _public_server(stored: Mapping[str, Any], *, shared: Mapping[str, Any]) -> d
     }
 
 
-def get_servers(workspace: "Workspace") -> dict[str, Any]:
+def get_servers(workspace: Workspace) -> dict[str, Any]:
     """Return the workspace MCP server list. Secrets are never echoed."""
     shared = _public_shared_auth(workspace)
     servers = [_public_server(item, shared=shared) for item in _raw_servers(workspace)]
@@ -418,7 +420,7 @@ def get_servers(workspace: "Workspace") -> dict[str, Any]:
     return {"servers": servers, "shared_auth": shared}
 
 
-def get_server(workspace: "Workspace", server_id: str) -> Optional[dict[str, Any]]:
+def get_server(workspace: Workspace, server_id: str) -> dict[str, Any] | None:
     wanted = str(server_id or "").strip()
     for item in get_servers(workspace)["servers"]:
         if item.get("id") == wanted:
@@ -426,7 +428,7 @@ def get_server(workspace: "Workspace", server_id: str) -> Optional[dict[str, Any
     return None
 
 
-def get_decrypted_token(workspace: "Workspace", server_id: str) -> str:
+def get_decrypted_token(workspace: Workspace, server_id: str) -> str:
     wanted = str(server_id or "").strip()
     for item in _raw_servers(workspace):
         if str(item.get("id") or "") != wanted:
@@ -440,7 +442,7 @@ def get_decrypted_token(workspace: "Workspace", server_id: str) -> str:
     return _env_token(wanted)
 
 
-def resolve_server(workspace: "Workspace", server_id: str) -> dict[str, Any]:
+def resolve_server(workspace: Workspace, server_id: str) -> dict[str, Any]:
     """Runtime view: url, token / oauth, aliases, credential_source. Fail closed."""
     public = get_server(workspace, server_id)
     if public is None:
@@ -466,25 +468,25 @@ def resolve_server(workspace: "Workspace", server_id: str) -> dict[str, Any]:
                 f"MCP server {server_id!r} is missing OAuth client secret "
                 f"(set oauth_client_secret or {ENV_SHARED_OAUTH_CLIENT_SECRET})"
             )
-        return {
+        return bind_config({
             **public,
             "token": get_decrypted_token(workspace, str(public["id"])),
             "oauth_client_secret": secret,
-        }
+        }, workspace)
     if not public.get("configured"):
         raise McpUnconfigured(
             f"MCP server {server_id!r} is not configured "
             f"(set url or {env_url_key(server_id)})"
         )
-    return {
+    return bind_config({
         **public,
         "token": get_decrypted_token(workspace, str(public["id"])),
-    }
+    }, workspace)
 
 
 def _persist_blob(
     db: DBSession,
-    workspace: "Workspace",
+    workspace: Workspace,
     servers: list[dict[str, Any]],
     shared_auth: Mapping[str, Any] | None = None,
     *,
@@ -509,7 +511,7 @@ def _persist_blob(
     return get_servers(workspace)
 
 
-def _persist_servers(db: DBSession, workspace: "Workspace", servers: list[dict[str, Any]]) -> dict[str, Any]:
+def _persist_servers(db: DBSession, workspace: Workspace, servers: list[dict[str, Any]]) -> dict[str, Any]:
     return _persist_blob(db, workspace, servers)
 
 
@@ -517,8 +519,8 @@ def _incoming_shared_auth(
     payload: Mapping[str, Any],
     *,
     current: Mapping[str, Any] | None,
-    db: Optional[DBSession] = None,
-    workspace_id: Optional[str] = None,
+    db: DBSession | None = None,
+    workspace_id: str | None = None,
 ) -> dict[str, Any]:
     token_url = _http_url(payload.get("oauth_token_url"), field="oauth_token_url")
     client_id = str(payload.get("oauth_client_id") or "").strip()
@@ -543,8 +545,8 @@ def _incoming_row(
     payload: Mapping[str, Any],
     *,
     current: Mapping[str, Any] | None,
-    db: Optional[DBSession] = None,
-    workspace_id: Optional[str] = None,
+    db: DBSession | None = None,
+    workspace_id: str | None = None,
 ) -> dict[str, Any]:
     server_id = _normalize_server_id(payload.get("id"))
     label = str(payload.get("label") or server_id).strip() or server_id
@@ -593,7 +595,7 @@ def _incoming_row(
 
 
 def replace_servers(
-    db: DBSession, workspace: "Workspace", payload: Mapping[str, Any]
+    db: DBSession, workspace: Workspace, payload: Mapping[str, Any]
 ) -> dict[str, Any]:
     """Replace the whole server list. Omit token / oauth secret to keep the stored one."""
     raw = payload.get("servers")
@@ -641,7 +643,7 @@ def replace_servers(
 
 
 def upsert_server(
-    db: DBSession, workspace: "Workspace", payload: Mapping[str, Any]
+    db: DBSession, workspace: Workspace, payload: Mapping[str, Any]
 ) -> dict[str, Any]:
     """Insert or update one server. Token is write-only (omit to keep current)."""
     current_rows = _raw_servers(workspace)

@@ -1814,6 +1814,10 @@ export const FLOW_FR = {
     'Se déclenche quand un opérateur promeut des fichiers du dépôt vers une collection',
   'flow.palette.desc.source.schedule':
     'Déclencheur planifié par cron (géré dans le panneau Déclencheurs)',
+  'flow.palette.label.source.connector_watch': 'Surveillance de connexion',
+  'flow.palette.desc.source.connector_watch': 'Objets nouveaux ou modifiés dans un préfixe de connexion approuvé',
+  'flow.inspector.trigger.connector_watch': 'Créez la surveillance dans Connexions, puis choisissez ici le mode de déclenchement du système. Une livraison reste soumise à son approbation.',
+  'flow.inspector.trigger.connections': 'Configurer les surveillances',
   'flow.palette.desc.source.webhook': 'Déclencheur webhook entrant signé HMAC',
   'flow.palette.desc.task.role_agent':
     'Un rôle, une consigne et un contrat JSON strict en sortie',
@@ -3949,6 +3953,10 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.palette.desc.source.deposit_promoted':
     'Trigger when an operator promotes deposit files to a collection',
   'flow.palette.desc.source.schedule': 'Cron-driven trigger (managed in Triggers panel)',
+  'flow.palette.label.source.connector_watch': 'Connector watch',
+  'flow.palette.desc.source.connector_watch': 'New or changed objects in an approved connection prefix',
+  'flow.inspector.trigger.connector_watch': 'Create the watch in Connections, then select the system trigger mode here. A delivery still requires its approval.',
+  'flow.inspector.trigger.connections': 'Configure watches',
   'flow.palette.desc.source.webhook': 'HMAC inbound webhook trigger',
   'flow.palette.desc.task.role_agent':
     'One role, one instruction and a strict JSON output contract',

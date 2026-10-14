@@ -9,6 +9,10 @@ export const connectorsRoutes: Routes = [
       import('./connectors-page.component').then((m) => m.ConnectorsPageComponent),
   },
   {
+    path: 'connections',
+    loadComponent: () => import('./connections/connections-page.component').then(m => m.ConnectionsPageComponent),
+  },
+  {
     path: 'huggingface',
     loadComponent: () => import('./huggingface/huggingface-connector.component').then(m => m.HuggingfaceConnectorComponent),
   },

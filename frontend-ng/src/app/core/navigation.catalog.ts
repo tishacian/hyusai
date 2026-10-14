@@ -612,6 +612,7 @@ export const AGENTIUM_SURFACE_LEAVES: AgentiumSurfaceLeaf[] = [
   { id: 'capability-curation', parent: 'capabilities', route: '/capabilities/curation', label: 'Capability curation' },
   { id: 'connector-rpa-bridge', parent: 'connectors', route: '/connectors/rpa-bridge', label: 'RPA bridge' },
   { id: 'connector-huggingface', parent: 'connectors', route: '/connectors/huggingface', label: 'Hugging Face' },
+  { id: 'connector-connections', parent: 'connectors', route: '/connectors/connections', label: 'Connections' },
   { id: 'connector-postgresql', parent: 'connectors', route: '/connectors/postgresql', label: 'PostgreSQL' },
   { id: 'create-app-new', parent: 'create-apps', route: '/create/apps/new', label: 'New business application' },
   { id: 'create-app-edit', parent: 'create-apps', route: '/create/apps/:appId', label: 'Studio editor' },

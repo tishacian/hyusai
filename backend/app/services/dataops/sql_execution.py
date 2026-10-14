@@ -120,6 +120,8 @@ def submit_sql_run(
         },
     )
     db.add(execution)
+    from app.services.dataops.compute_registry import register as register_compute
+    register_compute(db, execution)
     db.commit()
     dispatch_sql_execution(db, execution)
     return execution
@@ -225,6 +227,9 @@ def run_sql_execution(execution_id: str) -> dict[str, Any]:  # noqa: C901 - one 
             db.commit()
             return {"id": execution_id, "status": "cancelled"}
 
+        from app.services.dataops.compute_registry import start as start_compute
+        if not start_compute(db, execution):
+            return {"id": execution_id, "status": execution.status}
         spec = dict(execution.input_json or {})
         workspace_id = execution.workspace_id
         timeout_s = clamp_timeout(execution.timeout_s)
@@ -280,6 +285,9 @@ def run_sql_execution(execution_id: str) -> dict[str, Any]:  # noqa: C901 - one 
             else:
                 summary = json.loads((scratch / "result.json").read_text(encoding="utf-8"))
                 elapsed_ms = round((time.monotonic() - started) * 1000, 1)
+                from app.services.dataops.compute_registry import begin_settlement
+
+                begin_settlement(db, execution)
                 dataset = register_parquet_file(
                     db,
                     workspace_id=workspace_id,

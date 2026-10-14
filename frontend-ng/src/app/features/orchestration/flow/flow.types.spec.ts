@@ -109,6 +109,7 @@ test('every trigger type the backend maps to an event is reachable from the pale
     'source.deposit_promoted',
     'source.schedule',
     'source.webhook',
+    'source.connector_watch',
   ]) {
     assert.ok(types.has(trigger), trigger);
   }

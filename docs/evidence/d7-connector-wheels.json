@@ -1,0 +1,115 @@
+{
+  "measurement": "Linux CPython 3.12 wheel archives; not Docker image size",
+  "worker_base_shared_packages_included": true,
+  "wheel_bytes": 13918765,
+  "uncompressed_bytes": 46438012,
+  "packages": [
+    {
+      "package": "cassandra-driver",
+      "version": "3.29.3",
+      "wheel_bytes": 374427,
+      "uncompressed_bytes": 1420383,
+      "license": [
+        "License :: OSI Approved :: Apache Software License"
+      ]
+    },
+    {
+      "package": "cffi",
+      "version": "2.1.1",
+      "wheel_bytes": 221822,
+      "uncompressed_bytes": 735169,
+      "license": "MIT-0"
+    },
+    {
+      "package": "click",
+      "version": "8.5.0",
+      "wheel_bytes": 125251,
+      "uncompressed_bytes": 447719,
+      "license": "BSD-3-Clause"
+    },
+    {
+      "package": "cryptography",
+      "version": "49.0.0",
+      "wheel_bytes": 4749290,
+      "uncompressed_bytes": 14405842,
+      "license": "Apache-2.0 OR BSD-3-Clause"
+    },
+    {
+      "package": "dnspython",
+      "version": "2.8.0",
+      "wheel_bytes": 331094,
+      "uncompressed_bytes": 1094463,
+      "license": "ISC"
+    },
+    {
+      "package": "fastavro",
+      "version": "1.12.1",
+      "wheel_bytes": 3458005,
+      "uncompressed_bytes": 12637201,
+      "license": "MIT"
+    },
+    {
+      "package": "geomet",
+      "version": "1.1.0",
+      "wheel_bytes": 31522,
+      "uncompressed_bytes": 102597,
+      "license": "Apache-2.0"
+    },
+    {
+      "package": "ijson",
+      "version": "3.4.0.post0",
+      "wheel_bytes": 149026,
+      "uncompressed_bytes": 510752,
+      "license": "BSD-3-Clause AND ISC"
+    },
+    {
+      "package": "oracledb",
+      "version": "3.1.1",
+      "wheel_bytes": 2479732,
+      "uncompressed_bytes": 8084688,
+      "license": "UPL-1.0 OR Apache-2.0"
+    },
+    {
+      "package": "pycparser",
+      "version": "3.0",
+      "wheel_bytes": 48172,
+      "uncompressed_bytes": 203745,
+      "license": "BSD-3-Clause"
+    },
+    {
+      "package": "pymongo",
+      "version": "4.15.3",
+      "wheel_bytes": 1718548,
+      "uncompressed_bytes": 5896293,
+      "license": "Apache-2.0 (wheel METADATA License field)"
+    },
+    {
+      "package": "PyMySQL",
+      "version": "1.1.2",
+      "wheel_bytes": 45300,
+      "uncompressed_bytes": 143562,
+      "license": "MIT"
+    },
+    {
+      "package": "pyOpenSSL",
+      "version": "26.4.0",
+      "wheel_bytes": 56026,
+      "uncompressed_bytes": 224707,
+      "license": "Apache-2.0"
+    },
+    {
+      "package": "python-tds",
+      "version": "1.16.0",
+      "wheel_bytes": 84979,
+      "uncompressed_bytes": 348124,
+      "license": "MIT"
+    },
+    {
+      "package": "typing_extensions",
+      "version": "4.16.0",
+      "wheel_bytes": 45571,
+      "uncompressed_bytes": 182767,
+      "license": "PSF-2.0"
+    }
+  ]
+}

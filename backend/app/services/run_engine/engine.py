@@ -1109,6 +1109,7 @@ async def _execute_task_node(
     # token-by-token. We build a shallow copy so sibling DAG branches
     # don't pick up each other's sinks through a shared ctx reference.
     skill_ctx: dict[str, Any] = dict(ctx) if ctx is not None else {}
+    skill_ctx["_skill_node_id"] = node_id
     # These objects/callbacks are constructed here, never copied from inputs.
     # They remain in this invocation's ephemeral context, outside JSON ledgers.
     skill_ctx["_model_workspace"] = model_workspace

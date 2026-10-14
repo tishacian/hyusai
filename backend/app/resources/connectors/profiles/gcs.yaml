@@ -1,0 +1,23 @@
+key: gcs
+version: 1
+label_key: connections.profile.gcs
+family: object_store
+dialect: gcs
+packages:
+- httpx
+parameters:
+- key: bucket
+  type: string
+  required: true
+- key: prefix
+  type: string
+  default: ''
+- key: service_account
+  type: secret_file
+  required: true
+capabilities:
+  read: true
+  consistency: snapshot
+  watch: true
+  export_files: true
+  write_outcome_check: conditional_put

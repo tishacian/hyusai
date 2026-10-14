@@ -169,6 +169,16 @@ def db_session():
 
     # Order matters for FK constraints.
     _TRUNCATE_ORDER = [
+        "connector_watches",
+        "connector_sync_states",
+        "connector_writes",
+        "connector_oauth_states",
+        "compute_runs",
+        "connector_delegations",
+        "connector_grants",
+        "connections",
+        "connector_evidence",
+        "connector_network_exceptions",
         "delivery_receipts",
         "service_incidents",
         "service_attempts",

@@ -1,0 +1,40 @@
+key: snowflake
+version: 1
+label_key: connections.profile.snowflake
+family: dbapi
+dialect: snowflake
+packages:
+- httpx
+parameters:
+- key: host
+  type: host
+  required: true
+- key: database
+  type: string
+  required: true
+- key: schema
+  type: string
+  required: false
+  default: PUBLIC
+- key: warehouse
+  type: string
+  required: true
+- key: role
+  type: string
+  required: false
+- key: access_token
+  type: secret
+  required: true
+capabilities:
+  read: true
+  read_partitioned: true
+  read_incremental: true
+  write_append: true
+  write_overwrite: true
+  write_upsert: true
+  write_outcome_check: marker_table
+  consistency: none
+limits:
+  preview_rows: 100
+  statement_timeout_ms: 30000
+  fetch_rows: 1000

@@ -1,4 +1,4 @@
-# C0 scaffold. Optional overlay; neither pool executes business tasks yet.
+# Optional connector pools. Enable only after runner and network qualification.
 # Require a separately qualified image, never fall back to the general worker.
 services:
   agentium-worker-connectors:
@@ -17,13 +17,13 @@ services:
       CELERY_QUEUES: connectors
       CELERY_CONCURRENCY: "1"
       CELERY_BEAT: "0"
-      TMPDIR: /scratch
+      TMPDIR: /data/connector_scratch
+      CONNECTOR_SCRATCH_DIR: /data/connector_scratch
     mem_limit: 2g
     cpus: 1
     volumes:
       - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
-    tmpfs:
-      - /scratch:size=536870912,mode=1777
+      - ${AGENTIUM_CONNECTOR_SCRATCH_PATH:-/home/ubuntu/agentium-data/connector_scratch}:/data/connector_scratch
     depends_on:
       agentium-rabbitmq:
         condition: service_healthy

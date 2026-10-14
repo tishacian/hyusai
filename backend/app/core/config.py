@@ -121,6 +121,21 @@ class Settings(BaseSettings):
     hana_writes_enabled: bool = False
     hana_network_policy_mode: Literal["report", "enforce"] = "report"
     connector_network_policy_mode: Literal["report", "enforce"] = "report"
+    connector_framework_enabled: bool = False
+    # Operator-attested deployed runner identity; empty values cannot qualify badges.
+    connector_runner_image_sha256: str = ""
+    connector_environment_id: str = ""
+    connector_max_concurrent_runs: int = Field(default=2, ge=1, le=32)
+    connector_max_pending_runs: int = Field(default=100, ge=1, le=10000)
+    connector_max_core_hours_per_day: float = Field(default=24, gt=0, le=100000)
+    connector_lease_s: int = Field(default=30, ge=10, le=300)
+    connector_interactive_timeout_s: int = Field(default=30, ge=1, le=300)
+    connector_max_timeout_s: int = Field(default=3600, ge=30, le=86400)
+    connector_scratch_dir: str = "/tmp"
+    connector_runner_memory_mb: int = Field(default=1024, ge=128, le=65536)
+    dataops_core_hour_usd: float | None = Field(default=None, ge=0)
+    dataops_gb_hour_usd: float | None = Field(default=None, ge=0)
+    connector_certification_max_age_days: int = Field(default=30, ge=1, le=365)
     hana_allowed_hosts: str = ""
     hana_allowed_cidrs: str = ""
     hana_allow_insecure_tls: bool = False

@@ -1,0 +1,38 @@
+key: s3
+version: 1
+label_key: connections.profile.s3
+family: object_store
+dialect: s3
+packages:
+- botocore
+parameters:
+- key: bucket
+  type: string
+  required: true
+- key: prefix
+  type: string
+  default: ''
+- key: region
+  type: string
+  default: us-east-1
+- key: access_key
+  type: secret
+  required: true
+- key: secret_key
+  type: secret
+  required: true
+- key: session_token
+  type: secret
+- key: role_arn
+  type: string
+- key: external_id
+  type: secret
+- key: path_style
+  type: boolean
+  default: true
+capabilities:
+  read: true
+  consistency: snapshot
+  watch: true
+  export_files: true
+  write_outcome_check: conditional_put

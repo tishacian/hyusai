@@ -61,6 +61,7 @@ The backend runs on Python 3.12, the frontend on Node 22 or later.
 cd backend
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -c constraints-demo-app.txt
+pip install -r requirements_connectors_sql.txt -r requirements_connectors_misc.txt -c constraints-demo-app.txt -c constraints-connectors.txt
 pip install pytest pytest-asyncio pytest-xdist
 ```
 
