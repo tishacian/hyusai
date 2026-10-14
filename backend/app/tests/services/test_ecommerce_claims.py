@@ -11,8 +11,8 @@ import pytest
 
 from app.models.claim_trial import ClaimTrial
 from app.services import claims_benchmark as bench
-from app.services.ecommerce import claims as claims
 from app.services.connectors.generic import postgresql_claims as pg
+from app.services.ecommerce import claims as claims
 
 FIXTURES = Path(__file__).resolve().parents[4] / "docs/demo-runs/showcase-ecommerce/fixtures"
 SPEC = json.loads((FIXTURES / "fixture_spec.json").read_text())
@@ -549,3 +549,19 @@ def test_trial_clock_is_owned_versioned_and_reviewed_independently(db_session, m
     bench.event(db_session, ws, owner, row.id, "resume", 4)
     assert row.review is None and any(e["action"] == "quality_review" for e in row.events)
     assert row.state == "active"
+
+
+@pytest.fixture(autouse=True)
+def connector_test_dns(monkeypatch):
+    # These tests replace the database/HTTP driver; resolve its test hostname
+    # locally too, while leaving the production destination policy in place.
+    import socket
+
+    from app.services.connectors import network_policy
+
+    monkeypatch.setattr(
+        network_policy.socket, "getaddrinfo",
+        lambda host, port, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))
+        ],
+    )

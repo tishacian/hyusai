@@ -15,6 +15,10 @@ from decimal import Decimal
 from typing import Any
 
 from app.services.connectors.generic.service import get_config
+from app.services.connectors.network_policy import (
+    ConnectorNetworkError,
+    postgresql_connection_options,
+)
 
 CLAIM_ID = re.compile(r"RC-[0-9]{4,8}")
 MAX_ROWS = 100
@@ -118,8 +122,7 @@ def _read(workspace, names: tuple[str, ...], params: dict[str, Any]) -> dict[str
         ):
             raise ClaimReadError("POSTGRESQL_NOT_CONFIGURED", 409)
         connection = psycopg2.connect(
-            host=values["host"],
-            port=int(values.get("port") or 5432),
+            **postgresql_connection_options(values["host"], int(values.get("port") or 5432)),
             dbname=values["database"],
             user=values["username"],
             password=secrets["password"],
@@ -163,6 +166,8 @@ def _read(workspace, names: tuple[str, ...], params: dict[str, Any]) -> dict[str
         }
     except ClaimReadError:
         raise
+    except ConnectorNetworkError as exc:
+        raise ClaimReadError(exc.code, exc.status_code) from None
     except Exception as exc:
         code = {
             "42P01": "POSTGRESQL_SCHEMA_NOT_LOADED",
