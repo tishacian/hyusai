@@ -79,14 +79,18 @@ mesure 1 412 Mio pour le backend et 1 765 Mio pour le worker : dépassements de
 12 et 5 Mio. Après explication de cet écart, l'utilisateur autorise les plafonds
 **1 480 / 1 850 Mio**, environ 5 % au-dessus des tailles mesurées. Les autres
 plafonds restent inchangés, dont ml-ts à 1 240 Mio pour une mesure de 1 229 Mio.
-Les défauts du build VM et les notes de livraison sont actualisés ; le contrôle
-VM avec ces nouveaux plafonds reste à consigner. Aucune bascule de conteneur ni
-activation HANA n'est effectuée. Voir le suivi pour le benchmark et ses limites.
+Les défauts du build VM et les notes de livraison sont actualisés dans `cd015ed6`.
+L'utilisateur confirme ensuite le recontrôle VM des images `6dcb0d48` existantes
+avec ces plafonds : **code de sortie 0**. Le blocage de budget est levé pour ce
+périmètre, sur la foi de ce compte rendu, sans nouveau bundle SSH brut. Aucune
+bascule de conteneur ni activation HANA n'est effectuée. Voir le suivi pour le
+benchmark et ses limites.
 
 Le 14 octobre, l'utilisateur choisit la démonstration explicite pour HANA
 Showcase : `demo_mode=true`, chiffrement et vérification TLS conservés, écritures
-désactivées. La décision est prise ; son activation reste différée jusqu'à la
-qualification des images candidates. Le formulaire conserve désormais ces
+désactivées. La décision est prise et le contrôle de budget est passé ; son
+activation et sa recette restent à effectuer lors de la livraison.
+Le formulaire conserve désormais ces
 paramètres, et le test de connexion reste un test HANA réel. La
 [recette locale](evidence/hana-showcase-demo-2026-10-14/README.md) ne vaut pas une
 activation sur la VM ni une qualification de l'instance SAP.

@@ -15,11 +15,13 @@ les mesures locales ci-dessous est expliquée. L'utilisateur autorise les
 nouveaux plafonds **1 480 / 1 850 Mio**. Les autres plafonds restent inchangés.
 Les [notes de livraison](../CHANGELOG.md#2026-10-14--dataops-candidate-not-deployed)
 et le [relevé daté](dataops-release-blockers-2026-10-14.md#mesure-candidate-sur-la-vm-et-plafonds-retenus)
-conservent les cinq tailles, les marges, la provenance et le recontrôle à effectuer.
+conservent les cinq tailles, les marges, la provenance et le recontrôle rapporté.
 
-Ces mesures viennent du compte rendu reçu, sans nouveau bundle SSH brut.
-La réévaluation arithmétique passe ; une exécution VM du script avec les nouveaux
-plafonds n'est pas attestée ici. Les candidates restent inutilisées par les
+L'utilisateur confirme ensuite une nouvelle exécution du contrôle sur la VM :
+**code de sortie 0**, avec les images `6dcb0d48` déjà construites et les plafonds
+de `cd015ed6`. **Le blocage de budget est levé pour ces images.** Ce résultat
+est consigné d'après le compte rendu reçu, sans nouveau bundle SSH brut ni
+exécution depuis cet environnement. Les candidates restent inutilisées par les
 conteneurs, rapportés sains sur `ad10dbc2`. Le choix HANA est la démo explicite
 avec TLS strict, préparée dans `6dcb0d48` mais non activée. Les constats et preuves
 historiques ci-dessous restent attachés à leurs révisions ; la hausse justifiée
