@@ -6,6 +6,24 @@ et les écarts de l’implémentation initiale `45ccc915`, puis les travaux de r
 Le code n’est pas une autorité qui
 permet de redéfinir après coup un critère de recette.
 
+## État de production rapporté le 14 octobre 2026
+
+La révision `0e401afc`, présente sur le miroir dans `demo/agentic` et `main`,
+est rapportée en production avec `build-info` vérifié. Préparation DataOps,
+écriture Delta, contrats de service et scoring en flux sont ouverts globalement.
+Une préparation réelle dans `default` a produit une ligne dans une part Delta.
+RabbitMQ applique le timeout d'une heure ; les runs bloqués et les files de
+réponse orphelines ont été traités par l'opérateur.
+
+Le [bilan de production](ops/dataops-production-2026-10-14.md) distingue ces
+observations des recettes restantes : scoring en flux non exercé, aucun contrat
+dans les deux workspaces contrôlés, calibration accessible sans corpus qualifié,
+démo HANA Showcase encore à activer. Les versions Delta existantes rendent un
+simple retour aux images `ad10dbc2` incompatible ; fermer le drapeau d'écriture
+ne convertit pas ces versions. Cette mise en production ne ferme pas tous les
+critères du plan. Les comptes rendus de construction et de revue ci-dessous
+restent historiques et liés à leurs révisions.
+
 ## Origine des amendements
 
 Dans cette conversation, l’utilisateur a demandé, avant l’implémentation :
@@ -46,12 +64,12 @@ sur `45ccc915`. Son historique ne doit pas être réécrit pour effacer les erre
 
 | Domaine | État et critère restant |
 |---|---|
-| R0/S0/D0 | Structure reprise et garde-fous en code ; le déploiement, son build-info, HANA vivant et la révocation du token Docker Hub de papAI ne sont pas attestés par les tests locaux. |
+| R0/S0/D0 | Structure reprise et garde-fous en code ; déploiement `0e401afc` et build-info vérifié rapportés par l'opérateur. HANA vivant et révocation du token Docker Hub de papAI restent sans preuve dans ce bilan. |
 | D1a | Reprise : 46 contrats d’étapes fermés, 74 fonctions, typage physique, formules restreintes, sélecteurs et corpus golden indépendant. La couverture des cas métier et toutes les recettes du plan ne sont pas acquises par cette seule couverture du catalogue. |
 | D1b | API/Flow repris pour la configuration canonique, sources épinglées, schémas par étape, aperçu récursif, compteurs et profil sur échantillon. Rattrapage des anciens échantillons par tâche DataOps et cache d’aperçu livrés avec tests ciblés. Hook Helm de réconciliation ajouté et testé au rendu ; aucune exécution sur cluster n’est attestée. |
 | D2 | Palette des sept opérations, ateliers dédiés, éditeur de formules, historique et conversion SQL livrés. Recettes navigateur mockées FR/EN et suites existantes passées ; elles ne constituent pas une recette contre un backend déployé. |
 | D3 | Lecteurs natifs multi-parts, profil borné, téléchargement en flux, retraite sans suppression et purge par identité distincte livrés. Le commit natif delta-rs remplace le journal maison : parts écrites puis commit0 natif sans réencodage, conformément à D-21/§29.3. MinIO réel local et une sortie synthétique de plus de 3 Gio qualifiés avec réservoir final, sous cgroup client 4 Gio/2 CPU. Spark/Unity et la migration d’un bucket de production ne sont pas qualifiés. |
-| Actifs/promesses/juge | Extension demandée, implémentée sur la branche et soumise à la revue ; aucun statut de production ni qualification fournisseur ne découle du nombre de tests. |
+| Actifs/promesses/juge | Contrats et calibration ouverts en production selon le bilan opérateur ; listes de contrats vides, aucun corpus ni cycle de livraison qualifié par ces contrôles. L'activation ne vaut pas qualification fournisseur. |
 | Narration | Différée. Catalogue masqué, runtime fermé et absence de seed de parcours tant que le drapeau est désactivé. |
 | D4/D5/D6/D7/I1/I2 | Différés par demande explicite ; leur absence reste visible dans le plan d’origine et n’est pas présentée comme une implémentation. |
 
@@ -86,10 +104,13 @@ périmètre, sur la foi de ce compte rendu, sans nouveau bundle SSH brut. Aucune
 bascule de conteneur ni activation HANA n'est effectuée. Voir le suivi pour le
 benchmark et ses limites.
 
+Les paragraphes de mesure ci-dessus précèdent la mise en production de
+`0e401afc`, désormais consignée en tête de ce document.
+
 Le 14 octobre, l'utilisateur choisit la démonstration explicite pour HANA
 Showcase : `demo_mode=true`, chiffrement et vérification TLS conservés, écritures
 désactivées. La décision est prise et le contrôle de budget est passé ; son
-activation et sa recette restent à effectuer lors de la livraison.
+activation et sa recette restent à effectuer dans Showcase après cette livraison.
 Le formulaire conserve désormais ces
 paramètres, et le test de connexion reste un test HANA réel. La
 [recette locale](evidence/hana-showcase-demo-2026-10-14/README.md) ne vaut pas une
