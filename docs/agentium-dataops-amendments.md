@@ -19,6 +19,9 @@ Dans cette conversation, l’utilisateur a demandé, avant l’implémentation :
 - utiliser le workspace Showcase sans exiger de client pilote, avec un scoring
   de 2 à 3 millions de lignes par jour et plusieurs centaines de pages/images ;
 - laisser ensuite narration de côté ; Gemini via OpenRouter sera raccordé plus tard.
+- le 14 octobre, faire des connecteurs (D7) une vitrine face aux catalogues de Sim,
+  n8n, Dataiku et papAI, avec une solidité comparable au dépôt SFTP ; voir le
+  [complément D7](agentium-dataops-connectors.md).
 
 Ces demandes expliquent les extensions au périmètre du document d’origine. Elles
 ne prouvent ni leur complétude ni leur conformité : leur recette est distincte.
@@ -38,6 +41,9 @@ ce document.
   destination Work, qui ne vaut pas intégration à un système client externe.
 - [Narration](agentium-showcase-narration-contract.md) : brouillon différé,
   sans activation ni promesse de livraison dans le lot actif.
+- [Complément D7](agentium-dataops-connectors.md) : catalogue de connecteurs
+  certifiés, en deux catalogues (données, outils) et en vagues C0 à C7. Proposé,
+  non implémenté.
 
 ## Écarts constatés, à fermer par des preuves
 
@@ -53,7 +59,8 @@ sur `45ccc915`. Son historique ne doit pas être réécrit pour effacer les erre
 | D3 | Lecteurs natifs multi-parts, profil borné, téléchargement en flux, retraite sans suppression et purge par identité distincte livrés. Le commit natif delta-rs remplace le journal maison : parts écrites puis commit0 natif sans réencodage, conformément à D-21/§29.3. MinIO réel local et une sortie synthétique de plus de 3 Gio qualifiés avec réservoir final, sous cgroup client 4 Gio/2 CPU. Spark/Unity et la migration d’un bucket de production ne sont pas qualifiés. |
 | Actifs/promesses/juge | Extension demandée, implémentée sur la branche et soumise à la revue ; aucun statut de production ni qualification fournisseur ne découle du nombre de tests. |
 | Narration | Différée. Catalogue masqué, runtime fermé et absence de seed de parcours tant que le drapeau est désactivé. |
-| D4/D5/D6/D7/I1/I2 | Différés par demande explicite ; leur absence reste visible dans le plan d’origine et n’est pas présentée comme une implémentation. |
+| D4/D5/D6/I1/I2 | Différés par demande explicite ; leur absence reste visible dans le plan d’origine et n’est pas présentée comme une implémentation. |
+| D7 | Repriorisé le 14 octobre et précisé par le [complément D7](agentium-dataops-connectors.md). Rien n’est implémenté à ce stade. |
 
 Les suites ciblées du premier lot ne remplaçaient pas une suite complète. Les
 rapports de tests, les comparaisons avec la base et les constructions d’images
