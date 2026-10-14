@@ -1,0 +1,66 @@
+{
+  "scope": "development validation; not connector certification evidence",
+  "source_revision": "f8534c1b4a2898f0d4ac44a2a6e48c03120dd25e",
+  "predecessor_revision": "4417bc4fd3dd65ae91cf71df10a64e1ecaafcda4",
+  "environment": {
+    "os": "Linux",
+    "python": "3.12.14",
+    "optional_driver_install": "requirements_connectors_sql.txt + requirements_connectors_misc.txt, constraints-connectors.txt and constraints-demo-app.txt",
+    "pytest_parallel_workers": 4,
+    "native_thread_limits": {
+      "OPENBLAS_NUM_THREADS": 1,
+      "OMP_NUM_THREADS": 1,
+      "MKL_NUM_THREADS": 1,
+      "NUMEXPR_NUM_THREADS": 1,
+      "POLARS_MAX_THREADS": 2,
+      "ARROW_NUM_THREADS": 1
+    }
+  },
+  "backend_full": {
+    "command": "python -m pytest app/tests -n 4 -q --disable-warnings",
+    "passed": 9459,
+    "skipped": 130,
+    "failed": 0,
+    "duration_seconds": 776.19,
+    "log_sha256": "f207507aa76a5126c79d6a7133ad264d467928dccc03134598dc2f833a546b93",
+    "note": "Collection preceded final lakehouse/BigQuery identity fixes and import ordering; the final connector suite below validates those final files."
+  },
+  "backend_final_connectors": {
+    "command": "python -m pytest app/tests/services/test_connector*.py app/tests/services/test_connection_registry.py app/tests/services/test_compute_runs.py app/tests/services/test_dataops_compute_registry.py app/tests/services/test_migration_127_connector_connections.py app/tests/services/test_migration_130_connector_oauth.py app/tests/api/test_connector_framework_controls.py app/tests/connectors/kit app/tests/infra/test_connector_worker_scaffold.py app/tests/infra/test_connector_certification_script.py -n 4 -q --disable-warnings",
+    "passed": 591,
+    "skipped": 1,
+    "failed": 0,
+    "duration_seconds": 24.38,
+    "log_sha256": "ac7271dcf89c7b9f9a9c07e0cc3f804d5379592e3acfa6543d422c99a79278df",
+    "skipped_reason": "Supplier live kit requires explicit opt-in; no supplier campaign ran.",
+    "postgres_protocol_probe": "Executed with AGENTIUM_SQL_PROTOCOL_PROBE_DSN against disposable PostgreSQL 17.11; injected connection factory, no TLS transport qualification."
+  },
+  "frontend": {
+    "unit_passed": 2220,
+    "unit_failed": 0,
+    "unit_command": "npm run test:unit",
+    "unit_log_sha256": "e0377523235dabdc80c54a17f97853d1931361442d167565ab39493fd96a4117",
+    "production_build": "passed",
+    "production_build_log_sha256": "cf6e7274ab2c5203bfed4663057bae1ddcd0ef2db377a8bce389dccf1f7e4c4e",
+    "i18n_navigation_chrome_checks": "passed"
+  },
+  "static_checks": {
+    "ruff_new_python_files": 107,
+    "ruff_new_file_diagnostics": 0,
+    "ruff_modified_existing_python_files": 35,
+    "ruff_added_diagnostics_in_existing_files": 0,
+    "diff_whitespace": "passed",
+    "compliance": "passed: 16/22 claims statically verified; runner attestations separate",
+    "api_import_without_optional_connector_drivers": "passed"
+  },
+  "migration_probe": "d7-postgresql-migrations.json; model schema from predecessor stamped at 126, then migrations 127 through 132. Not the full Alembic history.",
+  "test_environment_repair": "Cached disposable dbt test environment was missing click and typing-extensions; repaired locally. No application dependency changed for that repair.",
+  "production_operations": {
+    "merge": false,
+    "deployment": false,
+    "configuration_change": false,
+    "image_build_or_budget_measurement": false,
+    "supplier_certification": false,
+    "hana_qualification": false
+  }
+}
