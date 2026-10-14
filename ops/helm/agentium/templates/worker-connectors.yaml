@@ -1,0 +1,66 @@
+{{- if .Values.connectorWorkers.enabled }}
+{{- $image := required "connectorWorkers.image must identify a qualified runner" .Values.connectorWorkers.image }}
+{{- if not (regexMatch "@sha256:[0-9a-f]{64}$" $image) }}
+{{- fail "connectorWorkers.image must be pinned by digest" }}
+{{- end }}
+{{- range $pool := list (dict "name" "connectors" "queue" "connectors" "memory" "2Gi") (dict "name" "connectors-interactive" "queue" "connectors_interactive" "memory" "1Gi") }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentium-worker-{{ $pool.name }}
+  labels:
+    {{- include "agentium.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: worker-{{ $pool.name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+      app.kubernetes.io/component: worker-{{ $pool.name }}
+  template:
+    metadata:
+      labels:
+        {{- include "agentium.labels" $ | nindent 8 }}
+        app.kubernetes.io/component: worker-{{ $pool.name }}
+    spec:
+      {{- include "agentium.imagePullSecrets" $ | nindent 6 }}
+      containers:
+        - name: worker
+          image: {{ $image | quote }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          resources:
+            requests: {cpu: 250m, memory: 512Mi, ephemeral-storage: 512Mi}
+            limits: {cpu: "1", memory: {{ $pool.memory }}, ephemeral-storage: 1Gi}
+          envFrom:
+            - configMapRef:
+                name: {{ include "agentium.fullname" $ }}-config
+            - secretRef:
+                name: {{ include "agentium.secretName" $ }}
+            {{- include "agentium.openbaoEnvFrom" (list $ "worker") | nindent 12 }}
+          env:
+            {{- include "agentium.appSecretEnv" $ | nindent 12 }}
+            {{- include "agentium.openbaoEnv" (list $) | nindent 12 }}
+            - name: CELERY_APP
+              value: app.workers.celery_connectors:celery_connectors
+            - name: CELERY_CONNECTORS_QUEUE
+              value: connectors
+            - name: CELERY_CONNECTORS_INTERACTIVE_QUEUE
+              value: connectors_interactive
+            - name: CELERY_QUEUES
+              value: {{ $pool.queue }}
+            - name: CELERY_CONCURRENCY
+              value: "1"
+            - name: CELERY_BEAT
+              value: "0"
+            - name: TMPDIR
+              value: /scratch
+          volumeMounts:
+            - name: scratch
+              mountPath: /scratch
+      volumes:
+        - name: scratch
+          emptyDir:
+            sizeLimit: {{ $.Values.connectorWorkers.scratchSizeLimit }}
+{{- end }}
+{{- end }}

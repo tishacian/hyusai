@@ -397,15 +397,21 @@ def _test_postgresql(values: Mapping[str, Any], secrets: Mapping[str, Any]) -> _
         return "not_configured", None
     import psycopg2
 
+    from app.services.connectors.network_policy import (
+        ConnectorNetworkError,
+        postgresql_connection_options,
+    )
+
     try:
         conn = psycopg2.connect(
-            host=host,
-            port=_port(values.get("port"), 5432),
+            **postgresql_connection_options(host, _port(values.get("port"), 5432)),
             dbname=database,
             user=username,
             password=password,
             connect_timeout=int(TEST_TIMEOUT_S),
         )
+    except ConnectorNetworkError as exc:
+        return "error", exc.code
     except psycopg2.OperationalError as exc:
         message = str(exc).lower()
         if "authentication failed" in message or "pg_hba.conf" in message:
