@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "operation": "prepare",
+  "params": {
+    "steps": [
+      {
+        "id": "golden",
+        "kind": "map_values",
+        "params": {
+          "column": "a",
+          "pairs": [
+            {
+              "from": null,
+              "to": "empty"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "port": "out",
+      "name": "Golden"
+    }
+  ]
+}

@@ -127,8 +127,14 @@ def test_runtime_reads_stay_in_the_python_image_context(ignore_file):
 )
 def test_secrets_and_laptop_state_never_reach_an_image(ignore_file):
     patterns = _patterns(ignore_file)
-    for path in ("docker/env/agentium.env", "backend/.env", "backend/.venv/bin/python", ".claude/x"):
+    for path in (
+        "docker/env/agentium.env", "backend/.env", "backend/.venv/bin/python", ".claude/x",
+        ".terraform/providers/provider", "ops/terraform/.terraform/providers/provider",
+        "terraform.tfstate", "ops/instance/terraform.tfstate.backup",
+        "ops/terraform/deployment.tfplan",
+    ):
         assert _excluded(path, patterns), f"{ignore_file.name} ships {path}"
+    assert not _excluded("ops/terraform/.terraform.lock.hcl", patterns)
 
 
 @pytest.mark.parametrize("ignore_file", PYTHON_IGNORES, ids=lambda path: path.name)

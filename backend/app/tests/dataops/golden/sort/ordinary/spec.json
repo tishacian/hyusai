@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "operation": "prepare",
+  "params": {
+    "steps": [
+      {
+        "id": "golden",
+        "kind": "sort",
+        "params": {
+          "keys": [
+            {
+              "column": "a",
+              "direction": "desc",
+              "nulls": "first"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "port": "out",
+      "name": "Golden"
+    }
+  ]
+}

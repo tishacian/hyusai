@@ -30,10 +30,11 @@ from app.services.skills_registry.wrappers.skills import (
     _chain_mixed_hah_v1,
     _chain_naive_v1,
     _chat_agentic_plan_v1,
-    _chat_self_correct_v1,
     _chat_grounding_policy_v1,
+    _chat_self_correct_v1,
     _chat_trivial_bypass_v1,
     _claim_audit_v1,
+    _data_prep_v1,
     _dbt_transform_v1,
     _decide_next_v1,
     _decision_option_rank_v1,
@@ -42,6 +43,7 @@ from app.services.skills_registry.wrappers.skills import (
     _draft_response_email_v1,
     _eval_radar_v1,
     _evaluate_v1,
+    _evaluate_v2,
     _evidence_graph_build_v1,
     _expert_answer_evaluator_v1,
     _expert_interview_plan_v1,
@@ -74,6 +76,7 @@ from app.services.skills_registry.wrappers.skills import (
     _ml_retrain_model_v1,
     _ml_train_sklearn_v1,
     _multi_hop_retrieve_v1,
+    _narration_run_v1,
     _news_signal_synthesis_v1,
     _ollama_llm_v1,
     _openai_llm_v1,
@@ -128,7 +131,6 @@ from app.services.skills_registry.wrappers.skills import (
     is_workspace_skill_slug,
     logger,
 )
-
 
 # ---------------------------------------------------------------------------
 # Registry
@@ -441,6 +443,9 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "chat_self_correct_v1": (_chat_self_correct_v1, "app.services.model_router", "bound"),
     "response_eval_v1": (_response_eval_v1, "app.services.metrics.evaluator", "bound"),
     "grounding_check_v1": (_grounding_check_v1, None, "bound"),
+    "data_prep_v1": (_data_prep_v1, "app.services.dataops.preparation", "bound"),
+    "evaluate_v2": (_evaluate_v2, "app.services.evaluation.typed_judge", "bound"),
+    "narration_run_v1": (_narration_run_v1, "app.services.dataops.narration", "bound"),
     "evaluate_v1": (_evaluate_v1, "app.services.evaluation.judge", "bound"),
     "publish_email_v1": (_publish_email_v1, "app.services.email", "bound"),
     "role_agent_v1": (_role_agent_v1, "app.services.model_plane.execution", "bound"),

@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "operation": "prepare",
+  "params": {
+    "steps": [
+      {
+        "id": "golden",
+        "kind": "parse_date",
+        "params": {
+          "column": "a",
+          "preset": "fr_date",
+          "to": "date"
+        }
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "port": "out",
+      "name": "Golden"
+    }
+  ]
+}

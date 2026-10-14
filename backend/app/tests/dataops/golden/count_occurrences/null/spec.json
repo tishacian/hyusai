@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "operation": "prepare",
+  "params": {
+    "steps": [
+      {
+        "id": "golden",
+        "kind": "count_occurrences",
+        "params": {
+          "column": "a",
+          "pattern": "aa",
+          "output": "n"
+        }
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "port": "out",
+      "name": "Golden"
+    }
+  ]
+}

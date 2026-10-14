@@ -69,6 +69,7 @@ class WorkspaceStub {
     settings?: Record<string, unknown>;
     appEntitlements?: WorkspaceInfo['app_entitlements'];
     appRuntime?: WorkspaceAppRuntimeProjection;
+    effectiveFeatures?: Record<string, boolean>;
   } = {}): void {
     const slug = options.slug || 'andritz';
     this.currentSlug.set(slug);
@@ -90,6 +91,7 @@ class WorkspaceStub {
         },
         app_entitlements: options.appEntitlements,
         workspace_app_runtime: options.appRuntime,
+        effective_features: options.effectiveFeatures,
       },
     ]);
   }
@@ -156,6 +158,33 @@ const V2_BUSINESS_PROFILE = {
   ...BUSINESS_PROFILE,
   features: { workspace_experience_v2: true },
 };
+
+test('disabled DataOps deep links return to their available parent through the central resolver', () => {
+  const {resolver, workspace} = makeHarness({slug:'showcase'});
+  for (const [route, parent, feature] of [
+    ['/data/preparation?dataset=private', '/data', 'dataops_enabled'],
+    ['/work/services?window=private', '/work', 'service_contracts'],
+  ]) {
+    workspace.configure({slug:'showcase'});
+    assert.deepEqual(expectTerminal(resolver, resolver.resolve(route)), {
+      requestedRoute:route, resolvedRoute:parent, owner:'navigation_resolver', reason:'workspace_extension_unavailable',
+    });
+    workspace.configure({slug:'showcase',settings:{features:{[feature]:true}}});
+    assert.equal(resolver.resolve(route),null);
+    workspace.configure({slug:'showcase',settings:{features:{[feature]:false}},effectiveFeatures:{[feature]:true}});
+    assert.equal(resolver.resolve(route),null);
+    workspace.configure({slug:'showcase',settings:{features:{[feature]:true}},effectiveFeatures:{[feature]:false}});
+    assert.equal(resolver.resolve(route)?.resolvedRoute,parent);
+  }
+});
+
+test('disabled feature fallbacks respect business navigation and cannot become the configured home', () => {
+  const business = makeHarness({settings:BUSINESS_PROFILE}).resolver;
+  assert.equal(expectTerminal(business,business.resolve('/data/preparation')).resolvedRoute,'/chat');
+  assert.equal(expectTerminal(business,business.resolve('/work/services')).resolvedRoute,'/chat');
+  const {resolver} = makeHarness({slug:'showcase',mode:'demo',settings:{default_route:'/work/services',features:{experience_v1:true}}});
+  assert.equal(resolver.resolve('/')?.resolvedRoute,'/work');
+});
 
 test('a customer application opened from another family goes to that workspace home', () => {
   for (const family of ['generic', 'sentinel_ci']) {

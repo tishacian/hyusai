@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "operation": "prepare",
+  "params": {
+    "steps": [
+      {
+        "id": "golden",
+        "kind": "cast",
+        "params": {
+          "columns": [
+            "a"
+          ],
+          "to": "integer",
+          "float_to_int": "round_half_up"
+        }
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "port": "out",
+      "name": "Golden"
+    }
+  ]
+}

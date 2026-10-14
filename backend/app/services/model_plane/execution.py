@@ -8,7 +8,9 @@ workspace edit cannot change the provider between policy and dispatch.
 from __future__ import annotations
 
 import asyncio
+import base64
 import copy
+import hashlib
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
@@ -31,6 +33,35 @@ class _DispatchRefused(Exception):
 
     def __init__(self, cause: Exception):
         self.cause = cause
+
+
+@dataclass(frozen=True)
+class ModelImage:
+    """Server-resolved bytes only; URLs and credentials never enter this contract."""
+
+    evidence_id: str
+    data: bytes = field(repr=False)
+    mime_type: str
+    sha256: str
+
+    def content_parts(self):
+        if (
+            self.mime_type not in {"image/png", "image/jpeg", "image/webp"}
+            or not isinstance(self.data, bytes)
+            or not 0 < len(self.data) <= 8_000_000
+            or hashlib.sha256(self.data).hexdigest() != self.sha256
+        ):
+            raise ModelExecutionError("Invalid or unverified model image.")
+        return [
+            {"type": "text", "text": f"Evidence image: {self.evidence_id}; sha256: {self.sha256}"},
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{self.mime_type};base64," + base64.b64encode(self.data).decode(),
+                    "detail": "high",
+                },
+            },
+        ]
 
 
 @dataclass(frozen=True)
@@ -327,6 +358,7 @@ def skill_model_request(
         "azure_openai_llm_v1": "azure_openai",
         "workspace_llm_v1": "workspace",
         "llm_label_dataset_v1": "workspace",
+        "evaluate_v2": "workspace",
     }
     provider = _text(params.get("provider")) if kind == "prompt_template" else providers.get(slug)
     if not provider:
@@ -378,6 +410,7 @@ async def complete_model(
     *,
     generation_options: Mapping[str, Any] | None = None,
     stream: bool = True,
+    images: tuple[ModelImage, ...] = (),
 ) -> dict[str, Any]:
     from app.services.evaluation.judge import (
         new_provider_usage_accumulator,
@@ -407,7 +440,9 @@ async def complete_model(
                 # attempt as effective while recording this refusal alongside it.
                 raise
         try:
-            output = await _complete_once(candidate, prompt, ctx, usage, generation_options, stream)
+            output = await _complete_once(
+                candidate, prompt, ctx, usage, generation_options, stream, images
+            )
         except _DispatchRefused as exc:
             attempt["status"] = "blocked"
             raise exc.cause from None
@@ -426,7 +461,10 @@ async def complete_model(
                 ) from exc
             continue
         attempt["status"] = "completed"
-        evidence.update(returned_model=output["model"])
+        evidence.update(
+            returned_model=output["model"],
+            returned_model_reported=output["returned_model_reported"],
+        )
         output["model_execution"] = evidence
         output.update(provider_usage_evidence(usage))
         return output
@@ -468,11 +506,24 @@ def _provider_generation_options(execution, generation_options):
     return options
 
 
-async def _complete_once(execution, prompt, ctx, usage_accumulator, generation_options, stream):
+async def _complete_once(
+    execution, prompt, ctx, usage_accumulator, generation_options, stream, images=()
+):
     from app.services.evaluation.judge import normalize_provider_usage, record_provider_usage
 
     try:
         options = _provider_generation_options(execution, generation_options)
+        if "image_parts" in options:
+            raise ModelExecutionError("Images require server-resolved ModelImage bytes.")
+        if images:
+            if (
+                execution.provider not in {"openai", "azure_openai"}
+                or stream
+                or len(images) > 16
+                or sum(len(image.data) for image in images) > 32_000_000
+            ):
+                raise ModelExecutionError("Unsupported vision transport or image limit.")
+            options["image_parts"] = [part for image in images for part in image.content_parts()]
     except Exception as exc:
         raise _DispatchRefused(exc) from exc
     client = (
@@ -482,6 +533,7 @@ async def _complete_once(execution, prompt, ctx, usage_accumulator, generation_o
     )
     sink = ctx.get("token_sink") if stream else None
     returned_model = execution.model
+    returned_model_reported = False
     result = None
     evidence = ctx["_model_resolution_evidence"]
     if execution.provider == "huggingface" or execution.artifact_provenance:
@@ -514,6 +566,7 @@ async def _complete_once(execution, prompt, ctx, usage_accumulator, generation_o
                 if counters is not None:
                     result = {"usage": counters}
                 returned_model = _text(chunk.get("model")) or returned_model
+                returned_model_reported = returned_model_reported or bool(_text(chunk.get("model")))
             completion = "".join(parts)
         else:
             result = await client.generate(model=execution.model, prompt=prompt, **options)
@@ -522,6 +575,7 @@ async def _complete_once(execution, prompt, ctx, usage_accumulator, generation_o
                 result.get("content") or result.get("response") or result.get("completion") or ""
             )
             returned_model = _text(result.get("model")) or returned_model
+            returned_model_reported = bool(_text(result.get("model")))
     finally:
         # Configuration failures before dispatch are not provider calls. A
         # failed transport after dispatch is a call with unavailable counters.
@@ -531,6 +585,7 @@ async def _complete_once(execution, prompt, ctx, usage_accumulator, generation_o
     return {
         "completion": completion,
         "model": returned_model,
+        "returned_model_reported": returned_model_reported,
         **({"streamed": True} if callable(sink) else {}),
     }
 

@@ -5,10 +5,9 @@ stay in the parent dataset, never in a feature column of the reviewed table.
 """
 from __future__ import annotations
 
-from datetime import datetime
-import hashlib
-from pathlib import Path
 import tempfile
+from datetime import datetime
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -16,7 +15,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.models.decision import Decision
 from app.models.tabular import TabularDataset
 from app.models.workspace_job import WorkspaceJob
-from app.services.tabular_datasets import TabularError, dataset_reference, get_dataset, materialize
+from app.services.tabular_datasets import (
+    TabularError,
+    dataset_digest,
+    get_dataset,
+    materialize_dataset,
+)
 
 PROMPT_KIND = "review_dataset_labels"
 PRODUCER = "llm_label_review_v1"
@@ -51,10 +55,10 @@ def _snapshot(dataset):
     if (dataset.size_bytes or 0) > MAX_BYTES:
         _refuse("LABEL_REVIEW_SOURCE_UNAVAILABLE", "The labeling dataset exceeds the review size limit.")
     with tempfile.TemporaryDirectory(prefix="label-review-") as scratch:
-        path = materialize(dataset, Path(scratch) / "source.parquet")
-        if path.stat().st_size > MAX_BYTES:
+        path = materialize_dataset(dataset, Path(scratch) / "source", max_bytes=MAX_BYTES)
+        if sum(p.stat().st_size for p in path) > MAX_BYTES:
             _refuse("LABEL_REVIEW_SOURCE_UNAVAILABLE", "The labeling dataset exceeds the review size limit.")
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        digest = dataset_digest(dataset)
         frame = pl.scan_parquet(path).head(MAX_ROWS + 1).collect()
     if frame.height != dataset.row_count:
         _refuse("LABEL_REVIEW_SOURCE_CHANGED", "The labeling dataset no longer matches its recorded rows.")
@@ -110,6 +114,7 @@ def review_page(db, decision, *, offset=0, limit=50):
 def apply_review(db, decision, *, reviewer_id: str, body: LabelReviewInput | None):
     """Stage the reviewed dataset; the HITL route commits it with its approval."""
     import polars as pl
+
     from app.services.tabular_datasets import register_frame
 
     if body is None:

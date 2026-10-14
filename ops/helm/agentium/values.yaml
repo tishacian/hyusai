@@ -39,12 +39,18 @@ worker:
   # The recipe env cache is node-local and rebuilds itself. Size it for the
   # service's own quota plus the pip cache that shares the directory.
   recipeEnvsSizeLimit: 14Gi
-  # One worker consumes both pools. Compose splits them so a long recipe
-  # cannot fill the CPU pool; this chart has a single worker, and a recipes
-  # task with nobody listening stays queued forever.
+  # DataOps has a separate bounded deployment; never consume it here.
   queues: cpu,recipes
   concurrency: 2
   beat: "1"
+dataopsWorker:
+  enabled: true
+  replicas: 1
+  scratchSizeLimit: 8Gi
+dataopsWatchdog:
+  enabled: false
+  schedule: "*/5 * * * *"
+  deadlineSeconds: 120
 p4Maintenance:
   enabled: true
 # Forecasting runtime (skforecast) in its own image, Compose profile ml-ts.
@@ -142,7 +148,7 @@ openbao:
     # chart never generates or owns it.
     unsealKeySecret: ""
     unsealKeyKey: unseal.key
-    # Only API, worker, migrate and hub-fetch pods may reach the server.
+    # Only API, worker, migrate, catalog-reconcile and hub-fetch may reach it.
     networkPolicy: true
     persistence:
       enabled: true
@@ -153,6 +159,13 @@ migrate:
   # post-install so the Secret and Postgres STS exist before the Job runs.
   hook: post-install,post-upgrade
   waitForPostgres: true
+catalogReconcile:
+  # Uses the release's backend image, secrets and resources.migrate. Runs after
+  # successful migration (hook weight 10 > 5); migrate.enabled=false skips it.
+  enabled: true
+  backoffLimit: 1
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 600
 rabbitmq:
   enabled: true
   image: rabbitmq:4.1-management
@@ -356,6 +369,9 @@ resources:
   worker:
     requests: {cpu: 500m, memory: 2Gi, ephemeral-storage: 14Gi}
     limits: {memory: 6Gi, ephemeral-storage: 16Gi}
+  dataopsWorker:
+    requests: {cpu: "1", memory: 2Gi, ephemeral-storage: 4Gi}
+    limits: {cpu: "2", memory: 4Gi, ephemeral-storage: 8Gi}
   p4Maintenance:
     requests: {cpu: 50m, memory: 256Mi}
     limits: {memory: 1Gi}

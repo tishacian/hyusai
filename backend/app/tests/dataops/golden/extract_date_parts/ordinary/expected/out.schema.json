@@ -1,0 +1,12 @@
+[
+  {
+    "name": "a",
+    "dtype": "timestamp[us]",
+    "nullable": true
+  },
+  {
+    "name": "a_iso_day_of_week",
+    "dtype": "int64",
+    "nullable": true
+  }
+]

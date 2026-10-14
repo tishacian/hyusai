@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "operation": "prepare",
+  "params": {
+    "steps": [
+      {
+        "id": "golden",
+        "kind": "pad",
+        "params": {
+          "column": "a",
+          "length": 3,
+          "char": "0",
+          "side": "left"
+        }
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "port": "out",
+      "name": "Golden"
+    }
+  ]
+}

@@ -16,7 +16,7 @@
 #
 #   AGENTIUM_PYTHON_BASE_IMAGE   Python base pinned by digest (default: the
 #                                one qualified on the VM)
-#   AGENTIUM_IMAGE_BUDGET_MB_*   override a budget below, in MB
+#   AGENTIUM_IMAGE_BUDGET_MB_*   override a budget below, in MiB
 set -euo pipefail
 
 fail() {
@@ -80,8 +80,10 @@ for name in "${IMAGES[@]}"; do
 	[[ "$revision" == "$SHA" ]] || fail "agentium-$name:$SHA12 carries revision '$revision', not $SHA"
 done
 
-: "${AGENTIUM_IMAGE_BUDGET_MB_BACKEND:=1400}"
-: "${AGENTIUM_IMAGE_BUDGET_MB_WORKER:=1760}"
+# 2026-10-14: measured 1412/1765 MiB on the VM for 6dcb0d48; ~5% headroom.
+# See CHANGELOG.md and docs/dataops-release-blockers-2026-10-14.md.
+: "${AGENTIUM_IMAGE_BUDGET_MB_BACKEND:=1480}"
+: "${AGENTIUM_IMAGE_BUDGET_MB_WORKER:=1850}"
 : "${AGENTIUM_IMAGE_BUDGET_MB_FRONTEND:=40}"
 : "${AGENTIUM_IMAGE_BUDGET_MB_ML_TS:=1240}"
 : "${AGENTIUM_IMAGE_BUDGET_MB_LIVEKIT_AGENT:=110}"

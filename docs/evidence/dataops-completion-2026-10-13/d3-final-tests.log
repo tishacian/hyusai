@@ -1,0 +1,137 @@
+......................................                                   [100%]
+=============================== warnings summary ===============================
+../.venv/lib/python3.12/site-packages/starlette/testclient.py:53
+  /workspace/agentium/.venv/lib/python3.12/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+app/tests/services/test_dataops_multipart.py: 14 warnings
+app/tests/services/test_dataops_minio.py: 16 warnings
+app/tests/services/test_llm_label_review.py: 35 warnings
+app/tests/services/test_forecast_monitoring.py: 89 warnings
+app/tests/services/test_forecast_retraining.py: 172 warnings
+app/tests/services/test_ml_distillation.py: 50 warnings
+  /workspace/agentium/.venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3627: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+app/tests/services/test_dataops_multipart.py: 2 warnings
+app/tests/services/test_dataops_minio.py: 3 warnings
+app/tests/services/test_llm_label_review.py: 3 warnings
+app/tests/services/test_forecast_monitoring.py: 11 warnings
+app/tests/services/test_forecast_retraining.py: 12 warnings
+app/tests/services/test_ml_distillation.py: 4 warnings
+  /workspace/agentium/backend/app/services/dataops/storage.py:488: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    dataset.ingested_at = datetime.utcnow()
+
+app/tests/services/test_dataops_minio.py::test_real_minio_multi_output_failure_never_publishes_partial_set
+  /workspace/agentium/backend/app/services/dataops/preparation.py:214: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    .values(status="running", started_at=datetime.utcnow())
+
+app/tests/services/test_dataops_minio.py::test_real_minio_multi_output_failure_never_publishes_partial_set
+  /workspace/agentium/backend/app/services/recipe_executions.py:204: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    execution.finished_at = datetime.utcnow()
+
+app/tests/services/test_llm_label_review.py::test_review_cannot_be_forged_by_automatic_approval_or_changed_output
+app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[48-0]
+app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[240-0.01]
+  /workspace/agentium/backend/app/services/llm_label_review.py:140: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "reviewed_at": datetime.utcnow().isoformat(), "source_dataset_id": source.id,
+
+app/tests/services/test_llm_label_review.py::test_review_cannot_be_forged_by_automatic_approval_or_changed_output
+app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[48-0]
+app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[240-0.01]
+  /workspace/agentium/backend/app/tests/services/test_llm_label_review.py:52: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    case.decision.human_confirmed_at = datetime.utcnow()
+
+app/tests/services/test_forecast_monitoring.py::test_actual_bytes_and_ready_state_reverified
+app/tests/services/test_forecast_monitoring.py::test_training_union_keeps_covariates_and_panel_keys[single]
+app/tests/services/test_forecast_monitoring.py::test_training_union_keeps_covariates_and_panel_keys[panel]
+app/tests/services/test_forecast_monitoring.py::test_training_union_keeps_covariates_and_panel_keys[multivariate]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[actuals_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[training_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[frozen_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[association]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[association]
+  /workspace/agentium/backend/app/services/ml/forecast_monitoring.py:192: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "sha256": sha256, "follow_latest": body.follow_latest, "associated_at": datetime.utcnow().isoformat(),
+
+app/tests/services/test_forecast_monitoring.py: 2 warnings
+app/tests/services/test_forecast_retraining.py: 8 warnings
+  /workspace/agentium/backend/app/services/ml/forecast_monitoring.py:253: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = _instant(now or datetime.utcnow())
+
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[actuals_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[training_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[frozen_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[association]
+  /workspace/agentium/backend/app/services/systems/flow_publication.py:423: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[actuals_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[training_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[frozen_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[association]
+  /workspace/agentium/backend/app/tests/services/test_ml_retraining.py:118: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    outcome = scheduler._fire_schedule(db, case.schedule, now=datetime.utcnow())
+
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[actuals_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[training_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[frozen_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[association]
+  /workspace/agentium/backend/app/services/systems/flow_ingress.py:360: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    started_at=datetime.utcnow(),
+
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[actuals_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[training_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[frozen_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[association]
+  /workspace/agentium/backend/app/services/systems/flow_ingress.py:367: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "t": datetime.utcnow().isoformat(),
+
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[actuals_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[training_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[frozen_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[association]
+  /workspace/agentium/backend/app/services/ml_retraining.py:509: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    completed_at=datetime.utcnow(),
+
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[actuals_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[training_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[frozen_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[association]
+  /workspace/agentium/backend/app/services/ml_retraining.py:612: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "t": datetime.utcnow().isoformat(),
+
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[actuals_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[training_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[frozen_dataset]
+app/tests/services/test_forecast_retraining.py::test_changed_reviewed_sources_cannot_authorize_training[association]
+  /workspace/agentium/backend/app/tests/services/test_ml_retraining.py:147: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    human_confirmed_at=datetime.utcnow(),
+
+app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[48-0]
+app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[48-0]
+app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[48-0]
+app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[240-0.01]
+app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[240-0.01]
+app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[240-0.01]
+  /workspace/agentium/backend/app/services/tabular_ml.py:1932: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    model.updated_at = datetime.utcnow()
+
+app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[48-0]
+app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[240-0.01]
+  /workspace/agentium/backend/app/services/tabular_ml.py:2364: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    model.trained_at = datetime.utcnow()
+
+app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[48-0]
+app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[48-0]
+app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[48-0]
+  /workspace/agentium/.venv/lib/python3.12/site-packages/sklearn/preprocessing/_encoders.py:262: UserWarning: Found unknown categories in columns [0] during transform. These unknown categories will be encoded as all zeros
+    warnings.warn(msg, UserWarning)
+
+app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[48-0]
+app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[240-0.01]
+  /workspace/agentium/backend/app/services/tabular_predict.py:1052: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    model.last_predict_at = datetime.utcnow()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+38 passed, 480 warnings in 56.29s

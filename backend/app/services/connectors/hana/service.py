@@ -4,8 +4,8 @@ Config lives under ``workspace.settings["connectors"]["sap_hana"]``. The
 password is encrypted at rest with a Fernet master key
 (``HANA_CONNECTOR_FERNET_KEY``), using the same envelope pattern as the
 SharePoint OTP connector. When no key is configured (dev), the password is
-stored in a plaintext envelope. ``HANA_CONNECTOR_PASSWORD`` can supply a
-demo password when none is stored on the workspace.
+stored in a plaintext envelope. Runtime credentials always belong to the
+workspace; there is no platform password fallback.
 """
 
 from __future__ import annotations
@@ -16,11 +16,19 @@ import logging
 import os
 import re
 import time
-from typing import TYPE_CHECKING, Any, Mapping, Optional
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.core.config import settings
+from app.services.connectors.hana.network_policy import (
+    HanaConnectorError,
+    assert_tls_policy,
+    canonical_host,
+    resolve_destination,
+)
 from app.services.secrets.compat import read_secret_field, write_secret_field
 from app.services.secrets.registry import SecretConsumer
 
@@ -30,29 +38,26 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 ENV_MASTER_KEY = "HANA_CONNECTOR_FERNET_KEY"
-ENV_FALLBACK_PASSWORD = "HANA_CONNECTOR_PASSWORD"
 CONNECTOR_KEY = "sap_hana"
 ENVELOPE_VERSION = 1
 DEFAULT_PORT = 443
 DEFAULT_MAX_ROWS = 200
 DEFAULT_CONNECT_TIMEOUT_MS = 10_000
-# Short TCP connect timeout so demo fallback kicks in within a few seconds.
+# Bound each connection attempt, including explicit demo mode.
 CONNECT_TIMEOUT_MS = 3_000
 
-_READ_ONLY_PREFIX = re.compile(r"^\s*(?:/\*.*?\*/\s*)*(?:\(\s*)?(SELECT|WITH)\b", re.IGNORECASE | re.DOTALL)
 
-
-class EncryptionNotConfigured(RuntimeError):
+class EncryptionNotConfigured(RuntimeError):  # noqa: N818 - legacy public exception name
     """Fernet master key missing or invalid."""
 
 
-def is_workspace_enabled(workspace: "Workspace") -> bool:
+def is_workspace_enabled(workspace: Workspace) -> bool:
     from app.services.workspace_features import feature_enabled
 
     return feature_enabled(workspace, "sap_hana_connector")
 
 
-def _connectors(workspace: "Workspace") -> dict[str, Any]:
+def _connectors(workspace: Workspace) -> dict[str, Any]:
     settings = workspace.settings if isinstance(workspace.settings, Mapping) else {}
     raw = settings.get("connectors")
     return dict(raw) if isinstance(raw, Mapping) else {}
@@ -121,14 +126,12 @@ def _decrypt_secret(blob: str) -> str:
     if "ciphertext" in envelope:
         fernet = _fernet_from_env()
         if fernet is None:
-            raise EncryptionNotConfigured(
-                f"{ENV_MASTER_KEY} required to decrypt but is not set."
-            )
+            raise EncryptionNotConfigured(f"{ENV_MASTER_KEY} required to decrypt but is not set.")
         return fernet.decrypt(envelope["ciphertext"].encode("ascii")).decode("utf-8")
     raise ValueError(f"Unknown password envelope keys={sorted(envelope)}")
 
 
-def get_config(workspace: "Workspace", *, include_secrets: bool = False) -> dict[str, Any]:
+def get_config(workspace: Workspace, *, include_secrets: bool = False) -> dict[str, Any]:
     """Return the workspace HANA connector config.
 
     By default the password is masked (``password_set`` bool only). Pass
@@ -137,12 +140,14 @@ def get_config(workspace: "Workspace", *, include_secrets: bool = False) -> dict
     stored = _connectors(workspace).get(CONNECTOR_KEY)
     stored = dict(stored) if isinstance(stored, Mapping) else {}
     password_blob = stored.get("password_encrypted") or ""
-    password_set = bool(password_blob) or bool(os.environ.get(ENV_FALLBACK_PASSWORD))
+    password_set = bool(password_blob)
     config: dict[str, Any] = {
         "host": str(stored.get("host") or ""),
         "port": int(stored.get("port") or DEFAULT_PORT),
         "user": str(stored.get("user") or ""),
         "encrypt": bool(stored.get("encrypt", True)),
+        "ssl_validate_certificate": bool(stored.get("ssl_validate_certificate", True)),
+        "demo_mode": stored.get("demo_mode") is True,
         "password_set": password_set,
         "configured": bool(stored.get("host") and stored.get("user") and password_set),
     }
@@ -160,15 +165,13 @@ def get_config(workspace: "Workspace", *, include_secrets: bool = False) -> dict
                 )
                 or ""
             )
-        if not password:
-            password = os.environ.get(ENV_FALLBACK_PASSWORD) or ""
         config["password"] = password
     return config
 
 
-def set_config(db: DBSession, workspace: "Workspace", payload: Mapping[str, Any]) -> dict[str, Any]:
+def set_config(db: DBSession, workspace: Workspace, payload: Mapping[str, Any]) -> dict[str, Any]:
     """Persist connector settings. Password is write-only (omit to keep current)."""
-    host = str(payload.get("host") or "").strip()
+    host = canonical_host(str(payload.get("host") or ""))
     user = str(payload.get("user") or "").strip()
     if not host or not user:
         raise ValueError("host and user are required")
@@ -179,6 +182,8 @@ def set_config(db: DBSession, workspace: "Workspace", payload: Mapping[str, Any]
     if port <= 0 or port > 65535:
         raise ValueError("port must be between 1 and 65535")
     encrypt = bool(payload.get("encrypt", True))
+    verify = bool(payload.get("ssl_validate_certificate", True))
+    assert_tls_policy(host, encrypt=encrypt, verify=verify)
 
     settings = dict(workspace.settings or {})
     connectors = dict(settings.get("connectors") or {})
@@ -188,6 +193,8 @@ def set_config(db: DBSession, workspace: "Workspace", payload: Mapping[str, Any]
         "port": port,
         "user": user,
         "encrypt": encrypt,
+        "ssl_validate_certificate": verify,
+        "demo_mode": payload.get("demo_mode") is True,
     }
     password = payload.get("password")
     if password is not None and str(password) != "":
@@ -201,6 +208,13 @@ def set_config(db: DBSession, workspace: "Workspace", payload: Mapping[str, Any]
             workspace_id=getattr(workspace, "id", None),
         )
     elif current.get("password_encrypted"):
+        previous = (
+            canonical_host(str(current.get("host") or "")),
+            int(current.get("port") or DEFAULT_PORT),
+            str(current.get("user") or ""),
+        )
+        if (host, port, user) != previous:
+            raise HanaConnectorError("HANA_CREDENTIAL_DESTINATION_CHANGED", 409)
         stored["password_encrypted"] = current["password_encrypted"]
 
     connectors[CONNECTOR_KEY] = stored
@@ -214,30 +228,42 @@ def set_config(db: DBSession, workspace: "Workspace", payload: Mapping[str, Any]
 
 
 def _connect(config: Mapping[str, Any]):
-    try:
-        from hdbcli import dbapi
-    except ImportError as exc:  # pragma: no cover - optional until installed
-        raise RuntimeError(
-            "hdbcli is not installed. Add hdbcli>=2.20 to backend requirements."
-        ) from exc
-
-    host = str(config.get("host") or "").strip()
+    host = canonical_host(str(config.get("host") or ""))
     user = str(config.get("user") or "").strip()
     password = str(config.get("password") or "")
     if not host or not user or not password:
-        raise ValueError("HANA connector is not fully configured (host/user/password)")
+        raise HanaConnectorError("HANA_NOT_CONFIGURED")
     port = int(config.get("port") or DEFAULT_PORT)
     encrypt = bool(config.get("encrypt", True))
-    return dbapi.connect(
-        address=host,
-        port=port,
-        user=user,
-        password=password,
-        encrypt=encrypt,
-        sslValidateCertificate=False,
-        communicationTimeout=DEFAULT_CONNECT_TIMEOUT_MS,
-        connectTimeout=CONNECT_TIMEOUT_MS,
-    )
+    verify = bool(config.get("ssl_validate_certificate", True))
+    assert_tls_policy(host, encrypt=encrypt, verify=verify)
+    destination = resolve_destination(host, port)
+    try:
+        from hdbcli import dbapi
+    except ImportError:  # pragma: no cover - optional until installed
+        raise HanaConnectorError("HANA_DRIVER_UNAVAILABLE", 503) from None
+    try:
+        return dbapi.connect(
+            address=destination.address,
+            port=port,
+            user=user,
+            password=password,
+            encrypt=encrypt,
+            sslValidateCertificate=verify,
+            sslHostNameInCertificate=destination.host,
+            distributionMode="off",
+            communicationTimeout=DEFAULT_CONNECT_TIMEOUT_MS,
+            connectTimeout=CONNECT_TIMEOUT_MS,
+        )
+    except Exception:
+        raise HanaConnectorError("HANA_CONNECTION_FAILED", 502) from None
+
+
+def _close(resource: Any) -> None:
+    try:
+        resource.close()
+    except Exception:
+        logger.warning("HANA_CLOSE_FAILED")
 
 
 def test_connection(config: Mapping[str, Any]) -> dict[str, Any]:
@@ -250,9 +276,11 @@ def test_connection(config: Mapping[str, Any]) -> dict[str, Any]:
             cursor.execute("SELECT CURRENT_USER, CURRENT_SCHEMA FROM DUMMY")
             row = cursor.fetchone()
         finally:
-            cursor.close()
+            _close(cursor)
+    except Exception:
+        raise HanaConnectorError("HANA_CONNECTION_FAILED", 502) from None
     finally:
-        conn.close()
+        _close(conn)
     duration_ms = int((time.perf_counter() - started) * 1000)
     current_user = row[0] if row else None
     current_schema = row[1] if row else None
@@ -267,20 +295,52 @@ def test_connection(config: Mapping[str, Any]) -> dict[str, Any]:
 def _assert_read_only(sql: str, *, allow_writes: bool) -> None:
     if allow_writes:
         return
-    if not _READ_ONLY_PREFIX.match(sql or ""):
-        raise ValueError(
-            "Only SELECT/WITH statements are allowed unless allow_writes=true"
-        )
-    # Reject stacked statements (simple heuristic).
-    stripped = (sql or "").strip().rstrip(";")
-    if ";" in stripped:
+    # Ignore comments and quoted values before checking operations. WITH by
+    # itself is not read-only: a CTE can wrap a modifying statement.
+    token_pattern = re.compile(
+        r"--[^\n]*(?:\n|$)|/\*.*?\*/|'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|[A-Za-z_][A-Za-z_0-9]*|[^\s]",
+        re.DOTALL,
+    )
+    tokens = [
+        token.upper()
+        for token in token_pattern.findall(sql or "")
+        if not token.startswith(("--", "/*", "'", '"'))
+    ]
+    if not tokens or tokens[0] not in {"SELECT", "WITH"}:
+        raise ValueError("Only read-only SELECT/WITH statements are allowed")
+    if tokens[-1:] == [";"]:
+        tokens.pop()
+    if ";" in tokens:
         raise ValueError("Multiple SQL statements are not allowed in read-only mode")
+    if set(tokens) & {
+        "INSERT",
+        "UPDATE",
+        "DELETE",
+        "UPSERT",
+        "MERGE",
+        "DROP",
+        "ALTER",
+        "CREATE",
+        "TRUNCATE",
+        "CALL",
+        "EXEC",
+        "EXECUTE",
+        "GRANT",
+        "REVOKE",
+        "IMPORT",
+        "EXPORT",
+        "INTO",
+        "COMMIT",
+        "ROLLBACK",
+        "SET",
+    }:
+        raise ValueError("Only read-only SELECT/WITH statements are allowed")
 
 
 def run_query(
     config: Mapping[str, Any],
     sql: str,
-    params: Optional[Any] = None,
+    params: Any | None = None,
     *,
     max_rows: int = DEFAULT_MAX_ROWS,
     allow_writes: bool = False,
@@ -289,6 +349,8 @@ def run_query(
     sql = str(sql or "").strip()
     if not sql:
         raise ValueError("sql is required")
+    if allow_writes and getattr(settings, "hana_writes_enabled", False) is not True:
+        raise HanaConnectorError("HANA_WRITES_DISABLED", 403)
     _assert_read_only(sql, allow_writes=allow_writes)
     try:
         limit = max(1, min(int(max_rows or DEFAULT_MAX_ROWS), 5_000))
@@ -299,20 +361,27 @@ def run_query(
     try:
         conn = _connect(config)
     except Exception as exc:
-        # Demo resilience: when the live HANA instance is unreachable and the
-        # statement is read-only, answer from the in-memory demo dataset.
-        if allow_writes:
+        # Never disguise policy rejection as a successful demo result.
+        demo_allowed = config.get("demo_mode") is True and not allow_writes
+        if isinstance(exc, HanaConnectorError) and exc.code not in {
+            "HANA_CONNECTION_FAILED",
+            "HANA_DNS_FAILED",
+            "HANA_NOT_CONFIGURED",
+            "HANA_DRIVER_UNAVAILABLE",
+        }:
             raise
-        logger.warning(
-            "HANA connection failed (%s); falling back to in-memory demo dataset",
-            exc,
-        )
+        if not demo_allowed:
+            raise HanaConnectorError("HANA_CONNECTION_FAILED", 502) from None
+        logger.warning("HANA_DEMO_FALLBACK")
         from app.services.connectors.hana import demo_dataset
 
         return demo_dataset.run_demo_query(sql, params, limit=limit)
     try:
         cursor = conn.cursor()
         try:
+            if not allow_writes:
+                conn.setautocommit(False)
+                cursor.execute("SET TRANSACTION READ ONLY")
             if params is None:
                 cursor.execute(sql)
             elif isinstance(params, Mapping):
@@ -342,9 +411,11 @@ def run_query(
                 for row in fetched
             ]
         finally:
-            cursor.close()
+            _close(cursor)
+    except Exception:
+        raise HanaConnectorError("HANA_QUERY_FAILED", 502) from None
     finally:
-        conn.close()
+        _close(conn)
 
     return {
         "columns": columns,
@@ -402,10 +473,10 @@ def _rows_as_tables(result: Mapping[str, Any]) -> list[dict[str, str]]:
 def preview_catalog(
     config: Mapping[str, Any],
     *,
-    table: Optional[str] = None,
+    table: str | None = None,
     max_rows: int = PREVIEW_ROW_CAP,
 ) -> dict[str, Any]:
-    """Read-only schema + sample rows. Live HANA when reachable, else demo tables."""
+    """Read-only schema + sample rows; synthetic fallback requires demo_mode."""
     started = time.perf_counter()
     try:
         limit = max(1, min(int(max_rows or PREVIEW_ROW_CAP), PREVIEW_ROW_CAP))
@@ -417,7 +488,16 @@ def preview_catalog(
     try:
         live_info = test_connection(config)
         live = True
-    except Exception:
+    except Exception as exc:
+        if isinstance(exc, HanaConnectorError) and exc.code not in {
+            "HANA_CONNECTION_FAILED",
+            "HANA_DNS_FAILED",
+            "HANA_NOT_CONFIGURED",
+            "HANA_DRIVER_UNAVAILABLE",
+        }:
+            raise
+        if config.get("demo_mode") is not True:
+            raise HanaConnectorError("HANA_CONNECTION_FAILED", 502) from None
         live = False
 
     tables: list[dict[str, str]] = []

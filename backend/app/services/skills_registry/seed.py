@@ -2977,15 +2977,27 @@ SEED_SKILLS: list[dict[str, Any]] = [
         "type": "llm",
         "provider": "openai",
         "certification_level": "production",
-        "execution": {"mode": "stream", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 60_000,
+            "retryable": True,
+            "idempotent": False,
+        },
         "pricing": {"unit": "per_1k_tokens", "unit_price": 0.01, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["prompt"], "properties": {
-            "prompt": {"type": "string"},
-            "model": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "completion": {"type": "string"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["prompt"],
+            "properties": {
+                "prompt": {"type": "string"},
+                "model": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "completion": {"type": "string"},
+            },
+        },
     },
     {
         "slug": "azure_openai_llm_v1",
@@ -2995,15 +3007,27 @@ SEED_SKILLS: list[dict[str, Any]] = [
         "type": "llm",
         "provider": "azure_openai",
         "certification_level": "production",
-        "execution": {"mode": "stream", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
+        "execution": {
+            "mode": "stream",
+            "timeout_ms": 60_000,
+            "retryable": True,
+            "idempotent": False,
+        },
         "pricing": {"unit": "per_1k_tokens", "unit_price": 0.01, "currency": "USD"},
-        "input_schema": {"type": "object", "required": ["prompt"], "properties": {
-            "prompt": {"type": "string"},
-            "model": {"type": "string"},
-        }},
-        "output_schema": {"type": "object", "properties": {
-            "completion": {"type": "string"},
-        }},
+        "input_schema": {
+            "type": "object",
+            "required": ["prompt"],
+            "properties": {
+                "prompt": {"type": "string"},
+                "model": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "completion": {"type": "string"},
+            },
+        },
     },
     {
         "slug": "workspace_llm_v1",
@@ -3567,6 +3591,92 @@ SEED_SKILLS: list[dict[str, Any]] = [
 
 
 # ---- Universal Capabilities -------------------------------------------------
+SEED_SKILLS.extend(
+    [
+        {
+            "slug": "data_prep_v1",
+            "version": "1",
+            "name": "Data Preparation",
+            "description": "Typed no-code preparation over pinned workspace datasets on a bounded worker.",
+            "type": "workflow",
+            "provider": "internal",
+            "certification_level": "beta",
+            "execution": {
+                "mode": "async",
+                "timeout_ms": 900000,
+                "retryable": True,
+                "idempotent": True,
+            },
+            "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+            "input_schema": {"type": "object", "properties": {}},
+            "output_schema": {
+                "type": "object",
+                "properties": {
+                    "dataset_id": {"type": "string"},
+                    "outputs": {"type": "object"},
+                    "operation": {"type": "string"},
+                    "placement": {"type": "string"},
+                    "fingerprint": {"type": "string"},
+                },
+            },
+        },
+        {
+            "slug": "evaluate_v2",
+            "version": "2",
+            "name": "Typed Evaluation",
+            "description": "Evidence-bound questions with real typed answers, abstention and durable usage budgets. Human review is required until calibrated.",
+            "type": "evaluation",
+            "provider": "internal",
+            "certification_level": "beta",
+            "execution": {
+                "mode": "async",
+                "timeout_ms": 900000,
+                "retryable": False,
+                "idempotent": True,
+            },
+            "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+            "input_schema": {"type": "object", "properties": {}},
+            "output_schema": {
+                "type": "object",
+                "properties": {
+                    "evaluation_id": {"type": "string"},
+                    "answers": {"type": "object"},
+                    "status": {"type": "string"},
+                    "disposition": {"type": "string"},
+                    "confidence": {"type": ["number", "null"]},
+                    "coverage": {"type": "object"},
+                    "cost": {"type": "object"},
+                },
+            },
+        },
+        {
+            "slug": "narration_run_v1",
+            "version": "1",
+            "name": "Document Narration",
+            "description": "Runs the versioned external narration engine with bounded resources and unit coverage, retaining source and output evidence.",
+            "type": "workflow",
+            "provider": "internal",
+            "certification_level": "beta",
+            "execution": {
+                "mode": "async",
+                "timeout_ms": 900000,
+                "retryable": True,
+                "idempotent": True,
+            },
+            "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+            "input_schema": {"type": "object", "properties": {}},
+            "output_schema": {
+                "type": "object",
+                "properties": {
+                    "asset_ref": {"type": "object"},
+                    "coverage": {"type": "object"},
+                    "status": {"type": "string"},
+                },
+            },
+        },
+    ]
+)
+
 SEED_SKILLS.extend(CLAIM_SKILLS)
 SEED_SKILLS.extend(ml_methodology_skills())
 
@@ -3827,6 +3937,7 @@ SEED_CAPABILITIES: list[dict[str, Any]] = [
         "output_unit": "dataset",
         "skill_slugs": [
             "sql_transform_v1",
+            "data_prep_v1",
             "polars_transform_v1",
             "dbt_transform_v1",
             "llm_label_dataset_v1",
@@ -4411,6 +4522,9 @@ SKILL_CATEGORIES: dict[str, str] = {
     "response_eval_v1": "Governance",
     "grounding_check_v1": "Governance",
     "evaluate_v1": "Governance",
+    "evaluate_v2": "Governance",
+    "data_prep_v1": "Data",
+    "narration_run_v1": "Analysis",
     "publish_email_v1": "Automation",
     "role_agent_v1": "LLM",
     "rpa_dispatch_v1": "Automation",

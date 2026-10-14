@@ -1,0 +1,133 @@
+# Core
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+jsonschema>=4.23.0,<5.0.0
+python-multipart>=0.0.9
+
+# Database
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+alembic>=1.13.0
+
+# Async workers
+celery[amqp]>=5.5.0
+croniter>=2.0.0
+
+# LLM (OpenAI-first, others optional)
+openai>=2.0.0
+httpx>=0.27.0
+feedparser>=6.0.11
+
+# RAG / Vector store
+faiss-cpu>=1.8.0
+numpy>=1.26.0
+rank_bm25>=0.2.2
+qdrant-client>=1.12.0,<1.14.0
+fsspec>=2024.6.0
+s3fs>=2024.6.0
+# Cross-encoder rerank on ONNX Runtime (app/services/retrieval/onnx_reranker.py):
+# the model's official ONNX export plus its tokenizer.json, so the API does not
+# need torch/transformers to rerank. Model files: backend/rag_models.lock.json.
+onnxruntime>=1.20
+tokenizers>=0.20
+
+# Document parsing
+pypdf>=4.0.0
+pdfplumber>=0.10.0
+markdown>=3.5
+weasyprint>=62.3
+
+# Document metadata extraction (src/metadata_extraction/docmeta)
+# Keep the dep list in sync with docmeta/README.md so drop-and-ask, batch
+# ingestion and the preview panel all surface title/author/keywords/token-count
+# instead of falling back to filename-only metadata.
+tiktoken>=0.7.0
+# Floor raised from 1.4 for the ML plane: skore is tested against 1.6–1.9, and
+# the training harness reads `get_tags(estimator).input_tags.allow_nan` to decide
+# whether a pipeline needs an imputer — an API that does not exist before 1.6.
+scikit-learn>=1.6.0
+nltk>=3.9.0
+chardet>=5.2.0
+Pillow>=10.0.0
+pytesseract>=0.3.13
+openpyxl>=3.1.0
+python-pptx>=0.6.23
+pymupdf>=1.24.0
+PyPDF2>=3.0.0
+python-docx>=1.1.0
+odfpy>=1.4.1
+beautifulsoup4>=4.12.0
+tomli>=2.0.0
+
+# Auth (Keycloak JWT)
+PyJWT[crypto]>=2.8.0
+email-validator>=2.0.0
+argon2-cffi>=23.1.0
+asyncssh>=2.14.0
+
+# Logging
+structlog>=24.0.0
+
+# Utilities
+python-dotenv>=1.0.0
+PyYAML>=6.0
+
+# SharePoint OTP connector
+# - playwright: interactive OTP + MFA login and cookie-based REST calls
+# - msal: OAuth delegated tokens once admin consent is granted
+# - cryptography: at-rest encryption of persisted sessions and token caches
+playwright>=1.48.0
+msal>=1.30.0
+cryptography>=43.0.0
+
+# SAP HANA Cloud connector
+# - hdbcli: official SAP HANA client (SQL over TLS to BTP / HANA Cloud)
+hdbcli>=2.20
+
+# Tabular data plane (datasets, SQL/Polars transform nodes)
+# - polars: CSV/XLSX parsing, Parquet IO, column profiling at ingest time
+# - duckdb: in-worker SQL engine for the sql_transform node
+# - pyarrow: Parquet interchange between polars, duckdb and pandas
+polars>=1.0.0
+duckdb>=1.0.0
+pyarrow>=16.0.0
+
+# Machine learning plane (no-code sklearn training, MLflow format + registry)
+# - pandas: the frame sklearn and skrub are fit on (polars is the storage side)
+# - skrub: automatic preprocessing of heterogeneous columns, so "no-code" means
+#   no feature engineering rather than numeric-only datasets
+# - skore: the evaluation engine, from the scikit-learn maintainers. One report
+#   per fit caches its predictions, so the metric table, the ROC, the PR curve,
+#   the confusion matrix and the permutation importances are one pass over the
+#   test split; it also reports log_loss and brier_score, which say whether a
+#   probability is calibrated rather than merely ranked. Pulls matplotlib and
+#   plotly as its display layer; we read the tidy .frame() and chart in the
+#   browser, so nothing renders server side
+# - mlflow (NOT mlflow-skinny): the MLmodel format, the pyfunc loader, AND the
+#   SQL-backed Model Registry. Skinny omits the SQL stores, and a SQL store is
+#   the only kind that supports a registry — a bare mlruns/ file store raises on
+#   create_registered_model. No MLflow *server* is operated: the client writes
+#   straight to a `mlflow` database on the Postgres instance already running
+# - skops: how the pipeline is serialized. Unlike pickle it refuses to
+#   reconstruct a type that was not declared trusted when the model was saved
+# - boto3: the whole promise of storing models in MLflow format is that a client
+#   we did not write can load them. On MinIO the registry's `source` is an
+#   `s3://` URI, and mlflow's S3 artifact repository imports boto3 by name —
+#   botocore, which s3fs already brings for our own reads, is not enough. Absent
+#   it, `mlflow.pyfunc.load_model(version.source)` raises ModuleNotFoundError on
+#   the deployed object store while passing on a local one, which is the worst
+#   shape a portability claim can have.
+pandas>=2.2
+skrub>=0.10.1
+skore>=0.27,<0.28
+# Search runs only in the isolated training harness; never imported by the API.
+optuna>=5,<6
+mlflow>=3.15,<4
+skops>=0.14
+boto3>=1.34
+
+# Governed DataOps compiler and immutable multipart dataset versions.
+sqlglot>=30.22.0,<31
+deltalake>=1.6.6,<2

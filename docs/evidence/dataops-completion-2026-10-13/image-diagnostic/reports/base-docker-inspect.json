@@ -1,0 +1,16 @@
+{
+  "Id": "sha256:c8e887bbf3b6fec95a5ff97435d611119ac6e55491cd077db9fdc6b7637bdd47",
+  "Size": 119181182,
+  "RootFS": {
+    "Layers": [
+      "sha256:79dd1f4c855cd061f687a994426634cf5f84c8ecdbc66c7a7d118e828dd93c99",
+      "sha256:1361e0a963c66ac67506e2b5cacf01a39cc0816185f96afe77031eb5d4ba2d56",
+      "sha256:fae8529c7ef7ef831623bd668a9a847f681ab78e77abb2fb84bd7d3c47a70cc0",
+      "sha256:23ed4b6439ad2c4b1602f19014cc7a90b49a943eabe7f8ab9bb1aa7c0482949c"
+    ],
+    "Type": "layers"
+  },
+  "Architecture": "amd64",
+  "Os": "linux",
+  "reference": "python:3.12-slim@sha256:ec948fa5f90f4f8907e89f4800cfd2d2e91e391a4bce4a6afa77ba265bc3a2fe"
+}

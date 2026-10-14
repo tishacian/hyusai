@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "source_anchor": "a90272c11ecd2ba6770977cb4108aa4c7b1e212a",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 3999,
+      "sha256": "54479ec62868908c60fc95348dedd3c21999469532d7cee93d729f47ced2c8e5"
+    },
+    {
+      "path": "check_hana_vm.py",
+      "bytes": 8144,
+      "sha256": "301b246bee73ed208021414b6db18bd73b5cfd74d0e3dfb50a2ac007c97f9557"
+    },
+    {
+      "path": "containers-after.txt",
+      "bytes": 661,
+      "sha256": "ef5d955d84ecec050ad0001d126854eee0f8617b9410f304a609401e259c41c2"
+    },
+    {
+      "path": "docker-images.json",
+      "bytes": 16330,
+      "sha256": "4680dfaebd5a40de866efba984a6a88e96ad89aa1be1810095ed8533791a5e8a"
+    },
+    {
+      "path": "hana-showcase-a90272c1.json",
+      "bytes": 3884,
+      "sha256": "9747b0ce7d447f32b9c6c2809d066a555ee4abfe7470cc2813c175e704c23e6d"
+    },
+    {
+      "path": "hana-showcase-sni-diagnostic.json",
+      "bytes": 4575,
+      "sha256": "f85b5d830025c530b4010cdacda02a912b2673d6c59a8743da84a0e6e5208edf"
+    },
+    {
+      "path": "hana-showcase.json",
+      "bytes": 4466,
+      "sha256": "a81000a4d280df6af5282d422aa7f73881e876c3945dd17f82594c14fcc51094"
+    },
+    {
+      "path": "hana-tests.txt",
+      "bytes": 1869,
+      "sha256": "dbec77def931da6d47fc76e7a34fc5038ffbee04393b11d523d78cf149163146"
+    },
+    {
+      "path": "tls-peer.json",
+      "bytes": 8939,
+      "sha256": "7f22c22fa681403b4280b059533b71aaf11dabd7c6bb46a1f6f713e4b8988302"
+    },
+    {
+      "path": "vm-state.json",
+      "bytes": 3495,
+      "sha256": "c7b4fbdccfd11381df825bfd76552afcc6ef3a31bd59290b7f99b9524b43481f"
+    }
+  ]
+}

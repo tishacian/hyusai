@@ -24,6 +24,7 @@ from app.api.v1.endpoints import (
     connectors,
     contexts,
     control_plane,
+    dataops,
     datasets,
     document_passages,
     documents,
@@ -72,6 +73,7 @@ from app.api.v1.endpoints import (
     runs,
     secrets,
     secure_deposit,
+    service_contracts,
     sessions,
     settings,
     sharepoint,
@@ -81,6 +83,7 @@ from app.api.v1.endpoints import (
     tasks,
     telemetry,
     traces,
+    typed_calibration,
     value_contracts,
     value_loop,
     visual_intelligence,
@@ -225,3 +228,13 @@ api_router.include_router(
     webcam_proxy.router, prefix="/mission-room/webcams", tags=["mission-room", "webcam-proxy"]
 )
 api_router.include_router(client360.router, prefix="/client360", tags=["client360"])
+
+api_router.include_router(dataops.router, prefix="/dataops", tags=["dataops"])
+
+api_router.include_router(
+    service_contracts.router, prefix="/service-contracts", tags=["service-contracts"]
+)
+
+api_router.include_router(
+    typed_calibration.router, prefix="/typed-calibration", tags=["typed-calibration"]
+)

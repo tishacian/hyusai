@@ -129,6 +129,25 @@ class ObjectStore:
     def write_text(self, key: str, content: str) -> str:
         return self.write_bytes(key, content.encode("utf-8"))
 
+    def write_once(self, key: str, content: bytes) -> str:
+        """A commit marker is conditional: concurrent writers cannot replace it."""
+        clean = _clean_key(key)
+        if self.backend == "local":
+            path = self._local_path(clean)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("xb") as destination:
+                destination.write(content)
+            return clean
+        if self.backend == "s3":
+            import boto3
+            client = boto3.client("s3", endpoint_url=settings.object_store_s3_endpoint_url,
+                aws_access_key_id=settings.object_store_s3_access_key,
+                aws_secret_access_key=settings.object_store_s3_secret_key)
+            client.put_object(Bucket=settings.object_store_s3_bucket, Key=clean,
+                              Body=content, IfNoneMatch="*")
+            return clean
+        raise RuntimeError("Conditional commit is unsupported on this ObjectStore backend")
+
     def read_bytes(self, key: str) -> bytes:
         clean = _clean_key(key)
         if self.backend == "local":

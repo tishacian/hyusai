@@ -1,0 +1,10 @@
+{
+  "target": "/workspace/dataops-image-qualification/diagnostic-64a10ba9/backend.oci.tar",
+  "real_path_verified": true,
+  "open_fds_observed": [],
+  "removed_archive_bytes": 1493020672,
+  "free_bytes_before": 6583005184,
+  "free_bytes_after": 8076029952,
+  "disk_free_gain_bytes": 1493024768,
+  "retained": "All diagnostic reports, exact metadata and scripts; both final OCI archives; final bundle verified before removal."
+}

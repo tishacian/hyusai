@@ -1,0 +1,94 @@
+# A release pins the digest it qualified (python:3.12-slim@sha256:…); the bare
+# tag moves under us, and the Python constraints do not freeze the OS layer.
+ARG PYTHON_BASE_IMAGE=python:3.12-slim
+FROM ${PYTHON_BASE_IMAGE}
+
+# Everything down to the "image-specific layers" marker is instruction-for-
+# instruction identical in Dockerfile.agentium-worker. BuildKit keys a layer on
+# its instruction and its parent, not on the file it came from, so the Python
+# stack — the multi-gigabyte part — is built once and stored once for both
+# images. test_demo_dependency_constraints pins the two prefixes together.
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+ARG PIP_INDEX_URL
+RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; : "${PIP_INDEX_URL:?PIP_INDEX_URL is required}"
+
+RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; apt-get update \
+    && apt-get install --no-install-recommends -y \
+        fonts-dejavu \
+        libreoffice-writer \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+        tesseract-ocr-fra \
+    && rm -rf /var/lib/apt/lists/*
+
+# One constraints file for the API and the worker: a model is fitted in the
+# worker and unpickled here, so both interpreters run the same numpy, scipy,
+# scikit-learn, skops and mlflow.
+COPY backend/requirements.txt backend/constraints-demo-app.txt /tmp/requirements/
+RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; pip install --no-cache-dir \
+    --constraint=/tmp/requirements/constraints-demo-app.txt \
+    --index-url=${PIP_INDEX_URL} \
+    -r /tmp/requirements/requirements.txt \
+    && pip check
+
+# Cross-encoder files for the RAG rerank stage (ONNX export + tokenizer), baked
+# from a manifest that pins each file by revision and sha256: no process
+# downloads a model at start-up, and an air-gapped host runs the bytes the
+# release qualified. ONNX Runtime scores them, so the API needs no torch.
+# RAG_MODELS_BASE_URL selects a mirror.
+ARG RAG_MODELS_BASE_URL=
+COPY backend/rag_models.lock.json backend/scripts/fetch_rag_models.py /tmp/rag-models/
+RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; python /tmp/rag-models/fetch_rag_models.py \
+        --manifest /tmp/rag-models/rag_models.lock.json --dest /opt/agentium-models
+
+# ---- image-specific layers ----
+
+# Imported sentence-transformers and torch rerankers execute in both API and
+# worker. The default image keeps ONNX only; compose.huggingface opts in.
+ARG INSTALL_HF_RAG=0
+COPY backend/requirements_hf_rag.txt backend/constraints-demo-ml-deep.txt /tmp/requirements/
+RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; if [ "$INSTALL_HF_RAG" = "1" ]; then \
+      pip install --no-cache-dir torch torchvision \
+        --constraint=/tmp/requirements/constraints-demo-app.txt \
+        --index-url=https://download.pytorch.org/whl/cpu \
+      && pip install --no-cache-dir \
+        --constraint=/tmp/requirements/constraints-demo-app.txt \
+        --constraint=/tmp/requirements/constraints-demo-ml-deep.txt \
+        --index-url=${PIP_INDEX_URL} -r /tmp/requirements/requirements_hf_rag.txt \
+      && pip check; \
+    fi
+
+RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; apt-get update \
+    && apt-get install --no-install-recommends -y \
+        libreoffice-impress \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG USERNAME=agentium
+ARG USER_UID=1000
+ARG USER_GID=1000
+RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; groupadd --gid "$USER_GID" "$USERNAME" \
+    && useradd --uid "$USER_UID" --gid "$USER_GID" --create-home "$USERNAME"
+
+WORKDIR /app
+
+COPY --chown=$USERNAME:$USERNAME . .
+
+RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; chmod +x /app/docker/run_backend.sh \
+    && mkdir -p /data/object_store /data/secure_deposit /app/vector_store \
+    && chown -R "$USERNAME":"$USERNAME" /data /app/vector_store
+
+USER $USERNAME
+
+ENV PYTHONPATH=/app/backend:/app
+WORKDIR /app/backend
+
+EXPOSE 8000
+
+ARG AGENTIUM_IMAGE_REVISION=unknown
+ENV AGENTIUM_IMAGE_REVISION=${AGENTIUM_IMAGE_REVISION}
+LABEL org.opencontainers.image.revision="${AGENTIUM_IMAGE_REVISION}"
+
+CMD ["/app/docker/run_backend.sh"]

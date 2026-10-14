@@ -1,0 +1,394 @@
+{
+  "base_revision": "224b464cd48a57e65c8353723b27099bbae42db5",
+  "working_tree_snapshot": true,
+  "scope": "Local D1a/D1b compiler, schemas, business parity and real eager Flow validation; not full plan acceptance.",
+  "environment": {
+    "cwd": "/workspace/agentium/backend",
+    "python": "/workspace/agentium/.venv/bin/python",
+    "python_version": "Python 3.12.14",
+    "object_store": "local temporary directory",
+    "worker_eager_mode": true,
+    "external_services_required": false
+  },
+  "commands": [
+    "../.venv/bin/pytest app/tests/services/test_dataops_typed_contracts.py app/tests/services/test_dataops_business_parity.py app/tests/services/test_dataops_flow_eager.py app/tests/services/test_run_node_badges.py -q > /tmp/dataops-golden-flow-business-verified.log 2>&1",
+    "../.venv/bin/ruff check app/tests/services/test_dataops_flow_eager.py app/tests/services/test_dataops_typed_contracts.py app/tests/services/test_dataops_business_parity.py",
+    "git diff --check"
+  ],
+  "final_result": {
+    "passed": 266,
+    "failed": 0,
+    "warnings": 248,
+    "duration_seconds": 32.58,
+    "exit_code": 0,
+    "log": "/tmp/dataops-golden-flow-business-verified.log",
+    "ruff_exit_code": 0,
+    "diff_check_exit_code": 0
+  },
+  "logs": [
+    {
+      "path": "/tmp/dataops-flow-eager-verified.log",
+      "sha256": "0fa7ce1757652d27c9f9409d81a6494a401f33b428842fa4e16af8edb350a702",
+      "bytes": 10671,
+      "passed": 3,
+      "duration_seconds": 24.09,
+      "exit_code": 0
+    },
+    {
+      "path": "/tmp/dataops-goldens-business-final.log",
+      "sha256": "95e62614326c58743f815c878dcd965c09293c0ffcc3b73eedcb742bb6ffe422",
+      "bytes": 1837,
+      "passed": 250,
+      "duration_seconds": 10.44,
+      "exit_code": 0
+    },
+    {
+      "path": "/tmp/dataops-golden-flow-business-verified.log",
+      "sha256": "140c5318307b85d62a1e40d685b2bafe752808f4b3961101563590859c8c1ed4",
+      "bytes": 11038,
+      "passed": 266,
+      "duration_seconds": 32.58,
+      "exit_code": 0
+    }
+  ],
+  "goldens": {
+    "published_step_kinds": 46,
+    "step_cases": 138,
+    "cases_per_kind": [
+      "ordinary",
+      "null",
+      "empty"
+    ],
+    "expected_schema_files": 46,
+    "schema_authoring": "Explicit expected Arrow field names, dtypes and nullability authored from fixture inputs and operation contracts, without generating expectations from compiler/query results.",
+    "schema_assertions": "Each of 138 cases compares the nominal expected schema with compiled output_schema, step_schema and the actual Arrow result; these three fixture variants retain the same declared types.",
+    "nullability": "Expected query-result fields are nullable=true: DuckDB exports conservative Arrow nullability, independently of whether the fixture rows contain NULL. Assertions verify that actual schema metadata.",
+    "formula_function_cases": 74,
+    "observed_correction": "Independent count_occurrences schema expectations exposed DOUBLE substring counts; integer division now preserves BIGINT for all three cases.",
+    "schemas": [
+      {
+        "path": "backend/app/tests/dataops/golden/add_column/ordinary/expected/out.schema.json",
+        "sha256": "3e273703ac964bcee6810211b7fa04249a41a122096adb2e0a9eec55befa8964"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/bin/ordinary/expected/out.schema.json",
+        "sha256": "77cc38b7556346469a607f59935de375e0e0fd2072a8fad662b25b5d6699c396"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/cast/ordinary/expected/out.schema.json",
+        "sha256": "128cd6c59daca9805faab5319027a9c14b3cd71ade27351154651d272b31d7dc"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/concat_columns/ordinary/expected/out.schema.json",
+        "sha256": "ed362e3546c4d9e9f87a13e94630db89d04ffea59f814a49102c3f03b2901933"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/conditional_column/ordinary/expected/out.schema.json",
+        "sha256": "77cc38b7556346469a607f59935de375e0e0fd2072a8fad662b25b5d6699c396"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/convert_timezone/ordinary/expected/out.schema.json",
+        "sha256": "b2bc9896f9e067dbb759d3e629a99a5e4fdc3038fdd79c96d02db1b31c5b9679"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/copy_column/ordinary/expected/out.schema.json",
+        "sha256": "fcced148349243b8664c9833ab760e24dcfa38f8c237540282eb1a03398359e2"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/count_occurrences/ordinary/expected/out.schema.json",
+        "sha256": "11f3c66cb55d9ce555f2a31143c13feb5aafe322a7e266a97f8fb7a43f7e52fc"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/date_add/ordinary/expected/out.schema.json",
+        "sha256": "b2bc9896f9e067dbb759d3e629a99a5e4fdc3038fdd79c96d02db1b31c5b9679"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/date_diff/ordinary/expected/out.schema.json",
+        "sha256": "6e91ad009774af0b3db9a8f14babb16f9a739687c7835a190b7036445f2540b5"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/deduplicate/ordinary/expected/out.schema.json",
+        "sha256": "eb9aef18bc80ffe033bbb4793ea789e58e31fb0bcd082d9fa7e40c5f1d515193"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/drop_columns/ordinary/expected/out.schema.json",
+        "sha256": "eb9aef18bc80ffe033bbb4793ea789e58e31fb0bcd082d9fa7e40c5f1d515193"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/drop_nulls/ordinary/expected/out.schema.json",
+        "sha256": "eb9aef18bc80ffe033bbb4793ea789e58e31fb0bcd082d9fa7e40c5f1d515193"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/extract_date_parts/ordinary/expected/out.schema.json",
+        "sha256": "8a9a7d70f91bc8b04ff704b0b6aeaceb3db8be109b94f6a905a3dca86e8bacf9"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/extract_regex/ordinary/expected/out.schema.json",
+        "sha256": "446777b91f000c28a9ff08be6cc00f219c106b967fb234edc64fd2629e1385cf"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/fill_nulls/ordinary/expected/out.schema.json",
+        "sha256": "eb9aef18bc80ffe033bbb4793ea789e58e31fb0bcd082d9fa7e40c5f1d515193"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/filter_expression/ordinary/expected/out.schema.json",
+        "sha256": "eb9aef18bc80ffe033bbb4793ea789e58e31fb0bcd082d9fa7e40c5f1d515193"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/filter_range/ordinary/expected/out.schema.json",
+        "sha256": "eb9aef18bc80ffe033bbb4793ea789e58e31fb0bcd082d9fa7e40c5f1d515193"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/filter_rows/ordinary/expected/out.schema.json",
+        "sha256": "eb9aef18bc80ffe033bbb4793ea789e58e31fb0bcd082d9fa7e40c5f1d515193"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/flag_rows/ordinary/expected/out.schema.json",
+        "sha256": "2bfc86ee7c7efdbfd26833cda355b2b90632611409d381aba2c80b717ef46888"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/format_date/ordinary/expected/out.schema.json",
+        "sha256": "970e39948435700853d0f3e56ba9b724620317116fe58e23e8f75e1e61e7f69f"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/formula/ordinary/expected/out.schema.json",
+        "sha256": "df59b0384bfecc1b744f6a12ec8b082cbebb24d6515c72840341abbffff7306d"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/from_epoch/ordinary/expected/out.schema.json",
+        "sha256": "54a078708dea8d0e20f83647a68b822f77dc9c349259df3617a72b980a2a6737"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/hash/ordinary/expected/out.schema.json",
+        "sha256": "970e39948435700853d0f3e56ba9b724620317116fe58e23e8f75e1e61e7f69f"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/length/ordinary/expected/out.schema.json",
+        "sha256": "eb9aef18bc80ffe033bbb4793ea789e58e31fb0bcd082d9fa7e40c5f1d515193"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/map_values/ordinary/expected/out.schema.json",
+        "sha256": "970e39948435700853d0f3e56ba9b724620317116fe58e23e8f75e1e61e7f69f"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/mask/ordinary/expected/out.schema.json",
+        "sha256": "970e39948435700853d0f3e56ba9b724620317116fe58e23e8f75e1e61e7f69f"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/math/ordinary/expected/out.schema.json",
+        "sha256": "72283566f1ccbfbbcbc5c499c507b46f17b4451f18e0646bf1a3a40cc44e3942"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/move_columns/ordinary/expected/out.schema.json",
+        "sha256": "2a5422cc90ca6cd720fe04ed156d64277c5ef15f2ff5f96cc3c057ec4dc24220"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/negate_boolean/ordinary/expected/out.schema.json",
+        "sha256": "3138fb2a1a619e83d0af64b29f36e09e4332b30b8436cb497991059aee2675ef"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/normalize_column_names/ordinary/expected/out.schema.json",
+        "sha256": "18706ab8c58f5d4c1c3c0f642419294a2889825adf1970ce4593fa4750a2faef"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/pad/ordinary/expected/out.schema.json",
+        "sha256": "970e39948435700853d0f3e56ba9b724620317116fe58e23e8f75e1e61e7f69f"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/parse_date/ordinary/expected/out.schema.json",
+        "sha256": "ce9af30c9e597724571dec605b411ac8c55d1363bfbf4138acd97082eb70f5b8"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/parse_number/ordinary/expected/out.schema.json",
+        "sha256": "72283566f1ccbfbbcbc5c499c507b46f17b4451f18e0646bf1a3a40cc44e3942"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/rename_columns/ordinary/expected/out.schema.json",
+        "sha256": "75c092db485d2a90641f200691e3db919f3623958f48e747d98b60a880253cd0"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/replace_values/ordinary/expected/out.schema.json",
+        "sha256": "970e39948435700853d0f3e56ba9b724620317116fe58e23e8f75e1e61e7f69f"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/round/ordinary/expected/out.schema.json",
+        "sha256": "72283566f1ccbfbbcbc5c499c507b46f17b4451f18e0646bf1a3a40cc44e3942"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/scale/ordinary/expected/out.schema.json",
+        "sha256": "72283566f1ccbfbbcbc5c499c507b46f17b4451f18e0646bf1a3a40cc44e3942"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/select_columns/ordinary/expected/out.schema.json",
+        "sha256": "eb9aef18bc80ffe033bbb4793ea789e58e31fb0bcd082d9fa7e40c5f1d515193"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/sort/ordinary/expected/out.schema.json",
+        "sha256": "eb9aef18bc80ffe033bbb4793ea789e58e31fb0bcd082d9fa7e40c5f1d515193"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/split_column/ordinary/expected/out.schema.json",
+        "sha256": "ed362e3546c4d9e9f87a13e94630db89d04ffea59f814a49102c3f03b2901933"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/substring/ordinary/expected/out.schema.json",
+        "sha256": "970e39948435700853d0f3e56ba9b724620317116fe58e23e8f75e1e61e7f69f"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/text_transform/ordinary/expected/out.schema.json",
+        "sha256": "970e39948435700853d0f3e56ba9b724620317116fe58e23e8f75e1e61e7f69f"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/to_boolean/ordinary/expected/out.schema.json",
+        "sha256": "3138fb2a1a619e83d0af64b29f36e09e4332b30b8436cb497991059aee2675ef"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/truncate_date/ordinary/expected/out.schema.json",
+        "sha256": "b2bc9896f9e067dbb759d3e629a99a5e4fdc3038fdd79c96d02db1b31c5b9679"
+      },
+      {
+        "path": "backend/app/tests/dataops/golden/window/ordinary/expected/out.schema.json",
+        "sha256": "bc6fb716e7324543fc522e412b57b777ded4956a6c1efe60114af52fc625eaf2"
+      }
+    ]
+  },
+  "flow": {
+    "test": "backend/app/tests/services/test_dataops_flow_eager.py::test_published_prepare_join_split_two_sql_workers",
+    "modes": [
+      "strict",
+      "overlay"
+    ],
+    "route": "Published manual ingress -> prepare -> join(left edge/right pinned dataset) -> split(train/test) -> two SQL nodes -> sink",
+    "execution": "Five real Skill invocations and RecipeExecution workers per mode, local ObjectStore, eager dispatch; no Skill, compiler, output or SQL worker stub.",
+    "strict_inputs": "SQL nodes explicitly allow passthrough_inputs=[dataset_id]; the selected reference comes from the edge from_port merge, not a VariableRef bypassing the split.",
+    "assertions": [
+      "All five invocations and worker rows succeed",
+      "Join/split input version IDs match the actual predecessors",
+      "Each SQL dataset contains exactly its expected disjoint branch and doubled values",
+      "SQL parent_ids select only the corresponding split version",
+      "Real node_end checkpoints include per-port output versions/counts and join input versions/counts"
+    ],
+    "badge_unit": "Zero-row branches are preserved; graph-owned spoofed counts and storage/schema fields are excluded from the public badge."
+  },
+  "business_parity": [
+    {
+      "name": "prepare_history",
+      "test": "backend/app/tests/services/test_dataops_business_parity.py::test_prepare_history_matches_existing_sql_with_timezone_aware_casts",
+      "reference": "docs/demo-runs/showcase-ecommerce/fixtures/dataops/prepare_history.sql",
+      "input_rows": 1236,
+      "output_rows": 1200,
+      "source": "Existing checked-in synthetic history CSV, imported as raw strings",
+      "assertions": [
+        "No-code casts include timestamp_tz",
+        "Complete actual Arrow schema equals reference SQL schema",
+        "Compiled schema including dtype/nullability equals reference schema",
+        "SHA256 of canonical rows in explicit final sort order equals reference SQL output"
+      ]
+    },
+    {
+      "name": "Nawa A2",
+      "test": "backend/app/tests/services/test_dataops_business_parity.py::test_nawa_a2_matches_existing_cleanup_sql_and_seeded_export",
+      "reference": "backend/scripts/gen_nawa_telecom_data.py::clean_churn_sql",
+      "seed": 20260825,
+      "input_rows": 8412,
+      "output_rows": 6903,
+      "assertions": [
+        "Deduplication precedes filtering, matching the historical business rule",
+        "Complete actual Arrow schema equals reference SQL schema",
+        "Compiled schema including dtype/nullability equals reference schema",
+        "SHA256 of canonical rows in explicit final sort order equals reference SQL output"
+      ]
+    }
+  ],
+  "remaining_normative_limits": [
+    {
+      "criterion": "Plan §22: nominal, NULL and type-boundary cases for every step",
+      "status": "Not fully demonstrated",
+      "detail": "The 138 generic cases are ordinary/null/empty. Specialized bigint/decimal tests exist, but empty input does not replace per-step boundary-type coverage."
+    },
+    {
+      "criterion": "Plan §22: exhaustive operation/property coverage",
+      "status": "Partial evidence",
+      "detail": "Real prepare/join/split/SQL and business parity are established; this manifest does not certify every option, coercion pair, ordering tie, numeric/date boundary, union/pivot/unpivot variant or concurrency/idempotence property."
+    },
+    {
+      "criterion": "Plan §9/§17: full-data pivot-values and join matched/unmatched cardinalities",
+      "status": "Remaining implementation/proof",
+      "detail": "The current endpoint proposes values from persisted samples; complete-dataset async discovery and matched/unmatched join counts are not covered by this evidence."
+    },
+    {
+      "criterion": "Plan §7: native-schema and per-prefix type caches",
+      "status": "Not established here",
+      "detail": "Preview result caching is separate; no performance or cache-hit claim for schema-footer/type-prefix caches follows from these correctness tests."
+    },
+    {
+      "criterion": "Plan §8: compiler construction and cross-engine canonical values",
+      "status": "Partial implementation/deferred engine evidence",
+      "detail": "Compilation combines SQL fragment emitters with parsed/transformed sqlglot ASTs. No exclusive native-AST emitter or DuckDB/Spark canonical-value parity is claimed; Spark is explicitly deferred with D5."
+    },
+    {
+      "criterion": "Plan §23 D2: existing SQL/Polars/dbt workshop browser regressions",
+      "status": "Not demonstrated by this manifest",
+      "detail": "The separate frontend manifest records 50 FR/EN and 31/32/49; it does not attest a browser recipe for all SQL, Polars and dbt workshops."
+    },
+    {
+      "criterion": "Plan §22: live deployment and fixed-environment 10 GiB performance acceptance",
+      "status": "Outside this evidence",
+      "detail": "Local compiler/eager correctness does not establish VM build-info/catalog activation, deployed user journeys, or the original 4-vCPU/16-GB 10-GiB threshold. D3 volume evidence has its own manifest."
+    }
+  ],
+  "source_files": [
+    {
+      "path": "backend/app/services/run_engine/dag.py",
+      "sha256": "6e903f7eebfcefcff2bbf000b3c36af9b45a09d31205bd3294623dbfe2fbad1e"
+    },
+    {
+      "path": "backend/app/services/dataops/compiler.py",
+      "sha256": "7242a5e52d03e58cd526fd12691f3958d5f7ac83395e3c4542f42080e78e8455"
+    },
+    {
+      "path": "backend/app/services/dataops/typed_compiler.py",
+      "sha256": "8d8fcf2b47987a237a1ed1ff5810e866031f8aa230bdbb476774f568cf0e365e"
+    },
+    {
+      "path": "backend/app/services/dataops/steps.py",
+      "sha256": "bc54b6d75b14bbd6add7cf8264c4aafbc0c297c22b95fe1cfa3a7c979d9f35f5"
+    },
+    {
+      "path": "backend/app/services/dataops/types.py",
+      "sha256": "6d9cb88dfa55e5f3145c18171e4bfb4419e201a39a4c1f5e992e6fceb4668b0a"
+    },
+    {
+      "path": "backend/app/services/dataops/formulas.py",
+      "sha256": "31794b79759cb898980b0f184ce2f1fba3937aa3b72d64a0cd7620dcc9d02362"
+    },
+    {
+      "path": "backend/app/tests/services/test_dataops_typed_contracts.py",
+      "sha256": "8c9558eb5738a7da14e6e567cce7cbc0625fdb492cfa1fe0562ec8897ace873f"
+    },
+    {
+      "path": "backend/app/tests/services/test_dataops_flow_eager.py",
+      "sha256": "044192e56be2f8bfda054cfc7848b71ccde0e328df3ade866a10fd3df8710e27"
+    },
+    {
+      "path": "backend/app/tests/services/test_dataops_business_parity.py",
+      "sha256": "f4ba6430aa8bd6e7b01c1ee408d7ca5c43ba2d2029af6537f259155342c0af70"
+    },
+    {
+      "path": "backend/app/tests/services/test_run_node_badges.py",
+      "sha256": "c0b2c1e277c39da261e9894ae66b0d7f7d68f599a48ef6d96384f8a59e2b11bf"
+    },
+    {
+      "path": "docs/demo-runs/showcase-ecommerce/fixtures/dataops/prepare_history.sql",
+      "sha256": "d33c2897fbd36c4dd0c58f034511c604d8cb772fbaad0cce9a958403d246f854"
+    },
+    {
+      "path": "docs/demo-runs/showcase-ecommerce/fixtures/dataops/luma_sav_history_synthetic.csv",
+      "sha256": "5490d1b9cb12a1fc88c4b8a317e5933bbd65dad723fcb81ddac5ce9fec58b9d2"
+    },
+    {
+      "path": "backend/scripts/gen_nawa_telecom_data.py",
+      "sha256": "ef699907a9203f7e2b99009bf61c970796a3fba33692273f7d13a5dfd19ef862"
+    }
+  ]
+}

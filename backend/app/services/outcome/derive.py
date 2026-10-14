@@ -10,6 +10,7 @@ Strategy (mental model §22.3):
    flips `value_source` to `operator`, preserving the auto-derived cost,
    confidence and efficiency as an audit trail.
 """
+
 from __future__ import annotations
 
 import math
@@ -104,6 +105,17 @@ def apply_operator_override(
 # Internal helpers — pulled out of the engine so they can be unit-tested.
 # ---------------------------------------------------------------------------
 def _extract_confidence(invocations: List[SkillInvocation]) -> Optional[float]:
+    typed = [inv for inv in invocations if getattr(inv, "skill_slug", None) == "evaluate_v2"]
+    if typed:
+        values = []
+        for inv in typed:
+            out = inv.output_ref or {}
+            raw = out.get("confidence") if isinstance(out, dict) else None
+            if type(raw) not in {float, int} or not math.isfinite(raw) or not 0 <= raw <= 1:
+                return None
+            values.append(raw)
+        # Multiple questions/units do not constitute a calibrated lot.
+        return float(values[0]) if len(values) == 1 else None
     for inv in invocations:
         out = inv.output_ref or {}
         if isinstance(out, dict) and "confidence" in out:

@@ -1,0 +1,52 @@
+{
+  "diagnostic": {
+    "source_at_start": "a22442c8",
+    "code_changed_during_run": true,
+    "passed": 8838,
+    "failed": 5,
+    "skipped": 145,
+    "seconds": 741.63,
+    "qualification": false,
+    "failed_nodeids": [
+      "app/tests/api/test_ml_models_api.py::test_segmentation_api_trains_serves_batches_and_publishes_real_artifact",
+      "app/tests/services/test_tabular_enrichment.py::test_cross_workspace_is_refused_before_materialization",
+      "app/tests/services/test_forecast_monitoring.py::test_corrupt_parquet_is_a_coded_refusal",
+      "app/tests/infra/test_source_tree_reaches_the_repo.py::test_no_source_file_is_excluded_from_the_repository",
+      "app/tests/infra/test_huggingface_storage_policies.py::test_role_policies_preserve_writer_boundary_and_versioned_deletion"
+    ]
+  },
+  "targeted_after_fixes": {
+    "source_revision": "75795e45",
+    "passed": 39,
+    "seconds": 17.34,
+    "failed": 0
+  },
+  "logs": {
+    "backend-final.log": {
+      "path": "/workspace/dataops-completion-2026-10-13/backend-final.log",
+      "sha256": "42c1299bc7261233222294a708a563771412eaec4e72f82df2f394898eca4264"
+    },
+    "backend-final.coordinator.jsonl": {
+      "path": "/workspace/dataops-completion-2026-10-13/backend-final.coordinator.jsonl",
+      "sha256": "537ab0f048b9ef596d1879b2109b999fab39fd8938b7caa82e7b4b3c7dff6379"
+    },
+    "regressions-final.log": {
+      "path": "/workspace/dataops-completion-2026-10-13/regressions-final.log",
+      "sha256": "1d13a6f58edf46b189fc5d7d3ae516e1d9b7411bc3dcb3b5090f1f17d33b34e4"
+    }
+  },
+  "fixes": {
+    "cc8c0e3a": [
+      "sum clustering footers before value loading",
+      "preserve cross-workspace no-materialization assertion on new entry point",
+      "inject actual corrupt fixture bytes for forecast refusal"
+    ],
+    "75795e45": [
+      "assert exact two purge namespaces, list restrictions, no writes, application deletion deny"
+    ]
+  },
+  "generated_report": {
+    "archived_to": "/workspace/dataops-completion-2026-10-13/playwright-report",
+    "source_guard_unchanged": true
+  }
+}

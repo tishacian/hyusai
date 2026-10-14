@@ -2,7 +2,7 @@ import { Injectable, inject, signal, computed } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { EMPTY, Observable, Subject, catchError, filter, finalize, map, of, shareReplay, switchMap, tap } from 'rxjs';
 import { DEFAULT_BRAND_NAME, platformBrand } from './platform-brand';
-import { surfaceOfferedToFamily, workspaceFamily } from './navigation.catalog';
+import { surfaceFeatureEnabled, surfaceOfferedToFamily, workspaceFamily } from './navigation.catalog';
 
 export type WorkspaceMode = 'builder' | 'operator' | 'executive' | 'demo' | 'portfolio';
 export type SelectableWorkspaceMode = Exclude<WorkspaceMode, 'demo' | 'portfolio'>;
@@ -503,6 +503,10 @@ export class WorkspaceService {
       workspaceId,
       epoch: state.epoch,
     });
+  }
+
+  surfaceFeatureEnabled(surfaceId: string): boolean {
+    return surfaceFeatureEnabled(surfaceId, this.current());
   }
 
   isRequestScopeCurrent(scope: WorkspaceRequestScope): boolean {

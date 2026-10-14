@@ -1,0 +1,45 @@
+{
+  "baseline": "ad10dbc2",
+  "comparison_before_followup_fix": {
+    "runner_sha256": "2f102350b174b6aef1aa7f168ae178962d2a81bbdc61d0cae1430bf2cfa0e06c",
+    "test_sha256": "0b6df515aba1028533d7d1311595050442cb320680840a4033e96034ea309fd2",
+    "both_identical_to_reviewed_branch": true
+  },
+  "observations": {
+    "full_suite": {
+      "log": "/tmp/dataops-review-backend-verified.log",
+      "failed": 1,
+      "passed": 8532,
+      "skipped": 132,
+      "seconds": 894.16,
+      "assertion_descendant_state": "R",
+      "descendant_pid": 96252
+    },
+    "same_descendant_later": {
+      "state": "Z",
+      "ppid": 1,
+      "process_group": 96246
+    },
+    "baseline_pytest": {
+      "passed": 1,
+      "seconds": 3.39,
+      "log": "/tmp/dataops-probabl-baseline-pytest.log"
+    },
+    "baseline_direct_unmodified_test_calls": {
+      "passed": 20,
+      "failed": 0,
+      "log": "/tmp/dataops-probabl-baseline-probe.log"
+    },
+    "baseline_single_cpu_affinity_calls": {
+      "passed": 20,
+      "failed": 0,
+      "log": "/tmp/dataops-probabl-baseline-affinity.log"
+    },
+    "assertion_R_reproduced_on_baseline": false
+  },
+  "code_fact": "Historical run_bounded signals the group but waits only for the direct Popen leader; no process-group completion barrier exists before return.",
+  "inference": "Asynchronous descendant termination can explain the immediately observed R state, but the actual failing interleaving was not reproduced on baseline.",
+  "frontend_causal_link": "not_established",
+  "tests_or_runner_modified_by_probe": false,
+  "additional_repetitions_planned": false
+}

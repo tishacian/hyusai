@@ -309,6 +309,48 @@ def process_group_usage(group):
     return cpu, rss
 
 
+def _active_process_group_members(group):
+    """Observe completion, not just delivery of SIGKILL to the process group."""
+    active = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            if os.getpgid(int(entry.name)) != group:
+                continue
+            fields = (entry / "stat").read_text().rsplit(")", 1)[1].split()
+            if int(fields[2]) == group and fields[0] not in {"Z", "X"}:
+                active.append(int(entry.name))
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+        except (OSError, ValueError, IndexError) as exc:
+            raise RuntimeError("PROCESS_GROUP_CLEANUP_UNVERIFIED") from exc
+    return active
+
+
+def _terminate_process_group(process, *, timeout_s=5.0):
+    """Return only after the leader and its group have stopped, or fail closed.
+
+    Popen.wait reaps only the leader. Descendants may still be taking their
+    SIGKILL exit path, including after an otherwise successful leader exit.
+    Zombies are already stopped and belong to their new parent's reaper.
+    """
+    deadline = time.monotonic() + timeout_s
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=max(0.0, deadline - time.monotonic()))
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("PROCESS_GROUP_CLEANUP_TIMEOUT") from exc
+    while _active_process_group_members(process.pid):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError("PROCESS_GROUP_CLEANUP_TIMEOUT")
+        time.sleep(min(0.01, remaining))
+
+
 def run_bounded(command, *, env, wall_seconds, cpu_seconds, memory_bytes):
     import resource
 
@@ -332,17 +374,10 @@ def run_bounded(command, *, env, wall_seconds, cpu_seconds, memory_bytes):
                 elif rss > memory_bytes:
                     reason = "case_memory_budget"
                 if reason:
-                    os.killpg(process.pid, signal.SIGKILL)
                     break
                 time.sleep(0.05)
-            process.wait()
         finally:
-            # Also kill orphaned descendants if the top-level worker exited early.
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            process.wait()
+            _terminate_process_group(process)
         after = resource.getrusage(resource.RUSAGE_CHILDREN)
         consumed = max(
             consumed, after.ru_utime + after.ru_stime - before.ru_utime - before.ru_stime

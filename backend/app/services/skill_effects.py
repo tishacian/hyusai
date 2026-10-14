@@ -17,5 +17,8 @@ EXPLICIT_DATA_WRITE_SKILLS = frozenset(
         "polars_transform_v1",
         "dbt_transform_v1",
         "python_recipe_v1",
+        "data_prep_v1",
+        "narration_run_v1",
+        "evaluate_v2",
     }
 )

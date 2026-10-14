@@ -5,12 +5,14 @@ from uuid import uuid4
 
 import polars as pl
 import pytest
+
 from app.models.tabular import MLModel, MLPrediction
 from app.models.workspace import Workspace
 from app.services.ml import forecast_monitoring as service
 from app.services.ml.forecast_serving import _journal_forecast
-from app.services.tabular_datasets import TabularError, register_frame, read_frame
+from app.services.tabular_datasets import TabularError, read_frame, register_frame
 from app.tests.api.test_runs_hitl_auth import _seed_pending_run
+from app.tests.dataset_bytes import overwrite_legacy_fixture
 from app.tests.services.test_ml_training import enabled, store  # noqa: F401
 
 START = datetime(2025, 1, 1)
@@ -101,8 +103,7 @@ def test_invalid_actuals_are_refused_atomically(db_session, observed, records, c
 def test_actual_bytes_and_ready_state_reverified(db_session, observed):
     dataset = actuals(db_session, observed)
     associate(db_session, observed, dataset)
-    register_frame(db_session, workspace_id=observed.workspace.id, name=dataset.name,
-                   frame=pl.DataFrame({"date": [START], "value": [99.]}), into=dataset)
+    overwrite_legacy_fixture(dataset, pl.DataFrame({"date": [START], "value": [99.]}))
     db_session.commit()
     assert service.report(db_session, model=observed.model)["reason"] == "ML_FORECAST_ACTUALS_CHANGED"
     dataset.status = "deleted"
@@ -204,7 +205,7 @@ def test_training_union_keeps_covariates_and_panel_keys(db_session, observed, sh
         original = original.with_columns(pl.lit("A").alias("shop"))
         new = new.with_columns(pl.lit("A").alias("shop"))
     observed.model.spec_json = spec
-    register_frame(db_session, workspace_id=observed.workspace.id, name=observed.data.name, frame=original, into=observed.data)
+    overwrite_legacy_fixture(observed.data, original)
     associate(db_session, observed, actuals(db_session, observed, records=new.to_dicts()))
     history, provenance = service.materialize_training_history(db_session, model=observed.model,
         snapshot=service.snapshot(db_session, model=observed.model, now=NOW))
@@ -230,12 +231,13 @@ def test_request_journals_step_and_interval_without_changing_response(db_session
     assert all(row["interval_level"] == .9 for row in saved.output_json)
 
 
-def test_corrupt_parquet_is_a_coded_refusal(db_session, observed, monkeypatch):
+def test_corrupt_parquet_is_a_coded_refusal(db_session, observed):
+    from app.services.object_store import get_object_store
+
     dataset = actuals(db_session, observed)
-    def corrupt(dataset, destination):
-        destination.write_bytes(b"not parquet")
-        return destination
-    monkeypatch.setattr(service, "materialize", corrupt)
+    store = get_object_store()
+    assert store.backend == "local" and dataset.storage_key.endswith(".parquet")
+    store._local_path(dataset.storage_key).write_bytes(b"not parquet")
     with pytest.raises(TabularError, match="ML_FORECAST_ACTUALS_UNAVAILABLE"):
         associate(db_session, observed, dataset)
 
