@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-10-14 · DataOps candidate (not deployed)
+
+- Raise the VM build's backend image budget from **1400 to 1480 MiB** and the
+  worker budget from **1760 to 1850 MiB**, following the release owner's VM
+  measurements and explicit decision. Candidate `6dcb0d48` measures **1412 MiB**
+  for the backend and **1765 MiB** for the worker, compared with **1356/1709 MiB**
+  for production `ad10dbc2`. The new limits leave **68/85 MiB**, about 5%, above
+  the measured candidate sizes.
+- The roughly **56 MiB** increase comes from the compressed dependencies
+  `sqlglot`, `deltalake`, `arro3-core` and `deprecated`. Docker 29/containerd's
+  `docker image inspect .Size` is the budget measurement; the earlier
+  **3420/3567 MiB** backend comparison counted uncompressed layer payloads.
+  The shared layer count remains nine according to the VM report.
+- Keep the frontend, ml-ts and livekit-agent budgets at **40/1240/110 MiB**;
+  their measured candidate sizes are **28/1229/99 MiB**. ml-ts retains **11 MiB**
+  of headroom. No Dockerfile, dependency, build option or measurement method is
+  changed by this budget adjustment.
+- Production remains on `ad10dbc2`, reported healthy. Candidate images remain
+  unused by running containers. HANA Showcase's explicit demo mode with strict
+  TLS is prepared but **not activated**. This change performs no merge or
+  deployment. The [measurement and decision record](docs/dataops-release-blockers-2026-10-14.md#mesure-candidate-sur-la-vm-et-plafonds-retenus)
+  distinguishes the user-supplied VM result from local validation; the budget
+  must be rerun on the VM with the approved limits for the chosen release tag.
+
 ## [unreleased] — 2026-04-16 · Audit waves A → F
 
 Implementation of the 10-ticket audit plan that closes the gap between
