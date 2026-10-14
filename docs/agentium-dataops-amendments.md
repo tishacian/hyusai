@@ -42,8 +42,8 @@ ce document.
 - [Narration](agentium-showcase-narration-contract.md) : brouillon différé,
   sans activation ni promesse de livraison dans le lot actif.
 - [Complément D7](agentium-dataops-connectors.md) : catalogue de connecteurs
-  certifiés, en deux catalogues (données, outils) et en vagues C0 à C7. Proposé,
-  non implémenté.
+  certifiés, en deux catalogues (données, outils), en lots C0 à C7 et CH ; révisé
+  après la revue de `d3c2a9d3`. Proposé, non implémenté.
 
 ## Écarts constatés, à fermer par des preuves
 
