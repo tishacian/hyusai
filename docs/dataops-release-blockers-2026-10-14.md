@@ -45,11 +45,22 @@ n'est pas présenté comme une nouvelle commande SSH exécutée depuis cet
 environnement. Les conteneurs en service sont rapportés sains sur `ad10dbc2`,
 les candidates présentes mais inutilisées, et `demo_mode` non activé.
 
-Les mesures reçues satisfont arithmétiquement les nouveaux plafonds. Avant la
-livraison, conserver le contrôle réel sur le tag exact et les plafonds autorisés,
-ainsi que les révisions d'images ; un changement de limites n'atteste pas cette
-exécution. Pour recontrôler les images `6dcb0d48` déjà construites, sans build ni
-bascule de service, avec le script de budget versionné :
+**Recontrôle VM reçu après `cd015ed6` : réussi, code de sortie 0.** L'utilisateur
+confirme avoir relancé le script sur les images `6dcb0d48` déjà construites,
+avec les nouveaux plafonds. Le blocage de budget est donc **levé pour ces images
+et ces limites**. Ce résultat porte sur des images existantes ; il n'atteste pas
+une construction d'images étiquetées `cd015ed6`. La production reste rapportée
+saine sur `ad10dbc2`, sans redéploiement, fusion ni activation du mode démo HANA.
+
+Le compte rendu utilisateur est la source de ce résultat ; aucun nouveau log
+SSH brut n'est joint. La clôture ne repose plus seulement sur un calcul de marge,
+mais elle n'est pas présentée comme une exécution depuis cet environnement.
+Une nouvelle construction reste soumise au contrôle de son propre tag, notamment
+ml-ts qui n'a que 11 Mio de marge.
+
+Commande de référence conservée pour reproduire le contrôle des images
+`6dcb0d48`, sans build ni bascule de service (la ligne exacte exécutée sur la VM
+n'est pas fournie dans le compte rendu) :
 
 ```bash
 AGENTIUM_IMAGE_BUDGET_MB_BACKEND=1480 \
@@ -334,8 +345,9 @@ panneau SAP.
 ### Décision du 14 octobre : démo explicite pour Showcase
 
 L'utilisateur choisit **`demo_mode=true`, TLS strict conservé** pour la prochaine
-livraison de `agentium-showcase`. Le choix de service est tranché ; son activation
-sur la VM reste différée jusqu'à la qualification des images candidates. La
+livraison de `agentium-showcase`. Le choix de service est tranché et le contrôle
+de budget des images existantes est passé selon le recontrôle rapporté ci-dessus.
+L'activation sur la VM reste à effectuer dans le cadre de la livraison. La
 configuration effectivement relevée plus haut précède cette décision et n'a
 pas été modifiée par les travaux locaux.
 
@@ -397,6 +409,7 @@ passent localement ; ce résultat n'est pas une lecture HANA réussie ni une
 nouvelle exécution de la suite backend complète.
 
 Aucune exception TLS ni démo n'est activée sur la VM par cette note. Le choix
-de l'utilisateur est enregistré ; la qualification des images, l'activation
-différée du workspace et sa recette restent nécessaires avant de déclarer la
-livraison prête. Aucune fusion ni aucun déploiement n'est effectué ici.
+de l'utilisateur est enregistré et le blocage de budget des images `6dcb0d48`
+est levé avec les plafonds de `cd015ed6`. L'activation du workspace et sa recette
+restent à effectuer dans le cadre de la livraison ; ce contrôle de budget ne
+les remplace pas. Aucune fusion ni aucun déploiement n'est effectué ici.

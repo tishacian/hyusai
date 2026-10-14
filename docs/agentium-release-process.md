@@ -122,6 +122,10 @@ MiB limits. The approved 1480/1850 MiB limits leave 68/85 MiB (about 5%) above
 those measurements; the other limits are unchanged. See the
 [release note](../CHANGELOG.md#2026-10-14--dataops-candidate-not-deployed) and
 [measurement record](dataops-release-blockers-2026-10-14.md#mesure-candidate-sur-la-vm-et-plafonds-retenus).
+The owner then reported a successful VM rerun against the existing `6dcb0d48`
+images with the limits from `cd015ed6` (**exit code 0**), without rebuilding or
+deploying. This closes the budget check for those images; any future build
+requires a check of its own image tag.
 The script uses `docker image inspect .Size`, divided by 1 048 576 and truncated
 to whole MiB; the existing `*_MB_*` variable names remain unchanged. Any budget
 overrides in the calling process take precedence over these defaults. Recheck

@@ -21,8 +21,13 @@
   unused by running containers. HANA Showcase's explicit demo mode with strict
   TLS is prepared but **not activated**. This change performs no merge or
   deployment. The [measurement and decision record](docs/dataops-release-blockers-2026-10-14.md#mesure-candidate-sur-la-vm-et-plafonds-retenus)
-  distinguishes the user-supplied VM result from local validation; the budget
-  must be rerun on the VM with the approved limits for the chosen release tag.
+  distinguishes the user-supplied VM result from local validation.
+- The release owner subsequently reran the budget check on the VM against the
+  existing **`6dcb0d48` images**, using the limits committed in **`cd015ed6`**:
+  **exit code 0**. The image-budget blocker is closed for those images and limits.
+  No rebuild, deployment or HANA activation occurred. This records the owner's
+  report; no new raw SSH bundle accompanies it. A future image build remains
+  subject to its own budget check.
 
 ## [unreleased] — 2026-04-16 · Audit waves A → F
 
