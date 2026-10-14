@@ -823,7 +823,7 @@ def test_launcher_scrubs_shell_and_gates_only_closed_application_commands() -> N
         assert f"{polluted}=" not in compose
     # The opt-in forecasting profile is rendered into the same check when on.
     assert (
-        'compose --profile infra --profile tools --profile sftp "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" "${OPENBAO_PROFILE[@]}" config --format json'
+        'compose --profile infra --profile tools --profile sftp "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${CONNECTORS_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" "${OPENBAO_PROFILE[@]}" config --format json'
         in storage
     )
     assert 'assert_protected_data_path "$OBJECT_STORE_ROOT"' in storage
@@ -852,7 +852,7 @@ def test_launcher_scrubs_shell_and_gates_only_closed_application_commands() -> N
         _shell_case(script, "migrate"),
     )
     assert re.match(
-        r"\s*storage_check\s*\n\s*start_run up\s*\n\s*gate_enter\s*\n\s*"
+        r"\s*storage_check\s*\n\s*connector_image_check\s*\n\s*start_run up\s*\n\s*gate_enter\s*\n\s*"
         r"compose up -d --no-build --no-deps --pull never "
         r"agentium-worker-recipes agentium-worker-dataops agentium-backend agentium-worker-cpu "
         r"agentium-frontend\b",

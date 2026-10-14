@@ -16,6 +16,10 @@
 #   AGENTIUM_IMAGE_BUDGET_MB_BACKEND, AGENTIUM_IMAGE_BUDGET_MB_WORKER,
 #   AGENTIUM_IMAGE_BUDGET_MB_FRONTEND, AGENTIUM_IMAGE_BUDGET_MB_ML_TS,
 #   AGENTIUM_IMAGE_BUDGET_MB_LIVEKIT_AGENT
+# Optional connector scaffold: set AGENTIUM_CONNECTOR_RUNNER_IMAGE to its
+# qualified reference and AGENTIUM_IMAGE_BUDGET_MB_CONNECTOR_RUNNER. No default
+# budget is assigned before the driver spike. AGENTIUM_IMAGE_REQUIRE_CONNECTOR_RUNNER=1 uses
+# the release tag if no explicit reference was given and fails on missing size.
 # Record the sizes this prints in the release notes, then set each budget a few
 # percent above them; the release process says where.
 set -euo pipefail
@@ -28,8 +32,15 @@ layers_of() {
 }
 
 printf 'image\tsize_mb\tbudget_mb\tverdict\n'
-for name in backend worker frontend ml-ts livekit-agent; do
+names=(backend worker frontend ml-ts livekit-agent)
+if [[ -n "${AGENTIUM_CONNECTOR_RUNNER_IMAGE:-}" || "${AGENTIUM_IMAGE_REQUIRE_CONNECTOR_RUNNER:-0}" == 1 ]]; then
+	names+=(connector-runner)
+fi
+for name in "${names[@]}"; do
 	image="agentium-${name}:${tag}"
+	if [[ "$name" == connector-runner ]]; then
+		image="${AGENTIUM_CONNECTOR_RUNNER_IMAGE:-$image}"
+	fi
 	if ! bytes="$(docker image inspect --format '{{.Size}}' "$image" 2>/dev/null)"; then
 		if [[ "$name" == "ml-ts" || ("$name" == "livekit-agent" && "${AGENTIUM_IMAGE_REQUIRE_LIVEKIT_AGENT:-0}" != 1) ]]; then
 			printf '%s\t-\t-\tnot built (optional)\n' "$image"
@@ -43,8 +54,13 @@ for name in backend worker frontend ml-ts livekit-agent; do
 	budget_var="AGENTIUM_IMAGE_BUDGET_MB_$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]' | tr '-' '_')"
 	budget="${!budget_var:-}"
 	verdict="unbounded"
+	if [[ "$name" == connector-runner && ! "$budget" =~ ^[1-9][0-9]{0,5}$ ]]; then
+		printf '%s\t%s\t-\tbudget required (S-C2)\n' "$image" "$size_mb"
+		status=1
+		continue
+	fi
 	if [[ -n "$budget" ]]; then
-		if ((size_mb > budget)); then
+		if ((bytes > budget * 1048576)); then
 			verdict="OVER"
 			status=1
 		else

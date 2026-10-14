@@ -159,11 +159,11 @@ def test_migrate_dumps_before_migrating_and_journals_the_outcome() -> None:
 
 def test_up_requires_verified_build_info_before_reopening_the_gate() -> None:
     steps = [line.strip() for line in _shell_case("up").splitlines()]
-    assert steps[:3] == ["storage_check", "start_run up", "gate_enter"]
-    assert steps[3].startswith("compose up -d --no-build --no-deps --pull never ")
-    assert steps[4] == "verify_build_info || {"
-    assert steps[5] == "journal_append up - - failed"
-    assert "AGENTIUM_IMAGE_TAG=$PREVIOUS_TAG" in steps[6]
+    assert steps[:4] == ["storage_check", "connector_image_check", "start_run up", "gate_enter"]
+    assert steps[4].startswith("compose up -d --no-build --no-deps --pull never ")
+    assert steps[5] == "verify_build_info || {"
+    assert steps[6] == "journal_append up - - failed"
+    assert "AGENTIUM_IMAGE_TAG=$PREVIOUS_TAG" in steps[7]
     passed = steps.index('journal_append up "$REVISION" - passed')
     assert steps[passed + 1] == "gate_leave"
     assert any(step.startswith("catalog >/dev/null ||") for step in steps[passed:])

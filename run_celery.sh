@@ -13,6 +13,32 @@ export CELERY_QUEUES
 PYTHONPATH="$(pwd)/backend:$(pwd):${PYTHONPATH:-}"
 export PYTHONPATH
 
+# Connector pools reserve independent capacity. A misconfigured queue list
+# must not let the general worker steal their tasks, or merge both pools.
+case "$CELERY_APP" in
+app.workers.celery_connectors:celery_connectors)
+	case "$CELERY_QUEUES" in
+	connectors | connectors_interactive) ;;
+	*)
+		echo "connector workers require exactly one dedicated queue" >&2
+		exit 2
+		;;
+	esac
+	[ "${CELERY_BEAT:-0}" = 0 ] || {
+		echo "connector workers cannot run beat" >&2
+		exit 2
+	}
+	;;
+*)
+	case ",$CELERY_QUEUES," in
+	*,connectors,* | *,connectors_interactive,*)
+		echo "connector queues require the dedicated connector worker" >&2
+		exit 2
+		;;
+	esac
+	;;
+esac
+
 # Embed Celery beat in this worker (single-instance deployments only —
 # beat must not run twice or periodic tasks double-fire).
 BEAT_ARGS=""

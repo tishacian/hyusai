@@ -1,0 +1,10 @@
+# C0 scaffold, no additional drivers. Build the worker at this same revision
+# first; WORKER_BASE_IMAGE must identify that qualified image by digest.
+ARG WORKER_BASE_IMAGE
+FROM ${WORKER_BASE_IMAGE}
+ARG AGENTIUM_IMAGE_REVISION=unknown
+LABEL org.opencontainers.image.revision="${AGENTIUM_IMAGE_REVISION}"
+ENV CELERY_APP=app.workers.celery_connectors:celery_connectors \
+    CELERY_BEAT=0
+# Inherit the worker's non-root user, code and entrypoint. C1 adds drivers only
+# here after the S-C2 measurements; the API and general worker keep their size.
