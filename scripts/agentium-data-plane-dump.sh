@@ -103,6 +103,28 @@ mc_in_minio() {
 
 # The copy plan names actual artifacts. An unknown required size must stop the
 # preflight; treating permission/network errors as zero would defeat its bound.
+# `mc du` only sizes folders and answers an error for an exact object key, so a
+# `file` entry is sized by `mc stat`.
+object_bytes() {
+	case "$1" in
+	file) file_bytes "$2" ;;
+	prefix) prefix_bytes "$2" ;;
+	*) return 1 ;;
+	esac
+}
+
+file_bytes() {
+	mc_in_minio stat --json "$1" 2>/dev/null | python3 -c 'import json, sys
+rows = [json.loads(line) for line in sys.stdin if line.strip()]
+if len(rows) != 1:
+    raise SystemExit(1)
+row = rows[0]
+size = row.get("size")
+if row.get("status") != "success" or row.get("type") != "file" or type(size) is not int or size < 0:
+    raise SystemExit(1)
+print(size)'
+}
+
 prefix_bytes() {
 	mc_in_minio du --json "$1" 2>/dev/null | python3 -c 'import json, sys
 total = 0
@@ -217,7 +239,7 @@ if [ -s "$WINDOW/object-copy-plan.tsv" ]; then
 	total=0
 	: >"$WINDOW/object-copy-ready.tsv"
 	while IFS=$'\t' read -r kind required key; do
-		if bytes="$(prefix_bytes "dump/$BUCKET/$key")"; then
+		if bytes="$(object_bytes "$kind" "dump/$BUCKET/$key")"; then
 			total=$((total + bytes))
 			printf '%s\t%s\t%s\n' "$kind" "$required" "$key" >>"$WINDOW/object-copy-ready.tsv"
 		elif [ "$required" = 1 ]; then
