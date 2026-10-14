@@ -57,7 +57,11 @@ sur `45ccc915`. Son historique ne doit pas être réécrit pour effacer les erre
 
 Les suites ciblées du premier lot ne remplaçaient pas une suite complète. Les
 rapports de tests, les comparaisons avec la base et les constructions d’images
-seront consignés dans le suivi de correction de la revue. Les mesures locales
+sont consignés dans le suivi de correction de la revue. Une allocation texte
+excessive a également démontré que la limite DuckDB ne suffisait pas à protéger
+l'API : `940bc43b` déplace le calcul d'aperçu dans un processus soumis à une
+limite système stricte, avec une recette distincte de refus et de terminaison.
+Les mesures locales
 antérieures de volume ne qualifient ni la branche corrigée, ni une VM/limite
 cgroup, ni S3. La décision sur HANA Showcase reste ouverte avant déploiement :
 certificat valide, démonstration explicite ou exception TLS précise. Le

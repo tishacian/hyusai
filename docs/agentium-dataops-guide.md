@@ -35,6 +35,13 @@ L'aperçu utilise les échantillons persistés, au plus 10 000 lignes par source
 avec un budget mémoire et une échéance. Il ne lit pas toute la table et ne crée
 pas de version de dataset. La table affiche au plus 200 lignes, mais les profils
 et les compteurs portent sur toutes les lignes produites par les échantillons.
+Le calcul et le décodage des échantillons utilisent un processus séparé, sans
+variables d'environnement de l'application. Le budget DuckDB vaut 512 Mio par
+défaut ; la limite système d'espace virtuel ajoute 512 Mio pour les bibliothèques
+natives, soit 1 Gio au total. Cette limite virtuelle n'est pas une mesure de RSS.
+Elle est installée avant les imports natifs ; si le système ne peut pas
+l'appliquer, l'aperçu est refusé. L'échéance arrête le groupe de processus et
+vérifie sa terminaison. Le résultat transmis à l'API est plafonné à 32 Mio.
 Pour une ancienne version sans échantillon, le worker DataOps le construit à la
 première demande. L'atelier indique « échantillon en préparation » ; relancer
 l'aperçu une fois la construction terminée. Le dataset reste disponible pour ses
@@ -81,6 +88,8 @@ différés ; le catalogue ne les propose pas.
 | `DATAPREP_TYPE_MISMATCH`, `DATAPREP_LITERAL_TYPE` | Corriger la conversion ou sa constante, à l'étape indiquée. |
 | `DATAPREP_PREVIEW_BUSY` | Attendre la fin de l'aperçu en cours. |
 | `DATAPREP_PREVIEW_TIMEOUT` | Réduire le préfixe ou la complexité de la jointure sur échantillon. |
+| `DATAPREP_PREVIEW_MEMORY_LIMIT`, `DATAPREP_PREVIEW_OUTPUT_LIMIT` | Réduire l'expansion des formules ou la taille du résultat d'aperçu. |
+| `DATAPREP_PREVIEW_ISOLATION_UNAVAILABLE`, `DATAPREP_PREVIEW_CLEANUP_FAILED` | Faire vérifier les limites système et la supervision du processus avant de réessayer. |
 | `DATAPREP_SAMPLE_REQUIRED`, `DATAPREP_SAMPLE_CHANGED` | Faire vérifier ou reconstruire l'échantillon ; ne pas substituer silencieusement les données complètes. |
 | `DATAPREP_PLACEMENT_UNAVAILABLE` | Choisir un placement effectivement proposé par le serveur. |
 
