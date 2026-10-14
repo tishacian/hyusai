@@ -188,6 +188,9 @@ de configuration de la VM ne sont inclus. Les downgrades refusent de détruire
 les nouveaux enregistrements : après usage, un retour aux anciennes images
 demande une procédure d’exploitation et une sauvegarde compatible.
 
-Les résultats de validation du commit livré sont consignés dans la PR. La
-procédure déléguée distingue les tests de développement des preuves requises
-pour ouvrir chaque lot et chaque niveau du catalogue.
+Les [résultats de validation](evidence/d7-development-validation.json) consignent
+la suite backend complète (9 459 réussites, 130 ignorés), puis les 591 tests
+connecteurs réussis sur les fichiers définitifs (1 recette fournisseur opt-in
+ignorée), les 2 220 tests frontend et sa construction de production. La procédure
+déléguée distingue ces tests de développement des preuves requises pour ouvrir
+chaque lot et chaque niveau du catalogue.
