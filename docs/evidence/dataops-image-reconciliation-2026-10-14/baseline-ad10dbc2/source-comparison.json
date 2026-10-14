@@ -1,0 +1,142 @@
+{
+  "historical_revision": "ad10dbc2b6cb464c8e7c6b19af8ffc46a3b3fb3b",
+  "qualified_revision": "bd72404472bfd57c01cc2e4a9747ff5e3049814f",
+  "comparison_scope": "Clean detached historical checkout, current rebuild. No historical deployment image is inferred. No non-versioned Terraform caches are introduced into this context.",
+  "files": [
+    {
+      "path": "docker/Dockerfile.agentium-backend",
+      "historical": {
+        "sha256": "361c170a15812e52fb86e5ea3cc27131d7651898e0af20497e689077f82b3a53",
+        "bytes": 3710
+      },
+      "qualified": {
+        "sha256": "361c170a15812e52fb86e5ea3cc27131d7651898e0af20497e689077f82b3a53",
+        "bytes": 3710
+      },
+      "identical": true
+    },
+    {
+      "path": "docker/Dockerfile.agentium-backend.dockerignore",
+      "historical": {
+        "sha256": "abcd298a421b3b183bc758c6574878c16e7464a16a286f2e7bb7bb65d9d7743f",
+        "bytes": 1871
+      },
+      "qualified": {
+        "sha256": "169349753922f5a735f1a1a9a1cc6f9db03a0887c6792f7394bc84309b861d33",
+        "bytes": 2006
+      },
+      "identical": false
+    },
+    {
+      "path": ".dockerignore",
+      "historical": {
+        "sha256": "7fd58fed0a1b765e11e79b2cc3bec7df5a7caf4deacaba019e33173b6ca05877",
+        "bytes": 1280
+      },
+      "qualified": {
+        "sha256": "7227cb739b3bb70ce27a01e3ccf2f9f7a95c42330978827660e7266b4fabb639",
+        "bytes": 1415
+      },
+      "identical": false
+    },
+    {
+      "path": "backend/requirements.txt",
+      "historical": {
+        "sha256": "5ffbd298b4a83c8b8d34ad82253b415f9d978ac6712c4528d63ba83165214c97",
+        "bytes": 4534
+      },
+      "qualified": {
+        "sha256": "7e731ff416269ecdd2800ae47afcecfe74836649652e95de9c2c16bd94feab51",
+        "bytes": 4646
+      },
+      "identical": false
+    },
+    {
+      "path": "backend/constraints-demo-app.txt",
+      "historical": {
+        "sha256": "0a3af429ec603ecc373648871ca4bd2eb3b8d0392de7ff655d28a96e2edf04a1",
+        "bytes": 4343
+      },
+      "qualified": {
+        "sha256": "b7fedf85251daa2bfb897642c57f2b35fc43a2c7fad9a6b2d488d948921a015b",
+        "bytes": 4414
+      },
+      "identical": false
+    },
+    {
+      "path": "backend/requirements_hf_rag.txt",
+      "historical": {
+        "sha256": "320b2c516fc11fc21ac75a8fcfe3a0baa67b0f11f0b0f9f56c7387e65da0e740",
+        "bytes": 288
+      },
+      "qualified": {
+        "sha256": "320b2c516fc11fc21ac75a8fcfe3a0baa67b0f11f0b0f9f56c7387e65da0e740",
+        "bytes": 288
+      },
+      "identical": true
+    },
+    {
+      "path": "backend/constraints-demo-ml-deep.txt",
+      "historical": {
+        "sha256": "6b8dc522c77a92ff0240bac36fca27103bf03d6610b8ca24e289b46eacf90738",
+        "bytes": 306
+      },
+      "qualified": {
+        "sha256": "6b8dc522c77a92ff0240bac36fca27103bf03d6610b8ca24e289b46eacf90738",
+        "bytes": 306
+      },
+      "identical": true
+    },
+    {
+      "path": "scripts/agentium-vm-build.sh",
+      "historical": {
+        "sha256": "1d8784d93d09c296ef13938dbdf7363cc0381add8ea0150de550da7ac814e345",
+        "bytes": 4149
+      },
+      "qualified": {
+        "sha256": "1d8784d93d09c296ef13938dbdf7363cc0381add8ea0150de550da7ac814e345",
+        "bytes": 4149
+      },
+      "identical": true
+    },
+    {
+      "path": "scripts/agentium-image-budget.sh",
+      "historical": {
+        "sha256": "1abd2f02b780fff2190099833bffc7a631c34aad2b397018112a2b9e25aa1366",
+        "bytes": 3020
+      },
+      "qualified": {
+        "sha256": "1abd2f02b780fff2190099833bffc7a631c34aad2b397018112a2b9e25aa1366",
+        "bytes": 3020
+      },
+      "identical": true
+    },
+    {
+      "path": "backend/rag_models.lock.json",
+      "historical": {
+        "sha256": "40d73994cb9d8022d9fe6a9ba3e086cc1789e350c3759e402385bb0c2ec33e81",
+        "bytes": 1276
+      },
+      "qualified": {
+        "sha256": "40d73994cb9d8022d9fe6a9ba3e086cc1789e350c3759e402385bb0c2ec33e81",
+        "bytes": 1276
+      },
+      "identical": true
+    },
+    {
+      "path": "backend/scripts/fetch_rag_models.py",
+      "historical": {
+        "sha256": "989b1578a438d57f12c55f98f009a2dce0eed03097240ec73abbbf1ba4f70439",
+        "bytes": 3125
+      },
+      "qualified": {
+        "sha256": "989b1578a438d57f12c55f98f009a2dce0eed03097240ec73abbbf1ba4f70439",
+        "bytes": 3125
+      },
+      "identical": true
+    }
+  ],
+  "method": "Same pinned Python base, linux/amd64, INSTALL_HF_RAG=1, Dockerfile RUN CA secret adaptation, OCI exporter, streaming hashes/diff_ids and payload-size accounting. Historical original requirements/constraints retained.",
+  "generated_dockerfile_byte_identical": true,
+  "generated_dockerfile_sha256": "acd62e4e806a27c2c515f0c14235950afdd08dd2227bc8121186f98c8d2898d1"
+}
