@@ -302,10 +302,12 @@ storage_check() {
 		clean_exec python3 "$ENV_HELPER" vm-storage-volume-check \
 			--name agentium_qdrant_block
 	assert_volume_mountpoint agentium_qdrant_block /qdrant
-	local recipe_containers=()
-	if readonly_docker inspect --type container agentium-worker-recipes >/dev/null 2>&1; then
-		recipe_containers=(agentium-worker-recipes)
-	fi
+	local recipe_containers=() recipe_container
+	for recipe_container in agentium-worker-recipes agentium-worker-dataops; do
+		if readonly_docker inspect --type container "$recipe_container" >/dev/null 2>&1; then
+			recipe_containers+=("$recipe_container")
+		fi
+	done
 	# Forecasting and deep workers mount the object store: checked wherever they
 	# exist, including a host that has since switched their flag back to 0.
 	local ml_ts_containers=() container
@@ -454,7 +456,7 @@ up)
 	storage_check
 	start_run up
 	gate_enter
-	compose up -d --no-build --no-deps --pull never agentium-worker-recipes agentium-backend agentium-worker-cpu agentium-frontend agentium-p4-maintenance agentium-beat "${ML_TS_SERVICES[@]}" "${ML_DEEP_SERVICES[@]}" "${HUGGINGFACE_SERVICES[@]}" "${OPENBAO_SERVICES[@]}"
+	compose up -d --no-build --no-deps --pull never agentium-worker-recipes agentium-worker-dataops agentium-backend agentium-worker-cpu agentium-frontend agentium-p4-maintenance agentium-beat "${ML_TS_SERVICES[@]}" "${ML_DEEP_SERVICES[@]}" "${HUGGINGFACE_SERVICES[@]}" "${OPENBAO_SERVICES[@]}"
 	verify_build_info || {
 		journal_append up - - failed
 		fail "build-info did not report $TAG with revision_verified; roll back with AGENTIUM_IMAGE_TAG=$PREVIOUS_TAG $0 up"

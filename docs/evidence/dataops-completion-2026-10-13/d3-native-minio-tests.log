@@ -1,0 +1,32 @@
+..F.                                                                     [100%]
+=================================== FAILURES ===================================
+________ test_real_minio_writer_sample_profile_and_lazy_journal_reader _________
+backend/app/tests/services/test_dataops_minio.py:127: in test_real_minio_writer_sample_profile_and_lazy_journal_reader
+    assert [storage.file_digest(p) for p in copies] == [
+E   AssertionError: assert ['0cf107927c3...058338e5cf36'] == ['2b5d99a8727...fed39085c776']
+E     
+E     At index 0 diff: '0cf107927c302c59b52d13a424cf53a104a5617aae074da649c8fed39085c776' != '2b5d99a8727df64121a8ef7961524070d7d4f801ec36cfffcbb8058338e5cf36'
+E     Use -v to get more diff
+=============================== warnings summary ===============================
+app/tests/services/test_dataops_minio.py: 16 warnings
+  /workspace/agentium/.venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3627: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+app/tests/services/test_dataops_minio.py::test_real_minio_writer_sample_profile_and_lazy_journal_reader
+app/tests/services/test_dataops_minio.py::test_real_minio_multi_output_failure_never_publishes_partial_set
+app/tests/services/test_dataops_minio.py::test_real_minio_multi_output_failure_never_publishes_partial_set
+  /workspace/agentium/backend/app/services/dataops/storage.py:497: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    dataset.ingested_at = datetime.utcnow()
+
+app/tests/services/test_dataops_minio.py::test_real_minio_multi_output_failure_never_publishes_partial_set
+  /workspace/agentium/backend/app/services/dataops/preparation.py:214: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    .values(status="running", started_at=datetime.utcnow())
+
+app/tests/services/test_dataops_minio.py::test_real_minio_multi_output_failure_never_publishes_partial_set
+  /workspace/agentium/backend/app/services/recipe_executions.py:204: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    execution.finished_at = datetime.utcnow()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED backend/app/tests/services/test_dataops_minio.py::test_real_minio_writer_sample_profile_and_lazy_journal_reader
+1 failed, 3 passed, 21 warnings in 6.86s

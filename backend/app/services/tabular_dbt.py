@@ -69,7 +69,7 @@ from app.services.recipe_executions import (
 from app.services.tabular_datasets import (
     TabularError,
     dataset_reference,
-    materialize,
+    materialize_dataset,
     profile_frame,
     register_frame,
 )
@@ -416,7 +416,7 @@ def dispatch_dbt_execution(db: DBSession, execution: RecipeExecution) -> str:
     async_result = celery_app.send_task(
         DBT_EXECUTE_TASK,
         args=(execution.id,),
-        queue=settings.celery_task_default_queue,
+        queue=settings.celery_dataops_queue,
     )
     execution.celery_task_id = async_result.id
     db.commit()
@@ -522,13 +522,13 @@ def _write_manifest(
 ) -> dict[str, Any]:
     """Materialize the inputs as Parquet and describe the project for the harness."""
 
-    inputs: dict[str, str] = {}
+    inputs: dict[str, list[str]] = {}
     for index, source in enumerate(sources):
-        local = materialize(source.dataset, scratch / f"in_{index}.parquet")
-        inputs[source.view] = str(local)
-        inputs[f"input_{index + 1}"] = str(local)
+        local = materialize_dataset(source.dataset, scratch / f"in_{index}")
+        inputs[source.view] = [str(path) for path in local]
+        inputs[f"input_{index + 1}"] = [str(path) for path in local]
         if index == 0:
-            inputs.setdefault("input", str(local))
+            inputs.setdefault("input", [str(path) for path in local])
     extra_models = [
         str(name)
         for name in (spec.get("extra_models") or [])

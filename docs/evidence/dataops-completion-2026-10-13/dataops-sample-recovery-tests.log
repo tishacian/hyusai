@@ -1,0 +1,73 @@
+............F..                                                          [100%]
+=================================== FAILURES ===================================
+____________ test_preview_nan_is_json_safe_on_first_call_and_cache _____________
+app/tests/services/test_dataops_samples.py:163: in test_preview_nan_is_json_safe_on_first_call_and_cache
+    result = preview_preparation(
+app/services/dataops/preparation.py:390: in preview_preparation
+    return preview(compiled, datasets, spec, limit=limit, output_port=output_port)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/dataops/preview.py:78: in preview
+    result = _preview(compiled, datasets, spec, limit=limit, output_port=output_port)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/dataops/preview.py:296: in _preview
+    raise ValueError("DATAPREP_TYPE_MISMATCH: " + str(exc).splitlines()[0][:240]) from None
+E   ValueError: DATAPREP_TYPE_MISMATCH: Out of Range Error: STDDEV_SAMP is out of range!
+=============================== warnings summary ===============================
+app/tests/services/test_dataops_sample_recovery.py: 125 warnings
+app/tests/services/test_dataops_samples.py: 39 warnings
+  /workspace/agentium/.venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3627: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+app/tests/services/test_dataops_samples.py::test_missing_sample_is_queued_once_without_api_scanning
+app/tests/services/test_dataops_samples.py::test_sample_worker_refuses_retired_input
+app/tests/services/test_dataops_samples.py::test_lost_broker_publish_can_be_redispatched_after_delay
+app/tests/services/test_dataops_samples.py::test_retirement_and_purge_during_materialization_cannot_recreate_bytes
+app/tests/services/test_dataops_samples.py::test_preview_nan_is_json_safe_on_first_call_and_cache
+app/tests/services/test_dataops_samples.py::test_preview_nan_is_json_safe_on_first_call_and_cache
+  /workspace/agentium/backend/app/services/dataops/storage.py:497: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    dataset.ingested_at = datetime.utcnow()
+
+app/tests/services/test_dataops_samples.py::test_missing_sample_is_queued_once_without_api_scanning
+app/tests/services/test_dataops_samples.py::test_missing_sample_is_queued_once_without_api_scanning
+app/tests/services/test_dataops_samples.py::test_sample_worker_refuses_retired_input
+app/tests/services/test_dataops_samples.py::test_lost_broker_publish_can_be_redispatched_after_delay
+app/tests/services/test_dataops_samples.py::test_lost_broker_publish_can_be_redispatched_after_delay
+app/tests/services/test_dataops_samples.py::test_retirement_and_purge_during_materialization_cannot_recreate_bytes
+  /workspace/agentium/backend/app/services/dataops/samples.py:31: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_dataops_samples.py::test_missing_sample_is_queued_once_without_api_scanning
+app/tests/services/test_dataops_samples.py::test_sample_worker_refuses_retired_input
+app/tests/services/test_dataops_samples.py::test_retirement_and_purge_during_materialization_cannot_recreate_bytes
+  /workspace/agentium/backend/app/services/dataops/samples.py:20: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return datetime.utcnow() - timedelta(seconds=settings.dataops_t0_max_timeout_s + 90)
+
+app/tests/services/test_dataops_samples.py::test_missing_sample_is_queued_once_without_api_scanning
+app/tests/services/test_dataops_samples.py::test_sample_worker_refuses_retired_input
+app/tests/services/test_dataops_samples.py::test_retirement_and_purge_during_materialization_cannot_recreate_bytes
+  /workspace/agentium/backend/app/services/dataops/samples.py:146: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    started_at=datetime.utcnow(),
+
+app/tests/services/test_dataops_samples.py::test_missing_sample_is_queued_once_without_api_scanning
+app/tests/services/test_dataops_samples.py::test_sample_worker_refuses_retired_input
+app/tests/services/test_dataops_samples.py::test_retirement_and_purge_during_materialization_cannot_recreate_bytes
+  /workspace/agentium/backend/app/services/dataops/samples.py:147: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    updated_at=datetime.utcnow(),
+
+app/tests/services/test_dataops_samples.py::test_missing_sample_is_queued_once_without_api_scanning
+  /workspace/agentium/backend/app/services/dataops/samples.py:206: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    job.completed_at = job.updated_at = datetime.utcnow()
+
+app/tests/services/test_dataops_samples.py::test_sample_worker_refuses_retired_input
+app/tests/services/test_dataops_samples.py::test_retirement_and_purge_during_materialization_cannot_recreate_bytes
+  /workspace/agentium/backend/app/services/dataops/samples.py:219: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    job.completed_at = job.updated_at = datetime.utcnow()
+
+app/tests/services/test_dataops_samples.py::test_lost_broker_publish_can_be_redispatched_after_delay
+  /workspace/agentium/backend/app/tests/services/test_dataops_samples.py:107: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    job.updated_at = datetime.utcnow() - timedelta(seconds=61)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED app/tests/services/test_dataops_samples.py::test_preview_nan_is_json_safe_on_first_call_and_cache
+1 failed, 14 passed, 189 warnings in 4.60s

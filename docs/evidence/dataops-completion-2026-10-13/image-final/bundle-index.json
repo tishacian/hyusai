@@ -1,0 +1,334 @@
+{
+  "classification": "final-measurement",
+  "source_revision": "bd72404472bfd57c01cc2e4a9747ff5e3049814f",
+  "contains": "Small reports, exact OCI index/manifest/config bytes, public source inputs and inspection/build scripts.",
+  "excludes": [
+    "OCI layer archives",
+    "CA trust bundles",
+    "Docker credential configuration",
+    "Terraform state",
+    "private runtime environment variables"
+  ],
+  "oci_metadata": {
+    "backend": {
+      "index": {
+        "file": "backend.index.json",
+        "sha256": "67a6798a3b24b7e06e00791b47ce9e0013e1e9ef80380c64f1c0cee8a69c454e",
+        "size_bytes": 496
+      },
+      "manifest": {
+        "file": "backend.manifest.json",
+        "sha256": "e7a4e8678eaca3b695f1de087660ed50620632db2fe01cf4347003bc82f43a82",
+        "size_bytes": 3721
+      },
+      "config": {
+        "file": "backend.config.json",
+        "sha256": "611aa293f814899c501a3a2ba49f551bee2507c69faf671e76cb15dfe2f57193",
+        "size_bytes": 14277
+      },
+      "environment_audit": {
+        "allowed_public_names_only": true,
+        "names": [
+          "AGENTIUM_IMAGE_REVISION",
+          "DEBIAN_FRONTEND",
+          "GPG_KEY",
+          "LANG",
+          "PATH",
+          "PYTHONDONTWRITEBYTECODE",
+          "PYTHONPATH",
+          "PYTHONUNBUFFERED",
+          "PYTHON_SHA256",
+          "PYTHON_VERSION"
+        ]
+      },
+      "layer_count": 18
+    },
+    "worker": {
+      "index": {
+        "file": "worker.index.json",
+        "sha256": "44ea1e799539f3f6a3827ab0b67ba3d1198eab90ad55cbf1b8a7c6a91a7e848e",
+        "size_bytes": 495
+      },
+      "manifest": {
+        "file": "worker.manifest.json",
+        "sha256": "b237b23bcc0e49befbd8ef520f581373ebce83585f1c7299e3f6380bb2235537",
+        "size_bytes": 4489
+      },
+      "config": {
+        "file": "worker.config.json",
+        "sha256": "1831240ee044017c8fc9f30671d2a0a0ec8e5d1431c11510bc6572a2274d5fc6",
+        "size_bytes": 16660
+      },
+      "environment_audit": {
+        "allowed_public_names_only": true,
+        "names": [
+          "AGENTIUM_IMAGE_REVISION",
+          "DEBIAN_FRONTEND",
+          "GPG_KEY",
+          "LANG",
+          "PATH",
+          "PYTHONDONTWRITEBYTECODE",
+          "PYTHONPATH",
+          "PYTHONUNBUFFERED",
+          "PYTHON_SHA256",
+          "PYTHON_VERSION"
+        ]
+      },
+      "layer_count": 22
+    }
+  },
+  "files": {
+    "diagnostic-attempts/backend-smoke-attempt-1/backend.import-smoke.build.json": {
+      "size_bytes": 2432,
+      "sha256": "1f687b02b70dcc91b34b80a35fc003ecd8ebab73b2a0da1bd0b2ddb4bd67215b"
+    },
+    "diagnostic-attempts/backend-smoke-attempt-1/backend.import-smoke.log": {
+      "size_bytes": 6286,
+      "sha256": "2fab08a02a6850e83c05eafeb24e3dad1475938a9e0000b1e2dded94b213a277"
+    },
+    "diagnostic-attempts/backend-smoke-attempt-1/backend.import-smoke.supervisor.log": {
+      "size_bytes": 2278,
+      "sha256": "4bef0e530efb46a2aacbd524b37a73fd3d9d3699caedb3b33f49c1bcf09c7618"
+    },
+    "diagnostic-attempts/backend-smoke-attempt-1/image_import_smoke.py": {
+      "size_bytes": 9024,
+      "sha256": "6884aee9ef1d1c7dcba021ab73638bfb3c6f566d3f45a3af655f43674b19ecfb"
+    },
+    "oci-metadata/backend.config.json": {
+      "size_bytes": 14277,
+      "sha256": "611aa293f814899c501a3a2ba49f551bee2507c69faf671e76cb15dfe2f57193"
+    },
+    "oci-metadata/backend.index.json": {
+      "size_bytes": 496,
+      "sha256": "67a6798a3b24b7e06e00791b47ce9e0013e1e9ef80380c64f1c0cee8a69c454e"
+    },
+    "oci-metadata/backend.manifest.json": {
+      "size_bytes": 3721,
+      "sha256": "e7a4e8678eaca3b695f1de087660ed50620632db2fe01cf4347003bc82f43a82"
+    },
+    "oci-metadata/worker.config.json": {
+      "size_bytes": 16660,
+      "sha256": "1831240ee044017c8fc9f30671d2a0a0ec8e5d1431c11510bc6572a2274d5fc6"
+    },
+    "oci-metadata/worker.index.json": {
+      "size_bytes": 495,
+      "sha256": "44ea1e799539f3f6a3827ab0b67ba3d1198eab90ad55cbf1b8a7c6a91a7e848e"
+    },
+    "oci-metadata/worker.manifest.json": {
+      "size_bytes": 4489,
+      "sha256": "b237b23bcc0e49befbd8ef520f581373ebce83585f1c7299e3f6380bb2235537"
+    },
+    "qualification-dockerfiles/Dockerfile.backend": {
+      "size_bytes": 5006,
+      "sha256": "acd62e4e806a27c2c515f0c14235950afdd08dd2227bc8121186f98c8d2898d1"
+    },
+    "qualification-dockerfiles/Dockerfile.backend.dockerignore": {
+      "size_bytes": 2006,
+      "sha256": "169349753922f5a735f1a1a9a1cc6f9db03a0887c6792f7394bc84309b861d33"
+    },
+    "qualification-dockerfiles/Dockerfile.backend.import-smoke": {
+      "size_bytes": 5205,
+      "sha256": "a2421063002766abf412441be94439a34b3ffe0a03eb13c70993d6880ba2781f"
+    },
+    "qualification-dockerfiles/Dockerfile.backend.import-smoke.dockerignore": {
+      "size_bytes": 2006,
+      "sha256": "169349753922f5a735f1a1a9a1cc6f9db03a0887c6792f7394bc84309b861d33"
+    },
+    "qualification-dockerfiles/Dockerfile.worker": {
+      "size_bytes": 7929,
+      "sha256": "456c66ccc4414cb5a85c2f7c0868700fecb283165abbf4df5671a4ae32963ce1"
+    },
+    "qualification-dockerfiles/Dockerfile.worker.dockerignore": {
+      "size_bytes": 2006,
+      "sha256": "169349753922f5a735f1a1a9a1cc6f9db03a0887c6792f7394bc84309b861d33"
+    },
+    "qualification-dockerfiles/Dockerfile.worker.import-smoke": {
+      "size_bytes": 8128,
+      "sha256": "9248390f46ff883f798f5b4f3a346bde2b3cd1136dc5922b3cc0695af51f25a4"
+    },
+    "qualification-dockerfiles/Dockerfile.worker.import-smoke.dockerignore": {
+      "size_bytes": 2006,
+      "sha256": "169349753922f5a735f1a1a9a1cc6f9db03a0887c6792f7394bc84309b861d33"
+    },
+    "reports/backend.build.json": {
+      "size_bytes": 2327,
+      "sha256": "6d46e107be3b1ae4d79c55d75c16f2b3eeb6787b7ed1776a3765406e945b3435"
+    },
+    "reports/backend.import-smoke.build.json": {
+      "size_bytes": 2440,
+      "sha256": "142d5215c3ee499614df79d421b15f70a0586d7ded353286d3a948a63911e6da"
+    },
+    "reports/backend.import-smoke.log": {
+      "size_bytes": 6376,
+      "sha256": "4f2fca23b79c7f2fd456f60e31802dd6b330d1ee8c88a52c0918233ad590d8cf"
+    },
+    "reports/backend.import-smoke.result.json": {
+      "size_bytes": 1716,
+      "sha256": "fa38e44ea4c8830809473594d10631ce30434b59b4c30f50fa4aaa42e0b7430f"
+    },
+    "reports/backend.measurement.json": {
+      "size_bytes": 10366,
+      "sha256": "acb86b166c29c4248d9dc572da1c3902bf1551740d155c333d77a17683b281cd"
+    },
+    "reports/base-docker-inspect.json": {
+      "size_bytes": 644,
+      "sha256": "f2908ab2d93ebf57aeaf480c9a69740c5394f30b657e5231f90cc8e57f8defc0"
+    },
+    "reports/base-size-calibration.json": {
+      "size_bytes": 466,
+      "sha256": "abdd5922c424b264bc31cd71551214fd97aa1845f24cfb6d1bdedc3e41c4f7c0"
+    },
+    "reports/builder-environment.json": {
+      "size_bytes": 2073,
+      "sha256": "8046a1325ff08e2449fe15d223196ac225cfc4982e85e1d8ccb9f2a24fc2d747"
+    },
+    "reports/builder-metrics.jsonl": {
+      "size_bytes": 3391,
+      "sha256": "8b124d4b43c7ac4d2d39c8fcc41cf86b0b71ac32188904af48984f1cb3489c91"
+    },
+    "reports/images.measurement.json": {
+      "size_bytes": 22754,
+      "sha256": "0462f3a9ff8d1da9f6aab8adddc760a221a4dccdf83a53dacb4008093f112447"
+    },
+    "reports/pytest-final-fixture-cleanup.json": {
+      "size_bytes": 521,
+      "sha256": "c45899822af816eda2c9a018c6d07e3f5ee026092b0c6927ae03d7927b60e261"
+    },
+    "reports/qualification-session.json": {
+      "size_bytes": 4201,
+      "sha256": "47094ff96a4410c71a491d66007ee278ba6b8bed61e20b1b56e68a54506d22e1"
+    },
+    "reports/worker.build.json": {
+      "size_bytes": 2323,
+      "sha256": "07e8569449fb9bfd7b8c0878c3057621876b7c46228f08d9e3692ef3ba52156b"
+    },
+    "reports/worker.giskard-embedded-qualification.json": {
+      "size_bytes": 285,
+      "sha256": "ffe5d11c4bd3f47b19bf5b9b01c93e1623bfc330f2eeff88e5b9b82966bfba60"
+    },
+    "reports/worker.import-smoke.build.json": {
+      "size_bytes": 2435,
+      "sha256": "4e6696192aa293b8c71c5db00418ddbc4bcf5cbd5e81dc4ba669ff2553f284ae"
+    },
+    "reports/worker.import-smoke.log": {
+      "size_bytes": 7874,
+      "sha256": "e0f55d712444788f54404e6209ff7edd7d15f8973f5a4a9846f133b5c84e686a"
+    },
+    "reports/worker.import-smoke.result.json": {
+      "size_bytes": 1716,
+      "sha256": "9ac9ff2186d64798787f22e85b4ddda153b934c0a476b54d90110992b27c092b"
+    },
+    "reports/worker.measurement.json": {
+      "size_bytes": 12273,
+      "sha256": "2b154660c5743e6d106aaf4097ff0856a071ea647d3a4fdec20c77c238683e02"
+    },
+    "source-inputs/backend/constraints-demo-app.txt": {
+      "size_bytes": 4414,
+      "sha256": "b7fedf85251daa2bfb897642c57f2b35fc43a2c7fad9a6b2d488d948921a015b"
+    },
+    "source-inputs/backend/constraints-demo-giskard.txt": {
+      "size_bytes": 5225,
+      "sha256": "c0f5b4614b74aeb09161f6808c65eb748e38e92ea1b350efb3a9fa1ddf3e561f"
+    },
+    "source-inputs/backend/constraints-demo-ml-deep.txt": {
+      "size_bytes": 306,
+      "sha256": "6b8dc522c77a92ff0240bac36fca27103bf03d6610b8ca24e289b46eacf90738"
+    },
+    "source-inputs/backend/requirements.txt": {
+      "size_bytes": 4646,
+      "sha256": "7e731ff416269ecdd2800ae47afcecfe74836649652e95de9c2c16bd94feab51"
+    },
+    "source-inputs/backend/requirements_giskard.txt": {
+      "size_bytes": 649,
+      "sha256": "dc517b000bd2235979cabd3ac07ead0935d3f69435b365c35cc681545576cc20"
+    },
+    "source-inputs/backend/requirements_hf_rag.txt": {
+      "size_bytes": 288,
+      "sha256": "320b2c516fc11fc21ac75a8fcfe3a0baa67b0f11f0b0f9f56c7387e65da0e740"
+    },
+    "source-inputs/docker/Dockerfile.agentium-backend": {
+      "size_bytes": 3710,
+      "sha256": "361c170a15812e52fb86e5ea3cc27131d7651898e0af20497e689077f82b3a53"
+    },
+    "source-inputs/docker/Dockerfile.agentium-backend.dockerignore": {
+      "size_bytes": 2006,
+      "sha256": "169349753922f5a735f1a1a9a1cc6f9db03a0887c6792f7394bc84309b861d33"
+    },
+    "source-inputs/docker/Dockerfile.agentium-worker": {
+      "size_bytes": 6147,
+      "sha256": "deb8f7cda8570be9acaa3fbb92e916da0c4b320453613a70a7fccb775ae4e9ff"
+    },
+    "source-inputs/docker/Dockerfile.agentium-worker.dockerignore": {
+      "size_bytes": 2006,
+      "sha256": "169349753922f5a735f1a1a9a1cc6f9db03a0887c6792f7394bc84309b861d33"
+    },
+    "source-inputs/scripts/agentium-image-budget.sh": {
+      "size_bytes": 3020,
+      "sha256": "1abd2f02b780fff2190099833bffc7a631c34aad2b397018112a2b9e25aa1366"
+    },
+    "source-inputs/scripts/agentium-vm-build.sh": {
+      "size_bytes": 4149,
+      "sha256": "1d8784d93d09c296ef13938dbdf7363cc0381add8ea0150de550da7ac814e345"
+    },
+    "tools/analyze_backend_layers.py": {
+      "size_bytes": 4735,
+      "sha256": "73b61bfa30f357433e9f623717849c16bac4c1a983434cfa3471c7b4c381cba5"
+    },
+    "tools/build.py": {
+      "size_bytes": 9936,
+      "sha256": "7e1883f8ac46ea75856e4a0330c1f2dcbcacb00313de8694c9d17f3b8cb5c614"
+    },
+    "tools/capture_builder.py": {
+      "size_bytes": 1772,
+      "sha256": "93fccc8221f98fb8a55debfc4fe5a210f7ec64bb223530cc0cb140c5623a96f5"
+    },
+    "tools/image_import_smoke.py": {
+      "size_bytes": 9698,
+      "sha256": "9f7dcfa12f783603d2f52dc8db69ac6dc43c3c5d2accff6cc522d09d677aa22c"
+    },
+    "tools/make_evidence_bundle.py": {
+      "size_bytes": 9857,
+      "sha256": "00f22dc5ae2402b720ac9f425221d95c92d63de91b6b68d824bc6515d7b5dd79"
+    },
+    "tools/measure_oci.py": {
+      "size_bytes": 11171,
+      "sha256": "841c8d24824af28111944ab8d8a7c64a7bb5ce4238c6c0404cbc27fed7ee1d62"
+    },
+    "tools/prepare_build.py": {
+      "size_bytes": 1360,
+      "sha256": "3e23e06325a04bd6644e6afa38ae76435115feba3a16f68c1ac084175bc71825"
+    },
+    "tools/run_cgroup_benchmark.py": {
+      "size_bytes": 9145,
+      "sha256": "216ec8467f1af12d570553db40ff82316dc9f6323d5028c18779f5b66db84f34"
+    },
+    "tools/test_measure_oci.py": {
+      "size_bytes": 3377,
+      "sha256": "123287a2096578b18e7fbded34e2cc1cd6dccaaf6f371ebe4d69104fadf14a09"
+    },
+    "reports/diagnostic-archive-cleanup.json": {
+      "size_bytes": 428,
+      "sha256": "e124787d93ac6fb31c772ba4c249f9caed17c1792ca63f062ffa4d82a782693a"
+    },
+    "reports/builder-cache-cleanup.json": {
+      "size_bytes": 653,
+      "sha256": "f470f0380e84575764c605af92bdbccfe803c780fd746f291ea4f7f754b5160a"
+    }
+  },
+  "reproduction": [
+    "Obtain the complete source repository at source_revision; this bundle is not a full source checkout.",
+    "Use a local dedicated BuildKit builder with fuse-overlayfs, effective 4GiB/no-swap and2CPU limits, and the public pinned Python base.",
+    "Configure the session proxy and CA externally. No certificate or credential is bundled.",
+    "Adapt external workspace paths in tooling if needed, then prepare_build.py and build.py generate the OCI archive without Docker load.",
+    "Run measure_oci.py against that archive; it verifies compressed hashes and diff_ids, then separately counts compressed bytes, uncompressed tar bytes and hdr.Size payload bytes.",
+    "The existing local Python base image can validate the same four diff_ids and exact Docker inspect.Size accounting without loading the application image.",
+    "Import/preview smokes are separate cache-only BuildKit targets: real compiler and sample previews test ordinary execution, a closed expansion refusal, then recovery without cache reuse. No FastAPI lifespan or external services are started."
+  ],
+  "limits": [
+    "Historical Docker choices being unchanged does not prove the size of a historical image.",
+    "No byte-identical rebuild is promised: OS package repositories and generated timestamps are not fully frozen by Python constraints.",
+    "This bundle does not imply VM deployment, all-image budget approval, or production/runtime qualification.",
+    "Any arithmetic excluding layer/package bytes is not a measured replacement image.",
+    "The benchmark wrapper is supplied as tooling; its presence alone is not evidence of an executed benchmark."
+  ]
+}

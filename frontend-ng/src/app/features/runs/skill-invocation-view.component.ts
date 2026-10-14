@@ -37,6 +37,7 @@ import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-persp
 import { recordedModelExecution } from '@app/core/model-catalog';
 import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.component';
 import { observabilityText } from '../observability/observability-labels';
+import { TypedJudgeResultComponent } from '../data/typed-judge-result.component';
 import {
   arrivalProvenanceLabel,
   readArrivalProvenance,
@@ -54,6 +55,7 @@ import {
     CkTabComponent,
     ObjectPerspectiveComponent,
     ModelExecutionComponent,
+    TypedJudgeResultComponent,
   ],
   template: `
     <ck-object-header
@@ -105,6 +107,7 @@ import {
           <ck-object-perspective [objectLabel]="i18n.t('runs.invocation.object_label')" [lens]="activeLens()" facet="overview" [perspective]="activePerspective()" [loading]="loading()" [error]="error()" />
         </ck-tab>
         <ck-tab id="io" [label]="i18n.t('runs.invocation.tab.io')">
+          <app-typed-judge-result [value]="invocation()?.output_ref" />
           <ck-object-perspective [objectLabel]="i18n.t('runs.invocation.object_label')" [lens]="activeLens()" facet="io" [perspective]="activePerspective()" [loading]="loading()" [error]="error()" />
         </ck-tab>
         <ck-tab id="runtime" [label]="i18n.t('runs.invocation.tab.runtime')">

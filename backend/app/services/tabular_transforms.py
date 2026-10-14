@@ -29,7 +29,6 @@ snake_case slug.
 
 from __future__ import annotations
 
-import hashlib
 import re
 import tempfile
 import threading
@@ -46,8 +45,9 @@ from app.core.logging import get_logger
 from app.models.tabular import TabularDataset
 from app.services.tabular_datasets import (
     TabularError,
+    dataset_digest,
     dataset_reference,
-    materialize,
+    materialize_dataset,
     profile_frame,
     register_frame,
     resolve_dataset_ref,
@@ -344,10 +344,6 @@ def source_catalog(sources: Iterable[TransformSource]) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-def _quote_path(path: Path) -> str:
-    return str(path).replace("'", "''")
-
-
 def execute_sql(
     sources: list[TransformSource],
     sql: str,
@@ -369,6 +365,7 @@ def execute_sql(
 
     import duckdb
     import polars as pl
+    import pyarrow.dataset as pa_dataset
 
     validated = validate_sql(sql)
     cap = int(row_limit or settings.tabular_transform_max_rows)
@@ -385,16 +382,24 @@ def execute_sql(
         if timer is not None:
             timer.start()
         try:
-            connection.execute("SET threads TO 2")
-            connection.execute("SET memory_limit = '1GB'")
+            # In-process, so no spill directory: a statement that needs a disk
+            # belongs on the worker plane (dataops.sql_execution), not here.
+            memory_mb = (
+                settings.dataops_preview_memory_mb
+                if truncate
+                else settings.dataops_duckdb_memory_mb
+            )
+            connection.execute(f"SET threads TO {int(settings.dataops_duckdb_threads)}")
+            connection.execute(f"SET memory_limit = '{int(memory_mb)}MB'")
+            connection.execute("SET temp_directory = ''")
             for index, source in enumerate(sources):
                 try:
                     if max_input_bytes is None:
-                        local = materialize(source.dataset, root / f"{source.view}.parquet")
+                        local = materialize_dataset(source.dataset, root / source.view)
                     else:
-                        local = materialize(
+                        local = materialize_dataset(
                             source.dataset,
-                            root / f"{source.view}.parquet",
+                            root / source.view,
                             max_bytes=max_input_bytes,
                         )
                 except ValueError as exc:
@@ -404,24 +409,22 @@ def execute_sql(
                             message="A source exceeds the enrichment byte budget.",
                         ) from exc
                     raise
-                if max_input_bytes is not None and local.stat().st_size > max_input_bytes:
+                if max_input_bytes is not None and sum(path.stat().st_size for path in local) > max_input_bytes:
                     raise TabularError(
                         code="ENRICHMENT_INPUT_TOO_LARGE",
                         message="A source exceeds the enrichment byte budget.",
                     )
                 if source_evidence is not None:
-                    with local.open("rb") as handle:
-                        digest = hashlib.file_digest(handle, "sha256").hexdigest()
+                    digest = dataset_digest(source.dataset)
                     source_evidence[source.view] = {
                         "sha256": digest,
-                        "size_bytes": local.stat().st_size,
+                        "size_bytes": sum(path.stat().st_size for path in local),
                     }
-                # Eager load: after this loop the filesystem is sealed, so the
-                # author's statement cannot reach any path.
-                connection.execute(
-                    f'CREATE TABLE "{source.view}" AS '
-                    f"SELECT * FROM read_parquet('{_quote_path(local)}')"
-                )
+                # Scanned lazily through Arrow, which reads the file itself: the
+                # seal below closes duckdb's own filesystem, so the author's
+                # statement still cannot reach any path, but a preview reading
+                # five rows of two columns no longer loads the whole table.
+                connection.register(source.view, pa_dataset.dataset([str(path) for path in local], format="parquet"))
                 if max_input_rows is not None:
                     count = connection.execute(f'SELECT count(*) FROM "{source.view}"').fetchone()[
                         0
@@ -443,6 +446,9 @@ def execute_sql(
                 )
             if prepare is not None:
                 prepare(connection)
+            # After the caller's own settings (the enrichment pins its time
+            # zone): from here nothing the seal closed can be switched back.
+            connection.execute("SET lock_configuration = true")
             try:
                 # One row past the cap so an oversized result is detectable
                 # rather than silently trimmed.

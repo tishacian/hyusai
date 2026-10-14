@@ -1,0 +1,60 @@
+{
+  "synthetic": true,
+  "minio_release": "RELEASE.2025-04-22T22-12-26Z",
+  "target_bytes": 3231962890,
+  "profile_requested": true,
+  "budgets": {
+    "rss_mb": 4096,
+    "duckdb_memory_mb": 1024,
+    "spill_mb": 4096,
+    "profile_timeout_s": 900,
+    "profile_threads": 1
+  },
+  "status": "passed",
+  "phase": "completed",
+  "elapsed_seconds": 84.679,
+  "cgroup": {
+    "memory.max": "4294967296",
+    "memory.peak": "4297986048",
+    "memory.events": "low 0\nhigh 0\nmax 32177\noom 0\noom_kill 0\noom_group_kill 0",
+    "cpu.max": "200000 100000"
+  },
+  "rows": 790528,
+  "parts": 25,
+  "actual_bytes": 3248348018,
+  "write_seconds": 11.763,
+  "writer": {
+    "operation": "CONVERT",
+    "engine_info": "delta-rs:py-1.6.6",
+    "client_version": "delta-rs.py-1.6.6",
+    "commit_versions": [
+      "00000000000000000000.json"
+    ],
+    "log_bytes": 10136,
+    "parts_reencoded_during_commit": false
+  },
+  "sample_seconds": 6.355,
+  "sample": {
+    "method": "reservoir_seeded",
+    "seed": 42,
+    "rows": 1250,
+    "size_bytes": 5175351,
+    "sha256": "cc3bd9e3e7189e56393f9fd20934f6575e8c172658cda22d8d62ed888ab7eec2"
+  },
+  "upload_seconds": 32.494,
+  "commit_digest": "a5c7bd96a8ea300d5ff1ec6010c7fdacf5f4bcacc4a83fc0efcf605189a14626",
+  "projected_read_seconds": 2.044,
+  "verified_download_seconds": 17.601,
+  "download_sha256_verified": true,
+  "orphan_ignored": true,
+  "sample_bytes": 5175351,
+  "profile": {
+    "status": "passed",
+    "rows": 790528,
+    "columns": 2
+  },
+  "profile_seconds": 20.574,
+  "total_seconds": 84.679,
+  "self_peak_rss_mb": 664.055,
+  "children_peak_rss_mb": 1191.328
+}

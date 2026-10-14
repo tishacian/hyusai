@@ -25,6 +25,10 @@ const stub = join(here, 'ng-core.stub.mjs');
 // Pure specs: engine-agnostic logic. `@angular/core` is aliased to a
 // metadata-only stub (the serializer uses it only for `@Injectable`).
 const pureSpecs = [
+  'src/app/features/orchestration/flow/flow-data-prep.vm.spec.ts',
+  'src/app/features/orchestration/flow/flow-data-prep-ui-contract.spec.ts',
+  'src/app/features/data/dataops.models.spec.ts',
+  'src/app/features/experience/work/service-delivery.models.spec.ts',
   'src/app/features/models/preprocessing-evidence.vm.spec.ts',
   'src/app/features/models/evaluation-evidence.vm.spec.ts',
   'src/app/features/connectors/huggingface/huggingface.models.spec.ts',
@@ -182,9 +186,11 @@ const pureSpecs = [
 // Store specs: exercised through a REAL Angular Injector (ngrx signalStore +
 // JIT). No `@angular/core` alias; the spec imports `@angular/compiler` itself.
 const storeSpecs = [
+  'src/app/features/data/dataops.api.spec.ts',
   'src/app/features/connectors/huggingface/huggingface-lifecycle.component.spec.ts',
   'src/app/features/knowledge/collection-models.component.spec.ts',
   'src/app/features/connectors/huggingface/huggingface-connector.component.spec.ts',
+  'src/app/features/connectors/hana/hana-connector.component.spec.ts',
   'src/app/features/models/models-shadow.service.spec.ts',
   'src/app/features/models/models-monitoring.service.spec.ts',
   'src/app/features/models/forecast-actuals.component.spec.ts',

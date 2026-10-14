@@ -1,0 +1,67 @@
+{
+  "batch_rows": 65536,
+  "benchmark_id": "8efdd150173241a48e61f52bad8b9f57",
+  "business_quality_claim": false,
+  "cardinality": {
+    "excluded": 0,
+    "expected": 3000000,
+    "processed": 3000000
+  },
+  "execution_surface": "direct_worker_benchmark",
+  "extra_columns": 28,
+  "input": {
+    "column_count": 32,
+    "dataset_id": "677410ba-2927-4540-bd0b-89e2a1c1ca5f",
+    "digest": "a9e07a17f756f0c2eb7392d978e79c68a178d7c4fe274999570e3b5684a04004",
+    "format": "delta",
+    "part_count": 6,
+    "row_count": 3000000,
+    "size_bytes": 854328168,
+    "version": 1
+  },
+  "memory": {
+    "baseline_rss_bytes": 397996032,
+    "max_child_rss_bytes": 1390575616,
+    "peak_process_rss_bytes": 1339371520,
+    "peak_tree_sampled_rss_bytes": 2139041792,
+    "sampled_scope": "visible_process_tree_via_proc_ppid",
+    "sampling_interval_ms": 50
+  },
+  "model": {
+    "family": "tabular",
+    "id": "74e56eef89a64752aca48c927c00e222",
+    "version": 1
+  },
+  "observed_at": "2026-10-14T00:47:06.442074+00:00",
+  "output": {
+    "column_count": 35,
+    "dataset_id": "daf8327f-9a66-492a-9bc8-1ddaf3ba6251",
+    "digest": "c38485d9b43b787ab514a5dcfb41f5b30316f76d42ae28af521403eb05d4b162",
+    "format": "delta",
+    "part_count": 7,
+    "row_count": 3000000,
+    "size_bytes": 859998846,
+    "version": 1
+  },
+  "phases": {
+    "ingestion_seconds": 76.3442599419941,
+    "preparation_seconds": 91.12070588999632,
+    "scoring_seconds": 163.02189069299493
+  },
+  "prepared": {
+    "column_count": 32,
+    "dataset_id": "ae429aaa-a700-4a63-810f-a6b95aa0ce9f",
+    "digest": "10f282833cd6b56fc3b7c253a5bb6e23b775618d8314a25ea3a16906c2142e3d",
+    "format": "delta",
+    "part_count": 7,
+    "row_count": 3000000,
+    "size_bytes": 861480612,
+    "version": 1
+  },
+  "receipts_created": 0,
+  "schema_version": 1,
+  "synthetic_input": true,
+  "synthetic_method": "counter_hash_native_example_ranges",
+  "total_seconds": 330.5524989600017,
+  "varied_inputs": true
+}

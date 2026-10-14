@@ -1,0 +1,70 @@
+[
+  {
+    "synthetic": true,
+    "minio_release": "RELEASE.2025-04-22T22-12-26Z",
+    "target_bytes": 3231962890,
+    "profile_requested": true,
+    "budgets": {
+      "rss_mb": 4096,
+      "duckdb_memory_mb": 1024,
+      "spill_mb": 4096,
+      "profile_timeout_s": 900
+    },
+    "rows": 790528,
+    "parts": 25,
+    "actual_bytes": 3248348018,
+    "write_seconds": 14.195,
+    "upload_seconds": 51.806,
+    "commit_digest": "21a96695122e584b710b9a6e6258d3fb31ee745e0b14f13eda03473cd47fb2c7",
+    "projected_read_seconds": 3.084,
+    "verified_download_seconds": 38.391,
+    "download_sha256_verified": true,
+    "orphan_ignored": true,
+    "sample_bytes": 6322410,
+    "profile": {
+      "status": "refused",
+      "code": "DATASET_PROFILE_BUDGET_OR_EXECUTION_FAILED"
+    },
+    "profile_seconds": 26.274,
+    "status": "profile_refused",
+    "total_seconds": 134.215,
+    "self_peak_rss_mb": 678.211,
+    "children_peak_rss_mb": 1289.371,
+    "attempt": 5,
+    "qualified": false
+  },
+  {
+    "synthetic": true,
+    "minio_release": "RELEASE.2025-04-22T22-12-26Z",
+    "target_bytes": 3231962890,
+    "profile_requested": true,
+    "budgets": {
+      "rss_mb": 4096,
+      "duckdb_memory_mb": 1024,
+      "spill_mb": 4096,
+      "profile_timeout_s": 900
+    },
+    "rows": 790528,
+    "parts": 25,
+    "actual_bytes": 3248348018,
+    "write_seconds": 11.081,
+    "upload_seconds": 44.433,
+    "commit_digest": "5071ec4c5ccc3daff5f00e21030535bf03c623529255413e70414b61bf452a51",
+    "projected_read_seconds": 1.709,
+    "verified_download_seconds": 23.817,
+    "download_sha256_verified": true,
+    "orphan_ignored": true,
+    "sample_bytes": 6322410,
+    "profile": {
+      "status": "refused",
+      "code": "DATASET_PROFILE_BUDGET_OR_EXECUTION_FAILED"
+    },
+    "profile_seconds": 6.764,
+    "status": "profile_refused",
+    "total_seconds": 88.137,
+    "self_peak_rss_mb": 674.121,
+    "children_peak_rss_mb": 1172.172,
+    "attempt": 6,
+    "qualified": false
+  }
+]

@@ -1,0 +1,45 @@
+{
+  "moby_reference": "Moby v28.4.0 daemon/containerd/image_inspect.go:181-205",
+  "rows": [
+    {
+      "image": "historical_backend",
+      "manifest_digest": "sha256:8d5e7153c217bd42757c31dbbf51ec9608c9f2e272e9d203d17367d8c0b7cd89",
+      "manifest_bytes": 3721,
+      "config_digest": "sha256:17338223a85dcd1c6d39e40edbfe4678337b4dac81e5693a0b9953c6f75db1c5",
+      "config_bytes": 14267,
+      "compressed_layer_bytes": 1288128726,
+      "manifest_target_packed_bytes": 1288146714,
+      "manifest_target_mib_floor": 1228,
+      "exported_index_bytes": 496,
+      "if_exact_exported_index_is_target_packed_bytes": 1288147210,
+      "scope": "Descriptor arithmetic on verified metadata, not an actual Docker containerd inspect. Docker target identity and store remain to be observed."
+    },
+    {
+      "image": "qualified_backend",
+      "manifest_digest": "sha256:e7a4e8678eaca3b695f1de087660ed50620632db2fe01cf4347003bc82f43a82",
+      "manifest_bytes": 3721,
+      "config_digest": "sha256:611aa293f814899c501a3a2ba49f551bee2507c69faf671e76cb15dfe2f57193",
+      "config_bytes": 14277,
+      "compressed_layer_bytes": 1346033449,
+      "manifest_target_packed_bytes": 1346051447,
+      "manifest_target_mib_floor": 1283,
+      "exported_index_bytes": 496,
+      "if_exact_exported_index_is_target_packed_bytes": 1346051943,
+      "scope": "Descriptor arithmetic on verified metadata, not an actual Docker containerd inspect. Docker target identity and store remain to be observed."
+    },
+    {
+      "image": "qualified_worker",
+      "manifest_digest": "sha256:b237b23bcc0e49befbd8ef520f581373ebce83585f1c7299e3f6380bb2235537",
+      "manifest_bytes": 4489,
+      "config_digest": "sha256:1831240ee044017c8fc9f30671d2a0a0ec8e5d1431c11510bc6572a2274d5fc6",
+      "config_bytes": 16660,
+      "compressed_layer_bytes": 1716377327,
+      "manifest_target_packed_bytes": 1716398476,
+      "manifest_target_mib_floor": 1636,
+      "exported_index_bytes": 495,
+      "if_exact_exported_index_is_target_packed_bytes": 1716398971,
+      "scope": "Descriptor arithmetic on verified metadata, not an actual Docker containerd inspect. Docker target identity and store remain to be observed."
+    }
+  ],
+  "vm_inspect_performed": false
+}

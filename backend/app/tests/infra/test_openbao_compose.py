@@ -20,7 +20,13 @@ HUB_OVERLAY = ROOT / "docker/compose.agentium.openbao-huggingface.yml"
 CONFIG = ROOT / "docker/openbao/openbao.hcl"
 BOOTSTRAP = ROOT / "scripts/agentium_openbao_bootstrap.py"
 SNAPSHOT = ROOT / "scripts/agentium-openbao-snapshot.sh"
-CLIENTS = ("agentium-backend", "agentium-migrate", "agentium-worker-cpu", "agentium-worker-recipes")
+CLIENTS = (
+    "agentium-backend",
+    "agentium-migrate",
+    "agentium-worker-cpu",
+    "agentium-worker-recipes",
+    "agentium-worker-dataops",
+)
 
 
 def _server(model: dict) -> dict:

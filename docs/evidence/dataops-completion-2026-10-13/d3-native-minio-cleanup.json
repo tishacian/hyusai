@@ -1,0 +1,8 @@
+{
+  "time_utc": "2026-10-13T22:54:08.157421+00:00",
+  "minio_container_removed": true,
+  "client_container_removed": true,
+  "fixture_data_credentials_binaries_removed": true,
+  "client_scratch_removed": true,
+  "workspace_free_bytes": 18184654848
+}

@@ -24,7 +24,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import settings
 from app.models.tabular import MLModel, MLPrediction, TabularDataset
-from app.services.tabular_datasets import TabularError, materialize, register_frame
+from app.services.tabular_datasets import (
+    TabularError,
+    dataset_digest,
+    materialize_dataset,
+    register_frame,
+)
 
 MAX_CALLS = 400
 MAX_POINTS = 25_600
@@ -112,17 +117,14 @@ def _read(dataset):
         _refuse("ML_FORECAST_ACTUALS_TOO_LARGE", "Observed history is limited to 100,000 rows and 32 MiB.", 413)
     with tempfile.TemporaryDirectory(prefix="forecast-actuals-") as folder:
         try:
-            path = materialize(dataset, Path(folder) / "data.parquet")
-            if path.stat().st_size > MAX_BYTES:
-                _refuse("ML_FORECAST_ACTUALS_TOO_LARGE", "Observed history exceeds 32 MiB.", 413)
-            metadata = pq.read_metadata(path)
-            if metadata.num_rows > MAX_ROWS or metadata.num_columns > 256:
+            paths = materialize_dataset(dataset, Path(folder) / "data", max_bytes=MAX_BYTES)
+            metadata = [pq.read_metadata(path) for path in paths]
+            if (sum(m.num_rows for m in metadata) > MAX_ROWS
+                    or any(m.num_columns > 256 for m in metadata)):
                 _refuse("ML_FORECAST_ACTUALS_TOO_LARGE", "Observed history exceeds its row or column budget.", 413)
-            # Compressed inputs must not expand without bound on an API worker.
-            if sum(metadata.row_group(i).total_byte_size for i in range(metadata.num_row_groups)) > MAX_BYTES * 4:
+            if sum(m.row_group(i).total_byte_size for m in metadata for i in range(m.num_row_groups)) > MAX_BYTES * 4:
                 _refuse("ML_FORECAST_ACTUALS_TOO_LARGE", "Observed history exceeds its decoded byte budget.", 413)
-            fingerprint = hashlib.sha256(path.read_bytes()).hexdigest()
-            return pl.read_parquet(path), fingerprint
+            return pl.read_parquet(paths), dataset_digest(dataset)
         except TabularError:
             raise
         except Exception as exc:  # ObjectStore and Parquet backends vary; expose one coded refusal.

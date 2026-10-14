@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "operation": "prepare",
+  "params": {
+    "steps": [
+      {
+        "id": "golden",
+        "kind": "concat_columns",
+        "params": {
+          "columns": [
+            "a",
+            "b"
+          ],
+          "output": "c",
+          "separator": "-"
+        }
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "port": "out",
+      "name": "Golden"
+    }
+  ]
+}

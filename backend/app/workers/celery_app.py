@@ -32,6 +32,8 @@ celery_app = configure(
 )
 
 celery_app.conf.task_routes = {
+    "agentium.dataops_sample_recovery": {"queue": settings.celery_task_default_queue},
+    "agentium.dataops_build_sample": {"queue": settings.celery_dataops_queue},
     "agentium.hf_import": {"queue": "hub_fetch"},
     "agentium.hf_materialize_cache": {"queue": "hub_fetch"},
     "agentium.hf_cleanup_temporary": {"queue": "hub_fetch"},
@@ -45,6 +47,11 @@ celery_app.conf.task_routes = {
 
 
 celery_app.conf.beat_schedule = {
+    "dataops-sample-recovery-60s": {
+        "task": "agentium.dataops_sample_recovery",
+        "schedule": 60.0,
+        "options": {"queue": settings.celery_task_default_queue},
+    },
     "hf-import-recovery-60s": {
         "task": "agentium.hf_recover",
         "schedule": 60.0,

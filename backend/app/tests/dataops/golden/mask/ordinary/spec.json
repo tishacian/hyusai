@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "operation": "prepare",
+  "params": {
+    "steps": [
+      {
+        "id": "golden",
+        "kind": "mask",
+        "params": {
+          "columns": [
+            "a"
+          ],
+          "keep_first": 1,
+          "keep_last": 1
+        }
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "port": "out",
+      "name": "Golden"
+    }
+  ]
+}

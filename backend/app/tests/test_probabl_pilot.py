@@ -7,7 +7,11 @@ import importlib.util
 import json
 import os
 import platform
+import signal
+import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -226,6 +230,162 @@ def test_cpu_budget_counts_children_and_timeout_kills_process_group(tmp_path):
     assert measured["stopped_by"] == "case_wall_budget"
     stat = Path("/proc") / child_pid.read_text() / "stat"
     assert not stat.exists() or stat.read_text().rsplit(")", 1)[1].split()[0] == "Z"
+
+
+@linux_sandbox
+def test_return_waits_until_a_delayed_descendant_kill_has_taken_effect(tmp_path, monkeypatch):
+    """Signal delivery and waiting for the group leader are not an exit barrier."""
+    child_pid = tmp_path / "child.pid"
+    code = f"import subprocess,sys,time; child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); open({str(child_pid)!r},'w').write(str(child.pid)); time.sleep(30)"
+    real_killpg = os.killpg
+    timers = []
+    groups = []
+    delivered = threading.Event()
+
+    def delayed_killpg(group, sig):
+        groups.append(group)
+        try:
+            os.kill(group, sig)  # The leader dies immediately; the descendant remains alive.
+        except ProcessLookupError:
+            pass
+        if timers:
+            return
+
+        def kill_descendant():
+            delivered.set()
+            try:
+                real_killpg(group, sig)
+            except ProcessLookupError:
+                pass
+
+        timer = threading.Timer(0.15, kill_descendant)
+        timers.append(timer)
+        timer.start()
+
+    monkeypatch.setattr(pilot.os, "killpg", delayed_killpg)
+    try:
+        measured = pilot.run_bounded(
+            [sys.executable, "-c", code],
+            env=os.environ.copy(),
+            wall_seconds=2,
+            cpu_seconds=10,
+            memory_bytes=1024**3,
+        )
+        assert measured["stopped_by"] == "case_wall_budget"
+        assert delivered.is_set(), "run_bounded returned while its descendant was still alive"
+        try:
+            state = (
+                (Path("/proc") / child_pid.read_text() / "stat")
+                .read_text()
+                .rsplit(")", 1)[1]
+                .split()[0]
+            )
+        except FileNotFoundError:
+            state = None
+        assert state in {None, "Z", "X"}
+    finally:
+        for timer in timers:
+            timer.join(timeout=2)
+        for group in set(groups):
+            try:
+                real_killpg(group, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+@linux_sandbox
+def test_normal_leader_exit_also_waits_for_orphaned_descendants(tmp_path):
+    child_pid = tmp_path / "child.pid"
+    code = f"import subprocess,sys; child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); open({str(child_pid)!r},'w').write(str(child.pid))"
+    measured = pilot.run_bounded(
+        [sys.executable, "-c", code],
+        env=os.environ.copy(),
+        wall_seconds=5,
+        cpu_seconds=5,
+        memory_bytes=1024**3,
+    )
+    assert measured["exit_code"] == 0 and measured["stopped_by"] is None
+    try:
+        state = (
+            (Path("/proc") / child_pid.read_text() / "stat")
+            .read_text()
+            .rsplit(")", 1)[1]
+            .split()[0]
+        )
+    except FileNotFoundError:
+        state = None
+    assert state in {None, "Z", "X"}
+
+
+@linux_sandbox
+@pytest.mark.parametrize("leader_exits", [False, True])
+def test_unconfirmed_process_group_cleanup_is_bounded_and_raises(
+    tmp_path, monkeypatch, leader_exits
+):
+    child_pid = tmp_path / "child.pid"
+    if leader_exits:
+        code = f"import subprocess,sys; child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); open({str(child_pid)!r},'w').write(str(child.pid))"
+    else:
+        code = "import time; time.sleep(30)"
+    process = subprocess.Popen([sys.executable, "-c", code], start_new_session=True)
+    real_killpg = os.killpg
+    monkeypatch.setattr(pilot.os, "killpg", lambda *_: None)
+    try:
+        if leader_exits:
+            process.wait(timeout=5)
+            assert child_pid.exists()
+        started = time.monotonic()
+        with pytest.raises(RuntimeError, match="PROCESS_GROUP_CLEANUP_TIMEOUT"):
+            pilot._terminate_process_group(process, timeout_s=0.05)
+        assert time.monotonic() - started < 1
+    finally:
+        try:
+            real_killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=5)
+
+
+def test_process_group_cleanup_does_not_read_an_unrelated_inaccessible_stat(tmp_path, monkeypatch):
+    foreign = tmp_path / "101"
+    own = tmp_path / "102"
+    foreign.mkdir()
+    own.mkdir()
+    (own / "stat").write_text("102 (worker) S 1 777")
+    real_read_text = Path.read_text
+
+    def restricted_read_text(path, *args, **kwargs):
+        if path == foreign / "stat":
+            pytest.fail("Cleanup must not inspect an unrelated process's restricted stat")
+        return real_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(pilot, "Path", lambda _: tmp_path)
+    monkeypatch.setattr(pilot.os, "getpgid", lambda pid: {101: 999, 102: 777}[pid])
+    monkeypatch.setattr(Path, "read_text", restricted_read_text)
+    assert pilot._active_process_group_members(777) == [102]
+
+
+def test_process_group_cleanup_fails_if_its_own_member_is_inaccessible(tmp_path, monkeypatch):
+    own = tmp_path / "102"
+    own.mkdir()
+
+    def restricted_read_text(*args, **kwargs):
+        raise PermissionError("stat is inaccessible")
+
+    monkeypatch.setattr(pilot, "Path", lambda _: tmp_path)
+    monkeypatch.setattr(pilot.os, "getpgid", lambda _: 777)
+    monkeypatch.setattr(Path, "read_text", restricted_read_text)
+    with pytest.raises(RuntimeError, match="PROCESS_GROUP_CLEANUP_UNVERIFIED"):
+        pilot._active_process_group_members(777)
+
+
+def test_process_group_cleanup_rechecks_membership_after_reading_stat(tmp_path, monkeypatch):
+    own = tmp_path / "102"
+    own.mkdir()
+    (own / "stat").write_text("102 (replacement) S 1 999")
+    monkeypatch.setattr(pilot, "Path", lambda _: tmp_path)
+    monkeypatch.setattr(pilot.os, "getpgid", lambda _: 777)
+    assert pilot._active_process_group_members(777) == []
 
 
 def test_summary_never_averages_incomparable_metrics_or_claims_business_value(contract):

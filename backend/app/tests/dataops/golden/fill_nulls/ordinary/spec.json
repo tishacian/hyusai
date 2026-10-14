@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "operation": "prepare",
+  "params": {
+    "steps": [
+      {
+        "id": "golden",
+        "kind": "fill_nulls",
+        "params": {
+          "columns": [
+            "a"
+          ],
+          "method": "constant",
+          "value": 7
+        }
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "port": "out",
+      "name": "Golden"
+    }
+  ]
+}

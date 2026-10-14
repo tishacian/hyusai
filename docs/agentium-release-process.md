@@ -107,13 +107,30 @@ It holds a lock (`/tmp/agentium-vm-build.lock`, one build at a time), then:
    (`AGENTIUM_IMAGE_REQUIRE_LIVEKIT_AGENT=1`) and the budgets below
    (`AGENTIUM_IMAGE_BUDGET_MB_*` overrides one).
 
-| Image | Budget (MB) |
+| Image | Budget (MiB) |
 |---|---|
-| backend | 1400 |
-| worker | 1760 |
+| backend | 1480 |
+| worker | 1850 |
 | frontend | 40 |
 | ml-ts | 1240 |
 | livekit-agent | 110 |
+
+On 14 October 2026, the release owner reported VM measurements for candidate
+`6dcb0d48`: backend 1412 MiB, worker 1765 MiB, frontend 28 MiB, ml-ts 1229 MiB
+and livekit-agent 99 MiB. Backend and worker exceeded the previous 1400/1760
+MiB limits. The approved 1480/1850 MiB limits leave 68/85 MiB (about 5%) above
+those measurements; the other limits are unchanged. See the
+[release note](../CHANGELOG.md#2026-10-14--dataops-candidate-not-deployed) and
+[measurement record](dataops-release-blockers-2026-10-14.md#mesure-candidate-sur-la-vm-et-plafonds-retenus).
+The owner then reported a successful VM rerun against the existing `6dcb0d48`
+images with the limits from `cd015ed6` (**exit code 0**), without rebuilding or
+deploying. This closes the budget check for those images; any future build
+requires a check of its own image tag.
+The script uses `docker image inspect .Size`, divided by 1 048 576 and truncated
+to whole MiB; the existing `*_MB_*` variable names remain unchanged. Any budget
+overrides in the calling process take precedence over these defaults. Recheck
+the exact candidate tag with all five budgets enforced before release; a budget
+change does not switch containers or activate HANA demo mode.
 
 It ends with `build ok: 7 images at <sha12>`. It reads no env bundle and no
 secret, and changes nothing that runs: §5 and §6 do, as root.
@@ -348,17 +365,24 @@ sudo "$DUMP" <sha12> <slice>
 ```
 
 It takes its own `pg_dump`, adds a dump of the `mlflow` registry database,
-mirrors out the `tabular/`, `ml/` and (from revision 106) retained `brd/` prefixes of every workspace the registry
-actually references, checksums each part, and then verifies that every artifact
+copies the exact objects and native artifact directories the data-plane or A1
+registry references, checksums each part, and then verifies that every artifact
 the registry names is present in the window. Retained BRD originals must also match their recorded SHA-256; a missing or corrupt original blocks the window. `.ready` appears only if that check
 passed — so `.ready`, not the directory, is what says the window can be restored
 from. It also runs safely against a pre-096 database, where it reports that there
 is no plane and skips the mirror rather than writing an empty `objects/` that
 would look like a failed mirror.
 
-Do not substitute `mc mirror` of the whole `workspaces/` prefix: knowledge
-collections are an order of magnitude larger and are rebuilt from their sources,
-not restored.
+Do not substitute an unscoped workspace mirror: unrelated knowledge collections
+remain excluded even within a workspace that has an A1 asset. Its manifests
+select additional evidence objects or explicitly referenced native collection
+directories. The copy plan is measured before copying, capped at 8 GiB, and
+requires space for two copies plus a 1 GiB reserve on both staging/destination
+filesystems. The retained reference registry checks
+A1 manifest/object hashes and Delta log/part hashes, both before `.ready` and
+after a restore. Suspend writers and purges throughout the window: the SQL
+dumps and object mirror are not an atomic distributed snapshot. Follow the
+[offline verification and restore procedure](ops/agentium-data-plane-provisioning.md#backups-the-dump-is-now-three-parts).
 
 **One provisioning step this slice adds:** a `mlflow` database on the same
 instance, backing the MLflow Model Registry.

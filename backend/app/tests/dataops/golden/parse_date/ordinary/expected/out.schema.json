@@ -1,0 +1,7 @@
+[
+  {
+    "name": "a",
+    "dtype": "date32[day]",
+    "nullable": true
+  }
+]

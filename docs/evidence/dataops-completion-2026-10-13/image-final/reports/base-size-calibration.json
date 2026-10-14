@@ -1,0 +1,14 @@
+{
+  "image": "backend",
+  "base_diff_ids_identical": true,
+  "base_layer_count": 4,
+  "measured_layer_payload_bytes": 119181182,
+  "actual_base_docker_inspect_size_bytes": 119181182,
+  "equal": true,
+  "application_image_loaded_into_daemon": false,
+  "limit": "Validates exact accounting on the shared base only; application value remains computed from verified OCI layers, not an application image inspect.",
+  "images_checked": [
+    "backend",
+    "worker"
+  ]
+}

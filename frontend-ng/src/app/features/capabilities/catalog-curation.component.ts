@@ -127,7 +127,8 @@ import {
                     </p>
                   </div>
                   <div class="flex items-center gap-3 shrink-0">
-                    <span class="ck-mono ck-tnum" style="font-size:18px; color:var(--ck-fg-1);">+{{ gap.skills }}</span>
+                    <span class="ck-mono ck-tnum" style="font-size:18px; color:var(--ck-fg-1);">{{ gap.lever === 'feature' ? '' : '+' }}{{ gap.skills }}</span>
+                    @if (gap.lever !== 'feature') {
                     <button
                       type="button"
                       (click)="applyGap(gap)"
@@ -138,6 +139,7 @@ import {
                     >
                       {{ leverAction(gap) }}
                     </button>
+                    }
                   </div>
                 </div>
                 <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); line-height:1.7;">
@@ -235,6 +237,7 @@ import {
                 </div>
                 <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">{{ skill.category }}</span>
                 <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">{{ reasonLabel(skill) }}</span>
+                @if (skill.reason !== 'feature_disabled') {
                 <button
                   type="button"
                   (click)="toggleSkill(skill)"
@@ -245,6 +248,7 @@ import {
                 >
                   {{ skill.visible ? 'Hide' : 'Enable' }}
                 </button>
+                }
               </div>
             }
             @if (query() && !matches().length) {
@@ -321,6 +325,7 @@ export class CatalogCurationComponent implements OnInit, OnDestroy {
 
   leverTitle(gap: CoverageGap): string {
     switch (gap.lever) {
+      case 'feature': return 'Functionality disabled';
       case 'industry': return `Allow the ${gap.key} industry`;
       case 'universal': return 'Show the universal tier';
       case 'capability': return `Enable ${gap.key}`;
@@ -330,6 +335,7 @@ export class CatalogCurationComponent implements OnInit, OnDestroy {
 
   leverAction(gap: CoverageGap): string {
     switch (gap.lever) {
+      case 'feature': return '';
       case 'industry': return 'Allow';
       case 'universal': return 'Show';
       case 'capability': return 'Enable';
@@ -340,6 +346,8 @@ export class CatalogCurationComponent implements OnInit, OnDestroy {
   leverExplanation(gap: CoverageGap): string {
     const carriers = gap.capabilities.join(', ');
     switch (gap.lever) {
+      case 'feature':
+        return 'This functionality is disabled. Catalog overrides cannot enable it; availability also remains subject to the workspace catalog policy.';
       case 'industry':
         return `Carried only by ${gap.key} capabilities this workspace does not allow (${carriers}). One decision, ${gap.skills} skills.`;
       case 'universal':
@@ -373,6 +381,8 @@ export class CatalogCurationComponent implements OnInit, OnDestroy {
     const policy = this.report()?.policy;
     if (!policy) return;
     switch (gap.lever) {
+      case 'feature':
+        return;
       case 'industry':
         this.apply({ allowed_industries: [...policy.allowed_industries, gap.key] });
         return;
@@ -399,7 +409,7 @@ export class CatalogCurationComponent implements OnInit, OnDestroy {
 
   toggleSkill(skill: CuratedSkill): void {
     const policy = this.report()?.policy;
-    if (!policy) return;
+    if (!policy || skill.reason === 'feature_disabled') return;
     if (skill.visible) {
       if (policy.hidden_skills.includes(skill.slug)) return;
       this.apply({ hidden_skills: [...policy.hidden_skills, skill.slug] });

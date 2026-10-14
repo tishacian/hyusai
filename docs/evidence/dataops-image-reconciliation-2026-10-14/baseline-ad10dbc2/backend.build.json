@@ -1,0 +1,52 @@
+{
+  "status": "built",
+  "image": "backend",
+  "revision_label": "ad10dbc2b6cb464c8e7c6b19af8ffc46a3b3fb3b",
+  "qualification_scope": "Historical source rebuilt now for image size attribution; no historical full-suite or deployed-image claim.",
+  "comparison_image_revision": "bd72404472bfd57c01cc2e4a9747ff5e3049814f",
+  "historical_source_tests_run": false,
+  "source_head_start": "ad10dbc2b6cb464c8e7c6b19af8ffc46a3b3fb3b",
+  "source_status_start": [],
+  "source_fingerprint_start": {
+    "sha256": "1a859d3838e0222e516e5aa395df55098f2e623fdcbbf58fe01273187b41d43e",
+    "files": 1850,
+    "scope": "tracked and unignored files: backend, docker, scripts, run_celery.sh"
+  },
+  "docker_endpoint": "unix:///var/run/docker.sock",
+  "builder": "agentium-dataops-review",
+  "builder_limits": {
+    "Memory": 4294967296,
+    "MemorySwap": 4294967296,
+    "NanoCpus": 0,
+    "CpuPeriod": 100000,
+    "CpuQuota": 200000,
+    "CgroupnsMode": "private",
+    "CgroupParent": "/docker/buildx"
+  },
+  "base_image": "python:3.12-slim@sha256:ec948fa5f90f4f8907e89f4800cfd2d2e91e391a4bce4a6afa77ba265bc3a2fe",
+  "platform": "linux/amd64",
+  "output_format": "OCI archive; no Docker load",
+  "import_smoke_only": false,
+  "install_hf_rag": 1,
+  "install_giskard_raget": false,
+  "disk_reserve_bytes": 4294967296,
+  "disk_free_initial_bytes": 17100296192,
+  "disk_free_minimum_bytes": 10678136832,
+  "disk_guard": null,
+  "original_dockerfile_sha256": "361c170a15812e52fb86e5ea3cc27131d7651898e0af20497e689077f82b3a53",
+  "qualification_dockerfile_sha256": "acd62e4e806a27c2c515f0c14235950afdd08dd2227bc8121186f98c8d2898d1",
+  "dockerfile_adaptation": "Public proxy CA as BuildKit secret on RUN only; no trust bundle in final layers.",
+  "runtime_qualification": false,
+  "build_client_pid": 308940,
+  "seconds": 745.031,
+  "exit_code": 0,
+  "disk_free_final_bytes": 10652622848,
+  "source_head_end": "ad10dbc2b6cb464c8e7c6b19af8ffc46a3b3fb3b",
+  "source_fingerprint_end": {
+    "sha256": "1a859d3838e0222e516e5aa395df55098f2e623fdcbbf58fe01273187b41d43e",
+    "files": 1850,
+    "scope": "tracked and unignored files: backend, docker, scripts, run_celery.sh"
+  },
+  "archive_bytes": 1288164864,
+  "runtime_source_unchanged_during_build": true
+}

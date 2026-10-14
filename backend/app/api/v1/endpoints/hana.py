@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+import asyncio
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
+from app.core.config import settings
 from app.core.iam.roles import is_admin_template
 from app.db.base import get_db
 from app.models.user import User
@@ -24,7 +26,9 @@ def _is_workspace_admin(db: DBSession, user: User, workspace: Workspace) -> bool
         .filter(WorkspaceMember.user_id == user.id, WorkspaceMember.workspace_id == workspace.id)
         .first()
     )
-    return bool(membership) and is_admin_template(getattr(membership, "role_template", None), membership.role)
+    return bool(membership) and is_admin_template(
+        getattr(membership, "role_template", None), membership.role
+    )
 
 
 def _require_workspace_admin(db: DBSession, user: User, workspace: Workspace) -> None:
@@ -36,14 +40,16 @@ class HanaConfigUpdate(BaseModel):
     host: str = Field(..., min_length=1, max_length=512)
     port: int = Field(default=443, ge=1, le=65535)
     user: str = Field(..., min_length=1, max_length=256)
-    password: Optional[str] = Field(default=None, max_length=512)
-    password_encrypted: Optional[str] = Field(default=None, max_length=4096)
+    password: str | None = Field(default=None, max_length=512)
+    password_encrypted: str | None = Field(default=None, max_length=4096)
     encrypt: bool = True
+    ssl_validate_certificate: bool = True
+    demo_mode: bool = False
 
 
 class HanaQueryRequest(BaseModel):
     sql: str = Field(..., min_length=1)
-    params: Optional[Any] = None
+    params: Any | None = None
     max_rows: int = Field(default=200, ge=1, le=5000)
     allow_writes: bool = False
 
@@ -54,6 +60,19 @@ def _require_enabled(workspace: Workspace) -> None:
             status_code=403,
             detail="SAP HANA connector is not enabled for this workspace",
         )
+
+
+def _http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, hana_service.HanaConnectorError):
+        return HTTPException(status_code=exc.status_code, detail={"code": exc.code})
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=400, detail={"code": "HANA_INVALID_REQUEST"})
+    return HTTPException(status_code=502, detail={"code": "HANA_OPERATION_FAILED"})
+
+
+def _run_operation(workspace: Workspace, operation, **kwargs):
+    config = hana_service.get_config(workspace, include_secrets=True)
+    return operation(config, **kwargs)
 
 
 @router.get("/config")
@@ -84,9 +103,11 @@ async def put_hana_config(
             },
         )
     try:
-        return hana_service.set_config(db, workspace, body.model_dump(exclude={"password_encrypted"}))
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return await asyncio.to_thread(
+            hana_service.set_config, db, workspace, body.model_dump(exclude={"password_encrypted"})
+        )
+    except Exception as exc:
+        raise _http_error(exc) from None
 
 
 @router.post("/test")
@@ -97,16 +118,10 @@ async def test_hana_connection(
 ):
     _require_enabled(workspace)
     _require_workspace_admin(db, user, workspace)
-    config = hana_service.get_config(workspace, include_secrets=True)
     try:
-        return hana_service.test_connection(config)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001 — surface driver errors to the operator UI
-        raise HTTPException(
-            status_code=502,
-            detail=f"HANA connection failed: {exc}",
-        ) from exc
+        return await asyncio.to_thread(_run_operation, workspace, hana_service.test_connection)
+    except Exception as exc:
+        raise _http_error(exc) from None
 
 
 @router.post("/query")
@@ -114,41 +129,38 @@ async def run_hana_query(
     body: HanaQueryRequest,
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
     _require_enabled(workspace)
-    config = hana_service.get_config(workspace, include_secrets=True)
+    if body.allow_writes:
+        _require_workspace_admin(db, user, workspace)
+        if getattr(settings, "hana_writes_enabled", False) is not True:
+            raise HTTPException(status_code=403, detail={"code": "HANA_WRITES_DISABLED"})
     try:
-        return hana_service.run_query(
-            config,
+        return await asyncio.to_thread(
+            _run_operation,
+            workspace,
+            hana_service.run_query,
             sql=body.sql,
             params=body.params,
             max_rows=body.max_rows,
             allow_writes=body.allow_writes,
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001 — surface driver errors to the operator UI
-        raise HTTPException(
-            status_code=502,
-            detail=f"HANA query failed: {exc}",
-        ) from exc
+    except Exception as exc:
+        raise _http_error(exc) from None
 
 
 @router.get("/preview")
 async def preview_hana_catalog(
-    table: Optional[str] = None,
+    table: str | None = None,
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
 ):
     """Read-only schema list + a capped sample of one table."""
     _require_enabled(workspace)
-    config = hana_service.get_config(workspace, include_secrets=True)
     try:
-        return hana_service.preview_catalog(config, table=table)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001 — surface driver errors to the operator UI
-        raise HTTPException(
-            status_code=502,
-            detail=f"HANA preview failed: {exc}",
-        ) from exc
+        return await asyncio.to_thread(
+            _run_operation, workspace, hana_service.preview_catalog, table=table
+        )
+    except Exception as exc:
+        raise _http_error(exc) from None

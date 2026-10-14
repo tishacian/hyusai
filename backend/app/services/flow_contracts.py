@@ -748,6 +748,7 @@ def compile_execution_contract(
     allowed_skill_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     """Compile immutable ingress/node/output schemas for one accepted Flow."""
+    from app.services.dataops.flow import data_prep_issues
     from app.services.flow_data_sources import data_source_issues, describe_issue
     from app.services.ml_methodology import validate_methodology_flow
     from app.services.tabular_datasets import TabularError
@@ -756,6 +757,13 @@ def compile_execution_contract(
         validate_methodology_flow(dict(flow))
     except TabularError as exc:
         raise FlowContractError(code=exc.code.lower(), message=exc.message, path="nodes") from exc
+
+    prep_issues = data_prep_issues(flow)
+    if prep_issues:
+        node_id, reason = prep_issues[0]
+        raise FlowContractError(
+            code="data_prep_invalid", message=reason, path=f"nodes/{node_id}/config"
+        )
 
     source_issues = data_source_issues(flow)
     if source_issues:
@@ -896,6 +904,82 @@ def compile_execution_contract(
             node_kind = str(node.get("kind") or "task")
             output_adapter = _CONTROL_OUTPUT_ADAPTERS.get(node_kind)
             public_output_schema = output_schema
+            if raw_skill_slug in {"evaluate_v2", "data_prep_v1", "narration_run_v1"}:
+                nested = config.get("params") or {}
+                key = {
+                    "evaluate_v2": "typed_evaluation",
+                    "data_prep_v1": "data_prep",
+                    "narration_run_v1": "narration",
+                }[raw_skill_slug]
+                if key in config and key in nested and config[key] != nested[key]:
+                    raise FlowContractError(
+                        code="graph_config_conflict",
+                        message="Conflicting graph-owned configuration.",
+                        path=f"nodes/{node_id}/config/{key}",
+                    )
+            if raw_skill_slug == "evaluate_v2":
+                from app.schemas.typed_evaluation import compile_typed_output_schema
+
+                params = config.get("params") or {}
+                typed = config.get("typed_evaluation") or params.get("typed_evaluation") or {}
+                try:
+                    public_output_schema = validate_schema_definition(
+                        compile_typed_output_schema(typed.get("questions") or []),
+                        field=f"nodes.{node_id}.typed_output_schema",
+                    )
+                except ValueError as exc:
+                    raise FlowContractError(
+                        code="typed_questions_invalid", message=str(exc), path=f"nodes/{node_id}"
+                    ) from exc
+                if typed.get("batch_mode") == "per_unit":
+                    public_output_schema = {
+                        "type": "object",
+                        "required": [
+                            "schema_version",
+                            "status",
+                            "coverage",
+                            "asset_ref",
+                            "technical_status",
+                        ],
+                        "properties": {
+                            "schema_version": {"const": 2},
+                            "asset_ref": {"type": "object"},
+                            "status": {"enum": ["completed", "partial", "failed"]},
+                            "coverage": {"type": "object"},
+                            "technical_status": {"type": "string"},
+                        },
+                        "additionalProperties": True,
+                    }
+            elif raw_skill_slug == "data_prep_v1":
+                from app.schemas.data_prep import bind_spec
+                from app.services.dataops.flow import _prep_config
+
+                params = config.get("params") or {}
+                try:
+                    data = _prep_config(node)
+                    prep = bind_spec(data.get("spec"), data.get("outputs"))
+                except ValueError as exc:
+                    raise FlowContractError(
+                        code="data_prep_spec_invalid", message=str(exc), path=f"nodes/{node_id}"
+                    ) from exc
+                public_output_schema = {
+                    **output_schema,
+                    "properties": {
+                        **output_schema.get("properties", {}),
+                        "outputs": {
+                            "type": "object",
+                            "required": [o.port for o in prep.outputs],
+                            "properties": {
+                                o.port: {
+                                    "type": "object",
+                                    "properties": {"dataset_id": {"type": "string"}},
+                                }
+                                for o in prep.outputs
+                            },
+                            "additionalProperties": False,
+                        },
+                    },
+                }
             if output_adapter is not None:
                 public_output_schema = validate_schema_definition(
                     _adapted_skill_output_schema(
@@ -906,7 +990,7 @@ def compile_execution_contract(
                 )
             declared_output_schema = config.get("output_schema")
             if isinstance(declared_output_schema, Mapping):
-                if output_adapter is not None:
+                if output_adapter is not None or raw_skill_slug in {"evaluate_v2", "data_prep_v1"}:
                     raise FlowContractError(
                         code="node_output_schema_not_overridable",
                         message=(

@@ -436,3 +436,7 @@
   border-color: var(--ck-signal-pos);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ck-signal-pos) 28%, transparent);
 }
+
+.ck-prep-port-label { position:absolute; top:10px; font-size:9px; color:var(--ck-fg-3); background:var(--ck-bg-panel); padding:1px 3px; pointer-events:none; white-space:nowrap; }
+.ck-flow-port--in .ck-prep-port-label {left:9px;}
+.ck-flow-port--out .ck-prep-port-label {right:9px;}

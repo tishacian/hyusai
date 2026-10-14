@@ -152,10 +152,10 @@ def _comparison_frame(dataset, columns, *, recorded):
 
     import pandas as pd
 
-    from app.services.tabular_datasets import materialize
+    from app.services.tabular_datasets import materialize_dataset
 
     with tempfile.TemporaryDirectory(prefix="ml-comparison-") as scratch:
-        path = materialize(dataset, Path(scratch) / "dataset.parquet")
+        path = materialize_dataset(dataset, Path(scratch) / "dataset")
         return pd.read_parquet(path, columns=columns).reset_index(drop=True)
 
 

@@ -1,0 +1,43 @@
+{
+  "source_revision": "82341a1abbdb936d8eec2a2d4d47904e72b5f9de",
+  "local_working_tree_snapshot": true,
+  "started_at": 1791920548.9753203,
+  "tag": "review-82341a1a",
+  "base": "python:3.12-slim@sha256:ec948fa5f90f4f8907e89f4800cfd2d2e91e391a4bce4a6afa77ba265bc3a2fe",
+  "dependency_sha256": {
+    "requirements.txt": "7e731ff416269ecdd2800ae47afcecfe74836649652e95de9c2c16bd94feab51",
+    "constraints-demo-app.txt": "b7fedf85251daa2bfb897642c57f2b35fc43a2c7fad9a6b2d488d948921a015b",
+    "constraints-demo-giskard.txt": "c0f5b4614b74aeb09161f6808c65eb748e38e92ea1b350efb3a9fa1ddf3e561f"
+  },
+  "images": {
+    "backend": {
+      "status": "failed",
+      "log": "/workspace/agentium-image-backend-build.log",
+      "exit_code": 130,
+      "seconds": 396.69344751800236
+    }
+  },
+  "blocked": "local_vfs_disk_capacity",
+  "disk_guard": {
+    "reason": "vfs_build_disk_reserve",
+    "free_bytes": 3166507008,
+    "reserve_bytes": 3221225472,
+    "time": 1791920940.5123868
+  },
+  "build_cache_removed": true,
+  "free_bytes_after_cleanup": 27547275264,
+  "final_images_qualified": 0,
+  "budget_check": {
+    "exit_code": 1,
+    "report": "/workspace/agentium-image-budget-review.tsv",
+    "budgets_mib": {
+      "backend": 1400,
+      "worker": 1760,
+      "frontend": 40,
+      "ml-ts": 1240,
+      "livekit-agent": 110
+    },
+    "budgets_changed": false
+  },
+  "verification_scope": "Build used a local source snapshot with temporary CA secret mounts; main and RAG pip check passed. No final backend image or size was obtained. No VM or deployment action occurred."
+}

@@ -76,6 +76,27 @@ def test_priority_does_not_mutate_closed_input(payload, pinned, system, expected
     assert payload == original
 
 
+@pytest.mark.parametrize(
+    "system,expected,source",
+    [("gpt-system-judge", "gpt-system-judge", "system"), (None, "gpt-workspace", "workspace")],
+)
+def test_typed_judge_uses_real_system_or_workspace_model_resolution(system, expected, source):
+    payload = {"_judge": {"rubric_id": "frozen-rubric"}, "text": "Evidence"}
+    resolved = runtime.resolve_skill_model_execution(
+        workspace(),
+        slug="evaluate_v2",
+        executor=None,
+        input_ref=payload,
+        system_default_model=system,
+    )
+    assert (resolved.provider, resolved.model, resolved.model_source) == (
+        "openai",
+        expected,
+        source,
+    )
+    assert "model" not in payload
+
+
 def test_workspace_credentials_are_isolated_and_never_serialized(monkeypatch):
     monkeypatch.setattr(
         runtime.workspace_config,

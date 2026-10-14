@@ -1,0 +1,173 @@
+{
+  "qualification_anchor": "bd72404472bfd57c01cc2e4a9747ff5e3049814f",
+  "scope": "Final Linux backend suite after isolated previews and deterministic RAG deadline test. Images and scoring are independently reported.",
+  "source_note": "Source frozen at this exact commit throughout the full test suite and subsequent image/benchmark qualification. Later proof-only documentation commits do not change runtime source.",
+  "backend_tree": "2cd431e3ed4b667dffdb30a1caef5d06396bc766",
+  "frontend_tree": "15109853cf3f15da9186c9152557c53bdc126a5b",
+  "backend": {
+    "command": "PYTHONPATH=/workspace/dataops-completion-2026-10-13:$PYTHONPATH QUALIFICATION_REPORT_PREFIX=/workspace/dataops-completion-2026-10-13/backend-final-isolated TMPDIR=/workspace/dataops-completion-2026-10-13/tmp ../.venv/bin/pytest -q -n 4 --dist=loadfile -p qualification_reporter",
+    "cwd": "/workspace/agentium/backend",
+    "exit_code": 0,
+    "collected": 9009,
+    "failed": 0,
+    "passed": 8864,
+    "skipped": 145,
+    "seconds": 952.48,
+    "selected_exclusions": [],
+    "logs": [
+      {
+        "path": "/workspace/dataops-completion-2026-10-13/backend-final-isolated.log",
+        "sha256": "edf3d7915ab076029a0d25be1f919a4a1bc0a6f696002ceb7eb54db001ee6e3d",
+        "bytes": 475187
+      },
+      {
+        "path": "/workspace/dataops-completion-2026-10-13/backend-final-isolated.coordinator.jsonl",
+        "sha256": "9692b013b7c39e88fa5a7e27d7047917daa6d01a132a785497d796acbf9b7f81",
+        "bytes": 1793737
+      },
+      {
+        "path": "/workspace/dataops-completion-2026-10-13/backend-final-isolated.coordinator.finished.json",
+        "sha256": "2513cf917bab1864ef5eff91b828a6d9f23c3fa37adf89a71343132460f5547b",
+        "bytes": 49
+      }
+    ],
+    "skip_counts_by_file": {
+      "app/tests/api/test_brd_live_provider.py": 3,
+      "app/tests/infra/test_agentium_helm_catalog_contract.py": 9,
+      "app/tests/infra/test_agentium_helm_livekit_contract.py": 7,
+      "app/tests/infra/test_data_plane_dump.py": 14,
+      "app/tests/infra/test_dataops_worker_chart.py": 3,
+      "app/tests/infra/test_tabular_migration.py": 25,
+      "app/tests/integration/test_error_handling.py": 9,
+      "app/tests/integration/test_huggingface_postgres.py": 4,
+      "app/tests/integration/test_hybrid_retrieval.py": 4,
+      "app/tests/integration/test_performance.py": 4,
+      "app/tests/integration/test_project_inventory_live.py": 1,
+      "app/tests/integration/test_qdrant_vector_db.py": 1,
+      "app/tests/integration/test_rag_workflow.py": 7,
+      "app/tests/integration/test_subflow_celery_rabbitmq.py": 7,
+      "app/tests/integration/test_system_version_postgresql.py": 1,
+      "app/tests/integration/test_value_loop_postgresql.py": 1,
+      "app/tests/services/test_andritz_pascal_golden.py": 3,
+      "app/tests/services/test_brd_import.py": 1,
+      "app/tests/services/test_dataops_minio.py": 4,
+      "app/tests/services/test_document_meta.py": 2,
+      "app/tests/services/test_huggingface_activation.py": 6,
+      "app/tests/services/test_huggingface_legacy_migration.py": 6,
+      "app/tests/services/test_huggingface_minio_integration.py": 2,
+      "app/tests/services/test_huggingface_runtime.py": 4,
+      "app/tests/services/test_ml_embeddings.py": 3,
+      "app/tests/services/test_ml_foundation_harness.py": 7,
+      "app/tests/services/test_onnx_reranker.py": 2,
+      "app/tests/services/test_postgresql_browser_integration.py": 5
+    }
+  },
+  "checks": {
+    "compliance": {
+      "exit_code": 0,
+      "static_claims_verified": 16,
+      "total_claims": 22,
+      "log": {
+        "path": "/workspace/dataops-completion-2026-10-13/compliance-isolated.log",
+        "sha256": "8b9f0352050cb74dd52847480f4586a9c60f9371ad890b08fc04d9edcdc7f3cc",
+        "bytes": 94
+      }
+    },
+    "dependency_consistency": {
+      "exit_code": 0,
+      "packages": 232,
+      "log": {
+        "path": "/workspace/dataops-completion-2026-10-13/dependencies-isolated.log",
+        "sha256": "3191def42162b93c616a03986a46536415e153ef73da738ac46636f7098c0c40",
+        "bytes": 67
+      }
+    },
+    "kubernetes_scaffold": {
+      "exit_code": 0,
+      "helm": true,
+      "terraform_validate": true,
+      "ansible_syntax": true,
+      "apply": false,
+      "scope": "Earlier completed check on unchanged deployment sources; not re-executed for the preview-only source changes.",
+      "log": {
+        "path": "/workspace/dataops-completion-2026-10-13/k8s-final.log",
+        "sha256": "ddc742a97fc6e00803635b551c6e7b26a862615dfa26d44c982eea05a6e63907",
+        "bytes": 2379
+      }
+    }
+  },
+  "dedicated_suites": {
+    "compiler_flow_and_business_parity": "compiler-flow.json",
+    "samples_and_recovery": "samples.json",
+    "multipart_minio_and_volume": "d3-validation.json",
+    "frontend_scope": "frontend.json",
+    "corrected_regressions": "regressions.json",
+    "isolated_previews": "preview-isolation.json",
+    "rag_deadline": "rag-deadline.json"
+  },
+  "environment": {
+    "os": "Linux",
+    "arch": "x86_64",
+    "python": "3.12.14",
+    "packages": {
+      "pytest": "9.1.1",
+      "pytest-xdist": "3.8.0",
+      "duckdb": "1.5.5",
+      "pyarrow": "25.0.1",
+      "deltalake": "1.6.6",
+      "arro3-core": "0.9.1",
+      "sqlglot": "30.22.0",
+      "polars": "1.44.1",
+      "scikit-learn": "1.9.0",
+      "torch": "2.14.0+cpu"
+    }
+  },
+  "immutable_documents_sha256": {
+    "docs/agentium-dataops-plan.md": "9a2f31a09cdb93918c754a93d5b28ba0e370f4a8ae1cbc020201c662bc35b6ab",
+    "docs/codex-review-dataops-typed-judge.md": "2c3b460db55e58bf1a89e95aa78d4ed5af7cfe3a36752b2eccf49c2033fb5dd2"
+  },
+  "limitations": [
+    "SQLite and eager/local workers in the ordinary backend suite; no deployed PostgreSQL/RabbitMQ/HANA qualification.",
+    "Skipped external-service, Helm and MinIO tests are enumerated; successful dedicated runs have their own source scope.",
+    "Frontend full unit suite preceded the final recursive serializer correction; see final targeted/browser/build scopes in frontend.json.",
+    "No HANA connection, VM deployment, build-info check, token revocation or Gemini/OpenRouter qualification.",
+    "Full Alembic history from empty PostgreSQL still blocks at migration 013; earlier targeted 125-to-126 proof is unchanged.",
+    "Original-plan acceptance criteria remain open; a passing suite does not close them.",
+    "The preview child virtual-address-space guard does not attest a total API/cgroup RSS limit.",
+    "The measured backend/worker images exceed their unchanged budgets; no release budget approval follows from successful builds/imports.",
+    "The 3M benchmark uses the qualified workspace venv in a resource-limited carrier; it does not qualify the built worker image, a published 3M Flow, delivery receipts, or business model quality."
+  ],
+  "committed_trace_bundle": "final-suite/files.json",
+  "images": {
+    "bundle": "image-final/bundle-index.json",
+    "measurements": "image-final/reports/images.measurement.json",
+    "status": "constructed_and_measured_over_budget",
+    "source_revision": "bd72404472bfd57c01cc2e4a9747ff5e3049814f",
+    "method": "Verified OCI layer payloads comparable to classic Docker graphdriver accounting; not a deployment VM inspect.",
+    "backend_mib": 3567,
+    "backend_budget_mib": 1400,
+    "worker_mib": 4676,
+    "worker_budget_mib": 1760,
+    "import_and_isolated_preview_smokes": "passed; observed expansion refusal by 5-second deadline, then fresh uncached recovery"
+  },
+  "scoring_3m": {
+    "report": "scoring-3m.json",
+    "supervisor": "scoring-3m-cgroup.json",
+    "log": "scoring-3m.log",
+    "source_revision": "bd72404472bfd57c01cc2e4a9747ff5e3049814f",
+    "status": "passed",
+    "rows_processed": 3000000,
+    "excluded": 0,
+    "pipeline_seconds": 330.5524989600017,
+    "envelope_seconds": 353.47978067099757,
+    "memory_limit_bytes": 4294967296,
+    "observed_cgroup_peak_bytes": 4294967296,
+    "cpu_limit": 2,
+    "runtime_scope": "Pinned Python carrier container, with the qualified workspace venv and Python runtime mounted read-only.",
+    "built_worker_image_benchmarked": false,
+    "published_flow_run_at_3m_qualified": false,
+    "receipts_created": 0,
+    "business_quality_claim": false,
+    "evidence_manifest": "scoring-3m-evidence.json"
+  }
+}

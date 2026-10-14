@@ -26,7 +26,12 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_job import WorkspaceJob
 from app.services.mlops_jobs import can_configure_mlops, operational_job_id
-from app.services.tabular_datasets import TabularError, materialize, register_frame
+from app.services.tabular_datasets import (
+    TabularError,
+    dataset_digest,
+    materialize_dataset,
+    register_frame,
+)
 
 MONITOR_SKILL = "ml_monitor_model_v1"
 RETRAIN_SKILL = "ml_retrain_model_v1"
@@ -334,12 +339,12 @@ def _file_hash(dataset):
         )
     with tempfile.TemporaryDirectory(prefix="retrain-source-") as folder:
         try:
-            path = materialize(dataset, Path(folder) / "data.parquet")
+            path = materialize_dataset(dataset, Path(folder) / "data", max_bytes=32 * 1024**2)
         except FileNotFoundError:
             refuse("ML_RETRAIN_SOURCE_UNAVAILABLE", "The reviewed feedback dataset is unavailable.")
-        if path.stat().st_size > 32 * 1024 * 1024:
+        if sum(p.stat().st_size for p in path) > 32 * 1024 * 1024:
             refuse("ML_RETRAIN_SOURCE_UNAVAILABLE", "The reviewed feedback dataset exceeds 32 MiB.")
-        return hashlib.sha256(path.read_bytes()).hexdigest()
+        return dataset_digest(dataset)
 
 
 def _training_options(model):

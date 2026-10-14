@@ -1,0 +1,72 @@
+{
+  "purpose": "Separate an actual deployed-image comparison from validation of OCI-to-Docker size accounting.",
+  "existing_image_read_only": {
+    "collect": [
+      "Docker server version",
+      "Storage driver and image store (classic graphdriver vs containerd)",
+      "Image ID/config digest",
+      "Exact Size bytes",
+      "Ordered RootFS.Layers diff_ids",
+      "OS/architecture",
+      "org.opencontainers.image.revision label",
+      "RepoDigests if present",
+      "Descriptor (target manifest/index) when exposed by Docker version"
+    ],
+    "commands": [
+      [
+        "docker",
+        "version",
+        "--format",
+        "{{json .Server.Version}}"
+      ],
+      [
+        "docker",
+        "info",
+        "--format",
+        "{{json .Driver}} {{json .DriverStatus}}"
+      ],
+      [
+        "docker",
+        "image",
+        "inspect",
+        "--format",
+        "{\"Id\":{{json .Id}},\"Size\":{{json .Size}},\"RootFS\":{{json .RootFS}},\"Architecture\":{{json .Architecture}},\"Os\":{{json .Os}},\"Revision\":{{json (index .Config.Labels \"org.opencontainers.image.revision\")}},\"RepoDigests\":{{json .RepoDigests}}}",
+        "<existing-image-id>"
+      ]
+    ],
+    "do_not_dump": "Do not dump Config.Env, daemon credentials or unreviewed full image history; historical build args may contain private index credentials."
+  },
+  "same_artifact_method_validation": {
+    "required": "The exact OCI archive must be available in an approved disposable Docker image store with adequate disk. Preserve config digest and ordered diff_ids when importing or converting to Docker archive.",
+    "identity_checks": [
+      "Classic graphdriver: Docker image ID equals OCI config digest",
+      "Containerd: image ID/Descriptor digest identifies its target index or manifest; verify selected manifest against the OCI manifest, not automatically against config digest",
+      "Ordered RootFS.Layers equals OCI config rootfs.diff_ids",
+      "Same linux/amd64 platform and revision label"
+    ],
+    "accounting": "Compare actual Docker inspect.Size bytes with the matching store model for the exact artifact: cumulative unpacked hdr.Size for classic graphdriver, or packed descriptor graph sizes for containerd. Keep compressed layer sums and whole tar bytes separate.",
+    "current_environment_limit": "No application OCI archive loaded into the vfs daemon; cumulative vfs copies can require much more disk than a layer payload sum.",
+    "existing_calibration": "Four pinned base layers matched actual local Docker inspect.Size exactly at119181182 bytes. This validates that base, not a full application inspect."
+  },
+  "interpretation": [
+    "A freshly rebuilt ad10 source image is not evidence of what is currently deployed.",
+    "A different deployed config ID or layer sequence means different artifact inputs, not automatically a measurement error.",
+    "If identical artifact IDs/diff_ids produce a different Size, investigate image-store accounting and Docker version directly.",
+    "A large historical rebuild under identical current options does not by itself establish an incorrect OCI method."
+  ],
+  "vm_actions_executed_by_this_task": false,
+  "budgets_changed": false,
+  "docker_v28_accounting_by_store": {
+    "classic_graphdriver": "Sum unpacked tar header payload Size over cumulative layers (Moby UnpackLayer -> ApplyDiff -> roLayer.Size).",
+    "containerd": "image_inspect.go uses i.size(): sum of packed resource descriptor Size values. Includes the exact descriptor graph resources, not OCI archive tar padding.",
+    "source": "https://github.com/moby/moby/blob/v28.4.0/daemon/containerd/image_inspect.go#L180-L205",
+    "vm_store_observed": false,
+    "source_sha256": "0d4846399cdb559e00820a58c5569a1a6968daa1342f2cc429823ff14055ad17",
+    "containerd_image_id": "ImageInspect response ID is target.Digest (manifest/index), unlike classic config-based image ID."
+  },
+  "qualified_compressed_layer_mib_floor": {
+    "backend": 1283,
+    "worker": 1636
+  },
+  "qualified_compressed_layer_limit": "These are layer descriptors alone, not a completed actual VM inspect.Size comparison. Do not substitute whole OCI archive size for packed resource accounting."
+}

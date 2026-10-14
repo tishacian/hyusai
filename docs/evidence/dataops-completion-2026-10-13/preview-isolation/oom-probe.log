@@ -1,0 +1,1 @@
+{"duckdb": "1.5.5", "sql": "CREATE TEMP TABLE __preview_output AS SELECT lpad('x',1000000000,'x') AS text FROM (VALUES (1)) AS sample(id)", "limits": {"memory.max": "201326592", "memory.swap.max": "0", "cpu.max": "50000 100000"}, "duckdb_memory_limit": "16MB", "threads": 1, "interrupt_after_s": 5}

@@ -148,6 +148,7 @@ test('an exclusion names one lever, and which one', () => {
     'this workspace hides the universal catalog',
   );
   assert.equal(explainVisibilityReason('hidden_override'), 'hidden by this workspace’s catalog settings');
+  assert.equal(explainVisibilityReason('feature_disabled', 'narration_enabled'), 'this functionality is disabled; catalog overrides cannot enable it');
   assert.equal(explainVisibilityReason('brand_new_code'), 'brand new code');
 });
 

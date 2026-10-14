@@ -1,0 +1,70 @@
+#0 building with "agentium-dataops-review" instance using docker-container driver
+
+#1 [internal] load build definition from Dockerfile.backend.import-smoke
+#1 transferring dockerfile: 7.35kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/python:3.12-slim@sha256:ec948fa5f90f4f8907e89f4800cfd2d2e91e391a4bce4a6afa77ba265bc3a2fe
+#2 DONE 0.0s
+
+#3 [internal] load build context
+#3 DONE 0.0s
+
+#4 [agentium_release  1/15] FROM docker.io/library/python:3.12-slim@sha256:ec948fa5f90f4f8907e89f4800cfd2d2e91e391a4bce4a6afa77ba265bc3a2fe
+#4 resolve docker.io/library/python:3.12-slim@sha256:ec948fa5f90f4f8907e89f4800cfd2d2e91e391a4bce4a6afa77ba265bc3a2fe 0.0s done
+#4 DONE 0.1s
+
+#3 [internal] load build context
+#3 transferring context: 38.06kB 0.1s
+#3 transferring context: 258.71kB 1.0s done
+#3 DONE 1.0s
+
+#5 [agentium_release  6/15] COPY backend/rag_models.lock.json backend/scripts/fetch_rag_models.py /tmp/rag-models/
+#5 CACHED
+
+#6 [agentium_release  9/15] RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; if [ "1" = "1" ]; then       pip install --no-cache-dir torch torchvision         --constraint=/tmp/requirements/constraints-demo-app.txt         --index-url=https://download.pytorch.org/whl/cpu       && pip install --no-cache-dir         --constraint=/tmp/requirements/constraints-demo-app.txt         --constraint=/tmp/requirements/constraints-demo-ml-deep.txt         --index-url=https://pypi.org/simple -r /tmp/requirements/requirements_hf_rag.txt       && pip check;     fi
+#6 CACHED
+
+#7 [agentium_release 12/15] WORKDIR /app
+#7 CACHED
+
+#8 [agentium_release 10/15] RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; apt-get update     && apt-get install --no-install-recommends -y         libreoffice-impress     && rm -rf /var/lib/apt/lists/*
+#8 CACHED
+
+#9 [agentium_release  4/15] COPY backend/requirements.txt backend/constraints-demo-app.txt /tmp/requirements/
+#9 CACHED
+
+#10 [agentium_release 13/15] COPY --chown=agentium:agentium . .
+#10 CACHED
+
+#11 [agentium_release  2/15] RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; : "https://pypi.org/simple"
+#11 CACHED
+
+#12 [agentium_release  5/15] RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; pip install --no-cache-dir     --constraint=/tmp/requirements/constraints-demo-app.txt     --index-url=https://pypi.org/simple     -r /tmp/requirements/requirements.txt     && pip check
+#12 CACHED
+
+#13 [agentium_release  8/15] COPY backend/requirements_hf_rag.txt backend/constraints-demo-ml-deep.txt /tmp/requirements/
+#13 CACHED
+
+#14 [agentium_release 14/15] RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; chmod +x /app/docker/run_backend.sh     && mkdir -p /data/object_store /data/secure_deposit /app/vector_store     && chown -R "agentium":"agentium" /data /app/vector_store
+#14 CACHED
+
+#15 [agentium_release  3/15] RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; apt-get update     && apt-get install --no-install-recommends -y         fonts-dejavu         libreoffice-writer         tesseract-ocr         tesseract-ocr-eng         tesseract-ocr-fra     && rm -rf /var/lib/apt/lists/*
+#15 CACHED
+
+#16 [agentium_release  7/15] RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; python /tmp/rag-models/fetch_rag_models.py         --manifest /tmp/rag-models/rag_models.lock.json --dest /opt/agentium-models
+#16 CACHED
+
+#17 [agentium_release 11/15] RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; groupadd --gid "1000" "agentium"     && useradd --uid "1000" --gid "1000" --create-home "agentium"
+#17 CACHED
+
+#18 [agentium_release 15/15] WORKDIR /app/backend
+#18 CACHED
+
+#19 [agentium_import_smoke 1/1] RUN --network=none --mount=type=secret,id=image_import_smoke,mode=0444,required=true     python /run/secrets/image_import_smoke
+#19 23.73 AGENTIUM_IMAGE_PREVIEW_REFUSAL={"code": "DATAPREP_PREVIEW_TIMEOUT", "seconds": 5.057, "ordinary_before_seconds": 2.184}
+#19 26.57 AGENTIUM_IMAGE_IMPORT_SMOKE={"app_main_imported": true, "blocked_python_network_attempt_count": 0, "broker": "memory-only", "database": "temporary local SQLite", "dependencies": {"arro3-core": "0.9.1", "deltalake": "1.6.6", "sqlglot": "30.22.0"}, "isolated_preview": {"compiler": "app.services.dataops.compiler.compile_prep", "configured_child_address_space_bytes": 1073741824, "configured_duckdb_memory_mb": 512, "configured_native_reserve_mb": 512, "configured_timeout_seconds": 5.0, "different_ordinary_after": {"cache_hit": false, "rows": 2, "seconds": 2.812, "status": "passed"}, "execution": "app.services.dataops.preview.preview", "expansion": {"code": "DATAPREP_PREVIEW_TIMEOUT", "seconds": 5.057, "status": "refused"}, "fresh_child_launches_observed": 3, "ordinary_before": {"cache_hit": false, "rows": 2, "seconds": 2.184, "status": "passed"}, "seconds": 10.804, "status": "passed"}, "lifespan_started": false, "limit": "Imports, native extension loading, and three bounded real sample previews only; no HTTP, worker task, external service, migration, or lifespan qualification.", "network": "BuildKit none; Python socket calls denied", "python_version": "3.12.13 (main, May  8 2026, 20:07:16) [GCC 14.2.0]", "routes": 8, "runtime_package_versions": {"fastapi": "0.141.1", "numpy": "2.5.2", "pandas": "2.3.3", "pyarrow": "25.0.1", "pydantic": "2.13.5", "scikit-learn": "1.9.0", "scipy": "1.18.1", "skops": "0.16.0", "torch": "2.14.0+cpu", "torchvision": "0.29.0+cpu"}, "seconds": 25.163, "status": "passed"}
+#19 DONE 28.6s
+
+#20 resolving provenance for metadata file
+#20 DONE 0.0s

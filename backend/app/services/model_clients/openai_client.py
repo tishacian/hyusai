@@ -41,6 +41,7 @@ class OpenAIClient(ModelClient):
         self, 
         model: str, 
         prompt: str, 
+        image_parts: list[dict[str, Any]] | None = None,
         **kwargs
     ) -> Dict[str, Any]:
         """Generate a response"""
@@ -52,7 +53,10 @@ class OpenAIClient(ModelClient):
             
             response = await client.chat.completions.create(
                 model=model,
-                messages=[{"role": "user", "content": prompt}],
+                messages=[{
+                    "role": "user",
+                    "content": [{"type": "text", "text": prompt}, *image_parts] if image_parts else prompt,
+                }],
                 **self._chat_options(model, kwargs)
             )
             
@@ -68,7 +72,7 @@ class OpenAIClient(ModelClient):
         except ImportError:
             raise RuntimeError("OpenAI package not installed. Install with: pip install openai")
         except Exception as e:
-            self.logger.error("OpenAI generation error", error=str(e))
+            self.logger.error("OpenAI generation error", error_code=type(e).__name__)
             raise
     
     async def stream(

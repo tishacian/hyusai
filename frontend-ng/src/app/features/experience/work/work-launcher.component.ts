@@ -75,6 +75,9 @@ const ENRICHED_DECISIONS = 3;
             <header class="xp-home-head">
               <p class="xp-home-eyebrow">{{ i18n.t('experience.work.home.eyebrow') }}</p>
               <h1 id="work-launcher-title">{{ titleText() }}</h1>
+              @if (workspace.surfaceFeatureEnabled('work-services')) {
+                <a class="xp-work-btn" [navLink]="{surface: 'work-services'}">{{ i18n.t('dataops.work.title') }}</a>
+              }
               @if (state() === 'ready' && !hasQuery() && home()) {
                 <p class="xp-home-lede">
                   {{ i18n.t(waitingTotal() > 0 ? 'experience.work.home.lede.busy' : 'experience.work.home.lede.calm') }}
