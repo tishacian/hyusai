@@ -5,7 +5,32 @@ porte sur `45ccc915`. Ce suivi consigne les correctifs qui la suivent. Le premie
 bilan de livraison surestimait les suites ciblées et la conformité au plan.
 **La branche n'est toujours pas déclarée fusionnable ou déployable.**
 
-## Qualification finale du 14 octobre
+## Mise à jour : mesure VM de `6dcb0d48` et plafonds autorisés
+
+Le compte rendu transmis par l'utilisateur après la construction des candidates
+sur la VM donne **1 412 Mio pour le backend et 1 765 Mio pour le worker**, contre
+les anciens plafonds de 1 400 / 1 760 Mio. Le surcoût de 56 Mio correspond aux
+quatre nouvelles dépendances compressées ; la différence de comptabilité avec
+les mesures locales ci-dessous est expliquée. L'utilisateur autorise les
+nouveaux plafonds **1 480 / 1 850 Mio**. Les autres plafonds restent inchangés.
+Les [notes de livraison](../CHANGELOG.md#2026-10-14--dataops-candidate-not-deployed)
+et le [relevé daté](dataops-release-blockers-2026-10-14.md#mesure-candidate-sur-la-vm-et-plafonds-retenus)
+conservent les cinq tailles, les marges, la provenance et le recontrôle à effectuer.
+
+Ces mesures viennent du compte rendu reçu, sans nouveau bundle SSH brut.
+La réévaluation arithmétique passe ; une exécution VM du script avec les nouveaux
+plafonds n'est pas attestée ici. Les candidates restent inutilisées par les
+conteneurs, rapportés sains sur `ad10dbc2`. Le choix HANA est la démo explicite
+avec TLS strict, préparée dans `6dcb0d48` mais non activée. Les constats et preuves
+historiques ci-dessous restent attachés à leurs révisions ; la hausse justifiée
+des plafonds ne clôt pas les autres critères du plan et ne vaut ni fusion ni
+déploiement.
+
+## Qualification historique de `bd724044`, 14 octobre
+
+Cette section conserve le bilan antérieur au correctif HANA et à la mesure
+candidate sur la VM ; l'état courant des plafonds figure dans la mise à jour
+ci-dessus.
 
 Le code a été figé sur `bd72404472bfd57c01cc2e4a9747ff5e3049814f` pendant
 la suite complète, les constructions et les mesures ci-dessous. Les commits

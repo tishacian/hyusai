@@ -1,16 +1,77 @@
 # DataOps — tailles d'images et choix HANA, 14 octobre 2026
 
-Ce diagnostic suit la demande de comparer la référence `ad10dbc2` et le candidat
-`bd724044`, puis de choisir le comportement HANA Showcase. Cette révision reste
-la référence des images backend et worker construites. Les ajouts suivants
-conservent leurs preuves ; la décision HANA s'accompagne désormais d'un correctif
-frontend, qualifié séparément ci-dessous. Les images candidates n'ont pas encore
-été mesurées sur la VM.
-Le plan original et la revue indépendante restent inchangés. Aucune hausse de
-plafond, fusion ou mise en production n'est décidée ici. Les autres lots du plan
-restent hors de cette vérification.
+Ce diagnostic suit la comparaison locale de `ad10dbc2` avec `bd724044`, le choix
+HANA Showcase, puis la mesure VM de `6dcb0d48` rapportée par l'utilisateur.
+Les preuves locales et le premier relevé SSH restent historiques ; le nouvel
+état et les plafonds autorisés sont consignés ci-dessous. Le plan original et
+la revue indépendante restent inchangés. Aucune fusion, mise en production ni
+activation HANA n'est effectuée. Les autres lots du plan restent hors de cette
+vérification.
 
-## Un seul chiffre de budget, produit sur la VM
+## Mesure candidate sur la VM et plafonds retenus
+
+Après le correctif HANA `6dcb0d48c51907a2fa47f31da6c4785a3355021a`, l'utilisateur
+rapporte que les images ont été construites sur la VM à côté de la production,
+avec les options de release. Le script de budget lit `docker image inspect
+.Size`, en Mio entiers après division par 1 048 576. Il échoue aux anciens
+plafonds pour le backend et le worker :
+
+| Image | Production `ad10dbc2` | Candidat `6dcb0d48` | Ancien plafond | Plafond autorisé | Marge candidate |
+|---|---:|---:|---:|---:|---:|
+| backend | 1 356 | 1 412 | 1 400 | **1 480** | 68 |
+| worker | 1 709 | 1 765 | 1 760 | **1 850** | 85 |
+| frontend | 28 | 28 | 40 | 40 | 12 |
+| ml-ts | 1 172 | 1 229 | 1 240 | 1 240 | 11 |
+| livekit-agent | 99 | 99 | 110 | 110 | 11 |
+
+Toutes les tailles et marges du tableau sont en Mio. Le dépassement mesuré est
+de **12 Mio / 5 Mio**, et non de plusieurs Gio. L'écart à la production est de
+56 Mio pour le backend et le worker, 57 Mio pour ml-ts d'après les valeurs
+entières fournies. Il correspond au poids compressé des quatre dépendances
+`sqlglot`, `deltalake`, `arro3-core` et `deprecated`. Le nombre de couches
+partagées reste neuf selon ce relevé. L'analyse locale par couche qui suit
+explique la différence avec les sommes décompressées.
+
+L'utilisateur autorise **1 480 Mio pour le backend et 1 850 Mio pour le worker**,
+soit environ 4,82 % de marge sur les tailles mesurées. Ces valeurs deviennent
+les défauts de `scripts/agentium-vm-build.sh` ; les trois autres plafonds restent
+inchangés. La méthode de mesure et le contrôle des couches partagées ne changent
+pas. La justification figure dans les [notes de livraison](../CHANGELOG.md#2026-10-14--dataops-candidate-not-deployed).
+
+**Provenance et portée :** ce tableau transcrit le compte rendu VM reçu dans la
+conversation ; aucun nouveau log brut, octet exact ni identifiant d'image n'est
+joint à ce message. Il ne remplace pas les fichiers du premier bundle SSH et
+n'est pas présenté comme une nouvelle commande SSH exécutée depuis cet
+environnement. Les conteneurs en service sont rapportés sains sur `ad10dbc2`,
+les candidates présentes mais inutilisées, et `demo_mode` non activé.
+
+Les mesures reçues satisfont arithmétiquement les nouveaux plafonds. Avant la
+livraison, conserver le contrôle réel sur le tag exact et les plafonds autorisés,
+ainsi que les révisions d'images ; un changement de limites n'atteste pas cette
+exécution. Pour recontrôler les images `6dcb0d48` déjà construites, sans build ni
+bascule de service, avec le script de budget versionné :
+
+```bash
+AGENTIUM_IMAGE_BUDGET_MB_BACKEND=1480 \
+AGENTIUM_IMAGE_BUDGET_MB_WORKER=1850 \
+AGENTIUM_IMAGE_BUDGET_MB_FRONTEND=40 \
+AGENTIUM_IMAGE_BUDGET_MB_ML_TS=1240 \
+AGENTIUM_IMAGE_BUDGET_MB_LIVEKIT_AGENT=110 \
+AGENTIUM_IMAGE_REQUIRE_LIVEKIT_AGENT=1 \
+  scripts/agentium-image-budget.sh 6dcb0d48c519
+```
+
+Le tag de 12 caractères suit la convention de release ; vérifier qu'il désigne
+bien les images construites avant de lancer cette commande. Le script de mesure
+seul ne définit aucun budget par défaut. La démo HANA demeure préparée avec TLS
+strict et écritures désactivées, sans activation par ce changement de plafonds.
+
+Le changement des défauts est vérifié localement : **10 tests du contrat de
+build VM réussissent**, la syntaxe Bash des deux scripts et le contrôle de
+conformité passent. Ces vérifications utilisent un Docker simulé pour les tests ;
+elles ne reconstruisent aucune image et ne rejouent pas le relevé VM.
+
+## Comparaison locale antérieure des couches OCI
 
 La reconstruction historique est terminée. Avec la même base Python épinglée,
 la même plateforme Linux/amd64, RAG activé et la même comptabilité OCI, elle
@@ -65,7 +126,8 @@ le relevé SSH décrit ci-dessous a ensuite mesuré les images existantes.
 
 Le script `scripts/agentium-image-budget.sh` lit `docker image inspect .Size`,
 puis divise par 1 048 576 avec troncature. Il est identique entre la référence et
-le candidat. Les plafonds restent 1 400 Mio pour le backend et 1 760 pour le worker.
+le candidat. Les plafonds de ce contrôle historique étaient de 1 400 Mio pour
+le backend et 1 760 pour le worker ; la décision ultérieure est consignée en tête.
 
 Les mesures du candidat, 3 741 006 259 octets pour le backend et 4 903 956 499 pour
 le worker, additionnent les charges utiles des couches OCI. C'est la comptabilité
@@ -125,7 +187,7 @@ n'a pas réussi. Il ne faut pas charger les archives sur la VM sans avoir vérif
 l'espace disponible et préparé un protocole de mesure isolé. L'accès SSH demandé
 sert aux mesures, pas à une bascule de services.
 
-## Relevé Docker sur `omnirag-demo`
+## Premier relevé Docker sur `omnirag-demo`, avant construction candidate
 
 Le [rapport SSH](evidence/dataops-vm-check-2026-10-14/docker-images.json),
 relevé à 08:58 heure de Paris, utilise le collecteur versionné sans modification.
@@ -156,14 +218,19 @@ liste exhaustive des 204 images qui permettrait de rejouer cette recherche.
 Aucun tag ou label correspondant à `bd724044` ou `a90272c1` n'est rapporté.
 Les contrôles de ces tags échouent pour
 images manquantes ; ils ne constatent pas un dépassement. Le script de budget
-passe pour la référence déployée, mais **aucun verdict VM sur le candidat n'est
-possible**. Les calculs OCI de 1 283/1 636 Mio ne deviennent pas des mesures VM.
+passe pour la référence déployée, mais **ce premier relevé ne permet aucun
+verdict VM sur le candidat**. Les calculs OCI de 1 283/1 636 Mio ne deviennent
+pas des mesures VM.
 L'espace libre sur `/` est de 137 494 495 232 octets au relevé ; aucune archive
 n'a été transférée ou chargée et aucune image n'a été construite, tirée ou purgée.
 Les identifiants d'images, noms et dates de démarrage des cinq conteneurs contrôlés sont
 [identiques après les sondes](evidence/dataops-vm-check-2026-10-14/containers-after.txt).
 
-### Mesure du candidat à effectuer sans bascule de services
+### Protocole historique d'import, remplacé par la construction VM rapportée
+
+Ce protocole avait été préparé avant la construction VM de `6dcb0d48` rapportée
+ci-dessus. Il reste conservé pour la traçabilité des archives locales `bd724044` ;
+il n'est plus une étape nécessaire à la décision sur les nouveaux plafonds.
 
 Les deux archives OCI déjà construites portent la révision `bd724044` et les
 tags `agentium-backend:dataops-review` / `agentium-worker:dataops-review`.
@@ -197,8 +264,9 @@ Depuis l'environnement local autorisé, la mesure doit suivre ces étapes :
 Ce protocole ne construit ni ne démarre de service ; aucune commande de bascule,
 de redémarrage ou de purge n'y figure. Les archives mesurent l'artefact `bd724044`,
 dont les sources applicatives sont identiques à `6d9395e3`, sans le renommer comme
-une nouvelle construction de ce dernier commit. La qualification VM reste ouverte
-tant que ces opérations et leurs résultats n'ont pas été consignés.
+une nouvelle construction de ce dernier commit. Aucun résultat d'import de ces
+archives n'est consigné ; le relevé candidat reçu porte sur une autre construction,
+faite directement sur la VM à la révision `6dcb0d48`.
 
 ## HANA Showcase : échec SQL reproduit, cause non établie
 

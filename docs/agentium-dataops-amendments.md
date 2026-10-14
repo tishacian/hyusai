@@ -67,13 +67,21 @@ construction d'images, avec leurs révisions et limites de périmètre. Sur
 `bd724044`, les **8 864 tests réussis et 145 ignorés** ne ferment pas tous les
 critères du plan. Les mesures OCI finales donnent **3 567 Mio pour le backend**
 et **4 676 Mio pour le worker**, comparables à la comptabilité Docker classique ;
-ces valeurs dépassent les plafonds numériques de 1 400 et 1 760 Mio, inchangés.
+ces valeurs dépassaient les plafonds numériques de 1 400 et 1 760 Mio alors en
+vigueur.
 Le relevé VM du 14 octobre établit toutefois une comptabilité différente avec
 Docker 29/containerd : les images de production mesurent 1 356 et 1 709 Mio ;
-les candidates y sont absentes et leur budget reste **non qualifié**. Les tailles
+les candidates y étaient absentes et leur budget **non qualifié**. Les tailles
 OCI décompressées ne permettent donc pas de conclure à un dépassement sur la VM.
 La [réconciliation des mesures](dataops-release-blockers-2026-10-14.md) fait foi
-sur ce point. Voir le suivi pour le benchmark de scoring et ses limites.
+sur ce point. Un relevé VM ultérieur, transmis par l'utilisateur pour `6dcb0d48`,
+mesure 1 412 Mio pour le backend et 1 765 Mio pour le worker : dépassements de
+12 et 5 Mio. Après explication de cet écart, l'utilisateur autorise les plafonds
+**1 480 / 1 850 Mio**, environ 5 % au-dessus des tailles mesurées. Les autres
+plafonds restent inchangés, dont ml-ts à 1 240 Mio pour une mesure de 1 229 Mio.
+Les défauts du build VM et les notes de livraison sont actualisés ; le contrôle
+VM avec ces nouveaux plafonds reste à consigner. Aucune bascule de conteneur ni
+activation HANA n'est effectuée. Voir le suivi pour le benchmark et ses limites.
 
 Le 14 octobre, l'utilisateur choisit la démonstration explicite pour HANA
 Showcase : `demo_mode=true`, chiffrement et vérification TLS conservés, écritures

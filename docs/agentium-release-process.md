@@ -107,13 +107,26 @@ It holds a lock (`/tmp/agentium-vm-build.lock`, one build at a time), then:
    (`AGENTIUM_IMAGE_REQUIRE_LIVEKIT_AGENT=1`) and the budgets below
    (`AGENTIUM_IMAGE_BUDGET_MB_*` overrides one).
 
-| Image | Budget (MB) |
+| Image | Budget (MiB) |
 |---|---|
-| backend | 1400 |
-| worker | 1760 |
+| backend | 1480 |
+| worker | 1850 |
 | frontend | 40 |
 | ml-ts | 1240 |
 | livekit-agent | 110 |
+
+On 14 October 2026, the release owner reported VM measurements for candidate
+`6dcb0d48`: backend 1412 MiB, worker 1765 MiB, frontend 28 MiB, ml-ts 1229 MiB
+and livekit-agent 99 MiB. Backend and worker exceeded the previous 1400/1760
+MiB limits. The approved 1480/1850 MiB limits leave 68/85 MiB (about 5%) above
+those measurements; the other limits are unchanged. See the
+[release note](../CHANGELOG.md#2026-10-14--dataops-candidate-not-deployed) and
+[measurement record](dataops-release-blockers-2026-10-14.md#mesure-candidate-sur-la-vm-et-plafonds-retenus).
+The script uses `docker image inspect .Size`, divided by 1 048 576 and truncated
+to whole MiB; the existing `*_MB_*` variable names remain unchanged. Any budget
+overrides in the calling process take precedence over these defaults. Recheck
+the exact candidate tag with all five budgets enforced before release; a budget
+change does not switch containers or activate HANA demo mode.
 
 It ends with `build ok: 7 images at <sha12>`. It reads no env bundle and no
 secret, and changes nothing that runs: §5 and §6 do, as root.
