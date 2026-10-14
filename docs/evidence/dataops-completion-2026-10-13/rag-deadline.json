@@ -1,0 +1,75 @@
+{
+  "source_revisions": {
+    "ad10dbc2": {
+      "backend/app/services/rag/context.py": "6d626acec1225fd4363fa6862f7ac97f37ffba82",
+      "backend/app/tests/services/test_rag_context_worker.py": "91863f4bdb4ea4012918a2b29bbc81126e7247fc"
+    },
+    "64a10ba9": {
+      "backend/app/services/rag/context.py": "6d626acec1225fd4363fa6862f7ac97f37ffba82",
+      "backend/app/tests/services/test_rag_context_worker.py": "91863f4bdb4ea4012918a2b29bbc81126e7247fc"
+    },
+    "940bc43b": {
+      "backend/app/services/rag/context.py": "6d626acec1225fd4363fa6862f7ac97f37ffba82",
+      "backend/app/tests/services/test_rag_context_worker.py": "91863f4bdb4ea4012918a2b29bbc81126e7247fc"
+    }
+  },
+  "runtime_and_original_test_byte_identical": true,
+  "failed_full_suite": {
+    "source_revision": "940bc43b",
+    "journal": "/workspace/dataops-completion-2026-10-13/backend-isolated.coordinator.jsonl",
+    "record": {
+      "nodeid": "app/tests/services/test_rag_context_worker.py::test_multi_collection_retrieval_uses_shared_latency_deadline",
+      "when": "call",
+      "outcome": "failed",
+      "duration": 0.10675621499831323,
+      "longrepr": "[gw3] linux -- Python 3.12.14 /workspace/hyusai/.venv/bin/python\n\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fd55289ed80>\n\n    async def test_multi_collection_retrieval_uses_shared_latency_deadline(monkeypatch):\n        monkeypatch.setattr(rag_context.settings, \"rag_fast_retrieval_deadline_seconds\", 0.06)\n        monkeypatch.setattr(\n            rag_context,\n            \"resolve_knowledge_scope\",\n            lambda **_kwargs: {\n                \"key\": \"multi\",\n                \"label\": \"Multi\",\n                \"collection_slugs\": [\"manuals-a\", \"manuals-b\", \"manuals-c\"],\n            },\n        )\n        monkeypatch.setattr(\n            rag_context,\n            \"_document_service_for_profile\",\n            lambda _profile, collection: SimpleNamespace(collection=collection),\n        )\n    \n        async def fake_resolve_mode(*_args, **_kwargs):\n            return False, \"vector_only\", \"test\"\n    \n        calls: list[tuple[str, float]] = []\n    \n        async def slow_retrieve(doc_svc, _query, _mode, **kwargs):\n            calls.append((doc_svc.collection, float(kwargs.get(\"deadline_seconds\") or 0.0)))\n            await asyncio.sleep(0.04)\n            return SimpleNamespace(\n                chunks=[f\"{doc_svc.collection} chunk\"],\n                scores=[0.9],\n                metadatas=[{\"document_filename\": f\"{doc_svc.collection}.html\"}],\n                pipeline=\"naive\",\n                label=\"Vector\",\n                reason=\"test\",\n                detail=\"test\",\n                diagnostics={},\n            )\n    \n        monkeypatch.setattr(rag_context, \"resolve_retrieval_mode\", fake_resolve_mode)\n        monkeypatch.setattr(rag_context, \"retrieve_for_mode\", slow_retrieve)\n    \n        result = await retrieve_rag_context(\n            {\n                \"query\": \"Explique les procédures\",\n                \"workspace_slug\": \"multi-deadline\",\n                \"knowledge_scope\": \"multi\",\n                \"rag_pipeline_mode\": \"naive\",\n            }\n        )\n    \n        assert 1 <= len(calls) <= 2\n        assert calls[0][1] <= 0.06\n        assert result[\"metrics\"][\"deadline_exceeded\"] is True\n        assert result[\"fallback_reason\"] == \"retrieval_deadline_exceeded\"\n>       assert result[\"collections_touched\"] == [\"manuals-a\"]\nE       AssertionError: assert [] == ['manuals-a']\nE         \nE         Right contains one more item: 'manuals-a'\nE         Use -v to get more diff\n\napp/tests/services/test_rag_context_worker.py:2541: AssertionError"
+    },
+    "root_reported_interruption": {
+      "exit_code": 2,
+      "passed": 3452,
+      "failed": 1,
+      "seconds": 293.9
+    }
+  },
+  "previous_success": {
+    "journal": "/workspace/dataops-completion-2026-10-13/backend-verified.coordinator.jsonl",
+    "record": {
+      "nodeid": "app/tests/services/test_rag_context_worker.py::test_multi_collection_retrieval_uses_shared_latency_deadline",
+      "when": "call",
+      "outcome": "passed",
+      "duration": 0.06640967000203091
+    }
+  },
+  "diagnosis": {
+    "failed_assertion": "collections_touched == [manuals-a], observed []",
+    "already_passed_assertions": [
+      "1 <= number of calls <= 2",
+      "first forwarded budget <= 0.06",
+      "deadline_exceeded is True",
+      "fallback_reason == retrieval_deadline_exceeded"
+    ],
+    "mechanism": "Shared monotonic deadline; result appended only after wait_for succeeds. asyncio.sleep(0.04) has no upper duration guarantee under a 0.06 second wall budget.",
+    "limits": "The journal does not record actual per-call budgets or wake-up timestamps; no exact split of scheduling delay versus preparation work can be inferred. No runtime deadline-contract violation is demonstrated by this failure."
+  },
+  "change": {
+    "file": "backend/app/tests/services/test_rag_context_worker.py",
+    "function": "test_multi_collection_retrieval_uses_shared_latency_deadline",
+    "runtime_changed": false,
+    "description": "Replace only the rag.context time binding with a controlled perf_counter. First retrieval advances elapsed work by 40ms and succeeds immediately. Second waits on a real Future and is cancelled by the real asyncio.wait_for using the remaining 20ms. Assert budgets 60ms then20ms, actual cancellation, no third collection, first collection preserved and unchanged deadline/fallback assertions.",
+    "file_sha256": "6254c57c41178dabf6c0284943a7a8459a769c28e90fc9f910b55e9d135a1692"
+  },
+  "validation": {
+    "cwd": "/workspace/hyusai/backend",
+    "command": "../.venv/bin/pytest app/tests/services/test_rag_context_worker.py -q > /tmp/dataops-rag-deadline-final.log 2>&1",
+    "passed": 100,
+    "warnings": 212,
+    "seconds": 2.74,
+    "exit_code": 0,
+    "log": "/tmp/dataops-rag-deadline-final.log",
+    "log_sha256": "e2c8071c8a16bc5428c606c1d4809fb916290be4d44a654d973cd7dc3f936a33",
+    "ruff_check": "passed",
+    "ruff_format_check": "passed",
+    "git_diff_check": "passed",
+    "full_suite_after_change": "not yet run"
+  }
+}

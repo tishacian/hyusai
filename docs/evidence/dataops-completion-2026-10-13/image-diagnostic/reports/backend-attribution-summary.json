@@ -1,0 +1,84 @@
+{
+  "classification": "diagnostic attribution from actual image64a10ba9, not a reconstructed historical baseline",
+  "image_revision": "64a10ba9e9329b5d8d203ecc786254bbdcee7e19",
+  "units": "MiB = 1048576 bytes; GiB = 1073741824 bytes",
+  "measured_image_bytes": 4310895928,
+  "groups": {
+    "application_dependencies_including_DataOps": {
+      "bytes": 1907283740,
+      "mib": 1818.928
+    },
+    "three_DataOps_distributions": {
+      "bytes": 153134395,
+      "mib": 146.04
+    },
+    "application_dependencies_excluding_three_DataOps_distributions": {
+      "bytes": 1754149345,
+      "mib": 1672.887
+    },
+    "conditional_HF1_install": {
+      "bytes": 978455988,
+      "mib": 933.128
+    },
+    "COPY_context": {
+      "bytes": 612996145,
+      "mib": 584.599
+    },
+    "Terraform_caches_within_COPY": {
+      "bytes": 569918533,
+      "mib": 543.517
+    },
+    "common_system_OCR_Office": {
+      "bytes": 439104313,
+      "mib": 418.763
+    },
+    "pinned_RAG_models": {
+      "bytes": 226179470,
+      "mib": 215.702
+    }
+  },
+  "dataops_share_percent": 3.552,
+  "historical_source_comparison": {
+    "docker/Dockerfile.agentium-backend": {
+      "unchanged_from_ad10dbc2": true,
+      "sha256_at_64a10ba9": "361c170a15812e52fb86e5ea3cc27131d7651898e0af20497e689077f82b3a53"
+    },
+    "docker/Dockerfile.agentium-worker": {
+      "unchanged_from_ad10dbc2": true,
+      "sha256_at_64a10ba9": "deb8f7cda8570be9acaa3fbb92e916da0c4b320453613a70a7fccb775ae4e9ff"
+    },
+    "scripts/agentium-vm-build.sh": {
+      "unchanged_from_ad10dbc2": true,
+      "sha256_at_64a10ba9": "1d8784d93d09c296ef13938dbdf7363cc0381add8ea0150de550da7ac814e345"
+    },
+    "backend/requirements_hf_rag.txt": {
+      "unchanged_from_ad10dbc2": true,
+      "sha256_at_64a10ba9": "320b2c516fc11fc21ac75a8fcfe3a0baa67b0f11f0b0f9f56c7387e65da0e740"
+    }
+  },
+  "historical_conclusion": "Docker instructions and VM release HF1 options are byte-identical in ad10dbc2 and64a10ba9. This establishes preexisting choices, not the historical size of a previously built image.",
+  "arithmetic_only_not_image_measurement": {
+    "current_bytes_minus_Terraform_cache": 3740977395,
+    "current_bytes_minus_entire_COPY_and_HF_and_three_DataOps_distributions": 2566309400,
+    "warning": "These subtractions are neither qualified images nor a recommendation to remove functionality. A clean-context build still must be measured."
+  },
+  "budgets_unchanged_mib": {
+    "backend": 1400,
+    "worker": 1760
+  },
+  "worker_measured": false,
+  "references": {
+    "release_HF1_flags": "scripts/agentium-vm-build.sh:68-69",
+    "release_budgets": "scripts/agentium-vm-build.sh:83-84",
+    "backend_HF_install": "docker/Dockerfile.agentium-backend:51-62",
+    "app_requirements_additions": "backend/requirements.txt:131-133",
+    "new_pins": "backend/constraints-demo-app.txt:226-229"
+  },
+  "limits": [
+    "No historical baseline rebuild.",
+    "No worker size inferred from backend.",
+    "No budget relaxation.",
+    "DataOps byte count includes module files, bundled libs, dist-info and bytecode; shared preexisting dependencies are not charged twice.",
+    "Deprecated3.0.0 is a changed shared pin, not claimed as a wholly new package."
+  ]
+}

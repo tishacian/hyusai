@@ -1,0 +1,293 @@
+{
+  "classification": "diagnostic; no historical baseline image reconstructed",
+  "source_revision": "64a10ba9e9329b5d8d203ecc786254bbdcee7e19",
+  "method": "Header payload-size sums in three existing verified gzip layers; no extraction and no package execution.",
+  "layers": [
+    {
+      "layer_index": 7,
+      "label": "common_application_dependencies",
+      "digest": "sha256:ee489f5fe4cc046621a9b2f453436effcf08df78ed8a29aa3c6537e889a87d08",
+      "diff_id": "sha256:a3d1b7b185a48573edb43320bb8189bc026ed92c0ce68d286a25b1abecdaa8f6",
+      "tar_entry_payload_bytes": 1907283740,
+      "entries": 48398,
+      "dataops_distribution_bytes": {
+        "arro3-core": 10945820,
+        "deltalake": 135070484,
+        "sqlglot": 7118091
+      },
+      "terraform_cache_payload_bytes": 0,
+      "largest_site_packages_entries": [
+        {
+          "name": "_polars_runtime_32",
+          "bytes": 220962554
+        },
+        {
+          "name": "pyarrow",
+          "bytes": 160951492
+        },
+        {
+          "name": "playwright",
+          "bytes": 142459479
+        },
+        {
+          "name": "deltalake",
+          "bytes": 134162324
+        },
+        {
+          "name": "scipy",
+          "bytes": 107492638
+        },
+        {
+          "name": "pandas",
+          "bytes": 70894926
+        },
+        {
+          "name": "onnxruntime",
+          "bytes": 67870866
+        },
+        {
+          "name": "pymupdf",
+          "bytes": 66793972
+        },
+        {
+          "name": "_duckdb.cpython-312-x86_64-linux-gnu.so",
+          "bytes": 60387000
+        },
+        {
+          "name": "mlflow",
+          "bytes": 56017783
+        },
+        {
+          "name": "plotly",
+          "bytes": 52829307
+        },
+        {
+          "name": "sklearn",
+          "bytes": 45782336
+        },
+        {
+          "name": "faiss_cpu.libs",
+          "bytes": 41940452
+        },
+        {
+          "name": "numpy",
+          "bytes": 40513166
+        },
+        {
+          "name": "matplotlib",
+          "bytes": 34190221
+        },
+        {
+          "name": "scipy.libs",
+          "bytes": 31202973
+        },
+        {
+          "name": "numpy.libs",
+          "bytes": 28348443
+        },
+        {
+          "name": "fontTools",
+          "bytes": 27827504
+        },
+        {
+          "name": "faiss",
+          "bytes": 25259268
+        },
+        {
+          "name": "sqlalchemy",
+          "bytes": 22449391
+        }
+      ],
+      "largest_root_prefixes": [
+        {
+          "prefix": "usr/local",
+          "bytes": 1906263268
+        },
+        {
+          "prefix": "root/.cache",
+          "bytes": 1020472
+        },
+        {
+          "prefix": "root",
+          "bytes": 0
+        },
+        {
+          "prefix": "usr",
+          "bytes": 0
+        }
+      ]
+    },
+    {
+      "layer_index": 11,
+      "label": "conditional_HF1_install",
+      "digest": "sha256:d08eb166554b7cb527b10cd41d950fca4593fc3b72a10c34d8228f538a6552df",
+      "diff_id": "sha256:0cb83c64bf08fb23a2ff4ab00d796a27c4329c9feabe4c663cbc525d6074dfe2",
+      "tar_entry_payload_bytes": 978455988,
+      "entries": 28299,
+      "dataops_distribution_bytes": {},
+      "terraform_cache_payload_bytes": 0,
+      "largest_site_packages_entries": [
+        {
+          "name": "torch",
+          "bytes": 765530209
+        },
+        {
+          "name": "transformers",
+          "bytes": 101606321
+        },
+        {
+          "name": "sympy",
+          "bytes": 69106370
+        },
+        {
+          "name": "networkx",
+          "bytes": 15518551
+        },
+        {
+          "name": "torchvision",
+          "bytes": 5900592
+        },
+        {
+          "name": "sentence_transformers",
+          "bytes": 5147533
+        },
+        {
+          "name": "mpmath",
+          "bytes": 4553007
+        },
+        {
+          "name": "torchgen",
+          "bytes": 3246724
+        },
+        {
+          "name": "torchvision.libs",
+          "bytes": 2119498
+        },
+        {
+          "name": "torch-2.14.0+cpu.dist-info",
+          "bytes": 1832970
+        },
+        {
+          "name": "safetensors",
+          "bytes": 1342517
+        },
+        {
+          "name": "typer",
+          "bytes": 994089
+        },
+        {
+          "name": "transformers-5.16.1.dist-info",
+          "bytes": 538164
+        },
+        {
+          "name": "sympy-1.14.0.dist-info",
+          "bytes": 322213
+        },
+        {
+          "name": "functorch",
+          "bytes": 300030
+        },
+        {
+          "name": "networkx-3.6.1.dist-info",
+          "bytes": 111202
+        },
+        {
+          "name": "sentence_transformers-6.1.0.dist-info",
+          "bytes": 76805
+        },
+        {
+          "name": "safetensors-0.8.0.dist-info",
+          "bytes": 58041
+        },
+        {
+          "name": "torchvision-0.29.0+cpu.dist-info",
+          "bytes": 37728
+        },
+        {
+          "name": "shellingham",
+          "bytes": 31931
+        }
+      ],
+      "largest_root_prefixes": [
+        {
+          "prefix": "usr/local",
+          "bytes": 978455988
+        },
+        {
+          "prefix": "usr",
+          "bytes": 0
+        }
+      ]
+    },
+    {
+      "layer_index": 15,
+      "label": "COPY_context",
+      "digest": "sha256:29947bef237259d9f3b6ce2943d7a46da97a2b183caf968e6b0cfc624c451b6d",
+      "diff_id": "sha256:fe91de685872492aedf04c24eaa2f693c3b617b4ba1a6206bf7e871a79684dd3",
+      "tar_entry_payload_bytes": 612996145,
+      "entries": 4054,
+      "dataops_distribution_bytes": {},
+      "terraform_cache_payload_bytes": 569918533,
+      "largest_site_packages_entries": [],
+      "largest_root_prefixes": [
+        {
+          "prefix": "app/ops",
+          "bytes": 570126433
+        },
+        {
+          "prefix": "app/backend",
+          "bytes": 34343601
+        },
+        {
+          "prefix": "app/docs",
+          "bytes": 6102784
+        },
+        {
+          "prefix": "app/scripts",
+          "bytes": 2117881
+        },
+        {
+          "prefix": "app/config",
+          "bytes": 144165
+        },
+        {
+          "prefix": "app/docker",
+          "bytes": 103557
+        },
+        {
+          "prefix": "app/deploy",
+          "bytes": 20950
+        },
+        {
+          "prefix": "app/.gitlab-ci.yml",
+          "bytes": 11281
+        },
+        {
+          "prefix": "app/.gitlab",
+          "bytes": 8198
+        },
+        {
+          "prefix": "app/artifacts",
+          "bytes": 4224
+        },
+        {
+          "prefix": "app/CONTRIBUTING.md",
+          "bytes": 3484
+        },
+        {
+          "prefix": "app/CHANGELOG.md",
+          "bytes": 3292
+        }
+      ]
+    }
+  ],
+  "dataops_three_distribution_total_bytes": 153134395,
+  "dataops_attribution_scope": "sqlglot, deltalake (including bundled libs), arro3.core module and their dist-info/bytecode; shared preexisting dependencies not charged twice.",
+  "limits": [
+    "Package byte attribution is not the result of rebuilding ad10dbc2.",
+    "Current pycache and installed wheel bytes are counted.",
+    "The Deprecated version pin can change a shared package; it is not claimed as a wholly new DataOps package.",
+    "Subtracting HF/context/package bytes is arithmetic on this image, not a qualified image with features removed."
+  ],
+  "seconds": 26.506
+}

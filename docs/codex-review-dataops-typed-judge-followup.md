@@ -58,6 +58,68 @@ sans changer le contrôle. Les **39 tests ciblés de ces régressions passent**
 après `cc8c0e3a` et `75795e45`. La passe diagnostique avait chargé les tests avant
 ces modifications ; elle ne qualifie pas le code final.
 
+La relance sur le backend de `75795e45`, identique à celui de `64a10ba9`, donne
+**8 848 réussites, 145 ignorés et aucun échec**, en **743,61 s**, sans exclusion
+par sélection. La conformité, la cohérence des 232 dépendances et le scaffold
+Helm/Terraform/Ansible passent aussi. Cette passe précède le correctif d'isolation
+d'aperçu décrit ci-dessous ; elle ne lui est pas attribuée rétroactivement.
+Son [manifeste](evidence/dataops-completion-2026-10-13/validation-before-isolation.json)
+conserve la révision, les paramètres et les empreintes des traces.
+
+### Isolation de l'aperçu et contexte des images
+
+Une sonde confinée à 192 Mio, sur DuckDB 1.5.5, exécute l'expression acceptée
+`lpad('x',1000000000,'x')` avec une limite DuckDB de 16 MB et une interruption
+programmée à cinq secondes. Le processus est tué par le cgroup : sortie 137,
+`oom_kill=1`. Aucun service API réel n'a été sollicité. La limite du moteur ne
+suffisait donc pas à protéger le processus web qui exécutait l'aperçu.
+
+Le correctif `940bc43b` lance un nouvel interpréteur, applique les limites système
+avant les imports natifs et y déplace le décodage des samples, le calcul et le
+profil. L'autorisation, les empreintes et le cache restent dans l'API. Le budget
+DuckDB par défaut reste 512 Mio ; le plafond d'espace virtuel ajoute une réserve
+native de 512 Mio, soit 1 Gio. Ce plafond n'est pas une mesure de RSS. L'enfant
+ne reçoit pas l'environnement applicatif ; les sels restent expurgés et seuls
+des codes fixes sortent en cas d'erreur. Échéance, arrêt du groupe, attente de
+terminaison et résultat JSON limité à 32 Mio sont vérifiés.
+
+Les **271 tests ciblés** passent en **44,74 s**, notamment les expansions par
+padding, remplacement et concaténation, l'interruption, le masque des sels,
+les profils, les conversions, NULL/NaN et le cache. Une assertion de capture
+stderr a ensuite été rendue complète et son test passe séparément ; le runtime
+est identique. Voir [la preuve d'isolation](evidence/dataops-completion-2026-10-13/preview-isolation.json).
+La première relance complète est arrêtée après **3 452 réussites et un échec**,
+en 293,90 s. Cet échec RAG attendait qu'un `asyncio.sleep(40 ms)` reprenne avant
+un budget de 60 ms ; la première collection n'avait produit aucun résultat à
+l'expiration. Le runtime et le test sont identiques à `ad10dbc2` et à la passe
+verte précédente. Les assertions du délai et du repli avaient passé ; aucun
+défaut du délai de production n'est démontré. Le test utilise maintenant une
+horloge locale contrôlée, conserve une vraie annulation `asyncio` et vérifie
+les budgets successifs de 60 puis 20 ms, ainsi que la première collection et
+l'absence d'un troisième appel. Les **100 tests du fichier RAG passent**, sans
+modification de son runtime. Le [diagnostic](evidence/dataops-completion-2026-10-13/rag-deadline.json)
+conserve l'échec et la comparaison de blobs. Une nouvelle suite complète est
+nécessaire sur cette correction ; la passe interrompue n'est pas une qualification.
+
+Une première image backend a été construite sur `64a10ba9`, avec RAG activé
+selon le script de release. La somme des charges utiles de ses couches est de
+**4 310 895 928 octets, soit 4 111 Mio entiers**, au-dessus du plafond de
+1 400 Mio. Cette comptabilité classique Docker est vérifiée exactement sur les
+quatre couches de l'image Python locale ; elle ne remplace pas un inspect de la
+VM de déploiement. L'import de `app.main` et des trois nouvelles dépendances
+passe, sans réseau ni démarrage du lifespan.
+
+Le contexte comportait **569 918 533 octets de caches Terraform**. Le commit
+`f02e9333` les exclut, ainsi que les états et plans locaux, dans les cinq
+contextes concernés ; les 16 tests de contexte passent. Ce retrait ne suffit
+pas à respecter le plafond : les trois paquets DataOps représentent 146 Mio,
+la couche Hugging Face 933 Mio et le reste de la couche applicative 1 673 Mio.
+Les choix Docker/release sont identiques à `ad10dbc2`, mais aucune taille
+historique n'a été reconstruite. Le [bundle diagnostique](evidence/dataops-completion-2026-10-13/image-diagnostic/bundle-index.json)
+conserve les couches mesurées, leur intégrité et le périmètre du smoke. Les
+images finales sont à reconstruire sur le code et le contexte corrigés ; les
+budgets ne sont pas relevés à partir de ce diagnostic.
+
 Ces preuves ne ferment pas tous les critères du plan : restent notamment les
 types limites pour chaque étape, la matrice complète des options/coercions,
 les cardinalités détaillées des jointures, la découverte complète asynchrone

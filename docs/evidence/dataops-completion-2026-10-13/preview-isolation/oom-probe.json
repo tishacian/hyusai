@@ -1,0 +1,45 @@
+{
+  "name": "agentium-text-expansion-probe-218424",
+  "image": "python:3.12-slim@sha256:ec948fa5f90f4f8907e89f4800cfd2d2e91e391a4bce4a6afa77ba265bc3a2fe",
+  "memory_bytes": 201326592,
+  "cpus": 0.5,
+  "network": "none",
+  "mounts": "repo/runtime/probe read-only",
+  "timeout_s": 30,
+  "duckdb_memory_limit": "16MB",
+  "threads": 1,
+  "source_revision": "64a10ba9e9329b5d8d203ecc786254bbdcee7e19",
+  "before": {
+    "memory.max": "201326592",
+    "memory.peak": "6361088",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+    "memory.swap.max": "0",
+    "cpu.max": "50000 100000",
+    "cpu.stat": "usage_usec 77418\nuser_usec 48872\nsystem_usec 28545\nnice_usec 0\nnr_periods 2\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0"
+  },
+  "exit_code": 137,
+  "status": "returned",
+  "after": {
+    "memory.max": "201326592",
+    "memory.peak": "201326592",
+    "memory.events": "low 0\nhigh 0\nmax 37\noom 1\noom_kill 1\noom_group_kill 0",
+    "memory.swap.max": "0",
+    "cpu.max": "50000 100000",
+    "cpu.stat": "usage_usec 1530878\nuser_usec 1229664\nsystem_usec 301214\nnice_usec 0\nnr_periods 31\nnr_throttled 27\nthrottled_usec 1346842\nnr_bursts 0\nburst_usec 0"
+  },
+  "state": {
+    "Status": "running",
+    "Running": true,
+    "Paused": false,
+    "Restarting": false,
+    "OOMKilled": true,
+    "Dead": false,
+    "Pid": 218469,
+    "ExitCode": 0,
+    "Error": "",
+    "StartedAt": "2026-10-13T23:45:03.652088707Z",
+    "FinishedAt": "0001-01-01T00:00:00Z"
+  },
+  "container_removed": true,
+  "elapsed_seconds": 5.858793766994495
+}
