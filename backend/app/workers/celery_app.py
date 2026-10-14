@@ -83,3 +83,11 @@ celery_app.conf.beat_schedule = {
         "schedule": 24 * 60 * 60,
     },
 }
+
+# The general scheduler dispatches recovery to the short connector queue only
+# when the optional execution plane is enabled. It never consumes that queue.
+if settings.connector_framework_enabled:
+    celery_app.conf.beat_schedule["connector-run-recovery-30s"] = {
+        "task": "agentium.connector_reap", "schedule": 30.0,
+        "options": {"queue": settings.celery_connectors_interactive_queue},
+    }

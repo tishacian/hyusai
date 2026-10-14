@@ -1,0 +1,28 @@
+key: cassandra
+version: 1
+label_key: connections.profile.cassandra
+family: wide_column
+dialect: cassandra
+packages:
+- cassandra-driver
+parameters:
+- key: host
+  type: host
+  required: true
+- key: port
+  type: integer
+  default: 9042
+  min: 1
+  max: 65535
+- key: keyspace
+  type: string
+  required: true
+- key: username
+  type: string
+  required: true
+- key: password
+  type: secret
+  required: true
+capabilities:
+  read: true
+  consistency: none

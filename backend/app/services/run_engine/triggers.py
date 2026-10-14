@@ -62,6 +62,7 @@ EVENT_SFTP_FILE_ARRIVED = "sftp.file_arrived"
 EVENT_DEPOSIT_PROMOTED = "deposit.promoted"
 EVENT_WEBHOOK_RECEIVED = "webhook.received"
 EVENT_SCHEDULE_FIRED = "schedule.fired"
+EVENT_CONNECTOR_CHANGED = "connector.objects_changed"
 
 # A ``kind == 'source'`` node is an ACTIVE trigger when its ``type`` is one of
 # these; the value is the ``event_kind`` it listens for. ``source.chat_request``
@@ -74,6 +75,7 @@ TRIGGER_TYPE_TO_EVENT: Dict[str, str] = {
     "source.deposit_promoted": EVENT_DEPOSIT_PROMOTED,
     "source.webhook": EVENT_WEBHOOK_RECEIVED,
     "source.schedule": EVENT_SCHEDULE_FIRED,
+    "source.connector_watch": EVENT_CONNECTOR_CHANGED,
 }
 
 
@@ -101,6 +103,11 @@ _EFFECT_ANALYSIS = "analysis"
 _EFFECT_NOTIFICATION = "notification"
 
 _GOVERNANCE: Dict[str, EventGovernance] = {
+    EVENT_CONNECTOR_CHANGED: EventGovernance(
+        event_kind=EVENT_CONNECTOR_CHANGED,
+        permitted_effects={_EFFECT_ANALYSIS, _EFFECT_NOTIFICATION, _EFFECT_INGESTION},
+        require_hitl_for_side_effects=True,
+    ),
     # SFTP arrival is NOT human-validated → analysis / notification ONLY, never
     # ingestion. This is the hard invariant: an SFTP arrival can never, by
     # itself, cause data to enter a collection.

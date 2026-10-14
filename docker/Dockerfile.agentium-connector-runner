@@ -1,10 +1,27 @@
-# C0 scaffold, no additional drivers. Build the worker at this same revision
-# first; WORKER_BASE_IMAGE must identify that qualified image by digest.
+# syntax=docker/dockerfile:1
+# The base is the general worker built from this exact source revision.
 ARG WORKER_BASE_IMAGE
 FROM ${WORKER_BASE_IMAGE}
 ARG AGENTIUM_IMAGE_REVISION=unknown
+ARG PIP_INDEX_URL=https://pypi.org/simple
 LABEL org.opencontainers.image.revision="${AGENTIUM_IMAGE_REVISION}"
-ENV CELERY_APP=app.workers.celery_connectors:celery_connectors \
+USER root
+COPY backend/requirements_connectors_sql.txt backend/requirements_connectors_misc.txt backend/constraints-connectors.txt backend/constraints-demo-app.txt /tmp/connector-requirements/
+# Reuse the base runtime without altering it. No torch/ML stack reinstallation.
+# The optional CA is public build trust; it is never retained in the image.
+RUN --mount=type=secret,id=connector_ca,required=false \
+    if [ -f /run/secrets/connector_ca ]; then export PIP_CERT=/run/secrets/connector_ca; fi; \
+    python -m venv --system-site-packages /opt/agentium-connectors \
+    && /opt/agentium-connectors/bin/pip install --no-cache-dir --only-binary=:all: \
+        --index-url=${PIP_INDEX_URL} \
+        --constraint=/tmp/connector-requirements/constraints-demo-app.txt \
+        --constraint=/tmp/connector-requirements/constraints-connectors.txt \
+        -r /tmp/connector-requirements/requirements_connectors_sql.txt \
+        -r /tmp/connector-requirements/requirements_connectors_misc.txt \
+    && /opt/agentium-connectors/bin/pip check \
+    && rm -rf /tmp/connector-requirements
+USER agentium
+ENV PATH="/opt/agentium-connectors/bin:${PATH}" \
+    CELERY_APP=app.workers.celery_connectors:celery_connectors \
     CELERY_BEAT=0
-# Inherit the worker's non-root user, code and entrypoint. C1 adds drivers only
-# here after the S-C2 measurements; the API and general worker keep their size.
+# Code and entrypoint are inherited; additional native drivers exist only here.

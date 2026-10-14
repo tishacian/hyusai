@@ -1,0 +1,32 @@
+key: unity_catalog
+version: 1
+label_key: connections.profile.unity_catalog
+family: uc_rest
+dialect: unity_catalog
+packages:
+- httpx
+- pyarrow
+- deltalake
+- botocore
+parameters:
+- key: base_url
+  type: string
+  required: true
+- key: allowed_origins
+  type: json
+  required: true
+- key: download_origins
+  type: json
+  required: true
+- key: token
+  type: secret
+  required: true
+- key: catalog
+  type: string
+  required: true
+- key: region
+  type: string
+  default: us-east-1
+capabilities:
+  read: true
+  consistency: snapshot

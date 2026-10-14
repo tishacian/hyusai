@@ -98,10 +98,10 @@ def test_expansion_refused_by_os_budget_and_parent_still_serves(source, expressi
     pid = os.getpid()
     with pytest.raises(ValueError) as error:
         previews.preview(*prepared(source, expression))
-    expected = {"DATAPREP_PREVIEW_MEMORY_LIMIT"}
-    if expression.startswith("concat("):
-        # The first resource exhausted depends on native allocation speed.
-        expected.add("DATAPREP_PREVIEW_TIMEOUT")
+    # Either enforced budget can win on a constrained runner: even lpad may
+    # exhaust its CPU/wall deadline before allocating the oversized value.
+    # Both outcomes must leave the parent alive and able to serve the next call.
+    expected = {"DATAPREP_PREVIEW_MEMORY_LIMIT", "DATAPREP_PREVIEW_TIMEOUT"}
     assert str(error.value) in expected
     assert os.getpid() == pid
     assert previews.preview(*prepared(source))["rows"][1]["value"] == 4

@@ -24,7 +24,13 @@
 
 **Ordre** : C0, puis C1. Ensuite C2, C3 et C4 peuvent avancer en parallèle, dans la limite de deux ou trois agents. C5 suit C1, qui livre le modèle de connexion et d'autorisation. C6 et C7 viennent après. CH n'a lieu que lorsqu'une instance HANA réelle est disponible.
 
-**C0 n'est terminé** que lorsque la garde réseau tourne en mode `enforce` sur la production, preuve à l'appui, et que le banc de certification a produit au moins un bundle de preuves. Aucun nouveau profil n'est publié avant.
+**C0 n'est terminé** que lorsque la garde réseau tourne en mode `enforce` sur la production, preuve à l'appui, et que le banc de certification a produit au moins un bundle de preuves.
+
+**Amendement utilisateur du 14 octobre 2026** : la VM de production est le seul banc disponible et l’environnement de développement n’y a pas accès. Le développement de C1 à C7 continue ; les recettes et la collecte des preuves sont préparées ici, puis exécutées par l’opérateur ou l’agent qui accède à la VM. Un profil développé reste « Non vérifié » tant que ses preuves n’ont pas été acceptées. Cette autorisation ne ferme pas C0 et ne vaut ni fusion ni déploiement. CH reste en attente : aucune instance HANA réelle n’est disponible.
+
+L’[état du développement et ses limites](agentium-connectors-implementation.md)
+et la [procédure de certification déléguée](agentium-connectors-certification-handoff.md)
+consignent les écarts et preuves sans remplacer les critères du présent plan.
 
 ---
 
@@ -415,9 +421,9 @@ Le kit vit sous `backend/app/tests/connectors/kit/`. Il se paramètre par profil
 
 ### 11.4 Où le kit tourne
 
-**Le banc doit d'abord exister.** Aucune CI distante ne tourne aujourd'hui. C0 met en service l'une de ces deux options, à trancher par l'utilisateur :
-1. un runner GitLab actif, avec conteneurs de service ;
-2. un hôte de banc dédié, ou l'hôte du runner protégé, qui exécute le kit par `docker compose` et produit des bundles de preuves avec empreintes, comme les preuves actuelles.
+**Décision utilisateur du 14 octobre 2026** : le seul hôte disponible est la VM actuelle de production. Aucun runner CI ni hôte dédié n’est supposé disponible. Le kit s’exécute à la demande, par l’opérateur ou l’agent ayant accès à la VM, avec des services et identifiants de test isolés, des limites de ressources, un espace disque vérifié et un nettoyage limité à ces ressources. L’environnement de développement ne lance aucune opération sur la VM.
+
+Les certifications sont des travaux d’exploitation à exécuter et à prouver ; leur absence ne bloque plus le développement des lots. Un résultat local avec doubles de test ne constitue pas une certification. L’installation d’un runner ou d’un hôte dédié reste une évolution éventuelle, pas un prérequis inventé pour cette livraison.
 
 Ensuite :
 - **Vérifié** : conteneurs PostgreSQL, MySQL, MariaDB, SQL Server, Oracle Free, MinIO, Azurite, faux serveur GCS, MongoDB, Elasticsearch, OpenSearch, Cassandra, Unity Catalog OSS, serveur Delta Sharing de référence, catalogue Iceberg REST.
@@ -667,8 +673,7 @@ La couverture de papAI provient du code de `papai-latest` (`spark-service`, `cor
 
 Travail préparatoire sur `codex/dataops-d7-c0`. **C0 reste ouvert** : aucun
 déploiement, passage en `enforce` en production, banc actif ou connecteur qualifié
-n'est attesté par cet incrément. Le choix du banc (§11.4) et celui du banc HANA
-réel (CH/S-C8) restent ouverts.
+n'est attesté par cet incrément. Le banc (§11.4) a ensuite été fixé à la VM existante par l’utilisateur ; son exécution reste à déléguer. CH/S-C8 attend une instance HANA réelle.
 
 | Partie | Livré dans le code | Limite de cet incrément |
 |---|---|---|

@@ -1,0 +1,6 @@
+# Isolated connector runner only. No additions to API/general worker images.
+# MIT / Apache-2.0. Live provider qualification is tracked separately.
+ijson==3.4.0.post0
+pymongo==4.15.3
+cassandra-driver==3.29.3
+fastavro==1.12.1

@@ -1,0 +1,17 @@
+# Resolved Linux CPython 3.12 dependencies for the isolated connector runner.
+# Shared packages remain constrained by constraints-demo-app.txt as well.
+cassandra-driver==3.29.3
+cffi==2.1.1
+click==8.5.0
+cryptography==49.0.0
+dnspython==2.8.0
+fastavro==1.12.1
+geomet==1.1.0
+ijson==3.4.0.post0
+oracledb==3.1.1
+pycparser==3.0
+pymongo==4.15.3
+PyMySQL==1.1.2
+pyOpenSSL==26.4.0
+python-tds==1.16.0
+typing_extensions==4.16.0

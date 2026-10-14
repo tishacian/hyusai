@@ -103,6 +103,8 @@ def submit_score(
         },
     )
     db.add(execution)
+    from app.services.dataops.compute_registry import register as register_compute
+    register_compute(db, execution)
     db.commit()
     if settings.worker_eager_mode:
         run_score(execution.id)
@@ -266,6 +268,9 @@ def run_score(execution_id):
         row = db.get(RecipeExecution, execution_id)
         if row is None or row.status in RECIPE_EXECUTION_TERMINAL_STATUSES:
             return {"id": execution_id, "status": row.status if row else "missing"}
+        from app.services.dataops.compute_registry import start as start_compute
+        if not start_compute(db, row):
+            return {"id": execution_id, "status": row.status}
         claimed = db.execute(
             update(RecipeExecution)
             .where(RecipeExecution.id == execution_id, RecipeExecution.status == "queued")
@@ -339,6 +344,9 @@ def run_score(execution_id):
                 # The watchdog/cancellation path owns the same row lock. Refresh
                 # its authority before the first output mutation or ready flush,
                 # then hold it through settlement, journaling and the final commit.
+                from app.services.dataops.compute_registry import begin_settlement
+
+                begin_settlement(db, row)
                 row = (
                     db.query(RecipeExecution)
                     .filter_by(id=execution_id)

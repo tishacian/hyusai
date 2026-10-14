@@ -6,11 +6,13 @@ import hashlib
 import json
 import math
 import time
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 import httpx
 
 from app.services.connectors.http_transport import destination_for_url, pinned_client
+from app.services.connectors.legacy_network import network_scoped
 from app.services.connectors.mcp.contract import AUTH_INHERIT, AUTH_OAUTH
 from app.services.connectors.mcp.errors import McpCallFailed, McpUnconfigured, McpUnreachable
 from app.services.connectors.network_policy import ConnectorNetworkError
@@ -96,6 +98,7 @@ def fetch_access_token(
     return token
 
 
+@network_scoped
 def access_token_for_server(server: Mapping[str, Any]) -> str:
     mode = str(server.get("auth_mode") or "")
     if mode in {AUTH_OAUTH, AUTH_INHERIT}:

@@ -1,0 +1,44 @@
+key: postgresql
+version: 1
+label_key: connections.profile.postgresql
+family: dbapi
+dialect: postgresql
+packages:
+- psycopg2
+parameters:
+- key: host
+  type: host
+  required: true
+- key: port
+  type: integer
+  default: 5432
+  min: 1
+  max: 65535
+- key: database
+  type: string
+  required: true
+- key: username
+  type: string
+  required: true
+- key: password
+  type: secret
+  required: true
+- key: sslmode
+  type: enum
+  choices:
+  - verify-full
+  default: verify-full
+  advanced: true
+capabilities:
+  read: true
+  read_partitioned: true
+  read_incremental: true
+  consistency: snapshot
+  write_append: true
+  write_overwrite: true
+  write_upsert: true
+  write_outcome_check: marker_table
+limits:
+  preview_rows: 100
+  statement_timeout_ms: 30000
+  fetch_rows: 10000

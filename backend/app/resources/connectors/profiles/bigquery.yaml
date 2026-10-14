@@ -1,0 +1,42 @@
+key: bigquery
+version: 1
+label_key: connections.profile.bigquery
+family: dbapi
+dialect: bigquery
+packages:
+- httpx
+parameters:
+- key: project
+  type: string
+  required: true
+  pattern: '[A-Za-z0-9_-]{1,255}'
+- key: dataset
+  type: string
+  required: true
+  pattern: '[A-Za-z0-9_-]{1,255}'
+- key: location
+  type: string
+  required: false
+  default: US
+- key: credentials_json
+  type: secret_file
+  required: true
+- key: maximum_bytes_billed
+  type: integer
+  required: false
+  default: 1073741824
+  min: 1
+  max: 1099511627776
+capabilities:
+  read: true
+  read_partitioned: true
+  read_incremental: true
+  write_append: true
+  write_overwrite: true
+  write_upsert: true
+  write_outcome_check: job_id
+  consistency: none
+limits:
+  preview_rows: 100
+  statement_timeout_ms: 30000
+  fetch_rows: 1000

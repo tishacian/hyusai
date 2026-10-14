@@ -70,12 +70,23 @@ def resolve_destination(
     host = canonical_host(host)
     if type(port) is not int or not 1 <= port <= 65535:
         raise ConnectorNetworkError("CONNECTOR_PORT_INVALID")
-    mode = mode or settings.connector_network_policy_mode
+    # The observation window belongs to legacy connections. Enabling the new
+    # framework must never expose its wider credential surface in report mode.
+    mode = (
+        "enforce"
+        if settings.connector_framework_enabled
+        else mode or settings.connector_network_policy_mode
+    )
     if mode not in {"report", "enforce"}:
         raise ConnectorNetworkError("CONNECTOR_NETWORK_POLICY_INVALID", 503)
     try:
         hosts = {canonical_host(value) for value in allowed_hosts or ()}
-        networks = [ipaddress.ip_network(value, strict=True) for value in allowed_cidrs]
+        from app.services.connectors.network_exceptions import approved_cidrs
+
+        networks = [
+            ipaddress.ip_network(value, strict=True)
+            for value in (*allowed_cidrs, *approved_cidrs(port))
+        ]
     except (ValueError, ConnectorNetworkError):
         raise ConnectorNetworkError("CONNECTOR_NETWORK_POLICY_INVALID", 503) from None
     try:

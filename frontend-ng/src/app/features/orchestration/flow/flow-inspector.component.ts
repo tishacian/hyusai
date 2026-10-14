@@ -1129,6 +1129,7 @@ export function publishedNodeExecutor(
                 {{ i18n.t('flow.inspector.section.trigger') }}
                 <ck-help id="concept.trigger" />
               </span>
+              @if (n.type === 'source.connector_watch') { <p class="ck-flow-hint">{{ i18n.t('flow.inspector.trigger.connector_watch') }}</p><a class="ck-flow-action" [navLink]="{ leaf: 'connector-connections' }">{{ i18n.t('flow.inspector.trigger.connections') }}</a> }
               @if (isSftpTrigger(n)) {
                 <a class="ck-flow-action" [navLink]="{ surface: 'secure-deposit' }">
                   <ck-glyph name="orbit" [size]="12" color="currentColor" />
@@ -1293,6 +1294,7 @@ export class FlowInspectorComponent {
     'source.deposit_promoted',
     'source.schedule',
     'source.webhook',
+    'source.connector_watch',
   ]);
 
   /** The System this inspector's flow is bound to (null on the scratchpad).
