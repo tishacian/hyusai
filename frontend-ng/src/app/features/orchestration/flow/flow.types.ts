@@ -1,3 +1,6 @@
+import { DATAOPS_FR, DATAOPS_EN } from '@app/core/i18n/dataops.dict';
+import { editablePrepDraft } from './flow-data-prep.vm';
+import { canonicalPrepParams, changePrepOperation, newPrepDraft, PREP_OPERATIONS, prepInputPorts } from '@app/features/data/dataops.models';
 /**
  * Shared types + defaults for the Flow Builder feature.
  *
@@ -91,6 +94,8 @@ export function skillVisibilityVerdict(skill: Skill): SkillVisibilityVerdict | n
 
 /** A palette entry. `paletteItemToNode()` yields the node for `store.addNode`. */
 export interface PaletteItem {
+  key?: string;
+  labelKey?: string;
   /** Canonical node `type`. */
   type: string;
   kind: NodeKind;
@@ -626,4 +631,19 @@ export function emptyScratchFlow(): CanonicalFlow {
     nodes: [],
     edges: [],
   };
+}
+
+/** One runtime Skill, seven authored operations with persisted data ports. */
+export function skillToPaletteItems(skill: Skill): PaletteItem[] {
+  const item = skillToPaletteItem(skill);
+  if (skill.slug !== 'data_prep_v1') return [item];
+  return PREP_OPERATIONS.map(operation => {
+    const draft = editablePrepDraft(changePrepOperation(newPrepDraft(), operation));
+    draft.spec.outputs.forEach(out => out.name = operation + (out.port === 'out' ? '' : '_' + out.port));
+    const config: Record<string,unknown> = {...item.config, params: canonicalPrepParams(draft)};
+    delete config['inputs_map'];
+    return {...item, key: skill.slug + '#' + operation, labelKey: 'dataops.operation.' + operation,
+      label: (DATAOPS_FR as Record<string,string>)['dataops.operation.'+operation]+' / '+(DATAOPS_EN as Record<string,string>)['dataops.operation.'+operation], inputs: prepInputPorts(operation).map(name => ({name, schema: 'object', required: true})),
+      outputs: draft.spec.outputs.map(out => ({name: out.port, schema: 'object'})), config};
+  });
 }

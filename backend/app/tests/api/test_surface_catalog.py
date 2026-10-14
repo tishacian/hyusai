@@ -106,6 +106,41 @@ def test_workspace_app_governance_routes_are_admin_catalog_surfaces():
         ]
 
 
+def test_dataops_and_delivery_surfaces_describe_their_native_audiences():
+    app = FastAPI()
+    app.include_router(api_router, prefix="/api/v1")
+    entries = {entry["path"]: entry for entry in build_endpoint_catalog(app.openapi())["entries"]}
+    expected = {
+        "/api/v1/dataops/preview": ("Build", "Dataset", "workspace-user"),
+        "/api/v1/dataops/hash-salts": ("Build", "Secret", "admin"),
+        "/api/v1/service-contracts/windows": ("Operate", "Service Contract", "workspace-user"),
+        "/api/v1/service-contracts/receipts/{receipt_id}/download": (
+            "Operate",
+            "Service Contract",
+            "workspace-user",
+        ),
+        "/api/v1/typed-calibration/corpora/{corpus_id}/annotations": (
+            "Governance",
+            "Evaluation",
+            "workspace-user",
+        ),
+        "/api/v1/typed-calibration/vision-routes/{route_id}/qualify": (
+            "Governance",
+            "Model Route",
+            "admin",
+        ),
+    }
+    for path, metadata in expected.items():
+        entry = entries[path]
+        assert (entry["domain"], entry["mental_object"], entry["audience"]) == metadata
+        assert entry["status"] == "canonical"
+    assert entries["/api/v1/dataops/preview"]["ui_routes"] == [
+        "/data/preparation",
+        "/systems/:id/flow",
+    ]
+    assert entries["/api/v1/service-contracts/windows"]["ui_routes"] == ["/work/services"]
+
+
 def test_catalog_marks_known_compatibility_surfaces():
     body = _catalog_client().get("/api/v1/catalog/endpoints").json()
     entries = body["entries"]

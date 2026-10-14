@@ -67,3 +67,7 @@ services:
     environment: *openbao-client
     env_file:
       - ${AGENTIUM_OPENBAO_WORKER_ENV_FILE:?Set the OpenBao worker AppRole environment file}
+  agentium-worker-dataops:
+    environment: *openbao-client
+    env_file:
+      - ${AGENTIUM_OPENBAO_WORKER_ENV_FILE:?Set the OpenBao worker AppRole environment file}

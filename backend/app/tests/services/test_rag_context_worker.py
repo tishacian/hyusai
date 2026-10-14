@@ -2488,6 +2488,15 @@ async def test_retrieve_rag_context_cache_separates_latency_budgets(monkeypatch)
 
 async def test_multi_collection_retrieval_uses_shared_latency_deadline(monkeypatch):
     monkeypatch.setattr(rag_context.settings, "rag_fast_retrieval_deadline_seconds", 0.06)
+    # Control elapsed retrieval work without replacing asyncio's real clock.
+    # sleep(40ms) has no upper duration bound under concurrent suite load, so it
+    # cannot guarantee that a first collection succeeds within a 60ms budget.
+    clock = SimpleNamespace(now=0.0)
+    monkeypatch.setattr(
+        rag_context,
+        "time",
+        SimpleNamespace(time=rag_context.time.time, perf_counter=lambda: clock.now),
+    )
     monkeypatch.setattr(
         rag_context,
         "resolve_knowledge_scope",
@@ -2507,10 +2516,23 @@ async def test_multi_collection_retrieval_uses_shared_latency_deadline(monkeypat
         return False, "vector_only", "test"
 
     calls: list[tuple[str, float]] = []
+    cancelled: list[str] = []
+    pending = asyncio.get_running_loop().create_future()
 
     async def slow_retrieve(doc_svc, _query, _mode, **kwargs):
-        calls.append((doc_svc.collection, float(kwargs.get("deadline_seconds") or 0.0)))
-        await asyncio.sleep(0.04)
+        remaining = float(kwargs.get("deadline_seconds") or 0.0)
+        calls.append((doc_svc.collection, remaining))
+        if len(calls) == 1:
+            clock.now += 0.04
+        else:
+            # The real wait_for must cancel this retrieval after the remainder
+            # of the shared budget, without starting the third collection.
+            try:
+                await pending
+            except asyncio.CancelledError:
+                clock.now += remaining
+                cancelled.append(doc_svc.collection)
+                raise
         return SimpleNamespace(
             chunks=[f"{doc_svc.collection} chunk"],
             scores=[0.9],
@@ -2534,8 +2556,13 @@ async def test_multi_collection_retrieval_uses_shared_latency_deadline(monkeypat
         }
     )
 
-    assert 1 <= len(calls) <= 2
+    assert [collection for collection, _ in calls] == ["manuals-a", "manuals-b"]
     assert calls[0][1] <= 0.06
+    assert calls[0][1] == pytest.approx(0.06)
+    assert calls[1][1] == pytest.approx(0.02)
+    assert calls[1][1] < calls[0][1]
+    assert pending.cancelled()
+    assert cancelled == ["manuals-b"]
     assert result["metrics"]["deadline_exceeded"] is True
     assert result["fallback_reason"] == "retrieval_deadline_exceeded"
     assert result["collections_touched"] == ["manuals-a"]

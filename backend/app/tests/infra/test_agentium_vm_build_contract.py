@@ -77,8 +77,8 @@ def test_budgets_are_enforced_with_the_sidecar_required() -> None:
         re.findall(r'^: "\$\{AGENTIUM_IMAGE_BUDGET_MB_([A-Z_]+):=(\d+)\}"$', SCRIPT, re.M)
     )
     assert budgets == {
-        "BACKEND": "1400",
-        "WORKER": "1760",
+        "BACKEND": "1480",
+        "WORKER": "1850",
         "FRONTEND": "40",
         "ML_TS": "1240",
         "LIVEKIT_AGENT": "110",

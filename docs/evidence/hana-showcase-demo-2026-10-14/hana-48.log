@@ -1,0 +1,18 @@
+................................................                         [100%]
+=============================== warnings summary ===============================
+../.venv/lib/python3.12/site-packages/starlette/testclient.py:53
+  /workspace/hyusai/.venv/lib/python3.12/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+app/tests/api/test_hana_rpa_admin_api.py: 75 warnings
+  /workspace/hyusai/.venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3627: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+app/tests/api/test_hana_rpa_admin_api.py::test_an_admin_writes_hana_and_rpa_without_echoing_secrets
+app/tests/api/test_hana_rpa_admin_api.py::test_an_admin_writes_hana_and_rpa_without_echoing_secrets
+app/tests/api/test_hana_rpa_admin_api.py::test_hana_password_cannot_be_reused_on_another_destination
+  /workspace/hyusai/backend/app/services/secrets/registry.py:168: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    created_at=datetime.utcnow(),
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+48 passed, 79 warnings in 3.45s

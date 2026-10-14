@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -184,3 +185,114 @@ def test_encrypted_fields_cannot_be_written_on_hana_or_rpa(db_session):
     assert hana_forged.json()["detail"]["code"] == "WORKSPACE_SECRET_WRITE_ONLY"
     assert rpa_forged.status_code == 422
     assert rpa_forged.json()["detail"]["code"] == "WORKSPACE_SECRET_WRITE_ONLY"
+
+
+@pytest.mark.parametrize("writes_enabled", [False, True])
+def test_member_cannot_authorize_hana_writes_in_payload(db_session, monkeypatch, writes_enabled):
+    workspace, _owner, member = _seed(db_session)
+    monkeypatch.setattr(hana.settings, "hana_writes_enabled", writes_enabled)
+    calls = []
+    monkeypatch.setattr(hana_service, "run_query", lambda *args, **kwargs: calls.append(kwargs))
+    response = _client(db_session, workspace, member).post(
+        "/hana/query", json={"sql": "DELETE FROM BUSINESS_RECORDS", "allow_writes": True}
+    )
+    assert response.status_code == 403
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "sql",
+    ["DELETE FROM BUSINESS_RECORDS", "WITH C AS (DELETE FROM BUSINESS_RECORDS) SELECT * FROM C"],
+)
+def test_member_cannot_hide_write_in_readonly_query(db_session, monkeypatch, sql):
+    workspace, _owner, member = _seed(db_session)
+    connections = []
+    monkeypatch.setattr(hana_service, "_connect", lambda config: connections.append(config))
+    response = _client(db_session, workspace, member).post("/hana/query", json={"sql": sql})
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "HANA_INVALID_REQUEST"
+    assert connections == []
+
+
+@pytest.mark.parametrize("writes_enabled", [False, True])
+def test_hana_admin_writes_also_need_server_flag(db_session, monkeypatch, writes_enabled):
+    workspace, owner, _member = _seed(db_session)
+    monkeypatch.setattr(hana.settings, "hana_writes_enabled", writes_enabled)
+    calls = []
+
+    def execute(config, **kwargs):
+        calls.append(kwargs)
+        return {"rows": [], "row_count": 1}
+
+    monkeypatch.setattr(hana_service, "run_query", execute)
+    response = _client(db_session, workspace, owner).post(
+        "/hana/query", json={"sql": "UPDATE BUSINESS_RECORDS SET X = 1", "allow_writes": True}
+    )
+    assert response.status_code == (200 if writes_enabled else 403)
+    assert len(calls) == int(writes_enabled)
+    if calls:
+        assert calls[0]["allow_writes"] is True
+
+
+@pytest.mark.parametrize(
+    "route,method,operation",
+    [
+        ("/hana/query", "post", "run_query"),
+        ("/hana/test", "post", "test_connection"),
+        ("/hana/preview", "get", "preview_catalog"),
+    ],
+)
+def test_hana_driver_errors_are_closed_and_blocking_work_runs_off_loop(
+    db_session, monkeypatch, route, method, operation
+):
+    import asyncio
+
+    workspace, owner, _member = _seed(db_session)
+
+    def fail(*args, **kwargs):
+        # A hdbcli call must not occupy the FastAPI event-loop thread.
+        with pytest.raises(RuntimeError):
+            asyncio.get_running_loop()
+        raise RuntimeError(f"driver error: password={HANA_PASSWORD}")
+
+    monkeypatch.setattr(hana_service, operation, fail)
+    client = _client(db_session, workspace, owner)
+    response = getattr(client, method)(
+        route, **({"json": {"sql": "SELECT 1 FROM DUMMY"}} if route.endswith("query") else {})
+    )
+    assert response.status_code == 502
+    assert response.json() == {"detail": {"code": "HANA_OPERATION_FAILED"}}
+    assert HANA_PASSWORD not in response.text
+
+
+def test_hana_password_cannot_be_reused_on_another_destination(db_session):
+    workspace, owner, _member = _seed(db_session)
+    client = _client(db_session, workspace, owner)
+    assert (
+        client.put(
+            "/hana/config",
+            json={"host": "hana.example.test", "user": "DEMO", "password": HANA_PASSWORD},
+        ).status_code
+        == 200
+    )
+    response = client.put("/hana/config", json={"host": "attacker.example.test", "user": "DEMO"})
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "HANA_CREDENTIAL_DESTINATION_CHANGED"
+    db_session.refresh(workspace)
+    assert workspace.settings["connectors"]["sap_hana"]["host"] == "hana.example.test"
+
+
+def test_hana_tls_cannot_be_disabled_by_workspace_payload(db_session, monkeypatch):
+    workspace, owner, _member = _seed(db_session)
+    monkeypatch.setattr(hana.settings, "hana_allow_insecure_tls", False)
+    response = _client(db_session, workspace, owner).put(
+        "/hana/config",
+        json={
+            "host": "hana.example.test",
+            "user": "DEMO",
+            "password": HANA_PASSWORD,
+            "ssl_validate_certificate": False,
+        },
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "HANA_TLS_REQUIRED"

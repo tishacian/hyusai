@@ -1,0 +1,59 @@
+diff --git a/.dockerignore b/.dockerignore
+index fe0754b4..72f522d5 100644
+--- a/.dockerignore
++++ b/.dockerignore
+@@ -7,6 +7,12 @@
+ **.pytest_cache/
+ **.ruff_cache/
+ 
++# Terraform providers and local state are build-time infrastructure artifacts.
++**/.terraform/
++**/*.tfstate
++**/*.tfstate.*
++**/*.tfplan
++
+ # Jupyter Notebook
+ **.ipynb_checkpoints
+ 
+diff --git a/backend/constraints-demo-app.txt b/backend/constraints-demo-app.txt
+index 2a118663..e0e7e55c 100644
+--- a/backend/constraints-demo-app.txt
++++ b/backend/constraints-demo-app.txt
+@@ -222,3 +222,8 @@ zopfli==0.4.3
+ # Budgeted tabular search (shared application stack).
+ optuna==5.0.0
+ colorlog==6.12.0
++
++sqlglot==30.22.0
++deltalake==1.6.6
++arro3-core==0.9.1
++deprecated==3.0.0
+diff --git a/backend/requirements.txt b/backend/requirements.txt
+index 140fb4f5..c5dd6584 100644
+--- a/backend/requirements.txt
++++ b/backend/requirements.txt
+@@ -127,3 +127,7 @@ optuna>=5,<6
+ mlflow>=3.15,<4
+ skops>=0.14
+ boto3>=1.34
++
++# Governed DataOps compiler and immutable multipart dataset versions.
++sqlglot>=30.22.0,<31
++deltalake>=1.6.6,<2
+diff --git a/docker/Dockerfile.agentium-backend.dockerignore b/docker/Dockerfile.agentium-backend.dockerignore
+index 6a89800c..003adb86 100644
+--- a/docker/Dockerfile.agentium-backend.dockerignore
++++ b/docker/Dockerfile.agentium-backend.dockerignore
+@@ -7,6 +7,12 @@
+ **.pytest_cache/
+ **.ruff_cache/
+ 
++# Terraform providers and local state are build-time infrastructure artifacts.
++**/.terraform/
++**/*.tfstate
++**/*.tfstate.*
++**/*.tfplan
++
+ # Jupyter Notebook
+ **.ipynb_checkpoints
+ 

@@ -1,0 +1,75 @@
+{
+  "status": "images_measured_smokes_passed",
+  "tested_code_revision": "bd72404472bfd57c01cc2e4a9747ff5e3049814f",
+  "final_image_and_benchmark_revision": "bd72404472bfd57c01cc2e4a9747ff5e3049814f",
+  "full_backend_suite_marker": "/workspace/dataops-completion-2026-10-13/backend-final-isolated.coordinator.finished.json",
+  "budgets_mib": {
+    "backend": 1400,
+    "worker": 1760
+  },
+  "heavy_work_started": true,
+  "prior_diagnostic": "/workspace/dataops-image-qualification/diagnostic-64a10ba9",
+  "checks": [
+    "Exact requested HEAD",
+    "Clean tree",
+    "Successful full suite marker",
+    "Only docs changed after tested code",
+    "Dedicated builder 4GiB/no-swap/2CPU",
+    "Disk reserve4GiB"
+  ],
+  "previous_interrupted_suite": {
+    "prefix": "backend-isolated",
+    "tested_revision": "940bc43bba8fb58ed98f0f0df87631405b44979f",
+    "passed": 3452,
+    "failed": 1,
+    "seconds": 293.9,
+    "status": "interrupted_not_a_qualification_gate"
+  },
+  "benchmark_runtime_scope": "Qualified workspace venv in the pinned Python carrier cgroup, not the built worker image; exact package/runtime versions will be recorded.",
+  "final_smoke_checks": [
+    "pinned native dependencies imports",
+    "app.main import without lifespan",
+    "compiled ordinary sample preview",
+    "lpad1e9 observed DATAPREP_PREVIEW_TIMEOUT at unchanged 5 second deadline",
+    "different ordinary preview in fresh child; no cache hit"
+  ],
+  "import_smoke_sha256": "9f7dcfa12f783603d2f52dc8db69ac6dc43c3c5d2accff6cc522d09d677aa22c",
+  "source_anchor": "bd72404472bfd57c01cc2e4a9747ff5e3049814f",
+  "budgets_mib_unchanged": {
+    "backend": 1400,
+    "worker": 1760
+  },
+  "comparison_limit": "Workspace venv benchmark uses Python 3.12.14; image smokes execute the three real isolated previews under image Python 3.12.13. No deployment or worker-task runtime qualification.",
+  "backend_budget": "OVER",
+  "backend_preview_refusal": "DATAPREP_PREVIEW_TIMEOUT; 5.057s. Image smoke proves closed deadline refusal and fresh-child recovery, not memory-first refusal.",
+  "backend_smoke_initial_attempt": "Preserved: assertion required memory-only refusal, omitted the actual code. The second attempt emits allowed codes and accepts the specified memory OR time resource boundary with unchanged limits.",
+  "worker_budget": "OVER",
+  "worker_preview_refusal": "DATAPREP_PREVIEW_TIMEOUT; 5.062s, followed by ordinary preview without cache reuse.",
+  "shared_layers": {
+    "intersection_count": 11,
+    "common_prefix_count": 10,
+    "minimum": 5,
+    "verdict": "ok"
+  },
+  "preflight_tool_sha256": {
+    "build.py": "acdf5e552183da9ecbb8b0ce6dc42ddab9621ff4535fafeef09c4eecaa08b526",
+    "prepare_build.py": "493c22d283d7ea483e5f3bd47a80d5fb9b68f6a01d6bd5b6cbb9642550983fba",
+    "measure_oci.py": "841c8d24824af28111944ab8d8a7c64a7bb5ce4238c6c0404cbc27fed7ee1d62",
+    "image_import_smoke.py": "950c93082a7b25b80781808f6b118240385ebc259bb7d156b822da747b1a21a7",
+    "make_evidence_bundle.py": "23f2fa3008c755cc738e1801372511d3eebabdf339f3464d4d2e5e7b134aadd6"
+  },
+  "preflight_benchmark_wrapper_sha256": "4cc05fe4733c6c3ff1c0c343e4aa1f62c238fc916248b830b2c701db8a3b9d59",
+  "bundled_final_tool_sha256": {
+    "analyze_backend_layers.py": "73b61bfa30f357433e9f623717849c16bac4c1a983434cfa3471c7b4c381cba5",
+    "build.py": "acdf5e552183da9ecbb8b0ce6dc42ddab9621ff4535fafeef09c4eecaa08b526",
+    "capture_builder.py": "93fccc8221f98fb8a55debfc4fe5a210f7ec64bb223530cc0cb140c5623a96f5",
+    "image_import_smoke.py": "9f7dcfa12f783603d2f52dc8db69ac6dc43c3c5d2accff6cc522d09d677aa22c",
+    "make_evidence_bundle.py": "5a5a2e32a07b98a6cb9061a51a8d8e8a9e1c5e6cf9784247d47df87feb75507a",
+    "measure_oci.py": "841c8d24824af28111944ab8d8a7c64a7bb5ce4238c6c0404cbc27fed7ee1d62",
+    "prepare_build.py": "493c22d283d7ea483e5f3bd47a80d5fb9b68f6a01d6bd5b6cbb9642550983fba",
+    "run_cgroup_benchmark.py": "4cc05fe4733c6c3ff1c0c343e4aa1f62c238fc916248b830b2c701db8a3b9d59",
+    "test_measure_oci.py": "123287a2096578b18e7fbded34e2cc1cd6dccaaf6f371ebe4d69104fadf14a09"
+  },
+  "final_benchmark_wrapper_sha256": "4cc05fe4733c6c3ff1c0c343e4aa1f62c238fc916248b830b2c701db8a3b9d59",
+  "image_smoke_memory_refusal_observed": false
+}

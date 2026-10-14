@@ -30,6 +30,7 @@ import { CLIENT360_EN, CLIENT360_FR } from './i18n/client360.dict';
 import { COMMON_EN, COMMON_FR } from './i18n/common.dict';
 import { CONTEXTS_EN, CONTEXTS_FR } from './i18n/contexts.dict';
 import { DATA_EN, DATA_FR } from './i18n/data.dict';
+import { DATAOPS_EN, DATAOPS_FR } from './i18n/dataops.dict';
 import { DEPOSIT_EN, DEPOSIT_FR } from './i18n/deposit.dict';
 import { EXPERIENCE_EN, EXPERIENCE_FR } from './i18n/experience.dict';
 import { FLOW_EN, FLOW_FR } from './i18n/flow.dict';
@@ -79,6 +80,7 @@ export const I18N_DOMAINS = {
   knowledge: { prefixes: ['knowledge'], fr: KNOWLEDGE_FR, en: KNOWLEDGE_EN },
   contexts: { prefixes: ['contexts'], fr: CONTEXTS_FR, en: CONTEXTS_EN },
   data: { prefixes: ['data'], fr: DATA_FR, en: DATA_EN },
+  dataops: { prefixes: ['dataops'], fr: DATAOPS_FR, en: DATAOPS_EN },
   models: { prefixes: ['models'], fr: MODELS_FR, en: MODELS_EN },
   governance: { prefixes: ['governance', 'intelligence'], fr: GOVERNANCE_FR, en: GOVERNANCE_EN },
   settings: { prefixes: ['settings', 'presets'], fr: SETTINGS_FR, en: SETTINGS_EN },
@@ -97,6 +99,7 @@ export type I18nDomain = keyof typeof I18N_DOMAINS;
 
 /** French dictionary — the hard fallback locale (see {@link I18nService}). */
 export const FR_DICT = {
+  ...DATAOPS_FR,
   ...MANDATE_FR,
   ...MANDATE_SYSTEM_FR,
   ...WORK_MANDATE_FR,
@@ -128,6 +131,7 @@ export type I18nKey = keyof typeof FR_DICT;
 
 /** English dictionary — same keys as {@link FR_DICT}, enforced per domain. */
 export const EN_DICT: Record<I18nKey, string> = {
+  ...DATAOPS_EN,
   ...MANDATE_EN,
   ...MANDATE_SYSTEM_EN,
   ...WORK_MANDATE_EN,

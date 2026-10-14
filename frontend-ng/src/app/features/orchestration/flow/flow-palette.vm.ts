@@ -64,6 +64,7 @@ export interface PaletteCapabilitySource {
 export const UNCARRIED_CAPABILITY_SLUG = '__uncarried__';
 
 export function paletteItemSlug(item: PaletteItem): string {
+  if (item.key) return item.key;
   const slug = item.config?.['skill_slug'];
   const source = item.config?.['connector_id'] ?? item.config?.['collection_slug'];
   return typeof slug === 'string' ? slug : typeof source === 'string' && source ? source : item.type;
@@ -238,6 +239,8 @@ export function explainVisibilityReason(
   industriesConfigured = false,
 ): string {
   switch (reason) {
+    case 'feature_disabled':
+      return 'this functionality is disabled; catalog overrides cannot enable it';
     case 'industry_not_allowed':
       if (!key) return 'carried by an industry this workspace has not enabled';
       return industriesConfigured

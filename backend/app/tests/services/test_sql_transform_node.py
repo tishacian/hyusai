@@ -94,6 +94,8 @@ def workspace(db_session) -> Workspace:
 def store(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "object_store_backend", "local")
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))
+    # The statement runs on the worker plane; eager mode settles it inline.
+    monkeypatch.setattr(settings, "worker_eager_mode", True)
     return tmp_path / "store"
 
 

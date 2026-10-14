@@ -1,0 +1,15 @@
+# Optional offline eval dependency for E1.5.3+/E1.5.5b.
+#
+# Install only on workers/VMs that generate synthetic RAG testsets or run
+# Giskard RAGET reports. The main API process imports Giskard lazily through
+# app.services.evaluation.giskard_adapter, never in the chat hot path.
+-r requirements.txt
+# RAGET is the 2.x API. Version 3 removes giskard.rag and requires Python 3.12.
+giskard[llm]>=2.15,<3
+
+# Older datasets releases still import removed pyarrow.PyExtensionType.
+# Qualified with pyarrow 25.0.1; keep the DataOps Arrow version untouched.
+datasets==5.0.1
+
+# datasets 5.0.1 caps fsspec at 2026.6; keep its S3 peer coherent.
+s3fs==2026.6.0

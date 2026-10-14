@@ -1,0 +1,85 @@
+{
+  "scope": "D3 multipart storage and D1b Helm catalog hook; no production or remote deployment",
+  "base_revision": "224b464c",
+  "source_worktree_modified": true,
+  "validation": {
+    "latest_targeted": {
+      "passed": 47,
+      "seconds": 32.76,
+      "log": "d3-native-targeted-minio-tests.log",
+      "real_minio_tests": 4,
+      "scope": "multipart/native writer, preparation atomic outputs, real MinIO IAM and conditional commit"
+    },
+    "earlier_multipart_dataset_api": {
+      "passed": 52,
+      "seconds": 31.63,
+      "note": "Before final profiling and reservoir changes; superseded in those scopes by latest targeted tests."
+    },
+    "helm_catalog_render": {
+      "passed": 9,
+      "seconds": 1.25,
+      "log": "d1b-helm-catalog-tests.log",
+      "helm_lint": "passed"
+    },
+    "storage_volume": {
+      "report": "d3-native-minio-volume.json",
+      "supervision": "d3-native-minio-volume-supervision.json",
+      "environment": "d3-native-minio-volume-environment.json",
+      "cleanup": "d3-native-minio-cleanup.json",
+      "log": "d3-native-minio-volume.log",
+      "status": "passed",
+      "final_native_writer_and_reservoir": true
+    },
+    "historical_post_reservoir_targeted": {
+      "passed": 38,
+      "seconds": 56.29,
+      "log": "d3-final-tests.log",
+      "real_minio_tests": 4
+    },
+    "historical_storage_volume": {
+      "report": "d3-minio-volume.json",
+      "supervision": "d3-minio-volume-supervision.json",
+      "environment": "d3-minio-volume-environment.json",
+      "cleanup": "d3-minio-cleanup.json"
+    }
+  },
+  "sample": {
+    "final_method": "reservoir_seeded",
+    "seed": 42,
+    "decoded_byte_ceiling": 8388608,
+    "selected_cells_copied": true,
+    "byte_overflow_behavior": "uniformly reduce selected indices and rescan; no head truncation",
+    "qualification": "Targeted uniform wide-sample/reproducibility tests plus final >3 GiB native-writer MinIO benchmark; seeded 42 reservoir: 1250 rows, 5175351 encoded bytes, 6.355 seconds."
+  },
+  "limitations": [
+    "Spark/Unity interoperability and production bucket migration/IAM application have not been qualified here.",
+    "The 3248348018-byte dataset is synthetic (790528 rows, int64 id plus unique fixed-size binary payload 4096), not a production ML benchmark.",
+    "Final native volume client was in a real 4 GiB / 2 CPU cgroup; MinIO had its own 512 MiB / 1 CPU cgroup. memory.peak=4297986048 bytes includes cache and transient cgroup accounting; memory.events reported max 32177, oom 0, oom_kill 0. This is not a process-tree RSS measurement. Profiling used one thread, 1 GiB DuckDB memory, 4 GiB spill and 4 GiB virtual-memory rlimit.",
+    "Official pinned MinIO/mc release binaries with verified SHA256 ran in a local Python carrier container after direct MinIO image registries were unavailable; this is not proof of a production image.",
+    "Historical d3-minio-volume.json used manual journal actions and head sample, with external RSS supervision only. It remains preserved and is superseded by d3-native-minio-volume.json for the final implementation.",
+    "Earlier tmpfs/OOM and concurrent outer-cgroup-pressure attempts are excluded from qualified performance. Full-column profiling refusals from attempts 5/6 remain in d3-profile-refused-attempts.json.",
+    "The Helm hook is rendered/tested only; it has not applied a catalog or run on a cluster."
+  ],
+  "python": "3.12.14",
+  "source_sha256": {
+    "backend/app/services/dataops/storage.py": "48fea528dc43a150924ad6b76e0acc571e4175c679c5e57698c64352dd0b33a5",
+    "backend/app/resources/dataops_storage.py": "1e013900f0a2f3907c8cf7158b377298dade0a7d807d0e5fd9c6237d97b17685",
+    "backend/app/resources/dataops_runner.py": "5d28ce8628545680e133d8bed9e46e82523bea6b2e424f8e90cd21bac3bc4676",
+    "backend/scripts/benchmark_dataops_storage.py": "3e50295b942a4171e52e9bea44555c502822276a22606f4353288e5df17d2ddb",
+    "backend/scripts/purge_tabular_dataset.py": "4e883a095b4e1226c730e423b4c23d5be2acac8e8155f21063514d83ca5e9471",
+    "ops/helm/agentium/templates/catalog-reconcile.yaml": "90900dd5da05cd2fea72a678516764b4bc068cec4822bab96174ff9bc308a753"
+  },
+  "writer": {
+    "implementation": "PyArrow bounded multipart encoding followed by delta-rs native convert_to_deltalake; empty outputs use DeltaTable.create",
+    "deltalake_version": "1.6.6",
+    "commit_versions": [
+      0
+    ],
+    "commit_operation": "CONVERT",
+    "manual_json_actions": false,
+    "part_reencoding_during_commit": false,
+    "native_statistics_from_parquet_footers": true,
+    "remote_publication": "unchanged native commit bytes uploaded after parts via S3 If-None-Match:*",
+    "D-21": "Native commit implementation replaces the manual journal; follows write-parts-then-commit path of plan section 29.3."
+  }
+}

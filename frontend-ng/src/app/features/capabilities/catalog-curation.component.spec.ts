@@ -178,6 +178,21 @@ test('the unclaimed group is the only gap that enables skills one by one', () =>
   view.ngOnDestroy();
 });
 
+test('a disabled feature is explained without offering or sending a catalog override', () => {
+  const {view,api} = build();
+  view.ngOnInit();
+  api.reports[0].next(report({gaps:[{lever:'feature',key:'narration_enabled',skills:1,skill_slugs:['narration_run_v1'],capabilities:[]}]}));
+  const gap = view.report()!.gaps[0];
+  assert.equal(view.leverTitle(gap),'Functionality disabled');
+  assert.equal(view.leverAction(gap),'');
+  assert.match(view.leverExplanation(gap),/Catalog overrides cannot enable it/);
+  view.applyGap(gap);
+  view.toggleSkill({slug:'narration_run_v1',name:'Document narration',category:'Data',visible:false,reason:'feature_disabled',capabilities:[],carriers:[]});
+  assert.deepEqual(api.patches,[]);
+  assert.equal(view.saving(),false);
+  view.ngOnDestroy();
+});
+
 test('enabling a hidden capability also lifts the hide that outranks it', () => {
   const { view, api } = build();
   view.ngOnInit();

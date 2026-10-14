@@ -1,0 +1,7 @@
+[
+  {
+    "name": "a",
+    "dtype": "timestamp[us, tz=UTC]",
+    "nullable": true
+  }
+]

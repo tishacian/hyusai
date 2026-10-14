@@ -44,7 +44,6 @@ from app.models.huggingface import (
     HubImportReservation,
 )
 from app.models.impact import Impact
-from app.models.secret import Secret, SecretVersion
 from app.models.intelligence import FeedArticle, FeedSource, SafetyFilter, SemanticTarget
 from app.models.knowledge_collection import (
     KnowledgeCollection,
@@ -63,6 +62,7 @@ from app.models.run import Run, SkillInvocation
 from app.models.run_dispatch_outbox import RunDispatchOutbox
 from app.models.run_inbox import RunInbox
 from app.models.run_schedule import RunSchedule
+from app.models.secret import Secret, SecretVersion
 from app.models.secure_deposit import DepositAccessLink, DepositFile
 from app.models.settings import AppSettings
 from app.models.sharepoint_sync_job import SharePointSyncJob
@@ -231,6 +231,13 @@ __all__ = [
     "SapWriteIntent",
     "ValueContract",
     "RetrievalBenchRun",
+    "AssetVersion",
+    "AssetQualification",
+    "ServiceContract",
+    "ServiceWindow",
+    "ServiceAttempt",
+    "DeliveryReceipt",
+    "ServiceIncident",
 ]
 
 from app.models.automation_review import AutomationReview
@@ -240,6 +247,15 @@ from app.models.claim_action import ClaimAction
 from app.models.claim_trial import ClaimTrial
 from app.models.evaluation_campaign import EvaluationCampaign, EvaluationSuite
 from app.models.evaluation_correction import EvaluationCorrection
-from app.models.sap_write_intent import SapWriteIntent
-from app.models.value_contract import ValueContract
 from app.models.retrieval_bench_run import RetrievalBenchRun
+from app.models.sap_write_intent import SapWriteIntent
+from app.models.service_contract import (
+    AssetQualification,
+    AssetVersion,
+    DeliveryReceipt,
+    ServiceAttempt,
+    ServiceContract,
+    ServiceIncident,
+    ServiceWindow,
+)
+from app.models.value_contract import ValueContract

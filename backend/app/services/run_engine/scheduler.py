@@ -316,4 +316,10 @@ def scheduler_tick(*, limit: int = 50) -> Dict[str, Any]:
         logger.exception("scheduler: gate ttl sweep failed", error=str(exc))
         gate_summary = {"status": "error", "error": str(exc), "swept": 0}
 
-    return {**schedule_summary, "gates": gate_summary}
+    try:
+        from app.services.service_engine import service_tick
+        service_summary = service_tick(limit=limit)
+    except Exception:
+        logger.exception("scheduler: service obligation sweep failed")
+        service_summary = {"status": "error", "code": "SERVICE_SWEEP_FAILED"}
+    return {**schedule_summary, "gates": gate_summary, "services": service_summary}

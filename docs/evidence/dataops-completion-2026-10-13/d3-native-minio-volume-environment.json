@@ -1,0 +1,47 @@
+{
+  "container": "d3-native-client-z4oqf58n",
+  "id": "28cb8267c3cece11d81d1dbc75e6aa238310a82675fa60e726fc4c6b38d74089",
+  "minio_container": "d3-minio-z4oqf58n",
+  "status": "completed",
+  "limits": {
+    "memory_bytes": 4294967296,
+    "cpus": 2,
+    "wall_seconds": 900,
+    "disk_reserve_bytes": 3221225472
+  },
+  "client_python": "3.12.14",
+  "storage_filesystem": "workspace overlay",
+  "binary_provenance": [
+    {
+      "component": "minio",
+      "tag": "RELEASE.2025-04-22T22-12-26Z",
+      "sha256": "53e2a2cb16c5366ea6fbbc479c19ddb4c6a0948273e752f740fb1fbf27bb817c",
+      "bytes": 118849720
+    },
+    {
+      "component": "mc",
+      "tag": "RELEASE.2025-04-16T18-13-26Z",
+      "sha256": "ac90da87a35641be5a0ac75d49de5161ddb47d629b5ba01261b0ae9e00aea15f",
+      "bytes": 30179512
+    }
+  ],
+  "source_sha256": {
+    "backend/app/resources/dataops_storage.py": "1e013900f0a2f3907c8cf7158b377298dade0a7d807d0e5fd9c6237d97b17685",
+    "backend/app/services/dataops/storage.py": "48fea528dc43a150924ad6b76e0acc571e4175c679c5e57698c64352dd0b33a5",
+    "backend/scripts/benchmark_dataops_storage.py": "3e50295b942a4171e52e9bea44555c502822276a22606f4353288e5df17d2ddb"
+  },
+  "minio_host_config": {
+    "Memory": 536870912,
+    "MemorySwap": 536870912,
+    "NanoCpus": 1000000000,
+    "PidsLimit": 256
+  },
+  "minio_cgroup": {
+    "memory.max": "536870912",
+    "memory.peak": "540151808",
+    "memory.events": "low 0\nhigh 0\nmax 34496\noom 0\noom_kill 0\noom_group_kill 0",
+    "cpu.max": "100000 100000"
+  },
+  "minio_oom_killed": false,
+  "carrier_image_id": "sha256:c8e887bbf3b6fec95a5ff97435d611119ac6e55491cd077db9fdc6b7637bdd47"
+}

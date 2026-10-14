@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "operation": "prepare",
+  "params": {
+    "steps": [
+      {
+        "id": "golden",
+        "kind": "flag_rows",
+        "params": {
+          "output": "flag",
+          "conditions": [
+            {
+              "column": "a",
+              "op": "ge",
+              "value": 2
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "port": "out",
+      "name": "Golden"
+    }
+  ]
+}

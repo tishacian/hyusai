@@ -1,0 +1,99 @@
+{
+  "corrected_source_revision": "940bc43bba8fb58ed98f0f0df87631405b44979f",
+  "targeted_suite": {
+    "cwd": "/workspace/hyusai/backend",
+    "command": "../.venv/bin/pytest app/tests/services/test_dataops_preview_isolation.py app/tests/services/test_dataops_samples.py app/tests/services/test_dataops_typed_contracts.py -q",
+    "passed": 271,
+    "failed": 0,
+    "seconds": 44.74,
+    "exit_code": 0,
+    "log": "preview-isolation/targeted.log",
+    "log_sha256": "37fedb4643c519679a6632b0cb8e2cd4f8ecb4f35ae7e460d288711e8ce38dcd",
+    "scope_note": "Runtime is identical to the final commit. Afterwards, one capsys assertion was corrected to retain both stdout and stderr, and an obsolete config comment was updated."
+  },
+  "final_stderr_assertion": {
+    "command": "../.venv/bin/pytest -q app/tests/services/test_dataops_preview_isolation.py::test_error_never_contains_authored_sql_or_cell_contents",
+    "passed": 1,
+    "seconds": 3.67,
+    "exit_code": 0,
+    "evidence": "Tool output in the task; no separate log file retained."
+  },
+  "original_oom_reproduction": {
+    "source_revision": "64a10ba9e9329b5d8d203ecc786254bbdcee7e19",
+    "duckdb": "1.5.5",
+    "report": "preview-isolation/oom-probe.json",
+    "log": "preview-isolation/oom-probe.log",
+    "memory_max_bytes": 201326592,
+    "duckdb_memory_limit": "16MB",
+    "interrupt_seconds": 5,
+    "exit_code": 137,
+    "oom_kill_delta": 1,
+    "container_removed": true,
+    "scope": "Direct CTAS of an accepted formula inside an isolated local container; no actual API service was called."
+  },
+  "final_limits": {
+    "duckdb_default_mb": 512,
+    "native_virtual_reserve_mib": 512,
+    "default_rlimit_as_bytes": 1073741824,
+    "rlimit_as_installed_before_native_imports": true,
+    "fail_closed_if_limit_unavailable": true,
+    "result_max_bytes": 33554432,
+    "request_max_bytes": 8388608,
+    "default_timeout_seconds": 5,
+    "cleanup_timeout_seconds": 2,
+    "inherited_application_environment": false,
+    "error_details_returned": false
+  },
+  "scope": [
+    "ordinary rows, full-sample profiles, counters, cache and sample metadata",
+    "literal and calculated padding, replacement and concatenation expansions",
+    "strict resource limits before native imports, and unavailable-limit refusal",
+    "deadline and caller interruption reap leader and stop active descendants",
+    "oversized IPC refused before loading; SQL/data absent from errors",
+    "sample SHA verification before process start; no runtime salt resolution"
+  ],
+  "native_mapping_observation": {
+    "evidence": "Tool outputs in the task, not a retained log artifact. These measurements informed the reserve; the final OS limits are independently asserted by committed tests.",
+    "import_rss_kib": 99764,
+    "under_512mib": {
+      "vms_after_imports_kib": 407452,
+      "vms_after_registration_kib": 489752,
+      "peak_vms_kib": 524260,
+      "rss_kib": 167728
+    },
+    "meaning": "Virtual mappings are not RSS; 512 MiB total address space was too tight for stable ordinary previews."
+  },
+  "source_sha256": {
+    "backend/app/services/dataops/preview.py": "ba2519cac0cd811aa08cf8fa5748ccbc542b63a8bab19f75939197d7dbc9f544",
+    "backend/app/services/dataops/preview_runner.py": "da992ddbdb55b0b8298a32fb0c1ca3e04b3e3b208a860ecac84944d05c96c5bd",
+    "backend/app/tests/services/test_dataops_preview_isolation.py": "b777fc0f5fc3b7e236ae07fd70555cca85bcb7bd21a04061439effa8c1297483",
+    "backend/app/core/config.py": "6581f9c464785bcca487e861848b967bd62b9df0cef1c5b3cf4c5a155c0bc942"
+  },
+  "files": {
+    "oom-probe-child.py": {
+      "bytes": 1611,
+      "sha256": "d9e081bd97b69aed2317237265035a1815d3ae2a7e3bfd199cf050c4e839cfeb"
+    },
+    "oom-probe-supervisor.py": {
+      "bytes": 3773,
+      "sha256": "3791e912f180c5bb4e50d43ceb0552c0002e0194eee1be5692160cb5dbbed1c1"
+    },
+    "oom-probe.json": {
+      "bytes": 1585,
+      "sha256": "662992d64c069e7f27f1cb9b82470a1f2c53585723ff9486400f06cdc161b950"
+    },
+    "oom-probe.log": {
+      "bytes": 299,
+      "sha256": "0ee97e8c6b24f9bec7262866ab94f7b5a7b669b9552031bbb610fa9f9e1cec08"
+    },
+    "targeted.log": {
+      "bytes": 6185,
+      "sha256": "37fedb4643c519679a6632b0cb8e2cd4f8ecb4f35ae7e460d288711e8ce38dcd"
+    }
+  },
+  "limitations": [
+    "Linux qualification; the macOS cleanup fallback was not executed here.",
+    "Per-child address-space limit is not a total API/container memory qualification.",
+    "Full-suite qualification after this change is recorded separately."
+  ]
+}

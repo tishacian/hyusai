@@ -1,0 +1,258 @@
+{
+  "status": "measured",
+  "measurement": "streamed OCI layer bytes; no docker load or extraction",
+  "budget_source": "scripts/agentium-vm-build.sh defaults; scripts/agentium-image-budget.sh integer MiB floor",
+  "size_accounting": "Moby 28.4.0 classic graphdriver: sum hdr.Size per tar layer, then sum all layers",
+  "size_accounting_sources": [
+    "https://github.com/moby/moby/blob/v28.4.0/vendor/github.com/moby/go-archive/diff.go",
+    "https://github.com/moby/moby/blob/v28.4.0/daemon/graphdriver/fsdiff.go",
+    "https://github.com/moby/moby/blob/v28.4.0/layer/layer_store.go",
+    "https://github.com/moby/moby/blob/v28.4.0/layer/ro_layer.go"
+  ],
+  "limits": [
+    "Not an actual docker image inspect on the deployment VM; its image-store accounting may differ.",
+    "Compressed archive size alone is never a budget verdict.",
+    "No runtime, frontend, optional image, VM, or deployment qualification is implied.",
+    "No overall release budget verdict: only the images explicitly listed here are inspected."
+  ],
+  "images": [
+    {
+      "image": "worker",
+      "archive_path": "/workspace/dataops-image-qualification/worker.oci.tar",
+      "oci_archive_bytes": 1716421120,
+      "manifest_digest": "sha256:b237b23bcc0e49befbd8ef520f581373ebce83585f1c7299e3f6380bb2235537",
+      "config_digest": "sha256:1831240ee044017c8fc9f30671d2a0a0ec8e5d1431c11510bc6572a2274d5fc6",
+      "revision": "bd72404472bfd57c01cc2e4a9747ff5e3049814f",
+      "platform": "linux/amd64",
+      "compressed_layer_bytes": 1716377327,
+      "uncompressed_layer_tar_bytes": 4999876608,
+      "docker_graphdriver_comparable_size_bytes": 4903956499,
+      "docker_graphdriver_comparable_size_mib_floor": 4676,
+      "budget_mib": 1760,
+      "budget_verdict_for_graphdriver_comparable_size": "OVER",
+      "seconds": 52.645,
+      "layers": [
+        {
+          "digest": "sha256:57fb71246055257a374deb7564ceca10f43c2352572b501efc08add5d24ebb61",
+          "diff_id": "sha256:79dd1f4c855cd061f687a994426634cf5f84c8ecdbc66c7a7d118e828dd93c99",
+          "compressed_bytes": 29780226,
+          "uncompressed_tar_bytes": 81039360,
+          "tar_entry_payload_bytes": 78614513,
+          "tar_entries": 3262,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:797809503061a7d1332e7b5c3df030896846f0a6a179f90060e85564dca1cf65",
+          "diff_id": "sha256:1361e0a963c66ac67506e2b5cacf01a39cc0816185f96afe77031eb5d4ba2d56",
+          "compressed_bytes": 1293072,
+          "uncompressed_tar_bytes": 4122624,
+          "tar_entry_payload_bytes": 3792840,
+          "tar_entries": 553,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:759e0c85a86e6d82ceccf351143d3f4a17e4ba196c9684240898abe3b8ec13a9",
+          "diff_id": "sha256:fae8529c7ef7ef831623bd668a9a847f681ab78e77abb2fb84bd7d3c47a70cc0",
+          "compressed_bytes": 12113371,
+          "uncompressed_tar_bytes": 38106624,
+          "tar_entry_payload_bytes": 36773829,
+          "tar_entries": 1828,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:b33ff618953dcb6177e78bc33883a49817e571a1d9f0a3aa039e3228e0f21684",
+          "diff_id": "sha256:23ed4b6439ad2c4b1602f19014cc7a90b49a943eabe7f8ab9bb1aa7c0482949c",
+          "compressed_bytes": 250,
+          "uncompressed_tar_bytes": 5120,
+          "tar_entry_payload_bytes": 0,
+          "tar_entries": 8,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1",
+          "diff_id": "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+          "compressed_bytes": 32,
+          "uncompressed_tar_bytes": 1024,
+          "tar_entry_payload_bytes": 0,
+          "tar_entries": 0,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:910a3599e48cfc99755cd5ac2e5d5660c739c5abab69925f978817c3cdbcb370",
+          "diff_id": "sha256:a9c9ef51592672c429ea12d15c54359d79b43dba163a1fe11673032ff40e2060",
+          "compressed_bytes": 173025423,
+          "uncompressed_tar_bytes": 443187712,
+          "tar_entry_payload_bytes": 439104313,
+          "tar_entries": 5651,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:ad6ab75cf9519421c94ed3747e7bba34a1053a6ff419530b75d0815c1d95c31f",
+          "diff_id": "sha256:4bf46267ca36e3afc016c83b022ced92ee5e6c777e2519b8241e54943cb0fb27",
+          "compressed_bytes": 4796,
+          "uncompressed_tar_bytes": 12800,
+          "tar_entry_payload_bytes": 9060,
+          "tar_entries": 4,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:ee489f5fe4cc046621a9b2f453436effcf08df78ed8a29aa3c6537e889a87d08",
+          "diff_id": "sha256:a3d1b7b185a48573edb43320bb8189bc026ed92c0ce68d286a25b1abecdaa8f6",
+          "compressed_bytes": 625192039,
+          "uncompressed_tar_bytes": 1943088128,
+          "tar_entry_payload_bytes": 1907283740,
+          "tar_entries": 48398,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:35c0e5563e6c9a01207f2a2adba29f9d445864ac43c2490a1eb0ebd17e2f4293",
+          "diff_id": "sha256:abfb3406459bd7c66b3858634c88b13b5c29bc04decb9e0af3cb0120f401c4e4",
+          "compressed_bytes": 2174,
+          "uncompressed_tar_bytes": 8192,
+          "tar_entry_payload_bytes": 4401,
+          "tar_entries": 4,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:a8988d3cd7196117625301d871b98ab4ac41da62d7ee5657856b737bdecf2472",
+          "diff_id": "sha256:1cbcbc575a58b081cb73308c05592cdd8abfe59933469827ebf3ffb25dbf3e6e",
+          "compressed_bytes": 207630260,
+          "uncompressed_tar_bytes": 226188800,
+          "tar_entry_payload_bytes": 226179470,
+          "tar_entries": 13,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:bfc320d3aefbed5751dfa4b34d31e0fe617eb844f3288396ef941a43b82743b1",
+          "diff_id": "sha256:f20329ac35c728136731bf680eb5bb0f47c245a6056cb073fc9eb361703bf1c0",
+          "compressed_bytes": 273154474,
+          "uncompressed_tar_bytes": 993932800,
+          "tar_entry_payload_bytes": 973231650,
+          "tar_entries": 27805,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:5515c7e9aa8d0b5be7c320f4503038b4f04e4f8797c7ae23267f396a575cbda9",
+          "diff_id": "sha256:20da6d2f912cd71909edf02f4b9fbb5db906575fa10f0ce11054911f272d9948",
+          "compressed_bytes": 566,
+          "uncompressed_tar_bytes": 4096,
+          "tar_entry_payload_bytes": 594,
+          "tar_entries": 4,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:85d220c35bdf834ba3c24a6e45df9bec392b763c440407ecf2906cfcd38d1cd4",
+          "diff_id": "sha256:39d655ea9b59ce86575efc426c30e0f0d8304f112964749e3c544cfa0aa39644",
+          "compressed_bytes": 1541613,
+          "uncompressed_tar_bytes": 5593600,
+          "tar_entry_payload_bytes": 5224338,
+          "tar_entries": 499,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:8270c405e6424b9c5e86eae2504ece97d57a424124b4c66089d63beeb72676db",
+          "diff_id": "sha256:02296eed06d6264577d28c7f67f06f345bd79dae874b78fd39a1f48028df09e9",
+          "compressed_bytes": 135186987,
+          "uncompressed_tar_bytes": 392593920,
+          "tar_entry_payload_bytes": 386225938,
+          "tar_entries": 8730,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:d1096d7809621b4eb1774f1c11424a7060908c27fcfccfcb63b494414068d6bc",
+          "diff_id": "sha256:6aed5031f85a16898a43d8059e14cb3a05cd3bd784572884df1fd560bcd51d41",
+          "compressed_bytes": 3211,
+          "uncompressed_tar_bytes": 9728,
+          "tar_entry_payload_bytes": 5874,
+          "tar_entries": 4,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:4aee98cdcb5bf09cec8c44c80096a8791de42439306f8865cce9e5340768d5a2",
+          "diff_id": "sha256:52ecad8555ae3282bd955f8174a41c96cf0f8e9efd3410ee9b3611f1226e81dd",
+          "compressed_bytes": 241850900,
+          "uncompressed_tar_bytes": 824825344,
+          "tar_entry_payload_bytes": 803146396,
+          "tar_entries": 29465,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:56a9590dca0ac2807d8b341f60d2502bb12ad5286f9bc5f00de3e9107a6b7201",
+          "diff_id": "sha256:393ae9694bbd95f55f2038a09a68b058610bb15308156d6dfdcfd25d0193b0aa",
+          "compressed_bytes": 3317,
+          "uncompressed_tar_bytes": 21504,
+          "tar_entry_payload_bytes": 8924,
+          "tar_entries": 18,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:827725078ba1b3f8dde26c633fc7d43c229d8d59be23ea99b1c1ebf6cb51ecba",
+          "diff_id": "sha256:96ac9a3510426f58ea83b5ac1b4edcc93da3e914d041a68f72169c6908934d40",
+          "compressed_bytes": 93,
+          "uncompressed_tar_bytes": 1536,
+          "tar_entry_payload_bytes": 0,
+          "tar_entries": 1,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:e53ff19c48f3c93e93568f487a8a22d36c81ade4bff73047ee82ffc21ec57d8c",
+          "diff_id": "sha256:e717e6e20ead40d1a93e13e49b01c873deca0e6ffdf8b22846a62884be2953fc",
+          "compressed_bytes": 15152215,
+          "uncompressed_tar_bytes": 45836288,
+          "tar_entry_payload_bytes": 43106476,
+          "tar_entries": 3673,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:2c4fa54738c9af9c08fb976d3f7e59d84feebfe03d8255846cae2268f2ac1a78",
+          "diff_id": "sha256:834f266de7676a53a56094f725478a1adb8e8a431e8d72d8dbe2de0c8ceb3290",
+          "compressed_bytes": 441362,
+          "uncompressed_tar_bytes": 1290752,
+          "tar_entry_payload_bytes": 1242885,
+          "tar_entries": 64,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:393d8b005b1fd793eb35edc899d196624519642662db61c3a2068d3f6fb2440d",
+          "diff_id": "sha256:7168cfdb2f1316882c274d94ec6f2fcfb9c0c02a157711f6aa1b4aec8adf14ab",
+          "compressed_bytes": 914,
+          "uncompressed_tar_bytes": 5632,
+          "tar_entry_payload_bytes": 1258,
+          "tar_entries": 6,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        },
+        {
+          "digest": "sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1",
+          "diff_id": "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+          "compressed_bytes": 32,
+          "uncompressed_tar_bytes": 1024,
+          "tar_entry_payload_bytes": 0,
+          "tar_entries": 0,
+          "media_type": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "integrity": "verified"
+        }
+      ]
+    }
+  ]
+}

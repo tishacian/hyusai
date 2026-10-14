@@ -1,0 +1,104 @@
+{
+  "candidate_effective_config": {
+    "configured": true,
+    "demo_mode": false,
+    "encrypt": true,
+    "host": "535f81d3-5d3d-4313-92c6-187da6dd50a6.hna1.prod-us10.hanacloud.ondemand.com",
+    "password_set": true,
+    "port": 443,
+    "ssl_validate_certificate": true,
+    "user": "DBADMIN"
+  },
+  "candidate_effective_policy": {
+    "hana_allow_insecure_tls": false,
+    "hana_network_policy_mode": "report",
+    "hana_writes_enabled": false
+  },
+  "candidate_source_sha256": {
+    "backend/app/services/connectors/hana/network_policy.py": "425f0e54df2aa15f27ee9cedadaa43a50e3b7cb26516661473941a0493b8ce1f",
+    "backend/app/services/connectors/hana/service.py": "1a402cf07ea59d793868561ab1b2be9e6c5790d1747dc8757259639e9469c7e6"
+  },
+  "connector_enabled": true,
+  "execution": "candidate modules in memory in a separate docker exec process; no deployment or HTTP route qualification",
+  "hdbcli_version": "2.29.27",
+  "observed_at_utc": "2026-10-14T07:00:23.860688+00:00",
+  "openssl_version": "OpenSSL 3.5.5 27 Jan 2026",
+  "operations": [
+    {
+      "code": "HANA_CONNECTION_FAILED",
+      "connection_attempts": [
+        {
+          "address": "98.94.136.39",
+          "authentication_error": false,
+          "certificate_validation_error": false,
+          "communicationTimeout": 10000,
+          "connectTimeout": 3000,
+          "connected": false,
+          "diagnostic_terms": [
+            "invalid",
+            "rte",
+            "connection failed"
+          ],
+          "distributionMode": "off",
+          "driver_error_code": -10709,
+          "driver_error_type": "Error",
+          "encrypt": true,
+          "port": 443,
+          "sanitized_driver_message": "(-10709, 'Connection failed (RTE:[200121] Invalid connect reply (received HTTP response, not SAP HANA): HTTP 400 : Bad request (172.18.0.21:56278 -> 98.94.136.39:443))')",
+          "sslHostNameInCertificate": "535f81d3-5d3d-4313-92c6-187da6dd50a6.hna1.prod-us10.hanacloud.ondemand.com",
+          "sslValidateCertificate": true,
+          "timeout_error": false
+        }
+      ],
+      "ok": false,
+      "operation": "test_connection",
+      "status_code": 502
+    },
+    {
+      "allow_writes": false,
+      "code": "HANA_CONNECTION_FAILED",
+      "connection_attempts": [
+        {
+          "address": "3.210.163.24",
+          "authentication_error": false,
+          "certificate_validation_error": false,
+          "communicationTimeout": 10000,
+          "connectTimeout": 3000,
+          "connected": false,
+          "diagnostic_terms": [
+            "invalid",
+            "rte",
+            "connection failed"
+          ],
+          "distributionMode": "off",
+          "driver_error_code": -10709,
+          "driver_error_type": "Error",
+          "encrypt": true,
+          "port": 443,
+          "sanitized_driver_message": "(-10709, 'Connection failed (RTE:[200121] Invalid connect reply (received HTTP response, not SAP HANA): HTTP 400 : Bad request (172.18.0.21:36972 -> 3.210.163.24:443))')",
+          "sslHostNameInCertificate": "535f81d3-5d3d-4313-92c6-187da6dd50a6.hna1.prod-us10.hanacloud.ondemand.com",
+          "sslValidateCertificate": true,
+          "timeout_error": false
+        }
+      ],
+      "max_rows": 1,
+      "ok": false,
+      "operation": "select_one_read_only",
+      "sql": "SELECT 1 FROM DUMMY",
+      "status_code": 502
+    }
+  ],
+  "postgresql_read_only": true,
+  "runtime_image_revision": "ad10dbc2b6cb464c8e7c6b19af8ffc46a3b3fb3b",
+  "stored_demo_mode_present": false,
+  "stored_nonsecret_config": {
+    "encrypt": true,
+    "host": "535f81d3-5d3d-4313-92c6-187da6dd50a6.hna1.prod-us10.hanacloud.ondemand.com",
+    "port": 443,
+    "user": "DBADMIN"
+  },
+  "stored_tls_verification_present": false,
+  "workspace_id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+  "workspace_password_resolved": true,
+  "workspace_slug": "agentium-showcase"
+}

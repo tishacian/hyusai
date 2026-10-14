@@ -1,0 +1,19 @@
+{
+  "builder": "agentium-dataops-review",
+  "container": "buildx_buildkit_agentium-dataops-review0",
+  "container_id": "4169eaefcc72e6bd3de7ba383383532439e99cb40b3ad86de7ab3498e751d20f",
+  "mounts": [
+    {
+      "type": "volume",
+      "name": "buildx_buildkit_agentium-dataops-review0_state",
+      "destination": "/var/lib/buildkit"
+    }
+  ],
+  "free_bytes_before": 8076025856,
+  "scope": "Cache of this one dedicated BuildKit builder only; no daemon/global prune.",
+  "running_after": false,
+  "free_bytes_after": 17328562176,
+  "disk_free_gain_bytes": 9252536320,
+  "prune_reported_total": "9.231GB",
+  "both_final_oci_archives_preserved": true
+}

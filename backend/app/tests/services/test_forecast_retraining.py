@@ -2,19 +2,22 @@
 from copy import deepcopy
 from types import SimpleNamespace
 from uuid import uuid4
+
 import pytest
+
+from app.models.run_schedule import RunSchedule
 from app.models.skill import Skill
 from app.models.tabular import MLModel, TabularDataset
-from app.models.run_schedule import RunSchedule
 from app.models.workspace_job import WorkspaceJob
 from app.services import ml_retraining as service
-from app.services.tabular_datasets import TabularError, read_frame, register_frame
 from app.services.skills_registry.seed import SEED_SKILLS
-from app.tests.services.test_forecast_monitoring import observed, actuals, associate, predict  # noqa: F401
-from app.tests.services.test_ml_training import enabled, store  # noqa: F401
-from app.tests.services.test_ml_registry import registry  # noqa: F401
-from app.tests.services.test_ml_retraining import fire, approve
+from app.services.tabular_datasets import TabularError, read_frame
 from app.tests.api.test_runs_hitl_auth import _stub_durable_ordinary_hitl_resume  # noqa: F401
+from app.tests.services.test_forecast_monitoring import actuals, associate, observed, predict  # noqa: F401
+from app.tests.services.test_ml_registry import registry  # noqa: F401
+from app.tests.services.test_ml_retraining import approve, fire
+from app.tests.services.test_ml_training import enabled, store  # noqa: F401
+
 
 @pytest.fixture()
 def forecast_case(db_session, observed):
@@ -86,7 +89,8 @@ def test_changed_reviewed_sources_cannot_authorize_training(db_session, forecast
         data = db_session.get(TabularDataset, dataset_id)
         import polars as pl
         changed = read_frame(data).with_columns((pl.col("value") + 1).alias("value"))
-        register_frame(db_session, workspace_id=case.workspace.id, name=data.name, frame=changed, into=data)
+        from app.tests.dataset_bytes import overwrite_legacy_fixture
+        overwrite_legacy_fixture(data, changed)
         db_session.commit()
     with pytest.raises(TabularError, match="ML_RETRAIN_SOURCE_CHANGED"):
         service.stage_retraining(db_session, proposal_id=job.id, decision_id=decision.id, run_id=run.id)

@@ -1,0 +1,17 @@
+# Explicit rollout profile. No dataset, engine or model is fabricated by Helm.
+dataopsWorker:
+  enabled: true
+dataopsWatchdog:
+  enabled: true
+config:
+  DATAOPS_ENABLED: "true"
+  DATAOPS_WRITE_DELTA_ENABLED: "true"
+  ML_SCORE_STREAMING_ENABLED: "true"
+  ML_SCORE_STREAMING_MAX_ROWS: "3000000"
+  CELERY_DATAOPS_QUEUE: dataops
+  DATAOPS_BATCH_ROWS: "65536"
+  DATAOPS_DUCKDB_MEMORY_MB: "1024"
+  DATAOPS_DUCKDB_THREADS: "2"
+  DATAOPS_SPILL_MAX_MB: "4096"
+  # Service activation remains workspace-specific and explicit in the seed.
+  SERVICE_CONTRACTS_ENABLED: "false"

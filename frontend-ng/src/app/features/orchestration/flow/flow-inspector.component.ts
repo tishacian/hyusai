@@ -121,6 +121,7 @@ import { DatasetPreviewComponent } from '@app/features/data/dataset-preview.comp
 import { FlowDataSourceInspectorComponent } from './flow-data-source-inspector.component';
 import { SecretPickerComponent } from '@app/shared/secrets/secret-picker.component';
 import { isConnectorSource } from './flow-data-sources.vm';
+import { FlowDataOpsInspectorComponent } from './flow-dataops-inspector.component';
 
 /** Engine kind of the node the lexicon calls an Output. */
 const OUTPUT_NODE_KIND = 'sink';
@@ -218,6 +219,7 @@ export function publishedNodeExecutor(
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     A11yModule,
+    FlowDataOpsInspectorComponent,
     SecretPickerComponent,
     NavLinkDirective,
     GlyphComponent,
@@ -327,6 +329,9 @@ export function publishedNodeExecutor(
             }
           }
 
+          @if (selectedSkillSlug() === 'data_prep_v1' || selectedSkillSlug() === 'evaluate_v2') {
+            <section class="ck-flow-section"><app-flow-dataops-inspector [node]="n" /></section>
+          }
           @if ((n.kind ?? 'task') === 'task' || (n.kind ?? 'task') === 'retry') {
             <section class="ck-flow-section" data-testid="node-error-policy">
               <span class="ck-flow-section__label">

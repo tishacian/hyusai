@@ -35,7 +35,7 @@ class SurfaceMetadata:
     notes: str = ""
 
 
-CATALOG_VERSION = "2026-07-22"
+CATALOG_VERSION = "2026-10-13"
 
 
 SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
@@ -482,7 +482,62 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         "workspace-user",
         "Platform",
         ("/data", "/data/:id"),
-        notes="Tabular datasets: ingest, column profile, SQL preview and lineage.",
+        notes="Tabular datasets: ingest, profile, SQL preview, lineage and workspace-scoped streaming CSV/Parquet downloads. Physical purge requests require a workspace administrator and execute under a separate storage identity.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/dataops",
+        "Build",
+        "Dataset",
+        "canonical",
+        "workspace-user",
+        "Platform",
+        ("/data/preparation", "/systems/:id/flow"),
+        notes="Workspace-scoped preparation catalog, compilation, previews and durable executions.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/dataops/hash-salts",
+        "Build",
+        "Secret",
+        "canonical",
+        "admin",
+        "Platform",
+        ("/data/preparation",),
+        notes="Create encrypted, versioned hashing salts; responses contain metadata only.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/service-contracts",
+        "Operate",
+        "Service Contract",
+        "canonical",
+        "workspace-user",
+        "Runtime",
+        ("/work/services",),
+        notes=(
+            "Versioned service promises, governed inputs, windows and Work receipts. "
+            "Creation, activation, qualification, review and publication require an admin; "
+            "candidate and receipt reads preserve native asset permissions."
+        ),
+    ),
+    SurfaceMetadata(
+        "/api/v1/typed-calibration",
+        "Governance",
+        "Evaluation",
+        "canonical",
+        "workspace-user",
+        "Quality",
+        notes=(
+            "Human calibration corpora, annotations, predictions and qualification reports. "
+            "Corpus creation and qualification require an admin; evidence keeps native permissions."
+        ),
+    ),
+    SurfaceMetadata(
+        "/api/v1/typed-calibration/vision-routes",
+        "Governance",
+        "Model Route",
+        "canonical",
+        "admin",
+        "Quality",
+        notes="Register and qualify the model routes permitted to inspect image evidence.",
     ),
     SurfaceMetadata(
         "/api/v1/ml-models",

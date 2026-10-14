@@ -1,8 +1,8 @@
 """Distillation is reviewed-label learning plus independent held-out evidence."""
 from __future__ import annotations
 
-from copy import deepcopy
 import json
+from copy import deepcopy
 
 import numpy as np
 import pandas as pd
@@ -13,14 +13,22 @@ from app.core.config import settings
 from app.models.tabular import MLModel
 from app.resources import ml_distillation
 from app.services import ml_registry, tabular_ml
-from app.services.ml.families import SpecInvalid, TABULAR
+from app.services.ml.families import TABULAR, SpecInvalid
 from app.services.tabular_datasets import TabularError
-from app.tests.services.test_ml_registry import registry  # noqa: F401
 from app.tests.services.test_llm_label_review import (  # noqa: F401
-    confirm, object_store_root, review_body, review_case,
+    confirm,
+    object_store_root,
+    review_body,
+    review_case,
 )
+from app.tests.services.test_ml_registry import registry  # noqa: F401
 from app.tests.services.test_ml_training import (  # noqa: F401
-    dataset, enabled, store, workspace, _run_harness, _stub_harness,
+    _run_harness,
+    _stub_harness,
+    dataset,
+    enabled,
+    store,
+    workspace,
 )
 
 
@@ -250,16 +258,15 @@ def test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence(
     import polars as pl
 
     from app.services import llm_label_review as review
-    from app.services.tabular_datasets import register_frame
     from app.services.tabular_predict import predict_rows
 
     case = review_case
     if ticket_rows != 48:
         # Qualify text on enough training rows for skrub's high-cardinality
         # encoder, while retaining the small fixture as an honest counterexample.
-        register_frame(
-            db_session, workspace_id=case.workspace.id, name=case.source.name, into=case.source,
-            frame=pl.DataFrame({
+        from app.tests.dataset_bytes import overwrite_legacy_fixture
+        overwrite_legacy_fixture(
+            case.source, pl.DataFrame({
                 "ticket": [f"{'invoice' if i % 2 else 'network'} ticket {i}" for i in range(ticket_rows)],
                 "private_note": ["retained, not review context"] * ticket_rows,
                 "topic": ["billing" if i % 2 else "technical" for i in range(ticket_rows)],

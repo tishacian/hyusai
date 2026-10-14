@@ -1,0 +1,7 @@
+{
+  "exit_code": 0,
+  "seconds": 3.793,
+  "python": "3.12.14",
+  "network_blocked_events": [],
+  "log": "/workspace/dataops-hana-fallback-review-2026-10-14/hana-48.log"
+}

@@ -336,7 +336,7 @@ def main(argv):
     try:
         import pandas as pd
 
-        frame = pd.read_parquet(manifest["data_path"])
+        frame = pd.read_parquet(manifest.get("data_paths") or manifest["data_path"])
         series, frequency, holes = read_series(frame, spec, manifest["target"])
     except Exception as exc:
         return _fail(2, f"ml_ts_series: {exc}")

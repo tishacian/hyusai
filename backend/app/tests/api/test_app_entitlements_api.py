@@ -159,6 +159,41 @@ def test_auth_workspace_payloads_expose_canonical_app_entitlements(db_session) -
     assert by_user[member.id]["app_entitlements"] == [CHAT_APP, KNOWLEDGE_CAPTURE_APP]
 
 
+@pytest.mark.parametrize(
+    ("feature", "global_setting"),
+    [("dataops_enabled", "dataops_enabled"), ("service_contracts", "service_contracts_enabled")],
+)
+@pytest.mark.parametrize(
+    ("global_enabled", "stored", "expected"),
+    [(False, None, False), (False, False, False), (False, True, True), (True, False, True), (False, "true", False)],
+)
+def test_auth_resolves_dataops_flags_for_workspace_lists_and_details(
+    db_session, monkeypatch, feature, global_setting, global_enabled, stored, expected
+) -> None:
+    workspace, owner, _, _, _, _ = _seed_workspace(db_session)
+    persisted = {"features": {} if stored is None else {feature: stored}}
+    workspace.settings = persisted
+    db_session.commit()
+    monkeypatch.setattr(settings, "dataops_enabled", False)
+    monkeypatch.setattr(settings, "service_contracts_enabled", False)
+    monkeypatch.setattr(settings, global_setting, global_enabled)
+    client = _auth_client(db_session, owner)
+
+    listed = client.get("/auth/workspaces")
+    detail = client.get(f"/auth/workspaces/{workspace.slug}")
+    me = client.get("/auth/me")
+
+    assert listed.status_code == detail.status_code == me.status_code == 200
+    for payload in (listed.json()[0], detail.json(), me.json()["workspaces"][0]):
+        assert payload["effective_features"][feature] is expected
+        other = "service_contracts" if feature == "dataops_enabled" else "dataops_enabled"
+        assert payload["effective_features"][other] is False
+    for payload in (listed.json()[0], detail.json()):
+        assert payload["settings"] == persisted
+    db_session.refresh(workspace)
+    assert workspace.settings == persisted
+
+
 def test_workspace_app_runtime_keeps_manifest_entitlements_fail_closed_when_legacy_flag_is_off(
     db_session,
     monkeypatch,

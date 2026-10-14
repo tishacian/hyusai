@@ -1,0 +1,12 @@
+[
+  {
+    "name": "a",
+    "dtype": "int64",
+    "nullable": true
+  },
+  {
+    "name": "b",
+    "dtype": "int64",
+    "nullable": true
+  }
+]

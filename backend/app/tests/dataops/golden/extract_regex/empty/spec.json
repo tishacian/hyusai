@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "operation": "prepare",
+  "params": {
+    "steps": [
+      {
+        "id": "golden",
+        "kind": "extract_regex",
+        "params": {
+          "column": "a",
+          "pattern": "x(.*)",
+          "outputs": [
+            {
+              "group": 1,
+              "name": "b"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "port": "out",
+      "name": "Golden"
+    }
+  ]
+}

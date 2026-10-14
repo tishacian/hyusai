@@ -83,7 +83,7 @@ from app.services.recipe_executions import harness_error_line, supervise_harness
 from app.services.tabular_datasets import (
     NUMERIC_KINDS,
     TabularError,
-    materialize,
+    materialize_dataset,
     resolve_dataset_ref,
     slugify,
     system_of_run,
@@ -1946,7 +1946,7 @@ def clamp_timeout(value: Any) -> float:
 def _write_manifest(
     scratch: Path,
     model: MLModel,
-    data_path: Path,
+    data_path: Path | list[Path],
     *,
     distillation: dict | None = None,
     dataset: TabularDataset | None = None,
@@ -1955,7 +1955,8 @@ def _write_manifest(
     manifest = {
         "family": model.family or TABULAR.key,
         "spec": dict(model.spec_json or {}),
-        "data_path": str(data_path),
+        "data_paths": [str(path) for path in data_path] if isinstance(data_path, list) else [str(data_path)],
+        "data_path": str(data_path[0]) if isinstance(data_path, list) and len(data_path) == 1 else ([str(path) for path in data_path] if isinstance(data_path, list) else str(data_path)),
         "model_dir": str(scratch / "model"),
         "task": model.task,
         "algo": model.algo,
@@ -2244,7 +2245,7 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                     message="The confirmed label provenance changed after training was submitted.",
                     status_code=409,
                 )
-            data_path = materialize(dataset, scratch / "data.parquet")
+            data_path = materialize_dataset(dataset, scratch / "data")
             manifest_path = _write_manifest(
                 scratch, model, data_path, distillation=distillation, dataset=dataset
             )
