@@ -117,6 +117,31 @@ if [ "$ML_DEEP" = 1 ]; then
 	ML_DEEP_SERVICES=("${ML_DEEP_ALL[@]}")
 fi
 
+# Connector scaffold is opt-in and has a separate image qualification. No
+# default image or budget is assigned before the S-C2 measurement.
+CONNECTORS="${AGENTIUM_CONNECTORS:-0}"
+case "$CONNECTORS" in
+0 | 1) ;;
+*) fail "AGENTIUM_CONNECTORS must be 0 or 1" ;;
+esac
+CONNECTORS_ALL=(agentium-worker-connectors agentium-worker-connectors-interactive)
+CONNECTORS_PROFILE=()
+CONNECTORS_SERVICES=()
+CONNECTORS_OVERLAY=()
+CONNECTORS_ENV=()
+if [ "$CONNECTORS" = 1 ]; then
+	CONNECTOR_IMAGE="${AGENTIUM_CONNECTOR_RUNNER_IMAGE:-}"
+	[[ "$CONNECTOR_IMAGE" =~ @sha256:[0-9a-f]{64}$ ]] ||
+		fail "AGENTIUM_CONNECTOR_RUNNER_IMAGE must be pinned by digest"
+	CONNECTOR_BUDGET="${AGENTIUM_IMAGE_BUDGET_MB_CONNECTOR_RUNNER:-}"
+	[[ "$CONNECTOR_BUDGET" =~ ^[1-9][0-9]{0,5}$ ]] ||
+		fail "AGENTIUM_IMAGE_BUDGET_MB_CONNECTOR_RUNNER must be measured and set"
+	CONNECTORS_PROFILE=(--profile connectors)
+	CONNECTORS_SERVICES=("${CONNECTORS_ALL[@]}")
+	CONNECTORS_OVERLAY=(-f "$W/compose.agentium.connectors.yml")
+	CONNECTORS_ENV=(AGENTIUM_CONNECTOR_RUNNER_IMAGE="$CONNECTOR_IMAGE")
+fi
+
 clean_exec() {
 	/usr/bin/env -i \
 		HOME="$COMPOSE_CLEAN_HOME" \
@@ -158,6 +183,7 @@ if [ "$OPENBAO" = 1 ]; then
 	OPENBAO_SERVICES=(agentium-openbao)
 	OPENBAO_OVERLAY=(-f "$W/compose.agentium.openbao.yml")
 	[ "$HUGGINGFACE" = 1 ] && OPENBAO_OVERLAY+=(-f "$W/compose.agentium.openbao-huggingface.yml")
+	[ "$CONNECTORS" = 1 ] && OPENBAO_OVERLAY+=(-f "$W/compose.agentium.openbao-connectors.yml")
 	OPENBAO_ENV=(
 		AGENTIUM_OPENBAO_DATA_PATH="$OPENBAO_DATA_ROOT"
 		AGENTIUM_OPENBAO_UNSEAL_KEY_FILE="$D/runtime-env/openbao-unseal.key"
@@ -197,15 +223,34 @@ compose() {
 		AGENTIUM_BACKEND_WORKERS="$WORKERS" \
 		AGENTIUM_CELERY_BEAT=0 \
 		AGENTIUM_STARTUP_RECONCILIATION=disabled \
+		${CONNECTORS_ENV[@]+"${CONNECTORS_ENV[@]}"} \
 		${OPENBAO_ENV[@]+"${OPENBAO_ENV[@]}"} \
 		docker --host "$DOCKER_SOCKET" compose -p agentium \
 		--env-file "$D/runtime-env/compose.effective.env" \
 		-f "$W/compose.agentium.yml" \
 		-f "$D/compose.agentium.opened.yml" \
 		-f "$W/compose.agentium.vm-runtime.yml" \
+		${CONNECTORS_OVERLAY[@]+"${CONNECTORS_OVERLAY[@]}"} \
 		${HUGGINGFACE_OVERLAY[@]+"${HUGGINGFACE_OVERLAY[@]}"} \
 		${OPENBAO_OVERLAY[@]+"${OPENBAO_OVERLAY[@]}"} \
 		"$@"
+}
+
+connector_image_check() {
+	if [ "$CONNECTORS" = 1 ]; then
+		connector_bytes="$(readonly_docker image inspect --format '{{.Size}}' "$CONNECTOR_IMAGE")"
+		connector_revision="$(readonly_docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$CONNECTOR_IMAGE")"
+		connector_expected_revision="$(readonly_docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "agentium-backend:$TAG")"
+		[[ "$connector_bytes" =~ ^[0-9]+$ ]] || fail "connector runner size is unavailable"
+		[[ "$connector_revision" =~ ^[0-9a-f]{40}$ ]] || fail "connector runner revision is unavailable"
+		if [[ "$TAG" == demo-agentic ]]; then
+			[[ "$connector_expected_revision" == "$(git -C "$R" rev-parse HEAD)" ]] || fail "backend revision differs from deployment"
+		else
+			[[ "${connector_expected_revision:0:12}" == "$TAG" ]] || fail "backend revision differs from deployment tag"
+		fi
+		[[ "$connector_revision" == "$connector_expected_revision" ]] || fail "connector runner revision differs from backend"
+		((connector_bytes <= CONNECTOR_BUDGET * 1048576)) || fail "connector runner image exceeds its measured budget"
+	fi
 }
 
 assert_data_device() {
@@ -292,7 +337,7 @@ storage_check() {
 	assert_exact_backing_path \
 		"$SECURE_DEPOSIT_ROOT" "$EXPECTED_SECURE_SOURCE" "$SECURE_DEPOSIT_ROOT"
 	assert_protected_data_path "$FAISS_ROOT"
-	compose --profile infra --profile tools --profile sftp "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" "${OPENBAO_PROFILE[@]}" config --format json |
+	compose --profile infra --profile tools --profile sftp "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${CONNECTORS_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" "${OPENBAO_PROFILE[@]}" config --format json |
 		clean_exec python3 "$ENV_HELPER" vm-storage-compose-check
 	readonly_docker volume inspect agentium_minio_block |
 		clean_exec python3 "$ENV_HELPER" vm-storage-volume-check \
@@ -311,7 +356,7 @@ storage_check() {
 	# Forecasting and deep workers mount the object store: checked wherever they
 	# exist, including a host that has since switched their flag back to 0.
 	local ml_ts_containers=() container
-	for container in "${ML_TS_ALL[@]}" "${ML_DEEP_ALL[@]}" agentium-hub-fetch; do
+	for container in "${ML_TS_ALL[@]}" "${ML_DEEP_ALL[@]}" "${CONNECTORS_ALL[@]}" agentium-hub-fetch; do
 		if readonly_docker inspect --type container "$container" >/dev/null 2>&1; then
 			ml_ts_containers+=("$container")
 		fi
@@ -364,6 +409,7 @@ backup_database() {
 	local digest bytes
 	(
 		umask 077
+		# shellcheck disable=SC2016 # Variables expand inside the PostgreSQL container.
 		readonly_docker exec agentium-pg sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' >"$temporary"
 	) || fail "pg_dump failed; migrate not started"
 	[[ -s "$temporary" ]] || fail "pg_dump produced an empty archive; migrate not started"
@@ -437,7 +483,7 @@ print(revision)
 }
 
 case "${1:-}" in
-images) compose "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" "${OPENBAO_PROFILE[@]}" config --images ;;
+images) compose "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${CONNECTORS_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" "${OPENBAO_PROFILE[@]}" config --images ;;
 storage-check) storage_check ;;
 migrate)
 	storage_check
@@ -454,9 +500,10 @@ migrate)
 	;;
 up)
 	storage_check
+	connector_image_check
 	start_run up
 	gate_enter
-	compose up -d --no-build --no-deps --pull never agentium-worker-recipes agentium-worker-dataops agentium-backend agentium-worker-cpu agentium-frontend agentium-p4-maintenance agentium-beat "${ML_TS_SERVICES[@]}" "${ML_DEEP_SERVICES[@]}" "${HUGGINGFACE_SERVICES[@]}" "${OPENBAO_SERVICES[@]}"
+	compose up -d --no-build --no-deps --pull never agentium-worker-recipes agentium-worker-dataops agentium-backend agentium-worker-cpu agentium-frontend agentium-p4-maintenance agentium-beat "${ML_TS_SERVICES[@]}" "${ML_DEEP_SERVICES[@]}" "${CONNECTORS_SERVICES[@]}" "${HUGGINGFACE_SERVICES[@]}" "${OPENBAO_SERVICES[@]}"
 	verify_build_info || {
 		journal_append up - - failed
 		fail "build-info did not report $TAG with revision_verified; roll back with AGENTIUM_IMAGE_TAG=$PREVIOUS_TAG $0 up"
@@ -521,11 +568,12 @@ openbao-snapshot)
 	clean_exec AGENTIUM_OPENBAO_BACKUPS_PATH="$OPENBAO_BACKUPS_ROOT" bash "$R/scripts/agentium-openbao-snapshot.sh" "$D/runtime-env"
 	;;
 openbao-status) readonly_docker exec agentium-openbao bao status ;;
+connectors-stop) compose --profile connectors rm --stop --force "${CONNECTORS_ALL[@]}" ;;
 ml-ts-stop) compose --profile ml-ts rm --stop --force "${ML_TS_ALL[@]}" ;;
 ml-deep-stop) compose --profile ml-deep rm --stop --force "${ML_DEEP_ALL[@]}" ;;
-ps) compose "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" "${OPENBAO_PROFILE[@]}" ps ;;
+ps) compose "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${CONNECTORS_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" "${OPENBAO_PROFILE[@]}" ps ;;
 *)
-	echo "usage: $0 {images|storage-check|migrate|up|gate-exit|journal|sftp-up|keycloak-up|livekit-up|catalog-check|catalog-apply|openbao-prepare|openbao-init|openbao-snapshot|openbao-status|ml-ts-stop|ml-deep-stop|ps}" >&2
+	echo "usage: $0 {images|storage-check|migrate|up|gate-exit|journal|sftp-up|keycloak-up|livekit-up|catalog-check|catalog-apply|openbao-prepare|openbao-init|openbao-snapshot|openbao-status|connectors-stop|ml-ts-stop|ml-deep-stop|ps}" >&2
 	exit 2
 	;;
 esac

@@ -47,6 +47,11 @@ dataopsWorker:
   enabled: true
   replicas: 1
   scratchSizeLimit: 8Gi
+# C0 scaffold: inactive until the runner image has its own qualification.
+connectorWorkers:
+  enabled: false
+  image: ""
+  scratchSizeLimit: 512Mi
 dataopsWatchdog:
   enabled: false
   schedule: "*/5 * * * *"

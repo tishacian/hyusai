@@ -662,3 +662,64 @@ La couverture de papAI provient du code de `papai-latest` (`spark-service`, `cor
 | 5. Règles de certification contradictoires et kit non paramétré | Identité complète d'une preuve, deux règles de déclassement distinctes, kit paramétré par capacités avec test des refus (§7, §11, C-13) |
 | 6. Diagnostics bloqués derrière les imports | File interactive à capacité réservée, échéance incluant l'attente, `CONNECTOR_BUSY`, registre local des calculs mutualisé avec DataOps (§12, C-6) |
 | 7. Moyens de qualification indisponibles | Migration de HANA dissociée de sa qualification, lot CH et spike S-C8, mise en service du banc comme critère de C0 (§11.4, §16) |
+
+## Annexe E — Premier incrément C0, à partir de `71ac18a2`
+
+Travail préparatoire sur `codex/dataops-d7-c0`. **C0 reste ouvert** : aucun
+déploiement, passage en `enforce` en production, banc actif ou connecteur qualifié
+n'est attesté par cet incrément. Le choix du banc (§11.4) et celui du banc HANA
+réel (CH/S-C8) restent ouverts.
+
+| Partie | Livré dans le code | Limite de cet incrément |
+|---|---|---|
+| C0.1, réseau | Politique commune HANA/PostgreSQL/MCP, résolution contrôlée et IP épinglée, nom TLS conservé, redirections MCP/OAuth refusées, erreurs fermées | `report` par défaut ; les exceptions HANA existantes sont conservées, mais aucune nouvelle exception administrée n'est créée. La matrice de ports par profil attend C1 |
+| C0.3, preuves | Contrat de capacités, identité des composants, suites attendues, empreinte du bundle et calcul pur du niveau | Fixtures unitaires seulement ; ni banc, ni dépôt de preuves, ni authentification de leur producteur. Le calcul n'est pas encore raccordé à une API ou à l'interface |
+| C0.4, catalogue | Fiches existantes sans revendication de disponibilité ou certification non prouvée ; paramètres existants conservés ; niveaux « Non vérifié », « Tiers », « Sur demande » ou configuration seule | Aucune fiche promue « Vérifié » ou « Certifié » ; le futur flux de preuves n'est pas simulé |
+| C0.4, exécution | Application Celery dédiée sans tâche métier, image dérivée du worker, deux processus pour `connectors` et `connectors_interactive`, rendus Compose/Helm et contrat de stockage VM | Désactivé par défaut ; aucun pilote ajouté, aucune image construite ou mesurée. Les tâches, échéances et quotas appartiennent à C1 |
+
+**Compatibilité à qualifier avant une release d'observation.** PostgreSQL utilise
+désormais `sslmode=verify-full`, avec le nom d'origine et `hostaddr` épinglé :
+chaque destination doit donc présenter un certificat reconnu. Les serveurs MCP
+qui dépendaient d'une redirection doivent être configurés avec leur URL finale.
+Les appels portant un jeton et les échanges OAuth exigent HTTPS. Le mode
+`report` concerne les refus réseau ; il ne désactive pas ces contrôles TLS.
+Un réglage HANA déjà en `enforce` ne peut pas être abaissé par le réglage commun.
+
+**Image et lancement préparés, sans activation.** Le Dockerfile du runner hérite
+d'une image worker construite à la même révision, passée par son digest dans
+`WORKER_BASE_IMAGE`. Il n'installe aucun paquet supplémentaire. Le script de
+build de release existant n'ajoute pas encore cette image au jeu obligatoire.
+Son budget S-C2 reste à mesurer ; aucun plafond des images existantes n'est relevé.
+`agentium-image-budget.sh` sait contrôler une référence explicite via
+`AGENTIUM_CONNECTOR_RUNNER_IMAGE` et exige alors
+`AGENTIUM_IMAGE_BUDGET_MB_CONNECTOR_RUNNER`. Les comparaisons de budget portent
+sur les octets, sans tolérance due à l'arrondi d'affichage en Mio.
+
+La voie VM est opt-in (`AGENTIUM_CONNECTORS=1`), avec cette référence par digest
+et ce budget explicite. Avant tout redémarrage, elle vérifie que le runner et
+l'image backend du tag demandé portent exactement la même révision et que le
+budget est respecté. Les deux processus n'ont que le stockage objet comme
+montage applicatif ; l'overlay OpenBao reprend l'identité worker existante.
+Le chart utilise `connectorWorkers.enabled=false` par défaut et exige une image
+par digest si activé. Ces garde-fous ne constituent pas une qualification.
+
+La clôture de C0 exige toujours C0.2 (exceptions administrées, observation puis
+blocage prouvé en production), un banc opérationnel produisant ses vraies
+preuves, et la qualification de l'image. Le lot CH reste indépendant.
+
+**Vérifications de cet incrément (14 octobre 2026)** :
+
+- 261 tests backend ciblés : réseau, HANA, PostgreSQL, MCP/OAuth et contrat de
+  certification. Deux échanges TLS locaux réels vérifient le nom TLS, l'IP
+  épinglée et le refus d'un certificat non approuvé avant émission du jeton.
+- Suite `backend/app/tests/infra` : 940 réussites, 42 tests ignorés. Les tests
+  ignorés ne fournissent aucune preuve de qualification.
+- Frontend : 2 206 tests unitaires, contrôles i18n/navigation/UI et `build:prod`
+  réussis. Le build conserve des avertissements de budget préexistants.
+- Conformité produit, Ruff sur les fichiers Python modifiés, ShellCheck,
+  formatage shell, lint Helm et `git diff --check` réussis.
+
+La suite backend complète n'a pas été relancée. Les manifests Helm et Compose
+sont rendus localement ; le script Kubernetes complet, qui exige également
+Terraform et Ansible, n'est pas une preuve fournie ici. Aucun test sur une base
+cliente vivante, aucune construction d'image, aucune action VM ou Bitbucket.
