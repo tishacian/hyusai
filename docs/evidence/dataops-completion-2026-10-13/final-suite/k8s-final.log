@@ -1,0 +1,49 @@
+==> Linting /workspace/omnirag/ops/helm/agentium
+[INFO] Chart.yaml: icon is recommended
+
+1 chart(s) linted, 0 chart(s) failed
+[32m[1mSuccess![0m The configuration is valid.
+[0m
+[32m[1mSuccess![0m The configuration is valid.
+[0m
+[32m[1mSuccess![0m The configuration is valid.
+[0m
+[32m[1mSuccess![0m The configuration is valid.
+[0m
+[33m╷[0m[0m
+[33m│[0m [0m[1m[33mWarning: [0m[0m[1mArgument is deprecated[0m
+[33m│[0m [0m
+[33m│[0m [0m[0m  with provider["registry.terraform.io/terraform-provider-openstack/openstack"],
+[33m│[0m [0m  on versions.tf line 18, in provider "openstack":
+[33m│[0m [0m  18: provider "openstack" [4m{[0m[0m
+[33m│[0m [0m
+[33m│[0m [0mUsers not using loadbalancer resources can ignore this message. Support for
+[33m│[0m [0mneutron-lbaas will be removed on next major release. Octavia will be the
+[33m│[0m [0monly supported method for loadbalancer resources. Users using octavia will
+[33m│[0m [0mhave to remove 'use_octavia' option from the provider configuration block.
+[33m│[0m [0mUsers using neutron-lbaas will have to migrate/upgrade to octavia.
+[33m╵[0m[0m
+[32m[1mSuccess![0m The configuration is valid, but there were some
+validation warnings as shown above.
+[0m
+[33m╷[0m[0m
+[33m│[0m [0m[1m[33mWarning: [0m[0m[1mArgument is deprecated[0m
+[33m│[0m [0m
+[33m│[0m [0m[0m  with provider["registry.terraform.io/terraform-provider-openstack/openstack"],
+[33m│[0m [0m  on versions.tf line 18, in provider "openstack":
+[33m│[0m [0m  18: provider "openstack" [4m{[0m[0m
+[33m│[0m [0m
+[33m│[0m [0mUsers not using loadbalancer resources can ignore this message. Support for
+[33m│[0m [0mneutron-lbaas will be removed on next major release. Octavia will be the
+[33m│[0m [0monly supported method for loadbalancer resources. Users using octavia will
+[33m│[0m [0mhave to remove 'use_octavia' option from the provider configuration block.
+[33m│[0m [0mUsers using neutron-lbaas will have to migrate/upgrade to octavia.
+[33m╵[0m[0m
+[32m[1mSuccess![0m The configuration is valid, but there were some
+validation warnings as shown above.
+[0m
+
+playbook: /workspace/omnirag/ops/ansible/playbooks/provision-cluster.yml
+
+playbook: /workspace/omnirag/ops/ansible/playbooks/deploy-agentium.yml
+ops scaffold ok

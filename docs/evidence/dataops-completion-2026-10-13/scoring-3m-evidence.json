@@ -1,0 +1,82 @@
+{
+  "source_revision": "bd72404472bfd57c01cc2e4a9747ff5e3049814f",
+  "status": "passed",
+  "result_scope": "Real native model with deterministic varied synthetic input; canonical preparation/scoring services executed directly in the qualified workspace venv under a pinned carrier container. Not a built-worker-image or VM benchmark.",
+  "limits": {
+    "memory_bytes": 4294967296,
+    "swap_bytes": 0,
+    "cpu": 2,
+    "timeout_seconds": 900,
+    "network": "none"
+  },
+  "rows": {
+    "excluded": 0,
+    "expected": 3000000,
+    "processed": 3000000
+  },
+  "columns": {
+    "input": 32,
+    "prepared": 32,
+    "output": 35
+  },
+  "part_counts": {
+    "input": 6,
+    "prepared": 7,
+    "output": 7
+  },
+  "seconds": {
+    "pipeline": 330.5524989600017,
+    "pytest": 344.57,
+    "supervisor": 353.47978067099757,
+    "phases": {
+      "ingestion_seconds": 76.3442599419941,
+      "preparation_seconds": 91.12070588999632,
+      "scoring_seconds": 163.02189069299493
+    }
+  },
+  "memory": {
+    "cgroup_peak_bytes": 4294967296,
+    "cgroup_events": "low 0\nhigh 0\nmax 2018\noom 0\noom_kill 0\noom_group_kill 0",
+    "sampled_tree_rss_bytes": 2139041792,
+    "rss_sampling_interval_ms": 50,
+    "rss_note": "Sampled process-tree RSS excludes filesystem cache and kernel charges; cgroup peak is the enforcing metric."
+  },
+  "container_removed": true,
+  "source_unchanged_and_clean_after": true,
+  "images_bundle": {
+    "path": "/workspace/dataops-image-evidence-final-bd724044",
+    "indexed_files": 59,
+    "all_file_hashes_verified": true,
+    "index_sha256": "24c5f1b2beeb6c9eed78f9bdb14b38ea97f920e504445c1d92daacb650b34af3"
+  },
+  "files": {
+    "/workspace/dataops-completion-2026-10-13/scoring-3m.json": {
+      "size_bytes": 1960,
+      "sha256": "49f87c5e84bd64c307be69b53c4e1e854e75b108adf8513fc4e500c272672873"
+    },
+    "/workspace/dataops-completion-2026-10-13/scoring-3m-cgroup.json": {
+      "size_bytes": 3235,
+      "sha256": "d92314d7750968e8059d614a39a042604559f2f5906d9bdcae8acb5a719a78f5"
+    },
+    "/workspace/dataops-completion-2026-10-13/scoring-3m.log": {
+      "size_bytes": 3082,
+      "sha256": "6b6c97bd0bc39e7b93527d588c645f752c0dd87cf3cae0e9cfba1ef5b5d2d0cf"
+    },
+    "/workspace/dataops-completion-2026-10-13/scoring-3m.json.progress.json": {
+      "size_bytes": 542,
+      "sha256": "fa5710d47823305492071cef106b14f467c9e159e0b208aceb8e1f3dff4203fe"
+    },
+    "/workspace/dataops-completion-2026-10-13/run_cgroup_benchmark.py": {
+      "size_bytes": 9143,
+      "sha256": "4cc05fe4733c6c3ff1c0c343e4aa1f62c238fc916248b830b2c701db8a3b9d59"
+    },
+    "/workspace/omnirag/backend/scripts/benchmark_dataops_showcase.py": {
+      "size_bytes": 16122,
+      "sha256": "ad21f0012c17d82c1361ed16ac6c420567bde2c47df1878e95bb64b147eecdee"
+    },
+    "/workspace/omnirag/backend/app/tests/scripts/test_dataops_showcase.py": {
+      "size_bytes": 13133,
+      "sha256": "6c129e66552d3fdf7a3a7399eb9a09fe742a8c0697eb7ab06d5ea5cf16472faa"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "target": "/workspace/dataops-completion-2026-10-13/tmp/pytest-of-agent",
+  "real_path_verified": true,
+  "observed_processes_all_exited": [
+    231202,
+    231203,
+    231206,
+    231209,
+    231212,
+    249647
+  ],
+  "symlink_entries_unlinked_without_following": 2046,
+  "files": 56645,
+  "file_bytes": 173979802399,
+  "free_bytes_before": 8823209984,
+  "free_bytes_after": 12229103616,
+  "removed": true,
+  "preserved": "logs, JSONL, proofs and neighboring dbt environment",
+  "disk_free_gain_bytes": 3405893632
+}

@@ -1,0 +1,2 @@
+# Preserve captured terminal output verbatim, including display padding.
+*.log -whitespace
