@@ -1,0 +1,46 @@
+{{- if and .Values.migrate.enabled .Values.catalogReconcile.enabled }}
+{{- if ne .Values.migrate.hook "post-install,post-upgrade" }}
+{{- fail "catalogReconcile requires migrate.hook=post-install,post-upgrade so migrations finish first" }}
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: agentium-catalog-reconcile
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: catalog-reconcile
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.catalogReconcile.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.catalogReconcile.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: {{ .Values.catalogReconcile.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: catalog-reconcile
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      restartPolicy: Never
+      {{- include "agentium.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: catalog-reconcile
+          image: {{ .Values.image.backend | quote }}
+          {{- with .Values.resources.migrate }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "app.cli.reconcile_catalog", "--apply"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "agentium.fullname" . }}-config
+            - secretRef:
+                name: {{ include "agentium.secretName" . }}
+            {{- include "agentium.openbaoEnvFrom" (list . "backend") | nindent 12 }}
+          env:
+            {{- include "agentium.appSecretEnv" . | nindent 12 }}
+            {{- include "agentium.openbaoEnv" (list .) | nindent 12 }}
+{{- end }}

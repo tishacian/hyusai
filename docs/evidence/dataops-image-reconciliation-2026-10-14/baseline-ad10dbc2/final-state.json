@@ -1,0 +1,15 @@
+{
+  "builder": "agentium-dataops-review",
+  "builder_running": false,
+  "builder_stopped_at": "2026-10-14T06:41:29.231367735Z",
+  "cache_purged_after_this_rebuild": false,
+  "archives_preserved": {
+    "/workspace/dataops-image-qualification/baseline-ad10dbc2/backend.oci.tar": 1288164864,
+    "/workspace/dataops-image-qualification/backend.oci.tar": 1346070528,
+    "/workspace/dataops-image-qualification/worker.oci.tar": 1716421120
+  },
+  "checkout_preserved": "/workspace/dataops-image-qualification/baseline-ad10dbc2/repo",
+  "free_bytes": 10651058176,
+  "vm_actions_executed": false,
+  "budget_values_changed": false
+}

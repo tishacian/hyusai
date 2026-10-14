@@ -1,0 +1,92 @@
+{
+  "date": "2026-10-14",
+  "base_commit": "2e49c1aa4859a508675a54d8087b70528f3a450f",
+  "backend_tree": "2cd431e3ed4b667dffdb30a1caef5d06396bc766",
+  "scope": "Local frontend correction and HANA unit validation. No workspace activation, VM action, merge or deployment.",
+  "versions": {
+    "node": "24.19.0",
+    "npm": "11.9.0",
+    "python": "3.12.14"
+  },
+  "results": {
+    "hana_backend": {
+      "passed": 48,
+      "exit_code": 0,
+      "python_network_audit_events": []
+    },
+    "hana_frontend": {
+      "passed": 10,
+      "exit_code": 0
+    },
+    "full_frontend": {
+      "passed": 2204,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0
+    },
+    "check_i18n": {
+      "exit_code": 0
+    },
+    "check_nav_links": {
+      "exit_code": 0
+    },
+    "check_ui_chrome": {
+      "exit_code": 0
+    },
+    "build_prod": {
+      "exit_code": 0,
+      "warnings": true
+    }
+  },
+  "source_sha256": {
+    "frontend-ng/scripts/run-unit.mjs": "02b5162229c49de87dd4d0306a236cd743b45839302a0b7db18e1908d345f938",
+    "frontend-ng/src/app/core/i18n/resources.dict.ts": "e23c24b30c9b339c04dab5bf51e10abe8fafd4262279bad682fcb7f782444bf3",
+    "frontend-ng/src/app/features/connectors/hana/hana-connector.component.ts": "37127049889f3323bd3ad0aae6e0270fd60068fec3aad7b077bc4a39f81ce2e0",
+    "frontend-ng/src/app/features/connectors/hana/hana-connector.component.spec.ts": "1baf5e4923e2933995411c398a67febaf6749b5c7091d96ae167991fac4012c0",
+    "backend/app/tests/services/test_hana_security.py": "7d6604410b96b3ed4cefb6666d96f80cdb7ad0f8ba6fd34a18270e6487b13ef8",
+    "backend/app/tests/services/test_hana_preview.py": "1fb159a32bb8a8c2ddb95b60bfbe105290c22a0770fbac0272cd5b9c2234ea1e",
+    "backend/app/tests/api/test_hana_rpa_admin_api.py": "18d27a54a253197a073776248b50351c50c7d42fff0fab3b53c2b8defb34bbf5"
+  },
+  "protected_documents_sha256": {
+    "docs/agentium-dataops-plan.md": "9a2f31a09cdb93918c754a93d5b28ba0e370f4a8ae1cbc020201c662bc35b6ab",
+    "docs/codex-review-dataops-typed-judge.md": "2c3b460db55e58bf1a89e95aa78d4ed5af7cfe3a36752b2eccf49c2033fb5dd2"
+  },
+  "files": {
+    "build-prod.log": {
+      "bytes": 9912,
+      "sha256": "469b5fd3eaf2d6e618f390be8330dcc8dd489b5589dc611ed4fe836355decaa7"
+    },
+    "hana-48-result.json": {
+      "bytes": 171,
+      "sha256": "39f837b7630449da2d1d92316b2e9aff6dc624b078e83aad41a2ace65cb107e1"
+    },
+    "hana-48.log": {
+      "bytes": 1641,
+      "sha256": "44081c1e601727057a8b6476943d1f377aa94e0cef12f20c0d49ae577699aa35"
+    },
+    "i18n.log": {
+      "bytes": 215,
+      "sha256": "fabf067812c704ac1b93d5eb4cfb78777691746e679a6f5eceed4d7b8ca6b00a"
+    },
+    "nav-links.log": {
+      "bytes": 171,
+      "sha256": "f95d0aeb6b302da99bc22f670bfe6bc5daed1a53aed7c8a630c46133a4549f46"
+    },
+    "run_hana_48.py": {
+      "bytes": 1402,
+      "sha256": "8bd526796adb0452efc75b4296f363c3afc5d556c5e837dfbfbab61889bd6945"
+    },
+    "ui-chrome.log": {
+      "bytes": 414,
+      "sha256": "5cc0af38d73f02eae61a47ed9c08d5cca076eac523b935ed80127fa0384f5a29"
+    },
+    "unit-full.log": {
+      "bytes": 189652,
+      "sha256": "fde4b5d5091cb2dd7b3b743373376f9a1d9d9d281bce5c23bf84e3d48d5c0f6c"
+    },
+    "unit-hana.log": {
+      "bytes": 1116,
+      "sha256": "ffafaf4d0fdb80b4474664be09c3fc4cf933ed73cb684507af88a99a7070a502"
+    }
+  }
+}

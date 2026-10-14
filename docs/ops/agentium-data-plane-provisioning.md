@@ -148,9 +148,71 @@ object-store prefixes they reference — and then checks that every artifact the
 registry names is present in it. See
 [§5b of the release process](../agentium-release-process.md#5b-once-the-dataml-plane-is-deployed-that-dump-is-no-longer-a-backup).
 
-To restore: `pg_restore` both dumps, then `mc mirror` the window's `objects/`
-back under the bucket root. The keys in `objects.sha256` are already relative to
-that root, so they go back exactly where both registries expect them.
+Suspend writers, schedulers, workers and purges for the complete backup window.
+The two SQL dumps, the reference export and the object mirror do not share a
+distributed snapshot. The script does not stop these services itself. Without
+this operational boundary, successful byte checks cannot establish that the
+dump and objects describe the same instant.
+
+The retained `object-copy-plan.tsv` selects dataset objects/Delta directories,
+native model directories and named reports, retained BRD originals, plus every
+A1 manifest and its declared objects. A collection directory is added only
+when an A1 native reference names that collection. A1 evidence can therefore
+live outside `tabular/`, `ml/` and `brd/` without copying an unrelated 150 GiB
+knowledge tree in the same workspace. Overlapping directories and duplicate
+object references are deduplicated.
+
+Before any object copy, the script measures only these selected targets. An
+unknown required size aborts; a missing optional report state is skipped and
+reported. The 8 GiB object ceiling remains unchanged. The destination filesystem
+and MinIO staging filesystem must each have room for two copies plus a 1 GiB
+reserve, conservatively covering the case where both paths share one disk.
+Larger referenced corpora require a deliberately provisioned backup path, not
+a bypass of the ceiling or a partial mirror presented as complete. Preflight
+failures leave no `.ready` marker and may occur before `MANIFEST.json` exists.
+
+The window now retains `reference-registry.jsonl`, its checksum, and
+`governed-verification.json`. The offline verifier compares every A1 SQL envelope
+with its canonical manifest and content digest, then streams all declared
+objects to verify their sizes and SHA-256 hashes. Parent references must match
+their workspace, ID, kind, version and digest; pinned native references must
+retain their identity. Delta verification uses the registered log hash and exact
+part inventory, including every part's hash. Same-size corruption, extra commits,
+missing parents, traversal and symlinks fail the check and block `.ready`.
+Stored dataset samples are checked too. Legacy Parquet rows without a recorded
+hash are explicitly counted in `legacy_datasets_without_recorded_hash`; the
+validator cannot invent a pre-existing byte identity for them.
+
+Before restoration, verify the retained dump and registry checksums and run the
+object checks from the backup window. `$BACKUP_WINDOW` is the actual completed
+window, not a new export from the current application database:
+
+```bash
+(cd "$BACKUP_WINDOW" && sha256sum -c reference-registry.jsonl.sha256)
+(cd "$BACKUP_WINDOW/objects" && sha256sum -c ../objects.sha256)
+python3 scripts/agentium_validate_delta_backup.py \
+  --objects-root "$BACKUP_WINDOW/objects" \
+  --registry "$BACKUP_WINDOW/reference-registry.jsonl"
+```
+
+Restore both dumps with `pg_restore`, then mirror the window's `objects/` back
+under the bucket root. The object keys are already relative to that root. Keep
+the application stopped until an independent copy of the restored bucket has
+passed the same checksum and registry commands, substituting that copy as
+`--objects-root`. Re-export A1 and native registry rows from the restored SQL
+database in the JSONL shape used by the dump script and verify that export too;
+this catches restoration of the wrong SQL window. Do not treat validation of
+the original backup alone as validation of a completed restore.
+
+The checker needs only Python's standard library and no network. It limits its
+registry to 256 MiB and each row to 4 MiB; exceeding these limits fails explicitly.
+Its legacy positional invocation checks Delta structure and part sizes only;
+use the `--registry` form for recorded cryptographic identities. Local tests
+cover actual Delta parts, an application A1/SQLite/ObjectStore restore and
+same-size corruption. Docker/PG transport doubles additionally exercise the
+shell `.ready` gate. These tests do not establish `pg_restore`, S3 IAM, bucket
+versioning, a production RPO/RTO or recovery from an actual lost VM; those remain
+part of an isolated operational restore rehearsal.
 
 Losing the `mlflow` half alone is survivable and worth knowing: the models keep
 training, serving and promoting from `ml_models`, and what is gone is the

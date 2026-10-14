@@ -15,7 +15,7 @@ def test_preview_falls_back_to_demo_tables(monkeypatch):
         lambda _cfg: (_ for _ in ()).throw(RuntimeError("down")),
     )
     result = hana_service.preview_catalog(
-        {"host": "example.hanacloud", "user": "DBADMIN", "password": "x"}
+        {"host": "example.hanacloud", "user": "DBADMIN", "password": "x", "demo_mode": True}
     )
     names = {item["name"] for item in result["tables"]}
     assert result["ok"] is True
@@ -34,7 +34,7 @@ def test_preview_can_sample_a_named_demo_table(monkeypatch):
         lambda _cfg: (_ for _ in ()).throw(RuntimeError("down")),
     )
     result = hana_service.preview_catalog(
-        {"host": "example.hanacloud", "user": "DBADMIN", "password": "x"},
+        {"host": "example.hanacloud", "user": "DBADMIN", "password": "x", "demo_mode": True},
         table=TABLE_ORDERS,
     )
     assert result["sample_table"] == TABLE_ORDERS
@@ -50,12 +50,12 @@ def test_preview_rejects_unknown_or_unsafe_table(monkeypatch):
     )
     with pytest.raises(ValueError, match="not in the preview catalog"):
         hana_service.preview_catalog(
-            {"host": "example.hanacloud", "user": "DBADMIN", "password": "x"},
+            {"host": "example.hanacloud", "user": "DBADMIN", "password": "x", "demo_mode": True},
             table="not_a_table",
         )
     with pytest.raises(ValueError, match="not in the preview catalog"):
         hana_service.preview_catalog(
-            {"host": "example.hanacloud", "user": "DBADMIN", "password": "x"},
+            {"host": "example.hanacloud", "user": "DBADMIN", "password": "x", "demo_mode": True},
             table='ORDERS"; DROP TABLE X;--',
         )
 

@@ -1,0 +1,81 @@
+{
+  "source_revision": "bd72404472bfd57c01cc2e4a9747ff5e3049814f",
+  "base": "python:3.12-slim@sha256:ec948fa5f90f4f8907e89f4800cfd2d2e91e391a4bce4a6afa77ba265bc3a2fe",
+  "tested_code_revision": "bd72404472bfd57c01cc2e4a9747ff5e3049814f",
+  "full_backend_suite_marker": "/workspace/dataops-completion-2026-10-13/backend-final-isolated.coordinator.finished.json",
+  "full_backend_suite_result": {
+    "exit_code": 0,
+    "collected": 9009,
+    "failed": 0
+  },
+  "only_documentation_changes_after_tested_code": true,
+  "docker_endpoint": "unix:///var/run/docker.sock",
+  "cgroup_limit_proof": true,
+  "network": "none",
+  "cpu_limit": 2,
+  "memory_limit_bytes": 4294967296,
+  "timeout_s": 900,
+  "workspace_mount": "read-only",
+  "container_user": "1000:1000",
+  "execution_environment": "Pinned Python carrier container, with the qualified workspace venv and Python runtime mounted read-only.",
+  "built_worker_image_benchmarked": false,
+  "pytest_tmp_directory": "/workspace/dataops-completion-2026-10-13/scoring-3m-tmp",
+  "pytest_cache_provider": "disabled",
+  "disk_reserve_bytes": 4294967296,
+  "disk_free_initial_bytes": 17328545792,
+  "status": "passed",
+  "data": {
+    "rows": 3000000,
+    "extra_columns": 28,
+    "varied_inputs": true,
+    "synthetic_input": true
+  },
+  "before": {
+    "memory.max": "4294967296",
+    "memory.peak": "6758400",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+    "memory.swap.max": "0",
+    "cpu.max": "200000 100000",
+    "cpu.stat": "usage_usec 85651\nuser_usec 59988\nsystem_usec 25662\nnice_usec 0\nnr_periods 2\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0"
+  },
+  "runtime_versions": {
+    "python_version": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+    "executable": "/workspace/agentium/.venv/bin/python",
+    "packages": {
+      "sqlglot": "30.22.0",
+      "deltalake": "1.6.6",
+      "arro3-core": "0.9.1",
+      "duckdb": "1.5.5",
+      "polars": "1.44.1",
+      "pyarrow": "25.0.1",
+      "numpy": "2.5.2",
+      "scipy": "1.18.1",
+      "pandas": "2.3.3",
+      "scikit-learn": "1.9.0",
+      "skops": "0.16.0"
+    }
+  },
+  "elapsed_seconds": 353.47978067099757,
+  "latest_cgroup": {
+    "memory.max": "4294967296",
+    "memory.peak": "4294967296",
+    "memory.events": "low 0\nhigh 0\nmax 2018\noom 0\noom_kill 0\noom_group_kill 0",
+    "memory.swap.max": "0",
+    "cpu.max": "200000 100000",
+    "cpu.stat": "usage_usec 372510299\nuser_usec 308838710\nsystem_usec 63671588\nnice_usec 0\nnr_periods 3415\nnr_throttled 60\nthrottled_usec 1543977\nnr_bursts 0\nburst_usec 0"
+  },
+  "exit_code": 0,
+  "after": {
+    "memory.max": "4294967296",
+    "memory.peak": "4294967296",
+    "memory.events": "low 0\nhigh 0\nmax 2018\noom 0\noom_kill 0\noom_group_kill 0",
+    "memory.swap.max": "0",
+    "cpu.max": "200000 100000",
+    "cpu.stat": "usage_usec 378907898\nuser_usec 314510537\nsystem_usec 64397361\nnice_usec 0\nnr_periods 3485\nnr_throttled 60\nthrottled_usec 1543977\nnr_bursts 0\nburst_usec 0"
+  },
+  "source_revision_after": "bd72404472bfd57c01cc2e4a9747ff5e3049814f",
+  "working_tree_clean_after": true,
+  "container_oom_killed": false,
+  "container_removed": true,
+  "disk_free_final_bytes": 14728208384
+}

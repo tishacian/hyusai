@@ -161,6 +161,8 @@ export interface DatasetLineageModel {
 
 /** How a produced dataset came to exist, as the detail page tells it. */
 export interface DatasetLineage {
+  operation?: string; placement?: string; spec_version?: number;
+  prep?: {spec?: {params?: {steps?:Array<{kind?:string;action?:string;enabled?:boolean}>}};operation?: string; spec_version?: number; placement?: string; fingerprint?: string; input_versions?: unknown};
   labeling?: {
     label_column: string; labels: string[]; text_columns: string[];
     review_status: 'unreviewed' | 'reviewed';

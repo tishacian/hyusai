@@ -1,0 +1,258 @@
+{
+  "classification": "Fresh rebuild of historical source compared with verified qualified OCI images, not an observed deployment.",
+  "historical_revision": "ad10dbc2b6cb464c8e7c6b19af8ffc46a3b3fb3b",
+  "qualified_revision": "bd72404472bfd57c01cc2e4a9747ff5e3049814f",
+  "source_inputs_and_generated_dockerfiles_compared": true,
+  "files": {
+    "backend-comparison.json": {
+      "bytes": 210166,
+      "sha256": "af20aec3dee0e63f2383fc859f971b551320dd6ea1fe4f59389fa3dbf1b874bd"
+    },
+    "backend.build.json": {
+      "bytes": 2231,
+      "sha256": "d50b90777e386e354a73ac633fdd61a49bdef6f17f8547c49ef357a21423ea45"
+    },
+    "backend.measurement.json": {
+      "bytes": 10384,
+      "sha256": "38320abc5a29b94c1790dae5195226a85d61d585a8b969cba485dd8af8a64935"
+    },
+    "builder-environment.json": {
+      "bytes": 2041,
+      "sha256": "0c91b9ac3c4041f909808f80cc8ed714259cf41b1a6f3ea2af8b4728e3c13069"
+    },
+    "builder-metrics.jsonl": {
+      "bytes": 1900,
+      "sha256": "42f31c898aadf98abfbc9a0807266edb62755ac65c3fa56295aa3bea1d896a26"
+    },
+    "docker-inspect-comparison-method.json": {
+      "bytes": 4211,
+      "sha256": "70f9a38da7645d69ca3b4a7f8e2d5cbf126c3ac8e1aefe09e700e889ed5084ea"
+    },
+    "final-state.json": {
+      "bytes": 626,
+      "sha256": "b047f58f47d67b4c7f730f8502225676a1315ea90bc3cd4f5f5ed106fbc9f8ce"
+    },
+    "historical.attribution.json": {
+      "bytes": 429836,
+      "sha256": "ef9985913bb914cfed6c25e66747c8fe17125c307aa79a71069421482de25f83"
+    },
+    "logs/backend.log.gz": {
+      "bytes": 31877,
+      "sha256": "8acfd61eec14fd8e3287d9de6dbb5efd221e15ceba09c0df002132f5803307da"
+    },
+    "logs/builder-bootstrap.log.gz": {
+      "bytes": 137464,
+      "sha256": "0043cb0e844c5beb3a9df7ba0697b822f9387b6156c175362e0ddfa73016d6c1"
+    },
+    "logs/compare_oci.log.gz": {
+      "bytes": 605,
+      "sha256": "1cf15223beaeaef0ec0127aaa5cab6a5ea652e99aca2d2704ba85f9dbf194dbc"
+    },
+    "method-reference/moby-v28.4.0-containerd-image-inspect.go": {
+      "bytes": 5897,
+      "sha256": "0d4846399cdb559e00820a58c5569a1a6968daa1342f2cc429823ff14055ad17"
+    },
+    "oci-metadata/historical/backend.config.json": {
+      "bytes": 14267,
+      "sha256": "17338223a85dcd1c6d39e40edbfe4678337b4dac81e5693a0b9953c6f75db1c5"
+    },
+    "oci-metadata/historical/backend.index.json": {
+      "bytes": 496,
+      "sha256": "78185b42afea68c5407e9ba2933e12b13d34ccfe20179d78d558636eee642056"
+    },
+    "oci-metadata/historical/backend.manifest.json": {
+      "bytes": 3721,
+      "sha256": "8d5e7153c217bd42757c31dbbf51ec9608c9f2e272e9d203d17367d8c0b7cd89"
+    },
+    "oci-metadata/qualified/backend.config.json": {
+      "bytes": 14277,
+      "sha256": "611aa293f814899c501a3a2ba49f551bee2507c69faf671e76cb15dfe2f57193"
+    },
+    "oci-metadata/qualified/backend.index.json": {
+      "bytes": 496,
+      "sha256": "67a6798a3b24b7e06e00791b47ce9e0013e1e9ef80380c64f1c0cee8a69c454e"
+    },
+    "oci-metadata/qualified/backend.manifest.json": {
+      "bytes": 3721,
+      "sha256": "e7a4e8678eaca3b695f1de087660ed50620632db2fe01cf4347003bc82f43a82"
+    },
+    "oci-metadata/qualified/worker.config.json": {
+      "bytes": 16660,
+      "sha256": "1831240ee044017c8fc9f30671d2a0a0ec8e5d1431c11510bc6572a2274d5fc6"
+    },
+    "oci-metadata/qualified/worker.index.json": {
+      "bytes": 495,
+      "sha256": "44ea1e799539f3f6a3827ab0b67ba3d1198eab90ad55cbf1b8a7c6a91a7e848e"
+    },
+    "oci-metadata/qualified/worker.manifest.json": {
+      "bytes": 4489,
+      "sha256": "b237b23bcc0e49befbd8ef520f581373ebce83585f1c7299e3f6380bb2235537"
+    },
+    "packed-descriptor-sizes.json": {
+      "bytes": 2237,
+      "sha256": "7bf24a1f314b1e6b6799e8f3ae051d3d6ab472b60b915bdf7d0f8df0c3331740"
+    },
+    "qualification-dockerfiles/Dockerfile.backend": {
+      "bytes": 5006,
+      "sha256": "acd62e4e806a27c2c515f0c14235950afdd08dd2227bc8121186f98c8d2898d1"
+    },
+    "qualification-dockerfiles/Dockerfile.backend.dockerignore": {
+      "bytes": 1871,
+      "sha256": "abcd298a421b3b183bc758c6574878c16e7464a16a286f2e7bb7bb65d9d7743f"
+    },
+    "qualified-backend.measurement.json": {
+      "bytes": 10366,
+      "sha256": "acb86b166c29c4248d9dc572da1c3902bf1551740d155c333d77a17683b281cd"
+    },
+    "qualified-worker.measurement.json": {
+      "bytes": 12273,
+      "sha256": "2b154660c5743e6d106aaf4097ff0856a071ea647d3a4fdec20c77c238683e02"
+    },
+    "qualified.attribution.json": {
+      "bytes": 561091,
+      "sha256": "8950e48202d58f07c392caf6bd87237708e37956240c635cc33a959b7c566cc7"
+    },
+    "scoring-fixtures-cleanup.json": {
+      "bytes": 475,
+      "sha256": "b62f59cd6d44ca55063e22c0ad900be39a784f5578d3ac1b159ee0d9d02a336d"
+    },
+    "source-comparison.json": {
+      "bytes": 4719,
+      "sha256": "efd4f3e1d397f81478bb46be77eb424f4053613f863603b3ddf0100c72ea95a2"
+    },
+    "source-inputs/historical/.dockerignore": {
+      "bytes": 1280,
+      "sha256": "7fd58fed0a1b765e11e79b2cc3bec7df5a7caf4deacaba019e33173b6ca05877"
+    },
+    "source-inputs/historical/backend/constraints-demo-app.txt": {
+      "bytes": 4343,
+      "sha256": "0a3af429ec603ecc373648871ca4bd2eb3b8d0392de7ff655d28a96e2edf04a1"
+    },
+    "source-inputs/historical/backend/constraints-demo-ml-deep.txt": {
+      "bytes": 306,
+      "sha256": "6b8dc522c77a92ff0240bac36fca27103bf03d6610b8ca24e289b46eacf90738"
+    },
+    "source-inputs/historical/backend/rag_models.lock.json": {
+      "bytes": 1276,
+      "sha256": "40d73994cb9d8022d9fe6a9ba3e086cc1789e350c3759e402385bb0c2ec33e81"
+    },
+    "source-inputs/historical/backend/requirements.txt": {
+      "bytes": 4534,
+      "sha256": "5ffbd298b4a83c8b8d34ad82253b415f9d978ac6712c4528d63ba83165214c97"
+    },
+    "source-inputs/historical/backend/requirements_hf_rag.txt": {
+      "bytes": 288,
+      "sha256": "320b2c516fc11fc21ac75a8fcfe3a0baa67b0f11f0b0f9f56c7387e65da0e740"
+    },
+    "source-inputs/historical/backend/scripts/fetch_rag_models.py": {
+      "bytes": 3125,
+      "sha256": "989b1578a438d57f12c55f98f009a2dce0eed03097240ec73abbbf1ba4f70439"
+    },
+    "source-inputs/historical/docker/Dockerfile.agentium-backend": {
+      "bytes": 3710,
+      "sha256": "361c170a15812e52fb86e5ea3cc27131d7651898e0af20497e689077f82b3a53"
+    },
+    "source-inputs/historical/docker/Dockerfile.agentium-backend.dockerignore": {
+      "bytes": 1871,
+      "sha256": "abcd298a421b3b183bc758c6574878c16e7464a16a286f2e7bb7bb65d9d7743f"
+    },
+    "source-inputs/historical/scripts/agentium-image-budget.sh": {
+      "bytes": 3020,
+      "sha256": "1abd2f02b780fff2190099833bffc7a631c34aad2b397018112a2b9e25aa1366"
+    },
+    "source-inputs/historical/scripts/agentium-vm-build.sh": {
+      "bytes": 4149,
+      "sha256": "1d8784d93d09c296ef13938dbdf7363cc0381add8ea0150de550da7ac814e345"
+    },
+    "source-inputs/qualified/.dockerignore": {
+      "bytes": 1415,
+      "sha256": "7227cb739b3bb70ce27a01e3ccf2f9f7a95c42330978827660e7266b4fabb639"
+    },
+    "source-inputs/qualified/backend/constraints-demo-app.txt": {
+      "bytes": 4414,
+      "sha256": "b7fedf85251daa2bfb897642c57f2b35fc43a2c7fad9a6b2d488d948921a015b"
+    },
+    "source-inputs/qualified/backend/constraints-demo-ml-deep.txt": {
+      "bytes": 306,
+      "sha256": "6b8dc522c77a92ff0240bac36fca27103bf03d6610b8ca24e289b46eacf90738"
+    },
+    "source-inputs/qualified/backend/rag_models.lock.json": {
+      "bytes": 1276,
+      "sha256": "40d73994cb9d8022d9fe6a9ba3e086cc1789e350c3759e402385bb0c2ec33e81"
+    },
+    "source-inputs/qualified/backend/requirements.txt": {
+      "bytes": 4646,
+      "sha256": "7e731ff416269ecdd2800ae47afcecfe74836649652e95de9c2c16bd94feab51"
+    },
+    "source-inputs/qualified/backend/requirements_hf_rag.txt": {
+      "bytes": 288,
+      "sha256": "320b2c516fc11fc21ac75a8fcfe3a0baa67b0f11f0b0f9f56c7387e65da0e740"
+    },
+    "source-inputs/qualified/backend/scripts/fetch_rag_models.py": {
+      "bytes": 3125,
+      "sha256": "989b1578a438d57f12c55f98f009a2dce0eed03097240ec73abbbf1ba4f70439"
+    },
+    "source-inputs/qualified/docker/Dockerfile.agentium-backend": {
+      "bytes": 3710,
+      "sha256": "361c170a15812e52fb86e5ea3cc27131d7651898e0af20497e689077f82b3a53"
+    },
+    "source-inputs/qualified/docker/Dockerfile.agentium-backend.dockerignore": {
+      "bytes": 2006,
+      "sha256": "169349753922f5a735f1a1a9a1cc6f9db03a0887c6792f7394bc84309b861d33"
+    },
+    "source-inputs/qualified/scripts/agentium-image-budget.sh": {
+      "bytes": 3020,
+      "sha256": "1abd2f02b780fff2190099833bffc7a631c34aad2b397018112a2b9e25aa1366"
+    },
+    "source-inputs/qualified/scripts/agentium-vm-build.sh": {
+      "bytes": 4149,
+      "sha256": "1d8784d93d09c296ef13938dbdf7363cc0381add8ea0150de550da7ac814e345"
+    },
+    "source-inputs.diff": {
+      "bytes": 1582,
+      "sha256": "45d9533b69ce562b7f07ccf9d6156b150681f3eacd584c8127261e0f3bebc00c"
+    },
+    "tools/build.py": {
+      "bytes": 9167,
+      "sha256": "a2bdbdd8f52dd981ccda58087da89a3f06bb5ecced1a38b83c5c53d3e8a48064"
+    },
+    "tools/capture_builder.py": {
+      "bytes": 1790,
+      "sha256": "e3ba0bcf0d5a181b08858dcdca4acddea4fa83f679e63fbe81d483298ae187ee"
+    },
+    "tools/compare_oci.py": {
+      "bytes": 6020,
+      "sha256": "442a859c8aa4c71221106ca7c7161484cea5b0112b2f6c49c72f535261431dcf"
+    },
+    "tools/make_baseline_bundle.py": {
+      "bytes": 4923,
+      "sha256": "a6c6c5e471eabc244473234111e927c72928f82217ffcb040d320d0fa157bf90"
+    },
+    "tools/measure_oci.py": {
+      "bytes": 11171,
+      "sha256": "841c8d24824af28111944ab8d8a7c64a7bb5ce4238c6c0404cbc27fed7ee1d62"
+    },
+    "tools/prepare_build.py": {
+      "bytes": 1412,
+      "sha256": "4c2f250b5dd87ca0d4e98b90d5b2ed7cb15c1a171b4a931d1b366d2f6580b5af"
+    }
+  },
+  "excludes": [
+    "OCI archives/layer binaries",
+    "Credentials/CA bundles",
+    "Terraform state",
+    "Whole checkout"
+  ],
+  "reproduction": [
+    "Use source at the recorded historical revision in a clean checkout, the exact pinned base and build options from backend.build.json.",
+    "Dedicated BuildKit fuse-overlayfs at4GiB/no-swap/2CPU, unchanged4GiB disk reserve, session proxy and CA via secret mounts.",
+    "External build.py retains the original Dockerfile; its baseline report explicitly does not claim a historical test suite or deployment.",
+    "measure_oci.py streams and verifies compressed hashes/diff_ids, separates archive/tar/payload sizes. compare_oci.py attributes actual dependencies, OS versions and copied files.",
+    "Use docker-inspect-comparison-method.json for store-specific actual-inspect comparison; no VM store was observed by this task."
+  ],
+  "limits": [
+    "All budgets remain unchanged. Graphdriver and containerd size accounting differ; VM identity/store is needed for an operational budget verdict.",
+    "Base digest is exact but apt repository versions drifted in two libcurl packages, as recorded.",
+    "A large historical rebuild is not evidence that the deployed historical image was large, or that OCI measurement is wrong."
+  ]
+}

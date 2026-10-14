@@ -35,8 +35,8 @@ def _number(value):
     return number if math.isfinite(number) else None
 
 
-def read_frame(path: str, features: list[str], *, min_rows: int, clusters: int):
-    """Enforce bounds against the actual file, not only its registry profile."""
+def read_frame(path: str | list[str], features: list[str], *, min_rows: int, clusters: int):
+    """Enforce bounds across all physical parts before loading feature values."""
     import numpy as np
     import pandas as pd
     import pyarrow.parquet as pq
@@ -48,7 +48,8 @@ def read_frame(path: str, features: list[str], *, min_rows: int, clusters: int):
         or len(set(features)) != len(features)
     ):
         raise ValueError("clustering requires explicit, unique numeric features")
-    rows = pq.ParquetFile(path).metadata.num_rows
+    paths = path if isinstance(path, list) else [path]
+    rows = sum(pq.read_metadata(part).num_rows for part in paths)
     if not max(min_rows, 2 * clusters) <= rows <= MAX_ROWS:
         raise ValueError(
             f"clustering row count must be in [{max(min_rows, 2 * clusters)}, {MAX_ROWS}]"
@@ -350,7 +351,7 @@ def main(argv=None) -> int:
 
         progress("reading")
         frame = read_frame(
-            manifest["data_path"],
+            (manifest.get("data_paths") or manifest["data_path"]),
             manifest["features"],
             min_rows=int(manifest.get("min_rows", 40)),
             clusters=clusters,

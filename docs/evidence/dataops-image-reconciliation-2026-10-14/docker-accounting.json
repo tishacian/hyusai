@@ -1,0 +1,16 @@
+{
+  "scope": "Docker source semantics, not evidence of VM driver/version",
+  "source_url": "https://raw.githubusercontent.com/moby/moby/v28.4.0/daemon/containerd/image_inspect.go",
+  "source_sha256": "0d4846399cdb559e00820a58c5569a1a6968daa1342f2cc429823ff14055ad17",
+  "facts": [
+    {
+      "lines": "51-55,99",
+      "fact": "ImageInspect uses i.size for Size"
+    },
+    {
+      "lines": "180-205",
+      "fact": "size walks content descriptors and sums descriptor Size; comment calls them packed resources"
+    }
+  ],
+  "implication": "A graphdriver payload sum and containerd ImageInspect.Size are different metrics. Record VM Docker driver/status before comparing historical and candidate values. OCI tar archive length is not the exact descriptor sum."
+}

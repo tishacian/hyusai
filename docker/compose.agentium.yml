@@ -33,6 +33,8 @@ services:
     volumes:
       - agentium_rabbitmq:/var/lib/rabbitmq
     environment:
+      # Keep acks_late tasks (including the 1830 s subflow resume) alive.
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit consumer_timeout 3600000"
       RABBITMQ_DEFAULT_USER: ${AGENTIUM_RABBITMQ_USER:-guest}
       RABBITMQ_DEFAULT_PASS: ${AGENTIUM_RABBITMQ_PASSWORD:-guest}
     healthcheck:
@@ -264,6 +266,20 @@ services:
     environment:
       CELERY_QUEUES: recipes
       CELERY_CONCURRENCY: ${AGENTIUM_RECIPE_CONCURRENCY:-2}
+      CELERY_BEAT: "0"
+
+  # Data transforms (SQL, Polars, dbt) are awaited by Flows too, and they are
+  # the work that grows with the data: their own pool keeps a large join from
+  # holding the slots of the walkers that wait on it.
+  agentium-worker-dataops:
+    extends:
+      service: agentium-worker-cpu
+    container_name: agentium-worker-dataops
+    mem_limit: ${AGENTIUM_DATAOPS_MEMORY:-4g}
+    cpus: ${AGENTIUM_DATAOPS_CPUS:-2}
+    environment:
+      CELERY_QUEUES: dataops
+      CELERY_CONCURRENCY: ${AGENTIUM_DATAOPS_CONCURRENCY:-1}
       CELERY_BEAT: "0"
 
   # The forecasting runtime (skforecast), in its own image so neither the API

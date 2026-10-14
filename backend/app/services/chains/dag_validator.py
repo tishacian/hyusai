@@ -870,6 +870,15 @@ def validate_flow(flow: Mapping[str, Any]) -> list[ValidationIssue]:
             )
         )
 
+    from app.services.dataops.flow import data_prep_issues
+
+    for node_id, reason in data_prep_issues(flow):
+        issues.append(
+            ValidationIssue(
+                level="error", code="data_prep_invalid", message=reason, node_id=node_id
+            )
+        )
+
     raw_io_mode = flow.get("io_mode")
     strict = raw_io_mode == "strict"
     try:

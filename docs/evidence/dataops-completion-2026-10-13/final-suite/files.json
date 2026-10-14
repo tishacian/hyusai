@@ -1,0 +1,78 @@
+{
+  "files": {
+    "backend-final-isolated.log": {
+      "file": "backend-final-isolated.log.gz",
+      "original_sha256": "edf3d7915ab076029a0d25be1f919a4a1bc0a6f696002ceb7eb54db001ee6e3d",
+      "original_bytes": 475187,
+      "sha256": "9e8e3ae87a953f291a0607f88d5267fc6ec5ae0308a398808a11dc652c582345",
+      "bytes": 46075,
+      "encoding": "gzip"
+    },
+    "backend-final-isolated.coordinator.jsonl": {
+      "file": "backend-final-isolated.coordinator.jsonl.gz",
+      "original_sha256": "9692b013b7c39e88fa5a7e27d7047917daa6d01a132a785497d796acbf9b7f81",
+      "original_bytes": 1793737,
+      "sha256": "5e3a045f415ea7e7e3d29e103b6bcc9851111900f80aa191c3a6d248cbbdd6ae",
+      "bytes": 293746,
+      "encoding": "gzip"
+    },
+    "backend-final-isolated.coordinator.finished.json": {
+      "file": "backend-final-isolated.coordinator.finished.json",
+      "original_sha256": "2513cf917bab1864ef5eff91b828a6d9f23c3fa37adf89a71343132460f5547b",
+      "original_bytes": 49,
+      "sha256": "2513cf917bab1864ef5eff91b828a6d9f23c3fa37adf89a71343132460f5547b",
+      "bytes": 49,
+      "encoding": "identity"
+    },
+    "compliance-isolated.log": {
+      "file": "compliance-isolated.log",
+      "original_sha256": "8b9f0352050cb74dd52847480f4586a9c60f9371ad890b08fc04d9edcdc7f3cc",
+      "original_bytes": 94,
+      "sha256": "8b9f0352050cb74dd52847480f4586a9c60f9371ad890b08fc04d9edcdc7f3cc",
+      "bytes": 94,
+      "encoding": "identity"
+    },
+    "dependencies-isolated.log": {
+      "file": "dependencies-isolated.log",
+      "original_sha256": "3191def42162b93c616a03986a46536415e153ef73da738ac46636f7098c0c40",
+      "original_bytes": 67,
+      "sha256": "3191def42162b93c616a03986a46536415e153ef73da738ac46636f7098c0c40",
+      "bytes": 67,
+      "encoding": "identity"
+    },
+    "k8s-final.log": {
+      "file": "k8s-final.log",
+      "original_sha256": "ddc742a97fc6e00803635b551c6e7b26a862615dfa26d44c982eea05a6e63907",
+      "original_bytes": 2379,
+      "sha256": "ddc742a97fc6e00803635b551c6e7b26a862615dfa26d44c982eea05a6e63907",
+      "bytes": 2379,
+      "encoding": "identity"
+    },
+    "qualification_reporter.py": {
+      "file": "qualification_reporter.py",
+      "original_sha256": "6b69cc1a9dc1dc30f1acd3e9aea461897bd7a29b8048456f41e9157f4dc2f662",
+      "original_bytes": 1363,
+      "sha256": "6b69cc1a9dc1dc30f1acd3e9aea461897bd7a29b8048456f41e9157f4dc2f662",
+      "bytes": 1363,
+      "encoding": "identity"
+    },
+    "gather_final_validation.py": {
+      "file": "gather_final_validation.py",
+      "original_sha256": "75940346ca3ab47cfdca51daa6639482d372039f0eedbf6ec294d622228834d5",
+      "original_bytes": 5723,
+      "sha256": "75940346ca3ab47cfdca51daa6639482d372039f0eedbf6ec294d622228834d5",
+      "bytes": 5723,
+      "encoding": "identity"
+    }
+  },
+  "credential_pattern_audit": {
+    "unexplained_matches": 0,
+    "reviewed_fixture_url_matches": 3,
+    "fixture_sources": [
+      "backend/app/tests/services/test_narration.py",
+      "backend/app/tests/scripts/test_audit_qdrant_write_barrier.py",
+      "backend/app/tests/services/test_huggingface_acquisition.py"
+    ],
+    "note": "Three credential-shaped URLs are literal negative-test parameters in source; retained verbatim in coordinator results. This narrow pattern scan is not a general secret-detection guarantee."
+  }
+}

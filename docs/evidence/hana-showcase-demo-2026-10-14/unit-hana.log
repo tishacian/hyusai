@@ -1,0 +1,22 @@
+
+> agentium@0.1.0 test:unit
+> node scripts/run-unit.mjs
+
+✔ load then save preserves explicit demo fallback and strict TLS without resending a masked password (5.333118ms)
+✔ load then save retains an existing TLS exception, including encrypt=true (0.585134ms)
+✔ load then save retains an existing TLS exception, including encrypt=false (0.438837ms)
+✔ legacy configurations reset earlier form flags to strict TLS and demo off (0.472749ms)
+✔ an explicit choice to disable demo fallback is serialized as false (0.341324ms)
+✔ a replacement password is sent only on save, then cleared and omitted on the next save (0.293515ms)
+✔ testing the saved connection sends no unsaved form fields or password (0.357759ms)
+✔ a demo preview never turns a failed live connection test into success (0.447909ms)
+✔ a test response must explicitly confirm a live connection: {} (0.435922ms)
+✔ a test response must explicitly confirm a live connection: {"ok":true,"source":"demo_dataset"} (0.550027ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1455.533065

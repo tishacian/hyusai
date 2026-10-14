@@ -18,7 +18,9 @@ def test_role_policies_preserve_writer_boundary_and_versioned_deletion():
         for row in application
     )
     assert any(
-        row["Effect"] == "Deny" and "s3:DeleteObjectVersion" in row["Action"] for row in application
+        row["Effect"] == "Deny"
+        and {"s3:DeleteObject", "s3:DeleteObjectVersion"} <= set(row["Action"])
+        for row in application
     )
     reader_actions = {
         action for row in policies["hub-read"]["Statement"] for action in row["Action"]
@@ -37,9 +39,20 @@ def test_role_policies_preserve_writer_boundary_and_versioned_deletion():
         for row in writer
     )
     purge = policies["tabular-purge"]["Statement"]
-    assert all(
-        "/workspaces/*/tabular/hub-artifacts/*" in resource
+    allowed_prefixes = {
+        "workspaces/*/tabular/hub-artifacts/*",
+        "workspaces/*/tabular/datasets/*",
+    }
+    assert {
+        resource
         for row in purge
-        if "s3:DeleteObjectVersion" in row["Action"]
+        if {"s3:DeleteObject", "s3:DeleteObjectVersion"} & set(row["Action"])
         for resource in row["Resource"]
-    )
+    } == {f"arn:aws:s3:::agentium-artifacts/{prefix}" for prefix in allowed_prefixes}
+    assert {
+        prefix
+        for row in purge
+        if {"s3:ListBucket", "s3:ListBucketVersions"} & set(row["Action"])
+        for prefix in row["Condition"]["StringLike"]["s3:prefix"]
+    } == allowed_prefixes
+    assert all("s3:PutObject" not in row["Action"] for row in purge)

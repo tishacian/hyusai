@@ -28,6 +28,8 @@
 
 /** The badge block the backend merges into a `node_end` checkpoint. */
 export interface NodeRunData {
+  outputs?: Record<string, string | {dataset_id: string; rows?: number}>;
+  inputs?: Record<string, {rows?: number}>;
   rows_in?: number;
   rows_out?: number;
   metric?: { key: string; value: number };
@@ -80,6 +82,19 @@ function finiteNumber(value: unknown): number | null {
 export function readNodeRunData(value: unknown): NodeRunData | undefined {
   if (!isRecord(value)) return undefined;
   const data: NodeRunData = {};
+  if (isRecord(value['outputs'])) {
+    data.outputs = {};
+    for (const [port, ref] of Object.entries(value['outputs'])) {
+      if (typeof ref === 'string' && ref) data.outputs[port] = ref;
+      else if (isRecord(ref) && typeof ref['dataset_id'] === 'string' && ref['dataset_id']) {
+        data.outputs[port] = {dataset_id: ref['dataset_id'], ...(typeof ref['rows'] === 'number' && Number.isFinite(ref['rows']) ? {rows: ref['rows']} : {})};
+      }
+    }
+  }
+  if (isRecord(value['inputs'])) {
+    data.inputs = {};
+    for (const [port, ref] of Object.entries(value['inputs'])) if (isRecord(ref) && typeof ref['rows'] === 'number' && Number.isFinite(ref['rows'])) data.inputs[port] = {rows: ref['rows']};
+  }
   const rowsIn = finiteNumber(value['rows_in']);
   if (rowsIn !== null) data.rows_in = rowsIn;
   const rowsOut = finiteNumber(value['rows_out']);

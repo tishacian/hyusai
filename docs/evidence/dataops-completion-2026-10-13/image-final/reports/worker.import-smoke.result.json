@@ -1,0 +1,58 @@
+{
+  "app_main_imported": true,
+  "blocked_python_network_attempt_count": 0,
+  "broker": "memory-only",
+  "database": "temporary local SQLite",
+  "dependencies": {
+    "arro3-core": "0.9.1",
+    "deltalake": "1.6.6",
+    "sqlglot": "30.22.0"
+  },
+  "isolated_preview": {
+    "compiler": "app.services.dataops.compiler.compile_prep",
+    "configured_child_address_space_bytes": 1073741824,
+    "configured_duckdb_memory_mb": 512,
+    "configured_native_reserve_mb": 512,
+    "configured_timeout_seconds": 5.0,
+    "different_ordinary_after": {
+      "cache_hit": false,
+      "rows": 2,
+      "seconds": 1.655,
+      "status": "passed"
+    },
+    "execution": "app.services.dataops.preview.preview",
+    "expansion": {
+      "code": "DATAPREP_PREVIEW_TIMEOUT",
+      "seconds": 5.062,
+      "status": "refused"
+    },
+    "fresh_child_launches_observed": 3,
+    "ordinary_before": {
+      "cache_hit": false,
+      "rows": 2,
+      "seconds": 2.221,
+      "status": "passed"
+    },
+    "seconds": 10.482,
+    "status": "passed"
+  },
+  "lifespan_started": false,
+  "limit": "Imports, native extension loading, and three bounded real sample previews only; no HTTP, worker task, external service, migration, or lifespan qualification.",
+  "network": "BuildKit none; Python socket calls denied",
+  "python_version": "3.12.13 (main, May  8 2026, 20:07:16) [GCC 14.2.0]",
+  "routes": 8,
+  "runtime_package_versions": {
+    "fastapi": "0.141.1",
+    "numpy": "2.5.2",
+    "pandas": "2.3.3",
+    "pyarrow": "25.0.1",
+    "pydantic": "2.13.5",
+    "scikit-learn": "1.9.0",
+    "scipy": "1.18.1",
+    "skops": "0.16.0",
+    "torch": "2.14.0+cpu",
+    "torchvision": "0.29.0+cpu"
+  },
+  "seconds": 25.204,
+  "status": "passed"
+}

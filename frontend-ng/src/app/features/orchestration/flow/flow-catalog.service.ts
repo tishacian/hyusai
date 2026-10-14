@@ -24,7 +24,7 @@ import { Subscription } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Skill } from '@app/core/canonical-api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
-import { skillToPaletteItem, type PaletteItem } from './flow.types';
+import { skillToPaletteItems, type PaletteItem } from './flow.types';
 import type { PaletteCapabilitySource } from './flow-palette.vm';
 
 export type FlowCatalogState = 'loading' | 'loaded' | 'error';
@@ -61,7 +61,7 @@ const EMPTY_SUMMARY: FlowCatalogSummary = {
  * be regression-tested without HTTP or Angular lifecycle machinery. */
 export function projectSkillCatalog(skills: readonly Skill[]): PaletteItem[] {
   return skills
-    .map((skill) => skillToPaletteItem(skill))
+    .flatMap((skill) => skillToPaletteItems(skill))
     .sort(
       (a, b) =>
         a.label.localeCompare(b.label) ||

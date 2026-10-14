@@ -1,0 +1,139 @@
+# A release pins the digest it qualified (python:3.12-slim@sha256:…); the bare
+# tag moves under us, and the Python constraints do not freeze the OS layer.
+ARG PYTHON_BASE_IMAGE=python:3.12-slim
+FROM ${PYTHON_BASE_IMAGE}
+
+# Everything down to the "image-specific layers" marker is instruction-for-
+# instruction identical in Dockerfile.agentium-backend. BuildKit keys a layer on
+# its instruction and its parent, not on the file it came from, so the Python
+# stack — the multi-gigabyte part — is built once and stored once for both
+# images. test_demo_dependency_constraints pins the two prefixes together.
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+ARG PIP_INDEX_URL
+RUN : "${PIP_INDEX_URL:?PIP_INDEX_URL is required}"
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y \
+        fonts-dejavu \
+        libreoffice-writer \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+        tesseract-ocr-fra \
+    && rm -rf /var/lib/apt/lists/*
+
+# One constraints file for the API and the worker: a model is fitted here and
+# unpickled by the API, so both interpreters run the same numpy, scipy,
+# scikit-learn, skops and mlflow.
+COPY backend/requirements.txt backend/constraints-demo-app.txt /tmp/requirements/
+RUN pip install --no-cache-dir \
+    --constraint=/tmp/requirements/constraints-demo-app.txt \
+    --index-url=${PIP_INDEX_URL} \
+    -r /tmp/requirements/requirements.txt \
+    && pip check
+
+# Cross-encoder files for the RAG rerank stage (ONNX export + tokenizer), baked
+# from a manifest that pins each file by revision and sha256: no process
+# downloads a model at start-up, and an air-gapped host runs the bytes the
+# release qualified. ONNX Runtime scores them, so the API needs no torch.
+# RAG_MODELS_BASE_URL selects a mirror.
+ARG RAG_MODELS_BASE_URL=
+COPY backend/rag_models.lock.json backend/scripts/fetch_rag_models.py /tmp/rag-models/
+RUN python /tmp/rag-models/fetch_rag_models.py \
+        --manifest /tmp/rag-models/rag_models.lock.json --dest /opt/agentium-models
+
+# ---- image-specific layers ----
+
+# torch stays in the worker only, for two reasons the API does not have: the
+# Giskard venv below inherits it (RAGET's bert-score needs it, and a venv
+# resolving it from PyPI would pull the CUDA build), and the torch rerank
+# engine remains the fallback behind RAG_RERANKER_BACKEND=torch. The CPU-only
+# index avoids the multi-GB CUDA build.
+#
+# torchvision is the +cpu peer transformers assumes alongside torch: once
+# transformers is resident, skops' trusted-type scan walks into its lazily
+# imported image processors, and without torchvision no model artifact could
+# be deserialised in this process (batch scoring loads them here).
+RUN pip install --no-cache-dir torch torchvision \
+        --constraint=/tmp/requirements/constraints-demo-app.txt \
+        --index-url=https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir \
+        --constraint=/tmp/requirements/constraints-demo-app.txt \
+        --index-url=${PIP_INDEX_URL} \
+        "transformers>=4.41.0" \
+    && pip check
+
+# Use the same qualified embedding runtime as the optional API layer.
+ARG INSTALL_HF_RAG=0
+COPY backend/requirements_hf_rag.txt backend/constraints-demo-ml-deep.txt /tmp/requirements/
+RUN if [ "$INSTALL_HF_RAG" = "1" ]; then \
+      pip install --no-cache-dir \
+        --constraint=/tmp/requirements/constraints-demo-app.txt \
+        --constraint=/tmp/requirements/constraints-demo-ml-deep.txt \
+        --index-url=${PIP_INDEX_URL} -r /tmp/requirements/requirements_hf_rag.txt \
+      && pip check; \
+    fi
+
+# build-essential: recipe venvs are built here at run time from author
+# requirements, some of which only ship sdists.
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y \
+        build-essential \
+        libreoffice-calc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Giskard RAGET pins an older numpy and scipy than the stack above. It gets its
+# own venv instead of the worker's interpreter: RAGET already runs in a
+# disposable subprocess (giskard_adapter.generate_isolated), which starts on
+# /opt/agentium-giskard/bin/python, so the interpreter that fits and loads
+# models never sees those versions.
+#
+# --system-site-packages lets the venv reuse every package already installed
+# above at the same version — torch included, which must not be re-pulled as a
+# CUDA build — and install only what Giskard pins differently, which shadows
+# the system copy inside the venv alone. The final check proves Giskard did not
+# leak into the main interpreter.
+COPY backend/requirements_giskard.txt backend/constraints-demo-giskard.txt /tmp/requirements/
+ARG INSTALL_GISKARD_RAGET=false
+RUN if [ "$INSTALL_GISKARD_RAGET" = "true" ]; then \
+      python -m venv --system-site-packages /opt/agentium-giskard \
+      && /opt/agentium-giskard/bin/pip install --no-cache-dir --index-url=${PIP_INDEX_URL} \
+        --constraint=/tmp/requirements/constraints-demo-giskard.txt \
+        -r /tmp/requirements/requirements_giskard.txt \
+      && /opt/agentium-giskard/bin/pip check \
+      && ! python -c "import giskard" 2>/dev/null; \
+    fi
+
+ARG USERNAME=agentium
+ARG USER_UID=1000
+ARG USER_GID=1000
+RUN groupadd --gid "$USER_GID" "$USERNAME" \
+    && useradd --uid "$USER_UID" --gid "$USER_GID" --create-home "$USERNAME"
+
+WORKDIR /app
+
+COPY --chown=$USERNAME:$USERNAME . .
+
+# Qualify actual SDK objects offline, on the interpreter RAGET runs on; pip
+# metadata alone misses Arrow API drift.
+RUN if [ "$INSTALL_GISKARD_RAGET" = "true" ]; then \
+      /opt/agentium-giskard/bin/pip check \
+      && PYTHONPATH=/app/backend /opt/agentium-giskard/bin/python backend/scripts/qualify_giskard_raget.py; \
+    fi
+
+RUN chmod +x ./run_celery.sh \
+    && mkdir -p /data/object_store /data/recipe_envs /app/vector_store \
+    && chown -R "$USERNAME":"$USERNAME" /data /app/vector_store
+
+USER $USERNAME
+
+ENV PYTHONPATH=/app/backend:/app
+WORKDIR /app
+
+ARG AGENTIUM_IMAGE_REVISION=unknown
+ENV AGENTIUM_IMAGE_REVISION=${AGENTIUM_IMAGE_REVISION}
+LABEL org.opencontainers.image.revision="${AGENTIUM_IMAGE_REVISION}"
+
+CMD ["./run_celery.sh"]

@@ -154,6 +154,7 @@ export class CodeEditorComponent {
   readonly ariaLabel = input('');
   /** SQL only: the tables and columns completion should offer. */
   readonly sqlSchema = input<SqlCompletionSchema | null>(null);
+  readonly sqlFunctions = input<string[]>([]);
   readonly valueChange = output<string>();
   /** Mod-Enter: the "run this" gesture every query editor is expected to have. */
   readonly submit = output<void>();
@@ -334,7 +335,7 @@ export class CodeEditorComponent {
   private languageSignature(): string {
     const language = this.language();
     if (language !== 'sql') return language;
-    return `sql:${JSON.stringify(this.sqlSchema() ?? {})}`;
+    return `sql:${JSON.stringify(this.sqlSchema() ?? {})}:${JSON.stringify(this.sqlFunctions())}`;
   }
 
   /** The language extension for the current inputs, or `null` for plain text.
@@ -356,12 +357,19 @@ export class CodeEditorComponent {
         const schema = this.sqlSchema();
         // `lang-sql` takes the schema as configuration, so a schema change is
         // a language reconfigure; the compartment is what makes that cheap.
-        return sql({
+        const language = sql({
           dialect: PostgreSQL,
           upperCaseKeywords: true,
           schema: schema ?? {},
           defaultTable: schema && schema['input'] ? 'input' : undefined,
         });
+        if(!this.sqlFunctions().length) return language;
+        const { autocompletion } = await import('@codemirror/autocomplete');
+        const functions=this.sqlFunctions(), columns=schema?.['input']??[];
+        return [language,autocompletion({override:[context=>{
+          const word=context.matchBefore(/[\w]*/);if(!word||!word.text&&!context.explicit)return null;
+          return {from:word.from,options:[...functions.map(label=>({label,type:'function',apply:label+'('})),...columns.map(label=>({label,type:'property',apply:'"'+label.replaceAll('"','""')+'"'}))]};
+        }]})];
       }
       default:
         return null;

@@ -102,13 +102,19 @@ def policies(bucket: str) -> dict:
                     [""],
                     condition={
                         "StringLike": {
-                            "s3:prefix": ["workspaces/*/tabular/hub-artifacts/*"]
+                            "s3:prefix": [
+                                "workspaces/*/tabular/hub-artifacts/*",
+                                "workspaces/*/tabular/datasets/*",
+                            ]
                         }
                     },
                 ),
                 statement(
                     ["s3:GetObject", "s3:DeleteObject", "s3:DeleteObjectVersion"],
-                    ["/workspaces/*/tabular/hub-artifacts/*"],
+                    [
+                        "/workspaces/*/tabular/hub-artifacts/*",
+                        "/workspaces/*/tabular/datasets/*",
+                    ],
                 ),
             ],
         },

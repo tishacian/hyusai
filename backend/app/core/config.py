@@ -111,6 +111,37 @@ class Settings(BaseSettings):
     celery_task_default_queue: str = "cpu"
     # Recipes are awaited by Flow workers: they must have an independent consumer.
     celery_recipe_queue: str = "recipes"
+    # Data transforms (SQL, Polars, dbt) are awaited the same way, and they are
+    # the work that grows with the data: their own pool keeps a large join from
+    # holding the slots the walkers that wait on it need.
+    celery_dataops_queue: str = "dataops"
+    hana_writes_enabled: bool = False
+    hana_network_policy_mode: Literal["report", "enforce"] = "report"
+    hana_allowed_hosts: str = ""
+    hana_allowed_cidrs: str = ""
+    hana_allow_insecure_tls: bool = False
+    hana_insecure_tls_allowed_hosts: str = ""
+    dataops_enabled: bool = False
+    dataops_write_delta_enabled: bool = False
+    dataops_max_steps: int = Field(default=200, ge=1, le=200)
+    dataops_max_union_inputs: int = Field(default=16, ge=2, le=16)
+    dataops_max_pivot_values: int = Field(default=200, ge=1, le=200)
+    dataops_batch_rows: int = Field(default=65536, ge=1024, le=1048576)
+    dataops_part_max_mb: int = Field(default=128, ge=8, le=1024)
+    dataops_t0_max_timeout_s: int = Field(default=900, ge=30, le=7200)
+    dataops_max_input_mb: int = Field(default=20480, ge=16)
+    dataops_sample_rows: int = Field(default=10000, ge=100, le=100000)
+    dataops_preview_timeout_s: float = Field(default=5,ge=0.1,le=30)
+    dataops_preview_input_mb: int = Field(default=64,ge=1,le=256)
+    ml_score_streaming_enabled: bool = False
+    ml_score_streaming_max_rows: int = Field(default=3000000, ge=1)
+    service_contracts_enabled: bool = False
+    narration_enabled: bool = False
+    narration_endpoint: str = ""
+    narration_allowed_hosts: str = ""
+    narration_max_pages: int = Field(default=500, ge=1, le=10000)
+    narration_max_images: int = Field(default=500, ge=1, le=20000)
+    narration_timeout_s: int = Field(default=900, ge=10, le=7200)
     # Training queue of the tabular model family. Empty => the default queue,
     # where the general worker already trains it. Other families name their own
     # queue setting (app.services.ml.families), consumed by their own image.
@@ -628,6 +659,24 @@ class Settings(BaseSettings):
     # size and a result past this row count is truncated rather than persisted.
     tabular_sql_max_chars: int = Field(default=40_000, ge=100)
     tabular_transform_max_rows: int = Field(default=5_000_000, ge=1)
+    # The duckdb budget of a SQL transform run on the worker plane. It used to be
+    # hard-coded at two threads and 1 GiB with nowhere to spill, so a sort or a
+    # join larger than memory failed instead of slowing down. Past
+    # ``memory_mb`` the engine now spills to the run's scratch directory, up to
+    # ``spill_max_mb``; the runner's address-space ceiling sits above both
+    # because duckdb reserves more virtual memory than it commits.
+    dataops_duckdb_memory_mb: int = Field(default=1024, ge=64)
+    dataops_duckdb_threads: int = Field(default=2, ge=1, le=64)
+    dataops_spill_max_mb: int = Field(default=4096, ge=0)
+    dataops_runner_memory_limit_mb: int = Field(default=4096, ge=512)
+    # Largest Parquet a run may write; also the per-file ceiling (RLIMIT_FSIZE)
+    # for the result and the spill files.
+    dataops_max_output_mb: int = Field(default=4096, ge=16)
+    dataops_sql_timeout_s: float = Field(default=300.0, ge=1.0)
+    # Workshop previews run in a fresh process, without spill. This is DuckDB's
+    # budget; the strict OS address-space limit also reserves 512 MiB for native
+    # library mappings (see dataops.preview_runner), before importing them.
+    dataops_preview_memory_mb: int = Field(default=512, ge=64)
     # Polars transform node. Author code runs on the venv interpreter, so the
     # engine itself has to be IN the venv: this pin is prepended to the node's
     # requirements and is therefore part of the env fingerprint. Keep it aligned

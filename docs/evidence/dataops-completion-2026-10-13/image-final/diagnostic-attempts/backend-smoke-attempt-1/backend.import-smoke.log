@@ -1,0 +1,87 @@
+#0 building with "agentium-dataops-review" instance using docker-container driver
+
+#1 [internal] load build definition from Dockerfile.backend.import-smoke
+#1 transferring dockerfile: 7.35kB 0.1s done
+#1 DONE 0.1s
+
+#2 [internal] load metadata for docker.io/library/python:3.12-slim@sha256:ec948fa5f90f4f8907e89f4800cfd2d2e91e391a4bce4a6afa77ba265bc3a2fe
+#2 DONE 0.0s
+
+#3 [agentium_release  1/15] FROM docker.io/library/python:3.12-slim@sha256:ec948fa5f90f4f8907e89f4800cfd2d2e91e391a4bce4a6afa77ba265bc3a2fe
+#3 resolve docker.io/library/python:3.12-slim@sha256:ec948fa5f90f4f8907e89f4800cfd2d2e91e391a4bce4a6afa77ba265bc3a2fe 0.0s done
+#3 DONE 0.0s
+
+#4 [internal] load build context
+#4 transferring context: 48.79kB 0.1s
+#4 transferring context: 258.71kB 0.4s done
+#4 DONE 0.4s
+
+#5 [agentium_release 14/15] RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; chmod +x /app/docker/run_backend.sh     && mkdir -p /data/object_store /data/secure_deposit /app/vector_store     && chown -R "agentium":"agentium" /data /app/vector_store
+#5 CACHED
+
+#6 [agentium_release 10/15] RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; apt-get update     && apt-get install --no-install-recommends -y         libreoffice-impress     && rm -rf /var/lib/apt/lists/*
+#6 CACHED
+
+#7 [agentium_release  5/15] RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; pip install --no-cache-dir     --constraint=/tmp/requirements/constraints-demo-app.txt     --index-url=https://pypi.org/simple     -r /tmp/requirements/requirements.txt     && pip check
+#7 CACHED
+
+#8 [agentium_release 12/15] WORKDIR /app
+#8 CACHED
+
+#9 [agentium_release 13/15] COPY --chown=agentium:agentium . .
+#9 CACHED
+
+#10 [agentium_release  9/15] RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; if [ "1" = "1" ]; then       pip install --no-cache-dir torch torchvision         --constraint=/tmp/requirements/constraints-demo-app.txt         --index-url=https://download.pytorch.org/whl/cpu       && pip install --no-cache-dir         --constraint=/tmp/requirements/constraints-demo-app.txt         --constraint=/tmp/requirements/constraints-demo-ml-deep.txt         --index-url=https://pypi.org/simple -r /tmp/requirements/requirements_hf_rag.txt       && pip check;     fi
+#10 CACHED
+
+#11 [agentium_release  8/15] COPY backend/requirements_hf_rag.txt backend/constraints-demo-ml-deep.txt /tmp/requirements/
+#11 CACHED
+
+#12 [agentium_release  4/15] COPY backend/requirements.txt backend/constraints-demo-app.txt /tmp/requirements/
+#12 CACHED
+
+#13 [agentium_release 11/15] RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; groupadd --gid "1000" "agentium"     && useradd --uid "1000" --gid "1000" --create-home "agentium"
+#13 CACHED
+
+#14 [agentium_release  6/15] COPY backend/rag_models.lock.json backend/scripts/fetch_rag_models.py /tmp/rag-models/
+#14 CACHED
+
+#15 [agentium_release  2/15] RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; : "https://pypi.org/simple"
+#15 CACHED
+
+#16 [agentium_release  3/15] RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; apt-get update     && apt-get install --no-install-recommends -y         fonts-dejavu         libreoffice-writer         tesseract-ocr         tesseract-ocr-eng         tesseract-ocr-fra     && rm -rf /var/lib/apt/lists/*
+#16 CACHED
+
+#17 [agentium_release  7/15] RUN --mount=type=secret,id=proxy_ca,required=true export PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca SSL_CERT_FILE=/run/secrets/proxy_ca; python /tmp/rag-models/fetch_rag_models.py         --manifest /tmp/rag-models/rag_models.lock.json --dest /opt/agentium-models
+#17 CACHED
+
+#18 [agentium_release 15/15] WORKDIR /app/backend
+#18 CACHED
+
+#19 [agentium_import_smoke 1/1] RUN --network=none --mount=type=secret,id=image_import_smoke,mode=0444,required=true     python /run/secrets/image_import_smoke
+#19 24.40 Traceback (most recent call last):
+#19 24.40   File "/run/secrets/image_import_smoke", line 192, in <module>
+#19 24.40     main()
+#19 24.40   File "/run/secrets/image_import_smoke", line 150, in main
+#19 24.40     assert refused == 'DATAPREP_PREVIEW_MEMORY_LIMIT', 'Expansion did not produce the expected closed memory refusal'
+#19 24.40            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#19 24.40 AssertionError: Expansion did not produce the expected closed memory refusal
+#19 ERROR: process "/bin/sh -c python /run/secrets/image_import_smoke" did not complete successfully: exit code: 1
+------
+ > [agentium_import_smoke 1/1] RUN --network=none --mount=type=secret,id=image_import_smoke,mode=0444,required=true     python /run/secrets/image_import_smoke:
+24.40 Traceback (most recent call last):
+24.40   File "/run/secrets/image_import_smoke", line 192, in <module>
+24.40     main()
+24.40   File "/run/secrets/image_import_smoke", line 150, in main
+24.40     assert refused == 'DATAPREP_PREVIEW_MEMORY_LIMIT', 'Expansion did not produce the expected closed memory refusal'
+24.40            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+24.40 AssertionError: Expansion did not produce the expected closed memory refusal
+------
+Dockerfile.backend.import-smoke:98
+--------------------
+  97 |     FROM agentium_release AS agentium_import_smoke
+  98 | >>> RUN --network=none --mount=type=secret,id=image_import_smoke,mode=0444,required=true \
+  99 | >>>     python /run/secrets/image_import_smoke
+ 100 |     
+--------------------
+ERROR: failed to build: failed to solve: process "/bin/sh -c python /run/secrets/image_import_smoke" did not complete successfully: exit code: 1
