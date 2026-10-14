@@ -1,0 +1,12 @@
+{
+  "target": "/workspace/dataops-completion-2026-10-13/scoring-3m-tmp",
+  "real_path_verified": true,
+  "open_fds_observed": [],
+  "prior_benchmark_completed": true,
+  "removed_logical_file_bytes": 2599919759,
+  "symlinks_unlinked_without_following": 3,
+  "free_bytes_before": 14500089856,
+  "free_bytes_after": 17100308480,
+  "disk_free_gain_bytes": 2600218624,
+  "retained": "Both final OCI archives; all benchmark reports, traces and manifests; all other directories."
+}

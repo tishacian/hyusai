@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "operation": "prepare",
+  "params": {
+    "steps": [
+      {
+        "id": "golden",
+        "kind": "replace_values",
+        "params": {
+          "columns": [
+            "a"
+          ],
+          "pairs": [
+            {
+              "from": "a",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "c"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "port": "out",
+      "name": "Golden"
+    }
+  ]
+}

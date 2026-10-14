@@ -9,6 +9,9 @@ argument for ranking levers instead of listing toggles.
 """
 from __future__ import annotations
 
+import pytest
+
+from app.core.config import settings
 from app.models.capability import Capability
 from app.models.skill import Skill
 from app.models.workspace import Workspace
@@ -302,7 +305,7 @@ def _seeded_rows():
     return capabilities, skills
 
 
-def test_the_shipped_registry_hides_skills_by_tier_decision_not_by_curation():
+def test_the_shipped_registry_hides_skills_by_tier_decision_not_by_curation(monkeypatch):
     """The claim the whole surface rests on, checked against what we ship.
 
     The gaps partition the exclusions exactly — no skill in the shipped
@@ -312,6 +315,7 @@ def test_the_shipped_registry_hides_skills_by_tier_decision_not_by_curation():
     unclaimed skills, whichever family asks. Industry decisions are what scale.
     """
 
+    monkeypatch.setattr(settings, "narration_enabled", False)
     capabilities, skills = _seeded_rows()
     unclaimed_per_family = set()
     for family in ("andritz", "sentinel_ci"):
@@ -331,10 +335,13 @@ def test_the_shipped_registry_hides_skills_by_tier_decision_not_by_curation():
             ("industry", key)
             for key in ("government", "regulated_translation")
             if key not in allowed
-        } | {("unclaimed", "")}
+        } | {("unclaimed", ""), ("feature", "narration_enabled")}
+        assert gaps[("feature", "narration_enabled")] == 1
+        assert _gaps(coverage)[("feature", "narration_enabled")] == ("narration_run_v1",)
         assert coverage.filtered_reasons == {
-            "industry_not_allowed": filtered - gaps[("unclaimed", "")],
+            "industry_not_allowed": filtered - gaps[("unclaimed", "")] - 1,
             "unclaimed": gaps[("unclaimed", "")],
+            "feature_disabled": 1,
         }
         unclaimed_per_family.add(gaps[("unclaimed", "")])
 
@@ -342,6 +349,56 @@ def test_the_shipped_registry_hides_skills_by_tier_decision_not_by_curation():
         "the rows only a per-skill override can reach must depend on the "
         "registry, not on which workspace is asking"
     )
+
+
+@pytest.mark.parametrize("tier", ["universal", "industry"])
+@pytest.mark.parametrize("override", ["enabled_skills", "hidden_skills"])
+def test_closed_feature_is_a_prerequisite_curation_cannot_lift(monkeypatch, tier, override):
+    monkeypatch.setattr(settings, "narration_enabled", False)
+    skill = _skill("narration_run_v1")
+    workspace = _workspace("showcase", settings={"catalog": {override: [skill.slug]}})
+    caps = [_cap("documents", tier=tier, industry="government", skill_ids=[skill.id])]
+
+    coverage = catalog_coverage(workspace=workspace, capabilities=caps, skills=[skill])
+
+    assert coverage.visible == 0
+    assert coverage.filtered_reasons == {"feature_disabled": 1}
+    assert _gaps(coverage) == {("feature", "narration_enabled"): (skill.slug,)}
+    assert coverage.gaps[0].capability_slugs == ("documents",)
+    assert coverage.skills[0]["key"] == "narration_enabled"
+    assert coverage.overrides[0].status == "redundant"
+    assert coverage.to_dict()["summary"]["filtered"] == 1
+
+
+@pytest.mark.parametrize("global_enabled,local_enabled,visible", [
+    (False, False, False), (False, "true", False), (False, True, True),
+    (True, False, True), (True, None, True),
+])
+def test_feature_coverage_tracks_the_same_global_or_workspace_activation(
+    monkeypatch, global_enabled, local_enabled, visible
+):
+    monkeypatch.setattr(settings, "narration_enabled", global_enabled)
+    skill = _skill("narration_run_v1")
+    workspace = _workspace("showcase", settings={"features": {"narration_enabled": local_enabled}})
+    coverage = catalog_coverage(
+        workspace=workspace, capabilities=[_cap("documents", skill_ids=[skill.id])], skills=[skill]
+    )
+    assert coverage.skills[0]["visible"] is visible
+    assert coverage.visible == int(visible)
+    assert _gaps(coverage) == ({} if visible else {("feature", "narration_enabled"): (skill.slug,)})
+
+
+def test_opening_a_feature_keeps_the_remaining_industry_policy_in_force(monkeypatch):
+    monkeypatch.setattr(settings, "narration_enabled", True)
+    skill = _skill("narration_run_v1")
+    coverage = catalog_coverage(
+        workspace=_workspace("showcase"),
+        capabilities=[_cap("documents", tier="industry", industry="government", skill_ids=[skill.id])],
+        skills=[skill],
+    )
+    assert coverage.visible == 0
+    assert coverage.filtered_reasons == {"industry_not_allowed": 1}
+    assert _gaps(coverage) == {("industry", "government"): (skill.slug,)}
 
 
 def test_a_workspace_allowing_no_industry_is_mostly_fixed_by_allowing_one():

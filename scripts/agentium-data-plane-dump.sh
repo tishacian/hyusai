@@ -21,22 +21,24 @@
 # ML_REGISTRY_ENABLED=false) but it is always reported.
 #
 # Scope comes from the registry, not from a path glob. Only workspaces that own
-# datasets, models or BRDs are mirrored, and only their `tabular/`, `ml/` and retained `brd/` prefixes
-# — never a whole workspace, which would drag in knowledge collections an order
-# of magnitude larger for nothing.
+# datasets, models, BRDs or governed assets select exact object keys and native
+# artifact directories. A1 can add evidence outside tabular/, ml/ or brd/,
+# without copying an unrelated knowledge-collections tree in that workspace.
+# Writers and purges must be suspended for the whole window: SQL dumps, registry
+# export and object mirroring are not a distributed atomic snapshot.
 #
 # Usage (on the VM, as root):
 #   sudo scripts/agentium-data-plane-dump.sh <sha12> [slice]
 #
 # Writes /srv/agentium-data/<slice>-deployments/<date>-<sha12>/ holding
 # pre-<sha12>.dump, pre-<sha12>-mlflow.dump, objects/, their checksums,
-# MANIFEST.json and .ready. The mirror covers each workspace's whole `ml/`
-# prefix, so a model's skore report state — the evaluation its card was read
-# from — travels with the model directory rather than needing its own pass.
+# MANIFEST.json and .ready. The copy plan includes model directories and their
+# separately referenced report/evaluation objects without mirroring all `ml/`.
 # `.ready` is written last and only when the artifact check passed, so its
 # presence — not the directory's existence — is what says the window is
 # restorable.
 set -euo pipefail
+umask 077
 
 readonly DATA_ROOT=/srv/agentium-data
 readonly PG_CONTAINER=agentium-pg
@@ -56,6 +58,7 @@ readonly STAGE=/tmp/agentium-data-plane-dump
 # plane is tens of megabytes today; a run that suddenly wants gigabytes is a
 # surprise worth stopping on rather than a root filesystem to fill.
 readonly MAX_OBJECT_MB=8192
+readonly DISK_RESERVE_MB=1024
 
 fail() {
 	printf '%s\n' "$*" >&2
@@ -83,7 +86,7 @@ readonly REGISTRY_DUMP="$WINDOW/pre-$SHA-$REGISTRY_DB.dump"
 [ -e "$WINDOW/.ready" ] && fail "$WINDOW is already a completed window"
 
 query() {
-	docker exec "$PG_CONTAINER" psql -U "$DB_USER" -d "$DB" -At -c "$1"
+	docker exec "$PG_CONTAINER" psql -X -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB" -At -c "$1"
 }
 
 # One `mc` command inside the MinIO container. `mc` ships in that image and the
@@ -98,20 +101,24 @@ mc_in_minio() {
   ' mc "$@"
 }
 
-# `mc du` on a prefix with no objects is a fatal error rather than a zero, and a
-# workspace that owns only datasets legitimately has no `ml/` prefix — so the
-# error is an expected answer here and reads as 0.
+# The copy plan names actual artifacts. An unknown required size must stop the
+# preflight; treating permission/network errors as zero would defeat its bound.
 prefix_bytes() {
-	{ mc_in_minio du --json "$1" 2>/dev/null || true; } | python3 -c 'import json, sys
+	mc_in_minio du --json "$1" 2>/dev/null | python3 -c 'import json, sys
 total = 0
+seen = False
 for line in sys.stdin:
     line = line.strip()
     if not line:
         continue
-    try:
-        total += int(json.loads(line).get("size", 0))
-    except (ValueError, TypeError):
-        pass
+    row = json.loads(line)
+    size = row.get("size")
+    if row.get("status") == "error" or type(size) is not int or size < 0:
+        raise SystemExit(1)
+    total += size
+    seen = True
+if not seen:
+    raise SystemExit(1)
 print(total)'
 }
 
@@ -156,10 +163,12 @@ PLANE_TABLES=$(query "select count(*) from information_schema.tables
                       where table_name in ('tabular_datasets', 'ml_models')")
 BRD_TABLE=$(query "select count(*) from information_schema.tables
                    where table_schema = 'public' and table_name = 'brd_documents'")
+ASSET_TABLE=$(query "select count(*) from information_schema.tables where table_schema = 'public' and table_name = 'asset_versions'")
+COLLECTION_TABLE=$(query "select count(*) from information_schema.tables where table_schema = 'public' and table_name = 'knowledge_collections'")
 OBJECTS=0
 WORKSPACES=""
 
-if [ "$PLANE_TABLES" -eq 0 ] && [ "$BRD_TABLE" -eq 0 ]; then
+if [ "$PLANE_TABLES" -eq 0 ] && [ "$BRD_TABLE" -eq 0 ] && [ "$ASSET_TABLE" -eq 0 ]; then
 	# A database from before the plane landed. Said out loud, because an empty
 	# objects/ is otherwise indistinguishable from a mirror that failed.
 	printf 'objects: none — this database predates the data plane (no 096/097)\n'
@@ -175,30 +184,70 @@ else
 	if [ "$BRD_TABLE" -ne 0 ]; then
 		WORKSPACE_QUERY="$WORKSPACE_QUERY union select workspace_id from brd_documents"
 	fi
+	if [ "$ASSET_TABLE" -ne 0 ]; then
+		WORKSPACE_QUERY="$WORKSPACE_QUERY union select workspace_id from asset_versions"
+	fi
 	WORKSPACES=$(query "$WORKSPACE_QUERY order by 1")
 fi
 
-if [ -n "$WORKSPACES" ]; then
+# Keep the exact references verified below beside the dumps. This sidecar is
+# usable offline after copying objects into a restore staging directory; do not
+# query a different/live database and call that verification of this window.
+REGISTRY_QUERY="select null::text as record where false"
+if [ "$PLANE_TABLES" -ne 0 ]; then
+	REGISTRY_QUERY="$REGISTRY_QUERY union all select json_build_object('type', 'dataset', 'row', to_jsonb(t))::text from tabular_datasets t where status = 'ready'"
+	# Evaluation partitions remain required even for a model no longer ready.
+	REGISTRY_QUERY="$REGISTRY_QUERY union all select json_build_object('type', 'model', 'row', to_jsonb(t))::text from ml_models t"
+fi
+if [ "$ASSET_TABLE" -ne 0 ]; then
+	REGISTRY_QUERY="$REGISTRY_QUERY union all select json_build_object('type', 'asset', 'row', to_jsonb(t))::text from asset_versions t"
+fi
+if [ "$BRD_TABLE" -ne 0 ]; then
+	REGISTRY_QUERY="$REGISTRY_QUERY union all select json_build_object('type', 'brd', 'row', to_jsonb(t))::text from brd_documents t"
+fi
+if [ "$COLLECTION_TABLE" -ne 0 ] && [ "$ASSET_TABLE" -ne 0 ]; then
+	REGISTRY_QUERY="$REGISTRY_QUERY union all select json_build_object('type', 'document_set', 'row', to_jsonb(t))::text from knowledge_collections t where status = 'ready' and workspace_id in (select workspace_id from asset_versions)"
+fi
+query "$REGISTRY_QUERY" >"$WINDOW/reference-registry.jsonl"
+(cd "$WINDOW" && sha256sum reference-registry.jsonl) >"$WINDOW/reference-registry.jsonl.sha256"
+python3 "$(dirname "$0")/agentium_validate_delta_backup.py" \
+	--registry "$WINDOW/reference-registry.jsonl" --copy-plan >"$WINDOW/object-copy-plan.tsv"
+
+if [ -s "$WINDOW/object-copy-plan.tsv" ]; then
 	total=0
-	for workspace in $WORKSPACES; do
-		for kind in tabular ml brd; do
-			total=$((total + $(prefix_bytes "dump/$BUCKET/workspaces/$workspace/$kind")))
-		done
-	done
-	printf 'objects: %s MB across %s workspace(s)\n' \
-		"$((total / 1024 / 1024))" "$(printf '%s\n' "$WORKSPACES" | wc -l)"
-	[ "$((total / 1024 / 1024))" -le "$MAX_OBJECT_MB" ] ||
+	: >"$WINDOW/object-copy-ready.tsv"
+	while IFS=$'\t' read -r kind required key; do
+		if bytes="$(prefix_bytes "dump/$BUCKET/$key")"; then
+			total=$((total + bytes))
+			printf '%s\t%s\t%s\n' "$kind" "$required" "$key" >>"$WINDOW/object-copy-ready.tsv"
+		elif [ "$required" = 1 ]; then
+			fail "required artifact unavailable or size unknown during object preflight — no object copy started"
+		else
+			printf 'objects: optional report state unavailable; skipped\n'
+		fi
+	done <"$WINDOW/object-copy-plan.tsv"
+	printf 'objects: %s MB in referenced keys/directories\n' "$((total / 1024 / 1024))"
+	[ "$total" -le "$((MAX_OBJECT_MB * 1024 * 1024))" ] ||
 		fail "the plane holds $((total / 1024 / 1024)) MB, past the ${MAX_OBJECT_MB} MB ceiling — mirror it deliberately, not from this script"
+	# Container staging and the retained copy may share the host filesystem.
+	# Reserve both copies plus headroom on each destination conservatively.
+	needed_kb=$(((2 * total + DISK_RESERVE_MB * 1024 * 1024 + 1023) / 1024))
+	host_free_kb="$(df -Pk "$WINDOW" | awk 'NR == 2 {print $4}')"
+	stage_free_kb="$(docker exec "$MINIO_CONTAINER" df -Pk "$(dirname "$STAGE")" | awk 'NR == 2 {print $4}')"
+	[[ "$host_free_kb" =~ ^[0-9]+$ && "$stage_free_kb" =~ ^[0-9]+$ ]] || fail "cannot establish free space for backup staging"
+	[ "$host_free_kb" -ge "$needed_kb" ] && [ "$stage_free_kb" -ge "$needed_kb" ] ||
+		fail "insufficient free space for both object copies plus ${DISK_RESERVE_MB} MB reserve — no object copy started"
 
 	docker exec "$MINIO_CONTAINER" rm -rf "$STAGE"
 	docker exec "$MINIO_CONTAINER" mkdir -p "$STAGE"
-	for workspace in $WORKSPACES; do
-		for kind in tabular ml brd; do
-			mc_in_minio mirror --quiet \
-				"dump/$BUCKET/workspaces/$workspace/$kind" \
-				"$STAGE/workspaces/$workspace/$kind" >/dev/null 2>&1 || true
-		done
-	done
+	while IFS=$'\t' read -r kind required key; do
+		docker exec "$MINIO_CONTAINER" mkdir -p "$(dirname "$STAGE/$key")"
+		if [ "$kind" = prefix ]; then
+			mc_in_minio mirror --quiet "dump/$BUCKET/$key" "$STAGE/$key" >/dev/null 2>&1 || fail "referenced artifact mirror failed"
+		else
+			mc_in_minio cp --quiet "dump/$BUCKET/$key" "$STAGE/$key" >/dev/null 2>&1 || fail "referenced object copy failed"
+		fi
+	done <"$WINDOW/object-copy-ready.tsv"
 
 	mkdir -p "$WINDOW/objects"
 	docker cp "$MINIO_CONTAINER:$STAGE/." "$WINDOW/objects/"
@@ -228,6 +277,10 @@ if [ "$PLANE_TABLES" -ne 0 ] && [ -n "$WORKSPACES" ]; then
 	# model row names a directory whose MLmodel file is what the loader opens.
 	while IFS= read -r key; do
 		[ -n "$key" ] || continue
+		if [[ "$key" == */delta ]]; then
+			python3 "$(dirname "$0")/agentium_validate_delta_backup.py" "$WINDOW/objects/$key" || missing=$((missing + 1))
+			continue
+		fi
 		[ -f "$WINDOW/objects/$key" ] || {
 			printf 'MISSING dataset object %s\n' "$key" >&2
 			missing=$((missing + 1))
@@ -302,6 +355,19 @@ if [ "$BRD_TABLE" -ne 0 ]; then
 	done <<<"$BRD_ROWS"
 fi
 
+# A1 is content-addressed: compare SQL envelopes with the copied canonical
+# manifests and stream every declared object's digest. Delta logs and each
+# committed part must match their recorded hashes, including same-size damage.
+# Failure blocks .ready; the retained sidecar can be checked again after restore.
+GOVERNED_VERIFIED=false
+if python3 "$(dirname "$0")/agentium_validate_delta_backup.py" \
+	--objects-root "$WINDOW/objects" --registry "$WINDOW/reference-registry.jsonl" \
+	>"$WINDOW/governed-verification.json"; then
+	GOVERNED_VERIFIED=true
+else
+	missing=$((missing + 1))
+fi
+
 cat >"$WINDOW/MANIFEST.json" <<EOF
 {
   "sha12": "$SHA",
@@ -318,12 +384,15 @@ cat >"$WINDOW/MANIFEST.json" <<EOF
   "registry_artifacts_missing": $missing,
   "report_states": $REPORT_STATES,
   "report_states_missing": $REPORT_STATES_MISSING,
-  "evaluation_partitions": $EVALUATION_PARTITIONS
+  "evaluation_partitions": $EVALUATION_PARTITIONS,
+  "reference_registry": "reference-registry.jsonl",
+  "governed_bytes_verified": $GOVERNED_VERIFIED,
+  "consistency_requires_suspended_writers": true
 }
 EOF
 
 [ "$missing" -eq 0 ] ||
-	fail "$missing artifact(s) the registry names are absent from this window — do NOT migrate against it"
+	fail "$missing artifact check(s) found missing or inconsistent bytes in this window — do NOT migrate against it"
 
 touch "$WINDOW/.ready"
 printf 'ready: %s\n' "$WINDOW"

@@ -1,12 +1,11 @@
 import asyncio
 import re
-
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from pathlib import Path
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from pathlib import Path
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import evaluation as api
 from app.models.retrieval_bench_run import RetrievalBenchRun
@@ -109,8 +108,10 @@ def test_nightly_task_is_scheduled_by_beat():
     assert "agentium.public_retrieval_bench" in celery_app.tasks
 
 
-def test_migration_125_extends_the_single_head():
+def test_migration_126_extends_the_single_head():
     root = Path(__file__).resolve().parents[3]
     script = ScriptDirectory.from_config(Config(str(root / "alembic.ini")))
-    assert script.get_heads() == ["125_retrieval_bench_runs"]
-    assert len("125_retrieval_bench_runs") <= 32
+    head = "126_service_contracts"
+    assert script.get_heads() == [head]
+    assert len(head) <= 32
+    assert script.get_revision(head).down_revision == "125_retrieval_bench_runs"

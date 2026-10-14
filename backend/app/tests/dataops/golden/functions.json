@@ -1,0 +1,372 @@
+[
+  {
+    "name": "abs",
+    "expression": "abs(-2)",
+    "expected": 2
+  },
+  {
+    "name": "round",
+    "expression": "round(1.25,1)",
+    "expected": 1.3
+  },
+  {
+    "name": "floor",
+    "expression": "floor(1.9)",
+    "expected": 1
+  },
+  {
+    "name": "ceil",
+    "expression": "ceil(1.1)",
+    "expected": 2
+  },
+  {
+    "name": "trunc",
+    "expression": "trunc(-1.9)",
+    "expected": -1
+  },
+  {
+    "name": "sqrt",
+    "expression": "sqrt(4)",
+    "expected": 2
+  },
+  {
+    "name": "cbrt",
+    "expression": "cbrt(8)",
+    "expected": 2
+  },
+  {
+    "name": "power",
+    "expression": "power(2,3)",
+    "expected": 8
+  },
+  {
+    "name": "exp",
+    "expression": "exp(0)",
+    "expected": 1
+  },
+  {
+    "name": "ln",
+    "expression": "ln(1)",
+    "expected": 0
+  },
+  {
+    "name": "log10",
+    "expression": "log10(100)",
+    "expected": 2
+  },
+  {
+    "name": "log2",
+    "expression": "log2(8)",
+    "expected": 3
+  },
+  {
+    "name": "sign",
+    "expression": "sign(-5)",
+    "expected": -1
+  },
+  {
+    "name": "mod",
+    "expression": "mod(7,3)",
+    "expected": 1
+  },
+  {
+    "name": "greatest",
+    "expression": "greatest(1,3,2)",
+    "expected": 3
+  },
+  {
+    "name": "least",
+    "expression": "least(1,3,2)",
+    "expected": 1
+  },
+  {
+    "name": "pi",
+    "expression": "pi()",
+    "expected": 3.141592653589793
+  },
+  {
+    "name": "sin",
+    "expression": "sin(0)",
+    "expected": 0
+  },
+  {
+    "name": "cos",
+    "expression": "cos(0)",
+    "expected": 1
+  },
+  {
+    "name": "tan",
+    "expression": "tan(0)",
+    "expected": 0
+  },
+  {
+    "name": "asin",
+    "expression": "asin(0)",
+    "expected": 0
+  },
+  {
+    "name": "acos",
+    "expression": "acos(1)",
+    "expected": 0
+  },
+  {
+    "name": "atan",
+    "expression": "atan(0)",
+    "expected": 0
+  },
+  {
+    "name": "atan2",
+    "expression": "atan2(0,1)",
+    "expected": 0
+  },
+  {
+    "name": "lower",
+    "expression": "lower('A')",
+    "expected": "a"
+  },
+  {
+    "name": "upper",
+    "expression": "upper('a')",
+    "expected": "A"
+  },
+  {
+    "name": "trim",
+    "expression": "trim(' a ')",
+    "expected": "a"
+  },
+  {
+    "name": "ltrim",
+    "expression": "ltrim(' a ')",
+    "expected": "a "
+  },
+  {
+    "name": "rtrim",
+    "expression": "rtrim(' a ')",
+    "expected": " a"
+  },
+  {
+    "name": "length",
+    "expression": "length('été')",
+    "expected": 3
+  },
+  {
+    "name": "substr",
+    "expression": "substr('abcd',2,2)",
+    "expected": "bc"
+  },
+  {
+    "name": "left",
+    "expression": "left('abcd',2)",
+    "expected": "ab"
+  },
+  {
+    "name": "right",
+    "expression": "right('abcd',2)",
+    "expected": "cd"
+  },
+  {
+    "name": "replace",
+    "expression": "replace('aba','a','z')",
+    "expected": "zbz"
+  },
+  {
+    "name": "concat",
+    "expression": "concat('a',NULL,'b')",
+    "expected": "ab"
+  },
+  {
+    "name": "concat_ws",
+    "expression": "concat_ws('-', 'a',NULL,'b')",
+    "expected": "a-b"
+  },
+  {
+    "name": "lpad",
+    "expression": "lpad('a',3,'0')",
+    "expected": "00a"
+  },
+  {
+    "name": "rpad",
+    "expression": "rpad('a',3,'0')",
+    "expected": "a00"
+  },
+  {
+    "name": "strpos",
+    "expression": "strpos('abcd','bc')",
+    "expected": 2
+  },
+  {
+    "name": "starts_with",
+    "expression": "starts_with('abcd','ab')",
+    "expected": true
+  },
+  {
+    "name": "ends_with",
+    "expression": "ends_with('abcd','cd')",
+    "expected": true
+  },
+  {
+    "name": "contains",
+    "expression": "contains('abcd','bc')",
+    "expected": true
+  },
+  {
+    "name": "regexp_matches",
+    "expression": "regexp_matches('abc','b')",
+    "expected": true
+  },
+  {
+    "name": "regexp_extract",
+    "expression": "regexp_extract('abc','z')",
+    "expected": null
+  },
+  {
+    "name": "regexp_replace",
+    "expression": "regexp_replace('aba','a','z','g')",
+    "expected": "zbz"
+  },
+  {
+    "name": "split_part",
+    "expression": "split_part('a-b','-',3)",
+    "expected": null
+  },
+  {
+    "name": "remove_accents",
+    "expression": "remove_accents('Été')",
+    "expected": "Ete"
+  },
+  {
+    "name": "initcap",
+    "expression": "initcap('hELLO wORLD')",
+    "expected": "Hello World"
+  },
+  {
+    "name": "date_trunc",
+    "expression": "date_trunc('month',CAST('2026-10-13' AS DATE))",
+    "expected": "2026-10-01T00:00:00"
+  },
+  {
+    "name": "date_part",
+    "expression": "date_part('year',CAST('2026-10-13' AS DATE))",
+    "expected": 2026
+  },
+  {
+    "name": "date_diff",
+    "expression": "date_diff('month',CAST('2026-01-31' AS DATE),CAST('2026-02-01' AS DATE))",
+    "expected": 0
+  },
+  {
+    "name": "date_add",
+    "expression": "date_add(CAST('2026-10-13' AS DATE),2,'day')",
+    "expected": "2026-10-15T00:00:00"
+  },
+  {
+    "name": "make_date",
+    "expression": "make_date(2026,10,13)",
+    "expected": "2026-10-13"
+  },
+  {
+    "name": "parse_date",
+    "expression": "parse_date('13/10/2026','%d/%m/%Y')",
+    "expected": "2026-10-13T00:00:00"
+  },
+  {
+    "name": "format_date",
+    "expression": "format_date(CAST('2026-10-13' AS DATE),'%Y/%m')",
+    "expected": "2026/10"
+  },
+  {
+    "name": "year",
+    "expression": "year(CAST('2026-10-13' AS DATE))",
+    "expected": 2026
+  },
+  {
+    "name": "month",
+    "expression": "month(CAST('2026-10-13' AS DATE))",
+    "expected": 10
+  },
+  {
+    "name": "day",
+    "expression": "day(CAST('2026-10-13' AS DATE))",
+    "expected": 13
+  },
+  {
+    "name": "hour",
+    "expression": "hour(CAST('2026-10-13 17:20:00' AS TIMESTAMP))",
+    "expected": 17
+  },
+  {
+    "name": "iso_week",
+    "expression": "iso_week(CAST('2026-10-13' AS DATE))",
+    "expected": 42
+  },
+  {
+    "name": "iso_day_of_week",
+    "expression": "iso_day_of_week(CAST('2026-10-13' AS DATE))",
+    "expected": 2
+  },
+  {
+    "name": "coalesce",
+    "expression": "coalesce(NULL,1,2)",
+    "expected": 1
+  },
+  {
+    "name": "nullif",
+    "expression": "nullif(1,1)",
+    "expected": null
+  },
+  {
+    "name": "ifnull",
+    "expression": "ifnull(NULL,2)",
+    "expected": 2
+  },
+  {
+    "name": "if",
+    "expression": "if(true,1,2)",
+    "expected": 1
+  },
+  {
+    "name": "cast",
+    "expression": "cast('2' AS INTEGER)",
+    "expected": 2
+  },
+  {
+    "name": "try_cast",
+    "expression": "try_cast('bad' AS INTEGER)",
+    "expected": null
+  },
+  {
+    "name": "col_mean",
+    "expression": "col_mean(a)",
+    "expected": 3
+  },
+  {
+    "name": "col_sum",
+    "expression": "col_sum(a)",
+    "expected": 6
+  },
+  {
+    "name": "col_min",
+    "expression": "col_min(a)",
+    "expected": 2
+  },
+  {
+    "name": "col_max",
+    "expression": "col_max(a)",
+    "expected": 4
+  },
+  {
+    "name": "col_std",
+    "expression": "col_std(a)",
+    "expected": 1.4142135623730951
+  },
+  {
+    "name": "col_median",
+    "expression": "col_median(a)",
+    "expected": 3
+  },
+  {
+    "name": "col_count",
+    "expression": "col_count(a)",
+    "expected": 2
+  }
+]

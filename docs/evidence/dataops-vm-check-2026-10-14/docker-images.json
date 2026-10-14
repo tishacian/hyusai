@@ -1,0 +1,349 @@
+{
+  "all_requested_budget_checks_passed": false,
+  "budget_script": {
+    "expected_sha256": "1abd2f02b780fff2190099833bffc7a631c34aad2b397018112a2b9e25aa1366",
+    "matches_reviewed_script": true,
+    "path": "/srv/agentium-data/worktrees/demo-agentic/scripts/agentium-image-budget.sh",
+    "sha256": "1abd2f02b780fff2190099833bffc7a631c34aad2b397018112a2b9e25aa1366"
+  },
+  "budgets_mib": {
+    "backend": 1400,
+    "frontend": 40,
+    "livekit-agent": 110,
+    "ml-ts": 1240,
+    "worker": 1760
+  },
+  "docker": {
+    "architecture": "x86_64",
+    "driver": "overlayfs",
+    "driver_status": [
+      [
+        "driver-type",
+        "io.containerd.snapshotter.v1"
+      ]
+    ],
+    "os_type": "linux",
+    "server_version": "29.1.3"
+  },
+  "docker_endpoint": "unix:///var/run/docker.sock",
+  "observed_at_utc": "2026-10-14T06:58:19.657220+00:00",
+  "releases": [
+    {
+      "all_listed_images_measured": true,
+      "budget_check": {
+        "exit_code": 0,
+        "stderr": "",
+        "stdout": "image\tsize_mb\tbudget_mb\tverdict\nagentium-backend:ad10dbc2b6cb\t1356\t1400\tok\nagentium-worker:ad10dbc2b6cb\t1709\t1760\tok\nagentium-frontend:ad10dbc2b6cb\t28\t40\tok\nagentium-ml-ts:ad10dbc2b6cb\t1172\t1240\tok\nagentium-livekit-agent:ad10dbc2b6cb\t99\t110\tok\nlayers shared by backend and worker: 9\nlayers shared by backend and ml-ts: 9\n"
+      },
+      "images": [
+        {
+          "architecture": "amd64",
+          "available": true,
+          "created": "2026-10-13T12:38:04.48938742Z",
+          "descriptor": {
+            "digest": "sha256:edc26ba7f12f32f5c06ddeb138ff6486faa89e807a1542e7c96087a7a20f376e",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "size": 3812
+          },
+          "diff_ids": [
+            "sha256:79dd1f4c855cd061f687a994426634cf5f84c8ecdbc66c7a7d118e828dd93c99",
+            "sha256:1361e0a963c66ac67506e2b5cacf01a39cc0816185f96afe77031eb5d4ba2d56",
+            "sha256:fae8529c7ef7ef831623bd668a9a847f681ab78e77abb2fb84bd7d3c47a70cc0",
+            "sha256:23ed4b6439ad2c4b1602f19014cc7a90b49a943eabe7f8ab9bb1aa7c0482949c",
+            "sha256:c490767dcc28b730aecf66d4dbdc75b9ec8de836d96f91c318cf01d2ad6a9374",
+            "sha256:438dbd4a17022f6e044e6877fbba880b29b5511a0586f567b04fa07637b4910f",
+            "sha256:a789493b57694e9167f68d9d91ff3a30443c7befa27bb2f7f8f09fbe129afb0d",
+            "sha256:7115427146d69ab8e38c38e3a4c22f8c54e459290c843e27f6c4587728eac589",
+            "sha256:566ac8e423ac4c93f84a7d58f0ddb03883e2071f71b31eb4a246b182f396a9bf",
+            "sha256:4b291e59720db0c5c5062837e062f3b076058dbb448d09b6c7cb6f7185333b44",
+            "sha256:42502fa2708b69b684cf73edce5bc6653836ad6cc3b669d2ac75ae441f3be145",
+            "sha256:cbeb86277f36dd704cad2bda6e7b90f82aa047134695526195ab485d196076df",
+            "sha256:4ef24f7dacd1419e84d86d33f5a821f99e92b6db533db55a97d01e782fd88b31",
+            "sha256:18c57e58f3c2f2ebd71ca5d68f803a044112891aafb377f7249d3fc955a403ae",
+            "sha256:c7777c65507860567dd53bd45c2e5aa710a4a01fdf9dfbe0a2df41437f4379cc",
+            "sha256:4c8c43a0df6194d33ddb7cc6a30ec86f5890e65962841b27973e3fbdad65c6bc"
+          ],
+          "id": "sha256:edc26ba7f12f32f5c06ddeb138ff6486faa89e807a1542e7c96087a7a20f376e",
+          "os": "linux",
+          "reference": "agentium-backend:ad10dbc2b6cb",
+          "repo_digests": [
+            "agentium-backend@sha256:edc26ba7f12f32f5c06ddeb138ff6486faa89e807a1542e7c96087a7a20f376e"
+          ],
+          "repo_tags": [
+            "agentium-backend:ad10dbc2b6cb"
+          ],
+          "revision": "ad10dbc2b6cb464c8e7c6b19af8ffc46a3b3fb3b",
+          "size_bytes": 1422295390,
+          "size_mib_floor": 1356
+        },
+        {
+          "architecture": "amd64",
+          "available": true,
+          "created": "2026-10-13T12:42:20.822141465Z",
+          "descriptor": {
+            "digest": "sha256:377761b3b106ab7aac62c71a98f9dbe30ca76a0cb86561844c330fe6fce0b197",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "size": 4690
+          },
+          "diff_ids": [
+            "sha256:79dd1f4c855cd061f687a994426634cf5f84c8ecdbc66c7a7d118e828dd93c99",
+            "sha256:1361e0a963c66ac67506e2b5cacf01a39cc0816185f96afe77031eb5d4ba2d56",
+            "sha256:fae8529c7ef7ef831623bd668a9a847f681ab78e77abb2fb84bd7d3c47a70cc0",
+            "sha256:23ed4b6439ad2c4b1602f19014cc7a90b49a943eabe7f8ab9bb1aa7c0482949c",
+            "sha256:c490767dcc28b730aecf66d4dbdc75b9ec8de836d96f91c318cf01d2ad6a9374",
+            "sha256:438dbd4a17022f6e044e6877fbba880b29b5511a0586f567b04fa07637b4910f",
+            "sha256:a789493b57694e9167f68d9d91ff3a30443c7befa27bb2f7f8f09fbe129afb0d",
+            "sha256:7115427146d69ab8e38c38e3a4c22f8c54e459290c843e27f6c4587728eac589",
+            "sha256:566ac8e423ac4c93f84a7d58f0ddb03883e2071f71b31eb4a246b182f396a9bf",
+            "sha256:a1f0e90276a6bdb0572091c5fbc87d71685846460134f874c33f254a6cbcbe4d",
+            "sha256:a95a70dfa61018648a1ae9b5a61bcb5f6981fb5577e2410af6e390e0cbdc54fc",
+            "sha256:6cf4ac8f9a1a4f96b0176946ead4ba89bd10b07d4ecab32df771e5011b8db0c3",
+            "sha256:1a5c83310ecab83631a9e978ee6522affa9674fb028ccc3e847a1bc13115d5be",
+            "sha256:077c28ab66d67c1a485f0e98f80ba6948e081b09bca3fc8ed408d76caf978322",
+            "sha256:3fadd8244a16c037db6fcf8c327d1e57d972b6e887a906880cb39d9507bd78aa",
+            "sha256:4f47468fef4dcdc513d788e4508b8cb1abac67320a1ea189581716198d2c3a9f",
+            "sha256:a80bdaeca16001083014ccfb4df7def01175090238f690275eba543ce6d49693",
+            "sha256:27cb15bd5aa55c33653e28dc2a2d854d7c4ee700a00896701128b273ae7eb0ec",
+            "sha256:4772e091b84d37b787f4ad8e1f506d3984edc74802841b13a5d09632e244f52b",
+            "sha256:32c530ab7ba824f6c3ba110f4203040f1cde74d8967d88be7ac12046402d8162"
+          ],
+          "id": "sha256:377761b3b106ab7aac62c71a98f9dbe30ca76a0cb86561844c330fe6fce0b197",
+          "os": "linux",
+          "reference": "agentium-worker:ad10dbc2b6cb",
+          "repo_digests": [
+            "agentium-worker@sha256:377761b3b106ab7aac62c71a98f9dbe30ca76a0cb86561844c330fe6fce0b197"
+          ],
+          "repo_tags": [
+            "agentium-worker:ad10dbc2b6cb"
+          ],
+          "revision": "ad10dbc2b6cb464c8e7c6b19af8ffc46a3b3fb3b",
+          "size_bytes": 1792603614,
+          "size_mib_floor": 1709
+        },
+        {
+          "architecture": "amd64",
+          "available": true,
+          "created": "2026-10-13T12:44:52.677771513Z",
+          "descriptor": {
+            "digest": "sha256:d711b29874a747a40a414ba794154841760bade262e988a1f892076da96e5b9a",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "size": 2700
+          },
+          "diff_ids": [
+            "sha256:08000c18d16dadf9553d747a58cf44023423a9ab010aab96cf263d2216b8b350",
+            "sha256:d250ba61f88e97cc9637c8191eac8a17804598a76792b32cd3b5ab2c4d085132",
+            "sha256:1dc2eb4d4442a5fdc55bef45b97c7b67e1c5bcb5b5d2e77bcd4128d28af40158",
+            "sha256:6d6c487831a4bb24f46fdb2ceb241afac9f754b0e9ee12ff7f643a3e65dfc677",
+            "sha256:df8de83f869f56cc49ae8441a8f5c53e931a9248ec641257a40a715da9432e62",
+            "sha256:a58f96716bca2d38c286a49e69f284031e0bef4213710ecd76a9a9d0efd03d6a",
+            "sha256:2a34f0eb0786b92bb6c03984237525e781e46595327ed106a27b684764ebb7f7",
+            "sha256:da73c9adc02953ee6eb5d167c3cfed0346a2b659c4e9de6d4aca4eb7caf1cc18",
+            "sha256:c5b2dfcc7ced4485ca40d2e6258f958c40a789f7bff4128952699131d9f6d252",
+            "sha256:6a2f6138bc8f3dbc3dee997ef053689c603029189f8ad66b0585f0eb806feb33",
+            "sha256:9c1fae90a1448e956a1fd9f2556f216f373485b647388bb726bb2537226ddc50"
+          ],
+          "id": "sha256:d711b29874a747a40a414ba794154841760bade262e988a1f892076da96e5b9a",
+          "os": "linux",
+          "reference": "agentium-frontend:ad10dbc2b6cb",
+          "repo_digests": [
+            "agentium-frontend@sha256:d711b29874a747a40a414ba794154841760bade262e988a1f892076da96e5b9a"
+          ],
+          "repo_tags": [
+            "agentium-frontend:ad10dbc2b6cb"
+          ],
+          "revision": "ad10dbc2b6cb464c8e7c6b19af8ffc46a3b3fb3b",
+          "size_bytes": 29899091,
+          "size_mib_floor": 28
+        },
+        {
+          "architecture": "amd64",
+          "available": true,
+          "created": "2026-10-13T12:47:05.177315108Z",
+          "descriptor": {
+            "digest": "sha256:c4b9e1f8b7c1d74e673ccae086a77d0ea7be8910eec146567e7459e92d52193f",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "size": 3593
+          },
+          "diff_ids": [
+            "sha256:79dd1f4c855cd061f687a994426634cf5f84c8ecdbc66c7a7d118e828dd93c99",
+            "sha256:1361e0a963c66ac67506e2b5cacf01a39cc0816185f96afe77031eb5d4ba2d56",
+            "sha256:fae8529c7ef7ef831623bd668a9a847f681ab78e77abb2fb84bd7d3c47a70cc0",
+            "sha256:23ed4b6439ad2c4b1602f19014cc7a90b49a943eabe7f8ab9bb1aa7c0482949c",
+            "sha256:c490767dcc28b730aecf66d4dbdc75b9ec8de836d96f91c318cf01d2ad6a9374",
+            "sha256:438dbd4a17022f6e044e6877fbba880b29b5511a0586f567b04fa07637b4910f",
+            "sha256:a789493b57694e9167f68d9d91ff3a30443c7befa27bb2f7f8f09fbe129afb0d",
+            "sha256:7115427146d69ab8e38c38e3a4c22f8c54e459290c843e27f6c4587728eac589",
+            "sha256:566ac8e423ac4c93f84a7d58f0ddb03883e2071f71b31eb4a246b182f396a9bf",
+            "sha256:19ca16333d1f310804d06dfc1a5f43b89d8c83f0c6f2501c873e25fce2b8c4b2",
+            "sha256:bf1c963b25f1e385dc48f2b49be7b3b399831f07baed7d0aa25c00e9a6b9864e",
+            "sha256:4634deb42666f0bc94af56cb29ca6ae23104dc8ce2599478874dbee55679f4e5",
+            "sha256:194a896d19d12c26f9761293d43f8f41635f94e67bc92ff6a4c5e524d616dc03",
+            "sha256:68917ee4117f582b5bf37b3ad18058a1207d612988ec3fe35429a40f91aaf7b7",
+            "sha256:f9ad0e069d445cede118753fe8e9fb66140f34645f2e2b4d80d5f4738c29d551"
+          ],
+          "id": "sha256:c4b9e1f8b7c1d74e673ccae086a77d0ea7be8910eec146567e7459e92d52193f",
+          "os": "linux",
+          "reference": "agentium-ml-ts:ad10dbc2b6cb",
+          "repo_digests": [
+            "agentium-ml-ts@sha256:c4b9e1f8b7c1d74e673ccae086a77d0ea7be8910eec146567e7459e92d52193f"
+          ],
+          "repo_tags": [
+            "agentium-ml-ts:ad10dbc2b6cb"
+          ],
+          "revision": "ad10dbc2b6cb464c8e7c6b19af8ffc46a3b3fb3b",
+          "size_bytes": 1229944394,
+          "size_mib_floor": 1172
+        },
+        {
+          "architecture": "amd64",
+          "available": true,
+          "created": "2026-10-13T12:50:32.104539527Z",
+          "descriptor": {
+            "digest": "sha256:d569e9127b72a1211be5174bae7ea6ff08a6c3d95a4b8418409a810558fb64f6",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "size": 2489
+          },
+          "diff_ids": [
+            "sha256:81f823b9617547261c907396f63f770deaa554748ff739bedfa650e3bb74595a",
+            "sha256:aa7bf5b94b92bc0951fa6a85f909392c3e1ed27b4c2fa82bc77fa84122a08416",
+            "sha256:96a9284da7b47faab75998a33dc2e56874756555b92480d023585ff8a6d153fd",
+            "sha256:a4bc3d2a20bafc5e6c89c5e2285579f620f118f81b5413c62edee3d2380bdaa2",
+            "sha256:f7d704e9049824a8bb8860609b030e2cfd2c380484325cda609bb4d578d0db3a",
+            "sha256:db0680b293b9de7d3ad00394d5702732b0cd01a004f92a4cd892f67aeb51a0eb",
+            "sha256:5222d85488d4db1ca72af2c98177538cc2a2042e5e7d927e1b1e4015cc80780e",
+            "sha256:da4fb4eb3698a291e5291d0ac0401ab5468a1dc3053dffdd772abe0c02de02dd",
+            "sha256:c4b60d4d869666050be6d9304cbbbc4f0882f5aba092498f8b417a436d111970",
+            "sha256:835013419e0abd724c3372994132361cfde812b4d251f4e203b089ccdc08f52c"
+          ],
+          "id": "sha256:d569e9127b72a1211be5174bae7ea6ff08a6c3d95a4b8418409a810558fb64f6",
+          "os": "linux",
+          "reference": "agentium-livekit-agent:ad10dbc2b6cb",
+          "repo_digests": [
+            "agentium-livekit-agent@sha256:d569e9127b72a1211be5174bae7ea6ff08a6c3d95a4b8418409a810558fb64f6"
+          ],
+          "repo_tags": [
+            "agentium-livekit-agent:ad10dbc2b6cb"
+          ],
+          "revision": "ad10dbc2b6cb464c8e7c6b19af8ffc46a3b3fb3b",
+          "size_bytes": 104374853,
+          "size_mib_floor": 99
+        }
+      ],
+      "tag": "ad10dbc2b6cb"
+    },
+    {
+      "all_listed_images_measured": false,
+      "budget_check": {
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": "image\tsize_mb\tbudget_mb\tverdict\nagentium-backend:bd724044\t-\t-\tmissing\nagentium-worker:bd724044\t-\t-\tmissing\nagentium-frontend:bd724044\t-\t-\tmissing\nagentium-ml-ts:bd724044\t-\t-\tnot built (optional)\nagentium-livekit-agent:bd724044\t-\t-\tmissing\n"
+      },
+      "images": [
+        {
+          "available": false,
+          "error": {
+            "exit_code": 1,
+            "stderr": "Error response from daemon: No such image: agentium-backend:bd724044\n",
+            "stdout": "\n"
+          },
+          "reference": "agentium-backend:bd724044"
+        },
+        {
+          "available": false,
+          "error": {
+            "exit_code": 1,
+            "stderr": "Error response from daemon: No such image: agentium-worker:bd724044\n",
+            "stdout": "\n"
+          },
+          "reference": "agentium-worker:bd724044"
+        },
+        {
+          "available": false,
+          "error": {
+            "exit_code": 1,
+            "stderr": "Error response from daemon: No such image: agentium-frontend:bd724044\n",
+            "stdout": "\n"
+          },
+          "reference": "agentium-frontend:bd724044"
+        },
+        {
+          "available": false,
+          "error": {
+            "exit_code": 1,
+            "stderr": "Error response from daemon: No such image: agentium-ml-ts:bd724044\n",
+            "stdout": "\n"
+          },
+          "reference": "agentium-ml-ts:bd724044"
+        },
+        {
+          "available": false,
+          "error": {
+            "exit_code": 1,
+            "stderr": "Error response from daemon: No such image: agentium-livekit-agent:bd724044\n",
+            "stdout": "\n"
+          },
+          "reference": "agentium-livekit-agent:bd724044"
+        }
+      ],
+      "tag": "bd724044"
+    },
+    {
+      "all_listed_images_measured": false,
+      "budget_check": {
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": "image\tsize_mb\tbudget_mb\tverdict\nagentium-backend:a90272c1\t-\t-\tmissing\nagentium-worker:a90272c1\t-\t-\tmissing\nagentium-frontend:a90272c1\t-\t-\tmissing\nagentium-ml-ts:a90272c1\t-\t-\tnot built (optional)\nagentium-livekit-agent:a90272c1\t-\t-\tmissing\n"
+      },
+      "images": [
+        {
+          "available": false,
+          "error": {
+            "exit_code": 1,
+            "stderr": "Error response from daemon: No such image: agentium-backend:a90272c1\n",
+            "stdout": "\n"
+          },
+          "reference": "agentium-backend:a90272c1"
+        },
+        {
+          "available": false,
+          "error": {
+            "exit_code": 1,
+            "stderr": "Error response from daemon: No such image: agentium-worker:a90272c1\n",
+            "stdout": "\n"
+          },
+          "reference": "agentium-worker:a90272c1"
+        },
+        {
+          "available": false,
+          "error": {
+            "exit_code": 1,
+            "stderr": "Error response from daemon: No such image: agentium-frontend:a90272c1\n",
+            "stdout": "\n"
+          },
+          "reference": "agentium-frontend:a90272c1"
+        },
+        {
+          "available": false,
+          "error": {
+            "exit_code": 1,
+            "stderr": "Error response from daemon: No such image: agentium-ml-ts:a90272c1\n",
+            "stdout": "\n"
+          },
+          "reference": "agentium-ml-ts:a90272c1"
+        },
+        {
+          "available": false,
+          "error": {
+            "exit_code": 1,
+            "stderr": "Error response from daemon: No such image: agentium-livekit-agent:a90272c1\n",
+            "stdout": "\n"
+          },
+          "reference": "agentium-livekit-agent:a90272c1"
+        }
+      ],
+      "tag": "a90272c1"
+    }
+  ],
+  "schema_version": 1,
+  "scope": "read-only metadata for existing images, no deployment qualification"
+}

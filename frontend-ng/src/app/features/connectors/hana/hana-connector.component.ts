@@ -23,11 +23,14 @@ interface HanaConfig {
   password?: string | null;
   password_set?: boolean;
   encrypt?: boolean;
+  ssl_validate_certificate?: boolean;
+  demo_mode?: boolean;
 }
 
 interface HanaTestResult {
   ok?: boolean;
   status?: string;
+  source?: string;
   current_user?: string;
   current_schema?: string;
   detail?: string;
@@ -189,6 +192,29 @@ const MASKED_PASSWORD = /^[*•]+$/;
           }
         </div>
 
+        <div class="space-y-2">
+          <label class="flex items-start gap-2 hana-label">
+            <input
+              type="checkbox"
+              name="demoMode"
+              [(ngModel)]="demoMode"
+              [disabled]="!featureEnabled() || saving() || loading()"
+              aria-describedby="hana-demo-help"
+            />
+            <span>{{ i18n.t('connectors.hana.demo_mode') }}</span>
+          </label>
+          <p id="hana-demo-help" class="text-sm hana-help leading-relaxed">
+            {{ i18n.t('connectors.hana.demo_mode_help') }}
+          </p>
+          @if (!encrypt || !sslValidateCertificate) {
+            <p role="status" class="rounded-md p-3 text-sm ck-tone-warn">
+              {{ i18n.t(!encrypt ? 'connectors.hana.tls_unencrypted' : 'connectors.hana.tls_unverified') }}
+            </p>
+          } @else {
+            <p class="text-sm hana-help">{{ i18n.t('connectors.hana.tls_verified') }}</p>
+          }
+        </div>
+
         <div class="flex flex-wrap items-center gap-2 pt-2">
           <button
             type="submit"
@@ -202,12 +228,16 @@ const MASKED_PASSWORD = /^[*•]+$/;
             type="button"
             (click)="testConnection()"
             class="ck-btn ck-btn-quiet"
-            [disabled]="!featureEnabled() || testing() || loading()"
+            [disabled]="!featureEnabled() || testing() || loading() || saving()"
+            aria-describedby="hana-test-help"
           >
             <app-icon name="zap" [size]="14" [class.animate-pulse]="testing()" />
             {{ i18n.t(testing() ? 'connectors.action.testing' : 'connectors.hana.test') }}
           </button>
         </div>
+        <p id="hana-test-help" class="text-sm hana-help leading-relaxed">
+          {{ i18n.t('connectors.hana.test_saved_help') }}
+        </p>
       </form>
 
       @if (testResult(); as result) {
@@ -360,6 +390,9 @@ export class HanaConnectorComponent implements OnInit {
   port: number | string = 443;
   user = '';
   password = '';
+  demoMode = false;
+  encrypt = true;
+  sslValidateCertificate = true;
 
   ngOnInit(): void {
     this.loadConfig();
@@ -395,7 +428,7 @@ export class HanaConnectorComponent implements OnInit {
 
   saveConfig(): void {
     if (!this.featureEnabled()) return;
-    const payload = this.buildPayload({ includePasswordIfEmpty: false });
+    const payload = this.buildPayload();
     if (!payload['host'] || !payload['user']) {
       this.toast.error(this.i18n.t('connectors.hana.host_user_required'), 'SAP HANA');
       return;
@@ -427,13 +460,11 @@ export class HanaConnectorComponent implements OnInit {
     this.testing.set(true);
     this.testResult.set(null);
     this.error.set(null);
-    // Prefer testing against the saved server config; if the form has edits,
-    // send them so operators can validate before save. Empty password = keep stored.
-    const payload = this.buildPayload({ includePasswordIfEmpty: false });
-    this.api.post<HanaTestResult>('/hana/test', payload).subscribe({
+    // The endpoint tests only the saved configuration and never falls back to demo data.
+    this.api.post<HanaTestResult>('/hana/test', {}).subscribe({
       next: (result) => {
         this.testing.set(false);
-        const ok = result?.ok !== false && result?.status !== 'error';
+        const ok = result?.ok === true && result?.status !== 'error' && result?.source !== 'demo_dataset';
         this.testResult.set({ ...result, ok });
         if (ok) {
           this.toast.success(this.i18n.t('connectors.test.status.connected'), 'SAP HANA');
@@ -444,7 +475,9 @@ export class HanaConnectorComponent implements OnInit {
       },
       error: (err) => {
         this.testing.set(false);
-        const detail = err?.error?.detail || this.i18n.t('connectors.hana.test_failed');
+        const detail = typeof err?.error?.detail === 'string'
+          ? err.error.detail
+          : this.i18n.t('connectors.hana.test_failed');
         this.testResult.set({ ok: false, detail });
         this.toast.error(detail, 'SAP HANA');
       },
@@ -478,6 +511,9 @@ export class HanaConnectorComponent implements OnInit {
     this.host = typeof cfg.host === 'string' ? cfg.host : this.host;
     this.port = cfg.port ?? this.port;
     this.user = typeof cfg.user === 'string' ? cfg.user : this.user;
+    this.demoMode = cfg.demo_mode === true;
+    this.encrypt = cfg.encrypt !== false;
+    this.sslValidateCertificate = cfg.ssl_validate_certificate !== false;
     const masked =
       cfg.password_set === true ||
       (typeof cfg.password === 'string' && MASKED_PASSWORD.test(cfg.password.trim()));
@@ -486,15 +522,18 @@ export class HanaConnectorComponent implements OnInit {
     this.password = '';
   }
 
-  private buildPayload(opts: { includePasswordIfEmpty: boolean }): Record<string, unknown> {
+  private buildPayload(): Record<string, unknown> {
     const portNum = typeof this.port === 'string' ? Number(this.port) : this.port;
     const body: Record<string, unknown> = {
       host: this.host.trim(),
       port: Number.isFinite(portNum) ? portNum : 443,
       user: this.user.trim(),
+      demo_mode: this.demoMode,
+      encrypt: this.encrypt,
+      ssl_validate_certificate: this.sslValidateCertificate,
     };
     const pwd = this.password.trim();
-    if (pwd || opts.includePasswordIfEmpty) {
+    if (pwd) {
       body['password'] = pwd;
     }
     return body;

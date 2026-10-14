@@ -1,4 +1,7 @@
 {{- if .Values.worker.enabled }}
+{{- if has "dataops" (splitList "," (replace " " "" .Values.worker.queues)) }}
+{{- fail "worker.queues must exclude dataops; use dataopsWorker.enabled" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

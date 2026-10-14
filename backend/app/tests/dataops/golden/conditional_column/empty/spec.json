@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "operation": "prepare",
+  "params": {
+    "steps": [
+      {
+        "id": "golden",
+        "kind": "conditional_column",
+        "params": {
+          "output": "b",
+          "cases": [
+            {
+              "when": "a>0",
+              "then": "positive"
+            }
+          ],
+          "else": "other"
+        }
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "port": "out",
+      "name": "Golden"
+    }
+  ]
+}

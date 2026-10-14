@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { NavigationProfileService } from './navigation-profile.service';
 import type { NavigationRedirectDecision } from './navigation-telemetry.service';
 import { WorkspaceService, workspaceSettingFeature } from './workspace.service';
-import { agentiumSurfaceRoute, matchAgentiumSurface, workspaceFamily } from './navigation.catalog';
+import { agentiumSurfaceRoute, matchAgentiumSurface, surfaceFeatureEnabled, workspaceFamily } from './navigation.catalog';
 import {
   missionRoomImpactTarget,
   missionRoomImpactUrl,
@@ -25,6 +25,7 @@ export class NavigationResolverService {
 
   resolve(requestedRoute: string): NavigationRedirectDecision | null {
     return (
+      this.resolveDisabledFeatureSurface(requestedRoute) ||
       this.resolveGenericHome(requestedRoute) ||
       this.resolveCustomerSurface(requestedRoute) ||
       this.resolveLegacyHypervisorObjectLens(requestedRoute) ||
@@ -36,6 +37,14 @@ export class NavigationResolverService {
       this.resolveMissionRoomCompat(requestedRoute) ||
       this.resolveWorkspaceEntrypoint(requestedRoute)
     );
+  }
+
+  private resolveDisabledFeatureSurface(requestedRoute: string): NavigationRedirectDecision | null {
+    const surface = matchAgentiumSurface(requestedRoute);
+    if (!surface?.featureGate || surfaceFeatureEnabled(surface.id, this.workspace.current())) return null;
+    const parent = agentiumSurfaceRoute(surface.featureGate.fallbackSurface);
+    const resolved = this.resolveBusinessProfile(parent)?.resolvedRoute ?? parent;
+    return this.decision(requestedRoute, resolved, 'workspace_extension_unavailable');
   }
 
   private resolveGenericHome(requestedRoute: string): NavigationRedirectDecision | null {
@@ -52,7 +61,7 @@ export class NavigationResolverService {
     const profileSettings = current?.settings?.['navigation_profile'] as Record<string, unknown> | undefined;
     const configured = this.absoluteRoute(profileSettings?.['default_route'] || current?.settings?.['default_route']);
     if (configured && this.pathOnly(configured) !== '/' && matchAgentiumSurface(configured)) {
-      const policy = this.resolveBusinessProfile(configured) || this.resolveMissionRoomCompat(configured);
+      const policy = this.resolveDisabledFeatureSurface(configured) || this.resolveBusinessProfile(configured) || this.resolveMissionRoomCompat(configured);
       if (!policy) return this.decision(requestedRoute, configured, 'workspace_default_route');
     }
     if (this.workspace.experienceV1Enabled()) {

@@ -175,8 +175,8 @@ def test_cross_workspace_is_refused_before_materialization(db_session, sample, m
     base.workspace_id = other.id
     db_session.commit()
     monkeypatch.setattr(
-        "app.services.tabular_transforms.materialize",
-        lambda *args: pytest.fail("No bytes should be read"),
+        "app.services.tabular_transforms.materialize_dataset",
+        lambda *args, **kwargs: pytest.fail("No bytes should be read"),
     )
     with pytest.raises(TabularError) as caught:
         preview_enrichment(db_session, workspace_id=ws.id, spec=spec)

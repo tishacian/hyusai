@@ -520,7 +520,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
                 : i18n.t('flow.builder.handle.insert.source')
             }}
           </div>
-          @for (item of handleMenuShortlist(); track item.config?.['skill_slug'] ?? item.type) {
+          @for (item of handleMenuShortlist(); track item.key ?? item.config?.['skill_slug'] ?? item.type) {
             <button
               type="button"
               role="menuitem"
@@ -1201,7 +1201,7 @@ export class FlowBuilderComponent {
       const dx = preconnect.direction === 'out' ? 260 : -260;
       position = { x: base.x + dx, y: base.y };
     }
-    const id = this.store.addNode(paletteItemToNode(item, position));
+    const id = this.store.addNode(paletteItemToNode(item.labelKey ? {...item,label:this.i18n.t(item.labelKey)} : item, position));
     if (!preconnect) return;
     const edge = buildPreconnectEdge(
       preconnect,

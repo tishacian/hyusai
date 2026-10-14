@@ -1,0 +1,24 @@
+{
+  "source_revision": "37f361c5",
+  "passed": 15,
+  "seconds": 6.59,
+  "log": "/workspace/dataops-completion-2026-10-13/samples-final.log",
+  "log_sha256": "d89af7a382084efbfd5a3c9fa0acd2d78cc45bce27691b3da9e6604250c55d74",
+  "scope": [
+    "sample enqueue, worker idempotency and immutable sample reuse",
+    "late sample worker cannot recreate a retired/purged version",
+    "uncertain broker delivery and stale lease recovery via bounded SQL CAS",
+    "cache immutability, workspace/prefix/sample identity and TTL",
+    "NaN and Infinity preview profile and valid JSON serialization"
+  ],
+  "limits": [
+    "SQLite local ledger and controlled broker failures; no live RabbitMQ or deployed worker"
+  ],
+  "source_sha256": {
+    "backend/app/services/dataops/samples.py": "385d0c6d675ed72e29ac74fa7db292b1de26e6e2a4c95dc6b1ebf5b52f6d3e5d",
+    "backend/app/services/dataops/preview.py": "52c7faedc722d3edd6818e3502b05c4518fbb12421fbe3b8a1e8ef3a163cf2d8",
+    "backend/app/services/dataops/preview_stats.py": "1adac8e353a6a526990ebd822923954068aa6c6f4dec5fb466d990e820e647a0",
+    "backend/app/tests/services/test_dataops_samples.py": "d9170eb1be59acf5d6d3f82d8bb8b7164e6df2b06d3d840ef42df53c8b2bc546",
+    "backend/app/tests/services/test_dataops_sample_recovery.py": "0d736b0d222bb096108cea1a0ef929d60f9e5bdb2cbfb6aa48b838802ba9e208"
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "agentium_images_inspected": 204,
+  "available_backend_revisions": [
+    "00abeb53299cf1c08be41f8c47377308adc42870",
+    "00b56172e24f324bcdd7c90f78e896df80ea3ba3",
+    "11ead0e12648f7f338134b6fea5b862f1b931c10",
+    "1d91874e087bfa227021b6c607845bce2a1d1adf",
+    "1e368fc1250b06fa9549b26adbcc93817aea2675",
+    "23f9d3b93ecf8d583799cf9835a7e9953116adde",
+    "31121bb1d390d114fe06687f5ee26c42e27d0c89",
+    "31da45d458a577fda43a25d0b6ef6974daeefb40",
+    "400f1bdf452cb3e32faf915f1bae7a1add5eb8aa",
+    "522f5324c1564ee3f060c4441110588412f08a63",
+    "5584a3f51f17deb2b99f8d3ced6693a5370d0189",
+    "632efdb8117886d6554c3f2718cfc7baf5099587",
+    "640f7f0cc5231f2a3a5a91ecc736469507d3eaf1",
+    "67e588743828207c25f0901b2213869af45f7ebc",
+    "6e072fbfed06e9b7ee17f75cc8f00b7c15eb6a12",
+    "70a78810bc6095b9c0c35c1d6d37c395d597858e",
+    "72ae9b246771eac6f9184e300939dba1d22a5143",
+    "7589048e715ec3e3bb2132c336de173b61bf0f65",
+    "75edb545d455940c3dddc78f7ed67e2370a229c3",
+    "7bf7d7a5d61c1196563fbea44a7956b58438bd97",
+    "8a5694d74c09a23dcaa59578079f3f344d6d81c2",
+    "97a0370519bcd76e61e62d695ca6403f827638e3",
+    "a3bbbf696919eb30d5176fcf38dd29b6b8fdfba3",
+    "ad10dbc2b6cb464c8e7c6b19af8ffc46a3b3fb3b",
+    "af3f61e0ad8acb2959f3c40d6dbf8fb9a9b5d179",
+    "b0ce840ab020fa8c34d1766c83389474b58a23ed",
+    "b30e45a27fc191448ebcd01746653adc2de4ff14",
+    "c1e3ce6962b20a032a29aeea731da1906265ff80",
+    "d315154835b4dc71671882c5d2c59e331c167fe8",
+    "d647f31bb23f92deb51f75ee8ef4081de1d2dd98",
+    "d9f0b5300a129a384eef296bbb00f7cde620b5eb",
+    "e080f5fd15c6dcb69ab98e336f3913748a8d0c1a",
+    "f5773fffdaed077e4979106772098277842bd6cd",
+    "fd7d4055a37e3173f21cf0dc3e1d5a070333e5b9",
+    "fd9dca9ec8bd625850ca666896f286734c27217c",
+    "ffde3c4267cf66c632343e0a7d49b7be4e25c669"
+  ],
+  "candidate_matches": [],
+  "candidate_prefixes": [
+    "bd724044",
+    "a90272c1"
+  ],
+  "docker_root_dir": "/var/lib/docker",
+  "hostname": "omnirag-demo",
+  "observed_at_utc": "2026-10-14T07:01:31.387372+00:00",
+  "root_free_bytes": 137494495232,
+  "running_containers": [
+    {
+      "image_id": "sha256:edc26ba7f12f32f5c06ddeb138ff6486faa89e807a1542e7c96087a7a20f376e",
+      "image_reference": "agentium-backend:ad10dbc2b6cb",
+      "name": "/agentium-backend",
+      "started_at": "2026-10-13T12:54:20.305739186Z",
+      "status": "running"
+    },
+    {
+      "image_id": "sha256:377761b3b106ab7aac62c71a98f9dbe30ca76a0cb86561844c330fe6fce0b197",
+      "image_reference": "agentium-worker:ad10dbc2b6cb",
+      "name": "/agentium-worker-cpu",
+      "started_at": "2026-10-13T12:54:20.305067939Z",
+      "status": "running"
+    },
+    {
+      "image_id": "sha256:377761b3b106ab7aac62c71a98f9dbe30ca76a0cb86561844c330fe6fce0b197",
+      "image_reference": "agentium-worker:ad10dbc2b6cb",
+      "name": "/agentium-worker-recipes",
+      "started_at": "2026-10-13T12:54:20.310141527Z",
+      "status": "running"
+    },
+    {
+      "image_id": "sha256:c4b9e1f8b7c1d74e673ccae086a77d0ea7be8910eec146567e7459e92d52193f",
+      "image_reference": "agentium-ml-ts:ad10dbc2b6cb",
+      "name": "/agentium-worker-ml-ts",
+      "started_at": "2026-10-13T12:54:20.300456714Z",
+      "status": "running"
+    },
+    {
+      "image_id": "sha256:d711b29874a747a40a414ba794154841760bade262e988a1f892076da96e5b9a",
+      "image_reference": "agentium-frontend:ad10dbc2b6cb",
+      "name": "/agentium-frontend",
+      "started_at": "2026-10-13T12:54:20.266015904Z",
+      "status": "running"
+    }
+  ]
+}

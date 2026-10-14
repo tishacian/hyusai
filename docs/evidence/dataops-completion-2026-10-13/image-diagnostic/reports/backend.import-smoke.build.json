@@ -1,0 +1,50 @@
+{
+  "status": "import_passed",
+  "image": "backend",
+  "revision_label": "64a10ba9e9329b5d8d203ecc786254bbdcee7e19",
+  "source_head_start": "64a10ba9e9329b5d8d203ecc786254bbdcee7e19",
+  "source_status_start": [],
+  "source_fingerprint_start": {
+    "sha256": "6a5424cc02e105ffc9963b184b64f4ace9a791d783edc2df17ca86fabf5ab8c6",
+    "files": 2531,
+    "scope": "tracked and unignored files: backend, docker, scripts, run_celery.sh"
+  },
+  "docker_endpoint": "unix:///var/run/docker.sock",
+  "builder": "agentium-dataops-review",
+  "builder_limits": {
+    "Memory": 4294967296,
+    "MemorySwap": 4294967296,
+    "NanoCpus": 0,
+    "CpuPeriod": 100000,
+    "CpuQuota": 200000,
+    "CgroupnsMode": "private",
+    "CgroupParent": "/docker/buildx"
+  },
+  "base_image": "python:3.12-slim@sha256:ec948fa5f90f4f8907e89f4800cfd2d2e91e391a4bce4a6afa77ba265bc3a2fe",
+  "platform": "linux/amd64",
+  "output_format": "cache-only separate offline import stage",
+  "import_smoke_only": true,
+  "install_hf_rag": 1,
+  "install_giskard_raget": false,
+  "disk_reserve_bytes": 4294967296,
+  "disk_free_initial_bytes": 12265922560,
+  "disk_free_minimum_bytes": 12265095168,
+  "disk_guard": null,
+  "original_dockerfile_sha256": "361c170a15812e52fb86e5ea3cc27131d7651898e0af20497e689077f82b3a53",
+  "qualification_dockerfile_sha256": "a2421063002766abf412441be94439a34b3ffe0a03eb13c70993d6880ba2781f",
+  "dockerfile_adaptation": "Public proxy CA as BuildKit secret on RUN only; no trust bundle in final layers.",
+  "runtime_qualification": false,
+  "import_smoke_script_sha256": "950c93082a7b25b80781808f6b118240385ebc259bb7d156b822da747b1a21a7",
+  "build_client_pid": 217606,
+  "exit_code": 0,
+  "seconds": 10.002,
+  "disk_free_final_bytes": 12264976384,
+  "source_head_end": "64a10ba9e9329b5d8d203ecc786254bbdcee7e19",
+  "source_fingerprint_end": {
+    "sha256": "5c3d03b87873143faabc7d5849806392fc23ab1473f5f1eda2adf94711059b31",
+    "files": 2531,
+    "scope": "tracked and unignored files: backend, docker, scripts, run_celery.sh"
+  },
+  "archive_bytes": null,
+  "runtime_source_unchanged_during_build": false
+}

@@ -319,6 +319,9 @@ def test_agent_recommendation_sees_methods_but_cannot_train_retrain_or_write_dat
         "ml_monitor_model_v1",
         "ml_batch_score_v1",
         "sql_transform_v1",
+        "data_prep_v1",
+        "narration_run_v1",
+        "evaluate_v2",
     ]
     for slug in writes:
         mandate = compile_mandate_view([*read, slug], privilege_tier="recommend")
@@ -402,6 +405,9 @@ def test_method_resource_notice_and_hashes_are_packaged():
         "polars_transform_v1",
         "dbt_transform_v1",
         "python_recipe_v1",
+        "data_prep_v1",
+        " narration_run_v1 ",
+        "evaluate_v2",
     ],
 )
 def test_authored_or_published_alias_cannot_inject_graph_owned_write(target):

@@ -89,18 +89,18 @@ def _load_inputs(duckdb, db_path: str, sources: dict) -> list[str]:
     """
 
     names: list[str] = []
-    table_by_path: dict[str, str] = {}
+    table_by_path: dict[tuple[str, ...], str] = {}
     connection = duckdb.connect(db_path)
     try:
         for name, path in sources.items():
             relation = str(name)
-            location = str(path)
+            location = tuple(path) if isinstance(path, list) else (str(path),)
             existing = table_by_path.get(location)
             if existing is None:
-                quoted = location.replace("'", "''")
+                quoted = ",".join("'" + p.replace("'", "''") + "'" for p in location)
                 connection.execute(
                     f'CREATE OR REPLACE TABLE main."{relation}" AS '
-                    f"SELECT * FROM read_parquet('{quoted}')"
+                    f"SELECT * FROM read_parquet([{quoted}])"
                 )
                 table_by_path[location] = relation
             else:

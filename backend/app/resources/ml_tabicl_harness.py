@@ -54,18 +54,18 @@ def main(argv):
             or manifest.get("tuning")
         ):
             raise ValueError("TabICL supports only the fixed pilot recipe")
-        import pyarrow.parquet as parquet
+        import pyarrow.dataset as arrow_dataset
 
         target, task = manifest["target"], manifest["task"]
         selected = [*manifest["features"], target]
-        metadata = parquet.ParquetFile(manifest["data_path"])
+        metadata = arrow_dataset.dataset(manifest.get("data_paths") or manifest["data_path"], format="parquet")
         if (
-            metadata.metadata.num_rows > 10_000
+            metadata.count_rows() > 10_000
             or not 1 <= len(manifest["features"]) <= 100
             or len(set(selected)) != len(selected)
         ):
             raise ValueError("TabICL pilot Parquet dimensions exceed the qualified limits")
-        frame = metadata.read(columns=selected).to_pandas()
+        frame = metadata.to_table(columns=selected, use_threads=False).to_pandas()
         frame = frame.loc[frame[target].notna()].copy()
         X = normalize_frame(frame[manifest["features"]])
         y = (

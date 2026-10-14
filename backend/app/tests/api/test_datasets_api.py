@@ -113,9 +113,7 @@ def test_detail_returns_preview_stats_versions_and_lineage(client, db_session, w
     assert first["slug"] == second["slug"]
 
 
-def test_detail_lists_models_and_systems_that_use_the_dataset(
-    client, db_session, workspace
-):
+def test_detail_lists_models_and_systems_that_use_the_dataset(client, db_session, workspace):
     """L20b « Utilisé par »: models trained here, and the System that authored it."""
 
     from uuid import uuid4
@@ -185,9 +183,7 @@ def test_a_reader_can_page_past_the_rows_the_ingest_cached(client, db_session, w
     assert [col["name"] for col in tail["schema"]] == ["i", "kpi"]
 
 
-def test_paging_one_step_too_far_is_an_empty_page_not_an_error(
-    client, db_session, workspace
-):
+def test_paging_one_step_too_far_is_an_empty_page_not_an_error(client, db_session, workspace):
     from app.services.tabular_datasets import register_frame
 
     small = register_frame(
@@ -255,9 +251,7 @@ def test_detail_walks_the_lineage_both_ways(client, db_session, workspace):
     assert [row["id"] for row in downstream["lineage"]["children"]] == [child.id]
 
 
-def test_list_is_workspace_scoped_and_hides_retired_rows(
-    client, db_session, workspace
-):
+def test_list_is_workspace_scoped_and_hides_retired_rows(client, db_session, workspace):
     mine = _upload(client).json()["dataset"]
     other_ws = Workspace(
         id=str(uuid4()), name="Other", slug=f"other-{uuid4().hex[:8]}", settings={}
@@ -281,9 +275,7 @@ def test_list_is_workspace_scoped_and_hides_retired_rows(
     assert [row["id"] for row in listed["datasets"]] == [mine["id"]]
     assert listed["feature"]["enabled"] is True
 
-    assert client.delete(f"/datasets/{mine['id']}").json()["dataset"]["status"] == (
-        "deleted"
-    )
+    assert client.delete(f"/datasets/{mine['id']}").json()["dataset"]["status"] == ("deleted")
     assert client.get("/datasets").json()["datasets"] == []
     # A retired dataset is gone from reads too, not just from the list.
     assert client.get(f"/datasets/{mine['id']}").status_code == 404
@@ -432,9 +424,7 @@ def test_polars_preview_dispatches_a_tracked_run_instead_of_answering_inline(
     assert sent[0][1][0] == body["execution"]["id"]
 
 
-def test_polars_preview_refuses_a_disabled_plane_with_a_coded_error(
-    client, monkeypatch
-):
+def test_polars_preview_refuses_a_disabled_plane_with_a_coded_error(client, monkeypatch):
     monkeypatch.setattr(settings, "recipe_execution_enabled", False)
     dataset = _upload(client).json()["dataset"]
 
@@ -566,9 +556,7 @@ def test_dbt_preview_without_a_source_says_what_to_do(client):
     assert response.json()["detail"]["code"] == "TRANSFORM_NO_INPUT"
 
 
-def test_queued_ingest_dispatches_to_the_worker_plane(
-    client, db_session, monkeypatch
-):
+def test_queued_ingest_dispatches_to_the_worker_plane(client, db_session, monkeypatch):
     """Non-eager deployments must hand the parse to Celery, not block the API."""
 
     monkeypatch.setattr(settings, "worker_eager_mode", False)
@@ -589,3 +577,114 @@ def test_queued_ingest_dispatches_to_the_worker_plane(
     assert body["dataset"]["status_detail"]
     assert sent and sent[0][0] == "agentium.dataset_ingest"
     assert sent[0][1] == (body["dataset"]["id"],)
+
+
+@pytest.mark.parametrize("delta", [False, True])
+@pytest.mark.parametrize("format", ["csv", "parquet"])
+def test_download_preserves_rows_and_workspace_authority(
+    client, db_session, workspace, monkeypatch, delta, format
+):
+    from app.services.tabular_datasets import register_frame
+    from app.services.dataops.ingestion import register_batches
+    from app.services.tabular_datasets import reserve_frame
+    import pyarrow as pa
+    import tempfile
+    from pathlib import Path
+
+    frame = pl.DataFrame({"id": [1, 2, 3], "text": ["a,b", "é", "line\nbreak"]})
+    if delta:
+        row = reserve_frame(db_session, workspace_id=workspace.id, name="Download", commit=False)
+        table = frame.to_arrow()
+        with tempfile.TemporaryDirectory() as tmp:
+            register_batches(
+                db_session,
+                row,
+                table.to_batches(),
+                schema=table.schema,
+                directory=Path(tmp),
+                delta=True,
+            )
+    else:
+        row = register_frame(db_session, workspace_id=workspace.id, name="Download", frame=frame)
+    db_session.commit()
+    response = client.get(f"/datasets/{row.id}/download?format={format}")
+    assert response.status_code == 200
+    actual = (
+        pl.read_csv(io.BytesIO(response.content))
+        if format == "csv"
+        else pl.read_parquet(io.BytesIO(response.content))
+    )
+    assert actual.to_dicts() == frame.to_dicts()
+    foreign = Workspace(
+        id=str(uuid4()), name="Foreign", slug=f"foreign-{uuid4().hex[:6]}", settings={}
+    )
+    db_session.add(foreign)
+    db_session.commit()
+    client.app.dependency_overrides[datasets_api.get_current_workspace] = lambda: foreign
+    assert client.get(f"/datasets/{row.id}/download").status_code == 404
+
+
+def test_purge_is_durable_admin_intent_and_dedicated_worker_rechecks_a1(
+    client, db_session, workspace, user
+):
+    from app.models.service_contract import AssetVersion
+    from app.services.dataops.purge import purge_job
+    from app.services.object_store import get_object_store
+    from app.services.tabular_datasets import register_frame, soft_delete, TabularError
+
+    row = register_frame(
+        db_session, workspace_id=workspace.id, name="Retire", frame=pl.DataFrame({"id": [1]})
+    )
+    db_session.commit()
+    assert client.post(f"/datasets/{row.id}/purge").status_code == 403
+    user.role = "admin"
+    db_session.commit()
+    assert client.post(f"/datasets/{row.id}/purge").status_code == 409
+    soft_delete(db_session, row)
+    assert get_object_store().exists(row.storage_key)  # app never physically deletes
+    first = client.post(f"/datasets/{row.id}/purge")
+    assert first.status_code == 202
+    job_id = first.json()["job_id"]
+    assert client.post(f"/datasets/{row.id}/purge").json()["job_id"] == job_id
+    asset = AssetVersion(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        kind="dataset",
+        logical_key="retained",
+        version=1,
+        digest="d" * 64,
+        manifest_key="a1/manifest",
+        manifest_json={"native_refs": [{"kind": "dataset", "id": row.id}]},
+    )
+    db_session.add(asset)
+    db_session.commit()
+    with pytest.raises(TabularError, match="retained"):
+        purge_job(db_session, job_id, delete_prefix=lambda _: pytest.fail("A1 bytes were deleted"))
+    db_session.rollback()
+    db_session.delete(asset)
+    db_session.commit()
+    calls = []
+    result = purge_job(db_session, job_id, delete_prefix=lambda prefix: calls.append(prefix) or 3)
+    db_session.commit()
+    assert result.status == "completed" and result.result["deleted_objects"] == 3
+    assert calls == [f"workspaces/{workspace.id}/tabular/datasets/{row.id}/"]
+    purge_job(db_session, job_id, delete_prefix=lambda _: pytest.fail("completed job replayed"))
+
+
+def test_generic_job_api_cannot_inject_purge_authority(client, db_session, workspace, user):
+    from app.api.v1.endpoints import workspace_jobs
+
+    app = FastAPI()
+    app.include_router(workspace_jobs.router, prefix="/jobs")
+    app.dependency_overrides[workspace_jobs.get_current_workspace] = lambda: workspace
+    app.dependency_overrides[workspace_jobs.get_current_user] = lambda: user
+    app.dependency_overrides[workspace_jobs.get_db] = lambda: db_session
+    response = TestClient(app).post(
+        "/jobs/",
+        json={
+            "kind": "tabular_dataset_purge",
+            "title": "Injected",
+            "input_ref": {"dataset_id": "foreign"},
+        },
+    )
+    assert response.status_code == 403

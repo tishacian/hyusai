@@ -101,12 +101,11 @@ def main(argv: list[str]) -> int:
     verb = args[0]
     if verb == "du":
         path = local(args[1])
-        if not os.path.isdir(path):
-            # `mc du` on an empty prefix is a fatal error, not a zero. The
-            # script relies on that and reads the failure as 0.
+        if not os.path.exists(path):
+            # Required objects with unknown sizes fail preflight.
             print(f"mc: <ERROR> Unable to stat {args[1]}", file=sys.stderr)
             return 1
-        total = 0
+        total = os.path.getsize(path) if os.path.isfile(path) else 0
         for base, _, files in os.walk(path):
             for name in files:
                 total += os.path.getsize(os.path.join(base, name))
@@ -117,6 +116,12 @@ def main(argv: list[str]) -> int:
         if not os.path.isdir(source):
             return 1
         shutil.copytree(source, target, dirs_exist_ok=True)
+        return 0
+    if verb == "cp":
+        source, target = local(args[1]), args[2]
+        if not os.path.isfile(source):
+            return 1
+        shutil.copy2(source, target)
         return 0
     print(f"fake mc: unsupported verb {verb}", file=sys.stderr)
     return 64
@@ -258,6 +263,7 @@ def harness(tmp_path, probe_databases):
         encoding="utf-8",
     )
     script.chmod(0o755)
+    shutil.copy2(ROOT / "scripts/agentium_validate_delta_backup.py", tmp_path)
 
     (binaries / "docker").write_text(FAKE_DOCKER, encoding="utf-8")
     (binaries / "docker").chmod(0o755)
@@ -375,7 +381,7 @@ def test_the_mirror_is_scoped_from_the_registry_and_not_from_the_bucket(harness)
     stranger = harness["bucket"] / "workspaces/ws-2/knowledge/collections/c/big.bin"
     stranger.parent.mkdir(parents=True, exist_ok=True)
     stranger.write_bytes(b"x" * 4096)
-    # ...and a prefix of the *same* workspace that the plane does not own.
+    # Even this workspace's knowledge tree is excluded until explicitly referenced.
     other = harness["bucket"] / "workspaces/ws-1/knowledge/collections/c/also.bin"
     other.parent.mkdir(parents=True, exist_ok=True)
     other.write_bytes(b"y" * 2048)
@@ -527,8 +533,13 @@ def test_brd_original_is_copied_and_digest_verified(harness, state):
         path.parent.mkdir(parents=True)
         path.write_bytes(original if state == "present" else b"corrupt")
     result = _run(harness)
-    manifest = _manifest(harness)
     window = harness["data_root"] / "probe-deployments" / f"{_today()}-{SHA}"
+    if state == "missing":
+        assert result.returncode != 0 and not (window / ".ready").exists()
+        assert "required artifact unavailable or size unknown" in result.stderr
+        assert not (window / "objects").exists(), "preflight must stop before copying objects"
+        return
+    manifest = _manifest(harness)
     assert manifest["brd_documents"] == 1
     assert (window / ".ready").exists() == (state == "present")
     assert (result.returncode == 0) == (state == "present"), result.stderr
@@ -556,6 +567,11 @@ def test_recorded_evaluation_partition_is_required_in_restore_window(harness, st
     result = _run(harness)
     window = harness["data_root"] / "probe-deployments" / f"{_today()}-{SHA}"
     assert (window / ".ready").exists() is (state == "present"), result.stderr
+    if state == "missing":
+        assert result.returncode != 0
+        assert "required artifact unavailable or size unknown" in result.stderr
+        assert not (window / "objects").exists(), "preflight must stop before copying objects"
+        return
     manifest = json.loads((window / "MANIFEST.json").read_text())
     assert manifest["evaluation_partitions"] == 1
     assert result.returncode == (0 if state == "present" else 1)

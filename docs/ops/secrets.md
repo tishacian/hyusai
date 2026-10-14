@@ -12,6 +12,11 @@ with placeholders — never production secrets.
 
 ## Runtime env bundle on the VM
 
+HANA uses the workspace secret registry only: the global
+`HANA_CONNECTOR_PASSWORD` fallback has been removed. Provision a workspace
+credential before enabling a live connection; see
+[HANA security and rollout](hana-security-s0.md) for TLS and destination policy.
+
 The backend, its workers, the SFTP server, the Hub worker, Keycloak,
 LiveKit and its realtime STT sidecar (`agentium-livekit-agent`) are
 containers created by `scripts/agentium-vm-deploy.sh` from the

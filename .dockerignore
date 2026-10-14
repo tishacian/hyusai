@@ -7,6 +7,12 @@
 **.pytest_cache/
 **.ruff_cache/
 
+# Terraform providers and local state are build-time infrastructure artifacts.
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfplan
+
 # Jupyter Notebook
 **.ipynb_checkpoints
 

@@ -1,0 +1,18 @@
+{
+  "benchmark_id": "8efdd150173241a48e61f52bad8b9f57",
+  "elapsed_seconds": 330.5527094260033,
+  "memory": {
+    "baseline_rss_bytes": 397996032,
+    "peak_tree_sampled_rss_bytes": 2139041792,
+    "sampled_scope": "visible_process_tree_via_proc_ppid",
+    "sampling_interval_ms": 50
+  },
+  "observed_at": "2026-10-14T00:47:06.454405+00:00",
+  "phase": "completed",
+  "phases": {
+    "ingestion_seconds": 76.3442599419941,
+    "preparation_seconds": 91.12070588999632,
+    "scoring_seconds": 163.02189069299493
+  },
+  "status": "completed"
+}

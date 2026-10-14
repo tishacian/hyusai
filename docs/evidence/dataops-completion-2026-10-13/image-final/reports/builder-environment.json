@@ -1,0 +1,24 @@
+{
+  "container": "buildx_buildkit_agentium-dataops-review0",
+  "host_config_limits": {
+    "Memory": 4294967296,
+    "MemorySwap": 4294967296,
+    "NanoCpus": 0,
+    "CpuPeriod": 100000,
+    "CpuQuota": 200000,
+    "CgroupnsMode": "private",
+    "CgroupParent": "/docker/buildx"
+  },
+  "effective_cgroup_before_build": {
+    "memory.max": "4294967296",
+    "memory.swap.max": "0",
+    "memory.current": "2909360128",
+    "memory.peak": "4294971392",
+    "memory.events": "low 0\nhigh 0\nmax 151210\noom 0\noom_kill 0\noom_group_kill 0",
+    "cpu.max": "200000 100000",
+    "cpu.stat": "usage_usec 892346329\nuser_usec 419345829\nsystem_usec 473000500\nnice_usec 0\nnr_periods 10501\nnr_throttled 2348\nthrottled_usec 364441797\nnr_bursts 0\nburst_usec 0"
+  },
+  "worker": "ID:\t\tgrh7i9y9n2g10zrjrwyumui6w\nPlatforms:\tlinux/amd64,linux/amd64/v2,linux/amd64/v3,linux/amd64/v4\nBuildKit:\tgithub.com/moby/buildkit v0.24.0 b772c318368090fb2ffc9c0fed92e0a35bf82389\nLabels:\n\torg.mobyproject.buildkit.worker.executor:\t\toci\n\torg.mobyproject.buildkit.worker.hostname:\t\t4169eaefcc72\n\torg.mobyproject.buildkit.worker.network:\t\thost\n\torg.mobyproject.buildkit.worker.oci.process-mode:\tsandbox\n\torg.mobyproject.buildkit.worker.selinux.enabled:\tfalse\n\torg.mobyproject.buildkit.worker.snapshotter:\t\tfuse-overlayfs\nGC Policy rule#0:\n\tAll:\t\t\tfalse\n\tFilters:\t\ttype==source.local,type==exec.cachemount,type==source.git.checkout\n\tKeep duration:\t\t48h0m0s\n\tMaximum used space:\t512MB\nGC Policy rule#1:\n\tAll:\t\t\tfalse\n\tKeep duration:\t\t1440h0m0s\n\tReserved space:\t\t4GB\n\tMinimum free space:\t7GB\n\tMaximum used space:\t26GB\nGC Policy rule#2:\n\tAll:\t\t\tfalse\n\tReserved space:\t\t4GB\n\tMinimum free space:\t7GB\n\tMaximum used space:\t26GB\nGC Policy rule#3:\n\tAll:\t\t\ttrue\n\tReserved space:\t\t4GB\n\tMinimum free space:\t7GB\n\tMaximum used space:\t26GB",
+  "daemon_version": "28.4.0",
+  "counter_scope": "Existing dedicated builder lifetime. Compare before/after events; memory.peak also includes the archived diagnostic build."
+}

@@ -1,3 +1,4 @@
+import { isPrepNode, prepSummary } from './flow-data-prep.vm';
 /**
  * `<app-flow-node>` — the custom Foblex node, rendered as an Angular
  * component and styled exclusively with `--ck-*` design tokens (no Material).
@@ -140,6 +141,10 @@ interface RuntimeBadge {
       @if (description(); as desc) {
         <div class="ck-flow-node__desc">{{ desc }}</div>
       }
+      @if (dataPrepSummary(); as summary) {
+        <div class="ck-flow-node__source" data-testid="flow-prep-summary">{{i18n.t(summary.key,{count:summary.count})}}</div>
+        @for(port of prepPortCounts();track port.label){<div class="ck-flow-node__source">{{port.label}} · {{port.rows}}</div>}
+      }
       @if (sourceSummary(); as summary) {
         <div class="ck-flow-node__source" data-testid="flow-source-summary"><span>{{ summary }}</span><span>{{ i18n.t(sourceModeKey()) }}</span></div>
       }
@@ -173,7 +178,7 @@ interface RuntimeBadge {
           class="ck-flow-port ck-flow-port--in"
           [style.top]="portOffset(i, view().inputs.length)"
           [title]="inp.name || 'input'"
-        ></div>
+        >@if(dataPrepSummary()){<span class="ck-prep-port-label">{{inp.name}}</span>}</div>
       }
       @for (out of view().outputs; track out.id; let i = $index) {
         <div
@@ -183,7 +188,7 @@ interface RuntimeBadge {
           class="ck-flow-port ck-flow-port--out"
           [style.top]="portOffset(i, view().outputs.length)"
           [title]="out.name || 'output'"
-        ></div>
+        >@if(dataPrepSummary()){<span class="ck-prep-port-label">{{out.name}}</span>}</div>
       }
     </div>
   `,
@@ -201,6 +206,9 @@ export class FlowNodeComponent {
   readonly runStep = output<string>();
 
   private readonly node = computed<CanonicalFlowNode>(() => this.view().node);
+
+  readonly dataPrepSummary = computed(()=>isPrepNode(this.node())?prepSummary(this.node()):null);
+  readonly prepPortCounts = computed(()=>{const data=this.run?.nodeRuns()[this.node().id]?.data;return [...Object.entries(data?.inputs??{}).flatMap(([port,ref])=>typeof ref.rows==='number'?[{label:'→ '+port,rows:ref.rows}]:[]),...Object.entries(data?.outputs??{}).flatMap(([port,ref])=>typeof ref==='object'&&typeof ref.rows==='number'?[{label:port+' →',rows:ref.rows}]:[])];});
 
   /** Breakpoint affordance shows only while the step-debugger is armed. */
   readonly debugArmed = computed(() => (this.run ? this.run.debugMode() !== 'off' : false));

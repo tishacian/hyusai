@@ -1,0 +1,11 @@
+{
+  "container_id": "76b350030855a45334798498e1c353e83f4b7bd1b643eac50aa87a6fa1a7744a",
+  "oom_killed": false,
+  "running_before_cleanup": true,
+  "memory_limit_bytes": 536870912,
+  "nano_cpus": 1000000000,
+  "cleanup_utc": "2026-10-13T22:25:47.429073+00:00",
+  "container_removed": true,
+  "private_fixture_and_credentials_removed": true,
+  "temporary_datasets_removed": true
+}

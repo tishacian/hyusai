@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "operation": "prepare",
+  "params": {
+    "steps": [
+      {
+        "id": "golden",
+        "kind": "hash",
+        "params": {
+          "columns": [
+            "a"
+          ],
+          "salt": "none",
+          "output": "replace"
+        }
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "port": "out",
+      "name": "Golden"
+    }
+  ]
+}

@@ -39,13 +39,54 @@ grep -q 'name: CELERY_BROKER_URL' /tmp/agentium-helm.yaml ||
 grep -q 'KEYCLOAK_URL:' /tmp/agentium-helm.yaml ||
 	fail "pods must receive KEYCLOAK_URL"
 grep -q 'CELERY_QUEUES: "cpu,recipes"' /tmp/agentium-helm.yaml ||
-	fail "the only worker must also listen on the recipes queue"
+	fail "the general worker must consume cpu,recipes only"
+# Revisions before DataOps have no dedicated worker; keep the historical
+# scaffold check runnable there. A chart declaring DataOps must render it.
+if grep -q '^dataopsWorker:' "$ROOT/ops/helm/agentium/values.yaml"; then
+	dataops="$(helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+		--show-only templates/worker-dataops.yaml)"
+	grep -q 'kind: Deployment' <<<"$dataops" || fail "DataOps requires its own Deployment"
+	grep -q 'name: agentium-worker-dataops$' <<<"$dataops" || fail "DataOps worker missing"
+	grep -A1 'name: CELERY_QUEUES' <<<"$dataops" | grep -q 'value: dataops$' ||
+		fail "the dedicated worker must consume dataops"
+	grep -A1 'name: CELERY_CONCURRENCY' <<<"$dataops" | grep -q 'value: "1"' ||
+		fail "DataOps requires one task per worker"
+	grep -A1 'name: CELERY_BEAT' <<<"$dataops" | grep -q 'value: "0"' ||
+		fail "DataOps must not start another scheduler"
+	if helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+		--set-string 'worker.queues=cpu\,recipes\,dataops' >/dev/null 2>&1; then
+		fail "the general worker must refuse the dataops queue"
+	fi
+fi
 grep -q -- '--import-realm' /tmp/agentium-helm.yaml ||
 	fail "keycloak must import the realm its readiness probe requests"
 cmp -s "$ROOT/backend/keycloak/realm-export.json" \
 	"$ROOT/ops/helm/agentium/files/realm-export.json" ||
 	fail "chart realm export drifted from backend/keycloak/realm-export.json"
-for app in backend worker migrate p4-maintenance; do
+catalog_apps=()
+if grep -q '^catalogReconcile:' "$ROOT/ops/helm/agentium/values.yaml"; then
+	catalog_apps=(catalog-reconcile)
+	catalog="$(helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+		--show-only templates/catalog-reconcile.yaml)"
+	grep -q 'kind: Job' <<<"$catalog" || fail "catalog reconciliation requires a Job"
+	grep -q 'helm.sh/hook: post-install,post-upgrade' <<<"$catalog" ||
+		fail "catalog reconciliation must run on install and upgrade"
+	grep -q 'helm.sh/hook-weight: "10"' <<<"$catalog" ||
+		fail "catalog reconciliation must follow migration weight 5"
+	grep -qF 'command: ["python", "-m", "app.cli.reconcile_catalog", "--apply"]' <<<"$catalog" ||
+		fail "catalog reconciliation must apply the release's canonical catalog"
+	for flag in migrate.enabled catalogReconcile.enabled; do
+		if helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+			--set "$flag=false" | grep -q 'name: agentium-catalog-reconcile$'; then
+			fail "$flag=false must skip catalog reconciliation"
+		fi
+	done
+	if helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+		--set migrate.hook=pre-upgrade >/dev/null 2>&1; then
+		fail "catalog reconciliation must refuse an unordered migration hook"
+	fi
+fi
+for app in backend worker migrate p4-maintenance "${catalog_apps[@]}"; do
 	if helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
 		--show-only "templates/${app}.yaml" | grep -q 'MINIO_ROOT_PASSWORD'; then
 		fail "$app must not receive the MinIO root password"
@@ -118,7 +159,23 @@ grep -q 'server-snippet' /tmp/agentium-helm.yaml || fail "hidden-path ingress sn
 # request block. A container added without requests breaks the equality, so
 # the QoS hole cannot come back unnoticed.
 tpl_containers="$(grep -cE '^ +image: ' /tmp/agentium-helm.yaml || true)"
-tpl_sized="$(grep -cE '^ +cpu: ' /tmp/agentium-helm.yaml || true)"
+request_cpus() {
+	# CPU limits are independent of CPU requests; counting both would reject a
+	# correctly bounded DataOps worker. Track indentation of requests blocks.
+	awk '
+	/^[ ]+requests:/ {
+	  match($0, /[^ ]/); indent=RSTART; active=1
+	  if ($0 ~ /\{.*cpu:/) {count++; active=0}
+	  next
+	}
+	active && /^[ ]*[^ ]/ {
+	  match($0, /[^ ]/)
+	  if (RSTART <= indent) active=0
+	  else if ($0 ~ /^[ ]+cpu:/) {count++; active=0}
+	}
+	END {print count+0}' "$1"
+}
+tpl_sized="$(request_cpus /tmp/agentium-helm.yaml)"
 [ "$tpl_containers" -gt 0 ] || fail "helm template rendered no container"
 [ "$tpl_containers" = "$tpl_sized" ] ||
 	fail "every container must declare cpu and memory requests ($tpl_sized/$tpl_containers)"
@@ -228,13 +285,13 @@ fi
 if full --show-only templates/hub-fetch.yaml | grep -A1 -- '- secretRef:' | grep -q 'name: agentium-lab$'; then
 	fail "hub-fetch must not load the application Secret whole"
 fi
-for app in backend worker migrate p4-maintenance ml-workers; do
+for app in backend worker migrate p4-maintenance ml-workers "${catalog_apps[@]}"; do
 	if full --show-only "templates/${app}.yaml" | grep -q 'agentium-lab-hub-fetch'; then
 		fail "$app must not receive the hub-fetch credentials"
 	fi
 done
 # One AppRole per role: the worker never holds the API's write role.
-for app in backend migrate; do
+for app in backend migrate "${catalog_apps[@]}"; do
 	full --show-only "templates/${app}.yaml" | grep -q 'name: agentium-lab-openbao-backend' ||
 		fail "$app must load the backend AppRole"
 done
@@ -258,7 +315,7 @@ full --show-only templates/backend.yaml | grep -q 'HF_BUNDLE_SIGNING_KEY_PATH' &
 grep -q 'kind: NetworkPolicy' /tmp/agentium-helm-full.yaml ||
 	fail "the in-cluster OpenBao must only accept its clients"
 full_containers="$(grep -cE '^ +image: ' /tmp/agentium-helm-full.yaml || true)"
-full_sized="$(grep -cE '^ +cpu: ' /tmp/agentium-helm-full.yaml || true)"
+full_sized="$(request_cpus /tmp/agentium-helm-full.yaml)"
 [ "$full_containers" = "$full_sized" ] ||
 	fail "every full-stack container must declare requests ($full_sized/$full_containers)"
 refuse() {
@@ -315,7 +372,7 @@ for out in /tmp/agentium-helm-lk-host.yaml /tmp/agentium-helm-lk-lb.yaml; do
 	grep -q 'LIVEKIT_INTERNAL_URL: http://agentium-livekit:7880' "$out" ||
 		fail "the API must reach LiveKit in-cluster ($out)"
 	containers="$(grep -cE '^ +image: ' "$out" || true)"
-	sized="$(grep -cE '^ +cpu: ' "$out" || true)"
+	sized="$(request_cpus "$out")"
 	[ "$containers" = "$sized" ] || fail "every realtime container must declare requests ($sized/$containers)"
 done
 for values in values-lab-ovh.yaml values-lab-aks.yaml; do

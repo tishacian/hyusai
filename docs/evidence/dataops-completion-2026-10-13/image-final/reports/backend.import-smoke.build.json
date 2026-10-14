@@ -1,0 +1,58 @@
+{
+  "status": "import_passed",
+  "image": "backend",
+  "revision_label": "bd72404472bfd57c01cc2e4a9747ff5e3049814f",
+  "tested_code_revision": "bd72404472bfd57c01cc2e4a9747ff5e3049814f",
+  "full_backend_suite_marker": "/workspace/dataops-completion-2026-10-13/backend-final-isolated.coordinator.finished.json",
+  "full_backend_suite_result": {
+    "exit_code": 0,
+    "collected": 9009,
+    "failed": 0
+  },
+  "only_documentation_changes_after_tested_code": true,
+  "source_head_start": "bd72404472bfd57c01cc2e4a9747ff5e3049814f",
+  "source_status_start": [],
+  "source_fingerprint_start": {
+    "sha256": "8c94f8440c7bc40c93e0b30b758019291f0e1ff21859202d2e69153087099bbf",
+    "files": 2533,
+    "scope": "tracked and unignored files: backend, docker, scripts, run_celery.sh"
+  },
+  "docker_endpoint": "unix:///var/run/docker.sock",
+  "builder": "agentium-dataops-review",
+  "builder_limits": {
+    "Memory": 4294967296,
+    "MemorySwap": 4294967296,
+    "NanoCpus": 0,
+    "CpuPeriod": 100000,
+    "CpuQuota": 200000,
+    "CgroupnsMode": "private",
+    "CgroupParent": "/docker/buildx"
+  },
+  "base_image": "python:3.12-slim@sha256:ec948fa5f90f4f8907e89f4800cfd2d2e91e391a4bce4a6afa77ba265bc3a2fe",
+  "platform": "linux/amd64",
+  "output_format": "cache-only separate offline import stage",
+  "import_smoke_only": true,
+  "install_hf_rag": 1,
+  "install_giskard_raget": false,
+  "disk_reserve_bytes": 4294967296,
+  "disk_free_initial_bytes": 11384025088,
+  "disk_free_minimum_bytes": 11383898112,
+  "disk_guard": null,
+  "original_dockerfile_sha256": "361c170a15812e52fb86e5ea3cc27131d7651898e0af20497e689077f82b3a53",
+  "qualification_dockerfile_sha256": "a2421063002766abf412441be94439a34b3ffe0a03eb13c70993d6880ba2781f",
+  "dockerfile_adaptation": "Public proxy CA as BuildKit secret on RUN only; no trust bundle in final layers.",
+  "runtime_qualification": false,
+  "import_smoke_script_sha256": "9f7dcfa12f783603d2f52dc8db69ac6dc43c3c5d2accff6cc522d09d677aa22c",
+  "build_client_pid": 253877,
+  "seconds": 32.015,
+  "exit_code": 0,
+  "disk_free_final_bytes": 11383832576,
+  "source_head_end": "bd72404472bfd57c01cc2e4a9747ff5e3049814f",
+  "source_fingerprint_end": {
+    "sha256": "8c94f8440c7bc40c93e0b30b758019291f0e1ff21859202d2e69153087099bbf",
+    "files": 2533,
+    "scope": "tracked and unignored files: backend, docker, scripts, run_celery.sh"
+  },
+  "archive_bytes": null,
+  "runtime_source_unchanged_during_build": true
+}

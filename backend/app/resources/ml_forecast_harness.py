@@ -593,7 +593,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
 
     _progress(progress, "reading")
     try:
-        frame = pd.read_parquet(manifest["data_path"])
+        frame = pd.read_parquet(manifest.get("data_paths") or manifest["data_path"])
     except Exception as exc:  # noqa: BLE001
         return _fail(5, f"data_unreadable: {exc}")
     frame[time_column] = pd.to_datetime(frame[time_column], errors="coerce")

@@ -6,6 +6,7 @@ import { Router } from '@angular/router';
 import { of } from 'rxjs';
 import { navigationProfileGuard } from './navigation-profile.guard';
 import { NavigationResolverService } from './navigation-resolver.service';
+import { NavigationProfileService } from './navigation-profile.service';
 import { NavigationTelemetryService } from './navigation-telemetry.service';
 import { WorkspaceExperienceShadowService } from './workspace-experience-shadow.service';
 import { WorkspaceService } from './workspace.service';
@@ -16,6 +17,27 @@ const LEGACY_DECISION = {
   owner: 'navigation_resolver' as const,
   reason: 'business_profile_disallowed' as const,
 };
+
+test('the shell child guard rejects disabled DataOps URLs before their routed component is activated', () => {
+  for (const [url, feature, fallback] of [
+    ['/data/preparation', 'dataops_enabled', '/data'],
+    ['/work/services', 'service_contracts', '/work'],
+  ]) for (const enabled of [false,true]) {
+    const current = {slug:'showcase',settings:{features:{}},effective_features:{[feature]:enabled}};
+    const redirects: unknown[] = [];
+    const injector = Injector.create({providers:[
+      NavigationResolverService,
+      {provide:WorkspaceService,useValue:{current:()=>current,currentSlug:()=>current.slug,workspaces:()=>[current]}},
+      {provide:NavigationProfileService,useValue:{resolveWorkspaceExperience:()=>null,businessShellActive:()=>false}},
+      {provide:Router,useValue:{parseUrl:(value:string)=>({url:value})}},
+      {provide:NavigationTelemetryService,useValue:{registerRedirect:(value:unknown)=>redirects.push(value)}},
+      {provide:WorkspaceExperienceShadowService,useValue:{observeNavigation:()=>undefined}},
+    ]});
+    const result = runInInjectionContext(injector,()=>navigationProfileGuard({} as never,{url} as never));
+    assert.deepEqual(result,enabled ? true : {url:fallback});
+    assert.equal(redirects.length,enabled ? 0 : 1);
+  }
+});
 
 function runGuard(options: { shadowThrows?: boolean; legacyDecision?: typeof LEGACY_DECISION | null } = {}) {
   const events: string[] = [];

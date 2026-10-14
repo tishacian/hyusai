@@ -1,0 +1,47 @@
+{
+  "limits": {
+    "memory_bytes": 536870912,
+    "cpus": 1,
+    "pids": 128,
+    "database_tmpfs_bytes": 268435456
+  },
+  "image_tag": "postgres:17-alpine",
+  "source_revision": "faadce95b002f0eb3be68d85dce5eb77befcc0ed",
+  "local_working_tree": true,
+  "status": "passed",
+  "repo_digests": [
+    "postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24"
+  ],
+  "image_size_bytes": 297176980,
+  "migration_sha256": {
+    "125_retrieval_bench_runs.py": "ceef981925b98e7c32ed2ab46fc03a5715d17c48cd9e1c5c1bf78230a7dc862a",
+    "126_service_contracts.py": "f303745996f2ba7612955ee33c1246cc81ce542e59dc8a57c31ebb4c8d924e9b"
+  },
+  "checks": [
+    "orm_base_stamped_125",
+    "upgrade_125_to_126_creates_all_seven_tables",
+    "empty_downgrade_returns_125_preserves_prior_table",
+    "reupgrade_to_126",
+    "real_foreign_key_rejects_missing_workspace",
+    "populated_downgrade_refused_before_any_table_or_fact_loss"
+  ],
+  "postgres_version": "PostgreSQL 17.11 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+  "historical_upgrade_error": {
+    "type": "ProgrammingError",
+    "message": "(psycopg2.errors.UndefinedTable) relation \"sharepoint_sync_jobs\" does not exist\n\n[SQL: ALTER TABLE sharepoint_sync_jobs ADD COLUMN ingested_count INTEGER DEFAULT '0' NOT NULL]\n(Background on this error at: https://sqlalche.me/e/20/f405)"
+  },
+  "base_mode": "orm_schema_excluding_126_then_stamp_125_not_historical_upgrade",
+  "foreign_keys": {
+    "asset_qualifications": 1,
+    "asset_versions": 1,
+    "delivery_receipts": 4,
+    "service_attempts": 1,
+    "service_contracts": 3,
+    "service_incidents": 2,
+    "service_windows": 2
+  },
+  "child_exit_code": 0,
+  "container_removed": true,
+  "image_removed": true,
+  "secret_directory_removed": true
+}

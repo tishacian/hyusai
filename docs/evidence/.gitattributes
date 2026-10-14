@@ -1,0 +1,4 @@
+# Preserve captured terminal output verbatim, including display padding.
+*.log -whitespace
+# Preserve unified diff context prefixes in the captured input comparison.
+dataops-image-reconciliation-2026-10-14/baseline-ad10dbc2/source-inputs.diff -whitespace
