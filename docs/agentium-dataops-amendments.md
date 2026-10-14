@@ -46,6 +46,8 @@ ce document.
 
 ## Plans et contrats distincts
 
+- [Calcul local avant Kubernetes/Spark](agentium-dataops-local-compute-plan.md) :
+  cadrage des quatre lots locaux, mesures, recettes et déclencheurs ; non implémenté.
 - [Juge typé](agentium-typed-judge-plan.md) : contrat proposé, état du code et
   critères de qualification ; ce document a été écrit pendant l’implémentation,
   pas avant elle. Aucun fournisseur ni corpus réel n’est qualifié.
@@ -56,6 +58,30 @@ ce document.
   destination Work, qui ne vaut pas intégration à un système client externe.
 - [Narration](agentium-showcase-narration-contract.md) : brouillon différé,
   sans activation ni promesse de livraison dans le lot actif.
+
+## Priorité au calcul local avant D4/D5
+
+L'orientation du 14 octobre avance quatre chantiers sans cluster : registre des
+calculs locaux, mesures de volume/CPU/mémoire/spill/échéance et coût, E/S directes
+du runner vers S3 qualifiées sur MinIO, et discipline SQL portable. Le
+[cadrage local](agentium-dataops-local-compute-plan.md) en donne les livrables et
+recettes. C'est un amendement à l'ordre de D-16, §10.3 et §12 : enrichir d'abord
+`RecipeExecution`, sans créer maintenant un second cycle de vie `compute_runs`.
+Le stockage objet direct avance une partie du contrat T1 sans livrer T1.
+
+Les phases suivantes sont une VM plus grande, puis un worker DataOps sur une
+VM dédiée. D4 Kubernetes reste conditionné à un déploiement client sur cluster
+ou à une échéance intenable démontrée après examen des options locales. D5 exige
+simultanément un volume hors de portée d'une grosse machine dans la fenêtre,
+l'absence de moteur client adapté et un cluster compatible. Un profil D7 ciblé
+Databricks/Snowflake peut être préférable ; Spark propre à Agentium n'est pas
+un passage obligé. Les seuils proposés dans le cadrage doivent être qualifiés
+avant activation et ne lancent aucun provisionnement automatique.
+
+Le benchmark de 330,552 s ne prouve pas une marge mémoire : son RSS échantillonné
+atteint 2,139 Go, mais son cgroup touche 4 Gio sans OOM. Les 20 Gio du plan sont
+un plafond visé, pas un volume local déjà qualifié. Les chiffres historiques de
+versions Kubernetes/opérateur restent à revalider au moment du besoin.
 
 ## Écarts constatés, à fermer par des preuves
 
@@ -71,7 +97,8 @@ sur `45ccc915`. Son historique ne doit pas être réécrit pour effacer les erre
 | D3 | Lecteurs natifs multi-parts, profil borné, téléchargement en flux, retraite sans suppression et purge par identité distincte livrés. Le commit natif delta-rs remplace le journal maison : parts écrites puis commit0 natif sans réencodage, conformément à D-21/§29.3. MinIO réel local et une sortie synthétique de plus de 3 Gio qualifiés avec réservoir final, sous cgroup client 4 Gio/2 CPU. Spark/Unity et la migration d’un bucket de production ne sont pas qualifiés. |
 | Actifs/promesses/juge | Contrats et calibration ouverts en production selon le bilan opérateur ; listes de contrats vides, aucun corpus ni cycle de livraison qualifié par ces contrôles. L'activation ne vaut pas qualification fournisseur. |
 | Narration | Différée. Catalogue masqué, runtime fermé et absence de seed de parcours tant que le drapeau est désactivé. |
-| D4/D5/D6/D7/I1/I2 | Différés par demande explicite ; leur absence reste visible dans le plan d’origine et n’est pas présentée comme une implémentation. |
+| Pilotage local issu de D4 | Quatre lots cadrés : registre existant enrichi, mesures/coûts, runner S3, discipline SQL. À implémenter et à qualifier ; aucun placement distant livré par ce cadrage. |
+| D4 Kubernetes / D5 Spark / D6 / D7 / I1 / I2 | Infrastructure et catalogue différés ; déclencheurs explicites dans le cadrage local. Seul un besoin de moteur client mesuré peut avancer un profil D7 ciblé. |
 
 Les suites ciblées du premier lot ne remplaçaient pas une suite complète. Les
 rapports de tests, les comparaisons avec la base et les constructions d’images
