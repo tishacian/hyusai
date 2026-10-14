@@ -77,8 +77,11 @@ case "$1" in
 esac
 """
 
-# `mc du --json <target>` and `mc mirror --quiet <src> <dst>`, where a target is
-# `dump/<bucket>/<prefix>` and the bucket is a directory on this filesystem.
+# `mc du --json <prefix>`, `mc stat --json <key>`, `mc mirror --quiet <src> <dst>`
+# and `mc cp`, where a target is `dump/<bucket>/<path>` and the bucket is a
+# directory on this filesystem. Like the real client, `du` refuses an exact
+# object key: only folders are sized by `du`. Every call is appended to
+# FAKE_MC_LOG; a key containing FAKE_MC_STAT_FAIL answers `stat` with an error.
 FAKE_MC = """#!/usr/bin/env python3
 import json
 import os
@@ -96,20 +99,34 @@ def local(target: str) -> str:
     return os.path.join(ROOT, *parts[2:])
 
 
+def error(message: str) -> int:
+    print(json.dumps({"status": "error", "error": {"message": message}}))
+    return 1
+
+
 def main(argv: list[str]) -> int:
     args = [a for a in argv if not a.startswith("--")]
     verb = args[0]
+    with open(os.environ["FAKE_MC_LOG"], "a", encoding="utf-8") as log:
+        log.write(f"{verb}\\t{args[1] if len(args) > 1 else ''}\\n")
     if verb == "du":
         path = local(args[1])
-        if not os.path.exists(path):
-            # Required objects with unknown sizes fail preflight.
-            print(f"mc: <ERROR> Unable to stat {args[1]}", file=sys.stderr)
-            return 1
-        total = os.path.getsize(path) if os.path.isfile(path) else 0
+        if os.path.isfile(path):
+            return error(f"Source `{args[1]}` is not a folder. Only folders are supported by 'du' command.")
+        if not os.path.isdir(path):
+            return error(f"Unable to stat `{args[1]}`.")
+        total = 0
         for base, _, files in os.walk(path):
             for name in files:
                 total += os.path.getsize(os.path.join(base, name))
-        print(json.dumps({"size": total, "objects": 1, "prefix": args[1]}))
+        print(json.dumps({"status": "success", "size": total, "objects": 1, "prefix": args[1]}))
+        return 0
+    if verb == "stat":
+        path = local(args[1])
+        forced = os.environ.get("FAKE_MC_STAT_FAIL")
+        if (forced and forced in args[1]) or not os.path.isfile(path):
+            return error(f"Unable to stat `{args[1]}`.")
+        print(json.dumps({"status": "success", "type": "file", "size": os.path.getsize(path), "key": args[1]}))
         return 0
     if verb == "mirror":
         source, target = local(args[1]), args[2]
@@ -281,7 +298,9 @@ def harness(tmp_path, probe_databases):
             "OBJECT_STORE_S3_BUCKET": BUCKET,
             "FAKE_MC_ROOT": str(bucket),
             "FAKE_MC_BUCKET": BUCKET,
+            "FAKE_MC_LOG": str(tmp_path / "mc.log"),
         },
+        "mc_log": tmp_path / "mc.log",
     }
 
 
@@ -432,6 +451,55 @@ def test_a_dropped_evaluation_is_counted_and_not_fatal(harness):
     assert result.returncode == 0, result.stderr
     manifest = _manifest(harness)
     assert manifest["report_states"] == 0
+    assert manifest["report_states_missing"] == 1
+    assert manifest["registry_artifacts_missing"] == 0
+
+
+def _mc_calls(harness) -> list[tuple[str, str]]:
+    lines = harness["mc_log"].read_text(encoding="utf-8").splitlines()
+    return [tuple(line.split("\t", 1)) for line in lines]
+
+
+def test_an_exact_object_key_is_sized_by_stat_and_a_prefix_by_du(harness):
+    """`mc du` answers an error for a single object, so it cannot size a file entry."""
+
+    keys = _seed_plane(harness)
+
+    result = _run(harness)
+
+    assert result.returncode == 0, result.stderr
+    calls = _mc_calls(harness)
+    dataset = f"dump/{BUCKET}/{keys['dataset_key']}"
+    model = f"dump/{BUCKET}/{keys['model_uri']}"
+    assert ("stat", dataset) in calls
+    assert ("du", dataset) not in calls
+    assert ("du", model) in calls
+    assert ("stat", model) not in calls
+
+
+def test_a_stat_error_on_a_required_object_fails_closed_before_any_copy(harness):
+    keys = _seed_plane(harness)
+    harness["env"]["FAKE_MC_STAT_FAIL"] = keys["dataset_key"]
+
+    result = _run(harness)
+
+    assert result.returncode == 1
+    assert "required artifact unavailable or size unknown" in result.stderr
+    window = harness["data_root"] / "probe-deployments" / f"{_today()}-{SHA}"
+    assert not (window / ".ready").exists()
+    assert not (window / "objects").exists()
+    assert not any(verb in {"cp", "mirror"} for verb, _ in _mc_calls(harness))
+
+
+def test_a_stat_error_on_an_optional_report_state_is_skipped_and_counted(harness):
+    keys = _seed_plane(harness)
+    harness["env"]["FAKE_MC_STAT_FAIL"] = keys["report"]
+
+    result = _run(harness)
+
+    assert result.returncode == 0, result.stderr
+    assert "optional report state unavailable; skipped" in result.stdout
+    manifest = _manifest(harness)
     assert manifest["report_states_missing"] == 1
     assert manifest["registry_artifacts_missing"] == 0
 

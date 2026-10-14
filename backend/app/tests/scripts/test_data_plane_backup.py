@@ -361,11 +361,18 @@ elif command[0] == 'sh':
     source = bucket / mc[2].removeprefix('dump/bucket/')
     with open(os.environ['BACKUP_TEST_MC_LOG'], 'a') as output:
         output.write(json.dumps({'verb': verb, 'key': mc[2].removeprefix('dump/bucket/')}) + '\n')
+    # Like the real client: `du` sizes folders only and errors on an exact key.
     if verb == 'du':
-        if not source.exists() or os.environ.get('BACKUP_TEST_SIZE_UNAVAILABLE'):
+        if not source.is_dir() or os.environ.get('BACKUP_TEST_SIZE_UNAVAILABLE'):
+            print(json.dumps({'status': 'error'}))
             sys.exit(1)
-        size = source.stat().st_size if source.is_file() else sum(p.stat().st_size for p in source.rglob('*') if p.is_file())
-        print(json.dumps({'size': size}))
+        size = sum(p.stat().st_size for p in source.rglob('*') if p.is_file())
+        print(json.dumps({'status': 'success', 'size': size}))
+    elif verb == 'stat':
+        if not source.is_file() or os.environ.get('BACKUP_TEST_SIZE_UNAVAILABLE'):
+            print(json.dumps({'status': 'error'}))
+            sys.exit(1)
+        print(json.dumps({'status': 'success', 'type': 'file', 'size': source.stat().st_size}))
     elif verb == 'mirror':
         shutil.copytree(source, mc[3], dirs_exist_ok=True)
     elif verb == 'cp':
@@ -469,6 +476,8 @@ def test_dump_copies_only_referenced_evidence_and_not_150gib_knowledge_tree(rest
         call["key"] not in {"workspaces/ws-1", "workspaces/ws-1/knowledge-collections"}
         for call in calls
     )
+    assert {"verb": "stat", "key": key} in calls
+    assert {"verb": "du", "key": key} not in calls
 
 
 def test_copy_plan_includes_only_governed_native_collection_and_retained_evaluation(restored):
