@@ -97,5 +97,16 @@ ne sont pas relevés. Les tests de droits historiques ont été alignés sur la
 matrice M1 (shadow autorisé au relecteur) et les fixtures de Flow utilisent un
 initiateur et une appartenance réellement persistés, avec enforcement actif.
 
-La régression ML élargie est en cours sur la pile finale ; son résultat sera
-ajouté ici. La suite globale du dépôt n’est pas revendiquée comme exécutée.
+La régression ML élargie en `-n 4` donne **1 235 réussites, 22 ignorés et un
+échec** : `test_timeout_preserves_completed_sections`. Ce test suppose qu’un
+processus forké publie son premier résultat en 100 ms, ce qui n’a pas été tenu
+sous cette charge parallèle. Son fichier et le code d’explications sont
+strictement identiques à `47e289da` (empreintes dans `existing-checks.json`).
+Le test passe seul et **les 22 tests de son fichier passent en série**. Aucun
+budget produit ou assertion n’a été modifié pour masquer ce résultat. La
+qualification parallèle n’est donc pas présentée comme entièrement verte.
+
+La conformité statique passe (16 des 22 déclarations vérifiées statiquement ;
+les attestations d’exécution restent séparées). La suite globale du dépôt
+n’a pas été relancée. Ces résultats ne valent ni certification de la VM ni
+qualification SMTP/webhook ou de charge.
