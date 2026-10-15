@@ -1,3 +1,5 @@
+import { WorkspaceService } from '@app/core/workspace.service';
+import { DestroyRef } from '@angular/core';
 import type { MonitoringPolicy } from './retraining-evidence.vm';
 /**
  * Model plane client: the algorithm catalog, training runs and the registry.
@@ -43,6 +45,7 @@ import type { ForecastAnswer, ForecastRequestBody } from './forecast.vm';
 import type { ShadowConfig, ShadowReport } from './shadow-evidence.vm';
 
 export interface ModelListDto {
+  permissions?: Record<string, boolean>;
   models: ModelDto[];
   catalog: ModelCatalog;
 }
@@ -116,9 +119,22 @@ export function isModelActive(model: ModelDto | null | undefined): boolean {
 @Injectable({ providedIn: 'root' })
 export class ModelsService {
   private readonly http = inject(HttpClient);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly destroyRef = inject(DestroyRef);
+  constructor() {
+    this.destroyRef.onDestroy(this.workspace.registerContextReset(() => {
+      this.models.set([]); this.permissions.set({}); this.catalog.set(EMPTY_CATALOG);
+      this.lastPredictionId.set(null); this.loading.set(false);
+    }));
+  }
+  private currentScope(): () => boolean {
+    const scope = this.workspace.captureRequestScope();
+    return () => this.workspace.isRequestScopeCurrent(scope);
+  }
   private readonly base = '/api/v1/ml-models';
 
   readonly models = signal<ModelDto[]>([]);
+  readonly permissions = signal<Record<string, boolean>>({});
   readonly catalog = signal<ModelCatalog>(EMPTY_CATALOG);
   readonly loading = signal(false);
   /** The journal id the last Playground call received. The monitoring form opens on it. */
@@ -128,14 +144,17 @@ export class ModelsService {
   readonly hasActive = computed(() => this.models().some(isModelActive));
 
   async refresh(): Promise<ModelDto[]> {
+    const current = this.currentScope();
     this.loading.set(true);
     try {
       const response = await firstValueFrom(this.http.get<ModelListDto>(this.base));
+      if (!current()) return [];
       this.models.set(response.models ?? []);
-      if (response.catalog) this.adopt(response.catalog);
+      this.permissions.set(response.permissions ?? {});
+      if (current() && response.catalog) this.adopt(response.catalog);
       return this.models();
     } finally {
-      this.loading.set(false);
+      if (current()) this.loading.set(false);
     }
   }
 
@@ -146,10 +165,11 @@ export class ModelsService {
   }
 
   async loadCatalog(): Promise<ModelCatalog> {
+    const current = this.currentScope();
     const response = await firstValueFrom(
       this.http.get<{ catalog: ModelCatalog }>(`${this.base}/catalog`),
     );
-    if (response.catalog) this.adopt(response.catalog);
+    if (current() && response.catalog) this.adopt(response.catalog);
     return this.catalog();
   }
 
@@ -164,10 +184,11 @@ export class ModelsService {
     knobs?: Record<string, number>;
     spec?: Record<string, unknown>;
   }): Promise<PlanResponseDto> {
+    const current = this.currentScope();
     const response = await firstValueFrom(
       this.http.post<PlanResponseDto>(`${this.base}/plan`, body),
     );
-    if (response.catalog) this.adopt(response.catalog);
+    if (current() && response.catalog) this.adopt(response.catalog);
     return response;
   }
 
@@ -177,19 +198,21 @@ export class ModelsService {
   }
 
   async train(body: TrainRequest): Promise<ModelDto> {
+    const current = this.currentScope();
     const response = await firstValueFrom(
       this.http.post<{ model: ModelDto }>(this.base, body),
     );
     // Optimistic insert so the row (and its progress) shows up immediately.
-    this.models.update((rows) => [response.model, ...rows]);
+    if (current()) this.models.update((rows) => [response.model, ...rows]);
     return response.model;
   }
 
   async detail(modelId: string): Promise<ModelDetailDto> {
+    const current = this.currentScope();
     const response = await firstValueFrom(this.http.get<ModelDetailDto>(`${this.base}/${modelId}`));
     // A card opened from a link has not seen the list's catalog: without its
     // registry, a forecast's sMAPE and coverage would print without their unit.
-    if (response.catalog) this.adopt(response.catalog);
+    if (current() && response.catalog) this.adopt(response.catalog);
     return response;
   }
 
@@ -213,33 +236,38 @@ export class ModelsService {
   }
 
   async cancel(modelId: string): Promise<ModelDto> {
+    const current = this.currentScope();
     const response = await firstValueFrom(
       this.http.post<{ model: ModelDto }>(`${this.base}/${modelId}/cancel`, {}),
     );
-    this.replace(response.model);
+    if (current()) this.replace(response.model);
     return response.model;
   }
 
   async promote(modelId: string): Promise<{
+    decision?: { id: string; status: string } | null;
     model: ModelDto;
     versions: ModelDto[];
     challenger_id: string | null;
   }> {
+    const current = this.currentScope();
     const response = await firstValueFrom(
       this.http.post<{
+        decision?: { id: string; status: string } | null;
         model: ModelDto;
         versions: ModelDto[];
         challenger_id: string | null;
       }>(`${this.base}/${modelId}/champion`, {}),
     );
     // Promotion moves an alias, so every version of the lineage changed.
-    for (const version of response.versions ?? []) this.replace(version);
+    if (current()) for (const version of response.versions ?? []) this.replace(version);
     return response;
   }
 
   async remove(modelId: string): Promise<void> {
+    const current = this.currentScope();
     await firstValueFrom(this.http.delete(`${this.base}/${modelId}`));
-    this.models.update((rows) => rows.filter((row) => row.id !== modelId));
+    if (current()) this.models.update((rows) => rows.filter((row) => row.id !== modelId));
   }
 
   // -------------------------------------------------------------------------
@@ -256,17 +284,19 @@ export class ModelsService {
   async predict(
     modelId: string,
     row: Record<string, unknown>,
-    options: { explain?: boolean; version?: number; intervalLevel?: number | null } = {},
+    options: { explain?: boolean; store?: boolean; version?: number; intervalLevel?: number | null } = {},
   ): Promise<PredictAnswer> {
+    const current = this.currentScope();
     const answer = await firstValueFrom(
       this.http.post<PredictAnswer>(`${this.base}/${modelId}/predict`, {
         inputs: [row],
         ...(options.explain ? { explain: true } : {}),
+        ...(typeof options.store === 'boolean' ? { store: options.store } : {}),
         ...(options.version ? { version: options.version } : {}),
         ...(options.intervalLevel != null ? { interval_level: options.intervalLevel } : {}),
       }),
     );
-    if (answer.prediction_id) this.lastPredictionId.set(answer.prediction_id);
+    if (current() && answer.prediction_id) this.lastPredictionId.set(answer.prediction_id);
     return answer;
   }
 
@@ -320,11 +350,12 @@ export class ModelsService {
   async mintKey(
     modelId: string,
     name: string,
+    options: { expires_at?: string; pinned_version?: number; allowed_cidrs?: string[]; rotate_key_id?: string; overlap_hours?: number } = {},
   ): Promise<{ key: ApiKeyRow; serving: ServingBlock }> {
     return firstValueFrom(
       this.http.post<{ key: ApiKeyRow; serving: ServingBlock }>(
         `${this.base}/${modelId}/keys`,
-        { name },
+        { name, ...options },
       ),
     );
   }
@@ -341,6 +372,7 @@ export class ModelsService {
   async publish(
     modelId: string,
   ): Promise<{ skill: PublishedSkillDto; model: ModelDto; serving: ServingBlock }> {
+    const current = this.currentScope();
     const response = await firstValueFrom(
       this.http.post<{
         skill: PublishedSkillDto;
@@ -348,13 +380,14 @@ export class ModelsService {
         serving: ServingBlock;
       }>(`${this.base}/${modelId}/publish`, {}),
     );
-    this.replace(response.model);
+    if (current()) this.replace(response.model);
     return response;
   }
 
   async unpublish(
     modelId: string,
   ): Promise<{ withdrawn: string | null; model: ModelDto; serving: ServingBlock }> {
+    const current = this.currentScope();
     const response = await firstValueFrom(
       this.http.delete<{
         withdrawn: string | null;
@@ -362,7 +395,7 @@ export class ModelsService {
         serving: ServingBlock;
       }>(`${this.base}/${modelId}/publish`),
     );
-    this.replace(response.model);
+    if (current()) this.replace(response.model);
     return response;
   }
 

@@ -127,7 +127,7 @@ type ModelFilter = 'all' | ModelTask | 'serving';
               : i18n.t('models.list.empty.no_dataset')
           "
         >
-          @if (hasDataset()) {
+          @if (canTrain()) {
             <button
               type="button"
               class="ck-cta inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
@@ -258,6 +258,7 @@ type ModelFilter = 'all' | ModelTask | 'serving';
     @if (studioOpen()) {
       <app-model-train
         [datasets]="data.datasets()"
+        [authorized]="models.permissions()['train'] === true"
         (close)="studioOpen.set(false)"
         (trained)="onTrained()"
       />
@@ -512,7 +513,7 @@ export class ModelsListComponent implements OnInit {
   );
 
   protected readonly canTrain = computed(
-    () => this.models.catalog().enabled && this.hasDataset(),
+    () => this.models.permissions()['train'] === true && this.models.catalog().enabled && this.hasDataset(),
   );
 
   protected readonly visible = computed(() => {
@@ -586,6 +587,7 @@ export class ModelsListComponent implements OnInit {
   }
 
   protected openStudio(): void {
+    if (!this.canTrain()) return;
     this.studioOpen.set(true);
   }
 
