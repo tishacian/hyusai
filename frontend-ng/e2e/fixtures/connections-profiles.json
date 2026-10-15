@@ -1,0 +1,476 @@
+{
+ "profiles": {
+  "profiles": [
+   {
+    "key": "mcp",
+    "version": 1,
+    "label_key": "connections.profile.mcp",
+    "family": "mcp",
+    "dialect": "mcp",
+    "packages": [
+     "httpx"
+    ],
+    "parameters": [
+     {
+      "key": "base_url",
+      "type": "string",
+      "required": true,
+      "default": null,
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "allowed_origins",
+      "type": "json",
+      "required": true,
+      "default": null,
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "auth_mode",
+      "type": "enum",
+      "required": false,
+      "default": "none",
+      "choices": [
+       "none",
+       "bearer",
+       "oauth_user",
+       "oauth_client_credentials"
+      ],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "bearer_token",
+      "type": "secret",
+      "required": true,
+      "default": null,
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {
+       "auth_mode": [
+        "bearer"
+       ]
+      }
+     },
+     {
+      "key": "client_id",
+      "type": "string",
+      "required": false,
+      "default": null,
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "client_secret",
+      "type": "secret",
+      "required": false,
+      "default": null,
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "authorization_endpoint",
+      "type": "string",
+      "required": false,
+      "default": null,
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "token_endpoint",
+      "type": "string",
+      "required": false,
+      "default": null,
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "registration_endpoint",
+      "type": "string",
+      "required": false,
+      "default": null,
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "revocation_endpoint",
+      "type": "string",
+      "required": false,
+      "default": null,
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "scopes",
+      "type": "json",
+      "required": false,
+      "default": [],
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "tool_allowlist",
+      "type": "json",
+      "required": false,
+      "default": [],
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "write_tools",
+      "type": "json",
+      "required": false,
+      "default": [],
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "tool_contracts",
+      "type": "json",
+      "required": false,
+      "default": {},
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": true,
+      "when": {}
+     }
+    ],
+    "capabilities": {
+     "read": true,
+     "read_partitioned": false,
+     "read_incremental": false,
+     "consistency": "none",
+     "write_append": false,
+     "write_overwrite": false,
+     "write_upsert": false,
+     "create_table": false,
+     "write_outcome_check": "none",
+     "export_files": false,
+     "watch": false
+    },
+    "limits": {
+     "preview_rows": 100,
+     "statement_timeout_ms": 30000,
+     "fetch_rows": 1000
+    },
+    "digest": "b63624789e01cd923fc031833928c005687651bf8ff30f44a23d7f3e8622d209",
+    "certification": "third_party",
+    "driver_status": "runner_unchecked"
+   },
+   {
+    "key": "postgresql",
+    "version": 1,
+    "label_key": "connections.profile.postgresql",
+    "family": "dbapi",
+    "dialect": "postgresql",
+    "packages": [
+     "psycopg2"
+    ],
+    "parameters": [
+     {
+      "key": "host",
+      "type": "host",
+      "required": true,
+      "default": null,
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "port",
+      "type": "integer",
+      "required": false,
+      "default": 5432,
+      "choices": [],
+      "min": 1,
+      "max": 65535,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "database",
+      "type": "string",
+      "required": true,
+      "default": null,
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "username",
+      "type": "string",
+      "required": true,
+      "default": null,
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "password",
+      "type": "secret",
+      "required": true,
+      "default": null,
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "sslmode",
+      "type": "enum",
+      "required": false,
+      "default": "verify-full",
+      "choices": [
+       "verify-full"
+      ],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": true,
+      "when": {}
+     }
+    ],
+    "capabilities": {
+     "read": true,
+     "read_partitioned": true,
+     "read_incremental": true,
+     "consistency": "snapshot",
+     "write_append": true,
+     "write_overwrite": true,
+     "write_upsert": true,
+     "create_table": false,
+     "write_outcome_check": "marker_table",
+     "export_files": false,
+     "watch": false
+    },
+    "limits": {
+     "preview_rows": 100,
+     "statement_timeout_ms": 30000,
+     "fetch_rows": 10000
+    },
+    "digest": "7309cf70a84e44ab431b7a8633c2d543841af952aab4691fc802335e37b57c64",
+    "certification": "unverified",
+    "driver_status": "runner_unchecked"
+   },
+   {
+    "key": "snowflake",
+    "version": 1,
+    "label_key": "connections.profile.snowflake",
+    "family": "dbapi",
+    "dialect": "snowflake",
+    "packages": [
+     "httpx"
+    ],
+    "parameters": [
+     {
+      "key": "host",
+      "type": "host",
+      "required": true,
+      "default": null,
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "database",
+      "type": "string",
+      "required": true,
+      "default": null,
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "schema",
+      "type": "string",
+      "required": false,
+      "default": "PUBLIC",
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "warehouse",
+      "type": "string",
+      "required": true,
+      "default": null,
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "role",
+      "type": "string",
+      "required": false,
+      "default": null,
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     },
+     {
+      "key": "access_token",
+      "type": "secret",
+      "required": true,
+      "default": null,
+      "choices": [],
+      "min": null,
+      "max": null,
+      "pattern": null,
+      "advanced": false,
+      "when": {}
+     }
+    ],
+    "capabilities": {
+     "read": true,
+     "read_partitioned": true,
+     "read_incremental": true,
+     "consistency": "none",
+     "write_append": true,
+     "write_overwrite": true,
+     "write_upsert": true,
+     "create_table": false,
+     "write_outcome_check": "marker_table",
+     "export_files": false,
+     "watch": false
+    },
+    "limits": {
+     "preview_rows": 100,
+     "statement_timeout_ms": 30000,
+     "fetch_rows": 1000
+    },
+    "digest": "137d28cfca910fbe01e11e19bf5d669a02e3d7ef55aa42b755970d90ca3d1c25",
+    "certification": "unverified",
+    "driver_status": "runner_unchecked"
+   }
+  ]
+ },
+ "tool_catalog": {
+  "servers": [
+   {
+    "key": "github",
+    "publisher": "GitHub",
+    "url": "https://api.githubcopilot.com/mcp/",
+    "documentation": "https://docs.github.com/en/copilot/customizing-copilot/using-model-context-protocol/using-the-github-mcp-server",
+    "auth_mode": "bearer",
+    "tool_allowlist": [
+     "get_file_contents",
+     "search_code",
+     "list_issues",
+     "list_pull_requests"
+    ],
+    "write_tools": [],
+    "data_location": "Provider account and hosting terms apply.",
+    "certification": "third_party"
+   },
+   {
+    "key": "notion",
+    "publisher": "Notion",
+    "url": "https://mcp.notion.com/mcp",
+    "documentation": "https://developers.notion.com/docs/mcp",
+    "auth_mode": "oauth_user",
+    "tool_allowlist": [
+     "notion-search",
+     "notion-fetch"
+    ],
+    "write_tools": [],
+    "data_location": "Provider account and hosting terms apply.",
+    "certification": "third_party"
+   },
+   {
+    "key": "atlassian",
+    "publisher": "Atlassian",
+    "url": "https://mcp.atlassian.com/v1/mcp",
+    "documentation": "https://support.atlassian.com/atlassian-rovo-mcp-server/",
+    "auth_mode": "oauth_user",
+    "tool_allowlist": [
+     "search",
+     "fetch"
+    ],
+    "write_tools": [],
+    "data_location": "Provider account and hosting terms apply.",
+    "certification": "third_party"
+   }
+  ]
+ }
+}

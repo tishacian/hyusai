@@ -1,0 +1,541 @@
+{
+ "framework_enabled": true,
+ "profiles": [
+  {
+   "key": "azure_blob",
+   "family": "object_store",
+   "label_key": "connections.profile.azure_blob",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": false,
+    "read_incremental": false,
+    "consistency": "snapshot",
+    "write_append": false,
+    "write_overwrite": false,
+    "write_upsert": false,
+    "create_table": false,
+    "write_outcome_check": "conditional_put",
+    "export_files": true,
+    "watch": true
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "bigquery",
+   "family": "dbapi",
+   "label_key": "connections.profile.bigquery",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": true,
+    "read_incremental": true,
+    "consistency": "none",
+    "write_append": true,
+    "write_overwrite": true,
+    "write_upsert": true,
+    "create_table": false,
+    "write_outcome_check": "job_id",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "cassandra",
+   "family": "wide_column",
+   "label_key": "connections.profile.cassandra",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": false,
+    "read_incremental": false,
+    "consistency": "none",
+    "write_append": false,
+    "write_overwrite": false,
+    "write_upsert": false,
+    "create_table": false,
+    "write_outcome_check": "none",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "databricks_sql",
+   "family": "dbapi",
+   "label_key": "connections.profile.databricks_sql",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": true,
+    "read_incremental": true,
+    "consistency": "none",
+    "write_append": true,
+    "write_overwrite": true,
+    "write_upsert": true,
+    "create_table": false,
+    "write_outcome_check": "none",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "delta_sharing",
+   "family": "delta_sharing",
+   "label_key": "connections.profile.delta_sharing",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": false,
+    "read_incremental": false,
+    "consistency": "snapshot",
+    "write_append": false,
+    "write_overwrite": false,
+    "write_upsert": false,
+    "create_table": false,
+    "write_outcome_check": "none",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "elasticsearch",
+   "family": "search",
+   "label_key": "connections.profile.elasticsearch",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": false,
+    "read_incremental": false,
+    "consistency": "snapshot",
+    "write_append": true,
+    "write_overwrite": false,
+    "write_upsert": true,
+    "create_table": false,
+    "write_outcome_check": "marker_table",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "gcs",
+   "family": "object_store",
+   "label_key": "connections.profile.gcs",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": false,
+    "read_incremental": false,
+    "consistency": "snapshot",
+    "write_append": false,
+    "write_overwrite": false,
+    "write_upsert": false,
+    "create_table": false,
+    "write_outcome_check": "conditional_put",
+    "export_files": true,
+    "watch": true
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "http_files",
+   "family": "object_store",
+   "label_key": "connections.profile.http_files",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": false,
+    "read_incremental": false,
+    "consistency": "none",
+    "write_append": false,
+    "write_overwrite": false,
+    "write_upsert": false,
+    "create_table": false,
+    "write_outcome_check": "none",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "iceberg_rest",
+   "family": "iceberg_rest",
+   "label_key": "connections.profile.iceberg_rest",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": false,
+    "read_incremental": false,
+    "consistency": "snapshot",
+    "write_append": true,
+    "write_overwrite": true,
+    "write_upsert": true,
+    "create_table": false,
+    "write_outcome_check": "snapshot_summary",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "mariadb",
+   "family": "dbapi",
+   "label_key": "connections.profile.mariadb",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": true,
+    "read_incremental": true,
+    "consistency": "none",
+    "write_append": true,
+    "write_overwrite": true,
+    "write_upsert": true,
+    "create_table": false,
+    "write_outcome_check": "marker_table",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "mcp",
+   "family": "mcp",
+   "label_key": "connections.profile.mcp",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": false,
+    "read_incremental": false,
+    "consistency": "none",
+    "write_append": false,
+    "write_overwrite": false,
+    "write_upsert": false,
+    "create_table": false,
+    "write_outcome_check": "none",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "third_party"
+  },
+  {
+   "key": "mongodb",
+   "family": "document",
+   "label_key": "connections.profile.mongodb",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": false,
+    "read_incremental": false,
+    "consistency": "none",
+    "write_append": true,
+    "write_overwrite": false,
+    "write_upsert": true,
+    "create_table": false,
+    "write_outcome_check": "marker_table",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "mysql",
+   "family": "dbapi",
+   "label_key": "connections.profile.mysql",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": true,
+    "read_incremental": true,
+    "consistency": "none",
+    "write_append": true,
+    "write_overwrite": true,
+    "write_upsert": true,
+    "create_table": false,
+    "write_outcome_check": "marker_table",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "onedrive",
+   "family": "object_store",
+   "label_key": "connections.profile.onedrive",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": false,
+    "read_incremental": false,
+    "consistency": "none",
+    "write_append": false,
+    "write_overwrite": false,
+    "write_upsert": false,
+    "create_table": false,
+    "write_outcome_check": "none",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "openapi",
+   "family": "openapi",
+   "label_key": "connections.profile.openapi",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": false,
+    "read_incremental": false,
+    "consistency": "none",
+    "write_append": false,
+    "write_overwrite": false,
+    "write_upsert": false,
+    "create_table": false,
+    "write_outcome_check": "none",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "third_party"
+  },
+  {
+   "key": "opensearch",
+   "family": "search",
+   "label_key": "connections.profile.opensearch",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": false,
+    "read_incremental": false,
+    "consistency": "snapshot",
+    "write_append": true,
+    "write_overwrite": false,
+    "write_upsert": true,
+    "create_table": false,
+    "write_outcome_check": "marker_table",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "oracle",
+   "family": "dbapi",
+   "label_key": "connections.profile.oracle",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": true,
+    "read_incremental": true,
+    "consistency": "none",
+    "write_append": true,
+    "write_overwrite": true,
+    "write_upsert": true,
+    "create_table": false,
+    "write_outcome_check": "marker_table",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "postgresql",
+   "family": "dbapi",
+   "label_key": "connections.profile.postgresql",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": true,
+    "read_incremental": true,
+    "consistency": "snapshot",
+    "write_append": true,
+    "write_overwrite": true,
+    "write_upsert": true,
+    "create_table": false,
+    "write_outcome_check": "marker_table",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "redshift",
+   "family": "dbapi",
+   "label_key": "connections.profile.redshift",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": true,
+    "read_incremental": true,
+    "consistency": "none",
+    "write_append": true,
+    "write_overwrite": false,
+    "write_upsert": true,
+    "create_table": false,
+    "write_outcome_check": "marker_table",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "s3",
+   "family": "object_store",
+   "label_key": "connections.profile.s3",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": false,
+    "read_incremental": false,
+    "consistency": "snapshot",
+    "write_append": false,
+    "write_overwrite": false,
+    "write_upsert": false,
+    "create_table": false,
+    "write_outcome_check": "conditional_put",
+    "export_files": true,
+    "watch": true
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "s3_compatible",
+   "family": "object_store",
+   "label_key": "connections.profile.s3_compatible",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": false,
+    "read_incremental": false,
+    "consistency": "snapshot",
+    "write_append": false,
+    "write_overwrite": false,
+    "write_upsert": false,
+    "create_table": false,
+    "write_outcome_check": "conditional_put",
+    "export_files": true,
+    "watch": true
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "sap_hana",
+   "family": "dbapi",
+   "label_key": "connections.profile.sap_hana",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": true,
+    "read_incremental": true,
+    "consistency": "none",
+    "write_append": false,
+    "write_overwrite": false,
+    "write_upsert": false,
+    "create_table": false,
+    "write_outcome_check": "none",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "sharepoint_files",
+   "family": "object_store",
+   "label_key": "connections.profile.sharepoint_files",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": false,
+    "read_incremental": false,
+    "consistency": "none",
+    "write_append": false,
+    "write_overwrite": false,
+    "write_upsert": false,
+    "create_table": false,
+    "write_outcome_check": "none",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "snowflake",
+   "family": "dbapi",
+   "label_key": "connections.profile.snowflake",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": true,
+    "read_incremental": true,
+    "consistency": "none",
+    "write_append": true,
+    "write_overwrite": true,
+    "write_upsert": true,
+    "create_table": false,
+    "write_outcome_check": "marker_table",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "sql_server",
+   "family": "dbapi",
+   "label_key": "connections.profile.sql_server",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": true,
+    "read_incremental": true,
+    "consistency": "none",
+    "write_append": true,
+    "write_overwrite": true,
+    "write_upsert": true,
+    "create_table": false,
+    "write_outcome_check": "marker_table",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "synapse",
+   "family": "dbapi",
+   "label_key": "connections.profile.synapse",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": true,
+    "read_incremental": true,
+    "consistency": "none",
+    "write_append": true,
+    "write_overwrite": true,
+    "write_upsert": true,
+    "create_table": false,
+    "write_outcome_check": "marker_table",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  },
+  {
+   "key": "unity_catalog",
+   "family": "uc_rest",
+   "label_key": "connections.profile.unity_catalog",
+   "capabilities": {
+    "read": true,
+    "read_partitioned": false,
+    "read_incremental": false,
+    "consistency": "snapshot",
+    "write_append": false,
+    "write_overwrite": false,
+    "write_upsert": false,
+    "create_table": false,
+    "write_outcome_check": "none",
+    "export_files": false,
+    "watch": false
+   },
+   "certification": "unverified"
+  }
+ ],
+ "tool_servers": [
+  {
+   "key": "github",
+   "publisher": "GitHub",
+   "documentation": "https://docs.github.com/en/copilot/customizing-copilot/using-model-context-protocol/using-the-github-mcp-server",
+   "auth_mode": "bearer",
+   "certification": "third_party"
+  },
+  {
+   "key": "notion",
+   "publisher": "Notion",
+   "documentation": "https://developers.notion.com/docs/mcp",
+   "auth_mode": "oauth_user",
+   "certification": "third_party"
+  },
+  {
+   "key": "atlassian",
+   "publisher": "Atlassian",
+   "documentation": "https://support.atlassian.com/atlassian-rovo-mcp-server/",
+   "auth_mode": "oauth_user",
+   "certification": "third_party"
+  }
+ ]
+}
