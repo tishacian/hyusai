@@ -67,6 +67,7 @@ async function setup(page: Page, options: { theme: string; locale: string; field
       return json(route, { ...base, plan: { task: body.task ?? fixture.columns.find((column: any) => column.name === body.target)?.suggested_task, family: 'tabular', spec: body.spec ?? {}, target: body.target, features: ['visits'], algo: body.algo || 'gradient_boosting', estimator: 'sklearn.ensemble.HistGradientBoostingRegressor', knobs: {}, test_size: 0.25, cross_validation: 0, name: 'Sales amount', warnings: [], rows: 800 } });
     }
     if (path === `/ml-models/${model.id}`) return json(route, { model, dataset, provenance: null, versions: [model], challenger_id: null, catalog, serving: { enabled: true, callable: true, serving_version: 1, serving_model_id: model.id, is_serving: true, max_rows: 100, fields: [{ name: 'visits', kind: 'integer', required: true }], classes: [], positive_label: null, predict_count: 1, last_predict_at: null, published_skill: null, keys: [], endpoint: `/api/v1/ml-models/${model.id}/predict`, key_header: 'X-Agentium-Model-Key' } });
+    if (path === `/ml-models/${model.id}/predictions/prediction-1`) return json(route,{prediction:{id:'prediction-1',row_count:1,samples:[{sample_id:'single-sample',index:0,label:null}]}});
     if (path === `/ml-models/${model.id}/monitoring`) return json(route, { monitoring });
     if (path === `/ml-models/${model.id}/feedback`) {
       const body = request.postDataJSON(); feedback.push(body);
@@ -155,6 +156,7 @@ test.describe('Models · tabular foundation — mocked QA', () => {
       await page.goto(`/models/${model.id}`);
       await page.getByRole('tab', { name: locale === 'fr' ? 'Suivi' : 'Monitoring', exact: true }).click();
       await page.getByLabel(locale === 'fr' ? 'Prédiction' : 'Prediction', { exact: true }).fill('prediction-1');
+      await page.getByRole('button',{name:locale==='fr'?'Charger les lignes conservées':'Load retained rows',exact:true}).click();
       await page.getByLabel(locale === 'fr' ? 'Issue' : 'Outcome', { exact: true }).fill('invalid');
       await page.getByRole('button', { name: locale === 'fr' ? 'Enregistrer' : 'Save', exact: true }).click();
       await expect(page.getByText(locale === 'fr' ? 'L’issue réelle doit être un nombre fini pour un modèle de régression.' : 'Ground truth must be a finite number for a regression model.', { exact: true })).toBeVisible();

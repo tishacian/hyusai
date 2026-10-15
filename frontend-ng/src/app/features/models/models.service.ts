@@ -315,8 +315,8 @@ export class ModelsService {
   }
 
   async configureMonitoringPolicy(modelId: string, policy: MonitoringPolicy): Promise<MonitoringReport> {
-    const { enabled, propose_retraining, interval_minutes } = policy;
-    const result = await firstValueFrom(this.http.post<{monitoring: MonitoringReport}>(`/api/v1/ml-models/${modelId}/monitoring/policy`, { enabled, propose_retraining, interval_minutes }));
+    const { enabled, propose_retraining, interval_minutes, retraining_data } = policy;
+    const result = await firstValueFrom(this.http.post<{monitoring: MonitoringReport}>(`/api/v1/ml-models/${modelId}/monitoring/policy`, { enabled, propose_retraining, interval_minutes, ...(retraining_data ? {retraining_data} : {}) }));
     return result.monitoring;
   }
 
@@ -327,9 +327,13 @@ export class ModelsService {
     )).then(body => body.shadow);
   }
 
+  async predictionSamples(modelId: string, predictionId: string): Promise<{id:string;row_count:number;samples:Array<{sample_id:string;index:number;label:string|null}>}> {
+    return firstValueFrom(this.http.get<{prediction:{id:string;row_count:number;samples:Array<{sample_id:string;index:number;label:string|null}>}}>(`${this.base}/${modelId}/predictions/${encodeURIComponent(predictionId)}`)).then(body=>body.prediction);
+  }
+
   async feedback(
     modelId: string,
-    body: { prediction_id: string; label: string },
+    body: { prediction_id: string; label: string; sample_id?: string },
   ): Promise<{ prediction: { id: string; label: string | null }; monitoring: MonitoringReport }> {
     return firstValueFrom(
       this.http.post<{

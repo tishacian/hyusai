@@ -9,11 +9,11 @@ from app.core.config import settings
 from app.db.base import SessionLocal
 from app.models.run import Run
 from app.models.tabular import MLModel
-from app.models.workspace_job import WorkspaceJob
-from app.services import ml_retraining as service, tabular_ml
-from app.tests.services.test_ml_retraining import case, propose, approve, enabled, store  # noqa: F401
-from app.tests.services.test_ml_training import _stub_harness
+from app.services import ml_retraining as service
+from app.services import tabular_ml
 from app.tests.services.test_ml_registry import registry  # noqa: F401
+from app.tests.services.test_ml_retraining import approve, case, enabled, propose, store  # noqa: F401
+from app.tests.services.test_ml_training import _stub_harness
 
 
 @pytest.fixture
@@ -196,6 +196,7 @@ def test_active_fit_does_not_starve_next_intent_with_one_job_budget(db_session, 
     from copy import deepcopy
     from types import SimpleNamespace
     from uuid import uuid4
+
     from app.models.run_schedule import RunSchedule
     from app.models.tabular import MLPrediction
 
@@ -210,6 +211,9 @@ def test_active_fit_does_not_starve_next_intent_with_one_job_budget(db_session, 
         cross_validation=0, version=1, params_json={"knobs": {}}, spec_json={},
         metrics_json=deepcopy(case.model.metrics_json), signature_json=deepcopy(case.model.signature_json))
     db_session.add(source)
+    db_session.flush()
+    from app.tests.services.test_ml_retraining import record_partition
+    record_partition(source, case.data)
     for row in db_session.query(MLPrediction).filter_by(served_id=case.model.id).all():
         db_session.add(MLPrediction(id=str(uuid4()), workspace_id=case.workspace.id, model_id=source.id,
             served_id=source.id, served_version=1, slug=source.slug, caller="session", row_count=1,

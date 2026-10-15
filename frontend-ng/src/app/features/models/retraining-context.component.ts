@@ -20,12 +20,20 @@ import { retrainingReviewReady, type RetrainingBinding } from './retraining-evid
           <dt>{{ t('algorithm') }}</dt><dd>{{ b.training.algo }}</dd>
           <dt>{{ t('target') }}</dt><dd>{{ b.training.target }}</dd>
           <dt>{{ t('features') }}</dt><dd>{{ b.training.features.join(', ') }}</dd>
-          @if (b.training.task !== 'forecasting') { <dt>{{ t('test_size') }}</dt><dd>{{ b.training.test_size * 100 }} %</dd> }
+          @if (b.training.task !== 'forecasting' && !b.retraining_data) { <dt>{{ t('test_size') }}</dt><dd>{{ b.training.test_size * 100 }} %</dd> }
           <dt>{{ t(b.training.task === 'forecasting' ? 'temporal_folds' : 'cross_validation') }}</dt><dd>{{ b.training.cross_validation }}</dd>
           <dt>{{ t('knobs') }}</dt><dd><code>{{ json(b.training.knobs) }}</code></dd>
           <dt>{{ t('spec') }}</dt><dd><code>{{ json(b.training.spec) }}</code></dd>
           <dt>{{ t('proposal') }}</dt><dd><code>{{ b.proposal_id }}</code></dd>
         </dl>
+        @if (b.retraining_data; as data) {
+          <section data-testid="retraining-data-proof">
+            <p>{{i18n.t('models.correctness.data_mode')}}: {{i18n.t('models.correctness.'+data.mode)}}</p>
+            <p>{{i18n.t('models.correctness.train_rows')}}: {{data.train_rows}} · {{i18n.t('models.correctness.holdout_rows')}}: {{data.holdout_rows}}</p>
+            <p>{{i18n.t('models.correctness.feedback_used')}}: {{data.feedback_used}} / {{data.feedback_available}}</p>
+            @for (source of data.sources; track source.dataset_id) { <p><a [navLink]="{leaf:'data-doc',ref:source.dataset_id}">{{t('dataset')}} · v{{source.version}}</a> · <code>{{source.sha256}}</code></p> }
+          </section>
+        }
         <h4>{{ t('frozen_evidence') }}</h4>
         <p>{{ t('badge') }}: {{ badge(b.evidence.badge) }} · {{ t('prediction_count') }}: {{ b.evidence.window.predictions }} · {{ t(b.training.task === 'forecasting' ? 'observed_count' : 'labeled_count') }}: {{ b.evidence.window.labeled }}</p>
         @if (b.forecast_sources; as sources) {

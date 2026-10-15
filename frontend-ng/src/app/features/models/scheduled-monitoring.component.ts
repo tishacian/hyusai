@@ -4,14 +4,15 @@ import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { NavLinkDirective } from '@app/shared/cockpit';
 import { ModelsService } from './models.service';
+import { MonitoringHistoryComponent } from './monitoring-history.component';
 import type { MonitoringReport } from './models.vm';
 import { RetrainingContextComponent } from './retraining-context.component';
 import { ModelSystemsComponent } from './model-systems.component';
-import { monitoringPolicy, monitoringDate, retrainingReason, retrainingState, proposalBinding, type ScheduledMonitoringReport } from './retraining-evidence.vm';
+import { retrainingDataPolicy, monitoringPolicy, monitoringDate, retrainingReason, retrainingState, proposalBinding, type ScheduledMonitoringReport } from './retraining-evidence.vm';
 
 @Component({
  selector: 'ck-scheduled-monitoring', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
- imports: [NavLinkDirective, RetrainingContextComponent, ModelSystemsComponent],
+ imports: [NavLinkDirective, RetrainingContextComponent, ModelSystemsComponent, MonitoringHistoryComponent],
  template: `
  @if (evidence(); as report) {
   <section data-testid="scheduled-monitoring">
@@ -26,6 +27,16 @@ import { monitoringPolicy, monitoringDate, retrainingReason, retrainingState, pr
       <option value="60">{{ i18n.t('models.retraining.interval.hour') }}</option><option value="360">{{ i18n.t('models.retraining.interval.six_hours') }}</option><option value="1440">{{ i18n.t('models.retraining.interval.day') }}</option>
      </select></label>
      <label><input type="checkbox" data-testid="monitoring-propose" [checked]="propose()" [disabled]="!editable() || busy()" (change)="propose.set($any($event.target).checked)" />{{ t('propose') }}</label>
+     @if (report.family !== 'forecasting') {
+       <label>{{i18n.t('models.correctness.data_mode')}}<select data-testid="retraining-data-mode" [value]="dataMode()" [disabled]="!editable() || busy()" (change)="dataMode.set($any($event.target).value)">
+         <option value="original_plus_feedback">{{i18n.t('models.correctness.original_plus_feedback')}}</option>
+         <option value="feedback_only">{{i18n.t('models.correctness.feedback_only')}}</option>
+         <option value="latest_dataset_version">{{i18n.t('models.correctness.latest_dataset_version')}}</option>
+       </select></label>
+       @if (dataMode() === 'original_plus_feedback') { <label>{{i18n.t('models.correctness.feedback_cap')}}<input type="number" min="1" max="100" [value]="feedbackCap()" [disabled]="!editable() || busy()" (input)="feedbackCap.set($any($event.target).value)" /></label> }
+       @if (dataMode() !== 'latest_dataset_version') { <label>{{i18n.t('models.correctness.window_days')}}<input type="number" min="1" max="3650" [value]="windowDays()" [disabled]="!editable() || busy()" (input)="windowDays.set($any($event.target).value)" /></label> }
+       <p>{{i18n.t('models.correctness.holdout_hint')}}</p>
+     }
      @if (editable()) { <button type="button" data-testid="monitoring-save" [disabled]="busy() || !config()" (click)="save()">{{ i18n.t('models.shadow.save') }}</button> }
     </div>
     @if (!editable()) { <p>{{ t('read_only') }}</p> }
@@ -35,6 +46,7 @@ import { monitoringPolicy, monitoringDate, retrainingReason, retrainingState, pr
    @if (report.policy.system_id; as systemId) { <a data-testid="monitoring-flow" [navLink]="{leaf:'system-flow',ref:systemId}">{{ t('open_flow') }}</a> }
    <ck-model-systems [modelId]="modelId()" />
    <h4>{{ t('history') }}</h4>
+   <ck-monitoring-history [history]="report.history" />
    @if (!report.history.length) { <p>{{ t('history_empty') }}</p> }
    @else { <div class="table-wrap"><table data-testid="monitoring-history"><thead><tr><th>{{ t('date') }}</th><th>{{ t('badge') }}</th><th>{{ t('prediction_count') }}</th><th>{{ t(report.family === 'forecasting' ? 'observed_count' : 'labeled_count') }}</th><th>{{ t('reason') }}</th></tr></thead><tbody>
     @for (item of report.history; track item.id) { <tr><td>{{ date(item.created_at) }}</td><td>{{ badge(item.badge) }}</td><td>{{ item.window.predictions }}</td><td>{{ item.window.labeled }}</td><td>{{ item.reason ? reason(item.reason) : '—' }}</td></tr> }
@@ -71,12 +83,21 @@ export class ScheduledMonitoringComponent {
   readonly enabled = signal(false);
   readonly propose = signal(false);
   readonly interval = signal('60');
+  readonly dataMode = signal('original_plus_feedback');
+  readonly feedbackCap = signal('25');
+  readonly windowDays = signal('');
   readonly busy = signal(false);
   readonly saved = signal(false);
   readonly error = signal('');
   readonly forbidden = signal(false);
   readonly editable = computed(() => this.evidence()?.supported === true && this.evidence()?.can_configure === true && !this.forbidden());
-  readonly config = computed(() => monitoringPolicy(this.enabled(), this.propose(), this.interval()));
+  readonly config = computed(() => {
+    const policy=monitoringPolicy(this.enabled(), this.propose(), this.interval());
+    if (!policy) return null;
+    if (this.evidence()?.family === 'forecasting') return policy;
+    const data=retrainingDataPolicy(this.dataMode(),this.feedbackCap(),this.windowDays());
+    return data ? {...policy,retraining_data:data} : null;
+  });
   readonly proposalBinding = proposalBinding;
   private generation = 0;
   private seeded = '';
@@ -91,7 +112,10 @@ export class ScheduledMonitoringComponent {
       const key = JSON.stringify([this.modelId(), this.workspace.current()?.id, report?.policy]);
       if (!report || key === this.seeded) return;
       this.seeded = key;
-      untracked(() => { this.enabled.set(report.policy.enabled); this.propose.set(report.policy.propose_retraining); this.interval.set(String(report.policy.interval_minutes)); });
+      untracked(() => { this.enabled.set(report.policy.enabled); this.propose.set(report.policy.propose_retraining); this.interval.set(String(report.policy.interval_minutes));
+        this.dataMode.set(report.policy.retraining_data?.mode ?? 'original_plus_feedback');
+        this.feedbackCap.set(String((report.policy.retraining_data?.max_feedback_fraction ?? .25)*100));
+        this.windowDays.set(report.policy.retraining_data?.feedback_window_days == null ? '' : String(report.policy.retraining_data.feedback_window_days)); });
     });
     this.destroy.onDestroy(() => { this.generation++; });
   }
