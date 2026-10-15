@@ -12,9 +12,8 @@ de preuves VM n'est joint.
 | Objet | État au compte rendu | Origine du constat |
 |---|---|---|
 | Production | `4a404d61c8f80a9027d8ea9ababc9c30b112f8c0` | Rapport opérateur, avec vérification de `build-info` rapportée ; non relue sur la VM ici |
-| GitHub `demo/agentic` et `develop` | `4a404d61` | Références Git vérifiées dans cette session de travail |
-| GitHub `main` | `05809a8d` | Référence Git vérifiée dans cette session de travail |
-| Bitbucket | Alignement rapporté par l'opérateur | Aucun contrôle indépendant de ce remote dans cette session |
+| `demo/agentic` et `develop` | `4a404d61` | Références Git de la livraison |
+| `main` | `05809a8d` | Référence Git de la livraison |
 
 Une référence Git vérifiée établit l'état du dépôt, pas celui des processus en
 production. Les validations locales du

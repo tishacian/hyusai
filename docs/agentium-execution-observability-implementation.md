@@ -20,14 +20,13 @@ admission, échéances, annulation et réconciliation ouverts pour tous les
 workspaces, ainsi que les services de contrôle actifs. L'API d'activités est
 accessible mais vide avant de nouveaux travaux. `build-info`, santé,
 sauvegarde, migrations et configuration effective sont ses observations ;
-aucune nouvelle vérification VM n'est effectuée ici. GitHub `demo/agentic` et
-`develop` à `4a404d61`, puis `main` à `05809a8d`, ont été vérifiés séparément ;
-l'alignement Bitbucket reste rapporté par l'opérateur.
+aucune nouvelle vérification VM n'est effectuée ici. `demo/agentic` et
+`develop` sont à `4a404d61`, et `main` à `05809a8d`.
 
 Le [bilan de production](ops/execution-observability-production-2026-10-15.md)
 consigne cette provenance et le défaut du script à `4a404d61` : l'overlay et les
 deux services de contrôle ne font pas partie de son `up`. Le correctif préparé
-sur `codex/control-worker-deploy` n'est pas encore déployé. Temporal reste
+est celui de cette révision : `up` prend en charge les deux services. Temporal reste
 désactivé, la comparaison des moteurs n'est pas réalisée et la certification
 du catalogue reste ouverte. Les états DataOps/connecteurs ne changent pas.
 
