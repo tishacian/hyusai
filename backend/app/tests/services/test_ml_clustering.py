@@ -23,6 +23,7 @@ from app.services.ml.metrics import METRIC_BY_KEY
 from app.services.tabular_datasets import TabularError
 from app.tests.services.test_ml_training import (  # noqa: F401
     _stub_harness,
+    authorized_flow_context,
     dataset,
     enabled,
     store,
@@ -110,7 +111,7 @@ def test_creation_and_manifest_preserve_no_target_no_split(db_session, workspace
 
 @pytest.mark.asyncio
 async def test_flow_accepts_a_targetless_graph_owned_training_request(
-    db_session, workspace, dataset, enabled, monkeypatch, store,
+    db_session, workspace, dataset, enabled, monkeypatch, store, authorized_flow_context,
 ):
     from app.services.skills_registry.wrappers import _ml_train_sklearn_v1
 
@@ -119,7 +120,7 @@ async def test_flow_accepts_a_targetless_graph_owned_training_request(
         "input": {"dataset_id": dataset.id},
         "_train": {"task": "clustering", "algo": "kmeans", "features": ["arpu", "tenure_months"],
                    "model_name": "Customer segments", "node_id": "segments"},
-    }, {"workspace_id": workspace.id})
+    }, authorized_flow_context)
     assert result["task"] == "clustering" and result["target"] == ""
     model = tabular_ml.get_model(db_session, workspace_id=workspace.id, model_id=result["model_id"])
     assert model.family == "clustering" and model.node_id == "segments"
