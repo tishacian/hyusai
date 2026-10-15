@@ -190,6 +190,7 @@ const pureSpecs = [
 // Store specs: exercised through a REAL Angular Injector (ngrx signalStore +
 // JIT). No `@angular/core` alias; the spec imports `@angular/compiler` itself.
 const storeSpecs = [
+  'src/app/features/models/ml-governance.component.spec.ts',
   'src/app/features/observability/activities/activity-api.service.spec.ts',
   'src/app/features/observability/activities/activities.component.spec.ts',
   'src/app/features/data/dataops.api.spec.ts',

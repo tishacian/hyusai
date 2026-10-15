@@ -1,4 +1,5 @@
 import '@angular/compiler';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Injector } from '@angular/core';
@@ -8,7 +9,7 @@ import { ModelsService } from './models.service';
 
 test('monitoring policy sends only the supported contract and waits for canonical state', async () => {
   const response = new Subject<unknown>(), requests: unknown[] = [];
-  const injector = Injector.create({ providers: [ModelsService, { provide: HttpClient, useValue: {
+  const injector = Injector.create({ providers: [ModelsService, {provide: WorkspaceService, useValue: {registerContextReset: () => () => {}, captureRequestScope: () => ({}), isRequestScopeCurrent: () => true}}, { provide: HttpClient, useValue: {
     post: (url: string, body: unknown) => { requests.push({ url, body }); return response; },
   } }] });
   const service = injector.get(ModelsService);
@@ -21,7 +22,7 @@ test('monitoring policy sends only the supported contract and waits for canonica
 
 test('forbidden configuration propagates the server refusal', async () => {
   const response = new Subject<unknown>();
-  const injector = Injector.create({ providers: [ModelsService, { provide: HttpClient, useValue: { post: () => response } }] });
+  const injector = Injector.create({ providers: [ModelsService, {provide: WorkspaceService, useValue: {registerContextReset: () => () => {}, captureRequestScope: () => ({}), isRequestScopeCurrent: () => true}}, { provide: HttpClient, useValue: { post: () => response } }] });
   const result = injector.get(ModelsService).configureMonitoringPolicy('model-version', { enabled: true, propose_retraining: true, interval_minutes: 60 });
   const rejected = assert.rejects(result, (error: HttpErrorResponse) => error.status === 403);
   response.error(new HttpErrorResponse({ status: 403, error: { detail: { code: 'ML_MONITORING_FORBIDDEN' } } }));
@@ -31,7 +32,7 @@ test('forbidden configuration propagates the server refusal', async () => {
 
 test('actuals candidates request ready datasets before the server page limit', async () => {
   const response = new Subject<unknown>(), requests: unknown[] = [];
-  const injector = Injector.create({providers:[ModelsService, {provide:HttpClient,useValue:{
+  const injector = Injector.create({providers:[ModelsService, {provide: WorkspaceService, useValue: {registerContextReset: () => () => {}, captureRequestScope: () => ({}), isRequestScopeCurrent: () => true}}, {provide:HttpClient,useValue:{
     get:(url:string, options:unknown)=>{requests.push({url,options});return response;},
   }}]});
   const pending=injector.get(ModelsService).forecastActualDatasets();

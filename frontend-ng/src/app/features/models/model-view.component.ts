@@ -56,6 +56,7 @@ import { formatBytes } from '@app/shared/ui/data-table.vm';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { DataService, type DatasetDto } from '@app/features/data/data.service';
+import { MlGovernanceComponent } from './ml-governance.component';
 import { ModelPlaygroundComponent } from './model-playground.component';
 import { TabularIntervalsComponent } from './tabular-intervals.component';
 import { ModelTrainComponent, type TrainSeed } from './model-train.component';
@@ -145,6 +146,7 @@ const CHART_ASPECT = 300 / 190;
     CkTabsComponent,
     CkTabComponent,
     ModelPlaygroundComponent,
+    MlGovernanceComponent,
     TabularIntervalsComponent,
     ModelTrainComponent,
     BarListComponent,
@@ -201,7 +203,7 @@ const CHART_ASPECT = 300 / 190;
           </span>
         </div>
         <div actions class="flex items-center gap-1.5 flex-wrap">
-          @if (row.status === 'ready' && !row.is_champion) {
+          @if (row.status === 'ready' && !row.is_champion && serving()?.permissions?.['promote']) {
             <button
               type="button"
               class="ck-cta inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
@@ -213,7 +215,7 @@ const CHART_ASPECT = 300 / 190;
               {{ i18n.t('models.detail.promote', { version: row.version }) }}
             </button>
           }
-          @if (isActive(row)) {
+          @if (isActive(row) && serving()?.permissions?.['cancel']) {
             <button
               type="button"
               class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
@@ -222,7 +224,7 @@ const CHART_ASPECT = 300 / 190;
             >
               <app-icon name="square" [size]="14" /> {{ i18n.t('models.detail.cancel') }}
             </button>
-          } @else {
+          } @else if (!isActive(row) && serving()?.permissions?.['train']) {
             <button
               type="button"
               class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
@@ -234,6 +236,7 @@ const CHART_ASPECT = 300 / 190;
           <button
             type="button"
             class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
+            [disabled]="!serving()?.permissions?.['delete']"
             (click)="remove()"
           >
             <app-icon name="trash-2" [size]="14" /> {{ i18n.t('models.detail.delete') }}
@@ -992,6 +995,7 @@ const CHART_ASPECT = 300 / 190;
                     <button
                       type="button"
                       class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
+                      [disabled]="!serving()?.permissions?.['train']"
                       (click)="retrainFromFeedback()"
                     >
                       {{ i18n.t('models.monitor.retrain') }}
@@ -1137,6 +1141,7 @@ const CHART_ASPECT = 300 / 190;
 
         <!-- ── Settings ─────────────────────────────────────────────────────── -->
         <ck-tab id="setup" [label]="i18n.t('models.detail.tab.setup')">
+          <ck-ml-governance [modelId]="row.id" (changed)="reloadGovernance()" />
           <div class="ck-surface rounded-md ck-h-scroll">
             <table class="w-full text-sm ck-schema">
               <tbody>
@@ -1186,6 +1191,7 @@ const CHART_ASPECT = 300 / 190;
     @if (studioOpen()) {
       <app-model-train
         [datasets]="data.datasets()"
+        [authorized]="serving()?.permissions?.['train'] === true"
         [seed]="seed()"
         (close)="studioOpen.set(false)"
         (trained)="onRetrained($event)"
@@ -2379,16 +2385,22 @@ export class ModelViewComponent implements OnInit {
     return `${minutes} min ${Math.round(seconds % 60)} s`;
   }
 
+  protected reloadGovernance(): void { void this.load(); }
+
   protected async promote(): Promise<void> {
     const row = this.model();
-    if (!row) return;
+    if (!row || !this.serving()?.permissions?.['promote']) return;
+    const scope = this.workspace.captureRequestScope();
+    const current = () => this.model()?.id === row.id && this.workspace.isRequestScopeCurrent(scope);
     try {
-      await this.models.promote(row.id);
+      const response = await this.models.promote(row.id);
+      if (!current()) return;
       this.toast.success(
-        this.i18n.t('models.detail.promoted', { name: row.name, version: row.version }),
+        response.decision ? this.i18n.t('models.governance.pending') : this.i18n.t('models.detail.promoted', { name: row.name, version: row.version }),
       );
       await this.load();
     } catch {
+      if (!current()) return;
       this.toast.error(this.i18n.t('models.studio.failed'));
     }
   }
@@ -2454,8 +2466,11 @@ export class ModelViewComponent implements OnInit {
 
   protected async cancel(): Promise<void> {
     const row = this.model();
-    if (!row) return;
+    if (!row || !this.serving()?.permissions?.['cancel']) return;
+    const scope = this.workspace.captureRequestScope();
+    const current = () => this.model()?.id === row.id && this.workspace.isRequestScopeCurrent(scope);
     await this.models.cancel(row.id);
+    if (!current()) return;
     this.toast.info(this.i18n.t('models.detail.cancelled'));
     await this.load();
   }
@@ -2526,12 +2541,14 @@ export class ModelViewComponent implements OnInit {
   }
 
   protected retrainFromFeedback(): void {
+    if (!this.serving()?.permissions?.['train']) return;
     const dataset = this.feedbackDataset();
     if (dataset) this.feedbackDatasetId.set(dataset.id);
     this.studioOpen.set(true);
   }
 
   protected retrain(): void {
+    if (!this.serving()?.permissions?.['train']) return;
     this.feedbackDatasetId.set(null);
     this.studioOpen.set(true);
   }
@@ -2543,7 +2560,9 @@ export class ModelViewComponent implements OnInit {
 
   protected async remove(): Promise<void> {
     const row = this.model();
-    if (!row) return;
+    if (!row || !this.serving()?.permissions?.['delete']) return;
+    const scope = this.workspace.captureRequestScope();
+    const current = () => this.model()?.id === row.id && this.workspace.isRequestScopeCurrent(scope);
     const confirmed = confirm(
       this.i18n.t('models.detail.delete_confirm', {
         name: row.name,
@@ -2552,6 +2571,7 @@ export class ModelViewComponent implements OnInit {
     );
     if (!confirmed) return;
     await this.models.remove(row.id);
+    if (!current()) return;
     this.toast.success(this.i18n.t('models.detail.deleted', { name: row.name }));
     void this.router.navigateByUrl(this.navigation.surfaceUrl('models'));
   }

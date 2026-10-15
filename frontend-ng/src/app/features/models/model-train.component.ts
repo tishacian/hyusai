@@ -1,3 +1,4 @@
+import { WorkspaceService } from '@app/core/workspace.service';
 /**
  * Training studio — the no-code fit, as three decisions and a preview.
  *
@@ -777,9 +778,11 @@ export interface TrainSeed {
 export class ModelTrainComponent implements OnInit {
   readonly i18n = inject(I18nService);
   private readonly models = inject(ModelsService);
+  private readonly workspace = inject(WorkspaceService);
   private readonly toast = inject(ToastrService);
   private readonly destroyRef = inject(DestroyRef);
 
+  readonly authorized = input(false);
   readonly datasets = input<DatasetDto[]>([]);
   readonly seed = input<TrainSeed | null>(null);
 
@@ -951,6 +954,7 @@ export class ModelTrainComponent implements OnInit {
 
   protected readonly canSubmit = computed(
     () =>
+      this.authorized() &&
       !!this.plan() &&
       !this.submitting() &&
       !this.refusal() &&
@@ -1164,6 +1168,8 @@ export class ModelTrainComponent implements OnInit {
   protected async submit(): Promise<void> {
     const preview = this.plan();
     if (!preview || !this.canSubmit()) return;
+    const scope = this.workspace.captureRequestScope();
+    const current = () => this.workspace.isRequestScopeCurrent(scope);
     this.submitting.set(true);
     try {
       const model = await this.models.train({
@@ -1179,12 +1185,14 @@ export class ModelTrainComponent implements OnInit {
           ? { test_size: this.testSize(), cross_validation: this.crossValidation() } : {}),
         ...(this.name().trim() ? { name: this.name().trim() } : {}),
       });
+      if (!current()) return;
       this.toast.info(this.i18n.t('models.studio.queued', { name: model.name }));
       this.trained.emit(model);
     } catch {
+      if (!current()) return;
       this.toast.error(this.i18n.t('models.studio.failed'));
     } finally {
-      this.submitting.set(false);
+      if (current()) this.submitting.set(false);
     }
   }
 

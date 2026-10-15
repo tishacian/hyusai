@@ -1,3 +1,4 @@
+import { WorkspaceService } from '@app/core/workspace.service';
 /**
  * Playground — the model answering, live, in front of the room.
  *
@@ -31,6 +32,7 @@ import {
   Injector,
   afterNextRender,
   computed,
+  effect as observe,
   inject,
   input,
   linkedSignal,
@@ -103,10 +105,15 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
           "
         />
       } @else {
+        <label class="ck-hint flex items-center gap-2 mb-3">
+          <input type="checkbox" [checked]="storeInputs()" (change)="storeInputs.set($any($event.target).checked)" />
+          {{ i18n.t('models.governance.store_call') }}
+        </label>
         @if (block.mode === 'forecast') {
           <ck-forecast-playground
             [model]="model()"
             [serving]="block"
+            [storeInputs]="storeInputs()"
             (requestChange)="forecastBody.set($event)"
           />
         } @else {
@@ -372,6 +379,7 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
           <pre class="ck-code mt-2">{{ curl() }}</pre>
         </section>
 
+        @if (block.permissions?.['keys']) {
         <!-- ── Keys ─────────────────────────────────────────────────────────── -->
         <section class="ck-panel mt-3">
           <div class="ck-section-label">{{ i18n.t('models.keys.title') }}</div>
@@ -406,12 +414,24 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
             <button
               type="button"
               class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
-              [disabled]="minting()"
+              [disabled]="minting() || !block.permissions?.['keys']"
               (click)="mint()"
             >
-              <app-icon name="key" [size]="13" /> {{ i18n.t('models.keys.mint') }}
+              <app-icon name="key" [size]="13" /> {{ i18n.t(rotatingKey() ? 'models.governance.rotate_create' : 'models.keys.mint') }}
             </button>
           </div>
+          <div class="flex gap-3 flex-wrap mt-3">
+            <label>{{ i18n.t('models.governance.expiry') }} <input type="date" class="ck-input" [value]="keyExpiry()" (input)="keyExpiry.set($any($event.target).value)" /></label>
+            <label><input type="checkbox" [checked]="keyPinned()" (change)="keyPinned.set($any($event.target).checked)" /> {{ i18n.t('models.governance.pin') }}</label>
+            <label>{{ i18n.t('models.governance.networks') }} <input class="ck-input" [value]="keyNetworks()" (input)="keyNetworks.set($any($event.target).value)" /></label>
+          </div>
+          @if (rotatingKey(); as previous) {
+            <div class="ck-hint mt-3" data-testid="ml-key-rotation">
+              <p>{{ i18n.t('models.governance.rotate_hint', { name: previous.name }) }}</p>
+              <label>{{ i18n.t('models.governance.overlap') }} <input class="ck-input" type="number" min="0" max="168" step="1" [value]="overlapHours()" (input)="overlapHours.set(+$any($event.target).value)" /></label>
+              <button type="button" class="ck-btn-soft" [disabled]="minting()" (click)="cancelRotation()">{{ i18n.t('models.governance.rotate_cancel') }}</button>
+            </div>
+          }
           @if (block.keys.length) {
             <div class="ck-surface rounded-md ck-h-scroll mt-3">
               <table class="w-full text-sm ck-schema">
@@ -429,13 +449,17 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
                     <tr class="ck-schema__tr">
                       <td class="ck-schema__td" style="color: var(--ck-fg-1)">{{ key.name }}</td>
                       <td class="ck-schema__td ck-mono">{{ key.prefix }}…</td>
-                      <td class="ck-schema__td ck-mono">{{ usesLine(key) }}</td>
+                      <td class="ck-schema__td ck-mono">{{ usesLine(key) }}<br />{{ key.expires_at }}</td>
                       <td class="ck-schema__td">
                         <span class="ck-badge ck-mono" [class.ck-badge--warn]="key.revoked">
-                          {{ i18n.t(key.revoked ? 'models.keys.revoked' : 'models.keys.live') }}
+                          {{ i18n.t(key.expired ? 'models.governance.expired' : key.revoked ? 'models.keys.revoked' : 'models.keys.live') }}
                         </span>
                       </td>
                       <td class="ck-schema__td" style="text-align: right">
+                        @if (!key.revoked && !key.expired) {
+                          <button type="button" class="ck-btn-soft px-2 py-1" [disabled]="minting()" (click)="rotate(key)">{{ i18n.t('models.governance.rotate') }}</button>
+                        }
+                        @if (key.revoke_after) { <small>{{ i18n.t('models.governance.revoke_after') }} {{ key.revoke_after }}</small> }
                         @if (!key.revoked) {
                           <button
                             type="button"
@@ -455,6 +479,7 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
         </section>
 
         <!-- ── Publish as a Skill ───────────────────────────────────────────── -->
+        }
         <!-- A forecast is published with its own skills (a horizon, not rows),
              which arrive with the Flow nodes that call them. -->
         @if (block.mode !== 'forecast') {
@@ -483,6 +508,7 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
                 <button
                   type="button"
                   class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
+                  [disabled]="publishing() || !block.permissions?.['publish']"
                   (click)="unpublish()"
                 >
                   <app-icon name="undo-2" [size]="13" /> {{ i18n.t('models.publish.withdraw') }}
@@ -493,7 +519,7 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
             <button
               type="button"
               class="ck-btn-primary inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium mt-3"
-              [disabled]="publishing()"
+              [disabled]="!block.permissions?.['publish'] || publishing()"
               (click)="publish()"
             >
               <app-icon name="share-2" [size]="14" /> {{ i18n.t('models.publish.action') }}
@@ -924,6 +950,8 @@ export class ModelPlaygroundComponent {
 
   readonly i18n = inject(I18nService);
   private readonly models = inject(ModelsService);
+  private readonly workspace = inject(WorkspaceService);
+  private generation = 0;
   private readonly toast = inject(ToastrService);
   private readonly router = inject(Router);
   protected readonly navigation = inject(ZoomContextService);
@@ -932,6 +960,13 @@ export class ModelPlaygroundComponent {
   private readonly injector = inject(Injector);
 
   constructor() {
+    observe(() => {
+      this.model().id; this.workspace.current()?.id; this.generation++;
+      this.minted.set(null); this.answer.set(null); this.refusal.set('');
+      this.rotatingKey.set(null); this.keyName.set(''); this.keyExpiry.set(''); this.keyNetworks.set('');
+      this.keyPinned.set(false); this.minting.set(false); this.publishing.set(false); this.running.set(false);
+    });
+    this.destroyRef.onDestroy(() => { this.generation++; this.minted.set(null); });
     // Side by side, the answer panel stays pinned while the reader works down
     // twenty fields — but pinned *below* the page's sticky object header, whose
     // height depends on the width its subtitle wraps at. The header is measured
@@ -982,6 +1017,24 @@ export class ModelPlaygroundComponent {
   protected readonly copied = signal(false);
   protected readonly minted = signal<ApiKeyRow | null>(null);
   protected readonly keyName = signal('');
+  protected readonly keyExpiry = signal('');
+  protected readonly keyPinned = signal(false);
+  protected readonly keyNetworks = signal('');
+  protected readonly rotatingKey = signal<ApiKeyRow | null>(null);
+  protected readonly overlapHours = signal(24);
+  protected readonly storeInputs = signal(true);
+
+  private requestCurrent(): () => boolean {
+    const id = this.model().id, generation = this.generation, scope = this.workspace.captureRequestScope();
+    return () => id === this.model().id && generation === this.generation && this.workspace.isRequestScopeCurrent(scope);
+  }
+  protected rotate(key: ApiKeyRow): void {
+    if (!this.serving().permissions?.['keys'] || key.revoked || key.expired || this.minting()) return;
+    this.rotatingKey.set(key); this.keyName.set(key.name); this.keyExpiry.set('');
+    this.keyPinned.set(key.pinned_version != null); this.keyNetworks.set((key.allowed_cidrs ?? []).join(', '));
+  }
+  protected cancelRotation(): void { if (!this.minting()) this.rotatingKey.set(null); }
+
 
   /**
    * The form, seeded from the contract and kept until the version changes.
@@ -1039,24 +1092,28 @@ export class ModelPlaygroundComponent {
   );
 
   protected async predict(): Promise<void> {
+    if (this.running() || !this.serving().callable) return;
+    const current = this.requestCurrent();
     this.running.set(true);
     this.refusal.set('');
     try {
       const row = predictPayload(this.serving().fields, this.values());
       const pinned = this.pinned();
-      this.answer.set(
-        await this.models.predict(this.model().id, row, {
+      const answer = await this.models.predict(this.model().id, row, {
+          ...(pinned ? { version: pinned } : {}),
+          store: this.storeInputs(),
           explain: this.model().task !== 'clustering',
           intervalLevel: this.intervalLevel(),
-          ...(pinned ? { version: pinned } : {}),
-        }),
-      );
+        });
+      if (!current()) return;
+      this.answer.set(answer);
       this.revealAnswer();
     } catch (error) {
+      if (!current()) return;
       this.answer.set(null);
       this.refusal.set(this.sentence(error));
     } finally {
-      this.running.set(false);
+      if (current()) this.running.set(false);
     }
   }
 
@@ -1189,7 +1246,7 @@ export class ModelPlaygroundComponent {
 
   protected readonly curl = computed(() => {
     const block = this.serving();
-    const live = block.keys.find((key) => !key.revoked);
+    const live = block.keys.find((key) => !key.revoked && !key.expired);
     const forecast = this.forecastBody();
     if (block.mode === 'forecast') {
       return forecastCurlSnippet({
@@ -1210,6 +1267,7 @@ export class ModelPlaygroundComponent {
       prefix: live?.prefix ?? null,
       version: this.pinned(),
       intervalLevel: this.intervalLevel(),
+      store: this.storeInputs(),
     });
   });
 
@@ -1219,37 +1277,58 @@ export class ModelPlaygroundComponent {
   }
 
   protected async mint(): Promise<void> {
+    if (!this.serving().permissions?.['keys'] || this.minting()) return;
+    const current = this.requestCurrent();
+    if (!Number.isInteger(this.overlapHours()) || this.overlapHours() < 0 || this.overlapHours() > 168) return;
     this.minting.set(true);
     try {
       const response = await this.models.mintKey(
         this.model().id,
         this.keyName().trim() || this.i18n.t('models.keys.name.default'),
+        { ...(this.keyExpiry() ? { expires_at: new Date(this.keyExpiry()).toISOString() } : {}),
+          ...(this.keyPinned() ? { pinned_version: this.rotatingKey()?.pinned_version ?? this.model().version } : {}),
+          ...(this.rotatingKey() ? { rotate_key_id: this.rotatingKey()!.id, overlap_hours: this.overlapHours() } : {}),
+          allowed_cidrs: this.keyNetworks().split(',').map(value => value.trim()).filter(Boolean) },
       );
+      if (!current()) return;
       this.minted.set(response.key);
+      this.rotatingKey.set(null);
       this.servingChange.emit(response.serving);
       this.keyName.set('');
       this.toast.success(this.i18n.t('models.keys.minted'));
     } catch (error) {
+      if (!current()) return;
       this.toast.error(this.sentence(error));
     } finally {
-      this.minting.set(false);
+      if (current()) this.minting.set(false);
     }
   }
 
   protected async revoke(key: ApiKeyRow): Promise<void> {
+    if (!this.serving().permissions?.['keys'] || this.minting()) return;
+    const current = this.requestCurrent();
+    this.minting.set(true);
     try {
-      this.servingChange.emit(await this.models.revokeKey(this.model().id, key.id));
+      const serving = await this.models.revokeKey(this.model().id, key.id);
+      if (!current()) return;
+      this.servingChange.emit(serving);
       if (this.minted()?.id === key.id) this.minted.set(null);
       this.toast.info(this.i18n.t('models.keys.revoked.toast', { name: key.name }));
     } catch (error) {
+      if (!current()) return;
       this.toast.error(this.sentence(error));
+    } finally {
+      if (current()) this.minting.set(false);
     }
   }
 
   protected async publish(): Promise<void> {
+    if (!this.serving().permissions?.['publish'] || this.publishing()) return;
+    const current = this.requestCurrent();
     this.publishing.set(true);
     try {
       const response = await this.models.publish(this.model().id);
+      if (!current()) return;
       this.servingChange.emit(response.serving);
       // The toast is the deep link, not just an announcement: the point of
       // publishing is that the model is now a Skill in the catalogue, and the
@@ -1262,26 +1341,35 @@ export class ModelPlaygroundComponent {
           { tapToDismiss: false, closeButton: true },
         )
         .onTap.subscribe(() => {
+          if (!current()) return;
           const tree = this.router.parseUrl(this.navigation.surfaceUrl('skills'));
           tree.queryParams = { ...tree.queryParams, q: slug };
           void this.router.navigateByUrl(tree);
         });
       this.changed.emit();
     } catch (error) {
+      if (!current()) return;
       this.toast.error(this.sentence(error));
     } finally {
-      this.publishing.set(false);
+      if (current()) this.publishing.set(false);
     }
   }
 
   protected async unpublish(): Promise<void> {
+    if (!this.serving().permissions?.['publish'] || this.publishing()) return;
+    const current = this.requestCurrent();
+    this.publishing.set(true);
     try {
       const response = await this.models.unpublish(this.model().id);
+      if (!current()) return;
       this.servingChange.emit(response.serving);
       this.toast.info(this.i18n.t('models.publish.withdrawn'));
       this.changed.emit();
     } catch (error) {
+      if (!current()) return;
       this.toast.error(this.sentence(error));
+    } finally {
+      if (current()) this.publishing.set(false);
     }
   }
 

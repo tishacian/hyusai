@@ -275,6 +275,12 @@ export interface ModelDto {
 
 /** One credential, as the card is allowed to know it: never the secret. */
 export interface ApiKeyRow {
+  expires_at?: string | null;
+  expired?: boolean;
+  revoke_after?: string | null;
+  pinned_version?: number | null;
+  allowed_cidrs?: string[];
+  scope?: string;
   id: string;
   name: string;
   prefix: string;
@@ -298,6 +304,7 @@ export interface PublishedSkillDto {
 
 /** Everything the Playground and the key panel render, in one read. */
 export interface ServingBlock {
+  permissions?: Record<string, boolean>;
   enabled: boolean;
   callable: boolean;
   /** An explicit refusal takes precedence over generic runtime availability. */
@@ -592,6 +599,7 @@ export function curlSnippet(options: {
   prefix?: string | null;
   version?: number | null;
   intervalLevel?: number | null;
+  store?: boolean;
 }): string {
   const key = options.secret
     ? options.secret
@@ -600,6 +608,7 @@ export function curlSnippet(options: {
       : 'YOUR_API_KEY';
   const body = JSON.stringify({
     inputs: [options.row],
+    ...(typeof options.store === 'boolean' ? { store: options.store } : {}),
     ...(options.version ? { version: options.version } : {}),
     ...(options.intervalLevel != null ? { interval_level: options.intervalLevel } : {}),
   });

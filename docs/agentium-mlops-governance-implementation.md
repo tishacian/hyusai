@@ -83,3 +83,8 @@ après accord sur la durée effective. Les nouveaux réglages sont déclarés da
 
 L'audit d'acceptation/rejet du réentraînement est raccordé lors de l'assemblage
 M2 ; les agrégats d'inférence et alertes sont raccordés en M3.
+
+Interface M1 : 2 270 tests unitaires réussis, TSC, i18n et contrôle de navigation
+réussis ; build de production final réussi. Les tests couvrent notamment
+l'abandon des réponses après changement de workspace, le secret montré une
+seule fois, la rotation et la transmission de `store=false`.
