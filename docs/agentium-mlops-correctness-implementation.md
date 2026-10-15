@@ -67,7 +67,7 @@ de l'assemblage. Le guard `ui-chrome` échoue sur un état préexistant inchang�
 Depuis `backend`, Python/pytest du venv partagé :
 
 ```bash
-/workspace/omnirag/.venv/bin/python -m pytest \
+/workspace/agentium/.venv/bin/python -m pytest \
   app/tests/services/test_mlops_correctness.py \
   app/tests/services/test_ml_retraining.py \
   app/tests/services/test_ml_retraining_recovery.py \

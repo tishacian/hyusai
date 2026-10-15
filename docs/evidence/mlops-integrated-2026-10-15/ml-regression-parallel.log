@@ -21,7 +21,7 @@ sss..................................................................... [ 62%]
 ..................................                                       [100%]
 =================================== FAILURES ===================================
 __________________ test_timeout_preserves_completed_sections ___________________
-[gw2] linux -- Python 3.12.14 /workspace/omnirag/.venv/bin/python
+[gw2] linux -- Python 3.12.14 /workspace/agentium/.venv/bin/python
 
 monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ff29b9078f0>
 
@@ -45,18 +45,18 @@ E         Use -v to get more diff
 
 app/tests/services/test_ml_explanations.py:271: AssertionError
 =============================== warnings summary ===============================
-../../omnirag/.venv/lib/python3.12/site-packages/starlette/testclient.py:53
-../../omnirag/.venv/lib/python3.12/site-packages/starlette/testclient.py:53
-../../omnirag/.venv/lib/python3.12/site-packages/starlette/testclient.py:53
-../../omnirag/.venv/lib/python3.12/site-packages/starlette/testclient.py:53
-  /workspace/omnirag/.venv/lib/python3.12/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+../../agentium/.venv/lib/python3.12/site-packages/starlette/testclient.py:53
+../../agentium/.venv/lib/python3.12/site-packages/starlette/testclient.py:53
+../../agentium/.venv/lib/python3.12/site-packages/starlette/testclient.py:53
+../../agentium/.venv/lib/python3.12/site-packages/starlette/testclient.py:53
+  /workspace/agentium/.venv/lib/python3.12/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
     _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
 
-../../omnirag/.venv/lib/python3.12/site-packages/mlflow/pyfunc/utils/data_validation.py:187
-../../omnirag/.venv/lib/python3.12/site-packages/mlflow/pyfunc/utils/data_validation.py:187
-../../omnirag/.venv/lib/python3.12/site-packages/mlflow/pyfunc/utils/data_validation.py:187
-../../omnirag/.venv/lib/python3.12/site-packages/mlflow/pyfunc/utils/data_validation.py:187
-  /workspace/omnirag/.venv/lib/python3.12/site-packages/mlflow/pyfunc/utils/data_validation.py:187: UserWarning: [33mAdd type hints to the `predict` method to enable data validation and automatic signature inference during model logging. Check https://mlflow.org/docs/latest/model/python_model.html#type-hint-usage-in-pythonmodel for more details.[0m
+../../agentium/.venv/lib/python3.12/site-packages/mlflow/pyfunc/utils/data_validation.py:187
+../../agentium/.venv/lib/python3.12/site-packages/mlflow/pyfunc/utils/data_validation.py:187
+../../agentium/.venv/lib/python3.12/site-packages/mlflow/pyfunc/utils/data_validation.py:187
+../../agentium/.venv/lib/python3.12/site-packages/mlflow/pyfunc/utils/data_validation.py:187
+  /workspace/agentium/.venv/lib/python3.12/site-packages/mlflow/pyfunc/utils/data_validation.py:187: UserWarning: [33mAdd type hints to the `predict` method to enable data validation and automatic signature inference during model logging. Check https://mlflow.org/docs/latest/model/python_model.html#type-hint-usage-in-pythonmodel for more details.[0m
     color_warning(
 
 app/tests/services/test_ml_statistical_drift.py: 9 warnings
@@ -107,20 +107,20 @@ app/tests/api/test_ml_retraining_api.py: 1402 warnings
 app/tests/api/test_ml_predict_api.py: 237 warnings
 app/tests/api/test_ml_exports_api.py: 43 warnings
 app/tests/api/test_model_operations_catalog.py: 3062 warnings
-  /workspace/omnirag/.venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3627: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium/.venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3627: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
 
 app/tests/services/test_ml_statistical_drift.py: 30 warnings
 app/tests/services/test_tabular_monitoring.py: 88 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_tabular_monitoring.py:157: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_tabular_monitoring.py:157: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     created_at=datetime.utcnow(),
 
 app/tests/services/test_ml_statistical_drift.py::test_monitoring_and_list_badges_do_not_mix_versions_or_starve_quiet_models
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_statistical_drift.py:76: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_statistical_drift.py:76: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/api/test_system_model_operations.py::test_relation_filter_precedes_limit_and_reports_more
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/api/test_system_model_operations.py:170: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/api/test_system_model_operations.py:170: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     updated_at=datetime.utcnow() + timedelta(days=1),
 
 app/tests/api/test_system_model_operations.py: 1 warning
@@ -146,7 +146,7 @@ app/tests/api/test_ml_governance_api.py: 5 warnings
 app/tests/api/test_ml_retraining_api.py: 12 warnings
 app/tests/api/test_ml_predict_api.py: 15 warnings
 app/tests/api/test_ml_exports_api.py: 1 warning
-  /workspace/omnirag-mlops-m4-export/backend/app/services/audit_logger.py:61: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/audit_logger.py:61: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     timestamp=datetime.utcnow(),
 
 app/tests/api/test_forecast_monitoring_api.py: 17 warnings
@@ -182,19 +182,19 @@ app/tests/api/test_ml_methodology_api.py: 3 warnings
 app/tests/api/test_ml_evaluation_review_api.py: 1 warning
 app/tests/api/test_ml_models_api.py: 37 warnings
 app/tests/api/test_ml_retraining_api.py: 13 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/dataops/storage.py:497: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/dataops/storage.py:497: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     dataset.ingested_at = datetime.utcnow()
 
 app/tests/api/test_forecast_monitoring_api.py: 7 warnings
 app/tests/services/test_forecast_retraining.py: 24 warnings
 app/tests/services/test_forecast_monitoring.py: 4 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml/forecast_monitoring.py:253: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml/forecast_monitoring.py:253: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = _instant(now or datetime.utcnow())
 
 app/tests/api/test_forecast_monitoring_api.py: 1 warning
 app/tests/services/test_forecast_retraining.py: 12 warnings
 app/tests/services/test_forecast_monitoring.py: 14 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml/forecast_monitoring.py:192: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml/forecast_monitoring.py:192: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     "sha256": sha256, "follow_latest": body.follow_latest, "associated_at": datetime.utcnow().isoformat(),
 
 app/tests/services/test_ml_governance.py: 5 warnings
@@ -203,38 +203,38 @@ app/tests/services/test_ml_operations.py: 1 warning
 app/tests/api/test_ml_models_api.py: 1 warning
 app/tests/api/test_ml_governance_api.py: 3 warnings
 app/tests/api/test_ml_predict_api.py: 10 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_governance.py:72: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_governance.py:72: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_ml_governance.py: 4 warnings
 app/tests/services/test_ml_predict.py: 10 warnings
 app/tests/api/test_ml_governance_api.py: 3 warnings
 app/tests/api/test_ml_predict_api.py: 8 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/tabular_predict.py:1397: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/tabular_predict.py:1397: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_ml_governance.py: 5 warnings
 app/tests/api/test_ml_governance_api.py: 2 warnings
 app/tests/services/test_ml_predict.py: 2 warnings
 app/tests/api/test_ml_predict_api.py: 4 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/tabular_predict.py:1542: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/tabular_predict.py:1542: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_ml_governance.py::test_key_expiry_network_pin_rotation
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_governance.py:114: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_governance.py:114: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     key.expires_at = datetime.utcnow() - timedelta(seconds=1)
 
 app/tests/services/test_ml_governance.py::test_retention_deletes_expired_only
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_governance.py:305: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_governance.py:305: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     db_session.get(MLPrediction, ids[0]).created_at = datetime.utcnow() - timedelta(days=31)
 
 app/tests/services/test_ml_governance.py::test_retention_deletes_expired_only
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_governance.py:162: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_governance.py:162: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = now or datetime.utcnow()
 
 app/tests/services/test_ml_governance.py::test_promotion_binds_reviewer_artifact_and_audit
 app/tests/services/test_ml_governance.py::test_promotion_changes_champion_once_with_second_reviewer
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_promotion.py:61: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_promotion.py:61: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_ml_governance.py::test_promotion_binds_reviewer_artifact_and_audit
@@ -242,7 +242,7 @@ app/tests/services/test_ml_governance.py::test_promotion_binds_reviewer_artifact
 app/tests/services/test_ml_governance.py::test_promotion_binds_reviewer_artifact_and_audit
 app/tests/services/test_ml_governance.py::test_promotion_changes_champion_once_with_second_reviewer
 app/tests/services/test_ml_governance.py::test_promotion_changes_champion_once_with_second_reviewer
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_promotion.py:102: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_promotion.py:102: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_ml_governance.py::test_promotion_changes_champion_once_with_second_reviewer
@@ -253,12 +253,12 @@ app/tests/services/test_ml_registry.py::test_promotion_moves_both_aliases_so_the
 app/tests/services/test_ml_retraining.py::test_approved_retrain_never_becomes_fallback_champion
 app/tests/services/test_ml_training.py::test_promoting_a_version_demotes_the_one_that_was_serving
 app/tests/api/test_ml_models_api.py::test_promoting_a_version_moves_the_alias_and_returns_the_new_lineage
-  /workspace/omnirag-mlops-m4-export/backend/app/services/tabular_ml.py:1559: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/tabular_ml.py:1559: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     model.updated_at = datetime.utcnow()
 
 app/tests/services/test_ml_artifact_contract.py: 45 warnings
 app/tests/services/test_ml_preprocessing.py: 13 warnings
-  /workspace/omnirag/.venv/lib/python3.12/site-packages/skrub/_datetime_encoder.py:78: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`).Please use a specific unit instead.
+  /workspace/agentium/.venv/lib/python3.12/site-packages/skrub/_datetime_encoder.py:78: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`).Please use a specific unit instead.
     return ((col - epoch) / pd.Timedelta("1s")).astype("float32")
 
 app/tests/services/test_ml_distillation.py: 4 warnings
@@ -275,7 +275,7 @@ app/tests/services/test_ml_training.py: 21 warnings
 app/tests/services/test_ml_retraining.py: 2 warnings
 app/tests/api/test_ml_evaluation_review_api.py: 1 warning
 app/tests/api/test_ml_models_api.py: 20 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/execution/ml_lifecycle.py:37: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/execution/ml_lifecycle.py:37: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_ml_distillation.py: 9 warnings
@@ -292,7 +292,7 @@ app/tests/services/test_ml_training.py: 37 warnings
 app/tests/services/test_ml_retraining.py: 5 warnings
 app/tests/api/test_ml_evaluation_review_api.py: 2 warnings
 app/tests/api/test_ml_models_api.py: 38 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/tabular_ml.py:1945: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/tabular_ml.py:1945: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     model.updated_at = datetime.utcnow()
 
 app/tests/services/test_ml_distillation.py: 3 warnings
@@ -309,7 +309,7 @@ app/tests/services/test_ml_training.py: 12 warnings
 app/tests/services/test_ml_retraining.py: 2 warnings
 app/tests/api/test_ml_evaluation_review_api.py: 1 warning
 app/tests/api/test_ml_models_api.py: 18 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/tabular_ml.py:2397: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/tabular_ml.py:2397: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     model.trained_at = datetime.utcnow()
 
 app/tests/services/test_ml_distillation.py: 2 warnings
@@ -317,18 +317,18 @@ app/tests/services/test_ml_families.py: 1 warning
 app/tests/services/test_ml_retraining_recovery.py: 2 warnings
 app/tests/services/test_ml_training.py: 21 warnings
 app/tests/api/test_ml_models_api.py: 5 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/tabular_ml.py:1924: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/tabular_ml.py:1924: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     model.updated_at = datetime.utcnow()
 
 app/tests/services/test_tabular_monitoring.py: 9 warnings
 app/tests/services/test_mlops_correctness.py: 1 warning
 app/tests/api/test_ml_governance_api.py: 1 warning
 app/tests/api/test_ml_predict_api.py: 1 warning
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_feedback.py:104: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_feedback.py:104: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_tabular_monitoring.py: 41 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_tabular_monitoring.py:159: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_tabular_monitoring.py:159: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     labeled_at=datetime.utcnow() if label is not None else None,
 
 app/tests/services/test_forecast_retraining.py: 11 warnings
@@ -337,7 +337,7 @@ app/tests/services/test_ml_monitor_alert_hooks.py: 2 warnings
 app/tests/services/test_ml_retraining.py: 29 warnings
 app/tests/services/test_ml_retraining_recovery.py: 14 warnings
 app/tests/api/test_ml_retraining_api.py: 13 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/systems/flow_publication.py:423: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/systems/flow_publication.py:423: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_forecast_retraining.py: 11 warnings
@@ -345,7 +345,7 @@ app/tests/services/test_mlops_correctness.py: 2 warnings
 app/tests/services/test_ml_monitor_alert_hooks.py: 2 warnings
 app/tests/services/test_ml_retraining.py: 25 warnings
 app/tests/services/test_ml_retraining_recovery.py: 14 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_retraining.py:139: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_retraining.py:139: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     outcome = scheduler._fire_schedule(db, case.schedule, now=datetime.utcnow())
 
 app/tests/services/test_forecast_retraining.py: 11 warnings
@@ -353,7 +353,7 @@ app/tests/services/test_mlops_correctness.py: 2 warnings
 app/tests/services/test_ml_monitor_alert_hooks.py: 2 warnings
 app/tests/services/test_ml_retraining.py: 25 warnings
 app/tests/services/test_ml_retraining_recovery.py: 14 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/systems/flow_ingress.py:360: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/systems/flow_ingress.py:360: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     started_at=datetime.utcnow(),
 
 app/tests/services/test_forecast_retraining.py: 11 warnings
@@ -361,7 +361,7 @@ app/tests/services/test_mlops_correctness.py: 2 warnings
 app/tests/services/test_ml_monitor_alert_hooks.py: 2 warnings
 app/tests/services/test_ml_retraining.py: 25 warnings
 app/tests/services/test_ml_retraining_recovery.py: 14 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/systems/flow_ingress.py:367: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/systems/flow_ingress.py:367: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     "t": datetime.utcnow().isoformat(),
 
 app/tests/services/test_forecast_retraining.py: 11 warnings
@@ -369,7 +369,7 @@ app/tests/services/test_mlops_correctness.py: 2 warnings
 app/tests/services/test_ml_monitor_alert_hooks.py: 2 warnings
 app/tests/services/test_ml_retraining.py: 24 warnings
 app/tests/services/test_ml_retraining_recovery.py: 14 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_retraining.py:496: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_retraining.py:496: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     completed_at=datetime.utcnow(),
 
 app/tests/services/test_forecast_retraining.py: 12 warnings
@@ -377,57 +377,57 @@ app/tests/services/test_mlops_correctness.py: 2 warnings
 app/tests/services/test_ml_monitor_alert_hooks.py: 2 warnings
 app/tests/services/test_ml_retraining.py: 25 warnings
 app/tests/services/test_ml_retraining_recovery.py: 14 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_retraining.py:603: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_retraining.py:603: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     "t": datetime.utcnow().isoformat(),
 
 app/tests/services/test_forecast_retraining.py: 6 warnings
 app/tests/services/test_ml_retraining.py: 11 warnings
 app/tests/services/test_ml_retraining_recovery.py: 13 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_retraining.py:168: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_retraining.py:168: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     human_confirmed_at=datetime.utcnow(),
 
 app/tests/services/test_forecast_retraining.py: 2 warnings
 app/tests/services/test_ml_retraining_recovery.py: 7 warnings
 app/tests/services/test_ml_retraining.py: 2 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_retraining.py:1008: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_retraining.py:1008: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_forecast_retraining.py: 2 warnings
 app/tests/services/test_ml_retraining_recovery.py: 6 warnings
 app/tests/services/test_ml_retraining.py: 2 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_retraining.py:882: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_retraining.py:882: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_forecast_retraining.py: 46 warnings
 app/tests/services/test_ml_methodology.py: 14 warnings
 app/tests/services/test_ml_retraining.py: 77 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/run_engine/dag.py:4889: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/run_engine/dag.py:4889: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     entry.setdefault("t", datetime.utcnow().isoformat())
 
 app/tests/services/test_forecast_retraining.py: 18 warnings
 app/tests/services/test_ml_methodology.py: 6 warnings
 app/tests/services/test_ml_retraining.py: 30 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/run_engine/dag.py:2371: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/run_engine/dag.py:2371: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     "t": datetime.utcnow().isoformat(),
 
 app/tests/services/test_forecast_retraining.py: 18 warnings
 app/tests/services/test_ml_methodology.py: 6 warnings
 app/tests/services/test_ml_retraining.py: 28 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/run_engine/dag.py:2745: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/run_engine/dag.py:2745: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     "t": datetime.utcnow().isoformat(),
 
 app/tests/services/test_forecast_retraining.py: 5 warnings
 app/tests/services/test_skill_invocation_snapshot.py: 3 warnings
 app/tests/services/test_ml_methodology.py: 4 warnings
 app/tests/services/test_ml_retraining.py: 8 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/run_engine/engine.py:1108: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/run_engine/engine.py:1108: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     started_at=datetime.utcnow(),
 
 app/tests/services/test_forecast_retraining.py: 5 warnings
 app/tests/services/test_skill_invocation_snapshot.py: 3 warnings
 app/tests/services/test_ml_methodology.py: 4 warnings
 app/tests/services/test_ml_retraining.py: 8 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/run_engine/engine.py:1339: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/run_engine/engine.py:1339: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     invocation.completed_at = datetime.utcnow()
 
 app/tests/services/test_forecast_retraining.py::test_forecast_flow_stops_at_canonical_human_gate
@@ -439,7 +439,7 @@ app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_on
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[human_real]
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[rejected]
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[automatic]
-  /workspace/omnirag-mlops-m4-export/backend/app/services/run_engine/gate_ttl.py:57: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/run_engine/gate_ttl.py:57: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     base = now or datetime.utcnow()
 
 app/tests/services/test_forecast_retraining.py::test_forecast_flow_stops_at_canonical_human_gate
@@ -451,21 +451,21 @@ app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_on
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[human_real]
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[rejected]
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[automatic]
-  /workspace/omnirag-mlops-m4-export/backend/app/services/run_engine/dag.py:1855: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/run_engine/dag.py:1855: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     "t": datetime.utcnow().isoformat(),
 
 app/tests/services/test_forecast_retraining.py::test_forecast_flow_stops_at_canonical_human_gate
 app/tests/services/test_ml_retraining.py::test_retraining_run_link_projects_canonical_approval_rights
 app/tests/services/test_ml_retraining.py::test_retraining_run_link_projects_canonical_approval_rights
 app/tests/services/test_ml_retraining.py::test_retraining_run_link_projects_canonical_approval_rights
-  /workspace/omnirag-mlops-m4-export/backend/app/api/v1/endpoints/runs.py:609: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/api/v1/endpoints/runs.py:609: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     seconds_remaining = max(0, int((exp - _dt.utcnow()).total_seconds()))
 
 app/tests/services/test_forecast_retraining.py::test_forecast_flow_stops_at_canonical_human_gate
 app/tests/services/test_ml_retraining.py::test_retraining_run_link_projects_canonical_approval_rights
 app/tests/services/test_ml_retraining.py::test_retraining_run_link_projects_canonical_approval_rights
 app/tests/services/test_ml_retraining.py::test_retraining_run_link_projects_canonical_approval_rights
-  /workspace/omnirag-mlops-m4-export/backend/app/api/v1/endpoints/runs.py:1034: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/api/v1/endpoints/runs.py:1034: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     if decision.status != "proposed" or (decision.expires_at and decision.expires_at <= datetime.utcnow()):
 
 app/tests/services/test_ml_forecast_tuning.py::test_actual_temporal_search_scores_baseline_and_keeps_only_improvements[panel]
@@ -475,13 +475,13 @@ app/tests/services/test_ml_forecast_tuning.py::test_actual_temporal_search_score
 app/tests/services/test_ml_forecast_tuning.py::test_actual_temporal_search_scores_baseline_and_keeps_only_improvements[panel]
 app/tests/services/test_ml_forecast_tuning.py::test_actual_temporal_search_scores_baseline_and_keeps_only_improvements[panel]
 app/tests/services/test_ml_forecast_tuning.py::test_real_harness_fits_selected_model_and_keeps_backtest_out_of_search[panel-False]
-  /workspace/omnirag/.venv/lib/python3.12/site-packages/skforecast/recursive/_forecaster_recursive_multiseries.py:527: DataTransformationWarning: When using a linear model, it is recommended to use a transformer_series to ensure all series are in the same scale. You can use, for example, a `StandardScaler` from sklearn.preprocessing.
+  /workspace/agentium/.venv/lib/python3.12/site-packages/skforecast/recursive/_forecaster_recursive_multiseries.py:527: DataTransformationWarning: When using a linear model, it is recommended to use a transformer_series to ensure all series are in the same scale. You can use, for example, a `StandardScaler` from sklearn.preprocessing.
   You can suppress this warning using: warnings.simplefilter('ignore', category=DataTransformationWarning)
     warnings.warn(
 
 app/tests/services/test_ml_forecast_tuning.py::test_real_harness_fits_selected_model_and_keeps_backtest_out_of_search[single-False]
 app/tests/services/test_ml_forecast_tuning.py::test_changing_only_final_holdout_cannot_change_temporal_selection
-  /workspace/omnirag/.venv/lib/python3.12/site-packages/skforecast/recursive/_forecaster_recursive.py:3113: ResidualsUsageWarning: The following bins have no out of sample residuals: [0, 1, 2, 3, 4, 5, 6]. No predicted values fall in the interval [(9.625723746071984, 10.680198219406497), (10.680198219406497, 11.274705467799235), (11.274705467799235, 11.739468126470822), (11.739468126470822, 12.198892943117784), (12.198892943117784, 12.666957171757916), (12.666957171757916, 13.12944931181746), (13.12944931181746, 13.561993365614141)]. Empty bins will be filled with a random sample of residuals.
+  /workspace/agentium/.venv/lib/python3.12/site-packages/skforecast/recursive/_forecaster_recursive.py:3113: ResidualsUsageWarning: The following bins have no out of sample residuals: [0, 1, 2, 3, 4, 5, 6]. No predicted values fall in the interval [(9.625723746071984, 10.680198219406497), (10.680198219406497, 11.274705467799235), (11.274705467799235, 11.739468126470822), (11.739468126470822, 12.198892943117784), (12.198892943117784, 12.666957171757916), (12.666957171757916, 13.12944931181746), (13.12944931181746, 13.561993365614141)]. Empty bins will be filled with a random sample of residuals.
   You can suppress this warning using: warnings.simplefilter('ignore', category=ResidualsUsageWarning)
     warnings.warn(
 
@@ -491,36 +491,36 @@ app/tests/services/test_ml_forecast_tuning.py::test_real_harness_fits_selected_m
 app/tests/services/test_ml_forecast_tuning.py::test_real_harness_fits_selected_model_and_keeps_backtest_out_of_search[multivariate-True]
 app/tests/services/test_ml_forecast_tuning.py::test_changing_only_final_holdout_cannot_change_temporal_selection
 app/tests/services/test_ml_forecast_tuning.py::test_changing_only_final_holdout_cannot_change_temporal_selection
-  /workspace/omnirag/.venv/lib/python3.12/site-packages/mlflow/pyfunc/__init__.py:3344: UserWarning: [1;33mAn input example was not provided when logging the model. To ensure the model signature functions correctly, specify the `input_example` parameter. See https://mlflow.org/docs/latest/model/signatures.html#model-input-example for more details about the benefits of using input_example.[0m
+  /workspace/agentium/.venv/lib/python3.12/site-packages/mlflow/pyfunc/__init__.py:3344: UserWarning: [1;33mAn input example was not provided when logging the model. To ensure the model signature functions correctly, specify the `input_example` parameter. See https://mlflow.org/docs/latest/model/signatures.html#model-input-example for more details about the benefits of using input_example.[0m
     color_warning(
 
 app/tests/services/test_ml_forecast_tuning.py::test_real_harness_fits_selected_model_and_keeps_backtest_out_of_search[single-True]
-  /workspace/omnirag/.venv/lib/python3.12/site-packages/skforecast/direct/_forecaster_direct.py:3501: ResidualsUsageWarning: The following bins have no out of sample residuals: [0, 1, 2, 3, 4, 5, 6]. No predicted values fall in the interval [(9.625830274122434, 10.692799084290908), (10.692799084290908, 11.286009425121227), (11.286009425121227, 11.760354620544085), (11.760354620544085, 12.219263794028889), (12.219263794028889, 12.67204917333357), (12.67204917333357, 13.12513798833056), (13.12513798833056, 13.511747015417676)]. Empty bins will be filled with a random sample of residuals.
+  /workspace/agentium/.venv/lib/python3.12/site-packages/skforecast/direct/_forecaster_direct.py:3501: ResidualsUsageWarning: The following bins have no out of sample residuals: [0, 1, 2, 3, 4, 5, 6]. No predicted values fall in the interval [(9.625830274122434, 10.692799084290908), (10.692799084290908, 11.286009425121227), (11.286009425121227, 11.760354620544085), (11.760354620544085, 12.219263794028889), (12.219263794028889, 12.67204917333357), (12.67204917333357, 13.12513798833056), (13.12513798833056, 13.511747015417676)]. Empty bins will be filled with a random sample of residuals.
   You can suppress this warning using: warnings.simplefilter('ignore', category=ResidualsUsageWarning)
     warnings.warn(
 
 app/tests/services/test_forecast_retraining.py::test_forecast_approval_runs_real_fit_only_for_human[human]
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[human]
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[human_real]
-  /workspace/omnirag-mlops-m4-export/backend/app/api/v1/endpoints/runs.py:988: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/api/v1/endpoints/runs.py:988: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     "t": datetime.utcnow().isoformat(),
 
 app/tests/services/test_forecast_retraining.py::test_forecast_approval_runs_real_fit_only_for_human[human]
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[human]
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[human_real]
-  /workspace/omnirag-mlops-m4-export/backend/app/services/decisions/state_machine.py:55: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/decisions/state_machine.py:55: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     decision.approved_at = datetime.utcnow()
 
 app/tests/services/test_forecast_retraining.py::test_forecast_approval_runs_real_fit_only_for_human[human]
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[human]
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[human_real]
-  /workspace/omnirag-mlops-m4-export/backend/app/services/run_engine/dispatch_outbox.py:198: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/run_engine/dispatch_outbox.py:198: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_forecast_retraining.py::test_forecast_approval_runs_real_fit_only_for_human[human]
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[human]
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[human_real]
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_retraining.py:976: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_retraining.py:976: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     datetime.utcnow(),
 
 app/tests/services/test_forecast_retraining.py::test_forecast_approval_runs_real_fit_only_for_human[human]
@@ -528,7 +528,7 @@ app/tests/services/test_ml_methodology.py::test_generated_flow_runs_existing_dag
 app/tests/services/test_ml_retraining.py::test_scheduled_run_without_alert_completes_without_a_gate
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[human]
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[human_real]
-  /workspace/omnirag-mlops-m4-export/backend/app/services/run_engine/engine.py:1499: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/run_engine/engine.py:1499: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     run.completed_at = datetime.utcnow()
 
 app/tests/services/test_forecast_retraining.py::test_forecast_approval_runs_real_fit_only_for_human[human]
@@ -536,13 +536,13 @@ app/tests/services/test_ml_methodology.py::test_generated_flow_runs_existing_dag
 app/tests/services/test_ml_retraining.py::test_scheduled_run_without_alert_completes_without_a_gate
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[human]
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[human_real]
-  /workspace/omnirag-mlops-m4-export/backend/app/services/workspace_jobs.py:33: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/workspace_jobs.py:33: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_forecast_retraining.py: 3 warnings
 app/tests/services/test_ml_methodology.py: 3 warnings
 app/tests/services/test_ml_retraining.py: 9 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/workspace_jobs.py:117: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/workspace_jobs.py:117: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_forecast_retraining.py::test_forecast_approval_runs_real_fit_only_for_human[human]
@@ -550,7 +550,7 @@ app/tests/services/test_ml_methodology.py::test_generated_flow_runs_existing_dag
 app/tests/services/test_ml_retraining.py::test_scheduled_run_without_alert_completes_without_a_gate
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[human]
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[human_real]
-  /workspace/omnirag-mlops-m4-export/backend/app/services/workspace_jobs.py:195: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/workspace_jobs.py:195: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     job.updated_at = datetime.utcnow()
 
 app/tests/services/test_forecast_retraining.py::test_forecast_approval_runs_real_fit_only_for_human[human]
@@ -558,7 +558,7 @@ app/tests/services/test_ml_methodology.py::test_generated_flow_runs_existing_dag
 app/tests/services/test_ml_retraining.py::test_scheduled_run_without_alert_completes_without_a_gate
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[human]
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[human_real]
-  /workspace/omnirag-mlops-m4-export/backend/app/services/workspace_jobs.py:215: RuntimeWarning: coroutine 'run_evaluation_job.<locals>.evaluate_bounded' was never awaited
+  /workspace/agentium-mlops-m4-export/backend/app/services/workspace_jobs.py:215: RuntimeWarning: coroutine 'run_evaluation_job.<locals>.evaluate_bounded' was never awaited
     return None
   Enable tracemalloc to get traceback where the object was allocated.
   See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
@@ -567,33 +567,33 @@ app/tests/services/test_forecast_retraining.py::test_forecast_approval_runs_real
 app/tests/services/test_forecast_retraining.py::test_forecast_approval_runs_real_fit_only_for_human[automatic]
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[rejected]
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[automatic]
-  /workspace/omnirag-mlops-m4-export/backend/app/services/run_engine/engine.py:2069: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/run_engine/engine.py:2069: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     run.completed_at = datetime.utcnow()
 
 app/tests/services/test_forecast_retraining.py::test_forecast_approval_runs_real_fit_only_for_human[rejected]
 app/tests/services/test_forecast_retraining.py::test_forecast_approval_runs_real_fit_only_for_human[automatic]
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[rejected]
 app/tests/services/test_ml_retraining.py::test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger[automatic]
-  /workspace/omnirag-mlops-m4-export/backend/app/services/run_engine/engine.py:2072: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/run_engine/engine.py:2072: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     "t": datetime.utcnow().isoformat(),
 
 app/tests/services/test_ml_forecast_tuning.py::test_real_harness_fits_selected_model_and_keeps_backtest_out_of_search[panel-False]
-  /workspace/omnirag/.venv/lib/python3.12/site-packages/skforecast/recursive/_forecaster_recursive_multiseries.py:4462: ResidualsUsageWarning: The following bins of level 'one' have no out of sample residuals: [0, 1, 2, 3, 4, 5, 6]. No predicted values fall in the interval [(9.62517968100899, 10.680074595541901), (10.680074595541901, 11.274519654456261), (11.274519654456261, 11.739879964188203), (11.739879964188203, 12.198253781542286), (12.198253781542286, 12.667918041858298), (12.667918041858298, 13.130038336520775), (13.130038336520775, 13.561713401083873)]. Empty bins will be filled with a random sample of residuals.
+  /workspace/agentium/.venv/lib/python3.12/site-packages/skforecast/recursive/_forecaster_recursive_multiseries.py:4462: ResidualsUsageWarning: The following bins of level 'one' have no out of sample residuals: [0, 1, 2, 3, 4, 5, 6]. No predicted values fall in the interval [(9.62517968100899, 10.680074595541901), (10.680074595541901, 11.274519654456261), (11.274519654456261, 11.739879964188203), (11.739879964188203, 12.198253781542286), (12.198253781542286, 12.667918041858298), (12.667918041858298, 13.130038336520775), (13.130038336520775, 13.561713401083873)]. Empty bins will be filled with a random sample of residuals.
   You can suppress this warning using: warnings.simplefilter('ignore', category=ResidualsUsageWarning)
     warnings.warn(
 
 app/tests/services/test_ml_forecast_tuning.py::test_real_harness_fits_selected_model_and_keeps_backtest_out_of_search[panel-False]
-  /workspace/omnirag/.venv/lib/python3.12/site-packages/skforecast/recursive/_forecaster_recursive_multiseries.py:4462: ResidualsUsageWarning: The following bins of level 'two' have no out of sample residuals: [0, 1, 2, 3, 4, 5, 6]. No predicted values fall in the interval [(14.437577653501046, 16.01992002530041), (16.01992002530041, 16.911587613671955), (16.911587613671955, 17.609628078269864), (17.609628078269864, 18.29718880430099), (18.29718880430099, 19.001685194775007), (19.001685194775007, 19.69486563676872), (19.69486563676872, 20.342378233613363)]. Empty bins will be filled with a random sample of residuals.
+  /workspace/agentium/.venv/lib/python3.12/site-packages/skforecast/recursive/_forecaster_recursive_multiseries.py:4462: ResidualsUsageWarning: The following bins of level 'two' have no out of sample residuals: [0, 1, 2, 3, 4, 5, 6]. No predicted values fall in the interval [(14.437577653501046, 16.01992002530041), (16.01992002530041, 16.911587613671955), (16.911587613671955, 17.609628078269864), (17.609628078269864, 18.29718880430099), (18.29718880430099, 19.001685194775007), (19.001685194775007, 19.69486563676872), (19.69486563676872, 20.342378233613363)]. Empty bins will be filled with a random sample of residuals.
   You can suppress this warning using: warnings.simplefilter('ignore', category=ResidualsUsageWarning)
     warnings.warn(
 
 app/tests/services/test_ml_forecast_tuning.py::test_real_harness_fits_selected_model_and_keeps_backtest_out_of_search[panel-False]
-  /workspace/omnirag/.venv/lib/python3.12/site-packages/skforecast/recursive/_forecaster_recursive_multiseries.py:4462: ResidualsUsageWarning: The following bins of level '_unknown_level' have no out of sample residuals: [0, 1, 2, 6, 7]. No predicted values fall in the interval [(9.62517968100899, 11.27616487774559), (11.27616487774559, 12.21651361205117), (12.21651361205117, 13.137404017690862), (16.901716273935982, 18.256104185656003), (18.256104185656003, 19.687499955598632)]. Empty bins will be filled with a random sample of residuals.
+  /workspace/agentium/.venv/lib/python3.12/site-packages/skforecast/recursive/_forecaster_recursive_multiseries.py:4462: ResidualsUsageWarning: The following bins of level '_unknown_level' have no out of sample residuals: [0, 1, 2, 6, 7]. No predicted values fall in the interval [(9.62517968100899, 11.27616487774559), (11.27616487774559, 12.21651361205117), (12.21651361205117, 13.137404017690862), (16.901716273935982, 18.256104185656003), (18.256104185656003, 19.687499955598632)]. Empty bins will be filled with a random sample of residuals.
   You can suppress this warning using: warnings.simplefilter('ignore', category=ResidualsUsageWarning)
     warnings.warn(
 
 app/tests/services/test_ml_forecast_tuning.py::test_real_harness_fits_selected_model_and_keeps_backtest_out_of_search[multivariate-True]
-  /workspace/omnirag/.venv/lib/python3.12/site-packages/skforecast/direct/_forecaster_direct_multivariate.py:3751: ResidualsUsageWarning: The following bins of level 'y' have no out of sample residuals: [0, 1, 2, 3, 4, 5, 6]. No predicted values fall in the interval [(-1.8011964347102383, -1.1390383644395747), (-1.1390383644395747, -0.7555453455138882), (-0.7555453455138882, -0.46163132108155663), (-0.46163132108155663, -0.16794137667970263), (-0.16794137667970263, 0.11688735484933724), (0.11688735484933724, 0.4047781550803609), (0.4047781550803609, 0.6566281777998475)]. Empty bins will be filled with a random sample of residuals.
+  /workspace/agentium/.venv/lib/python3.12/site-packages/skforecast/direct/_forecaster_direct_multivariate.py:3751: ResidualsUsageWarning: The following bins of level 'y' have no out of sample residuals: [0, 1, 2, 3, 4, 5, 6]. No predicted values fall in the interval [(-1.8011964347102383, -1.1390383644395747), (-1.1390383644395747, -0.7555453455138882), (-0.7555453455138882, -0.46163132108155663), (-0.46163132108155663, -0.16794137667970263), (-0.16794137667970263, 0.11688735484933724), (0.11688735484933724, 0.4047781550803609), (0.4047781550803609, 0.6566281777998475)]. Empty bins will be filled with a random sample of residuals.
   You can suppress this warning using: warnings.simplefilter('ignore', category=ResidualsUsageWarning)
     warnings.warn(
 
@@ -606,7 +606,7 @@ app/tests/services/test_ml_embeddings.py: 1 warning
 app/tests/services/test_ml_forecast_harness.py: 4 warnings
 app/tests/api/test_ml_models_api.py: 2 warnings
 app/tests/api/test_ml_predict_api.py: 16 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_governance.py:114: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_governance.py:114: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = now or datetime.utcnow()
 
 app/tests/services/test_ml_predict.py: 35 warnings
@@ -618,24 +618,24 @@ app/tests/services/test_ml_embeddings.py: 1 warning
 app/tests/services/test_ml_forecast_harness.py: 3 warnings
 app/tests/api/test_ml_models_api.py: 3 warnings
 app/tests/api/test_ml_predict_api.py: 15 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/tabular_predict.py:1094: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/tabular_predict.py:1094: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     predict_count=MLModel.predict_count + max(1, int(rows)), last_predict_at=datetime.utcnow()
 
 app/tests/services/test_ml_predict.py: 27 warnings
 app/tests/services/test_tabular_datasets.py: 7 warnings
 app/tests/services/test_ml_forecast_harness.py: 3 warnings
 app/tests/api/test_ml_models_api.py: 3 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/tabular_datasets.py:672: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/tabular_datasets.py:672: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     dataset.updated_at = datetime.utcnow()
 
 app/tests/services/test_ml_predict.py: 3 warnings
 app/tests/api/test_ml_governance_api.py: 4 warnings
 app/tests/api/test_ml_predict_api.py: 6 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/tabular_predict.py:1504: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/tabular_predict.py:1504: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     "expired": bool((row.expires_at and row.expires_at <= datetime.utcnow()) or (row.revoke_after and row.revoke_after <= datetime.utcnow())),
 
 app/tests/services/test_ml_forecast_tuning.py::test_changing_only_final_holdout_cannot_change_temporal_selection
-  /workspace/omnirag/.venv/lib/python3.12/site-packages/skforecast/recursive/_forecaster_recursive.py:3113: ResidualsUsageWarning: The following bins have no out of sample residuals: [1, 2, 3, 4, 5, 6, 7, 8]. No predicted values fall in the interval [(22.551607337130815, 23.171544218038154), (23.171544218038154, 23.63747529340213), (23.63747529340213, 24.064415327493943), (24.064415327493943, 24.52201253140963), (24.52201253140963, 24.985716861510944), (24.985716861510944, 25.440058927305458), (25.440058927305458, 26.076394881863997), (26.076394881863997, 27.136938909414674)]. Empty bins will be filled with a random sample of residuals.
+  /workspace/agentium/.venv/lib/python3.12/site-packages/skforecast/recursive/_forecaster_recursive.py:3113: ResidualsUsageWarning: The following bins have no out of sample residuals: [1, 2, 3, 4, 5, 6, 7, 8]. No predicted values fall in the interval [(22.551607337130815, 23.171544218038154), (23.171544218038154, 23.63747529340213), (23.63747529340213, 24.064415327493943), (24.064415327493943, 24.52201253140963), (24.52201253140963, 24.985716861510944), (24.985716861510944, 25.440058927305458), (25.440058927305458, 26.076394881863997), (26.076394881863997, 27.136938909414674)]. Empty bins will be filled with a random sample of residuals.
   You can suppress this warning using: warnings.simplefilter('ignore', category=ResidualsUsageWarning)
     warnings.warn(
 
@@ -644,34 +644,34 @@ app/tests/services/test_ml_monitor_alert_hooks.py: 160 warnings
 app/tests/services/test_ml_retraining.py: 2240 warnings
 app/tests/services/test_ml_retraining_recovery.py: 1040 warnings
 app/tests/api/test_ml_retraining_api.py: 1040 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_retraining.py:110: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_retraining.py:110: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     labeled_at=datetime.utcnow(),
 
 app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[48-0]
 app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[240-0.01]
-  /workspace/omnirag-mlops-m4-export/backend/app/services/llm_label_review.py:140: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/llm_label_review.py:140: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     "reviewed_at": datetime.utcnow().isoformat(), "source_dataset_id": source.id,
 
 app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[48-0]
 app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[240-0.01]
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_llm_label_review.py:52: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_llm_label_review.py:52: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     case.decision.human_confirmed_at = datetime.utcnow()
 
 app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[48-0]
 app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[48-0]
 app/tests/services/test_ml_distillation.py::test_confirmed_review_trains_and_serves_a_real_model_with_portable_evidence[48-0]
-  /workspace/omnirag/.venv/lib/python3.12/site-packages/sklearn/preprocessing/_encoders.py:262: UserWarning: Found unknown categories in columns [0] during transform. These unknown categories will be encoded as all zeros
+  /workspace/agentium/.venv/lib/python3.12/site-packages/sklearn/preprocessing/_encoders.py:262: UserWarning: Found unknown categories in columns [0] during transform. These unknown categories will be encoded as all zeros
     warnings.warn(msg, UserWarning)
 
 app/tests/services/test_ml_families.py: 1 warning
 app/tests/services/test_ml_forecast_validation.py: 3 warnings
 app/tests/services/test_ml_deep_runtime.py: 3 warnings
 app/tests/api/test_ml_predict_api.py: 16 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml/runtime.py:158: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml/runtime.py:158: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     cutoff = (now or datetime.utcnow()) - timedelta(
 
 app/tests/services/test_ml_families.py::test_a_family_image_is_offered_only_while_its_heartbeat_is_fresh
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_families.py:460: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_families.py:460: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_ml_monitor_alert_hooks.py::test_new_snapshot_emits_one_transition_and_replay_is_quiet
@@ -681,17 +681,17 @@ app/tests/services/test_ml_alerts.py::test_transitions_throttle_recovery_and_no_
 app/tests/services/test_ml_alerts.py::test_transitions_throttle_recovery_and_no_external_io
 app/tests/services/test_ml_alerts.py::test_transitions_throttle_recovery_and_no_external_io
 app/tests/services/test_ml_alerts.py::test_transitions_throttle_recovery_and_no_external_io
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_alerts.py:133: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_alerts.py:133: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now or datetime.utcnow(),
 
 app/tests/services/test_ml_monitor_alert_hooks.py: 2 warnings
 app/tests/services/test_ml_operations.py: 2 warnings
 app/tests/services/test_ml_alerts.py: 14 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_alerts.py:56: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_alerts.py:56: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = now or datetime.utcnow()
 
 app/tests/services/test_ml_operations.py: 10 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_operations.py:248: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_operations.py:248: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = now or datetime.utcnow()
 
 app/tests/services/test_ml_operations.py::test_list_scopes_and_key_metadata_only
@@ -702,30 +702,30 @@ app/tests/services/test_ml_operations.py::test_system_read_boundaries
 app/tests/services/test_ml_operations.py::test_system_read_boundaries
 app/tests/services/test_ml_operations.py::test_revoked_membership_denied
 app/tests/services/test_ml_operations.py::test_model_scoped_audit_is_metadata_only
-  /workspace/omnirag-mlops-m4-export/backend/app/api/v1/endpoints/ml_operations.py:90: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/api/v1/endpoints/ml_operations.py:90: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_ml_shadow_real.py: 1 warning
 app/tests/services/test_ml_shadow.py: 16 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_shadow.py:202: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_shadow.py:202: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     queued_at=datetime.utcnow(),
 
 app/tests/services/test_ml_shadow_real.py: 1 warning
 app/tests/services/test_ml_shadow.py: 16 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_shadow.py:380: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_shadow.py:380: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     claim = _claim(db, job_id, datetime.utcnow())
 
 app/tests/services/test_ml_shadow_real.py: 1 warning
 app/tests/services/test_ml_shadow.py: 13 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_shadow.py:404: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_shadow.py:404: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_ml_forecast_validation.py::test_serving_availability_reads_the_serving_queue_not_the_training_one
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_forecast_validation.py:369: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_forecast_validation.py:369: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     db_session.add(MLRuntimeHeartbeat(runtime="ml-ts", hostname=hosts[0], queues=["ml_ts"], seen_at=datetime.utcnow()))
 
 app/tests/services/test_ml_forecast_validation.py::test_serving_availability_reads_the_serving_queue_not_the_training_one
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_forecast_validation.py:373: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_forecast_validation.py:373: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     db_session.add(MLRuntimeHeartbeat(runtime="ml-ts", hostname=hosts[1], queues=["ml_ts_rpc"], seen_at=datetime.utcnow()))
 
 app/tests/services/test_ml_explanations.py::test_tiny_budget_interrupts_work_and_marks_remaining_sections
@@ -737,166 +737,166 @@ app/tests/services/test_ml_explanations.py::test_timeout_preserves_completed_sec
     self.pid = os.fork()
 
 app/tests/services/test_skill_invocation_snapshot.py::test_chat_producer_captures_resolved_and_unresolved_evidence
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_skill_invocation_snapshot.py:207: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_skill_invocation_snapshot.py:207: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     started_at=datetime.utcnow(),
 
 app/tests/services/test_skill_invocation_snapshot.py::test_knowledge_capture_producer_does_not_promote_unresolved_zero
-  /workspace/omnirag-mlops-m4-export/backend/app/services/knowledge_capture.py:11154: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/knowledge_capture.py:11154: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_skill_invocation_snapshot.py::test_intelligence_producer_uses_catalog_cost_evidence
-  /workspace/omnirag-mlops-m4-export/backend/app/api/v1/endpoints/intelligence.py:297: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/api/v1/endpoints/intelligence.py:297: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     started_at=datetime.utcnow(),
 
 app/tests/services/test_skill_invocation_snapshot.py::test_intelligence_producer_uses_catalog_cost_evidence
-  /workspace/omnirag-mlops-m4-export/backend/app/api/v1/endpoints/intelligence.py:321: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/api/v1/endpoints/intelligence.py:321: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     started_at=datetime.utcnow(),
 
 app/tests/services/test_skill_invocation_snapshot.py::test_intelligence_producer_uses_catalog_cost_evidence
-  /workspace/omnirag-mlops-m4-export/backend/app/api/v1/endpoints/intelligence.py:384: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/api/v1/endpoints/intelligence.py:384: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     invocation.completed_at = datetime.utcnow()
 
 app/tests/services/test_skill_invocation_snapshot.py::test_intelligence_producer_uses_catalog_cost_evidence
-  /workspace/omnirag-mlops-m4-export/backend/app/api/v1/endpoints/intelligence.py:391: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/api/v1/endpoints/intelligence.py:391: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     run.completed_at = datetime.utcnow()
 
 app/tests/services/test_ml_tuning.py::test_pruning_reports_folds_and_failed_trials_do_not_discard_baseline
-  /workspace/omnirag-mlops-m4-export/backend/app/resources/ml_tuning_harness.py:55: UserWarning: Fixed parameter n_neighbors with value 1 is out of range for distribution IntDistribution(high=100, log=False, low=80, step=1).
+  /workspace/agentium-mlops-m4-export/backend/app/resources/ml_tuning_harness.py:55: UserWarning: Fixed parameter n_neighbors with value 1 is out of range for distribution IntDistribution(high=100, log=False, low=80, step=1).
     knobs[key] = trial.suggest_int(key, int(field["low"]), int(field["high"]), log=field.get("log", False))
 
 app/tests/services/test_ml_alerts.py::test_active_lease_not_reclaimed_and_expired_lease_replayed
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_alerts.py:94: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_alerts.py:94: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_ml_alerts.py::test_retry_keeps_safe_error_and_bounded_attempts
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_alerts.py:115: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_alerts.py:115: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_ml_alerts.py::test_successful_delivery_is_not_repeated
 app/tests/services/test_ml_alerts.py::test_successful_delivery_is_not_repeated
 app/tests/services/test_ml_alerts.py::test_successful_delivery_is_not_repeated
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_alerts.py:192: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_alerts.py:192: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = now or datetime.utcnow()
 
 app/tests/services/test_ml_alerts.py::test_successful_delivery_is_not_repeated
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_alerts.py:331: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_alerts.py:331: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     stamp = now or datetime.utcnow()
 
 app/tests/services/test_ml_alerts.py::test_webhook_hmac_signs_timestamp_and_exact_body
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_alerts.py:297: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_alerts.py:297: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     deadline_at=(datetime.utcnow() + timedelta(seconds=5)).isoformat(),
 
 app/tests/services/test_ml_alerts.py::test_alerts_workspace_scope_and_acknowledgement
-  /workspace/omnirag-mlops-m4-export/backend/app/api/v1/endpoints/ml_operations.py:223: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/api/v1/endpoints/ml_operations.py:223: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     row.acknowledged_at, row.acknowledged_by = datetime.utcnow(), user.id
 
 app/tests/services/test_ml_shadow.py::test_expired_lease_retries_only_up_to_the_durable_attempt_limit
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_shadow.py:199: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_shadow.py:199: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     first, token = shadow._claim(other, job.id, datetime.utcnow())
 
 app/tests/services/test_ml_shadow.py::test_expired_lease_retries_only_up_to_the_durable_attempt_limit
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_shadow.py:203: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_shadow.py:203: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     job.updated_at = datetime.utcnow() - timedelta(seconds=shadow.LEASE_SECONDS + 1)
 
 app/tests/services/test_ml_shadow.py::test_expired_lease_retries_only_up_to_the_durable_attempt_limit
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_shadow.py:206: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_shadow.py:206: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     second, _ = shadow._claim(other, job.id, datetime.utcnow())
 
 app/tests/services/test_ml_shadow.py::test_expired_lease_retries_only_up_to_the_durable_attempt_limit
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_shadow.py:209: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_shadow.py:209: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     job.updated_at = datetime.utcnow() - timedelta(seconds=shadow.LEASE_SECONDS + 1)
 
 app/tests/services/test_ml_shadow.py::test_expired_lease_retries_only_up_to_the_durable_attempt_limit
 app/tests/services/test_ml_shadow.py::test_dispatch_failure_is_recoverable_and_duplicate_delivery_is_idempotent
 app/tests/services/test_ml_shadow.py::test_dispatch_failure_is_recoverable_and_duplicate_delivery_is_idempotent
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_shadow.py:447: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_shadow.py:447: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_ml_shadow.py::test_reclaimed_worker_cannot_overwrite_new_owner_result
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_shadow.py:365: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_shadow.py:365: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     claimed.updated_at = datetime.utcnow() + timedelta(seconds=1)
 
 app/tests/services/test_ml_deep_runtime.py::test_only_verified_live_training_worker_offers_model
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_deep_runtime.py:113: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_deep_runtime.py:113: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_ml_deep_runtime.py: 3 warnings
 app/tests/api/test_ml_predict_api.py: 7 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml/runtime.py:191: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml/runtime.py:191: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     cutoff = (now or datetime.utcnow()) - timedelta(
 
 app/tests/services/test_ml_deep_runtime.py::test_mixed_worker_model_revisions_are_unavailable
 app/tests/services/test_ml_deep_runtime.py::test_mixed_worker_model_revisions_are_unavailable
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml/runtime.py:86: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml/runtime.py:86: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = now or datetime.utcnow()
 
 app/tests/services/test_ml_clustering_harness.py::test_missing_rare_group_in_a_subsample_makes_overall_stability_unavailable
-  /workspace/omnirag/.venv/lib/python3.12/site-packages/sklearn/base.py:1403: ConvergenceWarning: Number of distinct clusters (1) found smaller than n_clusters (2). Possibly due to duplicate points in X.
+  /workspace/agentium/.venv/lib/python3.12/site-packages/sklearn/base.py:1403: ConvergenceWarning: Number of distinct clusters (1) found smaller than n_clusters (2). Possibly due to duplicate points in X.
     return fit_method(estimator, *args, **kwargs)
 
 app/tests/services/test_ml_forecast_harness.py::test_the_saved_model_forecasts_what_the_fitted_one_does
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_forecast_harness.py:260: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`).Please use a specific unit instead.
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_forecast_harness.py:260: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`).Please use a specific unit instead.
     assert pd.Timestamp(answer["timestamp"].iloc[0]) == last + pd.Timedelta(hours=1)
 
 app/tests/services/test_ml_retraining.py::test_scheduled_run_without_alert_completes_without_a_gate
 app/tests/services/test_ml_retraining.py::test_scheduled_run_without_alert_completes_without_a_gate
-  /workspace/omnirag-mlops-m4-export/backend/app/services/run_engine/dag.py:2411: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/run_engine/dag.py:2411: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     "t": datetime.utcnow().isoformat(),
 
 app/tests/services/test_ml_retraining.py::test_retraining_run_link_projects_canonical_approval_rights
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_retraining.py:482: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_retraining.py:482: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     decision.expires_at = datetime.utcnow() - timedelta(seconds=1)
 
 app/tests/services/test_ml_retraining.py::test_deleting_monitored_model_stops_future_ticks_and_preserves_history
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_retraining.py:497: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_retraining.py:497: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     case.schedule.next_fire_at = datetime.utcnow() - timedelta(minutes=1)
 
 app/tests/services/test_ml_retraining.py::test_deleting_monitored_model_stops_future_ticks_and_preserves_history
-  /workspace/omnirag-mlops-m4-export/backend/app/services/run_engine/scheduler.py:253: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/run_engine/scheduler.py:253: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/services/test_ml_retraining.py::test_deleting_monitored_model_stops_future_ticks_and_preserves_history
-  /workspace/omnirag-mlops-m4-export/backend/app/services/run_engine/gate_ttl.py:555: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/run_engine/gate_ttl.py:555: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     selection_now = datetime.utcnow()
 
 app/tests/services/test_ml_retraining.py::test_deleting_monitored_model_stops_future_ticks_and_preserves_history
-  /workspace/omnirag-mlops-m4-export/backend/app/services/service_engine.py:320: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/service_engine.py:320: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = now or datetime.utcnow()
 
 app/tests/services/test_tabular_datasets.py::test_upload_then_ingest_writes_parquet_and_the_full_read_model
 app/tests/services/test_tabular_datasets.py::test_ingest_walks_the_declared_steps_in_order
-  /workspace/omnirag-mlops-m4-export/backend/app/services/tabular_datasets.py:757: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/tabular_datasets.py:757: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     dataset.ingested_at = datetime.utcnow()
 
 app/tests/services/test_tabular_datasets.py::test_ingest_failure_records_a_reason_instead_of_hanging_in_progress
 app/tests/services/test_ml_predict.py::test_a_dataset_missing_a_required_column_is_refused_by_name
 app/tests/services/test_ml_predict.py::test_a_score_that_breaks_does_not_leave_a_table_claiming_to_be_working
-  /workspace/omnirag-mlops-m4-export/backend/app/services/tabular_datasets.py:787: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/tabular_datasets.py:787: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     dataset.updated_at = datetime.utcnow()
 
 app/tests/services/test_tabular_datasets.py::test_soft_delete_hides_the_row_and_survives_an_append_only_store
-  /workspace/omnirag-mlops-m4-export/backend/app/services/tabular_datasets.py:1053: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/tabular_datasets.py:1053: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     dataset.updated_at = datetime.utcnow()
 
 app/tests/services/test_ml_forecast_harness.py: 24 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_forecast_harness.py:279: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`).Please use a specific unit instead.
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_forecast_harness.py:279: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`).Please use a specific unit instead.
     "timestamp": [str(last + pd.Timedelta(hours=step)) for step in range(1, HORIZON + 1)],
 
 app/tests/services/test_ml_retraining_recovery.py::test_ambiguous_ack_recovers_same_task_id_without_early_republish
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_retraining_recovery.py:44: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_retraining_recovery.py:44: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     job.updated_at = datetime.utcnow() - timedelta(seconds=61)
 
 app/tests/services/test_ml_retraining_recovery.py::test_lost_worker_after_claim_is_never_refit
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_retraining_recovery.py:107: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_retraining_recovery.py:107: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     job.result = {**job.result, "worker_claimed_at": (datetime.utcnow() - timedelta(seconds=130)).isoformat()}
 
 app/tests/services/test_ml_retraining_recovery.py::test_lost_worker_after_claim_is_never_refit
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_retraining_recovery.py:108: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_retraining_recovery.py:108: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     job.updated_at = datetime.utcnow() - timedelta(seconds=130)
 
 app/tests/services/test_ml_retraining_recovery.py::test_lost_worker_after_claim_is_never_refit
 app/tests/services/test_ml_retraining_recovery.py::test_active_fit_does_not_starve_next_intent_with_one_job_budget
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_retraining.py:991: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_retraining.py:991: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     if datetime.utcnow() >= claimed_at + timedelta(
 
 app/tests/services/test_ml_retraining_recovery.py::test_lost_worker_after_claim_is_never_refit
@@ -905,34 +905,34 @@ app/tests/services/test_ml_retraining_recovery.py::test_terminal_run_cancels_pen
 app/tests/services/test_ml_retraining_recovery.py::test_abandoned_gate_releases_the_proposal_slot[created]
 app/tests/services/test_ml_retraining_recovery.py::test_abandoned_gate_releases_the_proposal_slot[queued]
 app/tests/services/test_ml_retraining_recovery.py::test_authority_revoked_before_dispatch_fails_intent_without_spending
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_retraining.py:914: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_retraining.py:914: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     job.completed_at = job.updated_at = datetime.utcnow()
 
 app/tests/services/test_ml_retraining_recovery.py::test_active_fit_does_not_starve_next_intent_with_one_job_budget
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_retraining_recovery.py:206: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_retraining_recovery.py:206: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     active_job.updated_at = datetime.utcnow() - timedelta(seconds=20)
 
 app/tests/services/test_ml_retraining_recovery.py::test_active_fit_does_not_starve_next_intent_with_one_job_budget
-  /workspace/omnirag-mlops-m4-export/backend/app/services/ml_retraining.py:1000: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_retraining.py:1000: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     job.updated_at = datetime.utcnow()
 
 app/tests/services/test_ml_comparison.py::test_both_versions_are_scored_on_the_very_same_rows
 app/tests/services/test_ml_comparison.py::test_the_table_reproduces_each_version_s_own_recorded_score
 app/tests/services/test_ml_evaluation.py::test_comparison_uses_evidence_after_seed_and_source_order_change
 app/tests/services/test_ml_evaluation.py::test_comparison_uses_evidence_after_seed_and_source_order_change
-  /workspace/omnirag/.venv/lib/python3.12/site-packages/sklearn/metrics/_classification.py:1879: UndefinedMetricWarning: Precision is ill-defined and being set to 0.0 due to no predicted samples. Use `zero_division` parameter to control this behavior.
+  /workspace/agentium/.venv/lib/python3.12/site-packages/sklearn/metrics/_classification.py:1879: UndefinedMetricWarning: Precision is ill-defined and being set to 0.0 due to no predicted samples. Use `zero_division` parameter to control this behavior.
     _warn_prf(average, modifier, f"{metric.capitalize()} is", result.shape[0])
 
 app/tests/services/test_ml_forecast_harness.py::test_each_forecast_step_is_base_plus_its_families_exactly[recursive]
-  /workspace/omnirag/.venv/lib/python3.12/site-packages/shap/plots/colors/_colors.py:47: PendingDeprecationWarning: The set_bad function will be deprecated in a future version. Use cmap.with_extremes(bad=...) or Colormap(bad=...) instead.
+  /workspace/agentium/.venv/lib/python3.12/site-packages/shap/plots/colors/_colors.py:47: PendingDeprecationWarning: The set_bad function will be deprecated in a future version. Use cmap.with_extremes(bad=...) or Colormap(bad=...) instead.
     red_blue.set_bad(gray_rgb.tolist(), 1.0)
 
 app/tests/services/test_ml_forecast_harness.py::test_each_forecast_step_is_base_plus_its_families_exactly[recursive]
-  /workspace/omnirag/.venv/lib/python3.12/site-packages/shap/plots/colors/_colors.py:48: PendingDeprecationWarning: The set_over function will be deprecated in a future version. Use cmap.with_extremes(over=...) or Colormap(over=...) instead.
+  /workspace/agentium/.venv/lib/python3.12/site-packages/shap/plots/colors/_colors.py:48: PendingDeprecationWarning: The set_over function will be deprecated in a future version. Use cmap.with_extremes(over=...) or Colormap(over=...) instead.
     red_blue.set_over(gray_rgb.tolist(), 1.0)
 
 app/tests/services/test_ml_forecast_harness.py::test_each_forecast_step_is_base_plus_its_families_exactly[recursive]
-  /workspace/omnirag/.venv/lib/python3.12/site-packages/shap/plots/colors/_colors.py:49: PendingDeprecationWarning: The set_under function will be deprecated in a future version. Use cmap.with_extremes(under=...) or Colormap(under=...) instead.
+  /workspace/agentium/.venv/lib/python3.12/site-packages/shap/plots/colors/_colors.py:49: PendingDeprecationWarning: The set_under function will be deprecated in a future version. Use cmap.with_extremes(under=...) or Colormap(under=...) instead.
     red_blue.set_under(gray_rgb.tolist(), 1.0)  # "under" is incorrectly used instead of "bad" in the scatter plot
 
 app/tests/services/test_ml_forecast_harness.py::test_each_forecast_step_is_base_plus_its_families_exactly[direct]
@@ -941,42 +941,42 @@ app/tests/services/test_ml_forecast_harness.py::test_each_forecast_step_is_base_
 app/tests/services/test_ml_forecast_harness.py::test_each_forecast_step_is_base_plus_its_families_exactly[direct]
 app/tests/services/test_ml_forecast_harness.py::test_each_forecast_step_is_base_plus_its_families_exactly[direct]
 app/tests/services/test_ml_forecast_harness.py::test_each_forecast_step_is_base_plus_its_families_exactly[direct]
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_forecast_harness.py:627: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`).Please use a specific unit instead.
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_forecast_harness.py:627: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`).Please use a specific unit instead.
     {"timestamp": str(last + pd.Timedelta(hours=step)), **{name: 0.0 for name in meta["exog_future"]}}
 
 app/tests/services/test_ml_stream_operations.py::test_stream_success_counts_full_output_and_honors_storage_policy
 app/tests/services/test_ml_stream_operations.py::test_stream_failure_records_no_success_rows_and_no_duplicate
 app/tests/services/test_ml_stream_operations.py::test_stream_journal_and_usage_roll_back_with_failed_settlement
-  /workspace/omnirag-mlops-m4-export/backend/app/services/dataops/scoring.py:277: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/dataops/scoring.py:277: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     .values(status="running", started_at=datetime.utcnow())
 
 app/tests/services/test_ml_stream_operations.py::test_stream_success_counts_full_output_and_honors_storage_policy
-  /workspace/omnirag-mlops-m4-export/backend/app/services/dataops/scoring.py:424: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/dataops/scoring.py:424: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     served.last_predict_at = datetime.utcnow()
 
 app/tests/services/test_ml_stream_operations.py::test_stream_success_counts_full_output_and_honors_storage_policy
 app/tests/services/test_ml_stream_operations.py::test_stream_failure_records_no_success_rows_and_no_duplicate
 app/tests/services/test_ml_stream_operations.py::test_stream_journal_and_usage_roll_back_with_failed_settlement
-  /workspace/omnirag-mlops-m4-export/backend/app/services/recipe_executions.py:204: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/recipe_executions.py:204: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     execution.finished_at = datetime.utcnow()
 
 app/tests/services/test_ml_shadow.py::test_dispatch_failure_is_recoverable_and_duplicate_delivery_is_idempotent
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/services/test_ml_shadow.py:103: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_shadow.py:103: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     job.updated_at = datetime.utcnow() - timedelta(minutes=2)
 
 app/tests/services/test_ml_predict.py::test_a_revoked_key_stops_working_and_stays_visible_as_revoked
 app/tests/services/test_ml_predict.py::test_the_key_ceiling_counts_only_live_keys
 app/tests/api/test_ml_predict_api.py::test_a_revoked_key_stops_answering_immediately
 app/tests/api/test_ml_predict_api.py::test_revoking_a_key_from_the_card_keeps_it_visible_as_revoked
-  /workspace/omnirag-mlops-m4-export/backend/app/services/tabular_predict.py:1488: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/tabular_predict.py:1488: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     row.revoked_at = datetime.utcnow()
 
 app/tests/api/test_model_operations_catalog.py: 12 warnings
-  /workspace/omnirag-mlops-m4-export/backend/app/services/skills_registry/seed.py:4725: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/services/skills_registry/seed.py:4725: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 app/tests/api/test_model_operations_catalog.py::test_reconciliation_claims_existing_skills_once_without_changing_workspace_policy
-  /workspace/omnirag-mlops-m4-export/backend/app/tests/api/test_model_operations_catalog.py:143: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /workspace/agentium-mlops-m4-export/backend/app/tests/api/test_model_operations_catalog.py:143: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     stamp = datetime.utcnow() - timedelta(days=1)
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
