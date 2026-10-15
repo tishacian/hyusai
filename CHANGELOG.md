@@ -1,24 +1,43 @@
 # Changelog
 
-## 2026-10-14 · Connectors roadmap candidate (not deployed)
+## 2026-10-15 · Connector catalogue usable in production, C0 still open
 
-- Add governed multi-instance connections, personal OAuth and secret scopes,
-  version-bound System delegations, a shared local compute registry, and isolated
-  connector workers. Data, tool and lakehouse adapters expose explicit capabilities.
-- Bind write approval to immutable input/target contracts and a successful preview.
-  Unknown outcomes require reconciliation or explicit human abandonment; no blind replay.
-  Add incremental checkpoints, immutable object/Delta exports and object-watch Flow triggers.
-- Add the Connections UI, agent read/write-request Skills, evidence-bound badges,
-  migrations 127–132 and an opt-in certification campaign for the VM operator.
-- No profile is certified by these development tests. No deployment, budget increase,
-  production exception or HANA qualification is included. Fabric/Entra, cloud bulk
-  staging and unsupported lakehouse features remain explicit limits.
-  BigQuery and object/HTTP/lakehouse observations lack the server version required
-  by the current proof contract; an operator report cannot replace that missing identity.
-  See [implementation status](docs/agentium-connectors-implementation.md) and
-  [delegated certification](docs/agentium-connectors-certification-handoff.md).
+- Ship the connector catalogue so it can be tried: governed connections, personal
+  OAuth and secret scopes, version-bound System delegations, a shared local compute
+  registry, isolated connector workers, and the Connections UI. Enabling the
+  framework forces the network guard to enforce. No profile is Vérifié or Certifié.
+  The certification bench, administered exceptions, image qualification as a C0
+  exit, and the HANA bench stay open.
+- Write approval stays bound to immutable input/target contracts and a successful
+  preview. Unknown outcomes require reconciliation or explicit human abandonment.
+  Migrations 127–132. Fabric/Entra, cloud bulk staging and unsupported lakehouse
+  features remain explicit limits. See
+  [implementation status](docs/agentium-connectors-implementation.md).
+
+## 2026-10-14 · DataOps production activation (`0e401afc`)
+
+- The operator reports production running revision `0e401afc`, verified through
+  `build-info`, with DataOps preparation, Delta writes, service contracts and
+  streaming scoring enabled globally. Backend and DataOps worker loaded the
+  settings. Health checks passed; RabbitMQ now applies `consumer_timeout=3600000`
+  with its volume retained, eight workers reconnected and the scheduler running.
+- A real preparation in `default` produced one row in one Delta part. Service
+  contract lists are accessible but empty; calibration reaches “corpus not
+  found”. Streaming scoring has not been exercised. Activation is distinct from
+  qualification of throughput, service delivery or judge quality.
+- **Image-only rollback to `ad10dbc2` is incompatible with existing Delta
+  versions.** Disabling Delta writes does not convert existing data, and removing
+  the two probe datasets does not establish compatibility for other writes.
+- Four blocked runs were cancelled and orphan reply queues were removed by the
+  operator. HANA Showcase demo activation remains pending; narration, HANA writes
+  and insecure TLS remain disabled. The [production record](docs/ops/dataops-production-2026-10-14.md)
+  records the settings, dataset IDs, checks, cleanup and rollback constraints
+  from the operator's report. No new live checks are claimed by this documentation.
 
 ## 2026-10-14 · DataOps candidate (not deployed)
+
+Historical record before the production activation above; its image measurements
+refer to `6dcb0d48`, not to a new measurement of `0e401afc`.
 
 - Raise the VM build's backend image budget from **1400 to 1480 MiB** and the
   worker budget from **1760 to 1850 MiB**, following the release owner's VM

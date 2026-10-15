@@ -1,5 +1,20 @@
 # Exploitation DataOps et Showcase
 
+**État de production au 14 octobre 2026 :** l'opérateur rapporte `0e401afc`,
+avec préparation DataOps, écriture Delta, contrats et scoring en flux ouverts
+globalement. Une sonde Delta d'une ligne a réussi dans `default` ; le scoring
+en flux n'a pas encore été exercé. Voir le
+[bilan de production](dataops-production-2026-10-14.md), notamment la contrainte
+de retour arrière après écriture Delta et l'activation HANA Showcase restante.
+Les indications Helm ci-dessous décrivent le profil et ses défauts ; elles ne
+remplacent pas cet état effectif de la VM.
+
+Le [cadrage du calcul local](../agentium-dataops-local-compute-plan.md) propose
+le registre, les mesures, les E/S S3 directes et la discipline SQL à construire
+avant Kubernetes/Spark. Il conserve la distinction entre RSS échantillonné et
+pic cgroup du benchmark ; ses seuils et le repli local jusqu'à 20 Gio ne sont
+pas déclarés qualifiés par les recettes ci-dessous.
+
 Le lot actif prépare le scoring nominal de 2 millions de lignes et le scoring
 haut volume de 3 millions. Narration/jugement de 500 unités reste un brouillon
 différé à la demande de l’utilisateur, avec `narration_enabled=false`. Gemini via
