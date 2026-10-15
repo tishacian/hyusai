@@ -25,6 +25,7 @@ const stub = join(here, 'ng-core.stub.mjs');
 // Pure specs: engine-agnostic logic. `@angular/core` is aliased to a
 // metadata-only stub (the serializer uses it only for `@Injectable`).
 const pureSpecs = [
+  'src/app/features/observability/activities/activity-stream.spec.ts',
   'src/app/features/orchestration/flow/flow-data-prep.vm.spec.ts',
   'src/app/features/orchestration/flow/flow-data-prep-ui-contract.spec.ts',
   'src/app/features/data/dataops.models.spec.ts',
@@ -188,6 +189,8 @@ const pureSpecs = [
 // Store specs: exercised through a REAL Angular Injector (ngrx signalStore +
 // JIT). No `@angular/core` alias; the spec imports `@angular/compiler` itself.
 const storeSpecs = [
+  'src/app/features/observability/activities/activity-api.service.spec.ts',
+  'src/app/features/observability/activities/activities.component.spec.ts',
   'src/app/features/data/dataops.api.spec.ts',
   'src/app/features/connectors/huggingface/huggingface-lifecycle.component.spec.ts',
   'src/app/features/knowledge/collection-models.component.spec.ts',

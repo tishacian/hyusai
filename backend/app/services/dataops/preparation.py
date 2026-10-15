@@ -187,7 +187,7 @@ def submit_preparation(
     db.commit()
     if settings.worker_eager_mode:
         run_preparation(execution.id)
-    else:
+    elif not execution.celery_task_id:
         from app.workers.celery_app import celery_app
 
         result = celery_app.send_task(
@@ -233,12 +233,10 @@ def run_preparation(execution_id: str):
                     )
                     if not dataset_digest_matches(dataset, config["input_digests"][port]):
                         raise ValueError("DATAPREP_INPUT_CHANGED")
-                    views.append(
-                        {
-                            "name": port,
-                            "paths": [str(p) for p in materialize_files(dataset, root / port)],
-                        }
-                    )
+                    from app.services.execution.io_lease import maintain
+                    with maintain(RecipeExecution, row.id, getattr(row, "_native_lease_token", None), status="running"):
+                        paths = [str(p) for p in materialize_files(dataset, root / port)]
+                    views.append({"name": port, "paths": paths})
                 for reference in config.get("asset_inputs", {}).values():
                     resolve_dataset_ref(db, workspace_id=row.workspace_id, ref=reference)
                 spec = DataPrepSpec.model_validate(config["spec"])
@@ -364,7 +362,7 @@ def run_preparation(execution_id: str):
         except Exception as exc:
             db.rollback()
             row = db.get(RecipeExecution, execution_id)
-            if row.status not in RECIPE_EXECUTION_TERMINAL_STATUSES:
+            if row.status not in RECIPE_EXECUTION_TERMINAL_STATUSES or getattr(row, "_native_lease_token", None):
                 finalize_execution(
                     row,
                     status="cancelled" if row.cancel_requested else "failed",

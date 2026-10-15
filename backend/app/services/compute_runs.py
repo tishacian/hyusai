@@ -220,6 +220,12 @@ def create_run(
     )
     db.add(row)
     db.flush()
+    from app.services.execution.rollout import durable_for, enabled_for
+    if enabled_for(db, workspace_id, "execution_control_enabled"):
+        row.metrics_json = {**(row.metrics_json or {}), "coordination_version": 1}
+    if durable_for(db, workspace_id) and not recipe_execution_id:
+        from app.services.execution.dispatch import stage
+        stage(db, "compute_run", row, deadline_at=row.deadline_at)
     return row
 
 
@@ -256,6 +262,7 @@ def get_run(db: Session, workspace_id: str, run_id: str) -> ComputeRun:
                 if expired
                 else "CONNECTOR_WORKER_LOST",
                 now,
+                process_stopped=row.status == "queued",
             )
             db.commit()
     return row
@@ -264,6 +271,12 @@ def get_run(db: Session, workspace_id: str, run_id: str) -> ComputeRun:
 def dispatch_run(db: Session, row: ComputeRun) -> str:
     if row.recipe_execution_id:
         raise ComputeRunError("COMPUTE_LEGACY_DISPATCH_REQUIRED")
+    from app.services.execution.rollout import durable_for
+    if durable_for(db, row.workspace_id):
+        from app.services.execution.dispatch import stage
+        intent = stage(db, "compute_run", row, deadline_at=row.deadline_at)
+        db.commit()
+        return intent.task_id
     from app.workers.celery_connectors import celery_connectors
 
     # Commit the durable intent before publishing; the message contains only an
@@ -295,7 +308,8 @@ def dispatch_run(db: Session, row: ComputeRun) -> str:
 
 
 def _finish(
-    row: ComputeRun, status: str, error_code: str | None, now: datetime, output: dict | None = None
+    row: ComputeRun, status: str, error_code: str | None, now: datetime, output: dict | None = None,
+    *, process_stopped: bool = True,
 ) -> None:
     if row.write_started and status != "succeeded":
         status, error_code, row.outcome_unknown = "lost", "CONNECTOR_WRITE_OUTCOME_UNKNOWN", True
@@ -319,6 +333,20 @@ def _finish(
         "cost_basis": "requested_resources_x_wall_time",
         "cost_usd": row.cost_usd,
     }
+    from sqlalchemy.orm import object_session
+
+    from app.models.execution_control import ExecutionReservation
+    db = object_session(row)
+    allocation = db.query(ExecutionReservation).filter_by(entity_kind="compute_run", entity_id=row.id).one_or_none() if db else None
+    if allocation:
+        from app.services.execution.admission import settle
+        settle(db, entity_kind="compute_run", entity_id=row.id, token=allocation.lease_token,
+               outcome=status if process_stopped else "reconciliation_required", now=now,
+               process_stopped=process_stopped)
+        # Frozen tariffs, never a new price applied retroactively.
+        cpu_rate, memory_rate = allocation.policy.get("cpu_hour_usd"), allocation.policy.get("gb_hour_usd")
+        row.cost_usd = None if cpu_rate is None or memory_rate is None else row.core_hours * cpu_rate + seconds / 3600 * row.memory_mb / 1024 * memory_rate
+        row.metrics_json = {**row.metrics_json, "cost_usd": row.cost_usd}
     if row.operation == "test":
         from sqlalchemy.orm import object_session
 
@@ -350,15 +378,30 @@ def claim_run(db: Session, run_id: str, *, now: datetime | None = None) -> str |
     row = db.get(ComputeRun, run_id)
     if row is None:
         return None
+    controlled = (row.metrics_json or {}).get("coordination_version") == 1
+    if controlled:
+        from app.services.execution.admission import AdmissionError, lock_scopes
+        try:
+            lock_scopes(db, row.workspace_id)
+        except AdmissionError as exc:
+            db.rollback()
+            from app.services.execution.dispatch import defer_native
+            defer_native(db, "compute_run", run_id, code=exc.code)
+            db.commit()
+            return None
     workspace = _lock_workspace(db, row.workspace_id)
+    from app.services.execution.control import parent_cancelled
+    cancelled_parent = parent_cancelled(db, row.run_id, row.workspace_id)
     row = db.query(ComputeRun).filter_by(id=run_id).with_for_update().populate_existing().one()
     if row.status in TERMINAL_STATUSES:
         return None
     if row.status in ACTIVE_STATUSES:
         if row.lease_expires_at is None or row.lease_expires_at <= now:
-            _finish(row, "lost", "CONNECTOR_WORKER_LOST", now)
+            _finish(row, "lost", "CONNECTOR_WORKER_LOST", now, process_stopped=False)
             db.commit()
         return None
+    if cancelled_parent:
+        row.cancel_requested = True
     if row.cancel_requested or row.deadline_at <= now:
         _finish(
             row,
@@ -374,7 +417,26 @@ def claim_run(db: Session, run_id: str, *, now: datetime | None = None) -> str |
         .scalar()
     )
     if running >= _limit(workspace, "max_concurrent_runs", 2):
+        from app.models.execution_control import ExecutionDispatch
+        if db.query(ExecutionDispatch.id).filter_by(entity_kind="compute_run", entity_id=run_id).first():
+            db.rollback()
+            from app.services.execution.dispatch import defer_native
+            defer_native(db, "compute_run", run_id, code="CONNECTOR_BUSY")
+            db.commit()
+            return None
         raise ComputeRunError("CONNECTOR_BUSY", 429)
+    if controlled:
+        from app.services.execution.admission import AdmissionError, reserve
+        try:
+            reserve(db, workspace_id=row.workspace_id, entity_kind="compute_run", entity_id=row.id,
+                    cpu_cores=row.cpu_cores, memory_mb=row.memory_mb, deadline_at=row.deadline_at,
+                    lane="interactive" if row.operation in INTERACTIVE else "batch", now=now)
+        except AdmissionError as exc:
+            db.rollback()
+            from app.services.execution.dispatch import defer_native
+            defer_native(db, "compute_run", row.id, code=exc.code)
+            db.commit()
+            return None
     token = str(uuid4())
     changed = (
         db.query(ComputeRun)
@@ -466,7 +528,19 @@ def finish_run(
         .populate_existing()
         .first()
     )
-    if row is None or row.status in TERMINAL_STATUSES:
+    if row is None:
+        return False
+    if row.status in TERMINAL_STATUSES:
+        # A reaper fences publication while physical stop is still unknown.
+        # This matching worker has now left its child supervisor, so it may
+        # acknowledge stopped resources without changing the terminal result.
+        from app.models.execution_control import ExecutionReservation
+        allocation = db.query(ExecutionReservation).filter_by(entity_kind="compute_run", entity_id=row.id).one_or_none()
+        if allocation is not None and allocation.released_at is None:
+            from app.services.execution.admission import settle
+            settle(db, entity_kind="compute_run", entity_id=row.id, token=allocation.lease_token,
+                   outcome=row.status, now=now, process_stopped=True)
+            db.commit()
         return False
     if row.cancel_requested:
         status, error_code = "cancelled", "CONNECTOR_CANCELLED"
@@ -496,7 +570,7 @@ def finish_run(
     return True
 
 
-def request_cancel(db: Session, row: ComputeRun) -> ComputeRun:
+def request_cancel(db: Session, row: ComputeRun, *, commit: bool = True) -> ComputeRun:
     row = (
         db.query(ComputeRun)
         .filter_by(id=row.id, workspace_id=row.workspace_id)
@@ -514,8 +588,8 @@ def request_cancel(db: Session, row: ComputeRun) -> ComputeRun:
 
             legacy = db.get(RecipeExecution, row.recipe_execution_id)
             if legacy:
-                cancel_legacy(db, legacy)
-        db.commit()
+                cancel_legacy(db, legacy, commit=False)
+        db.commit() if commit else db.flush()
     return row
 
 
@@ -542,7 +616,7 @@ def reap_runs(db: Session, *, now: datetime | None = None, limit: int = 100) -> 
             if status == "timed_out"
             else "CONNECTOR_WORKER_LOST"
         )
-        _finish(row, status, error, now)
+        _finish(row, status, error, now, process_stopped=pending)
     db.commit()
     return len(rows)
 

@@ -44,12 +44,14 @@ CHAIN = (
     "099_data_plane_attached",
     "121_provider_run_costs",
     "122_ml_families",
+    "133_activity_observability",
+    "134_execution_control",
 )
 # Revisions between two of the slice's that belong to other planes: the scratch
 # database only holds this slice's tables and their neighbours, so they are
 # stamped rather than run. test_only_the_chain_touches_the_plane_tables proves
 # stamping them skips nothing of the slice.
-STAMP_ONLY = frozenset({"121_provider_run_costs"})
+STAMP_ONLY = frozenset({"121_provider_run_costs", "133_activity_observability"})
 HEAD = CHAIN[-1]
 PARENT = "095_python_recipes"
 SCRATCH_DB = "agentium_p4_migration_data_plane"
@@ -66,13 +68,15 @@ PLANE_TABLES = (
 
 # The pre-slice tables the slice points at or reads from, reduced to the
 # columns it touches: ``workspaces`` and ``systems`` for the tenant and System
-# FKs, ``skills`` for the publication FK, ``runs`` for the 099 backfill.
+# FKs, ``skills`` for the publication FK, ``runs`` for the 099 backfill and
+# 134 control fields, and ``recipe_executions`` for 134's native lease fields.
 NEIGHBOUR_DDL = (
     "create table workspaces (id varchar(36) primary key)",
     "create table systems (id varchar(36) primary key)",
     "create table skills (id varchar(36) primary key, slug varchar(160) unique not null,"
     " workspace_id varchar(36))",
     "create table runs (id varchar(36) primary key, system_id varchar(36))",
+    "create table recipe_executions (id varchar(36) primary key)",
 )
 
 
@@ -385,9 +389,10 @@ def test_a_row_the_application_would_write_actually_inserts(migrated):
     accept the insert the ingest worker makes, so the last check makes it.
     """
 
+    from sqlalchemy.orm import Session
+
     import app.models  # noqa: F401
     from app.models.tabular import MLModel, TabularDataset
-    from sqlalchemy.orm import Session
 
     with migrated.begin() as connection:
         connection.exec_driver_sql("insert into workspaces (id) values ('ws-1')")
@@ -440,6 +445,12 @@ def test_a_row_the_application_would_write_actually_inserts(migrated):
         # A row that names no family is tabular: the ORM default for new rows,
         # the server default for the rows 122 migrates in place.
         assert stored.family == "tabular"
+        # 134 adds native training lifecycle fields. A stamped revision would
+        # leave these mapped reads failing against the migrated database.
+        assert stored.execution_policy is None
+        assert stored.lease_token is None
+        assert stored.lease_expires_at is None
+        assert stored.deadline_at is None
 
     # 099's promise: withdrawing the Skill or the System unlinks, never deletes.
     with migrated.begin() as connection:
@@ -557,6 +568,10 @@ def test_the_slice_reverts_cleanly_so_a_rollback_is_real(migrated):
 
     remaining = set(inspect(migrated).get_table_names())
     assert remaining & set(PLANE_TABLES) == set()
+    assert not remaining.intersection({"execution_capacity", "execution_reservations", "execution_dispatches"})
+    assert {column["name"] for column in inspect(migrated).get_columns("runs")} == {"id", "system_id"}
+    assert {column["name"] for column in inspect(migrated).get_columns("recipe_executions")} == {"id"}
     # And forward again, because a one-way downgrade is not a rollback.
     _migrate_to(HEAD)
     assert set(PLANE_TABLES) <= set(inspect(migrated).get_table_names())
+    assert {"execution_capacity", "execution_reservations", "execution_dispatches"} <= set(inspect(migrated).get_table_names())

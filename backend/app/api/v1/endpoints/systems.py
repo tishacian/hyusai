@@ -1913,11 +1913,14 @@ async def trigger_run(
             trigger=body.trigger,
         )
         db.add(run)
+    from app.services.execution.submission import stage_run
+    durable = stage_run(db, run, s)
     db.commit()
     db.refresh(run)
 
-    # Hand the actual execution to the canonical run_engine (Phase 6).
-    background_tasks.add_task(schedule_run, run.id)
+    # Durable submission and the native Run commit together.
+    if not durable:
+        background_tasks.add_task(schedule_run, run.id)
     return {
         "id": run.id,
         "status": run.status,

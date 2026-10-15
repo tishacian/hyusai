@@ -17,6 +17,7 @@ def configure(app: Celery) -> Celery:
         task_track_started=True,
         task_acks_late=True,
         worker_prefetch_multiplier=1,
+        broker_transport_options={"confirm_publish": True},
         task_default_queue=settings.celery_task_default_queue,
     )
     return app

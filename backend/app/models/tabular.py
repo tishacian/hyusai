@@ -189,6 +189,10 @@ class MLModel(Base):
     # Cooperative stop, read by the supervisor between polls — same posture as
     # RecipeExecution.cancel_requested: a fit cannot be interrupted from inside.
     cancel_requested = Column(Boolean, default=False, nullable=False)
+    execution_policy = Column(JSON, nullable=True)
+    lease_token = Column(String(36), nullable=True)
+    lease_expires_at = Column(DateTime, nullable=True)
+    deadline_at = Column(DateTime, nullable=True)
     # Champion alias mirrors the MLflow registry alias so the UI can badge the
     # serving version without a registry round-trip.
     is_champion = Column(Boolean, default=False, nullable=False)

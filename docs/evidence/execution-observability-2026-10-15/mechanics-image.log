@@ -1,0 +1,634 @@
+Completing activity as failed ({'activity_id': '2', 'activity_type': 'agent_data_agent.data_prepare', 'attempt': 1, 'namespace': 'default', 'task_queue': 'qualification-e7dc4f75ba3a4b9592a5adefd4dd2609', 'workflow_id': 'temporal-dc6fcf24a0994352ae001e3344248014', 'workflow_run_id': '01a13f01-c4dc-70fd-809a-ae5e9d1a63dd', 'workflow_type': 'ComposedNativeWorkflow'})
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 351, in _handle_start_activity_task
+    result = await self._execute_activity(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 681, in _execute_activity
+    return await impl.execute_activity(input)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 889, in execute_activity
+    return await input.fn(*input.args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 99, in wrapper
+    return await run(stream_writer=None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 89, in run
+    result = await func(*input.args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/app/services/execution/runtimes/compositions.py", line 54, in data_prepare
+    return await _execute_native(state, "data_prepare")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/app/services/execution/runtimes/compositions.py", line 33, in _execute_native
+    reference = await port.submit(scope, name, key)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/scripts/qualify_execution_runtimes.py", line 96, in submit
+    raise RuntimeError(fail)
+RuntimeError: QUALIFICATION_FAIL_AFTER_EFFECT_COMMIT
+Completing activity as failed ({'activity_id': '1', 'activity_type': 'data_agent_delivery.data_prepare', 'attempt': 1, 'namespace': 'default', 'task_queue': 'qualification-e7dc4f75ba3a4b9592a5adefd4dd2609', 'workflow_id': 'temporal-78427edbf7a34a968c5634eb3c36bd44', 'workflow_run_id': '01a13f01-cc46-7b03-9431-b3e9c3a5bb9d', 'workflow_type': 'ComposedNativeWorkflow'})
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 351, in _handle_start_activity_task
+    result = await self._execute_activity(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 681, in _execute_activity
+    return await impl.execute_activity(input)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 889, in execute_activity
+    return await input.fn(*input.args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 99, in wrapper
+    return await run(stream_writer=None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 89, in run
+    result = await func(*input.args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/app/services/execution/runtimes/compositions.py", line 54, in data_prepare
+    return await _execute_native(state, "data_prepare")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/app/services/execution/runtimes/compositions.py", line 33, in _execute_native
+    reference = await port.submit(scope, name, key)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/scripts/qualify_execution_runtimes.py", line 96, in submit
+    raise RuntimeError(fail)
+RuntimeError: QUALIFICATION_FAIL_AFTER_EFFECT_COMMIT
+Completing activity as failed ({'activity_id': '5', 'activity_type': 'data_agent_delivery.review', 'attempt': 1, 'namespace': 'default', 'task_queue': 'qualification-e7dc4f75ba3a4b9592a5adefd4dd2609', 'workflow_id': 'temporal-revoked-e3cf3563c5dc4060916b7666045059f6', 'workflow_run_id': '01a13f01-f69a-7f0b-9b7c-10d5d98106f0', 'workflow_type': 'ComposedNativeWorkflow'})
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 351, in _handle_start_activity_task
+    result = await self._execute_activity(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 681, in _execute_activity
+    return await impl.execute_activity(input)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 889, in execute_activity
+    return await input.fn(*input.args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 99, in wrapper
+    return await run(stream_writer=None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 89, in run
+    result = await func(*input.args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/app/services/execution/runtimes/compositions.py", line 66, in review
+    return await _execute_native(state, "review")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/app/services/execution/runtimes/compositions.py", line 32, in _execute_native
+    await port.authorize(scope)
+  File "/opt/agentium/scripts/qualify_execution_runtimes.py", line 67, in authorize
+    raise PermissionError("QUALIFICATION_ACCESS_REVOKED")
+PermissionError: QUALIFICATION_ACCESS_REVOKED
+Completing activity as failed ({'activity_id': '5', 'activity_type': 'data_agent_delivery.review', 'attempt': 2, 'namespace': 'default', 'task_queue': 'qualification-e7dc4f75ba3a4b9592a5adefd4dd2609', 'workflow_id': 'temporal-revoked-e3cf3563c5dc4060916b7666045059f6', 'workflow_run_id': '01a13f01-f69a-7f0b-9b7c-10d5d98106f0', 'workflow_type': 'ComposedNativeWorkflow'})
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 351, in _handle_start_activity_task
+    result = await self._execute_activity(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 681, in _execute_activity
+    return await impl.execute_activity(input)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 889, in execute_activity
+    return await input.fn(*input.args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 99, in wrapper
+    return await run(stream_writer=None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 89, in run
+    result = await func(*input.args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/app/services/execution/runtimes/compositions.py", line 66, in review
+    return await _execute_native(state, "review")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/app/services/execution/runtimes/compositions.py", line 32, in _execute_native
+    await port.authorize(scope)
+  File "/opt/agentium/scripts/qualify_execution_runtimes.py", line 67, in authorize
+    raise PermissionError("QUALIFICATION_ACCESS_REVOKED")
+PermissionError: QUALIFICATION_ACCESS_REVOKED
+Completing activity as failed ({'activity_id': '5', 'activity_type': 'data_agent_delivery.review', 'attempt': 3, 'namespace': 'default', 'task_queue': 'qualification-e7dc4f75ba3a4b9592a5adefd4dd2609', 'workflow_id': 'temporal-revoked-e3cf3563c5dc4060916b7666045059f6', 'workflow_run_id': '01a13f01-f69a-7f0b-9b7c-10d5d98106f0', 'workflow_type': 'ComposedNativeWorkflow'})
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 351, in _handle_start_activity_task
+    result = await self._execute_activity(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 681, in _execute_activity
+    return await impl.execute_activity(input)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 889, in execute_activity
+    return await input.fn(*input.args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 99, in wrapper
+    return await run(stream_writer=None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 89, in run
+    result = await func(*input.args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/app/services/execution/runtimes/compositions.py", line 66, in review
+    return await _execute_native(state, "review")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/app/services/execution/runtimes/compositions.py", line 32, in _execute_native
+    await port.authorize(scope)
+  File "/opt/agentium/scripts/qualify_execution_runtimes.py", line 67, in authorize
+    raise PermissionError("QUALIFICATION_ACCESS_REVOKED")
+PermissionError: QUALIFICATION_ACCESS_REVOKED
+Completing activity as failed ({'activity_id': '3', 'activity_type': 'data_agent_delivery.judge', 'attempt': 1, 'namespace': 'default', 'task_queue': 'qualification-e7dc4f75ba3a4b9592a5adefd4dd2609', 'workflow_id': 'temporal-budget-5614b72b968949068031046f22781d68', 'workflow_run_id': '01a13f02-0984-7443-9c2f-c201adf346c1', 'workflow_type': 'ComposedNativeWorkflow'})
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 351, in _handle_start_activity_task
+    result = await self._execute_activity(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 681, in _execute_activity
+    return await impl.execute_activity(input)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 889, in execute_activity
+    return await input.fn(*input.args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 99, in wrapper
+    return await run(stream_writer=None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 89, in run
+    result = await func(*input.args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/app/services/execution/runtimes/compositions.py", line 62, in judge
+    return await _execute_native(state, "judge")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/app/services/execution/runtimes/compositions.py", line 33, in _execute_native
+    reference = await port.submit(scope, name, key)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/scripts/qualify_execution_runtimes.py", line 86, in submit
+    raise RuntimeError("QUALIFICATION_BUDGET_EXCEEDED")
+RuntimeError: QUALIFICATION_BUDGET_EXCEEDED
+Completing activity as failed ({'activity_id': '3', 'activity_type': 'data_agent_delivery.judge', 'attempt': 2, 'namespace': 'default', 'task_queue': 'qualification-e7dc4f75ba3a4b9592a5adefd4dd2609', 'workflow_id': 'temporal-budget-5614b72b968949068031046f22781d68', 'workflow_run_id': '01a13f02-0984-7443-9c2f-c201adf346c1', 'workflow_type': 'ComposedNativeWorkflow'})
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 351, in _handle_start_activity_task
+    result = await self._execute_activity(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 681, in _execute_activity
+    return await impl.execute_activity(input)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 889, in execute_activity
+    return await input.fn(*input.args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 99, in wrapper
+    return await run(stream_writer=None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 89, in run
+    result = await func(*input.args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/app/services/execution/runtimes/compositions.py", line 62, in judge
+    return await _execute_native(state, "judge")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/app/services/execution/runtimes/compositions.py", line 33, in _execute_native
+    reference = await port.submit(scope, name, key)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/scripts/qualify_execution_runtimes.py", line 86, in submit
+    raise RuntimeError("QUALIFICATION_BUDGET_EXCEEDED")
+RuntimeError: QUALIFICATION_BUDGET_EXCEEDED
+Completing activity as failed ({'activity_id': '3', 'activity_type': 'data_agent_delivery.judge', 'attempt': 3, 'namespace': 'default', 'task_queue': 'qualification-e7dc4f75ba3a4b9592a5adefd4dd2609', 'workflow_id': 'temporal-budget-5614b72b968949068031046f22781d68', 'workflow_run_id': '01a13f02-0984-7443-9c2f-c201adf346c1', 'workflow_type': 'ComposedNativeWorkflow'})
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 351, in _handle_start_activity_task
+    result = await self._execute_activity(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 681, in _execute_activity
+    return await impl.execute_activity(input)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 889, in execute_activity
+    return await input.fn(*input.args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 99, in wrapper
+    return await run(stream_writer=None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 89, in run
+    result = await func(*input.args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/app/services/execution/runtimes/compositions.py", line 62, in judge
+    return await _execute_native(state, "judge")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/app/services/execution/runtimes/compositions.py", line 33, in _execute_native
+    reference = await port.submit(scope, name, key)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/scripts/qualify_execution_runtimes.py", line 86, in submit
+    raise RuntimeError("QUALIFICATION_BUDGET_EXCEEDED")
+RuntimeError: QUALIFICATION_BUDGET_EXCEEDED
+Completing activity as failed ({'activity_id': '1', 'activity_type': 'data_agent_delivery.data_prepare', 'attempt': 1, 'namespace': 'default', 'task_queue': 'qualification-e7dc4f75ba3a4b9592a5adefd4dd2609', 'workflow_id': 'temporal-duplicate_before_effect-f81614b258e0495e8de108a473788a28', 'workflow_run_id': '01a13f02-164b-76d7-bbf0-5ccd843bfdcc', 'workflow_type': 'ComposedNativeWorkflow'})
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 351, in _handle_start_activity_task
+    result = await self._execute_activity(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 681, in _execute_activity
+    return await impl.execute_activity(input)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 889, in execute_activity
+    return await input.fn(*input.args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 99, in wrapper
+    return await run(stream_writer=None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 89, in run
+    result = await func(*input.args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/app/services/execution/runtimes/compositions.py", line 54, in data_prepare
+    return await _execute_native(state, "data_prepare")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/app/services/execution/runtimes/compositions.py", line 33, in _execute_native
+    reference = await port.submit(scope, name, key)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/agentium/scripts/qualify_execution_runtimes.py", line 96, in submit
+    raise RuntimeError(fail)
+RuntimeError: QUALIFICATION_FAIL_BEFORE_EFFECT
+{
+  "scope": "local mechanics with deterministic qualification port",
+  "production_enabled": false,
+  "versions": {
+    "langgraph": "1.2.15",
+    "langgraph-checkpoint-postgres": "3.2.0",
+    "temporalio": "1.34.0",
+    "temporalio-langgraph": "0.1.0",
+    "psycopg": "3.3.3"
+  },
+  "native_providers_qualified": false,
+  "native_delivery_receipt_qualified": false,
+  "comparison": {
+    "baseline_native_same_corpus": "NOT_PERFORMED",
+    "historical_native_tests": "138 passed previously; not a comparative mechanics run"
+  },
+  "coverage_limits": [
+    "deterministic fixture port, not production Skill submission",
+    "no provider calls, DataOps volume or native DeliveryReceipt publication",
+    "not the complete native failure, capacity, IAM or cost corpus",
+    "fixture timings and process RSS are not a production SLA"
+  ],
+  "gates": {
+    "O5": "NO_GO_NATIVE_SUBMISSION_ADAPTER_UNQUALIFIED",
+    "langgraph_autonomous": "NO_GO_DURABLE_DISPATCH_AND_RECOVERY_INTEGRATION_UNQUALIFIED",
+    "temporal_production": "NO_GO_PUBLIC_PREVIEW_AND_INCOMPLETE_NATIVE_FAULT_CORPUS"
+  },
+  "langgraph_postgres": {
+    "cases": [
+      {
+        "case": "agent_data_agent_durable_review_reopen",
+        "passed": true,
+        "fixture_effects": 5,
+        "effects": [
+          {
+            "node": "agent_explain",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "agent_plan",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "data_prepare",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": 55
+          },
+          {
+            "node": "delivery",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "review",
+            "status": "succeeded",
+            "attempts": 2,
+            "value": null
+          }
+        ],
+        "active_adapter_calls": 0
+      },
+      {
+        "case": "data_agent_delivery_durable_review_reopen",
+        "passed": true,
+        "fixture_effects": 5,
+        "effects": [
+          {
+            "node": "agent_explain",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "data_prepare",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": 55
+          },
+          {
+            "node": "delivery",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "judge",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "review",
+            "status": "succeeded",
+            "attempts": 2,
+            "value": null
+          }
+        ],
+        "active_adapter_calls": 0
+      },
+      {
+        "case": "failure_before_effect_recovery",
+        "passed": true,
+        "fixture_effects": 5,
+        "effects": [
+          {
+            "node": "agent_explain",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "agent_plan",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "data_prepare",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": 55
+          },
+          {
+            "node": "delivery",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "review",
+            "status": "succeeded",
+            "attempts": 2,
+            "value": null
+          }
+        ],
+        "active_adapter_calls": 0
+      },
+      {
+        "case": "failure_after_effect_recovery",
+        "passed": true,
+        "fixture_effects": 5,
+        "effects": [
+          {
+            "node": "agent_explain",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "agent_plan",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "data_prepare",
+            "status": "succeeded",
+            "attempts": 2,
+            "value": 55
+          },
+          {
+            "node": "delivery",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "review",
+            "status": "succeeded",
+            "attempts": 2,
+            "value": null
+          }
+        ],
+        "active_adapter_calls": 0
+      },
+      {
+        "case": "revoked_before_resume",
+        "passed": true
+      }
+    ],
+    "passed": true,
+    "elapsed_seconds": 7.751294761997997
+  },
+  "temporal_langgraph": {
+    "cases": [
+      {
+        "case": "agent_data_agent_retry_after_commit_review_worker_restart",
+        "passed": true,
+        "server_restarted": false,
+        "pending_activities_during_review": 0,
+        "fixture_effects": 5,
+        "effects": [
+          {
+            "node": "agent_explain",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "agent_plan",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "data_prepare",
+            "status": "succeeded",
+            "attempts": 2,
+            "value": 55
+          },
+          {
+            "node": "delivery",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "review",
+            "status": "succeeded",
+            "attempts": 2,
+            "value": null
+          }
+        ],
+        "active_adapter_calls": 0
+      },
+      {
+        "case": "data_agent_delivery_retry_after_commit_review_worker_restart",
+        "passed": true,
+        "server_restarted": false,
+        "pending_activities_during_review": 0,
+        "fixture_effects": 5,
+        "effects": [
+          {
+            "node": "agent_explain",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "data_prepare",
+            "status": "succeeded",
+            "attempts": 2,
+            "value": 55
+          },
+          {
+            "node": "delivery",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "judge",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "review",
+            "status": "succeeded",
+            "attempts": 2,
+            "value": null
+          }
+        ],
+        "active_adapter_calls": 0
+      },
+      {
+        "case": "revoked",
+        "passed": true,
+        "fixture_effects": 4,
+        "effects": [
+          {
+            "node": "agent_explain",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "data_prepare",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": 55
+          },
+          {
+            "node": "judge",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "review",
+            "status": "waiting",
+            "attempts": 1,
+            "value": null
+          }
+        ],
+        "active_adapter_calls": 0
+      },
+      {
+        "case": "cancelled",
+        "passed": true,
+        "fixture_effects": 4,
+        "effects": [
+          {
+            "node": "agent_explain",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "data_prepare",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": 55
+          },
+          {
+            "node": "judge",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "review",
+            "status": "waiting",
+            "attempts": 1,
+            "value": null
+          }
+        ],
+        "active_adapter_calls": 0
+      },
+      {
+        "case": "budget",
+        "passed": true,
+        "fixture_effects": 2,
+        "effects": [
+          {
+            "node": "agent_explain",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "data_prepare",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": 55
+          }
+        ],
+        "active_adapter_calls": 0
+      },
+      {
+        "case": "duplicate_before_effect",
+        "passed": true,
+        "fixture_effects": 5,
+        "effects": [
+          {
+            "node": "agent_explain",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "data_prepare",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": 55
+          },
+          {
+            "node": "delivery",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "judge",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "review",
+            "status": "succeeded",
+            "attempts": 2,
+            "value": null
+          }
+        ],
+        "active_adapter_calls": 0
+      }
+    ],
+    "passed": true,
+    "elapsed_seconds": 26.51895087700541
+  },
+  "elapsed_seconds": 34.361613118002424,
+  "process_peak_rss_bytes": 133091328,
+  "cleanup": {
+    "postgres_schema_dropped": true
+  }
+}

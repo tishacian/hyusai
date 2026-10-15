@@ -1,0 +1,9 @@
+
+> agentium@0.1.0 check:ui-chrome
+> node scripts/check-ui-chrome.mjs
+
+UI chrome budget can be tightened (a sweep landed — please ratchet it down):
+- src/app/features/auth/auth-shell.component.ts.violet: 6 → 3
+- src/app/features/auth/auth-shell.component.ts.pill: 6 → 5
+check-ui-chrome: 437 ratchet hit(s) across 103 file(s) · baseline docs/compliance/ui-chrome-baseline.v1.json
+Agentium UI chrome guard OK.
