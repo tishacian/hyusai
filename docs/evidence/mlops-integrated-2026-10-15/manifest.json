@@ -1,7 +1,7 @@
 {
   "kind": "local-validation-not-deployment-attestation",
   "base": "47e289da",
-  "validation_head": "c2c2885e6798d24747e4d6227a99deae2bd67c19",
+  "validation_head": "766b1f45297e264bb90e16fbf7642e44dcf68a72",
   "results": {
     "integration": "269 passed",
     "targeted_postgresql_migrations": "68 passed",
@@ -12,7 +12,15 @@
     "i18n": "passed",
     "navigation": "passed",
     "ui_chrome": "pre-existing styles.scss halo: 7 versus budget 6",
-    "ml_regression": "running"
+    "ml_regression": {
+      "passed": 1235,
+      "skipped": 22,
+      "failed": 1,
+      "failure": "test_ml_explanations.py::test_timeout_preserves_completed_sections",
+      "context": "Existing test and implementation unchanged from 47e289da. 100 ms fork/progress assumption failed with n=4; whole explanation file passes in serial."
+    },
+    "explanations_serial": "22 passed",
+    "compliance": "16/22 static claims verified; runner attestations separate"
   },
   "logs": {
     "integration.log": {
@@ -54,6 +62,28 @@
     "export.log": {
       "sha256": "cd464f8001f4aa3c9726c6bbc06523b7da899a50c8bccf64804ab8a47d841c8d",
       "bytes": 1446
+    },
+    "ml-regression-parallel.log": {
+      "sha256": "d920bf44b0ccabe4726332ec1e1424a00174fe76426de5129149832b7bbe8787",
+      "bytes": 92319
+    },
+    "explanations-serial.log": {
+      "sha256": "036ec4a188e32bf610759b43620931b9bdcdcb682a40c364ac94f831b735ca0b",
+      "bytes": 100
+    },
+    "existing-checks.json": {
+      "sha256": "d62fbeddd7bc4c18682c24bfc3f1a8c05eebc4aac50db6ec7ea5688c0ae8cb78",
+      "bytes": 766
+    },
+    "ml-regression-files.txt": {
+      "sha256": "f7a6e054a2a3d1c988935271dd3c1b1be3dcff1e71821926c033f59a659e3ce4",
+      "bytes": 2904
     }
+  },
+  "commands": {
+    "ml_regression": "PYTHONPATH=. python -m pytest <files in ml-regression-files.txt> -q -n 4",
+    "explanations_serial": "PYTHONPATH=. python -m pytest app/tests/services/test_ml_explanations.py -q -W ignore",
+    "frontend": "TMPDIR=/tmp GOMEMLIMIT=2GiB GOMAXPROCS=2 npm run test:unit",
+    "build": "TMPDIR=/tmp GOMEMLIMIT=2GiB GOMAXPROCS=2 npm run build:prod"
   }
 }
