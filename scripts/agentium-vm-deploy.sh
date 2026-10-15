@@ -45,6 +45,7 @@ readonly D
 readonly R=/srv/agentium-data/worktrees/demo-agentic
 readonly W="$R/docker"
 readonly ENV_HELPER="$R/scripts/agentium_runtime_env_bundle.py"
+readonly CONTROL_HELPER="$R/scripts/agentium_control_runtime.py"
 readonly EXPECTED_DATA_SOURCE=/dev/sdb
 readonly OBJECT_STORE_ROOT="$DATA_ROOT/object_store"
 readonly RECIPE_ENVS_ROOT="$DATA_ROOT/recipe_envs"
@@ -142,6 +143,18 @@ if [ "$CONNECTORS" = 1 ]; then
 	CONNECTORS_ENV=(AGENTIUM_CONNECTOR_RUNNER_IMAGE="$CONNECTOR_IMAGE")
 fi
 
+# Capacity is independent of admission: existing containers remain selected
+# after flags close so accepted commands, leases and dispatches can drain.
+EXECUTION_CONTROL="${AGENTIUM_EXECUTION_CONTROL:-auto}"
+case "$EXECUTION_CONTROL" in
+auto | 0 | 1) ;;
+*) fail "AGENTIUM_EXECUTION_CONTROL must be auto, 0 or 1" ;;
+esac
+CONTROL_ALL=(agentium-worker-control agentium-scheduler-control)
+CONTROL_PROFILE=()
+CONTROL_SERVICES=()
+CONTROL_OVERLAY=()
+
 clean_exec() {
 	/usr/bin/env -i \
 		HOME="$COMPOSE_CLEAN_HOME" \
@@ -230,10 +243,33 @@ compose() {
 		-f "$W/compose.agentium.yml" \
 		-f "$D/compose.agentium.opened.yml" \
 		-f "$W/compose.agentium.vm-runtime.yml" \
+		${CONTROL_OVERLAY[@]+"${CONTROL_OVERLAY[@]}"} \
 		${CONNECTORS_OVERLAY[@]+"${CONNECTORS_OVERLAY[@]}"} \
 		${HUGGINGFACE_OVERLAY[@]+"${HUGGINGFACE_OVERLAY[@]}"} \
 		${OPENBAO_OVERLAY[@]+"${OPENBAO_OVERLAY[@]}"} \
+		${CONTROL_PROFILE[@]+"${CONTROL_PROFILE[@]}"} \
 		"$@"
+}
+
+configure_control() {
+	local required existing
+	# Use the effective backend environment, including frozen files and Compose
+	# overrides, rather than sourcing a secret dotenv or trusting the caller shell.
+	required="$(compose config --format json | clean_exec python3 -I "$CONTROL_HELPER" required)" ||
+		fail "Cannot determine execution control requirements from frozen Compose"
+	existing="$(readonly_docker ps --all --format '{{.Names}}' \
+		--filter 'name=^/agentium-worker-control$' --filter 'name=^/agentium-scheduler-control$')" ||
+		fail "Cannot inspect existing execution control capacity"
+	if [ "$EXECUTION_CONTROL" = 0 ] && { [ "$required" = 1 ] || [ -n "$existing" ]; }; then
+		fail "Execution control is required by active flags or retained containers; close admissions and verify drainage before retiring it"
+	fi
+	if [ "$EXECUTION_CONTROL" = 1 ] || [ "$required" = 1 ] || [ -n "$existing" ]; then
+		CONTROL_PROFILE=(--profile execution-control)
+		CONTROL_SERVICES=("${CONTROL_ALL[@]}")
+		CONTROL_OVERLAY=(-f "$W/compose.agentium.execution.yml")
+		compose config --format json | clean_exec python3 -I "$CONTROL_HELPER" aligned >/dev/null ||
+			fail "Control and backend execution flags must match; place them in the shared frozen application environment"
+	fi
 }
 
 connector_image_check() {
@@ -482,6 +518,34 @@ print(revision)
 	return 1
 }
 
+# A successful API restart does not prove the control plane was recreated.
+# Check both exact image IDs/revisions and commands, the beat PID and a targeted
+# worker reply before reopening the gate. No task or infrastructure is restarted.
+verify_control_runtime() {
+	[ "${#CONTROL_SERVICES[@]}" -gt 0 ] || return 0
+	local image destination attempt
+	image="$(readonly_docker image inspect --format '{{.Id}}' "agentium-worker:$TAG")" || return 1
+	for ((attempt = 1; attempt <= BUILD_INFO_ATTEMPTS; attempt++)); do
+		if destination="$(readonly_docker inspect --type container "${CONTROL_ALL[@]}" |
+			clean_exec python3 -I "$CONTROL_HELPER" runtime --image "$image" --revision "$REVISION")" &&
+			readonly_docker exec agentium-scheduler-control python -I -c 'import os,pathlib; pid=int(pathlib.Path("/tmp/control-beat.pid").read_text()); assert pid>0; os.kill(pid,0)' >/dev/null 2>&1 &&
+			readonly_docker exec agentium-worker-control python -m celery -A app.workers.execution_control:app \
+				inspect ping --destination "$destination" --timeout 3 >/dev/null 2>&1; then
+			return 0
+		fi
+		sleep "${AGENTIUM_BUILD_INFO_INTERVAL:-5}"
+	done
+	return 1
+}
+
+# Recovery commands such as gate-exit/journal must not depend on a new Compose
+# render. These deployment/read paths consistently include selected control.
+case "${1:-}" in
+images | storage-check | migrate | up | sftp-up | keycloak-up | livekit-up | catalog-check | catalog-apply | ps)
+	configure_control
+	;;
+esac
+
 case "${1:-}" in
 images) compose "${ML_TS_PROFILE[@]}" "${ML_DEEP_PROFILE[@]}" "${CONNECTORS_PROFILE[@]}" "${HUGGINGFACE_PROFILE[@]}" "${OPENBAO_PROFILE[@]}" config --images ;;
 storage-check) storage_check ;;
@@ -503,10 +567,14 @@ up)
 	connector_image_check
 	start_run up
 	gate_enter
-	compose up -d --no-build --no-deps --pull never agentium-worker-recipes agentium-worker-dataops agentium-backend agentium-worker-cpu agentium-frontend agentium-p4-maintenance agentium-beat "${ML_TS_SERVICES[@]}" "${ML_DEEP_SERVICES[@]}" "${CONNECTORS_SERVICES[@]}" "${HUGGINGFACE_SERVICES[@]}" "${OPENBAO_SERVICES[@]}"
+	compose up -d --no-build --no-deps --pull never agentium-worker-recipes agentium-worker-dataops agentium-backend agentium-worker-cpu agentium-frontend agentium-p4-maintenance agentium-beat "${ML_TS_SERVICES[@]}" "${ML_DEEP_SERVICES[@]}" "${CONNECTORS_SERVICES[@]}" "${HUGGINGFACE_SERVICES[@]}" "${OPENBAO_SERVICES[@]}" ${CONTROL_SERVICES[@]+"${CONTROL_SERVICES[@]}"}
 	verify_build_info || {
 		journal_append up - - failed
 		fail "build-info did not report $TAG with revision_verified; roll back with AGENTIUM_IMAGE_TAG=$PREVIOUS_TAG $0 up"
+	}
+	verify_control_runtime || {
+		journal_append up "$REVISION" - failed
+		fail "Execution control is not ready on $TAG; maintenance gate remains closed when enabled"
 	}
 	journal_append up "$REVISION" - passed
 	gate_leave

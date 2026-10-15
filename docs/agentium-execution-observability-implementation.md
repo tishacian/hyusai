@@ -3,14 +3,33 @@
 Travail du 15 octobre 2026 sur `codex/execution-observability`, issue de
 `origin/demo/agentic` à `0b63fcec`. `main` à `24ff6f1d` avait le même arbre,
 avec un commit de fusion supplémentaire ; la base et l'upstream ont été corrigés
-vers `demo/agentic`. Aucun déploiement n'est effectué par ce chantier.
+vers `demo/agentic`. La qualification décrite ci-dessous n'a effectué aucun
+déploiement ; l'activation de production rapportée ensuite est distinguée ici.
 
 Références : [plan O0–O7](agentium-execution-observability-plan.md),
 [recette d'exploitation](agentium-execution-operations.md),
 [handover différé](agentium-execution-deferred-handover.md),
 [candidat Temporal natif](agentium-temporal-native-handover.md).
-Ce rapport distingue du code testé localement, une qualification de mécanisme
-et une capacité livrable sur la VM.
+Ce rapport distingue du code testé localement, une qualification de mécanisme,
+une activation de production déclarée et une recette VM effectivement attestée.
+
+## Production déclarée le 15 octobre 2026
+
+L'opérateur rapporte `4a404d61` en production, avec journal, supervision,
+admission, échéances, annulation et réconciliation ouverts pour tous les
+workspaces, ainsi que les services de contrôle actifs. L'API d'activités est
+accessible mais vide avant de nouveaux travaux. `build-info`, santé,
+sauvegarde, migrations et configuration effective sont ses observations ;
+aucune nouvelle vérification VM n'est effectuée ici. GitHub `demo/agentic` et
+`develop` à `4a404d61`, puis `main` à `05809a8d`, ont été vérifiés séparément ;
+l'alignement Bitbucket reste rapporté par l'opérateur.
+
+Le [bilan de production](ops/execution-observability-production-2026-10-15.md)
+consigne cette provenance et le défaut du script à `4a404d61` : l'overlay et les
+deux services de contrôle ne font pas partie de son `up`. Le correctif préparé
+sur `codex/control-worker-deploy` n'est pas encore déployé. Temporal reste
+désactivé, la comparaison des moteurs n'est pas réalisée et la certification
+du catalogue reste ouverte. Les états DataOps/connecteurs ne changent pas.
 
 ## Code disponible
 
@@ -23,7 +42,7 @@ et une capacité livrable sur la VM.
 | O4 | Essais isolés LangGraph/PostgreSQL, Temporal/LangGraph et candidat Temporal natif sans plugin | La comparaison A/B/baseline à corpus strictement identique reste ouverte ; aucune supériorité de performance n'est revendiquée |
 | O5 | Port Skill à identité stable, attente des calculs enfants, deux compositions Temporal natives, revue et reçu du contrat de service | Candidat local fermé par défaut ; fournisseur simulé, profils linéaires explicites, exploitation VM non qualifiée |
 | O6 | Vues System/workspace/plateforme dans Opérations, FR/EN, commandes distinctes de la fin du travail, ressources allouées, preuves natives, reconnexion/révocation | Les vues Qualité/Performance/Traces existantes restent nécessaires ; pas de nouvelle promesse d'alerte livrée sans test de service |
-| O7 | Scaffolds opt-in, contrôles Helm/Compose, refus de downgrade destructeur, canari navigateur et recette de drainage | Migration de la base déployée, budgets des images release et certification VM non exécutés |
+| O7 | Scaffolds opt-in, contrôles Helm/Compose, refus de downgrade destructeur, canari navigateur et recette de drainage | Qualification locale : aucune migration VM exécutée dans ce chantier ; migrations ultérieures rapportées par l'opérateur, budgets et certification VM non attestés ici |
 
 Les nouvelles soumissions couvertes par l'outbox sont les démarrages manuels des
 Systems, le Runner, les reruns, les préparations/SQL/scoring DataOps, l'entraînement
@@ -102,7 +121,7 @@ isolé interdisant les imports Temporal/LangGraph a chargé l'API principale, le
 tâches Celery générales et le worker de contrôle. Aucun ajout de dépendance aux
 images générales n'est nécessaire pour le journal et le contrôle.
 
-## Validations
+## Validations locales historiques
 
 Les suites ciblées couvrent notamment rollback état/événement, ordre de commit
 et backfill concurrents sur PostgreSQL, dernier slot partagé entre workspaces,
@@ -137,7 +156,9 @@ sur les 26 fichiers Python existants modifiés.
 Le [dossier final](evidence/execution-observability-2026-10-15/final-validation/validation.json)
 conserve les résultats, commandes et empreintes des 108 fichiers de code, tests
 et configuration concernés. Leur contenu est resté identique pendant la suite
-finale. La recette [VM](agentium-execution-operations.md) reste déléguée : objectifs
+finale. Ces résultats ne sont pas une nouvelle exécution sur la production
+déclarée à `4a404d61`. La recette [VM](agentium-execution-operations.md) reste
+déléguée pour les preuves non fournies : objectifs
 p95, tailles des images release, scoring quotidien complet et reçu de livraison
 sur la VM ne sont pas certifiés ici. Les reçus locaux des deux compositions
 ne se substituent pas à cette preuve d'exploitation.
