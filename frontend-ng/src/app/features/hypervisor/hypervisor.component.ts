@@ -1,3 +1,4 @@
+import { MLAlertInboxComponent } from '@app/features/models/ml-alert-inbox.component';
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { ZoomContextService } from '@app/core/zoom-context.service';
@@ -58,6 +59,7 @@ const SIGNAL_RUN_STATUS = /^Run ([a-z0-9_]+)$/;
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    MLAlertInboxComponent,
     NavLinkDirective,
     PageFrameComponent,
     StatReadoutComponent,
@@ -74,6 +76,7 @@ const SIGNAL_RUN_STATUS = /^Run ([a-z0-9_]+)$/;
       [title]="i18n.t('hypervisor.page.title')"
       [description]="i18n.t('hypervisor.page.description')"
     >
+      <app-ml-alert-inbox />
       <div class="flex flex-col gap-6">
         <!-- Period selector -->
         <div class="flex items-center justify-between">

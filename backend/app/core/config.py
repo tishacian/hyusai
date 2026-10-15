@@ -843,6 +843,15 @@ class Settings(BaseSettings):
     ml_prediction_retention_days: int = Field(default=30, ge=1, le=3650)
     ml_retention_batch_size: int = Field(default=1000, ge=1, le=10000)
     ml_retention_enabled: bool = False
+    ml_operations_enabled: bool = False
+    ml_alerts_enabled: bool = False
+    ml_alert_throttle_seconds: int = Field(default=3600, ge=60)
+    ml_alert_max_attempts: int = Field(default=5, ge=1, le=20)
+    ml_alert_batch_size: int = Field(default=10, ge=1, le=10)
+    ml_alert_key_expiry_days: int = Field(default=7, ge=1, le=90)
+    ml_alert_channels_max: int = Field(default=20, ge=1, le=100)
+    ml_usage_rollup_batch_size: int = Field(default=10000, ge=1, le=10000)
+    ml_usage_retention_days: int = Field(default=30, ge=1, le=3650)
     ml_retraining_max_rows: int = Field(default=100000, ge=100)
     ml_retraining_max_bytes: int = Field(default=33554432, ge=1048576)
     ml_retraining_min_feedback_rows: int = Field(default=40, ge=1)

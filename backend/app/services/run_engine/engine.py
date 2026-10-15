@@ -1092,6 +1092,12 @@ async def _execute_task_node(
         skill_id=execution_evidence.skill_id,
         skill_slug=execution_evidence.skill_slug,
     )
+    from app.services.ml_inference_cost import InferenceCostCollector, install_collector
+
+    inference_cost = InferenceCostCollector.create(
+        db, workspace_id=run.workspace_id, skill_id=execution_evidence.skill_id,
+        skill_slug=execution_evidence.skill_slug,
+    )
     invocation = SkillInvocation(
         id=native_invocation_id or str(uuid4()),
         run_id=run.id,
@@ -1141,6 +1147,7 @@ async def _execute_task_node(
     # token-by-token. We build a shallow copy so sibling DAG branches
     # don't pick up each other's sinks through a shared ctx reference.
     skill_ctx: dict[str, Any] = dict(ctx) if ctx is not None else {}
+    install_collector(skill_ctx, inference_cost)
     skill_ctx["_skill_node_id"] = node_id
     skill_ctx.pop("_native_submission_only", None)
     if native_invocation_id is not None:
@@ -1302,6 +1309,8 @@ async def _execute_task_node(
         invocation.trace = _model_runtime_trace(invocation.trace, skill_ctx)
         invocation.latency_ms = (time.monotonic() - t0) * 1000
         invocation.completed_at = datetime.utcnow()
+        cost_evidence = inference_cost.settle(cost_evidence)
+        invocation.metrics = {**(invocation.metrics or {}), "cost_evidence": cost_evidence.evidence}
         invocation.cost = cost_evidence.cost
         invocation.cost_measured = cost_evidence.cost_measured
         invocation.provider_cost_usd = _provider_cost_usd(cost_evidence)
@@ -1328,6 +1337,8 @@ async def _execute_task_node(
 
     invocation.latency_ms = (time.monotonic() - t0) * 1000
     invocation.completed_at = datetime.utcnow()
+    cost_evidence = inference_cost.settle(cost_evidence)
+    invocation.metrics = {**(invocation.metrics or {}), "cost_evidence": cost_evidence.evidence}
     invocation.cost = cost_evidence.cost
     invocation.cost_measured = cost_evidence.cost_measured
     invocation.provider_cost_usd = _provider_cost_usd(cost_evidence)
