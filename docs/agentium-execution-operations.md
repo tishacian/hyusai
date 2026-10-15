@@ -14,8 +14,7 @@ et réconciliation ouverts pour tous les workspaces. L'API d'activités est
 accessible et vide avant de nouveaux travaux. La révision lue dans `build-info`,
 la santé, la sauvegarde, les migrations, les options effectives et les services
 de contrôle sont rapportés par l'opérateur, sans vérification VM indépendante
-ici. Les références GitHub vérifiées séparément ne prouvent pas ces états VM ;
-Bitbucket reste également un constat de l'opérateur.
+ici. Ces références de dépôt ne prouvent pas à elles seules les états de la VM.
 
 L'activation globale remplace le périmètre initial Showcase pour cet état
 déclaré ; les valeurs par défaut et exemples de canari ci-dessous restent des

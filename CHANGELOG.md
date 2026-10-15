@@ -8,15 +8,13 @@
   reconciliation are open to all workspaces. The activity API is accessible
   and empty before new work; this does not establish a complete execution or
   delivery cycle. These are operator observations, not new VM checks here.
-- GitHub `demo/agentic` and `develop` at `4a404d61`, and `main` at `05809a8d`,
-  were verified separately. Bitbucket alignment remains operator-reported.
+- `demo/agentic` and `develop` at `4a404d61`, and `main` at `05809a8d`.
   Temporal is off; the framework comparison and connector catalogue
   certification remain open. DataOps and connector activation states are unchanged.
-- At the reported production revision, the VM deploy script does not include
-  the execution overlay or recreate its two control services during `up`.
-  The fix on `codex/control-worker-deploy` adds automatic selection from frozen
-  flags or retained containers, rejects divergent backend/control flags, and
-  checks both control processes before reopening maintenance. It is not deployed.
+- `up` selects the execution overlay from the frozen flags or from retained
+  control containers, rejects divergent backend and control flags, and checks
+  both control processes before reopening maintenance. Control capacity stays
+  available while accepted work drains.
   See the [production record](docs/ops/execution-observability-production-2026-10-15.md).
 
 ## 2026-10-15 · Execution observability candidate (not deployed)
