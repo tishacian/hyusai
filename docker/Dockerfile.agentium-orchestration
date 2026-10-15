@@ -1,0 +1,29 @@
+# syntax=docker/dockerfile:1
+# Build from the qualified general worker at this exact source revision.
+# Supply its immutable registry digest; never rebuild the main ML stack here.
+ARG WORKER_BASE_IMAGE
+FROM ${WORKER_BASE_IMAGE}
+ARG EXPECTED_WORKER_REVISION
+ARG PIP_INDEX_URL=https://pypi.org/simple
+# AGENTIUM_IMAGE_REVISION is inherited from the worker, not overwritten by an
+# arbitrary build argument. Refuse an unknown or mismatched source revision.
+RUN python -c 'import os,re,sys; expected=os.environ.get("EXPECTED_WORKER_REVISION", ""); re.fullmatch("[0-9a-f]{40}", expected) or sys.exit("EXPECTED_WORKER_REVISION must be a full source SHA"); os.environ.get("AGENTIUM_IMAGE_REVISION") == expected or sys.exit("worker source revision mismatch")'
+LABEL org.agentium.orchestration.base-revision="${EXPECTED_WORKER_REVISION}"
+USER root
+COPY backend/requirements_temporal.txt backend/constraints-demo-app.txt backend/constraints-temporal.txt /tmp/temporal-requirements/
+# Reuse the qualified worker dependencies without changing its interpreter.
+# The optional secret is public CA trust, never a retained API credential.
+RUN --mount=type=secret,id=temporal_ca,required=false \
+    if [ -f /run/secrets/temporal_ca ]; then export PIP_CERT=/run/secrets/temporal_ca; fi; \
+    python -m venv --system-site-packages /opt/agentium-temporal \
+    && /opt/agentium-temporal/bin/pip install --no-cache-dir --only-binary=:all: \
+        --index-url=${PIP_INDEX_URL} \
+        --constraint=/tmp/temporal-requirements/constraints-demo-app.txt \
+        --constraint=/tmp/temporal-requirements/constraints-temporal.txt \
+        -r /tmp/temporal-requirements/requirements_temporal.txt \
+    && /opt/agentium-temporal/bin/pip check \
+    && rm -rf /tmp/temporal-requirements
+USER agentium
+ENV PATH="/opt/agentium-temporal/bin:${PATH}" CELERY_BEAT=0
+# Application code, PYTHONPATH and frozen revision all come from the base.
+CMD ["python", "-m", "app.workers.temporal_execution", "worker"]

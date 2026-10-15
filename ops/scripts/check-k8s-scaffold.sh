@@ -58,6 +58,31 @@ if grep -q '^dataopsWorker:' "$ROOT/ops/helm/agentium/values.yaml"; then
 		fail "the general worker must refuse the dataops queue"
 	fi
 fi
+# Control tasks cannot wait behind full compute queues. Both processes remain
+# absent until opted in; the scheduler never overlaps itself on replacement.
+if grep -q '^executionControl:' "$ROOT/ops/helm/agentium/values.yaml"; then
+	if grep -qE 'name: agentium-(worker|scheduler)-control$' /tmp/agentium-helm.yaml; then
+		fail "execution control must be disabled by default"
+	fi
+	control="$(helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+		--set executionControl.enabled=true --show-only templates/worker-control.yaml)"
+	[ "$(grep -c 'kind: Deployment' <<<"$control")" -eq 2 ] || fail "control requires separate worker and scheduler Deployments"
+	[ "$(grep -c 'type: Recreate' <<<"$control")" -eq 2 ] || fail "control deployments must not overlap during upgrades"
+	grep -q 'name: agentium-worker-control$' <<<"$control" || fail "control worker missing"
+	grep -q 'name: agentium-scheduler-control$' <<<"$control" || fail "control scheduler missing"
+	grep -q '"worker", "-Q", "control", "-c", "1", "--pool", "solo"' <<<"$control" || fail "control worker must reserve one solo slot"
+	grep -q '"beat", "--max-interval", "1"' <<<"$control" || fail "control beat must tick independently"
+	if helm template agentium "$ROOT/ops/helm/agentium" \
+		--set-string 'worker.queues=cpu\,control' >/dev/null 2>&1; then
+		fail "the general worker must refuse the control queue"
+	fi
+	for flag in ACTIVITY_OBSERVABILITY_ENABLED EXECUTION_CONTROL_ENABLED EXECUTION_DURABLE_DISPATCH_ENABLED; do
+		if helm template agentium "$ROOT/ops/helm/agentium" \
+			--set-string "config.$flag=true" >/dev/null 2>&1; then
+			fail "$flag must require a dedicated control deployment"
+		fi
+	done
+fi
 # Connector scaffolds are opt-in and reserve two independent processes.
 if grep -q '^connectorWorkers:' "$ROOT/ops/helm/agentium/values.yaml"; then
 	if grep -q 'name: agentium-worker-connectors' /tmp/agentium-helm.yaml; then

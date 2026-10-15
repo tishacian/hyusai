@@ -1,0 +1,132 @@
+{
+  "collected_at": "2026-10-15T10:44:17.973231+00:00",
+  "base_commit": "0b63fcec0be57a87b7578142a15c2b797dbe98cc",
+  "working_tree_uncommitted": true,
+  "scope": "Native Temporal SDK candidate C: two closed published-Flow compositions, durable native SkillInvocation references, asynchronous DataPrep, real service review and receipt; local qualification only",
+  "source_sha256": {
+    "backend/app/services/execution/runtimes/native_profile.py": "01dceb6aab1d13a1e585d9ed3bf6da7a277a03897363c8ef76480c683ab45bc1",
+    "backend/app/services/execution/runtimes/native_port.py": "78a977dca8e3d2823b1fe3ea52ce5298e5e91a6d55adfd855f06f752c81f538e",
+    "backend/app/services/execution/runtimes/native_temporal.py": "206c1091ec40ea8aefe406c7378a6254a28936a1f16dee04c63a2b561fb810f7",
+    "backend/app/services/execution/runtimes/deferred.py": "fabd775aa82cf67f56ac6309af5f181e1df4d5b3ef9af2f68802db553df392e5",
+    "backend/app/services/execution/contracts.py": "c8cfb1cff40f944da909b126f6772cd6f65694f38ec72afd86636066a15458f9",
+    "backend/app/services/execution/submission.py": "106f8dd285585f8954e9853afb8bda5d07236a647bf98b0d799e4cf8ac265b00",
+    "backend/app/services/execution/dispatch.py": "80a8e2c8c4e1fb8a43457a2ca1efd414d7d8ed286c4c945548289d46223c3c10",
+    "backend/app/services/execution/rollout.py": "fc2c7be18c5f6c3d726742f4a90f569f6a83b0dbcde0ee24c520c31c70bc8d77",
+    "backend/app/services/execution/control.py": "38442100185d497402c6cea2511a1d0cc860fea07d58ad52a61069efe612d4d2",
+    "backend/app/services/execution/recipe_lifecycle.py": "cedf83760302375c8617ac9e48768b8465cf61d5da5ef981f554772922d2be13",
+    "backend/app/services/run_engine/engine.py": "df4fc04ae774a81e83a51274457a54d91651f8865f4f21c2bcadb1c8ca0b8428",
+    "backend/app/services/run_engine/dag.py": "6d4ffcfe875a4d1719f1c8b4949b08dd9196ab356a4735f9547e1e283d3768f1",
+    "backend/app/services/skills_registry/wrappers/skills.py": "8bbb945b7ff1a9319a7e5035def82c6fa4cbfc5651b0f16568eab5ba87aef8ec",
+    "backend/app/services/dataops/compute_registry.py": "e74b3072544b431dcf2e8f10241ca8c86dd138443faae0c07bc48dad1dce151a",
+    "backend/app/services/dataops/preparation.py": "97688d22a54119e3ea996527e4fe48422548e453a7ec0c7cd0a47ae85ec2b1ce",
+    "backend/app/services/dataops/scoring.py": "6757e4e063bb14f060f4cc4a903c7eb3b44773f6c90e9dc81f2797be08473069",
+    "backend/app/services/service_engine.py": "218cb11f1147da95be0aa8b9bc6d94593e9cf576ff43f9a804c7e6b58b507264",
+    "backend/app/services/service_promises.py": "93d7685176dec80d79e165c6db023ed4b60a6c05d28036596e9c8b18ea38f8b2",
+    "backend/app/workers/temporal_execution.py": "4a2b6d15e3e695a31798a19a2f4fc2a7da20a01043460a3ea1a17af5275eaa74",
+    "backend/app/workers/execution_control.py": "17db8aa48f1203a3f34a5d57416e00b20a848cc055e83d4978e12b6abb2ae860",
+    "backend/app/api/v1/endpoints/runs.py": "846552e07c41021294e37358ad8899d1c20e5a2ef6874c05ede7ed719f7469e4",
+    "backend/app/models/run.py": "98b1af915e59e4d4d0c7779440f0125db866abbb0b3816abd698e35754610bec",
+    "backend/app/models/recipe.py": "9e54f98369532b903114430d590891e0449bedc2d9acb2aaebb58a5625d47c82",
+    "backend/app/models/execution_control.py": "198e4c8f67d5bc90d85688c0c93b80bf94fc6ffe85b7ff3e60aa10936a4cc318",
+    "backend/app/core/config.py": "ba47c2a8ff1f68ab5aa9bad3ca06fea1fc359dff690fe385fdcb92e569cdaf81",
+    "backend/app/tests/services/test_native_temporal_port.py": "3a611a8f91ad6e2639bfbc87a4cb722678a14e84181ccf3198db720234014cf4",
+    "backend/app/tests/services/test_native_temporal_postgres.py": "a990d013f45b038b8d9709de9145dd21aee15c0e7dc804e6aed5d6072ab2d72e",
+    "backend/app/tests/services/test_native_temporal_sdk.py": "13372f932f891fec8b5a250bc688a1c937313ba6c63c69ea02184b1d017ef08c",
+    "backend/app/tests/services/test_temporal_dispatch.py": "0d4462dd70afb2af4a0f0162e133a8c73e1f498cf26b582a87f35cb70c450592",
+    "backend/app/tests/services/test_temporal_dispatch_postgres.py": "4649b8f2dd62630b882423938451dff018d650eea3805651ddd6a4f0bf6be245",
+    "backend/app/tests/services/test_activity_observability_postgres.py": "27e7dd028c8793dcf1e86facb8a0e4e899d1b1d2328914032a8112dcdca70c4c",
+    "backend/app/tests/services/test_service_contracts.py": "5d6d5189a86cf1642d00b0f577634092a2e5af44612fedecba155285049b5fa8",
+    "backend/requirements_temporal.txt": "7143961045b5f61e18c827139868130bfd12e50a565236738dd899d8f9623f32",
+    "backend/constraints-temporal.txt": "b66935d8af06bdd95d6ca7db16dd8b3abf62dcdc258aed80dbe0d5e13b64b456",
+    "docs/agentium-temporal-native-handover.md": "3528ca74988a041586353bebe5ded58869cef08e1e86d3aa9eb8a2ce5f4a07c8"
+  },
+  "versions": {
+    "temporal_sdk": "1.34.0",
+    "temporal_cli": "1.9.1",
+    "temporal_server": "1.32.0",
+    "temporal_ui": "2.54.1",
+    "temporal_cli_sha256": "712217694cac9f786a72d4b6c876cd15f3dcf1bf31434d9fed6af25242a327a0",
+    "python": "3.12.14",
+    "sqlalchemy": "2.0.52",
+    "pytest": "9.1.1",
+    "platform": "Linux x86_64"
+  },
+  "test_command": {
+    "cwd": "backend",
+    "argv": [
+      "/workspace/hyusai/.venv/bin/python",
+      "-m",
+      "pytest",
+      "app/tests/services/test_native_temporal_port.py",
+      "app/tests/services/test_native_temporal_postgres.py",
+      "app/tests/services/test_native_temporal_sdk.py",
+      "app/tests/services/test_temporal_dispatch.py",
+      "app/tests/services/test_temporal_dispatch_postgres.py",
+      "--disable-warnings",
+      "-q"
+    ],
+    "environment": {
+      "PYTHONPATH": "/workspace/d7-driver-libs:.",
+      "ACTIVITY_TEMPORAL_CLI": "/workspace/execution-runtime-qualification-2026-10-15/temporal",
+      "ACTIVITY_POSTGRES_URL": "${LOCAL_ACTIVITY_POSTGRES_URL}"
+    },
+    "credential_substitution": "Only the supplied disposable local PostgreSQL DSN is replaced by a variable name. No secret value is stored.",
+    "postgres_fixture_scope": "Private per-test schemas, shared disposable server retained"
+  },
+  "results": {
+    "passed": 29,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "warnings": 849,
+    "elapsed_seconds": 33.03,
+    "completed_at_from_log_mtime": "2026-10-15T10:41:15.168048+00:00",
+    "log": "native-final-targeted.log",
+    "cases": {
+      "native_port": 15,
+      "native_postgres_concurrency": 2,
+      "native_sdk_real_server": 2,
+      "temporal_dispatch": 9,
+      "temporal_dispatch_postgres": 1
+    },
+    "static_checks": {
+      "ruff_selected_sources_and_tests": "passed",
+      "git_diff_check": "passed"
+    }
+  },
+  "qualified": [
+    "Both closed compositions produce one real delivery receipt through native service qualification and human decision.",
+    "Published service_tick ingress creates a Temporal dispatch only; disabled rollout rolls back admission.",
+    "Actual RecipeExecution is queued with durable dispatch and zero pending Temporal Activities; native run_preparation executes separately.",
+    "No Activity held during human review; Temporal signal does not authorize delivery.",
+    "Real Temporal server process kill/restart preserves SQLite-backed Workflow history; a newly created SDK Worker resumes after review.",
+    "Payload marker absent from SDK Workflow history; references-only requests/results and redacted authority errors.",
+    "Concurrent PostgreSQL submission invokes provider double once; a late reply preserves a lost invocation.",
+    "Current membership and revision authority enforced; revoked permissions prevent publication.",
+    "Parent absolute deadline bounds child and outbox before dispatch; queued legacy child refuses execution after expiry.",
+    "DataPrep implicit output and explicit split port satisfy required dataset_id input and deliver the same chosen output_port; ambiguous or absent profile port rejected.",
+    "Starter reconciliation preserves prior terminal states and marks newly refused active Runs failed."
+  ],
+  "limitations": [
+    "LLM agent transports are doubled. evaluate_v2 wrapper is real but its provider response and token usage are simulated; no real provider or HANA access.",
+    "SDK composition application database is SQLite. Three PostgreSQL concurrency/locking cases are separate; no claim that the entire SDK path ran over PostgreSQL.",
+    "SDK child computation invokes the native run_preparation function outside Activities after durable queueing. No real broker/Celery worker process participates in those two compositions.",
+    "Server process crash is real; SDK Worker restarts gracefully within the test process, not as a killed operating-system worker.",
+    "Closed profiles only: no general DAG, agent_loop, loop, fork, subflow or parallel branch migration.",
+    "Streaming scoring submission is implemented, but no SDK composition using a real model is qualified in this report.",
+    "Unknown provider cost remains unknown; judge subtotal does not qualify all agent calls.",
+    "Temporal dev server with persistent SQLite is not an HA or production-server qualification; no load/cost/latency claim.",
+    "Native orchestration image not built or measured here; production VM, resource envelope, live TLS/account and A/B/baseline parity remain unqualified.",
+    "No deployment, merge, production flag activation or image-budget change. General regression suite has separate evidence."
+  ],
+  "cleanup": {
+    "standalone_temporal_address": "127.0.0.1:17233",
+    "pid": 217027,
+    "shared_postgres_retained": true,
+    "test_servers_owned_and_removed_by_fixtures": true,
+    "action": "verified_exact_process_command_then_SIGTERM",
+    "standalone_temporal_stopped": true,
+    "checked_at": "2026-10-15T10:44:17.971028+00:00"
+  },
+  "redaction": "Only successful two-line pytest summary and whitelisted local runtime/cleanup metadata copied; no DSN value, credentials, application payload, provider output or environment dump."
+}

@@ -119,6 +119,13 @@ class RecipeExecution(Base):
     status = Column(String(20), default="queued", nullable=False, index=True)
     cancel_requested = Column(Boolean, default=False, nullable=False)
 
+    # O3: native DataOps controller. NULL preserves historical C0/legacy attempts.
+    lifecycle_controller = Column(String(20), nullable=True)
+    lease_token = Column(String(36), nullable=True)
+    lease_generation = Column(Integer, nullable=False, default=0)
+    lease_expires_at = Column(DateTime, nullable=True)
+    deadline_at = Column(DateTime, nullable=True)
+
     code_sha256 = Column(String(64), nullable=True)
     timeout_s = Column(Float, nullable=True)
     input_json = Column(JSON, default=dict)

@@ -43,6 +43,8 @@ class Run(Base):
 
     # pending | running | waiting_subflows | hitl_pending | completed | failed | cancelled
     status = Column(String(20), default="pending", index=True)
+    cancel_requested = Column(Boolean, default=False, nullable=False)
+    execution_policy = Column(JSON, nullable=True)
     started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     completed_at = Column(DateTime, nullable=True)
     duration_ms = Column(Float, nullable=True)

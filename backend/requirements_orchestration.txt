@@ -1,0 +1,6 @@
+# Optional runtime only. Do not add these dependencies to backend/ML images.
+langgraph==1.2.15
+langgraph-checkpoint-postgres==3.2.0
+temporalio==1.34.0
+temporalio-langgraph==0.1.0
+psycopg[binary]==3.3.3

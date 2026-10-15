@@ -1,0 +1,5 @@
+# Additive pins for the SDK-only native candidate. The application constraints
+# still govern all dependencies already present in the qualified worker.
+temporalio==1.34.0
+nexus-rpc==1.4.0
+types-protobuf==7.35.1.20260906

@@ -13,6 +13,40 @@ export CELERY_QUEUES
 PYTHONPATH="$(pwd)/backend:$(pwd):${PYTHONPATH:-}"
 export PYTHONPATH
 
+# The short control queue must never share compute slots or embedded beat.
+# Removing whitespace closes accidental mixed-queue configuration too.
+CELERY_ORCHESTRATION_QUEUE=${CELERY_ORCHESTRATION_QUEUE:-orchestration}
+case ",$(printf '%s' "$CELERY_QUEUES" | tr -d '[:space:]')," in
+*,control,*)
+	[ "$CELERY_APP" = app.workers.execution_control:app ] || {
+		echo "control queue requires the dedicated execution control worker" >&2
+		exit 2
+	}
+	;;
+esac
+case ",$(printf '%s' "$CELERY_QUEUES" | tr -d '[:space:]')," in
+*,"$CELERY_ORCHESTRATION_QUEUE",*)
+	[ "$CELERY_APP" = app.workers.temporal_execution:app ] || {
+		echo "orchestration queue requires the dedicated Temporal starter" >&2
+		exit 2
+	}
+	;;
+esac
+if [ "$CELERY_APP" = app.workers.execution_control:app ]; then
+	[ "$CELERY_QUEUES" = control ] && [ "$CELERY_CONCURRENCY" = 1 ] && [ "${CELERY_POOL:-solo}" = solo ] && [ "${CELERY_BEAT:-0}" = 0 ] || {
+		echo "control worker requires queue control, concurrency 1, solo pool and separate beat" >&2
+		exit 2
+	}
+	CELERY_POOL=solo
+fi
+if [ "$CELERY_APP" = app.workers.temporal_execution:app ]; then
+	[ "$CELERY_QUEUES" = "$CELERY_ORCHESTRATION_QUEUE" ] && [ "$CELERY_CONCURRENCY" = 1 ] && [ "${CELERY_POOL:-solo}" = solo ] && [ "${CELERY_BEAT:-0}" = 0 ] || {
+		echo "Temporal starter requires its dedicated orchestration queue, concurrency 1, solo pool and separate beat" >&2
+		exit 2
+	}
+	CELERY_POOL=solo
+fi
+
 # Connector pools reserve independent capacity. A misconfigured queue list
 # must not let the general worker steal their tasks, or merge both pools.
 case "$CELERY_APP" in

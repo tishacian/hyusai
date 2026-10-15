@@ -1730,6 +1730,10 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   readonly completedSteps = computed(() => this.wizard().filter((s) => s.done).length);
 
   goto(path: string): void {
+    if (path.startsWith('/observability') && this.systemId) {
+      void this.router.navigate([path], { queryParams: { systemId: this.systemId } });
+      return;
+    }
     this.router.navigateByUrl(path);
   }
 
