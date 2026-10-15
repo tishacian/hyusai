@@ -1,5 +1,12 @@
 # Actifs gouvernés et promesses de service
 
+**Production, 14 octobre 2026 :** selon le compte rendu opérateur,
+`SERVICE_CONTRACTS_ENABLED=true` est chargé globalement sur `0e401afc`.
+Les listes de `default` et Showcase répondent avec zéro contrat. Les routes
+de calibration sont accessibles, mais aucun corpus ni cycle de livraison
+n'est qualifié par ces contrôles. Voir le
+[bilan de production](dataops-production-2026-10-14.md).
+
 Une livraison est une preuve publiée, distincte de l'exécution d'un Run. Le
 socle ajoute sept tables via `126_service_contracts`, après
 `125_retrieval_bench_runs`. Il ne crée aucun job Celery ni canal de notification.

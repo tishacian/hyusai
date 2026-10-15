@@ -6,6 +6,24 @@ et les écarts de l’implémentation initiale `45ccc915`, puis les travaux de r
 Le code n’est pas une autorité qui
 permet de redéfinir après coup un critère de recette.
 
+## État de production rapporté le 14 octobre 2026
+
+La révision `0e401afc`, présente sur `demo/agentic`, `develop` et `main`,
+est rapportée en production avec `build-info` vérifié. Préparation DataOps,
+écriture Delta, contrats de service et scoring en flux sont ouverts globalement.
+Une préparation réelle dans `default` a produit une ligne dans une part Delta.
+RabbitMQ applique le timeout d'une heure ; les runs bloqués et les files de
+réponse orphelines ont été traités par l'opérateur.
+
+Le [bilan de production](ops/dataops-production-2026-10-14.md) distingue ces
+observations des recettes restantes : scoring en flux non exercé, aucun contrat
+dans les deux workspaces contrôlés, calibration accessible sans corpus qualifié,
+démo HANA Showcase encore à activer. Les versions Delta existantes rendent un
+simple retour aux images `ad10dbc2` incompatible ; fermer le drapeau d'écriture
+ne convertit pas ces versions. Cette mise en production ne ferme pas tous les
+critères du plan. Les comptes rendus de construction et de revue ci-dessous
+restent historiques et liés à leurs révisions.
+
 ## Origine des amendements
 
 Dans cette conversation, l’utilisateur a demandé, avant l’implémentation :
@@ -31,6 +49,8 @@ ce document.
 
 ## Plans et contrats distincts
 
+- [Calcul local avant Kubernetes/Spark](agentium-dataops-local-compute-plan.md) :
+  cadrage des quatre lots locaux, mesures, recettes et déclencheurs ; non implémenté.
 - [Juge typé](agentium-typed-judge-plan.md) : contrat proposé, état du code et
   critères de qualification ; ce document a été écrit pendant l’implémentation,
   pas avant elle. Aucun fournisseur ni corpus réel n’est qualifié.
@@ -42,8 +62,33 @@ ce document.
 - [Narration](agentium-showcase-narration-contract.md) : brouillon différé,
   sans activation ni promesse de livraison dans le lot actif.
 - [Complément D7](agentium-dataops-connectors.md) : catalogue de connecteurs
-  certifiés, en deux catalogues (données, outils), en lots C0 à C7 et CH ; révisé
-  après la revue de `d3c2a9d3`. Proposé, non implémenté.
+  en deux catalogues (données, outils), en lots C0 à C7 et CH ; révisé après
+  `71ac18a2`. Le code est en production pour être utilisé. C0 et CH restent
+  ouverts : aucun profil n'est Vérifié ni Certifié.
+
+## Priorité au calcul local avant D4/D5
+
+L'orientation du 14 octobre avance quatre chantiers sans cluster : registre des
+calculs locaux, mesures de volume/CPU/mémoire/spill/échéance et coût, E/S directes
+du runner vers S3 qualifiées sur MinIO, et discipline SQL portable. Le
+[cadrage local](agentium-dataops-local-compute-plan.md) en donne les livrables et
+recettes. C'est un amendement à l'ordre de D-16, §10.3 et §12 : enrichir d'abord
+`RecipeExecution`, sans créer maintenant un second cycle de vie `compute_runs`.
+Le stockage objet direct avance une partie du contrat T1 sans livrer T1.
+
+Les phases suivantes sont une VM plus grande, puis un worker DataOps sur une
+VM dédiée. D4 Kubernetes reste conditionné à un déploiement client sur cluster
+ou à une échéance intenable démontrée après examen des options locales. D5 exige
+simultanément un volume hors de portée d'une grosse machine dans la fenêtre,
+l'absence de moteur client adapté et un cluster compatible. Un profil D7 ciblé
+Databricks/Snowflake peut être préférable ; Spark propre à Agentium n'est pas
+un passage obligé. Les seuils proposés dans le cadrage doivent être qualifiés
+avant activation et ne lancent aucun provisionnement automatique.
+
+Le benchmark de 330,552 s ne prouve pas une marge mémoire : son RSS échantillonné
+atteint 2,139 Go, mais son cgroup touche 4 Gio sans OOM. Les 20 Gio du plan sont
+un plafond visé, pas un volume local déjà qualifié. Les chiffres historiques de
+versions Kubernetes/opérateur restent à revalider au moment du besoin.
 
 ## Écarts constatés, à fermer par des preuves
 
@@ -52,15 +97,16 @@ sur `45ccc915`. Son historique ne doit pas être réécrit pour effacer les erre
 
 | Domaine | État et critère restant |
 |---|---|
-| R0/S0/D0 | Structure reprise et garde-fous en code ; le déploiement, son build-info, HANA vivant et la révocation du token Docker Hub de papAI ne sont pas attestés par les tests locaux. |
+| R0/S0/D0 | Structure reprise et garde-fous en code ; déploiement `0e401afc` et build-info vérifié rapportés par l'opérateur. HANA vivant et révocation du token Docker Hub de papAI restent sans preuve dans ce bilan. |
 | D1a | Reprise : 46 contrats d’étapes fermés, 74 fonctions, typage physique, formules restreintes, sélecteurs et corpus golden indépendant. La couverture des cas métier et toutes les recettes du plan ne sont pas acquises par cette seule couverture du catalogue. |
 | D1b | API/Flow repris pour la configuration canonique, sources épinglées, schémas par étape, aperçu récursif, compteurs et profil sur échantillon. Rattrapage des anciens échantillons par tâche DataOps et cache d’aperçu livrés avec tests ciblés. Hook Helm de réconciliation ajouté et testé au rendu ; aucune exécution sur cluster n’est attestée. |
 | D2 | Palette des sept opérations, ateliers dédiés, éditeur de formules, historique et conversion SQL livrés. Recettes navigateur mockées FR/EN et suites existantes passées ; elles ne constituent pas une recette contre un backend déployé. |
 | D3 | Lecteurs natifs multi-parts, profil borné, téléchargement en flux, retraite sans suppression et purge par identité distincte livrés. Le commit natif delta-rs remplace le journal maison : parts écrites puis commit0 natif sans réencodage, conformément à D-21/§29.3. MinIO réel local et une sortie synthétique de plus de 3 Gio qualifiés avec réservoir final, sous cgroup client 4 Gio/2 CPU. Spark/Unity et la migration d’un bucket de production ne sont pas qualifiés. |
-| Actifs/promesses/juge | Extension demandée, implémentée sur la branche et soumise à la revue ; aucun statut de production ni qualification fournisseur ne découle du nombre de tests. |
+| Actifs/promesses/juge | Contrats et calibration ouverts en production selon le bilan opérateur ; listes de contrats vides, aucun corpus ni cycle de livraison qualifié par ces contrôles. L'activation ne vaut pas qualification fournisseur. |
 | Narration | Différée. Catalogue masqué, runtime fermé et absence de seed de parcours tant que le drapeau est désactivé. |
-| D4/D5/D6/I1/I2 | Différés par demande explicite ; leur absence reste visible dans le plan d’origine et n’est pas présentée comme une implémentation. |
-| D7 | Repriorisé le 14 octobre et précisé par le [complément D7](agentium-dataops-connectors.md). Rien n’est implémenté à ce stade. |
+| Pilotage local issu de D4 | Quatre lots cadrés : registre existant enrichi, mesures/coûts, runner S3, discipline SQL. À implémenter et à qualifier ; aucun placement distant livré par ce cadrage. |
+| D4 Kubernetes / D5 Spark / D6 / I1 / I2 | Différés par demande explicite. Leur absence reste visible dans le plan d’origine. |
+| D7 | Catalogue livré pour être utilisé, sans badge Vérifié ni Certifié. C0 et CH restent ouverts. |
 
 Les suites ciblées du premier lot ne remplaçaient pas une suite complète. Les
 rapports de tests, les comparaisons avec la base et les constructions d’images
@@ -93,10 +139,13 @@ périmètre, sur la foi de ce compte rendu, sans nouveau bundle SSH brut. Aucune
 bascule de conteneur ni activation HANA n'est effectuée. Voir le suivi pour le
 benchmark et ses limites.
 
+Les paragraphes de mesure ci-dessus précèdent la mise en production de
+`0e401afc`, désormais consignée en tête de ce document.
+
 Le 14 octobre, l'utilisateur choisit la démonstration explicite pour HANA
 Showcase : `demo_mode=true`, chiffrement et vérification TLS conservés, écritures
 désactivées. La décision est prise et le contrôle de budget est passé ; son
-activation et sa recette restent à effectuer lors de la livraison.
+activation et sa recette restent à effectuer dans Showcase après cette livraison.
 Le formulaire conserve désormais ces
 paramètres, et le test de connexion reste un test HANA réel. La
 [recette locale](evidence/hana-showcase-demo-2026-10-14/README.md) ne vaut pas une
