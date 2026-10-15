@@ -67,6 +67,7 @@ from app.api.v1.endpoints import (
     metrics,
     mission_room,
     ml_governance,
+    ml_exports,
     ml_models,
     ml_operations,
     model_portal,
@@ -197,6 +198,7 @@ api_router.include_router(
 api_router.include_router(datasets.router, prefix="/datasets", tags=["datasets"])
 api_router.include_router(ml_governance.router, prefix="/ml-governance", tags=["ml-governance"])
 api_router.include_router(ml_models.router, prefix="/ml-models", tags=["ml-models"])
+api_router.include_router(ml_exports.router, prefix="/ml-models", tags=["ml-models"])
 api_router.include_router(impact.router, prefix="/impact", tags=["impact"])
 api_router.include_router(hypervisor.router, prefix="/hypervisor", tags=["hypervisor"])
 api_router.include_router(control_plane.router, prefix="/control-plane", tags=["control-plane"])
