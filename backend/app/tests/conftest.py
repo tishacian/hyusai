@@ -169,6 +169,13 @@ def db_session():
 
     # Order matters for FK constraints.
     _TRUNCATE_ORDER = [
+        "activity_commands",
+        "activity_events",
+        "activities",
+        "activity_workspace_cursors",
+        "execution_dispatches",
+        "execution_reservations",
+        "execution_capacity",
         "connector_watches",
         "connector_sync_states",
         "connector_writes",

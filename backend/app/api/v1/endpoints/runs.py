@@ -970,7 +970,7 @@ def _persisted_hitl_dispatch_plane(run: Run, decision_id: str) -> Optional[str]:
         if str(checkpoint.get("decision_id") or "") != str(decision_id):
             continue
         plane = str(checkpoint.get("plane") or "")
-        if plane in {"inline", "run_celery", "subflow_celery"}:
+        if plane in {"inline", "run_celery", "subflow_celery", "temporal"}:
             return plane
         return "invalid"
     return None
@@ -1293,7 +1293,12 @@ async def resolve_run_hitl(
         db.rollback()
         raise HTTPException(409, "Persisted HITL execution plane is invalid")
     if dispatch_plane is None:
-        if delegated_celery_child:
+        if (r.execution_policy or {}).get("engine") == "temporal":
+            if delegated_celery_child:
+                db.rollback()
+                raise HTTPException(409, "Temporal execution cannot change a delegated controller")
+            dispatch_plane = "temporal"
+        elif delegated_celery_child:
             if not _postgres_hitl_coordination_supported():
                 db.rollback()
                 raise HTTPException(503, "Durable delegated HITL requires PostgreSQL")
@@ -1312,6 +1317,9 @@ async def resolve_run_hitl(
     elif dispatch_plane == "run_celery" and not _postgres_hitl_coordination_supported():
         db.rollback()
         raise HTTPException(503, "Durable Run HITL requires PostgreSQL")
+    elif (dispatch_plane == "temporal") != ((r.execution_policy or {}).get("engine") == "temporal"):
+        db.rollback()
+        raise HTTPException(409, "Persisted HITL execution plane conflicts with the Run engine")
 
     expected_final = "accepted" if body.action == "accept" else "rejected"
     already_resolved = decision.status == expected_final
@@ -1388,10 +1396,13 @@ async def resolve_run_hitl(
                 decision_id=decision.id,
                 error_type=type(exc).__name__,
             )
-    elif not already_resolved:
+    elif not already_resolved and dispatch_plane != "temporal":
         # Preserve the historical in-process path unless the explicit double
         # opt-in selected durable Celery before the Decision commit.
         background_tasks.add_task(_resume_wrapper, r.id, decision.id)
+    # Temporal polls the authoritative Decision using a durable timer. The
+    # committed approval is therefore sufficient even if this API disconnects;
+    # no inline/Celery walker is started for this Run.
     logger.info(
         "runs.hitl: dispatched resume",
         run_id=r.id,
@@ -2100,10 +2111,13 @@ async def rerun_run(
         execution_surface=parent.execution_surface,
     )
     db.add(new_run)
+    from app.services.execution.submission import stage_run
+    durable = stage_run(db, new_run, system)
     db.commit()
     db.refresh(new_run)
 
-    background_tasks.add_task(schedule_run, new_run.id)
+    if not durable:
+        background_tasks.add_task(schedule_run, new_run.id)
     return {
         "id": new_run.id,
         "status": new_run.status,

@@ -1,0 +1,45 @@
+# Optional short control plane; no compute tasks or artifact mounts.
+# Add this overlay with --profile execution-control only after qualification.
+# The three execution/observability feature flags remain off in the env example.
+x-execution-common: &execution-common
+  image: agentium-worker:${AGENTIUM_IMAGE_TAG:-local}
+  profiles: [execution-control]
+  restart: unless-stopped
+  networks: [agentium-net]
+  env_file:
+    - ${AGENTIUM_ENV_FILE:-./env/agentium.env.example}
+  environment:
+    AGENTIUM_DISABLE_DOTENV: "1"
+    CELERY_APP: app.workers.execution_control:app
+    CELERY_CONTROL_QUEUE: control
+    CELERY_QUEUES: control
+    CELERY_CONCURRENCY: "1"
+    CELERY_BEAT: "0"
+  read_only: true
+  tmpfs:
+    - /tmp:size=32m,mode=1777
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  depends_on:
+    agentium-rabbitmq:
+      condition: service_healthy
+  # DATABASE_URL may target agentium-pg (optional infra profile) or an external
+  # database. This overlay does not implicitly enable the infrastructure profile.
+
+services:
+  agentium-worker-control:
+    <<: *execution-common
+    container_name: agentium-worker-control
+    # Defaults are safety bounds, not measured capacity or release evidence.
+    mem_limit: ${AGENTIUM_CONTROL_MEMORY:-512m}
+    cpus: ${AGENTIUM_CONTROL_CPUS:-1}
+    pids_limit: 64
+    command: [python, -m, celery, -A, "app.workers.execution_control:app", worker, -Q, control, -c, "1", --pool, solo, --without-gossip, --without-mingle, --loglevel, info]
+
+  agentium-scheduler-control:
+    <<: *execution-common
+    container_name: agentium-scheduler-control
+    mem_limit: ${AGENTIUM_CONTROL_SCHEDULER_MEMORY:-256m}
+    cpus: ${AGENTIUM_CONTROL_SCHEDULER_CPUS:-0.5}
+    pids_limit: 32
+    command: [python, -m, celery, -A, "app.workers.execution_control:app", beat, --max-interval, "1", --schedule, /tmp/control-celerybeat-schedule, --pidfile, /tmp/control-beat.pid, --loglevel, info]

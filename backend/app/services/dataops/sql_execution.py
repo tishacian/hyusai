@@ -130,6 +130,12 @@ def submit_sql_run(
 def dispatch_sql_execution(db: DBSession, execution: RecipeExecution) -> str:
     """Enqueue the worker task; eager mode runs it inline (dev/tests)."""
 
+    from app.services.execution.rollout import durable_for
+    if durable_for(db, execution.workspace_id):
+        from app.services.execution.dispatch import stage
+        intent = stage(db, "recipe_execution", execution, deadline_at=execution.deadline_at)
+        db.commit()
+        return intent.task_id
     if settings.worker_eager_mode:
         execution.celery_task_id = f"eager:{execution.id}"
         db.commit()
@@ -219,6 +225,11 @@ def run_sql_execution(execution_id: str) -> dict[str, Any]:  # noqa: C901 - one 
         if execution.status in RECIPE_EXECUTION_TERMINAL_STATUSES:
             return {"id": execution_id, "status": execution.status}
         if execution.status == "running":
+            from app.models.execution_control import ExecutionDispatch
+            if execution.lifecycle_controller == "recipe_v1" or db.query(ExecutionDispatch.id).filter_by(entity_kind="recipe_execution", entity_id=execution.id).first():
+                # Redelivery is not evidence of worker loss; the lease reaper
+                # alone may fence the owner. Never execute the SQL twice.
+                return {"id": execution_id, "status": execution.status}
             finalize_execution(execution, status="failed", error="sql_worker_lost_after_claim")
             db.commit()
             return {"id": execution_id, "status": "failed"}
@@ -255,7 +266,9 @@ def run_sql_execution(execution_id: str) -> dict[str, Any]:  # noqa: C901 - one 
         started = time.monotonic()
         status, error, output, run = "failed", None, None, None
         try:
-            manifest = write_manifest(scratch, sources, sql=statement)
+            from app.services.execution.io_lease import maintain
+            with maintain(RecipeExecution, execution.id, getattr(execution, "_native_lease_token", None), status="running"):
+                manifest = write_manifest(scratch, sources, sql=statement)
             threads = int(settings.dataops_duckdb_threads)
             run = supervise_harness(
                 [

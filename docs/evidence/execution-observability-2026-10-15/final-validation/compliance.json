@@ -1,0 +1,832 @@
+{
+  "claims": [
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "static_verified",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT0-BASELINE-CONTRACT",
+      "required_runners": [
+        "playwright",
+        "pytest"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 0,
+          "required": false,
+          "total": 0
+        },
+        "frontend": {
+          "passed": 0,
+          "required": false,
+          "total": 0
+        },
+        "implementation": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        },
+        "tests": {
+          "passed": 2,
+          "required": true,
+          "total": 2
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "partial",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT1-STABILITY-CONTRACT",
+      "required_runners": [
+        "node"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 0,
+          "required": false,
+          "total": 0
+        },
+        "frontend": {
+          "passed": 1,
+          "required": true,
+          "total": 2
+        },
+        "implementation": {
+          "passed": 4,
+          "required": true,
+          "total": 5
+        },
+        "tests": {
+          "passed": 4,
+          "required": true,
+          "total": 4
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "static_verified",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT2-WORKSPACE-EXPERIENCE-RESOLVER",
+      "required_runners": [
+        "node"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 0,
+          "required": false,
+          "total": 0
+        },
+        "frontend": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        },
+        "implementation": {
+          "passed": 3,
+          "required": true,
+          "total": 3
+        },
+        "tests": {
+          "passed": 2,
+          "required": true,
+          "total": 2
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "static_verified",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT3-COCKPIT-AXES",
+      "required_runners": [
+        "node"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 0,
+          "required": false,
+          "total": 0
+        },
+        "frontend": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        },
+        "implementation": {
+          "passed": 2,
+          "required": true,
+          "total": 2
+        },
+        "tests": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "static_verified",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT4-SHOWCASE-CANARY-DISCOVERY",
+      "required_runners": [
+        "playwright"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 0,
+          "required": false,
+          "total": 0
+        },
+        "frontend": {
+          "passed": 0,
+          "required": false,
+          "total": 0
+        },
+        "implementation": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        },
+        "tests": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "static_verified",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT4-BUSINESS-SHELL-MISSION-EXTENSION",
+      "required_runners": [
+        "node",
+        "pytest"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        },
+        "frontend": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        },
+        "implementation": {
+          "passed": 2,
+          "required": true,
+          "total": 2
+        },
+        "tests": {
+          "passed": 3,
+          "required": true,
+          "total": 3
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "static_verified",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT4-SENTINEL-OCTOCITY-ISOLATION",
+      "required_runners": [
+        "node",
+        "pytest"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        },
+        "frontend": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        },
+        "implementation": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        },
+        "tests": {
+          "passed": 2,
+          "required": true,
+          "total": 2
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "static_verified",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT4-ANDRITZ-APP-ENTITLEMENTS",
+      "required_runners": [
+        "pytest"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        },
+        "frontend": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        },
+        "implementation": {
+          "passed": 2,
+          "required": true,
+          "total": 2
+        },
+        "tests": {
+          "passed": 3,
+          "required": true,
+          "total": 3
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "partial",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT5-WORKSPACE-BLUEPRINT-V2",
+      "required_runners": [
+        "node",
+        "pytest"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        },
+        "frontend": {
+          "passed": 2,
+          "required": true,
+          "total": 2
+        },
+        "implementation": {
+          "passed": 1,
+          "required": true,
+          "total": 2
+        },
+        "tests": {
+          "passed": 3,
+          "required": true,
+          "total": 3
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "static_verified",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT5-SURFACE-CATALOG-COVERAGE",
+      "required_runners": [
+        "pytest"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        },
+        "frontend": {
+          "passed": 0,
+          "required": false,
+          "total": 0
+        },
+        "implementation": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        },
+        "tests": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "partial",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT5-CANONICAL-CONTRACTS",
+      "required_runners": [
+        "node",
+        "pytest"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 2,
+          "required": true,
+          "total": 2
+        },
+        "frontend": {
+          "passed": 2,
+          "required": true,
+          "total": 3
+        },
+        "implementation": {
+          "passed": 7,
+          "required": true,
+          "total": 7
+        },
+        "tests": {
+          "passed": 8,
+          "required": true,
+          "total": 8
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "static_verified",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT5-COMPLIANCE-GOVERNANCE",
+      "required_runners": [
+        "pytest"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 0,
+          "required": false,
+          "total": 0
+        },
+        "frontend": {
+          "passed": 0,
+          "required": false,
+          "total": 0
+        },
+        "implementation": {
+          "passed": 3,
+          "required": true,
+          "total": 3
+        },
+        "tests": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "partial",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT6-NAV-ONE-SCALE-PER-AXIS",
+      "required_runners": [
+        "node",
+        "playwright"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 0,
+          "required": false,
+          "total": 0
+        },
+        "frontend": {
+          "passed": 1,
+          "required": true,
+          "total": 2
+        },
+        "implementation": {
+          "passed": 3,
+          "required": true,
+          "total": 3
+        },
+        "tests": {
+          "passed": 1,
+          "required": true,
+          "total": 2
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "static_verified",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT6-SYSTEM360-PERSPECTIVES",
+      "required_runners": [
+        "playwright"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        },
+        "frontend": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        },
+        "implementation": {
+          "passed": 4,
+          "required": true,
+          "total": 4
+        },
+        "tests": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "static_verified",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT6-P4-DURABLE-SUBFLOWS",
+      "required_runners": [
+        "pytest"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 0,
+          "required": false,
+          "total": 0
+        },
+        "frontend": {
+          "passed": 0,
+          "required": false,
+          "total": 0
+        },
+        "implementation": {
+          "passed": 6,
+          "required": true,
+          "total": 6
+        },
+        "tests": {
+          "passed": 4,
+          "required": true,
+          "total": 4
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "partial",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT7-OBJECT-GRAPH-PROJECTIONS",
+      "required_runners": [
+        "playwright",
+        "pytest"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 2,
+          "required": true,
+          "total": 2
+        },
+        "frontend": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        },
+        "implementation": {
+          "passed": 7,
+          "required": true,
+          "total": 8
+        },
+        "tests": {
+          "passed": 7,
+          "required": true,
+          "total": 7
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "static_verified",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT7-AUTHORIZATION-ROLLOUT",
+      "required_runners": [
+        "pytest"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 2,
+          "required": true,
+          "total": 2
+        },
+        "frontend": {
+          "passed": 0,
+          "required": false,
+          "total": 0
+        },
+        "implementation": {
+          "passed": 4,
+          "required": true,
+          "total": 4
+        },
+        "tests": {
+          "passed": 6,
+          "required": true,
+          "total": 6
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "static_verified",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT7-MEMBRANE-MEASUREMENTS",
+      "required_runners": [
+        "pytest"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 0,
+          "required": false,
+          "total": 0
+        },
+        "frontend": {
+          "passed": 0,
+          "required": false,
+          "total": 0
+        },
+        "implementation": {
+          "passed": 2,
+          "required": true,
+          "total": 2
+        },
+        "tests": {
+          "passed": 2,
+          "required": true,
+          "total": 2
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "static_verified",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT7-ANDRITZ-MEMBRANE-SHADOW",
+      "required_runners": [
+        "pytest"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 0,
+          "required": false,
+          "total": 0
+        },
+        "frontend": {
+          "passed": 0,
+          "required": false,
+          "total": 0
+        },
+        "implementation": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        },
+        "tests": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "partial",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT8-AUTHORITATIVE-VALUE-LOOP",
+      "required_runners": [
+        "node",
+        "playwright",
+        "pytest"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 4,
+          "required": true,
+          "total": 4
+        },
+        "frontend": {
+          "passed": 1,
+          "required": true,
+          "total": 2
+        },
+        "implementation": {
+          "passed": 14,
+          "required": true,
+          "total": 14
+        },
+        "tests": {
+          "passed": 19,
+          "required": true,
+          "total": 19
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "static_verified",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT9-WORKSPACE-APP-LIFECYCLE",
+      "required_runners": [
+        "node",
+        "playwright",
+        "pytest"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 2,
+          "required": true,
+          "total": 2
+        },
+        "frontend": {
+          "passed": 4,
+          "required": true,
+          "total": 4
+        },
+        "implementation": {
+          "passed": 11,
+          "required": true,
+          "total": 11
+        },
+        "tests": {
+          "passed": 19,
+          "required": true,
+          "total": 19
+        }
+      }
+    },
+    {
+      "attestation_trust": "untrusted_external",
+      "computed_state": "static_verified",
+      "deployed": false,
+      "deployment_environments": [],
+      "deployment_evidence_environments": [],
+      "id": "LOT9-IMMUTABLE-SUPPLY-CHAIN",
+      "required_runners": [
+        "pytest"
+      ],
+      "runner_attestations": [],
+      "runner_evidence_complete": false,
+      "runner_verified": false,
+      "shipped": false,
+      "static_proofs": {
+        "api": {
+          "passed": 0,
+          "required": false,
+          "total": 0
+        },
+        "frontend": {
+          "passed": 0,
+          "required": false,
+          "total": 0
+        },
+        "implementation": {
+          "passed": 2,
+          "required": true,
+          "total": 2
+        },
+        "tests": {
+          "passed": 1,
+          "required": true,
+          "total": 1
+        }
+      }
+    }
+  ],
+  "commit_sha": null,
+  "formal_promotion": "disabled_without_authenticated_ci_collector",
+  "schema_version": 1
+}

@@ -108,7 +108,7 @@ def submit_score(
     db.commit()
     if settings.worker_eager_mode:
         run_score(execution.id)
-    else:
+    elif not execution.celery_task_id:
         from app.workers.celery_app import celery_app
 
         result = celery_app.send_task(
@@ -300,7 +300,9 @@ def run_score(execution_id):
             if not dataset_digest_matches(dataset, spec["dataset_digest"]):
                 raise ValueError("ML_SCORE_INPUT_CHANGED")
             output = db.get(TabularDataset, spec["output_id"])
-            entry = load_pipeline(served)
+            from app.services.execution.io_lease import maintain
+            with maintain(RecipeExecution, row.id, getattr(row, "_native_lease_token", None), status="running"):
+                entry = load_pipeline(served)
             fields = contract_fields(served)
             positive = _positive_label(served, entry.classes)
             band = _interval_band(served)
@@ -323,19 +325,21 @@ def run_score(execution_id):
                 max_rows=settings.ml_score_streaming_max_rows,
             )
             iterator = iter(batches)
-            first = next(iterator, None)
+            with maintain(RecipeExecution, row.id, getattr(row, "_native_lease_token", None), status="running"):
+                first = next(iterator, None)
             if first is None:
                 raise ValueError("ML_SCORE_EMPTY_DATASET")
             import itertools
 
             with tempfile.TemporaryDirectory(prefix="stream-score-") as tmp:
                 root = Path(tmp)
-                paths = write_batches(
-                    root,
-                    itertools.chain([first], iterator),
-                    schema=first.schema,
-                    delta=settings.dataops_write_delta_enabled,
-                )
+                with maintain(RecipeExecution, row.id, getattr(row, "_native_lease_token", None), status="running"):
+                    paths = write_batches(
+                        root,
+                        itertools.chain([first], iterator),
+                        schema=first.schema,
+                        delta=settings.dataops_write_delta_enabled,
+                    )
                 if (
                     evidence["input_rows"] != int(dataset.row_count or 0)
                     or evidence["scored_rows"] + evidence["excluded_rows"] != evidence["input_rows"]
@@ -429,7 +433,7 @@ def run_score(execution_id):
                 .populate_existing()
                 .one()
             )
-            if row.status not in RECIPE_EXECUTION_TERMINAL_STATUSES:
+            if row.status not in RECIPE_EXECUTION_TERMINAL_STATUSES or getattr(row, "_native_lease_token", None):
                 finalize_execution(
                     row,
                     status="cancelled" if row.cancel_requested else "failed",

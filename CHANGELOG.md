@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-10-15 · Execution observability candidate (not deployed)
+
+- Add a transactional activity journal, authenticated replayable SSE and
+  System/workspace/platform views in Operations. Native completion, human
+  acceptance and delivery receipts remain distinct. Migrations **133–134** are
+  required even when admission flags are closed; downgrade refuses retained
+  execution evidence.
+- Add durable submission intents, shared resource admission, deadlines,
+  cooperative cancellation and reconciliation, with a separate short control
+  worker. Uncertain external effects are not automatically replayed; unknown
+  resource usage stays unknown.
+- Provide an optional SDK-only Temporal candidate for two explicit linear
+  agent/data compositions, using native Skills, DataOps, service review and
+  receipts. LangGraph comparisons remain isolated experiments. Existing graph
+  runtimes are retained; model providers, release images and the VM still need
+  qualification. No feature is enabled by default or deployed by this change.
+- Keep image budgets and the historical DataOps/connectors plans unchanged.
+  See the [implementation and evidence](docs/agentium-execution-observability-implementation.md),
+  [delivery procedure](docs/agentium-execution-operations.md) and
+  [deferred work handover](docs/agentium-execution-deferred-handover.md).
+
 ## 2026-10-15 · Connector catalogue usable in production, C0 still open
 
 - Ship the connector catalogue so it can be tried: governed connections, personal

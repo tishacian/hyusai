@@ -309,7 +309,11 @@ def reconcile_runs(db, workspace, *, now=None, limit=50):
 
 
 def service_tick(*, limit=50, now=None):
+    from fastapi import HTTPException
+
     from app.db.base import SessionLocal
+    from app.models.system import System
+    from app.services.execution.submission import stage_run
     from app.services.run_engine.dispatch_outbox import TRIGGER_RUN, enqueue_dispatch
     from app.services.systems.flow_ingress import FlowIngressError, create_published_ingress_run
 
@@ -367,16 +371,23 @@ def service_tick(*, limit=50, now=None):
                                 reserve_seconds=0,
                                 now=now,
                             )
-                            enqueue_dispatch(
-                                db,
-                                event_type=TRIGGER_RUN,
-                                workspace_id=workspace.id,
-                                run_id=run.id,
-                                source_id=window.id,
-                                dedupe_key=f"service:{window.id}:{window.fence}",
-                            )
+                            system = db.get(System, run.system_id)
+                            execution_profile = system.execution_profile or {}
+                            if execution_profile.get("orchestration") is not None:
+                                # Claim, frozen Run and candidate intent commit
+                                # together. Never dispatch two engines for one Run.
+                                stage_run(db, run, system, business_deadline=window.deadline_at)
+                            else:
+                                enqueue_dispatch(
+                                    db,
+                                    event_type=TRIGGER_RUN,
+                                    workspace_id=workspace.id,
+                                    run_id=run.id,
+                                    source_id=window.id,
+                                    dedupe_key=f"service:{window.id}:{window.fence}",
+                                )
                         fired += 1
-                    except (GovernanceError, FlowIngressError) as exc:
+                    except (GovernanceError, FlowIngressError, HTTPException) as exc:
                         promises._incident(
                             db, window, getattr(exc, "code", "SERVICE_RUN_REFUSED"), now
                         )

@@ -47,6 +47,10 @@ dataopsWorker:
   enabled: true
   replicas: 1
   scratchSizeLimit: 8Gi
+# Short command/outbox/lease maintenance has its own worker and singleton beat.
+# Enabling this scaffold does not enable application feature flags.
+executionControl:
+  enabled: false
 # C0 scaffold: inactive until the runner image has its own qualification.
 connectorWorkers:
   enabled: false
@@ -332,6 +336,10 @@ vllm:
 config:
   AGENTIUM_DISABLE_DOTENV: "1"
   STARTUP_RECONCILIATION: enabled
+  ACTIVITY_OBSERVABILITY_ENABLED: "false"
+  EXECUTION_CONTROL_ENABLED: "false"
+  EXECUTION_DURABLE_DISPATCH_ENABLED: "false"
+  EXECUTION_CANARY_WORKSPACES: "showcase"
   # Same defaults as docker/env/agentium.env.example.
   ML_METHODOLOGY_ENABLED: "true"
   ML_TABICL_ENABLED: "false"
@@ -365,6 +373,13 @@ objectStore:
 # CPU is compressible, and throttling a request path costs more than it
 # protects. These are starting points sized for the lab, not measurements.
 resources:
+  # Proposed bounds; measure the actual image/process before activation.
+  controlWorker:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: "1", memory: 512Mi}
+  controlScheduler:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 500m, memory: 256Mi}
   frontend:
     requests: {cpu: 50m, memory: 64Mi}
     limits: {memory: 256Mi}

@@ -1,0 +1,158 @@
+[
+  {
+    "file": "backend/app/api/v1/endpoints/flow_runner.py",
+    "before": 0,
+    "after": 0,
+    "added": []
+  },
+  {
+    "file": "backend/app/api/v1/endpoints/runs.py",
+    "before": 61,
+    "after": 61,
+    "added": []
+  },
+  {
+    "file": "backend/app/api/v1/endpoints/systems.py",
+    "before": 56,
+    "after": 56,
+    "added": []
+  },
+  {
+    "file": "backend/app/api/v1/router.py",
+    "before": 0,
+    "after": 0,
+    "added": []
+  },
+  {
+    "file": "backend/app/core/config.py",
+    "before": 35,
+    "after": 35,
+    "added": []
+  },
+  {
+    "file": "backend/app/models/__init__.py",
+    "before": 0,
+    "after": 0,
+    "added": []
+  },
+  {
+    "file": "backend/app/models/recipe.py",
+    "before": 0,
+    "after": 0,
+    "added": []
+  },
+  {
+    "file": "backend/app/models/run.py",
+    "before": 0,
+    "after": 0,
+    "added": []
+  },
+  {
+    "file": "backend/app/models/tabular.py",
+    "before": 0,
+    "after": 0,
+    "added": []
+  },
+  {
+    "file": "backend/app/services/compute_runs.py",
+    "before": 0,
+    "after": 0,
+    "added": []
+  },
+  {
+    "file": "backend/app/services/dataops/compute_registry.py",
+    "before": 0,
+    "after": 0,
+    "added": []
+  },
+  {
+    "file": "backend/app/services/dataops/preparation.py",
+    "before": 0,
+    "after": 0,
+    "added": []
+  },
+  {
+    "file": "backend/app/services/dataops/scoring.py",
+    "before": 0,
+    "after": 0,
+    "added": []
+  },
+  {
+    "file": "backend/app/services/dataops/sql_execution.py",
+    "before": 0,
+    "after": 0,
+    "added": []
+  },
+  {
+    "file": "backend/app/services/recipe_executions.py",
+    "before": 0,
+    "after": 0,
+    "added": []
+  },
+  {
+    "file": "backend/app/services/run_engine/dag.py",
+    "before": 0,
+    "after": 0,
+    "added": []
+  },
+  {
+    "file": "backend/app/services/run_engine/engine.py",
+    "before": 38,
+    "after": 38,
+    "added": []
+  },
+  {
+    "file": "backend/app/services/service_engine.py",
+    "before": 0,
+    "after": 0,
+    "added": []
+  },
+  {
+    "file": "backend/app/services/skills_registry/wrappers/skills.py",
+    "before": 0,
+    "after": 0,
+    "added": []
+  },
+  {
+    "file": "backend/app/services/surface_catalog.py",
+    "before": 0,
+    "after": 0,
+    "added": []
+  },
+  {
+    "file": "backend/app/services/tabular_ml.py",
+    "before": 0,
+    "after": 0,
+    "added": []
+  },
+  {
+    "file": "backend/app/tests/conftest.py",
+    "before": 1,
+    "after": 1,
+    "added": []
+  },
+  {
+    "file": "backend/app/tests/infra/test_tabular_migration.py",
+    "before": 1,
+    "after": 0,
+    "added": []
+  },
+  {
+    "file": "backend/app/tests/services/test_public_bench.py",
+    "before": 0,
+    "after": 0,
+    "added": []
+  },
+  {
+    "file": "backend/app/workers/celery_app.py",
+    "before": 0,
+    "after": 0,
+    "added": []
+  },
+  {
+    "file": "backend/app/workers/tasks.py",
+    "before": 2,
+    "after": 2,
+    "added": []
+  }
+]

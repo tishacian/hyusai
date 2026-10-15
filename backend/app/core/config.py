@@ -115,6 +115,32 @@ class Settings(BaseSettings):
     # the work that grows with the data: their own pool keeps a large join from
     # holding the slots the walkers that wait on it need.
     celery_dataops_queue: str = "dataops"
+    # O0–O7: additive execution control and observability. Roll out independently;
+    # an existing attempt retains the controller recorded at admission.
+    activity_observability_enabled: bool = False
+    execution_control_enabled: bool = False
+    execution_durable_dispatch_enabled: bool = False
+    execution_temporal_enabled: bool = False
+    execution_temporal_address: str = "localhost:7233"
+    execution_temporal_namespace: str = "default"
+    execution_temporal_task_queue: str = "agentium-native-v1"
+    execution_temporal_tls: bool = True
+    execution_temporal_api_key: str = ""
+    celery_orchestration_queue: str = "orchestration"
+    execution_canary_workspaces: str = "showcase"
+    celery_control_queue: str = "control"
+    execution_http_wait_s: float = Field(default=2.0, ge=0, le=10)
+    execution_global_slots: int = Field(default=4, ge=1, le=128)
+    execution_global_cpu: float = Field(default=4, gt=0, le=4096)
+    execution_global_memory_mb: int = Field(default=8192, ge=512)
+    execution_workspace_slots: int = Field(default=2, ge=1, le=128)
+    execution_workspace_cpu: float = Field(default=2, gt=0, le=4096)
+    execution_workspace_memory_mb: int = Field(default=8192, ge=256)
+    execution_interactive_reserved_slots: int = Field(default=1, ge=0, le=127)
+    execution_interactive_reserved_cpu: float = Field(default=1, ge=0)
+    execution_interactive_reserved_memory_mb: int = Field(default=1024, ge=0)
+    execution_workspace_core_hours: float = Field(default=24, gt=0)
+    execution_lease_s: int = Field(default=30, ge=5, le=300)
     # Dedicated connector pools: interactive work never waits behind imports.
     celery_connectors_queue: str = "connectors"
     celery_connectors_interactive_queue: str = "connectors_interactive"
