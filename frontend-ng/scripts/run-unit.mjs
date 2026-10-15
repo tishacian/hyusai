@@ -204,6 +204,7 @@ const storeSpecs = [
   'src/app/features/connectors/hana/hana-connector.component.spec.ts',
   'src/app/features/models/models-shadow.service.spec.ts',
   'src/app/features/models/models-monitoring.service.spec.ts',
+  'src/app/features/models/model-export.service.spec.ts',
   'src/app/features/models/forecast-actuals.component.spec.ts',
   'src/app/features/models/scheduled-monitoring.component.spec.ts',
   'src/app/features/models/model-systems.component.spec.ts',
